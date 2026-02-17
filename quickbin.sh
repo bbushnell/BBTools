@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 8, 2026
+Last modified February 16, 2026
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -47,7 +47,8 @@ maxsamples=8    When there are more than this many samples (sam/bam files),
 		the same depth or environment.
 readthreads=4   Load up to this many sam/bam files concurrently.
                 Lower uses less memory (when there are more samples).
-writethreads=1  Write up to this many bins concurrently.
+writethreads=4  Write up to this many bins concurrently.
+gzip=f          Gzip output fastas (if output is a directory).
 
 
 Size parameters:
@@ -67,15 +68,15 @@ minpentamersize=2k  Increase this to reduce memory usage.
 
 Stringency parameters:
 normal          Default stringency is 'normal'.  All settings, in order of
-                increasing sensitivity, are:  xstrict, ustrict, vstrict,
+                decreasing stringency, are:  xstrict, ustrict, vstrict,
                 strict, normal, loose, vloose, uloose, xloose.  'normal'
                 aims at under 1% contamination; stricter will reduce
                 both completeness and contamination.  To set a stringency
                 add that flag without an = sign.  Acceptable shorthand is
-                xs, hs, us, vs, s, n, l, vl, ul, hl, xl.
+                xs,hs,us,vs,s,n,l,vl,ul,hl,xl. Plus y,z,i for extreme values.
 strictness=1.0  Stringency can alternatively be set finely with this flag,
-                where normal is 1.0, strict is 0.9, loose is 1.1.
-                Lower is stricter.		
+                where normal=1.0, xs=0.6, s=0.9, l=1.1, and xl=1.5.
+                Lower is stricter; this is an unbounded cutoff multiplier.
 
 Quantization parameters:
 gcwidth=0.02    Width of GC matrix gridlines.  Smaller is faster.

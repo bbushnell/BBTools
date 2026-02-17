@@ -38,6 +38,7 @@ import tracker.KmerTracker;
  * Outputs mean and standard deviation for each metric.
  *
  * @author Brian Bushnell
+ * @contributor Neptune
  * @date Oct 2, 2025
  */
 public class ScalarIntervals {

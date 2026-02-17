@@ -5834,9 +5834,31 @@ public final class Tools {
 	
 	public static boolean looksLikeOutputStream(String arg) {
 		if(arg==null || arg.indexOf('=')>=0) {return false;}
+		if(looksLikeFileWithExtension(arg)) {return true;}
 		String lc=arg.toLowerCase();
-		int dot=lc.indexOf('.');
-		return lc.startsWith("stdout") || lc.startsWith("stderr") || (dot>0 && dot<lc.length()-1);
+		return lc.startsWith("stdout") || lc.startsWith("stderr");
+	}
+	
+	/**
+	 * @param path Term to test
+	 * @return true if this looks like a file with an extension
+	 */
+	public static boolean looksLikeFileWithExtension(String path) {
+		if(path==null || path.indexOf('=')>=0 || path.length()<3) {return false;}
+		int slash=Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+		final int dot=path.lastIndexOf('.');
+		return dot>slash+1 && dot<path.length()-1;
+	}
+	
+	/**
+	 * @param path Term to test
+	 * @return true if this looks like a directory
+	 */
+	public static boolean looksLikeDirectory(String path) {
+		if(path==null || path.indexOf('=')>=0 || path.length()<1) {return false;}
+		int slash=Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+		final int dot=path.lastIndexOf('.');
+		return dot<=slash || new File(path).isDirectory();
 	}
 	
 	public static boolean looksLikeInputSequenceStream(String arg) {

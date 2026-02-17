@@ -81,7 +81,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			runPassG=Parse.parseBoolean(b);
 		}
 
-		else if(a.equalsIgnoreCase("overrideSetSamples")){
+		else if(a.equalsIgnoreCase("overrideSetSamples") || a.equals("oss")){
 			overrideSetSamples=Integer.parseInt(b);
 		}
 
@@ -103,7 +103,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 				a.equalsIgnoreCase("max3merDif")){
 			max3merDif2=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("maxKmerDif2") || a.equalsIgnoreCase("maxKmerDif")  || 
-				a.equalsIgnoreCase("max4merDif")){
+				a.equalsIgnoreCase("max4merDif") || a.equalsIgnoreCase("maxTetramerDif")){
 			max4merDif2=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("maxPentamerDif2") || a.equalsIgnoreCase("maxPentamerDif") || 
 				a.equalsIgnoreCase("max5merDif")){
@@ -116,6 +116,10 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			maxCovariance2=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("minkmerprob") || a.equalsIgnoreCase("minkmerprob2")){
 			minKmerProb2=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("mult4to3") || a.equalsIgnoreCase("4to3mult")){
+			mult4to3=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("mult4to5") || a.equalsIgnoreCase("4to5mult")){
+			mult4to5=Float.parseFloat(b);
 		}
 
 		else if(a.equalsIgnoreCase("minSimilarity")){
@@ -1069,87 +1073,35 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param mult Additional multiplier for threshold adjustment
 	 */
 	void setSamples(int samples, float mult) {
-		if(overrideSetSamples>0) {samples=overrideSetSamples;}
+		if(overrideSetSamples>0) {samples=overrideSetSamples;}//oss=
 		System.err.println("Setting cutoffs for "+samples+" samples.");
 		if(samples<2) {//Single mode //maxkmerdif=0.0060 maxgcdif=0.045
 			max4merDif2=0.0048f;
-			//			maxKmerDif2=0.008f;
-			maxDepthRatio2=1.38f;
-			maxGCDif2=0.032f;
-			minKmerProb2=0.82f;
-			max5merDif2=0.007f;
-		}else if(samples<3){//Two mode
-			max4merDif2=0.0065f;
 			maxDepthRatio2=1.32f;
 			maxGCDif2=0.032f;
-			maxCovariance2=0.0040f;//Less than .35 greatly decreases CAMI contam, but less than 0.5 decreases synth3 completeness 
-			minKmerProb2=0.80f;
-			max5merDif2=0.008f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
+		}else if(samples<3){//Two mode
+			max4merDif2=0.0056f;
+			maxDepthRatio2=1.32f;
+			maxGCDif2=0.033f;
 		}else if(samples<4){//Three mode
-			max4merDif2=0.0075f;
-			maxDepthRatio2=1.40f;
-			maxGCDif2=0.04f;
-			maxCovariance2=0.0050f;
-			minKmerProb2=0.75f;
-			max5merDif2=0.009f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
+			max4merDif2=0.0064f;
+			maxDepthRatio2=1.33f;
+			maxGCDif2=0.034f;
 		}else if(samples<5){//Four mode
-			max4merDif2=0.0085f;
-			maxDepthRatio2=1.4f;
-			maxGCDif2=0.05f;
-			maxCovariance2=0.0045f;
-			minKmerProb2=0.7f;
-			max5merDif2=0.010f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
+			max4merDif2=0.0072f;
+			maxDepthRatio2=1.33f;
+			maxGCDif2=0.036f;
 			purifyStringency=3.0f;
-			//			bigMult=0.70f;
-			//			hugeMult=0.3f;
 		}else if(samples<6){//5
-			max4merDif2=0.0095f;
-			maxDepthRatio2=1.45f;
-			maxGCDif2=0.05f;
-			maxCovariance2=0.0035f;
-			minKmerProb2=0.7f;
-			max5merDif2=0.011f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
+			max4merDif2=0.0080f;
+			maxDepthRatio2=1.34f;
+			maxGCDif2=0.038f;
 			purifyStringency=2.5f;
-			//			bigMult=0.70f;
-			//			hugeMult=0.25f;
-		}else if(samples<7){//6
-			max4merDif2=0.0105f;
-			maxDepthRatio2=1.45f;
-			maxGCDif2=0.05f;
-			maxCovariance2=0.0035f;
-			minKmerProb2=0.7f;
-			max5merDif2=0.012f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
+		}else{//6+
+			max4merDif2=0.0088f;
+			maxDepthRatio2=1.34f;
+			maxGCDif2=0.04f;
 			purifyStringency=2.5f;
-			//			bigMult=0.70f;
-			//			hugeMult=0.25f;
-		}else{//7+
-			max4merDif2=0.0115f;
-			maxDepthRatio2=1.45f;
-			maxGCDif2=0.05f;
-			maxCovariance2=0.0035f;
-			minKmerProb2=0.7f;
-			max5merDif2=0.015f;
-
-			netCutoffUpper=0.65f;
-			netCutoff_small=netCutoff_mid=netCutoff_large=0.5f;
-			purifyStringency=2.5f;
-			//			bigMult=0.70f;
-			//			hugeMult=0.20f;
 		}
 
 		if(mult!=1) {
@@ -1173,14 +1125,16 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 				hugeMult=1/(1+(1/hugeMult-1)/lowMult);
 			}
 		}
-		max3merDif2=max4merDif2*0.625f;
-		max5merDif2=max4merDif2*2.000f;
+		max3merDif2=max4merDif2*mult4to3;//0.625f;
+		max5merDif2=max4merDif2*mult4to5;//2.000f;
 	}
 
 	/** Prints current similarity threshold values for diagnostic purposes */
 	void printThresholds(){
 		System.err.println("maxTrimerDif:     "+max3merDif2);
 		System.err.println("maxTetramerDif:   "+max4merDif2);
+		System.err.println("maxPentamerDif:   "+max5merDif2);
+//		System.err.println("mult4to5:         "+mult4to5);
 		System.err.println("minKmerProb:      "+minKmerProb2);
 		System.err.println("maxDepthRatio:    "+maxDepthRatio2);
 		System.err.println("maxGCDif:         "+maxGCDif2);
@@ -1768,16 +1722,19 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/** Maximum 3-mer composition difference for cluster merging */
 	static float max3merDif2=0.1f;
 	/** Maximum 4-mer composition difference for cluster merging */
-	static float max4merDif2=0.005f; //.005 for k=4; .012 for k=5; .008 for Euclid
+	static float max4merDif2=0.0048f;
 	/** Maximum 5-mer composition difference for cluster merging */
 	static float max5merDif2=0.007f;
 	/** Maximum coverage depth ratio for cluster merging */
-	static float maxDepthRatio2=1.36f;
+	static float maxDepthRatio2=1.32f;
 	/** Maximum GC content difference for cluster merging */
-	static float maxGCDif2=0.03f; //0.02f for 1 depth, 0.05 for 4 depths
+	static float maxGCDif2=0.032f;
 	/** Maximum coverage covariance for cluster merging */
-	static float maxCovariance2=0.004f;
+	static float maxCovariance2=0.0035f;//<.35 decreases CAMI contam, but <0.5 decreases synth3 completeness 
 	/** Minimum k-mer probability threshold for cluster merging */
-	static float minKmerProb2=0.9f;
+	static float minKmerProb2=0.85f;
+	
+	static float mult4to3=0.625f;
+	static float mult4to5=1.5f;
 
 }

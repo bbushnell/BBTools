@@ -1,11 +1,10 @@
 package map;
 
-import java.io.Serializable;
 import java.util.Arrays;
 import java.util.HashMap;
-import shared.Random;
 
 import shared.KillSwitch;
+import shared.Random;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -28,7 +27,7 @@ import simd.Vector;
  * @author Isla
  * @date November 2, 2025
  */
-public final class IntHashMap3 implements Serializable {
+public final class IntHashMap3 implements IntHashMapInterface {
 
 	private static final long serialVersionUID = 1L;
 

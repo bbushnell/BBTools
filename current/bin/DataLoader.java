@@ -17,7 +17,7 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextFile;
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntLongHashMap;
 import map.ObjectDoubleMap;
 import map.ObjectIntMap;
@@ -33,7 +33,6 @@ import parse.Parse;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.Streamer;
 import stream.FastaReadInputStream;
 import stream.Read;
 import stream.SamLine;
@@ -254,6 +253,7 @@ public class DataLoader extends BinObject {
 	 */
 	static boolean looksLikeCovFile(String s) {
 		if(s==null) {return false;}
+		if(FileFormat.isSequence(s)) {return false;}
 		String ext=ReadWrite.rawExtension(s);
 		if("txt".equals(ext) || "tsv".equals(ext) || "cov".equals(ext)) {
 			if(s.contains("cov")) {return true;}
@@ -336,11 +336,16 @@ public class DataLoader extends BinObject {
 	int fixEdges(final Contig c, final int numContigs) {
 		if(c.pairMap==null) {return 0;}
 		int removed=0, seen=0;
-		for(KeyValue kv : KeyValue.toList(c.pairMap)) {
-			seen++;
-			if(kv.key>=numContigs) {
-				c.pairMap.remove(kv.key);
-				removed++;
+		assert(c.pairMap!=null);
+		ArrayList<KeyValue> list=KeyValue.toList(c.pairMap);
+		if(list!=null) {
+			for(KeyValue kv : list) {
+				assert(kv!=null);
+				seen++;
+				if(kv.key>=numContigs) {
+					c.pairMap.remove(kv.key);
+					removed++;
+				}
 			}
 		}
 		if(removed>=seen) {c.pairMap=null;}
@@ -445,7 +450,8 @@ public class DataLoader extends BinObject {
 		int matched=0;
 
 		for(Contig c : rawContigs){
-			int newID=fastaMap.get(c.name());
+			String name=c.shortName;
+			int newID=fastaMap.get(name);
 			if(newID>=0){
 				oldToNew[c.id()]=newID;
 				c.setID(newID);
@@ -457,8 +463,8 @@ public class DataLoader extends BinObject {
 
 		for(Contig c : finalContigsArray){
 			if(c!=null && c.pairMap!=null){
-				IntHashMap oldPairs=c.pairMap;
-				IntHashMap newPairs=new IntHashMap((int)(oldPairs.size()*1.5f));
+				IntHashMap2 oldPairs=c.pairMap;
+				IntHashMap2 newPairs=new IntHashMap2((int)(oldPairs.size()*1.5f));
 				int[] keys=oldPairs.keys();
 				int[] values=oldPairs.values();
 
@@ -502,7 +508,7 @@ public class DataLoader extends BinObject {
 //				System.err.println("Processing read "+r.id+", size "+r.length());
 				if(r.length()>=minSize) {
 //					System.err.println("Adding read to map: "+r.id);
-					int old=map.put(r.id, map.size());
+					int old=map.put(Tools.trimToWhitespace(r.id), map.size());
 					assert(old<0) : "Duplicate contig "+r.id+", rid="+r.numericID+", msize="+map.size()+", old="+old;
 //					System.err.println("Added.  Map="+map.toString());
 				}
@@ -519,7 +525,7 @@ public class DataLoader extends BinObject {
 		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
 			for(Read r : ln) {
 				if(r.length()>=minSize) {
-					boolean added=set.add(r.id);
+					boolean added=set.add(Tools.trimToWhitespace(r.id));
 					assert(added) : "Duplicate contig "+r.id;
 				}
 			}
@@ -535,7 +541,9 @@ public class DataLoader extends BinObject {
 		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
 			for(Read r : ln) {
 				if(r.length()>=minSize) {
-					Contig c=(keepSequence ? new Contig(r.id, r.bases, contigs.size()) : new Contig(r.id, r.length(), contigs.size()));
+					String id=r.id;
+					Contig c=(keepSequence ? new Contig(id, r.bases, contigs.size()) : 
+						new Contig(id, r.length(), contigs.size()));
 					contigs.add(c);
 				}
 			}
@@ -646,13 +654,13 @@ public class DataLoader extends BinObject {
 		if(covIn!=null) {
 			contigs=loadCovFile(covIn, contigs, MAX_DEPTH_COUNT);
 		}else if(covstats.size()>0) {
-			HashMap<String, Contig> contigMap=toMap(contigs);
+			HashMap<String, Contig> contigMap=toMap(contigs, false);
 			for(int i=0; i<readFiles.size(); i++) {
 				calcDepthFromCovStats(covstats.get(i), i, contigMap, minContigToLoad);
 			}
 		}else if(sam) {
 			Timer t=new Timer(outstream);
-			HashMap<String, Contig> contigMap=toMap(contigs);
+			HashMap<String, Contig> contigMap=toMap(contigs, false);
 			long readsUsed=0;
 			if(loadSamSerial) {
 				for(int i=0; i<readFiles.size(); i++) {
@@ -660,7 +668,7 @@ public class DataLoader extends BinObject {
 					calcDepthFromSam(ff, i, contigMap);
 				}
 			}else {
-				if(makePairGraph) {graph=new IntHashMap[contigMap.size()];}
+				if(makePairGraph) {graph=new IntHashMap2[contigMap.size()];}
 
 				SamLine.PARSE_0=false;
 				SamLine.PARSE_7=false;
@@ -687,7 +695,7 @@ public class DataLoader extends BinObject {
 					synchronized(graph) {
 						for(int i=0; i<contigs.size(); i++) {
 							Contig c=contigs.get(i);
-							IntHashMap pairMap=graph[i];
+							IntHashMap2 pairMap=graph[i];
 							if(pairMap!=null) {
 								synchronized(c) {
 									synchronized(pairMap) {c.pairMap=pairMap;}
@@ -788,7 +796,7 @@ public class DataLoader extends BinObject {
 		long[] edgeCount=new long[max+1];
 		long[] weightCount=new long[max+1];
 		for(Contig c : contigs) {
-			IntHashMap pairMap=c.pairMap;
+			IntHashMap2 pairMap=c.pairMap;
 			if(pairMap==null) {
 				edgeCount[0]++;
 			}else {
@@ -843,9 +851,15 @@ public class DataLoader extends BinObject {
 	 * @param list Collection of contigs to index
 	 * @return HashMap mapping short names to contigs
 	 */
-	HashMap<String, Contig> toMap(Collection<Contig> list){
+	HashMap<String, Contig> toMap(Collection<Contig> list, boolean renumber){
 		HashMap<String, Contig> map=new HashMap<String, Contig>(list.size());
-		for(Contig c : list) {map.put(c.shortName, c);}
+		int i=0;
+		for(Contig c : list) {
+			if(renumber) {c.setID(i);}
+			assert(c.id()==i) : "Bad contig id: "+i+" -> "+c.id()+", "+c.shortName;
+			map.put(c.shortName, c);
+			i++;
+		}
 		return map;
 	}
 	
@@ -1246,7 +1260,7 @@ public class DataLoader extends BinObject {
 	 * @param contigs List of contigs to assign coverage data to
 	 * @param maxSamples Maximum number of samples to load from file
 	 */
-	public ArrayList<Contig> loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
+	public ArrayList<Contig> loadCovFileOld(String fname, ArrayList<Contig> contigs, final int maxSamples) {
 		outstream.print("Loading coverage from "+fname+": \t");
 		phaseTimer.start();
 		LineParser1 lp=new LineParser1('\t');
@@ -1289,7 +1303,7 @@ public class DataLoader extends BinObject {
 				c.setDepth(f, i);
 			}
 			if(lp.terms()>edgeStart && makePairGraph) {
-				c.pairMap=new IntHashMap((1+(edges*4)/3)|1);
+				c.pairMap=new IntHashMap2((1+(edges*4)/3)|1);
 				for(int term=edgeStart; term<lp.terms(); term+=2) {
 					int dest=lp.parseInt(term);
 					int weight=lp.parseInt(term+1);
@@ -1303,6 +1317,140 @@ public class DataLoader extends BinObject {
 		depthCalculated=true;
 		phaseTimer.stopAndPrint();
 		return contigs;
+	}
+	
+	/**
+	 * Loads coverage file.
+	 * If contigs is null, creates new contigs (Creation Mode).
+	 * If contigs is not null, maps data to existing contigs by name (Injection Mode).
+	 * Robust to file order, ID scrambling, and subsets.
+	 * Reads file ONLY ONCE.
+	 */
+	public ArrayList<Contig> loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
+		outstream.print("Loading coverage from "+fname+": \t");
+		phaseTimer.start();
+		
+		final boolean creationMode=(contigs==null);
+		if(creationMode){contigs=new ArrayList<Contig>();}
+		
+		//Map for Name -> Contig (Injection Mode)
+		HashMap<String, Contig> nameMap=creationMode ? null : toMap(contigs, false);
+		
+		//Map for FileID -> RefID (For fixing edges later)
+		//Note: IntHashMap2 returns -1 for missing keys
+		IntHashMap2 fileToRef=new IntHashMap2();
+		
+		ByteFile bf=ByteFile.makeByteFile(fname, true);
+		LineParser1 lp=new LineParser1('\t');
+		byte[] line=bf.nextLine();
+		
+		//Header parsing
+		int numDepths=0;
+		for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
+			if(Tools.startsWith(line, "#Depths")) {
+				numDepths=lp.set(line).parseInt(1);
+			}
+		}
+		assert(numDepths>0) : numDepths;
+		final int edgeStart=3+numDepths;
+		final int samples=Tools.min(numDepths, maxSamples);
+		
+		int matched=0, lines=0, dif=0;
+		for(; line!=null; line=bf.nextLine()) {
+			lines++;
+			lp.set(line);
+			String name=lp.parseString(0);
+			int fileID=lp.parseInt(1);
+			int size=lp.parseInt(2);
+			
+			Contig c=null;
+			if(creationMode){
+				if(size>=minContigToLoad){
+					c=new Contig(name, size, contigs.size());
+					contigs.add(c);
+				}
+			}else{
+				//Removes fasta symbol if present
+				if(name.length()>0 && name.charAt(0)=='>'){name=name.substring(1);} 
+				String shortName=ContigRenamer.toShortName(name);
+				c=nameMap.get(shortName);
+			}
+			
+			if(c!=null){
+				assert(c.size()==size) : "Size mismatch: "+c.name+", "+c.size+", "+size+"\n"+new String(line);
+				matched++;
+				//Register ID mapping: FileID -> RealID
+				fileToRef.put(fileID, c.id());
+				if(fileID!=c.id()) {dif++;}
+				
+				//Load Depths
+				if(c.numDepths()==0) {
+					for(int i=0; i<samples; i++) {
+						c.setDepth(lp.parseFloat(i+3), i); //Triggers allocation
+					}
+				} else {
+					for(int i=0; i<samples; i++) {
+						c.setDepth(lp.parseFloat(i+3), i);
+					}
+				}
+				
+				//Load Edges (Raw FileIDs)
+				int edgesInLine=(lp.terms()-edgeStart)/2;
+				if(edgesInLine>0 && makePairGraph) {
+					if(c.pairMap==null) {
+						c.pairMap=new IntHashMap2((1+(edgesInLine*4)/3)|1);
+					}
+					for(int term=edgeStart; term<lp.terms(); term+=2) {
+						int destFileID=lp.parseInt(term);
+						int weight=lp.parseInt(term+1);
+						//Store raw FileID as key. Will be fixed in Pass 2.
+						c.pairMap.put(destFileID, weight); 
+					}
+				}
+			}
+		}
+		assert(matched>0 || lines==0) : "No coverage matched contig names.";
+		bf.close();
+		
+		//Pass 2 (Memory Only): Fix Edges
+		//Run if IDs shifted OR if we skipped lines (need to prune edges to skipped contigs)
+		if(dif>0 || matched<lines){
+			fixEdgesInMemory(contigs, fileToRef);
+		}
+		
+		depthCalculated=true;
+		phaseTimer.stopAndPrint();
+		return contigs;
+	}
+	
+	/**
+	 * Translates edge keys from FileIDs to ReferenceIDs.
+	 * Removes edges pointing to missing/subsetted contigs.
+	 */
+	private void fixEdgesInMemory(ArrayList<Contig> contigs, IntHashMap2 fileToRef) {
+		for(Contig c : contigs){
+			if(c.pairMap!=null && !c.pairMap.isEmpty()){
+				IntHashMap2 oldEdges=c.pairMap;
+				IntHashMap2 newEdges=new IntHashMap2(oldEdges.size());
+				
+				int[] keys=oldEdges.keys();
+				int[] values=oldEdges.values();
+				
+				for(int i=0; i<keys.length; i++){
+					int fileID=keys[i];
+					if(fileID>=0){ //Standard IntHashMap2 check, ignoring invalid keys
+						//Lookup: Returns RefID+1, or 0 if missing
+						int refID=fileToRef.get(fileID);
+						
+						if(refID>=0){
+							int weight=values[i];
+							newEdges.put(refID, weight);
+						}
+					}
+				}
+				c.pairMap=newEdges;
+			}
+		}
 	}
 	
 	/**
@@ -1464,7 +1612,7 @@ public class DataLoader extends BinObject {
 	/** Map tracking contig sizes by taxonomy ID for validation */
 	IntLongHashMap sizeMap;
 	/** Array of adjacency maps for contig pair graph construction */
-	IntHashMap[] graph;
+	IntHashMap2[] graph;
 	
 	/** Maximum number of depth samples to load per contig */
 	static int MAX_DEPTH_COUNT=999;

@@ -4,7 +4,7 @@ import java.util.Arrays;
 
 import clade.Clade;
 import json.JsonObject;
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntLongHashMap;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -749,7 +749,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Cached normalized depth array */
 	private float[] normDepth;
 	/** Map of contig pairs and their edge counts */
-	public IntHashMap pairMap;
+	public IntHashMap2 pairMap;
 	/** Estimated contamination level (0-1) */
 	/** Estimated genome completeness (0-1) */
 	float completeness=0, contam=0;

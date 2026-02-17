@@ -20,7 +20,7 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import gff.GffLine;
-import map.IntHashMap;
+import map.IntHashMap2;
 import map.IntLongHashMap;
 import parse.LineParser1;
 import parse.Parse;
@@ -225,16 +225,16 @@ public class GradeBins {
 	}
 	
 	/** Initializes taxonomic level counting maps for total, medium quality, and high quality bins.
-	 * Creates IntHashMap arrays indexed by taxonomic level from domain to species. */
+	 * Creates IntHashMap2 arrays indexed by taxonomic level from domain to species. */
 	static synchronized void makeLevelMaps() {
 		if(levelMaps!=null) {return;}
-		levelMaps=new IntHashMap[TaxTree.LIFE+1];
-		levelMapsMQ=new IntHashMap[TaxTree.LIFE+1];
-		levelMapsHQ=new IntHashMap[TaxTree.LIFE+1];
+		levelMaps=new IntHashMap2[TaxTree.LIFE+1];
+		levelMapsMQ=new IntHashMap2[TaxTree.LIFE+1];
+		levelMapsHQ=new IntHashMap2[TaxTree.LIFE+1];
 		for(int i=0; i<levelMaps.length; i++) {
-			levelMaps[i]=new IntHashMap();
-			levelMapsMQ[i]=new IntHashMap();
-			levelMapsHQ[i]=new IntHashMap();
+			levelMaps[i]=new IntHashMap2();
+			levelMapsMQ[i]=new IntHashMap2();
+			levelMapsHQ[i]=new IntHashMap2();
 		}
 	}
 	
@@ -454,7 +454,7 @@ public class GradeBins {
 		long badContigs=0;
 		double compltScore=0, contamScore=0;
 		double totalScore=0, totalScore2=0;
-		IntHashMap tidBins=new IntHashMap();
+		IntHashMap2 tidBins=new IntHashMap2();
 		int labels=0;
 		for(BinStats bin : bins) {
 			if(bin.taxid>0) {
@@ -526,7 +526,7 @@ public class GradeBins {
 	private static String toScoreString(ArrayList<BinStats> bins, long totalSize){
 		double compltScore=0, contamScore=0;
 		double totalScore2=0;
-		IntHashMap tidBins=new IntHashMap();
+		IntHashMap2 tidBins=new IntHashMap2();
 		for(BinStats bin : bins) {
 			if(bin.taxid>0) {
 				tidBins.increment(bin.taxid);
@@ -997,7 +997,7 @@ public class GradeBins {
 		cris.start();
 		
 		IntLongHashMap map=new IntLongHashMap();
-		countMap=new IntHashMap();
+		countMap=new IntHashMap2();
 		long sizeSum=0, contigSum=0;
 		{
 			ListNum<Read> ln=cris.nextList();
@@ -1047,7 +1047,7 @@ public class GradeBins {
 		LineParser1 lp=new LineParser1('\t');
 		
 		IntLongHashMap map=new IntLongHashMap();
-		countMap=new IntHashMap();
+		countMap=new IntHashMap2();
 		long sizeSum=0, contigSum=0;
 		for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()) {
 			for(byte[] line : ln) {
@@ -1076,7 +1076,7 @@ public class GradeBins {
 	 * @param sizeMap Mapping of taxonomic IDs to total sizes
 	 * @param countMap Mapping of taxonomic IDs to contig counts
 	 */
-	private void writeTaxOut(String fname, IntLongHashMap sizeMap, IntHashMap countMap) {
+	private void writeTaxOut(String fname, IntLongHashMap sizeMap, IntHashMap2 countMap) {
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(fname, overwrite, false, false);
 		bsw.print("#taxID\tSize\tContigs\n");
 		int[] tids=sizeMap.toArray();
@@ -1559,7 +1559,7 @@ public class GradeBins {
 	/** Map from taxonomic IDs to total sequence sizes */
 	private	static IntLongHashMap sizeMap;
 	/** Map from taxonomic IDs to contig counts */
-	private	static IntHashMap countMap;
+	private	static IntHashMap2 countMap;
 	/** Map from bin names to CheckM completeness/contamination results */
 	private static HashMap<String, CCLine> checkMMap;
 	/** Map from bin names to EukCC completeness/contamination results */
@@ -1571,11 +1571,11 @@ public class GradeBins {
 	private static HashMap<String, Lineage> gtdbMap;
 
 	/** Arrays of maps counting taxa at each taxonomic level */
-	private static IntHashMap[] levelMaps;
+	private static IntHashMap2[] levelMaps;
 	/** Arrays of maps counting high-quality taxa at each taxonomic level */
-	private static IntHashMap[] levelMapsHQ;
+	private static IntHashMap2[] levelMapsHQ;
 	/** Arrays of maps counting medium-quality taxa at each taxonomic level */
-	private static IntHashMap[] levelMapsMQ;
+	private static IntHashMap2[] levelMapsMQ;
 
 	/** Whether to perform taxonomic classification using clade analysis */
 	static boolean runQuickClade=false;

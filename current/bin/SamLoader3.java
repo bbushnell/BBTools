@@ -10,7 +10,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import map.IntHashMap;
+import map.IntHashMap2;
 import shared.Shared;
 import shared.Tools;
 import stream.SamLine;
@@ -44,7 +44,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	 * Deprecated entry point that converts the contig map to a sorted list before loading.
 	 */
 	@Deprecated
-	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, IntHashMap[] graph) {
+	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, IntHashMap2[] graph) {
 		ArrayList<Contig> list=new ArrayList<Contig>(contigMap.values());
 		Collections.sort(list);
 		for(int i=0; i<list.size(); i++) {list.get(i).setID(i);}
@@ -56,7 +56,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	 * Branches between parallel loading (few files) and queue-based loading (many files).
 	 */
 	public void load(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
-			ArrayList<Contig> contigs, IntHashMap[] graph){
+			ArrayList<Contig> contigs, IntHashMap2[] graph){
 		
 		SamLine.RNAME_AS_BYTES=false;
 		
@@ -81,7 +81,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	 * Threads pick the next file from the list, open it, process it, and close it.
 	 */
 	private void loadQueue(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
-			ArrayList<Contig> contigs, IntHashMap[] graph, int effectiveSamples) {
+			ArrayList<Contig> contigs, IntHashMap2[] graph, int effectiveSamples) {
 		
 		final int files=fnames.size();
 		final int concurrentFiles=Tools.min(files, MAX_CONCURRENT_FILES);
@@ -121,7 +121,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	 * Original strategy: Opens ALL files at once. Best for small numbers of files.
 	 */
 	private void loadParallel(ArrayList<String> fnames, HashMap<String, Contig> contigMap, 
-			ArrayList<Contig> contigs, IntHashMap[] graph, int effectiveSamples) {
+			ArrayList<Contig> contigs, IntHashMap2[] graph, int effectiveSamples) {
 		
 		final int files=fnames.size();
 		
@@ -247,7 +247,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	 */
 	abstract class Worker extends Thread {
 		
-		Worker(HashMap<String, Contig> contigMap_, ArrayList<Contig> contigs_, IntHashMap[] graph_) {
+		Worker(HashMap<String, Contig> contigMap_, ArrayList<Contig> contigs_, IntHashMap2[] graph_) {
 			contigMap=contigMap_;
 			contigs=contigs_;
 			graph=graph_;
@@ -341,9 +341,9 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			if(minEntropy>0 && sl.seq!=null && !et.passes(sl.seq, true)) {return true;}
 			assert(c2!=null) : "Can't find contig for rnext "+rnext;
 			
-			final IntHashMap destMap;
+			final IntHashMap2 destMap;
 			synchronized(graph) {
-				if(graph[cid]==null) {graph[cid]=new IntHashMap(5);}
+				if(graph[cid]==null) {graph[cid]=new IntHashMap2(5);}
 				destMap=graph[cid];
 			}
 			synchronized(destMap) {
@@ -354,7 +354,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		
 		final HashMap<String, Contig> contigMap;
 		final ArrayList<Contig> contigs;
-		final IntHashMap[] graph;
+		final IntHashMap2[] graph;
 		final EntropyTracker et;
 		
 		long readsInT=0;
@@ -371,7 +371,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		
 		QueueWorker(AtomicInteger nextFileIndex_, ArrayList<String> fnames_, int streamerThreadsPF_,
 				HashMap<String, Contig> contigMap_, ArrayList<Contig> contigs_, 
-				IntHashMap[] graph_, AtomicLongArray[] covlist_, int tid_) {
+				IntHashMap2[] graph_, AtomicLongArray[] covlist_, int tid_) {
 			super(contigMap_, contigs_, graph_);
 			nextFileIndex=nextFileIndex_;
 			fnames=fnames_;
@@ -422,7 +422,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	class ParallelWorker extends Worker {
 		
 		ParallelWorker(final Streamer ss_, final int sample_, HashMap<String, Contig> contigMap_, 
-				ArrayList<Contig> contigs_, IntHashMap[] graph_, AtomicLongArray depth_, int tid_) {
+				ArrayList<Contig> contigs_, IntHashMap2[] graph_, AtomicLongArray depth_, int tid_) {
 			super(contigMap_, contigs_, graph_);
 			ss=ss_;
 			sample=sample_;
