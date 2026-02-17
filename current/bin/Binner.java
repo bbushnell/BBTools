@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReadWriteLock;
 
+import bin.binmap.BinMap2;
+import bin.binmap.Key;
 import map.IntHashSet;
 import parse.Parse;
 import shared.Shared;
@@ -1077,30 +1079,30 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		System.err.println("Setting cutoffs for "+samples+" samples.");
 		if(samples<2) {//Single mode //maxkmerdif=0.0060 maxgcdif=0.045
 			max4merDif2=0.0048f;
-			maxDepthRatio2=1.32f;
+			maxDepthRatio2=1.35f;
 			maxGCDif2=0.032f;
 		}else if(samples<3){//Two mode
 			max4merDif2=0.0056f;
-			maxDepthRatio2=1.32f;
+			maxDepthRatio2=1.35f;
 			maxGCDif2=0.033f;
 		}else if(samples<4){//Three mode
 			max4merDif2=0.0064f;
-			maxDepthRatio2=1.33f;
+			maxDepthRatio2=1.35f;
 			maxGCDif2=0.034f;
 		}else if(samples<5){//Four mode
 			max4merDif2=0.0072f;
-			maxDepthRatio2=1.33f;
+			maxDepthRatio2=1.35f;
 			maxGCDif2=0.036f;
 			purifyStringency=3.0f;
 		}else if(samples<6){//5
 			max4merDif2=0.0080f;
-			maxDepthRatio2=1.34f;
+			maxDepthRatio2=1.35f;
 			maxGCDif2=0.038f;
 			purifyStringency=2.5f;
 		}else{//6+
 			max4merDif2=0.0088f;
-			maxDepthRatio2=1.34f;
-			maxGCDif2=0.04f;
+			maxDepthRatio2=1.35f;
+			maxGCDif2=0.040f;
 			purifyStringency=2.5f;
 		}
 
@@ -1720,21 +1722,21 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 	//When merging clusters
 	/** Maximum 3-mer composition difference for cluster merging */
-	static float max3merDif2=0.1f;
+	static float max3merDif2=0.0040f;
 	/** Maximum 4-mer composition difference for cluster merging */
 	static float max4merDif2=0.0048f;
 	/** Maximum 5-mer composition difference for cluster merging */
-	static float max5merDif2=0.007f;
+	static float max5merDif2=0.008f;
 	/** Maximum coverage depth ratio for cluster merging */
-	static float maxDepthRatio2=1.32f;
+	static float maxDepthRatio2=1.35f;
 	/** Maximum GC content difference for cluster merging */
 	static float maxGCDif2=0.032f;
 	/** Maximum coverage covariance for cluster merging */
-	static float maxCovariance2=0.0035f;//<.35 decreases CAMI contam, but <0.5 decreases synth3 completeness 
+	static float maxCovariance2=0.004f;//<.35 decreases CAMI contam, but <0.5 decreases synth3 completeness 
 	/** Minimum k-mer probability threshold for cluster merging */
-	static float minKmerProb2=0.85f;
+	static float minKmerProb2=0.82f;
 	
 	static float mult4to3=0.625f;
-	static float mult4to5=1.5f;
+	static float mult4to5=1.75f;
 
 }

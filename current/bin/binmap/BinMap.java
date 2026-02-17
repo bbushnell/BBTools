@@ -1,4 +1,4 @@
-package bin;
+package bin.binmap;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -7,6 +7,12 @@ import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import bin.Bin;
+import bin.BinObject;
+import bin.Binner;
+import bin.Cluster;
+import bin.Contig;
+import bin.Oracle;
 import shared.Tools;
 
 /**

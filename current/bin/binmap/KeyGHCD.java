@@ -1,4 +1,6 @@
-package bin;
+package bin.binmap;
+
+import bin.Bin;
 
 /**
  * Quantization utility for binning by GC, HH, CAGA, and Depth.

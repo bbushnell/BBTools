@@ -1,6 +1,8 @@
-package bin;
+package bin.binmap;
 
 import java.util.Arrays;
+
+import bin.Bin;
 
 /**
  * Quantization utility for binning genomic data by GC content, HH (Homo/Het), and CAGA.

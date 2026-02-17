@@ -5,6 +5,8 @@ import java.util.Collections;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import bin.binmap.BinMap2;
+import bin.binmap.Key;
 import fileIO.ByteStreamWriter;
 import fileIO.ReadWrite;
 import map.IntHashMap2;

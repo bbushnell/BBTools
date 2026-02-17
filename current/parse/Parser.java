@@ -242,7 +242,7 @@ public class Parser {
 			CardinalityTracker.USE_MEDIAN=CardinalityTracker.USE_MEAN=CardinalityTracker.USE_HMEAN=CardinalityTracker.USE_MWA=false;
 		}else if(a.equals("loglogmantissa")){
 			LogLog2.setMantissaBits(Integer.parseInt(b));
-			LogLog16.setMantissaBits(Integer.parseInt(b));
+//			LogLog16.setMantissaBits(Integer.parseInt(b));
 		}else if(a.equals("loglogcounts") || a.equals("loglogcount")){
 			CardinalityTracker.trackCounts=Parse.parseBoolean(b);
 		}else{

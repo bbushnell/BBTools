@@ -3,6 +3,8 @@ package cardinality;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Arrays;
+
 import shared.Random;
 
 import dna.AminoAcid;
@@ -13,10 +15,12 @@ import parse.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentGenericReadInputStream;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.FastaReadInputStream;
 import stream.Read;
+import structures.ByteBuilder;
+import structures.IntList;
 import structures.ListNum;
 import structures.LongList;
 import tracker.ReadStats;
@@ -137,6 +141,10 @@ class LogLogWrapper {
 				synth=Parse.parseBoolean(b);
 			}else if(a.equals("trials")){
 				trials=Parse.parseIntKMG(b);
+			}else if(a.equals("printcounts")){
+				printCounts=Parse.parseBoolean(b);
+			}else if(a.equals("printhist")){
+				printHist=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("loglogcounts") || a.equals("loglogcount") || 
@@ -150,7 +158,7 @@ class LogLogWrapper {
 			}else if(a.equals("parse_flag_goes_here")){
 				//Set a variable here
 			}else if(in1==null && i==0 && Tools.looksLikeInputStream(arg)){
-				parser.in1=b;
+				parser.in1=arg;
 			}
 			
 			else{
@@ -159,7 +167,7 @@ class LogLogWrapper {
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-
+		
 		{//Process parser fields
 			Parser.processQuality();
 
@@ -210,11 +218,11 @@ class LogLogWrapper {
 		readsProcessed=basesProcessed=kmersProcessed=0;
 		
 		CardinalityTracker log=CardinalityTracker.makeTracker(buckets, k, seed, minProb);
-		
+
 		for(int ffnum=0, max=(synth ? 1 : ffin1.length); ffnum<max; ffnum++){
-			ConcurrentReadInputStream cris=null;
+			Streamer cris=null;
 			if(!synth){
-				cris=ConcurrentGenericReadInputStream.getReadInputStream(maxReads, false, ffin1[ffnum], ffin2[ffnum]);
+				cris=StreamerFactory.getReadInputStream(maxReads, false, ffin1[ffnum], ffin2[ffnum], -1);
 				cris.start();
 			}
 
@@ -242,37 +250,55 @@ class LogLogWrapper {
 
 			if(cris!=null){errorState|=ReadWrite.closeStreams(cris);}
 		}
-		
-//		final int[] max=new int[buckets];
-//		if(CardinalityTracker.atomic){
-//			for(int i=0; i<log.maxArray.length(); i++){
-//				//				System.err.println(log.maxArray.get(i));
-//				max[i]=log.maxArray.get(i);
-//			}
-//		}
-		
+
+		//		final int[] max=new int[buckets];
+		//		if(CardinalityTracker.atomic){
+		//			for(int i=0; i<log.maxArray.length(); i++){
+		//				//				System.err.println(log.maxArray.get(i));
+		//				max[i]=log.maxArray.get(i);
+		//			}
+		//		}
+
 		t.stop();
-		
-		
+
+
 		long cardinality=log.cardinality();
 		countSum+=(CardinalityTracker.trackCounts ? log.countSum() : 0);
-		
+
 		if(out!=null){
 			ReadWrite.writeString(cardinality+"\n", out);
 		}
-		
+
 		if(!Parser.silent) {
-//		Arrays.sort(copy);
-//		System.err.println("Median:        "+copy[Tools.median(copy)]);
-		
-//		System.err.println("Mean:          "+Tools.mean(copy));
-//		System.err.println("Harmonic Mean: "+Tools.harmonicMean(copy));
-		System.err.println("Cardinality:   "+cardinality);
-//		System.err.println("CardinalityH:  "+log.cardinalityH());
-		
-//		for(long i : log.counts){System.err.println(i);}
-		
-		System.err.println("Time: \t"+t);
+			//		Arrays.sort(copy);
+			//		System.err.println("Median:        "+copy[Tools.median(copy)]);
+
+			//		System.err.println("Mean:          "+Tools.mean(copy));
+			//		System.err.println("Harmonic Mean: "+Tools.harmonicMean(copy));
+			System.err.println("Cardinality:   "+cardinality);
+			//		System.err.println("CardinalityH:  "+log.cardinalityH());
+
+			//		for(long i : log.counts){System.err.println(i);}
+
+			System.err.println("Time: \t"+t);
+			if(printCounts) {
+				char[] counts=log.counts16();
+				Arrays.sort(counts);
+				for(int i=0; i<counts.length; i++) {
+					System.err.print(((int)counts[i])+" ");
+				}
+			}
+			if(printHist) {
+				IntList hist=new IntList();
+				ByteBuilder bb=new ByteBuilder();
+				char[] counts=log.counts16();
+				for(char c : counts) {hist.increment(c);}
+				for(int i=0; i<hist.size; i++) {
+					int count=hist.get(i);
+					if(count>0) {bb.append(i).tab().append(count).nl();}
+				}
+				System.err.println(bb);
+			}
 		}
 		
 		return cardinality;
@@ -333,7 +359,7 @@ class LogLogWrapper {
 		 * @param cris_ Input stream for reading sequence data, or null for synthetic mode
 		 * @param tid_ Thread identifier for this worker
 		 */
-		LogLogThread(CardinalityTracker log_, ConcurrentReadInputStream cris_, int tid_){
+		LogLogThread(CardinalityTracker log_, Streamer cris_, int tid_){
 			log=log_;
 			cris=cris_;
 			tid=tid_;
@@ -396,7 +422,7 @@ class LogLogWrapper {
 		}
 		
 		private final CardinalityTracker log;
-		private final ConcurrentReadInputStream cris;
+		private final Streamer cris;
 		private final int tid;
 		
 		protected long readsProcessedT=0;
@@ -442,6 +468,8 @@ class LogLogWrapper {
 	private int trials=1;
 	/** Whether to use synthetic data generation instead of real input files */
 	private boolean synth=false;
+	private boolean printCounts=false;
+	private boolean printHist=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

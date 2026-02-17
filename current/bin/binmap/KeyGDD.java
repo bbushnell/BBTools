@@ -1,5 +1,6 @@
-package bin;
+package bin.binmap;
 
+import bin.Bin;
 import shared.Tools;
 
 /**
