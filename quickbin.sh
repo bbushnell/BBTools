@@ -78,13 +78,16 @@ strictness=1.0  Stringency can alternatively be set finely with this flag,
                 where normal=1.0, xs=0.6, s=0.9, l=1.1, and xl=1.5.
                 Lower is stricter; this is an unbounded cutoff multiplier.
 
-Quantization parameters:
-gcwidth=0.02    Width of GC matrix gridlines.  Smaller is faster.
-depthwidth=0.5  Width of depth matrix gridlines.  Smaller is faster.  This
-                is on a log2 scale so 0.5 would mean 2 gridlines per power
-                of 2 depth - lines at 0.707, 1, 1.414, 2, 2.818, 4, etc.
-Note: Halving either quantization parameter can roughly double speed,
-but may decrease recovery of shorter contigs.
+Depth parameters:
+flat            Ignore depth; may still be used with bam files for e.g. MDA.
+                Required flag if there is no coverage information.
+
+Taxonomy parameters
+clade=t         Use QuickClade to determine taxonomy of output bins.  Fast.
+sketch=f        Use SendSketch to determine taxonomy of output bins.
+server=t        Prioritize using QuickClade server instead of local ref.
+                Reference is optional and available at:
+		https://sourceforge.net/projects/bbmap/files/Resources/
 
 Neural network parameters:
 net=auto        Specify a neural network file to use; default is
@@ -95,31 +98,33 @@ cutoff=0.52     Neural network output threshold; higher increases specificity,
                 make 'strict' mode stricter.
 
 Edge-processing parameters:
-e1=0                  Edge-first clustering passes; may increase speed
-                      at the cost of purity.
-e2=4                  Later edge-based clustering passes.
+e1=0            Edge-first clustering passes; may increase speed
+                at the cost of purity.
+e2=4            Later edge-based clustering passes.
+maxEdges=3      Follow up to this many edges per contig.
+minmapq=20      When loading sam files, do not make edges from reads
+                with map lower than this.  Setting it to 0 will allow
+                ambigiously-mapped reads and may improve completeness.
+                Reads below minmapq are still used for depth.
+minid=0.96      When loading sam files, ignore reads aligned with
+                identity below this, both for edges and coverage.
 edgeStringency1=0.25  Stringency for edge-first clustering;
                       lower is more stringent.
 edgeStringency2=1.1    Stringency for later edge-based clustering.
-maxEdges=3            Follow up to this many edges per contig.
 minEdgeWeight=2       Ignore edges made from fewer read pairs.
 minEdgeRatio=0.4      Ignore edges under this fraction of max edge weight.
 goodEdgeMult=1.4      Merge stringency multiplier for contigs joined by
                       an edge; lower is more stringent.
-minmapq=20            When loading sam files, do not make edges from reads
-                      with map lower than this.  Setting it to 0 will allow
-                      ambigiously-mapped reads and may improve completeness.
-                      Reads below minmapq are still used for depth.
-minid=0.96            When loading sam files, ignore reads aligned with
-                      identity below this, both for edges and coverage.
+
+Quantization parameters:
+gcwidth=0.02    Width of GC matrix gridlines.  Smaller is faster.
+depthwidth=0.5  Width of depth matrix gridlines.  Smaller is faster.  This
+                is on a log2 scale so 0.5 would mean 2 gridlines per power
+                of 2 depth - lines at 0.707, 1, 1.414, 2, 2.818, 4, etc.
+Note: Halving either quantization parameter can roughly double speed,
+but may decrease recovery of shorter contigs.
 
 Other parameters:
-quickclade=f          Use QuickClade to determine taxonomy of output bins.
-server=f              Prioritize using QuickClade server instead of local ref.
-                      Normally, a local reference will be used if present;
-		      this is faster and available at:
-		      https://sourceforge.net/projects/bbmap/files/Resources/
-sketchoutput=f        Use SendSketch to determine taxonomy of output bins.
 validate=f            If contig headers have a term such as 'tid_1234', this
                       will be parsed and used to evaluate correctness.
 printcc=f             Print completeness/contam after each step.
@@ -128,8 +133,6 @@ callssu=f             Call 16S and 18S genes; do not merge clusters with
 minssuid=0.96         SSUs with identity below this are incompatible.
 aligner=quantum       Options include ssa2, glocal, drifting, banded, crosscut.
 threads=auto          Number of threads; default is logical cores.
-flat                  Ignore depth; may still be used with bam files for e.g. MDA.
-                      Required flag if there is no coverage information.
 fuselowerlimit=5k     Reduce stringency for merging clusters as small as this.
 fuseupperlimit=900k   Reduce stringency for merging clusters as big as this.
 fuseupperlimit2=9m    Don't fuse small clusters into clusters bigger than this.

@@ -1,11 +1,10 @@
 package bin;
 
-import java.util.Arrays;
-
 import clade.Clade;
 import json.JsonObject;
 import map.IntHashMap2;
 import map.IntLongHashMap;
+import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.FloatList;
@@ -698,16 +697,66 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	
 	/**
 	 * Converts this bin to a Clade representation.
-	 * Adds all contig sequences to the clade and finishes construction.
-	 * @return Clade object containing this bin's sequences
+	 * Uses existing k-mer counts when available to avoid reprocessing bases.
+	 * Falls back to base-level processing if counts are not present.
+	 * @return Clade object containing this bin's k-mer signature
 	 */
 	Clade toClade() {
 		clade=new Clade(-1, -1, name());
-		for(Contig c : this) {
-			clade.add(c.bases, null);
+
+		Timer t=new Timer();
+		
+		if(TO_CLADE_FAST && tetramers != null) {
+			// Fast path: use this Bin's accumulated k-mer counts directly
+			if(dimers != null) {addIntToLongArray(clade.counts[2], dimers);}
+			if(trimers != null) {addIntToLongArray(clade.counts[3], trimers);}
+			if(tetramers != null) {addIntToLongArray(clade.counts[4], tetramers);}
+			if(pentamers != null) {addIntToLongArray(clade.counts[5], pentamers);}
+
+			// Populate monomers from gcSum (approximate distribution)
+			long at = size() - gcSum;
+			clade.counts[1][0] = at/2;                    // A
+			clade.counts[1][1] = gcSum/2;                 // C
+			clade.counts[1][2] = gcSum/2 + (gcSum%2);     // G (with remainder)
+			clade.counts[1][3] = at/2 + (at%2);           // T (with remainder)
+
+			// Update metadata
+			clade.bases = size();
+			clade.contigs = numContigs();
+
+			// Copy entropy if available
+			if(entropy > 0) {
+				clade.entropy = entropy;
+			}
+
+			// Copy SSU sequences if available
+			if(r16S != null) {clade.r16S = r16S;}
+			if(r18S != null) {clade.r18S = r18S;}
+
+		} else {
+			// Old method: reprocess bases from all contigs
+			for(Contig c : this) {
+				clade.add(c.bases, null);
+			}
 		}
+
 		clade.finish();
+		
+//		t.stop("toClade"+(TO_CLADE_FAST ? "Fast:" : ":"));
+		
 		return clade;
+	}
+
+	/**
+	 * Adds values from int array to long array element-wise.
+	 * Helper for efficiently transferring k-mer counts to Clade.
+	 * @param dest Destination long array (Clade counts)
+	 * @param src Source int array (Bin counts)
+	 */
+	private static void addIntToLongArray(long[] dest, int[] src) {
+		for(int i=0; i<src.length; i++) {
+			dest[i] += src[i];
+		}
 	}
 	
 	/** Returns the raw depth list for this bin */
@@ -789,5 +838,8 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	public byte[] r16S;
 	/** 18S rRNA sequence if found */
 	public byte[] r18S;
-	
+
+	/** Enable fast Clade conversion using existing k-mer counts instead of reprocessing bases */
+	public static boolean TO_CLADE_FAST=true;
+
 }
