@@ -107,7 +107,7 @@ public class GradeBins {
 				ccplot=b;
 			}
 			
-			else if(a.equals("report") || a.equals("out")){
+			else if(a.equals("report") || a.equals("out") || a.equals("result") || a.equals("results")){
 				report=b;
 			}else if(a.equals("taxin")){
 				taxIn=b;
@@ -145,10 +145,11 @@ public class GradeBins {
 				imgMapFile=b;
 			}else if(a.equalsIgnoreCase("spectra")){
 				spectraFile=b;
+				cladeServer=(b!=null);
 			}else if(a.equalsIgnoreCase("server")){
 				cladeServer=Parse.parseBoolean(b);
-			}else if(a.equalsIgnoreCase("quickclade")){
-				runQuickClade=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("quickclade") || a.equalsIgnoreCase("clade")){
+				runQuickClade=Parse.parseBoolean(b) ? 1 : 0;
 			}else if(a.equalsIgnoreCase("callgenes")){
 				callGenes=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("userna") || a.equals("rna") || a.equals("ribo")){
@@ -205,6 +206,7 @@ public class GradeBins {
 //			out1=parser.out1;
 		}
 		
+		if(runQuickClade<0) {runQuickClade=(report==null ? 0 : 1);}
 		if(callGenes) {
 			GeneTools.loadPGM();
 			CallGenes.callCDS=CallGenes.calltRNA=CallGenes.call16S=
@@ -294,13 +296,14 @@ public class GradeBins {
 	 * Uses default reference if spectraFile is null but runQuickClade is true. */
 	static void loadSpectra() {
 		if(cladeServer) {spectraFile=null; return;}
-		if(runQuickClade && spectraFile==null) {spectraFile=CladeSearcher.defaultRef();}
-		if(spectraFile!=null) {runQuickClade=true;}
+		if(runQuickClade==1 && spectraFile==null) {spectraFile=CladeSearcher.defaultRef();}
+		if(spectraFile!=null) {runQuickClade=1;}
 		if(spectraFile==null || cladeIndex!=null) {return;}
 		if(!new File(spectraFile).isFile()) {return;}
 		Timer t=new Timer();
 //		t.start("Loading "+spectraFile);
 		cladeIndex=CladeIndex.loadIndex(spectraFile);
+		cladeServer=false;
 		t.stopAndPrint();
 	}
 	
@@ -616,13 +619,16 @@ public class GradeBins {
 		success&=!success;
 		Tools.condenseStrict(binStats);//Not really necessary, perhaps...
 		
-		if(runQuickClade && qclade && binStats.size()>0) {
+		if(runQuickClade==1 && qclade && binStats.size()>0) {
 			if(cladeIndex==null) { 
+				System.err.print("Assigning taxonomy to "+binStats.size()+" bins with QuickClade:\t");
+				Timer t=new Timer();
 				ArrayList<Clade> clades=new ArrayList<Clade>(binStats.size());
 				for(BinStats bs : binStats) {
 					if(bs.clade!=null) {clades.add(bs.clade);}
 				}
 				runQuickClade(clades);
+				t.stopAndPrint();
 			}
 			for(BinStats bs : binStats) {
 				if(bs.clade!=null) {
@@ -1260,7 +1266,7 @@ public class GradeBins {
 	 * @param clades List of Clade objects to classify
 	 */
 	private static void runQuickClade(List<Clade> clades){
-		assert(cladeIndex==null);
+		assert(cladeIndex==null);//Prevents running singlethreaded
 		
 		if(cladeIndex!=null) {
 			for(Clade c : clades) {
@@ -1417,7 +1423,7 @@ public class GradeBins {
 			}
 			if(b.size()<minSize) {return null;}
 			processed++;
-			if(runQuickClade && qclade) {
+			if(runQuickClade==1 && qclade) {
 				b.toClade();
 				if(cladeIndex!=null) {cladeIndex.setFromBest(b.clade);}
 			}
@@ -1533,7 +1539,7 @@ public class GradeBins {
 	/** Path to IMG contig mapping file */
 	private static String imgMapFile=null;
 	/** Whether to use clade server for taxonomic classification */
-	static boolean cladeServer=false;
+	static boolean cladeServer=true;
 	/** Path to clade spectra file for taxonomic classification */
 	static String spectraFile=null;
 	/** Map from contig names to GFF annotation lines */
@@ -1577,8 +1583,9 @@ public class GradeBins {
 	/** Arrays of maps counting medium-quality taxa at each taxonomic level */
 	private static IntHashMap2[] levelMapsMQ;
 
-	/** Whether to perform taxonomic classification using clade analysis */
-	static boolean runQuickClade=false;
+	/** Whether to perform taxonomic classification using clade analysis
+	 * 1=true, 0=false, -1=unset */
+	static int runQuickClade=-1;
 	/** Index for clade-based taxonomic classification */
 	private static CladeIndex cladeIndex=null;
 	/** Whether to use taxonomic tree for lineage analysis */

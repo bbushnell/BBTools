@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 6, 2026
+Last modified February 16, 2026
 
 Description:  Grades metagenome bins for completeness and contamination.
 The contigs can be labeled with their taxID; in which case the header should
@@ -55,7 +55,7 @@ userna=f        Require rRNAs and tRNAs for HQ genomes.  This needs either
                 subtypes require at least 1 16S, 23S, and 5S, plus 18 tRNAs.
 callgenes=f     Call rRNAs and tRNAs.  Suboptimal for some RNA types.
 aligner=ssa2    Do not change this.
-quickclade=f    Assign taxonomy using QuickClade.
+clade=f         Assign taxonomy using QuickClade.
 
 
 Java Parameters:

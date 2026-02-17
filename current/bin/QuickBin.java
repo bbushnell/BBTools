@@ -91,6 +91,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 
 		printStepwiseCC&=validation;
 		GeneTools.quiet=true;
+		if(GradeBins.runQuickClade<0) {GradeBins.runQuickClade=(report==null ? 0 : 1);}
 		validateParams();
 		checkFileExistence(); //Ensure files can be read and written
 		loader.checkInput();
@@ -156,7 +157,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			
 			else if(a.equals("sizehist")){
 				sizeHist=b;
-			}else if(a.equals("report")){
+			}else if(a.equals("report") || a.equals("result") || a.equals("results")){
 				report=b;
 			}else if(a.equalsIgnoreCase("writeChaff") || a.equalsIgnoreCase("chaff")){
 				writeChaff=Parse.parseBoolean(b);
@@ -214,8 +215,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
 			}
 			
-			else if(a.equalsIgnoreCase("quickclade")){
-				GradeBins.runQuickClade=Parse.parseBoolean(b);
+			else if(a.equalsIgnoreCase("quickclade") | a.equalsIgnoreCase("clade")){
+				GradeBins.runQuickClade=Parse.parseBoolean(b) ? 1 : 0;
+			}else if(a.equalsIgnoreCase("tocladefast")){
+				Bin.TO_CLADE_FAST=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("spectra")){
 				GradeBins.spectraFile=b;
 			}else if(a.equalsIgnoreCase("server")){
@@ -230,9 +233,9 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				sketchContigs=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("sketchclusters") || a.equalsIgnoreCase("sketchbins")){
 				sketchClusters=Parse.parseBoolean(b);
-			}else if(a.equalsIgnoreCase("sketchoutput")){
+			}else if(a.equalsIgnoreCase("sketchoutput") || a.equalsIgnoreCase("sketch")){
 				sketchOutput=Parse.parseBoolean(b);
-			}else if(a.equalsIgnoreCase("sketch")){
+			}else if(a.equalsIgnoreCase("sketchall")){
 				sketchClusters=sketchContigs=sketchOutput=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("density")){
 				float f=Float.parseFloat(b);
