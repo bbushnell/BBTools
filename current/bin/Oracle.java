@@ -73,7 +73,7 @@ public class Oracle extends BinObject implements Cloneable {
 	}
 	
 	/** Resets Oracle state by clearing best match and resetting scores to -1 */
-	void clear() {
+	public void clear() {
 		best=null;
 		bestIdx=-1;
 		score=topScore=-1;
@@ -691,13 +691,13 @@ public class Oracle extends BinObject implements Cloneable {
 	}
 	
 	/** Best matching bin found during comparison */
-	Bin best=null;
+	public Bin best=null;
 	/** Current similarity score */
-	float score=-1;
+	public float score=-1;
 	/** Highest similarity score encountered */
-	float topScore=-1;
+	public float topScore=-1;
 	/** Index of best matching bin */
-	int bestIdx=-1;
+	public int bestIdx=-1;
 	
 	/** Count of fast preliminary comparisons performed */
 	long fastComparisons=0;
@@ -713,17 +713,17 @@ public class Oracle extends BinObject implements Cloneable {
 	/** Base maximum 3-mer cosine difference threshold */
 	final float max3merDif0;
 	/** Base maximum 4-mer cosine difference threshold */
-	final float max4merDif0;
+	public final float max4merDif0;
 	/** Base maximum 5-mer cosine difference threshold */
 	final float max5merDif0;
 	/** Base maximum depth ratio threshold between bins */
-	final float maxDepthRatio0;
+	public final float maxDepthRatio0;
 	/** Base maximum GC content difference threshold */
-	final float maxGCDif0;
+	public final float maxGCDif0;
 	/** Base maximum product threshold for tetramer difference and depth ratio */
-	final float maxProduct0;
+	public final float maxProduct0;
 	/** Base maximum covariance threshold between bin depths */
-	final float maxCovariance0;
+	public final float maxCovariance0;
 	/** Base minimum k-mer occurrence probability threshold */
 	final float minKmerProb0;
 	/** Minimum edge weight required for strong bin connections */

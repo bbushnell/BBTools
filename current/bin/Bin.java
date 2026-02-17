@@ -760,9 +760,9 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Measure of strand bias */
 	float strandedness;
 	/** H-H di-amino acid frequency metric */
-	float hh;
+	public float hh;
 	/** CAGA motif frequency metric */
-	float caga;
+	public float caga;
 	/** Overall quality score for this bin */
 	float score;
 	/** Flag indicating if bin was reclustered */
