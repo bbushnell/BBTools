@@ -1494,7 +1494,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	 * @param size Sequence size in bases
 	 * @return Multiplier for similarity thresholds
 	 */
-	static float sizeAdjustMult(long size) {
+	public static float sizeAdjustMult(long size) {
 		float f=sizeAdjustMult2(size);
 		if(size<tinyThresh){// && size>minSizeToCompare) {
 			f*=tinyMult;//This is to correct the exemption from residueStringency

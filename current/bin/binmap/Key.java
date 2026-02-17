@@ -201,7 +201,7 @@ public abstract class Key implements Cloneable {
 	 * @param b The parameter value
 	 * @return true if the parameter was recognized and parsed, false otherwise
 	 */
-	static boolean parse(String arg, String a, String b) {
+	public static boolean parse(String arg, String a, String b) {
 
 		if(a.equalsIgnoreCase("gcwidth")){
 			float f=Float.parseFloat(b);
@@ -370,7 +370,7 @@ public abstract class Key implements Cloneable {
 		maxDepthLevel=quantizeDepth(maxDepth);
 	}
 	
-	static int setType(int samples, long contigs) {
+	public static int setType(int samples, long contigs) {
 		if(setType) {return defaultType;}
 		return defaultType=pickType(samples, contigs);
 	}

@@ -238,7 +238,7 @@ public class BinMap2 extends BinObject implements Iterable<ArrayList<Cluster>> {
 		return size;
 	}
 	
-	long hashLookups() {
+	public long hashLookups() {
 		return BinMapSlice.hashLookups.get();
 //		long x=0;
 //		for(BinMapSlice slice : slices) {
@@ -247,7 +247,7 @@ public class BinMap2 extends BinObject implements Iterable<ArrayList<Cluster>> {
 //		return x;
 	}
 
-	long hashLookupsValid() {
+	public long hashLookupsValid() {
 		return BinMapSlice.hashLookupsValid.get();
 //		long x=0;
 //		for(BinMapSlice slice : slices) {

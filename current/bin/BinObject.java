@@ -356,7 +356,7 @@ public class BinObject {
 		return (float)sum;
 	}
 	
-	static boolean isValid(Collection<? extends Bin> list, boolean allowLeafContigs) {
+	public static boolean isValid(Collection<? extends Bin> list, boolean allowLeafContigs) {
 		for(Bin b : list) {
 			if(b.isCluster()) {
 				Cluster c=(Cluster)b;
@@ -513,7 +513,7 @@ public class BinObject {
 	public static int minPentamerSizeCompare=40000;
 	
 	static boolean loud=false;
-	static boolean verbose;
+	protected static boolean verbose;
 	static boolean printStepwiseCC=false;
 	
 	/** Density parameter for sketch-based comparisons */
