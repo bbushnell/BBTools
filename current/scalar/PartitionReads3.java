@@ -1551,7 +1551,7 @@ public class PartitionReads3 {
 	private final LineParserS1 lps=new LineParserS1('_');
 
 	/** Line parser for comma/equals-delimited headers (Tadpole format) */
-	private final LineParserS4 lpt=new LineParserS4(",,=,");
+	private final LineParserS4 lpt=new LineParserS4("=,=,");
 
 	/** Whether this mode requires dimer calculation (GC, HH, CAGA) */
 	private final boolean needDimers;

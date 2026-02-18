@@ -51,12 +51,21 @@ public class ClusterWriter{
 			
 			outstream.println("Writing clusters to "+pattern);
 		}
-		long sizeOverLimit=0;
 		if(pattern!=null && pattern.indexOf('%')>=0) {
 			
 			ByteStreamWriter chaff=null;
 			if(writeChaff) {
 				String chaffname=pattern.replaceFirst("%", "chaff");
+				if(chaffExt!=null) {
+					if(!chaffExt.startsWith(".")) {chaffExt="."+chaffExt;}
+					String prefix=ReadWrite.getPath(chaffname);
+					if(prefix==null) {prefix="";}
+					String suffix=ReadWrite.stripPath(chaffname);
+					suffix=suffix.replace(".fasta", chaffExt);
+					suffix=suffix.replace(".fna", chaffExt);
+					suffix=suffix.replace(".fa", chaffExt);
+					chaffname=prefix+suffix;
+				}
 				if(GZIP_CHAFF && !ReadWrite.isCompressed(chaffname)) {chaffname+=".gz";}
 				chaff=ByteStreamWriter.makeBSW(chaffname, overwrite, append, true);
 			}
@@ -175,7 +184,8 @@ public class ClusterWriter{
 	final boolean append;
 	final boolean writeChaff;
 	final boolean loud;
-	
+
+	static String chaffExt=".foosta";
 	static int MIN_SIZE_FOR_SUBPROCESS=1000000;
 	static boolean GZIP_CLUSTERS=false;
 	static boolean GZIP_CHAFF=true;

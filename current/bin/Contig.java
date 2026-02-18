@@ -146,7 +146,7 @@ public class Contig extends Bin {
 	 */
 	public void appendTo(ByteBuilder bb, int cluster) {
 		bb.append('>').append(name);
-		if(cluster>=0) {bb.tab().append("cluster_").append(cluster);}
+		if(cluster>=0 && APPEND_CLUSTER_NUMBER) {bb.tab().append("cluster_").append(cluster);}
 		bb.nl();
 		final int wrap=Shared.FASTA_WRAP;
 		for(int i=0; i<bases.length; i+=wrap) {

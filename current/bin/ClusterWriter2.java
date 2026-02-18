@@ -7,7 +7,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import fileIO.ByteStreamWriter;
-import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Timer;
 import shared.Tools;
@@ -71,6 +70,18 @@ public class ClusterWriter2 {
 			ByteStreamWriter chaff=null;
 			if(writeChaff) {
 				String chaffname=pattern.replaceFirst("%", "chaff");
+				if(chaffExt!=null) {
+					if(!chaffExt.startsWith(".")) {chaffExt="."+chaffExt;}
+					String prefix=ReadWrite.getPath(chaffname);
+					if(prefix==null) {prefix="";}
+					String suffix=ReadWrite.stripPath(chaffname);
+					suffix=suffix.replace(".fasta", chaffExt);
+					suffix=suffix.replace(".fna", chaffExt);
+					suffix=suffix.replace(".fa", chaffExt);
+					chaffname=prefix+suffix;
+
+//					assert(false) : chaffname+", "+chaffExt+", "+prefix+", "+suffix;
+				}
 				if(GZIP_CHAFF && !ReadWrite.isCompressed(chaffname)) {chaffname+=".gz";}
 				chaff=ByteStreamWriter.makeBSW(chaffname, overwrite, append, true);
 			}
@@ -284,6 +295,7 @@ public class ClusterWriter2 {
 	final boolean sorted;
 	final int threads;
 	
+	static String chaffExt=".foosta";
 	static int MIN_SIZE_FOR_SUBPROCESS=1000000;
 	static boolean GZIP_CLUSTERS=false;
 	static boolean GZIP_CHAFF=true;

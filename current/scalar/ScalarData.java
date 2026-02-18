@@ -526,7 +526,7 @@ public class ScalarData implements Comparable<ScalarData>{
 
 	/** Line parsers for depth extraction from headers */
 	private final LineParserS1 lps=new LineParserS1('_');  // Spades format
-	private final LineParserS4 lpt=new LineParserS4(",,=,");  // Tadpole format
+	private final LineParserS4 lpt=new LineParserS4("=,=,");  // Tadpole format
 
 	final long numericID;
 	

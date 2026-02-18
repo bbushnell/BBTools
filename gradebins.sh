@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 16, 2026
+Last modified February 17, 2026
 
 Description:  Grades metagenome bins for completeness and contamination.
 The contigs can be labeled with their taxID; in which case the header should

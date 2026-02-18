@@ -161,8 +161,23 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				report=b;
 			}else if(a.equalsIgnoreCase("writeChaff") || a.equalsIgnoreCase("chaff")){
 				writeChaff=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("chaffext")){
+				if(b!=null && b.endsWith(".gz")) {
+					b=b.substring(0, b.length()-3);
+					ClusterWriter2.GZIP_CHAFF=ClusterWriter.GZIP_CHAFF=true;
+				}
+				ClusterWriter.chaffExt=ClusterWriter2.chaffExt=b;
 			}else if(a.equalsIgnoreCase("writethreads")) {
 				writeThreads=Integer.parseInt(b);
+			}else if(a.equals("gz") || a.equals("gzip")) {
+				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter2.GZIP_CHAFF=
+				ClusterWriter.GZIP_CLUSTERS=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
+			}else if(a.equals("gzipbins") || a.equals("gzipclusters")) {
+				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter.GZIP_CLUSTERS=Parse.parseBoolean(b);
+			}else if(a.equals("gzipchaff")) {
+				ClusterWriter2.GZIP_CHAFF=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
+			}else if(a.equals("appendcluster") || a.equals("chaffnums")) {
+				APPEND_CLUSTER_NUMBER=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equalsIgnoreCase("maxsamples")) {
@@ -274,13 +289,6 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			
 			else if(a.equals("covout") || a.equals("outcov")) {
 				covOut=b;
-			}else if(a.equals("gz") || a.equals("gzip")) {
-				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter2.GZIP_CHAFF=
-				ClusterWriter.GZIP_CLUSTERS=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
-			}else if(a.equals("gzipbins") || a.equals("gzipclusters")) {
-				ClusterWriter2.GZIP_CLUSTERS=ClusterWriter.GZIP_CLUSTERS=Parse.parseBoolean(b);
-			}else if(a.equals("gzipchaff")) {
-				ClusterWriter2.GZIP_CHAFF=ClusterWriter.GZIP_CHAFF=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equals("parse_flag_goes_here")){

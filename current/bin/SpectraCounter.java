@@ -275,7 +275,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		int contigsProcessedT=0;
 		long basesProcessedT=0;
 		LineParserS1 lps=new LineParserS1('_');
-		LineParserS4 lpt=new LineParserS4(",,=,");
+		LineParserS4 lpt=new LineParserS4("=,=,");
 		
 		int contigsLoadedT=0;
 		long basesLoadedT=0;

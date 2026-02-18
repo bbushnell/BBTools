@@ -1063,7 +1063,7 @@ public class DataLoader extends BinObject {
 		outstream.print("Parsing depth from contig headers: \t");
 		phaseTimer.start();
 		LineParserS1 lps=new LineParserS1('_');
-		LineParserS4 lpt=new LineParserS4(",,=,");
+		LineParserS4 lpt=new LineParserS4("=,=,");
 		for(Contig c : list) {
 			boolean b=parseAndSetDepth(c, lps, lpt);
 			assert(b) : "Could not parse depth from "+c.name;

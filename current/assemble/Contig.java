@@ -93,7 +93,7 @@ public class Contig {
 	private ByteBuilder toHeader(ByteBuilder bb){
 		if(name!=null){return bb.append(name);}
 		bb.append("contig_").append(id);
-		bb.append(",length=").append(length());
+		bb.append(",len=").append(length());
 		bb.append(",cov=").append(coverage, 1);
 		bb.append(",gc=").append(gc(), 3);
 		if(tid>=0){bb.append(",tid_").append(tid);}
