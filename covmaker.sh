@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 16, 2026
+Last modified February 18, 2026
 
 Description:  Makes cov files for QuickBin.
 Notes: This program can use a lot of memory when there are many contigs.

@@ -1941,7 +1941,7 @@ public class Parser {
 	/*--------------------------------------------------------------*/
 	
 	/** Type of LogLog algorithm to use for cardinality estimation */
-	public static String loglogType="LogLog2";
+	public static String loglogType="LogLog16";
 	/** Suppress progress and status messages */
 	public static boolean silent=false;
 	/** Print thread count changes to stderr */

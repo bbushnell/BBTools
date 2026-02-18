@@ -106,7 +106,7 @@ class BBDukParser {
 		if(khistIn!=null || khistOut!=null){
 			if(khistIn!=null){parser.loglog=true;}
 			if(khistOut!=null){parser.loglogOut=true;}
-			parser.loglogbuckets=Tools.max(parser.loglogbuckets, 128000);
+			parser.loglogbuckets=Tools.max(parser.loglogbuckets, 32000);
 			CardinalityTracker.trackCounts=true;
 		}
 		

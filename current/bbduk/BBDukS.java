@@ -111,8 +111,8 @@ public class BBDukS {
 //		WAYS=p.WAYS;
 //		initialSizeDefault=p.initialSizeDefault;
 		
-		loglogIn=(p.loglog ? CardinalityTracker.makeTracker(p.parser) : null);
-		loglogOut=(p.loglogOut ? CardinalityTracker.makeTracker(p.parser) : null);
+//		loglogIn=(p.loglog ? CardinalityTracker.makeTracker(p.parser) : null);//Used from Processor
+//		loglogOut=(p.loglogOut ? CardinalityTracker.makeTracker(p.parser) : null);
 		
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, out2, qfout1, qfout2, outb1, outb2, outsingle, outstats, 
 				outrpkm, outrqc, outrefstats, polymerStatsFile, khistIn, khistOut, p.alignOut)){
@@ -453,10 +453,10 @@ public class BBDukS {
 	private final boolean silent;
 	private final boolean json;
 	
-	/** For calculating kmer cardinality in input */
-	private final CardinalityTracker loglogIn;
-	/** For calculating kmer cardinality in output */
-	private final CardinalityTracker loglogOut;
+//	/** For calculating kmer cardinality in input */
+//	private final CardinalityTracker loglogIn;
+//	/** For calculating kmer cardinality in output */
+//	private final CardinalityTracker loglogOut;
 	/** Requires (and sets) cardinality tracking.  This is for input kmers. */
 	private final String khistIn;
 	/** Requires (and sets) cardinality tracking.  This is for output kmers. */

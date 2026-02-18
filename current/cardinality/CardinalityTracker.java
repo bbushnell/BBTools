@@ -10,6 +10,7 @@ import parse.Parser;
 import shared.Shared;
 import shared.Tools;
 import stream.Read;
+import stream.SamLine;
 import structures.LongList;
 import structures.SuperLongList;
 import ukmer.Kmer;
@@ -27,54 +28,72 @@ public abstract class CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	private static final String pickType(String type) {
+		if(trackCounts){
+			if("BBLog".equalsIgnoreCase(type)) {return type;}
+			else {return "LogLog16";}
+		}
+		return type;
+	}
+	
 	/**
 	 * Factory method that creates a tracker using default settings.
 	 * Subclass is determined by static Parser.loglogType field.
 	 * BBLog is preferred when trackCounts is enabled for optimal accuracy and speed.
 	 * @return New CardinalityTracker instance of the configured type
 	 */
-	public static CardinalityTracker makeTracker(){
-		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
+	public static CardinalityTracker makeTracker(String type){
+		type=pickType(Parser.loglogType);
+		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog();//Fastest, most accurate
-		}else if("LogLog".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog".equalsIgnoreCase(type)){
 			return new LogLog();//Least accurate
-		}else if("LogLog2".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2();//Slowest, uses mantissa
-		}else if("LogLog16".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog16".equalsIgnoreCase(type)){
 			return new LogLog16();//Uses 10-bit mantissa
-		}else if("LogLog8".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8();//Lowest memory
 		}
-		assert(false) : "TODO: "+Parser.loglogType;
-		throw new RuntimeException(Parser.loglogType);
+		assert(false) : "TODO: "+type;
+		throw new RuntimeException(type);
 	}
 	
 	/**
-	 * Factory method that creates a tracker using parsed settings.
+	 * Factory method that creates a tracker using default settings.
 	 * Subclass is determined by static Parser.loglogType field.
+	 * BBLog is preferred when trackCounts is enabled for optimal accuracy and speed.
+	 * @return New CardinalityTracker instance of the configured type
+	 */
+	public static CardinalityTracker makeTracker(){return makeTracker(Parser.loglogType);}
+	
+	/**
+	 * Factory method that creates a tracker using parsed settings.
+	 * Subclass is determined by static type field.
 	 * Parameters are extracted from the Parser object.
 	 * @param p Parser containing configuration parameters
 	 * @return New CardinalityTracker instance configured from parser
 	 */
 	public static CardinalityTracker makeTracker(Parser p){
-		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
+		final String type=pickType(Parser.loglogType);
+		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog(p);
-		}else if("LogLog".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog".equalsIgnoreCase(type)){
 			return new LogLog(p);
-		}else if("LogLog2".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2(p);
-		}else if("LogLog16".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog16".equalsIgnoreCase(type)){
 			return new LogLog16(p);
-		}else if("LogLog8".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(p);
 		}
-		assert(false) : "TODO: "+Parser.loglogType;
-		throw new RuntimeException(Parser.loglogType);
+		assert(false) : "TODO: "+type;
+		throw new RuntimeException(type);
 	}
 	
 	/**
 	 * Factory method that creates a tracker with specified settings.
-	 * Subclass is determined by static Parser.loglogType field.
+	 * Subclass is determined by static type field.
 	 * Allows direct specification of all key parameters.
 	 * @param buckets_ Number of buckets (will be rounded to next power of 2)
 	 * @param k_ K-mer length for hashing
@@ -83,19 +102,20 @@ public abstract class CardinalityTracker {
 	 * @return New CardinalityTracker instance with specified configuration
 	 */
 	public static CardinalityTracker makeTracker(int buckets_, int k_, long seed, float minProb_){
-		if(trackCounts || "BBLog".equalsIgnoreCase(Parser.loglogType)){
+		final String type=pickType(Parser.loglogType);
+		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog(buckets_, k_, seed, minProb_);
-		}else if("LogLog".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog".equalsIgnoreCase(type)){
 			return new LogLog(buckets_, k_, seed, minProb_);
-		}else if("LogLog2".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2(buckets_, k_, seed, minProb_);
-		}else if("LogLog16".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog16".equalsIgnoreCase(type)){
 			return new LogLog16(buckets_, k_, seed, minProb_);
-		}else if("LogLog8".equalsIgnoreCase(Parser.loglogType)){
+		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(buckets_, k_, seed, minProb_);
 		}
-		assert(false) : "TODO: "+Parser.loglogType;
-		throw new RuntimeException(Parser.loglogType);
+		assert(false) : "TODO: "+type;
+		throw new RuntimeException(type);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -118,18 +138,11 @@ public abstract class CardinalityTracker {
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	public CardinalityTracker(int buckets_, int k_, long seed, float minProb_){
-//		if((buckets_&1)==0){buckets_=(int)Primes.primeAtLeast(buckets_);} //Legacy code, needed modulo operation
 		buckets=powerOf2AtLeast(buckets_);
 		assert(buckets>0 && Integer.bitCount(buckets)==1) : "Buckets must be a power of 2: "+buckets;
 		bucketMask=buckets-1;
 		k=Kmer.getKbig(k_);
 		minProb=minProb_;
-		
-		//For old hash function
-//		tables=new long[numTables][][];
-//		for(int i=0; i<numTables; i++){
-//			tables[i]=makeCodes(steps, bits, (seed<0 ? -1 : seed+i));
-//		}
 		
 		Random randy=Shared.threadLocalRandom(seed<0 ? -1 : seed);
 		hashXor=randy.nextLong();
@@ -208,6 +221,16 @@ public abstract class CardinalityTracker {
 		if(r==null){return;}
 		if(r.length()>=k){hash(r.bases, r.quality);}
 		if(r.mateLength()>=k){hash(r.mate.bases, r.mate.quality);}
+	}
+	
+	/**
+	 * Hashes and tracks all k-mers from a Read and its mate.
+	 * Processes both forward and mate sequences if they meet minimum length requirements.
+	 * @param r The Read to process (may be null)
+	 */
+	public final void hash(SamLine r){
+		if(r==null || r.seq==null){return;}
+		if(r.length()>=k){hash(r.seq, r.qual);}
 	}
 	
 	/**
@@ -367,14 +390,21 @@ public abstract class CardinalityTracker {
 	
 	public SuperLongList toFrequency(){
 		SuperLongList list=new SuperLongList(1000);
-		int[] counts=getCounts();
-		for(int x : counts){
-			if(x>0){list.add(x);}
+		if(getClass()==LogLog16.class) {
+			char[] counts=counts16();
+			for(char x : counts){
+				if(x>0){list.add(x);}
+			}
+		}else {
+			int[] counts=getCounts();
+			for(int x : counts){
+				if(x>0){list.add(x);}
+			}
 		}
 		list.sort();
 		return list;
 	}
-	
+
 	/**
 	 * Prints a k-mer frequency histogram to file.
 	 * Outputs depth-count pairs with optional supersampling adjustment.
@@ -386,6 +416,16 @@ public abstract class CardinalityTracker {
 	 * @param decimals Number of decimal places for supersampled counts
 	 */
 	public void printKhist(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
+		if(this.getClass()==LogLog16.class) {
+			System.err.println("a");
+			printKhist32(path, overwrite, append, supersample, decimals);
+		}else {
+			System.err.println("b");
+			printKhist32(path, overwrite, append, supersample, decimals);
+		}
+	}
+	
+	public void printKhist32(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
 		SuperLongList sll=toFrequency();
 		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
 		bsw.start();
@@ -445,6 +485,31 @@ public abstract class CardinalityTracker {
 		}
 		bsw.poisonAndWait();
 	}
+	
+//	public void printKhist16(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
+//		char[] array=counts16();
+//		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
+//		bsw.start();
+//		bsw.print("#Depth\tCount\n");
+//		final double mult=Tools.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
+//		
+//		for(int depth=0; depth<array.length; depth++){
+//			long count=array[depth];
+//			if(count>0){
+//				bsw.print(depth).tab();
+//				if(supersample){
+//					if(decimals>0){
+//						bsw.print(count*mult, decimals).nl();
+//					}else{
+//						bsw.print(Tools.max(1, Math.round(count*mult))).nl();
+//					}
+//				}else{
+//					bsw.print(count).nl();
+//				}
+//			}
+//		}
+//		bsw.poisonAndWait();
+//	}
 	
 	public final long countSum(){
 		int[] counts=getCounts();
@@ -551,7 +616,7 @@ public abstract class CardinalityTracker {
 	static final int numTablesMask=numTables-1;
 	/** Bits hashed per cycle in deprecated table-based method */
 	private static final int bits=8;
-	private static final int steps=(63+bits)/bits;;
+	private static final int steps=(63+bits)/bits;
 //	final long[][][] tables;
 	
 	/*--------------------------------------------------------------*/
