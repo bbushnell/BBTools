@@ -545,5 +545,7 @@ public class BinObject {
 	static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref.
 	static int MIN_LINEAGE_LEVEL_E=0;
 	static boolean FILL_NORM_DEPTH=true;
+	/** For chaff bins */
+	static boolean APPEND_CLUSTER_NUMBER=false;
 	
 }

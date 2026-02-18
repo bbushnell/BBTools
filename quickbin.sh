@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 16, 2026
+Last modified February 17, 2026
 
 Description:  Bins contigs using coverage and kmer frequencies.
 If reads or covstats are provided, coverage will be calculated from those;
@@ -40,6 +40,7 @@ out=<pattern>   Output pattern.  If this contains a % symbol, like bin%.fa,
                 indicate their bin number.  A term without a '.' symbol
                 like 'out=output' will be considered a directory.
 chaff           Enable to write small clusters to a shared file.
+chaffnums=f     Append cluster number to contigs in chaff.
 report=<file>   Report on bin size, quality, and taxonomy.
 maxsamples=8    When there are more than this many samples (sam/bam files),
                 combine some into the same logical sample to save memory.
@@ -49,7 +50,6 @@ readthreads=4   Load up to this many sam/bam files concurrently.
                 Lower uses less memory (when there are more samples).
 writethreads=4  Write up to this many bins concurrently.
 gzip=f          Gzip output fastas (if output is a directory).
-
 
 Size parameters:
 mincluster=50k  (mcs) Minimum output cluster size in base pairs; smaller

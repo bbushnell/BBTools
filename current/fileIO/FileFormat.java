@@ -815,7 +815,8 @@ public final class FileFormat {
 	public static boolean isFastaExt(String ext){
 		if(ext==null){return false;}
 		return (ext.equals("fa") || ext.equals("fasta") || ext.equals("fas") || ext.equals("fna") || ext.equals("ffn")
-			|| ext.equals("frn") || ext.equals("seq") || ext.equals("fsa") || ext.equals("faa") || ext.equals("prot"));
+			|| ext.equals("frn") || ext.equals("seq") || ext.equals("fsa") || ext.equals("faa") || ext.equals("prot")
+			|| ext.equals("foosta"));
 	}
 	
 	public static boolean isTextExt(String ext){
@@ -1373,7 +1374,7 @@ public final class FileFormat {
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
 		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png",
-		"bai", "sai", "gfa", "fastg"
+		"bai", "sai", "gfa", "fastg", "foosta"
 	};
 	
 	/** List of recognized file extensions */
@@ -1386,7 +1387,7 @@ public final class FileFormat {
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
 		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",
-		"bai", "sai", "gfa", "fastg"
+		"bai", "sai", "gfa", "fastg", "foosta"
 	};
 	
 	/* Compression */

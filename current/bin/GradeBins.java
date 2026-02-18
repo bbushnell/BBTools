@@ -221,6 +221,7 @@ public class GradeBins {
 	static void loadStuff() {
 		loadGff();
 		loadSpectra();
+		if(runQuickClade==1) {AdjustEntropy.load();}
 		loadCov();
 		makeLevelMaps();
 		if(useTree && BinObject.tree==null) {BinObject.loadTree();}
@@ -593,10 +594,16 @@ public class GradeBins {
 	 * @param annot Whether to apply GFF annotations
 	 * @return List of BinStats objects for all processed bins
 	 */
-	public static ArrayList<BinStats> toBinStats(List<String> fnames, List<? extends Bin> bins,
+	public static ArrayList<BinStats> toBinStats(ArrayList<String> fnames, List<? extends Bin> bins,
 		int minSize, boolean qclade, boolean call, boolean annot){
 		
-//		new Exception("").printStackTrace();
+		if(fnames!=null) {
+			for(int i=0; i<fnames.size(); i++) {
+				String s=fnames.get(i);
+				if("foosta".equalsIgnoreCase(FileFormat.rawExtension(s))) {fnames.set(i, null);}
+			}
+			Tools.condenseStrict(fnames);
+		}
 		
 		//Do anything necessary prior to processing
 		final int count=(fnames==null ? bins.size() : fnames.size());
