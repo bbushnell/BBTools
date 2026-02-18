@@ -129,7 +129,7 @@ public class GradeBins {
 				}
 			}
 			
-			else if(a.equalsIgnoreCase("checkm")){
+			else if(a.equalsIgnoreCase("checkm") || a.equalsIgnoreCase("checkm2")){
 				checkMFile=b;
 			}else if(a.equalsIgnoreCase("eukcc")){
 				eukCCFile=b;

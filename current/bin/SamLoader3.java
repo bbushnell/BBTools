@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLongArray;
 import java.util.concurrent.locks.ReadWriteLock;
 
+import cardinality.CardinalityTracker;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import map.IntHashMap2;
@@ -186,15 +187,16 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		final float[] ideal;
 		{//FileRead, Decompress, SamLine, Coverage
 			float x=(activeFiles>MAX_CONCURRENT_FILES ? 1 : MAX_SAM_LOADER_THREADS_PER_FILE);
+			final float cardMult=(CARDINALITY ? 4 : 1);
 			if(ff0.bam()) {//bam
-				ideal=new float[] {1f, 4f, 6f, x};
+				ideal=new float[] {1f, 4f, 6f, cardMult*x};
 			}else if(ff0.bgzip() || ff0.bz2()) {//sam.bgz or bz2
-				ideal=new float[] {1f, 4f, 6f, x};
+				ideal=new float[] {1f, 4f, 6f, cardMult*x};
 			}else if(ff0.gzip()) {//sam.gz, non-bgzip. Detectable from magic word...
-				ideal=new float[] {0.5f, 1f, 2f, 0.5f*x};
+				ideal=new float[] {0.5f, 1f, 2f, cardMult*0.5f*x};
 			}else {//sam
 				assert(ff0.sam());
-				ideal=new float[] {1f, 0f, 6f, x};
+				ideal=new float[] {1f, 0f, 6f, cardMult*x};
 			}
 		}
 		return allocateThreads(ideal, availableThreads);
@@ -233,6 +235,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			basesIn+=t.basesInT;
 			bytesIn+=t.bytesInT;
 			errorState|=(t.success);
+			if(CARDINALITY) {sharedCT.add(t.ct);}
 		}
 	}
 
@@ -251,9 +254,9 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			contigMap=contigMap_;
 			contigs=contigs_;
 			graph=graph_;
-			et=new EntropyTracker(5, 80, false, minEntropy, true);
+			et=(minEntropy<=1 ? null : new EntropyTracker(5, 80, false, minEntropy, true));
 		}
-
+		
 		void processSam(Streamer ss, AtomicLongArray depthArray) {
 			ListNum<SamLine> ln=ss.nextLines();
 			ArrayList<SamLine> reads=(ln==null ? null : ln.list);
@@ -311,6 +314,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			if(!sl.mapped()) {return false;}
 			if(maxSubs<999 && sl.countSubs()>maxSubs) {return false;}
 			if(minID>0 && sl.calcIdentity()<minID) {return false;}
+			if(CARDINALITY) {ct.hash(sl);}
 			final String rname=ContigRenamer.toShortName(sl.rnameS());
 			
 			final Contig c1=contigMap.get(rname);
@@ -356,6 +360,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		final ArrayList<Contig> contigs;
 		final IntHashMap2[] graph;
 		final EntropyTracker et;
+		CardinalityTracker ct=null;
 		
 		long readsInT=0;
 		long readsUsedT=0;
@@ -386,6 +391,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		}
 		
 		private void runInner() {
+			ct=CARDINALITY ? CardinalityTracker.makeTracker(loglogType) : null;
 			int idx=nextFileIndex.getAndIncrement();
 			while(idx < fnames.size()) {
 				String fname=fnames.get(idx);
@@ -436,6 +442,7 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 		}
 		
 		private void runInner() {
+			ct=CARDINALITY ? CardinalityTracker.makeTracker(loglogType) : null;
 			if(tid<=sample) {outstream.println("Loading "+ss.fname());}
 			processSam(ss, depthArray);
 			success=true;
@@ -460,10 +467,14 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	public int tipLimit=100;
 	public float minEntropy=0;
 	public int minAlignedBases=0;
+	public CardinalityTracker sharedCT=CARDINALITY ? CardinalityTracker.makeTracker(loglogType) : null;
 	
 	public boolean errorState=false;
+
+	public static boolean CARDINALITY=false;
 	public static int MAX_SAM_LOADER_THREADS=1024;
-	public static int MAX_SAM_LOADER_THREADS_PER_FILE=2;
+	public static float MAX_SAM_LOADER_THREADS_PER_FILE=3f;
+	public static String loglogType="LogLog16";
 	
 	/** Max files to open concurrently. */
 	public static int MAX_CONCURRENT_FILES=4;
@@ -472,4 +483,5 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	public static int MAX_SAMPLES=8;
 	
 	public static final boolean verbose=true;
+	
 }

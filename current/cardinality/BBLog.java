@@ -22,9 +22,7 @@ public final class BBLog extends CardinalityTracker {
 	
 	/** Creates a LogLog estimator with default parameters.
 	 * Uses 2048 buckets, k-mer length 31, random seed, and no minimum probability filter. */
-	BBLog(){
-		this(2048, 31, -1, 0);
-	}
+	BBLog(){this(2048, 31, -1, 0);}
 	
 	/**
 	 * Creates a LogLog estimator with parameters parsed from command-line arguments.

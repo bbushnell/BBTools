@@ -89,6 +89,10 @@ public class CovMaker {
 					maxContigsToCompare=Parse.parseIntKMG(b);
 				}else if(a.equals("out") || a.equals("outcov") || a.equals("covout")){
 					out=b;
+				}else if(a.equalsIgnoreCase("trackcardinality") || a.equalsIgnoreCase("loglog")) {
+					SamLoader3.CARDINALITY=Parse.parseBoolean(b);
+				}else if(a.equalsIgnoreCase("cardinality")) {
+					cardinality=Parse.parseKMG(b);
 				}else if(a.equalsIgnoreCase("maxsamples")) {
 					SamLoader3.MAX_SAMPLES=Integer.parseInt(b);
 				}else if(a.equalsIgnoreCase("maxconcurrentfiles") || a.equalsIgnoreCase("concurrentfiles")
@@ -422,6 +426,7 @@ public class CovMaker {
 	private boolean logNormCosine=false;
 	private float magnitudePower=1f;
 	private float entropyPower=0.25f;
+	long cardinality=0;
 
 	private boolean overwrite=true;
 	private boolean append=false;

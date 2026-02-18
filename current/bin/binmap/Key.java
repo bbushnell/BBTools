@@ -212,7 +212,7 @@ public abstract class Key implements Cloneable {
 		}else if(a.equalsIgnoreCase("hhwidth")){
 			float f=Float.parseFloat(b);
 			setHHWidth(f);
-		}else if(a.equalsIgnoreCase("hhmult")){
+		}else if(a.equalsIgnoreCase("keyhhmult")){
 			float f=Float.parseFloat(b);
 			setHHMult(f);
 		}else if(a.equalsIgnoreCase("hhdifmult")){
@@ -221,7 +221,7 @@ public abstract class Key implements Cloneable {
 		}else if(a.equalsIgnoreCase("cagawidth")){
 			float f=Float.parseFloat(b);
 			setCagaWidth(f);
-		}else if(a.equalsIgnoreCase("cagamult")){
+		}else if(a.equalsIgnoreCase("keycagamult")){
 			float f=Float.parseFloat(b);
 			setCagaMult(f);
 		}else if(a.equalsIgnoreCase("cagadifmult")){

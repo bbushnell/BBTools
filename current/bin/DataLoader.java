@@ -189,7 +189,7 @@ public class DataLoader extends BinObject {
 		}
 		
 		else if(a.equals("samloaderthreads")){
-			SamLoader.MAX_SAM_LOADER_THREADS_PER_FILE=Tools.max(1, Integer.parseInt(b));
+			SamLoader3.MAX_SAM_LOADER_THREADS_PER_FILE=Tools.max(1, Float.parseFloat(b));
 		}else if(a.equals("samserial") || a.equals("loadsamserial")){
 			loadSamSerial=Parse.parseBoolean(b);
 		}else if(a.equals("samparallel") || a.equals("loadsamparallel")){
