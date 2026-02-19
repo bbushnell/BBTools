@@ -842,7 +842,7 @@ public class KmerLimit2 extends SketchObject {
 						final byte q=quals[i];
 						assert(q>=0) : Arrays.toString(quals)+"\n"+minProb+", "+minQual;
 						prob=prob*align2.QualityTools.PROB_CORRECT[q];
-						if(len>k){
+						if(len>=k){
 							byte oldq=quals[i-k];
 							prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 						}

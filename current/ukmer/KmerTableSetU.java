@@ -576,7 +576,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 
 				if(minProb2>0 && quals!=null){//Update probability
 					prob=prob*PROB_CORRECT[quals[i]];
-					if(len>kbig){
+					if(len>=kbig){
 						byte oldq=quals[i-kbig];
 						prob=prob*PROB_CORRECT_INVERSE[oldq];
 					}
@@ -639,7 +639,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 
 				if(minProb>0 && quals!=null){//Update probability
 					prob=prob*PROB_CORRECT[quals[i]];
-					if(len>kbig){
+					if(len>=kbig){
 						byte oldq=quals[i-kbig];
 						prob=prob*PROB_CORRECT_INVERSE[oldq];
 					}
