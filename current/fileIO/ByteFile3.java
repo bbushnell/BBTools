@@ -164,13 +164,14 @@ public final class ByteFile3 extends ByteFile {
 			threads, true, inputPrototype, outputPrototype);
 
 		if(verbose){System.err.println("Made ByteFile3 with "+threads+" threads");}
+		start();
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public void start(){
+	public synchronized void start(){
 		if(open){return;}
 		open();
 		spawnThreads();
@@ -226,7 +227,7 @@ public final class ByteFile3 extends ByteFile {
 			return null;
 		}
 
-		lineNum++;
+		lineNum+=ln.size();
 		return ln;
 	}
 
@@ -376,10 +377,22 @@ public final class ByteFile3 extends ByteFile {
 					start=nlpos+1;
 				}
 
-				// Handle any remaining bytes after last newline
+//				// Handle any remaining bytes after last newline
+//				if(start<job.buffer.length){
+//					byte[] line=Arrays.copyOfRange(job.buffer, start, job.buffer.length);
+//					if(line.length>0){
+//						output.add(line);
+//					}
+//				}
+
+				//Handle any remaining bytes after last newline
+				//Also handles files not terminated with newlines
 				if(start<job.buffer.length){
-					byte[] line=Arrays.copyOfRange(job.buffer, start, job.buffer.length);
-					if(line.length>0){
+					int limit=job.buffer.length;
+					if(limit>start && job.buffer[limit-1]==slashr){limit--;}
+					if(start==limit){output.add(blankLine);}
+					else{
+						byte[] line=Arrays.copyOfRange(job.buffer, start, limit);
 						output.add(line);
 					}
 				}

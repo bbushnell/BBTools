@@ -256,28 +256,31 @@ public abstract class CardinalityTracker {
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
-		int len=0;
+		final int lenmask=(-1)>>>k;
+		final int lenmask2=lenmask>>1;
 		
 		long kmer=0, rkmer=0;
 		
 		if(minProb>0 && quals!=null){//Debranched loop
 			assert(quals.length==bases.length) : quals.length+", "+bases.length;
 			float prob=1;
+			int len=0;
 			for(int i=0; i<bases.length; i++){
 				byte b=bases[i];
-				long x=AminoAcid.baseToNumber[b];
-				long x2=AminoAcid.baseToComplementNumber[b];
+				
+//				long x=AminoAcid.baseToNumber[b];
+//				final long x2=x^3;
+				
+				final long x=((b>>1)&3)|((b&8)<<28);//Different encoding
+				final long x2=x^2;
+				
 				kmer=((kmer<<2)|x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+
+				//Update probability
+				prob=prob*PROB_CORRECT[quals[i]];
+				if(len>=k){prob=prob*PROB_CORRECT_INVERSE[quals[i-k]];}
 				
-				{//Update probability
-					byte q=quals[i];
-					prob=prob*PROB_CORRECT[q];
-					if(len>k){
-						byte oldq=quals[i-k];
-						prob=prob*PROB_CORRECT_INVERSE[oldq];
-					}
-				}
 				if(x>=0){
 					len++;
 				}else{
@@ -285,27 +288,50 @@ public abstract class CardinalityTracker {
 					kmer=rkmer=0;
 					prob=1;
 				}
-				if(len>=k && prob>=minProb){
-					add(Tools.max(kmer, rkmer));
-				}
+				
+				if(len>=k && prob>=minProb){add(Math.max(kmer, rkmer));}
 			}
 		}else{
 
+			//Old, slower logic
+//			for(int i=0; i<bases.length; i++){
+//				byte b=bases[i];
+//				long x=AminoAcid.baseToNumber[b];
+//				long x2=AminoAcid.baseToComplementNumber[b];
+//				kmer=((kmer<<2)|x)&mask;
+//				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+//				
+//				if(x>=0){
+//					len++;
+//				}else{
+//					len=0;
+//					kmer=rkmer=0;
+//				}
+//				if(len>=k){
+//					add(Math.max(kmer, rkmer));
+//				}
+//			}
+			
+			//Does not handle IUPAC
+			int len=-1;
 			for(int i=0; i<bases.length; i++){
-				byte b=bases[i];
-				long x=AminoAcid.baseToNumber[b];
-				long x2=AminoAcid.baseToComplementNumber[b];
+				final byte b=bases[i];
+//				final long x=AminoAcid.baseToNumber[b];//Normal 2-bit encoding
+//				final long x2=x^3;
+				final long x=((b>>1)&3)|((b&8)<<28);//Alternate 2-bit encoding
+				final long x2=x^2;
+				
+				// shift register, tracks valid bases in upper zeros
+				len|=x;
+				len>>>=1;
+				
+				// Let the kmers roll. Garbage flushes out naturally after k shifts!
 				kmer=((kmer<<2)|x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
 				
-				if(x>=0){
-					len++;
-				}else{
-					len=0;
-					kmer=rkmer=0;
-				}
-				if(len>=k){
-					add(Tools.max(kmer, rkmer));
+				// Countdown timer reached the threshold
+				if(len<=lenmask){
+					add(Math.max(kmer, rkmer));
 				}
 			}
 		}
@@ -330,7 +356,7 @@ public abstract class CardinalityTracker {
 			kmer.addRightNumeric(x);
 			if(minProb>0 && quals!=null){//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
-				if(len>k){
+				if(len>=k){
 					byte oldq=quals[i-k];
 					prob=prob*PROB_CORRECT_INVERSE[oldq];
 				}
@@ -430,7 +456,7 @@ public abstract class CardinalityTracker {
 		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
 		bsw.start();
 		bsw.print("#Depth\tCount\n");
-		final double mult=Tools.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
+		final double mult=Math.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
 		final long[] array=sll.array();
 		final LongList list=sll.list();
 		
@@ -442,7 +468,7 @@ public abstract class CardinalityTracker {
 					if(decimals>0){
 						bsw.print(count*mult, decimals).nl();
 					}else{
-						bsw.print(Tools.max(1, Math.round(count*mult))).nl();
+						bsw.print(Math.max(1, Math.round(count*mult))).nl();
 					}
 				}else{
 					bsw.print(count).nl();
@@ -460,7 +486,7 @@ public abstract class CardinalityTracker {
 					if(decimals>0){
 						bsw.print(count*mult, decimals).nl();
 					}else{
-						bsw.print(Tools.max(1, Math.round(count*mult))).nl();
+						bsw.print(Math.max(1, Math.round(count*mult))).nl();
 					}
 				}else{
 					bsw.print(count).nl();
@@ -477,7 +503,7 @@ public abstract class CardinalityTracker {
 				if(decimals>0){
 					bsw.print(count*mult, decimals).nl();
 				}else{
-					bsw.print(Tools.max(1, Math.round(count*mult))).nl();
+					bsw.print(Math.max(1, Math.round(count*mult))).nl();
 				}
 			}else{
 				bsw.print(count).nl();
@@ -491,7 +517,7 @@ public abstract class CardinalityTracker {
 //		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
 //		bsw.start();
 //		bsw.print("#Depth\tCount\n");
-//		final double mult=Tools.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
+//		final double mult=Math.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
 //		
 //		for(int depth=0; depth<array.length; depth++){
 //			long count=array[depth];
@@ -501,7 +527,7 @@ public abstract class CardinalityTracker {
 //					if(decimals>0){
 //						bsw.print(count*mult, decimals).nl();
 //					}else{
-//						bsw.print(Tools.max(1, Math.round(count*mult))).nl();
+//						bsw.print(Math.max(1, Math.round(count*mult))).nl();
 //					}
 //				}else{
 //					bsw.print(count).nl();

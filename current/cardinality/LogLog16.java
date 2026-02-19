@@ -154,7 +154,9 @@ public final class LogLog16 extends CardinalityTracker {
 		long key=number;
 		
 		key=Tools.hash64shift(key);
+//		if(key<0 || key>0x07FFFFFFFFFFFFFFL) {return;}//Super slow!
 		int leading=Long.numberOfLeadingZeros(key)&63;//mask is used to keep number in 6 bits 
+		if(leading<4) {return;}
 		
 //		counts[leading]++;
 		

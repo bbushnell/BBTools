@@ -173,7 +173,7 @@ public class KmerComparator implements Comparator<Read> {
 			
 			if(minProb>0 && quals!=null){//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
-				if(len>k){
+				if(len>=k){
 					byte oldq=quals[i-k];
 					prob=prob*PROB_CORRECT_INVERSE[oldq];
 				}
@@ -355,7 +355,7 @@ public class KmerComparator implements Comparator<Read> {
 			
 			if(minProb>0 && quals!=null){//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
-				if(len>k){
+				if(len>=k){
 					byte oldq=quals[i-k];
 					prob=prob*PROB_CORRECT_INVERSE[oldq];
 				}

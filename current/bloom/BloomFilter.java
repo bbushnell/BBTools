@@ -1024,7 +1024,7 @@ public class BloomFilter implements Serializable {
 			}else{
 				q=quals[i];
 				prob=prob*align2.QualityTools.PROB_CORRECT[q];
-				if(len>k){
+				if(len>=k){
 					byte oldq=quals[i-k];
 					prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 				}

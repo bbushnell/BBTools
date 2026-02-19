@@ -822,7 +822,7 @@ public class ReadCounter extends KmerCountAbstract {
 				
 				if(minProb>0 && quals!=null){//Update probability
 					prob=prob*KmerTableSet.PROB_CORRECT[quals[i]];
-					if(len>k){
+					if(len>=k){
 						byte oldq=quals[i-k];
 						prob=prob*KmerTableSet.PROB_CORRECT_INVERSE[oldq];
 					}
@@ -883,7 +883,7 @@ public class ReadCounter extends KmerCountAbstract {
 				}else{
 					q=quals[i];
 					prob=prob*align2.QualityTools.PROB_CORRECT[q];
-					if(len>k){
+					if(len>=k){
 						byte oldq=quals[i-k];
 						prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 					}
@@ -939,7 +939,7 @@ public class ReadCounter extends KmerCountAbstract {
 				}else{
 					q=quals[i];
 					prob=prob*align2.QualityTools.PROB_CORRECT[q];
-					if(len>k){
+					if(len>=k){
 						byte oldq=quals[i-k];
 						prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 					}
@@ -1010,7 +1010,7 @@ public class ReadCounter extends KmerCountAbstract {
 				}else{
 					q=quals[i];
 					prob=prob*align2.QualityTools.PROB_CORRECT[q];
-					if(kmer.len>k){
+					if(kmer.len>=k){
 						byte oldq=quals[i-k];
 						prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 					}

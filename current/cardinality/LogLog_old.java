@@ -186,7 +186,7 @@ public class LogLog_old {
 				{//Update probability
 					byte q=quals[i];
 					prob=prob*PROB_CORRECT[q];
-					if(len>k){
+					if(len>=k){
 						byte oldq=quals[i-k];
 						prob=prob*PROB_CORRECT_INVERSE[oldq];
 					}
@@ -236,7 +236,7 @@ public class LogLog_old {
 			kmer.addRightNumeric(x);
 			if(minProb>0 && quals!=null){//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
-				if(len>k){
+				if(len>=k){
 					byte oldq=quals[i-k];
 					prob=prob*PROB_CORRECT_INVERSE[oldq];
 				}

@@ -167,7 +167,7 @@ public final class ByteFile4 extends ByteFile{
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public void start(){
+	public synchronized void start(){
 		if(open){return;}
 		open();
 		spawnThreads();
@@ -410,8 +410,20 @@ public final class ByteFile4 extends ByteFile{
 				}
 
 				// BufferJob should end exactly at a newline, no residual data
-				assert(start==job.buffer.length) : "Incomplete line in BufferJob! start="+start+
-					", length="+job.buffer.length;
+//				assert(start==job.buffer.length) : "Incomplete line in BufferJob! start="+start+
+//					", length="+job.buffer.length;
+				
+				//Fix for files not terminated by newlines
+				if(start<job.buffer.length){
+					int limit=job.buffer.length;
+					if(limit>start && job.buffer[limit-1]==slashr){limit--;}
+
+					if(start == limit){output.add(blankLine);}
+					else{
+						byte[] line=Arrays.copyOfRange(job.buffer, start, limit);
+						output.add(line);
+					}
+				}
 
 				if(verbose) {System.err.println("Worker "+tid+" addOutput("+output.id+")");}
 				oqs.addOutput(output);
