@@ -3,10 +3,10 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 15, 2026
+Last modified February 19, 2026
 
 Description:  Calculates compositional scalar metrics from nucleotide sequences.
-Computes GC content, HH (homo/hetero dimer ratio), CAGA (transistion preference),
+Computes GC content, HH (homo/hetero dimer ratio), CAGA (transition preference),
 depth, and length for sequence intervals. Outputs data in TSV format for 
 visualization with CloudPlot or external analysis tools.
 

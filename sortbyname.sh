@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified January 26, 2026
+Last modified February 19, 2026
 
 Description:  Sorts reads by name or other keys such as length,
 quality, mapping position, flowcell coordinates, or taxonomy.
@@ -36,7 +36,12 @@ clump=f         Sort reads by shared kmers, like Clumpify.
 flowcell=f      Sort reads by flowcell coordinates.
 shuffle=f       Shuffle reads randomly (untested).
 list=<file>     Sort reads according to this list of names.
-ascending=t     Sort ascending.
+ascending=t     Sort ascending.  This defaults to true except for length.
+descending=f    Sort descending instead of ascending.  Overrides ascending flag.
+maxfiles=12     Maximum number of temp files to use during external sort.
+crispr=f        Sort reads by CRISPR repeat quality score (requires neural network model).
+genkmer=t       Generate 5-bit kmers for topological/lexicographic sorting modes.
+deleteearly=f   Delete temp files as soon as they are merged, to save disk space.
 
 Memory parameters (you might reduce these if you experience a crash)
 memmult=0.30    Write a temp file when used memory exceeds this fraction
