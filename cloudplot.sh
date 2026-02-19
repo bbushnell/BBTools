@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 15, 2026
+Last modified February 19, 2026
 
 Description:  Visualizes up to 5D compositional metrics as 2D scatter plots.
 X, Y, Z (rotation), Size, and Color channels can display GC, HH, CAGA, Depth, or Length.
@@ -45,6 +45,10 @@ cov=<file>      Coverage file from pileup.sh (format: #ID, Avg_fold) or
                 covmaker.sh (format: #Contigs, AvgFold).
 depth=<file>    SAM/BAM file for depth calculation.
                 Calculates depth from aligned bases in SAM/BAM format.
+logoffset=0.25  Offset added before log-transforming depth/length values.
+logshift=2.0    Shift applied during log transformation of depth/length values.
+logpower=2.0    Power exponent applied during log transformation.
+cpct=0.98       Color percentile for autoscaling color range (0-1).
 
 Rendering parameters:
 scale=1         Image scale multiplier (1=1024x768).
