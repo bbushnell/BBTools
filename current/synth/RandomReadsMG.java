@@ -689,7 +689,7 @@ public class RandomReadsMG{
 		if(depthMode==MIN4){depth=depthMin4(randy);}
 		else if(depthMode==EXP){depth=depthExp(randy);}
 		else if(depthMode==ROOT){depth=depthRoot(randy);}
-		else if(depthMode==LINEAR){depth=depthLinear(randy);}
+		else if(depthMode==LINEAR || depthMode==UNIFORM){depth=depthLinear(randy);}
 		else{throw new RuntimeException("Unknown mode "+depthMode);}
 		return depth;
 	}
@@ -1628,8 +1628,8 @@ public class RandomReadsMG{
 	/** Homopolymer error bonus rate for long-read platforms (-1 for default) */
 	private float hRate=-1;
 	/** Available coverage depth distribution modes */
-	static final String[] modes={"MIN4", "EXP", "ROOT", "LINEAR"};
-	static final int MIN4=0, EXP=1, ROOT=2, LINEAR=3;
+	static final String[] modes={"MIN4", "EXP", "ROOT", "LINEAR", "UNIFORM"};
+	static final int MIN4=0, EXP=1, ROOT=2, LINEAR=3, UNIFORM=4;
 	/** Selected coverage depth distribution mode */
 	int depthMode=MIN4;
 	/** Available sequencing platform types */

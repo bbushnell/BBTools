@@ -40,7 +40,7 @@ reads=-1        If positive, set depth based on read length and genome size,
                 to yield approximately this number of reads per file.
 		Requires reading the input twice.
 readspercontig=-1    If positive, ignore depth and make this many reads per contig.
-mode=min4       Random depth distribution; can be min4, exp, root, or linear.
+mode=min4       Random depth distribution; can be min4, exp, root, or uniform.
 cov_x=          Set a custom coverage level for the file named x.
                 x can alternatively be the taxID if the filename starts
                 with tid_x_; e.g. cov_foo.fa=5 for foo.fa, or cov_7=5
@@ -151,7 +151,11 @@ resolveSymlinks(){
 		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
 	done
 	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
-	CP="$DIR/current/"
+	if [ -f "$DIR/bbtools.jar" ]; then
+		CP="$DIR/bbtools.jar"
+	else
+		CP="$DIR/current/"
+	fi
 }
 
 setEnv(){
