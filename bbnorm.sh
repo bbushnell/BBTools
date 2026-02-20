@@ -136,7 +136,11 @@ resolveSymlinks(){
 		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
 	done
 	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"
-	CP="$DIR/current/"
+	if [ -f "$DIR/bbtools.jar" ]; then
+		CP="$DIR/bbtools.jar"
+	else
+		CP="$DIR/current/"
+	fi
 }
 
 setEnv(){

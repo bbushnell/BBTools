@@ -1540,9 +1540,16 @@ public class Data {
 	
 	static{
 		String s=new File(Data.class.getClassLoader().getResource(
-				Data.class.getName().replace('.', '/') + ".class").getFile()).getAbsolutePath();
+			Data.class.getName().replace('.', '/') + ".class").getFile()).getAbsolutePath();
 		s=PercentEncoding.codeToSymbol(s);
-		ROOT=s.replace('\\', '/').replace("dna/Data.class", "");
+		s=s.replace('\\', '/');
+		// Fix garbled path when running from jar: getFile() returns "file:/path/jar!/class"
+		// new File() prepends cwd, giving "cwd/file:/path/jar!/class"
+		if(s.contains("/file:")){
+			s=s.substring(s.lastIndexOf("/file:")+6); // strips to "/path/bbtools.jar!/..."
+		}
+		ROOT=s.replace("dna/Data.class", "");
+		// ROOT now = "/path/bbtools/bbtools.jar!/" → parent = "/path/bbtools/" → resources found! ✓
 		setPath(Shared.WINDOWS ? "?Shared.WINDOWS" : "?unix");
 		if(!Shared.WINDOWS || true){setPath("?local");}
 	}

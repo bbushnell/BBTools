@@ -1732,7 +1732,7 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	/** Maximum GC content difference for cluster merging */
 	static float maxGCDif2=0.032f;
 	/** Maximum coverage covariance for cluster merging */
-	static float maxCovariance2=0.004f;//<.35 decreases CAMI contam, but <0.5 decreases synth3 completeness 
+	static float maxCovariance2=0.0042f;//<.35 decreases CAMI contam, but <0.5 decreases synth3 completeness 
 	/** Minimum k-mer probability threshold for cluster merging */
 	static float minKmerProb2=0.82f;
 	
