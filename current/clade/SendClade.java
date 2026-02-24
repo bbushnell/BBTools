@@ -154,11 +154,11 @@ public class SendClade extends CladeObject {
 			}else if(a.equalsIgnoreCase("a48")){
 				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
 			}else if(a.equals("in")){
-				Tools.getFileOrFiles(b, in, true, false, false, false);
+				Tools.getFileOrFiles(b, in, true, true, true, false);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
-			}else if(new File(arg).canRead()){
-				Tools.getFileOrFiles(arg, in, true, false, false, false);
+			}else if(b==null && new File(arg).canRead()){
+				Tools.getFileOrFiles(arg, in, true, true, true, false);
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];

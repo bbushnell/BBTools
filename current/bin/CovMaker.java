@@ -103,6 +103,8 @@ public class CovMaker {
 				}else if(a.equals("ref")){
 					outstream.println("Adding ref file "+b);
 					ref=b;
+				}else if(a.equals("refout") || a.equals("outref") || a.equals("outr")){
+					outRef=b;
 				}else if(loader.parse(arg, a, b)){
 					//do nothing
 				}else if(parser.parse(arg, a, b)){
@@ -414,6 +416,7 @@ public class CovMaker {
 	private DataLoader loader;
 	private String out=null;
 	private String ref=null;
+	private String outRef=null;
 	private int condense=-1;
 	private int maxContigsToCompare=100000;
 	private int maxContigsToEntropy=100000;

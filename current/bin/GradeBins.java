@@ -867,7 +867,7 @@ public class GradeBins {
 			final long size=b.size;
 			final float comp=b.complt, contam=b.contam;
 			if(size>=minSize) {
-				if(contam<=0.05f && comp>=0.9f && (!useRNA || (b.r16Scount>0 && b.r23Scount>0 && b.trnaCount>=18))) {
+				if(contam<0.05f && comp>0.9f && (!useRNA || (b.r16Scount>0 && b.r5Scount>0 && b.r23Scount>0 && b.trnaCount>=18))) {
 					hq++;
 					hqSize+=size;
 					if(comp>=0.99f && contam<=0.01f) {

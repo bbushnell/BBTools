@@ -340,7 +340,7 @@ public class EntropyTracker {
 	 * Calculates strandedness from existing k-mer counts.
 	 * @param counts Array of k-mer counts indexed by numeric k-mer value
 	 * @param k K-mer length
-	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 * @return Strandedness score (0=perfectly stranded, 1=perfectly balanced/unstranded)
 	 */
 	public static float strandedness(int[] counts, int k) {
 		final int mask=~((-1)<<(2*k));
