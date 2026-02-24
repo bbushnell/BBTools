@@ -153,6 +153,8 @@ public class SendClade extends CladeObject {
 				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("a48")){
 				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
+			}else if(a.equals("mtload") || a.equals("multithreaded")){
+				mtload=Parse.parseBoolean(b);
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, true, true, false);
 			}else if(parser.parse(arg, a, b)){
@@ -233,7 +235,7 @@ public class SendClade extends CladeObject {
 			tsw=new TextStreamWriter(ffout);
 			tsw.start();
 		}else {tsw=null;}
-		
+
 		if(oneline && tsw!=null){
 			//Print header for oneline format
 			tsw.println("#QueryName\tQ_GC\tQ_Bases\tQ_Contigs\tRefName\tR_TaxID\tR_GC\tR_Bases\tR_Contigs\tR_Level\tGCdif\tSTRdif\tk3dif\tk4dif\tk5dif\tlineage");
@@ -244,15 +246,24 @@ public class SendClade extends CladeObject {
 		assert(in.size() > 0) : "No input files to process";
 		if(verbose){System.err.println("[" + new java.util.Date() + "] Processing " + in.size() + " input files");}
 
-		for(String fname : in){
-			assert(fname != null) : "Null filename in input list";
-			if(verbose){System.err.println("[" + new java.util.Date() + "] Processing file: " + fname);}
-			FileFormat ff=FileFormat.testInput(fname, FileFormat.UNKNOWN, null, true, true);
-			assert(ff != null) : "FileFormat creation failed for " + fname;
-			long seqs = process_inner(ff, tsw);
-			assert(seqs >= 0) : "Invalid sequence count: " + seqs;
-			if(verbose){System.err.println("[" + new java.util.Date() + "] Processed " + seqs + " sequences from " + fname);}
-			sequencesProcessed+=seqs;
+		if(mtload) {
+			Timer tLoad=new Timer(outstream, false);
+			CladeLoaderMF loaderMF=new CladeLoaderMF();
+			ArrayList<Clade> allClades=loaderMF.loadFiles(in, perContig, minlen, maxReads, true);
+			tLoad.stop("Loaded "+allClades.size()+" queries in ");
+			sequencesProcessed=loaderMF.readsProcessed;
+			sendAndPrint(allClades, tsw);
+		}else{
+			for(String fname : in){
+				assert(fname != null) : "Null filename in input list";
+				if(verbose){System.err.println("[" + new java.util.Date() + "] Processing file: " + fname);}
+				FileFormat ff=FileFormat.testInput(fname, FileFormat.UNKNOWN, null, true, true);
+				assert(ff != null) : "FileFormat creation failed for " + fname;
+				long seqs = process_inner(ff, tsw);
+				assert(seqs >= 0) : "Invalid sequence count: " + seqs;
+				if(verbose){System.err.println("[" + new java.util.Date() + "] Processed " + seqs + " sequences from " + fname);}
+				sequencesProcessed+=seqs;
+			}
 		}
 
 		//Clean up
@@ -429,7 +440,7 @@ public class SendClade extends CladeObject {
 
 		return sequencesProcessed;
 	}
-	
+
 	/**
 	 * Transmits a batch of clades to the remote server and processes the response.
 	 * Constructs the request message with all configuration parameters, handles server
@@ -443,7 +454,7 @@ public class SendClade extends CladeObject {
 		//Write response to unified output
 		if(tsw!=null) {tsw.print(s);}
 	}
-	
+
 	public static boolean sendAndLabel(List<Clade> clades) {
 		String response=sendClades(clades, null, true, 1, false, false, 1, false);
 		ArrayList<Comparison> comps=null;
@@ -465,15 +476,15 @@ public class SendClade extends CladeObject {
 		}
 		return true;
 	}
-	
+
 	public static ArrayList<Comparison> responseToComparisons(String s) {
 
-		
-//		#Query1
-//		f_0_c_0_s_0_p_6294_i_40_tid_1002367 1:	0.475	40	1	Cortinarius geophilus var. subauroreus	2764306	0.416	609	1	1	0.059	0.167	0.579	1.000	1.000	sk__Eukaryota;k__Fungi;p__Basidiomycota;c__Agaricomycetes;o__Agaricales;f__Cortinariaceae;g__Cortinarius;s__Cortinarius geophilus
-//		#Query2
-//		f_0_c_0_s_0_p_11130_i_40_tid_1002367 1:	0.475	40	1	Passion fruit yellow mosaic virus	185692	0.540	1115	1	1	0.065	0.013	0.423	1.000	1.000	sk__Viruses;k__Orthornavirae;p__Kitrinoviricota;c__Alsuviricetes;o__Tymovirales;f__Tymoviridae;g__Tymovirus;s__Tymovirus passiflorae;ss__Passion fruit yellow mosaic virus
-//		#Query3
+
+		//		#Query1
+		//		f_0_c_0_s_0_p_6294_i_40_tid_1002367 1:	0.475	40	1	Cortinarius geophilus var. subauroreus	2764306	0.416	609	1	1	0.059	0.167	0.579	1.000	1.000	sk__Eukaryota;k__Fungi;p__Basidiomycota;c__Agaricomycetes;o__Agaricales;f__Cortinariaceae;g__Cortinarius;s__Cortinarius geophilus
+		//		#Query2
+		//		f_0_c_0_s_0_p_11130_i_40_tid_1002367 1:	0.475	40	1	Passion fruit yellow mosaic virus	185692	0.540	1115	1	1	0.065	0.013	0.423	1.000	1.000	sk__Viruses;k__Orthornavirae;p__Kitrinoviricota;c__Alsuviricetes;o__Tymovirales;f__Tymoviridae;g__Tymovirus;s__Tymovirus passiflorae;ss__Passion fruit yellow mosaic virus
+		//		#Query3
 		String[] lines=s.split("\n");
 		ArrayList<Comparison> list=new ArrayList<Comparison>(lines.length/2+1);
 		LineParserS1 lp=new LineParserS1('\t');
@@ -490,7 +501,7 @@ public class SendClade extends CladeObject {
 		}
 		return list;
 	}
-	
+
 	private String sendClades(Collection<Clade> clades) {
 		return sendClades(clades, null, oneline, hits, 
 			printQTID, banSelf, heapSize, verbose);
@@ -505,31 +516,31 @@ public class SendClade extends CladeObject {
 	 * @param tsw Unified output writer for server response
 	 */
 	public static String sendClades(Collection<Clade> clades, String address, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
-			if(clades.size()<=MAX_CLADES_PER_BATCH) {
-				return sendBatch(clades, address, oneline, hits, 
-					printQTID, banSelf, heapSize, verbose);
-			}
-			StringBuilder sb=new StringBuilder();
-			ArrayList<Clade> temp=new ArrayList<Clade>(MAX_CLADES_PER_BATCH);
-			for(Clade c : clades) {
-				temp.add(c);
-				if(temp.size()>=MAX_CLADES_PER_BATCH) {
-					String s=sendBatch(temp, address, oneline, hits, 
-						printQTID, banSelf, heapSize, verbose);
-					sb.append(s);
-					temp.clear();
-				}
-			}
-			if(temp.size()>0) {
+		boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
+		if(clades.size()<=MAX_CLADES_PER_BATCH) {
+			return sendBatch(clades, address, oneline, hits, 
+				printQTID, banSelf, heapSize, verbose);
+		}
+		StringBuilder sb=new StringBuilder();
+		ArrayList<Clade> temp=new ArrayList<Clade>(MAX_CLADES_PER_BATCH);
+		for(Clade c : clades) {
+			temp.add(c);
+			if(temp.size()>=MAX_CLADES_PER_BATCH) {
 				String s=sendBatch(temp, address, oneline, hits, 
 					printQTID, banSelf, heapSize, verbose);
 				sb.append(s);
 				temp.clear();
 			}
-			return sb.toString();
+		}
+		if(temp.size()>0) {
+			String s=sendBatch(temp, address, oneline, hits, 
+				printQTID, banSelf, heapSize, verbose);
+			sb.append(s);
+			temp.clear();
+		}
+		return sb.toString();
 	}
-	
+
 	private String sendBatch(Collection<Clade> clades) {
 		return sendBatch(clades, null, oneline, hits, 
 			printQTID, banSelf, heapSize, verbose);
@@ -544,12 +555,12 @@ public class SendClade extends CladeObject {
 	 * @param tsw Unified output writer for server response
 	 */
 	private static String sendBatch(Collection<Clade> clades, String address, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
+		boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
 		if(clades==null || clades.isEmpty()){return null;}
 		assert(clades.size()<=MAX_CLADES_PER_BATCH) : clades.size()+">"+MAX_CLADES_PER_BATCH;
 		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + clades.size() + " clades");}
 		if(address==null) {address=defaultAddress;}
-		
+
 		//Send to server
 		Timer t=new Timer();
 		byte[] message=toMessage(clades, oneline, hits, banSelf, printQTID, heapSize);
@@ -575,7 +586,7 @@ public class SendClade extends CladeObject {
 	 * @param tsw Unified output writer for server response
 	 */
 	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize){
+		boolean printQTID, boolean banSelf, int heapSize){
 		if(clades==null || clades.isEmpty()){return null;}
 		//Build message
 		ByteBuilder bb=new ByteBuilder();
@@ -614,7 +625,7 @@ public class SendClade extends CladeObject {
 
 		try{
 			if(verbose){System.err.println("[" + new java.util.Date() + "] Calling ServerTools.sendAndReceive()");}
-//			assert(false) : new String(message);
+			//			assert(false) : new String(message);
 			Timer sendTimer=new Timer();
 			StringNum result=sendAndReceive(message, address);
 			assert(result != null) : "Server returned null result";
@@ -643,10 +654,10 @@ public class SendClade extends CladeObject {
 		}
 		return null;
 	}
-	
+
 	private static StringNum sendAndReceive(byte[] message, String address) {
 		StringNum sn=null;
-//		assert(false) : "'"+new String(message)+"'";
+		//		assert(false) : "'"+new String(message)+"'";
 		if(sync) {
 			synchronized(SendSketch.class) {
 				sn=ServerTools.sendAndReceive(message, address);
@@ -689,6 +700,8 @@ public class SendClade extends CladeObject {
 	private int heapSize=1;
 	/** Minimum contig length */
 	private int minlen=0;
+	/** Use multithreaded loading for all files before sending */
+	private boolean mtload=true;
 	/** Maximum reads to process */
 	private long maxReads=-1;
 
@@ -696,7 +709,7 @@ public class SendClade extends CladeObject {
 	private boolean printQTID=false;
 	/** Ban self-matches */
 	private boolean banSelf=false;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -713,7 +726,7 @@ public class SendClade extends CladeObject {
 
 	/** Display verbose output */
 	private boolean verbose=false;
-	
+
 	private static AtomicInteger concurrency=new AtomicInteger(0);
 	public static boolean sync=false;
 	public static int maxConcurrency=8;
