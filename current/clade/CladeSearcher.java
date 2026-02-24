@@ -361,7 +361,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		if(serverMode) {
 			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE, 
 				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
-			outstream.print(s);
+//			outstream.print(s);
+			if(ffout!=null) {
+				ReadWrite.writeStringInThread(s, out);
+			}
 			return;
 //			results=SendClade.responseToComparisons(s); //TODO: Need to split into records.
 		}else if(multithreaded) {
