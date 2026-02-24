@@ -9,7 +9,8 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
+import stream.Streamer;
+import stream.StreamerFactory;
 import stream.Read;
 import structures.ListNum;
 import template.Accumulator;
@@ -17,7 +18,7 @@ import template.ThreadWaiter;
 import tracker.EntropyTracker;
 
 /**
- * Loads a single file using multiple threads sharing one ConcurrentReadInputStream.
+ * Loads a single file using multiple threads sharing one Streamer.
  * Designed for large single-file inputs (e.g., large genome assemblies or bins)
  * where multithreading within a single file provides speedup.
  * In non-perContig mode, each thread accumulates k-mer counts into a private
@@ -73,13 +74,13 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Opens a ConcurrentReadInputStream for the file, spawns threads to process it,
+	 * Opens a Streamer for the file, spawns threads to process it,
 	 * then merges results.
 	 */
 	private ArrayList<Clade> spawnThreads(FileFormat ff, boolean perContig,
 			int minContig, long maxReads, boolean finish) {
 
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, true, ff, null);
+		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, -1);
 		cris.start();
 
 		final int threads=Shared.threads();
@@ -154,24 +155,31 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Thread that reads batches from a shared ConcurrentReadInputStream.
+	 * Thread that reads batches from a shared Streamer.
 	 * In non-perContig mode, accumulates reads into a private partial Clade.
 	 * In perContig mode, creates one Clade per sequence and tracks numericIDs.
 	 */
 	static class ProcessThread extends Thread {
 
-		ProcessThread(ConcurrentReadInputStream cris_, int tid_,
+		ProcessThread(Streamer cris_, int tid_,
 				boolean perContig_, int minContig_, boolean finish_) {
 			cris=cris_;
 			tid=tid_;
 			perContig=perContig_;
 			minContig=minContig_;
 			finish=finish_;
-			partialClade=new Clade(-1, -1, "partial_"+tid_);
 		}
 
 		@Override
 		public void run() {
+			synchronized(this) {
+				runInner();
+			}
+		}
+		
+		public void runInner() {
+			partialClade=new Clade(-1, -1, "partial_"+tid);
+			et=(calcCladeEntropy ? new EntropyTracker(entropyK, entropyWindow, false) : null);
 			ListNum<Read> ln=cris.nextList();
 			while(ln!=null && ln.size()>0) {
 				for(Read r : ln) {
@@ -189,10 +197,8 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 					readsProcessedT++;
 					basesProcessedT+=r.bases.length;
 				}
-				cris.returnList(ln);
 				ln=cris.nextList();
 			}
-			if(ln!=null) {cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());}
 			success=true;
 		}
 
@@ -204,21 +210,21 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 		boolean success=false;
 
 		/** Partial Clade accumulating k-mer counts in non-perContig mode */
-		final Clade partialClade;
+		Clade partialClade;
 		/** Per-contig Clades produced in perContig mode */
 		final ArrayList<Clade> perContigClades=new ArrayList<Clade>();
 		/** numericIDs parallel to perContigClades, for sorting into input order */
 		final ArrayList<Long> numericIDs=new ArrayList<Long>();
 
-		/** Shared input stream - ConcurrentReadInputStream is thread-safe */
-		private final ConcurrentReadInputStream cris;
+		/** Shared input stream - Streamer is thread-safe */
+		private final Streamer cris;
 		/** Thread ID */
 		final int tid;
 		private final boolean perContig;
 		private final int minContig;
 		private final boolean finish;
 		/** Per-thread entropy tracker - not thread-safe, must not be shared */
-		private final EntropyTracker et=new EntropyTracker(entropyK, entropyWindow, false);
+		private EntropyTracker et;
 	}
 
 	/*--------------------------------------------------------------*/
