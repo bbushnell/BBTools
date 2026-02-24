@@ -20,6 +20,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prok.GeneCaller;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -135,14 +136,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/**
 	 * Sets up the searcher by loading necessary components.
-	 * Loads entropy model and taxonomy tree if needed.
+	 * Loads entropy model but NOT tree.
 	 */
 	void setup() {
 		if(calcCladeEntropy && (AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150)) {
 			AdjustEntropy.load(4, 150);
 		}
 		
-		if(useTree) {CladeObject.loadTree();}
 		if(Clade.callSSU) {
 			GeneTools.loadPGM();
 			GeneCaller.call23S=GeneCaller.call5S=GeneCaller.calltRNA=GeneCaller.callCDS=false;
@@ -210,6 +210,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				}else {
 					multithreaded=Parse.parseBoolean(b);
 				}
+			}else if(a.equalsIgnoreCase("psetup") || a.equalsIgnoreCase("parallelsetup")){
+				parallelSetup=Parse.parseBoolean(b);
 			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("records")){
 				maxHitsToPrint=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
@@ -247,10 +249,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(CladeIndex.parse(arg, a, b)){
 				//Do nothing
-			}else if(b==null && new File(arg).isFile()){
+			}else if(b==null && new File(arg).isFile() && FileFormat.isSequence(arg)){
 				in.add(arg);
 			}else if(b==null && new File(arg).isDirectory()){
-				Tools.getFileOrFiles(arg, in, true, false, false, false);
+				Tools.getFileOrFiles(arg, in, true, true, true, false);
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -328,13 +330,35 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		readsProcessed=basesProcessed=0;
 		readsLoaded=basesLoaded=0;
 		setup();
-		loadIndex();
-		loadQueries(index==null || serverMode);
+		
+		serverMode=(serverMode || ref==null || ref.isEmpty());
+		
+		if(!parallelSetup) {
+			if(useTree) {CladeObject.loadTree();}
+			loadIndex();
+			loadQueries(serverMode);
+		}else {
+			Thread tTree  = new Thread(() -> { if(useTree){CladeObject.loadTree();} });
+			Thread tIndex = new Thread(() -> loadIndex());
+			Thread tQuery = new Thread(() -> loadQueries(serverMode));
+			tTree.start();
+			tIndex.start();
+			tQuery.start();
+			try{
+				tTree.join();
+				tIndex.join();
+				tQuery.join();
+			}catch(InterruptedException e){
+				KillSwitch.exceptionKill(e);
+				e.printStackTrace();
+			}
+		}
+		
 		ArrayList<Object> results;
 		t.start();
 		
 		final int maxHits=CladeIndex.heapSize;
-		if(index==null || serverMode) {
+		if(serverMode) {
 			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE, 
 				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
 			outstream.print(s);
@@ -346,9 +370,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			results=searchST(queries, index, maxHits);
 		}
 		
-		if(printMetrics) {
-			evaluate(results);
-		}
+		if(printMetrics) {evaluate(results);}
 		outstream.println("Made "+index.comparisons+" fast and "+index.slowComparisons+" slow comparisons.");
 		t.stop("Searched "+queries.size()+" queries in ");
 		
@@ -748,6 +770,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	boolean printMetrics=false;
 	/** Whether to use multiple threads for searching */
 	boolean multithreaded=true;
+	boolean parallelSetup=true;
 	/** Whether to process each contig separately */
 	boolean perContig=false;
 	/** Minimum contig length to process */
