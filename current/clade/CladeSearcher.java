@@ -166,10 +166,17 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	void loadQueries(boolean finish) {
 		if(index==null) {Clade.MAKE_FREQUENCIES=false;}
 		Timer t=new Timer(outstream, false);
-		CladeLoaderMF loaderMF=new CladeLoaderMF();
-		queries=loaderMF.loadFiles(in, perContig, minContig, maxReads, finish);
-		readsLoaded+=loaderMF.readsProcessed;
-		basesLoaded+=loaderMF.basesProcessed;
+		if(sfload) {
+			CladeLoaderSF loaderSF=new CladeLoaderSF();
+			queries=loaderSF.loadFile(in.get(0), perContig, minContig, maxReads, true);
+			readsLoaded+=loaderSF.readsProcessed;
+			basesLoaded+=loaderSF.basesProcessed;
+		}else{
+			CladeLoaderMF loaderMF=new CladeLoaderMF();
+			queries=loaderMF.loadFiles(in, perContig, minContig, maxReads, finish);
+			readsLoaded+=loaderMF.readsProcessed;
+			basesLoaded+=loaderMF.basesProcessed;
+		}
 		t.stopAndStart("Loaded "+queries.size()+" queries in ");
 	}
 	
@@ -210,6 +217,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				}else {
 					multithreaded=Parse.parseBoolean(b);
 				}
+			}else if(a.equalsIgnoreCase("sfload")){
+				sfload=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("psetup") || a.equalsIgnoreCase("parallelsetup")){
 				parallelSetup=Parse.parseBoolean(b);
 			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("records")){
@@ -774,6 +783,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/** Whether to use multiple threads for searching */
 	boolean multithreaded=true;
 	boolean parallelSetup=true;
+	boolean sfload=false;
 	/** Whether to process each contig separately */
 	boolean perContig=false;
 	/** Minimum contig length to process */
