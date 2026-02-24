@@ -249,7 +249,7 @@ public class SendClade extends CladeObject {
 		assert(in.size() > 0) : "No input files to process";
 		if(verbose){System.err.println("[" + new java.util.Date() + "] Processing " + in.size() + " input files");}
 
-		if(mtload) {
+		if(mtload && (in.size()>1)) {
 			Timer tLoad=new Timer(outstream, false);
 			CladeLoaderMF loaderMF=new CladeLoaderMF();
 			ArrayList<Clade> allClades=loaderMF.loadFiles(in, perContig, minlen, maxReads, true);
@@ -706,9 +706,9 @@ public class SendClade extends CladeObject {
 	/** Minimum contig length */
 	private int minlen=0;
 	/** Use multithreaded loading for all files before sending */
-	private boolean mtload=false;
+	private boolean mtload=true;
 	/** Use multithreaded loading within each file */
-	private boolean sfload=false;
+	private boolean sfload=true;
 	/** Maximum reads to process */
 	private long maxReads=-1;
 

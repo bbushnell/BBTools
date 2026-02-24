@@ -166,7 +166,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	void loadQueries(boolean finish) {
 		if(index==null) {Clade.MAKE_FREQUENCIES=false;}
 		Timer t=new Timer(outstream, false);
-		if(sfload) {
+		if(sfload && in.size()==1) {
 			CladeLoaderSF loaderSF=new CladeLoaderSF();
 			queries=loaderSF.loadFile(in.get(0), perContig, minContig, maxReads, true);
 			readsLoaded+=loaderSF.readsProcessed;
@@ -783,7 +783,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/** Whether to use multiple threads for searching */
 	boolean multithreaded=true;
 	boolean parallelSetup=true;
-	boolean sfload=false;
+	boolean sfload=true;
 	/** Whether to process each contig separately */
 	boolean perContig=false;
 	/** Minimum contig length to process */

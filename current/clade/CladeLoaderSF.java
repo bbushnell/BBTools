@@ -108,7 +108,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 					merged.entropy=(merged.entropy*merged.bases+partial.entropy*partial.bases)
 							/(float)(merged.bases+partial.bases);
 				}
-				merged.bases+=partial.bases;
+				merged.incrementBases(partial.bases);
 				merged.contigs+=partial.contigs;
 			}
 			if(finish && merged.bases>0) {merged.finish();}

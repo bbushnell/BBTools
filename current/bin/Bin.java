@@ -721,7 +721,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 			clade.counts[1][3] = at/2 + (at%2);           // T (with remainder)
 
 			// Update metadata
-			clade.bases = size();
+			clade.setBases(size());
 			clade.contigs = numContigs();
 
 			// Copy entropy if available
