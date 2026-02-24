@@ -39,11 +39,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		query=new Clade(-1, 0, lp.parseString(0));
 		ref=new Clade(lp.parseInt(5), lp.parseInt(9), lp.parseString(4));
 		query.gc=lp.parseFloat(1);
-		query.bases=lp.parseInt(2);
-		query.contigs=lp.parseInt(3);
+		query.setBases(lp.parseLong(2));
+		query.contigs=lp.parseLong(3);
 		ref.gc=lp.parseFloat(6);
-		ref.bases=lp.parseInt(7);
-		ref.contigs=lp.parseInt(8);
+		ref.setBases(lp.parseLong(7));
+		ref.contigs=lp.parseLong(8);
 		ref.level=lp.parseInt(9);
 		ref.lineage=lp.parseString(15);
 

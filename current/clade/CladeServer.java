@@ -610,12 +610,12 @@ public class CladeServer {
 
 					bb.append(query.name).tab();
 					bb.append(String.format("%.3f", query.gc)).tab();
-					bb.append(query.bases).tab();
+					bb.append(query.monomerSum()).tab();
 					bb.append(query.contigs).tab();
 					bb.append(ref.name!=null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();
 					bb.append(ref.taxID).tab();
 					bb.append(String.format("%.3f", ref.gc)).tab();
-					bb.append(ref.bases).tab();
+					bb.append(ref.monomerSum()).tab();
 					bb.append(ref.contigs).tab();
 					bb.append(ref.level).tab();
 					bb.append(String.format("%.3f", comp.gcdif)).tab();
@@ -629,7 +629,7 @@ public class CladeServer {
 				//Human-readable format
 				bb.append("Query: ").append(query.name).nl();
 				bb.append("GC: ").append(String.format("%.3f", query.gc)).nl();
-				bb.append("Bases: ").append(query.bases).nl();
+				bb.append("Bases: ").append(query.monomerSum()).nl();
 				bb.append("Contigs: ").append(query.contigs).nl();
 				bb.nl();
 

@@ -108,7 +108,7 @@ public class PreClade {
         Clade clade = new Clade(-1, -1, name);
 
         // Set basic statistics
-        clade.bases = this.bases;
+        clade.setBases(this.bases);
         clade.contigs = 1; // Assume single sequence
 
         // Copy 1-mers directly (no canonical mapping needed for ACGTN)

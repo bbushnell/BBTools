@@ -109,12 +109,12 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			
 			lp.set(list.get(pos));
 			assert(lp.startsWith("bases")) : lp;//Could be calculated from monomers
-			c.bases=lp.parseInt(1);
+			c.setBases(lp.parseLong(1));
 
 			pos++;
 			lp.set(list.get(pos));
 			assert(lp.startsWith("contigs")) : lp;
-			c.contigs=lp.parseInt(1);
+			c.contigs=lp.parseLong(1);
 
 			for(int k=1; k<=maxk; k++) {
 				//TODO: Change to concise packing, skipping k4/k5 depending on #bases, leaving them empty.
@@ -177,7 +177,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		float seqEntropy=(calcCladeEntropy ? et.averageEntropy(seq, false) : 0);
 		entropy=(entropy*bases+seqEntropy*seq.length)/(float)(bases+seq.length);
 		
-		bases+=seq.length;
+		incrementBases(seq.length);
 		contigs++;
 	}
 	
@@ -203,7 +203,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			Tools.add(counts, c.counts);
 			entropy=(entropy*bases+c.entropy*c.bases)/(float)(bases+c.bases);
 
-			bases+=c.bases;
+			incrementBases(c.bases);
 			contigs+=c.contigs;
 		}
 	}
@@ -258,7 +258,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		taxID=level=-1;
 		name=lineage=null;
 		
-		bases=contigs=0;
+		setBases(0);
+		contigs=0;
 		gc=entropy=gcCompEntropy=strandedness=hh=caga=0;
 		Tools.fill(counts, 0);
 	}
@@ -341,7 +342,16 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 	public byte[] r16S;
 	public byte[] r18S;
-	
+
+	public void setBases(long x) {
+		bases=x;
+//		assert(bases>=0) : x; //Some database records are negative
+	}
+	void incrementBases(long x) {
+		bases+=x;
+//		assert(bases>=0) : x;
+	}
+	public long monomerSum() {return counts==null || counts[1]==null ? bases : Tools.sum(counts[1]);}
 	public long bases;
 	public long contigs;
 	public float gc;
