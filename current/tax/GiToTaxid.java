@@ -367,7 +367,7 @@ public class GiToTaxid {
 					throw new RuntimeException(e);
 				}
 				//assert(false) : tab2+", "+tab3+", '"+new String(line)+"'";
-				int tid=Parse.parseInt(line, tab2+1, tab3);
+				int tid=Parse.parseInt(line, tab2+1, tab3>0 ? tab3 : line.length);
 				int gi=(tab3>0 ? Parse.parseInt(line, tab3+1, line.length) : -1);
 				if(gi<0){
 					invalid++;
