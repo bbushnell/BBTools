@@ -1495,7 +1495,7 @@ public final class Tools {
 			if(q>0){
 				len++;
 				prob=prob*align2.QualityTools.PROB_CORRECT[q];
-				if(len>=k){
+				if(len>k){
 					byte oldq=quals[i-k];
 					prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 				}

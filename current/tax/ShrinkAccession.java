@@ -9,6 +9,7 @@ import fileIO.ByteFile2;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -66,6 +67,10 @@ public class ShrinkAccession {
 				ByteFile1.verbose=verbose;
 				ByteFile2.verbose=verbose;
 				ReadWrite.verbose=verbose;
+			}else if(a.equals("seq") || a.equals("sequence")){
+				mode=(Parse.parseBoolean(b) ? SEQUENCE : ASSEMBLY);
+			}else if(a.equals("asm") || a.equals("assembly")){
+				mode=(!Parse.parseBoolean(b) ? SEQUENCE : ASSEMBLY);
 			}else if(a.equals("gi")){
 				KEEP_GI_NUMBERS=Parse.parseBoolean(b);
 			}else if(a.equals("outgi") || a.equals("giout") || a.equals("gi")){
@@ -118,10 +123,28 @@ public class ShrinkAccession {
 		ByteFile bf=ByteFile.makeByteFile(ffin);
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
 		bsw.start();
-
-		long linesProcessed=0;
-		long charsProcessed=0;
-		long badLines=0;
+		
+		if(mode==SEQUENCE) {
+			processSeq(bf, bsw);
+		}else if(mode==ASSEMBLY){
+			processAsm(bf, bsw);
+		}else {
+			throw new RuntimeException("Unknown mode: "+mode);
+		}
+		
+		errorState|=bf.close();
+		if(bsw!=null){errorState|=bsw.poisonAndWait();}
+		
+		t.stop();
+		outstream.println("Discarded "+badLines+" lines.\n");
+		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, charsProcessed, 8));
+		
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
+	}
+	
+	void processSeq(ByteFile bf, ByteStreamWriter bsw){
 		
 		byte[] line=bf.nextLine();
 		ByteBuilder bb=new ByteBuilder(10000);
@@ -181,14 +204,6 @@ public class ShrinkAccession {
 					}
 					bb.nl();
 				}
-				
-//				String[] split=new String(line).split("\t");
-//				bb.append(split[0]);
-//				bb.tab();
-//				bb.tab();
-//				bb.append(split[2]);
-//				bb.tab();
-//				bb.nl();
 			}
 			if(bb.length()>8000){
 				bsw.print(bb);
@@ -200,17 +215,86 @@ public class ShrinkAccession {
 			bsw.print(bb);
 			bb.clear();
 		}
+	}
+	
+//	col	name	sample
+//	0	#assembly_accession	GCF_000001215.4
+//	5	taxid	7227
+//	23	assembly_type	haploid
+//	25	genome_size	143706478
+//	26	genome_size_ungapped	142553500
+//	28	replicon_count	7
+//	29	scaffold_count	1869
+//	30	contig_count	2441
+//	34	total_gene_count	17872
+//	35	protein_coding_gene_count	13962
+//	36	non_coding_gene_count	3543
+	void processAsm(ByteFile bf, ByteStreamWriter bsw){
 		
-		errorState|=bf.close();
-		if(bsw!=null){errorState|=bsw.poisonAndWait();}
-		
-		t.stop();
-		outstream.println("Discarded "+badLines+" lines.\n");
-		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, charsProcessed, 8));
-		
-		if(errorState){
-			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		byte[] line=bf.nextLine();
+		ByteBuilder bb=new ByteBuilder(20000);
+		LineParser1 lp=new LineParser1('\t');
+//		int columns=4;
+		while(line!=null && Tools.startsWith(line, "#")){
+			if(Tools.startsWith(line, "#assembly_accession\t")){
+				lp.set(line);
+				bb.append(lp.parseByteArray(0)).tab();//accession
+				bb.append(lp.parseByteArray(5)).tab();//tid
+				bb.append(lp.parseByteArray(23)).tab();//ploidy?
+				bb.append(lp.parseByteArray(25)).tab();//size
+				bb.append(lp.parseByteArray(26)).tab();//size_ungapped
+				bb.append(lp.parseByteArray(28)).tab();//chromosomes
+				bb.append(lp.parseByteArray(29)).tab();//scafs
+				bb.append(lp.parseByteArray(30)).tab();//contigs
+				bb.append(lp.parseByteArray(34)).tab();//genes
+				bb.append(lp.parseByteArray(35)).tab();//coding
+				bb.append(lp.parseByteArray(36));//noncoding
+				bb.nl();
+			}
+			charsProcessed+=line.length+1;
+			linesProcessed++;
+			line=bf.nextLine();
 		}
+		while(line!=null){
+			charsProcessed+=line.length+1;
+			linesProcessed++;
+
+			if(Tools.startsWith(line, "#")){continue;}//Concatenated files or new header
+			lp.set(line);
+
+			bb.append(lp.parseByteArray(0));//accession
+			bb.append(parseNum(lp, 5)).tab();//tid
+			bb.append(lp.parseByteArray(23)).tab();//ploidy?
+			bb.append(parseNum(lp, 25)).tab();//size
+			bb.append(parseNum(lp, 26)).tab();//size_ungapped
+			bb.append(parseNum(lp, 28)).tab();//chromosomes
+			bb.append(parseNum(lp, 29)).tab();//scafs
+			bb.append(parseNum(lp, 30)).tab();//contigs
+			bb.append(parseNum(lp, 34)).tab();//genes
+			bb.append(parseNum(lp, 35)).tab();//coding
+			bb.append(parseNum(lp, 36));//noncoding
+			bb.nl();
+			if(bb.length()>16000){
+				bsw.print(bb);
+				bb.clear();
+			}
+			line=bf.nextLine();
+		}
+		if(bb.length()>0){
+			bsw.print(bb);
+			bb.clear();
+		}
+	}
+	
+	private long parseNum(LineParser1 lp, int field) {
+		long x=-1;
+		if(lp.termStartsWithLetter(field)) {return -1;}
+//		try{
+		x=lp.parseLong(field);
+//		}catch(Throwable e){
+//			e.printStackTrace();
+//		}
+		return x;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -221,6 +305,11 @@ public class ShrinkAccession {
 	private String in=null;
 	private String out=null;
 	private String giOut=null;
+	private int mode=SEQUENCE;
+
+	long linesProcessed=0;
+	long charsProcessed=0;
+	long badLines=0;
 	
 	/*--------------------------------------------------------------*/
 	
@@ -233,6 +322,7 @@ public class ShrinkAccession {
 	private PrintStream outstream=System.err;
 	public static boolean verbose=false;
 	public static boolean KEEP_GI_NUMBERS=true;
+	public static final int SEQUENCE=1, ASSEMBLY=2;
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;

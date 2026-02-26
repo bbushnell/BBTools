@@ -1010,7 +1010,7 @@ public class ReadCounter extends KmerCountAbstract {
 				}else{
 					q=quals[i];
 					prob=prob*align2.QualityTools.PROB_CORRECT[q];
-					if(kmer.len>=k){
+					if(kmer.len>k){
 						byte oldq=quals[i-k];
 						prob=prob*align2.QualityTools.PROB_CORRECT_INVERSE[oldq];
 					}

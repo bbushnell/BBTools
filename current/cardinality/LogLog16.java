@@ -141,6 +141,25 @@ public final class LogLog16 extends CardinalityTracker {
 		}
 	}
 	
+	public int[] compareTo(LogLog16 blog) {
+		return compare(maxArray, blog.maxArray);
+	}
+	
+	public static int[] compare(char[] arrayA, char[] arrayB) {
+		int lower=0, equal=0, higher=0;
+		for(int i=0; i<arrayA.length; i++) {
+			final int a=arrayA[i], b=arrayB[i];
+			int dif=a-b;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		return new int[] {lower, equal, higher};
+	}
+	
 	/**
 	 * Hashes a number and updates the appropriate bucket counter.
 	 * Applies hash function, counts leading zeros, compresses the value using

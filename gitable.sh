@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell.
-Last modified July 29, 2019
+Last modified February 25, 2026
 
 Description:  Creates gitable.int1d from accession files:
 ftp://ftp.ncbi.nih.gov/pub/taxonomy/accession2taxid/*.accession2taxid.gz
@@ -11,7 +11,7 @@ This is for use of gi numbers, which are deprecated by NCBI, and are neither
 necessary nor recommended if accession numbers are present.
 See TaxonomyGuide and fetchTaxonomy.sh for more information.
 
-Usage:  gitable.sh shrunk.dead_nucl.accession2taxid.gz,shrunk.dead_prot.accession2taxid.gz,shrunk.dead_wgs.accession2taxid.gz,shrunk.nucl_gb.accession2taxid.gz,shrunk.nucl_wgs.accession2taxid.gz,shrunk.pdb.accession2taxid.gz,shrunk.prot.accession2taxid.gz gitable.int1d.gz
+Usage:  gitable.sh *accession2taxid.gz gitable.int1d.gz
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

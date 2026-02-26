@@ -28,6 +28,18 @@ public class GiToTaxid {
 		ReadWrite.PIGZ_BLOCKSIZE=256;
 //		ReadWrite.PIGZ_ITERATIONS=30;
 		
+		String names=args[0];
+		String out=args.length>1 ? args[1] : null;
+		for(int i=1; i<args.length; i++) {
+			if(args[i].contains(".accession2taxid")) {
+				names=names+","+args[i];
+//			}else if(args[i].contains("assembly_summary_")) {
+//				names=names+","+args[i];
+			}else if(args[i].startsWith("gitable.")) {
+				out=args[i];
+			}
+		}
+		
 		for(String arg : args){
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
@@ -38,8 +50,8 @@ public class GiToTaxid {
 //			test(args);
 //		}else 
 		if(args.length>=2){//Write array
-			initialize(args[0]);
-			ReadWrite.write(array, args[1], true);
+			initialize(names);
+			ReadWrite.write(array, out, true);
 		}
 	}
 	
@@ -246,14 +258,14 @@ public class GiToTaxid {
 		return slice==null || slice.length<=lower ? 0 : slice[lower];
 	}
 	
-	public static void initialize(String fname){
-		assert(fname!=null);
-		if(fileString==null || !fileString.equals(fname)){
+	public static void initialize(String fnames){
+		assert(fnames!=null);
+		if(fileString==null || !fileString.equals(fnames)){
 			synchronized(GiToTaxid.class){
-				if(!initialized || fileString==null || !fileString.equals(fname)){
-					fileString=fname;
-					if(fname.contains(".int2d")){
-						array=ReadWrite.read(int[][].class, fname, true);
+				if(!initialized || fileString==null || !fileString.equals(fnames)){
+					fileString=fnames;
+					if(fnames.contains(".int2d")){
+						array=ReadWrite.read(int[][].class, fnames, true);
 						maxGiLoaded=-1;
 						if(array!=null && array.length>0){
 							int upper=array.length-1;
@@ -261,12 +273,12 @@ public class GiToTaxid {
 							int lower=section.length-1;
 							maxGiLoaded=(((long)upper)<<SHIFT)|lower;
 						}
-					}else if(fname.contains(".int1d")){
-						throw new RuntimeException("Old gi table format filename "+fname+".\n"
+					}else if(fnames.contains(".int1d")){
+						throw new RuntimeException("Old gi table format filename "+fnames+".\n"
 								+ "Current files should end in .int2d.");
 						
 					}else{
-						array=makeArray(fname);
+						array=makeArray(fnames);
 					}
 				}
 				initialized=true;
@@ -299,7 +311,7 @@ public class GiToTaxid {
 			String comma="";
 			for(File f : array){
 				String s=f.getName();
-				if(s.startsWith(prefix) && s.startsWith(suffix)){ //Possible bug: should be s.endsWith(suffix)
+				if(s.startsWith(prefix) && s.endsWith(suffix)){
 					sb.append(comma);
 					sb.append(s);
 					comma=",";
@@ -318,6 +330,8 @@ public class GiToTaxid {
 			long count=addToList(s, lists);
 			total+=count;
 		}
+		System.err.println("total:          "+total);
+		System.err.println("contradictions: "+contradictions);
 		for(int i=0; i<lists.length; i++){
 			if(lists[i]!=null && lists[i].size>0){
 				lists[i].shrink();
@@ -339,7 +353,13 @@ public class GiToTaxid {
 		while(line!=null){
 			if(line.length>0 && Tools.isDigit(line[line.length-1])){//Invalid lines will end with tab or na
 				count++;
-				int tab2=Tools.indexOfNth(line, '\t', 2);
+				int tab2=-1;
+				try{
+					tab2=Tools.indexOfNth(line, '\t', 2);
+				}catch(Throwable e){
+					System.err.println(fname+", '"+new String(line)+"'");
+					throw new RuntimeException(e);
+				}
 				int tab3=Tools.indexOfNth(line, '\t', 1, tab2+1);
 				assert(tab2>0 && (tab2<tab3) && tab3<line.length) : tab2+", "+tab3+", "+line.length;
 				assert(tab2<line.length && line[tab2]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
@@ -352,7 +372,14 @@ public class GiToTaxid {
 				}else{
 					assert(gi>=0) : "tid="+tid+", gi="+gi+", line=\n'"+new String(line)+"'";
 					int old=setID(gi, tid, lists);
-					assert(old<1 || old==tid) : "Contradictory entries for gi "+gi+": "+old+" -> "+tid+"\n'"+new String(line)+"'\ntab2="+tab2+", tab3="+tab3;
+//					assert(old<1 || old==tid) : "Contradictory entries for gi "+gi+": "+old+" -> "+tid+"\n'"+new String(line)+"'\ntab2="+tab2+", tab3="+tab3;
+					if(old>0 && old!=tid) {
+						if(!warned) {
+							System.err.println("Contradictory entries for gi "+gi+": "+old+" -> "+tid+"\n'"+new String(line)+"'\ntab2="+tab2+", tab3="+tab3);
+						}
+						warned=true;
+						contradictions++;
+					}
 				}
 			}else{
 				//if(line.length==0){System.err.println(fname+", "+count);}//debug
@@ -387,73 +414,7 @@ public class GiToTaxid {
 		return old;
 	}
 	
-//	private static int[] makeArrayOld(String fnames){
-//		String[] split;
-//		if(new File(fnames).exists()){split=new String[] {fnames};}
-//		else{split=fnames.split(",");}
-//		
-//		long max=0;
-//		for(String s : split){
-//			max=Tools.max(max, findMaxID(s));
-//		}
-//		
-//		assert(max<Integer.MAX_VALUE) : "Overflow.";
-//		int[] x=new int[(int)max+1];
-//		Arrays.fill(x, -1);
-//		
-//		long total=0;
-//		for(String s : split){
-//			long count=fillArray(s, x);
-//			total+=count;
-//		}
-//		return x;
-//	}
-//	
-//	private static long findMaxID(String fname){
-//		ByteFile bf=ByteFile.makeByteFile(fname, true);
-//		long count=0, max=0;
-//		byte[] line=bf.nextLine();
-//		while(line!=null){
-//			count++;
-//			int tab=Tools.indexOf(line, (byte)'\t');
-//			long gi=Parse.parseLong(line, 0, tab);
-//			max=Tools.max(max, gi);
-//			line=bf.nextLine();
-//		}
-//		bf.close();
-//		return max;
-//	}
-//	
-//	private static long fillArray(String fname, int[] x){
-//		boolean warned=false;
-//		ByteFile bf=ByteFile.makeByteFile(fname, true);
-//		long count=0;
-//		byte[] line=bf.nextLine();
-//		while(line!=null){
-//			count++;
-//			int tab=Tools.indexOf(line, (byte)'\t');
-//			int gi=Parse.parseInt(line, 0, tab);
-//			int ncbi=Parse.parseInt(line, tab+1, line.length);
-//			//assert(x[gi]==-1 || x[gi]==ncbi) : "Contradictory entries for gi "+gi+": "+x[gi]+" -> "+ncbi;
-//			if(x[gi]!=-1 && x[gi]!=ncbi){
-//				if(!warned){
-//					System.err.println("***WARNING*** For file "+fname+":\n"+
-//							("Contradictory entries for gi "+gi+": mapped to both taxID "+x[gi]+" and taxID "+ncbi)+
-//							"\nThis may be an error from NCBI and you may wish to report it, but it is\n"
-//							+ "being suppressed because NCBI data is known to contain multi-mapped gi numbers,\n"
-//							+ "at least between nucleotide and protein, and gi numbers are deprecated anyway.");
-//					warned=true;
-//				}
-//			}else{
-//				x[gi]=ncbi;
-//			}
-//			line=bf.nextLine();
-//		}
-//		if(verbose){System.err.println("Count: "+count);}
-//		bf.close();
-//		return count;
-//	}
-	
+	private static long contradictions=0;
 	private static long maxGiLoaded=-1;
 	private static int[][] array;
 	private static final int SHIFT=30;

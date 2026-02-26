@@ -545,7 +545,8 @@ public final class Parse {
 	 * @TODO Correctly represent Integer.MIN_VALUE
 	 * @TODO Detect overflow.
 	 */
-	public static int parseInt(byte[] array, int a, int b){
+	public static int parseInt(byte[] array, int a0, int b){
+		int a=a0;
 		assert(b>a) : "The start position of the text to parse must come before the stop position: "+
 			a+","+b+","+new String(array);
 		int r=0; //Initialize the return value to 0.
@@ -575,7 +576,8 @@ public final class Parse {
 			//But if possible the character will be printed to, as well as the position,
 			//and the entire String from which the number is to be parsed.
 			assert(x<10 && x>=0) : "Non-digit character with ASCII code "+(int)array[a]+" was encountered.\n"
-					+"x="+x+"; char="+(char)array[a]+"\narray="+new String(array)+", start="+a+", stop="+b;
+					+"x="+x+"; char="+(char)array[a]+"\narray="+new String(array)+", start="+a+", stop="+b+"\n"
+					+"substring="+(new String(array, a0, b-a0));
 			
 			//Multiply the old value by 10, then add the new 1's digit.
 			//This is because the text is assumed to be base-10,
