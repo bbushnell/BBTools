@@ -353,17 +353,17 @@ public class GiToTaxid {
 		while(line!=null){
 			if(line.length>0 && Tools.isDigit(line[line.length-1])){//Invalid lines will end with tab or na
 				count++;
-				int tab2=-1;
+				int tab2=-1, tab3=-1;
 				try{
 					tab2=Tools.indexOfNth(line, '\t', 2);
+					tab3=Tools.indexOfNth(line, '\t', 1, tab2+1);
+					assert(tab2>0 && (tab2<tab3) && tab3<line.length) : tab2+", "+tab3+", "+line.length;
+					assert(tab2<line.length && line[tab2]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
+					assert(tab3<line.length && line[tab3]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
 				}catch(Throwable e){
 					System.err.println(fname+", '"+new String(line)+"'");
 					throw new RuntimeException(e);
 				}
-				int tab3=Tools.indexOfNth(line, '\t', 1, tab2+1);
-				assert(tab2>0 && (tab2<tab3) && tab3<line.length) : tab2+", "+tab3+", "+line.length;
-				assert(tab2<line.length && line[tab2]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
-				assert(tab3<line.length && line[tab3]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
 				//assert(false) : tab2+", "+tab3+", '"+new String(line)+"'";
 				int tid=Parse.parseInt(line, tab2+1, tab3);
 				int gi=Parse.parseInt(line, tab3+1, line.length);
