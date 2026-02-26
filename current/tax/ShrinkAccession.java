@@ -262,7 +262,8 @@ public class ShrinkAccession {
 			if(Tools.startsWith(line, "#")){continue;}//Concatenated files or new header
 			lp.set(line);
 
-			bb.append(lp.parseByteArray(0));//accession
+			bb.append(lp.parseByteArray(0)).tab().tab();//accession
+			//Blank column to match seq files
 			bb.append(parseNum(lp, 5)).tab();//tid
 			bb.append(lp.parseByteArray(23)).tab();//ploidy?
 			bb.append(parseNum(lp, 25)).tab();//size
