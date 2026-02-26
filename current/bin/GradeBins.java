@@ -839,7 +839,7 @@ public class GradeBins {
 //	}
 	
 	/**
-	 * Categorizes and reports bins by quality levels (UHQ, VHQ, HQ, MQ, LQ, VLQ).
+	 * Categorizes and reports bins by quality levels (UHQ, VHQ, HQ, MQ, LQ, VLQ, HCN).
 	 * Quality determination based on completeness, contamination, and optional RNA gene presence.
 	 *
 	 * @param bins List of bin statistics to categorize
@@ -855,6 +855,7 @@ public class GradeBins {
 		long mq=0, mqINC=0, mqCON=0;
 		long lq=0, lqINC=0, lqCON=0;
 		long vlq=0, vlqINC=0, vlqCON=0;
+		long hcn=0, hcnINC=0, hcnCON=0;
 
 		long uhqSize=0;
 		long vhqSize=0;
@@ -862,12 +863,14 @@ public class GradeBins {
 		long mqSize=0;
 		long lqSize=0;
 		long vlqSize=0;
+		long hcnSize=0;
 		
 		for(BinStats b : bins) {
 			final long size=b.size;
 			final float comp=b.complt, contam=b.contam;
+			final boolean rnaOK=!useRNA || (b.r16Scount>0 && b.r5Scount>0 && b.r23Scount>0 && b.trnaCount>=18);
 			if(size>=minSize) {
-				if(contam<0.05f && comp>0.9f && (!useRNA || (b.r16Scount>0 && b.r5Scount>0 && b.r23Scount>0 && b.trnaCount>=18))) {
+				if(contam<0.05f && comp>0.9f && rnaOK) {
 					hq++;
 					hqSize+=size;
 					if(comp>=0.99f && contam<=0.01f) {
@@ -889,18 +892,20 @@ public class GradeBins {
 					mqSize+=size;
 					if(comp<.90f) {mqINC++;}
 					if(contam>0.05f) {mqCON++;}
-				}else {
+				}else if(contam<0.1f && comp<0.5f){
 					lq++;
 					lqSize+=size;
-					if(contam>0.20f || comp<0.20f) {//vlq
+					if(comp<0.20f) {//vlq
 						vlq++;
 						vlqSize+=size;
-						if(comp<0.2f) {vlqINC++;}
-						if(contam>0.2f) {vlqCON++;}
+						vlqINC++;
 					}else {//lq, not vlq
-						if(comp<0.5f) {lqINC++;}
-						if(contam>0.1f) {lqCON++;}
+						lqINC++;
 					}
+				}else {
+					hcn++;
+					hcnSize+=size;
+					hcnCON++;
 				}
 			}
 		}
@@ -915,9 +920,11 @@ public class GradeBins {
 		outstream.println("MQ\t"+mq+"\t"+mqINC+"\t"+mqCON+"\t"+mqSize);
 		outstream.println("LQ\t"+lq+"\t"+lqINC+"\t"+lqCON+"\t"+lqSize);
 		outstream.println("VLQ\t"+vlq+"\t"+vlqINC+"\t"+vlqCON+"\t"+vlqSize);
-		String hqm=""+(hq+mq/4f);
-		if(hqm.endsWith(".0")) {hqm=hqm.substring(0, hqm.length()-2);}
-		outstream.println("HQ+MQ/4\t"+hqm+"\t\t\t"+(hqSize+mqSize/4));
+		outstream.println("HCN\t"+hcn+"\t"+hcnINC+"\t"+hcnCON+"\t"+hcnSize);
+		String hqm4=""+(hq+mq/4f);
+		if(hqm4.endsWith(".0")) {hqm4=hqm4.substring(0, hqm4.length()-2);}
+		outstream.println("HQ+MQ/4\t"+hqm4+"\t\t\t"+(hqSize+mqSize/4));
+		outstream.println("HQ+MQ\t"+(hq+mq)+"\t\t\t"+(hqSize+mqSize));
 	}
 	
 	/**

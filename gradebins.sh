@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 17, 2026
+Last modified February 26, 2026
 
 Description:  Grades metagenome bins for completeness and contamination.
 The contigs can be labeled with their taxID; in which case the header should
@@ -16,10 +16,11 @@ Total Score is (sum of (completeness-5*contam)^2) for all bins.
 Bin Definitions:
 UHQ: >=99% complete and <=1% contam (subset of VHQ)
 VHQ: >=95% complete and <=2% contam (subset of HQ)
-HQ:  >=90% complete and <=5% contam
-MQ:  >=50% complete and <=10% contam, but not HQ
-LQ:  <50% complete or >10% contam
-VLQ: <20% complete or >5% contam    (subset of LQ)
+HQ:  >90% complete and <5% contam
+MQ:  >=50% complete and <10% contam, but not HQ
+LQ:  <50% complete and <10% contam
+VLQ: <20% complete and <10% contam    (subset of LQ)
+HCN: >=10% contam (High CoNtam, contains everything not in other sets)
 
 Usage:  gradebins.sh ref=assembly bin*.fa
 or
@@ -54,7 +55,7 @@ userna=f        Require rRNAs and tRNAs for HQ genomes.  This needs either
                 a gff file or the callgenes flag.  Specifically, HQ and
                 subtypes require at least 1 16S, 23S, and 5S, plus 18 tRNAs.
 callgenes=f     Call rRNAs and tRNAs.  Suboptimal for some RNA types.
-aligner=ssa2    Do not change this.
+aligner=quantum Aligner for gene calling.
 clade=f         Assign taxonomy using QuickClade.
 
 
