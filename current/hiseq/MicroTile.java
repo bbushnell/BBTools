@@ -389,7 +389,7 @@ public class MicroTile implements Comparable<MicroTile>{
 				float pc=QualityTools.PROB_CORRECT[q];
 				product=product*pc;
 				if(len>=k) {
-					if(len>=k) {
+					if(len>k) {
 						product=product*QualityTools.PROB_CORRECT_INVERSE[quals[i-k]];
 					}
 					valid++;

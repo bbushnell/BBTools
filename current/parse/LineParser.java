@@ -2,6 +2,7 @@ package parse;
 
 import java.util.ArrayList;
 
+import shared.Tools;
 import structures.ByteBuilder;
 
 /** 
@@ -127,6 +128,10 @@ public interface LineParser {
 
 	/** True if the term starts with s */
 	public boolean termStartsWith(String s, int term);
+	
+	public default boolean termStartsWithLetter(int term){
+		return Tools.isLetter(parseByte(term, 0));
+	}
 	
 	/** True if the term equals s */
 	public boolean termEquals(String s, int term);

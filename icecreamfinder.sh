@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 6, 2020
+Last modified February 24, 2026
 
 Description:  Finds PacBio reads containing inverted repeats.
 These are candidate triangle reads (ice cream cones).
@@ -129,7 +129,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS $XSS -cp $CP icecream.IceCreamFinder $@"
+	CMD="java --enable-native-access=ALL-UNNAMED $EA $EOOM $SIMD $XMX $XMS $XSS -cp $CP icecream.IceCreamFinder $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

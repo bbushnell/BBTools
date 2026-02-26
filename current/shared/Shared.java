@@ -30,11 +30,11 @@ import simd.Vector;
  * @AI friendly
  */
 public class Shared {
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      Configuration Data      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
 	public static String BBTOOLS_VERSION_STRING="39.76";
@@ -48,7 +48,7 @@ public class Shared {
 	public static String[] COMMAND_LINE=null;
 	/** User comment field */
 	public static String comment;
-	
+
 	// Environment detection
 	/** True if environment variables are accessible */
 	public static boolean ENV=(System.getenv()!=null);
@@ -84,7 +84,7 @@ public class Shared {
 	public static boolean AMD64="amd64".equalsIgnoreCase(System.getProperty("os.arch"));
 	/** True if not running in Brian's directory on Windows */
 	public static boolean anomaly=!(System.getProperty("user.dir")+"").contains("/bushnell/") && !WINDOWS;
-	
+
 	// Server configuration
 	/** NERSC taxonomy server URL */
 	private static String taxServerNersc="https://taxonomy.jgi.doe.gov/";
@@ -110,7 +110,7 @@ public class Shared {
 	private static String refseqSketchServerAws="http://refseq-sketch.org:3072/";
 	/** True to use AWS servers instead of NERSC */
 	public static boolean awsServers=false;
-	
+
 	// Threading and performance
 	/** Number of logical processors available */
 	public static int LOGICAL_PROCESSORS=CALC_LOGICAL_PROCESSORS();
@@ -130,19 +130,19 @@ public class Shared {
 	public static boolean parallelSort=testParallelSort();
 	/** True if SIMD optimizations are enabled */
 	public static boolean SIMD=(Vector.simd256);
-	
+
 	// Memory management
 	/** True if running in low memory mode */
 	public static boolean LOW_MEMORY=false;
 	/** True to run garbage collection before printing memory */
 	public static boolean GC_BEFORE_PRINT_MEMORY=false;
-	
+
 	// JNI and native libraries
-	/** True if JNI libraries should be used */
+	/** True if JNI libraries should be used. */
 	public static boolean USE_JNI=(CORI || DENOVO || GENEPOOL || NERSC || AWS || (AMD64 && (LINUX || MAC))) && !WINDOWS;
 	/** JNI library load status (-1=unset, 0=failed, 1=success) */
 	private static int loadedJNI=-1;
-	
+
 	// MPI configuration
 	/** True if MPI should be used */
 	public static boolean USE_MPI=false;
@@ -154,7 +154,7 @@ public class Shared {
 	public static int MPI_RANK=0;
 	/** Total number of MPI ranks */
 	public static int MPI_NUM_RANKS=1;
-	
+
 	// File and I/O settings
 	/** Number of characters per FASTA line */
 	public static int FASTA_WRAP=70;
@@ -170,7 +170,7 @@ public class Shared {
 	public static boolean OUTPUT_KMG=true;
 	/** Temporary directory path */
 	private static String TMPDIR=getTmpdir();
-	
+
 	// Algorithm constants
 	/** Gap buffer size for alignments */
 	public static final int GAPBUFFER=64;
@@ -195,7 +195,7 @@ public class Shared {
 	/** Maximum safe array length */
 	public static final int MAX_ARRAY_LEN=Integer.MAX_VALUE-20;
 	public static final int SAFE_ARRAY_LEN=Integer.MAX_VALUE-60;
-	
+
 	// Runtime configuration
 	/** True if amino acid input mode is enabled */
 	public static boolean AMINO_IN=false;
@@ -205,11 +205,11 @@ public class Shared {
 	public static final double javaVersion=parseJavaVersion();
 	/** Thread-local character buffer */
 	private static final ThreadLocal<char[]> TLCB=new ThreadLocal<char[]>();
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Main Method           ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Main method for testing and command line execution.
 	 * Sets up command line arguments and main class reference.
@@ -224,7 +224,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------      Server Management       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Sets both NERSC and AWS taxonomy servers to the same URL.
 	 * @param path Server URL path
@@ -232,37 +232,37 @@ public class Shared {
 	public static void setTaxServer(String path){
 		taxServerNersc=taxServerAws=path;
 	}
-	
+
 	/**
 	 * Gets the appropriate taxonomy server URL based on server preference.
 	 * @return Taxonomy server URL
 	 */
 	public static String taxServer(){return awsServers ? taxServerAws : taxServerNersc;}
-	
+
 	/**
 	 * Gets the appropriate NT sketch server URL based on server preference.
 	 * @return NT sketch server URL
 	 */
 	public static String ntSketchServer(){return awsServers ? ntSketchServerAws : ntSketchServerNersc;}
-	
+
 	/**
 	 * Gets the appropriate ribosomal sketch server URL based on server preference.
 	 * @return Ribosomal sketch server URL
 	 */
 	public static String riboSketchServer(){return awsServers ? riboSketchServerAws : riboSketchServerNersc;}
-	
+
 	/**
 	 * Gets the appropriate protein sketch server URL based on server preference.
 	 * @return Protein sketch server URL
 	 */
 	public static String proteinSketchServer(){return awsServers ? proteinSketchServerAws : proteinSketchServerNersc;}
-	
+
 	/**
 	 * Gets the appropriate RefSeq sketch server URL based on server preference.
 	 * @return RefSeq sketch server URL
 	 */
 	public static String refseqSketchServer(){return awsServers ? refseqSketchServerAws : refseqSketchServerNersc;}
-	
+
 	/**
 	 * Gets the demux server URL.
 	 * @return Demux server URL
@@ -272,7 +272,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------    Environment Detection     ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Checks if an environment variable contains a specific value.
 	 * @param key Environment variable name
@@ -286,7 +286,7 @@ public class Shared {
 		if(value==null || v==null){return v==value;}
 		return loose ? v.contains(value.toLowerCase()) : value.equalsIgnoreCase(v);
 	}
-	
+
 	/**
 	 * Checks if an environment variable exists.
 	 * @param key Environment variable name
@@ -296,7 +296,7 @@ public class Shared {
 		Map<String, String> map=System.getenv();
 		return map.containsKey(key);
 	}
-	
+
 	/**
 	 * Gets the hostname, caching the result for future calls.
 	 * @return Hostname string, or "unknown" if unable to determine
@@ -320,7 +320,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------      Thread Management       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Caps the number of threads to a maximum value.
 	 * @param t Maximum number of threads allowed
@@ -333,7 +333,7 @@ public class Shared {
 		assert(THREADS>0) : THREADS;
 		return old;
 	}
-	
+
 	/**
 	 * Sets the number of threads from a string parameter.
 	 * Supports decimal values for fractional processor usage.
@@ -356,7 +356,7 @@ public class Shared {
 		}
 		return setThreads(y);
 	}
-	
+
 	/**
 	 * Sets the number of threads to use for processing.
 	 * @param x Number of threads, or negative for automatic detection
@@ -369,7 +369,7 @@ public class Shared {
 		assert(THREADS>0) : THREADS;
 		return THREADS;
 	}
-	
+
 	/**
 	 * Gets the current thread count.
 	 * @return Number of threads configured
@@ -378,7 +378,7 @@ public class Shared {
 		assert(THREADS>0) : THREADS;
 		return THREADS;
 	}
-	
+
 	/**
 	 * Calculates the number of logical processors available.
 	 * Considers SLURM and SGE environment variables for cluster environments.
@@ -416,7 +416,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------      Buffer Management       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Caps the number of buffers to a specified maximum.
 	 * @param num Maximum number of buffers
@@ -425,13 +425,13 @@ public class Shared {
 	public static int capBuffers(int num){
 		return setBuffers(Tools.min(num, READ_BUFFER_NUM_BUFFERS));
 	}
-	
+
 	/**
 	 * Gets the current number of read buffers.
 	 * @return Number of read buffers
 	 */
 	public static int READ_BUFFER_NUM_BUFFERS() {return READ_BUFFER_NUM_BUFFERS;}
-	
+
 	/**
 	 * Sets the buffer count based on current thread count.
 	 * @return New buffer count
@@ -439,7 +439,7 @@ public class Shared {
 	public static int setBuffers(){
 		return setBuffersFromThreads(THREADS);
 	}
-	
+
 	/**
 	 * Sets buffer count based on specified thread count.
 	 * @param threads Number of threads to base buffer count on
@@ -448,7 +448,7 @@ public class Shared {
 	public static int setBuffersFromThreads(int threads){
 		return setBuffers(Tools.max(4, (threads*3)/2));
 	}
-	
+
 	/**
 	 * Sets the number of read buffers to allocate.
 	 * @param num Number of buffers (minimum 2)
@@ -458,19 +458,19 @@ public class Shared {
 		num=Tools.max(2, num);
 		return READ_BUFFER_NUM_BUFFERS=num;
 	}
-	
+
 	/** Gets the number of read buffers. @return Buffer count */
 	public static int numBuffers() {return READ_BUFFER_NUM_BUFFERS;}
-	
+
 	/** Gets the read buffer length. @return Buffer length */
 	public static int bufferLen() {return READ_BUFFER_LENGTH;}
-	
+
 	/** Gets the maximum buffer data size. @return Maximum buffer data */
 	public static int bufferData() {return READ_BUFFER_MAX_DATA;}
-	
+
 	/** Gets the maximum buffer data size. @return Maximum buffer data */
 	public static int bufferSize() {return READ_BUFFER_MAX_DATA;}
-	
+
 	/**
 	 * Caps the buffer length to a maximum value.
 	 * @param x Maximum buffer length
@@ -478,7 +478,7 @@ public class Shared {
 	public static void capBufferLen(int x){
 		if(x!=READ_BUFFER_LENGTH){setBufferLen(Tools.min(x, READ_BUFFER_LENGTH));}
 	}
-	
+
 	/**
 	 * Sets the read buffer length.
 	 * @param x New buffer length (must be positive)
@@ -488,7 +488,7 @@ public class Shared {
 		assert(x>0);
 		return READ_BUFFER_LENGTH=x;
 	}
-	
+
 	/**
 	 * Sets the maximum buffer data size.
 	 * @param x New maximum buffer data (must be positive)
@@ -502,7 +502,7 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------      Memory Management       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Calculates the ratio of initial heap size to maximum heap size.
 	 * @return Ratio of -Xms to -Xmx parameters
@@ -511,7 +511,7 @@ public class Shared {
 		Runtime rt=Runtime.getRuntime();
 		return rt.totalMemory()*1.0/rt.maxMemory();
 	}
-	
+
 	/**
 	 * Calculates available memory for processing based on thread count.
 	 * @param readThreads Number of read threads
@@ -526,16 +526,16 @@ public class Shared {
 		}
 		return usableMemory;
 	}
-	
+
 	/** Gets total memory available to JVM. @return Maximum memory in bytes */
 	public static long memTotal() {return Runtime.getRuntime().maxMemory();}
-	
+
 	/** Gets currently free memory. @return Free memory in bytes */
 	public static long memFree() {return Runtime.getRuntime().freeMemory();}
-	
+
 	/** Gets available memory (max - total + free). @return Available memory in bytes */
 	public static long memAvailable() {return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().totalMemory()+Runtime.getRuntime().freeMemory();}
-	
+
 	/**
 	 * Advanced memory availability calculation for preallocation.
 	 * @return Estimated available memory for allocation
@@ -551,15 +551,15 @@ public class Shared {
 		double availableMemory=Tools.max(fmemory*0.5, usableMemory-umemory);
 		return (long)availableMemory;
 	}
-	
+
 	/** Gets used memory (max - free). @return Used memory in bytes */
 	public static long memUsed() {return Runtime.getRuntime().maxMemory()-Runtime.getRuntime().freeMemory();}
-	
+
 	/**
 	 * Prints current memory usage statistics to stderr.
 	 */
 	public static final void printMemory(){printMemory(System.err);}
-	
+
 	/**
 	 * Prints current memory usage statistics.
 	 */
@@ -575,54 +575,54 @@ public class Shared {
 			long fmemory=rt.freeMemory()/1000000;
 			long umemory=tmemory-fmemory;
 			outstream.println("Memory: "+"max="+mmemory+"m, total="+tmemory+"m, "+
-					"free="+fmemory+"m, used="+umemory+"m");
+				"free="+fmemory+"m, used="+umemory+"m");
 		}catch(Throwable t){}
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Utility Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	public static <T> void shuffle(ArrayList<T> list, Random randy) {
-	    // Start from the end and swap with a random position 
-	    // between 0 and the current position (inclusive).
-	    for (int i=list.size(); i>1; i--) {
-	        // Pick a random index from 0 to i-1
-	        int x=randy.nextInt(i); 
-	        
-	        // Fast swap (manually inlined)
-	        // Swap element at (i-1) with element at x
-	        T temp=list.get(i-1);
-	        list.set(i-1, list.get(x));
-	        list.set(x, temp);
-	    }
+		// Start from the end and swap with a random position 
+		// between 0 and the current position (inclusive).
+		for (int i=list.size(); i>1; i--) {
+			// Pick a random index from 0 to i-1
+			int x=randy.nextInt(i); 
+
+			// Fast swap (manually inlined)
+			// Swap element at (i-1) with element at x
+			T temp=list.get(i-1);
+			list.set(i-1, list.get(x));
+			list.set(x, temp);
+		}
 	}
-	
+
 	/** Gets thread-local random number generator. @return Random instance */
 	public static final Random random() {return threadLocalRandom(-1);}
-	
+
 	/** Gets thread-local random number generator. @return Random instance */
 	public static final Random random(long seed) {return threadLocalRandom(seed);}
-	
+
 	/** Gets thread-local random number generator. @return Random instance */
 	public static final Random threadLocalRandom() {return threadLocalRandom(-1);}
-	
+
 	/**
 	 * Gets thread-local random number generator with optional seed.
 	 * @param seed Random seed, or negative for default
 	 * @return Random instance
 	 */
 	public static final Random threadLocalRandom(long seed) {return new FastRandomXoshiro(seed);}
-	
+
 	/** Gets JVM input arguments. @return List of JVM arguments */
 	public static List<String> JVM_ARGS() {return ManagementFactory.getRuntimeMXBean().getInputArguments();}
-	
+
 	/** Gets full command line with all options. @return Complete command line */
 	public static String fullCommandline() {return fullCommandline(true, true);}
-	
+
 	/** Gets full command line with optional classpath. @return Command line string */
 	public static String fullCommandline(boolean includeCP) {return fullCommandline(includeCP, true);}
-	
+
 	/**
 	 * Constructs the full command line used to launch this application.
 	 * @param includeCP Whether to include classpath in output
@@ -647,7 +647,7 @@ public class Shared {
 		sb.setLength(sb.length()-1);
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Gets temporary directory path from environment variables.
 	 * @return Temporary directory path or null
@@ -658,10 +658,10 @@ public class Shared {
 		if(s!=null){s=(s+"/").replaceAll("//", "/").replaceAll("\\\\", "/");}
 		return s;
 	}
-	
+
 	/** Gets temporary directory path. @return Temporary directory */
 	public static String tmpdir() {return TMPDIR;}
-	
+
 	/**
 	 * Sets the temporary directory path.
 	 * @param s New temporary directory path
@@ -676,7 +676,7 @@ public class Shared {
 		}
 		return TMPDIR;
 	}
-	
+
 	/**
 	 * Gets thread-local character buffer, creating if necessary.
 	 * @param len Minimum required buffer length
@@ -690,20 +690,20 @@ public class Shared {
 		}
 		return buffer;
 	}
-	
+
 	/** Gets assertion enablement status. @return True if assertions are enabled */
 	public static boolean EA() {return EA;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        JNI Management        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Loads default JNI library (bbtoolsjni).
 	 * @return True if library loaded successfully
 	 */
 	public static synchronized boolean loadJNI() {return loadJNI("bbtoolsjni");}
-	
+
 	/**
 	 * Loads specified JNI library with fallback mechanisms.
 	 * @param name Library name to load
@@ -712,12 +712,24 @@ public class Shared {
 	public static synchronized boolean loadJNI(String name){
 		if(loadedJNI<0){
 			boolean success=false;
+
+			// Compute JNI directory from classpath, handling both JAR and directory layouts.
+			String cp=System.getProperty("java.class.path");
+			String jniFromCp;
+			if(cp.endsWith(".jar")){
+				int sep=Math.max(cp.lastIndexOf('/'), cp.lastIndexOf(File.separatorChar));
+				jniFromCp=(sep>=0 ? cp.substring(0, sep) : ".")+File.separator+"jni";
+			}else{
+				jniFromCp=cp.replace("/current", "/jni");
+			}
+
 			String libpath=System.getProperty("java.library.path");
 			if(libpath==null || libpath.length()==0){
-				libpath=System.getProperty("java.class.path").replace("/current", "/jni");
+				libpath=jniFromCp;
 			}else if(!libpath.contains("/jni")){
-				libpath=libpath+":"+System.getProperty("java.class.path").replace("/current", "/jni");
+				libpath=libpath+File.pathSeparator+jniFromCp;
 			}
+
 			try{
 				System.loadLibrary(name);
 				success=true;
@@ -726,7 +738,7 @@ public class Shared {
 				libpath=libpath.replace("-Djava.library.path=","");
 				String[] libpathEntries=libpath.split(File.pathSeparator);
 				for(int i=0; i<libpathEntries.length && !success; i++){
-					String lib=libpathEntries[i]+"/"+System.mapLibraryName(name);
+					String lib=libpathEntries[i]+File.separator+System.mapLibraryName(name);
 					try{
 						System.load(lib);
 						success=true;
@@ -750,10 +762,10 @@ public class Shared {
 	/*--------------------------------------------------------------*/
 	/*----------------       Sorting Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Sorts integer array using optimal algorithm. @param array Array to sort */
 	public static final void sort(int[] array) {sort(array, 0, array.length);}
-	
+
 	/**
 	 * Sorts portion of integer array using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -771,10 +783,10 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/** Sorts long array using optimal algorithm. @param array Array to sort */
 	public static final void sort(long[] array) {sort(array, 0, array.length);}
-	
+
 	/**
 	 * Sorts portion of long array using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -792,10 +804,10 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/** Sorts float array using optimal algorithm. @param array Array to sort */
 	public static final void sort(float[] array) {sort(array, 0, array.length);}
-	
+
 	/**
 	 * Sorts portion of float array using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -813,10 +825,10 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/** Sorts double array using optimal algorithm. @param array Array to sort */
 	public static final void sort(double[] array) {sort(array, 0, array.length);}
-	
+
 	/**
 	 * Sorts portion of double array using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -834,10 +846,10 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/** Sorts comparable object array using optimal algorithm. @param array Array to sort */
 	public static final <T extends Comparable<? super T>> void sort(T[] array) {sort(array, 0, array.length);}
-	
+
 	/**
 	 * Sorts portion of comparable object array using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -855,10 +867,10 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/** Sorts object array with comparator using optimal algorithm. @param array Array to sort @param comparator Comparison function */
 	public static final <T extends Comparable<? super T>> void sort(T[] array, Comparator<? super T> comparator) {sort(array, 0, array.length, comparator);}
-	
+
 	/**
 	 * Sorts portion of object array with comparator using parallel or sequential algorithm.
 	 * @param array Array to sort
@@ -877,7 +889,7 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/**
 	 * Sorts ArrayList of comparable objects using optimal algorithm.
 	 * @param list ArrayList to sort
@@ -899,7 +911,7 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/**
 	 * Sorts ArrayList with comparator using optimal algorithm.
 	 * @param list ArrayList to sort
@@ -926,7 +938,7 @@ public class Shared {
 			KillSwitch.memKill(e);
 		}
 	}
-	
+
 	/**
 	 * Safely closes PrintStream if it's not stdout or stderr.
 	 * @param outstream PrintStream to close
@@ -940,7 +952,7 @@ public class Shared {
 			}
 		}
 	}
-	
+
 	/**
 	 * Sets parallel sort enablement status.
 	 * @param x True to enable parallel sorting
@@ -954,7 +966,7 @@ public class Shared {
 			parallelSort=false;
 		}
 	}
-	
+
 	/**
 	 * Tests if parallel sort is available in current Java version.
 	 * @return True if parallel sort methods are available
@@ -967,7 +979,7 @@ public class Shared {
 		}
 		return m!=null;
 	}
-	
+
 	/**
 	 * Parses Java version string into double value.
 	 * @return Java version as double (e.g., 1.8, 11.0)
@@ -986,7 +998,7 @@ public class Shared {
 		}
 		return Double.parseDouble(sb.toString());
 	}
-	
+
 	/** Gemini version */
 	public static void listThreads() {
 		// Get a map of all active threads and their stack traces
@@ -1027,7 +1039,7 @@ public class Shared {
 			}
 		}
 	}
-	
+
 	static{
 		assert(EA=true);
 		KillSwitch.addBallast();
