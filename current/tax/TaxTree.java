@@ -2765,16 +2765,28 @@ public class TaxTree implements Serializable{
 	private static final String defaultSizeFile="TAX_PATH/taxsize.tsv.gz";
 
 	private static final String defaultAccessionFile=
-			//"TAX_PATH/shrunk.protF.accession2taxid.gz," +
-			"TAX_PATH/shrunk.prot.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.nucl_wgs.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.nucl_gb.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.dead_prot.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.nucl_est.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.dead_wgs.accession2taxid.gz,"
-//			+ "TAX_PATH/shrunk.nucl_gss.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.dead_nucl.accession2taxid.gz,"
-			+ "TAX_PATH/shrunk.pdb.accession2taxid.gz";
+		"TAX_PATH/shrunk.assembly_summary_genbank.txt.gz"
+		+ ",TAX_PATH/shrunk.assembly_summary_refseq.txt.gz"
+		+ ",TAX_PATH/shrunk.dead_nucl.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.dead_prot.accession2taxid.FULL.gz"
+		+ ",TAX_PATH/shrunk.dead_wgs.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.nuclE_wgs.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.nucl_gb.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.nucl_wgs.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.pdb.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.prot.accession2taxid.gz"
+		+ ",TAX_PATH/shrunk.wgs.accession2taxid.gz";
+
+		//			//"TAX_PATH/shrunk.protF.accession2taxid.gz," +
+//			"TAX_PATH/shrunk.prot.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.nucl_wgs.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.nucl_gb.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.dead_prot.accession2taxid.gz,"
+////			+ "TAX_PATH/shrunk.nucl_est.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.dead_wgs.accession2taxid.gz,"
+////			+ "TAX_PATH/shrunk.nucl_gss.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.dead_nucl.accession2taxid.gz,"
+//			+ "TAX_PATH/shrunk.pdb.accession2taxid.gz";
 
 	/** For setting TAX_PATH, the root to taxonomy files */
 	public static final String defaultTaxPath(){
