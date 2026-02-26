@@ -357,16 +357,18 @@ public class GiToTaxid {
 				try{
 					tab2=Tools.indexOfNth(line, '\t', 2);
 					tab3=Tools.indexOfNth(line, '\t', 1, tab2+1);
-					assert(tab2>0 && (tab2<tab3) && tab3<line.length) : tab2+", "+tab3+", "+line.length;
-					assert(tab2<line.length && line[tab2]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
-					assert(tab3<line.length && line[tab3]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
+					if(tab3>0) {
+						assert(tab2>0 && (tab2<tab3) && tab3<line.length) : tab2+", "+tab3+", "+line.length;
+						assert(tab2<line.length && line[tab2]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
+						assert(tab3<line.length && line[tab3]=='\t') : tab2+", "+tab3+", '"+new String(line)+"'";
+					}
 				}catch(Throwable e){
 					System.err.println(fname+", '"+new String(line)+"'");
 					throw new RuntimeException(e);
 				}
 				//assert(false) : tab2+", "+tab3+", '"+new String(line)+"'";
 				int tid=Parse.parseInt(line, tab2+1, tab3);
-				int gi=Parse.parseInt(line, tab3+1, line.length);
+				int gi=(tab3>0 ? Parse.parseInt(line, tab3+1, line.length) : -1);
 				if(gi<0){
 					invalid++;
 				}else{
