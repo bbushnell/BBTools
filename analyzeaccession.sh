@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 9, 2019
+Last modified February 26, 2026
 
 Description:  Looks at accessions to see how to compress them.
 

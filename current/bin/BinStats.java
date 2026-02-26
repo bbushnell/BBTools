@@ -46,7 +46,7 @@ public class BinStats implements Comparable<BinStats> {
 	/**
 	 * Determines bin quality type using completeness, contamination, and RNA markers.
 	 * @param useRNA Whether RNA markers are required for high-quality classification
-	 * @return Quality type (UHQ, VHQ, HQ, MQ, VLQ, or LQ)
+	 * @return Quality type (UHQ, VHQ, HQ, MQ, LQ, VLQ, or HCN)
 	 */
 	String type(boolean useRNA) {
 		return type(complt, contam, r16Scount, r23Scount, r5Scount, trnaCount, useRNA);
@@ -70,21 +70,23 @@ public class BinStats implements Comparable<BinStats> {
 		String type=type(useRNA);
 		return type.equals("MQ");
 	}
-	
-//	static String type(float complt, float contam) {
-//		if(contam<0.01 && complt>=0.99) {return "UHQ";}
-//		if(contam<0.02 && complt>=0.95) {return "VHQ";}
-//		if(contam<0.05 && complt>=0.90) {return "HQ";}
-//		if(contam<0.10 && complt>=0.50) {return "MQ";}
-//		if(contam<0.20 || complt<0.20) {return "VLQ";}
-//		return "LQ";
-//	}
+	/**
+	 * Checks if this bin qualifies as medium quality (LQ).
+	 * @param useRNA Whether to require RNA marker genes for classification
+	 * @return true if bin type ends with "LQ"
+	 */
+	public boolean lq() {
+		String type=type(false);
+		return type.endsWith("LQ");
+	}
 	
 	/**
 	 * Classifies bin quality based on completeness, contamination, and RNA marker gene counts.
-	 * Quality tiers: UHQ (>99% complete, <1% contamination), VHQ (>95% complete, <2% contamination),
-	 * HQ (>90% complete, <5% contamination), MQ (>50% complete, <10% contamination),
-	 * VLQ (<20% contamination OR <20% completeness), LQ (everything else).
+	 * Quality tiers: UHQ (>=99% complete, <=1% contamination), VHQ (>=95% complete, <=2% contamination),
+	 * HQ (>90% complete, <5% contamination), MQ (>=50% complete, <10% contamination),
+	 * LQ (<50%, <10%)
+	 * VLQ (<20%, <10%)
+	 * HCN (>=10% contamination).
 	 * High quality tiers (UHQ, VHQ, HQ) require RNA markers if useRNA is true.
 	 *
 	 * @param complt Completeness fraction (0.0-1.0)
@@ -94,18 +96,22 @@ public class BinStats implements Comparable<BinStats> {
 	 * @param r5S Count of 5S ribosomal RNA genes
 	 * @param trna Count of tRNA genes
 	 * @param useRNA Whether RNA markers are required for high quality classification
-	 * @return Quality type string (UHQ, VHQ, HQ, MQ, VLQ, or LQ)
+	 * @return Quality type string (UHQ, VHQ, HQ, MQ, LQ, VLQ, or HCN)
 	 */
 	static String type(float complt, float contam, int r16S, int r23S, int r5S, int trna, boolean useRNA) {
 		boolean rnaOK=!useRNA || (r16S>0 && r23S>0 && r5S>0 && trna>=18);
-		if(rnaOK) {
-			if(contam<0.01 && complt>=0.99) {return "UHQ";}
-			if(contam<0.02 && complt>=0.95) {return "VHQ";}
-			if(contam<0.05 && complt>=0.90) {return "HQ";}
+		if(contam<0.05 && complt>0.90 && rnaOK) {//HQ
+			if(contam<=0.01 && complt>=0.99) {return "UHQ";}
+			if(contam<=0.02 && complt>=0.95) {return "VHQ";}
+			return "HQ";
 		}
 		if(contam<0.10 && complt>=0.50) {return "MQ";}
-		if(contam<0.20 || complt<0.20) {return "VLQ";}
-		return "LQ";
+		if(contam<0.10 && complt<0.50) {//LQ
+			if(contam<0.10 && complt<0.20) {return "VLQ";}
+			return "LQ";
+		}
+		assert(contam>=0.10);
+		return "HCN";
 	}
 	
 	public String toString() {return toBytes(null).toString();}
