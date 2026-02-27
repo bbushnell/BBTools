@@ -214,6 +214,11 @@ requiredmeta=   (rmeta) Required optional metadata values.  For example:
                 rmeta=subunit:ssu,source:silva
 bannedmeta=     (bmeta) Forbidden optional metadata values.
 
+Proxy Parameters:
+proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
+                to reach external servers.  Sets -Dhttps.proxyHost for Java.
+proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
+
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
                 -Xmx20g will specify 20 gigs of RAM, and -Xmx200m will specify 200 megs.
@@ -271,7 +276,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP sketch.SendSketch $@"
+	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP sketch.SendSketch $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

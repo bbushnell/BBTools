@@ -137,6 +137,11 @@ fuselowerlimit=5k     Reduce stringency for merging clusters as small as this.
 fuseupperlimit=900k   Reduce stringency for merging clusters as big as this.
 fuseupperlimit2=9m    Don't fuse small clusters into clusters bigger than this.
 
+Proxy Parameters:
+proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
+                to reach external servers.  Sets -Dhttps.proxyHost for Java.
+proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
+
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
                 -Xmx20g will specify 20 gigs of RAM, and -Xmx200m will
@@ -179,7 +184,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bin.QuickBin $@"
+	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP bin.QuickBin $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

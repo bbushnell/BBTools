@@ -78,6 +78,11 @@ Standard BBTools Parameters:
 overwrite=f     Allow overwriting of existing output files.
 append=f        Append to existing output files instead of overwriting.
 
+Proxy Parameters:
+proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
+                to reach external servers.  Sets -Dhttps.proxyHost for Java.
+proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
+
 Server Communication:
 The default server is: https://bbmapservers.jgi.doe.gov/quickclade
 Sequences are sent in batches of up to 100 clades for efficient processing.
@@ -139,7 +144,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.SendClade $@"
+	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP clade.SendClade $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

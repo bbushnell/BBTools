@@ -58,6 +58,10 @@ callgenes=f     Call rRNAs and tRNAs.  Suboptimal for some RNA types.
 aligner=quantum Aligner for gene calling.
 clade=f         Assign taxonomy using QuickClade.
 
+Proxy Parameters:
+proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
+                to reach external servers.  Sets -Dhttps.proxyHost for Java.
+proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
@@ -101,7 +105,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bin.GradeBins $@"
+	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP bin.GradeBins $@"
 	echo "$CMD" >&2
 	eval $CMD
 }
