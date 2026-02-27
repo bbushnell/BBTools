@@ -37,7 +37,7 @@ public class Shared {
 
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="39.77";
+	public static String BBTOOLS_VERSION_STRING="39.78b";
 	/** Release name */
 	public static String BBMAP_VERSION_NAME="Assembly Access";
 	/** Main class name for current execution */

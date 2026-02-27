@@ -53,6 +53,11 @@ callssu=f       Call 16S and 18S for alignment to reference SSU.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.
 
+Proxy Parameters:
+proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
+                to reach external servers.  Sets -Dhttps.proxyHost for Java.
+proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
+
 Advanced Parameters (mainly for benchmarking):
 printmetrics    Output accuracy statistics; mainly useful for labeled data.
                 Labeled data should have 'tid_1234' or similar in the header.
@@ -122,7 +127,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP clade.CladeSearcher $@"
+	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP clade.CladeSearcher $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

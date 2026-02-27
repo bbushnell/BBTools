@@ -24,6 +24,7 @@ EA="-ea"
 EOOM=""
 SIMD=""
 SIMD_AUTO=""
+PROXY=""
 json=0
 silent=0
 
@@ -267,6 +268,12 @@ parseJavaArgs() {
 		# Silence output
 		elif [ "$arg" = "silent" ] || [ "$arg" = "silent=t" ] || [ "$arg" = "silent=true" ]; then
 			silent=1
+
+		# HTTPS proxy settings
+		elif [ "${arg%%=*}" = "proxyhost" ]; then
+			PROXY="$PROXY -Dhttps.proxyHost=$(echo "$arg" | cut -d= -f2)"
+		elif [ "${arg%%=*}" = "proxyport" ]; then
+			PROXY="$PROXY -Dhttps.proxyPort=$(echo "$arg" | cut -d= -f2)"
 		fi
 	done
 	
@@ -340,7 +347,7 @@ getJavaCommand() {
 	parseJavaArgs "$@"
 	setEnvironment
 	
-	local JAVA_CMD="java $EA $EOOM $XMX $XMS $SIMD"
+	local JAVA_CMD="java $EA $EOOM $PROXY $XMX $XMS $SIMD"
 	echo "$JAVA_CMD"
 }
 

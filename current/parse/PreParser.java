@@ -101,6 +101,12 @@ public class PreParser {
 					remove=removeKnown;
 				}else if(a.equals("json")){
 					json=Parse.parseBoolean(b);
+				}else if(a.equals("proxyhost")){
+					proxyhost=b;
+					remove=true;
+				}else if(a.equals("proxyport")){
+					proxyport=b;
+					remove=true;
 				}else if(a.equals("silent")){
 					silent=Parse.parseBoolean(b);
 				}else if(a.equals("printexecuting")){
@@ -192,6 +198,8 @@ public class PreParser {
 	public final boolean jflag;
 	public final boolean json;
 	public final int hyphens;
+	public String proxyport=null;
+	public String proxyhost=null;
 	public JsonObject jsonObject; 
 
 	public static boolean printExecuting=true;
