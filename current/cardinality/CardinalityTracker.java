@@ -31,7 +31,10 @@ public abstract class CardinalityTracker {
 	private static final String pickType(String type) {
 		if(trackCounts){
 			if("BBLog".equalsIgnoreCase(type)) {return type;}
-			else {return "LogLog16";}
+			else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
+				"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
+				return type;
+			}else {return "LogLog16";}
 		}
 		return type;
 	}
@@ -50,8 +53,11 @@ public abstract class CardinalityTracker {
 			return new LogLog();//Least accurate
 		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2();//Slowest, uses mantissa
-		}else if("LogLog16".equalsIgnoreCase(type)){
+		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16();//Uses 10-bit mantissa
+		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
+			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
+			return new DynamicDemiLog();//Uses 10-bit mantissa
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8();//Lowest memory
 		}
@@ -82,8 +88,11 @@ public abstract class CardinalityTracker {
 			return new LogLog(p);
 		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2(p);
-		}else if("LogLog16".equalsIgnoreCase(type)){
+		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16(p);
+		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
+			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
+			return new DynamicDemiLog(p);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(p);
 		}
@@ -109,8 +118,11 @@ public abstract class CardinalityTracker {
 			return new LogLog(buckets_, k_, seed, minProb_);
 		}else if("LogLog2".equalsIgnoreCase(type)){
 			return new LogLog2(buckets_, k_, seed, minProb_);
-		}else if("LogLog16".equalsIgnoreCase(type)){
+		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16(buckets_, k_, seed, minProb_);
+		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
+			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
+			return new DynamicDemiLog(buckets_, k_, seed, minProb_);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(buckets_, k_, seed, minProb_);
 		}

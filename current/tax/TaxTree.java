@@ -1,5 +1,6 @@
 package tax;
 
+import java.io.File;
 import java.io.PrintStream;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -2790,12 +2791,13 @@ public class TaxTree implements Serializable{
 
 	/** For setting TAX_PATH, the root to taxonomy files */
 	public static final String defaultTaxPath(){
-		return (Shared.AWS && !Shared.NERSC) ? 
+		String s=(Shared.AWS && !Shared.NERSC) ? 
 				defaultTaxPathAws : 
 					Shared.IGBVM ? defaultTaxPathIGBVM : 
 						Shared.DORI ? defaultTaxPathDori : 
 							(Shared.PERLMUTTER || Shared.NERSC) ? defaultTaxPathNersc :
-								Data.ROOT().replace("/current/", "/resources/");//TODO:  Need replacelast.
+								Data.RESOURCES();
+		return s;
 	}
 
 	/** 16S consensus sequences per TaxID */
@@ -2816,7 +2818,15 @@ public class TaxTree implements Serializable{
 	/** Location of gitable.int2d.gz for gi lookups */
 	public static final String defaultTableFile(){return defaultTableFile.replaceAll("TAX_PATH", TAX_PATH);}
 	/** Location of tree.taxtree.gz */
-	public static final String defaultTreeFile(){return defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);}
+	public static final String defaultTreeFile(){
+		String s=defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);
+		if(new File(s).exists()) {return s;}
+		String s2=Data.RESOURCES()+"tree.taxtree.gz";
+		if(new File(s2).exists()) {return s2;}
+		s2=Data.ROOT()+"tree.taxtree.gz";
+		if(new File(s2).exists()) {return s2;}
+		return s;
+	}
 	
 	//Use the prot.FULL.gz ncbi file.
 	public static boolean protFull=false;

@@ -437,7 +437,7 @@ public class GradeBins {
 			ChartMaker.writeContamHist(contamHist, bins);
 		}
 		if(report!=null) {
-			printClusterReport(bins, minSize, report);
+			printClusterReport(bins, minSize, report, null);
 		}
 	}
 	
@@ -762,13 +762,17 @@ public class GradeBins {
 	
 	/**
 	 * Writes comprehensive bin statistics report to tab-delimited file.
-	 * Includes quality metrics, taxonomic assignments, gene counts, and lineage information.
+	 * Columns: Num, File, Size, Contigs, GC, Depth, MinDepth, MaxDepth, [TaxID],
+	 * [Completeness, Contam, Type], [gene counts], [Lineage], [Contig].
+	 * Bins are sorted size-descending; Num is 0-based position in that order.
 	 *
 	 * @param bins List of bin statistics to report
 	 * @param minSize Minimum bin size threshold for inclusion
 	 * @param fname Output file path, or null to skip report generation
+	 * @param outPattern Output pattern used to generate bin filenames (e.g. "bins/bin_%.fa"),
+	 *                   or null if bins were loaded from files (filename taken from b.filename)
 	 */
-	static void printClusterReport(ArrayList<BinStats> bins, int minSize, String fname) {
+	static void printClusterReport(ArrayList<BinStats> bins, int minSize, String fname, String outPattern) {
 		if(fname==null) {return;}
 		Collections.sort(bins);
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
@@ -776,38 +780,54 @@ public class GradeBins {
 		boolean printTaxID=true;//TODO
 		boolean printCCT=false;
 		boolean printLineage=true;
+		boolean printContig=false;
 		for(BinStats b : bins) {
 			if(b.taxid>0) {printTaxID=true;}
 			if(b.complt>0 || b.contam>0) {printCCT=true;}
 			if(b.lineage!=null || (b.taxid>0 && BinObject.tree!=null)) {printLineage=true;}
+			if(b.contigName!=null) {printContig=true;}
 		}
-		String header="#Bin\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
+		String header="#Num\tFile\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
 		if(printTaxID) {header+="\tTaxID";}
 		if(printCCT) {header+="\tCompleteness\tContam\tType";}
 		if(callGenes || gffFile!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
 		if(printLineage) {header+="\tLineage";}
-		
+		if(printContig) {header+="\tContig";}
+
 		bsw.println(header);
 		int i=0;
 		for(BinStats b : bins) {
-//			assert(false) : b+"\n"+(BinObject.tree!=null)+(printLineage);
 			if(b.size>=minSize) {
-				bsw.printt(b.name).printt(b.size).printt(b.contigs);
+				// Determine the short filename for this bin
+				String file;
+				if(b.filename!=null) {
+					file=b.filename;
+				} else if(outPattern!=null) {
+					int pct=outPattern.lastIndexOf('%');
+					int sep=Math.max(outPattern.lastIndexOf('/'), outPattern.lastIndexOf('\\'));
+					String generated=pct>sep ? Tools.replaceLastInstanceOf(outPattern, '%', (long)i) : outPattern;
+					file=sep>=0 ? generated.substring(sep+1) : generated;
+				} else {
+					file=b.name;
+				}
+				bsw.printt(i).printt(file).printt(b.size).printt(b.contigs);
 				bsw.printt(b.gc, 3).printt(b.depth, 2);
 				bsw.printt(b.minDepth, 2).printt(b.maxDepth, 2);
 				if(printTaxID) {bsw.printt(b.taxid);}
 				if(printCCT) {bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));}
-				
+
 				if(callGenes || gffFile!=null) {
 					bsw.printt(b.r16Scount).printt(b.r18Scount);
 					bsw.printt(b.r23Scount).printt(b.r5Scount);
 					bsw.printt(b.trnaCount);
 					bsw.printt(b.cdsCount).printt(b.cdsLength);
 				}
-				
+
 				Object lineage=(b.lineage!=null ? b.lineage : BinObject.tree!=null ? Clade.lineage(b.taxid) : "NA");
-				if(printLineage) {bsw.println(lineage.toString());}
-				else {bsw.println();}
+				if(printLineage && printContig) {bsw.printt(lineage.toString());}
+				else if(printLineage) {bsw.println(lineage.toString());}
+				if(printContig) {bsw.println(b.contigName!=null ? b.contigName : b.name);}
+				else if(!printLineage) {bsw.println();}
 				i++;
 			}
 		}
@@ -1443,6 +1463,8 @@ public class GradeBins {
 			}
 //			assert(false) : runQuickClade+", "+qclade+", "+b.clade;
 			BinStats bs=new BinStats(b, fname==null ? b.name() : ReadWrite.stripToCore(fname));
+			bs.contigName=b.name();
+			if(fname!=null) {bs.filename=new java.io.File(fname).getName();}
 
 			if(callGenes && call) {callGenes(b, gCallerT, bs);}
 			else if(gffMap!=null && annot) {annotate(b, gffMap, bs);}

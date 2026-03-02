@@ -1391,19 +1391,15 @@ public class Data {
 		}else{//Use this as the literal path
 			return fname;
 		}
-		String path=ROOT+fname;
+		String path=ROOT_RESOURCES+fname;
 		boolean vb=false;
 		{
 			File f=new File(path);
 			if(!f.exists()){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
 				f=new File(ROOT);
-				String res=f.getParent();
-				if(res.length()>0 && !res.endsWith("/")){res=res+"/";}
-				res=res+"resources/"+fname;
-				f=new File(res);
-				if(f.exists()){path=res;}
-				else{if(vb){System.err.println("Did not find "+fname+" at "+res);}}
+				if(f.exists()){path=ROOT;}
+				else{if(vb){System.err.println("Did not find "+fname+" at "+ROOT);}}
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Considering fixing "+path+"\n"+path.contains("/file:"));}
@@ -1521,12 +1517,15 @@ public class Data {
 	
 	/** Distance in bases for "nearby" gene region calculations */
 	public static final int NEAR=200;
+
+	public static final String ROOT(){return ROOT;}
+	public static final String RESOURCES(){return ROOT_RESOURCES;}
 	
-	public static String ROOT(){return ROOT;}
 	
-	
-	/** Should be the same as ROOT_BASE but is found dynamically */
-	private static String ROOT;
+	/** Found dynamically.  Path to /BBTools/ (the root of the project, NOT including /current/) */
+	private static final String ROOT;
+	/** Path to /BBTools/resources/ */
+	private static final String ROOT_RESOURCES;
 	
 	public static String ROOT_BASE;
 	public static String ROOT_REF;
@@ -1548,10 +1547,17 @@ public class Data {
 		if(s.contains("/file:")){
 			s=s.substring(s.lastIndexOf("/file:")+6); // strips to "/path/bbtools.jar!/..."
 		}
-		ROOT=s.replace("dna/Data.class", "");
+		String root=s.replace("dna/Data.class", "");
+		if(root.contains("bbtools.jar!")) {root=root.substring(0, root.indexOf("bbtools.jar!"));}
+		if(root.endsWith("/current/") || root.endsWith("/current")) {
+			root=root.substring(0, root.lastIndexOf("/current"));
+		}
+		if(!root.endsWith("/")) {root=root+"/";}
 		// ROOT now = "/path/bbtools/bbtools.jar!/" → parent = "/path/bbtools/" → resources found! ✓
 		setPath(Shared.WINDOWS ? "?Shared.WINDOWS" : "?unix");
 		if(!Shared.WINDOWS || true){setPath("?local");}
+		ROOT=root;
+		ROOT_RESOURCES=ROOT+"resources/";
 	}
 	
 	/**
@@ -1604,9 +1610,6 @@ public class Data {
 			ROOT_TEMPDIR=null;
 		}
 	}
-	
-	public static final String VAR_FOLDER="VAR/";
-	public static final String GENE_FOLDER="GENE/";
 	
 	/** Currently active genome build number (-1 if unset) */
 	public static int GENOME_BUILD=-1;

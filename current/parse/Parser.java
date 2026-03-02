@@ -183,7 +183,7 @@ public class Parser {
 	 * @return true if the parameter was recognized and parsed, false otherwise
 	 */
 	public boolean parseCardinality(String arg, String a, String b){
-		if(a.equals("cardinality") || a.equals("loglog")){
+		if(a.equals("cardinality") || a.equals("loglog") || a.equals("loglogin")){
 			if(b!=null && b.length()>0 && Tools.isDigit(b.charAt(0))){
 				try {
 					loglogk=Integer.parseInt(b);
@@ -1941,7 +1941,7 @@ public class Parser {
 	/*--------------------------------------------------------------*/
 	
 	/** Type of LogLog algorithm to use for cardinality estimation */
-	public static String loglogType="LogLog16";
+	public static String loglogType="DDL";
 	/** Suppress progress and status messages */
 	public static boolean silent=false;
 	/** Print thread count changes to stderr */
