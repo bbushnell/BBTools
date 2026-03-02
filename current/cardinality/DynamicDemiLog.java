@@ -79,7 +79,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				gSum+=Math.log(Tools.max(1, dif));
 				rSum+=Math.sqrt(dif);
 				count++;
-				double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
+				double est=2*(Long.MAX_VALUE/(double)dif);
 				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
@@ -96,16 +96,36 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		final long median=list.median();
 		final double mwa=list.medianWeightedAverage();
 
-		final double proxy=(USE_MEAN ? mean : USE_MEDIAN ? median : USE_MWA ? mwa : 
+		final double proxy=(USE_MEAN ? mean : USE_MEDIAN ? median : USE_MWA ? mwa :
 			USE_HMEAN ? hmean : USE_GMEAN ? gmean : mean);
 
-		final double estimatePerSet=2*(Long.MAX_VALUE/proxy)*SKIPMOD;
+		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
-		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
+		final double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
 
-		long cardinality=Math.min(added, (long)(total));
+		// LinearCounting correction for sparse regimes: uses empty-bucket occupancy,
+		// which carries more information than bucket values when cardinality << buckets.
+		// Mathematically equivalent to Bloom filter occupancy estimation with hashes=1:
+		//   n = -buckets * ln(1 - occupancy)
+		final int V=buckets-count;  // empty buckets
+		// Factor of 2: canonical k-mers use max(kmer, revcomp), halving the effective hash
+		// space. Value-based estimate already corrects via 2*(MAX/proxy); LC needs the same.
+		final double lcEstimate=(V>0 ? 2.0*buckets*Math.log((double)buckets/V) : total);
+
+		// Sigmoid blend: smoothly transitions from LinearCounting (w=0) to value-based (w=1).
+		// LC_CROSSOVER: occupancy fraction at which the two estimators contribute equally (w=0.5).
+		//   Lower = trust LC longer; higher = switch to value-based sooner.
+		// LC_SHARPNESS: steepness of the sigmoid. Higher = sharper transition (more like a hard
+		//   switch); lower = more gradual blend. At sharpness 20, the transition from 10% to 90%
+		//   value-based weight spans roughly ±11 occupancy percentage points around the crossover.
+		// TODO: derive optimal values mathematically from relative estimator variances.
+		final double occ=(double)count/buckets;
+		final double w=1.0/(1.0+Math.exp(-LC_SHARPNESS*(occ-LC_CROSSOVER)));
+		final double blended=(1-w)*lcEstimate+w*total;
+
+		long cardinality=Math.min(added, (long)blended);
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -149,24 +169,24 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		final int shift=offset-nlz;
 		final int score=(nlz<<mantissabits)+(int)((~(key>>>shift))&mask); //FP16 representation
 		final int oldValue=maxArray[bucket];//Required memory read
-		
+
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
-		
+
 		final int newValue=Math.max(score, oldValue);
 		final int nlzOld=(oldValue>>mantissabits);
-		
+
 		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
 		//Update bucket; required write to cached line only if score>oldValue
 		maxArray[bucket]=(char)newValue;
-		
+
 		//Update count - totally optional, only for histograms
 		//Can be debranched with clever math
 		final char count=countArray[bucket];
 		countArray[bucket]=(char)(oldValue>score ? count : 
 			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
-		
+
 		//Update the dynamic early exit threshold
 		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier
 			/* 
@@ -174,16 +194,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			 * enabling both of these assertions causes a 40% slowdown even with -da.
 			 * Do not enable them in production.
 			 */
-//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
+			//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
 			while(minZeroCount==0 && minZeros<wordlen) {//Scan for new tier
 				minZeros++;
 				minZeroCount=countTermsInTier(minZeros, maxArray);
 			}
-//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
+			//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
 		}
-		
+
 	}
-	
+
 	private int scanFrom(int nlz) {
 		minZeros=nlz-1;
 		minZeroCount=0;
@@ -216,13 +236,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		long original=mantissa<<shift;
 		return original;
 	}
-	
+
 	private static int countTermsInTier(final int nlz, final char[] array) {
 		int sum=0;
 		for(final char c : array){
 			final int diff=(c>>mantissabits)^nlz;  //0 iff tier matches
 			final int equalsBit=(~(diff|-diff))>>>31;  //1 if diff==0, else 0
-			sum+=equalsBit;
+		sum+=equalsBit;
 		}
 		return sum;
 	}
@@ -243,17 +263,17 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		}
 		return new int[]{lower, equal, higher};
 	}
-	
+
 	public static float ani(int lower, int equal, int higher) {
 		//TODO
 		return -1;
 	}
-	
+
 	public static float completeness(int lower, int equal, int higher) {
 		//TODO
 		return -1;
 	}
-	
+
 	public static float contam(int lower, int equal, int higher) {
 		//TODO
 		return -1;
@@ -282,5 +302,15 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private static final int mantissabits=10;
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
+
+	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
+	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
+	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
+	private static final double LC_CROSSOVER=0.75;
+	/** Steepness of the sigmoid transition between LinearCounting and value-based estimation.
+	 * Higher values create a sharper switch; lower values create a more gradual blend.
+	 * At 20, the blend moves from 10% to 90% value-based weight over roughly ±11 occupancy
+	 * percentage points around LC_CROSSOVER.  At 5 it spans roughly ±44 points. */
+	private static final double LC_SHARPNESS=20.0;
 
 }
