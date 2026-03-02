@@ -221,7 +221,7 @@ public class Parser {
 			}
 		}else if(a.equals("loglogseed")){
 			long x=Long.parseLong(b);
-			if(x==-1) {x=shared.Shared.threadLocalRandom().nextLong()&Long.MAX_VALUE;}
+			if(x!=0) {x=shared.Shared.threadLocalRandom(x).nextLong()&Long.MAX_VALUE;}
 			CardinalityTracker.defaultSeed=loglogseed=x;
 		}else if(a.equals("loglogminprob")){
 			loglogMinprob=Float.parseFloat(b);
