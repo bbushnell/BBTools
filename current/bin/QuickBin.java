@@ -636,7 +636,7 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		ArrayList<BinStats> stats=GradeBins.toBinStats(null, bins, minClusterSize, true, true, true);
 		if(loud) {outstream.println("Bins: "+stats.size());}
 		t2.stop("Analyzing bins:");
-		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report);}
+		if(report!=null) {GradeBins.printClusterReport(stats, minClusterSize, report, outPattern);}
 		
 		if(writeThreads<2) {
 			ClusterWriter cw=new ClusterWriter(outstream, writeChaff, loud, overwrite, append);

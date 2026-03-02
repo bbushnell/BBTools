@@ -3575,6 +3575,43 @@ public final class Tools {
 		return new String(array);
 	}
 	
+	/**
+	 * Replaces the last instance of c with the decimal representation of r.
+	 * @param s Input string
+	 * @param c Character to replace
+	 * @param r Long value whose digits replace c
+	 * @return Modified string with c replaced by r's decimal digits
+	 */
+	public static String replaceLastInstanceOf(String s, char c, long r){
+		final int idx;
+		if(s==null || (idx=s.lastIndexOf(c))<0){return s;}
+		if(r==Long.MIN_VALUE){
+			// -r would overflow; substitute the known string directly
+			final String rep="-9223372036854775808";
+			char[] array=new char[s.length()-1+rep.length()];
+			s.getChars(0, idx, array, 0);
+			rep.getChars(0, rep.length(), array, idx);
+			s.getChars(idx+1, s.length(), array, idx+rep.length());
+			return new String(array);
+		}
+		boolean minus=r<0;
+		if(minus){r=-r;}
+		int digits=1;
+		for(long v=r; v>=10; v/=10){digits++;}
+		if(minus){digits++;}
+		char[] array=new char[s.length()-1+digits];
+		s.getChars(0, idx, array, 0);
+		long v=r;
+		int start=idx+(minus ? 1 : 0);
+		for(int j=idx+digits-1; j>=start; j--){
+			array[j]=(char)('0'+(v%10));
+			v/=10;
+		}
+		if(minus){array[idx]='-';}
+		s.getChars(idx+1, s.length(), array, idx+digits);
+		return new String(array);
+	}
+
 	/** Reverses characters.
 	 * @param s String to reverse */
 	public static String reverse(String s){

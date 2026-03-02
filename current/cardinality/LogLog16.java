@@ -174,18 +174,18 @@ public final class LogLog16 extends CardinalityTracker {
 		
 		key=Tools.hash64shift(key);
 //		if(key<0 || key>0x07FFFFFFFFFFFFFFL) {return;}//Super slow!
-		int leading=Long.numberOfLeadingZeros(key)&63;//mask is used to keep number in 6 bits 
-		if(leading<4) {return;}
+		int nlz=Long.numberOfLeadingZeros(key)&63;//mask is used to keep number in 6 bits 
+		if(nlz<4) {return;}
 		
 //		counts[leading]++;
 		
 //		int shift=wordlen-leading-mantissabits-1;
-		final int shift=offset-leading;
-		final int score=(leading<<mantissabits)+(int)((~(key>>>shift))&mask);
 		final int bucket=(int)(key&bucketMask);
-		
+		final int shift=offset-nlz;
+		final int score=(nlz<<mantissabits)+(int)((~(key>>>shift))&mask);
 		final int oldValue=maxArray[bucket];
 		final int newValue=Math.max(score, oldValue);
+		
 		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
 		maxArray[bucket]=(char)newValue;
 		final char count=countArray[bucket];

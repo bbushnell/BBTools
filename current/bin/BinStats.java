@@ -174,5 +174,9 @@ public class BinStats implements Comparable<BinStats> {
 	Clade clade;
 	/** Taxonomic lineage string for this bin */
 	String lineage;
-	
+	/** Short filename for this bin (e.g. "bin_0.fa"), set when loaded from files */
+	String filename;
+	/** Name of the first contig in this bin */
+	String contigName;
+
 }

@@ -521,7 +521,7 @@ public final class FastqScan{
 	long totalRecords;
 	long totalBases;
 	long totalQuals;
-	long totalBytes;
+	long totalBytes=0;
 	
 	long partialRecords;
 	long slashrLines;
