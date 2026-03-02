@@ -5423,7 +5423,7 @@ public final class Tools {
 	/** Taken from Thomas Wang, Jan 1997:
 	 * http://web.archive.org/web/20071223173210/http://www.concentric.net/~Ttwang/tech/inthash.htm
 	 * 
-	 *  This is much faster than the table version.  Results seem similar y.
+	 *  This is much faster than the table version.  Results seem similar.
 	 */
 	public static long hash64shift(long key){
 		key=(~key)+(key<<21); // key=(key<<21) - key - 1;

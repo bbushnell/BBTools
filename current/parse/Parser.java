@@ -220,7 +220,9 @@ public class Parser {
 				loglogKlist.add(Integer.parseInt(k));
 			}
 		}else if(a.equals("loglogseed")){
-			loglogseed=Long.parseLong(b);
+			long x=Long.parseLong(b);
+			if(x==-1) {x=shared.Shared.threadLocalRandom().nextLong()&Long.MAX_VALUE;}
+			CardinalityTracker.defaultSeed=loglogseed=x;
 		}else if(a.equals("loglogminprob")){
 			loglogMinprob=Float.parseFloat(b);
 		}else if(a.equals("loglogtype")){
