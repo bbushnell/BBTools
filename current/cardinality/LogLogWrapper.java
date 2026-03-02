@@ -132,7 +132,7 @@ class LogLogWrapper {
 			}else if(a.equals("k") || a.equals("loglogk")){
 				k=Integer.parseInt(b);
 			}else if(a.equals("seed") || a.equals("loglogseed")){
-				seed=Long.parseLong(b);
+				parser.parseCardinality(arg, "loglogseed", b);
 			}else if(a.equals("seed2")){
 				seed2=Long.parseLong(b);
 			}else if(a.equals("minprob") || a.equals("loglogminprob")){
@@ -179,6 +179,7 @@ class LogLogWrapper {
 			in1=(parser.in1==null ? null : parser.in1.split(","));
 			in2=(parser.in2==null ? null : parser.in2.split(","));
 			out=parser.out1;
+			seed=parser.loglogseed;
 		}
 		
 		assert(synth || (in1!=null && in1.length>0)) : "No primary input file specified.";
@@ -440,7 +441,7 @@ class LogLogWrapper {
 	/** K-mer length for hashing sequences */
 	private int k=31;
 	/** Random seed for hash function initialization */
-	private long seed=-1;
+	private long seed=0;
 	/** Secondary random seed for synthetic data generation */
 	private long seed2=-1;
 	/** Minimum probability threshold for k-mer inclusion */

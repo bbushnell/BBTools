@@ -55,6 +55,8 @@ public abstract class CardinalityTracker {
 			return new LogLog2();//Slowest, uses mantissa
 		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16();//Uses 10-bit mantissa
+//		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type)){
+//			return new DynamicLogLog();//Uses 10-bit mantissa
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog();//Uses 10-bit mantissa
@@ -90,6 +92,8 @@ public abstract class CardinalityTracker {
 			return new LogLog2(p);
 		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16(p);
+//		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type)){
+//			return new DynamicLogLog(p);
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog(p);
@@ -120,6 +124,8 @@ public abstract class CardinalityTracker {
 			return new LogLog2(buckets_, k_, seed, minProb_);
 		}else if("LogLog16".equalsIgnoreCase(type) || "LL16".equalsIgnoreCase(type)){
 			return new LogLog16(buckets_, k_, seed, minProb_);
+//		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type)) {
+//			return new DynamicLogLog(buckets_, k_, seed, minProb_);
 		}else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
 			"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 			return new DynamicDemiLog(buckets_, k_, seed, minProb_);
@@ -155,9 +161,7 @@ public abstract class CardinalityTracker {
 		bucketMask=buckets-1;
 		k=Kmer.getKbig(k_);
 		minProb=minProb_;
-		
-		Random randy=Shared.threadLocalRandom(seed<0 ? -1 : seed);
-		hashXor=randy.nextLong();
+		hashXor=(seed==-1 ? defaultSeed : seed);
 //		assert(false) : seed+", "+randy+", "+hashXor;
 		//Xor is not used anymore, but could be, as long as each copy gets the same one.
 	}
@@ -621,8 +625,8 @@ public abstract class CardinalityTracker {
 	/** Thread-local storage for Kmer objects used in long k-mer hashing */
 	private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
 	
-	/** Random value XORed with hash inputs to vary hash function behavior */
-	private final long hashXor;
+	/** Value XORed with hash inputs to vary hash function behavior */
+	protected final long hashXor;
 	
 	/**
 	 * Gets a thread-local Kmer object for long k-mer mode processing.
@@ -673,6 +677,8 @@ public abstract class CardinalityTracker {
 	public static long lastCardinality=-1;
 //	/** Ignore hashed values above this, to skip expensive read and store functions. */
 //	static final long maxHashedValue=((-1L)>>>3);//No longer used
+	
+	public static long defaultSeed=0;
 	
 	/** Whether to use arithmetic mean for combining multiple bucket estimates */
 	public static boolean USE_MEAN=true;//Arithmetic mean

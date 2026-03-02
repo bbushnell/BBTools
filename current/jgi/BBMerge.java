@@ -754,7 +754,7 @@ public class BBMerge {
 			useRatioMode=true;
 		}
 		
-		loglog=(outCardinality==null && !parser.loglog ? null : CardinalityTracker.makeTracker(2048, 31, -1, 0));
+		loglog=(outCardinality==null && !parser.loglog ? null : CardinalityTracker.makeTracker(2048, 31, 0, 0));
 		
 		{//Process parser fields
 			Parser.processQuality();

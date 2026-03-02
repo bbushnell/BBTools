@@ -131,12 +131,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	}
 
 	/** Compares two DynamicLogLog instances bucket by bucket.
-	 * @return int[]{lower, equal, higher} bucket counts */
+	 * @return int[] {lower, equal, higher} bucket counts */
 	public int[] compareTo(DynamicDemiLog blog){return compare(maxArray, blog.maxArray);}
 
 	@Override
 	public void hashAndStore(final long number){
-		final long key=Tools.hash64shift(number);
+		final long rawKey=number^hashXor;
+		final long key=Tools.hash64shift(rawKey);
 		//It's possible to exit early before calculating nlz but inefficient
 		final int nlz=Long.numberOfLeadingZeros(key);
 
@@ -167,14 +168,18 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
 		
 		//Update the dynamic early exit threshold
-		if(nlz>nlzOld && nlzOld==minZeros) {//Promotion from bottom tier
-			minZeroCount--;
-			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
+		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier
+			/* 
+			 * NOTE - Due to a major Eclipse JDK 24 -> Java 8 target bytecode generation bug,
+			 * enabling both of these assertions causes a 40% slowdown even with -da.
+			 * Do not enable them in production.
+			 */
+//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
 			while(minZeroCount==0 && minZeros<wordlen) {//Scan for new tier
 				minZeros++;
 				minZeroCount=countTermsInTier(minZeros, maxArray);
 			}
-			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
+//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
 		}
 		
 	}

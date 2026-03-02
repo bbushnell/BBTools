@@ -170,9 +170,8 @@ public final class LogLog16 extends CardinalityTracker {
 	 */
 	@Override
 	public void hashAndStore(final long number){
-		long key=number;
-		
-		key=Tools.hash64shift(key);
+		final long rawKey=number^hashXor;
+		final long key=Tools.hash64shift(rawKey);
 //		if(key<0 || key>0x07FFFFFFFFFFFFFFL) {return;}//Super slow!
 		int nlz=Long.numberOfLeadingZeros(key)&63;//mask is used to keep number in 6 bits 
 		if(nlz<4) {return;}
