@@ -121,11 +121,15 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//   switch); lower = more gradual blend. At sharpness 20, the transition from 10% to 90%
 		//   value-based weight spans roughly ±11 occupancy percentage points around the crossover.
 		// TODO: derive optimal values mathematically from relative estimator variances.
-		final double occ=(double)count/buckets;
-		final double w=1.0/(1.0+Math.exp(-LC_SHARPNESS*(occ-LC_CROSSOVER)));
-		final double blended=(1-w)*lcEstimate+w*total;
+		double estimate=total;
+		if(USE_LC) {
+			final double occ=(double)count/buckets;
+			final double w=1.0/(1.0+Math.exp(-LC_SHARPNESS*(occ-LC_CROSSOVER)));
+			final double blended=(1-w)*lcEstimate+w*total;
+			estimate=blended;
+		}
 
-		long cardinality=Math.min(added, (long)blended);
+		long cardinality=Math.min(added, (long)estimate);
 		lastCardinality=cardinality;
 		return cardinality;
 	}
@@ -241,8 +245,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		int sum=0;
 		for(final char c : array){
 			final int diff=(c>>mantissabits)^nlz;  //0 iff tier matches
-			final int equalsBit=(~(diff|-diff))>>>31;  //1 if diff==0, else 0
-		sum+=equalsBit;
+			final int equalsBit=((~(diff|-diff))>>>31);  //1 if diff==0, else 0
+			sum+=equalsBit;
 		}
 		return sum;
 	}
@@ -306,11 +310,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
 	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
 	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
-	private static final double LC_CROSSOVER=0.75;
+	public static double LC_CROSSOVER=0.75;
 	/** Steepness of the sigmoid transition between LinearCounting and value-based estimation.
 	 * Higher values create a sharper switch; lower values create a more gradual blend.
 	 * At 20, the blend moves from 10% to 90% value-based weight over roughly ±11 occupancy
 	 * percentage points around LC_CROSSOVER.  At 5 it spans roughly ±44 points. */
-	private static final double LC_SHARPNESS=20.0;
+	public static double LC_SHARPNESS=20.0;
+	public static boolean USE_LC=true; 
 
 }
