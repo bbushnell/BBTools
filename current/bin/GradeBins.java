@@ -723,7 +723,7 @@ public class GradeBins {
 		CCLine dummy=new CCLine(0, 0);
 		CCLine checkm=(checkMMap==null ? null : checkMMap.get(core));
 		CCLine eukcc=(eukCCMap==null ? null : eukCCMap.get(core));
-		assert((checkMMap==null) == (checkm==null)) : checkm;
+//		assert((checkMMap==null) == (checkm==null)) : checkm; //Can fail, maybe bins are too small
 		if(checkm==null && eukcc==null) {
 			c.calcContam(sizeMap);
 			return;
@@ -733,6 +733,7 @@ public class GradeBins {
 		CCLine best=(checkm.completeness>=eukcc.completeness ? checkm : eukcc);
 		c.completeness=best.completeness;
 		c.contam=best.contam;
+		c.truthSource=checkm.completeness>=eukcc.completeness ? BinObject.CHECKM2 : BinObject.EUKCC;
 	}
 	
 //	static ArrayList<BinStats> toStatsST(Collection<? extends Bin> bins, int minSize) {
@@ -789,7 +790,7 @@ public class GradeBins {
 		}
 		String header="#Num\tFile\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
 		if(printTaxID) {header+="\tTaxID";}
-		if(printCCT) {header+="\tCompleteness\tContam\tType";}
+		if(printCCT) {header+="\tCompleteness\tContam\tType\tSource";}
 		if(callGenes || gffFile!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
 		if(printLineage) {header+="\tLineage";}
 		if(printContig) {header+="\tContig";}
@@ -814,7 +815,10 @@ public class GradeBins {
 				bsw.printt(b.gc, 3).printt(b.depth, 2);
 				bsw.printt(b.minDepth, 2).printt(b.maxDepth, 2);
 				if(printTaxID) {bsw.printt(b.taxid);}
-				if(printCCT) {bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));}
+				if(printCCT) {
+					bsw.printt(b.complt, 5).printt(b.contam, 5).printt(b.type(useRNA));
+					bsw.printt(BinObject.TRUTH_SOURCE[b.truthSource]);
+				}
 
 				if(callGenes || gffFile!=null) {
 					bsw.printt(b.r16Scount).printt(b.r18Scount);

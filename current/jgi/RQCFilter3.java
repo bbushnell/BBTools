@@ -3587,7 +3587,7 @@ public class RQCFilter3 {
 			final long capacity=kmerCapacity(20, true);
 			outstream.println("cardinality="+cardinality+", capacity="+capacity);
 
-			extendFlag=(cardinality>0 && cardinality*2<capacity);
+			extendFlag=(cardinality>0 && cardinality*2.5<capacity);
 		}
 		
 		{//Fill list with BBMerge arguments
@@ -3668,7 +3668,7 @@ public class RQCFilter3 {
 		final long capacity=kmerCapacity(12, true);
 		outstream.println("cardinality="+cardinality+", capacity="+capacity);
 		
-		if(cardinality<1 || cardinality*1.5>capacity){ //Too many kmers for exact counts; use BBNorm
+		if(cardinality<1 || cardinality*2.5>capacity){ //Too many kmers for exact counts; use BBNorm
 			{//Fill list with BBNorm arguments
 				argList.add("overwrite="+overwrite);
 

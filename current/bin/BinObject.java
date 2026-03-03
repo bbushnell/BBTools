@@ -483,6 +483,9 @@ public class BinObject {
 	public static int[][] gcmapMatrix=makeGCMapMatrix();
 	
 	private static final int[] masks={0, 3, 15, 63, 255, 1023, 4095};
+
+	static final int NONE=0, LABEL=1, CHECKM2=2, EUKCC=3;
+	static final String[] TRUTH_SOURCE= {"None", "Label", "CheckM2", "EukCC"};
 	
 	/** Output stream for status messages */
 	static PrintStream outstream=System.err;
