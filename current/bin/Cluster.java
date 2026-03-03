@@ -252,6 +252,7 @@ public class Cluster extends Bin {
 		sketchedSize=0;
 		clearDepth();
 		completeness=contam=entropy=strandedness=hh=caga=score=0;
+		truthSource=0;
 		dest=0;
 		taxid=genusTaxid=labelTaxid=0;
 		topHit=secondHit=null;

@@ -445,6 +445,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		if(targetSize==sizeMap.invalid()) {targetSize=sum;}//unknown...
 		completeness=maxSize/(float)targetSize;
 		contam=(sum-maxSize)/(float)sum;
+		truthSource=(taxid<1 ? NONE : LABEL);
 		badContigs=0;
 		for(Contig c : this) {
 			if(c.labelTaxid>0 && c.labelTaxid!=taxid) {badContigs++;}
@@ -482,6 +483,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 		if(targetSize==sizeMap.invalid()) {targetSize=sum;}//unknown...
 		completeness=maxSize/(float)targetSize;
 		contam=(sum-maxSize)/(float)sum;
+		truthSource=(taxid<1 ? NONE : LABEL);
 	}
 	
 	/** Determines the primary taxonomic ID by finding the taxon with largest total size.
@@ -802,6 +804,7 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	/** Estimated contamination level (0-1) */
 	/** Estimated genome completeness (0-1) */
 	float completeness=0, contam=0;
+	int truthSource=0;
 	/** Number of contigs with incorrect taxonomic labels */
 	int badContigs=0;
 	/** Sequence entropy measure */

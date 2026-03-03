@@ -26,6 +26,7 @@ public class BinStats implements Comparable<BinStats> {
 		contigs=b.numContigs();
 		contam=b.contam;
 		complt=b.completeness;
+		truthSource=b.truthSource;
 		badContigs=b.badContigs;
 		gc=b.gc();
 		depth=b.depth();
@@ -150,6 +151,7 @@ public class BinStats implements Comparable<BinStats> {
 	float contam;
 	/** Completeness level as fraction (0.0-1.0) */
 	float complt;
+	int truthSource=0;
 	/** GC content as fraction (0.0-1.0) */
 	float gc;
 	/** Average sequencing depth across the bin */
