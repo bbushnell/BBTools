@@ -35,6 +35,7 @@ import shared.Timer;
 import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
+import structures.ByteBuilder;
 import structures.FloatList;
 import structures.ListNum;
 import structures.LongList;
@@ -157,6 +158,8 @@ public class GradeBins {
 			}else if(a.equals("aligner") || a.equals("idaligner")){
 				GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
 				if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
+			}else if(a.equalsIgnoreCase("swapnl") || a.equalsIgnoreCase("swapln")){
+				swapNL=Parse.parseBoolean(b);
 			}else if(b==null && new File(arg).isFile()){
 //				System.err.println("Examining "+arg);
 //				FileFormat.PRINT_WARNING=false;
@@ -983,50 +986,44 @@ public class GradeBins {
 	 * @param list List of sizes to analyze
 	 * @param basesLoaded Total bases for percentage threshold calculations
 	 */
-	static void printL90(LongList list, long basesLoaded) {
-		long c99=(long)(0.99f*basesLoaded);
-		long c95=(long)(0.95f*basesLoaded);
-		long c90=(long)(0.90f*basesLoaded);
-		long c80=(long)(0.80f*basesLoaded);
-		long c75=(long)(0.75f*basesLoaded);
-		long c50=(long)(0.50f*basesLoaded);
-		long c40=(long)(0.40f*basesLoaded);
-		long c30=(long)(0.30f*basesLoaded);
-		long c25=(long)(0.25f*basesLoaded);
-		long c20=(long)(0.20f*basesLoaded);
-		long c15=(long)(0.15f*basesLoaded);
-		long c10=(long)(0.10f*basesLoaded);
-		long c05=(long)(0.05f*basesLoaded);
-		long c02=(long)(0.02f*basesLoaded);
-		long c01=(long)(0.01f*basesLoaded);
-		
+	static void printL90(LongList list, long basesLoaded){
+		final int[] pcts={1, 2, 5, 10, 15, 20, 25, 30, 40, 50, 90};
+		final long[] cuts=new long[pcts.length];
+		for(int j=0; j<pcts.length; j++){
+			cuts[j]=(long)(pcts[j]*0.01f*basesLoaded);
+		}
+
 		list.sort();
 		list.reverse();
 		long prev=0, sum2=0;
-		for(int i=0; i<list.size(); i++) {
-			long size=list.get(i);
+		ByteBuilder bb=new ByteBuilder();
+
+		for(int i=0; i<list.size(); i++){
+			final long size=list.get(i);
 			prev=sum2;
 			sum2+=size;
-			int num=i+1;
+			final int num=i+1;
+			for(int j=0; j<pcts.length; j++){
+				if(sum2>=cuts[j] && prev<cuts[j]){
+					final String label=String.format("%02d", pcts[j]);
+					bb.append('L').append(label).append(": ").append(size).tab();
+					bb.append('N').append(label).append(": ").append(num).nl();
+				}
+			}
+		}
 
-			if(sum2>=c01 && prev<c01) {System.err.println("L01: "+size+"\t"+"N01: "+num);}
-			if(sum2>=c02 && prev<c02) {System.err.println("L02: "+size+"\t"+"N02: "+num);}
-			if(sum2>=c05 && prev<c05) {System.err.println("L05: "+size+"\t"+"N05: "+num);}
-			if(sum2>=c10 && prev<c10) {System.err.println("L10: "+size+"\t"+"N10: "+num);}
-			if(sum2>=c15 && prev<c15) {System.err.println("L15: "+size+"\t"+"N15: "+num);}
-			if(sum2>=c20 && prev<c20) {System.err.println("L20: "+size+"\t"+"N20: "+num);}
-			if(sum2>=c25 && prev<c25) {System.err.println("L25: "+size+"\t"+"N25: "+num);}
-			if(sum2>=c30 && prev<c30) {System.err.println("L30: "+size+"\t"+"N30: "+num);}
-			if(sum2>=c40 && prev<c40) {System.err.println("L40: "+size+"\t"+"N40: "+num);}
-			if(sum2>=c50 && prev<c50) {System.err.println("L50: "+size+"\t"+"N50: "+num);}
-//			if(sum2>=c75 && prev<c75) {System.err.println("L75: "+size+"\t"+"N75: "+num);}
-//			if(sum2>=c80 && prev<c80) {System.err.println("L80: "+size+"\t"+"N80: "+num);}
-			if(sum2>=c90 && prev<c90) {System.err.println("L90: "+size+"\t"+"N90: "+num);}
-//			if(sum2>=c95 && prev<c95) {System.err.println("L95: "+size+"\t"+"N95: "+num);}
-//			if(sum2>=c99 && prev<c99) {System.err.println("L99: "+size+"\t"+"N99: "+num);}
+		if(swapNL){
+			final char[] chars=bb.toString().toCharArray();
+			for(int i=0; i<chars.length; i++){
+				if(chars[i]=='L'){chars[i]='N';}
+				else if(chars[i]=='N'){chars[i]='L';}
+			}
+			System.err.print(new String(chars));
+		}else{
+			System.err.print(bb);
 		}
 	}
-	
+
 	/**
 	 * Creates size mapping from reference assembly file.
 	 * Parses FASTA sequences, extracts taxonomic IDs, and builds taxid-to-size mapping.
@@ -1637,6 +1634,8 @@ public class GradeBins {
 	static boolean callGenes=false;
 	/** Whether RNA genes are required for high-quality bin designation */
 	static boolean useRNA=false;
+	/** Swap N50/L50 */
+	static boolean swapNL=false;
 	
 	/*--------------------------------------------------------------*/
 	
