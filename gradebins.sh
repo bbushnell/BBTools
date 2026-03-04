@@ -49,6 +49,7 @@ taxout=<file>   Generate a tax file from the reference (for use with taxin).
 hist=<file>     Cumulative bin size and contamination histogram.
 ccplot=<file>   Per-bin completeness/contam data.
 contamhist=<file> Histogram plotting #bins or bases vs %contam.
+swapnl          Swap L50/N50 so N indicates a length, and L a number.
 
 Processing parameters:
 userna=f        Require rRNAs and tRNAs for HQ genomes.  This needs either

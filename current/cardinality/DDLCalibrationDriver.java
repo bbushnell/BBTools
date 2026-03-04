@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import map.LongHashSet;
+import shared.Shared;
 import shared.Tools;
 
 /**
@@ -66,7 +67,7 @@ public class DDLCalibrationDriver {
 		double reportFrac=0.01;
 		long masterSeed=12345L;
 		long valSeed=42L;
-		int threads=1;
+		int threads=Shared.threads();
 		String out2=null;
 
 		for(String arg : args){
@@ -81,8 +82,9 @@ public class DDLCalibrationDriver {
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){valSeed=Long.parseLong(b);}
-			else if(a.equals("threads")){threads=Integer.parseInt(b);}
+			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("out2")){out2=b;}
+			else{assert(false) : "Unknown parameter '"+out2+"'";}
 		}
 
 		assert(buckets%256==0) : "buckets must be a multiple of 256 for histogram; got "+buckets;
