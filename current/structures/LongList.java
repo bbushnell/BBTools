@@ -244,7 +244,7 @@ public final class LongList{
 		double sum=0;
 		for(int i=0, j=size-1; i<half; i++, j--){
 			int mult=i+1;
-			double incr=(array[i]+array[j])*mult;
+			double incr=((double)array[i]+(double)array[j])*mult;
 			sum+=incr;
 			count+=2*mult;
 		}

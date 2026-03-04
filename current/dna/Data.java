@@ -1397,14 +1397,14 @@ public class Data {
 			File f=new File(path);
 			if(!f.exists()){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
-				f=new File(ROOT);
+				f=new File(ROOT+fname);
 				if(f.exists()){path=ROOT;}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+ROOT);}}
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Considering fixing "+path+"\n"+path.contains("/file:"));}
 				if(path.contains("/file:")){
-					String fixed=path.substring(path.lastIndexOf("/file:")+1);
+					String fixed=path.substring(path.lastIndexOf("/file:")+1)+fname;
 					f=new File(fixed);
 					if(f.exists()){path=fixed;}
 					else{if(vb){System.err.println("Did not find "+fname+" at "+fixed);}}
@@ -1417,8 +1417,6 @@ public class Data {
 					String temp=PercentEncoding.codeToSymbol(url.toString());
 					if(vb){System.err.println("Found URL "+temp);}
 					f=new File(temp);
-					//						if(f.exists()){fname=temp;}
-					//						else{System.err.println("Did not find "+fname+" at "+temp);}
 					path=temp;
 				}
 			}
