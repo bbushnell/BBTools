@@ -255,8 +255,9 @@ public class DDLCalibrationDriver {
 			.append(cnt);
 			for(int e=0; e<NUM_EST; e++){
 				final double avgRaw=histRawEst[s][e]/cnt;
-				// Compensation factor: multiply rawEstimate by cf to get trueCard
-				final double cf=(avgRaw>0) ? avgTrueCard/avgRaw : Double.NaN;
+				// Compensation factor: multiply rawEstimate by cf to get trueCard.
+				// When both are 0 (empty DDL, slot 0), estimate is exactly correct: cf=1.
+				final double cf=(avgRaw>0) ? avgTrueCard/avgRaw : (avgTrueCard==0 ? 1.0 : Double.NaN);
 				sb.append('\t').append(String.format("%.3f", avgRaw));
 				sb.append('\t').append(String.format("%.8f", cf));
 			}
@@ -365,9 +366,8 @@ public class DDLCalibrationDriver {
 				(int)Math.min((long)maxTrue+(long)maxTrue/4+1L, Integer.MAX_VALUE));
 			final Random valRng=new Random(valSeed);
 
-			// Next filledBuckets milestone per DDL: initialized to step (slot 1)
-			final int[] nextCheckpoint=new int[ddls.length];
-			for(int d=0; d<ddls.length; d++){nextCheckpoint[d]=step;}
+			// Per-DDL cached rawEstimates; recomputed only when lastCardinality==-1 (bucket changed).
+			final double[][] cachedRaw=new double[ddls.length][];
 
 			int ti=0;
 			long prevTrueCard=0;
@@ -378,20 +378,19 @@ public class DDLCalibrationDriver {
 				final long trueCard=trueSet.size();
 				for(DynamicDemiLog ddl : ddls){ddl.hashAndStore(val);}
 
-				// Histogram checkpoints: only check when trueCard increased (unique element)
-				// because duplicates cannot change any DDL's filledBuckets count.
+				// Record every DDL at its current occupancy slot for every unique element.
+				// If the DDL's state didn't change (lastCardinality>=0), reuse cached estimates.
+				// If it changed (lastCardinality==-1), recompute and mark current (set to 0).
 				if(trueCard>prevTrueCard){
 					for(int d=0; d<ddls.length; d++){
-						final int filled=ddls[d].filledBuckets();
-						if(filled>=nextCheckpoint[d]){
-							// filledBuckets increments by at most 1, so filled==nextCheckpoint[d] here
-							final int idx=filled/step;
-							histCount[idx]++;
-							histTrueCard[idx]+=trueCard;
-							final double[] raw=ddls[d].rawEstimates();
-							for(int e=0; e<NUM_EST; e++){histRawEst[idx][e]+=raw[e];}
-							nextCheckpoint[d]=(idx+1)*step;
+						if(ddls[d].lastCardinality<0 || cachedRaw[d]==null){
+							cachedRaw[d]=ddls[d].rawEstimates();
+							ddls[d].lastCardinality=0;
 						}
+						final int idx=ddls[d].filledBuckets()/step;
+						histCount[idx]++;
+						histTrueCard[idx]+=trueCard;
+						for(int e=0; e<NUM_EST; e++){histRawEst[idx][e]+=cachedRaw[d][e];}
 					}
 					prevTrueCard=trueCard;
 				}
