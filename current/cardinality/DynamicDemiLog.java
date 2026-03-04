@@ -165,11 +165,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	public void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
 		final long key=Tools.hash64shift(rawKey);
-		//It's possible to exit early before calculating nlz but inefficient
+		
+		//Earliest possible exit, fastest
+		if(Long.compareUnsigned(key, eeMask)>0) {return;}
 		final int nlz=Long.numberOfLeadingZeros(key);
 
-		// Global early exit
-		if(nlz<minZeros){return;}
+		// Global early exit if not using eeMask
+//		if(nlz<minZeros){return;}
 
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
@@ -206,6 +208,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
 			while(minZeroCount==0 && minZeros<wordlen) {//Scan for new tier
 				minZeros++;
+				eeMask>>>=1;
 				minZeroCount=countTermsInTier(minZeros, maxArray);
 			}
 			//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
@@ -216,10 +219,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private int scanFrom(int nlz) {
 		minZeros=nlz-1;
 		minZeroCount=0;
+		eeMask=-1L;
 		//Technically this could be 2-pass: find the lowest, THEN count that tier
 		//But in practice that would be slower
 		while(minZeroCount==0 && minZeros<wordlen) {
 			minZeros++;
+			eeMask>>>=1;
 			minZeroCount=countTermsInTier(minZeros, maxArray);
 		}
 		return minZeros;
@@ -299,10 +304,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		// for the full signed 64-bit hash range including nlz=0 values.
 		// LC fallback: 1x — restore() now returns Long.MAX_VALUE for nlz=0 (rather than overflowing
 		// to negative and being excluded), so V correctly counts actual empty buckets; no 2x needed.
-		double hmeanEst=2*alpha_m*(double)buckets*(double)buckets/hllSum;
+		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
+		double hmeanEst=hmeanRaw;
 		if(hmeanEst<2.5*buckets && V>0){
 			hmeanEst=(double)buckets*Math.log((double)buckets/V);
 		}
+		// Pure harmonic mean: no LC blending, so compensation curves can correct it cleanly.
+		final double hmeanPure=(filledBuckets==0 ? 0 : hmeanRaw);
 
 		final double correction=(count+buckets)/(float)(buckets+buckets);
 		final double meanEst     =2*(Long.MAX_VALUE/Tools.max(1.0, mean)) *div*correction *MEAN_FACTOR;
@@ -332,8 +340,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			blended=(1-w)*lcTrue+w*meanEst;
 		}
 
-		return new double[]{meanEst, hmeanEst, gmeanEst, rmeanEst, mwaEst,
-			medianCorr, medianLeg, estSum, lcHybrid, lcTrue, blended};
+		// When DDL is empty, value-based estimators return garbage; clamp to 0.
+		if(filledBuckets==0){
+			return new double[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+		}
+		return new double[]{meanEst, hmeanEst, hmeanPure, gmeanEst, rmeanEst, mwaEst,
+				medianCorr, medianLeg, estSum, lcHybrid, lcTrue, blended};
 	}
 
 	/*--------------------------------------------------------------*/
@@ -415,6 +427,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Number of buckets with any data (maxArray[i] > 0). Maintained incrementally
 	 * in hashAndStore() for O(1) filledBuckets() and occupancy() calls. */
 	private int filledBuckets=0;
+	private long eeMask=-1L;
 	/** Reusable sort buffer for rawEstimates(); avoids per-call allocation. */
 	private final LongList sortBuf=new LongList(buckets);
 

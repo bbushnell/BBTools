@@ -62,6 +62,8 @@ public abstract class CardinalityTracker {
 			return new DynamicDemiLog();//Uses 10-bit mantissa
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8();//Lowest memory
+		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
+			return new InvertedLogLog();//Experimental: stores max low-bits per NLZ bucket
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -99,6 +101,8 @@ public abstract class CardinalityTracker {
 			return new DynamicDemiLog(p);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(p);
+		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
+			return new InvertedLogLog(p);//Experimental: stores max low-bits per NLZ bucket
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -131,6 +135,8 @@ public abstract class CardinalityTracker {
 			return new DynamicDemiLog(buckets_, k_, seed, minProb_);
 		}else if("LogLog8".equalsIgnoreCase(type)){
 			return new LogLog8(buckets_, k_, seed, minProb_);
+		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
+			return new InvertedLogLog(buckets_, k_, seed, minProb_);//Experimental: stores max low-bits per NLZ bucket
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);

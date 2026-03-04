@@ -167,7 +167,7 @@ public final class LogLog8 extends CardinalityTracker {
 	@Override
 	public void hashAndStore(final long number){
 //		if(number%SKIPMOD!=0){return;} //Slows down moderately
-		long key=number;
+		long key=number^hashXor;
 		
 //		key=hash(key, tables[((int)number)&numTablesMask]);
 		
