@@ -250,7 +250,7 @@ public final class LongList{
 		}
 		if((size&1)==1){//odd length
 			int mult=half+1;
-			double incr=(array[half])*mult;
+			double incr=((double)array[half])*mult;
 			sum+=incr;
 			count+=mult;
 		}
