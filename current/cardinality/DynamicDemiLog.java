@@ -61,6 +61,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	@Override
 	public final long cardinality(){
+		if(lastCardinality>=0) {return lastCardinality;}
 		double difSum=0;
 		double hSum=0;
 		double gSum=0;
@@ -130,7 +131,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		}
 
 		long cardinality=Math.min(added, (long)estimate);
-		lastCardinality=cardinality;
+		lastCardinalityStatic=lastCardinality=cardinality;
 		return cardinality;
 	}
 
@@ -142,6 +143,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public void add(DynamicDemiLog log){
 		added+=log.added;
+		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
 				final char maxA=maxArray[i], maxB=log.maxArray[i];
@@ -182,7 +184,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
-
+		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
 		final int nlzOld=(oldValue>>mantissabits);
 
@@ -430,6 +432,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private long eeMask=-1L;
 	/** Reusable sort buffer for rawEstimates(); avoids per-call allocation. */
 	private final LongList sortBuf=new LongList(buckets);
+	/** Whether the cardinality may have changed since it was last checked */
+	public long lastCardinality=-1;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

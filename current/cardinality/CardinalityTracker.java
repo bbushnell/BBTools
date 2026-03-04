@@ -680,7 +680,7 @@ public abstract class CardinalityTracker {
 	public static boolean trackCounts=false;
 	static final long SKIPMOD=1;//No longer used; requires a modulo operation
 	/** Records the most recent cardinality estimate for static contexts */
-	public static long lastCardinality=-1;
+	public static long lastCardinalityStatic=-1;
 //	/** Ignore hashed values above this, to skip expensive read and store functions. */
 //	static final long maxHashedValue=((-1L)>>>3);//No longer used
 	

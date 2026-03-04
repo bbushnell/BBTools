@@ -64,7 +64,7 @@ public final class BBLog_simple extends CardinalityTracker {
 		final double total=estimatePerSet*count*((count+buckets)/(float)(buckets+buckets));
 		
 		long cardinality=Math.min(added, (long)(total));
-		lastCardinality=cardinality;
+		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 

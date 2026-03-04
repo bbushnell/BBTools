@@ -120,7 +120,7 @@ public final class DynamicLogLog extends CardinalityTracker {
 		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
 
 		long cardinality=Math.min(added, (long)(total));
-		lastCardinality=cardinality;
+		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 

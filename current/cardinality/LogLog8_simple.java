@@ -99,7 +99,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 		final double total=estimatePerSet*subsets*mantissaFactor*emptyBucketModifier;
 		
 		long cardinality=Math.min(added, (long)(total));
-		lastCardinality=cardinality;
+		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 	

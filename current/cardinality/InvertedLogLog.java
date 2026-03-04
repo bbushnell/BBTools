@@ -110,7 +110,7 @@ public final class InvertedLogLog extends CardinalityTracker {
 		 double mwaLogEst=medianWeightedAverage(logEsts, count);
 
 		final long cardinality=(long)Math.exp(mwaLogEst);
-		lastCardinality=cardinality;
+		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 
