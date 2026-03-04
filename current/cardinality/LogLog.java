@@ -130,7 +130,7 @@ public final class LogLog extends CardinalityTracker {
 //		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
 		
 		long cardinality=Math.min(added, (long)(total));
-		lastCardinality=cardinality;
+		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 	

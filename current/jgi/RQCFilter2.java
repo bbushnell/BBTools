@@ -3581,7 +3581,7 @@ public class RQCFilter2 {
 		final String inPre=(prefix==null ? outDir : (tmpDir==null ? outDir : tmpDir)+prefix);
 		
 		if(extendFlagAuto){
-			final long cardinality=CardinalityTracker.lastCardinality;
+			final long cardinality=CardinalityTracker.lastCardinalityStatic;
 			final long capacity=kmerCapacity(20, true);
 			outstream.println("cardinality="+cardinality+", capacity="+capacity);
 
@@ -3662,7 +3662,7 @@ public class RQCFilter2 {
 
 		final String inPre=(prefix==null ? outDir : (tmpDir==null ? outDir : tmpDir)+prefix);
 		
-		final long cardinality=CardinalityTracker.lastCardinality;
+		final long cardinality=CardinalityTracker.lastCardinalityStatic;
 		final long capacity=kmerCapacity(12, true);
 		outstream.println("cardinality="+cardinality+", capacity="+capacity);
 		
