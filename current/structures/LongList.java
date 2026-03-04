@@ -252,7 +252,7 @@ public final class LongList{
 			int mult=half+1;
 			double incr=(array[half])*mult;
 			sum+=incr;
-			count+=2*mult;
+			count+=mult;
 		}
 		return sum/count;
 	}

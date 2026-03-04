@@ -45,13 +45,11 @@ public class DDLCalibrationDriver {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of occupancy histogram slots: indices 0..256 (0=empty, 256=100% full). */
-	static final int NUM_HIST=257;
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=11;
+	static final int NUM_EST=12;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HMean","GMean","RMean","MWA",
+		"Mean","HLL","HMean","GMean","RMean","MWA",
 		"MedianCorr","MedianLeg","EstSum","LCHybrid","LCTrue","Blended"
 	};
 
@@ -68,6 +66,7 @@ public class DDLCalibrationDriver {
 		long masterSeed=12345L;
 		long valSeed=42L;
 		int threads=Shared.threads();
+		int step=1;
 		String out2=null;
 
 		for(String arg : args){
@@ -83,11 +82,13 @@ public class DDLCalibrationDriver {
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){valSeed=Long.parseLong(b);}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
+			else if(a.equals("step") || a.equals("resolution") || a.equals("res")){step=Integer.parseInt(b);}
 			else if(a.equals("out2")){out2=b;}
-			else{assert(false) : "Unknown parameter '"+out2+"'";}
+			else{assert(false) : "Unknown parameter '"+arg+"'";}
 		}
 
-		assert(buckets%256==0) : "buckets must be a multiple of 256 for histogram; got "+buckets;
+		assert(buckets%step==0) : "buckets must be a multiple of step; buckets="+buckets+", step="+step;
+		final int numSlots=buckets/step+1;
 
 		final long maxTrue=(long)buckets*maxMult;
 		final int numThreads=Math.min(threads, numDDLs);
@@ -119,7 +120,7 @@ public class DDLCalibrationDriver {
 			for(int i=0; i<ddls.length; i++){
 				ddls[i]=new DynamicDemiLog(buckets, k, ddlSeeds[t][i], 0);
 			}
-			calThreads[t]=new CalibrationThread(ddls, thresholds, threadValSeeds[t], buckets, maxTrue);
+			calThreads[t]=new CalibrationThread(ddls, thresholds, threadValSeeds[t], buckets, maxTrue, numSlots, step);
 		}
 
 		// Print File 1 header and start threads
@@ -147,11 +148,11 @@ public class DDLCalibrationDriver {
 		}
 
 		// Aggregate per-thread histograms
-		final long[] histCount=new long[NUM_HIST];
-		final long[] histTrueCard=new long[NUM_HIST];
-		final double[][] histRawEst=new double[NUM_HIST][NUM_EST];
+		final long[] histCount=new long[numSlots];
+		final long[] histTrueCard=new long[numSlots];
+		final double[][] histRawEst=new double[numSlots][NUM_EST];
 		for(CalibrationThread ct : calThreads){
-			for(int s=0; s<NUM_HIST; s++){
+			for(int s=0; s<numSlots; s++){
 				histCount[s]+=ct.histCount[s];
 				histTrueCard[s]+=ct.histTrueCard[s];
 				for(int e=0; e<NUM_EST; e++){histRawEst[s][e]+=ct.histRawEst[s][e];}
@@ -161,7 +162,7 @@ public class DDLCalibrationDriver {
 		// Print File 2 (occupancy histogram)
 		if(out2!=null){
 			try(PrintStream ps=new PrintStream(new FileOutputStream(out2))){
-				printHistogram(histCount, histTrueCard, histRawEst, ps);
+				printHistogram(histCount, histTrueCard, histRawEst, numSlots, step, buckets, ps);
 				System.err.println("Histogram written to "+out2);
 			}catch(Exception e){
 				System.err.println("Error writing histogram file: "+e.getMessage());
@@ -239,12 +240,13 @@ public class DDLCalibrationDriver {
 
 	/** Prints the occupancy histogram (File 2) to the given stream. */
 	static void printHistogram(final long[] histCount, final long[] histTrueCard,
-		final double[][] histRawEst, final PrintStream ps){
+		final double[][] histRawEst, final int numSlots, final int step,
+		final int buckets, final PrintStream ps){
 		ps.println(header2());
-		for(int s=0; s<NUM_HIST; s++){
+		for(int s=0; s<numSlots; s++){
 			final long cnt=histCount[s];
 			if(cnt==0){continue;}
-			final double avgOcc=s/256.0;
+			final double avgOcc=(s*(double)step)/buckets;
 			final double avgTrueCard=(double)histTrueCard[s]/cnt;
 			final StringBuilder sb=new StringBuilder();
 			sb.append(s).append('\t')
@@ -324,14 +326,19 @@ public class DDLCalibrationDriver {
 	static final class CalibrationThread extends Thread {
 
 		CalibrationThread(DynamicDemiLog[] ddls, long[] thresholds,
-			long valSeed, int buckets, long maxTrue){
+			long valSeed, int buckets, long maxTrue, int numSlots, int step){
 			this.ddls=ddls;
 			this.thresholds=thresholds;
 			this.valSeed=valSeed;
 			this.buckets=buckets;
 			this.maxTrue=maxTrue;
+			this.numSlots=numSlots;
+			this.step=step;
 			// Queue capacity = total thresholds: thread can fully finish before main thread consumes
 			this.queue=new ArrayBlockingQueue<>(thresholds.length+1);
+			histCount=new long[numSlots];
+			histTrueCard=new long[numSlots];
+			histRawEst=new double[numSlots][NUM_EST];
 		}
 
 		@Override
@@ -345,7 +352,6 @@ public class DDLCalibrationDriver {
 		}
 
 		void runInner() throws InterruptedException {
-			final int step=buckets/256;  // filledBuckets milestone per histogram slot
 
 			// Record slot 0 before any elements: all DDLs are empty, trueCard=0
 			for(DynamicDemiLog ddl : ddls){
@@ -379,7 +385,7 @@ public class DDLCalibrationDriver {
 						final int filled=ddls[d].filledBuckets();
 						if(filled>=nextCheckpoint[d]){
 							// filledBuckets increments by at most 1, so filled==nextCheckpoint[d] here
-							final int idx=(filled*256)/buckets;
+							final int idx=filled/step;
 							histCount[idx]++;
 							histTrueCard[idx]+=trueCard;
 							final double[] raw=ddls[d].rawEstimates();
@@ -427,15 +433,19 @@ public class DDLCalibrationDriver {
 		final int buckets;
 		/** Maximum true cardinality (= buckets * maxMult). */
 		final long maxTrue;
+		/** Number of histogram slots (= buckets/step + 1). */
+		final int numSlots;
+		/** Filled-bucket stride per histogram slot. */
+		final int step;
 		/** Queue for passing interval rows to the main thread. */
 		final ArrayBlockingQueue<ReportRow> queue;
 
-		/** Occupancy histogram: sample counts per 1/256-occupancy slot. */
-		final long[] histCount=new long[NUM_HIST];
+		/** Occupancy histogram: sample counts per slot. */
+		final long[] histCount;
 		/** Occupancy histogram: sum of true cardinalities per slot. */
-		final long[] histTrueCard=new long[NUM_HIST];
+		final long[] histTrueCard;
 		/** Occupancy histogram: sum of raw estimator values per slot. [slot][estimator] */
-		final double[][] histRawEst=new double[NUM_HIST][NUM_EST];
+		final double[][] histRawEst;
 
 		/** Set to true after runInner() completes without exception. */
 		volatile boolean success=false;
