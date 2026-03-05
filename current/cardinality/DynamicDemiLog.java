@@ -143,6 +143,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public void add(DynamicDemiLog log){
 		added+=log.added;
+		branch1+=log.branch1;
+		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
@@ -170,6 +172,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		
 		//Earliest possible exit, fastest
 		if(Long.compareUnsigned(key, eeMask)>0) {return;}
+		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 
 		// Global early exit if not using eeMask
@@ -184,6 +187,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
+		branch2++;
 		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
 		final int nlzOld=(oldValue>>mantissabits);
@@ -258,6 +262,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 */
 	public double[] rawEstimates(){
 		double difSum=0;
+		double hSum=0;
 		double gSum=0;
 		double rSum=0;
 		double estLogSum=0;
@@ -271,6 +276,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			if(max>0 && val>0){
 				long dif=val;
 				difSum+=dif;
+				hSum+=1.0/Tools.max(1, dif);
 				gSum+=Math.log(Tools.max(1, dif));
 				rSum+=Math.sqrt(dif);
 				count++;
@@ -311,10 +317,11 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		if(hmeanEst<2.5*buckets && V>0){
 			hmeanEst=(double)buckets*Math.log((double)buckets/V);
 		}
-		// Pure harmonic mean: no LC blending, so compensation curves can correct it cleanly.
-		final double hmeanPure=(filledBuckets==0 ? 0 : hmeanRaw);
-
 		final double correction=(count+buckets)/(float)(buckets+buckets);
+		// Pure harmonic mean: filled buckets only, same formula structure as meanEst.
+		// Uses hSum (sum of 1/dif over filled buckets) to avoid empty-bucket contamination.
+		final double hmeanOfFilled=(hSum>0 ? count/hSum : 0);
+		final double hmeanPure=(count==0 ? 0 : 2*(Long.MAX_VALUE/Tools.max(1.0, hmeanOfFilled))*div*correction);
 		final double meanEst     =2*(Long.MAX_VALUE/Tools.max(1.0, mean)) *div*correction *MEAN_FACTOR;
 		final double gmeanEst    =2*(Long.MAX_VALUE/gmean)                *div*correction *GMEAN_FACTOR;
 		final double rmeanEst    =2*(Long.MAX_VALUE/Tools.max(1.0, rmean))*div*correction *RMEAN_FACTOR;
@@ -434,7 +441,14 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private final LongList sortBuf=new LongList(buckets);
 	/** Whether the cardinality may have changed since it was last checked */
 	public long lastCardinality=-1;
-
+	
+	/*--------------------------------------------------------------*/
+	
+	/** For tracking branch prediction rates; disable in production */
+	public long branch1=0, branch2=0;
+	public double branch1Rate() {return branch1/(double)Math.max(1, added);}
+	public double branch2Rate() {return branch2/(double)Math.max(1, added);}
+	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
