@@ -244,17 +244,15 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	/**
 	 * Returns cardinality estimates for calibration, without the added-count cap.
-	 * Output order matches CorrectionFactor type constants (offset by 1):
-	 * 0=Mean, 1=HMean, 2=HMeanM, 3=GMean, 4=HLL, 5=Linear(LC), 6=MWA, 7=MedianCorr, 8=EstSum
-	 * Each estimate is multiplied by CorrectionFactor.getCF() when USE_CORRECTION is true.
-	 * Linear (index 5) is never corrected.
+	 * Output order: 0=Mean, 1=HMean, 2=HMeanM, 3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr
+	 * Hybrid (index 6) is pre-corrected: CF already applied to its Mean and HMeanM components.
+	 * LC (index 5) and Hybrid (index 6) receive no additional CF.
 	 */
 	public double[] rawEstimates(){
 		double difSum=0;
 		double hllSumFilled=0;
 		double hllSumFilledM=0;
 		double gSum=0;
-		double estLogSum=0;
 		int count=0;
 		sortBuf.clear();
 		final LongList list=sortBuf;
@@ -269,8 +267,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				double est=2*(Long.MAX_VALUE/(double)dif);
-				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
 		}
@@ -295,32 +291,50 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
 		double hmeanEst=hmeanRaw;
 		if(hmeanEst<2.5*buckets && V>0){hmeanEst=(double)buckets*Math.log((double)buckets/V);}
-		hmeanEst*=HMEAN_FACTOR;
 
 		final double correction=(count+buckets)/(float)(buckets+buckets);
 		final double hmeanPure =(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
 		final double hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
-		final double meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))*div*correction*MEAN_FACTOR;
-		final double gmeanEst  =2*(Long.MAX_VALUE/gmean)               *div*correction*GMEAN_FACTOR;
+		final double meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))*div*correction;
+		final double gmeanEst  =2*(Long.MAX_VALUE/gmean)               *div*correction;
 		final double mwaEst    =2*(Long.MAX_VALUE/mwa)                 *div*correction;
-		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction*MEDIAN_FACTOR;
-		final double estSum    =div*Math.exp(estLogSum/Tools.max(div, 1))*ESTSUM_FACTOR;
-		// LC falls back to meanEst when all buckets full; no CF ever applied.
-		final double lcHybrid  =(V>0 ? buckets*Math.log((double)buckets/V) : meanEst);
+		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction;
+		// Pure LC: clamped denominator prevents division by zero; no CF ever applied.
+		final double lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
 
 		if(filledBuckets==0){return new double[9];}
 
 		// Apply per-occupancy correction factors; getCF returns 1 when USE_CORRECTION=false.
+		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEAN);
+		final double hmeanPureMCF =hmeanPureM*CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEANM);
+
+		// Hybrid: LC → Mean → HMeanM blend, driven by lcPure as a bucket-count-independent cardinality proxy.
+		// [0, 0.5b]=LC, [0.5b, 1.5b]=LC→Mean, [1.5b, 3b]=Mean→HMeanM, [3b+]=HMeanM.
+		// CF already applied to meanEstCF and hmeanPureMCF; hybridEst needs no additional CF.
+		final double hybridEst;
+		final double hb0=0.5*buckets, hb1=1.5*buckets, hb2=3.0*buckets;
+		if(lcPure<=hb0){
+			hybridEst=lcPure;
+		}else if(lcPure<=hb1){
+			final double t=(lcPure-hb0)/(hb1-hb0);
+			hybridEst=(1-t)*lcPure+t*meanEstCF;
+		}else if(lcPure<=hb2){
+			final double t=(lcPure-hb1)/(hb2-hb1);
+			hybridEst=(1-t)*meanEstCF+t*hmeanPureMCF;
+		}else{
+			hybridEst=hmeanPureMCF;
+		}
+
 		return new double[]{
-			meanEst   *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEAN),
+			meanEstCF,
 			hmeanPure *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEAN),
-			hmeanPureM*CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEANM),
+			hmeanPureMCF,
 			gmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.GMEAN),
 			hmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HLL),
-			lcHybrid,  // Linear: CF never applied
+			lcPure,    // LC: no CF applied
+			hybridEst, // Hybrid: CF already applied to components
 			mwaEst    *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MWA),
-			medianCorr*CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEDCORR),
-			estSum    *CorrectionFactor.getCF(count, buckets, CorrectionFactor.ESTSUM)
+			medianCorr*CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEDCORR)
 		};
 	}
 
@@ -450,12 +464,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * center element; should be count+=mult), making it unreliable until fixed.
 	 * EstSum omitted: fundamentally flawed (confirmed), pending removal.
 	 */
-	public static final double MEAN_FACTOR   = 0.99901637;
-	public static final double HMEAN_FACTOR  = 0.99967171;
-	public static final double GMEAN_FACTOR  = 0.56072095;
-	public static final double RMEAN_FACTOR  = 0.78455962;
-	public static final double MEDIAN_FACTOR = 1.67743074;
-	/** EstSum: same high-load correction as GMean (both are geometric-mean-like). */
-	public static final double ESTSUM_FACTOR = 0.56072095;
+	// Constant factors removed; bias correction is now handled by the CF matrix loaded at runtime.
+//	public static final double MEAN_FACTOR   = 0.99901637;
+//	public static final double HMEAN_FACTOR  = 0.99967171;
+//	public static final double GMEAN_FACTOR  = 0.56072095;
+//	public static final double RMEAN_FACTOR  = 0.78455962;
+//	public static final double MEDIAN_FACTOR = 1.67743074;
+//	public static final double ESTSUM_FACTOR = 0.56072095;
 
 }
