@@ -46,12 +46,15 @@ public class DDLCalibrationDriver {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of estimators reported by rawEstimates(). Matches CorrectionFactor type constants. */
+	/** Number of estimators reported by rawEstimates(). */
 	static final int NUM_EST=9;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HMean","HMeanM","GMean","HLL","Linear","MWA","MedianCorr","EstSum"
+		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr"
 	};
+	/** Which estimators get a CF column in File 2. LC and Hybrid are excluded:
+	 *  LC never uses CF; Hybrid is pre-corrected from its components. */
+	static final boolean[] NEEDS_CF={true,true,true,true,true,false,false,true,true};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -251,6 +254,7 @@ public class DDLCalibrationDriver {
 			final StringBuilder sb=new StringBuilder();
 			sb.append(s);
 			for(int e=0; e<NUM_EST; e++){
+				if(!NEEDS_CF[e]){continue;}
 				final double avgRaw=histRawEst[s][e]/cnt;
 				final double cf=computeCF(avgTrueCard, avgRaw);
 				sb.append('\t').append(String.format("%.8f", cf));
@@ -279,7 +283,9 @@ public class DDLCalibrationDriver {
 
 	static String header2(){
 		final StringBuilder sb=new StringBuilder("#Slot");
-		for(String name : ESTIMATOR_NAMES){sb.append('\t').append(name).append("_cf");}
+		for(int e=0; e<NUM_EST; e++){
+			if(NEEDS_CF[e]){sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
+		}
 		return sb.toString();
 	}
 

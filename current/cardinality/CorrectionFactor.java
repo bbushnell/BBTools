@@ -213,9 +213,10 @@ public class CorrectionFactor{
 	/** When false, getCF always returns 1 (raw estimates, no correction applied). */
 	public static boolean USE_CORRECTION=false;
 
-	/** Estimator type constants: index into CF_MATRIX rows. Matches rawEstimates() output order. */
+	/** Estimator type constants: index into CF_MATRIX rows.
+	 * Matches CF file column order (Slot + 8 CF columns; Hybrid excluded — pre-corrected). */
 	public static final int OCCUPIED=0, MEAN=1, HMEAN=2, HMEANM=3, GMEAN=4, HLL=5,
-		LINEAR=6, MWA=7, MEDCORR=8, ESTSUM=9;
+		LINEAR=6, MWA=7, MEDCORR=8;
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;
