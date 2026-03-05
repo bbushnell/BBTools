@@ -7,6 +7,7 @@ import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 
 import map.LongHashSet;
+import parse.Parse;
 import shared.Shared;
 import shared.Tools;
 
@@ -73,16 +74,17 @@ public class DDLCalibrationDriver {
 			if(split.length!=2){continue;}
 			final String a=split[0].toLowerCase();
 			final String b=split[1];
-			if(a.equals("ddls")){numDDLs=Integer.parseInt(b);}
-			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
+			if(a.equals("ddls")){numDDLs=Parse.parseIntKMG(b);}
+			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("maxmult")){maxMult=Long.parseLong(b);}
+			else if(a.equals("maxmult")){maxMult=Parse.parseIntKMG(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){valSeed=Long.parseLong(b);}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("step") || a.equals("resolution") || a.equals("res")){step=Integer.parseInt(b);}
 			else if(a.equals("out2")){out2=b;}
+			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else{assert(false) : "Unknown parameter '"+arg+"'";}
 		}
 

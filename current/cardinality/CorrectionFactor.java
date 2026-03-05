@@ -67,6 +67,14 @@ public class CorrectionFactor{
 		}
 		bf.close();
 		if(lists==null){return null;}
+		// Fix point 0: quadratic extrapolation from points 1, 2, 3.
+		// Slot 0 (0 filled buckets) has no meaningful estimate so computeCF returns 1.0 by convention,
+		// which is wrong and distorts interpolations near low occupancy.
+		if(lists[0].size()>=4){
+			for(int col=1; col<lists.length; col++){
+				lists[col].set(0, (float)quadraticPredict(1,lists[col].get(1), 2,lists[col].get(2), 3,lists[col].get(3), 0));
+			}
+		}
 		return interpolate(lists, buckets);
 	}
 
