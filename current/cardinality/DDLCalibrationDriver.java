@@ -46,10 +46,10 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=12;
+	static final int NUM_EST=13;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HLL","HMean","GMean","RMean","MWA",
+		"Mean","HLL","HMean","HMeanM","GMean","RMean","MWA",
 		"MedianCorr","MedianLeg","EstSum","LCHybrid","LCTrue","Blended"
 	};
 

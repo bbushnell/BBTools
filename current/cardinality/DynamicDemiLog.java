@@ -262,7 +262,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 */
 	public double[] rawEstimates(){
 		double difSum=0;
-		double hSum=0;
+		double hllSumFilled=0;
+		double hllSumFilledM=0;
 		double gSum=0;
 		double rSum=0;
 		double estLogSum=0;
@@ -276,7 +277,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			if(max>0 && val>0){
 				long dif=val;
 				difSum+=dif;
-				hSum+=1.0/Tools.max(1, dif);
+				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits));
+				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0);
 				gSum+=Math.log(Tools.max(1, dif));
 				rSum+=Math.sqrt(dif);
 				count++;
@@ -318,10 +320,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			hmeanEst=(double)buckets*Math.log((double)buckets/V);
 		}
 		final double correction=(count+buckets)/(float)(buckets+buckets);
-		// Pure harmonic mean: filled buckets only, same formula structure as meanEst.
-		// Uses hSum (sum of 1/dif over filled buckets) to avoid empty-bucket contamination.
-		final double hmeanOfFilled=(hSum>0 ? count/hSum : 0);
-		final double hmeanPure=(count==0 ? 0 : 2*(Long.MAX_VALUE/Tools.max(1.0, hmeanOfFilled))*div*correction);
+		// HLL-style over filled buckets only: sum 2^(-nlz) for filled buckets, scale by count².
+		final double hmeanPure=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
+		// Mantissa-enhanced: uses fractional NLZ = nlz - 0.5 + mantissa/1024, centered at mantissa=512.
+		final double hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
 		final double meanEst     =2*(Long.MAX_VALUE/Tools.max(1.0, mean)) *div*correction *MEAN_FACTOR;
 		final double gmeanEst    =2*(Long.MAX_VALUE/gmean)                *div*correction *GMEAN_FACTOR;
 		final double rmeanEst    =2*(Long.MAX_VALUE/Tools.max(1.0, rmean))*div*correction *RMEAN_FACTOR;
@@ -351,9 +353,9 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 		// When DDL is empty, value-based estimators return garbage; clamp to 0.
 		if(filledBuckets==0){
-			return new double[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+			return new double[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 		}
-		return new double[]{meanEst, hmeanEst, hmeanPure, gmeanEst, rmeanEst, mwaEst,
+		return new double[]{meanEst, hmeanEst, hmeanPure, hmeanPureM, gmeanEst, rmeanEst, mwaEst,
 				medianCorr, medianLeg, estSum, lcHybrid, lcTrue, blended};
 	}
 
