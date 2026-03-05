@@ -45,12 +45,11 @@ public class DDLCalibrationDriver {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=13;
+	/** Number of estimators reported by rawEstimates(). Matches CorrectionFactor type constants. */
+	static final int NUM_EST=9;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HLL","HMean","HMeanM","GMean","RMean","MWA",
-		"MedianCorr","MedianLeg","EstSum","LCHybrid","LCTrue","Blended"
+		"Mean","HMean","HMeanM","GMean","HLL","Linear","MWA","MedianCorr","EstSum"
 	};
 
 	/*--------------------------------------------------------------*/
@@ -246,23 +245,24 @@ public class DDLCalibrationDriver {
 		for(int s=0; s<numSlots; s++){
 			final long cnt=histCount[s];
 			if(cnt==0){continue;}
-			final double avgOcc=(s*(double)step)/buckets;
 			final double avgTrueCard=(double)histTrueCard[s]/cnt;
 			final StringBuilder sb=new StringBuilder();
-			sb.append(s).append('\t')
-			.append(String.format("%.6f", avgOcc)).append('\t')
-			.append(String.format("%.3f", avgTrueCard)).append('\t')
-			.append(cnt);
+			sb.append(s);
 			for(int e=0; e<NUM_EST; e++){
 				final double avgRaw=histRawEst[s][e]/cnt;
-				// Compensation factor: multiply rawEstimate by cf to get trueCard.
-				// When both are 0 (empty DDL, slot 0), estimate is exactly correct: cf=1.
-				final double cf=(avgRaw>0) ? avgTrueCard/avgRaw : (avgTrueCard==0 ? 1.0 : Double.NaN);
-				sb.append('\t').append(String.format("%.3f", avgRaw));
+				final double cf=computeCF(avgTrueCard, avgRaw);
 				sb.append('\t').append(String.format("%.8f", cf));
 			}
 			ps.println(sb);
 		}
+	}
+
+	/** Computes correction factor: the multiplier that converts rawEstimate to trueCard.
+	 *  Returns 1 for empty slot (both zero), NaN only when avgRaw is negative. */
+	static double computeCF(final double avgTrueCard, final double avgRaw){
+		if(avgTrueCard==0 && avgRaw==0){return 1.0;}// empty slot
+		if(!Double.isFinite(avgRaw) || avgRaw<=0){return Double.NaN;}
+		return avgTrueCard/avgRaw;
 	}
 
 	static String header1(){
@@ -276,11 +276,8 @@ public class DDLCalibrationDriver {
 	}
 
 	static String header2(){
-		final StringBuilder sb=new StringBuilder("Slot\tOccupancy\tAvgTrueCard\tSamples");
-		for(String name : ESTIMATOR_NAMES){
-			sb.append('\t').append(name).append("_raw");
-			sb.append('\t').append(name).append("_cf");
-		}
+		final StringBuilder sb=new StringBuilder("#Slot");
+		for(String name : ESTIMATOR_NAMES){sb.append('\t').append(name).append("_cf");}
 		return sb.toString();
 	}
 

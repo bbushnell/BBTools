@@ -63,7 +63,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0) {return lastCardinality;}
 		double difSum=0;
-		double hSum=0;
+		double hllSumFilled=0;
 		double gSum=0;
 		double rSum=0;
 		double estLogSum=0;
@@ -76,7 +76,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			if(max>0 && val>0){
 				long dif=val;
 				difSum+=dif;
-				hSum+=1.0/Tools.max(1, dif);
+				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits));
 				gSum+=Math.log(Tools.max(1, dif));
 				rSum+=Math.sqrt(dif);
 				count++;
@@ -85,49 +85,44 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				list.add(dif);
 			}
 		}
+		final double alpha_m=0.7213/(1.0+1.079/buckets);
 		final int div=Tools.max(count, 1);
 		final double mean=difSum/div;
-		double hmean=hSum/div;
-		double gmean=gSum/div;
-		double rmean=rSum/div;
-		hmean=1.0/hmean;
-		gmean=Math.exp(gmean);
-		rmean=rmean*rmean;
+		double gmean=Math.exp(gSum/div);
 		list.sort();
 		final long median=list.median();
 		final double mwa=list.medianWeightedAverage();
+		// HLL-style filled-bucket HMean — already a full cardinality estimate.
+		final double hmean=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
 
-		final double proxy=(USE_MEAN ? mean : USE_MEDIAN ? median : USE_MWA ? mwa :
-			USE_HMEAN ? hmean : USE_GMEAN ? gmean : mean);
+		final double correction=(count+buckets)/(float)(buckets+buckets);
+		final int V=buckets-count;
 
-		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
-		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
+		// HMean is already a full estimate; all other estimators work via a dif proxy.
+		double total;
+		int cfType;
+		if(USE_HMEAN && count>0){
+			total=hmean;
+			cfType=CorrectionFactor.HMEAN;
+		}else{
+			final double proxy=(USE_MEDIAN ? median : USE_MWA ? mwa : USE_GMEAN ? gmean : mean);
+			cfType=(USE_MEDIAN ? CorrectionFactor.MEDCORR :
+				USE_MWA ? CorrectionFactor.MWA :
+				USE_GMEAN ? CorrectionFactor.GMEAN : CorrectionFactor.MEAN);
+			total=2*(Long.MAX_VALUE/proxy)*div*correction;
+		}
+		total*=CorrectionFactor.getCF(count, buckets, cfType);
 
-		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
-		final double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
-
-		// LinearCounting correction for sparse regimes: uses empty-bucket occupancy,
-		// which carries more information than bucket values when cardinality << buckets.
-		// Mathematically equivalent to Bloom filter occupancy estimation with hashes=1:
-		//   n = -buckets * ln(1 - occupancy)
-		final int V=buckets-count;  // empty buckets
-		// Factor of 2: canonical k-mers use max(kmer, revcomp), halving the effective hash
-		// space. Value-based estimate already corrects via 2*(MAX/proxy); LC needs the same.
+		// LinearCounting correction for sparse regimes.
+		// Factor of 2: canonical k-mers use max(kmer, revcomp), halving the effective hash space.
 		final double lcEstimate=(V>0 ? 2.0*buckets*Math.log((double)buckets/V) : total);
 
 		// Sigmoid blend: smoothly transitions from LinearCounting (w=0) to value-based (w=1).
-		// LC_CROSSOVER: occupancy fraction at which the two estimators contribute equally (w=0.5).
-		//   Lower = trust LC longer; higher = switch to value-based sooner.
-		// LC_SHARPNESS: steepness of the sigmoid. Higher = sharper transition (more like a hard
-		//   switch); lower = more gradual blend. At sharpness 20, the transition from 10% to 90%
-		//   value-based weight spans roughly ±11 occupancy percentage points around the crossover.
-		// TODO: derive optimal values mathematically from relative estimator variances.
 		double estimate=total;
-		if(USE_LC) {
+		if(USE_LC){
 			final double occ=(double)count/buckets;
 			final double w=1.0/(1.0+Math.exp(-LC_SHARPNESS*(occ-LC_CROSSOVER)));
-			final double blended=(1-w)*lcEstimate+w*total;
-			estimate=blended;
+			estimate=(1-w)*lcEstimate+w*total;
 		}
 
 		long cardinality=Math.min(added, (long)estimate);
@@ -248,24 +243,17 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	/**
-	 * Returns all cardinality estimates for calibration, without the added-count cap.
-	 * All value-based estimates use the same bucket-correction factor as cardinality().
-	 * Blended uses mean as the value-based component (matching USE_MEAN default).
-	 * <p>
-	 * Array indices:
-	 * 0=mean, 1=hmean, 2=gmean, 3=rmean, 4=mwa, 5=medianCorr,
-	 * 6=medianLegacy (no correction), 7=estSum, 8=lc, 9=blended
-	 */
-	/**
-	 * Array indices: 0=Mean, 1=HMean(HLL-style), 2=GMean, 3=RMean, 4=MWA,
-	 * 5=MedianCorr, 6=MedianLeg, 7=EstSum, 8=LCHybrid, 9=LCTrue, 10=Blended
+	 * Returns cardinality estimates for calibration, without the added-count cap.
+	 * Output order matches CorrectionFactor type constants (offset by 1):
+	 * 0=Mean, 1=HMean, 2=HMeanM, 3=GMean, 4=HLL, 5=Linear(LC), 6=MWA, 7=MedianCorr, 8=EstSum
+	 * Each estimate is multiplied by CorrectionFactor.getCF() when USE_CORRECTION is true.
+	 * Linear (index 5) is never corrected.
 	 */
 	public double[] rawEstimates(){
 		double difSum=0;
 		double hllSumFilled=0;
 		double hllSumFilledM=0;
 		double gSum=0;
-		double rSum=0;
 		double estLogSum=0;
 		int count=0;
 		sortBuf.clear();
@@ -280,7 +268,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits));
 				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0);
 				gSum+=Math.log(Tools.max(1, dif));
-				rSum+=Math.sqrt(dif);
 				count++;
 				double est=2*(Long.MAX_VALUE/(double)dif);
 				estLogSum+=Math.log(est);
@@ -288,9 +275,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			}
 		}
 
-		// HLL-style harmonic mean: sum 2^(-nlz) over ALL buckets (including empty).
-		// Empty bucket score=0 -> nlz=0 -> 2^0=1, same as HyperLogLog register M_j=0.
-		// alpha_m bias correction from Flajolet et al.
+		// HLL-style sum over ALL buckets (including empty); alpha_m bias correction from Flajolet et al.
 		double hllSum=0;
 		for(int i=0; i<maxArray.length; i++){
 			hllSum+=Math.pow(2.0, -(maxArray[i]>>mantissabits));
@@ -299,64 +284,44 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 		final int div=Tools.max(count, 1);
 		final double mean=difSum/div;
-		double gmean=gSum/div;
-		double rmean=rSum/div;
-		gmean=Math.exp(gmean);
-		rmean=rmean*rmean;
+		double gmean=Math.exp(gSum/div);
 		list.sort();
 		final long median=Tools.max(1, list.median());
 		final double mwa=Tools.max(1.0, list.medianWeightedAverage());
 
 		final int V=buckets-count;
 
-		// HLL estimate; fall back to LC for small estimates (standard HLL small-range correction).
-		// Main formula: 2x retained — the HLL sum over all m buckets needs the factor to account
-		// for the full signed 64-bit hash range including nlz=0 values.
-		// LC fallback: 1x — restore() now returns Long.MAX_VALUE for nlz=0 (rather than overflowing
-		// to negative and being excluded), so V correctly counts actual empty buckets; no 2x needed.
+		// HLL: all-buckets formula with LC small-range fallback.
 		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
 		double hmeanEst=hmeanRaw;
-		if(hmeanEst<2.5*buckets && V>0){
-			hmeanEst=(double)buckets*Math.log((double)buckets/V);
-		}
-		final double correction=(count+buckets)/(float)(buckets+buckets);
-		// HLL-style over filled buckets only: sum 2^(-nlz) for filled buckets, scale by count².
-		final double hmeanPure=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
-		// Mantissa-enhanced: uses fractional NLZ = nlz - 0.5 + mantissa/1024, centered at mantissa=512.
-		final double hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
-		final double meanEst     =2*(Long.MAX_VALUE/Tools.max(1.0, mean)) *div*correction *MEAN_FACTOR;
-		final double gmeanEst    =2*(Long.MAX_VALUE/gmean)                *div*correction *GMEAN_FACTOR;
-		final double rmeanEst    =2*(Long.MAX_VALUE/Tools.max(1.0, rmean))*div*correction *RMEAN_FACTOR;
-		final double mwaEst      =2*(Long.MAX_VALUE/mwa)                  *div*correction;  // MWA: skip factor; odd-list bug pending fix
-		final double medianCorr  =2*(Long.MAX_VALUE/(double)median)       *div*correction *MEDIAN_FACTOR;
-		final double medianLeg   =2*(Long.MAX_VALUE/(double)median)       *div            *MEDIAN_FACTOR;
+		if(hmeanEst<2.5*buckets && V>0){hmeanEst=(double)buckets*Math.log((double)buckets/V);}
 		hmeanEst*=HMEAN_FACTOR;
-		final double estSum      =div*Math.exp(estLogSum/Tools.max(div, 1))*ESTSUM_FACTOR;
 
-		// LCHybrid: original behavior — falls back to meanEst when all buckets full.
-		// Factor of 2 removed: restore() now returns Long.MAX_VALUE for nlz=0 (fixing the exclusion
-		// bug), so V correctly reflects actual empty buckets. For production canonical k-mer use,
-		// the factor-of-2 question is handled separately in cardinality().
-		final double lcHybrid=(V>0 ? buckets*Math.log((double)buckets/V) : meanEst);
+		final double correction=(count+buckets)/(float)(buckets+buckets);
+		final double hmeanPure =(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
+		final double hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
+		final double meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))*div*correction*MEAN_FACTOR;
+		final double gmeanEst  =2*(Long.MAX_VALUE/gmean)               *div*correction*GMEAN_FACTOR;
+		final double mwaEst    =2*(Long.MAX_VALUE/mwa)                 *div*correction;
+		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction*MEDIAN_FACTOR;
+		final double estSum    =div*Math.exp(estLogSum/Tools.max(div, 1))*ESTSUM_FACTOR;
+		// LC falls back to meanEst when all buckets full; no CF ever applied.
+		final double lcHybrid  =(V>0 ? buckets*Math.log((double)buckets/V) : meanEst);
 
-		// LCTrue: honest LC — uses max(1,V) so it doesn't blow up at full occupancy.
-		// No factor of 2: restore() now returns Long.MAX_VALUE for nlz=0 scores (rather than
-		// overflowing to negative and being excluded), so V correctly reflects actual empty buckets.
-		final double lcTrue=buckets*Math.log((double)buckets/Math.max(1, V));
+		if(filledBuckets==0){return new double[9];}
 
-		double blended=meanEst;
-		if(USE_LC){
-			final double occ=(double)count/buckets;
-			final double w=1.0/(1.0+Math.exp(-LC_SHARPNESS*(occ-LC_CROSSOVER)));
-			blended=(1-w)*lcTrue+w*meanEst;
-		}
-
-		// When DDL is empty, value-based estimators return garbage; clamp to 0.
-		if(filledBuckets==0){
-			return new double[]{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-		}
-		return new double[]{meanEst, hmeanEst, hmeanPure, hmeanPureM, gmeanEst, rmeanEst, mwaEst,
-				medianCorr, medianLeg, estSum, lcHybrid, lcTrue, blended};
+		// Apply per-occupancy correction factors; getCF returns 1 when USE_CORRECTION=false.
+		return new double[]{
+			meanEst   *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEAN),
+			hmeanPure *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEAN),
+			hmeanPureM*CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEANM),
+			gmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.GMEAN),
+			hmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HLL),
+			lcHybrid,  // Linear: CF never applied
+			mwaEst    *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MWA),
+			medianCorr*CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEDCORR),
+			estSum    *CorrectionFactor.getCF(count, buckets, CorrectionFactor.ESTSUM)
+		};
 	}
 
 	/*--------------------------------------------------------------*/

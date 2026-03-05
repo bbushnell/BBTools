@@ -14,6 +14,7 @@ import aligner.SideChannel4;
 import bloom.KCountArray;
 import bloom.KmerCountAbstract;
 import cardinality.CardinalityTracker;
+import cardinality.CorrectionFactor;
 import cardinality.LogLog16;
 import cardinality.LogLog2;
 import dna.AminoAcid;
@@ -209,6 +210,8 @@ public class Parser {
 			loglogbuckets=Parse.parseIntKMG(b);
 			assert(loglogbuckets>0);
 			loglogbuckets=CardinalityTracker.powerOf2AtLeast(loglogbuckets);
+		}else if(a.equals("loglogcorrection") || a.equals("loglogcf")){
+			CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);
 		}else if(a.equals("loglogbits")){
 			loglogbits=Integer.parseInt(b);
 		}else if(a.equals("loglogk") || a.equals("cardinalityk") || a.equals("kcardinality")){
