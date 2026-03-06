@@ -61,7 +61,7 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
-		int numDDLs=1000;
+		int numDDLs=128;
 		int buckets=2048;
 		int k=31;
 		long maxMult=10;
@@ -71,6 +71,7 @@ public class DDLCalibrationDriver {
 		int threads=Shared.threads();
 		int step=1;
 		String out2=null;
+		String loglogtype="ddl"; // ddl, ddl2, ddl8, dll4
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -87,6 +88,7 @@ public class DDLCalibrationDriver {
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("step") || a.equals("resolution") || a.equals("res")){step=Integer.parseInt(b);}
 			else if(a.equals("out2")){out2=b;}
+			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else{assert(false) : "Unknown parameter '"+arg+"'";}
 		}
@@ -120,9 +122,9 @@ public class DDLCalibrationDriver {
 		// Create threads
 		final CalibrationThread[] calThreads=new CalibrationThread[numThreads];
 		for(int t=0; t<numThreads; t++){
-			final DynamicDemiLog[] ddls=new DynamicDemiLog[threadSizes[t]];
+			final CardinalityTracker[] ddls=new CardinalityTracker[threadSizes[t]];
 			for(int i=0; i<ddls.length; i++){
-				ddls[i]=new DynamicDemiLog(buckets, k, ddlSeeds[t][i], 0);
+				ddls[i]=makeInstance(loglogtype, buckets, k, ddlSeeds[t][i], 0);
 			}
 			calThreads[t]=new CalibrationThread(ddls, thresholds, threadValSeeds[t], buckets, maxTrue, numSlots, step);
 		}
@@ -179,6 +181,27 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 	/*----------------       Threshold Logic        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Factory             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Creates a CardinalityTracker of the specified type.
+	 * Recognized types: ddl, ddl2, ddl8, dll4 (and their full class name equivalents).
+	 */
+	static CardinalityTracker makeInstance(String type, int buckets, int k, long seed, float minProb){
+		if("ddl".equals(type) || "dynamicDemiLog".equalsIgnoreCase(type)){
+			return new DynamicDemiLog(buckets, k, seed, minProb);
+		}else if("ddl2".equals(type) || "dynamicdemilog2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog2(buckets, k, seed, minProb);
+		}else if("ddl8".equals(type)){
+			return new DynamicDemiLog8(buckets, k, seed, minProb);
+		}else if("dll4".equals(type) || "dynamicdemilog4".equalsIgnoreCase(type)){
+			return new DynamicLogLog4(buckets, k, seed, minProb);
+		}
+		throw new RuntimeException("Unknown loglogtype: "+type);
+	}
 
 	/**
 	 * Pre-computes logarithmically-spaced reporting thresholds from 1 to maxTrue.
@@ -250,14 +273,18 @@ public class DDLCalibrationDriver {
 		for(int s=0; s<numSlots; s++){
 			final long cnt=histCount[s];
 			if(cnt==0){continue;}
-			final double avgTrueCard=(double)histTrueCard[s]/cnt;
 			final StringBuilder sb=new StringBuilder();
 			sb.append(s);
+			final double avgTrueCard=(s==0 ? 0 : (double)histTrueCard[s]/cnt);
 			for(int e=0; e<NUM_EST; e++){
-				if(!NEEDS_CF[e]){continue;}
-				final double avgRaw=histRawEst[s][e]/cnt;
-				final double cf=computeCF(avgTrueCard, avgRaw);
-				sb.append('\t').append(String.format("%.8f", cf));
+				if(e==6){continue;} // Hybrid: no column
+				// Slot 0, LC (e==5), and Hybrid pad all get 1.0
+				if(s==0 || e==5){sb.append('\t').append("1.00000000");}
+				else{
+					final double avgRaw=histRawEst[s][e]/cnt;
+					final double cf=computeCF(avgTrueCard, avgRaw);
+					sb.append('\t').append(String.format("%.8f", cf));
+				}
 			}
 			ps.println(sb);
 		}
@@ -282,9 +309,13 @@ public class DDLCalibrationDriver {
 	}
 
 	static String header2(){
+		// Writes one column per CorrectionFactor type constant (0..8), so matrix[type] works directly.
+		// e=5 (LC) gets a Pad_cf column at type index 6 (LINEAR); e=6 (Hybrid) is skipped entirely.
 		final StringBuilder sb=new StringBuilder("#Slot");
 		for(int e=0; e<NUM_EST; e++){
-			if(NEEDS_CF[e]){sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
+			if(e==6){continue;} // Hybrid: no type constant, pre-corrected, skip
+			if(e==5){sb.append("\tPad_cf");} // placeholder for LINEAR=6; always 1.0
+			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
 		}
 		return sb.toString();
 	}
@@ -331,7 +362,7 @@ public class DDLCalibrationDriver {
 	 */
 	static final class CalibrationThread extends Thread {
 
-		CalibrationThread(DynamicDemiLog[] ddls, long[] thresholds,
+		CalibrationThread(CardinalityTracker[] ddls, long[] thresholds,
 			long valSeed, int buckets, long maxTrue, int numSlots, int step){
 			this.ddls=ddls;
 			this.thresholds=thresholds;
@@ -360,7 +391,7 @@ public class DDLCalibrationDriver {
 		void runInner() throws InterruptedException {
 
 			// Record slot 0 before any elements: all DDLs are empty, trueCard=0
-			for(DynamicDemiLog ddl : ddls){
+			for(CardinalityTracker ddl : ddls){
 				histCount[0]++;
 				// histTrueCard[0] += 0L; (zero, implicit)
 				final double[] raw=ddl.rawEstimates();
@@ -381,16 +412,16 @@ public class DDLCalibrationDriver {
 				final long val=valRng.nextLong();
 				trueSet.add(val);
 				final long trueCard=trueSet.size();
-				for(DynamicDemiLog ddl : ddls){ddl.hashAndStore(val);}
+				for(CardinalityTracker ddl : ddls){ddl.hashAndStore(val);}
 
 				// Record every DDL at its current occupancy slot for every unique element.
 				// If the DDL's state didn't change (lastCardinality>=0), reuse cached estimates.
 				// If it changed (lastCardinality==-1), recompute and mark current (set to 0).
 				if(trueCard>prevTrueCard){
 					for(int d=0; d<ddls.length; d++){
-						if(ddls[d].lastCardinality<0 || cachedRaw[d]==null){
+						if(ddls[d].getLastCardinality()<0 || cachedRaw[d]==null){
 							cachedRaw[d]=ddls[d].rawEstimates();
-							ddls[d].lastCardinality=0;
+							ddls[d].setLastCardinality(0);
 						}
 						final int idx=ddls[d].filledBuckets()/step;
 						histCount[idx]++;
@@ -414,7 +445,7 @@ public class DDLCalibrationDriver {
 			final double[] sumAbsErr=new double[NUM_EST];
 			final double[] sumSqErr=new double[NUM_EST];
 			double occSum=0;
-			for(DynamicDemiLog ddl : ddls){
+			for(CardinalityTracker ddl : ddls){
 				occSum+=ddl.occupancy();
 				final double[] est=ddl.rawEstimates();
 				for(int e=0; e<NUM_EST; e++){
@@ -427,8 +458,8 @@ public class DDLCalibrationDriver {
 			return new ReportRow(trueCard, ddls.length, occSum, sumErr, sumAbsErr, sumSqErr);
 		}
 
-		/** DDL instances owned by this thread. */
-		final DynamicDemiLog[] ddls;
+		/** CardinalityTracker instances owned by this thread. */
+		final CardinalityTracker[] ddls;
 		/** Pre-computed reporting thresholds (shared read-only with all threads). */
 		final long[] thresholds;
 		/** Seed for this thread's value generator. */

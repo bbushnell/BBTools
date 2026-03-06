@@ -22,7 +22,7 @@ import ukmer.Kmer;
  * @author Brian Bushnell
  * @date Feb 20, 2020
  */
-public abstract class CardinalityTracker {
+public abstract class CardinalityTracker implements Drivable {
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -64,11 +64,18 @@ public abstract class CardinalityTracker {
 			return new LogLog8();//Lowest memory
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
 			return new InvertedLogLog();//Experimental: stores max low-bits per NLZ bucket
+		}else if("DDL2".equalsIgnoreCase(type) || "DynamicDemiLog2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog2();
+		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8();
+		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
+			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
+			return new DynamicLogLog4();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
 	}
-	
+
 	/**
 	 * Factory method that creates a tracker using default settings.
 	 * Subclass is determined by static Parser.loglogType field.
@@ -103,11 +110,18 @@ public abstract class CardinalityTracker {
 			return new LogLog8(p);
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
 			return new InvertedLogLog(p);//Experimental: stores max low-bits per NLZ bucket
+		}else if("DDL2".equalsIgnoreCase(type) || "DynamicDemiLog2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog2(p);
+		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8(p);
+		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
+			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
+			return new DynamicLogLog4(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
 	}
-	
+
 	/**
 	 * Factory method that creates a tracker with specified settings.
 	 * Subclass is determined by static type field.
@@ -137,6 +151,13 @@ public abstract class CardinalityTracker {
 			return new LogLog8(buckets_, k_, seed, minProb_);
 		}else if("InvertedLogLog".equalsIgnoreCase(type) || "ILL".equalsIgnoreCase(type)){
 			return new InvertedLogLog(buckets_, k_, seed, minProb_);//Experimental: stores max low-bits per NLZ bucket
+		}else if("DDL2".equalsIgnoreCase(type) || "DynamicDemiLog2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog2(buckets_, k_, seed, minProb_);
+		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8(buckets_, k_, seed, minProb_);
+		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
+			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
+			return new DynamicLogLog4(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -611,6 +632,28 @@ public abstract class CardinalityTracker {
 	 * @return Array of compensation factors, or null if not implemented
 	 */
 	public abstract float[] compensationFactorLogBucketsArray();
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Drivable Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Default: throws UnsupportedOperationException. Override in calibratable subclasses. */
+	@Override
+	public double[] rawEstimates(){throw new UnsupportedOperationException(getClass().getSimpleName()+" does not support rawEstimates()");}
+
+	/** Default: throws UnsupportedOperationException. Override in calibratable subclasses. */
+	@Override
+	public int filledBuckets(){throw new UnsupportedOperationException(getClass().getSimpleName()+" does not support filledBuckets()");}
+
+	/** Default: throws UnsupportedOperationException. Override in calibratable subclasses. */
+	@Override
+	public double occupancy(){throw new UnsupportedOperationException(getClass().getSimpleName()+" does not support occupancy()");}
+
+	@Override
+	public long getLastCardinality(){return lastCardinality;}
+
+	@Override
+	public void setLastCardinality(long val){lastCardinality=val;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -655,6 +698,8 @@ public abstract class CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	
 	long added=0;
+	/** Cached cardinality estimate; -1 means stale. Shared by all calibratable subclasses. */
+	public long lastCardinality=-1;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------    Deprecated Table Fields   ----------------*/

@@ -72,7 +72,8 @@ public class CorrectionFactor{
 		// which is wrong and distorts interpolations near low occupancy.
 		if(lists[0].size()>=4){
 			for(int col=1; col<lists.length; col++){
-				lists[col].set(0, (float)quadraticPredict(1,lists[col].get(1), 2,lists[col].get(2), 3,lists[col].get(3), 0));
+				lists[col].set(0, 
+					(float)quadraticPredict(1,lists[col].get(1), 2,lists[col].get(2), 3,lists[col].get(3), 0));
 			}
 		}
 		return interpolate(lists, buckets);
@@ -159,6 +160,29 @@ public class CorrectionFactor{
 		final float[] array=CF_MATRIX[type];
 		final int maxSlot=array.length-1;
 		if(buckets==correctionBuckets){return array[Math.min(occupancy, maxSlot)];}
+		final double pos=(double)occupancy*maxSlot/buckets;
+		if(maxSlot<2){
+			if(maxSlot==0){return array[0];}
+			return (float)linearPredict(0,array[0], 1,array[1], pos);
+		}
+		final int lo=Math.min((int)pos, maxSlot-2);
+		final int a0=Math.max(0, Math.min(lo-1, maxSlot-2));
+		final int b0=Math.max(0, Math.min(lo,   maxSlot-2));
+		final double predA=quadraticPredict(a0,array[a0], a0+1,array[a0+1], a0+2,array[a0+2], pos);
+		final double predB=quadraticPredict(b0,array[b0], b0+1,array[b0+1], b0+2,array[b0+2], pos);
+		return (float)((predA+predB)*0.5);
+	}
+
+	/**
+	 * Returns the correction factor using an explicit matrix, for per-class CF support.
+	 * Identical logic to getCF(int,int,int) but uses the provided matrix and corrBuckets
+	 * instead of the global CF_MATRIX and correctionBuckets.
+	 */
+	public static float getCF(float[][] matrix, int corrBuckets, int occupancy, int buckets, int type){
+		if(!USE_CORRECTION || matrix==null || type==LINEAR){return 1;}
+		final float[] array=matrix[type];
+		final int maxSlot=array.length-1;
+		if(buckets==corrBuckets){return array[Math.min(occupancy, maxSlot)];}
 		final double pos=(double)occupancy*maxSlot/buckets;
 		if(maxSlot<2){
 			if(maxSlot==0){return array[0];}
