@@ -111,7 +111,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				USE_GMEAN ? CorrectionFactor.GMEAN : CorrectionFactor.MEAN);
 			total=2*(Long.MAX_VALUE/proxy)*div*correction;
 		}
-		total*=CorrectionFactor.getCF(count, buckets, cfType);
+		total*=CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,cfType);
 
 		// LinearCounting correction for sparse regimes.
 		// Factor of 2: canonical k-mers use max(kmer, revcomp), halving the effective hash space.
@@ -305,8 +305,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		if(filledBuckets==0){return new double[9];}
 
 		// Apply per-occupancy correction factors; getCF returns 1 when USE_CORRECTION=false.
-		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEAN);
-		final double hmeanPureMCF =hmeanPureM*CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEANM);
+		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
+		final double hmeanPureMCF =hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
 
 		// Hybrid: LC → Mean → HMeanM blend, driven by lcPure as a bucket-count-independent cardinality proxy.
 		// [0, 0.5b]=LC, [0.5b, 1.5b]=LC→Mean, [1.5b, 3b]=Mean→HMeanM, [3b+]=HMeanM.
@@ -327,14 +327,14 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 		return new double[]{
 			meanEstCF,
-			hmeanPure *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HMEAN),
+			hmeanPure *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEAN),
 			hmeanPureMCF,
-			gmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.GMEAN),
-			hmeanEst  *CorrectionFactor.getCF(count, buckets, CorrectionFactor.HLL),
+			gmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.GMEAN),
+			hmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HLL),
 			lcPure,    // LC: no CF applied
 			hybridEst, // Hybrid: CF already applied to components
-			mwaEst    *CorrectionFactor.getCF(count, buckets, CorrectionFactor.MWA),
-			medianCorr*CorrectionFactor.getCF(count, buckets, CorrectionFactor.MEDCORR)
+			mwaEst    *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MWA),
+			medianCorr*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR)
 		};
 	}
 
@@ -420,8 +420,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private long eeMask=-1L;
 	/** Reusable sort buffer for rawEstimates(); avoids per-call allocation. */
 	private final LongList sortBuf=new LongList(buckets);
-	/** Whether the cardinality may have changed since it was last checked */
-	public long lastCardinality=-1;
+	// lastCardinality inherited from CardinalityTracker
 	
 	/*--------------------------------------------------------------*/
 	
@@ -440,9 +439,22 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
 
-	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
-	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
-	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
+//	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
+//	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
+//	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
+	
+	/** Default resource file for DDL correction factors. */
+	public static final String CF_FILE="?cardinalityCorrectionDDL.tsv.gz";
+	/** Bucket count used to build CF_MATRIX (for interpolation). */
+	private static int CF_BUCKETS=2048;
+	/** Per-class correction factor matrix; null until initializeCF() is called. */
+	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+	/** Loads the DDL correction factor matrix from CF_FILE. */
+	public static float[][] initializeCF(int buckets){
+		CF_BUCKETS=buckets;
+		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	}
+
 	public static double LC_CROSSOVER=0.75;
 	/** Steepness of the sigmoid transition between LinearCounting and value-based estimation.
 	 * Higher values create a sharper switch; lower values create a more gradual blend.

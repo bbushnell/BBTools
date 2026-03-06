@@ -3,18 +3,21 @@
 usage(){
 echo "
 Written by Brian Bushnell and Chloe
-Last modified March 2, 2026
+Last modified March 6, 2026
 
 Description:  Calibrates DynamicDemiLog cardinality estimators by feeding random
 longs to an array of DDL instances with varied seeds, tracking true cardinality
 via ground truth, and reporting per-estimator accuracy statistics at logarithmically
 spaced cardinality checkpoints.  Multithreaded: N threads each run an independent
 simulation, results are merged live for File 1 output.  At end, a second file
-(out2=) captures the occupancy histogram for per-occupancy compensation curve fitting.
+(out2=) captures the occupancy histogram for per-occupancy correction factor fitting.
 
-Usage:  ddlcalibrate.sh ddls=1000 buckets=2048
+Usage:  ddlcalibrate.sh loglogtype=ddl ddls=1000 buckets=2048
 
 Parameters:
+loglogtype=ddl  Estimator class: ddl, ddl2, ddl8, dll4.
+                Default bucket counts: ddl/ddl2=2048, ddl8=4096, dll4=8192.
+                For uniform 2048-bucket CF files, pass buckets=2048 explicitly.
 ddls=1000       Number of DDL instances with varied seeds (distributed across threads).
 buckets=2048    Buckets per DDL instance. Must be a multiple of 256.
 maxmult=10      Stop when trueCard reaches buckets*maxmult.
@@ -23,7 +26,9 @@ reportfrac=0.01 Report every this fraction of current cardinality (cascading:
 seed=12345      Master seed for DDL seed generation.
 valseed=42      Master seed for per-thread value generation.
 threads=1       Number of parallel simulation threads.
-out2=           Output file for occupancy histogram (File 2).  Not written if omitted.
+out2=           Output file for correction factor table (File 2).  Not written if omitted.
+cf=f            Set cf=t to apply existing correction factors during calibration.
+                Requires matching *CorrectionFactor.tsv in resources/.
 
 File 1 output columns (stdout, live):
 TrueCard        Ground-truth distinct count.
@@ -33,25 +38,22 @@ Occupancy       Fraction of DDL buckets with any data (averaged across all DDLs)
 *_std           Population stdev of relative error across DDL instances.  Zero = no variance.
 
 File 2 output columns (out2=, end of run):
-Slot            Occupancy slot index 0..256 (256 = 100% full).
-Occupancy       Exact occupancy at this slot (slot/256).
-AvgTrueCard     Average true cardinality across all samples at this slot.
-Samples         Number of DDL snapshots recorded at this slot.
-*_raw           Average raw (uncompensated) estimate at this slot.
-*_cf            Compensation factor: AvgTrueCard / *_raw.  Apply at runtime for correction.
+Slot            Filled-bucket count (0..buckets).
+*_cf            Correction factor: AvgTrueCard / raw_estimate at this occupancy slot.
+                9 columns total (Mean, HMean, HMeanM, GMean, HLL, Pad, MWA, MedianCorr).
+                LC and Hybrid excluded: LC never uses CF; Hybrid is pre-corrected.
+                Copy to resources/*CorrectionFactor.tsv for runtime use with cf=t.
 
-Estimators reported (11 total):
-Mean            Arithmetic mean proxy, with bucket correction factor.
-HMean           HLL-style harmonic mean, with correction.
-GMean           Geometric mean proxy, with correction.
-RMean           Root-mean-square proxy, with correction.
-MWA             Median-weighted average proxy (odd-list bug pending fix).
-MedianCorr      Median proxy, with correction.
-MedianLeg       Median proxy, legacy (no correction factor).
-EstSum          Log-sum estimator (div * exp(mean of log estimates)).
-LCHybrid        LinearCounting falling back to Mean at full occupancy.
-LCTrue          Pure LinearCounting (accurate only at low occupancy).
-Blended         Sigmoid blend of LCTrue and Mean; current cardinality() output.
+Estimators reported (9 total):
+Mean            Arithmetic mean proxy (LL8 mode for DDL8).
+HMean           HLL-style harmonic mean (filled buckets only).
+HMeanM          HMean with fractional NLZ from inverted mantissa (DDL8 mode).
+GMean           Geometric mean proxy.
+HLL             Standard HyperLogLog estimate (HLL8 mode for DDL8).
+LC              Pure LinearCounting (no CF applied).
+Hybrid          LC->Mean->HMeanM blend, pre-corrected; current cardinality() output.
+MWA             Median-weighted average proxy.
+MedianCorr      Corrected median proxy.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
