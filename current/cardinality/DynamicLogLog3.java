@@ -5,64 +5,65 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * DynamicLogLog4: 4-bit packed variant of DynamicLogLog using relative NLZ storage.
+ * DynamicLogLog3: 3-bit packed variant of DynamicLogLog using relative NLZ storage.
  * <p>
- * Packs 8 buckets into each int, 4 bits per bucket (nibble packing).
- * Encoding: 0 = empty; 1-15 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
- * No mantissa — coarser precision per bucket, but allows 2x bucket count for the same memory.
- * Overflow (relNlz >= 15) clamped to stored=15 and absorbed by CF matrix.
+ * Packs 10 buckets into each int, 3 bits per bucket.
+ * Encoding: 0 = empty; 1-7 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
+ * No mantissa — coarser precision per bucket, but allows more buckets for the same memory.
+ * Overflow (relNlz >= 7) clamped to stored=7 and absorbed by CF matrix.
  * <p>
- * Key question: does DLL4 with 4096 buckets beat DLL2 with 2048 buckets for the same
- * 4KB memory footprint? (4096 * 4 bits = 2048 * 8 bits = 2048 chars = 4KB)
+ * Memory: 3 bits/bucket × 8192 buckets = 24576 bits = 3072 bytes (~3KB).
+ * 10 buckets per int; 2 bits per int wasted (bits 30-31 always zero).
+ * Paper description: "3 bits per bucket."
  * <p>
  * Key invariants:
- * - maxArray[i>>>3] holds 8 consecutive buckets, each in 4 bits.
- * - Bucket value 0 = empty; value 1-15 = (relNlz+1).
+ * - maxArray[i/10] holds bucket i at bit position (i%10)*3, 3 bits wide.
+ * - Bucket value 0 = empty; value 1-7 = (relNlz+1).
  * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
  * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
  */
-public final class DynamicLogLog4 extends CardinalityTracker {
+public final class DynamicLogLog3 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	DynamicLogLog4(){
-		this(2048, 31, -1, 0);
+	DynamicLogLog3(){
+		this(8192, 31, -1, 0);
 	}
 
-	DynamicLogLog4(Parser p){
+	DynamicLogLog3(Parser p){
 		super(p);
-		maxArray=new int[buckets>>>3];
+		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
 	}
 
-	DynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
+	DynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
-		maxArray=new int[buckets>>>3];
+		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
 	}
 
 	@Override
-	public DynamicLogLog4 copy(){return new DynamicLogLog4(buckets, k, -1, minProb);}
+	public DynamicLogLog3 copy(){return new DynamicLogLog3(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Reads the 4-bit stored value for bucket i (0=empty, 1-15=relNlz+1). */
+	/** Reads the 3-bit stored value for bucket i (0=empty, 1-7=relNlz+1). */
 	private int readBucket(final int i){
-		return (maxArray[i>>>3]>>>((i&7)<<2))&0xF;
+		return (maxArray[i/10]>>>((i%10)*3))&0x7;
 	}
 
-	/** Writes a 4-bit stored value for bucket i. val must be in [0,15]. */
+	/** Writes a 3-bit stored value for bucket i. val must be in [0,7]. */
 	private void writeBucket(final int i, final int val){
-		final int wordIdx=i>>>3;
-		final int shift=(i&7)<<2;
-		maxArray[wordIdx]=(maxArray[wordIdx]&~(0xF<<shift))|((val&0xF)<<shift);
+		final int wordIdx=i/10;
+		final int shift=(i%10)*3;
+		maxArray[wordIdx]=(maxArray[wordIdx]&~(0x7<<shift))|((val&0x7)<<shift);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -81,14 +82,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((DynamicLogLog4)log);
+		add((DynamicLogLog3)log);
 	}
 
 	/**
-	 * Merges another DynamicLogLog4 into this one.
+	 * Merges another DynamicLogLog3 into this one.
 	 * Converts relative stored values to absolute, takes per-bucket max, re-relativizes.
 	 */
-	public void add(DynamicLogLog4 log){
+	public void add(DynamicLogLog3 log){
 		added+=log.added;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
@@ -97,8 +98,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(1, Math.min(sA+(minZeros-newMinZeros), 15)));
-				final int nB=(sB==0 ? 0 : Math.max(1, Math.min(sB+(log.minZeros-newMinZeros), 15)));
+				final int nA=(sA==0 ? 0 : Math.max(1, Math.min(sA+(minZeros-newMinZeros), 7)));
+				final int nB=(sB==0 ? 0 : Math.max(1, Math.min(sB+(log.minZeros-newMinZeros), 7)));
 				writeBucket(i, Math.max(nA, nB));
 			}
 			minZeros=newMinZeros;
@@ -122,14 +123,12 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
 
-		// Stored = relNlz+1, clamped to [1,15] for overflow
-		final int newStored=Math.min(relNlz+1, 15);
+		// Stored = relNlz+1, clamped to [1,7] for overflow
+		final int newStored=Math.min(relNlz+1, 7);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -142,7 +141,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
-				minZeroCount=countAndDecrement();
+		minZeroCount=countAndDecrement();
 			}
 		}
 	}
@@ -159,9 +158,9 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			int word=maxArray[w];
 			if(word==0){continue;}
 			int result=0;
-			for(int b=0; b<8; b++){
-				final int shift=b<<2;
-				int stored=(word>>>shift)&0xF;
+			for(int b=0; b<10; b++){
+				final int shift=b*3;
+				int stored=(word>>>shift)&0x7;
 				if(stored>0){
 					stored--; // decrement relative tier
 					if(stored==1){newMinZeroCount++;} // new tier-0 after decrement
@@ -181,8 +180,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	/**
 	 * Returns cardinality estimates for calibration.
-	 * Output order: 0=Mean, 1=HMean, 2=HMeanM(=HMean; no mantissa in DLL4),
-	 *               3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr
+	 * Output order: 0=Mean, 1=HMean, 2=HMeanM(=HMean; no mantissa in DLL3),
+	 *               3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr, 9=Mean99
 	 */
 	public double[] rawEstimates(){
 		double difSum=0;
@@ -195,8 +194,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
-				// Approximate magnitude matching DLL2 restore() convention:
-				// absNlz=0 → Long.MAX_VALUE (edge case), else 1L<<(wordlen-absNlz-1)
 				final long dif;
 				if(absNlz==0){dif=Long.MAX_VALUE;}
 				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
@@ -235,7 +232,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		if(hmeanEst<2.5*buckets && V>0){hmeanEst=(double)buckets*Math.log((double)buckets/V);}
 
 		final double correction=(count+buckets)/(float)(buckets+buckets);
-		// Filled-bucket HMean (no fractional mantissa in DLL4, so HMeanM = HMean)
+		// Filled-bucket HMean (no fractional mantissa in DLL3, so HMeanM = HMean)
 		final double hmeanPure=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
 		final double hmeanPureM=hmeanPure; // no mantissa correction possible
 
@@ -254,56 +251,35 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 		if(filledBuckets==0){return new double[10];}
 
-		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
-		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
+		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN);
+		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEANM);
 
-//		final double hybridEst;
-//		final double hb0=0.25*buckets, hb1=4.0*buckets;
-//		if(lcPure<=hb0){
-//			hybridEst=lcPure;
-//		}else if(lcPure<=hb1){
-//			final double t=(lcPure-hb0)/(hb1-hb0);
-//			hybridEst=(1-t)*lcPure+t*meanEstCF;
-//		}else{
-//			hybridEst=meanEstCF;
-//		}
+		final double hybridEst;
+		final double hb0=0.20*buckets, hbMid=2.5*buckets, hb1=5.0*buckets;
+		if(lcPure<=hb0){
+			hybridEst=lcPure;
+		}else if(lcPure<=hbMid){
+			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+			hybridEst=(1-t)*lcPure+t*meanEstCF;
+		}else if(lcPure<=hb1){
+			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+			hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
+		}else{
+			hybridEst=hmeanPureMCF;
+		}
 
-      final double hybridEst;
-      final double hb0=0.20*buckets, hbMid=1.0*buckets, hb1=5.0*buckets;
-//      if(lcPure<=hb0){
-//      	hybridEst=lcPure;
-//      }else if(lcPure<=hbMid){
-//      	final double t=0.5*(lcPure-hb0)/(hbMid-hb0); // linear 0→0.5
-//      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-//      }else if(lcPure<hb1){
-//      	final double u=(hb1-lcPure)/(hb1-hbMid); // 1→0 as lcPure: hbMid→hb1
-//      	final double t=1.0-0.5*u*u;               // quadratic ease: 0.5→1.0
-//      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-//      }else{
-//      	hybridEst=meanEstCF;
-//      }
-      
-      if(lcPure<=hb0){
-      	hybridEst=lcPure;
-      }else if(lcPure<=hb1){
-      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-      }else{
-      	hybridEst=meanEstCF;
-      }
-      
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
-			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEAN),
+			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEAN),
 			hmeanPureM, // = hmeanPure; no extra CF since it equals HMean
-			gmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.GMEAN),
-			hmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HLL),
+			gmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.GMEAN),
+			hmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HLL),
 			lcPure,
 			hybridEst,
-			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MWA),
-			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR),
-			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN99)
+			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MWA),
+			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEDCORR),
+			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN99)
 		};
 	}
 
@@ -311,7 +287,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Packed 4-bit bucket array: 8 buckets per int, 0=empty, 1-15=relNlz+1. */
+	/** Packed 3-bit bucket array: 10 buckets per int, 0=empty, 1-7=relNlz+1. */
 	private final int[] maxArray;
 	private int minZeros=0;
 	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
@@ -331,17 +307,13 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	private static final int wordlen=64;
 
-	public static double LC_CROSSOVER=0.75;
-	public static double LC_SHARPNESS=20.0;
-	public static boolean USE_LC=true;
-	
-	/** Default resource file for DDL correction factors. */
+	/** Default resource file for DLL3 correction factors (temporarily using DLL4 matrix). */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
-	private static int CF_BUCKETS=2048;
+	private static int CF_BUCKETS=8192;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
-	/** Loads the DDL correction factor matrix from CF_FILE. */
+	/** Loads the DLL3 correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
