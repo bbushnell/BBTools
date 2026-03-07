@@ -55,6 +55,9 @@ public class DDLCalibrationDriver {
 	/** Which estimators get a CF column in File 2. LC and Hybrid are excluded:
 	 *  LC never uses CF; Hybrid is pre-corrected from its components. */
 	static final boolean[] NEEDS_CF={true,true,true,true,true,false,false,true,true,true};
+	/** Extra out1-only derived columns appended after NUM_EST. */
+	static final int NUM_OUT1=NUM_EST+1; // +1 for MedianLC
+	static final String MEDIAN_LC="MedianLC";
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -228,16 +231,16 @@ public class DDLCalibrationDriver {
 
 	/** Merges N ReportRows (one per thread, all at the same threshold) into one combined row. */
 	static ReportRow mergeRows(final ReportRow[] rows){
-		final double[] sumErr=new double[NUM_EST];
-		final double[] sumAbsErr=new double[NUM_EST];
-		final double[] sumSqErr=new double[NUM_EST];
+		final double[] sumErr=new double[NUM_OUT1];
+		final double[] sumAbsErr=new double[NUM_OUT1];
+		final double[] sumSqErr=new double[NUM_OUT1];
 		long trueCard=rows[0].trueCard;
 		int n=0;
 		double occSum=0;
 		for(ReportRow row : rows){
 			n+=row.n;
 			occSum+=row.occSum;
-			for(int e=0; e<NUM_EST; e++){
+			for(int e=0; e<NUM_OUT1; e++){
 				sumErr[e]+=row.sumErr[e];
 				sumAbsErr[e]+=row.sumAbsErr[e];
 				sumSqErr[e]+=row.sumSqErr[e];
@@ -252,7 +255,7 @@ public class DDLCalibrationDriver {
 		final double avgOcc=row.occSum/n;
 		final StringBuilder sb=new StringBuilder();
 		sb.append(row.trueCard).append('\t').append(String.format("%.5f", avgOcc));
-		for(int e=0; e<NUM_EST; e++){
+		for(int e=0; e<NUM_OUT1; e++){
 			final double meanErr=row.sumErr[e]/n;
 			final double meanAbsErr=row.sumAbsErr[e]/n;
 			// Variance via computational formula: E[X^2] - E[X]^2
@@ -305,6 +308,9 @@ public class DDLCalibrationDriver {
 			sb.append('\t').append(name).append("_abs");
 			sb.append('\t').append(name).append("_std");
 		}
+		sb.append('\t').append(MEDIAN_LC).append("_err");
+		sb.append('\t').append(MEDIAN_LC).append("_abs");
+		sb.append('\t').append(MEDIAN_LC).append("_std");
 		return sb.toString();
 	}
 
@@ -441,9 +447,9 @@ public class DDLCalibrationDriver {
 
 		/** Computes statistics over all DDLs at the given trueCard and returns a ReportRow. */
 		ReportRow buildReportRow(final long trueCard){
-			final double[] sumErr=new double[NUM_EST];
-			final double[] sumAbsErr=new double[NUM_EST];
-			final double[] sumSqErr=new double[NUM_EST];
+			final double[] sumErr=new double[NUM_OUT1];
+			final double[] sumAbsErr=new double[NUM_OUT1];
+			final double[] sumSqErr=new double[NUM_OUT1];
 			double occSum=0;
 			for(CardinalityTracker ddl : ddls){
 				occSum+=ddl.occupancy();
@@ -454,6 +460,12 @@ public class DDLCalibrationDriver {
 					sumAbsErr[e]+=Math.abs(err);
 					sumSqErr[e]+=err*err;
 				}
+				// MedianLC: (LC + MedianCorr) / 2 (indices 5 and 8)
+				final double mlc=(est[5]+est[8])*0.5;
+				final double mlce=(mlc-trueCard)/(double)trueCard;
+				sumErr[NUM_EST]+=mlce;
+				sumAbsErr[NUM_EST]+=Math.abs(mlce);
+				sumSqErr[NUM_EST]+=mlce*mlce;
 			}
 			return new ReportRow(trueCard, ddls.length, occSum, sumErr, sumAbsErr, sumSqErr);
 		}

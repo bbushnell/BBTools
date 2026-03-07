@@ -258,17 +258,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
 
 		final double hybridEst;
-		final double hb0=0.5*buckets, hb1=1.5*buckets, hb2=3.0*buckets;
+		final double hb0=0.25*buckets, hb1=3.0*buckets;
 		if(lcPure<=hb0){
 			hybridEst=lcPure;
 		}else if(lcPure<=hb1){
 			final double t=(lcPure-hb0)/(hb1-hb0);
 			hybridEst=(1-t)*lcPure+t*meanEstCF;
-		}else if(lcPure<=hb2){
-			final double t=(lcPure-hb1)/(hb2-hb1);
-			hybridEst=(1-t)*meanEstCF+t*hmeanPureMCF;
 		}else{
-			hybridEst=hmeanPureMCF;
+			hybridEst=meanEstCF;
 		}
 
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
