@@ -52,9 +52,9 @@ public class DDLCalibrationDriver {
 	static final String[] ESTIMATOR_NAMES={
 		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr","Mean99"
 	};
-	/** Which estimators get a CF column in File 2. LC and Hybrid are excluded:
-	 *  LC never uses CF; Hybrid is pre-corrected from its components. */
-	static final boolean[] NEEDS_CF={true,true,true,true,true,false,false,true,true,true};
+	/** Which estimators get a CF column in File 2. LC excluded (never uses CF).
+	 *  Hybrid included at column 10 (after main loop) to enable its own CF curve. */
+	static final boolean[] NEEDS_CF={true,true,true,true,true,false,true,true,true,true};
 	/** Extra out1-only derived columns appended after NUM_EST. */
 	static final int NUM_OUT1=NUM_EST+1; // +1 for MedianLC
 	static final String MEDIAN_LC="MedianLC";
@@ -202,6 +202,8 @@ public class DDLCalibrationDriver {
 			return new DynamicDemiLog8(buckets, k, seed, minProb);
 		}else if("dll4".equals(type) || "dynamicdemilog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4(buckets, k, seed, minProb);
+		}else if("dll3".equals(type)){
+			return new DynamicLogLog3(buckets, k, seed, minProb);
 		}
 		throw new RuntimeException("Unknown loglogtype: "+type);
 	}
@@ -280,14 +282,21 @@ public class DDLCalibrationDriver {
 			sb.append(s);
 			final double avgTrueCard=(s==0 ? 0 : (double)histTrueCard[s]/cnt);
 			for(int e=0; e<NUM_EST; e++){
-				if(e==6){continue;} // Hybrid: no column
-				// Slot 0, LC (e==5), and Hybrid pad all get 1.0
+				if(e==6){continue;} // Hybrid appended after loop at column 10
+				// Slot 0 and LC (e==5) always get 1.0
 				if(s==0 || e==5){sb.append('\t').append("1.00000000");}
 				else{
 					final double avgRaw=histRawEst[s][e]/cnt;
 					final double cf=computeCF(avgTrueCard, avgRaw);
 					sb.append('\t').append(String.format("%.8f", cf));
 				}
+			}
+			// Hybrid_cf at column 10 (type HYBRID=10)
+			if(s==0){sb.append('\t').append("1.00000000");}
+			else{
+				final double avgRaw=histRawEst[s][6]/cnt;
+				final double cf=computeCF(avgTrueCard, avgRaw);
+				sb.append('\t').append(String.format("%.8f", cf));
 			}
 			ps.println(sb);
 		}
@@ -315,14 +324,16 @@ public class DDLCalibrationDriver {
 	}
 
 	static String header2(){
-		// Writes one column per CorrectionFactor type constant (0..8), so matrix[type] works directly.
-		// e=5 (LC) gets a Pad_cf column at type index 6 (LINEAR); e=6 (Hybrid) is skipped entirely.
+		// Writes one column per CorrectionFactor type constant (0..9), so matrix[type] works directly.
+		// e=5 (LC) gets a Pad_cf column at type index 6 (LINEAR); e=6 (Hybrid) is skipped in loop.
+		// Hybrid_cf is appended at the end as column 10 (type HYBRID=10).
 		final StringBuilder sb=new StringBuilder("#Slot");
 		for(int e=0; e<NUM_EST; e++){
-			if(e==6){continue;} // Hybrid: no type constant, pre-corrected, skip
+			if(e==6){continue;} // Hybrid appended after loop at column 10
 			if(e==5){sb.append("\tPad_cf");} // placeholder for LINEAR=6; always 1.0
 			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
 		}
+		sb.append("\tHybrid_cf"); // column 10, type HYBRID=10
 		return sb.toString();
 	}
 

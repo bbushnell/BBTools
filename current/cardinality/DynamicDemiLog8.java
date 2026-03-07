@@ -289,15 +289,15 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
 
 		final double hybridEst;
-		final double hb0=0.5*buckets, hb1=1.5*buckets, hb2=3.0*buckets;
+		final double hb0=0.20*buckets, hbMid=2.5*buckets, hb1=5.0*buckets;
 		if(lcPure<=hb0){
 			hybridEst=lcPure;
-		}else if(lcPure<=hb1){
-			final double t=(lcPure-hb0)/(hb1-hb0);
+		}else if(lcPure<=hbMid){
+			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
 			hybridEst=(1-t)*lcPure+t*meanEstCF;
-		}else if(lcPure<=hb2){
-			final double t=(lcPure-hb1)/(hb2-hb1);
-			hybridEst=(1-t)*meanEstCF+t*hmeanPureMCF;
+		}else if(lcPure<=hb1){
+			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+			hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
 		}else{
 			hybridEst=hmeanPureMCF;
 		}

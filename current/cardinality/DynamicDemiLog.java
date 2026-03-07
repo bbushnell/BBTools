@@ -325,19 +325,33 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		// Hybrid: LC → Mean → HMeanM blend, driven by lcPure as a bucket-count-independent cardinality proxy.
 		// [0, 0.5b]=LC, [0.5b, 1.5b]=LC→Mean, [1.5b, 3b]=Mean→HMeanM, [3b+]=HMeanM.
 		// CF already applied to meanEstCF and hmeanPureMCF; hybridEst needs no additional CF.
-		final double hybridEst;
-		final double hb0=0.25*buckets, hb1=1.7*buckets, hb2=3.2*buckets;
-		if(lcPure<=hb0){
-			hybridEst=lcPure;
-		}else if(lcPure<=hb1){
-			final double t=(lcPure-hb0)/(hb1-hb0);
-			hybridEst=(1-t)*lcPure+t*meanEstCF;
-		}else if(lcPure<=hb2){
-			final double t=(lcPure-hb1)/(hb2-hb1);
-			hybridEst=(1-t)*meanEstCF+t*hmeanPureMCF;
-		}else{
-			hybridEst=hmeanPureMCF;
-		}
+//		final double hybridEst;
+//		final double hb0=0.25*buckets, hb1=1.7*buckets, hb2=3.2*buckets;
+//		if(lcPure<=hb0){
+//			hybridEst=lcPure;
+//		}else if(lcPure<=hb1){
+//			final double t=(lcPure-hb0)/(hb1-hb0);
+//			hybridEst=(1-t)*lcPure+t*meanEstCF;
+//		}else if(lcPure<=hb2){
+//			final double t=(lcPure-hb1)/(hb2-hb1);
+//			hybridEst=(1-t)*meanEstCF+t*hmeanPureMCF;
+//		}else{
+//			hybridEst=hmeanPureMCF;
+//		}
+		
+      final double hybridEst;
+      final double hb0=0.20*buckets, hbMid=2.5*buckets, hb1=5.0*buckets;
+      if(lcPure<=hb0){
+      	hybridEst=lcPure;
+      }else if(lcPure<=hbMid){
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*meanEstCF;
+      }else if(lcPure<=hb1){
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
+      }else{
+      	hybridEst=hmeanPureMCF;
+      }
 
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
