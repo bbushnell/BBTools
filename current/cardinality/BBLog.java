@@ -31,8 +31,7 @@ public final class BBLog extends CardinalityTracker {
 	 */
 	BBLog(Parser p){
 		super(p);
-		maxArrayA=(atomic ? new AtomicLongArray(buckets) : null);
-		maxArray=(atomic ? null : new long[buckets]);
+		maxArray=new long[buckets];
 		counts=(trackCounts ? new int[buckets] : null);
 	}
 	
@@ -46,8 +45,7 @@ public final class BBLog extends CardinalityTracker {
 	 */
 	BBLog(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
-		maxArrayA=(atomic ? new AtomicLongArray(buckets) : null);
-		maxArray=(atomic ? null : new long[buckets]);
+		maxArray=new long[buckets];
 		counts=(trackCounts ? new int[buckets] : null);
 	}
 	
@@ -72,28 +70,14 @@ public final class BBLog extends CardinalityTracker {
 		double estLogSum=0;
 		int count=0;
 		LongList list=new LongList(buckets);
-		//assert(atomic);
-		if(atomic){
-			for(int i=0; i<maxArrayA.length(); i++){
-				long val=maxArrayA.get(i);
-				if(val>0){
-//					System.err.println("val="+val);
-					long dif=Long.MAX_VALUE-val;
-					difSum+=dif;
-					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
-					estLogSum+=Math.log(est);
-					list.add(dif);
-				}
-			}
-		}else{
+		{
 			for(int i=0; i<maxArray.length; i++){
 				long val=maxArray[i];
 				if(val>0){
 					long dif=Long.MAX_VALUE-val;
 					difSum+=dif;
 					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
+					double est=2*(Long.MAX_VALUE/(double)dif);
 					estLogSum+=Math.log(est);
 					list.add(dif);
 				}
@@ -101,13 +85,13 @@ public final class BBLog extends CardinalityTracker {
 		}
 		int div=count;//Could also be count be that causes problems
 		final double mean=difSum/Tools.max(div, 1);
-		final double estimatePerSet=2*(Long.MAX_VALUE/mean)*SKIPMOD;
+		final double estimatePerSet=2*(Long.MAX_VALUE/mean);
 		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
 		list.sort();
 		long median=list.median();
-		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
+		double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
 		
 //		new Exception().printStackTrace();
 		
@@ -141,11 +125,6 @@ public final class BBLog extends CardinalityTracker {
 	
 	public void add(BBLog log){
 		added+=log.added;
-		if(atomic && maxArrayA!=log.maxArrayA){
-			for(int i=0; i<buckets; i++){
-				maxArrayA.set(i, Tools.max(maxArrayA.get(i), log.maxArrayA.get(i)));
-			}
-		}else 
 		if(maxArray!=log.maxArray){
 			if(counts==null){
 				for(int i=0; i<buckets; i++){
@@ -173,25 +152,15 @@ public final class BBLog extends CardinalityTracker {
 		
 //		if(key<minKey){return;}
 		final int bucket=(int)(key&bucketMask);
-		
-		if(atomic){
-			long x=maxArrayA.get(bucket);
-			while(key>x){
-				boolean b=maxArrayA.compareAndSet(bucket, x, key);
-				if(b){x=key;}
-				else{x=maxArrayA.get(bucket);}
+		if(trackCounts){
+			if(key>maxArray[bucket]){
+				maxArray[bucket]=key;
+				counts[bucket]=1;
+			}else if(key==maxArray[bucket]){
+				counts[bucket]++;
 			}
 		}else{
-			if(trackCounts){
-				if(key>maxArray[bucket]){
-					maxArray[bucket]=key;
-					counts[bucket]=1;
-				}else if(key==maxArray[bucket]){
-					counts[bucket]++;
-				}
-			}else{
-				maxArray[bucket]=Tools.max(key, maxArray[bucket]);
-			}
+			maxArray[bucket]=Tools.max(key, maxArray[bucket]);
 		}
 	}
 	
@@ -211,8 +180,6 @@ public final class BBLog extends CardinalityTracker {
 
 	/** Non-atomic array storing maximum hash values per bucket */
 	private final long[] maxArray;
-	/** Atomic array storing maximum hash values per bucket for concurrent access */
-	private final AtomicLongArray maxArrayA;
 	/** Array tracking occurrence counts of maximum values per bucket */
 	private final int[] counts;
 	

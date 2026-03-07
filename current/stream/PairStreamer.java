@@ -75,9 +75,11 @@ public class PairStreamer implements Streamer {
 	
 	@Override
 	public ListNum<Read> nextList(){
-		ListNum<Read> ln1=s1.nextList();
-		ListNum<Read> ln2=s2.nextList();
-		
+		final ListNum<Read> ln1, ln2;
+		synchronized(this) {
+			ln1=s1.nextList();
+			ln2=s2.nextList();
+		}
 		if(ln1==null && ln2==null){return null;}
 		
 		// Handle mismatched list sizes
@@ -91,7 +93,7 @@ public class PairStreamer implements Streamer {
 		for(int i=0; i<reads1.size(); i++){
 			Read r1=reads1.get(i);
 			Read r2=reads2.get(i);
-			assert(r1.numericID==r2.numericID);
+			assert(r1.numericID==r2.numericID) : r1.numericID+"!="+r2.numericID+"\n"+r1.id+"\n"+r2.id+"\n";
 			r1.mate=r2;
 			r2.mate=r1;
 		}

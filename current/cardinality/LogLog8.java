@@ -101,7 +101,7 @@ public final class LogLog8 extends CardinalityTracker {
 				final long dif=val;
 				difSum+=dif;
 				count++;
-				double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
+				double est=2*(Long.MAX_VALUE/(double)dif);
 				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
@@ -118,7 +118,7 @@ public final class LogLog8 extends CardinalityTracker {
 		
 //		assert(false) : mean+", "+median+", "+difSum+", "+list;
 		
-		final double estimatePerSet=2*(Long.MAX_VALUE/proxy)*SKIPMOD;
+		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		
 		//12000000        16635460.58 //8k sims, 100k reads, 128k buckets
 		//16635789.16  //16k sims, 100k reads, 128k buckets

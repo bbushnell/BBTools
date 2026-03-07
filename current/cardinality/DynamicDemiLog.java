@@ -66,7 +66,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		double hllSumFilled=0;
 		double gSum=0;
 		double rSum=0;
-		double estLogSum=0;
 		int count=0;
 		LongList list=new LongList(buckets);
 
@@ -81,7 +80,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				rSum+=Math.sqrt(dif);
 				count++;
 				double est=2*(Long.MAX_VALUE/(double)dif);
-				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
 		}

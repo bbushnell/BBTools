@@ -32,7 +32,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	DynamicLogLog3(){
-		this(8192, 31, -1, 0);
+		this(2048, 31, -1, 0);
 	}
 
 	DynamicLogLog3(Parser p){
@@ -307,8 +307,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 
 	private static final int wordlen=64;
 
-	/** Default resource file for DLL3 correction factors (temporarily using DLL4 matrix). */
-	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
+	/** Default resource file for DLL3 correction factors. */
+	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=8192;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
