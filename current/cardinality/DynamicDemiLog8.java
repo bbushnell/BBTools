@@ -276,7 +276,14 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction;
 		final double lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
 
-		if(filledBuckets==0){return new double[9];}
+		final int trim=count/256;
+		final int trimLow=Math.max(0, trim-V);
+		double mean99Sum=0;
+		final int mean99N=count-trimLow-trim;
+		if(mean99N>0){for(int i=trim; i<count-trimLow; i++){mean99Sum+=sortBuf.get(i);}}
+		final double mean99=(mean99N>0 ? mean99Sum/mean99N : mean);
+
+		if(filledBuckets==0){return new double[10];}
 
 		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
 		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
@@ -295,6 +302,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 			hybridEst=hmeanPureMCF;
 		}
 
+		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
 			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEAN),
@@ -304,7 +312,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 			lcPure,
 			hybridEst,
 			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MWA),
-			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR)
+			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR),
+			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN99)
 		};
 	}
 

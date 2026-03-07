@@ -72,11 +72,19 @@ public class CorrectionFactor{
 		// which is wrong and distorts interpolations near low occupancy.
 		if(lists[0].size()>=4){
 			for(int col=1; col<lists.length; col++){
-				lists[col].set(0, 
+				lists[col].set(0,
 					(float)quadraticPredict(1,lists[col].get(1), 2,lists[col].get(2), 3,lists[col].get(3), 0));
 			}
 		}
-		return interpolate(lists, buckets);
+		float[][] m=interpolate(lists, buckets);
+		// If MEAN99 column is absent (9-column legacy file), fall back to MEAN column.
+		if(m!=null && m.length<=MEAN99){
+			final float[][] m2=new float[MEAN99+1][];
+			System.arraycopy(m, 0, m2, 0, m.length);
+			m2[MEAN99]=m[MEAN];
+			m=m2;
+		}
+		return m;
 	}
 
 	/**
@@ -179,7 +187,7 @@ public class CorrectionFactor{
 	 * instead of the global CF_MATRIX and correctionBuckets.
 	 */
 	public static float getCF(float[][] matrix, int corrBuckets, int occupancy, int buckets, int type){
-		if(!USE_CORRECTION || matrix==null || type==LINEAR){return 1;}
+		if(!USE_CORRECTION || matrix==null || type==LINEAR || type>=matrix.length){return 1;}
 		final float[] array=matrix[type];
 		final int maxSlot=array.length-1;
 		if(buckets==corrBuckets){return array[Math.min(occupancy, maxSlot)];}
@@ -240,7 +248,7 @@ public class CorrectionFactor{
 	/** Estimator type constants: index into CF_MATRIX rows.
 	 * Matches CF file column order (Slot + 8 CF columns; Hybrid excluded — pre-corrected). */
 	public static final int OCCUPIED=0, MEAN=1, HMEAN=2, HMEANM=3, GMEAN=4, HLL=5,
-		LINEAR=6, MWA=7, MEDCORR=8;
+		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9;
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;

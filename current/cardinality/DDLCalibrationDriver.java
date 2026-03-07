@@ -47,14 +47,14 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=9;
+	static final int NUM_EST=10;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr"
+		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr","Mean99"
 	};
 	/** Which estimators get a CF column in File 2. LC and Hybrid are excluded:
 	 *  LC never uses CF; Hybrid is pre-corrected from its components. */
-	static final boolean[] NEEDS_CF={true,true,true,true,true,false,false,true,true};
+	static final boolean[] NEEDS_CF={true,true,true,true,true,false,false,true,true,true};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/

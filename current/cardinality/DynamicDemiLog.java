@@ -243,7 +243,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	/**
 	 * Returns cardinality estimates for calibration, without the added-count cap.
-	 * Output order: 0=Mean, 1=HMean, 2=HMeanM, 3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr
+	 * Output order: 0=Mean, 1=HMean, 2=HMeanM, 3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr, 9=Mean99
 	 * Hybrid (index 6) is pre-corrected: CF already applied to its Mean and HMeanM components.
 	 * LC (index 5) and Hybrid (index 6) receive no additional CF.
 	 */
@@ -301,7 +301,22 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		// Pure LC: clamped denominator prevents division by zero; no CF ever applied.
 		final double lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
 
-		if(filledBuckets==0){return new double[9];}
+		// Mean99: trimmed mean ignoring upper and lower 1/256 of values.
+		// "Upper" = highest estimates = smallest dif (left of sorted list): trim count/256.
+		// "Lower" = lowest estimates = largest dif (right of sorted list): empty buckets (V)
+		//   already represent this tail, so only trim max(0, count/256 - V) from the right.
+		final int trim=count/256;
+		final int trimLow=Math.max(0, trim-V);
+		final int mean99Start=trim;
+		final int mean99End=count-trimLow; // exclusive
+		double mean99Sum=0;
+		final int mean99N=mean99End-mean99Start;
+		if(mean99N>0){
+			for(int i=mean99Start; i<mean99End; i++){mean99Sum+=list.get(i);}
+		}
+		final double mean99=(mean99N>0 ? mean99Sum/mean99N : mean);
+
+		if(filledBuckets==0){return new double[10];}
 
 		// Apply per-occupancy correction factors; getCF returns 1 when USE_CORRECTION=false.
 		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
@@ -324,6 +339,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			hybridEst=hmeanPureMCF;
 		}
 
+		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
 			hmeanPure *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEAN),
@@ -333,7 +349,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			lcPure,    // LC: no CF applied
 			hybridEst, // Hybrid: CF already applied to components
 			mwaEst    *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MWA),
-			medianCorr*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR)
+			medianCorr*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR),
+			mean99Est *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN99)
 		};
 	}
 
