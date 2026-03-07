@@ -201,25 +201,30 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		final long rawKey=number^hashXor;
 		final long key=Tools.hash64shift(rawKey);
 
-		if(Long.compareUnsigned(key, eeMask)>0){return;}
-		branch1++;
+		//Earliest possible exit, fastest
+		if(Long.compareUnsigned(key, eeMask)>0) {return;}
+//		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 
 		final int bucket=(int)(key&bucketMask);
 		final int shift=offset-nlz;
 		// Store RELATIVE NLZ = absoluteNlz - minZeros
 		final int relNlz=nlz-minZeros;
-		final int score=(relNlz<<mantissabits)+(int)((~(key>>>shift))&mask);
-		final int oldValue=maxArray[bucket];
+		final int score=(relNlz<<mantissabits)+(int)((~(key>>>shift))&mask);//FP16 representation
+		final int oldValue=maxArray[bucket];//Required memory read
 
-		if(score<oldValue){return;}
-		branch2++;
+		//Optional early exit reduces writes, countArray access, and branches.
+		//Expected to be usually taken, particularly when buckets is large.
+		if(score<oldValue) {return;}
+//		branch2++;
 		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
 		final int nlzOld=(oldValue>>mantissabits); // relative NLZ of old value
 
-		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
+//		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
+		//Update bucket; required write to cached line only if score>oldValue
 		maxArray[bucket]=(char)newValue;
+		//Track filled bucket count: increment when bucket transitions from empty to non-empty
 		if(oldValue==0 && newValue>0){filledBuckets++;}
 
 		final char count=countArray[bucket];

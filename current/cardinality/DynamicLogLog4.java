@@ -31,7 +31,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	DynamicLogLog4(){
-		this(4096, 31, -1, 0);
+		this(2048, 31, -1, 0);
 	}
 
 	DynamicLogLog4(Parser p){
@@ -122,14 +122,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
+//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
 
 		// Stored = relNlz+1, clamped to [1,15] for overflow
 		final int newStored=Math.min(relNlz+1, 15);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-		branch2++;
+//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
