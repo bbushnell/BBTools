@@ -71,6 +71,9 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4();
+		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
+			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
+			return new DynamicLogLog3();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -117,6 +120,9 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4(p);
+		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
+			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
+			return new DynamicLogLog3(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -158,6 +164,9 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4(buckets_, k_, seed, minProb_);
+		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
+			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
+			return new DynamicLogLog3(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -688,11 +697,9 @@ public abstract class CardinalityTracker implements Drivable {
 	/** Array converting quality scores to probability of base correctness */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 128);
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 128);
-
-	public static final boolean atomic=false;//non-atomic is faster.
+	
 	/** Whether to track occurrence counts for each bucket value */
 	public static boolean trackCounts=false;
-	static final long SKIPMOD=1;//No longer used; requires a modulo operation
 	/** Records the most recent cardinality estimate for static contexts */
 	public static long lastCardinalityStatic=-1;
 //	/** Ignore hashed values above this, to skip expensive read and store functions. */
@@ -701,10 +708,13 @@ public abstract class CardinalityTracker implements Drivable {
 	public static long defaultSeed=0;
 	
 	/** Whether to use arithmetic mean for combining multiple bucket estimates */
-	public static boolean USE_MEAN=true;//Arithmetic mean
+	public static boolean USE_MEAN=true;//Arithmetic mean of inverted differences
 	public static boolean USE_MEDIAN=false;
 	public static boolean USE_MWA=false;//Median-weighted-average
 	public static boolean USE_HMEAN=false;//Harmonic mean
+	public static boolean USE_HMEANM=false;//Harmonic mean including mantissa
 	public static boolean USE_GMEAN=false;//Geometric mean
+	public static boolean USE_HLL=false;//HLL formula
+	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
 	
 }

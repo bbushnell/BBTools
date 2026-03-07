@@ -34,9 +34,7 @@ public final class LogLog2 extends CardinalityTracker {
 	 */
 	LogLog2(Parser p){
 		super(p);
-		//assert(atomic);
-		maxArrayA=(atomic ? new AtomicIntegerArray(buckets) : null);
-		maxArray=(atomic ? null : new int[buckets]);
+		maxArray=new int[buckets];
 	}
 	
 	/**
@@ -50,9 +48,7 @@ public final class LogLog2 extends CardinalityTracker {
 	 */
 	LogLog2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
-		//assert(atomic);
-		maxArrayA=(atomic ? new AtomicIntegerArray(buckets) : null);
-		maxArray=(atomic ? null : new int[buckets]);
+		maxArray=new int[buckets];
 	}
 	
 	@Override
@@ -81,26 +77,7 @@ public final class LogLog2 extends CardinalityTracker {
 		double estLogSum=0;
 		int count=0;
 		LongList list=new LongList(buckets);
-		//assert(atomic);
-		if(atomic){
-			for(int i=0; i<maxArrayA.length(); i++){
-				int max=maxArrayA.get(i);
-				long val=restore(max);
-				if(max>0 && val>0){
-//					long val=restore(max);
-//					System.err.println("val="+val);
-					long dif=val;
-					difSum+=dif;
-					hSum+=1.0/Tools.max(1, dif);
-					gSum+=Math.log(Tools.max(1, dif));
-					rSum+=Math.sqrt(dif);
-					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
-					estLogSum+=Math.log(est);
-					list.add(dif);
-				}
-			}
-		}else{
+		{
 			for(int i=0; i<maxArray.length; i++){
 				int max=maxArray[i];
 				long val=restore(max);
@@ -112,7 +89,7 @@ public final class LogLog2 extends CardinalityTracker {
 					gSum+=Math.log(Tools.max(1, dif));
 					rSum+=Math.sqrt(dif);
 					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
+					double est=2*(Long.MAX_VALUE/(double)dif);
 					estLogSum+=Math.log(est);
 					list.add(dif);
 				}
@@ -133,11 +110,11 @@ public final class LogLog2 extends CardinalityTracker {
 		//What to use as the value from the counters 
 		final double proxy=(USE_MEAN ? mean : USE_MEDIAN ? median : USE_MWA ? mwa : USE_HMEAN ? hmean : USE_GMEAN ? gmean : mean);
 		
-		final double estimatePerSet=2*(Long.MAX_VALUE/proxy)*SKIPMOD;
+		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
-		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
+		double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
 		
 //		new Exception().printStackTrace();
 		
@@ -174,12 +151,12 @@ public final class LogLog2 extends CardinalityTracker {
 	
 	public final long cardinalityH(){
 		double sum=0;
-		for(int i=0; i<maxArrayA.length(); i++){
-			int x=Tools.max(1, maxArrayA.get(i));
+		for(int i=0; i<maxArray.length; i++){
+			int x=Tools.max(1, maxArray[i]);
 			sum+=1.0/x;
 		}
 		double mean=buckets/sum;
-		return (long)((Math.pow(2, mean)*buckets*SKIPMOD));
+		return (long)((Math.pow(2, mean)*buckets));
 	}
 	
 	/**
@@ -195,11 +172,7 @@ public final class LogLog2 extends CardinalityTracker {
 	
 	public void add(LogLog2 log){
 		added+=log.added;
-		if(atomic && maxArrayA!=log.maxArrayA){
-			for(int i=0; i<buckets; i++){
-				maxArrayA.set(i, Tools.max(maxArrayA.get(i), log.maxArrayA.get(i)));
-			}
-		}else if(maxArray!=log.maxArray){
+		if(maxArray!=log.maxArray){
 			for(int i=0; i<buckets; i++){
 				maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);
 			}
@@ -231,19 +204,7 @@ public final class LogLog2 extends CardinalityTracker {
 //		final int bucket=(int)((number&Integer.MAX_VALUE)%buckets);
 		final int bucket=(int)(key&bucketMask);
 		
-		if(atomic){
-			int x=maxArrayA.get(bucket);
-			while(score>x){
-//				System.err.println("\n"+Long.toBinaryString(key)+", leading="+leading+", score="+score+", x="+x+"\n"+Long.toBinaryString(score));
-//				System.err.println("\n"+Long.toBinaryString(restore(score)));
-				boolean b=maxArrayA.compareAndSet(bucket, x, score);
-				if(b){x=score;}
-				else{x=maxArrayA.get(bucket);}
-//				assert(leading<9);
-			}
-		}else{
-			maxArray[bucket]=Tools.max(score, maxArray[bucket]);
-		}
+		maxArray[bucket]=Tools.max(score, maxArray[bucket]);
 	}
 	
 	/**
@@ -261,8 +222,6 @@ public final class LogLog2 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private final int[] maxArray;
-	/** Atomic array storing maximum compressed values for thread-safe operations */
-	private final AtomicIntegerArray maxArrayA;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

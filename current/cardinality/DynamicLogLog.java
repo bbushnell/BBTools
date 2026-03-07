@@ -94,7 +94,7 @@ public final class DynamicLogLog extends CardinalityTracker {
 				gSum+=Math.log(Tools.max(1, dif));
 				rSum+=Math.sqrt(dif);
 				count++;
-				double est=2*(Long.MAX_VALUE/(double)dif)*SKIPMOD;
+				double est=2*(Long.MAX_VALUE/(double)dif);
 				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
@@ -113,11 +113,11 @@ public final class DynamicLogLog extends CardinalityTracker {
 
 		final double proxy=(USE_MEAN ? mean : USE_MEDIAN ? median : USE_MWA ? mwa : USE_HMEAN ? hmean : USE_GMEAN ? gmean : mean);
 
-		final double estimatePerSet=2*(Long.MAX_VALUE/proxy)*SKIPMOD;
+		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
-		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
+		double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
 
 		long cardinality=Math.min(added, (long)(total));
 		lastCardinalityStatic=cardinality;

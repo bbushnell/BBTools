@@ -229,7 +229,8 @@ class LogLogWrapper {
 
 			LogLogThread[] threadArray=new LogLogThread[threads];
 			for(int tid=0; tid<threadArray.length; tid++){
-				threadArray[tid]=new LogLogThread((CardinalityTracker.atomic ? log : CardinalityTracker.makeTracker(buckets, k, seed, minProb)), cris, tid);
+				threadArray[tid]=new LogLogThread(
+					CardinalityTracker.makeTracker(buckets, k, seed, minProb), cris, tid);
 			}
 			for(LogLogThread llt : threadArray){
 				llt.start();
@@ -246,7 +247,7 @@ class LogLogWrapper {
 				readsProcessed+=llt.readsProcessedT;
 				basesProcessed+=llt.basesProcessedT;
 				kmersProcessed+=llt.kmersProcessedT;
-				if(!CardinalityTracker.atomic){log.add(llt.log);}
+				log.add(llt.log);
 			}
 
 			if(cris!=null){errorState|=ReadWrite.closeStreams(cris);}
