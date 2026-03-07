@@ -326,7 +326,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		// [0, 0.5b]=LC, [0.5b, 1.5b]=LC→Mean, [1.5b, 3b]=Mean→HMeanM, [3b+]=HMeanM.
 		// CF already applied to meanEstCF and hmeanPureMCF; hybridEst needs no additional CF.
 		final double hybridEst;
-		final double hb0=0.5*buckets, hb1=1.5*buckets, hb2=3.0*buckets;
+		final double hb0=0.25*buckets, hb1=1.7*buckets, hb2=3.2*buckets;
 		if(lcPure<=hb0){
 			hybridEst=lcPure;
 		}else if(lcPure<=hb1){
@@ -464,7 +464,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
-	private static float[][] CF_MATRIX=null;//=initializeCF(CF_BUCKETS);
+	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	/** Loads the DDL correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
