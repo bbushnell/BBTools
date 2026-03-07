@@ -124,10 +124,32 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	}
 
 	/**
+	 * Promotes this object's minZeros by 1: subtract 1 NLZ (1<<mantissabits) from every
+	 * non-empty bucket. Buckets that would underflow become empty (0), count cleared.
+	 */
+	private void promote(){
+		minZeros++;
+		eeMask>>>=1;
+		minZeroCount=0;
+		filledBuckets=0;
+		for(int i=0; i<buckets; i++){
+			final int v=maxArray[i];
+			if(v==0){continue;}
+			final int promoted=v-(1<<mantissabits);
+			if(promoted<=0){
+				maxArray[i]=0;
+				countArray[i]=0;
+			}else{
+				maxArray[i]=(char)promoted;
+				filledBuckets++;
+				if((promoted>>mantissabits)==0){minZeroCount++;}
+			}
+		}
+	}
+
+	/**
 	 * Merges another DynamicDemiLog2 into this one.
-	 * TODO: Both DDL2s store relative NLZ values; merge requires converting to absolute,
-	 * taking element-wise max, then re-relativizing to the new common minZeros.
-	 * For now, falls back to absolute conversion before merging.
+	 * Promotes whichever has lower minZeros until they match, then combines normally.
 	 */
 	public void add(DynamicDemiLog2 log){
 		added+=log.added;
@@ -135,25 +157,40 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			// Convert both to absolute, merge, then re-relativize.
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
-			for(int i=0; i<buckets; i++){
-				// Absolute scores: relScore + (absMinZeros << mantissabits)
-				final int absA=(maxArray[i]==0     ? 0 : maxArray[i]    +(minZeros    <<mantissabits));
-				final int absB=(log.maxArray[i]==0 ? 0 : log.maxArray[i]+(log.minZeros<<mantissabits));
-				final int absMax=Tools.max(absA, absB);
-				// Re-relativize to newMinZeros
-				maxArray[i]=(char)(absMax==0 ? 0 : absMax-(newMinZeros<<mantissabits));
+			// Promote this up to log's minZeros
+			while(minZeros<log.minZeros){promote();}
 
-				// countArray: keep from whichever had the higher absolute score
-				final char countA=countArray[i], countB=log.countArray[i];
-				if(absA==absB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
-				else{countArray[i]=(absA>absB ? countA : countB);}
+			// If log is lower, compute promoted log values inline (same math as promote())
+			final int logPromoSteps=minZeros-log.minZeros;
+			final int logShift=logPromoSteps*(1<<mantissabits);
+
+			for(int i=0; i<buckets; i++){
+				final int a=maxArray[i];
+
+				final int rawB=log.maxArray[i];
+				final int b=(rawB==0 || rawB<=logShift) ? 0 : rawB-logShift;
+
+				final int newMax=Math.max(a, b);
+				maxArray[i]=(char)newMax;
+
+				if(newMax==0){
+					countArray[i]=0;
+				}else if(a==b){
+					countArray[i]=(char)Tools.min(countArray[i]+(int)log.countArray[i], Character.MAX_VALUE);
+				}else if(b>a){
+					countArray[i]=log.countArray[i];
+				}
+				// else a>b: keep countArray[i]
 			}
-			minZeros=newMinZeros;
-			scanFrom(newMinZeros);
+
 			filledBuckets=0;
-			for(char c : maxArray){if(c>0){filledBuckets++;}}
+			minZeroCount=0;
+			for(char c : maxArray){
+				if(c>0){
+					filledBuckets++;
+					if((c>>mantissabits)==0){minZeroCount++;}
+				}
+			}
 		}
 	}
 

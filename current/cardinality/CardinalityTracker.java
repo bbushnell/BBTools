@@ -228,26 +228,6 @@ public abstract class CardinalityTracker implements Drivable {
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 	}
 	
-	/**
-	 * Old table-based hash function using XOR operations.
-	 * Slower than the new hash method and no longer used.
-	 * Applies multiple rounds of table lookups with bit shifting.
-	 * @param value0 Value to hash
-	 * @param table Pre-computed random bit mask table
-	 * @return 64-bit hash code
-	 */
-	public final long hash(final long value0, final long[][] table){
-		long value=value0, code=0;
-		long mask=(bits>63 ? -1L : ~((-1L)<<bits));
-
-		for(int i=0; i<steps; i++){//I could also do while value!=0
-			int x=(int)(value&mask);
-			value>>=bits;
-			code=code^table[i][x];
-		}
-		return code;
-	}
-	
 	/** Hashes and adds a number to this tracker.
 	 * @param number The value to hash and track */
 	public final void add(long number){
@@ -700,17 +680,6 @@ public abstract class CardinalityTracker implements Drivable {
 	long added=0;
 	/** Cached cardinality estimate; -1 means stale. Shared by all calibratable subclasses. */
 	public long lastCardinality=-1;
-	
-	/*--------------------------------------------------------------*/
-	/*----------------    Deprecated Table Fields   ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	static final int numTables=4;
-	static final int numTablesMask=numTables-1;
-	/** Bits hashed per cycle in deprecated table-based method */
-	private static final int bits=8;
-	private static final int steps=(63+bits)/bits;
-//	final long[][][] tables;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Statics           ----------------*/

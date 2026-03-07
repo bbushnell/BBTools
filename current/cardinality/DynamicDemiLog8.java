@@ -189,6 +189,22 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	public int filledBuckets(){return filledBuckets;}
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
+	/**
+	 * Restores approximate hash magnitude from stored byte using the inverted mantissa,
+	 * exactly mirroring DynamicDemiLog.restore() but for DDL8's byte encoding.
+	 * Mean/GMean/MWA/Median all use this for sub-tier precision.
+	 * HMean uses integer NLZ only (hllSumFilled); HMeanM uses fractional NLZ (hllSumFilledM).
+	 */
+	private long restoreDif(final int s){
+		final int absNlz=(s>>>mantissaBits)-1+minZeros;
+		if(absNlz==0){return Long.MAX_VALUE;}
+		final long lowbits=(~s)&mantissaMask;        // uninvert: higher stored = smaller hash in tier
+		final long mantissa=(1L<<mantissaBits)|lowbits;
+		final int shift=wordlen-absNlz-mantissaBits-1;
+		if(shift<0){return 1L;}
+		return mantissa<<shift;
+	}
+
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
@@ -212,14 +228,10 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		for(int i=0; i<buckets; i++){
 			final int s=readBucket(i);
 			if(s>0){
-				// Integer absolute NLZ for LL8/HLL8 estimators
-				final int absNlz=(s>>>mantissaBits)-1+minZeros;
-				final long dif;
-				if(absNlz==0){dif=Long.MAX_VALUE;}
-				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
-				else{dif=1L;}
+				// Mantissa-corrected dif for Mean/GMean/MWA/Median — mirrors DynamicDemiLog.restore().
+				final long dif=restoreDif(s);
 				difSum+=dif;
-				hllSumFilled+=Math.pow(2.0, -(s>>>mantissaBits)+1-minZeros); // = 2^(-absNlz)
+				hllSumFilled+=Math.pow(2.0, -(s>>>mantissaBits)+1-minZeros); // = 2^(-absNlz), integer NLZ for HMean
 				// Fractional NLZ for DDL8/HMeanM: 2^(-absNlz + 0.5 - invMantissa/mantissaScale)
 				// = 2^(-(s>>>mantissaBits) + 1.5 - (s&mantissaMask)/mantissaScale - minZeros)
 				hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
