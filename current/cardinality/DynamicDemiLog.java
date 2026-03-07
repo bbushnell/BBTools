@@ -108,10 +108,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			final double proxy=(USE_MEDIAN ? median : USE_MWA ? mwa : USE_GMEAN ? gmean : mean);
 			cfType=(USE_MEDIAN ? CorrectionFactor.MEDCORR :
 				USE_MWA ? CorrectionFactor.MWA :
-				USE_GMEAN ? CorrectionFactor.GMEAN : CorrectionFactor.MEAN);
+					USE_GMEAN ? CorrectionFactor.GMEAN : CorrectionFactor.MEAN);
 			total=2*(Long.MAX_VALUE/proxy)*div*correction;
 		}
-		total*=CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,cfType);
+		total*=CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, cfType);
 
 		// LinearCounting correction for sparse regimes.
 		// Factor of 2: canonical k-mers use max(kmer, revcomp), halving the effective hash space.
@@ -164,10 +164,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	public void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
 		final long key=Tools.hash64shift(rawKey);
-		
+
 		//Earliest possible exit, fastest
 		if(Long.compareUnsigned(key, eeMask)>0) {return;}
-		branch1++;
+//		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 
 		// Global early exit if not using eeMask
@@ -176,18 +176,18 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
 		final int shift=offset-nlz;
-		final int score=(nlz<<mantissabits)+(int)((~(key>>>shift))&mask); //FP16 representation
+		final int score=(nlz<<mantissabits)+(int)((~(key>>>shift))&mask);//FP16 representation
 		final int oldValue=maxArray[bucket];//Required memory read
 
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
-		branch2++;
+//		branch2++;
 		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
 		final int nlzOld=(oldValue>>mantissabits);
 
-		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
+//		assert(newValue>=0 && newValue<=Character.MAX_VALUE) : newValue;
 		//Update bucket; required write to cached line only if score>oldValue
 		maxArray[bucket]=(char)newValue;
 		//Track filled bucket count: increment when bucket transitions from empty to non-empty
@@ -196,13 +196,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Update count - totally optional, only for histograms
 		//Can be debranched with clever math
 		final char count=countArray[bucket];
-		countArray[bucket]=(char)(oldValue>score ? count : 
+		countArray[bucket]=(char)(oldValue>score ? count :
 			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
 
 		//Update the dynamic early exit threshold
-		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier
-			/* 
-			 * NOTE - Due to a major Eclipse JDK 24 -> Java 8 target bytecode generation bug,
+		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier 
+			/* NOTE - Due to a major Eclipse JDK 24 -> Java 8 target bytecode generation bug,
 			 * enabling both of these assertions causes a 40% slowdown even with -da.
 			 * Do not enable them in production.
 			 */
@@ -421,14 +420,14 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Reusable sort buffer for rawEstimates(); avoids per-call allocation. */
 	private final LongList sortBuf=new LongList(buckets);
 	// lastCardinality inherited from CardinalityTracker
-	
+
 	/*--------------------------------------------------------------*/
-	
+
 	/** For tracking branch prediction rates; disable in production */
 	public long branch1=0, branch2=0;
 	public double branch1Rate() {return branch1/(double)Math.max(1, added);}
 	public double branch2Rate() {return branch2/(double)Math.max(1, branch1);}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -439,16 +438,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
 
-//	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
-//	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
-//	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
-	
+	//	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
+	//	 * value-based estimates contribute equally in the sigmoid blend.  Below this point
+	//	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
+
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDDL.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
-	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+	private static float[][] CF_MATRIX=null;//=initializeCF(CF_BUCKETS);
 	/** Loads the DDL correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
@@ -462,26 +461,5 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * percentage points around LC_CROSSOVER.  At 5 it spans roughly ±44 points. */
 	public static double LC_SHARPNESS=20.0;
 	public static boolean USE_LC=true;
-
-	/**
-	 * High-cardinality correction factors: flat multipliers applied to each estimator
-	 * to remove systematic bias at maximum occupancy (load=100x, measured over 4000 DDLs,
-	 * 2048 buckets, 100x cardinality via DDLCalibrationDriver, March 2026).
-	 * <p>
-	 * Each factor = 1 / (1 + mean_signed_error_at_max_cardinality).
-	 * Applying these makes estimators unbiased at high load; some residual bias
-	 * remains at intermediate load and will be addressed with occupancy-dependent curves.
-	 * <p>
-	 * MWA omitted: medianWeightedAverage() has an odd-list bug (count+=2*mult for
-	 * center element; should be count+=mult), making it unreliable until fixed.
-	 * EstSum omitted: fundamentally flawed (confirmed), pending removal.
-	 */
-	// Constant factors removed; bias correction is now handled by the CF matrix loaded at runtime.
-//	public static final double MEAN_FACTOR   = 0.99901637;
-//	public static final double HMEAN_FACTOR  = 0.99967171;
-//	public static final double GMEAN_FACTOR  = 0.56072095;
-//	public static final double RMEAN_FACTOR  = 0.78455962;
-//	public static final double MEDIAN_FACTOR = 1.67743074;
-//	public static final double ESTSUM_FACTOR = 0.56072095;
 
 }

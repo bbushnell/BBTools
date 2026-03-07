@@ -39,7 +39,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	DynamicDemiLog8(){
-		this(4096, 31, -1, 0);
+		this(2048, 31, -1, 0);
 	}
 
 	DynamicDemiLog8(Parser p){
@@ -129,11 +129,11 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final long key=Tools.hash64shift(rawKey);
 
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
-		branch1++;
+//		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
+//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
 
 		// relNlzStored = relNlz+1, clamped to [1, maxRelNlzStored]
 		final int newRelNlzStored=Math.min(relNlz+1, maxRelNlzStored);
@@ -147,7 +147,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-		branch2++;
+//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
