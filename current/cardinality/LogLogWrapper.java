@@ -154,6 +154,11 @@ class LogLogWrapper {
 				CardinalityTracker.clampToAdded=Parse.parseBoolean(b);
 			}else if(a.equals("cf") || a.equals("loglogcf")){
 				CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);
+			}else if(a.equals("promotethreshold") || a.equals("pt")){
+				final int pt=Integer.parseInt(b);
+				DynamicLogLog3.PROMOTE_THRESHOLD=pt;
+				DynamicLogLog3v2.PROMOTE_THRESHOLD=pt;
+				DynamicLogLog4.PROMOTE_THRESHOLD=pt;
 			}else if(a.equals("atomic")){
 				assert(false) : "Atomic flag disabled.";
 //				CardinalityTracker.atomic=Parse.parseBoolean(b);

@@ -328,6 +328,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private static final int wordlen=64;
+	/** Social promotion threshold — see DynamicLogLog3v2 for implementation.
+	 * In DLL3, this field is parsed but has no effect (DLL3 uses classic promotion). */
+	public static int PROMOTE_THRESHOLD=0;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";

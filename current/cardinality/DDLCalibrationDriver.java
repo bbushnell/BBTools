@@ -93,6 +93,11 @@ public class DDLCalibrationDriver {
 			else if(a.equals("out2")){out2=b;}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
+			else if(a.equals("promotethreshold") || a.equals("pt")){
+				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
+				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
+				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
+			}
 			else{assert(false) : "Unknown parameter '"+arg+"'";}
 		}
 
