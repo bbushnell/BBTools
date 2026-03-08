@@ -147,9 +147,13 @@ class LogLogWrapper {
 				printHist=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("loglogcounts") || a.equals("loglogcount") || 
+			}else if(a.equals("loglogcounts") || a.equals("loglogcount") ||
 					a.equals("count") || a.equals("counts") || a.equals("trackcounts")){
 				CardinalityTracker.trackCounts=Parse.parseBoolean(b);
+			}else if(a.equals("clamptoadded") || a.equals("clamp")){
+				CardinalityTracker.clampToAdded=Parse.parseBoolean(b);
+			}else if(a.equals("cf") || a.equals("loglogcf")){
+				CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);
 			}else if(a.equals("atomic")){
 				assert(false) : "Atomic flag disabled.";
 //				CardinalityTracker.atomic=Parse.parseBoolean(b);

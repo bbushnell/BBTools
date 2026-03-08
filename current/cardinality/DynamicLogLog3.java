@@ -74,7 +74,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final double[] est=rawEstimates();
-		final long card=Math.min(added, (long)est[6]); // Hybrid
+		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)est[6]); // Hybrid
 		lastCardinality=card;
 		return card;
 	}
@@ -87,7 +87,28 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 
 	/**
 	 * Merges another DynamicLogLog3 into this one.
-	 * Converts relative stored values to absolute, takes per-bucket max, re-relativizes.
+	 * <p>
+	 * Correct merge sequence:
+	 * <ol>
+	 *   <li>Re-frame both instances to newMinZeros = max(this.minZeros, log.minZeros).
+	 *       Buckets whose absNlz falls below the new floor correctly become empty (stored=0),
+	 *       mirroring what countAndDecrement() would do one step at a time.
+	 *       Note: Math.max(0,...) is correct here — NOT Math.max(1,...).
+	 *       A below-floor bucket is genuinely empty in the new frame.</li>
+	 *   <li>Take per-bucket max of the re-framed values.</li>
+	 *   <li>Scan to recount filledBuckets and minZeroCount, then advance the floor
+	 *       (possibly multiple times) if minZeroCount==0, exactly as hashAndStore does.</li>
+	 * </ol>
+	 * <p>
+	 * <b>Multi-threaded accuracy warning:</b> Using clonal per-thread estimator copies
+	 * (one DLL3 per thread, merged at the end) nondeterministically reduces accuracy
+	 * and this cannot be compensated for.  The cause is architectural: each per-thread
+	 * copy sees only a fraction of the data, so its sliding minZeros window promotes
+	 * less aggressively than a single estimator seeing all data.  This increases net
+	 * overflow events across the merged result.  With DLL3's narrow 7-tier range, the
+	 * effect is severe: on a 12M-kmer dataset, t=1 gives ~10.8M, t=2 ~10.0M, t=4 ~8.2M,
+	 * t=8 ~6.3M — roughly halving with each doubling of threads.
+	 * For parallel use on the same stream, prefer a single synchronized instance.
 	 */
 	public void add(DynamicLogLog3 log){
 		added+=log.added;
@@ -98,8 +119,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(1, Math.min(sA+(minZeros-newMinZeros), 7)));
-				final int nB=(sB==0 ? 0 : Math.max(1, Math.min(sB+(log.minZeros-newMinZeros), 7)));
+				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 7)));
+				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 7)));
 				writeBucket(i, Math.max(nA, nB));
 			}
 			minZeros=newMinZeros;
@@ -109,6 +130,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				final int s=readBucket(i);
 				if(s>0){filledBuckets++;}
 				if(s==0||s==1){minZeroCount++;}
+			}
+			while(minZeroCount==0 && minZeros<wordlen){
+				minZeros++;
+				eeMask>>>=1;
+				minZeroCount=countAndDecrement();
 			}
 		}
 	}

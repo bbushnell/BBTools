@@ -74,6 +74,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3();
+		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
+			return new DynamicLogLog3v2();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -123,6 +125,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3(p);
+		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
+			return new DynamicLogLog3v2(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -167,6 +171,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3(buckets_, k_, seed, minProb_);
+		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
+			return new DynamicLogLog3v2(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -700,6 +706,7 @@ public abstract class CardinalityTracker implements Drivable {
 	
 	/** Whether to track occurrence counts for each bucket value */
 	public static boolean trackCounts=false;
+	public static boolean clampToAdded=true;
 	/** Records the most recent cardinality estimate for static contexts */
 	public static long lastCardinalityStatic=-1;
 //	/** Ignore hashed values above this, to skip expensive read and store functions. */
