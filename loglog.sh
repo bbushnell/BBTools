@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 19, 2026
+Last modified March 7, 2026
 
 Description:  Estimates cardinality of unique kmers in sequence data.
 See also kmercountmulti.sh.
@@ -20,6 +20,7 @@ seed=-1         Use this seed for hash functions.  A negative number forces
                 a random seed.
 minprob=0       Set to a value between 0 and 1 to exclude kmers with a lower
                 probability of being correct.
+loglogtype=ddl  Type of subclass to use.
 
 
 Shortcuts:
