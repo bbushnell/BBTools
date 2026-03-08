@@ -122,14 +122,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
+		//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
 
 		// Stored = relNlz+1, clamped to [1,15] for overflow
 		final int newStored=Math.min(relNlz+1, 15);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-//		branch2++;
+		//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -142,7 +142,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
-				minZeroCount=countAndDecrement();
+		minZeroCount=countAndDecrement();
 			}
 		}
 	}
@@ -255,43 +255,18 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		if(filledBuckets==0){return new double[10];}
 
 		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
-		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
 
-//		final double hybridEst;
-//		final double hb0=0.25*buckets, hb1=4.0*buckets;
-//		if(lcPure<=hb0){
-//			hybridEst=lcPure;
-//		}else if(lcPure<=hb1){
-//			final double t=(lcPure-hb0)/(hb1-hb0);
-//			hybridEst=(1-t)*lcPure+t*meanEstCF;
-//		}else{
-//			hybridEst=meanEstCF;
-//		}
+		final double hybridEst;
+		final double hb0=0.20*buckets, hb1=5.0*buckets;
+		if(lcPure<=hb0){
+			hybridEst=lcPure;
+		}else if(lcPure<=hb1){
+			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+			hybridEst=(1-t)*lcPure+t*meanEstCF;
+		}else{
+			hybridEst=meanEstCF;
+		}
 
-      final double hybridEst;
-      final double hb0=0.20*buckets, hbMid=1.0*buckets, hb1=5.0*buckets;
-//      if(lcPure<=hb0){
-//      	hybridEst=lcPure;
-//      }else if(lcPure<=hbMid){
-//      	final double t=0.5*(lcPure-hb0)/(hbMid-hb0); // linear 0→0.5
-//      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-//      }else if(lcPure<hb1){
-//      	final double u=(hb1-lcPure)/(hb1-hbMid); // 1→0 as lcPure: hbMid→hb1
-//      	final double t=1.0-0.5*u*u;               // quadratic ease: 0.5→1.0
-//      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-//      }else{
-//      	hybridEst=meanEstCF;
-//      }
-      
-      if(lcPure<=hb0){
-      	hybridEst=lcPure;
-      }else if(lcPure<=hb1){
-      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-      	hybridEst=(1-t)*lcPure+t*meanEstCF;
-      }else{
-      	hybridEst=meanEstCF;
-      }
-      
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
@@ -334,7 +309,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public static double LC_CROSSOVER=0.75;
 	public static double LC_SHARPNESS=20.0;
 	public static boolean USE_LC=true;
-	
+
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
