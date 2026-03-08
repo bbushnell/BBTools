@@ -266,6 +266,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private static final int wordlen=64;
+	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
+	public static int PROMOTE_THRESHOLD=0;
 
 	public static double LC_CROSSOVER=0.75;
 	public static double LC_SHARPNESS=20.0;
