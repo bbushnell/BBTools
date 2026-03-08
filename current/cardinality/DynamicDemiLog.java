@@ -261,7 +261,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				long dif=val;
 				difSum+=dif;
 				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits));
-				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0);
+				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.0-(max&mask)/1024.0);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
 				list.add(dif);
@@ -338,12 +338,17 @@ public final class DynamicDemiLog extends CardinalityTracker {
 //		}
 		
       final double hybridEst;
-      final double hb0=0.20*buckets, hbMid=2.5*buckets, hb1=5.0*buckets;
+      final double hb0=0.20*buckets, hbMid1=1.0*buckets, hbMid2=2.5*buckets, hb1=5.0*buckets;
       if(lcPure<=hb0){
       	hybridEst=lcPure;
-      }else if(lcPure<=hbMid){
+      }else if(lcPure<=hbMid1){
       	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
       	hybridEst=(1-t)*lcPure+t*meanEstCF;
+      }else if(lcPure<=hbMid2){
+      	double mix=(hbMid2-lcPure)/(hbMid2-hbMid1);
+      	double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*blended;
       }else if(lcPure<=hb1){
       	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
       	hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
