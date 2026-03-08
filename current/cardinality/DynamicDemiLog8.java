@@ -288,19 +288,24 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
 		final double hmeanPureMCF=hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
 
-		final double hybridEst;
-		final double hb0=0.20*buckets, hbMid=2.5*buckets, hb1=5.0*buckets;
-		if(lcPure<=hb0){
-			hybridEst=lcPure;
-		}else if(lcPure<=hbMid){
-			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-			hybridEst=(1-t)*lcPure+t*meanEstCF;
-		}else if(lcPure<=hb1){
-			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-			hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
-		}else{
-			hybridEst=hmeanPureMCF;
-		}
+      final double hybridEst;
+      final double hb0=0.20*buckets, hbMid1=1.0*buckets, hbMid2=2.5*buckets, hb1=5.0*buckets;
+      if(lcPure<=hb0){
+      	hybridEst=lcPure;
+      }else if(lcPure<=hbMid1){
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*meanEstCF;
+      }else if(lcPure<=hbMid2){
+      	double mix=(hbMid2-lcPure)/(hbMid2-hbMid1);
+      	double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*blended;
+      }else if(lcPure<=hb1){
+      	final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
+      	hybridEst=(1-t)*lcPure+t*hmeanPureMCF;
+      }else{
+      	hybridEst=hmeanPureMCF;
+      }
 
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
