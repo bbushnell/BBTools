@@ -46,9 +46,26 @@ public class CardinalityStats {
 	 * @param cfMatrix_       per-class correction factor matrix
 	 * @param cfBuckets_      bucket count used when building cfMatrix_
 	 */
+	/** Backward-compatible constructor; uses occupancy-only CF (no cardinality table). */
 	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
 	                 double gSum_, int count_, int buckets_,
 	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_){
+		this(difSum_, hllSumFilled_, hllSumFilledM_, gSum_, count_, buckets_,
+		     sortBuf_, cfMatrix_, cfBuckets_, null, null);
+	}
+
+	/**
+	 * Full constructor with optional cardinality-indexed CF table for three-domain lookup.
+	 * @param matrixCard_  cardinality CF matrix (null = use occupancy-only)
+	 * @param cardKeys_    MeanEst key array for matrixCard_ (null when matrixCard_ is null)
+	 */
+	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
+	                 double gSum_, int count_, int buckets_,
+	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
+	                 float[][] matrixCard_, float[] cardKeys_){
+		// Set card data first so cf() calls below can use three-domain lookup.
+		matrixCard=matrixCard_;
+		cardKeys=cardKeys_;
 		difSum=difSum_;
 		hllSumFilled=hllSumFilled_;
 		hllSumFilledM=hllSumFilledM_;
@@ -210,6 +227,10 @@ public class CardinalityStats {
 	/*--------------------------------------------------------------*/
 
 	private double cf(int type){
+		if(matrixCard!=null){
+			return CorrectionFactor.getCF(cfMatrix, cfBuckets, matrixCard, cardKeys,
+			                              count, buckets, meanEst, type);
+		}
 		return CorrectionFactor.getCF(cfMatrix, cfBuckets, count, buckets, type);
 	}
 
@@ -227,6 +248,8 @@ public class CardinalityStats {
 	final LongList sortBuf;
 	final float[][] cfMatrix;
 	final int cfBuckets;
+	final float[][] matrixCard; // cardinality-indexed CF table; null = occupancy-only
+	final float[] cardKeys;     // MeanEst keys for matrixCard binary search
 
 	// Derived counts
 	final int V;

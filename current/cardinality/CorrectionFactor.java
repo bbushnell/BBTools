@@ -54,18 +54,61 @@ public class CorrectionFactor{
 		FileFormat ff=FileFormat.testInput(path, null, false);
 		ByteFile bf=ByteFile.makeByteFile(ff, 1);
 		LineParser1 lp=new LineParser1('\t');
+		lastCardMatrix=null;
+		lastCardKeys=null;
+		boolean inCardSection=false;
+		FloatList[] cardLists=null;
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0){continue;}
 			lp.set(line);
-			if(lp.startsWith('#')){continue;}
-			if(!Tools.isNumeric(line[0])){continue;}// skip header/text lines
-			if(lists==null){
-				lists=new FloatList[lp.terms()];
-				for(int i=0; i<lists.length; i++){lists[i]=new FloatList();}
+			if(lp.startsWith('#')){
+				final String s=new String(line).trim();
+				if(s.equals("#SECTION=cardinality")){inCardSection=true;}
+				else if(s.equals("#SECTION=occupancy")){inCardSection=false;}
+				continue;
 			}
-			for(int i=0; i<lp.terms(); i++){lists[i].add(lp.parseFloat(i));}
+			if(!Tools.isNumeric(line[0])){continue;}// skip header/text lines
+			if(!inCardSection){
+				if(lists==null){
+					lists=new FloatList[lp.terms()];
+					for(int i=0; i<lists.length; i++){lists[i]=new FloatList();}
+				}
+				for(int i=0; i<lp.terms(); i++){lists[i].add(lp.parseFloat(i));}
+			}else{
+				if(cardLists==null){
+					cardLists=new FloatList[lp.terms()];
+					for(int i=0; i<cardLists.length; i++){cardLists[i]=new FloatList();}
+				}
+				for(int i=0; i<lp.terms(); i++){cardLists[i].add(lp.parseFloat(i));}
+			}
 		}
 		bf.close();
+		// Build cardinality-indexed table if a #SECTION=cardinality block was found.
+		// File layout: col 0=MeanEst, col 1=Samples (skipped), col 2..N=CF values.
+		// matrixCard layout: col 0=MeanEst keys, col 1=Mean_cf (type MEAN=1), col 2=HMean_cf, ...
+		// We skip the Samples column when building matrixCard so type indices stay aligned.
+		if(cardLists!=null && cardLists[0].size()>0){
+			final int n=cardLists[0].size();
+			// Detect Samples column: present when cardLists has more columns than the occupancy matrix.
+			// Occupancy matrix has cols: Slot + CF columns (no Samples).
+			// Cardinality matrix has cols: MeanEst + Samples + CF columns.
+			// So skip col 1 (Samples) and map file col c to matrixCard col (c-1) for c>=2.
+			final boolean hasSamples=(cardLists.length>2);
+			final int firstCF=(hasSamples ? 2 : 1); // first CF column in file
+			final int numCF=cardLists.length-firstCF; // number of CF columns
+			final int matCols=numCF+1; // +1 for MeanEst keys at col 0
+			final float[][] cardMat=new float[matCols][];
+			// col 0 = MeanEst keys
+			cardMat[0]=new float[n];
+			for(int i=0; i<n; i++){cardMat[0][i]=cardLists[0].get(i);}
+			// cols 1..numCF = CF values (skipping Samples column in file)
+			for(int c=0; c<numCF; c++){
+				cardMat[c+1]=new float[n];
+				for(int i=0; i<n; i++){cardMat[c+1][i]=cardLists[firstCF+c].get(i);}
+			}
+			lastCardMatrix=cardMat;
+			lastCardKeys=cardMat[0]; // col 0 = MeanEst key values
+		}
 		if(lists==null){return null;}
 		// Fix point 0: quadratic extrapolation from points 1, 2, 3.
 		// Slot 0 (0 filled buckets) has no meaningful estimate so computeCF returns 1.0 by convention,
@@ -211,6 +254,53 @@ public class CorrectionFactor{
 		return array[array.length-1];
 	}
 
+	/**
+	 * Three-domain correction factor lookup using raw (uncorrected) mean estimate.
+	 * <ul>
+	 *   <li>loadFactor &le; 1: occupancy table only (count is still informative).</li>
+	 *   <li>1 &lt; loadFactor &lt; 4: log-linear blend of both tables.</li>
+	 *   <li>loadFactor &ge; 4: cardinality table only (occupancy saturates).</li>
+	 * </ul>
+	 * Falls back to occupancy-only if matrixCard is null.
+	 * @param rawMeanEst  Raw (uncorrected) mean cardinality estimate
+	 */
+	public static float getCF(float[][] matrix, int corrBuckets,
+			float[][] matrixCard, float[] cardKeys,
+			int count, int buckets, double rawMeanEst, int type){
+		if(!USE_CORRECTION || matrix==null || type==LINEAR){return 1;}
+		final double loadFactor=rawMeanEst/buckets;
+		if(matrixCard==null || loadFactor<=1.0){
+			return getCF(matrix, corrBuckets, count, buckets, type);
+		}else if(loadFactor>=4.0){
+			return getCardCF(matrixCard, cardKeys, loadFactor, type);
+		}else{
+			final double t=Math.log(loadFactor)/Math.log(4.0); // 0 at 1×, 1 at 4×
+			final float cfOcc=getCF(matrix, corrBuckets, count, buckets, type);
+			final float cfCard=getCardCF(matrixCard, cardKeys, loadFactor, type);
+			return (float)((1-t)*cfOcc+t*cfCard);
+		}
+	}
+
+	/** Binary-search + linear interpolation into the cardinality-indexed CF table. */
+	private static float getCardCF(float[][] matrixCard, float[] cardKeys,
+			double estCard, int type){
+		if(matrixCard==null || cardKeys==null || type<=0 || type>=matrixCard.length){return 1;}
+		final float[] cfCol=matrixCard[type];
+		final int n=cardKeys.length;
+		if(n==0){return 1;}
+		if(estCard<=cardKeys[0]){return cfCol[0];}
+		if(estCard>=cardKeys[n-1]){return cfCol[n-1];}
+		int lo=0, hi=n-1;
+		while(lo<hi-1){
+			final int mid=(lo+hi)>>>1;
+			if(cardKeys[mid]<=(float)estCard){lo=mid;}else{hi=mid;}
+		}
+		final float k0=cardKeys[lo], k1=cardKeys[hi];
+		if(k1==k0){return cfCol[lo];}
+		final float frac=(float)((estCard-k0)/(k1-k0));
+		return cfCol[lo]+frac*(cfCol[hi]-cfCol[lo]);
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Interpolation Math     ----------------*/
 	/*--------------------------------------------------------------*/
@@ -252,5 +342,14 @@ public class CorrectionFactor{
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;
+
+	/**
+	 * Cardinality-indexed CF matrix populated by the most recent bipartite loadFile() call.
+	 * lastCardMatrix[type][slot] = CF value; lastCardMatrix[0] = MeanEst key values.
+	 * Null if the loaded file has no #SECTION=cardinality block.
+	 */
+	public static float[][] lastCardMatrix=null;
+	/** MeanEst key array for binary-search into lastCardMatrix; same reference as lastCardMatrix[0]. */
+	public static float[] lastCardKeys=null;
 
 }
