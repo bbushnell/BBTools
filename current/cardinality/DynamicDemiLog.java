@@ -85,14 +85,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS);
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS, microIndex);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardinalityStats s=summarize();
-		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)s.hybridDDL());
+		long card=(long)s.hybridDDL();
+		card=Math.max(card, s.microCardinality());
+		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinalityStatic=lastCardinality=card;
 		return card;
 	}

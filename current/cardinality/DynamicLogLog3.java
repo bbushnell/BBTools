@@ -73,8 +73,10 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final double[] est=rawEstimates();
-		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)est[6]); // Hybrid
+		final CardinalityStats s=summarize();
+		long card=(long)s.hybridDLL();
+		card=Math.max(card, s.microCardinality());
+		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
 		return card;
 	}
@@ -211,11 +213,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	/**
-	 * Returns cardinality estimates for calibration.
-	 * Output order: 0=Mean, 1=HMean, 2=HMeanM(=HMean; no mantissa in DLL3),
-	 *               3=GMean, 4=HLL, 5=LC, 6=Hybrid, 7=MWA, 8=MedianCorr, 9=Mean99
+	 * Scans the bucket array once, accumulating all sums needed for estimation.
+	 * This is the only per-subclass method required — all estimator logic
+	 * lives in the returned CardinalityStats object.
 	 */
-	public double[] rawEstimates(){
+	private CardinalityStats summarize(){
 		double difSum=0;
 		double hllSumFilled=0;
 		double gSum=0;
@@ -237,78 +239,15 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				sortBuf.add(dif);
 			}
 		}
+		// No mantissa: hllSumFilledM == hllSumFilled
+		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS, microIndex);
+	}
 
-		// All-buckets HLL: empty=1.0 (register=0 convention), filled=2^(-absNlz)
-		double hllSum=0;
-		for(int i=0; i<buckets; i++){
-			final int stored=readBucket(i);
-			if(stored==0){
-				hllSum+=1.0;
-			}else{
-				hllSum+=Math.pow(2.0, -(stored-1)-minZeros);
-			}
-		}
-
-		final double alpha_m=0.7213/(1.0+1.079/buckets);
-		final int div=Tools.max(count, 1);
-		final double mean=difSum/div;
-		final double gmean=Math.exp(gSum/div);
-		sortBuf.sort();
-		final long median=Tools.max(1, sortBuf.median());
-		final double mwa=Tools.max(1.0, sortBuf.medianWeightedAverage());
-		final int V=buckets-count;
-
-		// HLL-style all-buckets estimate with LC fallback at low occupancy
-		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
-		double hmeanEst=hmeanRaw;
-		if(hmeanEst<2.5*buckets && V>0){hmeanEst=(double)buckets*Math.log((double)buckets/V);}
-
-		final double correction=(count+buckets)/(float)(buckets+buckets);
-		// Filled-bucket HMean (no fractional mantissa in DLL3, so HMeanM = HMean)
-		final double hmeanPure=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
-		final double hmeanPureM=hmeanPure; // no mantissa correction possible
-
-		final double meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))*div*correction;
-		final double gmeanEst  =2*(Long.MAX_VALUE/gmean)               *div*correction;
-		final double mwaEst    =2*(Long.MAX_VALUE/mwa)                 *div*correction;
-		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction;
-		final double lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
-
-		final int trim=count/256;
-		final int trimLow=Math.max(0, trim-V);
-		double mean99Sum=0;
-		final int mean99N=count-trimLow-trim;
-		if(mean99N>0){for(int i=trim; i<count-trimLow; i++){mean99Sum+=sortBuf.get(i);}}
-		final double mean99=(mean99N>0 ? mean99Sum/mean99N : mean);
-
-		if(filledBuckets==0){return new double[10];}
-
-		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN);
-
-		final double hybridEst;
-		final double hb0=0.20*buckets, hb1=5.0*buckets;
-		if(lcPure<=hb0){
-			hybridEst=lcPure;
-		}else if(lcPure<=hb1){
-			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-			hybridEst=(1-t)*lcPure+t*meanEstCF;
-		}else{
-			hybridEst=meanEstCF;
-		}
-
-		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
-		return new double[]{
-			meanEstCF,
-			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEAN),
-			hmeanPureM, // = hmeanPure; no extra CF since it equals HMean
-			gmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.GMEAN),
-			hmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HLL),
-			lcPure,
-			hybridEst,
-			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MWA),
-			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEDCORR),
-			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN99)
-		};
+	@Override
+	public double[] rawEstimates(){
+		final CardinalityStats s=summarize();
+		return s.toArray(s.hybridDLL());
 	}
 
 	/*--------------------------------------------------------------*/

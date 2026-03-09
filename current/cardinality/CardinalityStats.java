@@ -46,23 +46,41 @@ public class CardinalityStats {
 	 * @param cfMatrix_       per-class correction factor matrix
 	 * @param cfBuckets_      bucket count used when building cfMatrix_
 	 */
-	/** Backward-compatible constructor; uses occupancy-only CF (no cardinality table). */
+	/** Backward-compatible constructor; uses occupancy-only CF, no microIndex. */
 	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
 	                 double gSum_, int count_, int buckets_,
 	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_){
 		this(difSum_, hllSumFilled_, hllSumFilledM_, gSum_, count_, buckets_,
-		     sortBuf_, cfMatrix_, cfBuckets_, null, null);
+		     sortBuf_, cfMatrix_, cfBuckets_, null, null, 0);
 	}
 
-	/**
-	 * Full constructor with optional cardinality-indexed CF table for three-domain lookup.
-	 * @param matrixCard_  cardinality CF matrix (null = use occupancy-only)
-	 * @param cardKeys_    MeanEst key array for matrixCard_ (null when matrixCard_ is null)
-	 */
+	/** Constructor with microIndex; uses occupancy-only CF (no cardinality table). */
+	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
+	                 double gSum_, int count_, int buckets_,
+	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_, long microIndex_){
+		this(difSum_, hllSumFilled_, hllSumFilledM_, gSum_, count_, buckets_,
+		     sortBuf_, cfMatrix_, cfBuckets_, null, null, microIndex_);
+	}
+
+	/** Backward-compatible constructor with cardinality table; microIndex defaults to 0. */
 	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
 	                 double gSum_, int count_, int buckets_,
 	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
 	                 float[][] matrixCard_, float[] cardKeys_){
+		this(difSum_, hllSumFilled_, hllSumFilledM_, gSum_, count_, buckets_,
+		     sortBuf_, cfMatrix_, cfBuckets_, matrixCard_, cardKeys_, 0);
+	}
+
+	/**
+	 * Full constructor with optional cardinality-indexed CF table and microIndex floor.
+	 * @param matrixCard_  cardinality CF matrix (null = use occupancy-only)
+	 * @param cardKeys_    load-factor key array for matrixCard_ (null when matrixCard_ is null)
+	 * @param microIndex_  64-bit micro-index for low-cardinality estimation; 0 = disabled
+	 */
+	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
+	                 double gSum_, int count_, int buckets_,
+	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
+	                 float[][] matrixCard_, float[] cardKeys_, long microIndex_){
 		// Set card data first so cf() calls below can use three-domain lookup.
 		matrixCard=matrixCard_;
 		cardKeys=cardKeys_;
@@ -121,6 +139,11 @@ public class CardinalityStats {
 		// CF-corrected values used by hybrid
 		meanEstCF   =meanEst   *cf(CorrectionFactor.MEAN);
 		hmeanPureMCF=hmeanPureM*cf(CorrectionFactor.HMEANM);
+
+		// MicroIndex low-cardinality estimate: LC over 64 virtual buckets
+		final int microBits=(int)Long.bitCount(microIndex_);
+		microEst=(microIndex_==0 ? 0 :
+		          (int)(64*Math.log((double)64/Math.max(Math.min(63, 64-microBits), 0.5))));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -203,6 +226,12 @@ public class CardinalityStats {
 	}
 
 	/**
+	 * Returns microIndex-based cardinality floor, or 0 if USE_MICRO is false or microIndex was 0.
+	 * Used by cardinality() as: card = Math.max(card, s.microCardinality()).
+	 */
+	public long microCardinality(){return CardinalityTracker.USE_MICRO ? microEst : 0;}
+
+	/**
 	 * Returns the standard 10-element raw estimates array.
 	 * The hybrid value is passed in by the caller (use hybridDLL() or hybridDDL()).
 	 */
@@ -279,5 +308,8 @@ public class CardinalityStats {
 	// CF-corrected values pre-computed for hybrid blend
 	final double meanEstCF;
 	final double hmeanPureMCF;
+
+	// MicroIndex-derived estimate; 0 if microIndex was 0 or not applicable
+	final int microEst;
 
 }
