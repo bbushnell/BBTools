@@ -108,14 +108,11 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		if(USE_MICRO) {
 			microBits=(Long.bitCount(microIndex));
 			microEst=(int)(64*Math.log((double)64/Math.max(64-microBits, 0.5)));
-			//		System.err.println(microBits+", "+Long.toBinaryString(microIndex)+", "+lcMicro);
 			microEst=(int)Math.min(clampToAdded ? added : 9999, microEst);
-			if(microBits<=56 && USE_MICRO) {return microEst;}
 		}
 		final CardinalityStats s=summarize();
 		long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)s.hybridDLL());
-//		System.err.println(microBits+", "+microEst+", "+card);
-		card=(USE_MICRO ? Math.max(card, microEst) : card);
+		card=Math.max(card, microEst);
 		lastCardinality=card;
 		return card;
 	}
