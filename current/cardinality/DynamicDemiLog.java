@@ -145,7 +145,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		final int shift=offset-nlz;
 		final int score=(nlz<<mantissabits)+(int)((~(key>>>shift))&mask);//FP16 representation
 		final int oldValue=maxArray[bucket];//Required memory read
-
+		
+		if(USE_MICRO){//Optional MicroIndex for low cardinality (causes speed decrease)
+			final long micro=(key>>bucketBits)&0x3FL;
+			microIndex|=(1L<<micro);
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+		}
+		
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
