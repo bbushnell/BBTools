@@ -201,6 +201,7 @@ public abstract class CardinalityTracker implements Drivable {
 		buckets=powerOf2AtLeast(buckets_);
 		assert(buckets>0 && Integer.bitCount(buckets)==1) : "Buckets must be a power of 2: "+buckets;
 		bucketMask=buckets-1;
+		bucketBits=Long.bitCount(bucketMask);
 		k=Kmer.getKbig(k_);
 		minProb=minProb_;
 		hashXor=(seed==-1 ? defaultSeed : seed);
@@ -663,6 +664,8 @@ public abstract class CardinalityTracker implements Drivable {
 	/** Number of buckets for tracking; must be a power of 2 for efficiency */
 	public final int buckets;
 	
+	public final int bucketBits;
+	
 	/** Bit mask for extracting bucket index from hashcode; equals buckets-1 */
 	final int bucketMask;
 	
@@ -723,5 +726,6 @@ public abstract class CardinalityTracker implements Drivable {
 	public static boolean USE_GMEAN=false;//Geometric mean
 	public static boolean USE_HLL=false;//HLL formula
 	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
+	public static final boolean USE_MICRO=true;
 	
 }

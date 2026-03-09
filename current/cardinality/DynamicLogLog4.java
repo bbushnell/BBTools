@@ -104,8 +104,17 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
+		int microBits=0, microEst=0;
+		if(USE_MICRO) {
+			microBits=(Long.bitCount(microIndex));
+			microEst=(int)(64*Math.log((double)64/Math.max(Math.min(63, 64-microBits), 0.5)));
+			//		System.err.println(microBits+", "+Long.toBinaryString(microIndex)+", "+lcMicro);
+			microEst=(int)Math.min(clampToAdded ? added : 9999, microEst);
+			if(microBits<=56 && USE_MICRO) {return microEst;}
+		}
 		final CardinalityStats s=summarize();
-		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)s.hybridDLL());
+		long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)s.hybridDLL());
+		card=(USE_MICRO && microBits<62 ? Math.max(card, microEst) : card);
 		lastCardinality=card;
 		return card;
 	}
@@ -144,6 +153,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public void add(DynamicLogLog4 log){
 		added+=log.added;
 		lastCardinality=-1;
+		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
 			final int newMinZeros=Math.max(minZeros, log.minZeros);
 			for(int i=0; i<buckets; i++){
@@ -180,7 +190,12 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-		//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
+		
+		if(USE_MICRO){//Optional MicroIndex, reduces speed 25%
+			final long micro=(key>>bucketBits)&0x3FL;
+			microIndex|=(1L<<micro);
+			if(Long.bitCount(microIndex)<56) {return;}
+		}
 
 		// Stored = relNlz+1, clamped to [1,15] for overflow
 		final int newStored=Math.min(relNlz+1, 15);
@@ -200,7 +215,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
-		minZeroCount=countAndDecrement();
+				minZeroCount=countAndDecrement();
 			}
 		}
 	}
@@ -255,6 +270,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 	private final LongList sortBuf=new LongList(buckets);
+	private long microIndex=0;
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;
