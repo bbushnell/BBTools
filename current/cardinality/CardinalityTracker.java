@@ -696,6 +696,7 @@ public abstract class CardinalityTracker implements Drivable {
 	/*--------------------------------------------------------------*/
 	
 	long added=0;
+	long microIndex=0;
 	/** Cached cardinality estimate; -1 means stale. Shared by all calibratable subclasses. */
 	public long lastCardinality=-1;
 	
@@ -726,6 +727,7 @@ public abstract class CardinalityTracker implements Drivable {
 	public static boolean USE_GMEAN=false;//Geometric mean
 	public static boolean USE_HLL=false;//HLL formula
 	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
-	public static final boolean USE_MICRO=true;
+	public static final boolean USE_MICRO=false;
+	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }

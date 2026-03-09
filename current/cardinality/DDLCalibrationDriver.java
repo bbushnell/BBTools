@@ -209,21 +209,24 @@ public class DDLCalibrationDriver {
 	/*----------------       Threshold Logic        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of log-spaced cardinality slots from loadFactor=1 to maxTrue/buckets at 1% increments.
+	/** Minimum load factor recorded in the cardinality histogram (slot 0 = this load). */
+	static final double MIN_CARD_LOAD=0.2;
+
+	/** Number of log-spaced cardinality slots from MIN_CARD_LOAD to maxTrue/buckets at 1% increments.
 	 *  Load-factor indexed so the table is valid for any bucket count. */
 	static int computeNumCardSlots(long maxTrue, int buckets){
-		return (int)(Math.log((double)maxTrue/buckets)/Math.log(1.01))+5;
+		return (int)(Math.log((double)maxTrue/(buckets*MIN_CARD_LOAD))/Math.log(1.01))+5;
 	}
 
 	/**
 	 * Returns the cardinality histogram slot index for rawMeanEst.
-	 * Slot 0 corresponds to loadFactor=1 (rawMeanEst=buckets); each slot is 1% larger.
+	 * Slot 0 corresponds to loadFactor=MIN_CARD_LOAD; each slot is 1% larger.
 	 * Load-factor indexed so the table is valid for any bucket count.
-	 * Returns -1 if rawMeanEst < buckets (load factor below 1, out of range).
+	 * Returns -1 if rawMeanEst is below MIN_CARD_LOAD*buckets (out of range).
 	 */
 	static int cardIdx(double rawMeanEst, int numCardSlots, int buckets){
-		if(rawMeanEst<buckets){return -1;}
-		final int idx=(int)(Math.log(rawMeanEst/buckets)/Math.log(1.01));
+		if(rawMeanEst<buckets*MIN_CARD_LOAD){return -1;}
+		final int idx=(int)(Math.log(rawMeanEst/(buckets*MIN_CARD_LOAD))/Math.log(1.01));
 		if(idx<0||idx>=numCardSlots){return -1;}
 		return idx;
 	}

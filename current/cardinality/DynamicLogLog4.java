@@ -98,7 +98,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		}
 		// No mantissa: hllSumFilledM == hllSumFilled
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS);
+			gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS);
 	}
 
 	@Override
@@ -107,14 +107,15 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		int microBits=0, microEst=0;
 		if(USE_MICRO) {
 			microBits=(Long.bitCount(microIndex));
-			microEst=(int)(64*Math.log((double)64/Math.max(Math.min(63, 64-microBits), 0.5)));
+			microEst=(int)(64*Math.log((double)64/Math.max(64-microBits, 0.5)));
 			//		System.err.println(microBits+", "+Long.toBinaryString(microIndex)+", "+lcMicro);
 			microEst=(int)Math.min(clampToAdded ? added : 9999, microEst);
 			if(microBits<=56 && USE_MICRO) {return microEst;}
 		}
 		final CardinalityStats s=summarize();
 		long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)s.hybridDLL());
-		card=(USE_MICRO && microBits<62 ? Math.max(card, microEst) : card);
+//		System.err.println(microBits+", "+microEst+", "+card);
+		card=(USE_MICRO ? Math.max(card, microEst) : card);
 		lastCardinality=card;
 		return card;
 	}
@@ -190,11 +191,11 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
-		
-		if(USE_MICRO){//Optional MicroIndex, reduces speed 25%
-			final long micro=(key>>bucketBits)&0x3FL;
-			microIndex|=(1L<<micro);
-			if(Long.bitCount(microIndex)<56) {return;}
+
+		final long micro=(key>>bucketBits)&0x3FL;
+		microIndex|=(1L<<micro);
+		if(USE_MICRO){//Optional MicroIndex for low cardinality
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
 		}
 
 		// Stored = relNlz+1, clamped to [1,15] for overflow
@@ -270,7 +271,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 	private final LongList sortBuf=new LongList(buckets);
-	private long microIndex=0;
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;

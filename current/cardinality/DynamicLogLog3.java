@@ -149,6 +149,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
+		
+		final long micro=(key>>bucketBits)&0x3FL;
+		microIndex|=(1L<<micro);
+		if(USE_MICRO){//Optional MicroIndex for low cardinality
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+		}
 
 		// Stored = relNlz+1, clamped to [1,7] for overflow
 		final int newStored=Math.min(relNlz+1, 7);
