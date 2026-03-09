@@ -97,6 +97,8 @@ public class DDLCalibrationDriver {
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
+			}else if(a.equals("promotefrac") || a.equals("pf")){
+				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
 			}
 			else{assert(false) : "Unknown parameter '"+arg+"'";}
 		}
@@ -173,10 +175,27 @@ public class DDLCalibrationDriver {
 			}
 		}
 
-		// Print File 2 (occupancy histogram)
+		// Aggregate per-thread cardinality histograms
+		final int numCardSlots=computeNumCardSlots(maxTrue, buckets);
+		final long[] histCardCount=new long[numCardSlots];
+		final long[] histCardTrueCard=new long[numCardSlots];
+		final double[] histCardMeanEstSum=new double[numCardSlots];
+		final double[][] histCardRawEst=new double[numCardSlots][NUM_EST];
+		for(CalibrationThread ct : calThreads){
+			for(int s=0; s<numCardSlots; s++){
+				histCardCount[s]+=ct.histCardCount[s];
+				histCardTrueCard[s]+=ct.histCardTrueCard[s];
+				histCardMeanEstSum[s]+=ct.histCardMeanEstSum[s];
+				for(int e=0; e<NUM_EST; e++){histCardRawEst[s][e]+=ct.histCardRawEst[s][e];}
+			}
+		}
+
+		// Print File 2 (bipartite occupancy+cardinality histogram)
 		if(out2!=null){
 			try(PrintStream ps=new PrintStream(new FileOutputStream(out2))){
-				printHistogram(histCount, histTrueCard, histRawEst, numSlots, step, buckets, ps);
+				printHistogram(histCount, histTrueCard, histRawEst,
+					histCardCount, histCardTrueCard, histCardMeanEstSum, histCardRawEst,
+					numSlots, numCardSlots, step, buckets, ps);
 				System.err.println("Histogram written to "+out2);
 			}catch(Exception e){
 				System.err.println("Error writing histogram file: "+e.getMessage());
@@ -189,6 +208,25 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 	/*----------------       Threshold Logic        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Number of log-spaced cardinality slots from loadFactor=1 to maxTrue/buckets at 1% increments.
+	 *  Load-factor indexed so the table is valid for any bucket count. */
+	static int computeNumCardSlots(long maxTrue, int buckets){
+		return (int)(Math.log((double)maxTrue/buckets)/Math.log(1.01))+5;
+	}
+
+	/**
+	 * Returns the cardinality histogram slot index for rawMeanEst.
+	 * Slot 0 corresponds to loadFactor=1 (rawMeanEst=buckets); each slot is 1% larger.
+	 * Load-factor indexed so the table is valid for any bucket count.
+	 * Returns -1 if rawMeanEst < buckets (load factor below 1, out of range).
+	 */
+	static int cardIdx(double rawMeanEst, int numCardSlots, int buckets){
+		if(rawMeanEst<buckets){return -1;}
+		final int idx=(int)(Math.log(rawMeanEst/buckets)/Math.log(1.01));
+		if(idx<0||idx>=numCardSlots){return -1;}
+		return idx;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------          Factory             ----------------*/
@@ -277,10 +315,14 @@ public class DDLCalibrationDriver {
 		System.out.println(sb);
 	}
 
-	/** Prints the occupancy histogram (File 2) to the given stream. */
+	/** Prints the bipartite occupancy+cardinality histogram (File 2) to the given stream. */
 	static void printHistogram(final long[] histCount, final long[] histTrueCard,
-		final double[][] histRawEst, final int numSlots, final int step,
+		final double[][] histRawEst,
+		final long[] histCardCount, final long[] histCardTrueCard,
+		final double[] histCardMeanEstSum, final double[][] histCardRawEst,
+		final int numSlots, final int numCardSlots, final int step,
 		final int buckets, final PrintStream ps){
+		ps.println("#SECTION=occupancy");
 		ps.println(header2());
 		for(int s=0; s<numSlots; s++){
 			final long cnt=histCount[s];
@@ -306,6 +348,47 @@ public class DDLCalibrationDriver {
 				sb.append('\t').append(String.format("%.8f", cf));
 			}
 			ps.println(sb);
+		}
+		// Cardinality-indexed section: log-spaced rows grouped by rawMeanEst.
+		if(histCardCount!=null && numCardSlots>0){
+			// Truncate at the peak slot. Post-peak slots are biased: they contain only
+			// overestimating DDLs (by definition of having meanEst above the modal value),
+			// so CF = trueCard/meanEst is systematically low there. getCardCF() clamps to
+			// the last table entry for any rawMeanEst beyond the table, so the peak CF
+			// naturally extends to arbitrarily high cardinality — which is correct.
+			int lastPrintSlot=0;
+			long peakCount=0;
+			for(int cIdx=0; cIdx<numCardSlots; cIdx++){
+				if(histCardCount[cIdx]>peakCount){peakCount=histCardCount[cIdx]; lastPrintSlot=cIdx;}
+			}
+			lastPrintSlot=Math.max(0, lastPrintSlot-5); // 5-slot safety margin before peak
+			ps.println();
+			ps.println("#SECTION=cardinality");
+			ps.println(header2card());
+			for(int cIdx=0; cIdx<=lastPrintSlot; cIdx++){
+				final long cnt=histCardCount[cIdx];
+				if(cnt<10){continue;} // skip very sparse early rows
+				final double avgMeanEst=histCardMeanEstSum[cIdx]/cnt;
+				final double avgTrueCard=(double)histCardTrueCard[cIdx]/cnt;
+				final StringBuilder sb=new StringBuilder();
+				sb.append(String.format("%.8f", avgMeanEst/buckets));
+				sb.append('\t').append(cnt); // Samples column
+				for(int e=0; e<NUM_EST; e++){
+					if(e==6){continue;} // Hybrid appended after
+					if(e==5){sb.append('\t').append("1.00000000");} // LC: no CF
+					else{
+						final double avgRaw=histCardRawEst[cIdx][e]/cnt;
+						final double cf=computeCF(avgTrueCard, avgRaw);
+						sb.append('\t').append(Double.isFinite(cf) ?
+							String.format("%.8f", cf) : "1.00000000");
+					}
+				}
+				final double avgRawHybrid=histCardRawEst[cIdx][6]/cnt;
+				final double cfHybrid=computeCF(avgTrueCard, avgRawHybrid);
+				sb.append('\t').append(Double.isFinite(cfHybrid) ?
+					String.format("%.8f", cfHybrid) : "1.00000000");
+				ps.println(sb);
+			}
 		}
 	}
 
@@ -341,6 +424,18 @@ public class DDLCalibrationDriver {
 			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
 		}
 		sb.append("\tHybrid_cf"); // column 10, type HYBRID=10
+		return sb.toString();
+	}
+
+	/** Header line for the #SECTION=cardinality block of File 2. Same columns as header2() but #MeanEst first. */
+	static String header2card(){
+		final StringBuilder sb=new StringBuilder("#MeanEst\tSamples");
+		for(int e=0; e<NUM_EST; e++){
+			if(e==6){continue;}
+			if(e==5){sb.append("\tPad_cf");}
+			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
+		}
+		sb.append("\tHybrid_cf");
 		return sb.toString();
 	}
 
@@ -400,6 +495,11 @@ public class DDLCalibrationDriver {
 			histCount=new long[numSlots];
 			histTrueCard=new long[numSlots];
 			histRawEst=new double[numSlots][NUM_EST];
+			numCardSlots=computeNumCardSlots(maxTrue, buckets);
+			histCardCount=new long[numCardSlots];
+			histCardTrueCard=new long[numCardSlots];
+			histCardMeanEstSum=new double[numCardSlots];
+			histCardRawEst=new double[numCardSlots][NUM_EST];
 		}
 
 		@Override
@@ -451,6 +551,15 @@ public class DDLCalibrationDriver {
 						histCount[idx]++;
 						histTrueCard[idx]+=trueCard;
 						for(int e=0; e<NUM_EST; e++){histRawEst[idx][e]+=cachedRaw[d][e];}
+						// Also record into cardinality histogram (indexed by raw Mean estimate).
+						final double rawMeanEst=cachedRaw[d][0]; // uncorrected when cf=f
+						final int cIdx=cardIdx(rawMeanEst, numCardSlots, buckets);
+						if(cIdx>=0){
+							histCardCount[cIdx]++;
+							histCardTrueCard[cIdx]+=trueCard;
+							histCardMeanEstSum[cIdx]+=rawMeanEst;
+							for(int e=0; e<NUM_EST; e++){histCardRawEst[cIdx][e]+=cachedRaw[d][e];}
+						}
 					}
 					prevTrueCard=trueCard;
 				}
@@ -511,6 +620,17 @@ public class DDLCalibrationDriver {
 		final long[] histTrueCard;
 		/** Occupancy histogram: sum of raw estimator values per slot. [slot][estimator] */
 		final double[][] histRawEst;
+
+		/** Number of log-spaced cardinality histogram slots. */
+		final int numCardSlots;
+		/** Cardinality histogram: sample counts per slot. */
+		final long[] histCardCount;
+		/** Cardinality histogram: sum of true cardinalities per slot. */
+		final long[] histCardTrueCard;
+		/** Cardinality histogram: sum of raw Mean estimates per slot (for avg MeanEst key). */
+		final double[] histCardMeanEstSum;
+		/** Cardinality histogram: sum of raw estimator values per slot. [slot][estimator] */
+		final double[][] histCardRawEst;
 
 		/** Set to true after runInner() completes without exception. */
 		volatile boolean success=false;

@@ -39,12 +39,14 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		super(p);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(buckets*PROMOTE_FRAC) : PROMOTE_THRESHOLD);
 	}
 
 	DynamicLogLog3v2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(buckets*PROMOTE_FRAC) : PROMOTE_THRESHOLD);
 	}
 
 	@Override
@@ -131,7 +133,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0||s==1){minZeroCount++;}
 			}
-			while(minZeroCount<=PROMOTE_THRESHOLD && minZeros<wordlen){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
@@ -163,8 +165,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		// oldRelNlz: 0 for both empty (stored=0) and tier-0 (stored=1).
 		// minZeroCount decrements whenever a bucket leaves (empty or tier-0) for a higher tier.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
-		if(relNlz>oldRelNlz && oldRelNlz==0 && --minZeroCount<=PROMOTE_THRESHOLD){
-			while(minZeroCount<=PROMOTE_THRESHOLD && minZeros<wordlen){
+		if(relNlz>oldRelNlz && oldRelNlz==0 && --minZeroCount<=promoteThreshold){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
 		minZeroCount=countAndDecrement();
@@ -279,7 +281,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 
 		if(filledBuckets==0){return new double[10];}
 
-		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN);
+		// Three-domain CF lookup: occupancy-only (loadFactor<=1), blended (1..4), cardinality-indexed (>=4).
+		final double meanEstCF   =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.MEAN);
 
 		final double hybridEst;
 		final double hb0=0.20*buckets, hb1=5.0*buckets;
@@ -295,15 +298,15 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
-			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEAN),
-			hmeanPureM, // = hmeanPure; no extra CF since it equals HMean
-			gmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.GMEAN),
-			hmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HLL),
+			hmeanPure  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.HMEAN),
+			hmeanPureM *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.HMEANM),
+			gmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.GMEAN),
+			hmeanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.HLL),
 			lcPure,
 			hybridEst,
-			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MWA),
-			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEDCORR),
-			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN99)
+			mwaEst     *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.MWA),
+			medianCorr *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.MEDCORR),
+			mean99Est  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, CF_MATRIX_CARD, CF_CARD_KEYS, count, buckets, meanEst, CorrectionFactor.MEAN99)
 		};
 	}
 
@@ -313,6 +316,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 
 	/** Packed 3-bit bucket array: 10 buckets per int, 0=empty, 1-7=relNlz+1. */
 	private final int[] maxArray;
+	/** Per-instance promotion threshold (computed from PROMOTE_FRAC*buckets or PROMOTE_THRESHOLD). */
+	private final int promoteThreshold;
 	private int minZeros=0;
 	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
 	private int minZeroCount;
@@ -330,10 +335,13 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private static final int wordlen=64;
-	/** Social promotion threshold: advance minZeros floor when minZeroCount <= this value.
-	 * 0 = classic behavior (promote only when all tier-0 buckets gone).
-	 * Must match value used during calibration. */
+	/** Fallback absolute social promotion threshold when PROMOTE_FRAC==0.
+	 * 0 = classic behavior. Shared with DLL3/DLL4 for parser compatibility. */
 	public static int PROMOTE_THRESHOLD=0;
+	/** Fraction of buckets to use as social promotion threshold.
+	 * When >0, overrides PROMOTE_THRESHOLD: promoteThreshold = (int)(buckets * PROMOTE_FRAC).
+	 * E.g. 0.005 = promote when last 0.5% of tier-0 remain. */
+	public static float PROMOTE_FRAC=0.0f;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
@@ -341,10 +349,18 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
-	/** Loads the DLL3 correction factor matrix from CF_FILE. */
+	/** Loads the DLL3v2 correction factor matrix from CF_FILE. Also captures cardinality table. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
-		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+		CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+		CF_MATRIX_CARD=CorrectionFactor.lastCardMatrix;
+		CF_CARD_KEYS=CorrectionFactor.lastCardKeys;
+		return CF_MATRIX;
 	}
+
+	/** Cardinality-indexed CF table from bipartite CF file; null for legacy files. */
+	private static float[][] CF_MATRIX_CARD=null;
+	/** MeanEst key array for CF_MATRIX_CARD binary search. */
+	private static float[] CF_CARD_KEYS=null;
 
 }
