@@ -241,7 +241,7 @@ public class DDLCalibrationDriver {
 
 	/**
 	 * Creates a CardinalityTracker of the specified type.
-	 * Recognized types: ddl, ddl2, ddl8, dll4 (and their full class name equivalents).
+	 * Recognized types: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4 (and their full class name equivalents).
 	 */
 	static CardinalityTracker makeInstance(String type, int buckets, int k, long seed, float minProb){
 		if("ddl".equals(type) || "dynamicDemiLog".equalsIgnoreCase(type)){
@@ -256,6 +256,8 @@ public class DDLCalibrationDriver {
 			return new DynamicLogLog3(buckets, k, seed, minProb);
 		}else if("dll3v2".equals(type) || "dynamicloglog3v2".equalsIgnoreCase(type)){
 			return new DynamicLogLog3v2(buckets, k, seed, minProb);
+		}else if("dll2".equals(type) || "dynamicloglog2".equalsIgnoreCase(type)){
+			return new DynamicLogLog2(buckets, k, seed, minProb);
 		}
 		throw new RuntimeException("Unknown loglogtype: "+type);
 	}
