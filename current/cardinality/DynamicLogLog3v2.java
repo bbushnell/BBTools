@@ -246,7 +246,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDLL());
+		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -279,8 +279,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	public static int PROMOTE_THRESHOLD=0;
 	/** Fraction of buckets to use as social promotion threshold.
 	 * When >0, overrides PROMOTE_THRESHOLD: promoteThreshold = (int)(buckets * PROMOTE_FRAC).
-	 * E.g. 0.005 = promote when last 0.5% of tier-0 remain. */
-	public static float PROMOTE_FRAC=0.0f;
+	 * E.g. 0.05 = promote when last 5% of tier-0 remain (default). */
+	public static float PROMOTE_FRAC=0.05f;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";

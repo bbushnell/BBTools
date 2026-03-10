@@ -229,7 +229,7 @@ public final class DDL8 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDDL());
+		return s.toArray(Math.max(s.hybridDDL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -268,10 +268,6 @@ public final class DDL8 extends CardinalityTracker {
 	private static final double mantissaScale=1<<mantissaBits;        // = 4.0
 	/** Precomputed shift offset: wordlen - mantissaBits - 1 = 61. */
 	private static final int shift_offset=wordlen-mantissaBits-1;     // = 61
-
-	public static double LC_CROSSOVER=0.75;
-	public static double LC_SHARPNESS=20.0;
-	public static boolean USE_LC=true;
 
 	/** Default resource file for DDL8 correction factors. */
 	public static final String CF_FILE="?ddl8CorrectionFactor.tsv";

@@ -728,6 +728,10 @@ public abstract class CardinalityTracker implements Drivable {
 	public static boolean USE_HLL=false;//HLL formula
 	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
 	public static final boolean USE_MICRO=false;
+	/** When true, use cardinality-indexed CF table in addition to occupancy-indexed table.
+	 * Only applies when CorrectionFactor.USE_CORRECTION is also true; cardinality CF
+	 * cannot be active without the occupancy CF. Default true. */
+	public static boolean USE_CARD_CF=true;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }

@@ -97,7 +97,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS);
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0);
 	}
 
 	@Override
@@ -295,10 +296,6 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	/** Precomputed shift offset: wordlen - mantissaBits - 1 = 61. */
 	private static final int shift_offset=wordlen-mantissaBits-1;     // = 61
 
-	public static double LC_CROSSOVER=0.75;
-	public static double LC_SHARPNESS=20.0;
-	public static boolean USE_LC=true;
-	
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDDL8.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
