@@ -241,13 +241,14 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		}
 		// No mantissa: hllSumFilledM == hllSumFilled
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS, microIndex);
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex);
 	}
 
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDLL());
+		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/

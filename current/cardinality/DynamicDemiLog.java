@@ -85,7 +85,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS, microIndex);
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex);
 	}
 
 	@Override
@@ -225,7 +226,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDDL());
+		return s.toArray(Math.max(s.hybridDDL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -345,12 +346,5 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
-	public static double LC_CROSSOVER=0.75;
-	/** Steepness of the sigmoid transition between LinearCounting and value-based estimation.
-	 * Higher values create a sharper switch; lower values create a more gradual blend.
-	 * At 20, the blend moves from 10% to 90% value-based weight over roughly ±11 occupancy
-	 * percentage points around LC_CROSSOVER.  At 5 it spans roughly ±44 points. */
-	public static double LC_SHARPNESS=20.0;
-	public static boolean USE_LC=true;
 
 }

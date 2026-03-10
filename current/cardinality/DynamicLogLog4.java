@@ -98,7 +98,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		}
 		// No mantissa: hllSumFilledM == hllSumFilled
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS, microIndex);
+		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex);
 	}
 
 	@Override
@@ -248,7 +249,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDLL());
+		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -277,9 +278,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 
-	public static double LC_CROSSOVER=0.75;
-	public static double LC_SHARPNESS=20.0;
-	public static boolean USE_LC=true;
 
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";

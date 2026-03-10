@@ -47,17 +47,19 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=10;
+	static final int NUM_EST=11;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES={
-		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr","Mean99"
+		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr","Mean99","Micro"
 	};
-	/** Which estimators get a CF column in File 2. LC excluded (never uses CF).
+	/** Which estimators get a CF column in File 2. LC and Micro excluded (no CF applied).
 	 *  Hybrid included at column 10 (after main loop) to enable its own CF curve. */
-	static final boolean[] NEEDS_CF={true,true,true,true,true,false,true,true,true,true};
+	static final boolean[] NEEDS_CF={true,true,true,true,true,false,true,true,true,true,false};
 	/** Extra out1-only derived columns appended after NUM_EST. */
 	static final int NUM_OUT1=NUM_EST+1; // +1 for MedianLC
 	static final String MEDIAN_LC="MedianLC";
+	/** When true, appends an extra RawMean column (avg uncorrected meanEst) to File 1 output. */
+	static boolean OUTPUT_RAW_MEAN=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -81,7 +83,7 @@ public class DDLCalibrationDriver {
 			if(split.length!=2){continue;}
 			final String a=split[0].toLowerCase();
 			final String b=split[1];
-			if(a.equals("ddls")){numDDLs=Parse.parseIntKMG(b);}
+			if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("maxmult")){maxMult=Parse.parseIntKMG(b);}
@@ -93,6 +95,8 @@ public class DDLCalibrationDriver {
 			else if(a.equals("out2")){out2=b;}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
+			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
+			else if(a.equals("rawmean")){OUTPUT_RAW_MEAN=Parse.parseBoolean(b);}
 			else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
@@ -287,16 +291,20 @@ public class DDLCalibrationDriver {
 		long trueCard=rows[0].trueCard;
 		int n=0;
 		double occSum=0;
+		double sumRawMean=0;
 		for(ReportRow row : rows){
 			n+=row.n;
 			occSum+=row.occSum;
+			sumRawMean+=row.sumRawMean;
 			for(int e=0; e<NUM_OUT1; e++){
 				sumErr[e]+=row.sumErr[e];
 				sumAbsErr[e]+=row.sumAbsErr[e];
 				sumSqErr[e]+=row.sumSqErr[e];
 			}
 		}
-		return new ReportRow(trueCard, n, occSum, sumErr, sumAbsErr, sumSqErr);
+		final ReportRow merged=new ReportRow(trueCard, n, occSum, sumErr, sumAbsErr, sumSqErr);
+		merged.sumRawMean=sumRawMean;
+		return merged;
 	}
 
 	/** Prints one merged row in File 1 (interval) format to stdout. */
@@ -315,6 +323,7 @@ public class DDLCalibrationDriver {
 			sb.append('\t').append(String.format("%.6f", meanAbsErr));
 			sb.append('\t').append(String.format("%.6f", stdev));
 		}
+		if(OUTPUT_RAW_MEAN){sb.append('\t').append(String.format("%.4f", row.sumRawMean/n));}
 		System.out.println(sb);
 	}
 
@@ -335,8 +344,8 @@ public class DDLCalibrationDriver {
 			final double avgTrueCard=(s==0 ? 0 : (double)histTrueCard[s]/cnt);
 			for(int e=0; e<NUM_EST; e++){
 				if(e==6){continue;} // Hybrid appended after loop at column 10
-				// Slot 0 and LC (e==5) always get 1.0
-				if(s==0 || e==5){sb.append('\t').append("1.00000000");}
+				// Slot 0, LC (e==5), and Micro (e==10) always get 1.0
+				if(s==0 || e==5 || e==10){sb.append('\t').append("1.00000000");}
 				else{
 					final double avgRaw=histRawEst[s][e]/cnt;
 					final double cf=computeCF(avgTrueCard, avgRaw);
@@ -378,7 +387,7 @@ public class DDLCalibrationDriver {
 				sb.append('\t').append(cnt); // Samples column
 				for(int e=0; e<NUM_EST; e++){
 					if(e==6){continue;} // Hybrid appended after
-					if(e==5){sb.append('\t').append("1.00000000");} // LC: no CF
+					if(e==5||e==10){sb.append('\t').append("1.00000000");} // LC/Micro: no CF
 					else{
 						final double avgRaw=histCardRawEst[cIdx][e]/cnt;
 						final double cf=computeCF(avgTrueCard, avgRaw);
@@ -413,6 +422,7 @@ public class DDLCalibrationDriver {
 		sb.append('\t').append(MEDIAN_LC).append("_err");
 		sb.append('\t').append(MEDIAN_LC).append("_abs");
 		sb.append('\t').append(MEDIAN_LC).append("_std");
+		if(OUTPUT_RAW_MEAN){sb.append('\t').append("RawMean");}
 		return sb.toString();
 	}
 
@@ -423,7 +433,7 @@ public class DDLCalibrationDriver {
 		final StringBuilder sb=new StringBuilder("#Slot");
 		for(int e=0; e<NUM_EST; e++){
 			if(e==6){continue;} // Hybrid appended after loop at column 10
-			if(e==5){sb.append("\tPad_cf");} // placeholder for LINEAR=6; always 1.0
+			if(e==5||e==10){sb.append("\tPad_cf");} // LC/Micro: no CF, placeholder
 			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
 		}
 		sb.append("\tHybrid_cf"); // column 10, type HYBRID=10
@@ -435,7 +445,7 @@ public class DDLCalibrationDriver {
 		final StringBuilder sb=new StringBuilder("#MeanEst\tSamples");
 		for(int e=0; e<NUM_EST; e++){
 			if(e==6){continue;}
-			if(e==5){sb.append("\tPad_cf");}
+			if(e==5||e==10){sb.append("\tPad_cf");}
 			else{sb.append('\t').append(ESTIMATOR_NAMES[e]).append("_cf");}
 		}
 		sb.append("\tHybrid_cf");
@@ -464,6 +474,8 @@ public class DDLCalibrationDriver {
 		final double[] sumAbsErr;
 		/** Sum of squared relative errors per estimator (for stdev via E[X^2]-E[X]^2). */
 		final double[] sumSqErr;
+		/** Sum of raw (uncorrected) Mean estimates across all DDLs; for OUTPUT_RAW_MEAN. */
+		double sumRawMean=0;
 
 		ReportRow(long trueCard, int n, double occSum,
 			double[] sumErr, double[] sumAbsErr, double[] sumSqErr){
@@ -581,9 +593,11 @@ public class DDLCalibrationDriver {
 			final double[] sumAbsErr=new double[NUM_OUT1];
 			final double[] sumSqErr=new double[NUM_OUT1];
 			double occSum=0;
+			double sumRawMean=0;
 			for(CardinalityTracker ddl : ddls){
 				occSum+=ddl.occupancy();
 				final double[] est=ddl.rawEstimates();
+				sumRawMean+=est[0];
 				for(int e=0; e<NUM_EST; e++){
 					final double err=(est[e]-trueCard)/(double)trueCard;
 					sumErr[e]+=err;
@@ -597,7 +611,9 @@ public class DDLCalibrationDriver {
 				sumAbsErr[NUM_EST]+=Math.abs(mlce);
 				sumSqErr[NUM_EST]+=mlce*mlce;
 			}
-			return new ReportRow(trueCard, ddls.length, occSum, sumErr, sumAbsErr, sumSqErr);
+			final ReportRow row=new ReportRow(trueCard, ddls.length, occSum, sumErr, sumAbsErr, sumSqErr);
+			row.sumRawMean=sumRawMean;
+			return row;
 		}
 
 		/** CardinalityTracker instances owned by this thread. */
