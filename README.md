@@ -10,10 +10,11 @@
 - **Jon Rood** - Contributor
 - **Shijie Yao** - Contributor
 - **Isla** - Contributor
+- **Chloe** - Webmaster
 
 ## 📊 Version
 
-Current Version: **39.79**
+Current Version: **39.80**
 
 ## 🚀 Features
 
