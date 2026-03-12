@@ -70,23 +70,30 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		double hllSumFilledM=0;
 		double gSum=0;
 		int count=0;
-		sortBuf.clear();
+		if(USE_SORTBUF){
+			if(sortBuf==null){sortBuf=new LongList(buckets);}
+			sortBuf.clear();
+		}
+		if(nlzCounts==null){nlzCounts=new int[64];}
+		else{java.util.Arrays.fill(nlzCounts, 0);}
 
 		for(int i=0; i<maxArray.length; i++){
 			final int max=maxArray[i];
 			final long dif=restore(max);
 			if(max>0 && dif>0){
+				final int absNlz=max>>mantissabits;
+				if(absNlz<64){nlzCounts[absNlz]++;}
 				difSum+=dif;
-				hllSumFilled +=Math.pow(2.0, -(max>>mantissabits));
-				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.0-(max&mask)/1024.0);
+				hllSumFilled +=Math.pow(2.0, -absNlz);
+				hllSumFilledM+=Math.pow(2.0, -absNlz+0.0-(max&mask)/1024.0);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				sortBuf.add(dif);
+				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts);
 	}
 
 	@Override
@@ -310,7 +317,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 	/** Reusable sort buffer for rawEstimates(); avoids per-call allocation. */
-	private final LongList sortBuf=new LongList(buckets);
+	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	/*--------------------------------------------------------------*/

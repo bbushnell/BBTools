@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Random;
 import java.util.concurrent.ArrayBlockingQueue;
 
+import fileIO.ByteStreamWriter;
 import map.LongHashSet;
 import parse.Parse;
 import shared.Shared;
@@ -47,25 +48,38 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=11;
+	static final int NUM_EST=11+4+CardinalityStats.NUM_DLC_TIERS;
 	/** Estimator names in rawEstimates() index order. */
-	static final String[] ESTIMATOR_NAMES={
-		"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","MedianCorr","Mean99","Micro"
-	};
+	static final String[] ESTIMATOR_NAMES;
 	/** Which estimators get a CF column in File 2. LC and Micro excluded (no CF applied).
-	 *  Hybrid included at column 10 (after main loop) to enable its own CF curve. */
-	static final boolean[] NEEDS_CF={true,true,true,true,true,false,true,true,true,true,false};
+	 *  Hybrid included at column 10 (after main loop) to enable its own CF curve.
+	 *  DLC columns have no CF. */
+	static final boolean[] NEEDS_CF;
+	static{
+		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","S30L6","S30R6","RawDup","DLC","DLC3B","DLCBest","HybDLC"};
+		ESTIMATOR_NAMES=new String[NUM_EST];
+		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
+		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
+		NEEDS_CF=new boolean[NUM_EST];
+		// First 11: {true,true,true,true,true,false,true,true,true,true,false}
+		final boolean[] baseCF={true,true,true,true,true,false,true,true,true,true,false};
+		System.arraycopy(baseCF, 0, NEEDS_CF, 0, baseCF.length);
+		// DLC entries (11..NUM_EST-1): all false (no CF)
+	}
 	/** Extra out1-only derived columns appended after NUM_EST. */
 	static final int NUM_OUT1=NUM_EST+1; // +1 for MedianLC
 	static final String MEDIAN_LC="MedianLC";
 	/** When true, appends an extra RawMean column (avg uncorrected meanEst) to File 1 output. */
 	static boolean OUTPUT_RAW_MEAN=false;
+	/** CF table output version: 0 = legacy bipartite, 1 = unified DLC3B-indexed. */
+	static int cfVersion=0;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
+		final long t0=System.nanoTime();
 		int numDDLs=128;
 		int buckets=2048;
 		int k=31;
@@ -75,7 +89,9 @@ public class DDLCalibrationDriver {
 		long valSeed=42L;
 		int threads=Shared.threads();
 		int step=1;
+		String out1="stdout.txt";
 		String out2=null;
+		String out3=null;
 		String loglogtype="ddl"; // ddl, ddl2, ddl8, dll4
 
 		for(String arg : args){
@@ -86,17 +102,22 @@ public class DDLCalibrationDriver {
 			if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("maxmult")){maxMult=Parse.parseIntKMG(b);}
+			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Parse.parseIntKMG(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){valSeed=Long.parseLong(b);}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("step") || a.equals("resolution") || a.equals("res")){step=Integer.parseInt(b);}
+			else if(a.equals("out") || a.equals("out1")){out1=b;}
 			else if(a.equals("out2")){out2=b;}
+			else if(a.equals("out3")){out3=b;}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
 			else if(a.equals("rawmean")){OUTPUT_RAW_MEAN=Parse.parseBoolean(b);}
+			else if(a.equals("cfversion")){cfVersion=Integer.parseInt(b);}
+			else if(a.equals("cffile")){CorrectionFactor.initialize(b, buckets); CorrectionFactor.USE_CORRECTION=true;}
+			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
 			else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
@@ -104,7 +125,7 @@ public class DDLCalibrationDriver {
 			}else if(a.equals("promotefrac") || a.equals("pf")){
 				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
 			}
-			else{assert(false) : "Unknown parameter '"+arg+"'";}
+			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
 		assert(buckets%step==0) : "buckets must be a multiple of step; buckets="+buckets+", step="+step;
@@ -143,11 +164,18 @@ public class DDLCalibrationDriver {
 			calThreads[t]=new CalibrationThread(ddls, thresholds, threadValSeeds[t], buckets, maxTrue, numSlots, step);
 		}
 
-		// Print File 1 header and start threads
-		System.out.println(header1());
+		// Open File 1 output (ByteStreamWriter: "stdout.txt" → System.out)
+		final ByteStreamWriter bsw1=new ByteStreamWriter(out1, true, false, false);
+		bsw1.start();
+		bsw1.println(header1());
+
+		// Start threads
 		for(CalibrationThread ct : calThreads){ct.start();}
 
 		// Main polling loop: collect one merged row per threshold, print live
+		final double[] totalMeanAbsErr=new double[NUM_OUT1];
+		final ArrayList<ReportRow> mergedRows=new ArrayList<>();
+		int numRows=0;
 		for(int ti=0; ti<thresholds.length; ti++){
 			final ReportRow[] rows=new ReportRow[numThreads];
 			for(int t=0; t<numThreads; t++){
@@ -158,13 +186,45 @@ public class DDLCalibrationDriver {
 					throw new RuntimeException(e);
 				}
 			}
-			printRow1(mergeRows(rows));
+			final ReportRow merged=mergeRows(rows);
+			mergedRows.add(merged);
+			bsw1.println(formatRow1(merged));
+			for(int e=0; e<NUM_OUT1; e++){totalMeanAbsErr[e]+=merged.sumAbsErr[e]/merged.n;}
+			numRows++;
 		}
+		bsw1.poisonAndWait();
 
 		// Wait for all threads to finish
 		for(CalibrationThread ct : calThreads){
 			try{ct.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
 			if(!ct.success){System.err.println("Warning: a calibration thread did not complete successfully.");}
+		}
+
+		// Print stderr summary
+		{
+			final double elapsed=(System.nanoTime()-t0)*1e-9;
+			System.err.println();
+			System.err.println("=== DDL Calibration Summary ===");
+			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+				+"  MaxCard: "+maxTrue+"  Rows: "+numRows+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
+			System.err.println("--- Avg Mean Absolute Error (lower = better) ---");
+			// Key estimators only: indices 0-6, 11-14, then MedianLC
+			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+			for(int ki=0; ki<keyIdx.length; ki++){
+				final int e=keyIdx[ki];
+				if(e>=NUM_EST){continue;}
+				System.err.println(String.format("%-12s %.6f", ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/numRows));
+			}
+			System.err.println(String.format("%-12s %.6f", MEDIAN_LC, totalMeanAbsErr[NUM_EST]/numRows));
+			// Individual DLC tiers summary (only non-trivial ones)
+			System.err.println("--- DLC Tier Detail (non-trivial) ---");
+			for(int e=15; e<NUM_EST; e++){
+				final double avg=totalMeanAbsErr[e]/numRows;
+				if(avg<0.999){
+					System.err.println(String.format("%-12s %.6f", ESTIMATOR_NAMES[e], avg));
+				}
+			}
+			System.err.println();
 		}
 
 		// Aggregate per-thread histograms
@@ -194,18 +254,73 @@ public class DDLCalibrationDriver {
 			}
 		}
 
-		// Print File 2 (bipartite occupancy+cardinality histogram)
+		// Aggregate per-thread v1 histograms (if cfVersion 1 or 2)
+		final int numV1Slots=(cfVersion>=1 && cfVersion<3 ? computeNumV1Slots(maxTrue, buckets) : 0);
+		final long[] histV1Count=(numV1Slots>0 ? new long[numV1Slots] : null);
+		final long[] histV1TrueCard=(numV1Slots>0 ? new long[numV1Slots] : null);
+		final double[] histV1DLC3BSum=(numV1Slots>0 ? new double[numV1Slots] : null);
+		final double[][] histV1RawEst=(numV1Slots>0 ? new double[numV1Slots][NUM_EST] : null);
+		if(numV1Slots>0){
+			for(CalibrationThread ct : calThreads){
+				for(int s=0; s<numV1Slots; s++){
+					histV1Count[s]+=ct.histV1Count[s];
+					histV1TrueCard[s]+=ct.histV1TrueCard[s];
+					histV1DLC3BSum[s]+=ct.histV1DLC3BSum[s];
+					for(int e=0; e<NUM_EST; e++){histV1RawEst[s][e]+=ct.histV1RawEst[s][e];}
+				}
+			}
+		}
+
+		// Aggregate per-thread v3 histograms (if cfVersion>=3)
+		final int numV3Slots=(cfVersion>=3 ? computeNumV3Slots(maxTrue) : 0);
+		final long[] histV3Count=(numV3Slots>0 ? new long[numV3Slots] : null);
+		final long[] histV3TrueCard=(numV3Slots>0 ? new long[numV3Slots] : null);
+		final double[] histV3DLCSum=(numV3Slots>0 ? new double[numV3Slots] : null);
+		final double[][] histV3RawEst=(numV3Slots>0 ? new double[numV3Slots][NUM_EST] : null);
+		final double[][] histV3CfSum=(numV3Slots>0 ? new double[numV3Slots][NUM_EST] : null);
+		if(numV3Slots>0){
+			for(CalibrationThread ct : calThreads){
+				for(int s=0; s<numV3Slots; s++){
+					histV3Count[s]+=ct.histV3Count[s];
+					histV3TrueCard[s]+=ct.histV3TrueCard[s];
+					histV3DLCSum[s]+=ct.histV3DLCSum[s];
+					for(int e=0; e<NUM_EST; e++){
+						histV3RawEst[s][e]+=ct.histV3RawEst[s][e];
+						histV3CfSum[s][e]+=ct.histV3CfSum[s][e];
+					}
+				}
+			}
+		}
+
+		// Print File 2
 		if(out2!=null){
 			try(PrintStream ps=new PrintStream(new FileOutputStream(out2))){
-				printHistogram(histCount, histTrueCard, histRawEst,
-					histCardCount, histCardTrueCard, histCardMeanEstSum, histCardRawEst,
-					numSlots, numCardSlots, step, buckets, ps);
+				if(cfVersion>=3){
+					printHistogramV3(mergedRows, ps);
+				}else if(cfVersion>=1){
+					printHistogramV1(histV1Count, histV1TrueCard, histV1DLC3BSum, histV1RawEst,
+						numV1Slots, buckets, ps);
+				}else{
+					printHistogram(histCount, histTrueCard, histRawEst,
+						histCardCount, histCardTrueCard, histCardMeanEstSum, histCardRawEst,
+						numSlots, numCardSlots, step, buckets, ps);
+				}
 				System.err.println("Histogram written to "+out2);
 			}catch(Exception e){
 				System.err.println("Error writing histogram file: "+e.getMessage());
 			}
 		}else{
 			System.err.println("Note: out2 not specified; occupancy histogram not written.");
+		}
+
+		// Print File 3: v3 CF table (always row-based, independent of cfVersion)
+		if(out3!=null){
+			try(PrintStream ps=new PrintStream(new FileOutputStream(out3))){
+				printHistogramV3(mergedRows, ps);
+				System.err.println("V3 CF table written to "+out3);
+			}catch(Exception e){
+				System.err.println("Error writing v3 CF file: "+e.getMessage());
+			}
 		}
 	}
 
@@ -233,6 +348,101 @@ public class DDLCalibrationDriver {
 		final int idx=(int)(Math.log(rawMeanEst/(buckets*MIN_CARD_LOAD))/Math.log(1.01));
 		if(idx<0||idx>=numCardSlots){return -1;}
 		return idx;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       v1 Slot Logic          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** DLC3B index for v1 rawEstimates() array. */
+	static final int DLC3B_IDX=12;
+
+	/** Number of v1 histogram slots: integer slots 0..buckets, then 1% log-spaced above. */
+	static int computeNumV1Slots(long maxTrue, int buckets){
+		if(maxTrue<=buckets){return buckets+1;}
+		return buckets+1+(int)(Math.log((double)maxTrue/buckets)/Math.log(1.01))+5;
+	}
+
+	/**
+	 * Returns the v1 histogram slot for a raw DLC3B estimate.
+	 * Slots 0..buckets: one per integer DLC3B value (slot = (int)dlc3b, clamped to [0,buckets]).
+	 * Slots above buckets: 1% log-spaced (slot = buckets + log(dlc3b/buckets)/log(1.01)).
+	 * Returns -1 if dlc3b < 1.
+	 */
+	static int v1Idx(double dlc3b, int numV1Slots, int buckets){
+		if(dlc3b<1){return -1;}
+		if(dlc3b<=buckets){return Math.min((int)dlc3b, buckets);}
+		final int idx=buckets+(int)(Math.log(dlc3b/buckets)/Math.log(1.01));
+		if(idx<0||idx>=numV1Slots){return -1;}
+		return idx;
+	}
+
+	/** Returns the representative DLC3B value for a v1 slot index. */
+	static double v1SlotToKey(int slot, int buckets){
+		if(slot<=buckets){return slot;}
+		return buckets*Math.pow(1.01, slot-buckets);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       v3 Slot Logic          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** DLC (dlcLogSpace025) index in rawEstimates() array. */
+	static final int DLC_IDX=11;
+
+	/** v3 CF column definitions: rawEstimates() index → output column name. */
+	static final int[] V3_EST_INDICES={0, 1, 2, 3, 6, 11, 14, 7}; // Mean,HMean,HMeanM,GMean,Hybrid,DLC,HybDLC,HybDLC50
+	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","Hybrid_cf","DLC_cf","HybDLC_cf","HybDLC50_cf"};
+
+	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
+	static int computeNumV3Slots(long maxTrue){
+		if(maxTrue<=100){return (int)maxTrue+1;}
+		return 101+(int)(Math.log((double)maxTrue/100)/Math.log(1.01))+5;
+	}
+
+	/**
+	 * Returns the v3 histogram slot for a raw DLC estimate.
+	 * Slots 1..100: one per integer DLC value.
+	 * Slots above 100: 1% log-spaced (slot = 100 + log(dlc/100)/log(1.01)).
+	 * Returns -1 if dlc < 1.
+	 */
+	static int v3Idx(double dlc, int numV3Slots){
+		if(dlc<1){return -1;}
+		if(dlc<=100){return (int)dlc;}
+		final int idx=100+(int)(Math.log(dlc/100)/Math.log(1.01));
+		if(idx<0||idx>=numV3Slots){return -1;}
+		return idx;
+	}
+
+	/** Returns the representative DLC value for a v3 slot index. */
+	static double v3SlotToKey(int slot){
+		if(slot<=100){return slot;}
+		return 100*Math.pow(1.01, slot-100);
+	}
+
+	/** Prints v3 CF table directly from per-trueCard report rows.
+	 *  CF = 1/(1+avgErr) where avgErr = sumErr/n for each estimator.
+	 *  Keyed by trueCard; DLC is used as an approximation at lookup time.
+	 *  This avoids all histogram binning bias (Jensen's inequality + selection bias). */
+	static void printHistogramV3(final ArrayList<ReportRow> rows, final PrintStream ps){
+		ps.println("#VERSION=3");
+		ps.println("#ESTIMATOR=DLC");
+		final StringBuilder hdr=new StringBuilder("#DLC_est");
+		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
+		ps.println(hdr);
+		for(final ReportRow row : rows){
+			if(row.trueCard<1 || row.n<1){continue;}
+			final StringBuilder sb=new StringBuilder();
+			sb.append(String.format("%.2f", (double)row.trueCard));
+			for(int c=0; c<V3_EST_INDICES.length; c++){
+				final int eIdx=V3_EST_INDICES[c];
+				final double avgErr=row.sumErr[eIdx]/row.n;
+				final double cf=(avgErr<=-0.99) ? 1.0 : 1.0/(1.0+avgErr);
+				sb.append('\t').append(Double.isFinite(cf) ?
+					String.format("%.8f", cf) : "1.00000000");
+			}
+			ps.println(sb);
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -309,8 +519,8 @@ public class DDLCalibrationDriver {
 		return merged;
 	}
 
-	/** Prints one merged row in File 1 (interval) format to stdout. */
-	static void printRow1(final ReportRow row){
+	/** Formats one merged row in File 1 (interval) format. */
+	static String formatRow1(final ReportRow row){
 		final int n=row.n;
 		final double avgOcc=row.occSum/n;
 		final StringBuilder sb=new StringBuilder();
@@ -326,7 +536,7 @@ public class DDLCalibrationDriver {
 			sb.append('\t').append(String.format("%.6f", stdev));
 		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append(String.format("%.4f", row.sumRawMean/n));}
-		System.out.println(sb);
+		return sb.toString();
 	}
 
 	/** Prints the bipartite occupancy+cardinality histogram (File 2) to the given stream. */
@@ -403,6 +613,46 @@ public class DDLCalibrationDriver {
 					String.format("%.8f", cfHybrid) : "1.00000000");
 				ps.println(sb);
 			}
+		}
+	}
+
+	/** v1 CF column definitions: rawEstimates() index → output column name. */
+	static final int[] V1_EST_INDICES={0, 1, 2, 3, 12, 4, 6, 14}; // Mean,HMean,HMeanM,GMean,DLC3B,HLL,Hybrid,HybDLC
+	static final String[] V1_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","DLC3B_cf","HLL_cf","Hybrid_cf","HybDLC_cf"};
+
+	/** Prints v1 CF table: unified, cardinality-indexed by raw DLC3B estimate. */
+	static void printHistogramV1(final long[] histV1Count, final long[] histV1TrueCard,
+		final double[] histV1DLC3BSum, final double[][] histV1RawEst,
+		final int numV1Slots, final int buckets, final PrintStream ps){
+		ps.println("#VERSION=1");
+		ps.println("#ESTIMATOR=DLC3B");
+		// Header
+		final StringBuilder hdr=new StringBuilder("#DLC3B_est");
+		for(String name : V1_COL_NAMES){hdr.append('\t').append(name);}
+		ps.println(hdr);
+		// Truncate at peak slot (same logic as v0 cardinality section)
+		int lastPrintSlot=0;
+		long peakCount=0;
+		for(int s=0; s<numV1Slots; s++){
+			if(histV1Count[s]>peakCount){peakCount=histV1Count[s]; lastPrintSlot=s;}
+		}
+		lastPrintSlot=Math.max(0, lastPrintSlot-5);
+		// Data rows
+		for(int s=1; s<=lastPrintSlot; s++){
+			final long cnt=histV1Count[s];
+			if(cnt<10){continue;}
+			final double avgDLC3B=histV1DLC3BSum[s]/cnt;
+			final double avgTrueCard=(double)histV1TrueCard[s]/cnt;
+			final StringBuilder sb=new StringBuilder();
+			sb.append(String.format("%.2f", avgDLC3B));
+			for(int c=0; c<V1_EST_INDICES.length; c++){
+				final int eIdx=V1_EST_INDICES[c];
+				final double avgRaw=histV1RawEst[s][eIdx]/cnt;
+				final double cf=computeCF(avgTrueCard, avgRaw);
+				sb.append('\t').append(Double.isFinite(cf) ?
+					String.format("%.8f", cf) : "1.00000000");
+			}
+			ps.println(sb);
 		}
 	}
 
@@ -517,6 +767,36 @@ public class DDLCalibrationDriver {
 			histCardTrueCard=new long[numCardSlots];
 			histCardMeanEstSum=new double[numCardSlots];
 			histCardRawEst=new double[numCardSlots][NUM_EST];
+			// v1 histogram (only when cfVersion>=1)
+			if(cfVersion>=1 && cfVersion<3){
+				numV1Slots=computeNumV1Slots(maxTrue, buckets);
+				histV1Count=new long[numV1Slots];
+				histV1TrueCard=new long[numV1Slots];
+				histV1DLC3BSum=new double[numV1Slots];
+				histV1RawEst=new double[numV1Slots][NUM_EST];
+			}else{
+				numV1Slots=0;
+				histV1Count=null;
+				histV1TrueCard=null;
+				histV1DLC3BSum=null;
+				histV1RawEst=null;
+			}
+			// v3 histogram (only when cfVersion>=3)
+			if(cfVersion>=3){
+				numV3Slots=computeNumV3Slots(maxTrue);
+				histV3Count=new long[numV3Slots];
+				histV3TrueCard=new long[numV3Slots];
+				histV3DLCSum=new double[numV3Slots];
+				histV3RawEst=new double[numV3Slots][NUM_EST];
+				histV3CfSum=new double[numV3Slots][NUM_EST];
+			}else{
+				numV3Slots=0;
+				histV3Count=null;
+				histV3TrueCard=null;
+				histV3DLCSum=null;
+				histV3RawEst=null;
+				histV3CfSum=null;
+			}
 		}
 
 		@Override
@@ -576,6 +856,45 @@ public class DDLCalibrationDriver {
 							histCardTrueCard[cIdx]+=trueCard;
 							histCardMeanEstSum[cIdx]+=rawMeanEst;
 							for(int e=0; e<NUM_EST; e++){histCardRawEst[cIdx][e]+=cachedRaw[d][e];}
+						}
+						// v1 histogram: indexed by raw DLC3B estimate
+						if(histV1Count!=null){
+							final double dlc3b=cachedRaw[d][DLC3B_IDX];
+							final int vIdx=v1Idx(dlc3b, numV1Slots, buckets);
+							if(vIdx>=0){
+								histV1Count[vIdx]++;
+								histV1TrueCard[vIdx]+=trueCard;
+								histV1DLC3BSum[vIdx]+=dlc3b;
+								for(int e=0; e<NUM_EST; e++){histV1RawEst[vIdx][e]+=cachedRaw[d][e];}
+							}
+						}
+					}
+					// v3 histogram: use per-trueCard AVERAGES to avoid selection bias.
+					// Average across all DDLs first, then insert one point into histogram.
+					if(histV3Count!=null){
+						double avgDLC=0;
+						final double[] avgRaw=new double[NUM_EST];
+						int validCount=0;
+						for(int d=0; d<ddls.length; d++){
+							if(cachedRaw[d]!=null){
+								avgDLC+=cachedRaw[d][DLC_IDX];
+								for(int e=0; e<NUM_EST; e++){avgRaw[e]+=cachedRaw[d][e];}
+								validCount++;
+							}
+						}
+						if(validCount>0){
+							avgDLC/=validCount;
+							for(int e=0; e<NUM_EST; e++){avgRaw[e]/=validCount;}
+							final int v3i=v3Idx(avgDLC, numV3Slots);
+							if(v3i>=0){
+								histV3Count[v3i]++;
+								histV3TrueCard[v3i]+=trueCard;
+								histV3DLCSum[v3i]+=avgDLC;
+								for(int e=0; e<NUM_EST; e++){
+									histV3RawEst[v3i][e]+=avgRaw[e];
+									if(avgRaw[e]>0){histV3CfSum[v3i][e]+=trueCard/avgRaw[e];}
+								}
+							}
 						}
 					}
 					prevTrueCard=trueCard;
@@ -652,6 +971,31 @@ public class DDLCalibrationDriver {
 		final double[] histCardMeanEstSum;
 		/** Cardinality histogram: sum of raw estimator values per slot. [slot][estimator] */
 		final double[][] histCardRawEst;
+
+		/** v1 histogram: number of DLC3B-indexed slots. 0 when cfVersion<1. */
+		final int numV1Slots;
+		/** v1 histogram: sample counts per slot. Null when cfVersion<1. */
+		final long[] histV1Count;
+		/** v1 histogram: sum of true cardinalities per slot. */
+		final long[] histV1TrueCard;
+		/** v1 histogram: sum of raw DLC3B estimates per slot (for avg key). */
+		final double[] histV1DLC3BSum;
+		/** v1 histogram: sum of raw estimator values per slot. */
+		final double[][] histV1RawEst;
+
+		/** v3 histogram: number of DLC-indexed slots. 0 when cfVersion<3. */
+		final int numV3Slots;
+		/** v3 histogram: sample counts per slot. Null when cfVersion<3. */
+		final long[] histV3Count;
+		/** v3 histogram: sum of true cardinalities per slot. */
+		final long[] histV3TrueCard;
+		/** v3 histogram: sum of raw DLC estimates per slot (for avg key). */
+		final double[] histV3DLCSum;
+		/** v3 histogram: sum of raw estimator values per slot. */
+		final double[][] histV3RawEst;
+		/** v3 histogram: sum of per-sample CF (trueCard/rawEst) per slot per estimator.
+		 *  Used to compute average-of-ratios instead of ratio-of-averages (Jensen fix). */
+		final double[][] histV3CfSum;
 
 		/** Set to true after runInner() completes without exception. */
 		volatile boolean success=false;

@@ -183,7 +183,7 @@ public abstract class CardinalityTracker implements Drivable {
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -703,6 +703,14 @@ public abstract class CardinalityTracker implements Drivable {
 	
 	long added=0;
 	long microIndex=0;
+	/** Absolute NLZ histogram: nlzCounts[k] = number of buckets with absoluteNlz==k.
+	 * Lazy-allocated on first summarize() call; cleared and reused on subsequent calls.
+	 * Used by DynamicLC (DLC) estimator in CardinalityStats. Null for non-DLL/DDL classes. */
+	protected int[] nlzCounts;
+	/** Sorted dif-value buffer for median, MWA, and trimmed-mean estimators.
+	 * Lazy-allocated on first summarize() when USE_SORTBUF is true; null otherwise.
+	 * Gated by USE_SORTBUF so HotSpot eliminates the dead code when disabled. */
+	protected LongList sortBuf;
 	/** Cached cardinality estimate; -1 means stale. Shared by all calibratable subclasses. */
 	public long lastCardinality=-1;
 	
@@ -734,6 +742,9 @@ public abstract class CardinalityTracker implements Drivable {
 	public static boolean USE_HLL=false;//HLL formula
 	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
 	public static final boolean USE_MICRO=false;
+	/** When true, allocate and fill sortBuf for median/MWA/mean99 estimators.
+	 * When false (default), those estimators return fallback values and no LongList is allocated. */
+	public static final boolean USE_SORTBUF=false;
 	/** When true, use cardinality-indexed CF table in addition to occupancy-indexed table.
 	 * Only applies when CorrectionFactor.USE_CORRECTION is also true; cardinality CF
 	 * cannot be active without the occupancy CF. Default true. */

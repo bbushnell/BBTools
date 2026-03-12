@@ -82,23 +82,30 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		double hllSumFilledM=0;
 		double gSum=0;
 		int count=0;
-		sortBuf.clear();
+		if(USE_SORTBUF){
+			if(sortBuf==null){sortBuf=new LongList(buckets);}
+			sortBuf.clear();
+		}
+		if(nlzCounts==null){nlzCounts=new int[64];}
+		else{java.util.Arrays.fill(nlzCounts, 0);}
 
 		for(int i=0; i<buckets; i++){
 			final int s=readBucket(i);
 			if(s>0){
+				final int absNlz=(s>>>mantissaBits)-1+minZeros;
+				if(absNlz<64){nlzCounts[absNlz]++;}
 				final long dif=restoreDif(s);
 				difSum+=dif;
-				hllSumFilled +=Math.pow(2.0, -(s>>>mantissaBits)+1-minZeros);
+				hllSumFilled +=Math.pow(2.0, -absNlz);
 				hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				sortBuf.add(dif);
+				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0, nlzCounts);
 	}
 
 	@Override
@@ -272,12 +279,12 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
-	private final LongList sortBuf=new LongList(buckets);
+	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
-	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
