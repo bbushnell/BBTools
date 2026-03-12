@@ -6,6 +6,21 @@ import structures.LongList;
 
 /**
  * DynamicLogLog2: 2-bit packed variant of DynamicLogLog using relative NLZ storage.
+ * <p>
+ * Packs 16 buckets into each int, 2 bits per bucket.
+ * Encoding: 0 = empty; 1-3 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
+ * No mantissa — coarsest precision per bucket, but allows 2x bucket count vs DLL4
+ * for the same memory footprint.
+ * Overflow (relNlz >= 3) clamped to stored=3 and absorbed by CF matrix.
+ * <p>
+ * Memory: 2 bits/bucket × 2048 buckets = 4096 bits = 512 bytes.
+ * 16 buckets per int; pure power-of-2 packing (no modulo, no wasted bits).
+ * <p>
+ * Key invariants:
+ * - maxArray[i>>>4] holds 16 consecutive buckets, each in 2 bits.
+ * - Bucket value 0 = empty; value 1-3 = (relNlz+1).
+ * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
+ * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -22,13 +37,13 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 
 	DynamicLogLog2(Parser p){
 		super(p);
-		maxArray=new int[buckets>>>3];
+		maxArray=new int[buckets>>>4];
 		minZeroCount=buckets;
 	}
 
 	DynamicLogLog2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
-		maxArray=new int[buckets>>>3];
+		maxArray=new int[buckets>>>4];
 		minZeroCount=buckets;
 	}
 
@@ -39,16 +54,16 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	/*----------------        Bucket Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Reads the 4-bit stored value for bucket i (0=empty, 1-15=relNlz+1). */
+	/** Reads the 2-bit stored value for bucket i (0=empty, 1-3=relNlz+1). */
 	private int readBucket(final int i){
-		return (maxArray[i>>>3]>>>((i&7)<<2))&0xF;
+		return (maxArray[i>>>4]>>>((i&15)<<1))&0x3;
 	}
 
-	/** Writes a 4-bit stored value for bucket i. val must be in [0,15]. */
+	/** Writes a 2-bit stored value for bucket i. val must be in [0,3]. */
 	private void writeBucket(final int i, final int val){
-		final int wordIdx=i>>>3;
-		final int shift=(i&7)<<2;
-		maxArray[wordIdx]=(maxArray[wordIdx]&~(0xF<<shift))|((val&0xF)<<shift);
+		final int wordIdx=i>>>4;
+		final int shift=(i&15)<<1;
+		maxArray[wordIdx]=(maxArray[wordIdx]&~(0x3<<shift))|((val&0x3)<<shift);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -65,12 +80,18 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		double hllSumFilled=0;
 		double gSum=0;
 		int count=0;
-		sortBuf.clear();
+		if(USE_SORTBUF){
+			if(sortBuf==null){sortBuf=new LongList(buckets);}
+			sortBuf.clear();
+		}
+		if(nlzCounts==null){nlzCounts=new int[64];}
+		else{java.util.Arrays.fill(nlzCounts, 0);}
 
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
+				if(absNlz<64){nlzCounts[absNlz]++;}
 				final long dif;
 				if(absNlz==0){dif=Long.MAX_VALUE;}
 				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
@@ -79,13 +100,12 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 				hllSumFilled+=Math.pow(2.0, -absNlz);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				sortBuf.add(dif);
+				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
 		}
-		// No mantissa: hllSumFilledM == hllSumFilled
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts);
 	}
 
 	@Override
@@ -106,7 +126,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	}
 
 	/**
-	 * Merges another DynamicLogLog4 into this one.
+	 * Merges another DynamicLogLog2 into this one.
 	 * <p>
 	 * Correct merge sequence:
 	 * <ol>
@@ -120,15 +140,9 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	 *       (possibly multiple times) if minZeroCount==0, exactly as hashAndStore does.</li>
 	 * </ol>
 	 * <p>
-	 * <b>Multi-threaded accuracy warning:</b> Using clonal per-thread estimator copies
-	 * (one DLL4 per thread, merged at the end) nondeterministically reduces accuracy
-	 * and this cannot be compensated for.  The cause is architectural: each per-thread
-	 * copy sees only a fraction of the data, so its sliding minZeros window promotes
-	 * less aggressively than a single estimator seeing all data.  This increases net
-	 * overflow events across the merged result.  With DLL4's 15-tier range the effect
-	 * is minor in practice: on a 12M-kmer dataset, t=1 gives ~11.43M, t=2 ~11.43M,
-	 * t=4 ~11.43M, t=8 ~11.42M — well under 0.1% degradation even at 8 threads.
-	 * For parallel use on the same stream, prefer a single synchronized instance.
+	 * <b>Multi-threaded accuracy warning:</b> With only 3 tiers, DLL2 is more sensitive
+	 * to per-thread overflow than DLL4. Prefer a single synchronized instance for
+	 * parallel streams.
 	 */
 	public void add(DynamicLogLog2 log){
 		added+=log.added;
@@ -140,8 +154,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 15)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 15)));
+				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 3)));
+				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 3)));
 				writeBucket(i, Math.max(nA, nB));
 			}
 			minZeros=newMinZeros;
@@ -177,12 +191,11 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
 		}
 
-		// Stored = relNlz+1, clamped to [1,15] for overflow
-		final int newStored=Math.min(relNlz+1, 15);
+		// Stored = relNlz+1, clamped to [1,3] for overflow
+		final int newStored=Math.min(relNlz+1, 3);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-		//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -212,9 +225,9 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 			int word=maxArray[w];
 			if(word==0){continue;}
 			int result=0;
-			for(int b=0; b<8; b++){
-				final int shift=b<<2;
-				int stored=(word>>>shift)&0xF;
+			for(int b=0; b<16; b++){
+				final int shift=b<<1;
+				int stored=(word>>>shift)&0x3;
 				if(stored>0){
 					stored--; // decrement relative tier
 					if(stored==1){newMinZeroCount++;} // new tier-0 after decrement
@@ -242,19 +255,19 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Packed 4-bit bucket array: 8 buckets per int, 0=empty, 1-15=relNlz+1. */
+	/** Packed 2-bit bucket array: 16 buckets per int, 0=empty, 1-3=relNlz+1. */
 	private final int[] maxArray;
 	private int minZeros=0;
 	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
-	private final LongList sortBuf=new LongList(buckets);
+	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
-	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
@@ -264,14 +277,13 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 
-
-	/** Default resource file for DDL correction factors. */
+	/** Default resource file for DLL2 correction factors (using DLL3 table until DLL2-specific table is generated). */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
-	/** Loads the DDL correction factor matrix from CF_FILE. */
+	/** Loads the DLL2 correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);

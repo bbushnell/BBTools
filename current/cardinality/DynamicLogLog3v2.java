@@ -220,12 +220,18 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		double hllSumFilled=0;
 		double gSum=0;
 		int count=0;
-		sortBuf.clear();
+		if(USE_SORTBUF){
+			if(sortBuf==null){sortBuf=new LongList(buckets);}
+			sortBuf.clear();
+		}
+		if(nlzCounts==null){nlzCounts=new int[64];}
+		else{java.util.Arrays.fill(nlzCounts, 0);}
 
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
+				if(absNlz<64){nlzCounts[absNlz]++;}
 				final long dif;
 				if(absNlz==0){dif=Long.MAX_VALUE;}
 				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
@@ -234,13 +240,12 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 				hllSumFilled+=Math.pow(2.0, -absNlz);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				sortBuf.add(dif);
+				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
 		}
-		// No mantissa: hllSumFilledM == hllSumFilled
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CF_MATRIX_CARD, CF_CARD_KEYS, microIndex);
+		                            CF_MATRIX_CARD, CF_CARD_KEYS, microIndex, nlzCounts);
 	}
 
 	@Override
@@ -262,12 +267,12 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
-	private final LongList sortBuf=new LongList(buckets);
+	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
-	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

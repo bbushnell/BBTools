@@ -280,9 +280,10 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		double hllSumFilledM=0;
 		double gSum=0;
 		int count=0;
-		sortBuf.clear();
-		final LongList list=sortBuf;
-
+		if(USE_SORTBUF){
+			if(sortBuf==null){sortBuf=new LongList(buckets);}
+			sortBuf.clear();
+		}
 		for(int i=0; i<maxArray.length; i++){
 			int max=maxArray[i];
 			long val=restore(max);
@@ -294,7 +295,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0-minZeros);
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
-				list.add(dif);
+				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
 		}
 
@@ -313,11 +314,25 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		final int div=Tools.max(count, 1);
 		final double mean=difSum/div;
 		double gmean=Math.exp(gSum/div);
-		list.sort();
-		final long median=Tools.max(1, list.median());
-		final double mwa=Tools.max(1.0, list.medianWeightedAverage());
-
 		final int V=buckets-count;
+		final long median;
+		final double mwa;
+		final double mean99;
+		if(USE_SORTBUF && sortBuf!=null){
+			sortBuf.sort();
+			median=Tools.max(1, sortBuf.median());
+			mwa=Tools.max(1.0, sortBuf.medianWeightedAverage());
+			final int trim=count/256;
+			final int trimLow=Math.max(0, trim-V);
+			double mean99Sum=0;
+			final int mean99N=count-trimLow-trim;
+			if(mean99N>0){for(int i=trim; i<count-trimLow; i++){mean99Sum+=sortBuf.get(i);}}
+			mean99=(mean99N>0 ? mean99Sum/mean99N : mean);
+		}else{
+			median=0;
+			mwa=0;
+			mean99=mean;
+		}
 
 		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
 		double hmeanEst=hmeanRaw;
@@ -328,16 +343,9 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		final double hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
 		final double meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))*div*correction;
 		final double gmeanEst  =2*(Long.MAX_VALUE/gmean)               *div*correction;
-		final double mwaEst    =2*(Long.MAX_VALUE/mwa)                 *div*correction;
-		final double medianCorr=2*(Long.MAX_VALUE/(double)median)      *div*correction;
+		final double mwaEst    =2*(Long.MAX_VALUE/Tools.max(1.0, mwa))                 *div*correction;
+		final double medianCorr=2*(Long.MAX_VALUE/(double)Tools.max(1, median))      *div*correction;
 		final double lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
-
-		final int trim=count/256;
-		final int trimLow=Math.max(0, trim-V);
-		double mean99Sum=0;
-		final int mean99N=count-trimLow-trim;
-		if(mean99N>0){for(int i=trim; i<count-trimLow; i++){mean99Sum+=list.get(i);}}
-		final double mean99=(mean99N>0 ? mean99Sum/mean99N : mean);
 
 		if(filledBuckets==0){return new double[10];}
 
@@ -440,12 +448,12 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
-	private final LongList sortBuf=new LongList(buckets);
+	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
-	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

@@ -1,6 +1,7 @@
 package cardinality;
 
 import java.io.File;
+import java.util.Arrays;
 
 import dna.Data;
 import fileIO.ByteFile;
@@ -45,10 +46,19 @@ public class CorrectionFactor{
 
 	public static synchronized float[][] loadFile(String fname, int buckets){
 		String path=(fname.indexOf('?')>=0 ? Data.findPath(fname) : fname);
+		if(path==null){throw new RuntimeException("Cannot find CF file: "+fname);}
 		File f=new File(path);
 		if(!f.canRead() || !f.isFile()){
-			System.err.println("Can't read "+fname);
-			return null;
+			throw new RuntimeException("Cannot read CF file: "+path);
+		}
+		// Peek at first line for version detection
+		FileFormat ff0=FileFormat.testInput(path, null, false);
+		ByteFile bf0=ByteFile.makeByteFile(ff0, 1);
+		byte[] firstLine=bf0.nextLine();
+		bf0.close();
+		if(firstLine!=null && new String(firstLine).trim().startsWith("#VERSION=")){
+			final int ver=Integer.parseInt(new String(firstLine).trim().substring(9));
+			if(ver>=1){return loadFileV1(path, buckets, ver);}
 		}
 		FloatList[] lists=null;
 		FileFormat ff=FileFormat.testInput(path, null, false);
@@ -302,6 +312,119 @@ public class CorrectionFactor{
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------          v1 Loading          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Column name → type constant mapping for v1 header parsing. */
+	private static int colNameToType(String name){
+		if("Mean_cf".equals(name)){return MEAN;}
+		if("HMean_cf".equals(name)){return HMEAN;}
+		if("HMeanM_cf".equals(name)){return HMEANM;}
+		if("GMean_cf".equals(name)){return GMEAN;}
+		if("DLC3B_cf".equals(name)){return DLC3B;}
+		if("HLL_cf".equals(name)){return HLL;}
+		if("Hybrid_cf".equals(name)){return HYBRID;}
+		if("HybDLC_cf".equals(name)){return HYBDLC;}
+		if("DLC_cf".equals(name)){return DLC;}
+		if("HybDLC50_cf".equals(name)){return HYBDLC50;}
+		return -1;
+	}
+
+	/**
+	 * Loads a v1 CF table: unified, cardinality-indexed by raw DLC3B estimate.
+	 * Format: #VERSION=N, #ESTIMATOR=DLC3B, header line, then data rows.
+	 * Col 0 = DLC3B_est (key), remaining cols = CF values per estimator.
+	 * Returns null for CF_MATRIX (v1 has no occupancy-indexed table).
+	 */
+	private static float[][] loadFileV1(String path, int buckets, int ver){
+		tableVersion=ver;
+		FileFormat ff=FileFormat.testInput(path, null, false);
+		ByteFile bf=ByteFile.makeByteFile(ff, 1);
+		LineParser1 lp=new LineParser1('\t');
+		int[] colTypes=null; // colTypes[fileCol] → type constant; -1 for key column or unknown
+		int numTypes=0;
+		FloatList keyList=new FloatList();
+		FloatList[] cfLists=null; // cfLists[typeIdx] parallel to colTypes
+
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0){continue;}
+			lp.set(line);
+			if(lp.startsWith('#')){
+				final String s=new String(line).trim();
+				if(s.startsWith("#VERSION=") || s.startsWith("#ESTIMATOR=")){continue;}
+				// Header line: #DLC3B_est\tMean_cf\tHMean_cf\t...
+				if(colTypes==null){
+					final String[] cols=s.split("\t");
+					colTypes=new int[cols.length];
+					numTypes=0;
+					for(int i=0; i<cols.length; i++){
+						colTypes[i]=colNameToType(cols[i].replace("#",""));
+						if(colTypes[i]>=0){numTypes++;}
+					}
+					cfLists=new FloatList[cols.length];
+					for(int i=0; i<cols.length; i++){cfLists[i]=new FloatList();}
+				}
+				continue;
+			}
+			if(!Tools.isNumeric(line[0])){continue;}
+			if(colTypes==null){continue;} // no header yet
+			keyList.add(lp.parseFloat(0));
+			for(int i=1; i<lp.terms() && i<colTypes.length; i++){
+				cfLists[i].add(lp.parseFloat(i));
+			}
+		}
+		bf.close();
+
+		if(keyList.size()==0 || colTypes==null){
+			throw new RuntimeException("v1 CF table has no data rows: "+path);
+		}
+
+		// Build v1Matrix: v1Matrix[type][row] = CF value; v1Keys[row] = DLC3B key
+		final int n=keyList.size();
+		final int maxType=HYBDLC50+1; // need indices 0..DLC
+		final float[][] mat=new float[maxType][n];
+		v1Keys=new float[n];
+		for(int i=0; i<n; i++){v1Keys[i]=keyList.get(i);}
+		// Fill all types with 1.0 default
+		for(int t=0; t<maxType; t++){Arrays.fill(mat[t], 1.0f);}
+		// Populate from file columns
+		for(int col=1; col<colTypes.length; col++){
+			if(colTypes[col]<0 || colTypes[col]>=maxType){continue;}
+			final float[] dest=mat[colTypes[col]];
+			for(int i=0; i<n; i++){dest[i]=cfLists[col].get(i);}
+		}
+		v1Matrix=mat;
+
+		// v1 has no occupancy-indexed table
+		lastCardMatrix=null;
+		lastCardKeys=null;
+		return null;
+	}
+
+	/**
+	 * v1 correction factor lookup: binary search on raw DLC3B estimate with linear interpolation.
+	 * Returns 1 if v1Matrix is null, USE_CORRECTION is false, or type is LINEAR.
+	 */
+	public static float getV1CF(double dlc3bEst, int type){
+		if(!USE_CORRECTION || v1Matrix==null || type==LINEAR || type>=v1Matrix.length){return 1;}
+		final float[] cfCol=v1Matrix[type];
+		final int n=v1Keys.length;
+		if(n==0){return 1;}
+		final float key=(float)dlc3bEst;
+		if(key<=v1Keys[0]){return cfCol[0];}
+		if(key>=v1Keys[n-1]){return cfCol[n-1];}
+		int lo=0, hi=n-1;
+		while(lo<hi-1){
+			final int mid=(lo+hi)>>>1;
+			if(v1Keys[mid]<=key){lo=mid;}else{hi=mid;}
+		}
+		final float k0=v1Keys[lo], k1=v1Keys[hi];
+		if(k1==k0){return cfCol[lo];}
+		final float frac=(key-k0)/(k1-k0);
+		return cfCol[lo]+frac*(cfCol[hi]-cfCol[lo]);
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------       Interpolation Math     ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -336,9 +459,10 @@ public class CorrectionFactor{
 	public static boolean USE_CORRECTION=true;
 
 	/** Estimator type constants: index into CF_MATRIX rows.
-	 * Matches CF file column order (Slot + CF columns; Hybrid at end as column 10). */
+	 * Matches CF file column order (Slot + CF columns; Hybrid at end as column 10).
+	 * v1 adds DLC3B and HYBDLC. */
 	public static final int OCCUPIED=0, MEAN=1, HMEAN=2, HMEANM=3, GMEAN=4, HLL=5,
-		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9, HYBRID=10;
+		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9, HYBRID=10, DLC3B=11, HYBDLC=12, DLC=13, HYBDLC50=14;
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;
@@ -351,5 +475,12 @@ public class CorrectionFactor{
 	public static float[][] lastCardMatrix=null;
 	/** MeanEst key array for binary-search into lastCardMatrix; same reference as lastCardMatrix[0]. */
 	public static float[] lastCardKeys=null;
+
+	/** v1 table: cardinality-indexed CF keyed by raw DLC3B estimate. */
+	public static float[][] v1Matrix=null;
+	/** v1 table: DLC3B estimate keys for binary-search into v1Matrix. */
+	public static float[] v1Keys=null;
+	/** Table version: 0 = legacy bipartite, 1+ = unified DLC3B-indexed. */
+	public static int tableVersion=0;
 
 }
