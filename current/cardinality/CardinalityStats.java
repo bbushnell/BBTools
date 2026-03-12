@@ -548,8 +548,11 @@ public class CardinalityStats {
 		final double target=buckets*0.25;
 		final double alpha=DLC_ALPHA/buckets;
 		int vk=V; double sumW=0, sumWLogE=0;
+		//TODO:  Probably need to handle when filled<minVK, though V>=0.5*buckets handles that
+		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(buckets*DLC_MIN_VK_FRACTION));
+		final int maxVK=buckets-minVK;
 		for(int tier=0; tier<NUM_DLC_TIERS; tier++){
-			if(vk>=1 && vk<buckets){
+			if(vk>=minVK && vk<=maxVK){
 				double est=dlcFromVk(tier, vk);
 				double w=Math.exp(-alpha*Math.abs(vk-target));
 				sumW+=w; sumWLogE+=w*Math.log(est);
@@ -697,7 +700,9 @@ public class CardinalityStats {
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / buckets.
 	 *  Controls how quickly tier weights decay away from the target occupancy.
 	 *  Set via dlcalpha= parameter in DDLCalibrationDriver. */
-	public static float DLC_ALPHA=9.216f;
+	public static float DLC_ALPHA=10.0f;//Empirically 10.5 scores slightly better but they look similar
+	public static float DLC_MIN_VK_FRACTION=0.002f;//Dramatically better than 0 at 2048 buckets.
+	public static int DLC_MIN_VK=1;
 
 	/** Number of DLC tiers included in toArray() output (DLC_0 through DLC_{N-1}). */
 	public static final int NUM_DLC_TIERS=64;
