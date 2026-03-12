@@ -118,7 +118,14 @@ public class DDLCalibrationDriver {
 			else if(a.equals("cfversion")){cfVersion=Integer.parseInt(b);}
 			else if(a.equals("cffile")){CorrectionFactor.initialize(b, buckets); CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
-			else if(a.equals("promotethreshold") || a.equals("pt")){
+			else if(a.equals("minvfraction") || a.equals("minvk")){
+				float x=Float.parseFloat(b);
+				if(x<1) {
+					CardinalityStats.DLC_MIN_VK_FRACTION=x;
+				}else {
+					CardinalityStats.DLC_MIN_VK=(int)x;
+				}
+			}else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
