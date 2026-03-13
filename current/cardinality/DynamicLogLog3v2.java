@@ -195,7 +195,11 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 					stored--; // decrement relative tier
 					if(stored==1){newMinZeroCount++;} // new tier-0 after decrement
 				}else if(stored==1){
-					newMinZeroCount++; // retained tier-0 (social promotion: don't decrement to empty)
+					if(RESET_ON_PROMOTE){
+						stored=0; // reset to empty instead of retaining
+						filledBuckets--; // track that this bucket is now empty
+					}
+					newMinZeroCount++; // empty or tier-0, either way counts toward minZeroCount
 				}
 				result|=(stored<<shift);
 			}
@@ -205,6 +209,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
+	public int minZeros(){return minZeros;}
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
@@ -251,8 +256,12 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
+		lastStats=s;
 		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
 	}
+
+	/** Last CardinalityStats from rawEstimates(); for debugging. */
+	public CardinalityStats lastStats;
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -286,6 +295,10 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	 * When >0, overrides PROMOTE_THRESHOLD: promoteThreshold = (int)(buckets * PROMOTE_FRAC).
 	 * E.g. 0.05 = promote when last 5% of tier-0 remain (default). */
 	public static float PROMOTE_FRAC=0.05f;
+	/** When true, social promotion resets tier-0 (stored=1) buckets to empty (stored=0)
+	 *  instead of retaining them. Tests whether CF tables converge better without
+	 *  retained stale tier-0 values biasing the estimator after floor advancement. */
+	public static boolean RESET_ON_PROMOTE=false;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
