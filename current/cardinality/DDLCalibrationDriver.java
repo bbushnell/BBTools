@@ -56,7 +56,7 @@ public class DDLCalibrationDriver {
 	 *  DLC columns have no CF. */
 	static final boolean[] NEEDS_CF;
 	static{
-		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","MWA","S30L6","S30R6","RawDup","DLC","DLC3B","DLCBest","HybDLC"};
+		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","RawDup","DLC","DLC3B","DLCBest","HybDLC"};
 		ESTIMATOR_NAMES=new String[NUM_EST];
 		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
@@ -73,6 +73,8 @@ public class DDLCalibrationDriver {
 	static boolean OUTPUT_RAW_MEAN=false;
 	/** CF table output version: 0 = legacy bipartite, 1 = unified DLC3B-indexed. */
 	static int cfVersion=0;
+	/** When true, asserts DLC estimate within 50% of true cardinality and dumps state on failure. */
+	static boolean ASSERT_DLC=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -118,6 +120,9 @@ public class DDLCalibrationDriver {
 			else if(a.equals("cfversion")){cfVersion=Integer.parseInt(b);}
 			else if(a.equals("cffile")){CorrectionFactor.initialize(b, buckets); CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
+			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
+			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
+			else if(a.equals("tracecf")){CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);}
 			else if(a.equals("minvfraction") || a.equals("minvk")){
 				float x=Float.parseFloat(b);
 				if(x<1) {
@@ -131,6 +136,10 @@ public class DDLCalibrationDriver {
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
 			}else if(a.equals("promotefrac") || a.equals("pf")){
 				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
+			}else if(a.equals("resetonpromote") || a.equals("rop")){
+				DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("assertdlc")){
+				ASSERT_DLC=Parse.parseBoolean(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
@@ -220,15 +229,15 @@ public class DDLCalibrationDriver {
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}
-				System.err.println(String.format("%-12s %.6f", ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/numRows));
+				System.err.println(String.format("%-12s %.8f", ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/numRows));
 			}
-			System.err.println(String.format("%-12s %.6f", MEDIAN_LC, totalMeanAbsErr[NUM_EST]/numRows));
+			System.err.println(String.format("%-12s %.8f", MEDIAN_LC, totalMeanAbsErr[NUM_EST]/numRows));
 			// Individual DLC tiers summary (only non-trivial ones)
 			System.err.println("--- DLC Tier Detail (non-trivial) ---");
 			for(int e=15; e<NUM_EST; e++){
 				final double avg=totalMeanAbsErr[e]/numRows;
 				if(avg<0.999){
-					System.err.println(String.format("%-12s %.6f", ESTIMATOR_NAMES[e], avg));
+					System.err.println(String.format("%-12s %.8f", ESTIMATOR_NAMES[e], avg));
 				}
 			}
 			System.err.println();
@@ -398,8 +407,8 @@ public class DDLCalibrationDriver {
 	static final int DLC_IDX=11;
 
 	/** v3 CF column definitions: rawEstimates() index → output column name. */
-	static final int[] V3_EST_INDICES={0, 1, 2, 3, 6, 11, 14, 7}; // Mean,HMean,HMeanM,GMean,Hybrid,DLC,HybDLC,HybDLC50
-	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","Hybrid_cf","DLC_cf","HybDLC_cf","HybDLC50_cf"};
+	static final int[] V3_EST_INDICES={0, 1, 2, 3, 6, 11, 13, 12, 8}; // Mean,HMean,HMeanM,GMean,Hybrid,DLC,DLCBest,DLC3B,DThHyb
+	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","Hybrid_cf","DLC_cf","DLCBest_cf","DLC3B_cf","DThHyb_cf"};
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
 	static int computeNumV3Slots(long maxTrue){
@@ -432,15 +441,15 @@ public class DDLCalibrationDriver {
 	 *  Keyed by trueCard; DLC is used as an approximation at lookup time.
 	 *  This avoids all histogram binning bias (Jensen's inequality + selection bias). */
 	static void printHistogramV3(final ArrayList<ReportRow> rows, final PrintStream ps){
-		ps.println("#VERSION=3");
+		ps.println("#VERSION=4");
 		ps.println("#ESTIMATOR=DLC");
-		final StringBuilder hdr=new StringBuilder("#DLC_est");
+		final StringBuilder hdr=new StringBuilder("#TrueCard");
 		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
 		ps.println(hdr);
 		for(final ReportRow row : rows){
 			if(row.trueCard<1 || row.n<1){continue;}
 			final StringBuilder sb=new StringBuilder();
-			sb.append(String.format("%.2f", (double)row.trueCard));
+			sb.append(row.trueCard);
 			for(int c=0; c<V3_EST_INDICES.length; c++){
 				final int eIdx=V3_EST_INDICES[c];
 				final double avgErr=row.sumErr[eIdx]/row.n;
@@ -925,6 +934,24 @@ public class DDLCalibrationDriver {
 			for(CardinalityTracker ddl : ddls){
 				occSum+=ddl.occupancy();
 				final double[] est=ddl.rawEstimates();
+				// DLC assertion: uncomment to debug DLC divergence.
+				// When enabled, dumps CardinalityStats.toString() at the first >50% error.
+//				if(ASSERT_DLC && trueCard>0){
+//					final double dlcEst=est[DLC_IDX];
+//					final double relErr=Math.abs(dlcEst-trueCard)/(double)trueCard;
+//					if(relErr>0.5){
+//						System.err.println("\n=== DLC ASSERTION FAILURE ===");
+//						System.err.println("trueCard="+trueCard+" dlcEst="+String.format("%.2f", dlcEst)
+//							+" relErr="+String.format("%.4f", relErr));
+//						if(ddl instanceof DynamicLogLog3v2){
+//							final DynamicLogLog3v2 d=(DynamicLogLog3v2)ddl;
+//							System.err.println("minZeros="+d.minZeros());
+//							if(d.lastStats!=null){System.err.println(d.lastStats.toString());}
+//						}
+//						System.err.println("filledBuckets="+ddl.filledBuckets());
+//						assert false : "DLC error "+String.format("%.1f%%", relErr*100)+" at trueCard="+trueCard;
+//					}
+//				}
 				sumRawMean+=est[0];
 				for(int e=0; e<NUM_EST; e++){
 					final double err=(est[e]-trueCard)/(double)trueCard;

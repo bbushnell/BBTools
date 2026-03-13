@@ -36,7 +36,7 @@ eukcc=<file>    Optional EukCC eukcc.csv file or directory.
 cami=<file>     Optional binning file from CAMI which indicates contig TaxIDs.
 taxin=<file>    Optional file with taxIDs and sizes (instead of loading ref).
                 Does not need to include taxIDs.  The tax file loads faster.
-gtdb=<file>     Optional gtdbtk file.
+gtdb=<file>     Optional gtdbtk directory containing gtdbtk.*.summary.tsv.
 gff=<file>      Optional gff file.
 imgmap=<file>   Optional IMG map file, for renamed IMG gff input.
 spectra=<file>  Optional path to QuickClade index.

@@ -154,14 +154,17 @@ public class CardinalityStats {
 
 		nlzCounts=nlzCounts_;
 
+		// Tier-compensated LC: LC * 2^minZeros. Equals lcPure when minZeros=0.
+		{int mz=0; while(mz<nlzCounts.length && nlzCounts[mz]==0){mz++;} lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));}
+
 		// Cache DLC estimates for CF lookup (CF-free, so no circular dependency)
 		// MUST be computed before cf() calls below
 		dlc3bEst=dlcBlend3();
 		dlcEst=dlcLogSpace025();
 
-		// CF-corrected values used by hybrid
-		meanEstCF   =meanEst   *cf(CorrectionFactor.MEAN);
-		hmeanPureMCF=hasMantissa ? hmeanPureM*cf(CorrectionFactor.HMEANM) : hmeanPureM;
+		// CF-corrected values used by hybrid (iterative CF for v3 tables)
+		meanEstCF   =meanEst   *cf(meanEst, CorrectionFactor.MEAN);
+		hmeanPureMCF=hasMantissa ? hmeanPureM*cf(hmeanPureM, CorrectionFactor.HMEANM) : hmeanPureM;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -173,22 +176,22 @@ public class CardinalityStats {
 
 	/** HMean (filled-bucket harmonic mean) with optional CF. */
 	public double hmean(boolean applyCF){
-		return applyCF ? hmeanPure*cf(CorrectionFactor.HMEAN) : hmeanPure;
+		return applyCF ? hmeanPure*cf(hmeanPure, CorrectionFactor.HMEAN) : hmeanPure;
 	}
 
 	/** HMeanM (mantissa-corrected harmonic mean) with optional CF. */
 	public double hmeanM(boolean applyCF){
-		return applyCF ? hmeanPureM*cf(CorrectionFactor.HMEANM) : hmeanPureM;
+		return applyCF ? hmeanPureM*cf(hmeanPureM, CorrectionFactor.HMEANM) : hmeanPureM;
 	}
 
 	/** GMean cardinality estimate with optional CF. */
 	public double gmean(boolean applyCF){
-		return applyCF ? gmeanEst*cf(CorrectionFactor.GMEAN) : gmeanEst;
+		return applyCF ? gmeanEst*cf(gmeanEst, CorrectionFactor.GMEAN) : gmeanEst;
 	}
 
 	/** HLL-style all-buckets estimate with optional CF. */
 	public double hll(boolean applyCF){
-		return applyCF ? hmeanEst*cf(CorrectionFactor.HLL) : hmeanEst;
+		return applyCF ? hmeanEst*cf(hmeanEst, CorrectionFactor.HLL) : hmeanEst;
 	}
 
 	/** LC (linear counting) estimate; no CF applied. */
@@ -196,17 +199,17 @@ public class CardinalityStats {
 
 	/** MWA estimate with optional CF. */
 	public double mwa(boolean applyCF){
-		return applyCF ? mwaEst*cf(CorrectionFactor.MWA) : mwaEst;
+		return applyCF ? mwaEst*cf(mwaEst, CorrectionFactor.MWA) : mwaEst;
 	}
 
 	/** MedianCorr estimate with optional CF. */
 	public double medianCorr(boolean applyCF){
-		return applyCF ? medianCorr*cf(CorrectionFactor.MEDCORR) : medianCorr;
+		return applyCF ? medianCorr*cf(medianCorr, CorrectionFactor.MEDCORR) : medianCorr;
 	}
 
 	/** Mean99 (trimmed mean) estimate with optional CF. */
 	public double mean99(boolean applyCF){
-		return applyCF ? mean99Est*cf(CorrectionFactor.MEAN99) : mean99Est;
+		return applyCF ? mean99Est*cf(mean99Est, CorrectionFactor.MEAN99) : mean99Est;
 	}
 
 	/**
@@ -215,12 +218,50 @@ public class CardinalityStats {
 	 */
 	public double hybridDLL(){
 		final double hb0=0.20*buckets, hb1=5.0*buckets;
-		if(lcPure<=hb0){return lcPure;}
-		if(lcPure<hb1){
-			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-			return (1-t)*lcPure+t*meanEstCF;
+		if(lcMin<=hb0){return lcMin;}
+		if(lcMin<hb1){
+			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
+			return (1-t)*lcMin+t*meanEstCF;
 		}
 		return meanEstCF;
+	}
+
+	/**
+	 * DLC-threshold hybrid: uses DLC for zone detection, LC+Mean for blended values.
+	 * Same blend formula as hybridDLL(), but dlcLogSpace025() determines which zone
+	 * we're in and the blend weight, while the actual values blended are still
+	 * lcPure (low cardinality) and meanEstCF (high cardinality).
+	 * <p>
+	 * Rationale: LC saturates (all buckets filled) before DLC does, so DLC
+	 * provides a better threshold signal at higher cardinalities where LC is
+	 * already pegged. The blended values stay LC+Mean since those are the
+	 * most accurate low/high estimators respectively.
+	 */
+	public double dlcThreshHybrid(){
+		final double dlc=dlcLogSpace025();
+		final double hb0=0.20*buckets, hb1=5.0*buckets;
+		if(dlc<=hb0){return lcMin;}
+		if(!hasMantissa){
+			// DLL types: simple lcMin→Mean blend (no HMeanM)
+			if(dlc<hb1){
+				final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
+				return (1-t)*lcMin+t*meanEstCF;
+			}
+			return meanEstCF;
+		}
+		// DDL types: lcMin→Mean→HMeanM blend
+		final double hbMid1=1.0*buckets, hbMid2=2.5*buckets;
+		final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
+		if(dlc<=hbMid1){
+			return (1-t)*lcMin+t*meanEstCF;
+		}else if(dlc<=hbMid2){
+			final double mix=(hbMid2-dlc)/(hbMid2-hbMid1);
+			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
+			return (1-t)*lcMin+t*blended;
+		}else if(dlc<hb1){
+			return (1-t)*lcMin+t*hmeanPureMCF;
+		}
+		return hmeanPureMCF;
 	}
 
 	/**
@@ -239,10 +280,10 @@ public class CardinalityStats {
 	public double hybridDLL3(){
 		// Phase 1: LC → Mean (same as hybridDLL)
 		final double hb0=0.20*buckets, hb1=5.0*buckets;
-		if(lcPure<=hb0){return lcPure;}
-		if(lcPure<hb1){
-			final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-			return (1-t)*lcPure+t*meanEstCF;
+		if(lcMin<=hb0){return lcMin;}
+		if(lcMin<hb1){
+			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
+			return (1-t)*lcMin+t*meanEstCF;
 		}
 		// Phase 2+: zone detection via meanEst*~CF (CF-independent, no circular dep)
 		final double zone=meanEst*0.7;
@@ -296,16 +337,16 @@ public class CardinalityStats {
 	 */
 	public double hybridDDL(){
 		final double hb0=0.20*buckets, hbMid1=1.0*buckets, hbMid2=2.5*buckets, hb1=5.0*buckets;
-		if(lcPure<=hb0){return lcPure;}
-		final double t=Math.log(lcPure/hb0)/Math.log(hb1/hb0);
-		if(lcPure<=hbMid1){
-			return (1-t)*lcPure+t*meanEstCF;
-		}else if(lcPure<=hbMid2){
-			final double mix=(hbMid2-lcPure)/(hbMid2-hbMid1);
+		if(lcMin<=hb0){return lcMin;}
+		final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
+		if(lcMin<=hbMid1){
+			return (1-t)*lcMin+t*meanEstCF;
+		}else if(lcMin<=hbMid2){
+			final double mix=(hbMid2-lcMin)/(hbMid2-hbMid1);
 			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
-			return (1-t)*lcPure+t*blended;
-		}else if(lcPure<=hb1){
-			return (1-t)*lcPure+t*hmeanPureMCF;
+			return (1-t)*lcMin+t*blended;
+		}else if(lcMin<=hb1){
+			return (1-t)*lcMin+t*hmeanPureMCF;
 		}
 		return hmeanPureMCF;
 	}
@@ -325,21 +366,24 @@ public class CardinalityStats {
 		final double micro=CardinalityTracker.USE_MICRO ? microEst : 0;
 		if(count==0){final double[] z=new double[total]; for(int i=0;i<10;i++){z[i]=micro;} z[10]=microEst; return z;}
 		final double[] r=new double[total];
-		r[0] =Math.max(meanEstCF,                              micro);
-		r[1] =Math.max(hmeanPure  *cf(CorrectionFactor.HMEAN), micro);
-		r[2] =Math.max(hasMantissa ? hmeanPureM*cf(CorrectionFactor.HMEANM) : hmeanPureM, micro);
-		r[3] =Math.max(gmeanEst   *cf(CorrectionFactor.GMEAN), micro);
-		r[4] =Math.max(hmeanEst   *cf(CorrectionFactor.HLL),   micro);
-		r[5] =Math.max(lcPure,                                 micro);
-		r[6] =Math.max(hybridEst,                              micro);
-		r[7] =hybDLC50()*cf(CorrectionFactor.HYBDLC50); // slot MWA → HybDLC50 with own CF
-		r[8] =0; // disabled
-		r[9] =0; // disabled
+		final double rawHybDLC50=hybDLC50();
+		final double rawDLC=dlcLogSpace025();
+		final double rawHybDLC=hybridDLC();
+		r[0] =Math.max(meanEstCF,                                          micro);
+		r[1] =Math.max(hmeanPure  *cf(hmeanPure, CorrectionFactor.HMEAN), micro);
+		r[2] =Math.max(hasMantissa ? hmeanPureM*cf(hmeanPureM, CorrectionFactor.HMEANM) : hmeanPureM, micro);
+		r[3] =Math.max(gmeanEst   *cf(gmeanEst, CorrectionFactor.GMEAN), micro);
+		r[4] =Math.max(hmeanEst   *cf(hmeanEst, CorrectionFactor.HLL),   micro);
+		r[5] =Math.max(lcPure,                                            micro);
+		r[6] =Math.max(hybridEst,                                         micro);
+		r[7] =rawHybDLC50*cf(rawHybDLC50, CorrectionFactor.HYBDLC50);
+		r[8] =dlcThreshHybrid();
+		r[9] =dlcLowest();
 		r[10]=0; // disabled
-		r[11]=dlcLogSpace025()*cf(CorrectionFactor.DLC); // DLC with CF
+		r[11]=rawDLC*cf(rawDLC, CorrectionFactor.DLC);
 		r[12]=dlcBlend3();      // slot DLC3B → Chloe (log-space, target=0.20) ← NEW
 		r[13]=dlcBest();
-		r[14]=hybridDLC()*cf(CorrectionFactor.HYBDLC);
+		r[14]=rawHybDLC*cf(rawHybDLC, CorrectionFactor.HYBDLC);
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[15+t]=dlcEstimate(t);
 		}
@@ -365,7 +409,6 @@ public class CardinalityStats {
 	 */
 	public double dlcEstimate(int tier){
 		if(tier==0){return lcPure;}
-		if(nlzCounts==null){return 0;}
 		int vk=V; // empty buckets
 		for(int i=0; i<tier && i<nlzCounts.length; i++){
 			vk+=nlzCounts[i];
@@ -384,13 +427,14 @@ public class CardinalityStats {
 	 * Only tiers with V_k in [1, B-1] (nontrivially informative) participate.
 	 */
 	public double dlcCombined(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.75*buckets){return lcPure;}
+
+		if(V>0.75*buckets){return lcMin;}
 		final double half=buckets*0.5;
 		final double scale=buckets*0.125;
 		double sumW=0, sumWE=0;
+		final int startTier=lowestActiveTier();
 		int vk=V;
-		for(int tier=0; tier<NUM_DLC_TIERS; tier++){
+		for(int tier=startTier; tier<NUM_DLC_TIERS; tier++){
 			if(vk>=1 && vk<buckets){
 				final double est=(1L<<tier)*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
 				final double w=Math.pow(2, -Math.abs(vk-half)/scale);
@@ -399,7 +443,7 @@ public class CardinalityStats {
 			}
 			if(tier<nlzCounts.length){vk+=nlzCounts[tier];}
 		}
-		return sumW>0 ? sumWE/sumW : lcPure;
+		return sumW>0 ? sumWE/sumW : lcMin;
 	}
 
 	/**
@@ -411,14 +455,15 @@ public class CardinalityStats {
 	 *     linearly interpolated by relative closeness to target occupancy.
 	 */
 	public double dlcBlend3(){
-		if(nlzCounts==null){return lcPure;}
-		// Smooth transition: above 50% free, pure LC; 30-50% free, blend with LC
-		if(V>=0.5*buckets){return lcPure;}
+
+		// Smooth transition: above 50% free, pure lcMin; 30-50% free, blend with lcMin
+		if(V>=0.5*buckets){return lcMin;}
 		final double target=buckets*0.20; // 80% full = 20% free
 		final double alpha=DLC_ALPHA/buckets; // alpha*B ≈ 9.2 (calibrated at 1024 buckets)
+		final int startTier=lowestActiveTier();
 		int vk=V;
 		double sumW=0, sumWLogE=0;
-		for(int tier=0; tier<NUM_DLC_TIERS; tier++){
+		for(int tier=startTier; tier<NUM_DLC_TIERS; tier++){
 			if(vk>=1 && vk<buckets){
 				final double est=dlcFromVk(tier, vk);
 				final double w=Math.exp(-alpha*Math.abs(vk-target));
@@ -428,12 +473,11 @@ public class CardinalityStats {
 			if(tier<nlzCounts.length && tier<NUM_DLC_TIERS-1){vk+=nlzCounts[tier];}
 			if(vk>=buckets){break;}
 		}
-		if(sumW<=0){return lcPure;}
+		if(sumW<=0){return lcMin;}
 		final double blendEst=Math.exp(sumWLogE/sumW);
-		// Smooth transition in the 30-50% free zone
 		if(V>0.3*buckets){
 			final double t=(V-0.3*buckets)/(0.2*buckets);
-			return t*lcPure+(1-t)*blendEst;
+			return t*lcMin+(1-t)*blendEst;
 		}
 		return blendEst;
 	}
@@ -442,12 +486,13 @@ public class CardinalityStats {
 
 	/** Variant 0: Original 60/40 3-tier blend, target=0.25 */
 	private double dlcOriginal(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.4*buckets){return lcPure;}
+
+		if(V>0.4*buckets){return lcMin;}
 		final double target=buckets*0.25;
-		int vk=V; int bestTier=0; double bestDist=Math.abs(vk-target); int maxUseful=0;
-		final int[] vks=new int[NUM_DLC_TIERS]; vks[0]=vk;
-		for(int tier=1; tier<NUM_DLC_TIERS; tier++){
+		final int startTier=lowestActiveTier();
+		int vk=V; int bestTier=startTier; double bestDist=Math.abs(vk-target); int maxUseful=startTier;
+		final int[] vks=new int[NUM_DLC_TIERS]; vks[startTier]=vk;
+		for(int tier=startTier+1; tier<NUM_DLC_TIERS; tier++){
 			if(tier-1<nlzCounts.length){vk+=nlzCounts[tier-1];}
 			vks[tier]=vk; if(vk<buckets){maxUseful=tier;}
 			double dist=Math.abs(vk-target);
@@ -470,12 +515,13 @@ public class CardinalityStats {
 
 	/** Variant 1: Agent1 — 45/55 center/flank weights, target=0.25 */
 	private double dlc45_55(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.4*buckets){return lcPure;}
+
+		if(V>0.4*buckets){return lcMin;}
 		final double target=buckets*0.25;
-		int vk=V; int bestTier=0; double bestDist=Math.abs(vk-target); int maxUseful=0;
-		final int[] vks=new int[NUM_DLC_TIERS]; vks[0]=vk;
-		for(int tier=1; tier<NUM_DLC_TIERS; tier++){
+		final int startTier=lowestActiveTier();
+		int vk=V; int bestTier=startTier; double bestDist=Math.abs(vk-target); int maxUseful=startTier;
+		final int[] vks=new int[NUM_DLC_TIERS]; vks[startTier]=vk;
+		for(int tier=startTier+1; tier<NUM_DLC_TIERS; tier++){
 			if(tier-1<nlzCounts.length){vk+=nlzCounts[tier-1];}
 			vks[tier]=vk; if(vk<buckets){maxUseful=tier;}
 			double dist=Math.abs(vk-target);
@@ -498,12 +544,13 @@ public class CardinalityStats {
 
 	/** Variant 2: Agent4 — 5-tier inverse distance weighting, target=0.25 */
 	private double dlc5tier(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.4*buckets){return lcPure;}
+
+		if(V>0.4*buckets){return lcMin;}
 		final double target=buckets*0.25;
-		int vk=V; int bestTier=0; double bestDist=Math.abs(vk-target); int maxUseful=0;
-		final int[] vks=new int[NUM_DLC_TIERS]; vks[0]=vk;
-		for(int tier=1; tier<NUM_DLC_TIERS; tier++){
+		final int startTier=lowestActiveTier();
+		int vk=V; int bestTier=startTier; double bestDist=Math.abs(vk-target); int maxUseful=startTier;
+		final int[] vks=new int[NUM_DLC_TIERS]; vks[startTier]=vk;
+		for(int tier=startTier+1; tier<NUM_DLC_TIERS; tier++){
 			if(tier-1<nlzCounts.length){vk+=nlzCounts[tier-1];}
 			vks[tier]=vk; if(vk<buckets){maxUseful=tier;}
 			double dist=Math.abs(vk-target);
@@ -519,17 +566,18 @@ public class CardinalityStats {
 				sumW+=w; sumWE+=w*dlcFromVk(t, vks[t]);
 			}
 		}
-		return sumW>0 ? sumWE/sumW : lcPure;
+		return sumW>0 ? sumWE/sumW : lcMin;
 	}
 
 	/** Variant 3: Agent5 — all-tier exponential, LINEAR average, target=0.25 */
 	private double dlcExpLinear(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.4*buckets){return lcPure;}
+
+		if(V>0.4*buckets){return lcMin;}
 		final double target=buckets*0.25;
 		final double alpha=DLC_ALPHA/buckets;
+		final int startTier=lowestActiveTier();
 		int vk=V; double sumW=0, sumWE=0;
-		for(int tier=0; tier<NUM_DLC_TIERS; tier++){
+		for(int tier=startTier; tier<NUM_DLC_TIERS; tier++){
 			if(vk>=1 && vk<buckets){
 				double est=dlcFromVk(tier, vk);
 				double w=Math.exp(-alpha*Math.abs(vk-target));
@@ -538,20 +586,21 @@ public class CardinalityStats {
 			if(tier<nlzCounts.length && tier<NUM_DLC_TIERS-1){vk+=nlzCounts[tier];}
 			if(vk>=buckets){break;}
 		}
-		return sumW>0 ? sumWE/sumW : lcPure;
+		return sumW>0 ? sumWE/sumW : lcMin;
 	}
 
 	/** Variant 4: Chloe — all-tier exponential, LOG-SPACE average, target=0.25, smooth transition */
 	private double dlcLogSpace025(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>=0.5*buckets){return lcPure;}
+
+		if(V>=0.5*buckets){return lcMin;}
 		final double target=buckets*0.25;
 		final double alpha=DLC_ALPHA/buckets;
-		int vk=V; double sumW=0, sumWLogE=0;
-		//TODO:  Probably need to handle when filled<minVK, though V>=0.5*buckets handles that
 		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(buckets*DLC_MIN_VK_FRACTION));
 		final int maxVK=buckets-minVK;
-		for(int tier=0; tier<NUM_DLC_TIERS; tier++){
+		final int startTier=lowestActiveTier();
+		int vk=V; // V_k at startTier (nlzCounts[0..startTier-1] are all zero, so V_startTier = V)
+		double sumW=0, sumWLogE=0;
+		for(int tier=startTier; tier<NUM_DLC_TIERS; tier++){
 			if(vk>=minVK && vk<=maxVK){
 				double est=dlcFromVk(tier, vk);
 				double w=Math.exp(-alpha*Math.abs(vk-target));
@@ -560,9 +609,9 @@ public class CardinalityStats {
 			if(tier<nlzCounts.length && tier<NUM_DLC_TIERS-1){vk+=nlzCounts[tier];}
 			if(vk>=buckets){break;}
 		}
-		if(sumW<=0){return lcPure;}
+		if(sumW<=0){return lcMin;}
 		double blendEst=Math.exp(sumWLogE/sumW);
-		if(V>0.3*buckets){double t=(V-0.3*buckets)/(0.2*buckets); return t*lcPure+(1-t)*blendEst;}
+		if(V>0.3*buckets){double t=(V-0.3*buckets)/(0.2*buckets); return t*lcMin+(1-t)*blendEst;}
 		return blendEst;
 	}
 
@@ -574,15 +623,16 @@ public class CardinalityStats {
 	 * Below 60% DLC0 occupancy, returns pure DLC0 (= LC).
 	 */
 	public double dlcBest(){
-		if(nlzCounts==null){return lcPure;}
-		if(V>0.4*buckets){return lcPure;}
+
+		if(V>0.4*buckets){return lcMin;}
 		final double target=buckets*0.25; // 75% full = 25% free
+		final int startTier=lowestActiveTier();
 		int vk=V;
-		int bestTier=0;
+		int bestTier=startTier;
 		double bestDist=Math.abs(vk-target);
 		final int[] vks=new int[NUM_DLC_TIERS];
-		vks[0]=vk;
-		for(int tier=1; tier<NUM_DLC_TIERS; tier++){
+		vks[startTier]=vk;
+		for(int tier=startTier+1; tier<NUM_DLC_TIERS; tier++){
 			if(tier-1<nlzCounts.length){vk+=nlzCounts[tier-1];}
 			vks[tier]=vk;
 			final double dist=Math.abs(vk-target);
@@ -601,9 +651,38 @@ public class CardinalityStats {
 		return estBest;
 	}
 
+	/**
+	 * Tier-compensated LC: returns DLC at the lowest active tier.
+	 * After social promotion (minZeros > 0), tiers below minZeros are empty.
+	 * Standard LC (DLC0) ignores this, using V (empty buckets) at tier 0.
+	 * dlcLowest() finds the first tier with filled buckets and returns DLC(k) there.
+	 * Since nlzCounts[0..k-1] are all zero, V_k = V, so this equals LC * 2^k.
+	 * Before any promotion (k=0), equals LC exactly.
+	 */
+	public double dlcLowest(){
+		for(int k=0; k<nlzCounts.length; k++){
+			if(nlzCounts[k]>0){
+				return k==0 ? lcPure : dlcEstimate(k);
+			}
+		}
+		return lcPure;
+	}
+
 	/** DLC estimate from pre-computed V_k. */
 	private double dlcFromVk(int tier, int vk){
 		return (1L<<tier)*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+	}
+
+	/**
+	 * Returns the lowest tier that has any filled buckets (first non-zero nlzCounts entry).
+	 * Tiers below this have V_k = V (just empty buckets repeated with no real tier info)
+	 * and must be excluded from DLC blending to avoid garbage estimates after tier promotion.
+	 */
+	private int lowestActiveTier(){
+		for(int k=0; k<nlzCounts.length; k++){
+			if(nlzCounts[k]>0){return k;}
+		}
+		return 0;
 	}
 
 	/** DLC with parameterized sine model correction.
@@ -624,18 +703,93 @@ public class CardinalityStats {
 	/*----------------           Helpers            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private double cf(int type){
+	/**
+	 * Correction factor for a given estimator type.
+	 * For v1+/v3 tables: delegates to CorrectionFactor.getCF() with iterative
+	 * refinement (DLC as seed, rawEst as target). Flat CF curves converge in 1
+	 * round; divergent curves (DLL3) need 2-3.
+	 * For legacy tables: occupancy-based lookup (no iteration).
+	 *
+	 * @param rawEst  raw (uncorrected) estimate from the target estimator
+	 * @param type    CorrectionFactor type constant (MEAN, HMEAN, DLC, etc.)
+	 * @return correction factor to multiply rawEst by
+	 */
+	private double cf(double rawEst, int type){
 		if(CorrectionFactor.tableVersion>=3){
-			return CorrectionFactor.getV1CF(dlcEst, type);
+			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
+					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
+			if(CorrectionFactor.TRACE_CF){System.err.println("cf(rawEst="+String.format("%.2f",rawEst)+", type="+type+", dlcEst="+String.format("%.2f",dlcEst)+")");}
+			final int iters=(dlcEst>MIN_SEED_CF_MULT*buckets ? DEFAULT_CF_ITERS : 1);
+			return CorrectionFactor.getCF(dlcEst, rawEst,
+					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+					iters, DEFAULT_CF_DIF);
 		}
 		if(CorrectionFactor.tableVersion>=1){
-			return CorrectionFactor.getV1CF(dlc3bEst, type);
+			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
+					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
+			final int iters=(dlc3bEst>MIN_SEED_CF_MULT*buckets ? DEFAULT_CF_ITERS : 1);
+			return CorrectionFactor.getCF(dlc3bEst, rawEst,
+					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+					iters, DEFAULT_CF_DIF);
 		}
 		if(matrixCard!=null && CardinalityTracker.USE_CARD_CF && CorrectionFactor.USE_CORRECTION){
 			return CorrectionFactor.getCF(cfMatrix, cfBuckets, matrixCard, cardKeys,
 			                              count, buckets, meanEst, type);
 		}
 		return CorrectionFactor.getCF(cfMatrix, cfBuckets, count, buckets, type);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Debug Output         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	@Override
+	public String toString(){
+		final StringBuilder sb=new StringBuilder();
+		sb.append("CardinalityStats{");
+		sb.append("\n  buckets=").append(buckets);
+		sb.append(", count=").append(count);
+		sb.append(", V=").append(V);
+		sb.append(", lcPure=").append(String.format("%.2f", lcPure));
+		sb.append(", dlcEst=").append(String.format("%.2f", dlcEst));
+		sb.append(", dlc3bEst=").append(String.format("%.2f", dlc3bEst));
+		sb.append(", meanEst=").append(String.format("%.2f", meanEst));
+		sb.append("\n  dlcLowest()=").append(String.format("%.2f", dlcLowest()));
+		// Infer minZeros from nlzCounts
+		int inferredMin=-1;
+		if(nlzCounts!=null){
+			for(int k=0; k<nlzCounts.length; k++){
+				if(nlzCounts[k]>0){inferredMin=k; break;}
+			}
+		}
+		sb.append(", inferredMinZeros=").append(inferredMin);
+		// NLZ histogram (non-zero entries)
+		if(nlzCounts!=null){
+			sb.append("\n  nlzCounts[");
+			boolean first=true;
+			for(int k=0; k<nlzCounts.length; k++){
+				if(nlzCounts[k]>0){
+					if(!first){sb.append(", ");}
+					sb.append(k).append("=").append(nlzCounts[k]);
+					first=false;
+				}
+			}
+			sb.append("]");
+		}
+		// DLC per tier with V_k
+		sb.append("\n  DLC tiers:");
+		int vk=V;
+		for(int t=0; t<Math.min(12, NUM_DLC_TIERS); t++){
+			final double est=(vk>=1 && vk<buckets) ? dlcFromVk(t, vk) : -1;
+			sb.append(String.format("\n    tier%d: V_%d=%d, DLC=%.2f", t, t, vk, est));
+			if(nlzCounts!=null && t<nlzCounts.length){vk+=nlzCounts[t];}
+			if(vk>=buckets){
+				sb.append(String.format("  (V_%d=%d >= B, stopping)", t+1, vk));
+				break;
+			}
+		}
+		sb.append("\n}");
+		return sb.toString();
 	}
 
 	/*--------------------------------------------------------------*/
@@ -693,9 +847,25 @@ public class CardinalityStats {
 	// Absolute NLZ histogram from summarize(); null for legacy classes
 	final int[] nlzCounts;
 
+	// Tier-compensated LC: lcPure * 2^minZeros. Equals lcPure when minZeros=0.
+	// Replaces lcPure everywhere except raw LC output (slot 5) and HLL fallback.
+	final double lcMin;
+
 	// Cached DLC estimates (CF-free) for CF table lookup
 	final double dlc3bEst;  // v1 key
 	final double dlcEst;    // v3 key (dlcLogSpace025)
+
+	/** Max iterations for iterative CF refinement. 1 = single lookup (legacy behavior).
+	 *  2+ = iterative self-correction using corrected estimate as improved lookup key.
+	 *  Flat CF curves (DLL4/DDL8) converge in 1; divergent curves (DLL3) need 2-3.
+	 *  Set via cfiters= parameter in DDLCalibrationDriver. */
+	public static int DEFAULT_CF_ITERS=2;
+	/** Convergence threshold for iterative CF. Stop when |newCf - cf| < this.
+	 *  Set via cfdif= parameter in DDLCalibrationDriver. */
+	public static double DEFAULT_CF_DIF=1e-6;
+	/** Minimum seed estimate as a multiple of buckets for iterative CF.
+	 *  Below this, CFs are steep and iteration diverges; single lookup used instead. */
+	public static float MIN_SEED_CF_MULT=2.0f;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / buckets.
 	 *  Controls how quickly tier weights decay away from the target occupancy.

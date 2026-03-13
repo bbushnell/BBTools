@@ -327,6 +327,8 @@ public class CorrectionFactor{
 		if("HybDLC_cf".equals(name)){return HYBDLC;}
 		if("DLC_cf".equals(name)){return DLC;}
 		if("HybDLC50_cf".equals(name)){return HYBDLC50;}
+		if("DLCBest_cf".equals(name)){return DLCBEST;}
+		if("DThHyb_cf".equals(name)){return DTHTHYB;}
 		return -1;
 	}
 
@@ -381,7 +383,7 @@ public class CorrectionFactor{
 
 		// Build v1Matrix: v1Matrix[type][row] = CF value; v1Keys[row] = DLC3B key
 		final int n=keyList.size();
-		final int maxType=HYBDLC50+1; // need indices 0..DLC
+		final int maxType=DTHTHYB+1; // need indices 0..DTHTHYB
 		final float[][] mat=new float[maxType][n];
 		v1Keys=new float[n];
 		for(int i=0; i<n; i++){v1Keys[i]=keyList.get(i);}
@@ -425,6 +427,74 @@ public class CorrectionFactor{
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------     Iterative CF Lookup      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Binary search + linear interpolation into a single CF column.
+	 * Clamps to edge values (no extrapolation beyond table bounds).
+	 */
+	public static double interpolateCF(double est, float[] cfCol, float[] keys){
+		final int n=keys.length;
+		if(n==0){return 1.0;}
+		final float key=(float)est;
+		if(key<=keys[0]){return cfCol[0];}
+		if(key>=keys[n-1]){return cfCol[n-1];}
+		int lo=0, hi=n-1;
+		while(lo<hi-1){
+			final int mid=(lo+hi)>>>1;
+			if(keys[mid]<=key){lo=mid;}else{hi=mid;}
+		}
+		final float k0=keys[lo], k1=keys[hi];
+		if(k1==k0){return cfCol[lo];}
+		final float frac=(key-k0)/(k1-k0);
+		return cfCol[lo]+frac*(cfCol[hi]-cfCol[lo]);
+	}
+
+	/**
+	 * Fully generic iterative CF lookup.
+	 * <p>
+	 * Refines a cardinality estimate by iteratively looking up the CF for rawEst
+	 * using the current best estimate as the lookup key:
+	 * <pre>
+	 *   bestEst = seedEst           // initial guess (e.g. raw DLC)
+	 *   cf = cfCol[bestEst]         // look up CF at current best guess
+	 *   bestEst = cf * rawEst       // refine: corrected estimate = CF × raw
+	 *   repeat until converged or maxIters
+	 * </pre>
+	 * Flat CF curves converge in 1 iteration; divergent curves (DLL3) need 2-3.
+	 *
+	 * @param seedEst   initial cardinality estimate (e.g. raw DLC, CF near 1)
+	 * @param rawEst    raw estimate from the target estimator
+	 * @param cfCol     CF values for this estimator type
+	 * @param keys      cardinality keys for binary search into cfCol
+	 * @param maxIters  maximum refinement iterations (1 = single lookup)
+	 * @param maxDif    convergence threshold: stop when |newCf - cf| &lt; maxDif
+	 * @return correction factor to multiply rawEst by
+	 */
+	public static double getCF(double seedEst, double rawEst,
+			float[] cfCol, float[] keys, int maxIters, double maxDif){
+		if(cfCol==null || keys==null || keys.length==0){return 1.0;}
+		double bestEst=seedEst;
+		double cf=interpolateCF(bestEst, cfCol, keys);
+		if(TRACE_CF){System.err.println("  getCF iter=0 bestEst="+String.format("%.2f",bestEst)
+			+" cf="+String.format("%.8f",cf)+" rawEst="+String.format("%.2f",rawEst));}
+		for(int i=1; i<maxIters; i++){
+			bestEst=cf*rawEst;
+			if(bestEst<=0){break;}
+			final double newCf=interpolateCF(bestEst, cfCol, keys);
+			if(TRACE_CF){System.err.println("  getCF iter="+i+" bestEst="+String.format("%.2f",bestEst)
+				+" cf="+String.format("%.8f",newCf)+" rawEst="+String.format("%.2f",rawEst));}
+			if(Math.abs(newCf-cf)<maxDif){break;}
+			cf=newCf;
+		}
+		return cf;
+	}
+
+	/** Set to true to print iterative CF trace to stderr. */
+	public static boolean TRACE_CF=false;
+
+	/*--------------------------------------------------------------*/
 	/*----------------       Interpolation Math     ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -462,7 +532,7 @@ public class CorrectionFactor{
 	 * Matches CF file column order (Slot + CF columns; Hybrid at end as column 10).
 	 * v1 adds DLC3B and HYBDLC. */
 	public static final int OCCUPIED=0, MEAN=1, HMEAN=2, HMEANM=3, GMEAN=4, HLL=5,
-		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9, HYBRID=10, DLC3B=11, HYBDLC=12, DLC=13, HYBDLC50=14;
+		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9, HYBRID=10, DLC3B=11, HYBDLC=12, DLC=13, HYBDLC50=14, DLCBEST=15, DTHTHYB=16;
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;
