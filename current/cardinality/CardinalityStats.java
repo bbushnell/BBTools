@@ -869,10 +869,14 @@ public class CardinalityStats {
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / buckets.
 	 *  Controls how quickly tier weights decay away from the target occupancy.
-	 *  Set via dlcalpha= parameter in DDLCalibrationDriver. */
-	public static float DLC_ALPHA=10.0f;//Empirically 10.5 scores slightly better but they look similar
+	 *  Set via dlcalpha= parameter in DDLCalibrationDriver. 
+	 *  Empirically 10.5 is best at 2048 buckets, min_vk_fraction=0, DDL8
+	 *  And 8.0 is optimal 2048 buckets, min_vk_fraction=0.002, DDL8
+	 *  Difference is not huge though; likely higher is better with fewer buckets.
+	 *  */
+	public static float DLC_ALPHA=9.0f;
 	public static float DLC_MIN_VK_FRACTION=0.002f;//Dramatically better than 0 at 2048 buckets.
-	public static int DLC_MIN_VK=1;
+	public static int DLC_MIN_VK=2;
 
 	/** Number of DLC tiers included in toArray() output (DLC_0 through DLC_{N-1}). */
 	public static final int NUM_DLC_TIERS=64;
