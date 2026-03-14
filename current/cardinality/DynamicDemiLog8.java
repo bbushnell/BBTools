@@ -105,7 +105,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0, nlzCounts);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0, nlzCounts, 0);
 	}
 
 	@Override

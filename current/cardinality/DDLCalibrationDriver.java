@@ -407,8 +407,8 @@ public class DDLCalibrationDriver {
 	static final int DLC_IDX=11;
 
 	/** v3 CF column definitions: rawEstimates() index → output column name. */
-	static final int[] V3_EST_INDICES={0, 1, 2, 3, 6, 11, 13, 12, 8}; // Mean,HMean,HMeanM,GMean,Hybrid,DLC,DLCBest,DLC3B,DThHyb
-	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","Hybrid_cf","DLC_cf","DLCBest_cf","DLC3B_cf","DThHyb_cf"};
+	static final int[] V3_EST_INDICES={0, 1, 2, 3, 4, 6, 11, 13, 12, 8}; // Mean,HMean,HMeanM,GMean,HLL,Hybrid,DLC,DLCBest,DLC3B,DThHyb
+	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","HLL_cf","Hybrid_cf","DLC_cf","DLCBest_cf","DLC3B_cf","DThHyb_cf"};
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
 	static int computeNumV3Slots(long maxTrue){
@@ -436,6 +436,33 @@ public class DDLCalibrationDriver {
 		return 100*Math.pow(1.01, slot-100);
 	}
 
+	/**
+	 * Prints v5 CF table: identical data to v4 but with structured metadata header.
+	 * Header lines are tab-delimited key-value pairs (#Key\tValue).
+	 * Includes bucket count so the loader can scale lookup keys when bucket counts differ.
+	 * CF = 1/(1+avgErr) where avgErr = sumErr/n for each estimator.
+	 * Keyed by trueCard (absolute cardinality); at lookup time the key is scaled by
+	 * (tableBuckets / currentBuckets) to normalize across bucket counts.
+	 */
+	static void printHistogramV5(final ArrayList<ReportRow> rows, final PrintStream ps,
+			String loglogtype, int buckets, int numDdls, long maxTrue,
+			boolean cfEnabled, boolean earlyPromote, int promoteThreshold, String notes){
+		ps.println("#Version\t5");
+		ps.println("#Type\t"+loglogtype);
+		ps.println("#Buckets\t"+buckets);
+		ps.println("#Estimators\t"+numDdls);
+		ps.println("#MaxCardinality\t"+maxTrue);
+		ps.println("#CF\t"+cfEnabled);
+		ps.println("#clampToAdded\t"+CardinalityTracker.clampToAdded);
+		ps.println("#EarlyPromote\t"+earlyPromote);
+		ps.println("#PROMOTE_THRESHOLD\t"+promoteThreshold);
+		if(notes!=null && !notes.isEmpty()){ps.println("#Notes\t"+notes);}
+		final StringBuilder hdr=new StringBuilder("#TrueCard");
+		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
+		ps.println(hdr);
+		printHistogramRows(rows, ps);
+	}
+
 	/** Prints v3 CF table directly from per-trueCard report rows.
 	 *  CF = 1/(1+avgErr) where avgErr = sumErr/n for each estimator.
 	 *  Keyed by trueCard; DLC is used as an approximation at lookup time.
@@ -446,6 +473,11 @@ public class DDLCalibrationDriver {
 		final StringBuilder hdr=new StringBuilder("#TrueCard");
 		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
 		ps.println(hdr);
+		printHistogramRows(rows, ps);
+	}
+
+	/** Shared row-printing logic for v3/v4/v5 CF tables. */
+	private static void printHistogramRows(final ArrayList<ReportRow> rows, final PrintStream ps){
 		for(final ReportRow row : rows){
 			if(row.trueCard<1 || row.n<1){continue;}
 			final StringBuilder sb=new StringBuilder();

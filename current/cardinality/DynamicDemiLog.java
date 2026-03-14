@@ -93,7 +93,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts, 0);
 	}
 
 	@Override

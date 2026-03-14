@@ -105,7 +105,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts, 0);
 	}
 
 	@Override

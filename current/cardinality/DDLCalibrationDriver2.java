@@ -67,6 +67,8 @@ public class DDLCalibrationDriver2 {
 		String out1="stdout.txt";
 		String out3=null;
 		String loglogtype="ddl";
+		String notes="";
+		String cffile=null;
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -86,7 +88,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
-			else if(a.equals("cffile")){CorrectionFactor.initialize(b, buckets); CorrectionFactor.USE_CORRECTION=true;}
+			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
 			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
 			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
@@ -102,11 +104,25 @@ public class DDLCalibrationDriver2 {
 				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
 			}else if(a.equals("resetonpromote") || a.equals("rop")){
 				DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("earlypromote") || a.equals("ep")){
+				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("out2")){
+				System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
+			}else if(a.equals("notes")){notes=b.replace('_',' ');
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
 		final long maxTrue=(long)buckets*maxMult;
 		final int numThreads=Math.min(threads, numDDLs);
+
+		// Force class initialization of the DDL type BEFORE loading the user CF file.
+		// Each DDL class loads its own default (v4) CF on first use, which resets
+		// CorrectionFactor.v1Buckets=0 and clobbers any v5 table loaded earlier.
+		// Creating a dummy instance here triggers that class init; then we overwrite
+		// the default CF with the user-provided file.
+		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
+		if(cffile!=null){CorrectionFactor.initialize(cffile, buckets);}
 		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 		final int numThresholds=thresholds.length;
 
@@ -212,11 +228,16 @@ public class DDLCalibrationDriver2 {
 		}
 		bsw1.poisonAndWait();
 
-		// Write File 3 (v4 CF table)
+		// Write File 3 (v5 CF table)
 		if(out3!=null){
 			try(PrintStream ps=new PrintStream(new FileOutputStream(out3))){
-				DDLCalibrationDriver.printHistogramV3(mergedRows, ps);
-				System.err.println("V4 CF table written to "+out3);
+				DDLCalibrationDriver.printHistogramV5(mergedRows, ps,
+						loglogtype, buckets, numDDLs, maxTrue,
+						CorrectionFactor.USE_CORRECTION,
+						DynamicLogLog3.EARLY_PROMOTE,
+						DynamicLogLog3.PROMOTE_THRESHOLD,
+						notes);
+				System.err.println("V5 CF table written to "+out3);
 			}catch(Exception e){
 				System.err.println("Error writing CF file: "+e.getMessage());
 			}

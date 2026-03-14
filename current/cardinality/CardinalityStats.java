@@ -84,7 +84,9 @@ public class CardinalityStats {
 	                 double gSum_, int count_, int buckets_,
 	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
 	                 float[][] matrixCard_, float[] cardKeys_, long microIndex_,
-	                 int[] nlzCounts_){
+	                 int[] nlzCounts_, int minZeros_){
+		final int mz=minZeros_;
+
 		// Set card data first so cf() calls below can use three-domain lookup.
 		matrixCard=matrixCard_;
 		cardKeys=cardKeys_;
@@ -126,10 +128,17 @@ public class CardinalityStats {
 		// HLL all-buckets sum: filled contribute 2^(-absNlz), empty contribute 1.0
 		hllSum=hllSumFilled+V;
 
-		// HLL-style estimate with LC fallback at low occupancy
+		// HLL-style estimate with LC fallback at low occupancy.
+		// When mz>0 (EARLY_PROMOTE has fired), post-promote empty buckets are not truly
+		// empty — they had values at lower tiers. Correct by treating V=0 for LC purposes:
+		// this gives (1L<<mz)*B*ln(2B), reflecting that all buckets are "active" in the
+		// current tier frame. When mz==0, use actual V (classic LC small-range correction).
 		final double hmeanRaw=2*alpha_m*(double)buckets*(double)buckets/hllSum;
 		double hmeanEstTmp=hmeanRaw;
-		if(hmeanEstTmp<2.5*buckets && V>0){hmeanEstTmp=(double)buckets*Math.log((double)buckets/V);}
+		if(hmeanEstTmp<2.5*buckets){
+			final double Vhll=(mz>0 ? 0 : V); // post-promote empty buckets aren't truly empty
+			hmeanEstTmp=(double)buckets*Math.log((double)buckets/Math.max(Vhll, 0.5)); // plain LC, no mz multiplier
+		}
 		hmeanEst=hmeanEstTmp;
 
 		// Filled-bucket harmonic mean estimates
@@ -153,9 +162,10 @@ public class CardinalityStats {
 		          (int)(64*Math.log((double)64/Math.max(Math.min(63, 64-microBits), 0.5))));
 
 		nlzCounts=nlzCounts_;
+		minZeros=mz;
 
 		// Tier-compensated LC: LC * 2^minZeros. Equals lcPure when minZeros=0.
-		{int mz=0; while(mz<nlzCounts.length && nlzCounts[mz]==0){mz++;} lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));}
+		lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));
 
 		// Cache DLC estimates for CF lookup (CF-free, so no circular dependency)
 		// MUST be computed before cf() calls below
@@ -373,7 +383,7 @@ public class CardinalityStats {
 		r[1] =Math.max(hmeanPure  *cf(hmeanPure, CorrectionFactor.HMEAN), micro);
 		r[2] =Math.max(hasMantissa ? hmeanPureM*cf(hmeanPureM, CorrectionFactor.HMEANM) : hmeanPureM, micro);
 		r[3] =Math.max(gmeanEst   *cf(gmeanEst, CorrectionFactor.GMEAN), micro);
-		r[4] =Math.max(hmeanEst   *cf(hmeanEst, CorrectionFactor.HLL),   micro);
+		r[4] =Math.max(hmeanEst   *cf(hmeanEst, CorrectionFactor.HLL),    micro); // HLL: CF corrects LC/HMean transition bias
 		r[5] =Math.max(lcPure,                                            micro);
 		r[6] =Math.max(hybridEst,                                         micro);
 		r[7] =rawHybDLC50*cf(rawHybDLC50, CorrectionFactor.HYBDLC50);
@@ -660,12 +670,7 @@ public class CardinalityStats {
 	 * Before any promotion (k=0), equals LC exactly.
 	 */
 	public double dlcLowest(){
-		for(int k=0; k<nlzCounts.length; k++){
-			if(nlzCounts[k]>0){
-				return k==0 ? lcPure : dlcEstimate(k);
-			}
-		}
-		return lcPure;
+		return lcMin; // tier-compensated LC at the actual minZeros floor; no scanning needed
 	}
 
 	/** DLC estimate from pre-computed V_k. */
@@ -679,10 +684,10 @@ public class CardinalityStats {
 	 * and must be excluded from DLC blending to avoid garbage estimates after tier promotion.
 	 */
 	private int lowestActiveTier(){
-		for(int k=0; k<nlzCounts.length; k++){
+		for(int k=minZeros; k<nlzCounts.length; k++){
 			if(nlzCounts[k]>0){return k;}
 		}
-		return 0;
+		return minZeros;
 	}
 
 	/** DLC with parameterized sine model correction.
@@ -719,18 +724,24 @@ public class CardinalityStats {
 			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
 					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
 			if(CorrectionFactor.TRACE_CF){System.err.println("cf(rawEst="+String.format("%.2f",rawEst)+", type="+type+", dlcEst="+String.format("%.2f",dlcEst)+")");}
-			final int iters=(dlcEst>MIN_SEED_CF_MULT*buckets ? DEFAULT_CF_ITERS : 1);
+			// v5+ tables record their bucket count; scale the lookup key so a 512-bucket run
+			// correctly addresses a table built at 2048 buckets: key *= (tableBuckets/currentBuckets).
+			final double keyScale=(CorrectionFactor.v1Buckets>0 ?
+					(double)CorrectionFactor.v1Buckets/buckets : 1.0);
+			final int iters=(dlcEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
 			return CorrectionFactor.getCF(dlcEst, rawEst,
 					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF);
+					iters, DEFAULT_CF_DIF, keyScale);
 		}
 		if(CorrectionFactor.tableVersion>=1){
 			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
 					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-			final int iters=(dlc3bEst>MIN_SEED_CF_MULT*buckets ? DEFAULT_CF_ITERS : 1);
+			final double keyScale=(CorrectionFactor.v1Buckets>0 ?
+					(double)CorrectionFactor.v1Buckets/buckets : 1.0);
+			final int iters=(dlc3bEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
 			return CorrectionFactor.getCF(dlc3bEst, rawEst,
 					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF);
+					iters, DEFAULT_CF_DIF, keyScale);
 		}
 		if(matrixCard!=null && CardinalityTracker.USE_CARD_CF && CorrectionFactor.USE_CORRECTION){
 			return CorrectionFactor.getCF(cfMatrix, cfBuckets, matrixCard, cardKeys,
@@ -755,14 +766,7 @@ public class CardinalityStats {
 		sb.append(", dlc3bEst=").append(String.format("%.2f", dlc3bEst));
 		sb.append(", meanEst=").append(String.format("%.2f", meanEst));
 		sb.append("\n  dlcLowest()=").append(String.format("%.2f", dlcLowest()));
-		// Infer minZeros from nlzCounts
-		int inferredMin=-1;
-		if(nlzCounts!=null){
-			for(int k=0; k<nlzCounts.length; k++){
-				if(nlzCounts[k]>0){inferredMin=k; break;}
-			}
-		}
-		sb.append(", inferredMinZeros=").append(inferredMin);
+		sb.append(", minZeros=").append(minZeros);
 		// NLZ histogram (non-zero entries)
 		if(nlzCounts!=null){
 			sb.append("\n  nlzCounts[");
@@ -846,6 +850,10 @@ public class CardinalityStats {
 
 	// Absolute NLZ histogram from summarize(); null for legacy classes
 	final int[] nlzCounts;
+
+	// Actual tier floor from the DLL instance (0 for DDL classes which have no tier promotion).
+	// Used by lowestActiveTier(), dlcLowest(), and lcMin computation.
+	final int minZeros;
 
 	// Tier-compensated LC: lcPure * 2^minZeros. Equals lcPure when minZeros=0.
 	// Replaces lcPure everywhere except raw LC output (slot 5) and HLL fallback.

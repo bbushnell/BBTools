@@ -56,9 +56,15 @@ public class CorrectionFactor{
 		ByteFile bf0=ByteFile.makeByteFile(ff0, 1);
 		byte[] firstLine=bf0.nextLine();
 		bf0.close();
-		if(firstLine!=null && new String(firstLine).trim().startsWith("#VERSION=")){
-			final int ver=Integer.parseInt(new String(firstLine).trim().substring(9));
-			if(ver>=1){return loadFileV1(path, buckets, ver);}
+		if(firstLine!=null){
+			final String firstStr=new String(firstLine).trim();
+			if(firstStr.startsWith("#VERSION=")){
+				final int ver=Integer.parseInt(firstStr.substring(9));
+				if(ver>=1){return loadFileV1(path, buckets, ver);}
+			}else if(firstStr.startsWith("#Version\t")){
+				final int ver=Integer.parseInt(firstStr.substring(9).trim());
+				if(ver>=5){return loadFileV1(path, buckets, ver);}
+			}
 		}
 		FloatList[] lists=null;
 		FileFormat ff=FileFormat.testInput(path, null, false);
@@ -322,7 +328,7 @@ public class CorrectionFactor{
 		if("HMeanM_cf".equals(name)){return HMEANM;}
 		if("GMean_cf".equals(name)){return GMEAN;}
 		if("DLC3B_cf".equals(name)){return DLC3B;}
-		if("HLL_cf".equals(name)){return HLL;}
+		if("HLL_cf".equals(name)) {return HLL;}
 		if("Hybrid_cf".equals(name)){return HYBRID;}
 		if("HybDLC_cf".equals(name)){return HYBDLC;}
 		if("DLC_cf".equals(name)){return DLC;}
@@ -340,6 +346,7 @@ public class CorrectionFactor{
 	 */
 	private static float[][] loadFileV1(String path, int buckets, int ver){
 		tableVersion=ver;
+		v1Buckets=0; // reset; will be set from #Buckets header for v5+
 		FileFormat ff=FileFormat.testInput(path, null, false);
 		ByteFile bf=ByteFile.makeByteFile(ff, 1);
 		LineParser1 lp=new LineParser1('\t');
@@ -354,6 +361,17 @@ public class CorrectionFactor{
 			if(lp.startsWith('#')){
 				final String s=new String(line).trim();
 				if(s.startsWith("#VERSION=") || s.startsWith("#ESTIMATOR=")){continue;}
+				// v5+ tab-delimited metadata lines: #Key\tValue
+				// Distinguished from column header by absence of "_cf" suffix in content.
+				if(ver>=5 && !s.contains("_cf")){
+					final int tab=s.indexOf('\t');
+					if(tab>0){
+						final String key=s.substring(0,tab);
+						final String val=s.substring(tab+1).trim();
+						if("#Buckets".equals(key)){v1Buckets=Integer.parseInt(val);}
+					}
+					continue;
+				}
 				// Header line: #DLC3B_est\tMean_cf\tHMean_cf\t...
 				if(colTypes==null){
 					final String[] cols=s.split("\t");
@@ -472,6 +490,30 @@ public class CorrectionFactor{
 	 * @param maxDif    convergence threshold: stop when |newCf - cf| &lt; maxDif
 	 * @return correction factor to multiply rawEst by
 	 */
+	/**
+	 * Scaled variant: multiplies lookup key by keyScale before interpolating.
+	 * Use keyScale = tableBuckets / currentBuckets when the CF table was built
+	 * at a different bucket count than the current instance (v5+ tables).
+	 */
+	public static double getCF(double seedEst, double rawEst,
+			float[] cfCol, float[] keys, int maxIters, double maxDif, double keyScale){
+		if(cfCol==null || keys==null || keys.length==0){return 1.0;}
+		double bestEst=seedEst*keyScale;
+		double cf=interpolateCF(bestEst, cfCol, keys);
+		if(TRACE_CF){System.err.println("  getCF iter=0 bestEst="+String.format("%.2f",bestEst)
+			+" cf="+String.format("%.8f",cf)+" rawEst="+String.format("%.2f",rawEst));}
+		for(int i=1; i<maxIters; i++){
+			bestEst=cf*rawEst*keyScale;
+			if(bestEst<=0){break;}
+			final double newCf=interpolateCF(bestEst, cfCol, keys);
+			if(TRACE_CF){System.err.println("  getCF iter="+i+" bestEst="+String.format("%.2f",bestEst)
+				+" cf="+String.format("%.8f",newCf)+" rawEst="+String.format("%.2f",rawEst));}
+			if(Math.abs(newCf-cf)<maxDif){break;}
+			cf=newCf;
+		}
+		return cf;
+	}
+
 	public static double getCF(double seedEst, double rawEst,
 			float[] cfCol, float[] keys, int maxIters, double maxDif){
 		if(cfCol==null || keys==null || keys.length==0){return 1.0;}
@@ -552,5 +594,7 @@ public class CorrectionFactor{
 	public static float[] v1Keys=null;
 	/** Table version: 0 = legacy bipartite, 1+ = unified DLC3B-indexed. */
 	public static int tableVersion=0;
+	/** Bucket count used when building v1Matrix; 0 = unknown (no scaling). Set from #Buckets header in v5+. */
+	public static int v1Buckets=0;
 
 }

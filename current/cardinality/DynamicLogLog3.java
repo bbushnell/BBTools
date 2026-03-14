@@ -131,7 +131,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
 				if(s>0){filledBuckets++;}
-				if(s==0||s==1){minZeroCount++;}
+				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
@@ -168,10 +168,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		writeBucket(bucket, newStored);
 		if(oldStored==0){filledBuckets++;}
 
-		// oldRelNlz: 0 for both empty (stored=0) and tier-0 (stored=1).
-		// minZeroCount decrements whenever a bucket leaves (empty or tier-0) for a higher tier.
+		// minZeroCount decrements when a bucket leaves the tracked-zero category.
+		// EARLY_PROMOTE=false (classic): tracks empty+tier-0; advances when all buckets >= 2.
+		// EARLY_PROMOTE=true  (new):     tracks empty only;    advances when all buckets >= 1.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
-		if(relNlz>oldRelNlz && oldRelNlz==0 && --minZeroCount<1){
+		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
+		if(shouldDecrement && --minZeroCount<1){
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
@@ -197,7 +199,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				int stored=(word>>>shift)&0x7;
 				if(stored>0){
 					stored--; // decrement relative tier
-					if(stored==1){newMinZeroCount++;} // new tier-0 after decrement
+					if(EARLY_PROMOTE){
+						if(stored==0){newMinZeroCount++; filledBuckets--;} // new empty after decrement
+					}else{
+						if(stored==1){newMinZeroCount++;} // new tier-0 after decrement (classic)
+					}
 				}
 				result|=(stored<<shift);
 			}
@@ -247,7 +253,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts);
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts, minZeros);
 	}
 
 	@Override
@@ -282,6 +288,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/** Social promotion threshold — see DynamicLogLog3v2 for implementation.
 	 * In DLL3, this field is parsed but has no effect (DLL3 uses classic promotion). */
 	public static int PROMOTE_THRESHOLD=0;
+	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.
+	 * At advance, subtracts 1 from all buckets, which may reset some to empty (stored=0).
+	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
+	 * Reduces tier-7+ overflow pollution in DLL3; requires new CF table generation when changed. */
+	public static boolean EARLY_PROMOTE=false;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";

@@ -250,7 +250,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CF_MATRIX_CARD, CF_CARD_KEYS, microIndex, nlzCounts);
+		                            CF_MATRIX_CARD, CF_CARD_KEYS, microIndex, nlzCounts, minZeros);
 	}
 
 	@Override

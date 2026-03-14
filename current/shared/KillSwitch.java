@@ -63,6 +63,7 @@ public final class KillSwitch extends Thread {
 	public static synchronized boolean launch(double seconds, double load){
 		if(count>0){return false;}
 		ks=new KillSwitch(seconds, load);
+		ks.setDaemon(true);//Crucial!  Allows termination when this is running.
 		ks.start();
 		return true;
 	}
@@ -83,7 +84,7 @@ public final class KillSwitch extends Thread {
 	
 	/**
 	 * Monitors system load and returns false if load stays below threshold too long.
-	 * Uses OperatingSystemMXBean to track load average every 500ms. Resets timeout
+	 * Uses OperatingSystemMXBean to track load average every 2000ms. Resets timeout
 	 * whenever load exceeds minimum threshold. Returns false to trigger shutdown.
 	 * @return false if timeout exceeded with low load, true for normal shutdown
 	 */
@@ -102,7 +103,7 @@ public final class KillSwitch extends Thread {
 //		System.err.println("shutdownFlag.get()="+shutdownFlag.get());
 		while(!shutdownFlag.get()){
 			try {
-				sleep(500);
+				sleep(2000);
 			} catch (InterruptedException e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
