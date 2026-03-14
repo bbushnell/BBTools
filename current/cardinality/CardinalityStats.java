@@ -177,6 +177,35 @@ public class CardinalityStats {
 		hmeanPureMCF=hasMantissa ? hmeanPureM*cf(hmeanPureM, CorrectionFactor.HMEANM) : hmeanPureM;
 	}
 
+	/**
+	 * Factory for mantissa-free classes (DLL3, DLL4, DLL3v2).
+	 * Derives difSum, hllSumFilled, gSum, count entirely from the nlzCounts histogram.
+	 * Passes minZeros=0 to the constructor so lcMin equals lcPure (no tier-dependent
+	 * scaling), making the output independent of internal tier promotion state.
+	 * <p>
+	 * The nlzCounts array must include phantom buckets (stored=0 with minZeros>0)
+	 * at nlzCounts[minZeros-1]. This is handled by the DLL summarize() methods.
+	 */
+	static CardinalityStats fromNlzCounts(int[] nlzCounts_, int buckets_,
+			long microIndex_, float[][] cfMatrix_, int cfBuckets_,
+			float[][] matrixCard_, float[] cardKeys_){
+		final int wordlen=64;
+		double difSum=0, hllSumFilled=0, gSum=0;
+		int count=0;
+		for(int k=0; k<nlzCounts_.length; k++){
+			final int n=nlzCounts_[k];
+			if(n==0){continue;}
+			count+=n;
+			final long dif=(k==0 ? Long.MAX_VALUE : (k<wordlen ? 1L<<(wordlen-k-1) : 1L));
+			difSum+=n*(double)dif;
+			hllSumFilled+=n*Math.pow(2.0, -k);
+			gSum+=n*Math.log(Math.max(1, dif));
+		}
+		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
+			gSum, count, buckets_, null, cfMatrix_, cfBuckets_,
+			matrixCard_, cardKeys_, microIndex_, nlzCounts_, 0);
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Estimators           ----------------*/
 	/*--------------------------------------------------------------*/
@@ -684,10 +713,10 @@ public class CardinalityStats {
 	 * and must be excluded from DLC blending to avoid garbage estimates after tier promotion.
 	 */
 	private int lowestActiveTier(){
-		for(int k=minZeros; k<nlzCounts.length; k++){
+		for(int k=0; k<nlzCounts.length; k++){
 			if(nlzCounts[k]>0){return k;}
 		}
-		return minZeros;
+		return 0;
 	}
 
 	/** DLC with parameterized sine model correction.

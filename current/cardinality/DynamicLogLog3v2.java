@@ -216,41 +216,30 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	/**
-	 * Scans the bucket array once, accumulating all sums needed for estimation.
-	 * This is the only per-subclass method required — all estimator logic
-	 * lives in the returned CardinalityStats object.
+	 * Scans the bucket array once to populate the absolute NLZ histogram (nlzCounts),
+	 * then delegates all sum computation to CardinalityStats.fromNlzCounts().
+	 * <p>
+	 * Phantom buckets (stored=0 when minZeros>0) are treated as absNlz = minZeros-1,
+	 * one tier below the current floor. This ensures the nlzCounts distribution is
+	 * identical regardless of promotion setting.
 	 */
 	private CardinalityStats summarize(){
-		double difSum=0;
-		double hllSumFilled=0;
-		double gSum=0;
-		int count=0;
-		if(USE_SORTBUF){
-			if(sortBuf==null){sortBuf=new LongList(buckets);}
-			sortBuf.clear();
-		}
 		if(nlzCounts==null){nlzCounts=new int[64];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 
+		final int phantomNlz=minZeros-1;
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
 				if(absNlz<64){nlzCounts[absNlz]++;}
-				final long dif;
-				if(absNlz==0){dif=Long.MAX_VALUE;}
-				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
-				else{dif=1L;}
-				difSum+=dif;
-				hllSumFilled+=Math.pow(2.0, -absNlz);
-				gSum+=Math.log(Tools.max(1, dif));
-				count++;
-				if(USE_SORTBUF){sortBuf.add(dif);}
+			}else if(minZeros>0 && phantomNlz<64){
+				nlzCounts[phantomNlz]++;
 			}
 		}
-		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CF_MATRIX_CARD, CF_CARD_KEYS, microIndex, nlzCounts, minZeros);
+		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
+		                                      CF_MATRIX, CF_BUCKETS,
+		                                      CF_MATRIX_CARD, CF_CARD_KEYS);
 	}
 
 	@Override
