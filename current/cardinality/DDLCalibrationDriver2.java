@@ -21,6 +21,10 @@ import shared.Tools;
  * After all threads finish, the main thread merges per-threshold accumulators and
  * prints all rows (File 1), then writes File 3 (v4 CF table).
  * <p>
+ * Each thread is seeded with (masterSeed + threadId), giving one deterministic
+ * FastRandomXoshiro per thread that generates both DDL seeds and hash values.
+ * This guarantees bit-for-bit reproducibility across runs with the same parameters.
+ * <p>
  * Parameters (key=value format):
  * <ul>
  *   <li>ddls=1000        - total DDL instances across all threads</li>
@@ -28,11 +32,10 @@ import shared.Tools;
  *   <li>k=31             - k-mer length (needed by DDL constructor)</li>
  *   <li>maxmult=10       - stop when trueCard reaches buckets*maxmult</li>
  *   <li>reportfrac=0.01  - report every this fraction of current cardinality</li>
- *   <li>seed=12345       - master seed for DDL seed generation</li>
- *   <li>valseed=42       - master seed for per-thread value generation</li>
+ *   <li>seed=12345       - master seed; thread t uses seed+t</li>
  *   <li>threads=1        - number of parallel simulation threads</li>
  *   <li>out1=path        - output file for per-threshold statistics (File 1)</li>
- *   <li>out3=path        - output file for v4 CF table (File 3)</li>
+ *   <li>out3=path        - output file for v5 CF table (File 3)</li>
  *   <li>type=ddl         - DDL type: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4</li>
  * </ul>
  *
@@ -62,7 +65,6 @@ public class DDLCalibrationDriver2 {
 		long maxMult=10;
 		double reportFrac=0.01;
 		long masterSeed=12345L;
-		long valSeed=42L;
 		int threads=Shared.threads();
 		String out1="stdout.txt";
 		String out3=null;
@@ -81,7 +83,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Parse.parseIntKMG(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
-			else if(a.equals("valseed")){valSeed=Long.parseLong(b);}
+			else if(a.equals("valseed")){/*ignored: single-rng design uses seed only*/}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("out") || a.equals("out1")){out1=b;}
 			else if(a.equals("out3")){out3=b;}
@@ -92,6 +94,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
 			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
 			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
+			else if(a.equals("cfmult") || a.equals("minseedmult")){CardinalityStats.MIN_SEED_CF_MULT=Float.parseFloat(b);}
 			else if(a.equals("minvfraction") || a.equals("minvk")){
 				float x=Float.parseFloat(b);
 				if(x<1){CardinalityStats.DLC_MIN_VK_FRACTION=x;}
@@ -126,32 +129,13 @@ public class DDLCalibrationDriver2 {
 		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 		final int numThresholds=thresholds.length;
 
-		// Distribute DDLs across threads
-		final int[] threadSizes=new int[numThreads];
-		for(int t=0; t<numThreads; t++){
-			threadSizes[t]=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
-		}
-
-		// Pre-generate DDL seeds
-		final java.util.Random seedRng=new java.util.Random(masterSeed);
-		final long[][] ddlSeeds=new long[numThreads][];
-		for(int t=0; t<numThreads; t++){
-			ddlSeeds[t]=new long[threadSizes[t]];
-			for(int i=0; i<threadSizes[t]; i++){
-				ddlSeeds[t][i]=seedRng.nextLong()&Long.MAX_VALUE;
-			}
-		}
-
-		// Pre-generate val seeds (one per thread)
-		final java.util.Random valSeedRng=new java.util.Random(valSeed);
-		final long[] threadValSeeds=new long[numThreads];
-		for(int t=0; t<numThreads; t++){threadValSeeds[t]=valSeedRng.nextLong();}
-
-		// Create and start worker threads
+		// Create and start worker threads.
+		// Each thread t is seeded with (masterSeed+t) — one RNG generates both DDL seeds and values.
 		final CalibrationThread2[] calThreads=new CalibrationThread2[numThreads];
 		for(int t=0; t<numThreads; t++){
+			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
 			calThreads[t]=new CalibrationThread2(
-				ddlSeeds[t], threadValSeeds[t], thresholds, buckets, k, maxTrue, loglogtype);
+				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype);
 		}
 		for(CalibrationThread2 ct : calThreads){ct.start();}
 
@@ -256,10 +240,10 @@ public class DDLCalibrationDriver2 {
 	 */
 	static final class CalibrationThread2 extends Thread {
 
-		CalibrationThread2(long[] ddlSeeds, long valSeed, long[] thresholds,
+		CalibrationThread2(long seed, int numDDLs, long[] thresholds,
 			int buckets, int k, long maxTrue, String loglogtype){
-			this.ddlSeeds=ddlSeeds;
-			this.valSeed=valSeed;
+			this.seed=seed;
+			this.numDDLs=numDDLs;
 			this.thresholds=thresholds;
 			this.buckets=buckets;
 			this.k=k;
@@ -284,22 +268,18 @@ public class DDLCalibrationDriver2 {
 		}
 
 		void runInner(){
-			// Each DLL in this thread uses a sub-RNG derived from valSeed + ddl index
-			// so different DDLs in the same thread get different (non-overlapping) value streams.
-			// We use a per-DDL FastRandomXoshiro seeded from valSeed XOR ddlSeed so that
-			// value streams are independent across both threads and DDLs.
-			for(int di=0; di<ddlSeeds.length; di++){
-				final long ddlSeed=ddlSeeds[di];
+			// One RNG per thread, seeded with (masterSeed+threadId).
+			// It generates the DDL seed for each DDL, then all hash values for that DDL.
+			// Fully deterministic: same seed → same output regardless of system state.
+			final FastRandomXoshiro rng=new FastRandomXoshiro(seed);
+			for(int di=0; di<numDDLs; di++){
+				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE; // positive: literal seed, not nanoTime
 				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(
 					loglogtype, buckets, k, ddlSeed, 0);
-				// Derive a unique value seed per DDL: mix valSeed with position and ddlSeed
-				final long vSeed=valSeed^(ddlSeed*0x9E3779B97F4A7C15L)^((long)di*0xBF58476D1CE4E5B9L);
-				final FastRandomXoshiro valRng=new FastRandomXoshiro(vSeed);
 
 				int ti=0;
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
-					final long val=valRng.nextLong();
-					ddl.hashAndStore(val);
+					ddl.hashAndStore(rng.nextLong());
 
 					// Check reporting threshold
 					if(trueCard>=thresholds[ti]){
@@ -320,10 +300,10 @@ public class DDLCalibrationDriver2 {
 			}
 		}
 
-		/** DDL seeds for this thread's DDL instances. */
-		final long[] ddlSeeds;
-		/** Master value seed for this thread. */
-		final long valSeed;
+		/** Seed for this thread's RNG (masterSeed + threadId). */
+		final long seed;
+		/** Number of DDLs this thread processes. */
+		final int numDDLs;
 		/** Pre-computed reporting thresholds (shared read-only). */
 		final long[] thresholds;
 		/** Bucket count. */

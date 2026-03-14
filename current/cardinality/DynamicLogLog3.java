@@ -292,7 +292,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * At advance, subtracts 1 from all buckets, which may reset some to empty (stored=0).
 	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
 	 * Reduces tier-7+ overflow pollution in DLL3; requires new CF table generation when changed. */
-	public static boolean EARLY_PROMOTE=false;
+	public static boolean EARLY_PROMOTE=true;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
