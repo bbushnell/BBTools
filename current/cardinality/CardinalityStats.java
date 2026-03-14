@@ -873,7 +873,7 @@ public class CardinalityStats {
 	public static double DEFAULT_CF_DIF=1e-6;
 	/** Minimum seed estimate as a multiple of buckets for iterative CF.
 	 *  Below this, CFs are steep and iteration diverges; single lookup used instead. */
-	public static float MIN_SEED_CF_MULT=2.0f;
+	public static float MIN_SEED_CF_MULT=10.0f;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / buckets.
 	 *  Controls how quickly tier weights decay away from the target occupancy.
