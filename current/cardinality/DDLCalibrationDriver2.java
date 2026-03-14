@@ -110,6 +110,8 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
+			}else if(a.equals("printstd")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);
 			}else if(a.equals("out2")){
 				System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
