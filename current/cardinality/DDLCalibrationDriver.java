@@ -75,6 +75,12 @@ public class DDLCalibrationDriver {
 	static int cfVersion=0;
 	/** When true, asserts DLC estimate within 50% of true cardinality and dumps state on failure. */
 	static boolean ASSERT_DLC=false;
+	/** When false (default), suppresses per-tier DLC0..DLC63 and MedianLC columns from File 1.
+	 *  These are useful for DLC algorithm development but waste space in production runs. */
+	static boolean PRINT_DLC_TIERS=false;
+	/** When false (default), suppresses the _std (standard deviation) column for each estimator.
+	 *  Saves ~1/3 of output width; std is rarely needed when inspecting mean errors. */
+	static boolean PRINT_STD=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -574,14 +580,16 @@ public class DDLCalibrationDriver {
 		final StringBuilder sb=new StringBuilder();
 		sb.append(row.trueCard).append('\t').append(String.format("%.5f", avgOcc));
 		for(int e=0; e<NUM_OUT1; e++){
+			if(!PRINT_DLC_TIERS && e>=15){break;}
 			final double meanErr=row.sumErr[e]/n;
 			final double meanAbsErr=row.sumAbsErr[e]/n;
-			// Variance via computational formula: E[X^2] - E[X]^2
-			final double variance=row.sumSqErr[e]/n-meanErr*meanErr;
-			final double stdev=Math.sqrt(Math.max(0, variance));
 			sb.append('\t').append(String.format("%.6f", meanErr));
 			sb.append('\t').append(String.format("%.6f", meanAbsErr));
-			sb.append('\t').append(String.format("%.6f", stdev));
+			if(PRINT_STD){
+				final double variance=row.sumSqErr[e]/n-meanErr*meanErr;
+				final double stdev=Math.sqrt(Math.max(0, variance));
+				sb.append('\t').append(String.format("%.6f", stdev));
+			}
 		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append(String.format("%.4f", row.sumRawMean/n));}
 		return sb.toString();
@@ -714,14 +722,18 @@ public class DDLCalibrationDriver {
 
 	static String header1(){
 		final StringBuilder sb=new StringBuilder("TrueCard\tOccupancy");
-		for(String name : ESTIMATOR_NAMES){
+		for(int e=0; e<NUM_EST; e++){
+			if(!PRINT_DLC_TIERS && e>=15){break;}
+			final String name=ESTIMATOR_NAMES[e];
 			sb.append('\t').append(name).append("_err");
 			sb.append('\t').append(name).append("_abs");
-			sb.append('\t').append(name).append("_std");
+			if(PRINT_STD){sb.append('\t').append(name).append("_std");}
 		}
-		sb.append('\t').append(MEDIAN_LC).append("_err");
-		sb.append('\t').append(MEDIAN_LC).append("_abs");
-		sb.append('\t').append(MEDIAN_LC).append("_std");
+		if(PRINT_DLC_TIERS){
+			sb.append('\t').append(MEDIAN_LC).append("_err");
+			sb.append('\t').append(MEDIAN_LC).append("_abs");
+			if(PRINT_STD){sb.append('\t').append(MEDIAN_LC).append("_std");}
+		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append("RawMean");}
 		return sb.toString();
 	}
