@@ -522,6 +522,8 @@ public class DDLCalibrationDriver {
 			return new DynamicLogLog3v2(buckets, k, seed, minProb);
 		}else if("dll2".equals(type) || "dynamicloglog2".equalsIgnoreCase(type)){
 			return new DynamicLogLog2(buckets, k, seed, minProb);
+		}else if("ll6".equals(type) || "loglog6".equalsIgnoreCase(type)){
+			return new LogLog6(buckets, k, seed, minProb);
 		}
 		throw new RuntimeException("Unknown loglogtype: "+type);
 	}

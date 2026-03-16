@@ -195,17 +195,24 @@ public class DDLCalibrationDriver2 {
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
 				+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
-			System.err.println("--- Avg Mean Absolute Error (lower = better) ---");
+			System.err.println("--- Avg and Peak Mean Absolute Error (lower = better) ---");
 			final double[] totalMeanAbsErr=new double[NUM_EST];
+			final double[] peakMeanAbsErr=new double[NUM_EST];
 			for(DDLCalibrationDriver.ReportRow row : mergedRows){
-				for(int e=0; e<NUM_EST; e++){totalMeanAbsErr[e]+=row.sumAbsErr[e]/row.n;}
+				for(int e=0; e<NUM_EST; e++){
+					final double meanAbsAtRow=row.sumAbsErr[e]/row.n;
+					totalMeanAbsErr[e]+=meanAbsAtRow;
+					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
+				}
 			}
 			final int rows=mergedRows.size();
+			System.err.println(String.format("%-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr"));
 			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}
-				System.err.println(String.format("%-12s %.8f", ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows));
+				System.err.println(String.format("%-12s %.8f  %.8f",
+					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows, peakMeanAbsErr[e]));
 			}
 			System.err.println();
 		}

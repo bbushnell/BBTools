@@ -415,10 +415,73 @@ public class CorrectionFactor{
 		}
 		v1Matrix=mat;
 
+		// Extend the table to Long.MAX_VALUE by tiling the self-similar upper half.
+		// DLL's tier structure repeats every cardinality doubling: CF(2C) ≈ CF(C).
+		// Copy CF values from [maxKey/2, maxKey] into [maxKey, 2*maxKey], etc.
+		extendV1Table();
+
 		// v1 has no occupancy-indexed table
 		lastCardMatrix=null;
 		lastCardKeys=null;
 		return null;
+	}
+
+	/**
+	 * Extends v1Keys/v1Matrix to cover arbitrarily high cardinalities by tiling
+	 * the self-similar upper half of the CF table. DLL's tier structure is self-similar
+	 * across cardinality doublings: after a tier advance, the bucket distribution resets
+	 * to the same shape as the previous era. So CF(2C) ≈ CF(C) at corresponding points.
+	 * <p>
+	 * Finds the upper half of the current key range [maxKey/2, maxKey], then appends
+	 * copies with doubled keys for each octave until exceeding MAX_CF_KEY.
+	 * At 1% spacing, each half-period has ~70 entries; ~40 doublings to reach Long.MAX_VALUE
+	 * adds ~2800 entries. Negligible memory.
+	 */
+	private static void extendV1Table(){
+		if(v1Keys==null || v1Keys.length<2 || v1Matrix==null){return;}
+		final int origN=v1Keys.length;
+		final float maxKey=v1Keys[origN-1];
+		final float halfKey=maxKey*0.5f;
+
+		// Find start of upper half: first key >= maxKey/2
+		int halfIdx=origN-1;
+		for(int i=0; i<origN; i++){
+			if(v1Keys[i]>=halfKey){halfIdx=i; break;}
+		}
+		final int halfLen=origN-halfIdx; // number of entries in upper half
+		if(halfLen<2){return;} // not enough data to tile
+
+		// Count how many doublings we need
+		int numDoublings=0;
+		double testKey=maxKey;
+		while(testKey<MAX_CF_KEY){testKey*=2; numDoublings++;}
+		if(numDoublings==0){return;}
+
+		// Build extended arrays
+		final int extN=origN+numDoublings*halfLen;
+		final float[] extKeys=new float[extN];
+		System.arraycopy(v1Keys, 0, extKeys, 0, origN);
+		final float[][] extMat=new float[v1Matrix.length][extN];
+		for(int t=0; t<v1Matrix.length; t++){
+			System.arraycopy(v1Matrix[t], 0, extMat[t], 0, origN);
+		}
+
+		// Tile: for each doubling, copy upper-half CF values with doubled keys
+		int writeIdx=origN;
+		double scale=2.0;
+		for(int d=0; d<numDoublings; d++){
+			for(int i=0; i<halfLen; i++){
+				extKeys[writeIdx]=(float)(v1Keys[halfIdx+i]*scale);
+				for(int t=0; t<v1Matrix.length; t++){
+					extMat[t][writeIdx]=v1Matrix[t][halfIdx+i];
+				}
+				writeIdx++;
+			}
+			scale*=2.0;
+		}
+
+		v1Keys=extKeys;
+		v1Matrix=extMat;
 	}
 
 	/**
@@ -596,5 +659,9 @@ public class CorrectionFactor{
 	public static int tableVersion=0;
 	/** Bucket count used when building v1Matrix; 0 = unknown (no scaling). Set from #Buckets header in v5+. */
 	public static int v1Buckets=0;
+
+	/** Maximum CF key value for table extension. Beyond this, CF is clamped to the last value.
+	 *  Set to Long.MAX_VALUE cast to double; float precision limits to ~2^63 anyway. */
+	public static final double MAX_CF_KEY=(double)Long.MAX_VALUE;
 
 }

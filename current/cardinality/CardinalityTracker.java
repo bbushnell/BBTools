@@ -78,6 +78,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicLogLog3v2();
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
 			return new DynamicLogLog2();
+		}else if("LL6".equalsIgnoreCase(type) || "LogLog6".equalsIgnoreCase(type)){
+			return new LogLog6();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -131,6 +133,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicLogLog3v2(p);
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
 			return new DynamicLogLog2(p);
+		}else if("LL6".equalsIgnoreCase(type) || "LogLog6".equalsIgnoreCase(type)){
+			return new LogLog6(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -179,6 +183,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicLogLog3v2(buckets_, k_, seed, minProb_);
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
 			return new DynamicLogLog2(buckets_, k_, seed, minProb_);
+		}else if("LL6".equalsIgnoreCase(type) || "LogLog6".equalsIgnoreCase(type)){
+			return new LogLog6(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
