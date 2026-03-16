@@ -68,6 +68,7 @@ public class DDLCalibrationDriver2 {
 		int threads=Shared.threads();
 		String out1="stdout.txt";
 		String out3=null;
+		String out4=null;
 		String loglogtype="ddl";
 		String notes="";
 		String cffile=null;
@@ -87,6 +88,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("out") || a.equals("out1")){out1=b;}
 			else if(a.equals("out3")){out3=b;}
+			else if(a.equals("out4")){out4=b;}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
@@ -110,7 +112,10 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
-			}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
+			}else if(a.equals("correctoverflow") || a.equals("co")){DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("overflowscale") || a.equals("os")){DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
+			}else if(a.equals("usestoredoverflow") || a.equals("uso")){DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
+		}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
 			}else if(a.equals("printstd")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);
 			}else if(a.equals("out2")){
 				System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
@@ -137,7 +142,7 @@ public class DDLCalibrationDriver2 {
 		for(int t=0; t<numThreads; t++){
 			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
 			calThreads[t]=new CalibrationThread2(
-				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype);
+				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype, out4);
 		}
 		for(CalibrationThread2 ct : calThreads){ct.start();}
 
@@ -243,7 +248,7 @@ public class DDLCalibrationDriver2 {
 	static final class CalibrationThread2 extends Thread {
 
 		CalibrationThread2(long seed, int numDDLs, long[] thresholds,
-			int buckets, int k, long maxTrue, String loglogtype){
+			int buckets, int k, long maxTrue, String loglogtype, String out4){
 			this.seed=seed;
 			this.numDDLs=numDDLs;
 			this.thresholds=thresholds;
@@ -251,6 +256,7 @@ public class DDLCalibrationDriver2 {
 			this.k=k;
 			this.maxTrue=maxTrue;
 			this.loglogtype=loglogtype;
+			this.out4=out4;
 			final int nt=thresholds.length;
 			n=new int[nt];
 			occSum=new double[nt];
@@ -274,6 +280,8 @@ public class DDLCalibrationDriver2 {
 			// It generates the DDL seed for each DDL, then all hash values for that DDL.
 			// Fully deterministic: same seed → same output regardless of system state.
 			final FastRandomXoshiro rng=new FastRandomXoshiro(seed);
+			java.io.PrintWriter out4Pw=null;
+			if(out4!=null){try{out4Pw=new java.io.PrintWriter(new java.io.FileOutputStream(out4));}catch(Exception e){e.printStackTrace();}}
 			for(int di=0; di<numDDLs; di++){
 				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE; // positive: literal seed, not nanoTime
 				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(
@@ -283,12 +291,30 @@ public class DDLCalibrationDriver2 {
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
 					ddl.hashAndStore(rng.nextLong());
 
+
 					// Check reporting threshold
 					if(trueCard>=thresholds[ti]){
 						final double occ=ddl.occupancy();
 						final double[] est=ddl.rawEstimates();
 						occSum[ti]+=occ;
 						n[ti]++;
+						if(di==0 && out4Pw!=null){
+							int[] raw=null, corr=null;
+							int mz=0;
+							if(ddl instanceof DynamicLogLog3){
+								final DynamicLogLog3 d=(DynamicLogLog3)ddl;
+								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+							}else if(ddl instanceof DynamicLogLog4){
+								final DynamicLogLog4 d=(DynamicLogLog4)ddl;
+								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+							}
+							if(raw!=null){
+								out4Pw.print(trueCard+"\t"+mz);
+								for(int tt=0; tt<20; tt++){out4Pw.print("\t"+raw[tt]);}
+								for(int tt=0; tt<20; tt++){out4Pw.print("\t"+corr[tt]);}
+								out4Pw.println();
+							}
+						}
 						for(int e=0; e<NUM_EST; e++){
 							final double err=(est[e]-trueCard)/(double)trueCard;
 							sumErr[ti][e]+=err;
@@ -300,6 +326,7 @@ public class DDLCalibrationDriver2 {
 					}
 				}
 			}
+			if(out4Pw!=null){out4Pw.close();}
 		}
 
 		/** Seed for this thread's RNG (masterSeed + threadId). */
@@ -316,6 +343,8 @@ public class DDLCalibrationDriver2 {
 		final long maxTrue;
 		/** DDL type string. */
 		final String loglogtype;
+		/** Output file for per-tier nlzCounts (first DDL only). */
+		final String out4;
 
 		/** Number of DDLs that contributed to each threshold row. */
 		final int[] n;

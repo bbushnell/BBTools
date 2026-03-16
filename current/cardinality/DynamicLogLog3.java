@@ -39,6 +39,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		super(p);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
+		overflowExpFactor=Math.exp(-xOverflow/buckets);
+		storedOverflow=new int[64];
 		if(FAST_COUNT){nlzCounts=new int[64];}
 	}
 
@@ -46,6 +49,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
+		overflowExpFactor=Math.exp(-xOverflow/buckets);
+		storedOverflow=new int[64];
 		if(FAST_COUNT){nlzCounts=new int[64];}
 	}
 
@@ -198,9 +204,24 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
 		if(shouldDecrement && --minZeroCount<1){
 			while(minZeroCount==0 && minZeros<wordlen){
+				// Record overflow estimate before advancing: count buckets at stored=7
+				// (the max tier, absNlz=6+minZeros). Half of those are estimated overflow victims.
+				if(USE_STORED_OVERFLOW){
+					final int nextCorrTier=7+minZeros;
+					if(nextCorrTier<64){
+						// Count buckets at stored=7 (current max tier = absNlz 6+minZeros).
+						// Half are estimated overflow victims that should be in the next tier.
+						// The raw topCount includes some overflow from previous eras; partially
+						// adjust using half the previous correction to avoid over/undercorrection.
+						int topCount=0;
+						for(int i=0; i<buckets; i++){if(readBucket(i)==7){topCount++;}}
+						// No cascading adjustment — raw topCount/2 only
+						storedOverflow[nextCorrTier]=topCount/2;
+					}
+				}
 				minZeros++;
 				eeMask>>>=1;
-		minZeroCount=countAndDecrement();
+				minZeroCount=countAndDecrement();
 			}
 		}
 	}
@@ -265,7 +286,60 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 			}
 		}
 		// FAST_COUNT=true: nlzCounts already maintained incrementally; use directly.
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
+		final boolean doDebug=DEBUG_ONCE;
+		if(doDebug){
+			DEBUG_ONCE=false;
+			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" buckets="+buckets);
+			System.err.println("  CORRECT_OVERFLOW="+CORRECT_OVERFLOW+" xOverflow="+xOverflow+" expFactor="+overflowExpFactor);
+			System.err.println("  nlzCounts (nonzero):");
+			for(int t=0; t<64; t++){if(nlzCounts[t]>0){System.err.println("    tier "+t+": "+nlzCounts[t]);}}
+		}
+		final int[] counts;
+		if(CORRECT_OVERFLOW && minZeros>=1){
+			// Overflow for tier T accumulates BEFORE T is active; X_T is frozen when T activates.
+			// Correction applies across all currently-active tiers in [max(7,minZeros), 6+minZeros].
+			// Phantom tier (absNlz=minZeros-1) is excluded — it is below minZeros.
+			final int lo=Math.max(7, minZeros);
+			final int hi=Math.min(6+minZeros, 63);
+			// Build reverse-cumulative array: cumRaw[t] = sum of nlzCounts[t..63]
+			final int[] cumRaw=new int[64];
+			cumRaw[63]=nlzCounts[63];
+			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t];}
+
+			// Correct in cumulative space: each tier independently.
+			// correctedCum[t] = cumRaw[t] + (B - cumRaw[t]) * (1 - exp(-X_t/B))
+			final int[] corrCum=cumRaw.clone();
+			for(int t=lo; t<=hi; t++){
+				final double x=(USE_STORED_OVERFLOW && storedOverflow[t]>0)
+					? storedOverflow[t]*OVERFLOW_SCALE : xOverflow*OVERFLOW_SCALE;
+				final int addToCum=(int)Math.round(
+					(buckets-cumRaw[t])*(1.0-Math.exp(-x/buckets)));
+				corrCum[t]+=addToCum;
+			}
+
+			// Current-era ongoing overflow: the max tier (hi) always has ~50%
+			// overflow from values with absNlz > hi clamped to stored=7.
+			// Split the max tier: half stays, half goes to virtual tier hi+1.
+			final int maxHi=Math.min(hi+1, 63);
+			if(corrCum[hi]>0 && maxHi>hi){
+				corrCum[maxHi]=corrCum[hi]/2;
+			}
+
+			// Derive corrected single-tier counts from cumulative differences.
+			counts=nlzCounts.clone();
+			if(lo>0){counts[lo-1]=corrCum[lo-1]-corrCum[lo];}
+			for(int t=lo; t<maxHi; t++){counts[t]=corrCum[t]-corrCum[t+1];}
+			counts[maxHi]=corrCum[maxHi];
+			if(doDebug){
+				System.err.println("  After correction [lo="+lo+" hi="+hi+"] (nonzero):");
+				for(int t=0; t<64; t++){if(counts[t]>0){System.err.println("    tier "+t+": "+counts[t]);}}
+			}
+		}else{
+			counts=nlzCounts;
+		}
+		lastRawNlz=nlzCounts.clone();
+		lastCorrNlz=(counts==nlzCounts) ? lastRawNlz : counts;
+		return CardinalityStats.fromNlzCounts(counts, buckets, microIndex,
 		                                      CF_MATRIX, CF_BUCKETS,
 		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
 	}
@@ -282,6 +356,14 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 
 	/** Packed 3-bit bucket array: 10 buckets per int, 0=empty, 1-7=relNlz+1. */
 	private final int[] maxArray;
+	/** Expected ghost overflow count per max tier: B*ln(2B)/256. Constant for given B. */
+	private final double xOverflow;
+	/** exp(-xOverflow/B): precomputed decay factor for overflow correction formula. */
+	private final double overflowExpFactor;
+	/** Per-tier stored overflow estimates. Recorded at each tier transition:
+	 *  storedOverflow[t] = corrected count at tier t-1 / 2 at the moment t becomes active.
+	 *  Used instead of constant xOverflow when USE_STORED_OVERFLOW=true. */
+	private final int[] storedOverflow;
 	private int minZeros=0;
 	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
 	private int minZeroCount;
@@ -289,6 +371,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
+
+	public int getMinZeros(){return minZeros;}
+	public int[] getStoredOverflow(){return storedOverflow;}
+	/** Last raw and corrected nlzCounts from summarize(). Set after each rawEstimates() call. */
+	int[] lastRawNlz, lastCorrNlz;
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
@@ -302,7 +389,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
-	public static final boolean FAST_COUNT=false;
+	public static final boolean FAST_COUNT=true;
 	/** Social promotion threshold — see DynamicLogLog3v2 for implementation.
 	 * In DLL3, this field is parsed but has no effect (DLL3 uses classic promotion). */
 	public static int PROMOTE_THRESHOLD=0;
@@ -311,6 +398,18 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
 	 * Reduces tier-7+ overflow pollution in DLL3; requires new CF table generation when changed. */
 	public static boolean EARLY_PROMOTE=true;
+	/** When true, corrects the systematic underestimate caused by 3-bit relNlz overflow
+	 *  clamping at tier 7+. Uses cumulative-space Poisson correction with per-DDL stored
+	 *  overflow estimates. Each tier is corrected independently in reverse-cumulative space. */
+	public static boolean CORRECT_OVERFLOW=true;
+	/** Scale factor for overflow correction boost (1.0=full, 0.5=half). */
+	public static double OVERFLOW_SCALE=1.0;
+	/** When true, use per-tier stored overflow estimates (recorded at tier transitions)
+	 *  instead of the constant xOverflow formula. More accurate because it uses actual state. */
+	public static boolean USE_STORED_OVERFLOW=true;
+
+	/** Set to true externally to trigger one debug dump from summarize(), then auto-clears. */
+	public static boolean DEBUG_ONCE=false;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
