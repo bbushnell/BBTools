@@ -95,6 +95,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			}
 		}
 		// FAST_COUNT=true: nlzCounts already maintained incrementally; use directly.
+		lastRawNlz=nlzCounts.clone();
+		lastCorrNlz=lastRawNlz; // DLL4 has no overflow correction
 		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
 		                                      CF_MATRIX, CF_BUCKETS,
 		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
@@ -291,6 +293,10 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
+	public int getMinZeros(){return minZeros;}
+	/** Last raw and corrected nlzCounts from summarize(). */
+	int[] lastRawNlz, lastCorrNlz;
+
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
@@ -303,14 +309,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
-	public static final boolean FAST_COUNT=false;
+	public static final boolean FAST_COUNT=true;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.
 	 * At advance, subtracts 1 from all buckets, which may reset some to empty (stored=0).
 	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
 	 * Reduces tier-15+ overflow pollution; requires new CF table generation when changed. */
-	public static boolean EARLY_PROMOTE=false;
+	public static boolean EARLY_PROMOTE=true;
 
 
 	/** Default resource file for DDL correction factors. */
