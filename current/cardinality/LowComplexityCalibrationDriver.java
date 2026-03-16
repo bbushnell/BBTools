@@ -1,5 +1,6 @@
 package cardinality;
 
+import java.util.ArrayList;
 import java.util.BitSet;
 import rand.FastRandomXoshiro;
 import parse.Parse;
@@ -11,9 +12,10 @@ import parse.Parse;
  * Each estimator draws with replacement from a fixed array of unique values, biased
  * toward lower indices via min(rand(), rand()) to simulate skewed frequency distributions.
  * <p>
- * Estimates are recorded after EVERY add (not just on new-value events), indexed by
- * the current true cardinality. This captures how the estimator behaves while "parked"
- * at a given cardinality as more duplicate values arrive and internal state evolves.
+ * Estimates are recorded at exponentially-spaced reporting thresholds (reportfrac intervals,
+ * matching the high-complexity driver's spacing). rawEstimates() is called on every add
+ * while trueCard is parked at a threshold, capturing tier-promotion effects from duplicates.
+ * Between thresholds, only hashAndStore() runs — no rawEstimates() overhead.
  * <p>
  * Two run modes:
  * <ul>
@@ -43,6 +45,7 @@ public class LowComplexityCalibrationDriver {
 		int k=31;
 		int threads=4;
 		long masterSeed=1;
+		double reportFrac=0.01;
 		String loglogtype="dll4";
 
 		for(String arg : args){
@@ -57,6 +60,7 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
+			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
@@ -64,8 +68,13 @@ public class LowComplexityCalibrationDriver {
 		}
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)
-		final int totalAdds=(iterations>0 ? (int)(cardinality*iterations) : Integer.MAX_VALUE);
+		final long totalAdds=(iterations>0 ? (long)(cardinality*iterations) : Long.MAX_VALUE);
 		final boolean stopOnSaturation=(iterations<=0);
+
+		// Pre-compute exponentially-spaced reporting thresholds (same as DDLCalibrationDriver)
+		final int[] thresholds=computeThresholds(cardinality, reportFrac);
+		final int numThresholds=thresholds.length;
+		System.err.println("Thresholds: "+numThresholds+" points from 1 to "+cardinality);
 
 		// Generate fixed value array: cardinality unique random longs
 		final FastRandomXoshiro masterRng=new FastRandomXoshiro(masterSeed);
@@ -80,33 +89,35 @@ public class LowComplexityCalibrationDriver {
 		final CardinalityTracker dummy=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 1, 0);
 		final int numTypes=dummy.rawEstimates().length;
 
-		// Shared accumulator arrays (indexed by true cardinality 0..cardinality)
-		final double[][] sums  =new double[cardinality+1][numTypes];
-		final double[][] sumAbs=new double[cardinality+1][numTypes];
-		final double[][] sumSq =new double[cardinality+1][numTypes];
-		final long[]     counts=new long[cardinality+1];
+		// Shared accumulator arrays indexed by threshold index (tiny: ~numThresholds rows)
+		final double[][] sums  =new double[numThresholds][numTypes];
+		final double[][] sumAbs=new double[numThresholds][numTypes];
+		final double[][] sumSq =new double[numThresholds][numTypes];
+		final long[]     counts=new long[numThresholds];
 		final Object     lock  =new Object();
 
 		// Finals for lambda capture
 		final int finalCardinality=cardinality;
-		final int finalTotalAdds=totalAdds;
+		final long finalTotalAdds=totalAdds;
 		final boolean finalStop=stopOnSaturation;
 		final String finalType=loglogtype;
 		final int finalBuckets=buckets;
 		final int finalK=k;
 		final int finalNumTypes=numTypes;
+		final int finalNumThresholds=numThresholds;
 		final int estPerThread=(numDDLs+threads-1)/threads;
 
+		final long t0=System.nanoTime();
 		final Thread[] threadArray=new Thread[threads];
 		for(int tid=0; tid<threads; tid++){
 			final int estStart=tid*estPerThread;
 			final int estEnd=Math.min(estStart+estPerThread, numDDLs);
 
-			// Per-thread local accumulators (reused across all estimators in this thread)
-			final double[][] lSums  =new double[finalCardinality+1][finalNumTypes];
-			final double[][] lSumAbs=new double[finalCardinality+1][finalNumTypes];
-			final double[][] lSumSq =new double[finalCardinality+1][finalNumTypes];
-			final long[]     lCounts=new long[finalCardinality+1];
+			// Per-thread local accumulators (indexed by threshold — tiny footprint)
+			final double[][] lSums  =new double[finalNumThresholds][finalNumTypes];
+			final double[][] lSumAbs=new double[finalNumThresholds][finalNumTypes];
+			final double[][] lSumSq =new double[finalNumThresholds][finalNumTypes];
+			final long[]     lCounts=new long[finalNumThresholds];
 
 			threadArray[tid]=new Thread(()->{
 				final FastRandomXoshiro rng=new FastRandomXoshiro(seeds[estStart]);
@@ -117,27 +128,31 @@ public class LowComplexityCalibrationDriver {
 					rng.setSeed(seeds[estIdx]);
 					seen.clear();
 					int trueCard=0;
+					int ti=0; // threshold index
 					final CardinalityTracker est=DDLCalibrationDriver.makeInstance(
 						finalType, finalBuckets, finalK, seeds[estIdx], 0);
 
-					for(int add=0; add<finalTotalAdds; add++){
+					for(long add=0; add<finalTotalAdds; add++){
 						// Biased draw: min(rand, rand) favors lower indices
 						final int pos=Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality));
 						est.hashAndStore(valueArray[pos]);
-						if(seen!=null && !seen.get(pos)){
+						if(!seen.get(pos)){
 							seen.set(pos);
 							trueCard++;
+							// Advance threshold index past any thresholds we've passed
+							while(ti<finalNumThresholds && trueCard>thresholds[ti]){ti++;}
 						}
-						// Record after every add, at current true cardinality
-						if(trueCard>0){
+						// Record on every add while parked at a threshold cardinality.
+						// This captures tier-promotion effects from duplicate adds.
+						if(ti<finalNumThresholds && trueCard==thresholds[ti]){
 							final double[] estimates=est.rawEstimates();
 							for(int t=0; t<finalNumTypes; t++){
 								final double relErr=(estimates[t]-trueCard)/(double)trueCard;
-								lSums[trueCard][t]  +=relErr;
-								lSumAbs[trueCard][t]+=Math.abs(relErr);
-								lSumSq[trueCard][t] +=relErr*relErr;
+								lSums[ti][t]  +=relErr;
+								lSumAbs[ti][t]+=Math.abs(relErr);
+								lSumSq[ti][t] +=relErr*relErr;
 							}
-							lCounts[trueCard]++;
+							lCounts[ti]++;
 						}
 						if(finalStop && trueCard==finalCardinality){break;}
 					}
@@ -145,13 +160,13 @@ public class LowComplexityCalibrationDriver {
 
 				// Merge local accumulators into shared arrays under lock
 				synchronized(lock){
-					for(int c=1; c<=finalCardinality; c++){
-						if(lCounts[c]==0){continue;}
-						counts[c]+=lCounts[c];
+					for(int ti2=0; ti2<finalNumThresholds; ti2++){
+						if(lCounts[ti2]==0){continue;}
+						counts[ti2]+=lCounts[ti2];
 						for(int t=0; t<finalNumTypes; t++){
-							sums[c][t]  +=lSums[c][t];
-							sumAbs[c][t]+=lSumAbs[c][t];
-							sumSq[c][t] +=lSumSq[c][t];
+							sums[ti2][t]  +=lSums[ti2][t];
+							sumAbs[ti2][t]+=lSumAbs[ti2][t];
+							sumSq[ti2][t] +=lSumSq[ti2][t];
 						}
 					}
 				}
@@ -173,21 +188,18 @@ public class LowComplexityCalibrationDriver {
 		}
 		System.out.println(header);
 
-		// Print rows sampled at ~1% cardinality intervals
-		long prevBucket=-1;
-		for(int c=1; c<=cardinality; c++){
-			if(counts[c]==0){continue;}
-			final long bucket=c*100L/cardinality;
-			if(bucket==prevBucket && c!=cardinality){continue;}
-			prevBucket=bucket;
-			final double n=counts[c];
-			final double occ=(double)c/buckets;
+		// Print one row per threshold
+		for(int ti=0; ti<numThresholds; ti++){
+			if(counts[ti]==0){continue;}
+			final double n=counts[ti];
+			final int card=thresholds[ti];
+			final double occ=(double)card/buckets;
 			final StringBuilder sb=new StringBuilder();
-			sb.append(c).append('\t').append(String.format("%.6f", occ));
+			sb.append(card).append('\t').append(String.format("%.6f", occ));
 			for(int t=0; t<numTypes && t<EST_NAMES.length; t++){
-				final double meanErr =sums[c][t]/n;
-				final double meanAbs =sumAbs[c][t]/n;
-				final double variance=sumSq[c][t]/n-meanErr*meanErr;
+				final double meanErr =sums[ti][t]/n;
+				final double meanAbs =sumAbs[ti][t]/n;
+				final double variance=sumSq[ti][t]/n-meanErr*meanErr;
 				final double std     =Math.sqrt(Math.max(0, variance));
 				sb.append('\t').append(String.format("%.6f", meanErr));
 				sb.append('\t').append(String.format("%.6f", meanAbs));
@@ -195,6 +207,56 @@ public class LowComplexityCalibrationDriver {
 			}
 			System.out.println(sb);
 		}
+
+		// Stderr summary: avg and peak abs error per estimator + runtime
+		{
+			final double elapsed=(System.nanoTime()-t0)*1e-9;
+			System.err.println();
+			System.err.println("=== Low-Complexity Calibration Summary ===");
+			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+				+"  Card: "+cardinality+"  Iter: "+iterations
+				+"  Rows: "+numThresholds+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
+			System.err.println("--- Avg and Peak Mean Absolute Error (lower = better) ---");
+			final double[] totalAbsErr=new double[numTypes];
+			final double[] peakAbsErr=new double[numTypes];
+			int rowsWithData=0;
+			for(int ti=0; ti<numThresholds; ti++){
+				if(counts[ti]==0){continue;}
+				rowsWithData++;
+				for(int t=0; t<numTypes; t++){
+					final double meanAbsAtRow=sumAbs[ti][t]/counts[ti];
+					totalAbsErr[t]+=meanAbsAtRow;
+					if(meanAbsAtRow>peakAbsErr[t]){peakAbsErr[t]=meanAbsAtRow;}
+				}
+			}
+			System.err.println(String.format("%-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr"));
+			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+			for(int ki=0; ki<keyIdx.length; ki++){
+				final int e=keyIdx[ki];
+				if(e>=numTypes || e>=EST_NAMES.length){continue;}
+				System.err.println(String.format("%-12s %.8f  %.8f",
+					EST_NAMES[e], totalAbsErr[e]/rowsWithData, peakAbsErr[e]));
+			}
+			System.err.println();
+		}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Helpers            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Generates exponentially-spaced thresholds from 1 to maxCard at reportFrac intervals. */
+	static int[] computeThresholds(final int maxCard, final double reportFrac){
+		final ArrayList<Integer> list=new ArrayList<>();
+		int next=1;
+		while(next<maxCard){
+			list.add(next);
+			next=Math.max(next+1, (int)(next*(1+reportFrac)));
+		}
+		list.add(maxCard);
+		final int[] arr=new int[list.size()];
+		for(int i=0; i<arr.length; i++){arr[i]=list.get(i);}
+		return arr;
 	}
 
 	/*--------------------------------------------------------------*/
