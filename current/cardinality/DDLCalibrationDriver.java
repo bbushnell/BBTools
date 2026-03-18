@@ -78,6 +78,9 @@ public class DDLCalibrationDriver {
 	/** When false (default), suppresses per-tier DLC0..DLC63 and MedianLC columns from File 1.
 	 *  These are useful for DLC algorithm development but waste space in production runs. */
 	static boolean PRINT_DLC_TIERS=false;
+	/** When true, runs pure hashAndStore throughput benchmark: no rawEstimates(), no histograms,
+	 *  no filledBuckets(). Use for cache-thrashing speed comparisons between estimator types. */
+	static boolean BENCHMARK_MODE=false;
 	/** When false (default), suppresses the _std (standard deviation) column for each estimator.
 	 *  Saves ~1/3 of output width; std is rarely needed when inspecting mean errors. */
 	static boolean PRINT_STD=false;
@@ -146,6 +149,8 @@ public class DDLCalibrationDriver {
 				DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
 			}else if(a.equals("assertdlc")){
 				ASSERT_DLC=Parse.parseBoolean(b);
+			}else if(a.equals("benchmark") || a.equals("bench")){
+				BENCHMARK_MODE=Parse.parseBoolean(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
@@ -193,6 +198,18 @@ public class DDLCalibrationDriver {
 
 		// Start threads
 		for(CalibrationThread ct : calThreads){ct.start();}
+
+		// Benchmark mode: just wait for threads and print elapsed time
+		if(BENCHMARK_MODE){
+			for(CalibrationThread ct : calThreads){
+				try{ct.join();}catch(InterruptedException e){throw new RuntimeException(e);}
+			}
+			final double elapsed=(System.nanoTime()-t0)*1e-9;
+			System.err.println("Benchmark: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+				+"  MaxCard: "+maxTrue+"  Elapsed: "+String.format("%.3f", elapsed)+"s");
+			bsw1.poisonAndWait();
+			return;
+		}
 
 		// Main polling loop: collect one merged row per threshold, print live
 		final double[] totalMeanAbsErr=new double[NUM_OUT1];
@@ -872,6 +889,16 @@ public class DDLCalibrationDriver {
 		}
 
 		void runInner() throws InterruptedException {
+
+			// Benchmark mode: pure hashAndStore throughput, no estimates or histograms.
+			if(BENCHMARK_MODE){
+				final Random valRng=new Random(valSeed);
+				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
+					final long val=valRng.nextLong();
+					for(CardinalityTracker ddl : ddls){ddl.hashAndStore(val);}
+				}
+				return;
+			}
 
 			// Record slot 0 before any elements: all DDLs are empty, trueCard=0
 			for(CardinalityTracker ddl : ddls){

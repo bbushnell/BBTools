@@ -126,15 +126,12 @@ public final class LogLog6 extends CardinalityTracker {
 
 		if(newStored<=oldStored){return;}
 		lastCardinality=-1;
+		if(oldStored==0){filledBuckets++;}
 		maxArray[bucket]=(byte)newStored;
 	}
 
-	public int filledBuckets(){
-		int count=0;
-		for(int i=0; i<buckets; i++){if(maxArray[i]!=0){count++;}}
-		return count;
-	}
-	public double occupancy(){return (double)filledBuckets()/buckets;}
+	public int filledBuckets(){return filledBuckets;}
+	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -151,6 +148,7 @@ public final class LogLog6 extends CardinalityTracker {
 
 	/** One byte per bucket: 0=empty, 1-63=absNlz+1. 2 bits wasted per byte. */
 	private final byte[] maxArray;
+	private int filledBuckets=0;
 
 	/** Last raw nlzCounts from summarize(). */
 	int[] lastRawNlz, lastCorrNlz;
