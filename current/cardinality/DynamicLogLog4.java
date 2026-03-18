@@ -146,6 +146,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 */
 	public void add(DynamicLogLog4 log){
 		added+=log.added;
+		branch1+=log.branch1;
+		branch2+=log.branch2;
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
@@ -161,16 +163,17 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			minZeros=newMinZeros;
 			filledBuckets=0;
 			minZeroCount=0;
-			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
-			final int phantomNlz=minZeros-1;
+//			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
+//			final int phantomNlz=minZeros-1;
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
-					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz]++;}}
-				}else if(FAST_COUNT && minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+//					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz]++;}}
 				}
+//				else if(FAST_COUNT && minZeros>0 && phantomNlz<64){
+//					nlzCounts[phantomNlz]++;
+//				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
 			while(minZeroCount==0 && minZeros<wordlen){
@@ -187,7 +190,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final long key=Tools.hash64shift(rawKey);
 
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
-		branch1++;
+//		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
@@ -203,7 +206,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-		//		branch2++;
+//		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -299,7 +302,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
-	public double branch2Rate(){return branch2/(double)Math.max(1, added);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
@@ -309,7 +312,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
-	public static final boolean FAST_COUNT=true;
+	public static final boolean FAST_COUNT=false;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.

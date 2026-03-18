@@ -259,13 +259,14 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @return Number of G and C bases in the k-mer
 	 */
 	public static final int gc(long kmer){
-		int gc=0;
-		while(kmer>0){
-			long x=kmer&3;
-			kmer>>>=2;
-			if(x==1 || x==2){gc++;}
-		}
-		return gc;
+		return Long.bitCount((kmer^(kmer<<1))&0xAAAAAAAAAAAAAAAAL); //May be faster
+//		int gc=0;
+//		while(kmer>0){
+//			long x=kmer&3;
+//			kmer>>>=2;
+//			if(x==1 || x==2){gc++;}
+//		}
+//		return gc;
 	}
 	
 	/**

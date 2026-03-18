@@ -290,8 +290,16 @@ class LogLogWrapper {
 			//		System.err.println("Harmonic Mean: "+Tools.harmonicMean(copy));
 			if(log.getClass()==DynamicDemiLog.class) {
 				DynamicDemiLog ddl=(DynamicDemiLog)log;
-//				System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
-//				System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+				if(ddl.branch1>0) {
+					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
+					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+				}
+			}else if(log.getClass()==DynamicLogLog4.class) {
+				DynamicLogLog4 ddl=(DynamicLogLog4)log;
+				if(ddl.branch1>0) {
+					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
+					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+				}
 			}
 			System.err.println("Cardinality:   "+cardinality);
 			//		System.err.println("CardinalityH:  "+log.cardinalityH());
