@@ -269,7 +269,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	};
 
 	/** Reuse LL6 correction factors for the standard summarize() path. */
-	public static final String CF_FILE="?cardinalityCorrectionLL6.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionULL8.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	public static float[][] initializeCF(int buckets){
