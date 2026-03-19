@@ -70,7 +70,21 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	 * Uses the active CF table selected by FROZEN_HISTORY toggle.
 	 */
 	private CardinalityStats summarize(){
-		final double[] mult=FROZEN_HISTORY ? STATE_MULT_FROZEN : STATE_MULT_ACTIVE;
+		final double[] baseCF=FROZEN_HISTORY ? STATE_CF_FROZEN : STATE_CF_ACTIVE;
+		// Build per-tier multiplier tables: tiers 0-2 have their own CFs and offsets,
+		// tier 3+ uses the steady-state CFs with STATE_CF_OFFSET.
+		final double[][] tierMult=new double[64][4];
+		for(int t=0; t<64; t++){
+			final double[] cf;
+			final double offset;
+			if(t==0){cf=TIER0_CF; offset=TIER0_CF_OFFSET;}
+			else if(t==1){cf=TIER1_CF; offset=TIER1_CF_OFFSET;}
+			else if(t==2){cf=TIER2_CF; offset=TIER2_CF_OFFSET;}
+			else{cf=baseCF; offset=STATE_CF_OFFSET;}
+			for(int s=0; s<4; s++){
+				tierMult[t][s]=Math.pow(2.0, -(cf[s]*STATE_POWER+offset));
+			}
+		}
 		final float[][] cfMatrix=FROZEN_HISTORY ? CF_MATRIX_FROZEN : CF_MATRIX_ACTIVE;
 		final int cfBuckets=FROZEN_HISTORY ? CF_BUCKETS_FROZEN : CF_BUCKETS_ACTIVE;
 
@@ -86,7 +100,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 				final int absNlz=(stored>>2)-1;
 				final int state=stored&0x3;
 				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
-				final double m=(absNlz>=MIN_CORRECTION_TIER ? mult[state] : 1.0);
+				final double m=tierMult[Math.min(absNlz, 63)][state];
 				final double base=Math.pow(2.0, -absNlz)*m;
 				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : (absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0))*m;
 				difSum+=dif;
@@ -187,9 +201,9 @@ public final class UltraLogLog8 extends CardinalityTracker {
 			if(newNlzStored<oldNlzStored){
 				final int diff=oldNlzStored-newNlzStored;
 				if(diff==1){
-					maxArray[bucket]=(byte)(oldStored|0x01); // set sawMinus1
+					maxArray[bucket]=(byte)(oldStored|0x02); // set sawMinus1 (bit1)
 				}else if(diff==2){
-					maxArray[bucket]=(byte)(oldStored|0x02); // set sawMinus2
+					maxArray[bucket]=(byte)(oldStored|0x01); // set sawMinus2 (bit0)
 				}
 				return;
 			}
@@ -201,8 +215,10 @@ public final class UltraLogLog8 extends CardinalityTracker {
 		if(oldStored==0){filledBuckets++;}
 
 		final int k=newNlzStored-oldNlzStored;
+		// Shift register carry: bit2 = "old max existed" (only if bucket was non-empty)
 		final int oldHist=(oldStored>0) ? (oldStored&0x3) : 0;
-		final int newHist=((oldHist|0x4)>>k)&0x3;
+		final int carry=(oldStored>0) ? 0x4 : 0; // don't set "old max existed" for empty buckets
+		final int newHist=((oldHist|carry)>>k)&0x3;
 
 		maxArray[bucket]=(byte)((newNlzStored<<2)|newHist);
 	}
@@ -227,7 +243,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	 * One byte per bucket: bits 7-2 = nlzStored (absNlz+1),
 	 * bit 1 = sawMinus2, bit 0 = sawMinus1.
 	 */
-	private final byte[] maxArray;
+	final byte[] maxArray;
 	private int filledBuckets=0;
 
 	int[] lastRawNlz, lastCorrNlz;
@@ -244,37 +260,138 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	public static boolean FROZEN_HISTORY=false;
 
 	/**
-	 * Minimum absNlz tier for applying state corrections.
-	 * Tiers below this lack meaningful history (e.g., absNlz=0
-	 * is always state 00 since there's no NLZ=-1 to observe).
-	 * Buckets at tiers 0, 1, 2 use multiplier 1.0 (no correction).
+	 * Power applied to state corrections. 1.0 = full correction,
+	 * 0.5 = sqrt (half the additive CF in NLZ-space), 0.0 = no correction.
 	 */
-	static final int MIN_CORRECTION_TIER=3;
+	public static double STATE_POWER=1.0;
 
 	/**
-	 * State multipliers for frozen history mode.
-	 * Derived from entry-moment density P(u) ∝ e^(-u).
-	 * Index = (sawMinus2 << 1) | sawMinus1.
-	 * CF values: state 00 = -1.976, 01 = -0.350, 10 = -0.011, 11 = +1.257
+	 * Additive offset applied to CF values before conversion to multipliers.
+	 * Default -0.7929 was determined empirically by minimizing the coefficient
+	 * of variation (std / |1+meanErr|) of the Hybrid estimator via quadratic
+	 * fit across offsets -1.2 to -0.3, using 16384 estimators, 512 buckets,
+	 * maxmult=20, cf=f. The minimum Hybrid CV was at offset -0.7929.
+	 * Applied to the empirically derived STATE_CF_ACTIVE values.
 	 */
-	static final double[] STATE_MULT_FROZEN={
-		3.934587,  // state 00: saw neither; outlier NLZ, inflate contribution
-		1.274889,  // state 01: saw max-1 only (k=2 jump, old max = new max-2)
-		1.007332,  // state 10: saw max-2 only (k=1 jump, nearly neutral)
-		0.418300   // state 11: saw both; well-established, reduce contribution
-	};
+	public static double STATE_CF_OFFSET=-0.7929;
+
+	/*--------------------------------------------------------------*/
+	/*----------------     State Correction Tables     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/*
+	 * DERIVATION OF STATE CORRECTION FACTORS
+	 *
+	 * Each bucket stores 2 history bits tracking whether NLZ values
+	 * max-1 and max-2 were observed (via shift register carry on promotion).
+	 * The 4 states (00, 01, 10, 11) encode how "established" the current
+	 * NLZ is: state 11 = saw both neighbors (well-established), state 00 =
+	 * saw neither (likely outlier from a large jump).
+	 *
+	 * The additive NLZ corrections (STATE_CF_*) were derived theoretically
+	 * via numerical integration of E[log2(u) | state, max=X] where
+	 * u = n / 2^X (elements per bucket normalized by expected count at
+	 * this NLZ level). Two density functions were used:
+	 *
+	 *   FROZEN:  P(u) ∝ e^(-u)
+	 *            Entry-moment density — state locked at promotion instant.
+	 *
+	 *   ACTIVE:  P(u | max=X) ∝ (e^(-u/2) - e^(-u)) / u
+	 *            Time-averaged density over the bucket's lifetime at tier X.
+	 *
+	 * The theoretical CF values were then refined empirically: a uniform
+	 * additive offset of -1.0 was found to minimize the coefficient of
+	 * variation (see STATE_CF_OFFSET documentation above).
+	 *
+	 * The effective CF at runtime is: baseCF[state] * STATE_POWER + STATE_CF_OFFSET
+	 * The effective multiplier is: 2^(-effectiveCF)
+	 *
+	 * Tiers 0, 1, 2 use per-tier correction tables (STATE_CF_TIER0/1/2)
+	 * because the steady-state derivation does not apply to tiers where
+	 * NLZ-1 or NLZ-2 cannot exist (e.g., at NLZ=0, state is always 00).
+	 *
+	 * Bit convention (MSB = nearer neighbor):
+	 *   bit1 (0x02) = sawMinus1 (saw NLZ = max-1, the nearer neighbor)
+	 *   bit0 (0x01) = sawMinus2 (saw NLZ = max-2, the farther neighbor)
+	 *   state = (sawMinus1 << 1) | sawMinus2
+	 *
+	 * Index order: [state 00, state 01, state 10, state 11]
+	 *   00 = saw neither
+	 *   01 = saw max-2 only (farther only; unusual — typically from k=2 jump)
+	 *   10 = saw max-1 only (nearer only; common at entry from k=1 jump)
+	 *   11 = saw both (well-established)
+	 */
 
 	/**
-	 * State multipliers for active history mode.
-	 * Derived from lifetime density P(u|max=X) ∝ (e^(-u/2) - e^(-u)) / u.
-	 * CF values: state 00 = -2.379, 01 = -0.729, 10 = -0.338, 11 = +1.133
+	 * Additive NLZ corrections for frozen history (entry-moment density).
+	 * Strictly ascending: [00=neither, 01=far only, 10=near only, 11=both].
+	 * Negative values reduce the effective NLZ (lowering the cardinality
+	 * estimate for lucky outlier buckets); positive values increase it
+	 * (raising the estimate for well-established buckets).
 	 */
-	static final double[] STATE_MULT_ACTIVE={
-		5.202266,  // state 00: saw neither; rare survivor, strong outlier
-		1.657683,  // state 01: saw max-1 only
-		1.263895,  // state 10: saw max-2 only
-		0.455923   // state 11: saw both; well-established
-	};
+	/** Theoretical CF for frozen history. TODO: re-derive empirically. */
+	static final double[] STATE_CF_FROZEN={-1.976212, -0.350372, -0.010539, +1.257391};
+
+	/**
+	 * Empirical additive NLZ corrections for active history.
+	 * Derived from single-bucket simulation (16k trials × 16k hashes).
+	 * For each (tier, state), measured avg cardinality at observation time;
+	 * CF = log2(stateAvgCard / tierAvgCard). Stable across tiers 3-11.
+	 *
+	 * Index: [00=neither, 01=saw NLZ-2 only, 10=saw NLZ-1 only, 11=both].
+	 * Note: CF[10] < CF[01] because seeing the near neighbor (NLZ-1, which
+	 * is 2× rarer than NLZ-2) WITHOUT the far neighbor indicates a stronger
+	 * outlier than seeing the far without the near.
+	 *
+	 * Per-tier corrections for tiers 0-2 (non-steady-state):
+	 *   Tier 0: {0.00, N/A,   N/A,   N/A  }  (only state 00 possible)
+	 *   Tier 1: {-1.86, N/A,  +0.21, N/A  }  (only states 00 and 10 possible)
+	 *   Tier 2: {-3.19, -1.29, -1.95, +0.23}
+	 *   Tier 3+: use STATE_CF_ACTIVE below
+	 */
+	static final double[] STATE_CF_ACTIVE={-2.4988, -1.1800, -1.6370, +0.2068};
+
+	/**
+	 * Multipliers applied to each bucket's harmonic sum contribution.
+	 * Computed as 2^(-CF). Larger values inflate the contribution to the
+	 * harmonic sum, which REDUCES the cardinality estimate (estimate ∝ 1/sum).
+	 */
+	static final double[] STATE_MULT_FROZEN={3.934587, 1.274889, 1.007332, 0.418300};
+
+	/** Empirical multipliers for active history mode (2^(-CF)). */
+	static final double[] STATE_MULT_ACTIVE={5.6530, 2.2653, 3.1088, 0.8662};
+
+	/*
+	 * PER-TIER CORRECTIONS FOR LOW TIERS
+	 *
+	 * At NLZ=0: only state 00 is possible (no NLZ=-1 or NLZ=-2 to observe).
+	 * At NLZ=1: states 00 and 10 are possible (can see NLZ=-1... wait, NLZ=0
+	 *   exists, so sawMinus1 can be set via shift carry from a previous tier,
+	 *   but sawMinus2 requires NLZ=-1 which doesn't exist).
+	 * At NLZ=2: all 4 states are possible but the distribution is non-steady-state
+	 *   because the bucket has only been through 0-2 promotions.
+	 *
+	 * TODO: Derive per-tier corrections empirically from simulation data.
+	 * For now, tiers 0-2 use multiplier 1.0 (no correction).
+	 */
+	/**
+	 * Per-tier CFs for tiers 0-2 where steady-state assumptions don't hold.
+	 * Empirically derived from single-bucket simulation (131k outer × 32k inner).
+	 * Index: [00, 01, 10, 11]. N/A states use 0.0 (multiplier=1.0, no correction).
+	 *
+	 * Tier 0: only state 00 possible (bucket just filled, no history).
+	 * Tier 1: only states 00 and 10 possible (can see NLZ=0 but not NLZ=-1).
+	 * Tier 2: all 4 states possible but non-steady-state distribution.
+	 */
+	static final double[] TIER0_CF={0.0, 0.0, 0.0, 0.0};
+	static final double[] TIER1_CF={-1.840, 0.0, +0.206, 0.0};
+	static final double[] TIER2_CF={-3.175, -1.292, -1.923, +0.229};
+
+	/** Per-tier offsets. Tier 0 = 0 (no correction meaningful).
+	 *  Tier 1/2 = -0.25 (approximate; not yet optimized). */
+	static final double TIER0_CF_OFFSET=0.0;
+	static final double TIER1_CF_OFFSET=-0.25;
+	static final double TIER2_CF_OFFSET=-0.25;
 
 	/*--------------------------------------------------------------*/
 	/*----------------       CF Table Loading       ----------------*/
