@@ -208,15 +208,17 @@ public class GlocalAligner implements IDAligner{
 		final long bestScore=prev[maxPos];
 		final int originPos=(int)(bestScore&POSITION_MASK);
 		final int endPos=maxPos;
-		if(posVector!=null){
-			posVector[0]=originPos;
-			posVector[1]=endPos-1;
-		}
-
-		// The bit field tracks deletion events 
+		// The bit field tracks deletion events
 		final int deletions=(int)((bestScore & DEL_MASK) >> POSITION_BITS);
 		final int refAlnLength=(endPos-originPos);
 		final int rawScore=(int)(bestScore >> SCORE_SHIFT);
+
+		if(posVector!=null){
+			posVector[0]=originPos;
+			posVector[1]=endPos-1;
+			if(posVector.length>2) {posVector[2]=rawScore;}
+			if(posVector.length>3) {posVector[3]=deletions;}
+		}
 
 		// Solve the system of equations:
 		// 1. M + S + I = qLen
