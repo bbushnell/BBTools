@@ -212,7 +212,8 @@ public class DDLCalibrationDriver2 {
 					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
 					final double variance=row.sumSqErr[e]/row.n-meanErr*meanErr;
 					final double stdev=Math.sqrt(Math.max(0, variance));
-					if(meanAbsAtRow>0){totalCV[e]+=stdev/meanAbsAtRow;}
+					final double denom=Math.abs(1.0+meanErr);
+					if(denom>0){totalCV[e]+=stdev/denom;}
 				}
 				cvRows++;
 			}

@@ -207,7 +207,8 @@ public class LowComplexityCalibrationDriver {
 				sb.append('\t').append(String.format("%.6f", meanErr));
 				sb.append('\t').append(String.format("%.6f", meanAbs));
 				sb.append('\t').append(String.format("%.6f", std));
-				sb.append('\t').append(String.format("%.6f", meanAbs>0 ? std/meanAbs : 0));
+				final double cvDenom=Math.abs(1.0+meanErr);
+				sb.append('\t').append(String.format("%.6f", cvDenom>0 ? std/cvDenom : 0));
 			}
 			System.out.println(sb);
 		}
@@ -236,7 +237,8 @@ public class LowComplexityCalibrationDriver {
 					if(meanAbsAtRow>peakAbsErr[t]){peakAbsErr[t]=meanAbsAtRow;}
 					final double variance=sumSq[ti][t]/n2-meanErr*meanErr;
 					final double std=Math.sqrt(Math.max(0, variance));
-					if(meanAbsAtRow>0){totalCV[t]+=std/meanAbsAtRow;}
+					final double cvDenom=Math.abs(1.0+meanErr);
+					if(cvDenom>0){totalCV[t]+=std/cvDenom;}
 				}
 			}
 			System.err.println(String.format("%-12s %-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr", "AvgCV"));
