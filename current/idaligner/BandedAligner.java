@@ -65,14 +65,21 @@ public class BandedAligner implements IDAligner{
 	}
 
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
-		if(posVector==null) {return alignAndTraceStatic(query, ref, null);}
-		AlignmentStats as=new AlignmentStats();
-		as.doTrace=false;
+		// Swap to ensure query is not longer than ref when no posVector needed
+		if(posVector==null && query.length>ref.length) {
+			byte[] temp=query;
+			query=ref;
+			ref=temp;
+		}
+		AlignmentStats as=(posVector==null ? null : new AlignmentStats());
+		if(as!=null){as.doTrace=false;}
 		float id=alignAndTraceStatic(query, ref, as);
-		posVector[0]=as.rStart;
-		posVector[1]=as.rStop;
-		if(posVector.length>2) {posVector[2]=as.score;}
-		if(posVector.length>3) {posVector[3]=as.dels;}
+		if(posVector!=null){
+			posVector[0]=as.rStart;
+			posVector[1]=as.rStop;
+			if(posVector.length>2) {posVector[2]=as.score;}
+			if(posVector.length>3) {posVector[3]=as.dels;}
+		}
 		return id;
 	}
 
@@ -123,7 +130,7 @@ public class BandedAligner implements IDAligner{
 
 		for(int i=1; i<=qLen; i++){
 			final int center=i+offset;
-			bandStart=Math.max(1, center-bandWidth);
+			bandStart=Math.max(1, Math.min(rLen, center-bandWidth));
 			bandEnd=Math.min(rLen, center+bandWidth);
 
 			if(doTrace){
