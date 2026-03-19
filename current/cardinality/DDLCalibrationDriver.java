@@ -618,7 +618,14 @@ public class DDLCalibrationDriver {
 				final double variance=row.sumSqErr[e]/n-meanErr*meanErr;
 				final double stdev=Math.sqrt(Math.max(0, variance));
 				if(PRINT_STD){sb.append('\t').append(String.format("%.6f", stdev));}
-				if(PRINT_CV){sb.append('\t').append(String.format("%.6f", meanAbsErr>0 ? stdev/meanAbsErr : 0));}
+				if(PRINT_CV){
+					// CV = std / |1+meanErr|: coefficient of variation of the raw estimates,
+					// independent of CF scaling. Measures relative spread around the
+					// (possibly biased) mean, so comparing CV across estimators shows
+					// which has tighter estimates regardless of bias correction.
+					final double denom=Math.abs(1.0+meanErr);
+					sb.append('\t').append(String.format("%.6f", denom>0 ? stdev/denom : 0));
+				}
 			}
 		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append(String.format("%.4f", row.sumRawMean/n));}
