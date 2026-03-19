@@ -112,7 +112,7 @@ public class AlignmentStats {
 		float insF=Math.max(0, qLen+dels-refAlnLength);
 		float matchesF=((score+qLen+dels)/2f);
 		float subsF=Math.max(0, qLen-matchesF-insF);
-		identity=matches/(matchesF+subsF+insF+dels);
+		identity=matchesF/(matchesF+subsF+insF+dels);
 		ins=(int)insF;
 		matches=(int)matchesF;
 		subs=(int)subsF;

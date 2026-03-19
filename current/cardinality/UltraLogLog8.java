@@ -9,8 +9,19 @@ import shared.Tools;
  * Extends the LL6 (HLL) baseline by tracking whether elements with
  * NLZ = (max-1) and NLZ = (max-2) were ever observed. These 2 history
  * bits refine the per-bucket contribution to the harmonic sum using
- * theoretically derived correction factors, reducing estimator variance
- * without requiring additional correction factor tables.
+ * theoretically derived correction factors, reducing estimator variance.
+ * <p>
+ * Two history modes are supported:
+ * <ul>
+ *   <li><b>Frozen</b> (FROZEN_HISTORY=true, default): History bits are locked
+ *       at the moment of tier promotion and never updated afterward. This
+ *       enables full early-exit optimization (elements below max are pure
+ *       no-ops). Correction factors reflect the entry-moment distribution.</li>
+ *   <li><b>Active</b> (FROZEN_HISTORY=false): History bits continue to be
+ *       updated as elements with NLZ = max-1 or max-2 arrive. This captures
+ *       more information but requires processing elements that don't update
+ *       the max. Correction factors reflect the time-averaged distribution.</li>
+ * </ul>
  * <p>
  * Register encoding (8 bits):
  * <ul>
@@ -19,8 +30,8 @@ import shared.Tools;
  *   <li>Bit 0: sawMinus1 (observed NLZ = max - 1)</li>
  * </ul>
  * <p>
- * Correction factors derived from E[log2(u) | state, max=X] where
- * u = n/2^X via numerical integration of the conditional distribution.
+ * History carry on promotion uses a shift register:
+ * {@code newHist = ((oldHist | 0x4) >> k) & 0x3} where k is the jump distance.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -53,77 +64,50 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Computes cardinality using the corrected harmonic sum.
-	 * Each bucket contributes 2^(-(absNlz + CF[state])) to the sum,
-	 * where CF[state] is the theoretically derived correction.
+	 * Per-bucket summarize, modeled on DDL8's approach.
+	 * Computes hllSumFilled (integer NLZ) for standard estimators,
+	 * and hllSumFilledM (state-corrected) for the refined estimator.
+	 * Uses the active CF table selected by FROZEN_HISTORY toggle.
 	 */
 	private CardinalityStats summarize(){
+		final double[] mult=FROZEN_HISTORY ? STATE_MULT_FROZEN : STATE_MULT_ACTIVE;
+		final float[][] cfMatrix=FROZEN_HISTORY ? CF_MATRIX_FROZEN : CF_MATRIX_ACTIVE;
+		final int cfBuckets=FROZEN_HISTORY ? CF_BUCKETS_FROZEN : CF_BUCKETS_ACTIVE;
+
+		double difSum=0;
+		double hllSumFilled=0;
+		double gSum=0;
+		int count=0;
 		final int[] nlzCounts=new int[64];
+
 		for(int i=0; i<buckets; i++){
 			final int stored=maxArray[i]&0xFF;
 			if(stored>0){
 				final int absNlz=(stored>>2)-1;
+				final int state=stored&0x3;
 				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
+				final double m=(absNlz>=MIN_CORRECTION_TIER ? mult[state] : 1.0);
+				final double base=Math.pow(2.0, -absNlz)*m;
+				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : (absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0))*m;
+				difSum+=dif;
+				hllSumFilled+=base;
+				gSum+=Math.log(Tools.max(1, dif));
+				count++;
 			}
 		}
 		lastRawNlz=nlzCounts;
 		lastCorrNlz=nlzCounts;
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
-	}
-
-	/**
-	 * Computes the ULL-corrected harmonic sum directly, bypassing
-	 * nlzCounts aggregation. Each bucket gets an individual correction
-	 * based on its history bits.
-	 * @return corrected cardinality estimate using Mean formula
-	 */
-	double correctedEstimate(){
-		double corrSum=0;
-		double plainSum=0;
-		int count=0;
-		for(int i=0; i<buckets; i++){
-			final int stored=maxArray[i]&0xFF;
-			if(stored==0){continue;}
-			count++;
-			final int nlzStored=(stored>>2)&0x3F; // absNlz+1
-			final int absNlz=nlzStored-1;
-			final int state=stored&0x3;
-			final double base=Math.pow(2.0, -absNlz);
-			plainSum+=base;
-			corrSum+=base*STATE_MULTIPLIER[state];
-		}
-		if(count==0){return 0;}
-		// Self-normalize: divide out the average multiplier so only
-		// relative bucket differences matter, not the global bias
-		final double normFactor=corrSum/plainSum;
-		final double normalizedSum=corrSum/normFactor; // == plainSum scaled by relative corrections
-		// Wait - that's just plainSum. Need different approach.
-		// Instead: adjust each bucket's contribution relative to the sketch-wide average multiplier
-		// correctedSum / avgMult = sum of (2^(-X) * mult[s] / avgMult)
-		// where avgMult = corrSum / plainSum
-		// This equals plainSum * (sum of mult[s]*base / corrSum)...
-		// Actually: the right formula is to use corrSum in place of plainSum but
-		// scale the result so the estimator is unbiased.
-		// Mean = 2*(count+B)/B * count^2 / sum
-		// If we use corrSum, we get a different estimate. The ratio corrSum/plainSum
-		// tells us by how much our corrections shifted the sum. We want the VARIANCE
-		// reduction without the BIAS shift.
-		// So: use corrSum but multiply result by normFactor to undo the bias
-		final double rawEstimate=2.0*((count+(double)buckets)/buckets)*((double)count*count)/corrSum;
-		return rawEstimate*normFactor;
+		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
+		                            gSum, count, buckets, null, cfMatrix, cfBuckets,
+		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
+		                            nlzCounts, 0);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		// Use corrected estimate for ULL, fall back to standard for comparison
 		final CardinalityStats s=summarize();
-		double standard=s.hybridDLL();
-		double corrected=correctedEstimate();
-		// Use whichever is valid; corrected for the main estimate
-		long card=(long)corrected;
+		long card=(long)s.hybridDLL();
 		card=Math.max(card, s.microCardinality());
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
@@ -162,19 +146,16 @@ public final class UltraLogLog8 extends CardinalityTracker {
 		final int otherNlz=(otherStored>>2);
 
 		if(myNlz>otherNlz){
-			// My NLZ is higher; merge other's history into mine via shift
 			final int k=myNlz-otherNlz;
 			final int otherHist=otherStored&0x3;
 			final int shifted=((otherHist|0x4)>>k)&0x3;
-			maxArray[bucket]=(byte)(myStored|shifted); // OR in the carried bits
+			maxArray[bucket]=(byte)(myStored|shifted);
 		}else if(otherNlz>myNlz){
-			// Other is higher; carry my history into other's
 			final int k=otherNlz-myNlz;
 			final int myHist=myStored&0x3;
 			final int shifted=((myHist|0x4)>>k)&0x3;
 			maxArray[bucket]=(byte)(otherStored|shifted);
 		}else{
-			// Same NLZ: OR the history bits (union of knowledge)
 			maxArray[bucket]=(byte)(myStored|otherStored);
 		}
 	}
@@ -197,18 +178,29 @@ public final class UltraLogLog8 extends CardinalityTracker {
 		final int oldStored=maxArray[bucket]&0xFF;
 		final int oldNlzStored=(oldStored>0) ? (oldStored>>2) : 0;
 
-		// History is immutable: only promotions change the register.
-		// Elements below current max are pure early exits.
-		if(newNlzStored<=oldNlzStored){return;}
+		if(FROZEN_HISTORY){
+			// Frozen mode: only promotions change the register.
+			// Elements at or below current max are pure early exits.
+			if(newNlzStored<=oldNlzStored){return;}
+		}else{
+			// Active mode: elements below max can set history bits.
+			if(newNlzStored<oldNlzStored){
+				final int diff=oldNlzStored-newNlzStored;
+				if(diff==1){
+					maxArray[bucket]=(byte)(oldStored|0x01); // set sawMinus1
+				}else if(diff==2){
+					maxArray[bucket]=(byte)(oldStored|0x02); // set sawMinus2
+				}
+				return;
+			}
+			if(newNlzStored==oldNlzStored){return;} // same NLZ, no change
+		}
 
 		// New NLZ is higher: promote with shift-register history carry
 		lastCardinality=-1;
 		if(oldStored==0){filledBuckets++;}
 
-		final int k=newNlzStored-oldNlzStored; // How far we jumped
-		// History is a 2-bit shift register. On k-step promotion:
-		// bit2 represents "old max existed", bits 1-0 are old history.
-		// Shift right by k, mask to 2 bits.
+		final int k=newNlzStored-oldNlzStored;
 		final int oldHist=(oldStored>0) ? (oldStored&0x3) : 0;
 		final int newHist=((oldHist|0x4)>>k)&0x3;
 
@@ -224,7 +216,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(correctedEstimate());
+		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -245,36 +237,78 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Theoretically derived state multipliers for the harmonic sum.
-	 * Index = (sawMinus2 << 1) | sawMinus1.
-	 * Multiplier = 2^(-CF[state]) where CF is the mean-preserving correction.
-	 *
-	 * CF values from E[log2(u) | state, max=X]:
-	 *   state 00 (0): CF = -2.255 -> mult = 2^(+2.255) = 4.7745
-	 *   state 01 (1): CF = -0.774 -> mult = 2^(+0.774) = 1.7108
-	 *   state 10 (2): CF = -0.384 -> mult = 2^(+0.384) = 1.3056
-	 *   state 11 (3): CF = +1.085 -> mult = 2^(-1.085) = 0.4713
+	 * Toggle between frozen and active history modes.
+	 * Frozen: history locked at promotion, enables full early exit.
+	 * Active: history updated by sub-max elements, more information but slower.
 	 */
+	public static boolean FROZEN_HISTORY=false;
+
 	/**
-	 * Linear-space normalized multipliers.
-	 * Derived from theoretical E[log2(u)|state] correction factors,
-	 * then normalized so frequency-weighted average = 1.0 to preserve
-	 * the estimator's mean in linear (harmonic sum) space.
+	 * Minimum absNlz tier for applying state corrections.
+	 * Tiers below this lack meaningful history (e.g., absNlz=0
+	 * is always state 00 since there's no NLZ=-1 to observe).
+	 * Buckets at tiers 0, 1, 2 use multiplier 1.0 (no correction).
 	 */
-	static final double[] STATE_MULTIPLIER={
-		3.0798,  // state 00: saw neither; NLZ likely outlier, inflate contribution
-		1.1036,  // state 01: saw max-1 only
-		0.8422,  // state 10: saw max-2 only
-		0.3040   // state 11: saw both; well-established, reduce contribution
+	static final int MIN_CORRECTION_TIER=3;
+
+	/**
+	 * State multipliers for frozen history mode.
+	 * Derived from entry-moment density P(u) ∝ e^(-u).
+	 * Index = (sawMinus2 << 1) | sawMinus1.
+	 * CF values: state 00 = -1.976, 01 = -0.350, 10 = -0.011, 11 = +1.257
+	 */
+	static final double[] STATE_MULT_FROZEN={
+		3.934587,  // state 00: saw neither; outlier NLZ, inflate contribution
+		1.274889,  // state 01: saw max-1 only (k=2 jump, old max = new max-2)
+		1.007332,  // state 10: saw max-2 only (k=1 jump, nearly neutral)
+		0.418300   // state 11: saw both; well-established, reduce contribution
 	};
 
-	/** Reuse LL6 correction factors for the standard summarize() path. */
-	public static final String CF_FILE="?cardinalityCorrectionULL8.tsv.gz";
-	private static int CF_BUCKETS=2048;
-	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
-	public static float[][] initializeCF(int buckets){
-		CF_BUCKETS=buckets;
-		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	/**
+	 * State multipliers for active history mode.
+	 * Derived from lifetime density P(u|max=X) ∝ (e^(-u/2) - e^(-u)) / u.
+	 * CF values: state 00 = -2.379, 01 = -0.729, 10 = -0.338, 11 = +1.133
+	 */
+	static final double[] STATE_MULT_ACTIVE={
+		5.202266,  // state 00: saw neither; rare survivor, strong outlier
+		1.657683,  // state 01: saw max-1 only
+		1.263895,  // state 10: saw max-2 only
+		0.455923   // state 11: saw both; well-established
+	};
+
+	/*--------------------------------------------------------------*/
+	/*----------------       CF Table Loading       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** CF table file for frozen history mode. */
+	public static final String CF_FILE_FROZEN="?cardinalityCorrectionULL8-FRZ.tsv.gz";
+	/** CF table file for active history mode. */
+	public static final String CF_FILE_ACTIVE="?cardinalityCorrectionULL8-ACT.tsv.gz";
+	// TODO: Replace CF_FILE_ACTIVE with "?cardinalityCorrectionULL8Active.tsv.gz"
+	// once a separate table is generated for active mode.
+
+	/** Frozen mode CF table. */
+	private static int CF_BUCKETS_FROZEN=2048;
+	private static float[][] CF_MATRIX_FROZEN=initializeCF_Frozen(CF_BUCKETS_FROZEN);
+
+	/** Active mode CF table. */
+	private static int CF_BUCKETS_ACTIVE=2048;
+	private static float[][] CF_MATRIX_ACTIVE=initializeCF_Active(CF_BUCKETS_ACTIVE);
+
+	public static float[][] initializeCF_Frozen(int buckets){
+		CF_BUCKETS_FROZEN=buckets;
+		return CF_MATRIX_FROZEN=CorrectionFactor.loadFile(CF_FILE_FROZEN, buckets);
+	}
+
+	public static float[][] initializeCF_Active(int buckets){
+		CF_BUCKETS_ACTIVE=buckets;
+		return CF_MATRIX_ACTIVE=CorrectionFactor.loadFile(CF_FILE_ACTIVE, buckets);
+	}
+
+	/** Reinitialize both CF tables for a new bucket count. */
+	public static void initializeCF(int buckets){
+		initializeCF_Frozen(buckets);
+		initializeCF_Active(buckets);
 	}
 
 }
