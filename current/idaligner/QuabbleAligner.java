@@ -55,6 +55,19 @@ public class QuabbleAligner implements IDAligner{
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
+	@Override
+	public final float align(byte[] a, byte[] b, AlignmentStats stats){
+		float id=alignStatic(a, b, null);
+		if(stats!=null){
+			int[] pos=new int[4];
+			id=alignStatic(a, b, pos);
+			stats.setFromPos(pos, id);
+			stats.qLen=a.length;
+			stats.rLen=b.length;
+		}
+		return id;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -67,16 +80,12 @@ public class QuabbleAligner implements IDAligner{
 	 * @param ref Reference sequence
 	 * @return Bandwidth for alignment, at least 2 plus a small safety margin
 	 */
-	private static int decideBandwidth(byte[] query, byte[] ref) {
+	private static int decideBandwidth(byte[] query, byte[] ref, int[] pos) {
 		int qLen=query.length, rLen=ref.length;
-		int maxLen=Math.max(qLen, rLen), minLen=Math.min(qLen, rLen);
+		int maxLen=Math.max(qLen, rLen);
 		int bandwidth=Tools.min(qLen/4+2, maxLen/32, (int)Tools.log2(maxLen+256)+2);
 		bandwidth=Math.max(2, bandwidth)+2;
-		int subs=0;
-		for(int i=0; i<minLen && subs<bandwidth; i++) {
-			subs+=(query[i]!=ref[i] ? 1 : 0);
-		}
-		return Math.min(subs+1, bandwidth);//At least 1
+		return IDAlignerStatics.decideBandwidth(query, ref, pos, bandwidth);
 	}
 
 	/**
@@ -105,7 +114,8 @@ public class QuabbleAligner implements IDAligner{
 		Visualizer viz=(output==null ? null : new Visualizer(output, POSITION_BITS, DEL_BITS));
 
 		// Matrix exploration limits
-		final int bandWidth=decideBandwidth(query, ref);
+		if(posVector==null) {posVector=new int[2];}
+		final int bandWidth=decideBandwidth(query, ref, posVector);
 		final int topWidth=Math.min(query.length, bandWidth*2);
 		//Lower insPad allows later top entrance
 		final int insPad=-16-rLen/128-(int)Math.sqrt(rLen)-(5*Math.max(0, rLen-qLen))/4;
@@ -293,9 +303,9 @@ public class QuabbleAligner implements IDAligner{
 		if(viz!=null) {viz.shutdown();}// Terminate visualizer
 		if(GLOBAL) {maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
 		loops.addAndGet(mloops);
-		return postprocess(maxScore, maxPos, qLen, rLen, posVector);
+		return Tracer.postprocess(maxScore, maxPos, qLen, rLen, posVector, null);
 	}
-	
+
 	// Process the first topWidth rows using a dense approach
 	/**
 	 * Processes the first topWidth rows using a dense dynamic programming
@@ -358,69 +368,6 @@ public class QuabbleAligner implements IDAligner{
 		return new long[][] {curr, prev};
 	}
 	
-	/**
-	 * Converts an encoded maxScore and position into identity and coordinates.
-	 * Decodes origin, deletions, and raw score from packed bits and solves for
-	 * matches, substitutions, insertions, and deletions.
-	 * @param maxScore Highest encoded score in the last row
-	 * @param maxPos Position of highest score in reference
-	 * @param qLen Query sequence length
-	 * @param rLen Reference sequence length
-	 * @param posVector Optional array for returning reference coordinates and statistics
-	 * @return Identity score from 0.0 to 1.0
-	 */
-	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
-		// For conversion to global alignments
-		if(GLOBAL && maxPos<rLen) {
-			int dif=rLen-maxPos;
-			maxPos+=dif;
-			maxScore+=(dif*DEL_INCREMENT);
-		}
-		
-		// Extract alignment information
-		final int originPos=(int)(maxScore&POSITION_MASK);
-		final int endPos=maxPos;
-
-		// Calculate alignment statistics
-		final int deletions=(int)((maxScore & DEL_MASK) >> POSITION_BITS);
-		final int refAlnLength=(endPos-originPos);
-		final int rawScore=(int)(maxScore >> SCORE_SHIFT);
-		
-		if(posVector!=null){//TODO: Enforce this as being an int[>=4], not int[2].
-			posVector[0]=originPos;
-			posVector[1]=endPos-1;
-			if(posVector.length>2) {posVector[2]=rawScore;}
-			if(posVector.length>3) {posVector[3]=deletions;}
-		}
-		
-		// Solve the system of equations:
-		// 1. M + S + I = qLen
-		// 2. M + S + D = refAlnLength
-		// 3. Score = M - S - I - D
-		
-		// Calculate operation counts
-		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
-		final float matches=((rawScore+qLen+deletions)/2f);
-		final float substitutions=Math.max(0, qLen-matches-insertions);
-		final float identity=matches/(matches+substitutions+insertions+deletions);
-
-		if(PRINT_OPS) {
-			System.err.println("originPos="+originPos);
-			System.err.println("endPos="+endPos);
-			System.err.println("qLen="+qLen);
-			System.err.println("matches="+matches);
-			System.err.println("refAlnLength="+refAlnLength);
-			System.err.println("rawScore="+rawScore);
-			System.err.println("deletions="+deletions);
-			System.err.println("matches="+matches);
-			System.err.println("substitutions="+substitutions);
-			System.err.println("insertions="+insertions);
-			System.err.println("identity="+identity);
-		}
-		
-		return identity;
-	}
-
 	/**
 	 * Lightweight wrapper for aligning to a window of the reference sequence.
 	 * Extracts the specified region, calls the core alignStatic, asserts a

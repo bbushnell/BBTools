@@ -93,6 +93,20 @@ public class QuantumAligner implements IDAligner{
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
 
+	@Override
+	public final float align(byte[] a, byte[] b, AlignmentStats stats){
+		float id=alignStatic(a, b, null);
+		if(stats!=null){
+			// Quantum cannot do traceback; fill stats from a fresh call
+			int[] pos=new int[4];
+			id=alignStatic(a, b, pos);
+			stats.setFromPos(pos, id);
+			stats.qLen=a.length;
+			stats.rLen=b.length;
+		}
+		return id;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -329,9 +343,9 @@ public class QuantumAligner implements IDAligner{
 		if(viz!=null) {viz.shutdown();}// Terminate visualizer
 		if(GLOBAL) {maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
 		loops.addAndGet(mloops);
-		return postprocess(maxScore, maxPos, qLen, rLen, posVector);
+		return Tracer.postprocess(maxScore, maxPos, qLen, rLen, posVector, null);
 	}
-	
+
 	// Process the first topWidth rows using a dense approach
 	/**
 	 * Processes the first topWidth rows using dense matrix approach.
@@ -392,70 +406,6 @@ public class QuantumAligner implements IDAligner{
 		}
 		loops.addAndGet(mloops);
 		return new long[][] {curr, prev};
-	}
-	
-	/**
-	 * Converts bit-packed alignment score to identity and extracts position information.
-	 * Solves system of equations: M+S+I=qLen, M+S+D=refAlnLength, Score=M-S-I-D
-	 * to determine match, substitution, insertion, and deletion counts.
-	 *
-	 * @param maxScore Bit-packed score containing position, deletions, and raw score
-	 * @param maxPos Highest-scoring position in reference
-	 * @param qLen Query sequence length
-	 * @param rLen Reference sequence length
-	 * @param posVector Optional array for returning detailed alignment information
-	 * @return Calculated identity as matches/(matches+substitutions+insertions+deletions)
-	 */
-	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
-		// For conversion to global alignments
-		if(GLOBAL && maxPos<rLen) {
-			int dif=rLen-maxPos;
-			maxPos+=dif;
-			maxScore+=(dif*DEL_INCREMENT);
-		}
-		
-		// Extract alignment information
-		final int originPos=(int)(maxScore&POSITION_MASK);
-		final int endPos=maxPos;
-
-		// Calculate alignment statistics
-		final int deletions=(int)((maxScore & DEL_MASK) >> POSITION_BITS);
-		final int refAlnLength=(endPos-originPos);
-		final int rawScore=(int)(maxScore >> SCORE_SHIFT);
-		
-		if(posVector!=null){//TODO: Enforce this as being an int[>=4], not int[2].
-			posVector[0]=originPos;
-			posVector[1]=endPos-1;
-			if(posVector.length>2) {posVector[2]=rawScore;}
-			if(posVector.length>3) {posVector[3]=deletions;}
-		}
-		
-		// Solve the system of equations:
-		// 1. M + S + I = qLen
-		// 2. M + S + D = refAlnLength
-		// 3. Score = M - S - I - D
-		
-		// Calculate operation counts
-		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
-		final float matches=((rawScore+qLen+deletions)/2f);
-		final float substitutions=Math.max(0, qLen-matches-insertions);
-		final float identity=matches/(matches+substitutions+insertions+deletions);
-
-		if(PRINT_OPS) {
-			System.err.println("originPos="+originPos);
-			System.err.println("endPos="+endPos);
-			System.err.println("qLen="+qLen);
-			System.err.println("matches="+matches);
-			System.err.println("refAlnLength="+refAlnLength);
-			System.err.println("rawScore="+rawScore);
-			System.err.println("deletions="+deletions);
-			System.err.println("matches="+matches);
-			System.err.println("substitutions="+substitutions);
-			System.err.println("insertions="+insertions);
-			System.err.println("identity="+identity);
-		}
-		
-		return identity;
 	}
 	
 	/**
