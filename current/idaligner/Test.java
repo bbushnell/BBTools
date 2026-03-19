@@ -83,6 +83,7 @@ public class Test {
 			test(new BandedAligner(), seq1, seq2, loops, threads);
 			test(new DriftingAligner(), seq1, seq2, loops, threads);
 			test(new WobbleAligner(), seq1, seq2, loops, threads);
+			test(new ScrabbleAligner2(), seq1, seq2, loops, threads);
 			test(new QuantumAligner(), seq1, seq2, loops, threads);
 			test(new QuabbleAligner(), seq1, seq2, loops, threads);
 			test(new XDropHAligner(), seq1, seq2, loops, threads);
