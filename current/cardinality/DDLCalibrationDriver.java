@@ -151,6 +151,8 @@ public class DDLCalibrationDriver {
 				ASSERT_DLC=Parse.parseBoolean(b);
 			}else if(a.equals("benchmark") || a.equals("bench")){
 				BENCHMARK_MODE=Parse.parseBoolean(b);
+			}else if(a.equals("frozenhistory") || a.equals("frozen")){
+				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}

@@ -120,6 +120,8 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("out2")){
 				System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
+			}else if(a.equals("frozenhistory") || a.equals("frozen")){
+				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 

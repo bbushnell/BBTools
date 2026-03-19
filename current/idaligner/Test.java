@@ -26,21 +26,60 @@ public class Test {
 	public static void main(String[] args) {
 
 		args=new PreParser(args, null, false).args;
-		long loops=(args.length>2 ? Integer.parseInt(args[2]) : 400);
-		int threads=(args.length>3 ? Integer.parseInt(args[3]) : 1);
-		int minLoops=(args.length>4 ? Integer.parseInt(args[4]) : 1);
+		long loops=400;
+		int threads=1;
+		int minLoops=1;
+		String query=null, ref=null;
+		int positional=0;
 
-		if (args.length>1) {
-			String a=args[0], b=args[1];
-			// Align provided sequences
-			final byte[] seq1=toSequence(a);
-			final byte[] seq2=toSequence(b);
+		for(int i=0; i<args.length; i++){
+			String arg=args[i];
+			String[] split=arg.split("=");
+			String a=split[0].toLowerCase();
+			String b=split.length>1 ? split[1] : null;
+
+			if(a.equals("iterations") || a.equals("iters") || a.equals("loops")){
+				loops=Parse.parseIntKMG(b);
+			}else if(a.equals("threads") || a.equals("t")){
+				threads=Integer.parseInt(b);
+			}else if(a.equals("minloops")){
+				minLoops=Integer.parseInt(b);
+			}else if(a.equals("query") || a.equals("q") || a.equals("in") || a.equals("in1")){
+				query=b;
+			}else if(a.equals("ref") || a.equals("r") || a.equals("in2")){
+				ref=b;
+			}else if(Parser.parseStatic(arg, a, b)){
+				//do nothing
+			}else if(positional==0 && arg.indexOf('=')<0){
+				query=arg;
+				positional++;
+			}else if(positional==1 && arg.indexOf('=')<0){
+				ref=arg;
+				positional++;
+			}else if(positional==2 && Tools.isNumeric(arg)){
+				loops=Long.parseLong(arg);
+				positional++;
+			}else if(positional==3 && Tools.isNumeric(arg)){
+				threads=Integer.parseInt(arg);
+				positional++;
+			}else if(positional==4 && Tools.isNumeric(arg)){
+				minLoops=Integer.parseInt(arg);
+				positional++;
+			}else{
+				System.err.println("Unknown parameter "+args[i]);
+				assert(false) : "Unknown parameter "+args[i];
+			}
+		}
+
+		if(query!=null && ref!=null){
+			final byte[] seq1=toSequence(query);
+			final byte[] seq2=toSequence(ref);
 
 			System.err.println(header());
 
 			final long loops2=(seq2.length<500 ? loops : Tools.mid(1, loops, Tools.max(minLoops, threads)));
 			test(new GlocalAligner(), seq1, seq2, loops2, threads);
-			//	        test(new CrossCutAligner(), seq1, seq2, loops2, threads);
+//			test(new CrossCutAligner(), seq1, seq2, loops2, threads);
 			test(new BandedAligner(), seq1, seq2, loops, threads);
 			test(new DriftingAligner(), seq1, seq2, loops, threads);
 			test(new WobbleAligner(), seq1, seq2, loops, threads);
@@ -48,40 +87,6 @@ public class Test {
 			test(new QuabbleAligner(), seq1, seq2, loops, threads);
 			test(new XDropHAligner(), seq1, seq2, loops, threads);
 			test(new WaveFrontAligner2(), seq1, seq2, loops, threads);
-
-			//	        test(new GlocalAligner(), seq1, seq2, loops2, threads);
-			//	        test(new GlocalPlusAligner(), seq1, seq2, loops2, threads);
-			////	        test(new GlocalPlusAligner2(), seq1, seq2, loops2, threads);
-			////	        test(new GlocalPlusAligner3(), seq1, seq2, loops2, threads);
-			////	        test(new GlocalPlusAligner4(), seq1, seq2, loops2, threads);
-			//	        test(new GlocalPlusAligner5(), seq1, seq2, loops2, threads);
-			//	        test(new CrossCutAligner(), seq1, seq2, loops2, threads);
-			//	        test(new BandedAligner(), seq1, seq2, loops, threads);
-			////	        test(new BandedAlignerM(), seq1, seq2, loops, threads);
-			//	        test(new BandedPlusAligner(), seq1, seq2, loops, threads);
-			//	        test(new BandedPlusAligner2(), seq1, seq2, loops, threads);
-			////	        test(new BandedPlusAlignerInt(), seq1, seq2, loops, threads);
-			//	        test(new BandedByteAligner(), seq1, seq2, loops, threads);
-			//	        test(new DriftingAligner(), seq1, seq2, loops, threads);
-			////	        test(new DriftingAlignerM(), seq1, seq2, loops, threads);
-			//	        test(new DriftingPlusAligner(), seq1, seq2, loops, threads);
-			//	        test(new DriftingPlusAligner2(), seq1, seq2, loops, threads);
-			//	        test(new DriftingPlusAligner3(), seq1, seq2, loops, threads);//Broken?
-			//	        test(new WobbleAligner(), seq1, seq2, loops, threads);
-			////	        test(new WobblePlusAligner(), seq1, seq2, loops, threads);
-			////	        test(new WobblePlusAligner2(), seq1, seq2, loops, threads);
-			//	        test(new WobblePlusAligner3(), seq1, seq2, loops, threads);
-			//	        test(new WobblePlusAligner5(), seq1, seq2, loops, threads);//Broken?
-			//	        test(new QuantumAligner(), seq1, seq2, loops, threads);
-			////	        test(new QuantumPlusAligner(), seq1, seq2, loops, threads);
-			////	        test(new QuantumAlignerM(), seq1, seq2, loops, threads);
-			////	        test(new QuantumPlusAligner3(), seq1, seq2, loops, threads);
-			//	        test(new QuantumPlusAligner4(), seq1, seq2, loops, threads);
-			//	        test(new SquabbleAligner(), seq1, seq2, loops, threads);
-			////	        test(new WaveFrontAligner(), seq1, seq2, loops, threads);
-			////	        test(new SingleStateAlignerFlat2(), seq1, seq2, loops, threads);
-			//	        
-
 		}
 	}
 
@@ -404,7 +409,7 @@ public class Test {
 
 		Timer t=new Timer();
 		float id=0;
-		int[] pos=new int[2];
+		int[] pos=new int[4];
 		for(int i=0; i<maxIters; i++) {id=ida.align(a, b, pos);}
 		t.stop();
 
@@ -549,7 +554,7 @@ public class Test {
 		public void run() {
 			synchronized(this) {
 				//Make a local copy
-				pos=new int[2];
+				pos=new int[4];
 				query=Arrays.copyOf(query, query.length);
 				ref=Arrays.copyOf(ref, ref.length);
 
