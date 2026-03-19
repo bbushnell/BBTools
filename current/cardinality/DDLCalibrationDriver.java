@@ -157,6 +157,10 @@ public class DDLCalibrationDriver {
 				BENCHMARK_MODE=Parse.parseBoolean(b);
 			}else if(a.equals("printcv") || a.equals("cv")){
 				PRINT_CV=Parse.parseBoolean(b);
+			}else if(a.equals("statepower") || a.equals("sp")){
+				UltraLogLog8.STATE_POWER=Double.parseDouble(b);
+			}else if(a.equals("statecfoffset") || a.equals("sco")){
+				UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("frozenhistory") || a.equals("frozen")){
 				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}
