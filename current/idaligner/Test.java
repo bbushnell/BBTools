@@ -198,10 +198,10 @@ public class Test {
 		return "Name     \tANI\trStart\trStop\tLoops\tSpace%\tTime";
 	}
 
-	public static void printResults(IDAligner ida, byte[] a, byte[] b, float id, int[] pos, 
+	public static void printResults(IDAligner ida, byte[] a, byte[] b, float id, int[] pos,
 			long iters, int threads, Timer t) {
 		AlignmentStats stats=new AlignmentStats();
-		stats.setAndSolve(pos, a.length, b.length);
+		stats.setFromPos(pos, id);
 		printResults(ida, a, b, stats, iters, threads, t);
 	}
 
