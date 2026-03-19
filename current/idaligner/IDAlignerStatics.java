@@ -37,8 +37,14 @@ public class IDAlignerStatics{
 			final int[] pos, final int maxBandwidth){
 		assert(pos!=null && pos.length>=2);
 		if(Shared.SIMD){
+			final int savedOffset=pos[0];
 			final int subs=simd.SIMDAlignByte.countSubs(query, ref, pos, maxBandwidth);
-			return Math.min(subs+1, maxBandwidth);
+			if(subs<maxBandwidth){
+				return Math.min(subs+1, maxBandwidth);
+			}
+			// SIMD prealignment failed to find a good alignment.
+			// Fall back to default offset and scalar bandwidth.
+			pos[0]=savedOffset;
 		}
 		
 		final int qLen=query.length, rLen=ref.length;

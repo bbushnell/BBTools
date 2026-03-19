@@ -65,6 +65,7 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
 			else if(a.equals("frozenhistory") || a.equals("frozen")){UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);}
+			else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
@@ -186,6 +187,7 @@ public class LowComplexityCalibrationDriver {
 			header.append('\t').append(name).append("_err");
 			header.append('\t').append(name).append("_abs");
 			header.append('\t').append(name).append("_std");
+			header.append('\t').append(name).append("_cv");
 		}
 		System.out.println(header);
 
@@ -205,6 +207,7 @@ public class LowComplexityCalibrationDriver {
 				sb.append('\t').append(String.format("%.6f", meanErr));
 				sb.append('\t').append(String.format("%.6f", meanAbs));
 				sb.append('\t').append(String.format("%.6f", std));
+				sb.append('\t').append(String.format("%.6f", meanAbs>0 ? std/meanAbs : 0));
 			}
 			System.out.println(sb);
 		}
@@ -217,26 +220,33 @@ public class LowComplexityCalibrationDriver {
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  Card: "+cardinality+"  Iter: "+iterations
 				+"  Rows: "+numThresholds+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
-			System.err.println("--- Avg and Peak Mean Absolute Error (lower = better) ---");
+			System.err.println("--- Avg and Peak Mean Absolute Error, Avg CV (lower = better) ---");
 			final double[] totalAbsErr=new double[numTypes];
 			final double[] peakAbsErr=new double[numTypes];
+			final double[] totalCV=new double[numTypes];
 			int rowsWithData=0;
 			for(int ti=0; ti<numThresholds; ti++){
 				if(counts[ti]==0){continue;}
 				rowsWithData++;
 				for(int t=0; t<numTypes; t++){
-					final double meanAbsAtRow=sumAbs[ti][t]/counts[ti];
+					final double n2=counts[ti];
+					final double meanErr=sums[ti][t]/n2;
+					final double meanAbsAtRow=sumAbs[ti][t]/n2;
 					totalAbsErr[t]+=meanAbsAtRow;
 					if(meanAbsAtRow>peakAbsErr[t]){peakAbsErr[t]=meanAbsAtRow;}
+					final double variance=sumSq[ti][t]/n2-meanErr*meanErr;
+					final double std=Math.sqrt(Math.max(0, variance));
+					if(meanAbsAtRow>0){totalCV[t]+=std/meanAbsAtRow;}
 				}
 			}
-			System.err.println(String.format("%-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr"));
+			System.err.println(String.format("%-12s %-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr", "AvgCV"));
 			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=numTypes || e>=EST_NAMES.length){continue;}
-				System.err.println(String.format("%-12s %.8f  %.8f",
-					EST_NAMES[e], totalAbsErr[e]/rowsWithData, peakAbsErr[e]));
+				System.err.println(String.format("%-12s %.8f  %.8f  %.8f",
+					EST_NAMES[e], totalAbsErr[e]/rowsWithData, peakAbsErr[e],
+					rowsWithData>0 ? totalCV[e]/rowsWithData : 0));
 			}
 			System.err.println();
 		}

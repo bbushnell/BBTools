@@ -84,6 +84,10 @@ public class DDLCalibrationDriver {
 	/** When false (default), suppresses the _std (standard deviation) column for each estimator.
 	 *  Saves ~1/3 of output width; std is rarely needed when inspecting mean errors. */
 	static boolean PRINT_STD=false;
+	/** When true (default), prints the _cv (coefficient of variation = std/abs) column.
+	 *  This magnitude-independent variance metric shows how tight the estimate is,
+	 *  regardless of systematic bias (which CF tables correct). */
+	static boolean PRINT_CV=true;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -151,6 +155,8 @@ public class DDLCalibrationDriver {
 				ASSERT_DLC=Parse.parseBoolean(b);
 			}else if(a.equals("benchmark") || a.equals("bench")){
 				BENCHMARK_MODE=Parse.parseBoolean(b);
+			}else if(a.equals("printcv") || a.equals("cv")){
+				PRINT_CV=Parse.parseBoolean(b);
 			}else if(a.equals("frozenhistory") || a.equals("frozen")){
 				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}
@@ -608,10 +614,11 @@ public class DDLCalibrationDriver {
 			final double meanAbsErr=row.sumAbsErr[e]/n;
 			sb.append('\t').append(String.format("%.6f", meanErr));
 			sb.append('\t').append(String.format("%.6f", meanAbsErr));
-			if(PRINT_STD){
+			if(PRINT_STD || PRINT_CV){
 				final double variance=row.sumSqErr[e]/n-meanErr*meanErr;
 				final double stdev=Math.sqrt(Math.max(0, variance));
-				sb.append('\t').append(String.format("%.6f", stdev));
+				if(PRINT_STD){sb.append('\t').append(String.format("%.6f", stdev));}
+				if(PRINT_CV){sb.append('\t').append(String.format("%.6f", meanAbsErr>0 ? stdev/meanAbsErr : 0));}
 			}
 		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append(String.format("%.4f", row.sumRawMean/n));}
@@ -751,11 +758,13 @@ public class DDLCalibrationDriver {
 			sb.append('\t').append(name).append("_err");
 			sb.append('\t').append(name).append("_abs");
 			if(PRINT_STD){sb.append('\t').append(name).append("_std");}
+			if(PRINT_CV){sb.append('\t').append(name).append("_cv");}
 		}
 		if(PRINT_DLC_TIERS){
 			sb.append('\t').append(MEDIAN_LC).append("_err");
 			sb.append('\t').append(MEDIAN_LC).append("_abs");
 			if(PRINT_STD){sb.append('\t').append(MEDIAN_LC).append("_std");}
+			if(PRINT_CV){sb.append('\t').append(MEDIAN_LC).append("_cv");}
 		}
 		if(OUTPUT_RAW_MEAN){sb.append('\t').append("RawMean");}
 		return sb.toString();
