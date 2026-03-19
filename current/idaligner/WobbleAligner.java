@@ -4,6 +4,7 @@ import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicLong;
 
 import shared.Tools;
+import structures.LongList;
 import structures.RingBuffer;
 
 /**
@@ -14,26 +15,21 @@ import structures.RingBuffer;
  * Center of band drifts toward highest score with dynamic bandwidth adjustment.
  * Band starts wide and narrows to allow glocal alignments.
  * Band dynamically widens and narrows in response to sequence identity.
+ * Supports SIMD prealignment for optimal band centering and optional traceback.
  *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla, Neptune
  * @date May 7, 2025
  */
 public class WobbleAligner implements IDAligner{
 
-	/**
-	 * Program entry point that passes arguments to Test class to avoid code duplication.
-	 * Uses reflection to determine the calling class and delegate to Test.testAndPrint.
-	 * @param args Command-line arguments
-	 * @throws Exception If class reflection or testing fails
-	 */
 	public static <C extends IDAligner> void main(String[] args) throws Exception {
 	    StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
 		@SuppressWarnings("unchecked")
 		Class<C> c=(Class<C>)Class.forName(stackTrace[(stackTrace.length<3 ? 1 : 2)].getClassName());
 		Test.testAndPrint(c, args);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------             Init             ----------------*/
 	/*--------------------------------------------------------------*/
@@ -44,272 +40,164 @@ public class WobbleAligner implements IDAligner{
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Returns the aligner name "Wobble" */
 	@Override
 	public final String name() {return "Wobble";}
-	/**
-	 * Aligns two sequences and returns identity score.
-	 * @param a First sequence
-	 * @param b Second sequence
-	 * @return Identity score (0.0-1.0)
-	 */
 	@Override
 	public final float align(byte[] a, byte[] b) {return alignStatic(a, b, null);}
-	/**
-	 * Aligns two sequences and returns identity score with alignment position.
-	 *
-	 * @param a First sequence
-	 * @param b Second sequence
-	 * @param pos Array to store alignment coordinates [rStart, rStop]
-	 * @return Identity score (0.0-1.0)
-	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos) {return alignStatic(a, b, pos);}
-	/**
-	 * Aligns two sequences with minimum score threshold.
-	 *
-	 * @param a First sequence
-	 * @param b Second sequence
-	 * @param pos Array to store alignment coordinates [rStart, rStop]
-	 * @param minScore Minimum alignment score (currently unused)
-	 * @return Identity score (0.0-1.0)
-	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int minScore) {return alignStatic(a, b, pos);}
-	/**
-	 * Aligns sequences within a specified reference region.
-	 *
-	 * @param a Query sequence
-	 * @param b Reference sequence
-	 * @param pos Array to store alignment coordinates [rStart, rStop]
-	 * @param rStart Reference region start
-	 * @param rStop Reference region stop
-	 * @return Identity score (0.0-1.0)
-	 */
 	@Override
 	public final float align(byte[] a, byte[] b, int[] pos, int rStart, int rStop) {return alignStatic(a, b, pos, rStart, rStop);}
+
+	@Override
+	public final float align(byte[] a, byte[] b, AlignmentStats stats){
+		return alignAndTraceStatic(a, b, stats);
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/**
-	 * Tests for high-identity indel-free alignments needing low bandwidth.
-	 * Calculates bandwidth based on sequence length and early mismatch detection.
-	 * Returns minimum bandwidth needed or calculated bandwidth.
-	 *
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @return Bandwidth value for alignment
-	 */
-	private static int decideBandwidth(byte[] query, byte[] ref) {
-		int subs=0, qLen=query.length, rLen=ref.length;
+
+	private static int decideBandwidth(byte[] query, byte[] ref, int[] pos) {
+		int qLen=query.length, rLen=ref.length;
 		int bandwidth=Tools.mid(7, 1+Math.max(qLen, rLen)/24, 24+(int)Math.sqrt(rLen)/6);
-		for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++) {
-			subs+=(query[i]!=ref[i] ? 1 : 0);}
-		return Math.min(subs+1, bandwidth);
+		return IDAlignerStatics.decideBandwidth(query, ref, pos, bandwidth);
 	}
 
-	/**
-	 * Core alignment method implementing banded dynamic programming algorithm.
-	 * Uses adaptive bandwidth and center drift to efficiently align sequences.
-	 * Optionally swaps sequences to ensure query is not longer than reference.
-	 *
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment.
-	 * If null, sequences may be swapped so query is shorter.
-	 * @return Identity (0.0-1.0)
-	 */
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
-		// Swap to ensure query is not longer than ref
-		if(posVector==null && query.length>ref.length) {
+		if(posVector==null) {return alignAndTraceStatic(query, ref, null);}
+		AlignmentStats as=new AlignmentStats();
+		as.doTrace=false;
+		float id=alignAndTraceStatic(query, ref, as);
+		posVector[0]=as.rStart;
+		posVector[1]=as.rStop;
+		if(posVector.length>2) {posVector[2]=as.score;}
+		if(posVector.length>3) {posVector[3]=as.dels;}
+		return id;
+	}
+
+	public static final float alignAndTraceStatic(byte[] query, byte[] ref, AlignmentStats stats){
+		final boolean swapped, doTrace=(stats!=null && stats.doTrace);
+		if(stats==null && query.length>ref.length){
 			byte[] temp=query;
 			query=ref;
 			ref=temp;
-		}
-		
+			swapped=true;
+		}else{swapped=false;}
+
 		assert(ref.length<=POSITION_MASK) : "Ref is too long: "+ref.length+">"+POSITION_MASK;
 		final int qLen=query.length;
 		final int rLen=ref.length;
 		long mloops=0;
-		
-		//Create a visualizer if an output file is defined
+
 		Visualizer viz=(output==null ? null : new Visualizer(output, POSITION_BITS, DEL_BITS));
-		
+
+		final LongList trace=(doTrace ? new LongList(qLen*20) : null);
+		int lastHeaderIdx=0;
+
 		// Banding parameters
-		final int bandWidth0=decideBandwidth(query, ref);
-		final int maxDrift=3, ringSize=bandWidth0;//(bandWidth0*5)/4;
+		int[] bwPos=new int[2];
+		if(stats!=null){bwPos[0]=stats.rStart;}
+		final int bandWidth0=decideBandwidth(query, ref, bwPos);
+		final int maxDrift=3, ringSize=bandWidth0;
 		final RingBuffer ring=new RingBuffer(ringSize);
 
-		// Create arrays for current and previous rows
 		long[] prev=new long[rLen+1], curr=new long[rLen+1];
 		Arrays.fill(curr, BAD);
 
-		{// Initialize first row with starting position in the lower bits
+		{
 			final long mult=(GLOBAL ? DEL_INCREMENT : 1);
-			for(int j=0; j<=rLen; j++){prev[j]=j*mult;}
+			if(doTrace){
+				trace.add(0x8000000000000000L);
+				lastHeaderIdx=0;
+			}
+			for(int j=0; j<=rLen; j++){
+				prev[j]=j*mult;
+				if(doTrace){trace.add(prev[j]);}
+			}
 		}
 
-		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen-1;
-		int center=0;
-		
-		// Best scoring position
+		int center=bwPos[0];
+
 		int maxPos=0;
 		long maxScore=2*SUB;
 		final int RING_MULT=2;
-		
-		// Fill alignment matrix
+
 		for(int i=1; i<=qLen; i++){
-			// Calculate bonus bandwidth due to low local alignment quality
 			final int oldMaxScore=(int)(ring.getOldestUnchecked()>>SCORE_SHIFT);
 			final int recentMissingScore=(oldMaxScore+ringSize)-(int)(maxScore>>SCORE_SHIFT);
 			final int scoreBonus=Math.max(0, RING_MULT*Math.min(ringSize, recentMissingScore));
-			
-			// Add bonus bandwidth from score and near the top row
+
 			final int bandWidth=bandWidth0+Math.max(16+bandWidth0*12-maxDrift*i, scoreBonus);
 			final int quarterBand=bandWidth/4;
-			// Center drift for this round
 			final int drift=Tools.mid(-1, maxPos-center, maxDrift);
-			// New band center
 			center=center+1+drift;
 			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
 			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
-			
-			//Clear stale data to the left of the band
-			curr[bandStart-1]=BAD;
 
-			// Clear first column score
+			if(doTrace){
+				final int dist=trace.size-lastHeaderIdx;
+				assert(dist<=(int)POSITION_MASK);
+				long header=0x8000000000000000L | ((long)i<<42) | ((long)bandStart<<21) | dist;
+				lastHeaderIdx=trace.size;
+				trace.add(header);
+			}
+
+			curr[bandStart-1]=BAD;
 			curr[0]=i*INS;
-			
-			//Cache the query
+
 			final byte q=query[i-1];
-			
-			//Swap row best scores
-//			prevRowScore=maxScore; //Not needed
+
 			maxScore=BAD;
 			maxPos=0;
-			
-			// Process only cells within the band
+
 			for(int j=bandStart; j<=bandEnd; j++){
 				final byte r=ref[j-1];
 
-				// Branchless score calculation
 				final boolean isMatch=(q==r && q!='N');
 				final boolean hasN=(q=='N' || r=='N');
 				final long scoreAdd=isMatch ? MATCH : (hasN ? N_SCORE : SUB);
 
-				// Read adjacent scores
 				final long pj1=prev[j-1], pj=prev[j], cj1=curr[j-1];
-				final long diagScore=pj1+scoreAdd;// Match/Sub
+				final long diagScore=pj1+scoreAdd;
 				final long upScore=pj+INS;
 				final long leftScore=cj1+DEL_INCREMENT;
 
-				// Find max using conditional expressions
-				final long maxDiagUp=Math.max(diagScore, upScore);//This is fine
-				// Changing this conditional to max or removing the mask causes a slowdown.
+				final long maxDiagUp=Math.max(diagScore, upScore);
 				final long maxValue=(maxDiagUp&SCORE_MASK)>=leftScore ? maxDiagUp : leftScore;
-				
-				// Write score to current cell
+
 				curr[j]=maxValue;
-				
-				// Track best score in row
+
 				final boolean better=((maxValue&SCORE_MASK)>maxScore);
 				maxScore=better ? maxValue : maxScore;
 				maxPos=better ? j : maxPos;
 			}
 			if(viz!=null) {viz.print(curr, bandStart, bandEnd, rLen);}
+			if(doTrace) {trace.add(curr, bandStart, bandEnd+1);}
 			mloops+=(bandEnd-bandStart+1);
-			
-			// Swap rows
+
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
 			ring.add(maxScore);
 		}
-		if(viz!=null) {viz.shutdown();}// Terminate visualizer
-		if(GLOBAL) {maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
+		if(viz!=null) {viz.shutdown();}
+		if(GLOBAL) {maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}
 		loops.addAndGet(mloops);
-		return postprocess(maxScore, maxPos, qLen, rLen, posVector);
-	}
-	
-	/**
-	 * Uses alignment information to calculate identity and starting coordinate.
-	 * Extracts alignment statistics from the packed score value and solves
-	 * system of equations to determine matches, substitutions, insertions, deletions.
-	 *
-	 * @param maxScore Highest score in last row
-	 * @param maxPos Highest-scoring position in last row
-	 * @param qLen Query length
-	 * @param rLen Reference length
-	 * @param posVector Optional array for returning reference start/stop coordinates
-	 * @return Identity score (0.0-1.0)
-	 */
-	private static float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
-		// For conversion to global alignments
-		if(GLOBAL && maxPos<rLen) {
-			int dif=rLen-maxPos;
-			maxPos+=dif;
-			maxScore+=(dif*DEL_INCREMENT);
-		}
-		
-		// Extract alignment information
-		final int originPos=(int)(maxScore&POSITION_MASK);
-		final int endPos=maxPos;
 
-		// Calculate alignment statistics
-		final int deletions=(int)((maxScore & DEL_MASK) >> POSITION_BITS);
-		final int refAlnLength=(endPos-originPos);
-		final int rawScore=(int)(maxScore >> SCORE_SHIFT);
-		
-		if(posVector!=null){
-			posVector[0]=originPos;
-			posVector[1]=endPos-1;
-			if(posVector.length>2) {posVector[2]=rawScore;}
-			if(posVector.length>3) {posVector[3]=deletions;}
+		float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
+		if(stats!=null && stats.doTrace){
+			final byte[] matchString=Tracer.traceback(trace, qLen, maxPos, null);
+			if(swapped){Tracer.invertMatchString(matchString);}
+			stats.setFromMatchString(matchString);
 		}
-		
-		// Solve the system of equations:
-		// 1. M + S + I = qLen
-		// 2. M + S + D = refAlnLength
-		// 3. Score = M - S - I - D
-		
-		// Calculate operation counts
-		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
-		final float matches=((rawScore+qLen+deletions)/2f);
-		final float substitutions=Math.max(0, qLen-matches-insertions);
-		final float identity=matches/(matches+substitutions+insertions+deletions);
-
-		if(PRINT_OPS) {
-			System.err.println("originPos="+originPos);
-			System.err.println("endPos="+endPos);
-			System.err.println("qLen="+qLen);
-			System.err.println("matches="+matches);
-			System.err.println("refAlnLength="+refAlnLength);
-			System.err.println("rawScore="+rawScore);
-			System.err.println("deletions="+deletions);
-			System.err.println("matches="+matches);
-			System.err.println("substitutions="+substitutions);
-			System.err.println("insertions="+insertions);
-			System.err.println("identity="+identity);
-		}
-		
 		return identity;
 	}
 
-	/**
-	 * Lightweight wrapper for aligning to a window of the reference.
-	 * Creates a sub-array of the reference sequence and adjusts coordinates.
-	 *
-	 * @param query Query sequence
-	 * @param ref Reference sequence
-	 * @param posVector Optional int[2] for returning {rStart, rStop} of optimal alignment
-	 * @param refStart Alignment window start
-	 * @param refEnd Alignment window stop
-	 * @return Identity (0.0-1.0)
-	 */
-	public static final float alignStatic(final byte[] query, final byte[] ref, 
+	public static final float alignStatic(final byte[] query, final byte[] ref,
 			final int[] posVector, int refStart, int refEnd) {
 		refStart=Math.max(refStart, 0);
 		refEnd=Math.min(refEnd, ref.length-1);
@@ -333,17 +221,14 @@ public class WobbleAligner implements IDAligner{
 	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	// Bit field definitions
 	private static final int POSITION_BITS=21;
 	private static final int DEL_BITS=21;
 	private static final int SCORE_SHIFT=POSITION_BITS+DEL_BITS;
 
-	// Masks
 	private static final long POSITION_MASK=(1L << POSITION_BITS)-1;
 	private static final long DEL_MASK=((1L << DEL_BITS)-1) << POSITION_BITS;
 	private static final long SCORE_MASK=~(POSITION_MASK | DEL_MASK);
 
-	// Scoring constants
 	private static final long MATCH=1L << SCORE_SHIFT;
 	private static final long SUB=(-1L) << SCORE_SHIFT;
 	private static final long INS=(-1L) << SCORE_SHIFT;
@@ -352,7 +237,6 @@ public class WobbleAligner implements IDAligner{
 	private static final long BAD=Long.MIN_VALUE/2;
 	private static final long DEL_INCREMENT=DEL+(1L<<POSITION_BITS);
 
-	// Run modes
 	private static final boolean PRINT_OPS=false;
 	public static final boolean GLOBAL=false;
 
