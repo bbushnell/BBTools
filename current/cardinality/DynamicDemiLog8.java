@@ -77,6 +77,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	 * lives in the returned CardinalityStats object.
 	 */
 	private CardinalityStats summarize(){
+		if(USE_EMPIRICAL_MANTISSA){updateMantissaMult();}
 		double difSum=0;
 		double hllSumFilled=0;
 		double hllSumFilledM=0;
@@ -95,10 +96,21 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 				final int absNlz=(s>>>mantissaBits)-1+minZeros;
 				if(absNlz<64){nlzCounts[absNlz]++;}
 				final long dif=restoreDif(s);
-				difSum+=dif;
-				hllSumFilled +=Math.pow(2.0, -absNlz);
-				hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
-				gSum+=Math.log(Tools.max(1, dif));
+				if(USE_EMPIRICAL_MANTISSA){
+					// Empirical mode: apply per-state multiplier to all sums
+					final int invMant=s&mantissaMask;
+					final double m=mantissaMultRuntime[invMant];
+					difSum+=dif*m;
+					hllSumFilled+=Math.pow(2.0, -absNlz)*m;
+					hllSumFilledM=hllSumFilled; // same corrected sum
+					gSum+=Math.log(Tools.max(1, dif*m));
+				}else{
+					// Original mode: fractional NLZ formula for hllSumFilledM
+					difSum+=dif;
+					hllSumFilled +=Math.pow(2.0, -absNlz);
+					hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
+					gSum+=Math.log(Tools.max(1, dif));
+				}
 				count++;
 				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
@@ -289,6 +301,54 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/**
+	 * When true, uses empirically derived per-mantissa multipliers instead of
+	 * the fractional NLZ formula for hllSumFilledM. In this mode, all sums
+	 * (difSum, hllSumFilled, gSum) are corrected by the multiplier, and
+	 * hllSumFilledM == hllSumFilled (no separate mantissa path).
+	 */
+	public static boolean USE_EMPIRICAL_MANTISSA=false;
+
+	/**
+	 * Empirical additive NLZ corrections for 2-bit inverted mantissa states.
+	 * Derived from single-bucket simulation (131k outer × 32k inner):
+	 * for each (tier, invMantissa), measured avg cardinality at observation;
+	 * CF = log2(stateAvgCard / tierAvgCard). Observation-weighted over tiers 3-11.
+	 *
+	 * Index: [invMant=0 (lowest/outlier), 1, 2, 3 (highest/established)].
+	 * Strictly ascending: lower mantissa = lower cardinality = outlier.
+	 *
+	 * Correction range is ~3.6× narrower than ULL8 history bits (0.76 vs 2.71),
+	 * indicating mantissa carries less information per bit than sub-NLZ history.
+	 */
+	static final double[] MANTISSA_CF={-0.4955, -0.2789, -0.0272, +0.2628};
+
+	/**
+	 * Multipliers for empirical mantissa mode: 2^(-CF).
+	 * Strictly descending. Larger values inflate the harmonic sum contribution,
+	 * which REDUCES the cardinality estimate (correcting for outlier buckets).
+	 */
+	static final double[] MANTISSA_MULT={1.4098, 1.2133, 1.0190, 0.8335};
+
+	/** Empirical offset for mantissa CFs, analogous to ULL8's STATE_CF_OFFSET.
+	 *  TODO: optimize via CV sweep (currently 0, untested). */
+	public static double MANTISSA_CF_OFFSET=0.0;
+
+	/** Runtime multipliers, recomputed if offset changes. */
+	private static double[] mantissaMultRuntime=MANTISSA_MULT;
+	private static double lastMantissaOffset=0.0;
+
+	/** Recomputes runtime multipliers if the offset has changed. */
+	private static void updateMantissaMult(){
+		if(MANTISSA_CF_OFFSET!=lastMantissaOffset){
+			mantissaMultRuntime=new double[4];
+			for(int s=0; s<4; s++){
+				mantissaMultRuntime[s]=Math.pow(2.0, -(MANTISSA_CF[s]+MANTISSA_CF_OFFSET));
+			}
+			lastMantissaOffset=MANTISSA_CF_OFFSET;
+		}
+	}
 
 	private static final int wordlen=64;
 	/** Hard-coded mantissa bits: 2-bit inverted mantissa (6-bit exponent = 64 tiers). */

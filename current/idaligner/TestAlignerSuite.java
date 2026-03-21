@@ -84,16 +84,20 @@ public class TestAlignerSuite {
 
 		// Run tests for each ANI value
 		for(float ani = maxANI; ani >= (minANI-0.00001f); ani -= step) {
-			System.err.println(Test.header());// Print header
+			System.err.println(header());// Print header
 			runTestsForANI(aligners, ani, iterations, length, threads, sinewaves, mutMode);
 		}
+	}
+
+	public static String header() {
+		return "Name     \tANI\trStart\trStop\tLoops\tSpace%\tTime\tANI_err\trStart_err\trStop_err";
 	}
 
 	private static void runTestsForANI(ArrayList<IDAligner> aligners, float targetANI,
 	        int iterations, int length, int threads, int sinewaves, int mutMode){
 
 	    // Create thread-safe accumulator for results
-		final double[][] results=new double[aligners.size()][7]; // ani, rStart, rStop, loops, stateSpace, time, (unused)
+		final double[][] results=new double[aligners.size()][10]; // ani, rStart, rStop, loops, stateSpace, time, aniErr, rStartErr, rStopErr
 	    
 	    // Capture loop counts BEFORE running all jobs
 	    long[] loopsBefore=new long[aligners.size()];
@@ -146,7 +150,10 @@ public class TestAlignerSuite {
 	        bb.appendt((long)(results[a][3]/iterations)); // avg loops (total/iterations)
 	        float avgStateSpace=(float)(results[a][4]/iterations);
 	        bb.appendt((results[a][3]/iterations)/avgStateSpace*100, 3); // avg space%
-	        bb.append(results[a][5]/iterations/1e9d, 6); // avg time
+	        bb.appendt(results[a][5]/iterations/1e9d, 9); // avg time
+	        bb.appendt(results[a][6]/iterations, 9); // avg ANI error vs Glocal
+	        bb.appendt(results[a][7]/iterations, 9); // avg rStart error vs Glocal
+	        bb.append(results[a][8]/iterations, 9); // avg rStop error vs Glocal
 	        
 	        System.err.println(bb);
 	    }
@@ -198,6 +205,10 @@ public class TestAlignerSuite {
 			// Mutate to create query at target ANI
 			byte[] query = mutateSequence(ref, targetANI/100.0f, randy, sinewaves, mutMode);
 
+			// Run truth aligner (index 0, Glocal+5) first
+			float truthANI = 0;
+			int truthRStart = 0, truthRStop = 0;
+
 			// Test each aligner
 			for(int a = 0; a < aligners.size(); a++) {
 				IDAligner ida = aligners.get(a);
@@ -206,6 +217,12 @@ public class TestAlignerSuite {
 				long startTime = System.nanoTime();
 				float id = ida.align(query, ref, pos);
 				long time = System.nanoTime() - startTime;
+
+				if(a == 0) {
+					truthANI = id;
+					truthRStart = pos[0];
+					truthRStop = pos[1];
+				}
 
 				// Thread-safe accumulation
 				float stateSpace = query.length * ref.length;
@@ -216,6 +233,9 @@ public class TestAlignerSuite {
 				    // loops handled separately
 				    results[a][4]+=stateSpace; // actual state space
 				    results[a][5]+=time;
+				    results[a][6]+=Math.abs(id - truthANI); // ANI error vs truth
+				    results[a][7]+=Math.abs(pos[0] - truthRStart); // rStart error vs truth
+				    results[a][8]+=Math.abs(pos[1] - truthRStop); // rStop error vs truth
 				}
 			}
 		}
