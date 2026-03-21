@@ -33,6 +33,8 @@ public class TestAlignerSuite {
 		int length = 40000;
 		int threads = Shared.threads();
 		int sinewaves = 0; // 0 for uniform, >0 for conservation model
+		boolean subsOnly = false; // true = subs only, no indels
+		boolean equalRates = false; // true = 33/33/33 S/D/I
 
 		for(int i=0; i<args.length; i++) {
 			String arg = args[i];
@@ -57,6 +59,10 @@ public class TestAlignerSuite {
 				threads = Integer.parseInt(b);
 			} else if(a.equals("sinewaves") || a.equals("waves")) {
 				sinewaves = Integer.parseInt(b);
+			} else if(a.equals("subsonly") || a.equals("subs")) {
+				subsOnly = Parse.parseBoolean(b);
+			} else if(a.equals("equalrates") || a.equals("equal")) {
+				equalRates = Parse.parseBoolean(b);
 			}
 		}
 
@@ -73,15 +79,18 @@ public class TestAlignerSuite {
 		aligners.add(new XDropHAligner());
 		aligners.add(new WaveFrontAligner2());
 
+		// Mutation mode: 0=default (75/12.5/12.5), 1=subsOnly, 2=equal (33/33/33)
+		int mutMode = subsOnly ? 1 : (equalRates ? 2 : 0);
+
 		// Run tests for each ANI value
 		for(float ani = maxANI; ani >= (minANI-0.00001f); ani -= step) {
 			System.err.println(Test.header());// Print header
-			runTestsForANI(aligners, ani, iterations, length, threads, sinewaves);
+			runTestsForANI(aligners, ani, iterations, length, threads, sinewaves, mutMode);
 		}
 	}
 
-	private static void runTestsForANI(ArrayList<IDAligner> aligners, float targetANI, 
-	        int iterations, int length, int threads, int sinewaves){
+	private static void runTestsForANI(ArrayList<IDAligner> aligners, float targetANI,
+	        int iterations, int length, int threads, int sinewaves, int mutMode){
 
 	    // Create thread-safe accumulator for results
 		final double[][] results=new double[aligners.size()][7]; // ani, rStart, rStop, loops, stateSpace, time, (unused)
@@ -95,7 +104,7 @@ public class TestAlignerSuite {
 	    // Create job queue
 	    ConcurrentLinkedQueue<Job> jobs=new ConcurrentLinkedQueue<>();
 	    for(int iter=0; iter<iterations; iter++){
-	        jobs.add(new Job(iter, aligners, targetANI, length, sinewaves, results));
+	        jobs.add(new Job(iter, aligners, targetANI, length, sinewaves, mutMode, results));
 	    }
 	    
 	    // Create and start worker threads
@@ -137,7 +146,7 @@ public class TestAlignerSuite {
 	        bb.appendt((long)(results[a][3]/iterations)); // avg loops (total/iterations)
 	        float avgStateSpace=(float)(results[a][4]/iterations);
 	        bb.appendt((results[a][3]/iterations)/avgStateSpace*100, 3); // avg space%
-	        bb.append(results[a][5]/iterations/1e9d, 3); // avg time
+	        bb.append(results[a][5]/iterations/1e9d, 6); // avg time
 	        
 	        System.err.println(bb);
 	    }
@@ -165,8 +174,8 @@ public class TestAlignerSuite {
 
 	private static class Job {
 
-		Job(int iteration_, ArrayList<IDAligner> aligners_, float targetANI_, 
-				int length_, int sinewaves_, double[][] results_) {
+		Job(int iteration_, ArrayList<IDAligner> aligners_, float targetANI_,
+				int length_, int sinewaves_, int mutMode_, double[][] results_) {
 			iteration = iteration_;
 			// Create local copies of aligners to avoid thread conflicts
 			aligners = new ArrayList<>();
@@ -176,6 +185,7 @@ public class TestAlignerSuite {
 			targetANI = targetANI_;
 			length = length_;
 			sinewaves = sinewaves_;
+			mutMode = mutMode_;
 			results = results_;
 		}
 
@@ -186,7 +196,7 @@ public class TestAlignerSuite {
 			byte[] ref = AlignRandom.randomSequence(length, randy);
 
 			// Mutate to create query at target ANI
-			byte[] query = mutateSequence(ref, targetANI/100.0f, randy, sinewaves);
+			byte[] query = mutateSequence(ref, targetANI/100.0f, randy, sinewaves, mutMode);
 
 			// Test each aligner
 			for(int a = 0; a < aligners.size(); a++) {
@@ -215,6 +225,7 @@ public class TestAlignerSuite {
 		private final float targetANI;
 		private final int length;
 		private final int sinewaves;
+		private final int mutMode;
 		private final double[][] results;
 	}
 
@@ -222,10 +233,25 @@ public class TestAlignerSuite {
 	 * Mutate a sequence to achieve target identity
 	 */
 	public static byte[] mutateSequence(byte[] bases, float targetIdentity, Random randy, int sinewaves) {
+		return mutateSequence(bases, targetIdentity, randy, sinewaves, 0);
+	}
+
+	public static byte[] mutateSequence(byte[] bases, float targetIdentity, Random randy, int sinewaves, int mutMode) {
 		float errorRate = 1.0f - targetIdentity;
-		float subRate = 0.75f * errorRate;
-		float delRate = 0.125f * errorRate;
-		float insRate = errorRate - subRate - delRate;
+		float subRate, delRate, insRate;
+		if(mutMode==1) { // subs only
+			subRate = errorRate;
+			delRate = 0;
+			insRate = 0;
+		} else if(mutMode==2) { // equal S/D/I
+			subRate = errorRate / 3.0f;
+			delRate = errorRate / 3.0f;
+			insRate = errorRate - subRate - delRate;
+		} else { // default: 75/12.5/12.5
+			subRate = 0.75f * errorRate;
+			delRate = 0.125f * errorRate;
+			insRate = errorRate - subRate - delRate;
+		}
 
 		int maxIndel = 9;
 		int indelSpacing = 0;

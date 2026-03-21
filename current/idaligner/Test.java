@@ -29,6 +29,7 @@ public class Test {
 		long loops=400;
 		int threads=1;
 		int minLoops=1;
+		long minTimeNanos=0; // 0 = disabled; if set, each aligner runs until total time >= this
 		String query=null, ref=null;
 		int positional=0;
 
@@ -44,6 +45,8 @@ public class Test {
 				threads=Integer.parseInt(b);
 			}else if(a.equals("minloops")){
 				minLoops=Integer.parseInt(b);
+			}else if(a.equals("mintime")){
+				minTimeNanos=(long)(Double.parseDouble(b)*1e9);
 			}else if(a.equals("query") || a.equals("q") || a.equals("in") || a.equals("in1")){
 				query=b;
 			}else if(a.equals("ref") || a.equals("r") || a.equals("in2")){
@@ -70,6 +73,8 @@ public class Test {
 				assert(false) : "Unknown parameter "+args[i];
 			}
 		}
+
+		MIN_TIME_NANOS=minTimeNanos;
 
 		if(query!=null && ref!=null){
 			final byte[] seq1=toSequence(query);
@@ -190,7 +195,7 @@ public class Test {
 	}
 
 	public static byte[] toSequence(String a) {
-		if(a.length()<100 && new File(a).isFile()) {
+		if(a.length()<500 && new File(a).isFile()) {
 			return ReadInputStream.toReads(a, FileFormat.FA, 1).get(0).bases;
 		}else {return a.getBytes();}
 	}
@@ -210,7 +215,7 @@ public class Test {
 			AlignmentStats stats, long iters, int threads, Timer t) {
 		long loops=ida.loops()/iters;
 		t.stop();
-		String time=t.timeInSeconds(3);
+		String time=t.timeInSeconds(6);
 
 		float stateSpace=a.length*b.length;
 		float fraction=loops/stateSpace;
@@ -411,10 +416,21 @@ public class Test {
 		Timer t=new Timer();
 		float id=0;
 		int[] pos=new int[4];
-		for(int i=0; i<maxIters; i++) {id=ida.align(a, b, pos);}
+		long actualIters=0;
+		if(MIN_TIME_NANOS>0) {
+			long startNanos=System.nanoTime();
+			for(long i=0; i<maxIters; i++) {
+				id=ida.align(a, b, pos);
+				actualIters++;
+				if(i>=1 && (System.nanoTime()-startNanos)>=MIN_TIME_NANOS) {break;}
+			}
+		} else {
+			for(long i=0; i<maxIters; i++) {id=ida.align(a, b, pos);}
+			actualIters=maxIters;
+		}
 		t.stop();
 
-		printResults(ida, a, b, id, pos, maxIters, 1, t);
+		printResults(ida, a, b, id, pos, actualIters, 1, t);
 		return id;
 	}
 
@@ -579,5 +595,6 @@ public class Test {
 	
 	static boolean DO_TRACE=false;
 	static boolean PRINT_TRACE=false;
+	static long MIN_TIME_NANOS=0;
 
 }
