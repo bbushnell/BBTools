@@ -152,6 +152,8 @@ public class DDLCalibrationDriver2 {
 				DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("printcv") || a.equals("cv")){
 				DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
+			}else if(a.equals("tracecf")){
+				CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
@@ -166,10 +168,13 @@ public class DDLCalibrationDriver2 {
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
-			// Push custom CF table into per-class matrices
-			ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);
-			ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);
-			ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);
+			// Push custom CF table into per-class matrices.
+			// IMPORTANT: Only set CF on the class being tested, because calling
+			// setCFMatrix on other classes triggers their class initialization,
+			// which loads their default CF file and clobbers CorrectionFactor.v1Matrix.
+			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 		final int numThresholds=thresholds.length;
@@ -233,9 +238,10 @@ public class DDLCalibrationDriver2 {
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
 				+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
-			System.err.println("--- Avg and Peak Mean Absolute Error, Avg CV (lower = better) ---");
+			System.err.println("--- Avg and Peak Mean Absolute Error, Avg Signed Error, Avg CV (lower = better) ---");
 			final double[] totalMeanAbsErr=new double[NUM_EST];
 			final double[] peakMeanAbsErr=new double[NUM_EST];
+			final double[] totalMeanSignedErr=new double[NUM_EST];
 			final double[] totalCV=new double[NUM_EST];
 			int cvRows=0;
 			for(DDLCalibrationDriver.ReportRow row : mergedRows){
@@ -243,6 +249,7 @@ public class DDLCalibrationDriver2 {
 					final double meanErr=row.sumErr[e]/row.n;
 					final double meanAbsAtRow=row.sumAbsErr[e]/row.n;
 					totalMeanAbsErr[e]+=meanAbsAtRow;
+					totalMeanSignedErr[e]+=meanErr;
 					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
 					final double variance=row.sumSqErr[e]/row.n-meanErr*meanErr;
 					final double stdev=Math.sqrt(Math.max(0, variance));
@@ -252,13 +259,14 @@ public class DDLCalibrationDriver2 {
 				cvRows++;
 			}
 			final int rows=mergedRows.size();
-			System.err.println(String.format("%-12s %-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr", "AvgCV"));
+			System.err.println(String.format("%-12s %-12s %-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
 			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}
-				System.err.println(String.format("%-12s %.8f  %.8f  %.8f",
+				System.err.println(String.format("%-12s %.8f  %.8f  %+.8f  %.8f",
 					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows, peakMeanAbsErr[e],
+					rows>0 ? totalMeanSignedErr[e]/rows : 0,
 					cvRows>0 ? totalCV[e]/cvRows : 0));
 			}
 			System.err.println();
