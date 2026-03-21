@@ -163,6 +163,27 @@ public class DDLCalibrationDriver {
 				UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("frozenhistory") || a.equals("frozen")){
 				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
+			}else if(a.equals("pllmode") || a.equals("pmode")){
+				// Set mode on both PLL16 and PLL16b
+				if(b.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_MANTISSA;}
+				else if(b.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_ANDTISSA;}
+				else if(b.equals("nlz2")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NLZ2); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_NLZ2;}
+				else if(b.equals("history")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_HISTORY); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_HISTORY);}
+				else if(b.equals("luck")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_LUCK); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_LUCK);}
+				else if(b.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_NONE;}
+				else{throw new RuntimeException("Unknown pllmode: "+b);}
+			}else if(a.equals("plloffset") || a.equals("pco")){
+				ProtoLogLog16.CF_OFFSET=Double.parseDouble(b);
+				ProtoLogLog16b.CF_OFFSET=Double.parseDouble(b);
+			}else if(a.equals("hbits")){ProtoLogLog16.HISTORY_BITS=Integer.parseInt(b); ProtoLogLog16b.HISTORY_BITS=Integer.parseInt(b);
+			}else if(a.equals("lbits")){ProtoLogLog16.LUCK_BITS=Integer.parseInt(b); ProtoLogLog16b.LUCK_BITS=Integer.parseInt(b);
+			}else if(a.equals("mbits")){ProtoLogLog16.MANTISSA_BITS=Integer.parseInt(b); ProtoLogLog16b.MANTISSA_BITS=Integer.parseInt(b);
+			}else if(a.equals("abits")){ProtoLogLog16.ANDTISSA_BITS=Integer.parseInt(b); ProtoLogLog16b.ANDTISSA_BITS=Integer.parseInt(b);
+			}else if(a.equals("nbits")){ProtoLogLog16.NLZ2_BITS=Integer.parseInt(b); ProtoLogLog16b.NLZ2_BITS=Integer.parseInt(b);
+			}else if(a.equals("empiricalmantissa") || a.equals("em")){
+				DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);
+			}else if(a.equals("mantissacfoffset") || a.equals("mco")){
+				DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
@@ -555,6 +576,14 @@ public class DDLCalibrationDriver {
 			return new LogLog6(buckets, k, seed, minProb);
 		}else if("ull8".equals(type) || "ultraloglog8".equalsIgnoreCase(type)){
 			return new UltraLogLog8(buckets, k, seed, minProb);
+		}else if("pll16".equals(type) || "protologlog16".equalsIgnoreCase(type)){
+			return new ProtoLogLog16(buckets, k, seed, minProb);
+		}else if("pll16b".equals(type)){
+			return new ProtoLogLog16b(buckets, k, seed, minProb);
+		}else if("ertl".equals(type) || "ertlull".equalsIgnoreCase(type)){
+			return new ErtlULL(buckets, k, seed, minProb);
+		}else if("pll16c".equals(type)){
+			return new ProtoLogLog16c(buckets, k, seed, minProb);
 		}
 		throw new RuntimeException("Unknown loglogtype: "+type);
 	}

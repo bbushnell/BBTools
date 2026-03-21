@@ -201,7 +201,7 @@ public class Test {
 	}
 
 	public static String header() {
-		return "Name     \tANI\trStart\trStop\tLoops\tSpace%\tTime";
+		return "Name     \tANI\trStart\trStop\tLoops\tSpace%\tIters\tTime\tTime/Iter";
 	}
 
 	public static void printResults(IDAligner ida, byte[] a, byte[] b, float id, int[] pos,
@@ -215,7 +215,9 @@ public class Test {
 			AlignmentStats stats, long iters, int threads, Timer t) {
 		long loops=ida.loops()/iters;
 		t.stop();
-		String time=t.timeInSeconds(6);
+		String time=t.timeInSeconds(9);
+		double totalSeconds=t.elapsed/1000000000.0;
+		double perIter=totalSeconds/iters;
 
 		float stateSpace=a.length*b.length;
 		float fraction=loops/stateSpace;
@@ -229,7 +231,9 @@ public class Test {
 		bb.appendt(stats.rStop);
 		bb.appendt(loops);
 		bb.appendt(fraction*100, 3);
-		bb.append(time);
+		bb.appendt(iters);
+		bb.appendt(time);
+		bb.append(perIter, 9);
 		System.err.println(bb);
 	}
 
