@@ -47,7 +47,6 @@ public final class ErtlULL extends CardinalityTracker {
 
     @Override
     public final void hashAndStore(final long number){
-        added++; // must track for clampToAdded (driver calls hashAndStore, not add)
         final long key=Tools.hash64shift(number^hashXor);
         // Ertl convention: top p bits = bucket index, NLZ of remaining (64-p) bits
         final int q=Long.numberOfLeadingZeros(buckets-1L); // q = 64 - p
@@ -232,6 +231,7 @@ public final class ErtlULL extends CardinalityTracker {
     /*--------------------------------------------------------------*/
 
     /** Raw FGRA estimate (unclamped, for fair comparison in rawEstimates). */
+    public double fgraEstimatePublic(){return fgraEstimate();}
     private double fgraEstimate(){
         final int m=buckets;
         final int p=bucketBits;
@@ -282,6 +282,53 @@ public final class ErtlULL extends CardinalityTracker {
         return ESTIMATION_FACTORS[p-3]*Math.pow(sum, MINUS_INV_TAU);
     }
 
+    /**
+     * Static FGRA estimator for use by other classes (e.g., UDLL6).
+     * Takes an array of 8-bit Ertl-format registers and precision parameter p.
+     */
+    public static double fgraEstimateStatic(byte[] regs, int p){
+        final int m=regs.length;
+        int c0=0, c4=0, c8=0, c10=0;
+        int c4w0=0, c4w1=0, c4w2=0, c4w3=0;
+        double sum=0;
+        final int off=(p<<2)+4;
+        for(int i=0; i<m; i++){
+            int r=regs[i]&0xFF;
+            int r2=r-off;
+            if(r2<0){
+                if(r2<-8) c0++;
+                if(r2==-8) c4++;
+                if(r2==-4) c8++;
+                if(r2==-2) c10++;
+            }else if(r<252){
+                sum+=REGISTER_CONTRIBUTIONS[r2];
+            }else{
+                if(r==252) c4w0++;
+                if(r==253) c4w1++;
+                if(r==254) c4w2++;
+                if(r==255) c4w3++;
+            }
+        }
+        if(c0>0 || c4>0 || c8>0 || c10>0){
+            double z=smallRangeEstimate(c0, c4, c8, c10, m);
+            if(c0>0) sum+=c0*sigma(z);
+            if(c4>0) sum+=c4*POW_2_MINUS_TAU_ETA_X*psiPrime(z, z*z);
+            if(c8>0) sum+=c8*(z*POW_4_MINUS_TAU_ETA_01+POW_4_MINUS_TAU_ETA_1);
+            if(c10>0) sum+=c10*(z*POW_4_MINUS_TAU_ETA_23+POW_4_MINUS_TAU_ETA_3);
+        }
+        if(c4w0>0 || c4w1>0 || c4w2>0 || c4w3>0){
+            double z=largeRangeEstimate(c4w0, c4w1, c4w2, c4w3, m);
+            double rootZ=Math.sqrt(z);
+            double s2=phi(rootZ, z)*(c4w0+c4w1+c4w2+c4w3);
+            s2+=z*(1+rootZ)*(c4w0*ETA_0+c4w1*ETA_1+c4w2*ETA_2+c4w3*ETA_3);
+            s2+=rootZ*((c4w0+c4w1)*(z*POW_2_MINUS_TAU_ETA_02+POW_2_MINUS_TAU_ETA_2)
+                      +(c4w2+c4w3)*(z*POW_2_MINUS_TAU_ETA_13+POW_2_MINUS_TAU_ETA_3));
+            sum+=s2*Math.pow(POW_2_MINUS_TAU, 65-p)/((1+rootZ)*(1+z));
+        }
+        if(p-3<0 || p-3>=ESTIMATION_FACTORS.length){return 0;}
+        return ESTIMATION_FACTORS[p-3]*Math.pow(sum, MINUS_INV_TAU);
+    }
+
     @Override
     public final long cardinality(){
         if(lastCardinality>=0) return lastCardinality;
@@ -297,6 +344,7 @@ public final class ErtlULL extends CardinalityTracker {
 
     @Override public final void add(CardinalityTracker log){throw new UnsupportedOperationException();}
 
+    public byte[] getRegisters(){return registers;}
     public double occupancy(){
         int filled=0;
         for(int i=0; i<buckets; i++){if(registers[i]!=0) filled++;}

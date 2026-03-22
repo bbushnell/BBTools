@@ -71,7 +71,7 @@ public class ProtoTierStats {
 
 			for(int card=1; card<=inner; card++){
 				long val=Tools.hash64shift(seed+card);
-				proto.hashAndStore(val);
+				proto.add(val);
 
 				int stored=proto.maxArray[0]&0xFFFF;
 				if(stored>0){

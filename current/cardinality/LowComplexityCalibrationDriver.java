@@ -15,7 +15,7 @@ import parse.Parse;
  * Estimates are recorded at exponentially-spaced reporting thresholds (reportfrac intervals,
  * matching the high-complexity driver's spacing). rawEstimates() is called on every add
  * while trueCard is parked at a threshold, capturing tier-promotion effects from duplicates.
- * Between thresholds, only hashAndStore() runs — no rawEstimates() overhead.
+ * Between thresholds, only add() runs — no rawEstimates() overhead.
  * <p>
  * Two run modes:
  * <ul>
@@ -137,7 +137,7 @@ public class LowComplexityCalibrationDriver {
 					for(long add=0; add<finalTotalAdds; add++){
 						// Biased draw: min(rand, rand) favors lower indices
 						final int pos=Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality));
-						est.hashAndStore(valueArray[pos]);
+						est.add(valueArray[pos]);
 						if(!seen.get(pos)){
 							seen.set(pos);
 							trueCard++;

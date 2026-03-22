@@ -256,8 +256,12 @@ public abstract class CardinalityTracker implements Drivable {
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 	}
 	
-	/** Hashes and adds a number to this tracker.
-	 * @param number The value to hash and track */
+	/**
+	 * Hashes and adds a number to this tracker.
+	 * This is the ONLY correct way to add elements externally.
+	 * Handles added-count tracking for clampToAdded support.
+	 * @param number The value to hash and track
+	 */
 	public final void add(long number){
 		hashAndStore(number);
 		added++;
@@ -628,7 +632,16 @@ public abstract class CardinalityTracker implements Drivable {
 	
 	/**
 	 * Generates a 64-bit hashcode from a number and adds it to this tracker.
-	 * Core method for adding individual values to the cardinality estimate.
+	 * <p>
+	 * <b>DO NOT CALL DIRECTLY.</b> Use {@link #add(long)} instead, which calls
+	 * this method and also increments the {@code added} counter needed for
+	 * {@code clampToAdded} support. Calling hashAndStore directly will leave
+	 * {@code added=0}, causing {@code cardinality()} to return 0 when clamping
+	 * is enabled (the default).
+	 * <p>
+	 * This method exists as the subclass extension point — subclasses override
+	 * this to implement their specific hashing and storage logic.
+	 *
 	 * @param number The value to hash and store
 	 */
 	public abstract void hashAndStore(final long number);

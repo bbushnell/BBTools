@@ -33,7 +33,7 @@ public class DiagnosticRun {
         int checked = 0;
 
         for (long trueCard = 1; trueCard <= maxTrue; trueCard++) {
-            ddl.hashAndStore(rng.nextLong());
+            ddl.add(rng.nextLong());
 
             if (ti < thresholds.length && trueCard >= thresholds[ti]) {
 

@@ -24,8 +24,8 @@ public class TierTransitionDump {
 				DynamicLogLog4 d4=new DynamicLogLog4(B,31,s4,0);
 				int prev=0; boolean done=false;
 				for(long c=1; c<=maxTrue && !done; c++){
-					d3.hashAndStore(rng.nextLong());
-					d4.hashAndStore(rng4.nextLong());
+					d3.add(rng.nextLong());
+					d4.add(rng4.nextLong());
 					int mz=d3.getMinZeros();
 					if(mz>=targetMZ && prev<targetMZ){
 						d3.rawEstimates(); d4.rawEstimates();
