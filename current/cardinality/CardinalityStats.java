@@ -794,7 +794,7 @@ public class CardinalityStats {
 	 * @param type    CorrectionFactor type constant (MEAN, HMEAN, DLC, etc.)
 	 * @return correction factor to multiply rawEst by
 	 */
-	private double cf(double rawEst, int type){
+	double cf(double rawEst, int type){
 		if(CorrectionFactor.tableVersion>=3){
 			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
 					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
