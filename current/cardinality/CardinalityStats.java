@@ -169,8 +169,28 @@ public class CardinalityStats {
 		nlzCounts=nlzCounts_;
 		minZeros=mz;
 
-		// Tier-compensated LC: LC * 2^minZeros. Equals lcPure when minZeros=0.
-		lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));
+		// Tier-compensated LC at the lowest non-full tier.
+		// Walk the nlzCounts histogram to find the first tier with empty buckets.
+		// V_0 = truly empty; V_{k+1} = V_k + nlzCounts[k] (buckets below tier k+1).
+		// When nlzCounts is unavailable (DDL path), fall back to the legacy formula.
+		if(nlzCounts_!=null){
+			int vk=V; // V at tier 0: truly empty buckets
+			if(vk>0){
+				lcMin=(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+			}else{
+				double lcMinTmp=0;
+				for(int k=0; k<nlzCounts_.length; k++){
+					vk+=nlzCounts_[k];
+					if(vk>0){
+						lcMinTmp=(1L<<(k+1))*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+						break;
+					}
+				}
+				lcMin=lcMinTmp;
+			}
+		}else{
+			lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));
+		}
 
 		// Cache DLC estimates for CF lookup (CF-free, so no circular dependency)
 		// MUST be computed before cf() calls below
@@ -280,16 +300,16 @@ public class CardinalityStats {
 		if(lcMin<=hb0){return lcMin;}
 		if(lcMin<hb1){
 			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
-			return (1-t)*lcMin+t*meanEstCF;
+			return (1-t)*lcMin+t*meanEst;
 		}
-		return meanEstCF;
+		return meanEst;
 	}
 
 	/**
 	 * DLC-threshold hybrid: uses DLC for zone detection, LC+Mean for blended values.
 	 * Same blend formula as hybridDLL(), but dlcLogSpace025() determines which zone
 	 * we're in and the blend weight, while the actual values blended are still
-	 * lcPure (low cardinality) and meanEstCF (high cardinality).
+	 * lcPure (low cardinality) and meanEst (high cardinality); Hybrid CF applied in toArray().
 	 * <p>
 	 * Rationale: LC saturates (all buckets filled) before DLC does, so DLC
 	 * provides a better threshold signal at higher cardinalities where LC is
@@ -304,23 +324,24 @@ public class CardinalityStats {
 			// DLL types: simple lcMin→Mean blend (no HMeanM)
 			if(dlc<hb1){
 				final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
-				return (1-t)*lcMin+t*meanEstCF;
+				return (1-t)*lcMin+t*meanEst;
 			}
-			return meanEstCF;
+			return meanEst;
 		}
 		// DDL types: lcMin→Mean→HMeanM blend
+		final double hmeanPureM_raw=(hasMantissa ? hmeanPureM : hmeanPure);
 		final double hbMid1=1.0*buckets, hbMid2=2.5*buckets;
 		final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
 		if(dlc<=hbMid1){
-			return (1-t)*lcMin+t*meanEstCF;
+			return (1-t)*lcMin+t*meanEst;
 		}else if(dlc<=hbMid2){
 			final double mix=(hbMid2-dlc)/(hbMid2-hbMid1);
-			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
+			final double blended=meanEst*mix+hmeanPureM_raw*(1-mix);
 			return (1-t)*lcMin+t*blended;
 		}else if(dlc<hb1){
-			return (1-t)*lcMin+t*hmeanPureMCF;
+			return (1-t)*lcMin+t*hmeanPureM_raw;
 		}
-		return hmeanPureMCF;
+		return hmeanPureM_raw;
 	}
 
 	/**
@@ -342,23 +363,24 @@ public class CardinalityStats {
 		if(lcMin<=hb0){return lcMin;}
 		if(lcMin<hb1){
 			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
-			return (1-t)*lcMin+t*meanEstCF;
+			return (1-t)*lcMin+t*meanEst;
 		}
 		// Phase 2+: zone detection via meanEst*~CF (CF-independent, no circular dep)
 		final double zone=meanEst*0.7;
+		final double hmeanPureM_raw=(hasMantissa ? hmeanPureM : hmeanPure);
 		final double hb2=5.5*buckets, hb3=7.0*buckets, hb4mid=15.0*buckets, hb4=55.0*buckets;
-		if(zone<=hb2){return meanEstCF;}
-		final double blended=0.1*meanEstCF+0.9*hmeanPureMCF;
+		if(zone<=hb2){return meanEst;}
+		final double blended=0.1*meanEst+0.9*hmeanPureM_raw;
 		if(zone<=hb3){
 			final double u=Math.log(zone/hb2)/Math.log(hb3/hb2);
-			return (1-u)*meanEstCF+u*blended;
+			return (1-u)*meanEst+u*blended;
 		}
 		if(zone<=hb4mid){return blended;}
 		if(zone<=hb4){
 			final double u=(zone-hb4mid)/(hb4-hb4mid);
-			return (1-u)*blended+u*meanEstCF;
+			return (1-u)*blended+u*meanEst;
 		}
-		return meanEstCF;
+		return meanEst;
 	}
 
 	/**
@@ -395,19 +417,20 @@ public class CardinalityStats {
 	 * Blends LC → Mean → HMeanM using log interpolation with smooth Mean/HMeanM crossover.
 	 */
 	public double hybridDDL(){
+		final double hmeanPureM_raw=(hasMantissa ? hmeanPureM : hmeanPure);
 		final double hb0=0.20*buckets, hbMid1=1.0*buckets, hbMid2=2.5*buckets, hb1=5.0*buckets;
 		if(lcMin<=hb0){return lcMin;}
 		final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
 		if(lcMin<=hbMid1){
-			return (1-t)*lcMin+t*meanEstCF;
+			return (1-t)*lcMin+t*meanEst;
 		}else if(lcMin<=hbMid2){
 			final double mix=(hbMid2-lcMin)/(hbMid2-hbMid1);
-			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
+			final double blended=meanEst*mix+hmeanPureM_raw*(1-mix);
 			return (1-t)*lcMin+t*blended;
 		}else if(lcMin<=hb1){
-			return (1-t)*lcMin+t*hmeanPureMCF;
+			return (1-t)*lcMin+t*hmeanPureM_raw;
 		}
-		return hmeanPureMCF;
+		return hmeanPureM_raw;
 	}
 
 	/**
@@ -434,14 +457,17 @@ public class CardinalityStats {
 		r[3] =Math.max(gmeanEst   *cf(gmeanEst, CorrectionFactor.GMEAN), micro);
 		r[4] =Math.max(hmeanEst   *cf(hmeanEst, CorrectionFactor.HLL),    micro); // HLL: CF corrects LC/HMean transition bias
 		r[5] =Math.max(lcPure,                                            micro);
-		r[6] =Math.max(hybridEst,                                         micro);
+		r[6] =Math.max(hybridEst *cf(hybridEst, CorrectionFactor.HYBRID),  micro);
 		r[7] =rawHybDLC50*cf(rawHybDLC50, CorrectionFactor.HYBDLC50);
-		r[8] =dlcThreshHybrid();
+		final double rawDThHyb=dlcThreshHybrid();
+		r[8] =rawDThHyb*cf(rawDThHyb, CorrectionFactor.DTHTHYB);
 		r[9] =dlcLowest();
 		r[10]=Math.max(hllHistory(), micro);
 		r[11]=rawDLC*cf(rawDLC, CorrectionFactor.DLC);
-		r[12]=dlcBlend3();      // slot DLC3B → Chloe (log-space, target=0.20) ← NEW
-		r[13]=dlcBest();
+		final double rawDLC3B=dlcBlend3();
+		r[12]=rawDLC3B*cf(rawDLC3B, CorrectionFactor.DLC3B);
+		final double rawDLCBest=dlcBest();
+		r[13]=rawDLCBest*cf(rawDLCBest, CorrectionFactor.DLCBEST);
 		r[14]=rawHybDLC*cf(rawHybDLC, CorrectionFactor.HYBDLC);
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[15+t]=dlcEstimate(t);
