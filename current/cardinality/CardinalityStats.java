@@ -100,7 +100,12 @@ public class CardinalityStats {
 		cfMatrix=cfMatrix_;
 		cfBuckets=cfBuckets_;
 
-		V=buckets-count;
+		// At low cardinality, multiple elements can hash to the same main bucket
+		// but different microIndex positions. Use the micro bitcount as a floor
+		// on filled buckets for LC/DLC (reduces V, improving low-cardinality LC).
+		// Only matters when count < 64; at higher cardinality micro saturates.
+		final int microFilled=(int)Long.bitCount(microIndex_);
+		V=buckets-Math.max(count, microFilled);
 		div=Tools.max(count, 1);
 		alpha_m=0.7213/(1.0+1.079/buckets);
 		correction=(count+buckets)/(float)(buckets+buckets);
@@ -231,6 +236,21 @@ public class CardinalityStats {
 	/** HLL-style all-buckets estimate with optional CF. */
 	public double hll(boolean applyCF){
 		return applyCF ? hmeanEst*cf(hmeanEst, CorrectionFactor.HLL) : hmeanEst;
+	}
+
+	/**
+	 * HLL with history-corrected constant.
+	 * Identical to standard HLL but uses α_m × HLL_HIST_TERMINAL_CF
+	 * to account for the changed bias from per-state corrections.
+	 * CF-free: no table lookup needed.
+	 */
+	public double hllHistory(){
+		final double alpha_hist=alpha_m*HLL_HIST_TERMINAL_CF;
+		final double raw=2*alpha_hist*(double)buckets*(double)buckets/hllSum;
+		if(raw<2.5*buckets){
+			return (double)buckets*Math.log((double)buckets/Math.max(V, 0.5));
+		}
+		return raw;
 	}
 
 	/** LC (linear counting) estimate; no CF applied. */
@@ -418,7 +438,7 @@ public class CardinalityStats {
 		r[7] =rawHybDLC50*cf(rawHybDLC50, CorrectionFactor.HYBDLC50);
 		r[8] =dlcThreshHybrid();
 		r[9] =dlcLowest();
-		r[10]=0; // disabled
+		r[10]=Math.max(hllHistory(), micro);
 		r[11]=rawDLC*cf(rawDLC, CorrectionFactor.DLC);
 		r[12]=dlcBlend3();      // slot DLC3B → Chloe (log-space, target=0.20) ← NEW
 		r[13]=dlcBest();
@@ -903,6 +923,9 @@ public class CardinalityStats {
 	/** Minimum seed estimate as a multiple of buckets for iterative CF.
 	 *  Below this, CFs are steep and iteration diverges; single lookup used instead. */
 	public static float MIN_SEED_CF_MULT=10.0f;
+	/** Terminal HMean CF for history-corrected HLL. Folds into α_m so no CF table needed.
+	 *  Default 1.0 = standard HLL. Set to e.g. 1.29159726 for 2-bit history. */
+	public static double HLL_HIST_TERMINAL_CF=1.0;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / buckets.
 	 *  Controls how quickly tier weights decay away from the target occupancy.

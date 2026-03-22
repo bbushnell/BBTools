@@ -482,10 +482,11 @@ public class Test {
 		if(threads>1) {ida.setLoops(-1);}
 
 		Timer t=new Timer();
+		long startNanos=System.nanoTime();
 		AtomicLong iters=new AtomicLong(0);
 		ArrayList<Runner> list=new ArrayList<Runner>(threads);
 		for(int i=0; i<threads; i++) {
-			Runner runner=new Runner(a, b, createNewInstance(ida), iters, maxIters, i);
+			Runner runner=new Runner(a, b, createNewInstance(ida), iters, maxIters, i, startNanos);
 			list.add(runner);
 		}
 
@@ -517,7 +518,7 @@ public class Test {
 			}
 		}
 
-		printResults(ida, a, b, id, pos, maxIters, threads, t);
+		printResults(ida, a, b, id, pos, iters.get(), threads, t);
 		return id;
 	}
 
@@ -562,13 +563,14 @@ public class Test {
 
 	private static class Runner implements Runnable{
 
-		Runner(byte[] q, byte[] r, IDAligner ida_, AtomicLong iters_, long maxIters_, int tnum_){
+		Runner(byte[] q, byte[] r, IDAligner ida_, AtomicLong iters_, long maxIters_, int tnum_, long startNanos_){
 			query=q;
 			ref=r;
 			ida=ida_;
 			iters=iters_;
 			maxIters=maxIters_;
 			tnum=tnum_;
+			startNanos=startNanos_;
 		}
 
 		@Override
@@ -582,6 +584,7 @@ public class Test {
 				//Loop
 				for(long iter=iters.getAndIncrement(); iter<maxIters; iter=iters.getAndIncrement()) {
 					id=ida.align(query, ref, pos);
+					if(MIN_TIME_NANOS>0 && iter>=1 && (System.nanoTime()-startNanos)>=MIN_TIME_NANOS) {break;}
 				}
 			}
 		}
@@ -592,6 +595,7 @@ public class Test {
 		final AtomicLong iters;
 		final long maxIters;
 		final int tnum;
+		final long startNanos;
 		int[] pos;
 		float id=-1;
 
