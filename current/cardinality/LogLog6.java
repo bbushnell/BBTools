@@ -68,7 +68,9 @@ public final class LogLog6 extends CardinalityTracker {
 		}
 		lastRawNlz=nlzCounts;
 		lastCorrNlz=nlzCounts;
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
+		// Pass microIndex=0 so LL6 doesn't benefit from the micro floor on V.
+		// Standard HLL has no microIndex; this keeps the comparison fair.
+		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, 0,
 		                                      CF_MATRIX, CF_BUCKETS,
 		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
 	}

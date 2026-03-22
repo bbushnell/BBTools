@@ -49,6 +49,9 @@ public class DDLCalibrationDriver2 {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
+	/** When true, clamp estimates to trueCard (never overestimate). Only valid for unique-element calibration. */
+	static boolean CLAMP_TO_ADDED=false;
+
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
@@ -72,6 +75,7 @@ public class DDLCalibrationDriver2 {
 		String loglogtype="ddl";
 		String notes="";
 		String cffile=null;
+		String pllmode=null; // deferred: setMode needs hbits/mbits set first
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -127,16 +131,11 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("statecfoffset") || a.equals("sco")){
 				UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("pllmode") || a.equals("pmode")){
-				if(b.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_MANTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_MANTISSA);}
-				else if(b.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_ANDTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_ANDTISSA);}
-				else if(b.equals("nlz2")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NLZ2); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NLZ2); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NLZ2);}
-				else if(b.equals("history")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_HISTORY); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_HISTORY); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY);}
-				else if(b.equals("luck")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_LUCK); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_LUCK); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_LUCK);}
-				else if(b.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NONE); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NONE);}
-				else{throw new RuntimeException("Unknown pllmode: "+b);}
+				pllmode=b; // deferred: setMode needs hbits/mbits set first
 			}else if(a.equals("plloffset") || a.equals("pco")){
 				ProtoLogLog16b.CF_OFFSET=Double.parseDouble(b);
 				ProtoLogLog16.CF_OFFSET=Double.parseDouble(b);
+				ProtoLogLog16c.CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("hbits")){int v=Integer.parseInt(b); ProtoLogLog16.HISTORY_BITS=v; ProtoLogLog16b.HISTORY_BITS=v; ProtoLogLog16c.HISTORY_BITS=v;
 			}else if(a.equals("lbits")){int v=Integer.parseInt(b); ProtoLogLog16.LUCK_BITS=v; ProtoLogLog16b.LUCK_BITS=v; ProtoLogLog16c.LUCK_BITS=v;
 			}else if(a.equals("mbits")){int v=Integer.parseInt(b); ProtoLogLog16.MANTISSA_BITS=v; ProtoLogLog16b.MANTISSA_BITS=v; ProtoLogLog16c.MANTISSA_BITS=v;
@@ -152,9 +151,25 @@ public class DDLCalibrationDriver2 {
 				DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("printcv") || a.equals("cv")){
 				DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
+			}else if(a.equals("clamp") || a.equals("clamptoadded")){
+				CLAMP_TO_ADDED=Parse.parseBoolean(b);
+			}else if(a.equals("hllhistcf") || a.equals("histcf")){
+				CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
 			}else if(a.equals("tracecf")){
 				CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
+		}
+
+		// Apply deferred pllmode now that hbits/mbits are set
+		if(pllmode!=null){
+			if(pllmode.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_MANTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_MANTISSA);}
+			else if(pllmode.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_ANDTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_ANDTISSA);}
+			else if(pllmode.equals("nlz2")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NLZ2); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NLZ2); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NLZ2);}
+			else if(pllmode.equals("history")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_HISTORY); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_HISTORY); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY);}
+			else if(pllmode.equals("luck")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_LUCK); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_LUCK); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_LUCK);}
+			else if(pllmode.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NONE); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NONE);}
+			else if(pllmode.equals("histmant") || pllmode.equals("historymantissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY|ProtoLogLog16c.MODE_MANTISSA);}
+			else{throw new RuntimeException("Unknown pllmode: "+pllmode);}
 		}
 
 		final long maxTrue=(long)buckets*maxMult;
@@ -378,7 +393,8 @@ public class DDLCalibrationDriver2 {
 							}
 						}
 						for(int e=0; e<NUM_EST; e++){
-							final double err=(est[e]-trueCard)/(double)trueCard;
+							final double v=CLAMP_TO_ADDED ? Math.min(est[e], trueCard) : est[e];
+							final double err=(v-trueCard)/(double)trueCard;
 							sumErr[ti][e]+=err;
 							sumAbsErr[ti][e]+=Math.abs(err);
 							sumSqErr[ti][e]+=err*err;

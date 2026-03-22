@@ -32,6 +32,42 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         {-1.8472,  0.0000, +0.2051,  0.0000},
         {-3.1800, -1.3051, -1.9303, +0.2266},
     };
+    // Combined history+mantissa CFs from simulator (tier 8, 124M samples)
+    // State index = mantissa_val | (history_val << mbits)
+    public static final double[] CF_HISTMANT_2H2M={
+        -2.5995, -2.5518, -2.4953, -2.4397,  // h=0: m=0,1,2,3
+        -1.3324, -1.2396, -1.1559, -1.0402,  // h=1
+        -1.7472, -1.6938, -1.6204, -1.5905,  // h=2
+        -0.2122, -0.0389, +0.1694, +0.4223}; // h=3
+    public static final double[] CF_HISTMANT_1H3M={
+        -1.5812, -1.5239, -1.4818, -1.4209, -1.3730, -1.3330, -1.2667, -1.1835,  // h=0: m=0..7
+        -0.3085, -0.2349, -0.1372, -0.0452, +0.0691, +0.1802, +0.3047, +0.4605}; // h=1: m=0..7
+    public static final double[] CF_HISTMANT_3H1M={
+        -3.6133, -3.5716,  // h=0: m=0,1
+        -2.3542, -2.2627,  // h=1
+        -2.7558, -2.7068,  // h=2
+        -1.2263, -1.0449,  // h=3
+        -2.8923, -2.8413,  // h=4
+        -1.6402, -1.5328,  // h=5
+        -2.1591, -2.1219,  // h=6
+        -0.0999, +0.3347}; // h=7
+
+    // Per-tier CFs for history 3-bit (tiers 0-3, from simulator 500k trials)
+    public static final double[][] CF_HISTORY_3_TIERS={
+        {0, 0, 0, 0, 0, 0, 0, 0},
+        {-1.8456, 0, 0, 0, +0.2051, 0, 0, 0},
+        {-3.1813, 0, -1.2962, 0, -1.9285, 0, +0.2280, 0},
+        {-4.3479, -2.5276, -3.0717, -1.2338, -3.2677, -1.6811, -2.3671, +0.2221},
+    };
+    // Per-tier CFs for combined 1h+3m (tiers 0-1, from simulator 500k trials)
+    // State = mantissa_val(3bit) | (history_val(1bit) << 3)
+    public static final double[][] CF_HISTMANT_1H3M_TIERS={
+        {-0.8227, -0.6814, -0.5253, -0.3557, -0.1542, +0.0391, +0.2449, +0.4656,
+               0,       0,       0,       0,       0,       0,       0,       0},
+        {-2.1487, -2.0697, -2.0043, -1.9300, -1.8541, -1.7696, -1.6953, -1.5896,
+         -0.3752, -0.2654, -0.1551, -0.0362, +0.0784, +0.2230, +0.3644, +0.5282},
+    };
+
     // Per-tier CFs for luck 2-bit (tiers 0-2)
     public static final double[][] CF_LUCK_2_TIERS={
         { 0.0000,  0.0000,  0.0000, +0.0000},
@@ -44,6 +80,8 @@ public final class ProtoLogLog16c extends CardinalityTracker {
     public static boolean SKIP_UNCHANGED_LUCK=true;
     public static double[] CORRECTION_TABLE=null;
     public static double[][] TIER_TABLES=null;
+    /** Additive offset applied to all per-state CFs: tierMult = 2^(-(cf+offset)). */
+    public static double CF_OFFSET=0;
 
     final short[] maxArray;
     private final byte[] luckSecond;
@@ -73,7 +111,7 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         MODE=mode;
         if(mode==MODE_HISTORY){
             CORRECTION_TABLE=(HISTORY_BITS==3?CF_HISTORY_3:HISTORY_BITS==1?CF_HISTORY_1:CF_HISTORY_2);
-            TIER_TABLES=(HISTORY_BITS==2?CF_HISTORY_2_TIERS:null);
+            TIER_TABLES=(HISTORY_BITS==3?CF_HISTORY_3_TIERS:HISTORY_BITS==2?CF_HISTORY_2_TIERS:null);
         }else if(mode==MODE_LUCK){
             CORRECTION_TABLE=(LUCK_BITS==3?CF_LUCK_3:LUCK_BITS==1?CF_LUCK_1:CF_LUCK_2);
             TIER_TABLES=(LUCK_BITS==2?CF_LUCK_2_TIERS:null);
@@ -83,6 +121,30 @@ public final class ProtoLogLog16c extends CardinalityTracker {
             CORRECTION_TABLE=CF_ANDTISSA_2; TIER_TABLES=null;
         }else if(mode==MODE_NLZ2){
             CORRECTION_TABLE=CF_NLZ2_2; TIER_TABLES=null;
+        }else if(mode==(MODE_HISTORY|MODE_MANTISSA)){
+            // Combined: use simulator-derived 16-state CFs when available
+            if(HISTORY_BITS==2 && MANTISSA_BITS==2){CORRECTION_TABLE=CF_HISTMANT_2H2M;}
+            else if(HISTORY_BITS==1 && MANTISSA_BITS==3){CORRECTION_TABLE=CF_HISTMANT_1H3M;}
+            else if(HISTORY_BITS==3 && MANTISSA_BITS==1){CORRECTION_TABLE=CF_HISTMANT_3H1M;}
+            else{CORRECTION_TABLE=null;}
+            // Per-tier tables: use simulator-derived when available, else outer product
+            if(HISTORY_BITS==1 && MANTISSA_BITS==3){TIER_TABLES=CF_HISTMANT_1H3M_TIERS;}
+            else{
+                // Outer product of history tier CFs × mantissa CFs
+                final double[][] htiers=(HISTORY_BITS==2?CF_HISTORY_2_TIERS:HISTORY_BITS==3?CF_HISTORY_3_TIERS:null);
+                if(htiers!=null){
+                    final int mstates=1<<MANTISSA_BITS, hstates=1<<HISTORY_BITS;
+                    TIER_TABLES=new double[htiers.length][];
+                    for(int t=0; t<htiers.length; t++){
+                        TIER_TABLES[t]=new double[mstates*hstates];
+                        for(int h=0; h<hstates; h++){
+                            for(int m=0; m<mstates; m++){
+                                TIER_TABLES[t][m+(h<<MANTISSA_BITS)]=CF_MANTISSA_2[Math.min(m,CF_MANTISSA_2.length-1)]+htiers[t][h];
+                            }
+                        }
+                    }
+                }else{TIER_TABLES=null;}
+            }
         }else{CORRECTION_TABLE=null; TIER_TABLES=null;}
     }
 
@@ -242,11 +304,13 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         final int mask=(1<<nlzShift())-1;
         // minTier: below this, use per-tier tables (if available) or no correction.
         // With tier tables: tiers 0..len-1 use tier CFs, tier len+ use steady-state.
-        // Without tier tables: history needs bits+1, luck needs 2^bits, others use 0.
+        // Without tier tables: history needs HISTORY_BITS+1, luck needs 2^LUCK_BITS.
+        // For combined modes, minTier is driven by the history/luck component alone
+        // (mantissa reaches steady state immediately — it's just hash bits).
         final int minTier;
         if(TIER_TABLES!=null){minTier=TIER_TABLES.length;}
-        else if(usesLuck()){minTier=(1<<getActiveExtraBits());}
-        else if(usesHistory()){minTier=getActiveExtraBits()+1;}
+        else if(usesLuck()){minTier=(1<<LUCK_BITS);}
+        else if(usesHistory()){minTier=HISTORY_BITS+1;}
         else{minTier=0;}
 
         // Build per-tier multiplier table (like ULL8)
@@ -260,7 +324,7 @@ public final class ProtoLogLog16c extends CardinalityTracker {
             }
             // else: cf stays null → multiplier = 1.0 (no correction for low tiers without tier tables)
             for(int s=0; s<states; s++){
-                tierMult[t][s]=(cf!=null && s<cf.length) ? Math.pow(2.0, -cf[s]) : 1.0;
+                tierMult[t][s]=(cf!=null && s<cf.length) ? Math.pow(2.0, -(cf[s]+CF_OFFSET)) : 1.0;
             }
         }
 

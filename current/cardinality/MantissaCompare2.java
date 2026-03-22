@@ -8,11 +8,12 @@ import shared.Tools;
  */
 public class MantissaCompare2 {
 
-    static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4;
-    static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck"};
+    static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5;
+    static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant"};
 
     public static void main(String[] args){
         int inner=32768, outer=131072, maxTier=11, mode=MODE_MANTISSA, bits=2;
+        int hbits=-1, mbits=-1; // for combined mode; -1 = use 'bits'
 
         for(String arg : args){
             final String[] ab=arg.split("=");
@@ -21,18 +22,28 @@ public class MantissaCompare2 {
             else if(a.equals("outer")){outer=Integer.parseInt(b);}
             else if(a.equals("maxtier") || a.equals("mt")){maxTier=Integer.parseInt(b);}
             else if(a.equals("bits")){bits=Integer.parseInt(b);}
+            else if(a.equals("hbits")){hbits=Integer.parseInt(b);}
+            else if(a.equals("mbits")){mbits=Integer.parseInt(b);}
             else if(a.equals("mode")){
                 if(b.equals("mantissa")){mode=MODE_MANTISSA;}
                 else if(b.equals("andtissa")){mode=MODE_ANDTISSA;}
                 else if(b.equals("nlz2")){mode=MODE_NLZ2;}
                 else if(b.equals("history")){mode=MODE_HISTORY;}
                 else if(b.equals("luck")){mode=MODE_LUCK;}
+                else if(b.equals("histmant") || b.equals("historymantissa")){mode=MODE_HISTMANT;}
             }
         }
+        if(mode==MODE_HISTMANT){
+            if(hbits<0){hbits=2;}
+            if(mbits<0){mbits=2;}
+        }
 
-        final int numStates=1<<bits;
+        final int numStates=(mode==MODE_HISTMANT) ? (1<<(hbits+mbits)) : (1<<bits);
         final int cap=numStates-1;
-        System.err.println("MantissaCompare2: mode="+MODE_NAMES[mode]+" bits="+bits
+        final String modeDesc=(mode==MODE_HISTMANT) ?
+            MODE_NAMES[mode]+" hbits="+hbits+" mbits="+mbits :
+            MODE_NAMES[mode]+" bits="+bits;
+        System.err.println("MantissaCompare2: "+modeDesc
             +" states="+numStates+" inner="+inner+" outer="+outer+" maxtier="+maxTier);
         final long t0=System.nanoTime();
 
@@ -48,7 +59,34 @@ public class MantissaCompare2 {
                 final long key=Tools.hash64shift(seed+card);
                 final int nlz=Long.numberOfLeadingZeros(key);
 
-                if(mode==MODE_MANTISSA || mode==MODE_ANDTISSA || mode==MODE_NLZ2){
+                if(mode==MODE_HISTMANT){
+                    // Combined history+mantissa: mantissa in low bits, history in high bits
+                    final int mcap=(1<<mbits)-1, hcap=(1<<hbits)-1;
+                    final int mshift=63-nlz-mbits;
+                    final int mval=(mshift<0) ? 0 : (int)((~(key>>>mshift))&mcap);
+                    final int newNlzStored=Math.min(nlz+1, 63);
+                    final int oldNlzStored=(stored>0) ? (stored>>>10) : 0;
+                    final int oldMant=(stored>0) ? (stored&mcap) : 0;
+                    final int oldHist=(stored>0) ? ((stored>>>mbits)&hcap) : 0;
+                    if(newNlzStored>oldNlzStored){
+                        // New max: update mantissa, shift history register
+                        final int k=newNlzStored-oldNlzStored;
+                        final int carry=(stored>0) ? (1<<hbits) : 0;
+                        final int newHist=((oldHist|carry)>>k)&hcap;
+                        extra=mval|(newHist<<mbits);
+                        maxNlz=newNlzStored-1;
+                    }else if(newNlzStored==oldNlzStored && newNlzStored>0){
+                        // Same max: update mantissa if better, keep history
+                        if(mval>oldMant){ extra=mval|(oldHist<<mbits); }
+                    }else if(newNlzStored<oldNlzStored){
+                        // Sub-max: update history bits, keep mantissa
+                        final int diff=oldNlzStored-newNlzStored;
+                        if(diff>=1 && diff<=hbits){
+                            final int newHist=oldHist|(1<<(hbits-diff));
+                            extra=oldMant|(newHist<<mbits);
+                        }
+                    }
+                }else if(mode==MODE_MANTISSA || mode==MODE_ANDTISSA || mode==MODE_NLZ2){
                     int val=0;
                     if(mode==MODE_MANTISSA){
                         final int shift=63-nlz-bits;
