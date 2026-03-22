@@ -82,7 +82,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardinalityStats s=summarize();
-		long card=(long)s.hybridDLL();
+		final double rawHyb=s.hybridDLL();
+		long card=(long)(rawHyb*s.cf(rawHyb, CorrectionFactor.HYBRID));
 		card=Math.max(card, s.microCardinality());
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
