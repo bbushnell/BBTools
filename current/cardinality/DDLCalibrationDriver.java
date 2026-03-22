@@ -584,6 +584,8 @@ public class DDLCalibrationDriver {
 			return new ErtlULL(buckets, k, seed, minProb);
 		}else if("ertlb".equals(type) || "ertlullb".equalsIgnoreCase(type)){
 			return new ErtlULLb(buckets, k, seed, minProb);
+		}else if("ullc".equals(type)){
+			return new ULLc(buckets, k, seed, minProb);
 		}else if("pll16c".equals(type)){
 			return new ProtoLogLog16c(buckets, k, seed, minProb);
 		}
