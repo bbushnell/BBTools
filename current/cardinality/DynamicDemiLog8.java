@@ -90,27 +90,42 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		if(nlzCounts==null){nlzCounts=new int[64];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 
+		final int phantomNlz=minZeros-1;
 		for(int i=0; i<buckets; i++){
 			final int s=readBucket(i);
-			if(s>0){
+			if(s>=minNonEmpty){
+				// Normal filled bucket: relNlzStored >= 1
 				final int absNlz=(s>>>mantissaBits)-1+minZeros;
 				if(absNlz<64){nlzCounts[absNlz]++;}
 				final long dif=restoreDif(s);
 				if(USE_EMPIRICAL_MANTISSA){
-					// Empirical mode: apply per-state multiplier to all sums
 					final int invMant=s&mantissaMask;
 					final double m=mantissaMultRuntime[invMant];
 					difSum+=dif*m;
 					hllSumFilled+=Math.pow(2.0, -absNlz)*m;
-					hllSumFilledM=hllSumFilled; // same corrected sum
+					hllSumFilledM=hllSumFilled;
 					gSum+=Math.log(Tools.max(1, dif*m));
 				}else{
-					// Original mode: fractional NLZ formula for hllSumFilledM
 					difSum+=dif;
 					hllSumFilled +=Math.pow(2.0, -absNlz);
 					hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
 					gSum+=Math.log(Tools.max(1, dif));
 				}
+				count++;
+				if(USE_SORTBUF){sortBuf.add(dif);}
+			}else if(s>0 && EARLY_PROMOTE && minZeros>0){
+				// Phantom bucket: below floor after EARLY_PROMOTE decrement
+				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz]++;}
+				count++;
+			}else if(s>0){
+				// Non-EARLY_PROMOTE: stored 1-3 shouldn't occur, treat as tier-0
+				final int absNlz=(s>>>mantissaBits)-1+minZeros;
+				if(absNlz<64){nlzCounts[absNlz]++;}
+				final long dif=restoreDif(s);
+				difSum+=dif;
+				hllSumFilled +=Math.pow(2.0, -absNlz);
+				hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
+				gSum+=Math.log(Tools.max(1, dif));
 				count++;
 				if(USE_SORTBUF){sortBuf.add(dif);}
 			}
@@ -209,16 +224,16 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		writeBucket(bucket, newStored);
 		if(oldStored==0){filledBuckets++;}
 
-		// Decrement minZeroCount when bucket leaves (empty ∪ tier-0) category.
-		// Old bucket was in (empty ∪ tier-0) iff (oldStored >>> mantissaBits) < 2.
-		// New bucket is tier-1+ iff newRelNlzStored >= 2.
-		if((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2){
-			if(--minZeroCount<1){
-				while(minZeroCount==0 && minZeros<wordlen){
-					minZeros++;
-					eeMask>>>=1;
-					minZeroCount=countAndDecrement();
-				}
+		// Decrement minZeroCount when bucket crosses the tracked threshold.
+		// EARLY_PROMOTE=true:  track empty (stored==0) → advance when all non-empty.
+		// EARLY_PROMOTE=false: track empty+tier-0 (relNlzStored<2) → advance when all tier-1+.
+		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0) :
+				((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2);
+		if(shouldDecrement && --minZeroCount<1){
+			while(minZeroCount==0 && minZeros<wordlen){
+				minZeros++;
+				eeMask>>>=1;
+				minZeroCount=countAndDecrement();
 			}
 		}
 	}
@@ -237,7 +252,11 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 			if(s==0){continue;}
 			final int decremented=s-minNonEmpty;
 			maxArray[i]=(byte)decremented;
-			if((decremented>>>mantissaBits)==1){newMinZeroCount++;}
+			if(EARLY_PROMOTE){
+				if(decremented<minNonEmpty){newMinZeroCount++; filledBuckets--;}
+			}else{
+				if((decremented>>>mantissaBits)==1){newMinZeroCount++;}
+			}
 		}
 		return newMinZeroCount;
 	}
@@ -351,6 +370,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		}
 	}
 
+	public static boolean EARLY_PROMOTE=true;
 	private static final int wordlen=64;
 	/** Hard-coded mantissa bits: 2-bit inverted mantissa (6-bit exponent = 64 tiers). */
 	private static final int mantissaBits=2;
