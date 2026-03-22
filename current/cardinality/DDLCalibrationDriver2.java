@@ -366,7 +366,7 @@ public class DDLCalibrationDriver2 {
 
 				int ti=0;
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
-					ddl.hashAndStore(rng.nextLong());
+					ddl.add(rng.nextLong());
 
 
 					// Check reporting threshold

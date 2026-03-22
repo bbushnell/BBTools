@@ -582,6 +582,8 @@ public class DDLCalibrationDriver {
 			return new ProtoLogLog16b(buckets, k, seed, minProb);
 		}else if("ertl".equals(type) || "ertlull".equalsIgnoreCase(type)){
 			return new ErtlULL(buckets, k, seed, minProb);
+		}else if("ertlb".equals(type) || "ertlullb".equalsIgnoreCase(type)){
+			return new ErtlULLb(buckets, k, seed, minProb);
 		}else if("pll16c".equals(type)){
 			return new ProtoLogLog16c(buckets, k, seed, minProb);
 		}
@@ -943,12 +945,12 @@ public class DDLCalibrationDriver {
 
 		void runInner() throws InterruptedException {
 
-			// Benchmark mode: pure hashAndStore throughput, no estimates or histograms.
+			// Benchmark mode: pure add() throughput, no estimates or histograms.
 			if(BENCHMARK_MODE){
 				final Random valRng=new Random(valSeed);
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
 					final long val=valRng.nextLong();
-					for(CardinalityTracker ddl : ddls){ddl.hashAndStore(val);}
+					for(CardinalityTracker ddl : ddls){ddl.add(val);}
 				}
 				return;
 			}
@@ -975,7 +977,7 @@ public class DDLCalibrationDriver {
 				final long val=valRng.nextLong();
 				trueSet.add(val);
 				final long trueCard=trueSet.size();
-				for(CardinalityTracker ddl : ddls){ddl.hashAndStore(val);}
+				for(CardinalityTracker ddl : ddls){ddl.add(val);}
 
 				// Record every DDL at its current occupancy slot for every unique element.
 				// If the DDL's state didn't change (lastCardinality>=0), reuse cached estimates.
