@@ -84,6 +84,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL();
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6();
+		}else if("dll4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -144,6 +146,9 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(p);
 		}
+//		else if("dll4m".equalsIgnoreCase(type)){
+//			return new DynamicLogLog4m(p);
+//		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
 	}
@@ -197,6 +202,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(buckets_, k_, seed, minProb_);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
+		}else if("dll4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
