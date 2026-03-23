@@ -296,13 +296,19 @@ class LogLogWrapper {
 					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
 					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
 				}
+			}else if(log.getClass()==DynamicDemiLog8.class) {
+				DynamicDemiLog8 ddl=(DynamicDemiLog8)log;
+				if(ddl.branch1>0) {
+					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
+					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
+				}
 			}else if(log.getClass()==DynamicLogLog4.class) {
 				DynamicLogLog4 ddl=(DynamicLogLog4)log;
 				if(ddl.branch1>0) {
 					System.err.println("Branch1 Rate:  "+ddl.branch1Rate());
 					System.err.println("Branch2 Rate:  "+ddl.branch2Rate());
 				}
-			}
+			}//assert(false) : log.getClass();
 			System.err.println("Cardinality:   "+cardinality);
 			//		System.err.println("CardinalityH:  "+log.cardinalityH());
 

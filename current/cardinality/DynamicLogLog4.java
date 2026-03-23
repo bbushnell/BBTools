@@ -191,7 +191,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final long key=Tools.hash64shift(rawKey);
 
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
-//		branch1++;
+		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
@@ -207,7 +207,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-//		branch2++;
+		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);

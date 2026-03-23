@@ -348,10 +348,12 @@ public final class ErtlULL extends CardinalityTracker {
         final ErtlULL other=(ErtlULL)log;
         added+=other.added;
         lastCardinality=-1;
+        // ULL merge: unpack → OR hashPrefixes → repack.
+        // Per-register max is WRONG because sub-bits encode history
+        // that may differ between instances for the same bucket.
         for(int i=0; i<registers.length; i++){
-            if((other.registers[i]&0xFF)>(registers[i]&0xFF)){
-                registers[i]=other.registers[i];
-            }
+            long hp=unpack(registers[i]) | unpack(other.registers[i]);
+            registers[i]=pack(hp);
         }
     }
 

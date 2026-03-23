@@ -157,6 +157,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	 */
 	public void add(DynamicDemiLog8 log){
 		added+=log.added;
+		branch1+=log.branch1;
+		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
 			final int newMinZeros=Math.max(minZeros, log.minZeros);
@@ -194,7 +196,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final long key=Tools.hash64shift(rawKey);
 
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
-//		branch1++;
+		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-minZeros;
@@ -218,7 +220,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
-//		branch2++;
+		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -227,8 +229,11 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		// Decrement minZeroCount when bucket crosses the tracked threshold.
 		// EARLY_PROMOTE=true:  track empty (stored==0) → advance when all non-empty.
 		// EARLY_PROMOTE=false: track empty+tier-0 (relNlzStored<2) → advance when all tier-1+.
-		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0) :
-				((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2);
+		// EARLY_PROMOTE: track empty+phantom (stored < minNonEmpty).
+		// Phantoms are created by countAndDecrement (stored 1..minNonEmpty-1).
+		// Must also decrement when a phantom gets filled above floor.
+		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored<minNonEmpty && newStored>=minNonEmpty) :
+			((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2);
 		if(shouldDecrement && --minZeroCount<1){
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
