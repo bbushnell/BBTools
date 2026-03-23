@@ -1,5 +1,6 @@
 package cardinality;
 
+import parse.Parser;
 import shared.Tools;
 
 /**
@@ -27,6 +28,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private int filledBuckets=0;
 
 	UltraDynamicLogLog6(){this(2048, 31, -1, 0);}
+	UltraDynamicLogLog6(Parser p){
+		super(p);
+		registers=new byte[buckets];
+		floorCount=buckets;
+	}
 	UltraDynamicLogLog6(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		registers=new byte[buckets];
@@ -140,7 +146,47 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		return card;
 	}
 
-	@Override public final void add(CardinalityTracker log){throw new UnsupportedOperationException();}
+	@Override
+	public final void add(CardinalityTracker log){
+		assert(log.getClass()==this.getClass());
+		add((UltraDynamicLogLog6)log);
+	}
+
+	/**
+	 * Merges another UDLL6 into this one.
+	 * Re-frames both to the higher minZeros, then takes per-bucket max.
+	 */
+	public void add(UltraDynamicLogLog6 log){
+		added+=log.added;
+		lastCardinality=-1;
+		final int newMinZeros=Math.max(minZeros, log.minZeros);
+		final int deltaA=newMinZeros-minZeros;
+		final int deltaB=newMinZeros-log.minZeros;
+		for(int i=0; i<buckets; i++){
+			int rA=registers[i]&0xFF;
+			int rB=log.registers[i]&0xFF;
+			// Re-frame: subtract 4*delta from each (decrease nlzPart by delta)
+			if(rA>0){rA=Math.max(0, rA-(deltaA<<2));}
+			if(rB>0){rB=Math.max(0, rB-(deltaB<<2));}
+			registers[i]=(byte)Math.max(rA, rB);
+		}
+		minZeros=newMinZeros;
+		// Recount filledBuckets and floorCount
+		filledBuckets=0;
+		floorCount=0;
+		for(int i=0; i<buckets; i++){
+			final int reg=registers[i]&0xFF;
+			if(reg>0){filledBuckets++;}
+			if(reg==0 || (reg>>>2)<=HISTORY_MARGIN){floorCount++;}
+		}
+		// Advance if possible
+		while(floorCount==0 && minZeros<wordlen){
+			minZeros++;
+			floorCount=countAndDecrement();
+		}
+		int exitThreshold=Math.max(0, minZeros-HISTORY_MARGIN);
+		eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
+	}
 	@Override public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	public int filledBuckets(){return filledBuckets;}
