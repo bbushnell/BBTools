@@ -3,21 +3,20 @@ package cardinality;
 import shared.Tools;
 
 /**
- * UltraDynamicLogLog6: 6-bit registers combining DLL4's dynamic relative-NLZ
- * architecture with ULL's 2-bit sub-NLZ history and FGRA estimator.
+ * ULLd: ULLc converted to RELATIVE encoding with 8-bit registers.
+ * Intermediate step between ULLc (absolute) and UDLL6 (relative, 6-bit).
  * <p>
- * Derived from ULLd (relative 8-bit) by clamping registers to [0,63].
- * Register encoding: 6 bits = 4-bit relative NLZ + 2-bit history.
- * 15 usable NLZ tiers (nlzPart 2..16, but clamped to 15 = 63>>>2).
- * The 2-bit history provides ~18% variance reduction via FGRA estimator.
+ * Registers store relative NLZ (nlz - minZeros) using Ertl's pack/unpack
+ * on a hashPrefix bitmask offset by HISTORY_MARGIN. When minZeros advances,
+ * countAndDecrement subtracts 4 from each register (= decrease nlzPart by 1,
+ * preserving sub-bits). This is equivalent to shifting the hashPrefix
+ * bitmask right by 1, which correctly maintains the 2-bit history.
  * <p>
- * At 2048 buckets with byte[]: 2048 bytes. Same memory as DLL4 at 4096 buckets.
- * Future: int-packed (5 per int) with modulo bucket count for exact 2KB.
- *
- * @author Brian Bushnell, Chloe
- * @date March 2026
+ * Must produce EXACT same FGRA estimates as ULLc at all cardinalities.
+ * For FGRA, converts relative registers to absolute by adding
+ * 4*(minZeros + p - 1 - HISTORY_MARGIN).
  */
-public final class UltraDynamicLogLog6 extends CardinalityTracker {
+public final class ULLd extends CardinalityTracker {
 
 	final byte[] registers;
 	private int minZeros=0;
@@ -26,13 +25,13 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private long eeMask=-1L;
 	private int filledBuckets=0;
 
-	UltraDynamicLogLog6(){this(2048, 31, -1, 0);}
-	UltraDynamicLogLog6(int buckets_, int k_, long seed, float minProb_){
+	ULLd(){this(2048, 31, -1, 0);}
+	ULLd(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		registers=new byte[buckets];
 		floorCount=buckets;
 	}
-	@Override public UltraDynamicLogLog6 copy(){return new UltraDynamicLogLog6(buckets, k, -1, minProb);}
+	@Override public ULLd copy(){return new ULLd(buckets, k, -1, minProb);}
 
 	@Override
 	public final void hashAndStore(final long number){
@@ -47,13 +46,14 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		final int relNlz=nlz-minZeros;
 
 		// Bit position in hashPrefix: relNlz + HISTORY_MARGIN.
+		// Reserves positions 0..(HISTORY_MARGIN-1) for below-floor history.
 		final int bitPos=relNlz+HISTORY_MARGIN;
 		if(bitPos<0||bitPos>=64){return;}
 
 		final byte oldReg=registers[idx];
 		long hashPrefix=ErtlULL.unpack(oldReg);
 		hashPrefix|=1L<<bitPos;
-		final byte newReg=(byte)Math.min(ErtlULL.pack(hashPrefix)&0xFF, MAX_REGISTER);
+		final byte newReg=ErtlULL.pack(hashPrefix);
 		if((newReg&0xFF)<=(oldReg&0xFF)){return;}
 		branch2++;
 
@@ -80,9 +80,12 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	/**
 	 * Subtract 4 from each non-empty register (decrease nlzPart by 1,
-	 * preserving sub-bits). Called only when floorCount==0, meaning all
-	 * registers have nlzPart > HISTORY_MARGIN, so subtracting 4 never
-	 * creates negative values.
+	 * preserving sub-bits). This is equivalent to shifting the hashPrefix
+	 * bitmask right by 1 — the sub-bits maintain their correct meaning
+	 * because they are relative to the register's max NLZ.
+	 * <p>
+	 * Called only when floorCount==0, meaning all registers have
+	 * nlzPart > HISTORY_MARGIN, so subtracting 4 never creates negative values.
 	 *
 	 * @return new floorCount (registers with nlzPart <= HISTORY_MARGIN after decrement)
 	 */
@@ -90,7 +93,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		int newFloorCount=0;
 		for(int i=0; i<buckets; i++){
 			final int reg=registers[i]&0xFF;
-			if(reg==0){newFloorCount++; continue;}
+			if(reg==0){newFloorCount++; continue;} // shouldn't happen when floorCount was 0
 			final int newReg=reg-4;
 			registers[i]=(byte)newReg;
 			if((newReg>>>2)<=HISTORY_MARGIN){newFloorCount++;}
@@ -99,7 +102,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	}
 
 	/**
-	 * Converts 6-bit relative registers to absolute Ertl format and runs FGRA.
+	 * Converts relative registers to absolute Ertl format and runs FGRA.
 	 * ertl_reg = relative_reg + 4*(minZeros + p - 1 - HISTORY_MARGIN)
 	 */
 	public double fgraEstimate(){
@@ -132,7 +135,6 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public int filledBuckets(){return filledBuckets;}
 	public double occupancy(){return (double)filledBuckets/buckets;}
 	public int getMinZeros(){return minZeros;}
-	public byte getRegister(int i){return registers[i];}
 
 	@Override
 	public double[] rawEstimates(){
@@ -145,8 +147,6 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	private static final int wordlen=64;
 	static final int HISTORY_MARGIN=2;
-	/** Maximum 6-bit register value. nlzPart can be 0-15, sub 0-3. */
-	static final int MAX_REGISTER=63;
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
