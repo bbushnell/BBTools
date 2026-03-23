@@ -342,7 +342,18 @@ public final class ErtlULL extends CardinalityTracker {
     /*----------------       Framework Glue         ----------------*/
     /*--------------------------------------------------------------*/
 
-    @Override public final void add(CardinalityTracker log){throw new UnsupportedOperationException();}
+    @Override
+    public final void add(CardinalityTracker log){
+        assert(log.getClass()==this.getClass());
+        final ErtlULL other=(ErtlULL)log;
+        added+=other.added;
+        lastCardinality=-1;
+        for(int i=0; i<registers.length; i++){
+            if((other.registers[i]&0xFF)>(registers[i]&0xFF)){
+                registers[i]=other.registers[i];
+            }
+        }
+    }
 
     public byte[] getRegisters(){return registers;}
     public double occupancy(){
