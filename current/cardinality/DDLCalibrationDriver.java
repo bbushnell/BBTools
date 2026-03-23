@@ -38,6 +38,9 @@ import shared.Tools;
  *   <li>out2=path        - output file for occupancy histogram (File 2)</li>
  * </ul>
  *
+ * NOTE! This class is largely superceded by DDLCalibrationDriver2 which is more efficient.
+ * DDLCalibrationDriver remains for memory bandwidth testing and some parsing duties. 
+ *
  * @author Chloe
  * @date March 2026
  */
@@ -590,6 +593,8 @@ public class DDLCalibrationDriver {
 			return new ULLd(buckets, k, seed, minProb);
 		}else if("udll6".equals(type) || "ultradynamicloglog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets, k, seed, minProb);
+		}else if("dll4m".equals(type) || "dynamicloglog4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m(buckets, k, seed, minProb);
 		}else if("pll16c".equals(type)){
 			return new ProtoLogLog16c(buckets, k, seed, minProb);
 		}

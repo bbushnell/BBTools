@@ -53,7 +53,21 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		final byte oldReg=registers[idx];
 		long hashPrefix=ErtlULL.unpack(oldReg);
 		hashPrefix|=1L<<bitPos;
-		final byte newReg=(byte)Math.min(ErtlULL.pack(hashPrefix)&0xFF, MAX_REGISTER);
+		final int rawReg=ErtlULL.pack(hashPrefix)&0xFF;
+		final byte newReg;
+		if(rawReg>MAX_REGISTER){
+			if(SATURATE_ON_OVERFLOW){
+				newReg=(byte)MAX_REGISTER; // 63 = nlzPart=15, sub=11
+			}else{
+				// Clamp nlzPart to 15, extract actual sub-bits from hashPrefix
+				// In hashPrefix, bit N = main, bit N-1 = sub MSB, bit N-2 = sub LSB.
+				// For nlzPart=15: main at bit 15, sub at bits 14,13.
+				final int sub=(int)((hashPrefix>>>13)&3);
+				newReg=(byte)((15<<2)|sub);
+			}
+		}else{
+			newReg=(byte)rawReg;
+		}
 		if((newReg&0xFF)<=(oldReg&0xFF)){return;}
 		branch2++;
 
@@ -147,6 +161,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	static final int HISTORY_MARGIN=2;
 	/** Maximum 6-bit register value. nlzPart can be 0-15, sub 0-3. */
 	static final int MAX_REGISTER=63;
+	/** When true, overflow sets history to 11 (maximum). When false, preserves actual sub-bits. */
+	public static boolean SATURATE_ON_OVERFLOW=false;
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}

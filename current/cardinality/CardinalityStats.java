@@ -293,23 +293,24 @@ public class CardinalityStats {
 
 	/**
 	 * Hybrid estimator for mantissa-free classes (DLL3, DLL4).
-	 * Blends LC → Mean using log interpolation over [hb0, hb1].
+	 * Blends lcMin → Mean(CF) using log interpolation over [0.20B, 5.0B].
+	 * CF is applied to meanEst inside the blend (not to the whole result in toArray),
+	 * so that the lcMin component is not distorted by correction factors.
 	 */
 	public double hybridDLL(){
 		final double hb0=0.20*buckets, hb1=5.0*buckets;
 		if(lcMin<=hb0){return lcMin;}
 		if(lcMin<hb1){
 			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
-			return (1-t)*lcMin+t*meanEst;
+			return (1-t)*lcMin+t*meanEstCF;
 		}
-		return meanEst;
+		return meanEstCF;
 	}
 
 	/**
-	 * DLC-threshold hybrid: uses DLC for zone detection, LC+Mean for blended values.
-	 * Same blend formula as hybridDLL(), but dlcLogSpace025() determines which zone
-	 * we're in and the blend weight, while the actual values blended are still
-	 * lcPure (low cardinality) and meanEst (high cardinality); Hybrid CF applied in toArray().
+	 * DLC-threshold hybrid: uses DLC for zone detection, lcMin+Mean(CF) for blended values.
+	 * CF is applied to meanEst/hmeanPureMCF inside the blend (not to the whole result
+	 * in toArray), so that the lcMin component is not distorted by correction factors.
 	 * <p>
 	 * Rationale: LC saturates (all buckets filled) before DLC does, so DLC
 	 * provides a better threshold signal at higher cardinalities where LC is
@@ -321,27 +322,26 @@ public class CardinalityStats {
 		final double hb0=0.20*buckets, hb1=5.0*buckets;
 		if(dlc<=hb0){return lcMin;}
 		if(!hasMantissa){
-			// DLL types: simple lcMin→Mean blend (no HMeanM)
+			// DLL types: simple lcMin→Mean(CF) blend (no HMeanM)
 			if(dlc<hb1){
 				final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
-				return (1-t)*lcMin+t*meanEst;
+				return (1-t)*lcMin+t*meanEstCF;
 			}
-			return meanEst;
+			return meanEstCF;
 		}
-		// DDL types: lcMin→Mean→HMeanM blend
-		final double hmeanPureM_raw=(hasMantissa ? hmeanPureM : hmeanPure);
+		// DDL types: lcMin→Mean(CF)→HMeanM(CF) blend
 		final double hbMid1=1.0*buckets, hbMid2=2.5*buckets;
 		final double t=Math.log(dlc/hb0)/Math.log(hb1/hb0);
 		if(dlc<=hbMid1){
-			return (1-t)*lcMin+t*meanEst;
+			return (1-t)*lcMin+t*meanEstCF;
 		}else if(dlc<=hbMid2){
 			final double mix=(hbMid2-dlc)/(hbMid2-hbMid1);
-			final double blended=meanEst*mix+hmeanPureM_raw*(1-mix);
+			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
 			return (1-t)*lcMin+t*blended;
 		}else if(dlc<hb1){
-			return (1-t)*lcMin+t*hmeanPureM_raw;
+			return (1-t)*lcMin+t*hmeanPureMCF;
 		}
-		return hmeanPureM_raw;
+		return hmeanPureMCF;
 	}
 
 	/**
@@ -416,21 +416,25 @@ public class CardinalityStats {
 	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
 	 * Blends LC → Mean → HMeanM using log interpolation with smooth Mean/HMeanM crossover.
 	 */
+	/**
+	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
+	 * Blends lcMin → Mean(CF) → HMeanM(CF) using log interpolation with smooth crossover.
+	 * CF is applied inside the blend (on meanEstCF/hmeanPureMCF), not to the whole result.
+	 */
 	public double hybridDDL(){
-		final double hmeanPureM_raw=(hasMantissa ? hmeanPureM : hmeanPure);
 		final double hb0=0.20*buckets, hbMid1=1.0*buckets, hbMid2=2.5*buckets, hb1=5.0*buckets;
 		if(lcMin<=hb0){return lcMin;}
 		final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
 		if(lcMin<=hbMid1){
-			return (1-t)*lcMin+t*meanEst;
+			return (1-t)*lcMin+t*meanEstCF;
 		}else if(lcMin<=hbMid2){
 			final double mix=(hbMid2-lcMin)/(hbMid2-hbMid1);
-			final double blended=meanEst*mix+hmeanPureM_raw*(1-mix);
+			final double blended=meanEstCF*mix+hmeanPureMCF*(1-mix);
 			return (1-t)*lcMin+t*blended;
 		}else if(lcMin<=hb1){
-			return (1-t)*lcMin+t*hmeanPureM_raw;
+			return (1-t)*lcMin+t*hmeanPureMCF;
 		}
-		return hmeanPureM_raw;
+		return hmeanPureMCF;
 	}
 
 	/**
@@ -457,10 +461,10 @@ public class CardinalityStats {
 		r[3] =Math.max(gmeanEst   *cf(gmeanEst, CorrectionFactor.GMEAN), micro);
 		r[4] =Math.max(hmeanEst   *cf(hmeanEst, CorrectionFactor.HLL),    micro); // HLL: CF corrects LC/HMean transition bias
 		r[5] =Math.max(lcPure,                                            micro);
-		r[6] =Math.max(hybridEst *cf(hybridEst, CorrectionFactor.HYBRID),  micro);
+		r[6] =Math.max(hybridEst, micro); // CF already inside blend (on meanEstCF)
 		r[7] =rawHybDLC50*cf(rawHybDLC50, CorrectionFactor.HYBDLC50);
 		final double rawDThHyb=dlcThreshHybrid();
-		r[8] =rawDThHyb*cf(rawDThHyb, CorrectionFactor.DTHTHYB);
+		r[8] =Math.max(rawDThHyb, micro); // CF already inside blend (on meanEstCF/hmeanPureMCF)
 		r[9] =dlcLowest();
 		r[10]=Math.max(hllHistory(), micro);
 		r[11]=rawDLC*cf(rawDLC, CorrectionFactor.DLC);
@@ -966,5 +970,6 @@ public class CardinalityStats {
 
 	/** Number of DLC tiers included in toArray() output (DLC_0 through DLC_{N-1}). */
 	public static final int NUM_DLC_TIERS=64;
+
 
 }

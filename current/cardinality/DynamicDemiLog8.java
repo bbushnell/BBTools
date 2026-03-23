@@ -139,8 +139,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardinalityStats s=summarize();
-		final double rawHyb=s.hybridDDL();
-		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)(rawHyb*s.cf(rawHyb, CorrectionFactor.HYBRID)));
+		final double rawHyb=s.hybridDDL(); // CF already inside blend
+		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)(rawHyb));
 		lastCardinality=card;
 		return card;
 	}
