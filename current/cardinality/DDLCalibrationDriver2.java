@@ -157,6 +157,8 @@ public class DDLCalibrationDriver2 {
 				CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
 			}else if(a.equals("tracecf")){
 				CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
+			}else if(a.equals("saturate") || a.equals("sat")){
+				UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
