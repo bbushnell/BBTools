@@ -161,22 +161,20 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public void add(UltraDynamicLogLog6 log){
 		added+=log.added;
 		lastCardinality=-1;
-		// Convert relative registers to absolute hashPrefixes, OR, then re-encode
+		// Re-frame both to newMinZeros by shifting hashPrefixes RIGHT by delta,
+		// then OR to merge history bits, then repack.
 		final int newMinZeros=Math.max(minZeros, log.minZeros);
-		final int shiftA=minZeros-newMinZeros+HISTORY_MARGIN; // relative-to-absolute offset for A
-		final int shiftB=log.minZeros-newMinZeros+HISTORY_MARGIN; // for B
+		final int deltaA=newMinZeros-minZeros;  // >= 0
+		final int deltaB=newMinZeros-log.minZeros;  // >= 0
 		for(int i=0; i<buckets; i++){
 			final int rA=registers[i]&0xFF;
 			final int rB=log.registers[i]&0xFF;
-			// Unpack relative registers and shift to common absolute frame
-			long hpA=(rA==0) ? 0 : ErtlULL.unpack((byte)rA)<<shiftA;
-			long hpB=(rB==0) ? 0 : ErtlULL.unpack((byte)rB)<<shiftB;
+			long hpA=(rA==0) ? 0 : ErtlULL.unpack((byte)rA)>>>deltaA;
+			long hpB=(rB==0) ? 0 : ErtlULL.unpack((byte)rB)>>>deltaB;
 			long merged=hpA|hpB;
 			if(merged==0){
 				registers[i]=0;
 			}else{
-				// Convert back to relative: shift down by HISTORY_MARGIN
-				// (the merged hashPrefix is now in absolute-ish frame relative to newMinZeros)
 				registers[i]=(byte)Math.min(ErtlULL.pack(merged)&0xFF, MAX_REGISTER);
 			}
 		}
