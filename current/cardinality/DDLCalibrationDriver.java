@@ -587,14 +587,14 @@ public class DDLCalibrationDriver {
 			return new ErtlULL(buckets, k, seed, minProb);
 		}else if("ertlb".equals(type) || "ertlullb".equalsIgnoreCase(type)){
 			return new ErtlULLb(buckets, k, seed, minProb);
-		}else if("dll4m".equals(type)){
-			return new DynamicLogLog4m(buckets, k, seed, minProb);
 		}else if("ullc".equals(type)){
 			return new ULLc(buckets, k, seed, minProb);
 		}else if("ulld".equals(type)){
 			return new ULLd(buckets, k, seed, minProb);
 		}else if("udll6".equals(type) || "ultradynamicloglog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets, k, seed, minProb);
+		}else if("udll6i".equals(type) || "ultradynamicloglog6i".equalsIgnoreCase(type)){
+			return new UltraDynamicLogLog6i(buckets, k, seed, minProb);
 		}else if("dll4m".equals(type) || "dynamicloglog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m(buckets, k, seed, minProb);
 		}else if("pll16c".equals(type)){

@@ -441,7 +441,7 @@ public class CardinalityStats {
 	 * Returns microIndex-based cardinality floor, or 0 if USE_MICRO is false or microIndex was 0.
 	 * Used by cardinality() as: card = Math.max(card, s.microCardinality()).
 	 */
-	public long microCardinality(){return CardinalityTracker.USE_MICRO ? microEst : 0;}
+	public long microCardinality(){return CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;}
 
 	/**
 	 * Returns the raw estimates array: 11 standard estimators + 1 DLC combined + NUM_DLC_TIERS DLC tiers.
@@ -449,7 +449,7 @@ public class CardinalityStats {
 	 */
 	public double[] toArray(double hybridEst){
 		final int total=11+4+NUM_DLC_TIERS;
-		final double micro=CardinalityTracker.USE_MICRO ? microEst : 0;
+		final double micro=CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;
 		if(count==0){final double[] z=new double[total]; for(int i=0;i<10;i++){z[i]=micro;} z[10]=microEst; return z;}
 		final double[] r=new double[total];
 		final double rawHybDLC50=hybDLC50();
