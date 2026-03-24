@@ -170,7 +170,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
-		if(USE_MICRO){//Optional MicroIndex for low cardinality
+		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
 		}
 

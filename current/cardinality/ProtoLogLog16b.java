@@ -134,7 +134,7 @@ public final class ProtoLogLog16b extends CardinalityTracker {
 
         final long micro=(key>>bucketBits)&0x3FL;
         microIndex|=(1L<<micro);
-        if(USE_MICRO && Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
+        if(LAZY_ALLOCATE && Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 
         final int newNlzS=Math.min(nlz+1, maxNlzStored());
         final int oldStored=maxArray[bucket]&0xFFFF;

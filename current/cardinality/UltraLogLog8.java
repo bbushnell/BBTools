@@ -185,7 +185,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
-		if(USE_MICRO){
+		if(LAZY_ALLOCATE){
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 		}
 

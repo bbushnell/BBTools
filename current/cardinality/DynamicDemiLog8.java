@@ -202,7 +202,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final int relNlz=nlz-minZeros;
 //		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
 		
-		if(USE_MICRO){//Optional MicroIndex for low cardinality
+		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
 			final long micro=(key>>bucketBits)&0x3FL;
 			microIndex|=(1L<<micro);
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation

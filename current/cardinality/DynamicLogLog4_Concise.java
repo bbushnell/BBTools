@@ -20,28 +20,30 @@ import structures.LongList;
  * - Bucket value 0 = empty; value 1-15 = (relNlz+1).
  * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
  * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
+ * 
+ * Simplified for publication.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
  */
-public final class DynamicLogLog4 extends CardinalityTracker {
+public final class DynamicLogLog4_Concise extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	DynamicLogLog4(){
+	DynamicLogLog4_Concise(){
 		this(2048, 31, -1, 0);
 	}
 
-	DynamicLogLog4(Parser p){
+	DynamicLogLog4_Concise(Parser p){
 		super(p);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
 		if(FAST_COUNT){nlzCounts=new int[64];}
 	}
 
-	DynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
+	DynamicLogLog4_Concise(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
@@ -49,7 +51,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	}
 
 	@Override
-	public DynamicLogLog4 copy(){return new DynamicLogLog4(buckets, k, -1, minProb);}
+	public DynamicLogLog4_Concise copy(){return new DynamicLogLog4_Concise(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
@@ -117,7 +119,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((DynamicLogLog4)log);
+		add((DynamicLogLog4_Concise)log);
 	}
 
 	/**
@@ -145,7 +147,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 * t=4 ~11.43M, t=8 ~11.42M — well under 0.1% degradation even at 8 threads.
 	 * For parallel use on the same stream, prefer a single synchronized instance.
 	 */
-	public void add(DynamicLogLog4 log){
+	public void add(DynamicLogLog4_Concise log){
 		added+=log.added;
 		branch1+=log.branch1;
 		branch2+=log.branch2;
@@ -162,20 +164,10 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 				writeBucket(i, Math.max(nA, nB));
 			}
 			minZeros=newMinZeros;
-			filledBuckets=0;
 			minZeroCount=0;
-//			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
-//			final int phantomNlz=minZeros-1;
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
-				if(s>0){
-					filledBuckets++;
-//					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz]++;}}
-				}
-//				else if(FAST_COUNT && minZeros>0 && phantomNlz<64){
-//					nlzCounts[phantomNlz]++;
-//				}
-				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
+				if(s==0){minZeroCount++;}
 			}
 			while(minZeroCount==0 && minZeros<wordlen){
 				minZeros++;
@@ -187,55 +179,27 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	@Override
 	public final void hashAndStore(final long number){
-		final long rawKey=number^hashXor;
-		final long key=Tools.hash64shift(rawKey);
-
-		if(Long.compareUnsigned(key, eeMask)>0){return;}
-		branch1++;
+		//hashXor allows different hash functions
+		final long key=Tools.hash64shift(number^hashXor);
+		if(Long.compareUnsigned(key, eeMask)>0){return;}//Early exit 1
+		
 		final int nlz=Long.numberOfLeadingZeros(key);
-		final int bucket=(int)(key&bucketMask);
-		final int relNlz=nlz-minZeros;
-
-		final long micro=(key>>bucketBits)&0x3FL;
-		microIndex|=(1L<<micro);
-		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
-		}
-
-		// Stored = relNlz+1, clamped to [1,15] for overflow
-		final int newStored=Math.min(relNlz+1, 15);
-		final int oldStored=readBucket(bucket);
-
-		if(newStored<=oldStored){return;}
-		branch2++;
-		lastCardinality=-1;
-
-		writeBucket(bucket, newStored);
-		if(oldStored==0){filledBuckets++;}
-
-		if(FAST_COUNT){
-			// Remove old slot from nlzCounts
-			if(oldStored>0){
-				final int oldAbsNlz=(oldStored-1)+minZeros;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz]--;}
-			}else if(minZeros>0){
-				final int pNlz=minZeros-1;
-				if(pNlz<64){nlzCounts[pNlz]--;}
-			}
-			// Add new slot
-			final int newAbsNlz=(newStored-1)+minZeros;
-			if(newAbsNlz<64){nlzCounts[newAbsNlz]++;}
-		}
+		final int bucket=(int)(key&bucketMask);//Low bits choose bucket
+		final int relNlz=nlz-minZeros;//Relative nlz for current tier
+		final long micro=(key>>bucketBits)&0x3FL;//6-bit microIndex bit index
+		microIndex|=(1L<<micro);//Set Bloom filter bit
+		if(LAZY_ALLOCATE && Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
+		
+		final int newStored=Math.min(relNlz+1, 15);//clamped to [1,15] for overflow
+		final int oldStored=readBucket(bucket);//Unpack 4-bit value from the int
+		if(newStored<=oldStored){return;}//Early exit 2
+		writeBucket(bucket, newStored);//Pack new 4-bit value in the int
 
 		// minZeroCount decrements when a bucket leaves the tracked-zero category.
-		// EARLY_PROMOTE=false (classic): tracks empty+tier-0; advances when all buckets >= 2.
-		// EARLY_PROMOTE=true  (new):     tracks empty only;    advances when all buckets >= 1.
-		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
-		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
-		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
-				eeMask>>>=1;
+		if(oldStored==0 && --minZeroCount<1){
+			while(minZeroCount==0 && minZeros<wordlen){//Tier is empty
+				minZeros++;//Increase tier
+				eeMask>>>=1;//Allow sooner early exit
 				minZeroCount=countAndDecrement();
 			}
 		}
@@ -243,36 +207,28 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	/**
 	 * Decrements all buckets with value at least 1.
-	 * Counts buckets that became min-tier (value 0 for EARLY_PROMOTE, value 1 for classic).
-	 * Only called when minZeroCount==0, so all buckets will be >=1.
+	 * Counts buckets that became min-tier (value 0).
+	 * If only called when minZeroCount==0, all buckets will be >=1.
 	 * Returns count of new minimum-tier buckets.
-	 */
+	 */	
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int wordIdx=0; wordIdx<maxArray.length; wordIdx++){
-			final int oldWord=maxArray[wordIdx];
-			if(oldWord==0){continue;}
+			final int oldWord=maxArray[wordIdx];//Stores packed buckets
 			int newWord=0;
 			for(int bucketIdx=0; bucketIdx<8; bucketIdx++){
 				final int bucketOffset=bucketIdx<<2;
-				int bucketVal=(oldWord>>>bucketOffset)&0xF;
+				int bucketVal=(oldWord>>>bucketOffset)&0xF;//4-bit mask
 				if(bucketVal>0){
-					bucketVal--;
-					if(EARLY_PROMOTE){
-						if(bucketVal==0){newMinZeroCount++; filledBuckets--;}
-					}else{
-						if(bucketVal==1){newMinZeroCount++;}
-					}
+					bucketVal--;//Decrement relative nlz
+					if(bucketVal==0){newMinZeroCount++;}//New empty after decrement
 				}
 				newWord|=(bucketVal<<bucketOffset);
 			}
 			maxArray[wordIdx]=newWord;
 		}
-		return newMinZeroCount;
+		return newMinZeroCount;//Number of buckets preventing tier advance
 	}
-
-	public int filledBuckets(){return filledBuckets;}
-	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -292,7 +248,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	private int minZeros=0;
 	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
 	private int minZeroCount;
-	private int filledBuckets=0;
+//	private int filledBuckets=0;
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
@@ -316,11 +272,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public static final boolean FAST_COUNT=false;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
-	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.
-	 * At advance, subtracts 1 from all buckets, which may reset some to empty (stored=0).
-	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
-	 * Reduces tier-15+ overflow pollution; requires new CF table generation when changed. */
-	public static boolean EARLY_PROMOTE=true;
 
 
 	/** Default resource file for DDL correction factors. */
@@ -334,5 +285,5 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
-
+	public static final boolean LAZY_ALLOCATE=true;
 }
