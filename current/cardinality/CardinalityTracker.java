@@ -778,7 +778,7 @@ public abstract class CardinalityTracker implements Drivable {
 	public static boolean USE_GMEAN=false;//Geometric mean
 	public static boolean USE_HLL=false;//HLL formula
 	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
-	public static final boolean USE_MICRO=false;
+	public static final boolean LAZY_ALLOCATE=false;
 	/** When true, allocate and fill sortBuf for median/MWA/mean99 estimators.
 	 * When false (default), those estimators return fallback values and no LongList is allocated. */
 	public static final boolean USE_SORTBUF=false;
