@@ -98,6 +98,9 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
+			else if(a.equals("dlctarget")){CardinalityStats.DLC_TARGET_FRAC=Float.parseFloat(b);}
+			else if(a.equals("dlcblendlo")){CardinalityStats.DLC_BLEND_LO=Float.parseFloat(b);}
+			else if(a.equals("dlcblendhi")){CardinalityStats.DLC_BLEND_HI=Float.parseFloat(b);}
 			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
 			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
 			else if(a.equals("cfmult") || a.equals("minseedmult")){CardinalityStats.MIN_SEED_CF_MULT=Float.parseFloat(b);}

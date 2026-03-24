@@ -441,7 +441,7 @@ public class CardinalityStats {
 	 * Returns microIndex-based cardinality floor, or 0 if USE_MICRO is false or microIndex was 0.
 	 * Used by cardinality() as: card = Math.max(card, s.microCardinality()).
 	 */
-	public long microCardinality(){return CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;}
+	public long microCardinality(){return CardinalityTracker.USE_MICRO ? microEst : 0;}
 
 	/**
 	 * Returns the raw estimates array: 11 standard estimators + 1 DLC combined + NUM_DLC_TIERS DLC tiers.
@@ -449,7 +449,7 @@ public class CardinalityStats {
 	 */
 	public double[] toArray(double hybridEst){
 		final int total=11+4+NUM_DLC_TIERS;
-		final double micro=CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;
+		final double micro=CardinalityTracker.USE_MICRO ? microEst : 0;
 		if(count==0){final double[] z=new double[total]; for(int i=0;i<10;i++){z[i]=micro;} z[10]=microEst; return z;}
 		final double[] r=new double[total];
 		final double rawHybDLC50=hybDLC50();
@@ -681,8 +681,8 @@ public class CardinalityStats {
 	/** Variant 4: Chloe — all-tier exponential, LOG-SPACE average, target=0.25, smooth transition */
 	private double dlcLogSpace025(){
 
-		if(V>=0.5*buckets){return lcMin;}
-		final double target=buckets*0.25;
+		if(V>=DLC_BLEND_HI*buckets){return lcMin;}
+		final double target=buckets*DLC_TARGET_FRAC;
 		final double alpha=DLC_ALPHA/buckets;
 		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(buckets*DLC_MIN_VK_FRACTION));
 		final int maxVK=buckets-minVK;
@@ -700,7 +700,7 @@ public class CardinalityStats {
 		}
 		if(sumW<=0){return lcMin;}
 		double blendEst=Math.exp(sumWLogE/sumW);
-		if(V>0.3*buckets){double t=(V-0.3*buckets)/(0.2*buckets); return t*lcMin+(1-t)*blendEst;}
+		if(V>DLC_BLEND_LO*buckets){double t=(V-DLC_BLEND_LO*buckets)/((DLC_BLEND_HI-DLC_BLEND_LO)*buckets); return t*lcMin+(1-t)*blendEst;}
 		return blendEst;
 	}
 
@@ -965,6 +965,9 @@ public class CardinalityStats {
 	 *  Difference is not huge though; likely higher is better with fewer buckets.
 	 *  */
 	public static float DLC_ALPHA=9.0f;
+	public static float DLC_TARGET_FRAC=0.25f;
+	public static float DLC_BLEND_LO=0.3f;
+	public static float DLC_BLEND_HI=0.5f;
 	public static float DLC_MIN_VK_FRACTION=0.002f;//Dramatically better than 0 at 2048 buckets.
 	public static int DLC_MIN_VK=2;
 
