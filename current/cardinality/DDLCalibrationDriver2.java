@@ -48,13 +48,16 @@ public class DDLCalibrationDriver2 {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of estimators reported by rawEstimates(). */
 	/** When true, clamp estimates to trueCard (never overestimate). Only valid for unique-element calibration. */
 	static boolean CLAMP_TO_ADDED=false;
 
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
+
+	/** Number of extra LDLC columns: {LDLC, DLC_L, HC}. Only populated for UDLL6i. */
+	static final int NUM_LDLC=4;
+	static final String[] LDLC_NAMES={"LDLC", "UDLC", "HC", "HLL"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -220,6 +223,9 @@ public class DDLCalibrationDriver2 {
 		final double[][] sumErr=new double[numThresholds][NUM_EST];
 		final double[][] sumAbsErr=new double[numThresholds][NUM_EST];
 		final double[][] sumSqErr=new double[numThresholds][NUM_EST];
+		final double[][] ldlcMergedErr=new double[numThresholds][NUM_LDLC];
+		final double[][] ldlcMergedAbsErr=new double[numThresholds][NUM_LDLC];
+		final double[][] ldlcMergedSqErr=new double[numThresholds][NUM_LDLC];
 		final double[] occSum=new double[numThresholds];
 		final int[] n=new int[numThresholds];
 		for(CalibrationThread2 ct : calThreads){
@@ -230,6 +236,11 @@ public class DDLCalibrationDriver2 {
 					sumErr[ti][e]+=ct.sumErr[ti][e];
 					sumAbsErr[ti][e]+=ct.sumAbsErr[ti][e];
 					sumSqErr[ti][e]+=ct.sumSqErr[ti][e];
+				}
+				for(int e=0; e<NUM_LDLC; e++){
+					ldlcMergedErr[ti][e]+=ct.ldlcSumErr[ti][e];
+					ldlcMergedAbsErr[ti][e]+=ct.ldlcSumAbsErr[ti][e];
+					ldlcMergedSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
 				}
 			}
 		}
@@ -289,15 +300,49 @@ public class DDLCalibrationDriver2 {
 					rows>0 ? totalMeanSignedErr[e]/rows : 0,
 					cvRows>0 ? totalCV[e]/cvRows : 0));
 			}
+			// LDLC summary rows
+			final double[] ldlcTotalAbsErr=new double[NUM_LDLC];
+			final double[] ldlcPeakAbsErr=new double[NUM_LDLC];
+			final double[] ldlcTotalSignedErr=new double[NUM_LDLC];
+			for(int ti=0; ti<numThresholds; ti++){
+				if(n[ti]<1){continue;}
+				for(int e=0; e<NUM_LDLC; e++){
+					final double meanAbsAtRow=ldlcMergedAbsErr[ti][e]/n[ti];
+					ldlcTotalAbsErr[e]+=meanAbsAtRow;
+					ldlcTotalSignedErr[e]+=ldlcMergedErr[ti][e]/n[ti];
+					if(meanAbsAtRow>ldlcPeakAbsErr[e]){ldlcPeakAbsErr[e]=meanAbsAtRow;}
+				}
+			}
+			for(int e=0; e<NUM_LDLC; e++){
+				System.err.println(String.format("%-12s %.8f  %.8f  %+.8f  %.8f",
+					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows, ldlcPeakAbsErr[e],
+					rows>0 ? ldlcTotalSignedErr[e]/rows : 0, 0.0));
+			}
 			System.err.println();
 		}
 
-		// Write File 1
+		// Write File 1 with LDLC columns appended
 		final ByteStreamWriter bsw1=new ByteStreamWriter(out1, true, false, false);
 		bsw1.start();
-		bsw1.println(DDLCalibrationDriver.header1());
+		{
+			// Header: standard columns + LDLC columns
+			final StringBuilder hdr=new StringBuilder(DDLCalibrationDriver.header1());
+			for(int e=0; e<NUM_LDLC; e++){
+				hdr.append('\t').append(LDLC_NAMES[e]).append("_err");
+				hdr.append('\t').append(LDLC_NAMES[e]).append("_abs");
+			}
+			bsw1.println(hdr.toString());
+		}
+		int finalTi=0;
 		for(DDLCalibrationDriver.ReportRow row : mergedRows){
-			bsw1.println(DDLCalibrationDriver.formatRow1(row));
+			final StringBuilder sb=new StringBuilder(DDLCalibrationDriver.formatRow1(row));
+			for(int e=0; e<NUM_LDLC; e++){
+				final int ni=row.n;
+				sb.append('\t').append(String.format("%.6f", ldlcMergedErr[finalTi][e]/ni));
+				sb.append('\t').append(String.format("%.6f", ldlcMergedAbsErr[finalTi][e]/ni));
+			}
+			bsw1.println(sb.toString());
+			finalTi++;
 		}
 		bsw1.poisonAndWait();
 
@@ -345,6 +390,9 @@ public class DDLCalibrationDriver2 {
 			sumErr=new double[nt][NUM_EST];
 			sumAbsErr=new double[nt][NUM_EST];
 			sumSqErr=new double[nt][NUM_EST];
+			ldlcSumErr=new double[nt][NUM_LDLC];
+			ldlcSumAbsErr=new double[nt][NUM_LDLC];
+			ldlcSumSqErr=new double[nt][NUM_LDLC];
 		}
 
 		@Override
@@ -404,6 +452,20 @@ public class DDLCalibrationDriver2 {
 							sumAbsErr[ti][e]+=Math.abs(err);
 							sumSqErr[ti][e]+=err*err;
 						}
+						// LDLC columns (UDLL6i only)
+						if(ddl instanceof UltraDynamicLogLog6i){
+							final double[] ldlcR=((UltraDynamicLogLog6i)ddl).ldlcEstimate();
+							final int[] ldlcIdx={0, 1, 2, 5};
+							for(int e=0; e<NUM_LDLC; e++){
+								final double v=ldlcR[ldlcIdx[e]];
+								if(v>0){
+									final double lerr=(v-trueCard)/(double)trueCard;
+									ldlcSumErr[ti][e]+=lerr;
+									ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
+									ldlcSumSqErr[ti][e]+=lerr*lerr;
+								}
+							}
+						}
 						ti++;
 						if(ti>=thresholds.length){break;}
 					}
@@ -439,6 +501,11 @@ public class DDLCalibrationDriver2 {
 		final double[][] sumAbsErr;
 		/** Sum of squared relative errors per threshold per estimator. */
 		final double[][] sumSqErr;
+
+		/** LDLC accumulators (UDLL6i only). */
+		final double[][] ldlcSumErr;
+		final double[][] ldlcSumAbsErr;
+		final double[][] ldlcSumSqErr;
 
 		/** Set to true after runInner() completes without exception. */
 		volatile boolean success=false;
