@@ -708,6 +708,9 @@ public class CardinalityStats {
 	}
 
 	/** Variant 4: Chloe — all-tier exponential, LOG-SPACE average, target=0.25, smooth transition */
+	/** Public accessor for DLC log-space 0.25 estimate (used by PLL16c LDLC). */
+	public double dlcLogSpace025Public(){return dlcLogSpace025();}
+
 	private double dlcLogSpace025(){
 
 		if(V>=DLC_BLEND_HI*buckets){return lcMin;}

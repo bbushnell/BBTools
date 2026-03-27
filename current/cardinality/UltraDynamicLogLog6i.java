@@ -310,7 +310,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 			ldlc=dlc;
 		}else{
 			final double coverage=(nonEmpty>0 ? (double)hasHistory/nonEmpty : 0);
-			final double maxHcWeight=0.40;
+			final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
 			final double ramp=Math.max(0, Math.min(1, (coverage-0.30)/0.50));
 			final double hcWeight=maxHcWeight*ramp;
 			ldlc=(1.0-hcWeight)*dlc+hcWeight*hc;

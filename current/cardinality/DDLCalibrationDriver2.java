@@ -56,9 +56,9 @@ public class DDLCalibrationDriver2 {
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
 
-	/** Number of extra LDLC columns: {LDLC, DLC_L, HC}. Only populated for UDLL6i. */
+	/** Number of extra LDLC columns: {LDLC, DLC, HC, HLL+H}. Populated for UDLL6i and PLL16c. */
 	static final int NUM_LDLC=4;
-	static final String[] LDLC_NAMES={"LDLC", "UDLC", "HC", "HLL"};
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "HLL+H"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -172,6 +172,8 @@ public class DDLCalibrationDriver2 {
 				UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
 			}else if(a.equals("histlc") || a.equals("historylc")){
 				CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
+				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
@@ -459,9 +461,14 @@ public class DDLCalibrationDriver2 {
 							sumAbsErr[ti][e]+=Math.abs(err);
 							sumSqErr[ti][e]+=err*err;
 						}
-						// LDLC columns (UDLL6i only)
+						// LDLC columns (UDLL6i or PLL16c with history)
+						final double[] ldlcR;
 						if(ddl instanceof UltraDynamicLogLog6i){
-							final double[] ldlcR=((UltraDynamicLogLog6i)ddl).ldlcEstimate();
+							ldlcR=((UltraDynamicLogLog6i)ddl).ldlcEstimate();
+						}else if(ddl instanceof ProtoLogLog16c){
+							ldlcR=((ProtoLogLog16c)ddl).ldlcEstimate();
+						}else{ldlcR=null;}
+						if(ldlcR!=null){
 							final int[] ldlcIdx={0, 1, 2, 5};
 							for(int e=0; e<NUM_LDLC; e++){
 								final double v=ldlcR[ldlcIdx[e]];

@@ -790,6 +790,8 @@ public abstract class CardinalityTracker implements Drivable {
 	 * Each non-empty bucket contributes 1 + popcount(history bits) to a
 	 * set-bit total, providing a tighter lower bound on cardinality. */
 	public static boolean USE_HISTORY_FOR_LC=false;
+	/** Maximum HC blend weight for LDLC estimator. 0.40 = 60% DLC + 40% HC. */
+	public static double LDLC_HC_WEIGHT=0.40;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }
