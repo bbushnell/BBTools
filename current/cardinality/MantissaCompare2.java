@@ -144,9 +144,9 @@ public class MantissaCompare2 {
             StringBuilder sb=new StringBuilder();
             sb.append(t).append('\t').append(tierTotal);
             for(int s=0; s<numStates; s++){
-                sb.append('\t').append(String.format("%.4f", count[t][s]/(double)tierTotal));
+                sb.append('\t').append(String.format("%.6f", count[t][s]/(double)tierTotal));
                 if(count[t][s]>10){
-                    sb.append('\t').append(String.format("%+.4f", Math.log(sum[t][s]/count[t][s]/tierAvg)/Math.log(2)));
+                    sb.append('\t').append(String.format("%+.8f", Math.log(sum[t][s]/count[t][s]/tierAvg)/Math.log(2)));
                 }else{sb.append("\tN/A");}
             }
             System.out.println(sb);
@@ -168,7 +168,7 @@ public class MantissaCompare2 {
         StringBuilder cfLine=new StringBuilder("# CF=[");
         for(int s=0; s<numStates; s++){
             if(s>0) cfLine.append(", ");
-            cfLine.append(String.format("%+.6f", gCF[s]/(gTotal>0?gTotal:1)));
+            cfLine.append(String.format("%+.8f", gCF[s]/(gTotal>0?gTotal:1)));
         }
         cfLine.append("]");
         System.out.println(cfLine);

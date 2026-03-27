@@ -335,7 +335,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 
 	/**
 	 * Empirical additive NLZ corrections for active history.
-	 * Derived from single-bucket simulation (16k trials × 16k hashes).
+	 * Derived from single-bucket simulation (6.5M trials × 32k hashes).
 	 * For each (tier, state), measured avg cardinality at observation time;
 	 * CF = log2(stateAvgCard / tierAvgCard). Stable across tiers 3-11.
 	 *
@@ -350,7 +350,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	 *   Tier 2: {-3.19, -1.29, -1.95, +0.23}
 	 *   Tier 3+: use STATE_CF_ACTIVE below
 	 */
-	static final double[] STATE_CF_ACTIVE={-2.4988, -1.1800, -1.6370, +0.2068};
+	static final double[] STATE_CF_ACTIVE={-2.50813368, -1.16962885, -1.64933633, +0.20806313};
 
 	/**
 	 * Multipliers applied to each bucket's harmonic sum contribution.
@@ -360,7 +360,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	static final double[] STATE_MULT_FROZEN={3.934587, 1.274889, 1.007332, 0.418300};
 
 	/** Empirical multipliers for active history mode (2^(-CF)). */
-	static final double[] STATE_MULT_ACTIVE={5.6530, 2.2653, 3.1088, 0.8662};
+	static final double[] STATE_MULT_ACTIVE={5.68883675, 2.24953818, 3.13689302, 0.86569868};
 
 	/*
 	 * PER-TIER CORRECTIONS FOR LOW TIERS
@@ -377,16 +377,16 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	 */
 	/**
 	 * Per-tier CFs for tiers 0-2 where steady-state assumptions don't hold.
-	 * Empirically derived from single-bucket simulation (131k outer × 32k inner).
+	 * Empirically derived from single-bucket simulation (6.5M outer × 32k inner).
 	 * Index: [00, 01, 10, 11]. N/A states use 0.0 (multiplier=1.0, no correction).
 	 *
 	 * Tier 0: only state 00 possible (bucket just filled, no history).
 	 * Tier 1: only states 00 and 10 possible (can see NLZ=0 but not NLZ=-1).
 	 * Tier 2: all 4 states possible but non-steady-state distribution.
 	 */
-	static final double[] TIER0_CF={0.0, 0.0, 0.0, 0.0};
-	static final double[] TIER1_CF={-1.840, 0.0, +0.206, 0.0};
-	static final double[] TIER2_CF={-3.175, -1.292, -1.923, +0.229};
+	static final double[] TIER0_CF={0.00000000, 0.00000000, 0.00000000, 0.00000000};
+	static final double[] TIER1_CF={-1.84448832, 0.00000000, +0.20510426, 0.00000000};
+	static final double[] TIER2_CF={-3.17437230, -1.29310079, -1.92165476, +0.22896780};
 
 	/** Per-tier offsets. Tier 0 = 0 (no correction meaningful).
 	 *  Tier 1/2 = -0.25 (approximate; not yet optimized). */
