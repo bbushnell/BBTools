@@ -6,6 +6,7 @@ import java.util.ArrayList;
 
 import fileIO.ByteStreamWriter;
 import parse.Parse;
+import parse.PreParser;
 import rand.FastRandomXoshiro;
 import shared.Shared;
 import shared.Tools;
@@ -64,6 +65,10 @@ public class DDLCalibrationDriver2 {
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
+		{//Preparse block to strip JVM flags, config files, etc.
+			PreParser pp=new PreParser(args, null, false);
+			args=pp.args;
+		}
 		final long t0=System.nanoTime();
 		int numDDLs=128;
 		int buckets=2048;
