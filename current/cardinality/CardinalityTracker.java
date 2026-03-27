@@ -786,6 +786,10 @@ public abstract class CardinalityTracker implements Drivable {
 	 * Only applies when CorrectionFactor.USE_CORRECTION is also true; cardinality CF
 	 * cannot be active without the occupancy CF. Default true. */
 	public static boolean USE_CARD_CF=true;
+	/** When true, use history bits to improve LC at low cardinality.
+	 * Each non-empty bucket contributes 1 + popcount(history bits) to a
+	 * set-bit total, providing a tighter lower bound on cardinality. */
+	public static boolean USE_HISTORY_FOR_LC=false;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }
