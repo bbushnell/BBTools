@@ -8,7 +8,12 @@ import java.awt.geom.Ellipse2D;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.PrintStream;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import javax.imageio.ImageIO;
 
@@ -203,6 +208,16 @@ public class CloudPlot {
 				colorMetric=parseMetric(b);
 			}else if(a.equals("concise")){
 				Clade.CONCISE=Parse.parseBoolean(b);
+			}else if(a.equals("legend")){
+				legend=Parse.parseBoolean(b);
+			}else if(a.equals("maxlegend") || a.equals("legendmax") || a.equals("legendsize")){
+				maxLegendEntries=Integer.parseInt(b);
+			}else if(a.equals("mindotpct") || a.equals("legendmindots")){
+				minLegendDotPct=Float.parseFloat(b);
+			}else if(a.equals("minbppct") || a.equals("legendminbp")){
+				minLegendBpPct=Float.parseFloat(b);
+			}else if(a.equals("legendfont") || a.equals("legendfontsize")){
+				legendFontSize=Float.parseFloat(b);
 			}else if(a.equals("logoffset")){
 				logOffset=Float.parseFloat(b);
 			}else if(a.equals("logshift")){
@@ -581,6 +596,12 @@ public class CloudPlot {
 		int numPoints=data.gc.size();  // All FloatLists are same size
 		boolean hasSizeDimension=(order[3]!=NONE);
 
+		// Legend data collection
+		LinkedHashMap<Integer, Color> legendColors=new LinkedHashMap<Integer, Color>();
+		HashMap<Integer, String> legendNames=new HashMap<Integer, String>();
+		HashMap<Integer, Integer> legendCounts=new HashMap<Integer, Integer>();
+		HashMap<Integer, Long> legendBases=new HashMap<Integer, Long>();
+
 //		System.err.println("zmin="+zmin+", zmax="+zmax);
 		for(int i=0; i<numPoints; i++){
 			int tid=data.tid(i);
@@ -705,6 +726,22 @@ public class CloudPlot {
 					mult=1+0.6f*(mult-1);
 					Tools.multiplyBy(rgb, mult);
 					c=new Color(rgb[0], rgb[1], rgb[2]);
+					// Collect legend data
+					if(legend) {
+						if(!legendColors.containsKey(tid)) {
+							legendColors.put(tid, c);
+							String tname=null;
+							if(tree!=null) {
+								tax.TaxNode tn=tree.getNode(tid);
+								if(tn!=null) {tname=tn.name;}
+							}
+							if(tname==null && name!=null) {tname=name;}
+							legendNames.put(tid, tname!=null ? tname : "TID_"+tid);
+						}
+						legendCounts.merge(tid, 1, Integer::sum);
+						long len=(data.length!=null && i<data.length.size()) ? (long)data.length.get(i) : 0;
+						legendBases.merge(tid, len, Long::sum);
+					}
 				}
 			}else{
 				// Color by metric gradient (GC, HH, CAGA, etc.)
@@ -746,6 +783,11 @@ public class CloudPlot {
 		// Draw axis labels
 		drawAxisLabels(g, width, height, margin);
 
+		// Draw legend if enabled and coloring by taxonomy
+		if(legend && colorMetric==TAXONOMY && !legendColors.isEmpty()) {
+			drawLegend(g, width, height, margin, legendColors, legendNames, legendCounts, legendBases, numPoints);
+		}
+
 		g.dispose();
 		return img;
 	}
@@ -769,6 +811,96 @@ public class CloudPlot {
 		String yMaxLabel=String.format("%.2f", ymax);
 		g.drawString(yMinLabel, margin/4, height-margin+15*(int)scale);
 		g.drawString(yMaxLabel, margin/4, margin+15*(int)scale);
+	}
+
+	/** Draw a legend showing taxonomy colors and names.
+	 * Entries are included if they pass all three cutoffs:
+	 * top N by count, at least minDotPct of dots, at least minBpPct of bases. */
+	private void drawLegend(Graphics2D g, int width, int height, int margin,
+			LinkedHashMap<Integer, Color> legendColors, HashMap<Integer, String> legendNames,
+			HashMap<Integer, Integer> legendCounts, HashMap<Integer, Long> legendBases,
+			int totalPoints) {
+		// Sort by count descending
+		List<Map.Entry<Integer, Integer>> sorted=new ArrayList<>(legendCounts.entrySet());
+		Collections.sort(sorted, (a, b) -> b.getValue()-a.getValue());
+
+		// Calculate total bases
+		long totalBases=0;
+		for(long v : legendBases.values()) {totalBases+=v;}
+
+		// Apply three cutoffs: top N, min dot%, min bp%
+		List<Map.Entry<Integer, Integer>> filtered=new ArrayList<>();
+		for(int i=0; i<sorted.size() && filtered.size()<maxLegendEntries; i++) {
+			Map.Entry<Integer, Integer> e=sorted.get(i);
+			int tid=e.getKey();
+			int count=e.getValue();
+			long bases=legendBases.getOrDefault(tid, 0L);
+			float dotPct=count*100f/Math.max(totalPoints, 1);
+			float bpPct=bases*100f/Math.max(totalBases, 1);
+			if(dotPct>=minLegendDotPct && bpPct>=minLegendBpPct) {
+				filtered.add(e);
+			}
+		}
+
+		if(filtered.isEmpty()) {return;}
+
+		int fontSize=(int)(legendFontSize*scale);
+		java.awt.Font font=new java.awt.Font("SansSerif", java.awt.Font.PLAIN, fontSize);
+		g.setFont(font);
+		java.awt.FontMetrics fm=g.getFontMetrics();
+
+		int swatchSize=(int)(legendFontSize*1.1f*scale);
+		int lineHeight=(int)(legendFontSize*1.45f*scale);
+		int padding=(int)(6*scale);
+		int legendWidth=0;
+
+		// Calculate max text width
+		for(Map.Entry<Integer, Integer> e : filtered) {
+			int tid=e.getKey();
+			String name=legendNames.get(tid);
+			int count=e.getValue();
+			String label=name+" ("+count+")";
+			legendWidth=Math.max(legendWidth, fm.stringWidth(label));
+		}
+		legendWidth+=swatchSize+padding*4;
+
+		int legendHeight=lineHeight*filtered.size()+padding*2;
+		int remaining=sorted.size()-filtered.size();
+
+		// Position: top-right corner
+		int lx=width-margin-legendWidth-padding;
+		int ly=margin+padding;
+
+		// Background
+		g.setColor(new Color(0, 0, 0, 180));
+		int bgHeight=legendHeight+(remaining>0 ? lineHeight : 0)+padding;
+		g.fillRoundRect(lx-padding, ly-padding, legendWidth+padding, bgHeight,
+			(int)(8*scale), (int)(8*scale));
+
+		// Draw entries
+		for(int i=0; i<filtered.size(); i++) {
+			int tid=filtered.get(i).getKey();
+			Color c=legendColors.get(tid);
+			String name=legendNames.get(tid);
+			int count=filtered.get(i).getValue();
+			String label=name+" ("+count+")";
+
+			int ey=ly+i*lineHeight;
+
+			// Color swatch
+			g.setColor(c);
+			g.fillRect(lx, ey, swatchSize, swatchSize);
+
+			// Label
+			g.setColor(Color.WHITE);
+			g.drawString(label, lx+swatchSize+padding, ey+swatchSize-2);
+		}
+
+		if(remaining>0) {
+			int ey=ly+filtered.size()*lineHeight;
+			g.setColor(Color.GRAY);
+			g.drawString("...and "+remaining+" more", lx+swatchSize+padding, ey+swatchSize-2);
+		}
 	}
 
 	/** Get human-readable name for a metric */
@@ -902,6 +1034,11 @@ public class CloudPlot {
 
 	private boolean colorByTax=false;
 	private boolean colorByName=false;
+	private boolean legend=false;
+	private int maxLegendEntries=20;
+	private float minLegendDotPct=0.1f;
+	private float minLegendBpPct=0.1f;
+	private float legendFontSize=13f;
 	private int level=1;
 	private boolean useTree=false;
 	private static TaxTree tree;

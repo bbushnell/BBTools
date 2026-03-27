@@ -22,15 +22,15 @@ public final class ProtoLogLog16c extends CardinalityTracker {
     public static final double[] CF_LUCK_1={+0.1686, -1.3682};
     public static final double[] CF_LUCK_2={+0.1686, -1.1662, -2.3051, -3.6058};
     public static final double[] CF_LUCK_3={+0.1686, -1.1662, -2.3051, -3.3914, -4.4281, -5.5035, -6.5513, -7.9929};
-    public static final double[] CF_HISTORY_1={-1.3682, +0.1686};
-    public static final double[] CF_HISTORY_2={-2.5208, -1.1662, -1.6570, +0.2078};
-    public static final double[] CF_HISTORY_3={-3.6058, -2.3051, -2.7423, -1.1164, -2.8410, -1.5820, -2.1327, +0.2137};
+    public static final double[] CF_HISTORY_1={-1.37003787, +0.16864767};
+    public static final double[] CF_HISTORY_2={-2.50813368, -1.16962885, -1.64933633, +0.20806313};
+    public static final double[] CF_HISTORY_3={-3.58851053, -2.29626211, -2.72632606, -1.11858788, -2.86374753, -1.57703255, -2.14003646, +0.21427608};
 
     // Per-tier CFs for history 2-bit (tiers 0-2)
     public static final double[][] CF_HISTORY_2_TIERS={
-        {+0.0000,  0.0000,  0.0000,  0.0000},
-        {-1.8472,  0.0000, +0.2051,  0.0000},
-        {-3.1800, -1.3051, -1.9303, +0.2266},
+        {+0.00000000,  0.00000000,  0.00000000,  0.00000000},
+        {-1.84448832,  0.00000000, +0.20510426,  0.00000000},
+        {-3.17437230, -1.29310079, -1.92165476, +0.22896780},
     };
     // Combined history+mantissa CFs from simulator (tier 8, 124M samples)
     // State index = mantissa_val | (history_val << mbits)
@@ -52,12 +52,12 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         -2.1591, -2.1219,  // h=6
         -0.0999, +0.3347}; // h=7
 
-    // Per-tier CFs for history 3-bit (tiers 0-3, from simulator 500k trials)
+    // Per-tier CFs for history 3-bit (tiers 0-3, from simulator 6.5M trials)
     public static final double[][] CF_HISTORY_3_TIERS={
-        {0, 0, 0, 0, 0, 0, 0, 0},
-        {-1.8456, 0, 0, 0, +0.2051, 0, 0, 0},
-        {-3.1813, 0, -1.2962, 0, -1.9285, 0, +0.2280, 0},
-        {-4.3479, -2.5276, -3.0717, -1.2338, -3.2677, -1.6811, -2.3671, +0.2221},
+        {0.00000000, 0.00000000, 0.00000000, 0.00000000, 0.00000000, 0.00000000, 0.00000000, 0.00000000},
+        {-1.84448832, 0.00000000, 0.00000000, 0.00000000, +0.20510426, 0.00000000, 0.00000000, 0.00000000},
+        {-3.17437230, 0.00000000, -1.29310079, 0.00000000, -1.92165476, 0.00000000, +0.22896780, 0.00000000},
+        {-4.34036999, -2.51859936, -3.06284399, -1.22271738, -3.25845403, -1.66944315, -2.36112478, +0.22352032},
     };
     // Per-tier CFs for combined 1h+3m (tiers 0-1, from simulator 500k trials)
     // State = mantissa_val(3bit) | (history_val(1bit) << 3)

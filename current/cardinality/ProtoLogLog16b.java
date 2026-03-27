@@ -26,15 +26,15 @@ public final class ProtoLogLog16b extends CardinalityTracker {
     public static final double[] CF_LUCK_1={+0.1686, -1.3682};
     public static final double[] CF_LUCK_2={+0.1686, -1.1662, -2.3051, -3.6058};
     public static final double[] CF_LUCK_3={+0.1686, -1.1662, -2.3051, -3.3914, -4.4281, -5.5035, -6.5513, -7.9929};
-    public static final double[] CF_HISTORY_1={-1.3682, +0.1686};
-    public static final double[] CF_HISTORY_2={-2.5208, -1.1662, -1.6570, +0.2078};
-    public static final double[] CF_HISTORY_3={-3.6058, -2.3051, -2.7423, -1.1164, -2.8410, -1.5820, -2.1327, +0.2137};
+    public static final double[] CF_HISTORY_1={-1.37003787, +0.16864767};
+    public static final double[] CF_HISTORY_2={-2.50813368, -1.16962885, -1.64933633, +0.20806313};
+    public static final double[] CF_HISTORY_3={-3.58851053, -2.29626211, -2.72632606, -1.11858788, -2.86374753, -1.57703255, -2.14003646, +0.21427608};
 
     // Per-tier CFs for history 2-bit (tiers 0-2, N/A states use 0.0)
     public static final double[][] CF_HISTORY_2_TIERS={
-        {+0.0000,  0.0000,  0.0000,  0.0000},  // tier 0: all state 0
-        {-1.8472,  0.0000, +0.2051,  0.0000},  // tier 1: states 0,2 only
-        {-3.1800, -1.3051, -1.9303, +0.2266},  // tier 2: all states
+        {+0.00000000,  0.00000000,  0.00000000,  0.00000000},  // tier 0: all state 0
+        {-1.84448832,  0.00000000, +0.20510426,  0.00000000},  // tier 1: states 0,2 only
+        {-3.17437230, -1.29310079, -1.92165476, +0.22896780},  // tier 2: all states
     };
     // Per-tier CFs for luck 2-bit (tiers 0-2, N/A states use 0.0)
     public static final double[][] CF_LUCK_2_TIERS={

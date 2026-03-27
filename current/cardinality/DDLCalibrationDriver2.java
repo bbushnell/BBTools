@@ -82,7 +82,7 @@ public class DDLCalibrationDriver2 {
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
-			if(split.length!=2){continue;}
+			if(split.length!=2){throw new RuntimeException("Unknown parameter '"+arg+"'");}
 			final String a=split[0].toLowerCase();
 			final String b=split[1];
 			if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
