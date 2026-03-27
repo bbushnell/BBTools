@@ -97,6 +97,7 @@ public class CloudPlot {
 		ffout1=FileFormat.testOutput(out1, FileFormat.PNG, null, true, overwrite, append, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
 		
+		if(legend && colorMetric==TAXONOMY) {useTree=true;}
 		if(useTree) {tree=TaxTree.sharedTree();}
 	}
 
