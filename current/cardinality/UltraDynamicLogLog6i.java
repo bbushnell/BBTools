@@ -214,6 +214,8 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 		final int[] histArr=new int[buckets];
 		final int[] nlzCounts=new int[64];
 		int maxNlz=0, emptyCount=0, nonEmpty=0, hasHistory=0;
+		int histVirtualTotal=0, histVirtualFilled=0;
+		final int hbits=2; // UDLL6i always has 2 history bits
 
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
@@ -223,13 +225,24 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 			}else{
 				final int absNlz=(reg>>>2)-HISTORY_MARGIN+minZeros;
 				absNlzArr[i]=absNlz;
-				histArr[i]=reg&3;
+				final int hist=reg&3;
+				histArr[i]=hist;
 				if(absNlz>maxNlz) maxNlz=absNlz;
 				if(absNlz>=0 && absNlz<64) nlzCounts[absNlz]++;
 				nonEmpty++;
-				if((reg&3)!=0) hasHistory++;
+				if(hist!=0) hasHistory++;
+				// Virtual buckets: tier t has min(hbits, max(0, t-1)) valid slots
+				final int validSlots=Math.min(hbits, Math.max(0, absNlz-1));
+				histVirtualTotal+=validSlots;
+				if(validSlots>0){
+					final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
+					histVirtualFilled+=Integer.bitCount(hist&validMask);
+				}
 			}
 		}
+
+		// History-based LC floor: filled buckets + set history bits in valid positions
+		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? nonEmpty+histVirtualFilled : 0);
 
 		// lcMin: tier-compensated LC at lowest non-full tier
 		// microIndex detects collisions: when microFilled > nonEmpty, some elements
@@ -238,17 +251,18 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 		final int V=buckets-Math.max(nonEmpty, microFilled);
 		double lcMin;
 		if(V>0){
-			lcMin=(double)buckets*Math.log((double)buckets/Math.max(V, 0.5));
+			lcMin=Math.max((double)buckets*Math.log((double)buckets/Math.max(V, 0.5)), lcFloor);
 		}else{
-			lcMin=0;
+			double lcMinTmp=0;
 			int vk=0;
 			for(int k=0; k<nlzCounts.length; k++){
 				vk+=nlzCounts[k];
 				if(vk>0){
-					lcMin=(1L<<(k+1))*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+					lcMinTmp=(1L<<(k+1))*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
 					break;
 				}
 			}
+			lcMin=Math.max(lcMinTmp, lcFloor);
 		}
 
 		// DLC: cumulative log-space blend, with lcMin fallback

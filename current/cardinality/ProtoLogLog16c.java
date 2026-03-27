@@ -329,8 +329,10 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         }
 
         double difSum=0, hllSumFilled=0, gSum=0;
-        int count=0;
+        int count=0, histVirtualTotal=0, histVirtualFilled=0;
         final int[] nlzCounts=new int[64];
+        final int hshift=getHistoryShift();
+        final int hbits=usesHistory() ? HISTORY_BITS : 0;
 
         for(int i=0; i<buckets; i++){
             final int stored=maxArray[i]&0xFFFF;
@@ -346,13 +348,23 @@ public final class ProtoLogLog16c extends CardinalityTracker {
                 hllSumFilled+=base;
                 gSum+=Math.log(Tools.max(1, dif));
                 count++;
+                // Virtual buckets from history: tier t has min(hbits, max(0, t-1)) valid slots.
+                // h1 (MSB) = tier t-1, h0 = tier t-2. Valid slots counted from h1 downward.
+                final int validSlots=Math.min(hbits, Math.max(0, absNlz-1));
+                histVirtualTotal+=validSlots;
+                if(validSlots>0){
+                    final int hist=(extra>>>hshift)&((1<<hbits)-1);
+                    // Valid bits are the top `validSlots` bits of the history field
+                    final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
+                    histVirtualFilled+=Integer.bitCount(hist&validMask);
+                }
             }
         }
         lastRawNlz=nlzCounts;
         return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
             gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
             CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-            nlzCounts, 0);
+            nlzCounts, 0, histVirtualTotal, histVirtualFilled);
     }
 
     @Override

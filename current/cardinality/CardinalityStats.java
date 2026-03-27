@@ -85,6 +85,23 @@ public class CardinalityStats {
 	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
 	                 float[][] matrixCard_, float[] cardKeys_, long microIndex_,
 	                 int[] nlzCounts_, int minZeros_){
+		this(difSum_, hllSumFilled_, hllSumFilledM_, gSum_, count_, buckets_,
+			sortBuf_, cfMatrix_, cfBuckets_, matrixCard_, cardKeys_, microIndex_,
+			nlzCounts_, minZeros_, 0, 0);
+	}
+
+	/**
+	 * Full constructor with optional history-based virtual buckets for LC improvement.
+	 * @param histVirtualTotal_  total virtual bucket slots from history bits (each valid
+	 *                           history position adds one virtual bucket); 0 = disabled
+	 * @param histVirtualFilled_ number of set history bits in valid positions (filled virtual buckets)
+	 */
+	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
+	                 double gSum_, int count_, int buckets_,
+	                 LongList sortBuf_, float[][] cfMatrix_, int cfBuckets_,
+	                 float[][] matrixCard_, float[] cardKeys_, long microIndex_,
+	                 int[] nlzCounts_, int minZeros_,
+	                 int histVirtualTotal_, int histVirtualFilled_){
 		final int mz=minZeros_;
 
 		// Set card data first so cf() calls below can use three-domain lookup.
@@ -150,8 +167,20 @@ public class CardinalityStats {
 		hmeanPure =(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilled);
 		hmeanPureM=(count==0 ? 0 : 2*alpha_m*(double)count*(double)count/hllSumFilledM);
 
+		// History-based virtual buckets (experimental, currently unused for LC).
+		// Each valid history position adds a virtual bucket; set bits are filled, unset are empty.
+		// Retained for future use; LC currently uses floor approach instead.
+		//final int hvt=(CardinalityTracker.USE_HISTORY_FOR_LC ? histVirtualTotal_ : 0);
+		//final int hvf=(CardinalityTracker.USE_HISTORY_FOR_LC ? histVirtualFilled_ : 0);
+		//final double Beff=buckets+hvt;
+		//final int Veff=V+(hvt-hvf);
+
+		// History-based LC floor: histVirtualFilled + count (total observed distinct items
+		// from filled buckets + set history bits) is a lower bound on true cardinality.
+		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? histVirtualFilled_+count : 0);
+
 		// Raw cardinality estimates (before CF)
-		lcPure    =buckets*Math.log((double)buckets/Math.max(V, 0.5));
+		lcPure    =Math.max(buckets*Math.log((double)buckets/Math.max(V, 0.5)), lcFloor);
 		meanEst   =2*(Long.MAX_VALUE/Tools.max(1.0, mean))   *div*correction;
 		gmeanEst  =2*(Long.MAX_VALUE/gmean)                  *div*correction;
 		mwaEst    =2*(Long.MAX_VALUE/mwa)                    *div*correction;
@@ -176,7 +205,7 @@ public class CardinalityStats {
 		if(nlzCounts_!=null){
 			int vk=V; // V at tier 0: truly empty buckets
 			if(vk>0){
-				lcMin=(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+				lcMin=Math.max((double)buckets*Math.log((double)buckets/Math.max(vk, 0.5)), lcFloor);
 			}else{
 				double lcMinTmp=0;
 				for(int k=0; k<nlzCounts_.length; k++){
@@ -186,10 +215,10 @@ public class CardinalityStats {
 						break;
 					}
 				}
-				lcMin=lcMinTmp;
+				lcMin=Math.max(lcMinTmp, lcFloor);
 			}
 		}else{
-			lcMin=(1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5));
+			lcMin=Math.max((1L<<mz)*buckets*Math.log((double)buckets/Math.max(V, 0.5)), lcFloor);
 		}
 
 		// Cache DLC estimates for CF lookup (CF-free, so no circular dependency)
