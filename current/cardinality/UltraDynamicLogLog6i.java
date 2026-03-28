@@ -189,11 +189,42 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final int total=11+4+CardinalityStats.NUM_DLC_TIERS;
-		final double[] r=new double[total];
-		final double fgra=fgraEstimate();
-		r[0]=fgra; r[1]=fgra; r[4]=fgra; r[6]=fgra; r[8]=fgra;
-		return r;
+		final CardinalityStats s=summarize();
+		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+	}
+
+	/** Build a CardinalityStats from the register array for standard estimators. */
+	private CardinalityStats summarize(){
+		final int[] nlzCounts=new int[64];
+		final int hbits=2;
+		double difSum=0, hllSumFilled=0, gSum=0;
+		int count=0, histVirtualTotal=0, histVirtualFilled=0;
+
+		for(int i=0; i<buckets; i++){
+			final int reg=getReg(i);
+			if(reg!=0){
+				final int absNlz=(reg>>>2)-HISTORY_MARGIN+minZeros;
+				if(absNlz>=0 && absNlz<64) nlzCounts[absNlz]++;
+				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE :
+					(absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0));
+				difSum+=dif;
+				hllSumFilled+=Math.pow(2.0, -absNlz);
+				gSum+=Math.log(Tools.max(1, dif));
+				count++;
+				// Virtual buckets for history-enhanced LC
+				final int hist=reg&3;
+				final int validSlots=Math.min(hbits, Math.max(0, absNlz-1));
+				histVirtualTotal+=validSlots;
+				if(validSlots>0){
+					final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
+					histVirtualFilled+=Integer.bitCount(hist&validMask);
+				}
+			}
+		}
+		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
+			gSum, count, buckets, null, null, 0,
+			null, null, microIndex,
+			nlzCounts, 0, histVirtualTotal, histVirtualFilled);
 	}
 
 	/** Memory used by the packed array in bytes. */

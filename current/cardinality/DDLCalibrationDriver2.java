@@ -84,6 +84,7 @@ public class DDLCalibrationDriver2 {
 		String notes="";
 		String cffile=null;
 		String pllmode=null; // deferred: setMode needs hbits/mbits set first
+		boolean hcWeightExplicit=false;
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -174,6 +175,7 @@ public class DDLCalibrationDriver2 {
 				CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
 				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
+				hcWeightExplicit=true;
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
@@ -187,6 +189,17 @@ public class DDLCalibrationDriver2 {
 			else if(pllmode.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NONE); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NONE);}
 			else if(pllmode.equals("histmant") || pllmode.equals("historymantissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY|ProtoLogLog16c.MODE_MANTISSA);}
 			else{throw new RuntimeException("Unknown pllmode: "+pllmode);}
+		}
+
+		// Auto-set optimal LDLC HC weight based on history bits if not explicitly provided.
+		// Optimal weights determined by bisection search (LinWtAbsErr minimization,
+		// 8k estimators, 512 buckets, maxmult=40, verified bucket-count independent):
+		//   1-bit: 0.456, 2-bit: 0.419, 3-bit: 0.475
+		if(!hcWeightExplicit){
+			final int hb=ProtoLogLog16c.HISTORY_BITS;
+			if(hb==1){CardinalityTracker.LDLC_HC_WEIGHT=0.456;}
+			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.419;}
+			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
 		}
 
 		final long maxTrue=(long)buckets*maxMult;
@@ -278,17 +291,22 @@ public class DDLCalibrationDriver2 {
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
 				+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
-			System.err.println("--- Avg and Peak Mean Absolute Error, Avg Signed Error, Avg CV (lower = better) ---");
+			System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
 			final double[] totalMeanAbsErr=new double[NUM_EST];
+			final double[] linWtAbsErr=new double[NUM_EST];
 			final double[] peakMeanAbsErr=new double[NUM_EST];
 			final double[] totalMeanSignedErr=new double[NUM_EST];
 			final double[] totalCV=new double[NUM_EST];
+			double linWeightSum=0;
 			int cvRows=0;
 			for(DDLCalibrationDriver.ReportRow row : mergedRows){
+				final double card=row.trueCard;
+				linWeightSum+=card;
 				for(int e=0; e<NUM_EST; e++){
 					final double meanErr=row.sumErr[e]/row.n;
 					final double meanAbsAtRow=row.sumAbsErr[e]/row.n;
 					totalMeanAbsErr[e]+=meanAbsAtRow;
+					linWtAbsErr[e]+=meanAbsAtRow*card;
 					totalMeanSignedErr[e]+=meanErr;
 					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
 					final double variance=row.sumSqErr[e]/row.n-meanErr*meanErr;
@@ -299,32 +317,41 @@ public class DDLCalibrationDriver2 {
 				cvRows++;
 			}
 			final int rows=mergedRows.size();
-			System.err.println(String.format("%-12s %-12s %-12s %-12s %s", "", "AvgAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
+			System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s", "", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
 			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}
-				System.err.println(String.format("%-12s %.8f  %.8f  %+.8f  %.8f",
-					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows, peakMeanAbsErr[e],
+				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows,
+					linWeightSum>0 ? linWtAbsErr[e]/linWeightSum : 0,
+					peakMeanAbsErr[e],
 					rows>0 ? totalMeanSignedErr[e]/rows : 0,
 					cvRows>0 ? totalCV[e]/cvRows : 0));
 			}
 			// LDLC summary rows
 			final double[] ldlcTotalAbsErr=new double[NUM_LDLC];
+			final double[] ldlcLinWtAbsErr=new double[NUM_LDLC];
 			final double[] ldlcPeakAbsErr=new double[NUM_LDLC];
 			final double[] ldlcTotalSignedErr=new double[NUM_LDLC];
+			double ldlcLinWeightSum=0;
 			for(int ti=0; ti<numThresholds; ti++){
 				if(n[ti]<1){continue;}
+				final double card=thresholds[ti];
+				ldlcLinWeightSum+=card;
 				for(int e=0; e<NUM_LDLC; e++){
 					final double meanAbsAtRow=ldlcMergedAbsErr[ti][e]/n[ti];
 					ldlcTotalAbsErr[e]+=meanAbsAtRow;
+					ldlcLinWtAbsErr[e]+=meanAbsAtRow*card;
 					ldlcTotalSignedErr[e]+=ldlcMergedErr[ti][e]/n[ti];
 					if(meanAbsAtRow>ldlcPeakAbsErr[e]){ldlcPeakAbsErr[e]=meanAbsAtRow;}
 				}
 			}
 			for(int e=0; e<NUM_LDLC; e++){
-				System.err.println(String.format("%-12s %.8f  %.8f  %+.8f  %.8f",
-					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows, ldlcPeakAbsErr[e],
+				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows,
+					ldlcLinWeightSum>0 ? ldlcLinWtAbsErr[e]/ldlcLinWeightSum : 0,
+					ldlcPeakAbsErr[e],
 					rows>0 ? ldlcTotalSignedErr[e]/rows : 0, 0.0));
 			}
 			System.err.println();
