@@ -175,9 +175,11 @@ public class CardinalityStats {
 		//final double Beff=buckets+hvt;
 		//final int Veff=V+(hvt-hvf);
 
-		// History-based LC floor: histVirtualFilled + count (total observed distinct items
-		// from filled buckets + set history bits) is a lower bound on true cardinality.
-		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? histVirtualFilled_+count : 0);
+		// LC floor: max of two independent lower bounds on true cardinality:
+		// 1) count + setHistBits (filled buckets + valid set history bits)
+		// 2) bitcount(microIndex) (micro bitmap population)
+		// These cannot be summed because the same element may contribute to both.
+		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? Math.max(histVirtualFilled_+count, microFilled) : 0);
 
 		// Raw cardinality estimates (before CF)
 		lcPure    =Math.max(buckets*Math.log((double)buckets/Math.max(V, 0.5)), lcFloor);

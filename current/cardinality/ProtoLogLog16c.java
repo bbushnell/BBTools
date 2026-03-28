@@ -102,6 +102,7 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     private static boolean usesLuck(){return (MODE & MODE_LUCK)!=0;}
     private static boolean usesHistory(){return (MODE & MODE_HISTORY)!=0;}
+    public static boolean usesHistoryPublic(){return usesHistory();}
     private static int nlzShift(){return 16-NLZ_BITS;}
     private static int maxNlzStored(){return (1<<NLZ_BITS)-1;}
     private static int getAbsNlz(int stored){return (stored>>>nlzShift())-1;}
