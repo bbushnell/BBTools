@@ -173,6 +173,14 @@ public class DDLCalibrationDriver2 {
 				UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
 			}else if(a.equals("histlc") || a.equals("historylc")){
 				CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("lchistfile")){
+				CorrectionFactor.lcHistFile=b;
+			}else if(a.equals("lchistmultfile")){
+				CorrectionFactor.lcHistMultFile=b;
+			}else if(a.equals("microlc")){
+				CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("lchisthybrid") || a.equals("lchybrid")){
+				CardinalityTracker.USE_LCHIST_IN_HYBRID=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
 				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
 				hcWeightExplicit=true;
@@ -211,6 +219,8 @@ public class DDLCalibrationDriver2 {
 		// Creating a dummy instance here triggers that class init; then we overwrite
 		// the default CF with the user-provided file.
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
+		CorrectionFactor.loadLCHistTable();
+		CorrectionFactor.loadLCHistMultTable();
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
 			// Push custom CF table into per-class matrices.
@@ -219,6 +229,7 @@ public class DDLCalibrationDriver2 {
 			// which loads their default CF file and clobbers CorrectionFactor.v1Matrix.
 			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("udll6i".equals(loglogtype)){UltraDynamicLogLog6i.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
@@ -318,7 +329,7 @@ public class DDLCalibrationDriver2 {
 			}
 			final int rows=mergedRows.size();
 			System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s", "", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
-			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}

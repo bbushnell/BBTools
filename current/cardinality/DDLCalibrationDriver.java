@@ -51,7 +51,7 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=11+4+CardinalityStats.NUM_DLC_TIERS;
+	static final int NUM_EST=11+6+CardinalityStats.NUM_DLC_TIERS;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES;
 	/** Which estimators get a CF column in File 2. LC and Micro excluded (no CF applied).
@@ -59,13 +59,13 @@ public class DDLCalibrationDriver {
 	 *  DLC columns have no CF. */
 	static final boolean[] NEEDS_CF;
 	static{
-		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","HLLhist","DLC","DLC3B","DLCBest","HybDLC"};
+		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","HLLhist","DLC","DLC3B","DLCBest","HybDLC","LCHist","LCHMult"};
 		ESTIMATOR_NAMES=new String[NUM_EST];
 		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
 		NEEDS_CF=new boolean[NUM_EST];
 		// First 11: {true,true,true,true,true,false,true,true,true,true,false}
-		final boolean[] baseCF={true,true,true,true,true,false,true,true,true,true,false};
+		final boolean[] baseCF={true,true,true,true,true,false,true,true,true,true,false,false};
 		System.arraycopy(baseCF, 0, NEEDS_CF, 0, baseCF.length);
 		// DLC entries (11..NUM_EST-1): all false (no CF)
 	}
@@ -284,7 +284,7 @@ public class DDLCalibrationDriver {
 				+"  MaxCard: "+maxTrue+"  Rows: "+numRows+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
 			System.err.println("--- Avg Mean Absolute Error (lower = better) ---");
 			// Key estimators only: indices 0-6, 11-14, then MedianLC
-			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14};
+			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
 			for(int ki=0; ki<keyIdx.length; ki++){
 				final int e=keyIdx[ki];
 				if(e>=NUM_EST){continue;}
@@ -293,7 +293,7 @@ public class DDLCalibrationDriver {
 			System.err.println(String.format("%-12s %.8f", MEDIAN_LC, totalMeanAbsErr[NUM_EST]/numRows));
 			// Individual DLC tiers summary (only non-trivial ones)
 			System.err.println("--- DLC Tier Detail (non-trivial) ---");
-			for(int e=15; e<NUM_EST; e++){
+			for(int e=17; e<NUM_EST; e++){
 				final double avg=totalMeanAbsErr[e]/numRows;
 				if(avg<0.999){
 					System.err.println(String.format("%-12s %.8f", ESTIMATOR_NAMES[e], avg));
@@ -657,7 +657,7 @@ public class DDLCalibrationDriver {
 		final StringBuilder sb=new StringBuilder();
 		sb.append(row.trueCard).append('\t').append(String.format("%.5f", avgOcc));
 		for(int e=0; e<NUM_OUT1; e++){
-			if(!PRINT_DLC_TIERS && e>=15){break;}
+			if(!PRINT_DLC_TIERS && e>=17){break;}
 			final double meanErr=row.sumErr[e]/n;
 			final double meanAbsErr=row.sumAbsErr[e]/n;
 			sb.append('\t').append(String.format("%.6f", meanErr));
@@ -808,7 +808,7 @@ public class DDLCalibrationDriver {
 	static String header1(){
 		final StringBuilder sb=new StringBuilder("TrueCard\tOccupancy");
 		for(int e=0; e<NUM_EST; e++){
-			if(!PRINT_DLC_TIERS && e>=15){break;}
+			if(!PRINT_DLC_TIERS && e>=17){break;}
 			final String name=ESTIMATOR_NAMES[e];
 			sb.append('\t').append(name).append("_err");
 			sb.append('\t').append(name).append("_abs");

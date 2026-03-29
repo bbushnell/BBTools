@@ -794,6 +794,9 @@ public abstract class CardinalityTracker implements Drivable {
 	 * Default 0.419 is optimal for 2-bit history. DDLCalibrationDriver2
 	 * auto-sets per history bits: 1-bit=0.456, 2-bit=0.419, 3-bit=0.475. */
 	public static double LDLC_HC_WEIGHT=0.419;
+	/** When true AND LC history table is loaded, hybrid estimators use lcHist()
+	 * instead of lcMin as the low-cardinality component in the blend zone. */
+	public static boolean USE_LCHIST_IN_HYBRID=false;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }

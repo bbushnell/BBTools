@@ -85,6 +85,8 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     final short[] maxArray;
     private final byte[] luckSecond;
+    /** Lazy-allocated per-bucket LC history state indices for lcHist(). Reused across summarize() calls. */
+    private byte[] lcHistStates;
     private int filledBuckets=0;
     private long eeMask=-1L;
     private int minNlzStored=0; // minimum nlzStored (absNlz+1) across filled buckets, 0 before all filled
@@ -334,6 +336,8 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         final int[] nlzCounts=new int[64];
         final int hshift=getHistoryShift();
         final int hbits=usesHistory() ? HISTORY_BITS : 0;
+        // Lazy-allocate per-bucket LC history state index array (reused across calls).
+        if(hbits>0 && lcHistStates==null){lcHistStates=new byte[buckets];}
 
         for(int i=0; i<buckets; i++){
             final int stored=maxArray[i]&0xFFFF;
@@ -359,13 +363,22 @@ public final class ProtoLogLog16c extends CardinalityTracker {
                     final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
                     histVirtualFilled+=Integer.bitCount(hist&validMask);
                 }
+                // LC history state: map (rawNlz, histBits) to table index
+                if(lcHistStates!=null){
+                    final int rawNlz=absNlz; // absNlz = (stored>>>nlzShift())-1 = raw nlz
+                    final int nlzBin=Math.min(rawNlz, hbits+1);
+                    final int hist=(extra>>>hshift)&((1<<hbits)-1);
+                    lcHistStates[i]=(byte)CorrectionFactor.lcHistStateIndex(nlzBin, hist, hbits);
+                }
+            }else{
+                if(lcHistStates!=null){lcHistStates[i]=-1;} // empty
             }
         }
         lastRawNlz=nlzCounts;
         return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
             gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
             CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-            nlzCounts, 0, histVirtualTotal, histVirtualFilled);
+            nlzCounts, 0, histVirtualTotal, histVirtualFilled, lcHistStates);
     }
 
     @Override
