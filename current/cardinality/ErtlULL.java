@@ -371,7 +371,7 @@ public final class ErtlULL extends CardinalityTracker {
         // ErtlULL uses FGRA estimator directly — CardinalityStats estimators don't apply
         // because the register encoding is incompatible with standard NLZ conventions.
         // Fill key slots with unclamped FGRA estimate for fair comparison.
-        final int total=11+4+CardinalityStats.NUM_DLC_TIERS;
+        final int total=11+6+CardinalityStats.NUM_DLC_TIERS;
         final double[] r=new double[total];
         final double fgra=fgraEstimate();
         r[0]=fgra;  // Mean

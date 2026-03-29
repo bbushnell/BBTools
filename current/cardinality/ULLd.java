@@ -138,7 +138,7 @@ public final class ULLd extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final int total=11+4+CardinalityStats.NUM_DLC_TIERS;
+		final int total=11+6+CardinalityStats.NUM_DLC_TIERS;
 		final double[] r=new double[total];
 		final double fgra=fgraEstimate();
 		r[0]=fgra; r[1]=fgra; r[4]=fgra; r[6]=fgra; r[8]=fgra;

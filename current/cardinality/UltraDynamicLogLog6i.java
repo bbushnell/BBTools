@@ -25,6 +25,8 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	private int floorCount;
 	private long eeMask=-1L;
 	private int filledBuckets=0;
+	/** Lazy-allocated per-bucket LC history state indices for lcHist(). */
+	private byte[] lcHistStates;
 
 	UltraDynamicLogLog6i(){this(2048, 31, -1, 0);}
 	UltraDynamicLogLog6i(Parser p){
@@ -199,6 +201,8 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 		final int hbits=2;
 		double difSum=0, hllSumFilled=0, gSum=0;
 		int count=0, histVirtualTotal=0, histVirtualFilled=0;
+		// Lazy-allocate per-bucket LC history state index array (reused across calls).
+		if(lcHistStates==null){lcHistStates=new byte[buckets];}
 
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
@@ -219,12 +223,17 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 					final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
 					histVirtualFilled+=Integer.bitCount(hist&validMask);
 				}
+				// LC history state: map (nlzBin, histBits) to table index
+				final int nlzBin=Math.min(absNlz, hbits+1);
+				lcHistStates[i]=(byte)CorrectionFactor.lcHistStateIndex(nlzBin, hist, hbits);
+			}else{
+				lcHistStates[i]=-1; // empty bucket
 			}
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-			gSum, count, buckets, null, null, 0,
-			null, null, microIndex,
-			nlzCounts, 0, histVirtualTotal, histVirtualFilled);
+			gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
+			CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
+			nlzCounts, 0, histVirtualTotal, histVirtualFilled, lcHistStates);
 	}
 
 	/** Memory used by the packed array in bytes. */
@@ -404,4 +413,20 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/** Default resource file for UDLL6i correction factors.
+	 *  Placeholder: uses DLL4's table until a UDLL6i-specific table is generated. */
+	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
+	/** Bucket count used to build CF_MATRIX (for interpolation). */
+	private static int CF_BUCKETS=2048;
+	/** Per-class correction factor matrix; null until initializeCF() is called. */
+	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+	/** Loads the UDLL6i correction factor matrix from CF_FILE. */
+	public static float[][] initializeCF(int buckets){
+		CF_BUCKETS=buckets;
+		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	}
+	public static void setCFMatrix(float[][] matrix, int buckets){
+		CF_MATRIX=matrix; CF_BUCKETS=buckets;
+	}
 }

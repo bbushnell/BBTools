@@ -664,4 +664,189 @@ public class CorrectionFactor{
 	 *  Set to Long.MAX_VALUE cast to double; float precision limits to ~2^63 anyway. */
 	public static final double MAX_CF_KEY=(double)Long.MAX_VALUE;
 
+	/*--------------------------------------------------------------*/
+	/*----------------   LC History CF Table        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Resource path for the LC history correction table. */
+	public static String lcHistFile="?cardinalityCorrectionLC2BitHist.tsv.gz";
+
+	/**
+	 * LC history-aware correction table.
+	 * LC_2BIT_CF_TABLE[filled][stateIdx] = expected distinct elements per bucket.
+	 * filled: 0..lcHistBuckets (row 0 unused).
+	 * stateIdx: 0..10 for the 11 valid states:
+	 *   0=0.00, 1=1.00, 2=1.10, 3=2.00, 4=2.01, 5=2.10, 6=2.11,
+	 *   7=3+.00, 8=3+.01, 9=3+.10, 10=3+.11
+	 * Null until loadLCHistTable() is called.
+	 */
+	public static float[][] LC_2BIT_CF_TABLE=null;
+	/** Bucket count the LC history table was built for. */
+	public static int lcHistBuckets=0;
+
+	/** Number of valid states in the loaded LC history table.
+	 *  Set by the loader from the file's HistBits header.
+	 *  Formula: 3 * (1 << hbits) - 1.  (5 for 1-bit, 11 for 2-bit, 23 for 3-bit.) */
+	public static int LC_HIST_STATES=11;
+
+	/** History bits the loaded LC history table was trained for. Set by loader. */
+	public static int lcHistHbits=2;
+
+	/** Returns the number of valid LC history states for the given history bit width.
+	 *  hbits=1 → 5, hbits=2 → 11, hbits=3 → 23. */
+	public static int lcHistNumStates(int hbits){
+		return 3*(1<<hbits)-1;
+	}
+
+	/**
+	 * Maps (nlzBin, histBits) to table column index for arbitrary history bit width.
+	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.
+	 * Returns -1 for structurally impossible states (nonzero invalid bits).
+	 */
+	public static int lcHistStateIndex(int nlzBin, int histBits, int hbits){
+		final int bin=Math.min(nlzBin, hbits+1);
+		final int validSlots=Math.min(bin, hbits);
+		final int invalidBits=hbits-validSlots;
+		// Bottom bits must be zero for the state to be valid
+		if(invalidBits>0 && (histBits&((1<<invalidBits)-1))!=0){return -1;}
+		// Offset for this bin: sum of 2^min(k, hbits) for k=0..bin-1 = (1<<min(bin, hbits+1))-1
+		final int offset=(1<<Math.min(bin, hbits+1))-1;
+		final int idx=(invalidBits>0) ? (histBits>>>invalidBits) : histBits;
+		return offset+idx;
+	}
+
+	/** Convenience overload for 2-bit history (the common case). */
+	public static int lcHistStateIndex(int nlzBin, int histBits){
+		return lcHistStateIndex(nlzBin, histBits, 2);
+	}
+
+	/** Loads the LC history table from the resource file. */
+	public static synchronized void loadLCHistTable(){
+		String path=(lcHistFile.indexOf('?')>=0 ? Data.findPath(lcHistFile) : lcHistFile);
+		if(path==null){return;} // silently skip if not found
+		FileFormat ff=FileFormat.testInput(path, null, false);
+		if(ff==null){return;}
+		ByteFile bf=ByteFile.makeByteFile(ff, 1);
+		if(bf==null){return;}
+
+		int buckets=0;
+		int hbits=2; // default; overridden by #HistBits header
+		int numStates=-1; // determined from hbits or first data row
+		FloatList[] lists=null; // lists[stateIdx] -> values per filled count
+		int row=0;
+
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0){continue;}
+			String s=new String(line).trim();
+			if(s.startsWith("#Buckets")){
+				String[] parts=s.split("\t");
+				if(parts.length>=2){buckets=Integer.parseInt(parts[1].trim());}
+				continue;
+			}
+			if(s.startsWith("#HistBits")){
+				String[] parts=s.split("\t");
+				if(parts.length>=2){hbits=Integer.parseInt(parts[1].trim());}
+				continue;
+			}
+			if(s.startsWith("#")){continue;}
+			// Data row: filled \t val0 \t val1 \t ...
+			String[] parts=s.split("\t");
+			if(numStates<0){numStates=parts.length-1;} // detect from first data row
+			if(parts.length<numStates+1){continue;}
+			if(lists==null){
+				lists=new FloatList[numStates];
+				for(int i=0; i<numStates; i++){lists[i]=new FloatList();}
+			}
+			for(int i=0; i<numStates; i++){
+				lists[i].add(Float.parseFloat(parts[i+1]));
+			}
+			row++;
+		}
+		bf.close();
+
+		if(lists==null || buckets==0){return;}
+
+		// Set globals from loaded header
+		lcHistHbits=hbits;
+		LC_HIST_STATES=numStates;
+
+		// Build table with era-averaging: table[f] = avg(raw[f], raw[f+1]).
+		// Era 0 (f=0): unused. Era 1: raw[1] only. Era B: raw[B] only.
+		// Eras 2..B-1: average of raw[f] and raw[f+1].
+		// This corrects for mid-era state evolution (snapshots are at era starts).
+		LC_2BIT_CF_TABLE=new float[buckets+1][numStates];
+		for(int f=1; f<=row; f++){
+			for(int si=0; si<numStates; si++){
+				final float cur=lists[si].get(f-1); // raw[f] is at list index f-1
+				if(f<row){
+					final float next=lists[si].get(f); // raw[f+1]
+					LC_2BIT_CF_TABLE[f][si]=(cur+next)*0.5f;
+				}else{
+					LC_2BIT_CF_TABLE[f][si]=cur; // last row: no next
+				}
+			}
+		}
+		lcHistBuckets=buckets;
+	}
+
+	/** Resource path for the LC history multiplier table. */
+	public static String lcHistMultFile="?cardinalityCorrectionLC2BitHistMult.tsv.gz";
+
+	/**
+	 * LC history multiplier table.
+	 * LC_2BIT_MULT_TABLE[filled][stateIdx] = correction factor (multiplier).
+	 * At estimation time: estimate = LC * weightedAvg(CF across filled buckets).
+	 * Same layout and loading as LC_2BIT_CF_TABLE.
+	 */
+	public static float[][] LC_2BIT_MULT_TABLE=null;
+	public static int lcHistMultBuckets=0;
+
+	/** Loads the LC history multiplier table. Same format as sum table.
+	 *  Silently skips if the resource file does not exist. */
+	public static synchronized void loadLCHistMultTable(){
+		String path=(lcHistMultFile.indexOf('?')>=0 ? Data.findPath(lcHistMultFile, false) : lcHistMultFile);
+		if(path==null){return;}
+		FileFormat ff=FileFormat.testInput(path, null, false);
+		if(ff==null){return;}
+		ByteFile bf=ByteFile.makeByteFile(ff, 1);
+		if(bf==null){return;}
+
+		int buckets=0;
+		int numStates=-1;
+		FloatList[] lists=null;
+		int row=0;
+
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0){continue;}
+			String s=new String(line).trim();
+			if(s.startsWith("#Buckets")){
+				String[] parts=s.split("\t");
+				if(parts.length>=2){buckets=Integer.parseInt(parts[1].trim());}
+				continue;
+			}
+			if(s.startsWith("#")){continue;}
+			String[] parts=s.split("\t");
+			if(numStates<0){numStates=parts.length-1;}
+			if(parts.length<numStates+1){continue;}
+			if(lists==null){
+				lists=new FloatList[numStates];
+				for(int i=0; i<numStates; i++){lists[i]=new FloatList();}
+			}
+			for(int i=0; i<numStates; i++){
+				lists[i].add(Float.parseFloat(parts[i+1]));
+			}
+			row++;
+		}
+		bf.close();
+
+		if(lists==null || buckets==0){return;}
+		LC_2BIT_MULT_TABLE=new float[buckets+1][numStates];
+		for(int f=0; f<row; f++){
+			for(int si=0; si<numStates; si++){
+				LC_2BIT_MULT_TABLE[f+1][si]=lists[si].get(f);
+			}
+		}
+		lcHistMultBuckets=buckets;
+	}
+
 }
