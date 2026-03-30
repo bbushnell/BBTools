@@ -395,7 +395,7 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     /**
 	 * LDLC estimate with variable-width history bit support.
-	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll} — same layout as UltraDynamicLogLog6i.
+	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll} — same layout as UltraDynamicLogLog6.
 	 * DLC and HLL are pulled from CardinalityStats to match standard estimators exactly.
 	 */
 	public double[] ldlcEstimate(){

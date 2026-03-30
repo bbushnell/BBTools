@@ -84,8 +84,6 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL();
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6();
-		}else if("UDLL6i".equalsIgnoreCase(type) || "UltraDynamicLogLog6i".equalsIgnoreCase(type)){
-			return new UltraDynamicLogLog6i();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -98,7 +96,7 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @return New CardinalityTracker instance of the configured type
 	 */
 	public static CardinalityTracker makeTracker(){return makeTracker(Parser.loglogType);}
-	
+
 	/**
 	 * Factory method that creates a tracker using parsed settings.
 	 * Subclass is determined by static type field.
@@ -145,8 +143,6 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(p);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(p);
-		}else if("UDLL6i".equalsIgnoreCase(type) || "UltraDynamicLogLog6i".equalsIgnoreCase(type)){
-			return new UltraDynamicLogLog6i(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -201,8 +197,6 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(buckets_, k_, seed, minProb_);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
-		}else if("UDLL6i".equalsIgnoreCase(type) || "UltraDynamicLogLog6i".equalsIgnoreCase(type)){
-			return new UltraDynamicLogLog6i(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -796,7 +790,7 @@ public abstract class CardinalityTracker implements Drivable {
 	public static double LDLC_HC_WEIGHT=0.419;
 	/** When true AND LC history table is loaded, hybrid estimators use lcHist()
 	 * instead of lcMin as the low-cardinality component in the blend zone. */
-	public static boolean USE_LCHIST_IN_HYBRID=false;
+	public static boolean USE_LCHIST_IN_HYBRID=true;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
 	
 }
