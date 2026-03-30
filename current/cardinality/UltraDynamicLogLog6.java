@@ -463,7 +463,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	/** Default resource file for UDLL6 correction factors.
 	 *  Placeholder: uses DLL4's table until a UDLL6-specific table is generated. */
-	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionUDLL6.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
