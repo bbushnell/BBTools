@@ -128,9 +128,16 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
-			}else if(a.equals("correctoverflow") || a.equals("co")){DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			}else if(a.equals("overflowscale") || a.equals("os")){DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
-			}else if(a.equals("usestoredoverflow") || a.equals("uso")){DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("correctoverflow") || a.equals("co")){
+				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("overflowscale") || a.equals("os")){
+				DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
+				BankedDynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
+			}else if(a.equals("usestoredoverflow") || a.equals("uso")){
+				DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 		}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
 			}else if(a.equals("printstd")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);
 			}else if(a.equals("out2")){

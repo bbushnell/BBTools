@@ -66,6 +66,14 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
 			else if(a.equals("frozenhistory") || a.equals("frozen")){UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);}
 			else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);}
+			else if(a.equals("correctoverflow") || a.equals("co")){
+				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("earlypromote") || a.equals("ep")){
+				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
