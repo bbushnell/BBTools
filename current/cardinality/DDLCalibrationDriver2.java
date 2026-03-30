@@ -56,9 +56,9 @@ public class DDLCalibrationDriver2 {
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
 
-	/** Number of extra LDLC columns: {LDLC, DLC, HC, HLL+H}. Populated for UDLL6i and PLL16c. */
-	static final int NUM_LDLC=4;
-	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "HLL+H"};
+	/** Number of extra LDLC columns: {LDLC, DLC, HC, FGRA, HLL+H}. Populated for UDLL6 and PLL16c. */
+	static final int NUM_LDLC=5;
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -229,7 +229,7 @@ public class DDLCalibrationDriver2 {
 			// which loads their default CF file and clobbers CorrectionFactor.v1Matrix.
 			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
-			else if("udll6i".equals(loglogtype)){UltraDynamicLogLog6i.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
@@ -499,15 +499,15 @@ public class DDLCalibrationDriver2 {
 							sumAbsErr[ti][e]+=Math.abs(err);
 							sumSqErr[ti][e]+=err*err;
 						}
-						// LDLC columns (UDLL6i or PLL16c with history)
+						// LDLC columns (UDLL6 or PLL16c with history)
 						final double[] ldlcR;
-						if(ddl instanceof UltraDynamicLogLog6i){
-							ldlcR=((UltraDynamicLogLog6i)ddl).ldlcEstimate();
+						if(ddl instanceof UltraDynamicLogLog6){
+							ldlcR=((UltraDynamicLogLog6)ddl).ldlcEstimate();
 						}else if(ddl instanceof ProtoLogLog16c){
 							ldlcR=((ProtoLogLog16c)ddl).ldlcEstimate();
 						}else{ldlcR=null;}
 						if(ldlcR!=null){
-							final int[] ldlcIdx={0, 1, 2, 5};
+							final int[] ldlcIdx={0, 1, 2, 4, 5};
 							for(int e=0; e<NUM_LDLC; e++){
 								final double v=ldlcR[ldlcIdx[e]];
 								if(v>0){
@@ -554,7 +554,7 @@ public class DDLCalibrationDriver2 {
 		/** Sum of squared relative errors per threshold per estimator. */
 		final double[][] sumSqErr;
 
-		/** LDLC accumulators (UDLL6i only). */
+		/** LDLC accumulators (UDLL6 only). */
 		final double[][] ldlcSumErr;
 		final double[][] ldlcSumAbsErr;
 		final double[][] ldlcSumSqErr;
