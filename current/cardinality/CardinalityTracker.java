@@ -84,6 +84,24 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL();
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6();
+		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog3();
+		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
+			return new UltraLogLog8();
+		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
+			return new ProtoLogLog16();
+		}else if("PLL16b".equalsIgnoreCase(type)){
+			return new ProtoLogLog16b();
+		}else if("PLL16c".equalsIgnoreCase(type)){
+			return new ProtoLogLog16c();
+		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
+			return new ErtlULLb();
+		}else if("ULLc".equalsIgnoreCase(type)){
+			return new ULLc();
+		}else if("ULLd".equalsIgnoreCase(type)){
+			return new ULLd();
+		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -143,6 +161,24 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(p);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(p);
+		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog3(p);
+		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
+			return new UltraLogLog8(p);
+		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
+			return new ProtoLogLog16(p);
+		}else if("PLL16b".equalsIgnoreCase(type)){
+			return new ProtoLogLog16b(p);
+		}else if("PLL16c".equalsIgnoreCase(type)){
+			return new ProtoLogLog16c(p);
+		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
+			return new ErtlULLb(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+		}else if("ULLc".equalsIgnoreCase(type)){
+			return new ULLc(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+		}else if("ULLd".equalsIgnoreCase(type)){
+			return new ULLd(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -197,6 +233,24 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(buckets_, k_, seed, minProb_);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
+		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
+		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
+			return new UltraLogLog8(buckets_, k_, seed, minProb_);
+		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
+			return new ProtoLogLog16(buckets_, k_, seed, minProb_);
+		}else if("PLL16b".equalsIgnoreCase(type)){
+			return new ProtoLogLog16b(buckets_, k_, seed, minProb_);
+		}else if("PLL16c".equalsIgnoreCase(type)){
+			return new ProtoLogLog16c(buckets_, k_, seed, minProb_);
+		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
+			return new ErtlULLb(buckets_, k_, seed, minProb_);
+		}else if("ULLc".equalsIgnoreCase(type)){
+			return new ULLc(buckets_, k_, seed, minProb_);
+		}else if("ULLd".equalsIgnoreCase(type)){
+			return new ULLd(buckets_, k_, seed, minProb_);
+		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
+			return new DynamicLogLog4m(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);

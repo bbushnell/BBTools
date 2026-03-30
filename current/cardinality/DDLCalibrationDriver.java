@@ -558,47 +558,16 @@ public class DDLCalibrationDriver {
 
 	/**
 	 * Creates a CardinalityTracker of the specified type.
-	 * Recognized types: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4 (and their full class name equivalents).
+	 * Delegates to CardinalityTracker.makeTracker for the canonical factory.
 	 */
 	static CardinalityTracker makeInstance(String type, int buckets, int k, long seed, float minProb){
-		if("ddl".equals(type) || "dynamicDemiLog".equalsIgnoreCase(type)){
-			return new DynamicDemiLog(buckets, k, seed, minProb);
-		}else if("ddl2".equals(type) || "dynamicdemilog2".equalsIgnoreCase(type)){
-			return new DynamicDemiLog2(buckets, k, seed, minProb);
-		}else if("ddl8".equals(type)){
-			return new DynamicDemiLog8(buckets, k, seed, minProb);
-		}else if("dll4".equals(type) || "dynamicloglog4".equalsIgnoreCase(type)){
-			return new DynamicLogLog4(buckets, k, seed, minProb);
-		}else if("dll3".equals(type) || "dynamicloglog3".equalsIgnoreCase(type)){
-			return new DynamicLogLog3(buckets, k, seed, minProb);
-		}else if("dll3v2".equals(type) || "dynamicloglog3v2".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v2(buckets, k, seed, minProb);
-		}else if("dll2".equals(type) || "dynamicloglog2".equalsIgnoreCase(type)){
-			return new DynamicLogLog2(buckets, k, seed, minProb);
-		}else if("ll6".equals(type) || "loglog6".equalsIgnoreCase(type)){
-			return new LogLog6(buckets, k, seed, minProb);
-		}else if("ull8".equals(type) || "ultraloglog8".equalsIgnoreCase(type)){
-			return new UltraLogLog8(buckets, k, seed, minProb);
-		}else if("pll16".equals(type) || "protologlog16".equalsIgnoreCase(type)){
-			return new ProtoLogLog16(buckets, k, seed, minProb);
-		}else if("pll16b".equals(type)){
-			return new ProtoLogLog16b(buckets, k, seed, minProb);
-		}else if("ull".equals(type) || "ertl".equals(type) || "ertlull".equalsIgnoreCase(type)){
-			return new ErtlULL(buckets, k, seed, minProb);
-		}else if("ertlb".equals(type) || "ertlullb".equalsIgnoreCase(type)){
-			return new ErtlULLb(buckets, k, seed, minProb);
-		}else if("ullc".equals(type)){
-			return new ULLc(buckets, k, seed, minProb);
-		}else if("ulld".equals(type)){
-			return new ULLd(buckets, k, seed, minProb);
-		}else if("udll6".equals(type) || "ultradynamicloglog6".equalsIgnoreCase(type)){
-			return new UltraDynamicLogLog6(buckets, k, seed, minProb);
-		}else if("dll4m".equals(type) || "dynamicloglog4m".equalsIgnoreCase(type)){
-			return new DynamicLogLog4m(buckets, k, seed, minProb);
-		}else if("pll16c".equals(type)){
-			return new ProtoLogLog16c(buckets, k, seed, minProb);
+		final String saved=parse.Parser.loglogType;
+		parse.Parser.loglogType=type;
+		try{
+			return CardinalityTracker.makeTracker(buckets, k, seed, minProb);
+		}finally{
+			parse.Parser.loglogType=saved;
 		}
-		throw new RuntimeException("Unknown loglogtype: "+type);
 	}
 
 	/**
