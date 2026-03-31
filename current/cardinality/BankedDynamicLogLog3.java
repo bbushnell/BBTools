@@ -164,7 +164,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int wordIdx=bucket/10;
-		final int bank=readBank(wordIdx);
+		int bank=readBank(wordIdx);
 		int localRelNlz=nlz-minZeros-bank;
 
 		final long micro=(key>>bucketBits)&0x3FL;
@@ -174,14 +174,15 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		}
 
 		// Try bank promotion if overflow would occur
-		if(localRelNlz>=7 && bank<3){
-			if(canPromoteBank(wordIdx)){
-				promoteBank(wordIdx);
-				localRelNlz++; // bank increased by 1, so localRelNlz decreases by 1
-				// Wait — localRelNlz = nlz - minZeros - bank.
-				// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
-				localRelNlz=nlz-minZeros-readBank(wordIdx); // recompute to be safe
-			}
+		while(localRelNlz>=7 && bank<3 && canPromoteBank(wordIdx)){
+			promoteBank(wordIdx);
+			localRelNlz--; // bank increased by 1, so localRelNlz decreases by 1
+			bank++;
+			// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
+			int localRelNlz2=nlz-minZeros-readBank(wordIdx); // recompute to be safe
+			int bank2=readBank(wordIdx);
+			assert(bank==bank2);
+			assert(localRelNlz==localRelNlz2);
 		}
 
 		final int newStored=Math.min(localRelNlz+1, 7);
@@ -406,7 +407,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	public static boolean DEBUG_ONCE=false;
 
 	/** Use DLL3's CF table initially — will need its own table eventually. */
-	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionBDLL3_cof.tsv.gz";
 	private static int CF_BUCKETS=8192;
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	public static float[][] initializeCF(int buckets){
