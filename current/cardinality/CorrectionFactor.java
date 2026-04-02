@@ -755,51 +755,96 @@ public class CorrectionFactor{
 	/*-----------   Mean CF Formula (replaces table)   -------------*/
 	/*--------------------------------------------------------------*/
 
-	/** When true, Mean CF uses closed-form formula instead of table lookup.
-	 *  Formula: CF = a0 + sum(ai*S(lc,ci,wi)) + sum(gi*G(lc,gci,gwi))
-	 *  where lc=log2(card), S=sigmoid, G=Gaussian.
-	 *  Fitted on DLL4 B=2048 (8M estimators). R^2=0.999998, max error 0.00045.
-	 *  Converges to terminal value 0.72096 for all C > 20B.  @author Eru */
+	/** When true, Mean CF uses closed-form 3S2G formula instead of table lookup.
+	 *  Formula: CF = a0 + a1*S(lc,c1,w1) + a2*S(lc,c2,w2) + a3*S(lc,c3,w3)
+	 *               + g1*G(lc,gc1,gw1) + g2*G(lc,gc2,gw2)
+	 *  where lc=log2(card), S(lc,c,w)=(1+tanh((lc-c)/w))/2, G(lc,c,w)=exp(-((lc-c)/w)^2).
+	 *  Per-class coefficients fitted on B=2048 (2M-8M estimators).
+	 *  Terminal value = a0+a1+a2+a3 (all S→1, all G→0 as card→∞).
+	 *  Stable for arbitrarily large cardinalities (no divergence).  @author Eru */
 	public static boolean USE_MEAN_CF_FORMULA=false;
 
-	// 3 sigmoid steps + 2 Gaussian corrections (3S2G)
-	private static final double MCF_A0= -1.015179396169067;
-	private static final double MCF_A1=  1.594540127002307;
-	private static final double MCF_C1= -0.519234303092515;
-	private static final double MCF_W1=  1.249974670798734;
-	private static final double MCF_A2= -0.179798404560318;
-	private static final double MCF_C2= 13.595342271669020;
-	private static final double MCF_W2=  1.208514276422193;
-	private static final double MCF_A3=  0.321396896321896;
-	private static final double MCF_C3= 12.883995972095798;
-	private static final double MCF_W3=  1.342829006195819;
-	private static final double MCF_G1=  0.074973659412974;
-	private static final double MCF_GC1= 4.979261777628070;
-	private static final double MCF_GW1= 5.136222405328894;
-	private static final double MCF_G2= -0.062220148621530;
-	private static final double MCF_GC2=11.180707724131452;
-	private static final double MCF_GW2= 2.365584912098679;
+	/** Per-class 3S2G coefficient arrays.
+	 *  Order: {a0, a1, c1, w1, a2, c2, w2, a3, c3, w3, g1, gc1, gw1, g2, gc2, gw2} */
+	// DLL4: R²=0.999998, maxErr=0.00045, terminal=0.72096
+	static final double[] MCF_DLL4={
+		-1.015179396169067, 1.594540127002307, -0.519234303092515, 1.249974670798734,
+		-0.179798404560318, 13.595342271669020, 1.208514276422193,
+		0.321396896321896, 12.883995972095798, 1.342829006195819,
+		0.074973659412974, 4.979261777628070, 5.136222405328894,
+		-0.062220148621530, 11.180707724131452, 2.365584912098679};
+	// LL6: R²=0.999998, maxErr=0.00055, terminal=0.72095
+	static final double[] MCF_LL6={
+		-1.708217544869827, 2.319470775861269, -0.790999171032084, 1.301305531370796,
+		-0.093784622097852, 9.446809471143753, 1.845004109302430,
+		0.203478241095712, 12.034559708649349, 0.843044293514485,
+		0.043880560634460, 5.112264691560116, 4.200333607494791,
+		-0.042569886954597, 12.461743367200754, 0.845306749606533};
+	// DLL3: R²=0.999857, maxErr=0.00211, terminal=0.74492
+	static final double[] MCF_DLL3={
+		-0.284297841984091, 0.999031401260891, -0.228556730148101, 1.564116182580805,
+		0.336114204102007, 12.470057109846664, 1.310101358590010,
+		-0.305928673627107, 13.625570459214497, 2.731038958545785,
+		-0.056686922608321, 3.023963219338324, 4.533572112498229,
+		-0.160434763240275, 11.908935351173893, 4.338474558994728};
+	// BDLL3 (cof): R²=0.999926, maxErr=0.00222, terminal=0.74380
+	static final double[] MCF_BDLL3_COF={
+		-1.126804203356419, 1.792187970103239, -0.701709745229426, 2.227707325270951,
+		-0.426430920451125, 13.188527400138502, 2.198089902040401,
+		0.504844645771836, 12.551416754053720, 1.473548488950153,
+		0.223251242983487, -0.727524575094514, 2.775910307887784,
+		-0.127223763102901, 12.095548363616729, 3.804649590273570};
+	// BDLL3 (cot): R²=0.999798, maxErr=0.00297, terminal=0.71585
+	static final double[] MCF_BDLL3_COT={
+		-0.352221510448318, 1.007775775520781, -0.318488804091053, 1.581978485693328,
+		0.243791330000102, 10.838990524950210, 1.414837159956376,
+		-0.183498884559245, 13.774705127855546, 1.118901895913420,
+		-0.221253722109374, 11.901037021849644, 1.853468035403414,
+		-0.071580871833045, 10.101440974300839, 2.481107954178233};
+	// UDLL6: R²=0.999973, maxErr=0.00071, terminal=0.72091
+	static final double[] MCF_UDLL6={
+		-0.619543782071058, 1.277187700611610, -0.230145324163336, 1.244575247161501,
+		-0.151247923541826, 9.319562771741442, 2.204598330976844,
+		0.214509902904495, 11.405161862170619, 0.878558848901602,
+		-0.017905605237010, 1.943899332927732, 1.675455792371034,
+		-0.097326679808376, 12.002456847327048, 1.105356472907433};
+
+	/** Active Mean CF coefficients. Set by each class's initializeCF(). */
+	public static double[] meanCfCoeffs=MCF_DLL4;
 
 	/**
-	 * Computes Mean correction factor from closed-form formula.
-	 * Uses DLC estimate as cardinality seed (same as table lookup).
-	 * Terminal value: a0+a1+a2+a3 = 0.72096 (matches DLL4/LL6 empirical).
+	 * Computes Mean correction factor from closed-form 3S2G formula.
+	 * Uses the active coefficient array (set per class).
 	 *
 	 * @param card  estimated cardinality (typically dlcRawF)
 	 * @return multiplicative correction factor for Mean estimate
 	 */
 	public static double meanCfFormula(double card){
-		if(card<=0){return MCF_A0+MCF_A1+MCF_A2+MCF_A3;} // terminal
-		final double lc=Math.log(card)/LOG2; // log2(card)
-		final double s1=(1+Math.tanh((lc-MCF_C1)/MCF_W1))*0.5;
-		final double s2=(1+Math.tanh((lc-MCF_C2)/MCF_W2))*0.5;
-		final double s3=(1+Math.tanh((lc-MCF_C3)/MCF_W3))*0.5;
-		final double d1=(lc-MCF_GC1)/MCF_GW1; final double g1=Math.exp(-d1*d1);
-		final double d2=(lc-MCF_GC2)/MCF_GW2; final double g2=Math.exp(-d2*d2);
-		return MCF_A0+MCF_A1*s1+MCF_A2*s2+MCF_A3*s3+MCF_G1*g1+MCF_G2*g2;
+		return meanCfFormula(card, meanCfCoeffs);
 	}
 
-	private static final double LOG2=Math.log(2.0);
+	/**
+	 * Computes Mean CF from 3S2G formula with explicit coefficient array.
+	 * CF = a0 + a1*S(lc,c1,w1) + a2*S(lc,c2,w2) + a3*S(lc,c3,w3)
+	 *      + g1*G(lc,gc1,gw1) + g2*G(lc,gc2,gw2)
+	 * Terminal value = p[0]+p[1]+p[4]+p[7] (all sigmoids→1, Gaussians→0).
+	 *
+	 * @param card  estimated cardinality (typically dlcRawF)
+	 * @param p     16-element coefficient array
+	 * @return multiplicative correction factor
+	 */
+	public static double meanCfFormula(double card, double[] p){
+		if(card<=0){return p[0]+p[1]+p[4]+p[7];} // terminal
+		final double lc=Math.log(card)*INV_LOG2;
+		final double s1=(1+Math.tanh((lc-p[2])/p[3]))*0.5;
+		final double s2=(1+Math.tanh((lc-p[5])/p[6]))*0.5;
+		final double s3=(1+Math.tanh((lc-p[8])/p[9]))*0.5;
+		final double d1=(lc-p[11])/p[12]; final double g1=Math.exp(-d1*d1);
+		final double d2=(lc-p[14])/p[15]; final double g2=Math.exp(-d2*d2);
+		return p[0]+p[1]*s1+p[4]*s2+p[7]*s3+p[10]*g1+p[13]*g2;
+	}
+
+	private static final double INV_LOG2=1.0/Math.log(2.0);
 
 	/*--------------------------------------------------------------*/
 	/*----------------     SBS State Index             ----------------*/
