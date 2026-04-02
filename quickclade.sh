@@ -48,7 +48,7 @@ hits=1          Print this many top hits per query.
 steps=6         Only search up to this many GC intervals (of 0.01) away from
                 the query GC.
 oneline         Print results one line per query, tab-delimited.
-callssu=f       Call 16S and 18S for alignment to reference SSU.
+callssu=t       Call 16S and 18S for alignment to reference SSU.
                 This will affect the top hit ordering only if hits>1.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.

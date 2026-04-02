@@ -92,14 +92,14 @@ public final class UltraLogLog8 extends CardinalityTracker {
 		double hllSumFilled=0;
 		double gSum=0;
 		int count=0;
-		final int[] nlzCounts=new int[64];
+		final int[] nlzCounts=new int[66];
 
 		for(int i=0; i<buckets; i++){
 			final int stored=maxArray[i]&0xFF;
 			if(stored>0){
 				final int absNlz=(stored>>2)-1;
 				final int state=stored&0x3;
-				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
+				if(absNlz>=0 && absNlz<65){nlzCounts[absNlz+1]++;}
 				final double m=tierMult[Math.min(absNlz, 63)][state];
 				final double base=Math.pow(2.0, -absNlz)*m;
 				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : (absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0))*m;
@@ -109,6 +109,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 				count++;
 			}
 		}
+		nlzCounts[0]=buckets-count;
 		lastRawNlz=nlzCounts;
 		lastCorrNlz=nlzCounts;
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
@@ -233,7 +234,7 @@ public final class UltraLogLog8 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		return s.toArray(s.hybridDLL());
 	}
 
 	/*--------------------------------------------------------------*/

@@ -276,18 +276,38 @@ public class CardinalityStats {
 		final int wordlen=64;
 		double difSum=0, hllSumFilled=0, gSum=0;
 		int count=0;
-		for(int k=0; k<nlzCounts_.length; k++){
-			final int n=nlzCounts_[k];
-			if(n==0){continue;}
-			count+=n;
-			final long dif=(k==0 ? Long.MAX_VALUE : (k<wordlen ? 1L<<(wordlen-k-1) : 1L));
-			difSum+=n*(double)dif;
-			hllSumFilled+=n*Math.pow(2.0, -k);
-			gSum+=n*Math.log(Math.max(1, dif));
+		final int[] legacy;
+		if(nlzCounts_.length==66){
+			// New format: int[66] where [0]=empties, [k+1]=buckets at absNlz==k
+			for(int k=1; k<nlzCounts_.length; k++){
+				final int n=nlzCounts_[k];
+				if(n==0){continue;}
+				final int absNlz=k-1;
+				count+=n;
+				final long dif=(absNlz==0 ? Long.MAX_VALUE : (absNlz<wordlen ? 1L<<(wordlen-absNlz-1) : 1L));
+				difSum+=n*(double)dif;
+				hllSumFilled+=n*Math.pow(2.0, -absNlz);
+				gSum+=n*Math.log(Math.max(1, dif));
+			}
+			// Convert to int[64] old format for the CardinalityStats constructor
+			legacy=new int[64];
+			for(int k=1; k<nlzCounts_.length && k-1<64; k++){legacy[k-1]=nlzCounts_[k];}
+		}else{
+			// Old format: int[64] where [k]=buckets at absNlz==k
+			for(int k=0; k<nlzCounts_.length; k++){
+				final int n=nlzCounts_[k];
+				if(n==0){continue;}
+				count+=n;
+				final long dif=(k==0 ? Long.MAX_VALUE : (k<wordlen ? 1L<<(wordlen-k-1) : 1L));
+				difSum+=n*(double)dif;
+				hllSumFilled+=n*Math.pow(2.0, -k);
+				gSum+=n*Math.log(Math.max(1, dif));
+			}
+			legacy=nlzCounts_;
 		}
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 			gSum, count, buckets_, null, cfMatrix_, cfBuckets_,
-			matrixCard_, cardKeys_, microIndex_, nlzCounts_, 0);
+			matrixCard_, cardKeys_, microIndex_, legacy, 0);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -578,7 +598,7 @@ public class CardinalityStats {
 	 * Returns microIndex-based cardinality floor, or 0 if USE_MICRO is false or microIndex was 0.
 	 * Used by cardinality() as: card = Math.max(card, s.microCardinality()).
 	 */
-	public long microCardinality(){return CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;}
+	public long microCardinality(){return microEst;}
 
 	/**
 	 * Returns the raw estimates array: 11 standard estimators + 1 DLC combined + NUM_DLC_TIERS DLC tiers.
@@ -586,7 +606,7 @@ public class CardinalityStats {
 	 */
 	public double[] toArray(double hybridEst){
 		final int total=11+6+NUM_DLC_TIERS;
-		final double micro=CardinalityTracker.LAZY_ALLOCATE ? microEst : 0;
+		final double micro=microEst;
 		if(count==0){final double[] z=new double[total]; for(int i=0;i<10;i++){z[i]=micro;} z[10]=microEst; return z;}
 		final double[] r=new double[total];
 		final double rawHybDLC50=hybDLC50();

@@ -192,12 +192,12 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		return s.toArray(s.hybridDLL());
 	}
 
 	/** Build a CardinalityStats from the register array for standard estimators. */
 	private CardinalityStats summarize(){
-		final int[] nlzCounts=new int[64];
+		final int[] nlzCounts=new int[66];
 		final int hbits=2;
 		double difSum=0, hllSumFilled=0, gSum=0;
 		int count=0, histVirtualTotal=0, histVirtualFilled=0;
@@ -208,7 +208,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 			final int reg=getReg(i);
 			if(reg!=0){
 				final int absNlz=(reg>>>2)-HISTORY_MARGIN+minZeros;
-				if(absNlz>=0 && absNlz<64) nlzCounts[absNlz]++;
+				if(absNlz>=0 && absNlz<65) nlzCounts[absNlz+1]++;
 				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE :
 					(absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0));
 				difSum+=dif;
@@ -230,6 +230,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 				lcHistStates[i]=-1; // empty bucket
 			}
 		}
+		nlzCounts[0]=buckets-count;
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 			gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
 			CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
@@ -252,7 +253,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	public double[] ldlcEstimate(){
 		final int[] absNlzArr=new int[buckets];
 		final int[] histArr=new int[buckets];
-		final int[] nlzCounts=new int[64];
+		final int[] nlzCounts=new int[66];
 		int maxNlz=0, emptyCount=0, nonEmpty=0, hasHistory=0;
 		int histVirtualTotal=0, histVirtualFilled=0;
 		final int hbits=2; // UDLL6i always has 2 history bits
@@ -268,7 +269,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 				final int hist=reg&3;
 				histArr[i]=hist;
 				if(absNlz>maxNlz) maxNlz=absNlz;
-				if(absNlz>=0 && absNlz<64) nlzCounts[absNlz]++;
+				if(absNlz>=0 && absNlz<65) nlzCounts[absNlz+1]++;
 				nonEmpty++;
 				if(hist!=0) hasHistory++;
 				// Virtual buckets: tier t has min(hbits, max(0, t-1)) valid slots
@@ -280,6 +281,8 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 				}
 			}
 		}
+
+		nlzCounts[0]=emptyCount;
 
 		// History-based LC floor: filled buckets + set history bits in valid positions
 		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? nonEmpty+histVirtualFilled : 0);
@@ -295,18 +298,18 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 		}else{
 			double lcMinTmp=0;
 			int vk=0;
-			for(int k=0; k<nlzCounts.length; k++){
+			for(int k=1; k<nlzCounts.length; k++){
 				vk+=nlzCounts[k];
 				if(vk>0){
-					lcMinTmp=(1L<<(k+1))*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
+					lcMinTmp=(1L<<k)*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
 					break;
 				}
 			}
 			lcMin=Math.max(lcMinTmp, lcFloor);
 		}
 
-		// DLC: cumulative log-space blend, with lcMin fallback
-		final double dlc=dlcWithLcMin(nlzCounts, V, buckets, lcMin);
+		// DLC: info-power weighted blend, with lcMin fallback
+		final double dlc=AbstractCardStats.dlcInfoPow(nlzCounts, V, buckets, lcMin, AbstractCardStats.DLC_INFO_POWER);
 
 		// HC: history-only per-tier exact LC
 		final int[] nlzBucketCount=new int[64];
@@ -336,7 +339,11 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 			if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
 				final double est=(1L<<(t+1))*(double)buckets*Math.log((double)hcBeff/hcUnseen);
 				if(est>0 && !Double.isNaN(est)){
-					final double w=(double)hcBeff/buckets;
+					final int hcOcc=hcBeff-hcUnseen;
+					final double hcErr=AbstractCardStats.SQRT_2_OVER_PI
+						*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
+						/Math.log((double)hcBeff/hcUnseen);
+					final double w=Math.pow(1.0/hcErr, AbstractCardStats.HC_INFO_POWER);
 					hcSumW+=w;
 					hcSumWLogE+=w*Math.log(est);
 				}
@@ -381,31 +388,6 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	}
 
 	/** DLC log-space blend with lcMin fallback at low occupancy. */
-	private double dlcWithLcMin(int[] nlzCounts, int V, int B, double lcMin){
-		if(V>=B/2){return lcMin;}
-		final double target=B*0.25;
-		final double alpha=9.0/B;
-		int vk=V;
-		double sumW=0, sumWLogE=0;
-		for(int tier=0; tier<64; tier++){
-			if(vk>=1 && vk<B){
-				final double est=(1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
-				final double w=Math.exp(-alpha*Math.abs(vk-target));
-				sumW+=w;
-				sumWLogE+=w*Math.log(est);
-			}
-			if(tier<nlzCounts.length) vk+=nlzCounts[tier];
-			if(vk>=B) break;
-		}
-		if(sumW<=0){return lcMin;}
-		final double blendEst=Math.exp(sumWLogE/sumW);
-		if(V>0.3*B){
-			final double t=((double)V-0.3*B)/(0.2*B);
-			return t*lcMin+(1-t)*blendEst;
-		}
-		return blendEst;
-	}
-
 	private static final int wordlen=64;
 	static final int HISTORY_MARGIN=2;
 	static final int MAX_REGISTER=63;

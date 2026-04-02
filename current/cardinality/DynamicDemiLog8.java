@@ -76,69 +76,43 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	 * This is the only per-subclass method required — all estimator logic
 	 * lives in the returned CardinalityStats object.
 	 */
-	private CardinalityStats summarize(){
-		if(USE_EMPIRICAL_MANTISSA){updateMantissaMult();}
-		double difSum=0;
-		double hllSumFilled=0;
-		double hllSumFilledM=0;
-		double gSum=0;
-		int count=0;
-		if(USE_SORTBUF){
-			if(sortBuf==null){sortBuf=new LongList(buckets);}
-			sortBuf.clear();
-		}
-		if(nlzCounts==null){nlzCounts=new int[64];}
+	private CardStats summarize(){
+		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-
+		final char[] packedBuckets=new char[buckets];
 		final int phantomNlz=minZeros-1;
+		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int s=readBucket(i);
 			if(s>=minNonEmpty){
-				// Normal filled bucket: relNlzStored >= 1
+				// Normal filled bucket: pack ((absNlz+1) << mantissaBits) | invMantissa
 				final int absNlz=(s>>>mantissaBits)-1+minZeros;
-				if(absNlz<64){nlzCounts[absNlz]++;}
-				final long dif=restoreDif(s);
-				if(USE_EMPIRICAL_MANTISSA){
-					final int invMant=s&mantissaMask;
-					final double m=mantissaMultRuntime[invMant];
-					difSum+=dif*m;
-					hllSumFilled+=Math.pow(2.0, -absNlz)*m;
-					hllSumFilledM=hllSumFilled;
-					gSum+=Math.log(Tools.max(1, dif*m));
-				}else{
-					difSum+=dif;
-					hllSumFilled +=Math.pow(2.0, -absNlz);
-					hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
-					gSum+=Math.log(Tools.max(1, dif));
-				}
-				count++;
-				if(USE_SORTBUF){sortBuf.add(dif);}
-			}else if(s>0 && EARLY_PROMOTE && minZeros>0){
-				// Phantom bucket: below floor after EARLY_PROMOTE decrement
-				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz]++;}
-				count++;
-			}else if(s>0){
-				// Non-EARLY_PROMOTE: stored 1-3 shouldn't occur, treat as tier-0
-				final int absNlz=(s>>>mantissaBits)-1+minZeros;
-				if(absNlz<64){nlzCounts[absNlz]++;}
-				final long dif=restoreDif(s);
-				difSum+=dif;
-				hllSumFilled +=Math.pow(2.0, -absNlz);
-				hllSumFilledM+=Math.pow(2.0, -(s>>>mantissaBits)+1.5-(s&mantissaMask)/mantissaScale-minZeros);
-				gSum+=Math.log(Tools.max(1, dif));
-				count++;
-				if(USE_SORTBUF){sortBuf.add(dif);}
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
+				packedBuckets[i]=(char)(((absNlz+1)<<mantissaBits)|(s&mantissaMask));
+			}else if(s>0 && minZeros>0){
+				// Sub-floor bucket (stored 1-3 after decrement): phantom at phantomNlz.
+				// Mantissa bits preserved in bottom 2 bits of stored byte after subtract.
+				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz+1]++;}
+				filledCount++;
+				packedBuckets[i]=(char)(((phantomNlz+1)<<mantissaBits)|(s&mantissaMask));
+			}else if(s==0 && minZeros>0){
+				// Post-decrement empty (stored was minNonEmpty, invMant was 0): phantom.
+				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz+1]++;}
+				filledCount++;
+				packedBuckets[i]=(char)((phantomNlz+1)<<mantissaBits); // invMant=0
 			}
+			// else: s==0 && minZeros==0 → truly empty
 		}
-		return new CardinalityStats(difSum, hllSumFilled, hllSumFilledM,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, 0, nlzCounts, minZeros);
+		nlzCounts[0]=buckets-filledCount;
+		return new CardStats(packedBuckets, nlzCounts, 6, 0, 0, mantissaBits,
+				buckets, 0, added, CF_MATRIX, CF_BUCKETS, 0.5);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDDL(); // CF already inside blend
 		final long card=Math.min(clampToAdded ? added : Long.MAX_VALUE, (long)(rawHyb));
 		lastCardinality=card;
@@ -299,8 +273,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	 */
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(s.hybridDDL());
+		final CardStats s=summarize();
+		return AbstractCardStats.buildLegacyArray(s, s.hybridDDL());
 	}
 
 	/*--------------------------------------------------------------*/

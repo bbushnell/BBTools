@@ -202,7 +202,7 @@ public final class ProtoLogLog16b extends CardinalityTracker {
      * CF is added to the NLZ before restore: restore(NLZ + CF[state]).
      * Negative CF (outlier) → lower effective NLZ → larger val → smaller estimate.
      */
-    private CardinalityStats summarize(){
+    private CardStats summarize(){
         final int states=1<<getActiveExtraBits();
         final int mask=(1<<nlzShift())-1;
         final int extraBits=getActiveExtraBits();
@@ -292,11 +292,10 @@ public final class ProtoLogLog16b extends CardinalityTracker {
             }
         }
         lastRawNlz=nlzCounts;
-        // Pass corrected sums so Mean/DThHyb/HMean all use sub-NLZ corrections
-        return new CardinalityStats(sum, hllSum, hllSum,
-            gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
-            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-            nlzCounts, 0);
+        // PLL16b: counts-only for CardStats (per-state corrections stay in custom means above).
+        // DLC/LC/Hybrid use counts-based estimates; custom mean goes via hybridEst in rawEstimates.
+        return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+                buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
     }
 
     private static int getActiveExtraBits(){
@@ -338,9 +337,9 @@ public final class ProtoLogLog16b extends CardinalityTracker {
     public double occupancy(){return (double)filledBuckets/buckets;}
     @Override public final float[] compensationFactorLogBucketsArray(){return null;}
     @Override public double[] rawEstimates(){
-        final CardinalityStats s=summarize();
+        final CardStats s=summarize();
         final double est=(ESTIMATE_MODE==2 ? lastGeoMean : ESTIMATE_MODE==1 ? lastArithMean : lastCorrectedMean);
-        return s.toArray(est);
+        return AbstractCardStats.buildLegacyArray(s, est);
     }
 
     private static int CF_BUCKETS=2048;

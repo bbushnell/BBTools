@@ -56,9 +56,9 @@ public class DDLCalibrationDriver2 {
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
 
-	/** Number of extra LDLC columns: {LDLC, DLC, HC, FGRA, HLL+H}. Populated for UDLL6 and PLL16c. */
-	static final int NUM_LDLC=5;
-	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H"};
+	/** Number of extra LDLC columns: {LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2}. Populated for UDLL6 and PLL16c. */
+	static final int NUM_LDLC=7;
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -106,18 +106,25 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
-			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b);}
-			else if(a.equals("dlctarget")){CardinalityStats.DLC_TARGET_FRAC=Float.parseFloat(b);}
-			else if(a.equals("dlcblendlo")){CardinalityStats.DLC_BLEND_LO=Float.parseFloat(b);}
-			else if(a.equals("dlcblendhi")){CardinalityStats.DLC_BLEND_HI=Float.parseFloat(b);}
-			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
-			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
-			else if(a.equals("cfmult") || a.equals("minseedmult")){CardinalityStats.MIN_SEED_CF_MULT=Float.parseFloat(b);}
+			else if(a.equals("dlcalpha") || a.equals("alpha")){CardinalityStats.DLC_ALPHA=Float.parseFloat(b); AbstractCardStats.DLC_ALPHA=Float.parseFloat(b);}
+			else if(a.equals("dlctarget")){CardinalityStats.DLC_TARGET_FRAC=Float.parseFloat(b); AbstractCardStats.DLC_TARGET_FRAC=Float.parseFloat(b);}
+			else if(a.equals("dlcblendlo")){CardinalityStats.DLC_BLEND_LO=Float.parseFloat(b); AbstractCardStats.DLC_BLEND_LO=Float.parseFloat(b);}
+			else if(a.equals("dlcblendhi")){CardinalityStats.DLC_BLEND_HI=Float.parseFloat(b); AbstractCardStats.DLC_BLEND_HI=Float.parseFloat(b);}
+			else if(a.equals("cfiters") || a.equals("cfiterations")){CardinalityStats.DEFAULT_CF_ITERS=Integer.parseInt(b); AbstractCardStats.DEFAULT_CF_ITERS=Integer.parseInt(b);}
+			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b); AbstractCardStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
+			else if(a.equals("cfmult") || a.equals("minseedmult")){CardinalityStats.MIN_SEED_CF_MULT=Float.parseFloat(b); AbstractCardStats.MIN_SEED_CF_MULT=Float.parseFloat(b);}
 			else if(a.equals("minvfraction") || a.equals("minvk")){
 				float x=Float.parseFloat(b);
-				if(x<1){CardinalityStats.DLC_MIN_VK_FRACTION=x;}
-				else{CardinalityStats.DLC_MIN_VK=(int)x;}
-			}else if(a.equals("promotethreshold") || a.equals("pt")){
+				if(x<1){CardinalityStats.DLC_MIN_VK_FRACTION=x; AbstractCardStats.DLC_MIN_VK_FRACTION=x;}
+				else{CardinalityStats.DLC_MIN_VK=(int)x; AbstractCardStats.DLC_MIN_VK=(int)x;}
+			}
+			else if(a.equals("dlcinfopow") || a.equals("infopow")){AbstractCardStats.DLC_INFO_POWER=Float.parseFloat(b);}
+			else if(a.equals("hcinfopow") || a.equals("hcpow")){AbstractCardStats.HC_INFO_POWER=Float.parseFloat(b);}
+			else if(a.equals("ldlcalo")){AbstractCardStats.LDLC_A_LO=Float.parseFloat(b);}
+			else if(a.equals("ldlcahi")){AbstractCardStats.LDLC_A_HI=Float.parseFloat(b);}
+			else if(a.equals("ldlcblo")){AbstractCardStats.LDLC_B_LO=Float.parseFloat(b);}
+			else if(a.equals("ldlcbhi")){AbstractCardStats.LDLC_B_HI=Float.parseFloat(b);}
+			else if(a.equals("dlcinfomode") || a.equals("infomode")){AbstractCardStats.DLC_INFO_MODE=Integer.parseInt(b);}else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
@@ -186,6 +193,9 @@ public class DDLCalibrationDriver2 {
 				CorrectionFactor.lcHistMultFile=b;
 			}else if(a.equals("microlc")){
 				CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
+				AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("usemicro") || a.equals("usemicroindex")){
+				AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);
 			}else if(a.equals("lchisthybrid") || a.equals("lchybrid")){
 				CardinalityTracker.USE_LCHIST_IN_HYBRID=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
@@ -514,7 +524,7 @@ public class DDLCalibrationDriver2 {
 							ldlcR=((ProtoLogLog16c)ddl).ldlcEstimate();
 						}else{ldlcR=null;}
 						if(ldlcR!=null){
-							final int[] ldlcIdx={0, 1, 2, 4, 5};
+							final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7};
 							for(int e=0; e<NUM_LDLC; e++){
 								final double v=ldlcR[ldlcIdx[e]];
 								if(v>0){

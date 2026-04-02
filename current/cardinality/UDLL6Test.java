@@ -12,7 +12,7 @@ public class UDLL6Test {
 		CardinalityTracker.clampToAdded=false;
 		//TRACE removed in UDLL6 rewrite
 		UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, k, seed, 0);
-		ULLc ullc=new ULLc(buckets, k, seed, 0);
+		UltraDynamicLogLog6 ullc=new UltraDynamicLogLog6(buckets, k, seed, 0);
 
 		for(long i=1; i<=16384; i++){
 			udll.add(i);
@@ -32,7 +32,7 @@ public class UDLL6Test {
 		for(int b=0; b<buckets; b++){
 			int ur=udll.getRegister(b)&0x3F;
 			int urAbs=(ur==0) ? 0 : Math.min(ur+regOffset, 255);
-			int cr=ullc.registers[b]&0xFF;
+			int cr=ullc.getRegister(b)&0xFF;
 			if(urAbs!=cr){
 				diffs++;
 				int d=Math.abs(urAbs-cr);

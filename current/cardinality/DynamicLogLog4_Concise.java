@@ -40,14 +40,14 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 		super(p);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	DynamicLogLog4_Concise(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	@Override
@@ -83,20 +83,26 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	 */
 	private CardinalityStats summarize(){
 		if(!FAST_COUNT){
-			if(nlzCounts==null){nlzCounts=new int[64];}
+			if(nlzCounts==null){nlzCounts=new int[66];}
 			else{java.util.Arrays.fill(nlzCounts, 0);}
 			final int phantomNlz=minZeros-1;
+			int filledCount=0;
 			for(int i=0; i<buckets; i++){
 				final int stored=readBucket(i);
 				if(stored>0){
 					final int absNlz=(stored-1)+minZeros;
-					if(absNlz<64){nlzCounts[absNlz]++;}
-				}else if(minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+					if(absNlz<64){nlzCounts[absNlz+1]++;}
+					filledCount++;
+				}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					nlzCounts[phantomNlz+1]++;
+					filledCount++;
 				}
 			}
+			nlzCounts[0]=buckets-filledCount;
+		}else{
+			// FAST_COUNT=true: nlzCounts already maintained incrementally.
+			int sum=0; for(int t=1; t<66; t++){sum+=nlzCounts[t];} nlzCounts[0]=buckets-sum;
 		}
-		// FAST_COUNT=true: nlzCounts already maintained incrementally; use directly.
 		lastRawNlz=nlzCounts.clone();
 		lastCorrNlz=lastRawNlz; // DLL4 has no overflow correction
 		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
@@ -236,7 +242,7 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		return s.toArray(s.hybridDLL());
 	}
 
 	/*--------------------------------------------------------------*/

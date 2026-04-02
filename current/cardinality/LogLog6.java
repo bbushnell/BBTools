@@ -57,28 +57,29 @@ public final class LogLog6 extends CardinalityTracker {
 	 * then delegates to CardinalityStats.fromNlzCounts().
 	 * No tier promotion: stored value IS the absolute encoding (0=empty, 1-63=absNlz+1).
 	 */
-	private CardinalityStats summarize(){
-		final int[] nlzCounts=new int[64];
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
+		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int stored=maxArray[i]&0xFF;
 			if(stored>0){
 				final int absNlz=stored-1;
-				if(absNlz<64){nlzCounts[absNlz]++;}
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
 			}
 		}
+		nlzCounts[0]=buckets-filledCount;
 		lastRawNlz=nlzCounts;
 		lastCorrNlz=nlzCounts;
-		// Pass microIndex=0 so LL6 doesn't benefit from the micro floor on V.
-		// Standard HLL has no microIndex; this keeps the comparison fair.
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, 0,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
+		// microIndex=0: LL6 doesn't use micro floor (keeps HLL comparison fair)
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				buckets, 0, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -141,8 +142,9 @@ public final class LogLog6 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/

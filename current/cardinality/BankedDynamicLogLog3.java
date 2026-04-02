@@ -40,7 +40,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	BankedDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
@@ -50,7 +50,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	@Override
@@ -89,7 +89,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -140,9 +140,9 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
-					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz]++;}}
-				}else if(FAST_COUNT && minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz+1]++;}}
+				}else if(FAST_COUNT && minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					nlzCounts[phantomNlz+1]++;
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
@@ -164,7 +164,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int wordIdx=bucket/10;
-		int bank=readBank(wordIdx);
+		final int bank=readBank(wordIdx);
 		int localRelNlz=nlz-minZeros-bank;
 
 		final long micro=(key>>bucketBits)&0x3FL;
@@ -174,19 +174,21 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		}
 
 		// Try bank promotion if overflow would occur
-		while(localRelNlz>=7 && bank<3 && canPromoteBank(wordIdx)){
-			promoteBank(wordIdx);
-			localRelNlz--; // bank increased by 1, so localRelNlz decreases by 1
-			bank++;
-			// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
-			int localRelNlz2=nlz-minZeros-readBank(wordIdx); // recompute to be safe
-			int bank2=readBank(wordIdx);
-			assert(bank==bank2);
-			assert(localRelNlz==localRelNlz2);
+		if(localRelNlz>=7 && bank<3){
+			if(canPromoteBank(wordIdx)){
+				promoteBank(wordIdx);
+				localRelNlz++; // bank increased by 1, so localRelNlz decreases by 1
+				// Wait — localRelNlz = nlz - minZeros - bank.
+				// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
+				localRelNlz=nlz-minZeros-readBank(wordIdx); // recompute to be safe
+			}
 		}
 
 		final int newStored=Math.min(localRelNlz+1, 7);
 		if(newStored<1){return;} // below current floor
+		// Read oldStored and currentBank AFTER potential bank promotion, so both
+		// reflect the same post-promotion state of the word.
+		final int curBank=readBank(wordIdx);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
@@ -198,21 +200,29 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		if(FAST_COUNT){
 			// Remove old slot from nlzCounts
 			if(oldStored>0){
-				final int oldAbsNlz=(oldStored-1)+minZeros+bank;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz]--;}
-			}else if(minZeros+bank>0){
-				final int pNlz=minZeros+bank-1;
-				if(pNlz<64){nlzCounts[pNlz]--;}
+				final int oldAbsNlz=(oldStored-1)+minZeros+curBank;
+				if(oldAbsNlz<64){nlzCounts[oldAbsNlz+1]--;}
+			}else if(minZeros+curBank>0){
+				final int pNlz=minZeros+curBank-1;
+				if(pNlz<64){nlzCounts[pNlz+1]--;}
+			}else{
+				nlzCounts[0]--; // was truly empty
 			}
-			// Add new slot — use current bank (may have been promoted)
-			final int curBank=readBank(wordIdx);
+			// Add new slot
 			final int newAbsNlz=(newStored-1)+minZeros+curBank;
-			if(newAbsNlz<64){nlzCounts[newAbsNlz]++;}
+			if(newAbsNlz<64){nlzCounts[newAbsNlz+1]++;}
 		}
 
-		// minZeroCount tracking
+		// minZeroCount tracking.
+		// A stored=0 slot is in minZeroCount only when curBank==0 (truly at the floor).
+		// Banked-phantom stored=0 slots (curBank>0) are NOT tracked in minZeroCount —
+		// they had data, bank promotion decremented them, and they are counted only
+		// when countAndDecrement drops their bank to 0.  Decrementing minZeroCount
+		// for a banked-phantom fill would drain the counter prematurely.
+		// NOTE: curBank and oldStored are both read post-promotion, so they are
+		// consistent — if bank promotion just fired, curBank reflects the new bank.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
-		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (localRelNlz>oldRelNlz && oldRelNlz==0);
+		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0 && curBank==0) : (localRelNlz>oldRelNlz && oldRelNlz==0 && curBank==0);
 		if(shouldDecrement && --minZeroCount<1){
 			while(minZeroCount==0 && minZeros<wordlen){
 				if(USE_STORED_OVERFLOW){
@@ -266,20 +276,32 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			final int bank=readBank(w);
 			if(bank>0){
 				// Absorb global promotion: decrement bank, leave registers untouched
-				writeBank(w, bank-1);
-				// Count empties/tier-0 in this word (unchanged since registers didn't move)
-				for(int b=0; b<10; b++){
-					final int stored=(maxArray[w]>>>(b*3))&0x7;
-					if(EARLY_PROMOTE){
-						if(stored==0){newMinZeroCount++;}
-					}else{
-						if(stored==0 || stored==1){newMinZeroCount++;}
+				final int newBank=bank-1;
+				writeBank(w, newBank);
+				// Only count stored=0 slots if the bank has dropped to 0.
+				// While bank>0, stored=0 slots are banked phantoms (had data, bank
+				// promotion decremented them) — they are NOT at the minimum floor
+				// and must NOT be added to minZeroCount.  Only when bank reaches 0
+				// do they become true floor-level entries and count toward promotion.
+				if(newBank==0){
+					for(int b=0; b<10; b++){
+						final int stored=(maxArray[w]>>>(b*3))&0x7;
+						if(EARLY_PROMOTE){
+							if(stored==0){newMinZeroCount++;}
+						}else{
+							if(stored==0 || stored==1){newMinZeroCount++;}
+						}
 					}
 				}
 			}else{
 				// bank==0: standard DLL3 decrement
 				int word=maxArray[w];
-				if((word&0x3FFFFFFF)==0){continue;} // all registers empty
+				if((word&0x3FFFFFFF)==0){
+					// All registers empty — count them toward minZeroCount
+					final int regsInWord=Math.min(10, buckets-w*10);
+					newMinZeroCount+=regsInWord;
+					continue;
+				}
 				int result=0;
 				for(int b=0; b<10; b++){
 					final int shift=b*3;
@@ -307,39 +329,44 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	/**
-	 * Builds absolute NLZ histogram including bank exponents, delegates to CardinalityStats.
+	 * Builds absolute NLZ histogram including bank exponents, delegates to CardStats.
 	 */
-	private CardinalityStats summarize(){
-		if(!FAST_COUNT){
-			if(nlzCounts==null){nlzCounts=new int[64];}
-			else{java.util.Arrays.fill(nlzCounts, 0);}
-			for(int i=0; i<buckets; i++){
-				final int wordIdx=i/10;
-				final int bank=readBank(wordIdx);
-				final int stored=readBucket(i);
-				if(stored>0){
-					final int absNlz=(stored-1)+minZeros+bank;
-					if(absNlz<64){nlzCounts[absNlz]++;}
-				}else{
-					final int phantomNlz=minZeros+bank-1;
-					if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz]++;}
-				}
+	private CardStats summarize(){
+		if(nlzCounts==null){nlzCounts=new int[66];}
+		else{java.util.Arrays.fill(nlzCounts, 0);}
+		int filledCount=0;
+		for(int i=0; i<buckets; i++){
+			final int wordIdx=i/10;
+			final int bank=readBank(wordIdx);
+			final int stored=readBucket(i);
+			if(stored>0){
+				final int absNlz=(stored-1)+minZeros+bank;
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
+			}else if(minZeros+bank>0){
+				// Bucket had data, decremented to 0. absNlz = minZeros+bank-1.
+				final int absNlz=minZeros+bank-1;
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
 			}
+			// else: stored=0, bank=0, minZeros=0 → truly empty
 		}
+		nlzCounts[0]=buckets-filledCount;
+		assert nlzCounts[0]>=0 : "Negative empties: "+nlzCounts[0]+" filledCount="+filledCount+" buckets="+buckets;
 		final boolean doDebug=DEBUG_ONCE;
 		if(doDebug){
 			DEBUG_ONCE=false;
 			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" buckets="+buckets);
 			System.err.println("  nlzCounts (nonzero):");
-			for(int t=0; t<64; t++){if(nlzCounts[t]>0){System.err.println("    tier "+t+": "+nlzCounts[t]);}}
+			for(int t=0; t<66; t++){if(nlzCounts[t]>0){System.err.println("    tier "+(t-1)+": "+nlzCounts[t]);}}
 		}
 		final int[] counts;
 		if(CORRECT_OVERFLOW && minZeros>=1){
 			final int lo=Math.max(7, minZeros);
 			final int hi=Math.min(6+minZeros, 63);
 			final int[] cumRaw=new int[64];
-			cumRaw[63]=nlzCounts[63];
-			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t];}
+			cumRaw[63]=nlzCounts[64]; // absNlz=63 at index 64
+			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
 			final int[] corrCum=cumRaw.clone();
 			for(int t=lo; t<=hi; t++){
 				final double x=(USE_STORED_OVERFLOW && storedOverflow[t]>0)
@@ -353,23 +380,24 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				corrCum[maxHi]=corrCum[hi]/2;
 			}
 			counts=nlzCounts.clone();
-			if(lo>0){counts[lo-1]=corrCum[lo-1]-corrCum[lo];}
-			for(int t=lo; t<maxHi; t++){counts[t]=corrCum[t]-corrCum[t+1];}
-			counts[maxHi]=corrCum[maxHi];
+			if(lo>0){counts[lo]=corrCum[lo-1]-corrCum[lo];}
+			for(int t=lo; t<maxHi; t++){counts[t+1]=corrCum[t]-corrCum[t+1];}
+			counts[maxHi+1]=corrCum[maxHi];
+			int corrSum=0; for(int t=1; t<66; t++){corrSum+=counts[t];}
+			counts[0]=buckets-corrSum;
 		}else{
 			counts=nlzCounts;
 		}
 		lastRawNlz=nlzCounts.clone();
 		lastCorrNlz=(counts==nlzCounts) ? lastRawNlz : counts;
-		return CardinalityStats.fromNlzCounts(counts, buckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
+		return new CardStats(null, counts, 0, 0, 0, 0, buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -407,7 +435,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	public static boolean DEBUG_ONCE=false;
 
 	/** Use DLL3's CF table initially — will need its own table eventually. */
-	public static final String CF_FILE="?cardinalityCorrectionBDLL3_cof.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
 	private static int CF_BUCKETS=8192;
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	public static float[][] initializeCF(int buckets){
