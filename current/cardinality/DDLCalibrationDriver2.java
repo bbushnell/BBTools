@@ -240,6 +240,12 @@ public class DDLCalibrationDriver2 {
 		// Creating a dummy instance here triggers that class init; then we overwrite
 		// the default CF with the user-provided file.
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
+		// Set per-class Mean CF formula coefficients
+		if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
+		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
+		else if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3;}
+		else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
+		else if(loglogtype.equals("udll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;}
 		CorrectionFactor.loadSbsTable();
 		CorrectionFactor.loadSbsMultTable();
 		if(cffile!=null){
