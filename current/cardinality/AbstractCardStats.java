@@ -573,10 +573,8 @@ public abstract class AbstractCardStats {
 	public static float DLCSBS_BLEND_LO=0.018f;
 	public static float DLCSBS_BLEND_HI=0.135f;
 
-	/** LDLC double-blend zone multipliers (as fractions of B).
-	 *  Blend A (SBS→DLC): [LDLC_A_LO*B, LDLC_A_HI*B]
-	 *  Blend B (HC ramps in): [LDLC_B_LO*B, LDLC_B_HI*B] */
-	public static float LDLC_A_LO=1.0f, LDLC_A_HI=4.0f;
+	/** LDLC HC blend zone multipliers (as fractions of B).
+	 *  HC ramps in over [LDLC_B_LO*B, LDLC_B_HI*B]. */
 	public static float LDLC_B_LO=2.0f, LDLC_B_HI=5.0f;
 
 	/** When false, microIndex does not adjust V for LC calculation. */
