@@ -698,6 +698,59 @@ public class CorrectionFactor{
 		return 3*(1<<hbits)-1;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*---    SBS Formula Mode (replaces table with closed-form)  ---*/
+	/*--------------------------------------------------------------*/
+
+	/** When true, SBS uses closed-form formulas instead of the loaded table.
+	 *  The formula y = base + a*L + b*L^2 + c*L^3 where L = ln(B/V)
+	 *  is B-independent (verified on B=2048 and B=256) and eliminates
+	 *  the need for resource files and bucket-count interpolation.
+	 *  Coefficients fitted jointly on B=2048 (32M trials) and B=256 (300K trials).
+	 *  Combined R^2 >= 0.999 for all 11 states.  @author Ady */
+	public static boolean USE_SBS_FORMULA=false;
+
+	/** Base values per state: minimum distinct count implied by the history pattern. */
+	static final int[] SBS_FORMULA_BASE={1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3};
+
+	/** Linear coefficient per state for y = base + a*L + b*L^2 + c*L^3. */
+	static final double[] SBS_FORMULA_A={
+		0.22105100, 0.12252876, 0.36952900, 0.06133797, 0.30751800,
+		0.18526204, 0.43143072, 0.67720200, 0.70123350, 0.64688227, 0.73638900
+	};
+
+	/** Quadratic coefficient per state. */
+	static final double[] SBS_FORMULA_B={
+		0.03969600, 0.00756061, 0.03269600, 0.00236917, 0.02818300,
+		0.00912048, 0.03450029, 0.03911000, 0.01746612, 0.01820189, 0.01219500
+	};
+
+	/** Cubic coefficient per state (always negative: corrects over-prediction near singularity). */
+	static final double[] SBS_FORMULA_C={
+		-0.00321100, -0.00065621, -0.00192200, -0.00029760, -0.00176600,
+		-0.00068916, -0.00183925, -0.00248900, -0.00112447, -0.00079415, -0.00085800
+	};
+
+	/**
+	 * Computes expected distinct elements for one bucket using the closed-form formula.
+	 * y = base + a*L + b*L^2 + c*L^3 where L = ln(B / V), V = B - filled.
+	 * B-independent: same coefficients work for any bucket count.
+	 *
+	 * @param stateIdx  SBS state index (0-10 for 2-bit history)
+	 * @param filled    number of filled buckets
+	 * @param B         total bucket count
+	 * @return expected distinct elements for this bucket state at this occupancy
+	 */
+	public static double sbsFormula(int stateIdx, int filled, int B){
+		final double V=B-filled;
+		if(V<=0){return B;} // singularity cap
+		final double L=Math.log((double)B/V);
+		return SBS_FORMULA_BASE[stateIdx]
+			+SBS_FORMULA_A[stateIdx]*L
+			+SBS_FORMULA_B[stateIdx]*L*L
+			+SBS_FORMULA_C[stateIdx]*L*L*L;
+	}
+
 	/**
 	 * Maps (nlzBin, histBits) to table column index for arbitrary history bit width.
 	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.

@@ -472,12 +472,26 @@ public final class CardStats extends AbstractCardStats {
 	/*----------------    SBS Computation        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Computes history-aware LC from per-bucket state indices and SBS_CF_TABLE.
-	 *  Falls back to lcRaw when table or states are unavailable. */
+	/** Computes history-aware LC from per-bucket state indices.
+	 *  Uses closed-form formula when USE_SBS_FORMULA is true, else SBS_CF_TABLE.
+	 *  Falls back to lcRaw when table/formula and states are unavailable. */
 	private static double computeSbs(final byte[] states, final int filled,
 			final int numBuckets, final double lcRaw){
+		if(states==null){return lcRaw;}
+
+		// Formula mode: no table needed, B-independent
+		if(CorrectionFactor.USE_SBS_FORMULA){
+			double est=0;
+			for(int i=0; i<states.length; i++){
+				final int si=states[i];
+				if(si>=0){est+=CorrectionFactor.sbsFormula(si, filled, numBuckets);}
+			}
+			return est;
+		}
+
+		// Table mode: original behavior
 		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
-		if(table==null || states==null){return lcRaw;}
+		if(table==null){return lcRaw;}
 		final int tableBuckets=CorrectionFactor.sbsBuckets;
 		final float[] row;
 		if(numBuckets==tableBuckets){
