@@ -751,6 +751,60 @@ public class CorrectionFactor{
 			+SBS_FORMULA_C[stateIdx]*L*L*L;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*-----------   Mean CF Formula (replaces table)   -------------*/
+	/*--------------------------------------------------------------*/
+
+	/** When true, Mean CF uses closed-form formula instead of table lookup.
+	 *  Formula: CF = a0 + sum(ai*S(lc,ci,wi)) + sum(gi*G(lc,gci,gwi))
+	 *  where lc=log2(card), S=sigmoid, G=Gaussian.
+	 *  Fitted on DLL4 B=2048 (8M estimators). R^2=0.999998, max error 0.00045.
+	 *  Converges to terminal value 0.72096 for all C > 20B.  @author Eru */
+	public static boolean USE_MEAN_CF_FORMULA=false;
+
+	// 3 sigmoid steps + 2 Gaussian corrections (3S2G)
+	private static final double MCF_A0= -1.015179396169067;
+	private static final double MCF_A1=  1.594540127002307;
+	private static final double MCF_C1= -0.519234303092515;
+	private static final double MCF_W1=  1.249974670798734;
+	private static final double MCF_A2= -0.179798404560318;
+	private static final double MCF_C2= 13.595342271669020;
+	private static final double MCF_W2=  1.208514276422193;
+	private static final double MCF_A3=  0.321396896321896;
+	private static final double MCF_C3= 12.883995972095798;
+	private static final double MCF_W3=  1.342829006195819;
+	private static final double MCF_G1=  0.074973659412974;
+	private static final double MCF_GC1= 4.979261777628070;
+	private static final double MCF_GW1= 5.136222405328894;
+	private static final double MCF_G2= -0.062220148621530;
+	private static final double MCF_GC2=11.180707724131452;
+	private static final double MCF_GW2= 2.365584912098679;
+
+	/**
+	 * Computes Mean correction factor from closed-form formula.
+	 * Uses DLC estimate as cardinality seed (same as table lookup).
+	 * Terminal value: a0+a1+a2+a3 = 0.72096 (matches DLL4/LL6 empirical).
+	 *
+	 * @param card  estimated cardinality (typically dlcRawF)
+	 * @return multiplicative correction factor for Mean estimate
+	 */
+	public static double meanCfFormula(double card){
+		if(card<=0){return MCF_A0+MCF_A1+MCF_A2+MCF_A3;} // terminal
+		final double lc=Math.log(card)/LOG2; // log2(card)
+		final double s1=(1+Math.tanh((lc-MCF_C1)/MCF_W1))*0.5;
+		final double s2=(1+Math.tanh((lc-MCF_C2)/MCF_W2))*0.5;
+		final double s3=(1+Math.tanh((lc-MCF_C3)/MCF_W3))*0.5;
+		final double d1=(lc-MCF_GC1)/MCF_GW1; final double g1=Math.exp(-d1*d1);
+		final double d2=(lc-MCF_GC2)/MCF_GW2; final double g2=Math.exp(-d2*d2);
+		return MCF_A0+MCF_A1*s1+MCF_A2*s2+MCF_A3*s3+MCF_G1*g1+MCF_G2*g2;
+	}
+
+	private static final double LOG2=Math.log(2.0);
+
+	/*--------------------------------------------------------------*/
+	/*----------------     SBS State Index             ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Maps (nlzBin, histBits) to table column index for arbitrary history bit width.
 	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.
