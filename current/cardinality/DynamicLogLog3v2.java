@@ -75,7 +75,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -218,40 +218,42 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 
 	/**
 	 * Scans the bucket array once to populate the absolute NLZ histogram (nlzCounts),
-	 * then delegates all sum computation to CardinalityStats.fromNlzCounts().
+	 * then delegates all sum computation to CardStats.fromNlzCounts().
 	 * <p>
 	 * Phantom buckets (stored=0 when minZeros>0) are treated as absNlz = minZeros-1,
 	 * one tier below the current floor. This ensures the nlzCounts distribution is
 	 * identical regardless of promotion setting.
 	 */
-	private CardinalityStats summarize(){
-		if(nlzCounts==null){nlzCounts=new int[64];}
+	private CardStats summarize(){
+		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 
 		final int phantomNlz=minZeros-1;
+		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz]++;}
-			}else if(minZeros>0 && phantomNlz<64){
-				nlzCounts[phantomNlz]++;
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
+			}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+				nlzCounts[phantomNlz+1]++;
+				filledCount++;
 			}
 		}
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CF_MATRIX_CARD, CF_CARD_KEYS);
+		nlzCounts[0]=buckets-filledCount;
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0, buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		lastStats=s;
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
-	/** Last CardinalityStats from rawEstimates(); for debugging. */
-	public CardinalityStats lastStats;
+	/** Last CardStats from rawEstimates(); for debugging. */
+	public CardStats lastStats;
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

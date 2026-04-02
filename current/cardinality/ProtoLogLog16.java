@@ -268,52 +268,23 @@ public final class ProtoLogLog16 extends CardinalityTracker {
 		return shift;
 	}
 
-	private CardinalityStats summarize(){
-		// Build runtime multiplier table from CFs + offset
-		final int totalExtraBits=getActiveExtraBits();
-		final int numStates=1<<totalExtraBits;
-		final double[] mult;
-		if(CORRECTION_TABLE!=null && CORRECTION_TABLE.length==numStates){
-			mult=new double[numStates];
-			for(int s=0; s<numStates; s++){
-				// History/mantissa/etc: outlier has negative CF, needs 2^(-CF) = mult > 1
-			//   (inflate sum → reduce estimate for lucky outlier NLZ)
-			// Luck: outlier has negative CF, needs 2^(CF) = mult < 1
-			//   (reduce contribution → de-emphasize lucky outlier)
-			final double cf=CORRECTION_TABLE[s]+CF_OFFSET;
-			mult[s]=Math.pow(2.0, usesLuck() ? cf : -cf);
-			}
-		}else{
-			mult=null; // no correction
-		}
-
-		final int[] nlzCounts=new int[64];
-		double difSum=0, hllSumFilled=0, gSum=0;
-		int count=0;
-		final int extraMask=(1<<nlzShift())-1;
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
+		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int stored=maxArray[i]&0xFFFF;
 			if(stored>0){
 				final int absNlz=getAbsNlz(stored);
-				final int extra=stored&extraMask;
-				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
-				// Infancy guard: don't apply luck corrections until bucket has 2+ values.
-			// A bucket with only one hash has luckSecond==0 and its "gap" is undefined.
-			final boolean canCorrect=!usesLuck() || (luckSecond!=null && (luckSecond[i]&0xFF)>0);
-			final double m=(mult!=null && absNlz>=3 && extra<mult.length && canCorrect) ? mult[extra] : 1.0;
-				final double base=Math.pow(2.0, -absNlz)*m;
-				final double dif=((absNlz==0 ? (double)Long.MAX_VALUE : (absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0)))*m;
-				difSum+=dif;
-				hllSumFilled+=base;
-				gSum+=Math.log(Tools.max(1, dif));
-				count++;
+				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
 			}
 		}
+		nlzCounts[0]=buckets-filledCount;
 		lastRawNlz=nlzCounts;
-		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-			gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
-			CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-			nlzCounts, 0);
+		// PLL16 is counts-only for now; per-state corrections will move to StateTable.
+		// This loses per-state Mean/HMean precision but DLC/LC/Hybrid still work.
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	/** Returns total extra bits used by active modes. */
@@ -330,7 +301,7 @@ public final class ProtoLogLog16 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -352,8 +323,9 @@ public final class ProtoLogLog16 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/

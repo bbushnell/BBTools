@@ -75,43 +75,28 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	 * This is the only per-subclass method required — all estimator logic
 	 * lives in the returned CardinalityStats object.
 	 */
-	private CardinalityStats summarize(){
-		double difSum=0;
-		double hllSumFilled=0;
-		double gSum=0;
-		int count=0;
-		if(USE_SORTBUF){
-			if(sortBuf==null){sortBuf=new LongList(buckets);}
-			sortBuf.clear();
-		}
-		if(nlzCounts==null){nlzCounts=new int[64];}
+	private CardStats summarize(){
+		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-
+		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz]++;}
-				final long dif;
-				if(absNlz==0){dif=Long.MAX_VALUE;}
-				else if(absNlz<wordlen){dif=1L<<(wordlen-absNlz-1);}
-				else{dif=1L;}
-				difSum+=dif;
-				hllSumFilled+=Math.pow(2.0, -absNlz);
-				gSum+=Math.log(Tools.max(1, dif));
-				count++;
-				if(USE_SORTBUF){sortBuf.add(dif);}
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
 			}
 		}
-		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-		                            gSum, count, buckets, sortBuf, CF_MATRIX, CF_BUCKETS,
-		                            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex, nlzCounts, 0);
+		nlzCounts[0]=buckets-filledCount;
+		// DLL2 is counts-only: no history, luck, or mantissa bits. buckets=null.
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -248,8 +233,9 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/

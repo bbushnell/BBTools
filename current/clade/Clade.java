@@ -365,7 +365,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static final int DECIMAL=0, A48=1;
 	public static int outputCoding=A48; //A48 breaks Cloudflare...  now bypassed
 	public static int MAXK=5;
-	public static boolean callSSU=false;
+	public static boolean callSSU=true;
 	public static boolean writeLineage=true;
 	public static boolean MAKE_FREQUENCIES=true;
 	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.

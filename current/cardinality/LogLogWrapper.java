@@ -162,7 +162,7 @@ class LogLogWrapper {
 			}else if(a.equals("promotefrac") || a.equals("pf")){
 				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
 			}else if(a.equals("frozenhistory") || a.equals("frozen")){
-				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
+//				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}else if(a.equals("atomic")){
 				assert(false) : "Atomic flag disabled.";
 //				CardinalityTracker.atomic=Parse.parseBoolean(b);

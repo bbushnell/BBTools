@@ -302,89 +302,60 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     // ---- Summarize: ULL8's approach — multiplicative corrections, single loop ----
 
-    private CardinalityStats summarize(){
-        final int states=1<<getActiveExtraBits();
-        final int mask=(1<<nlzShift())-1;
-        // minTier: below this, use per-tier tables (if available) or no correction.
-        // With tier tables: tiers 0..len-1 use tier CFs, tier len+ use steady-state.
-        // Without tier tables: history needs HISTORY_BITS+1, luck needs 2^LUCK_BITS.
-        // For combined modes, minTier is driven by the history/luck component alone
-        // (mantissa reaches steady state immediately — it's just hash bits).
-        final int minTier;
-        if(TIER_TABLES!=null){minTier=TIER_TABLES.length;}
-        else if(usesLuck()){minTier=(1<<LUCK_BITS);}
-        else if(usesHistory()){minTier=HISTORY_BITS+1;}
-        else{minTier=0;}
+    private CardStats summarize(){
+        final int[] nlzCounts=new int[66];
+        final boolean hasHist=usesHistory();
+        final boolean hasMant=(MODE&MODE_MANTISSA)!=0;
+        final int hbits=hasHist ? HISTORY_BITS : 0;
+        final int mbits=hasMant ? MANTISSA_BITS : 0;
+        final int hshift=getHistoryShift(); // bit position of history in the register's extra field
+        final int hmask=(1<<hbits)-1;
+        final int mmask=(1<<mbits)-1;
 
-        // Build per-tier multiplier table (like ULL8)
-        final double[][] tierMult=new double[64][states];
-        for(int t=0; t<64; t++){
-            double[] cf=null;
-            if(TIER_TABLES!=null && t<TIER_TABLES.length){
-                cf=TIER_TABLES[t]; // per-tier correction
-            }else if(t>=minTier){
-                cf=CORRECTION_TABLE; // steady-state correction
-            }
-            // else: cf stays null → multiplier = 1.0 (no correction for low tiers without tier tables)
-            for(int s=0; s<states; s++){
-                tierMult[t][s]=(cf!=null && s<cf.length) ? Math.pow(2.0, -(cf[s]+CF_OFFSET)) : 1.0;
-            }
-        }
+        // Build packed buckets when sub-NLZ bits are present.
+        // CardStats phase 2a expects: ((absNlz+1) << histBits) | histPattern
+        // CardStats phase 2b expects: ((absNlz+1) << mantissaBits) | invMant
+        // For single-mode, pack accordingly. For combined, use history (phase 2a) only for now.
+        final int subBits;
+        final int csHistBits, csMantBits;
+        if(hasHist){subBits=hbits; csHistBits=hbits; csMantBits=0;}
+        else if(hasMant){subBits=mbits; csHistBits=0; csMantBits=mbits;}
+        else{subBits=0; csHistBits=0; csMantBits=0;}
 
-        double difSum=0, hllSumFilled=0, gSum=0;
-        int count=0, histVirtualTotal=0, histVirtualFilled=0;
-        final int[] nlzCounts=new int[64];
-        final int hshift=getHistoryShift();
-        final int hbits=usesHistory() ? HISTORY_BITS : 0;
-        // Lazy-allocate per-bucket LC history state index array (reused across calls).
-        if(hbits>0 && lcHistStates==null){lcHistStates=new byte[buckets];}
+        char[] packedBuckets=(subBits>0) ? new char[buckets] : null;
+        int filledCount=0;
 
         for(int i=0; i<buckets; i++){
             final int stored=maxArray[i]&0xFFFF;
             if(stored>0){
                 final int absNlz=getAbsNlz(stored);
-                final int extra=stored&mask;
-                if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
-                final double m=tierMult[Math.min(absNlz, 63)][Math.min(extra, states-1)];
-                final double base=Math.pow(2.0, -absNlz)*m;
-                final double dif=(absNlz==0 ? (double)Long.MAX_VALUE :
-                    (absNlz<64 ? (double)(1L<<(63-absNlz)) : 1.0))*m;
-                difSum+=dif;
-                hllSumFilled+=base;
-                gSum+=Math.log(Tools.max(1, dif));
-                count++;
-                // Virtual buckets from history: tier t has min(hbits, max(0, t-1)) valid slots.
-                // h1 (MSB) = tier t-1, h0 = tier t-2. Valid slots counted from h1 downward.
-                final int validSlots=Math.min(hbits, Math.max(0, absNlz-1));
-                histVirtualTotal+=validSlots;
-                if(validSlots>0){
-                    final int hist=(extra>>>hshift)&((1<<hbits)-1);
-                    // Valid bits are the top `validSlots` bits of the history field
-                    final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
-                    histVirtualFilled+=Integer.bitCount(hist&validMask);
+                if(absNlz>=0 && absNlz<64){
+                    nlzCounts[absNlz+1]++;
+                    filledCount++;
+                    if(packedBuckets!=null){
+                        final int extra=getExtra(stored);
+                        if(hasHist){
+                            final int histPattern=(extra>>>hshift)&hmask;
+                            packedBuckets[i]=(char)(((absNlz+1)<<hbits)|histPattern);
+                        }else if(hasMant){
+                            final int invMant=extra&mmask;
+                            packedBuckets[i]=(char)(((absNlz+1)<<mbits)|invMant);
+                        }
+                    }
                 }
-                // LC history state: map (rawNlz, histBits) to table index
-                if(lcHistStates!=null){
-                    final int rawNlz=absNlz; // absNlz = (stored>>>nlzShift())-1 = raw nlz
-                    final int nlzBin=Math.min(rawNlz, hbits+1);
-                    final int hist=(extra>>>hshift)&((1<<hbits)-1);
-                    lcHistStates[i]=(byte)CorrectionFactor.lcHistStateIndex(nlzBin, hist, hbits);
-                }
-            }else{
-                if(lcHistStates!=null){lcHistStates[i]=-1;} // empty
             }
         }
+        nlzCounts[0]=buckets-filledCount;
         lastRawNlz=nlzCounts;
-        return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
-            gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
-            CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-            nlzCounts, 0, histVirtualTotal, histVirtualFilled, lcHistStates);
+        final double mantOff=hasMant ? 0.5 : 0;
+        return new CardStats(packedBuckets, nlzCounts, 0, csHistBits, 0, csMantBits,
+                buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, mantOff);
     }
 
     @Override
     public final long cardinality(){
         if(lastCardinality>=0) return lastCardinality;
-        final CardinalityStats s=summarize();
+        final CardStats s=summarize();
         final double rawHyb=s.hybridDLL();
         long card=(long)(rawHyb);
         card=Math.max(card, s.microCardinality());
@@ -424,11 +395,11 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 			}
 		}
 
-		// Build a CardinalityStats to get DLC, lcMin, and HLL from the standard pipeline.
-		final CardinalityStats s=summarize();
-		final double dlc=s.dlcLogSpace025Public();
-		final double lcMin=s.lcMin;
-		final double hll=s.hll(false);
+		// Build a CardStats to get DLC, lcMin, and HLL from the standard pipeline.
+		final CardStats s=summarize();
+		final double dlc=s.dlcRaw();
+		final double lcMin=s.lcMin();
+		final double hll=s.hllRaw();
 
 		// HC: history-only per-tier LC, generalized for variable history bits.
 		// For each history bit offset d (0=MSB=most recent, hbits-1=LSB=oldest):
@@ -460,7 +431,11 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 			if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
 				final double est=(1L<<(t+1))*(double)buckets*Math.log((double)hcBeff/hcUnseen);
 				if(est>0 && !Double.isNaN(est)){
-					final double w=(double)hcBeff/buckets;
+					final int hcOcc=hcBeff-hcUnseen;
+					final double hcErr=AbstractCardStats.SQRT_2_OVER_PI
+						*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
+						/Math.log((double)hcBeff/hcUnseen);
+					final double w=Math.pow(1.0/hcErr, AbstractCardStats.HC_INFO_POWER);
 					hcSumW+=w;
 					hcSumWLogE+=w*Math.log(est);
 				}
@@ -481,7 +456,9 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 		}
 
 		final double fgra=0; // PLL16c does not implement FGRA
-		return new double[]{ldlc, dlc, hc, lcMin, fgra, hll};
+		final double meanH=s.meanHistCF();
+		final double hybridPlus2=s.hybridPlus2();
+		return new double[]{ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2};
 	}
 
     @Override public final void add(CardinalityTracker log){throw new UnsupportedOperationException();}
@@ -491,8 +468,9 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     @Override
     public double[] rawEstimates(){
-        final CardinalityStats s=summarize();
-        return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+        final CardStats s=summarize();
+        final double hybridEst=s.hybridDLL();
+        return AbstractCardStats.buildLegacyArray(s, hybridEst);
     }
 
     private static int getActiveExtraBits(){

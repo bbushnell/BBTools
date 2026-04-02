@@ -38,14 +38,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		super(p);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	DynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	@Override
@@ -72,40 +72,45 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Scans the bucket array once to populate the absolute NLZ histogram (nlzCounts),
-	 * then delegates all sum computation to CardinalityStats.fromNlzCounts().
+	 * Populates the NLZ histogram (nlzCounts) and builds a CardStats.
 	 * <p>
 	 * Phantom buckets (stored=0 when minZeros>0) are treated as absNlz = minZeros-1,
 	 * one tier below the current floor. This ensures the nlzCounts distribution is
 	 * identical regardless of EARLY_PROMOTE setting.
 	 */
-	private CardinalityStats summarize(){
+	private CardStats summarize(){
 		if(!FAST_COUNT){
-			if(nlzCounts==null){nlzCounts=new int[64];}
+			if(nlzCounts==null){nlzCounts=new int[66];}
 			else{java.util.Arrays.fill(nlzCounts, 0);}
 			final int phantomNlz=minZeros-1;
+			int filledCount=0;
 			for(int i=0; i<buckets; i++){
 				final int stored=readBucket(i);
 				if(stored>0){
 					final int absNlz=(stored-1)+minZeros;
-					if(absNlz<64){nlzCounts[absNlz]++;}
-				}else if(minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+					if(absNlz<64){nlzCounts[absNlz+1]++;}
+					filledCount++;
+				}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					nlzCounts[phantomNlz+1]++;
+					filledCount++;
 				}
 			}
+			nlzCounts[0]=buckets-filledCount;
+		}else{
+			// FAST_COUNT=true: nlzCounts already maintained incrementally.
+			int sum=0; for(int t=1; t<66; t++){sum+=nlzCounts[t];} nlzCounts[0]=buckets-sum;
 		}
-		// FAST_COUNT=true: nlzCounts already maintained incrementally; use directly.
 		lastRawNlz=nlzCounts.clone();
 		lastCorrNlz=lastRawNlz; // DLL4 has no overflow correction
-		return CardinalityStats.fromNlzCounts(nlzCounts, buckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
+		// DLL4 is counts-only: no history, luck, or mantissa bits. buckets=null.
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL(); // CF already inside blend (on meanEstCF)
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -217,14 +222,16 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			// Remove old slot from nlzCounts
 			if(oldStored>0){
 				final int oldAbsNlz=(oldStored-1)+minZeros;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz]--;}
+				if(oldAbsNlz<64){nlzCounts[oldAbsNlz+1]--;}
 			}else if(minZeros>0){
 				final int pNlz=minZeros-1;
-				if(pNlz<64){nlzCounts[pNlz]--;}
+				if(pNlz<64){nlzCounts[pNlz+1]--;}
+			}else{
+				nlzCounts[0]--; // was truly empty
 			}
 			// Add new slot
 			final int newAbsNlz=(newStored-1)+minZeros;
-			if(newAbsNlz<64){nlzCounts[newAbsNlz]++;}
+			if(newAbsNlz<64){nlzCounts[newAbsNlz+1]++;}
 		}
 
 		// minZeroCount decrements when a bucket leaves the tracked-zero category.
@@ -279,8 +286,9 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/

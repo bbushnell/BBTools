@@ -42,7 +42,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	DynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
@@ -52,7 +52,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
-		if(FAST_COUNT){nlzCounts=new int[64];}
+		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
 	@Override
@@ -81,7 +81,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
@@ -143,9 +143,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
-					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz]++;}}
-				}else if(FAST_COUNT && minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz+1]++;}}
+				}else if(FAST_COUNT && minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					nlzCounts[phantomNlz+1]++;
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
@@ -188,14 +188,16 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 			// Remove old slot from nlzCounts
 			if(oldStored>0){
 				final int oldAbsNlz=(oldStored-1)+minZeros;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz]--;}
+				if(oldAbsNlz<64){nlzCounts[oldAbsNlz+1]--;}
 			}else if(minZeros>0){
 				final int pNlz=minZeros-1;
-				if(pNlz<64){nlzCounts[pNlz]--;}
+				if(pNlz<64){nlzCounts[pNlz+1]--;}
+			}else{
+				nlzCounts[0]--; // was truly empty
 			}
 			// Add new slot
 			final int newAbsNlz=(newStored-1)+minZeros;
-			if(newAbsNlz<64){nlzCounts[newAbsNlz]++;}
+			if(newAbsNlz<64){nlzCounts[newAbsNlz+1]++;}
 		}
 
 		// minZeroCount decrements when a bucket leaves the tracked-zero category.
@@ -271,29 +273,38 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * one tier below the current floor. This ensures the nlzCounts distribution is
 	 * identical regardless of EARLY_PROMOTE setting.
 	 */
-	private CardinalityStats summarize(){
+	private CardStats summarize(){
 		if(!FAST_COUNT){
-			if(nlzCounts==null){nlzCounts=new int[64];}
+			if(nlzCounts==null){nlzCounts=new int[66];}
 			else{java.util.Arrays.fill(nlzCounts, 0);}
 			final int phantomNlz=minZeros-1;
+			int filledCount=0;
 			for(int i=0; i<buckets; i++){
 				final int stored=readBucket(i);
 				if(stored>0){
 					final int absNlz=(stored-1)+minZeros;
-					if(absNlz<64){nlzCounts[absNlz]++;}
-				}else if(minZeros>0 && phantomNlz<64){
-					nlzCounts[phantomNlz]++;
+					if(absNlz<64){nlzCounts[absNlz+1]++;}
+					filledCount++;
+				}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					nlzCounts[phantomNlz+1]++;
+					filledCount++;
 				}
 			}
+			nlzCounts[0]=buckets-filledCount;
+		}else{
+			// FAST_COUNT=true: nlzCounts already maintained incrementally.
+			// Recompute nlzCounts[0] to ensure empties are counted.
+			int sum=0;
+			for(int t=1; t<66; t++){sum+=nlzCounts[t];}
+			nlzCounts[0]=buckets-sum;
 		}
-		// FAST_COUNT=true: nlzCounts already maintained incrementally; use directly.
 		final boolean doDebug=DEBUG_ONCE;
 		if(doDebug){
 			DEBUG_ONCE=false;
 			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" buckets="+buckets);
 			System.err.println("  CORRECT_OVERFLOW="+CORRECT_OVERFLOW+" xOverflow="+xOverflow+" expFactor="+overflowExpFactor);
 			System.err.println("  nlzCounts (nonzero):");
-			for(int t=0; t<64; t++){if(nlzCounts[t]>0){System.err.println("    tier "+t+": "+nlzCounts[t]);}}
+			for(int t=0; t<66; t++){if(nlzCounts[t]>0){System.err.println("    tier "+(t-1)+": "+nlzCounts[t]);}}
 		}
 		final int[] counts;
 		if(CORRECT_OVERFLOW && minZeros>=1){
@@ -302,10 +313,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 			// Phantom tier (absNlz=minZeros-1) is excluded — it is below minZeros.
 			final int lo=Math.max(7, minZeros);
 			final int hi=Math.min(6+minZeros, 63);
-			// Build reverse-cumulative array: cumRaw[t] = sum of nlzCounts[t..63]
+			// Build reverse-cumulative array over nlz indices [1..65] (absNlz 0..64)
+			// cumRaw[t] = sum of nlzCounts[t+1..65]  (i.e., buckets with absNlz >= t)
 			final int[] cumRaw=new int[64];
-			cumRaw[63]=nlzCounts[63];
-			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t];}
+			cumRaw[63]=nlzCounts[64]; // absNlz=63 stored at index 64
+			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
 
 			// Correct in cumulative space: each tier independently.
 			// correctedCum[t] = cumRaw[t] + (B - cumRaw[t]) * (1 - exp(-X_t/B))
@@ -326,29 +338,34 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				corrCum[maxHi]=corrCum[hi]/2;
 			}
 
-			// Derive corrected single-tier counts from cumulative differences.
+			// Derive corrected counts[] in the new int[66] format.
 			counts=nlzCounts.clone();
-			if(lo>0){counts[lo-1]=corrCum[lo-1]-corrCum[lo];}
-			for(int t=lo; t<maxHi; t++){counts[t]=corrCum[t]-corrCum[t+1];}
-			counts[maxHi]=corrCum[maxHi];
+			if(lo>0){counts[lo]=corrCum[lo-1]-corrCum[lo];} // absNlz=lo-1 at index lo
+			for(int t=lo; t<maxHi; t++){counts[t+1]=corrCum[t]-corrCum[t+1];}
+			counts[maxHi+1]=corrCum[maxHi];
+			// Recompute empties
+			int corrSum=0;
+			for(int t=1; t<66; t++){corrSum+=counts[t];}
+			counts[0]=buckets-corrSum;
 			if(doDebug){
 				System.err.println("  After correction [lo="+lo+" hi="+hi+"] (nonzero):");
-				for(int t=0; t<64; t++){if(counts[t]>0){System.err.println("    tier "+t+": "+counts[t]);}}
+				for(int t=0; t<66; t++){if(counts[t]>0){System.err.println("    tier "+(t-1)+": "+counts[t]);}}
 			}
 		}else{
 			counts=nlzCounts;
 		}
 		lastRawNlz=nlzCounts.clone();
 		lastCorrNlz=(counts==nlzCounts) ? lastRawNlz : counts;
-		return CardinalityStats.fromNlzCounts(counts, buckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
+		// DLL3 is counts-only: no history, luck, or mantissa bits. buckets=null.
+		return new CardStats(null, counts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	/*--------------------------------------------------------------*/

@@ -78,27 +78,31 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
-	private CardinalityStats summarize(){
-		final int[] nlzCounts=new int[64];
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
 		final int phantomNlz=minZeros-1;
+		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
 			final int stored=registers[i]&0xFF;
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz]++;}
+				if(absNlz<64){nlzCounts[absNlz+1]++;}
+				filledCount++;
 			}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-				nlzCounts[phantomNlz]++;
+				nlzCounts[phantomNlz+1]++;
+				filledCount++;
 			}
 		}
-		return CardinalityStats.fromNlzCounts(nlzCounts, modBuckets, microIndex,
-		                                      CF_MATRIX, CF_BUCKETS,
-		                                      CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys);
+		nlzCounts[0]=modBuckets-filledCount;
+		// DLL4m is counts-only: no history, luck, or mantissa bits. buckets=null.
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		final CardinalityStats s=summarize();
+		final CardStats s=summarize();
 		final double rawHyb=s.hybridDLL();
 		long card=(long)(rawHyb*s.cf(rawHyb, CorrectionFactor.HYBRID));
 		card=Math.max(card, s.microCardinality());
@@ -118,8 +122,9 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardinalityStats s=summarize();
-		return s.toArray(Math.max(s.hybridDLL(), s.microCardinality()));
+		final CardStats s=summarize();
+		final double hybridEst=s.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
 	private static final int wordlen=64;

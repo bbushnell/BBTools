@@ -51,9 +51,6 @@ public class SpeedTest {
             }else if(ct instanceof DynamicDemiLog8){
                 DynamicDemiLog8 d=(DynamicDemiLog8)ct;
                 b1sum+=d.branch1Rate(); b2sum+=d.branch2Rate();
-            }else if(ct instanceof ULLc){
-                ULLc d=(ULLc)ct;
-                b1sum+=d.branch1Rate(); b2sum+=d.branch2Rate();
             }
         }
         long t1=System.currentTimeMillis();

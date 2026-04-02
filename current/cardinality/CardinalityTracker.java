@@ -68,6 +68,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog2();
 		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
 			return new DynamicDemiLog8();
+		}else if("DDL8v2".equalsIgnoreCase(type) || "DynamicDemiLog8v2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8v2();
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4();
@@ -145,6 +147,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog2(p);
 		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
 			return new DynamicDemiLog8(p);
+		}else if("DDL8v2".equalsIgnoreCase(type) || "DynamicDemiLog8v2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8v2(p);
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4(p);
@@ -217,6 +221,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog2(buckets_, k_, seed, minProb_);
 		}else if("DDL8".equalsIgnoreCase(type) || "DynamicDemiLog8".equalsIgnoreCase(type)){
 			return new DynamicDemiLog8(buckets_, k_, seed, minProb_);
+		}else if("DDL8v2".equalsIgnoreCase(type) || "DynamicDemiLog8v2".equalsIgnoreCase(type)){
+			return new DynamicDemiLog8v2(buckets_, k_, seed, minProb_);
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
 			"DDL4".equalsIgnoreCase(type) || "DynamicDemiLog4".equalsIgnoreCase(type)){
 			return new DynamicLogLog4(buckets_, k_, seed, minProb_);

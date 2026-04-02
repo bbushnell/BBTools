@@ -5,7 +5,7 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * DynamicDemiLog cardinality estimator extending DemiLogLog (LogLog16) with an adaptive
+ * DynamicDemiLog8v2 cardinality estimator extending DemiLogLog (LogLog16) with an adaptive
  * early-exit mechanism. Maintains two extra integers for metadata:
  * minZeros: The minimum number of leading zeros seen across all buckets
  * minZeroCount: Number of buckets with minZeros
@@ -17,7 +17,7 @@ import structures.LongList;
  * @contributor Chloe
  * @date February 27, 2026
  */
-public final class DynamicDemiLog extends CardinalityTracker {
+public final class DynamicDemiLog8v2 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -25,13 +25,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	/** Creates a DynamicLogLog with default parameters.
 	 * Uses 2048 buckets, k=31, random seed, and no minimum probability filtering. */
-	DynamicDemiLog(){
+	DynamicDemiLog8v2(){
 		this(2048, 31, -1, 0);
 	}
 
 	/** Creates a DynamicLogLog with parameters parsed from command-line arguments.
 	 * @param p Parser containing configuration from command-line flags */
-	DynamicDemiLog(Parser p){
+	DynamicDemiLog8v2(Parser p){
 		super(p);
 		maxArray=new char[buckets];
 		countArray=new char[buckets];
@@ -45,7 +45,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param seed Random number generator seed; -1 for random seed
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
-	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_){
+	DynamicDemiLog8v2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
 		countArray=new char[buckets];
@@ -53,7 +53,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	}
 
 	@Override
-	public DynamicDemiLog copy(){return new DynamicDemiLog(buckets, k, -1, minProb);}
+	public DynamicDemiLog8v2 copy(){return new DynamicDemiLog8v2(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
@@ -81,9 +81,9 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
-		// DDL: nlzBits=6, mantissaBits=10, mantissaOffset=0.0 (no +0.5 bias)
+		// DDL8v2: nlzBits=6, mantissaBits=2, mantissaOffset=0.5 (matches DDL8)
 		return new CardStats(packedBuckets, nlzCounts, 6, 0, 0, mantissabits,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0.0);
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0.5);
 	}
 
 	@Override
@@ -101,10 +101,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((DynamicDemiLog)log);
+		add((DynamicDemiLog8v2)log);
 	}
 
-	public void add(DynamicDemiLog log){
+	public void add(DynamicDemiLog8v2 log){
 		added+=log.added;
 		branch1+=log.branch1;
 		branch2+=log.branch2;
@@ -126,7 +126,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	/** Compares two DynamicLogLog instances bucket by bucket.
 	 * @return int[] {lower, equal, higher} bucket counts */
-	public int[] compareTo(DynamicDemiLog blog){return compare(maxArray, blog.maxArray);}
+	public int[] compareTo(DynamicDemiLog8v2 blog){return compare(maxArray, blog.maxArray);}
 
 	@Override
 	public void hashAndStore(final long number){
@@ -324,7 +324,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	private static final int wordlen=64;
 	/** Number of mantissa bits for floating-point compression; 10 is maximum. */
-	private static final int mantissabits=10;
+	private static final int mantissabits=2;
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
 
@@ -333,7 +333,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	//	 * the blend leans toward LinearCounting; above it toward the value-based estimate. */
 
 	/** Default resource file for DDL correction factors. */
-	public static final String CF_FILE="?cardinalityCorrectionDDL.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionDDL8.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
