@@ -26,7 +26,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 	private long eeMask=-1L;
 	private int filledBuckets=0;
 	/** Lazy-allocated per-bucket LC history state indices for lcHist(). */
-	private byte[] lcHistStates;
+	private byte[] sbsStates;
 
 	UltraDynamicLogLog6i(){this(2048, 31, -1, 0);}
 	UltraDynamicLogLog6i(Parser p){
@@ -202,7 +202,7 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 		double difSum=0, hllSumFilled=0, gSum=0;
 		int count=0, histVirtualTotal=0, histVirtualFilled=0;
 		// Lazy-allocate per-bucket LC history state index array (reused across calls).
-		if(lcHistStates==null){lcHistStates=new byte[buckets];}
+		if(sbsStates==null){sbsStates=new byte[buckets];}
 
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
@@ -225,16 +225,16 @@ public final class UltraDynamicLogLog6i extends CardinalityTracker {
 				}
 				// LC history state: map (nlzBin, histBits) to table index
 				final int nlzBin=Math.min(absNlz, hbits+1);
-				lcHistStates[i]=(byte)CorrectionFactor.lcHistStateIndex(nlzBin, hist, hbits);
+				sbsStates[i]=(byte)CorrectionFactor.sbsStateIndex(nlzBin, hist, hbits);
 			}else{
-				lcHistStates[i]=-1; // empty bucket
+				sbsStates[i]=-1; // empty bucket
 			}
 		}
 		nlzCounts[0]=buckets-count;
 		return new CardinalityStats(difSum, hllSumFilled, hllSumFilled,
 			gSum, count, buckets, null, CF_MATRIX, CF_BUCKETS,
 			CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys, microIndex,
-			nlzCounts, 0, histVirtualTotal, histVirtualFilled, lcHistStates);
+			nlzCounts, 0, histVirtualTotal, histVirtualFilled, sbsStates);
 	}
 
 	/** Memory used by the packed array in bytes. */

@@ -26,7 +26,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private long eeMask=-1L;
 	private int filledBuckets=0;
 	/** Lazy-allocated per-bucket LC history state indices for lcHist(). */
-	private byte[] lcHistStates;
+	private byte[] sbsStates;
 
 	public UltraDynamicLogLog6(){this(2048, 31, -1, 0);}
 	UltraDynamicLogLog6(Parser p){
@@ -197,7 +197,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	}
 
 	/** Build a CardStats from the register array.
-	 *  Counts-only for now; per-state tier multipliers and lcHistStates will
+	 *  Counts-only for now; per-state tier multipliers and sbsStates will
 	 *  move to CardStats phase 2a when StateTable is implemented. */
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
@@ -323,12 +323,10 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 			lcMin=Math.max(lcMinTmp, lcFloor);
 		}
 
-		// Get lcHist from CardStats — history-corrected LC for use as DLC floor
+		// Get DLCHist and lcHist from CardStats
 		final CardStats s=summarize();
-		final double lcHist=s.lcHist();
-
-		// DLC: info-power weighted blend, with lcHist fallback (not plain lcMin)
-		final double dlc=AbstractCardStats.dlcInfoPow(nlzCounts, V, buckets, lcHist, AbstractCardStats.DLC_INFO_POWER);
+		final double sbs=s.sbs();
+		final double dlc=s.dlcSbs(); // DLC with SBS fallback
 
 		// HC: history-only per-tier exact LC
 		final int[] nlzBucketCount=new int[64];
@@ -381,15 +379,15 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		final boolean hcUsable=(hc>0 && dlc>0);
 		double ldlc;
 		if(dlc<=aLo){
-			ldlc=lcHist;
+			ldlc=sbs;
 		}else if(dlc<=bLo || !hcUsable){
 			// Only Blend A active (or HC unavailable)
 			final double tA=Math.min(1, (dlc-aLo)/(aHi-aLo));
-			ldlc=(1-tA)*lcHist+tA*dlc;
+			ldlc=(1-tA)*sbs+tA*dlc;
 		}else if(dlc<=aHi){
 			// Both blends active: average
 			final double tA=(dlc-aLo)/(aHi-aLo);
-			final double blendA=(1-tA)*lcHist+tA*dlc;
+			final double blendA=(1-tA)*sbs+tA*dlc;
 			final double tB=Math.min(1, (dlc-bLo)/(bHi-bLo));
 			final double hcW=tB*maxHcWeight;
 			final double blendB=(1-hcW)*dlc+hcW*hc;

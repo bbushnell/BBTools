@@ -109,7 +109,7 @@ public class CardinalityStats {
 
 	/**
 	 * Full constructor with history-based virtual buckets and LC history state indices.
-	 * @param lcHistStates_ per-bucket LC history state index (0..10) or -1 for empty; null if unavailable
+	 * @param sbsStates_ per-bucket LC history state index (0..10) or -1 for empty; null if unavailable
 	 */
 	CardinalityStats(double difSum_, double hllSumFilled_, double hllSumFilledM_,
 	                 double gSum_, int count_, int buckets_,
@@ -117,7 +117,7 @@ public class CardinalityStats {
 	                 float[][] matrixCard_, float[] cardKeys_, long microIndex_,
 	                 int[] nlzCounts_, int minZeros_,
 	                 int histVirtualTotal_, int histVirtualFilled_,
-	                 byte[] lcHistStates_){
+	                 byte[] sbsStates_){
 		final int mz=minZeros_;
 
 		// Set card data first so cf() calls below can use three-domain lookup.
@@ -240,13 +240,13 @@ public class CardinalityStats {
 		}
 
 		// History-aware LC estimate
-		lcHistStates=lcHistStates_;
+		sbsStates=sbsStates_;
 
-		// LC component for hybrid blend: lcHist() when flag is on and table available, else lcMin.
+		// LC component for hybrid blend: sbs() when flag is on and table available, else lcMin.
 		// Computed once here so hybrid methods don't recompute the table lookup.
-		if(CardinalityTracker.USE_LCHIST_IN_HYBRID && lcHistStates_!=null
-				&& CorrectionFactor.LC_2BIT_CF_TABLE!=null){
-			lcForHybrid=lcHist();
+		if(CardinalityTracker.USE_SBS_IN_HYBRID && sbsStates_!=null
+				&& CorrectionFactor.SBS_CF_TABLE!=null){
+			lcForHybrid=sbs();
 		}else{
 			lcForHybrid=lcMin;
 		}
@@ -360,10 +360,10 @@ public class CardinalityStats {
 	 * from the LC history correction table, indexed by (filled_count, state).
 	 * Falls back to lcPure if the table is not loaded or states are unavailable.
 	 */
-	public double lcHist(){
-		final float[][] table=CorrectionFactor.LC_2BIT_CF_TABLE;
-		if(table==null || lcHistStates==null){return lcPure;}
-		final int tableBuckets=CorrectionFactor.lcHistBuckets;
+	public double sbs(){
+		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
+		if(table==null || sbsStates==null){return lcPure;}
+		final int tableBuckets=CorrectionFactor.sbsBuckets;
 
 		final float[] row;
 		if(buckets==tableBuckets){
@@ -375,17 +375,17 @@ public class CardinalityStats {
 			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 			final int hi=Math.min(lo+1, tableBuckets);
 			final double frac=pos-lo;
-			row=new float[CorrectionFactor.LC_HIST_STATES];
+			row=new float[CorrectionFactor.SBS_STATES];
 			final float[] rowLo=table[lo];
 			final float[] rowHi=table[hi];
-			for(int s=0; s<CorrectionFactor.LC_HIST_STATES; s++){
+			for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
 				row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
 			}
 		}
 
 		double est=0;
-		for(int i=0; i<lcHistStates.length; i++){
-			final int si=lcHistStates[i];
+		for(int i=0; i<sbsStates.length; i++){
+			final int si=sbsStates[i];
 			if(si>=0){est+=row[si];}
 		}
 		return est;
@@ -395,10 +395,10 @@ public class CardinalityStats {
 	 * History-aware LC using multipliers: LC × weightedAvg(CF per bucket state).
 	 * Falls back to lcPure if the mult table is not loaded or states unavailable.
 	 */
-	public double lcHistMult(){
-		final float[][] table=CorrectionFactor.LC_2BIT_MULT_TABLE;
-		if(table==null || lcHistStates==null){return lcPure;}
-		final int tableBuckets=CorrectionFactor.lcHistMultBuckets;
+	public double sbsMult(){
+		final float[][] table=CorrectionFactor.SBS_MULT_TABLE;
+		if(table==null || sbsStates==null){return lcPure;}
+		final int tableBuckets=CorrectionFactor.sbsMultBuckets;
 
 		final float[] row;
 		if(buckets==tableBuckets){
@@ -408,10 +408,10 @@ public class CardinalityStats {
 			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 			final int hi=Math.min(lo+1, tableBuckets);
 			final double frac=pos-lo;
-			row=new float[CorrectionFactor.LC_HIST_STATES];
+			row=new float[CorrectionFactor.SBS_STATES];
 			final float[] rowLo=table[lo];
 			final float[] rowHi=table[hi];
-			for(int s=0; s<CorrectionFactor.LC_HIST_STATES; s++){
+			for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
 				row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
 			}
 		}
@@ -419,8 +419,8 @@ public class CardinalityStats {
 		// Weighted average of CFs across filled buckets
 		double sumCF=0;
 		int n=0;
-		for(int i=0; i<lcHistStates.length; i++){
-			final int si=lcHistStates[i];
+		for(int i=0; i<sbsStates.length; i++){
+			final int si=sbsStates[i];
 			if(si>=0){sumCF+=row[si]; n++;}
 		}
 		if(n==0){return lcPure;}
@@ -446,7 +446,7 @@ public class CardinalityStats {
 	 * Hybrid estimator for mantissa-free classes (DLL3, DLL4).
 	 * Blends LC → Mean(CF) using log interpolation over [0.20B, 5.0B].
 	 * Zone detection uses uncorrected lcMin (or DLC); the blended VALUE uses
-	 * lcForHybrid (lcHist when available) so the corrected estimate doesn't
+	 * lcForHybrid (sbs() when available) so the corrected estimate doesn't
 	 * shift the blend boundaries.
 	 */
 	public double hybridDLL(){
@@ -574,7 +574,7 @@ public class CardinalityStats {
 	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
 	 * Blends LC → Mean(CF) → HMeanM(CF) using log interpolation with smooth crossover.
 	 * Zone detection uses uncorrected lcMin; the blended VALUE uses lcForHybrid
-	 * (lcHist when available) so the corrected estimate doesn't shift blend boundaries.
+	 * (sbs() when available) so the corrected estimate doesn't shift blend boundaries.
 	 * CF is applied inside the blend (on meanEstCF/hmeanPureMCF), not to the whole result.
 	 */
 	public double hybridDDL(){
@@ -630,8 +630,8 @@ public class CardinalityStats {
 		final double rawDLCBest=dlcBest();
 		r[13]=rawDLCBest*cf(rawDLCBest, CorrectionFactor.DLCBEST);
 		r[14]=rawHybDLC*cf(rawHybDLC, CorrectionFactor.HYBDLC);
-		r[15]=Math.max(lcHist(), micro);
-		r[16]=Math.max(lcHistMult(), micro);
+		r[15]=Math.max(sbs(), micro);
+		r[16]=Math.max(sbsMult(), micro);
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[17+t]=dlcEstimate(t);
 		}
@@ -1100,12 +1100,12 @@ public class CardinalityStats {
 	// Replaces lcPure everywhere except raw LC output (slot 5) and HLL fallback.
 	final double lcMin;
 
-	// LC component for hybrid blend: lcHist() when USE_LCHIST_IN_HYBRID && table loaded, else lcMin.
+	// LC component for hybrid blend: sbs() when USE_SBS_IN_HYBRID && table loaded, else lcMin.
 	final double lcForHybrid;
 
 	// Per-bucket LC history state index for history-aware LC.
-	// lcHistStates[i] = 0..10 (valid state) or -1 (empty). Null if not available.
-	final byte[] lcHistStates;
+	// sbsStates[i] = 0..10 (valid state) or -1 (empty). Null if not available.
+	final byte[] sbsStates;
 
 	// Cached DLC estimates (CF-free) for CF table lookup
 	final double dlc3bEst;  // v1 key

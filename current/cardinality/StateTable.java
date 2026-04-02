@@ -4,7 +4,7 @@ package cardinality;
  * Static utility for sub-NLZ state lookups and per-state correction factors.
  * Single owner of ALL per-state correction data:
  * - Additive NLZ corrections for Mean/HMean (tierMult on difSum)
- * - LCHist correction table (per-state LC estimates)
+ * - SBS correction table (per-state LC estimates)
  * - Terminal CF constants (empirical steady-state Mean bias)
  *
  * No instance state. The caller applies CF_OFFSET and constructs

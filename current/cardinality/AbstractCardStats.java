@@ -255,7 +255,13 @@ public abstract class AbstractCardStats {
 	 */
 	static double dlcInfoPow(final int[] counts, final int V, final int B,
 			final double lcMin, final float power){
-		if(V>=DLC_BLEND_HI*B){return lcMin;}
+		return dlcInfoPow(counts, V, B, lcMin, power, DLC_BLEND_LO, DLC_BLEND_HI);
+	}
+
+	static double dlcInfoPow(final int[] counts, final int V, final int B,
+			final double lcMin, final float power,
+			final float blendLo, final float blendHi){
+		if(V>=blendHi*B){return lcMin;}
 		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(B*DLC_MIN_VK_FRACTION));
 		final int maxVK=B-minVK;
 		final int startTier=lowestActiveTier(counts);
@@ -298,8 +304,8 @@ public abstract class AbstractCardStats {
 		}
 		if(sumW<=0){return lcMin;}
 		final double blendEst=Math.exp(sumWLogE/sumW);
-		if(V>DLC_BLEND_LO*B){
-			final double t=(V-DLC_BLEND_LO*B)/((DLC_BLEND_HI-DLC_BLEND_LO)*B);
+		if(V>blendLo*B){
+			final double t=(V-blendLo*B)/((blendHi-blendLo)*B);
 			return t*lcMin+(1-t)*blendEst;
 		}
 		return blendEst;
@@ -411,9 +417,9 @@ public abstract class AbstractCardStats {
 	 * Hybrid estimator for mantissa-free classes (DLL3, DLL4).
 	 * Blends lcForHybrid → meanCF using log interpolation over [0.20B, 5.0B].
 	 * Zone detection uses lcMin (uncorrected); the blended VALUE uses lcForHybrid
-	 * (which may be lcHist or lcMin depending on history availability).
+	 * (which may be sbs or lcMin depending on history availability).
 	 *
-	 * @param lcForHybrid  LC value for blending (lcHist when available, else lcMin)
+	 * @param lcForHybrid  LC value for blending (sbs when available, else lcMin)
 	 * @param lcMin        tier-compensated LC for zone detection
 	 * @param meanCF       CF-corrected mean estimate
 	 * @param B            total buckets
@@ -520,8 +526,8 @@ public abstract class AbstractCardStats {
 		r[12]=s.dlc3bCF;             // DLC3B
 		r[13]=s.dlcBestCF;           // DLCBest
 		r[14]=s.hybDLCcf;            // HybDLC
-		r[15]=s.lcHistF;             // LCHist
-		r[16]=s.lcHistMultF;          // LCHMult
+		r[15]=s.sbsF;             // SBS
+		r[16]=s.sbsMultF;          // SBSMult
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[17+t]=s.dlcTier(t);
 		}
@@ -563,8 +569,12 @@ public abstract class AbstractCardStats {
 	/** Error model mode: 0=2-param empirical, 1=1-param fitted, 2=0-param theory (default). */
 	public static int DLC_INFO_MODE=2;
 
+	/** DSBS blend limits — extended to keep sbs influence at higher cardinality. */
+	public static float DLCSBS_BLEND_LO=0.018f;
+	public static float DLCSBS_BLEND_HI=0.135f;
+
 	/** LDLC double-blend zone multipliers (as fractions of B).
-	 *  Blend A (LCHist→DLC): [LDLC_A_LO*B, LDLC_A_HI*B]
+	 *  Blend A (SBS→DLC): [LDLC_A_LO*B, LDLC_A_HI*B]
 	 *  Blend B (HC ramps in): [LDLC_B_LO*B, LDLC_B_HI*B] */
 	public static float LDLC_A_LO=1.0f, LDLC_A_HI=4.0f;
 	public static float LDLC_B_LO=2.0f, LDLC_B_HI=5.0f;

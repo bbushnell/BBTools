@@ -9,10 +9,10 @@ public class LCHistDebug {
 		// Set up PLL16c with 8 buckets, 2-bit history
 		ProtoLogLog16c.HISTORY_BITS = 2;
 		ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY);
-		CorrectionFactor.lcHistFile = "?cardinalityCorrectionLC2BitHist_8b.tsv.gz";
-		CorrectionFactor.loadLCHistTable();
+		CorrectionFactor.sbsFile = "?cardinalityCorrectionLC2BitHist_8b.tsv.gz";
+		CorrectionFactor.loadSbsTable();
 		System.err.println("LC_2BIT_CF_TABLE: " +
-			(CorrectionFactor.LC_2BIT_CF_TABLE != null ? "loaded, buckets=" + CorrectionFactor.lcHistBuckets : "NULL"));
+			(CorrectionFactor.SBS_CF_TABLE != null ? "loaded, buckets=" + CorrectionFactor.sbsBuckets : "NULL"));
 
 		int buckets = 8;
 		ProtoLogLog16c pll = new ProtoLogLog16c(buckets, 31, -1, 0);
@@ -24,7 +24,7 @@ public class LCHistDebug {
 		System.out.print("Filled");
 		for (String n : stateNames) System.out.print("\t" + n);
 		System.out.println();
-		float[][] table = CorrectionFactor.LC_2BIT_CF_TABLE;
+		float[][] table = CorrectionFactor.SBS_CF_TABLE;
 		if (table != null) {
 			for (int f = 1; f <= Math.min(table.length - 1, 8); f++) {
 				System.out.print(f);
@@ -38,7 +38,7 @@ public class LCHistDebug {
 
 		// Add elements and print state after each
 		System.out.println("=== Simulation ===");
-		System.out.println("Add#\tBucket\tRawNLZ\tAction\tFilled\tLC\tLCHist\tBucket_States");
+		System.out.println("Add#\tBucket\tRawNLZ\tAction\tFilled\tLC\tSBS\tBucket_States");
 
 		java.util.Random rng = new java.util.Random(42);
 		for (int i = 0; i < 30; i++) {
@@ -61,7 +61,7 @@ public class LCHistDebug {
 					int hist = (extra >>> hshift) & 3;
 					int rawNlz = absNlz - 1;
 					int nlzBin = Math.min(rawNlz, 3);
-					int si = CorrectionFactor.lcHistStateIndex(nlzBin, hist);
+					int si = CorrectionFactor.sbsStateIndex(nlzBin, hist);
 					states.append(String.format("[%d:nlz%d.%02d si=%d]",
 						b, rawNlz, Integer.parseInt(Integer.toBinaryString(hist)), si));
 				} else {
@@ -73,8 +73,8 @@ public class LCHistDebug {
 			int V = buckets - filled;
 			double lc = V > 0 ? buckets * Math.log((double) buckets / V) : Double.POSITIVE_INFINITY;
 
-			// Compute LCHist manually — direct lookup, B matches table
-			double lcHist = 0;
+			// Compute SBS manually — direct lookup, B matches table
+			double sbs = 0;
 			if (table != null && filled > 0) {
 				float[] row = table[Math.min(filled, table.length - 1)];
 
@@ -88,8 +88,8 @@ public class LCHistDebug {
 						int hist = (extra >>> hshift) & 3;
 						int rawNlz = absNlz - 1;
 						int nlzBin = Math.min(rawNlz, 3);
-						int si = CorrectionFactor.lcHistStateIndex(nlzBin, hist);
-						if (si >= 0) lcHist += row[si];
+						int si = CorrectionFactor.sbsStateIndex(nlzBin, hist);
+						if (si >= 0) sbs += row[si];
 					}
 				}
 			}
@@ -97,7 +97,7 @@ public class LCHistDebug {
 			// What bucket did this key hash to?
 			// We can't easily know, so just print the add number
 			System.out.printf("%d\t-\t-\t-\t%d\t%.4f\t%.4f\t%s%n",
-				i + 1, filled, lc, lcHist, states);
+				i + 1, filled, lc, sbs, states);
 		}
 	}
 }
