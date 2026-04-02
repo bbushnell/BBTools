@@ -13,7 +13,7 @@ import shared.Tools;
  * Constructor phases:
  * <ol>
  *   <li>Phase 1 (counts-only): LC, LCMin, DLC, HLL, Mean, GMean, HMean, CF-corrected values</li>
- *   <li>Phase 2a (history): lcHist, HC, LDLC — when histBits &gt; 0</li>
+ *   <li>Phase 2a (history): sbs, HC, LDLC — when histBits &gt; 0</li>
  *   <li>Phase 2b (mantissa): hmeanMantissa, hybridDDL — when mantissaBits &gt; 0</li>
  *   <li>Phase 3 (null buckets): remaining fields cloned from phase-1 equivalents</li>
  *   <li>Final: hybridDLL, hybridDDL — depend on lcForHybrid which may be set by phase 2a</li>
@@ -140,22 +140,22 @@ public final class CardStats extends AbstractCardStats {
 
 		/*--- Phase 2a: history-corrected estimates (when histBits > 0) ---*/
 
-		// Default lcForHybrid to lcMin; may be overridden by lcHist below
+		// Default lcForHybrid to lcMin; may be overridden by sbs below
 		double lcForHybridTmp=lcMinF;
 		double corrDifSum=difSum, corrGSum=gSum;
 		boolean hasHistCorr=false;
 
-		byte[] lcHistStatesArr=null;
+		byte[] sbsStatesArr=null;
 		if(histBits_>0 && buckets_!=null){
 			hasHistCorr=true;
 			final int histMask=(1<<histBits_)-1;
 			final double termCF=StateTable.terminalCF(histBits_, 0);
 			double cDif=0, cGSum=0;
-			lcHistStatesArr=new byte[numBuckets];
+			sbsStatesArr=new byte[numBuckets];
 			for(int i=0; i<numBuckets; i++){
 				final int val=buckets_[i];
 				if(val==0){
-					lcHistStatesArr[i]=-1; // empty bucket
+					sbsStatesArr[i]=-1; // empty bucket
 					continue;
 				}
 				final int absNlz=(val>>>histBits_)-1;
@@ -172,8 +172,8 @@ public final class CardStats extends AbstractCardStats {
 				cDif+=dif*tierMult;
 				cGSum+=Math.log(Math.max(1, dif*tierMult));
 
-				// LC history state index for lcHist computation
-				lcHistStatesArr[i]=(byte)CorrectionFactor.lcHistStateIndex(nlzBin, histPattern, histBits_);
+				// LC history state index for sbs computation
+				sbsStatesArr[i]=(byte)CorrectionFactor.sbsStateIndex(nlzBin, histPattern, histBits_);
 			}
 			corrDifSum=cDif;
 			corrGSum=cGSum;
@@ -196,17 +196,20 @@ public final class CardStats extends AbstractCardStats {
 			gmeanCorrCF=gmeanCF;
 		}
 
-		// LCHist: history-aware LC from per-bucket state indices
-		lcHistF=computeLcHist(lcHistStatesArr, filled, numBuckets, lcRawF);
-		lcHistMultF=computeLcHistMult(lcHistStatesArr, filled, numBuckets, lcRawF);
+		// SBS: history-aware LC from per-bucket state indices
+		sbsF=computeSbs(sbsStatesArr, filled, numBuckets, lcRawF);
+		sbsMultF=computeSbsMult(sbsStatesArr, filled, numBuckets, lcRawF);
 
-		// If lcHist table is available and enabled, use lcHist for hybrid blending
-		if(CardinalityTracker.USE_LCHIST_IN_HYBRID
-				&& CorrectionFactor.LC_2BIT_CF_TABLE!=null
-				&& histBits_>0 && lcHistStatesArr!=null){
-			lcForHybridTmp=lcHistF;
+		// If sbs table is available and enabled, use sbs for hybrid blending
+		if(CardinalityTracker.USE_SBS_IN_HYBRID
+				&& CorrectionFactor.SBS_CF_TABLE!=null
+				&& histBits_>0 && sbsStatesArr!=null){
+			lcForHybridTmp=sbsF;
 		}
 		lcForHybridF=lcForHybridTmp;
+
+		// DSBS: DLC with sbs as fallback, extended blend zone
+		dlcSbsF=dlcInfoPow(counts, V, numBuckets, sbsF, DLC_INFO_POWER, DLCSBS_BLEND_LO, DLCSBS_BLEND_HI);
 
 		/*--- Phase 2b: mantissa estimates (when mantissaBits > 0) ---*/
 
@@ -297,12 +300,12 @@ public final class CardStats extends AbstractCardStats {
 		hybridDLLF=hybridDLL(lcMinF, lcMinF, meanForHybrid, numBuckets);
 		hybridDDLF=hybridDDL(lcMinF, lcMinF, meanForHybrid, hmeanMCF, numBuckets);
 
-		/*--- History-corrected hybrids (use lcHist and history-corrected Mean) ---*/
+		/*--- History-corrected hybrids (use sbs and history-corrected Mean) ---*/
 		final double meanForHybridH=(hasMantissa ? meanMCF_ : meanCorrCF);
 		hybridDLLHistF=hybridDLL(lcForHybridF, lcMinF, meanForHybridH, numBuckets);
 		hybridDDLHistF=hybridDDL(lcForHybridF, lcMinF, meanForHybridH, hmeanMCF, numBuckets);
 
-		/*--- Hybrid+2: LCHist → Mean+H blend, DLC as zone detector ---*/
+		/*--- Hybrid+2: SBS → Mean+H blend, DLC as zone detector ---*/
 		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanForHybridH, numBuckets);
 	}
 
@@ -421,6 +424,8 @@ public final class CardStats extends AbstractCardStats {
 	public double dlcBlend3(){return dlc3bF;}
 	/** DLC at lowest active tier = lcMin. */
 	public double dlcLowest(){return dlcLowestF;}
+	/** DLC with sbs fallback (instead of lcMin). Better at low cardinality with history. */
+	public double dlcSbs(){return dlcSbsF;}
 	/** HLL-style estimate (CF-corrected). */
 	public double hll(){return hllCF;}
 	/** HLL-style estimate, raw (no CF). */
@@ -451,7 +456,7 @@ public final class CardStats extends AbstractCardStats {
 	public double hybridDLLHist(){return hybridDLLHistF;}
 	/** History-corrected Hybrid DDL. Falls back to plain when no history. */
 	public double hybridDDLHist(){return hybridDDLHistF;}
-	/** Hybrid+2: LCHist → Mean+H with DLC zone detection. */
+	/** Hybrid+2: SBS → Mean+H with DLC zone detection. */
 	public double hybridPlus2(){return hybridPlus2F;}
 	/** DLC-threshold hybrid. */
 	public double dlcThreshHybrid(){return dThHybF;}
@@ -464,16 +469,16 @@ public final class CardStats extends AbstractCardStats {
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------    LCHist Computation        ----------------*/
+	/*----------------    SBS Computation        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Computes history-aware LC from per-bucket state indices and LC_2BIT_CF_TABLE.
+	/** Computes history-aware LC from per-bucket state indices and SBS_CF_TABLE.
 	 *  Falls back to lcRaw when table or states are unavailable. */
-	private static double computeLcHist(final byte[] states, final int filled,
+	private static double computeSbs(final byte[] states, final int filled,
 			final int numBuckets, final double lcRaw){
-		final float[][] table=CorrectionFactor.LC_2BIT_CF_TABLE;
+		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
 		if(table==null || states==null){return lcRaw;}
-		final int tableBuckets=CorrectionFactor.lcHistBuckets;
+		final int tableBuckets=CorrectionFactor.sbsBuckets;
 		final float[] row;
 		if(numBuckets==tableBuckets){
 			row=table[Math.min(filled, tableBuckets)];
@@ -482,10 +487,10 @@ public final class CardStats extends AbstractCardStats {
 			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 			final int hi=Math.min(lo+1, tableBuckets);
 			final double frac=pos-lo;
-			row=new float[CorrectionFactor.LC_HIST_STATES];
+			row=new float[CorrectionFactor.SBS_STATES];
 			final float[] rowLo=table[lo];
 			final float[] rowHi=table[hi];
-			for(int s=0; s<CorrectionFactor.LC_HIST_STATES; s++){
+			for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
 				row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
 			}
 		}
@@ -499,11 +504,11 @@ public final class CardStats extends AbstractCardStats {
 
 	/** History-aware LC using multipliers: lcRaw × weightedAvg(CF per bucket state).
 	 *  Falls back to lcRaw when table or states are unavailable. */
-	private static double computeLcHistMult(final byte[] states, final int filled,
+	private static double computeSbsMult(final byte[] states, final int filled,
 			final int numBuckets, final double lcRaw){
-		final float[][] table=CorrectionFactor.LC_2BIT_MULT_TABLE;
+		final float[][] table=CorrectionFactor.SBS_MULT_TABLE;
 		if(table==null || states==null){return lcRaw;}
-		final int tableBuckets=CorrectionFactor.lcHistMultBuckets;
+		final int tableBuckets=CorrectionFactor.sbsMultBuckets;
 		final float[] row;
 		if(numBuckets==tableBuckets){
 			row=table[Math.min(filled, tableBuckets)];
@@ -512,10 +517,10 @@ public final class CardStats extends AbstractCardStats {
 			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 			final int hi=Math.min(lo+1, tableBuckets);
 			final double frac=pos-lo;
-			row=new float[CorrectionFactor.LC_HIST_STATES];
+			row=new float[CorrectionFactor.SBS_STATES];
 			final float[] rowLo=table[lo];
 			final float[] rowHi=table[hi];
-			for(int s=0; s<CorrectionFactor.LC_HIST_STATES; s++){
+			for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
 				row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
 			}
 		}
@@ -534,9 +539,9 @@ public final class CardStats extends AbstractCardStats {
 	/*--------------------------------------------------------------*/
 
 	/** History-aware LC estimate. Falls back to lcRaw when history unavailable. */
-	public double lcHist(){return lcHistF;}
+	public double sbs(){return sbsF;}
 	/** History-aware LC using multipliers. Falls back to lcRaw. */
-	public double lcHistMult(){return lcHistMultF;}
+	public double sbsMult(){return sbsMultF;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Fields               ----------------*/
@@ -574,6 +579,7 @@ public final class CardStats extends AbstractCardStats {
 	final double dlcBestF;      // best single-tier DLC, CF-free
 	final double dlc3bF;        // 3-region DLC blend, CF-free
 	final double dlcLowestF;    // DLC at lowest active tier = lcMin
+	final double dlcSbsF;      // DLC with sbs fallback
 	final double hllRawF;       // HLL raw (before CF)
 	final double hllHistoryF;   // HLL with history-corrected constant
 	final double meanRawF;      // Mean raw (before CF)
@@ -596,9 +602,9 @@ public final class CardStats extends AbstractCardStats {
 	final double meanCorrCF;    // history-corrected Mean with CF
 	final double gmeanCorrRawF; // history-corrected GMean raw
 	final double gmeanCorrCF;   // history-corrected GMean with CF
-	final double lcHistF;       // history-aware LC
-	final double lcHistMultF;   // history-aware LC using multipliers
-	final double lcForHybridF;  // LC value used for hybrid blending (lcHist or lcMin)
+	final double sbsF;       // history-aware LC
+	final double sbsMultF;   // history-aware LC using multipliers
+	final double lcForHybridF;  // LC value used for hybrid blending (sbs or lcMin)
 
 	// --- Phase 2b: mantissa estimates (defaults to non-mantissa equivalents) ---
 	final double hllSumFilledM; // mantissa-corrected harmonic indicator sum
@@ -616,6 +622,6 @@ public final class CardStats extends AbstractCardStats {
 	final double hybridDDLF;    // LC/Mean/HMeanM blend (for DDL types), plain
 	final double hybridDLLHistF; // History-corrected LC/Mean blend
 	final double hybridDDLHistF; // History-corrected LC/Mean/HMeanM blend
-	final double hybridPlus2F;  // LCHist → Mean+H with DLC zone detection
+	final double hybridPlus2F;  // SBS → Mean+H with DLC zone detection
 
 }

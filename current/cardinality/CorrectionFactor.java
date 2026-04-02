@@ -665,36 +665,36 @@ public class CorrectionFactor{
 	public static final double MAX_CF_KEY=(double)Long.MAX_VALUE;
 
 	/*--------------------------------------------------------------*/
-	/*----------------   LC History CF Table        ----------------*/
+	/*----------------   SBS CF Table        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Resource path for the LC history correction table. */
-	public static String lcHistFile="?cardinalityCorrectionLC2BitHist.tsv.gz";
+	/** Resource path for the SBS correction table. */
+	public static String sbsFile="?cardinalityCorrectionLC2BitHist.tsv.gz";
 
 	/**
-	 * LC history-aware correction table.
-	 * LC_2BIT_CF_TABLE[filled][stateIdx] = expected distinct elements per bucket.
-	 * filled: 0..lcHistBuckets (row 0 unused).
+	 * SBS-aware correction table.
+	 * SBS_CF_TABLE[filled][stateIdx] = expected distinct elements per bucket.
+	 * filled: 0..sbsBuckets (row 0 unused).
 	 * stateIdx: 0..10 for the 11 valid states:
 	 *   0=0.00, 1=1.00, 2=1.10, 3=2.00, 4=2.01, 5=2.10, 6=2.11,
 	 *   7=3+.00, 8=3+.01, 9=3+.10, 10=3+.11
-	 * Null until loadLCHistTable() is called.
+	 * Null until loadSbsTable() is called.
 	 */
-	public static float[][] LC_2BIT_CF_TABLE=null;
-	/** Bucket count the LC history table was built for. */
-	public static int lcHistBuckets=0;
+	public static float[][] SBS_CF_TABLE=null;
+	/** Bucket count the SBS table was built for. */
+	public static int sbsBuckets=0;
 
-	/** Number of valid states in the loaded LC history table.
+	/** Number of valid states in the loaded SBS table.
 	 *  Set by the loader from the file's HistBits header.
 	 *  Formula: 3 * (1 << hbits) - 1.  (5 for 1-bit, 11 for 2-bit, 23 for 3-bit.) */
-	public static int LC_HIST_STATES=11;
+	public static int SBS_STATES=11;
 
-	/** History bits the loaded LC history table was trained for. Set by loader. */
-	public static int lcHistHbits=2;
+	/** History bits the loaded SBS table was trained for. Set by loader. */
+	public static int sbsHbits=2;
 
-	/** Returns the number of valid LC history states for the given history bit width.
+	/** Returns the number of valid SBS states for the given history bit width.
 	 *  hbits=1 → 5, hbits=2 → 11, hbits=3 → 23. */
-	public static int lcHistNumStates(int hbits){
+	public static int sbsNumStates(int hbits){
 		return 3*(1<<hbits)-1;
 	}
 
@@ -703,7 +703,7 @@ public class CorrectionFactor{
 	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.
 	 * Returns -1 for structurally impossible states (nonzero invalid bits).
 	 */
-	public static int lcHistStateIndex(int nlzBin, int histBits, int hbits){
+	public static int sbsStateIndex(int nlzBin, int histBits, int hbits){
 		final int bin=Math.min(nlzBin, hbits+1);
 		final int validSlots=Math.min(bin, hbits);
 		final int invalidBits=hbits-validSlots;
@@ -716,13 +716,13 @@ public class CorrectionFactor{
 	}
 
 	/** Convenience overload for 2-bit history (the common case). */
-	public static int lcHistStateIndex(int nlzBin, int histBits){
-		return lcHistStateIndex(nlzBin, histBits, 2);
+	public static int sbsStateIndex(int nlzBin, int histBits){
+		return sbsStateIndex(nlzBin, histBits, 2);
 	}
 
-	/** Loads the LC history table from the resource file. */
-	public static synchronized void loadLCHistTable(){
-		String path=(lcHistFile.indexOf('?')>=0 ? Data.findPath(lcHistFile) : lcHistFile);
+	/** Loads the SBS table from the resource file. */
+	public static synchronized void loadSbsTable(){
+		String path=(sbsFile.indexOf('?')>=0 ? Data.findPath(sbsFile) : sbsFile);
 		if(path==null){return;} // silently skip if not found
 		FileFormat ff=FileFormat.testInput(path, null, false);
 		if(ff==null){return;}
@@ -767,44 +767,44 @@ public class CorrectionFactor{
 		if(lists==null || buckets==0){return;}
 
 		// Set globals from loaded header
-		lcHistHbits=hbits;
-		LC_HIST_STATES=numStates;
+		sbsHbits=hbits;
+		SBS_STATES=numStates;
 
 		// Build table with era-averaging: table[f] = avg(raw[f], raw[f+1]).
 		// Era 0 (f=0): unused. Era 1: raw[1] only. Era B: raw[B] only.
 		// Eras 2..B-1: average of raw[f] and raw[f+1].
 		// This corrects for mid-era state evolution (snapshots are at era starts).
-		LC_2BIT_CF_TABLE=new float[buckets+1][numStates];
+		SBS_CF_TABLE=new float[buckets+1][numStates];
 		for(int f=1; f<=row; f++){
 			for(int si=0; si<numStates; si++){
 				final float cur=lists[si].get(f-1); // raw[f] is at list index f-1
 				if(f<row){
 					final float next=lists[si].get(f); // raw[f+1]
-					LC_2BIT_CF_TABLE[f][si]=(cur+next)*0.5f;
+					SBS_CF_TABLE[f][si]=(cur+next)*0.5f;
 				}else{
-					LC_2BIT_CF_TABLE[f][si]=cur; // last row: no next
+					SBS_CF_TABLE[f][si]=cur; // last row: no next
 				}
 			}
 		}
-		lcHistBuckets=buckets;
+		sbsBuckets=buckets;
 	}
 
-	/** Resource path for the LC history multiplier table. */
-	public static String lcHistMultFile="?cardinalityCorrectionLC2BitHistMult.tsv.gz";
+	/** Resource path for the SBS multiplier table. */
+	public static String sbsMultFile="?cardinalityCorrectionLC2BitHistMult.tsv.gz";
 
 	/**
-	 * LC history multiplier table.
-	 * LC_2BIT_MULT_TABLE[filled][stateIdx] = correction factor (multiplier).
+	 * SBS multiplier table.
+	 * SBS_MULT_TABLE[filled][stateIdx] = correction factor (multiplier).
 	 * At estimation time: estimate = LC * weightedAvg(CF across filled buckets).
-	 * Same layout and loading as LC_2BIT_CF_TABLE.
+	 * Same layout and loading as SBS_CF_TABLE.
 	 */
-	public static float[][] LC_2BIT_MULT_TABLE=null;
-	public static int lcHistMultBuckets=0;
+	public static float[][] SBS_MULT_TABLE=null;
+	public static int sbsMultBuckets=0;
 
-	/** Loads the LC history multiplier table. Same format as sum table.
+	/** Loads the SBS multiplier table. Same format as sum table.
 	 *  Silently skips if the resource file does not exist. */
-	public static synchronized void loadLCHistMultTable(){
-		String path=(lcHistMultFile.indexOf('?')>=0 ? Data.findPath(lcHistMultFile, false) : lcHistMultFile);
+	public static synchronized void loadSbsMultTable(){
+		String path=(sbsMultFile.indexOf('?')>=0 ? Data.findPath(sbsMultFile, false) : sbsMultFile);
 		if(path==null){return;}
 		FileFormat ff=FileFormat.testInput(path, null, false);
 		if(ff==null){return;}
@@ -840,13 +840,13 @@ public class CorrectionFactor{
 		bf.close();
 
 		if(lists==null || buckets==0){return;}
-		LC_2BIT_MULT_TABLE=new float[buckets+1][numStates];
+		SBS_MULT_TABLE=new float[buckets+1][numStates];
 		for(int f=0; f<row; f++){
 			for(int si=0; si<numStates; si++){
-				LC_2BIT_MULT_TABLE[f+1][si]=lists[si].get(f);
+				SBS_MULT_TABLE[f+1][si]=lists[si].get(f);
 			}
 		}
-		lcHistMultBuckets=buckets;
+		sbsMultBuckets=buckets;
 	}
 
 }

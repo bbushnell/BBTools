@@ -120,6 +120,8 @@ public class DDLCalibrationDriver2 {
 			}
 			else if(a.equals("dlcinfopow") || a.equals("infopow")){AbstractCardStats.DLC_INFO_POWER=Float.parseFloat(b);}
 			else if(a.equals("hcinfopow") || a.equals("hcpow")){AbstractCardStats.HC_INFO_POWER=Float.parseFloat(b);}
+			else if(a.equals("dlchistblendlo")){AbstractCardStats.DLCSBS_BLEND_LO=Float.parseFloat(b);}
+			else if(a.equals("dlchistblendhi")){AbstractCardStats.DLCSBS_BLEND_HI=Float.parseFloat(b);}
 			else if(a.equals("ldlcalo")){AbstractCardStats.LDLC_A_LO=Float.parseFloat(b);}
 			else if(a.equals("ldlcahi")){AbstractCardStats.LDLC_A_HI=Float.parseFloat(b);}
 			else if(a.equals("ldlcblo")){AbstractCardStats.LDLC_B_LO=Float.parseFloat(b);}
@@ -188,16 +190,16 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("histlc") || a.equals("historylc")){
 				CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
 			}else if(a.equals("lchistfile")){
-				CorrectionFactor.lcHistFile=b;
+				CorrectionFactor.sbsFile=b;
 			}else if(a.equals("lchistmultfile")){
-				CorrectionFactor.lcHistMultFile=b;
+				CorrectionFactor.sbsMultFile=b;
 			}else if(a.equals("microlc")){
 				CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
 				AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
 			}else if(a.equals("usemicro") || a.equals("usemicroindex")){
 				AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);
 			}else if(a.equals("lchisthybrid") || a.equals("lchybrid")){
-				CardinalityTracker.USE_LCHIST_IN_HYBRID=Parse.parseBoolean(b);
+				CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
 				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
 				hcWeightExplicit=true;
@@ -223,7 +225,7 @@ public class DDLCalibrationDriver2 {
 		if(!hcWeightExplicit){
 			final int hb=ProtoLogLog16c.HISTORY_BITS;
 			if(hb==1){CardinalityTracker.LDLC_HC_WEIGHT=0.456;}
-			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.419;}
+			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.50;}
 			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
 		}
 
@@ -236,8 +238,8 @@ public class DDLCalibrationDriver2 {
 		// Creating a dummy instance here triggers that class init; then we overwrite
 		// the default CF with the user-provided file.
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
-		CorrectionFactor.loadLCHistTable();
-		CorrectionFactor.loadLCHistMultTable();
+		CorrectionFactor.loadSbsTable();
+		CorrectionFactor.loadSbsMultTable();
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
 			// Push custom CF table into per-class matrices.
@@ -527,12 +529,10 @@ public class DDLCalibrationDriver2 {
 							final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7};
 							for(int e=0; e<NUM_LDLC; e++){
 								final double v=ldlcR[ldlcIdx[e]];
-								if(v>0){
-									final double lerr=(v-trueCard)/(double)trueCard;
-									ldlcSumErr[ti][e]+=lerr;
-									ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
-									ldlcSumSqErr[ti][e]+=lerr*lerr;
-								}
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr;
+								ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
+								ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 						}
 						ti++;

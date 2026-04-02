@@ -59,7 +59,7 @@ public class DDLCalibrationDriver {
 	 *  DLC columns have no CF. */
 	static final boolean[] NEEDS_CF;
 	static{
-		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","HLL+H0","DLC","DLC3B","DLCBest","HybDLC","LCHist","LCHMult"};
+		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","HLL+H0","DLC","DLC3B","DLCBest","HybDLC","SBS","SBSMult"};
 		ESTIMATOR_NAMES=new String[NUM_EST];
 		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}

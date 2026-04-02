@@ -86,7 +86,7 @@ public final class ProtoLogLog16c extends CardinalityTracker {
     final short[] maxArray;
     private final byte[] luckSecond;
     /** Lazy-allocated per-bucket LC history state indices for lcHist(). Reused across summarize() calls. */
-    private byte[] lcHistStates;
+    private byte[] sbsStates;
     private int filledBuckets=0;
     private long eeMask=-1L;
     private int minNlzStored=0; // minimum nlzStored (absNlz+1) across filled buckets, 0 before all filled
