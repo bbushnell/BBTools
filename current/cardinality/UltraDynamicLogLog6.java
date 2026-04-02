@@ -368,37 +368,20 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		}
 		final double hc=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
 
-		// LDLC: double blend using DLC as zone detector.
-		// Blend A: LCHist → DLC over [aLo*B, aHi*B]
-		// Blend B: HC ramps in over [bLo*B, bHi*B] to maxHcWeight
-		// Overlap: average both blends
+		// LDLC: DLCSbs handles the SBS→DLC transition internally.
+		// HC ramps in over [bLo*B, bHi*B] to maxHcWeight.
 		final double B=(double)buckets;
-		final double aLo=AbstractCardStats.LDLC_A_LO*B, aHi=AbstractCardStats.LDLC_A_HI*B;
 		final double bLo=AbstractCardStats.LDLC_B_LO*B, bHi=AbstractCardStats.LDLC_B_HI*B;
 		final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
 		final boolean hcUsable=(hc>0 && dlc>0);
 		double ldlc;
-		if(dlc<=aLo){
-			ldlc=sbs;
-		}else if(dlc<=bLo || !hcUsable){
-			// Only Blend A active (or HC unavailable)
-			final double tA=Math.min(1, (dlc-aLo)/(aHi-aLo));
-			ldlc=(1-tA)*sbs+tA*dlc;
-		}else if(dlc<=aHi){
-			// Both blends active: average
-			final double tA=(dlc-aLo)/(aHi-aLo);
-			final double blendA=(1-tA)*sbs+tA*dlc;
-			final double tB=Math.min(1, (dlc-bLo)/(bHi-bLo));
-			final double hcW=tB*maxHcWeight;
-			final double blendB=(1-hcW)*dlc+hcW*hc;
-			ldlc=(blendA+blendB)*0.5;
+		if(dlc<=bLo || !hcUsable){
+			ldlc=dlc;
 		}else if(dlc<=bHi){
-			// Only Blend B: HC ramping in
 			final double tB=(dlc-bLo)/(bHi-bLo);
 			final double hcW=tB*maxHcWeight;
 			ldlc=(1-hcW)*dlc+hcW*hc;
 		}else{
-			// Final ratio
 			ldlc=(1-maxHcWeight)*dlc+maxHcWeight*hc;
 		}
 
