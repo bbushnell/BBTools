@@ -200,6 +200,8 @@ public class DDLCalibrationDriver2 {
 				CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
 			}else if(a.equals("sbsformula") || a.equals("usesbsformula")){
 				CorrectionFactor.USE_SBS_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("meancfformula") || a.equals("usemeancfformula")){
+				CorrectionFactor.USE_MEAN_CF_FORMULA=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
 				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
 				hcWeightExplicit=true;

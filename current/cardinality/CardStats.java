@@ -319,6 +319,10 @@ public final class CardStats extends AbstractCardStats {
 	 * Matches the logic of old CardinalityStats.cf() exactly.
 	 */
 	private double cardCF(final double rawEst, final int type, final double keyScale){
+		// Formula mode for Mean CF: bypasses table entirely
+		if(CorrectionFactor.USE_MEAN_CF_FORMULA && type==CorrectionFactor.MEAN){
+			return CorrectionFactor.meanCfFormula(dlcRawF);
+		}
 		// v3+ tables: use dlcRawF as seed (the primary DLC estimator)
 		if(CorrectionFactor.tableVersion>=3){
 			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
