@@ -5,19 +5,20 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Measures DLC per-tier absolute error as a function of tier occupancy.
- * Uses LogLog6 (simplest class: no minZeros, no microIndex, no promotion).
+ * Supports any CardinalityTracker type via loglogtype flag.
  * Tier occupancy = number of buckets with NLZ >= tier (integer 0..B).
  *
- * Each thread creates one LL6, feeds it maxCard elements, and at each
+ * Each thread creates one tracker, feeds it maxCard elements, and at each
  * log-spaced cardinality threshold samples the tier occupancy and error.
- * Then repeats with a new LL6 until ddls are exhausted.
+ * Then repeats with a new tracker until ddls are exhausted.
  *
  * Output: TSV with columns: Occupancy, Count, AvgAbsErr, AvgSignedErr
  *
  * Usage: java cardinality.DLCTierAccuracy [buckets=2048] [ddls=2000000]
  *        [maxmult=512] [seed=1] [tier=3] [threads=128] [points=500]
+ *        [type=ll6]
  *
- * @author Eru
+ * @author Eru, Chloe
  */
 public class DLCTierAccuracy {
 
@@ -29,6 +30,7 @@ public class DLCTierAccuracy {
 		int targetTier=3;
 		int threads=1;
 		int numPoints=500;
+		String loglogtype="ll6";
 
 		for(String arg : args){
 			String[] split=arg.split("=");
@@ -40,12 +42,13 @@ public class DLCTierAccuracy {
 			else if(a.equals("tier")){targetTier=Integer.parseInt(b);}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("points")){numPoints=Integer.parseInt(b);}
+			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
 		}
 
 		final long maxCard=(long)buckets*maxmult;
 		final int numBins=buckets+1;
 
-		System.err.println("DLCTierAccuracy (LL6): buckets="+buckets+" ddls="+ddls+
+		System.err.println("DLCTierAccuracy: type="+loglogtype+" buckets="+buckets+" ddls="+ddls+
 			" maxmult="+maxmult+" tier="+targetTier+" threads="+threads+
 			" points="+numPoints+" maxCard="+maxCard);
 
@@ -83,6 +86,7 @@ public class DLCTierAccuracy {
 		final int tier=targetTier;
 		final long sd=seed;
 		final int totalDdls=ddls;
+		final String type=loglogtype;
 		final long t0=System.currentTimeMillis();
 
 		final Thread[] workers=new Thread[threads];
@@ -97,28 +101,28 @@ public class DLCTierAccuracy {
 					int d;
 					while((d=ddlCounter.getAndIncrement())<totalDdls){
 						final long instanceSeed=sd+d*12345678901L;
-						final LogLog6 ll=new LogLog6(B, 31, instanceSeed, 0);
+						final CardinalityTracker ct=DDLCalibrationDriver.makeInstance(
+							type, B, 31, instanceSeed, 0);
 						final FastRandomXoshiro rng=new FastRandomXoshiro(instanceSeed);
 
 						long added=0;
 						for(int ti=0; ti<nThresh; ti++){
 							final long target=thresh[ti];
-							// Feed elements up to this threshold
 							while(added<target){
-								ll.add(rng.nextLong());
+								ct.add(rng.nextLong());
 								added++;
 							}
 
-							// Sample tier occupancy and error
-							ll.rawEstimates();
-							final int[] nlzCounts=ll.lastRawNlz;
-							if(nlzCounts==null){continue;}
+							// Trigger summarize to populate nlzCounts
+							ct.rawEstimates();
+							final int[] nlz=ct.nlzCounts;
+							if(nlz==null){continue;}
 
-							int filled=0;
-							for(int k=0; k<nlzCounts.length; k++){filled+=nlzCounts[k];}
-							int vk=B-filled;
-							for(int k=0; k<tier && k<nlzCounts.length; k++){
-								vk+=nlzCounts[k];
+							// Compute V_k for this tier: empties + buckets below tier
+							// nlz format: [0]=empties, [k+1]=buckets at absNlz==k
+							int vk=nlz[0]; // empties
+							for(int k=0; k<tier && k+1<nlz.length; k++){
+								vk+=nlz[k+1]; // buckets at absNlz==k
 							}
 
 							final int tierOcc=B-vk;
