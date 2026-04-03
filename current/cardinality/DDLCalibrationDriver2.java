@@ -202,6 +202,10 @@ public class DDLCalibrationDriver2 {
 				CorrectionFactor.USE_SBS_FORMULA=Parse.parseBoolean(b);
 			}else if(a.equals("meancfformula") || a.equals("usemeancfformula")){
 				CorrectionFactor.USE_MEAN_CF_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("hccfformula") || a.equals("usehccfformula")){
+				CorrectionFactor.USE_HC_CF_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("formulas") || a.equals("useformulas")){
+				CorrectionFactor.USE_FORMULAS=Parse.parseBoolean(b);
 			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
 				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
 				hcWeightExplicit=true;
@@ -241,11 +245,20 @@ public class DDLCalibrationDriver2 {
 		// the default CF with the user-provided file.
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
 		// Set per-class Mean CF formula coefficients
+		// Set per-class formula coefficients. Only whitelisted classes get formulas;
+		// USE_FORMULAS is suppressed for classes without fitted coefficients.
+		boolean classHasMeanCf=true, classHasHcCf=false;
 		if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
 		else if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3;}
 		else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
-		else if(loglogtype.equals("udll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;}
+		else if(loglogtype.equals("udll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6; classHasHcCf=true;}
+		else{classHasMeanCf=false;}
+		// Suppress formula flags for classes without fitted coefficients
+		if(CorrectionFactor.USE_FORMULAS){
+			if(!classHasMeanCf){CorrectionFactor.USE_MEAN_CF_FORMULA=false;}
+			if(!classHasHcCf){CorrectionFactor.USE_HC_CF_FORMULA=false;}
+		}
 		CorrectionFactor.loadSbsTable();
 		CorrectionFactor.loadSbsMultTable();
 		if(cffile!=null){
