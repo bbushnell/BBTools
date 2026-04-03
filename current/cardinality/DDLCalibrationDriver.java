@@ -59,13 +59,13 @@ public class DDLCalibrationDriver {
 	 *  DLC columns have no CF. */
 	static final boolean[] NEEDS_CF;
 	static{
-		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","HLL+H0","DLC","DLC3B","DLCBest","HybDLC","SBS","SBSMult"};
+		final String[] base={"Mean","HMean","HMeanM","GMean","HLL","LC","Hybrid","HybDLC50","DThHyb","LCmin","DLCPure","DLC","DLC3B","DLCBest","HybDLC","SBS","SBSMult"};
 		ESTIMATOR_NAMES=new String[NUM_EST];
 		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
 		NEEDS_CF=new boolean[NUM_EST];
-		// First 11: {true,true,true,true,true,false,true,true,true,true,false}
-		final boolean[] baseCF={true,true,true,true,true,false,true,true,true,true,false,false};
+		//                      Mean  HMean HMnM  GMean HLL   LC    Hybr  HD50  DThH  LCmin DPure DLC
+		final boolean[] baseCF={true, true, true, true, false,false,true, true, true, false,false,false};
 		System.arraycopy(baseCF, 0, NEEDS_CF, 0, baseCF.length);
 		// DLC entries (11..NUM_EST-1): all false (no CF)
 	}

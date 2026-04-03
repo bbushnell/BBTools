@@ -253,15 +253,10 @@ public abstract class AbstractCardStats {
 	 * @param power   exponent applied to inverse expected error
 	 * @return information-weighted DLC estimate
 	 */
-	static double dlcInfoPow(final int[] counts, final int V, final int B,
-			final double lcMin, final float power){
-		return dlcInfoPow(counts, V, B, lcMin, power, DLC_BLEND_LO, DLC_BLEND_HI);
-	}
-
-	static double dlcInfoPow(final int[] counts, final int V, final int B,
-			final double lcMin, final float power,
-			final float blendLo, final float blendHi){
-		if(V>=blendHi*B){return lcMin;}
+	/** Pure info-power tier blend — no lcMin transition.
+	 *  Returns the weighted log-space average of per-tier LC estimates,
+	 *  or NaN if no tiers contribute. */
+	static double dlcPure(final int[] counts, final int V, final int B, final float power){
 		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(B*DLC_MIN_VK_FRACTION));
 		final int maxVK=B-minVK;
 		final int startTier=lowestActiveTier(counts);
@@ -302,13 +297,31 @@ public abstract class AbstractCardStats {
 			if(tier+1<counts.length && tier<NUM_DLC_TIERS-1){vk+=counts[tier+1];}
 			if(vk>=B){break;}
 		}
-		if(sumW<=0){return lcMin;}
-		final double blendEst=Math.exp(sumWLogE/sumW);
+		if(sumW<=0){return Double.NaN;}
+		return Math.exp(sumWLogE/sumW);
+	}
+
+	/** Blend dlcPure with lcMin based on V/B fraction. */
+	static double dlcBlendWithLcMin(final double dlcPure, final double lcMin,
+			final int V, final int B, final float blendLo, final float blendHi){
+		if(Double.isNaN(dlcPure) || V>=blendHi*B){return lcMin;}
 		if(V>blendLo*B){
 			final double t=(V-blendLo*B)/((blendHi-blendLo)*B);
-			return t*lcMin+(1-t)*blendEst;
+			return t*lcMin+(1-t)*dlcPure;
 		}
-		return blendEst;
+		return dlcPure;
+	}
+
+	static double dlcInfoPow(final int[] counts, final int V, final int B,
+			final double lcMin, final float power){
+		return dlcInfoPow(counts, V, B, lcMin, power, DLC_BLEND_LO, DLC_BLEND_HI);
+	}
+
+	static double dlcInfoPow(final int[] counts, final int V, final int B,
+			final double lcMin, final float power,
+			final float blendLo, final float blendHi){
+		final double pure=dlcPure(counts, V, B, power);
+		return dlcBlendWithLcMin(pure, lcMin, V, B, blendLo, blendHi);
 	}
 
 	static final double SQRT_2_OVER_PI=Math.sqrt(2.0/Math.PI);
@@ -521,7 +534,7 @@ public abstract class AbstractCardStats {
 		r[7] =s.hybDLC50CF;          // HybDLC50
 		r[8] =s.dThHybF;             // DThHyb
 		r[9] =s.dlcLowestF;          // LCmin
-		r[10]=s.hllHistoryF;          // HLL with history-corrected constant
+		r[10]=s.dlcPureF;             // DLCPure (tier blend, no lcMin transition)
 		r[11]=s.dlcCF;               // DLC
 		r[12]=s.dlc3bCF;             // DLC3B
 		r[13]=s.dlcBestCF;           // DLCBest
