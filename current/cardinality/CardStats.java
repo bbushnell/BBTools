@@ -370,9 +370,15 @@ public final class CardStats extends AbstractCardStats {
 	 * Matches the logic of old CardinalityStats.cf() exactly.
 	 */
 	private double cardCF(final double rawEst, final int type, final double keyScale){
+		if(!CorrectionFactor.USE_CORRECTION){return 1;}
 		// Formula mode for Mean CF: bypasses table entirely
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS) && type==CorrectionFactor.MEAN){
 			return CorrectionFactor.meanCfFormula(dlcRawF);
+		}
+		// Formula mode for HMeanM CF: bypasses table entirely
+		if((CorrectionFactor.USE_HMEANM_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
+				&& type==CorrectionFactor.HMEANM && CorrectionFactor.hmeanmCfCoeffs!=null){
+			return CorrectionFactor.hmeanmCfFormula(dlcRawF);
 		}
 		// v3+ tables: use dlcRawF as seed (the primary DLC estimator)
 		if(CorrectionFactor.tableVersion>=3){

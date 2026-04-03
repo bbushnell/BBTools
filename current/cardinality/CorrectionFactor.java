@@ -813,6 +813,21 @@ public class CorrectionFactor{
 		-0.017905605237010, 1.943899332927732, 1.675455792371034,
 		-0.097326679808376, 12.002456847327048, 1.105356472907433};
 
+	// DDL: R²=0.9999998, maxErr=0.00034, terminal=0.99915
+	static final double[] MCF_DDL={
+		-19.993304387411868, 20.647137485833760, -1.945477791594002,  1.104888843159136,
+		 -0.400228566306644, 13.828862848028731,  1.355501262575539,
+		  0.745548131081198, 13.144256239620795,  1.487263674429141,
+		  0.084968861058922,  4.743853636739460,  5.696152118038716,
+		 -0.071087224639731, 11.253873907684133,  2.470149452655291};
+	// DDL8: R²=0.999997, maxErr=0.00157, terminal=0.91591
+	static final double[] MCF_DDL8={
+		-1.148182972078582,  1.775489944684361, -0.363428390325329,  0.975576706648438,
+		-0.100006561008533, 14.005946255313756,  1.084577349254799,
+		 0.388605713935575, 12.851955784608174,  1.331703863406403,
+		 0.090432751638371,  4.854107178369860,  5.402864481025055,
+		-0.054990044876785, 10.989743759283806,  2.218696217583109};
+
 	/** Active Mean CF coefficients. Set by each class's initializeCF(). */
 	public static double[] meanCfCoeffs=MCF_DLL4;
 
@@ -849,6 +864,37 @@ public class CorrectionFactor{
 	}
 
 	private static final double INV_LOG2=1.0/Math.log(2.0);
+
+	/*--------------------------------------------------------------*/
+	/*---  HMeanM CF Formula (mantissa-corrected harmonic mean)  ---*/
+	/*--------------------------------------------------------------*/
+
+	/** When true, HMeanM uses closed-form 3S2G formula instead of table lookup.
+	 *  Only for classes with mantissa bits (DDL, DDL8).  @author Eru */
+	public static boolean USE_HMEANM_CF_FORMULA=false;
+
+	// DDL HMeanM: R²=0.9999995, maxErr=0.00050, terminal=0.66664
+	static final double[] HMCF_DDL={
+		-1.857246410508060,  2.199775270786196, -1.384950498602304,  1.402137770036596,
+		 0.452113833859559, 12.639990633326992,  1.768474443871275,
+		-0.127998016595029, 13.712595143768738,  1.115893216384970,
+		 0.045965403210741, 12.171378392562385,  2.890145419271095,
+		-0.090662213534396, -8.388799521931439,  9.197860272166352};
+	// DDL8 HMeanM: R²=0.999999, maxErr=0.00243, terminal=1.03265
+	static final double[] HMCF_DDL8={
+		-1.400530909905241,  1.874791806181206, -0.827487511951362,  1.355899537629884,
+		 1.446067366045348, 13.080322487323174,  1.772954454619029,
+		-0.887675820615391, 13.508488956856281,  1.463034226525245,
+		 0.091840119486658, 12.213088106640111,  3.018431575798849,
+		 0.043020097260615,  7.388172173294541,  5.669176961113497};
+
+	/** Active HMeanM CF coefficients. Set per class. */
+	public static double[] hmeanmCfCoeffs=null;
+
+	/** Computes HMeanM correction factor from 3S2G formula. */
+	public static double hmeanmCfFormula(double card){
+		return meanCfFormula(card, hmeanmCfCoeffs);
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------     SBS State Index             ----------------*/
@@ -1028,7 +1074,7 @@ public class CorrectionFactor{
 	/** Returns the HC correction factor for a given cardinality estimate.
 	 *  When USE_HC_CF_FORMULA is false, returns 1.0 (no correction). */
 	public static double hcCfFormula(double card){
-		if(!USE_HC_CF_FORMULA && !USE_FORMULAS){return 1.0;}
+		if(!USE_CORRECTION || (!USE_HC_CF_FORMULA && !USE_FORMULAS)){return 1.0;}
 		if(card<=0){return HC_CF_T;} // terminal value
 		final double lc=Math.log(card)*INV_LOG2;
 		final double base=HC_CF_T-HC_CF_A*Math.exp(-HC_CF_B*lc);
