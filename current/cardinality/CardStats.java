@@ -236,7 +236,7 @@ public final class CardStats extends AbstractCardStats {
 			final int divH=Math.max(filled, 1);
 			final double meanH=corrDifSum/divH;
 			meanCorrRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanH))*divH*correction;
-			meanCorrCF=meanCorrRawF*cardCF(meanCorrRawF, CorrectionFactor.MEAN, keyScale);
+			meanCorrCF=meanCorrRawF*cardCF(meanCorrRawF, CorrectionFactor.MEANH, keyScale);
 			final double gmeanH=Math.exp(corrGSum/divH);
 			gmeanCorrRawF=2*(Long.MAX_VALUE/gmeanH)*divH*correction;
 			gmeanCorrCF=gmeanCorrRawF*cardCF(gmeanCorrRawF, CorrectionFactor.GMEAN, keyScale);
@@ -305,19 +305,17 @@ public final class CardStats extends AbstractCardStats {
 			final double meanM=difSumM/divM;
 			final float correctionM=(filledM+numBuckets)/(float)(numBuckets+numBuckets);
 			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM;
-			meanMCF_=meanMRawF*cardCF(meanMRawF, CorrectionFactor.MEAN, keyScale);
+			meanMCF_=meanMRawF*cardCF(meanMRawF, CorrectionFactor.MEANM, keyScale);
 			final double gmeanM=Math.exp(gSumM/divM);
 			gmeanMRawF=2*(Long.MAX_VALUE/gmeanM)*divM*correctionM;
 			gmeanMCF_=gmeanMRawF*cardCF(gmeanMRawF, CorrectionFactor.GMEAN, keyScale);
 		}else{
-			// No mantissa: HMeanM = HMean, no CF correction applied.
-			// The old code intentionally skips CF when hasMantissa==false because
-			// the HMEANM CF was trained on mantissa-corrected data and would be wrong here.
+			// No mantissa: HMeanM = HMean with HMEAN CF (not HMEANM, which is trained on mantissa data).
 			hllSumFilledM=hllSumFilled;
 			difSumM_=difSum;
 			gSumM_=gSum;
 			hmeanMRawF=hmeanRawF;
-			hmeanMCF=hmeanRawF; // raw, no CF
+			hmeanMCF=hmeanCF; // fall back to HMEAN-corrected, not raw
 			meanMRawF=meanRawF;
 			meanMCF_=meanCF;
 			gmeanMRawF=gmeanRawF;
