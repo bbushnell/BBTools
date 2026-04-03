@@ -191,10 +191,13 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates(){
-		final CardStats s=summarize();
-		final double hybridEst=s.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(s, hybridEst);
+		lastSummarized=summarize();
+		final double hybridEst=lastSummarized.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
 	}
+
+	/** Cached CardStats from rawEstimates(), consumed by ldlcEstimate(). */
+	private CardStats lastSummarized;
 
 	/** Build a CardStats from the register array.
 	 *  Counts-only for now; per-state tier multipliers and sbsStates will
@@ -264,109 +267,15 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	/**
 	 * LDLC (Layered Dynamic Linear Counting).
 	 * Blends surface DLC (cumulative) with history-only per-tier LC.
-	 * At low cardinality, falls back to lcMin (tier-compensated LC).
-	 * Returns {ldlc, dlc, hc, lcMin, fgra}.
+	 * Reuses cached CardStats from rawEstimates() to avoid double-summarize.
+	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2}.
 	 */
 	public double[] ldlcEstimate(){
-		final int[] absNlzArr=new int[buckets];
-		final int[] histArr=new int[buckets];
-		final int[] nlzCounts=new int[66];
-		int maxNlz=0, emptyCount=0, nonEmpty=0, hasHistory=0;
-		int histVirtualTotal=0, histVirtualFilled=0;
-		final int hbits=2; // UDLL6 always has 2 history bits
-
-		for(int i=0; i<buckets; i++){
-			final int reg=getReg(i);
-			if(reg==0){
-				absNlzArr[i]=-1;
-				emptyCount++;
-			}else{
-				final int absNlz=(reg>>>2)-HISTORY_MARGIN+minZeros;
-				absNlzArr[i]=absNlz;
-				final int hist=reg&3;
-				histArr[i]=hist;
-				if(absNlz>maxNlz) maxNlz=absNlz;
-				if(absNlz>=0 && absNlz<65) nlzCounts[absNlz+1]++;
-				nonEmpty++;
-				if(hist!=0) hasHistory++;
-				// Virtual buckets: tier t has min(hbits, max(0, t-1)) valid slots
-				final int validSlots=Math.min(hbits, Math.max(0, absNlz-1));
-				histVirtualTotal+=validSlots;
-				if(validSlots>0){
-					final int validMask=((1<<validSlots)-1)<<(hbits-validSlots);
-					histVirtualFilled+=Integer.bitCount(hist&validMask);
-				}
-			}
-		}
-
-		// History-based LC floor: filled buckets + set history bits in valid positions
-		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? nonEmpty+histVirtualFilled : 0);
-
-		// lcMin: tier-compensated LC at lowest non-full tier
-		// microIndex detects collisions: when microFilled > nonEmpty, some elements
-		// landed in the same main bucket but different micro positions.
-		final int microFilled=(int)Long.bitCount(microIndex);
-		final int V=buckets-Math.max(nonEmpty, microFilled);
-		double lcMin;
-		if(V>0){
-			lcMin=Math.max((double)buckets*Math.log((double)buckets/Math.max(V, 0.5)), lcFloor);
-		}else{
-			double lcMinTmp=0;
-			int vk=0;
-			for(int k=0; k+1<nlzCounts.length; k++){
-				vk+=nlzCounts[k+1];
-				if(vk>0){
-					lcMinTmp=(1L<<(k+1))*(double)buckets*Math.log((double)buckets/Math.max(vk, 0.5));
-					break;
-				}
-			}
-			lcMin=Math.max(lcMinTmp, lcFloor);
-		}
-
-		// Get DLCHist and lcHist from CardStats
-		final CardStats s=summarize();
-		final double sbs=s.sbs();
-		final double dlc=s.dlcSbs(); // DLC with SBS fallback
-
-		// HC: history-only per-tier exact LC
-		final int[] nlzBucketCount=new int[64];
-		final int[] nlzH1Set=new int[64];
-		final int[] nlzH0Set=new int[64];
-		for(int i=0; i<buckets; i++){
-			final int n=absNlzArr[i];
-			if(n>=0 && n<64){
-				nlzBucketCount[n]++;
-				if((histArr[i]&2)!=0) nlzH1Set[n]++;
-				if((histArr[i]&1)!=0) nlzH0Set[n]++;
-			}
-		}
-
-		final int maxTier=Math.min(maxNlz+2, 63);
-		double hcSumW=0, hcSumWLogE=0;
-		for(int t=0; t<=maxTier; t++){
-			int hcBeff=0, hcUnseen=0;
-			if(t+1<64){
-				hcBeff+=nlzBucketCount[t+1];
-				hcUnseen+=(nlzBucketCount[t+1]-nlzH1Set[t+1]);
-			}
-			if(t+2<64){
-				hcBeff+=nlzBucketCount[t+2];
-				hcUnseen+=(nlzBucketCount[t+2]-nlzH0Set[t+2]);
-			}
-			if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
-				final double est=(1L<<(t+1))*(double)buckets*Math.log((double)hcBeff/hcUnseen);
-				if(est>0 && !Double.isNaN(est)){
-					final int hcOcc=hcBeff-hcUnseen;
-					final double hcErr=AbstractCardStats.SQRT_2_OVER_PI
-						*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
-						/Math.log((double)hcBeff/hcUnseen);
-					final double w=Math.pow(1.0/hcErr, AbstractCardStats.HC_INFO_POWER);
-					hcSumW+=w;
-					hcSumWLogE+=w*Math.log(est);
-				}
-			}
-		}
-		final double hc=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
+		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
+		lastSummarized=null;
+		final double hc=s.hc();
+		final double dlc=s.dlcSbs();
+		final double lcMin=s.lcMin();
 
 		// LDLC: DLCSbs handles the SBS→DLC transition internally.
 		// HC ramps in over [bLo*B, bHi*B] to maxHcWeight.
@@ -385,19 +294,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 			ldlc=(1-maxHcWeight)*dlc+maxHcWeight*hc;
 		}
 
-		// HLL: standard HyperLogLog from max NLZ values
-		double hllSum=0;
-		for(int i=0; i<buckets; i++){
-			final int reg=(absNlzArr[i]>=0) ? absNlzArr[i]+1 : 0;
-			hllSum+=(reg==0 ? 1.0 : Math.pow(2, -reg));
-		}
-		final double alpha_m=0.7213/(1.0+1.079/buckets);
-		double hll=alpha_m*(double)buckets*(double)buckets/hllSum;
-		if(hll<=2.5*buckets && V>0){
-			hll=(double)buckets*Math.log((double)buckets/(double)V);
-		}
-
 		final double fgra=fgraEstimate();
+		final double hll=s.hllRaw();
 		final double meanH=s.meanHistCF();
 		final double hybridPlus2=s.hybridPlus2();
 		return new double[]{ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2};

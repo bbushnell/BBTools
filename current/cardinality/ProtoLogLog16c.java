@@ -366,89 +366,24 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     /**
 	 * LDLC estimate with variable-width history bit support.
-	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll} — same layout as UltraDynamicLogLog6.
-	 * DLC and HLL are pulled from CardinalityStats to match standard estimators exactly.
+	 * Reuses cached CardStats from rawEstimates() to avoid double-summarize.
+	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2}.
 	 */
 	public double[] ldlcEstimate(){
 		if(!usesHistory()) return null;
-		final int hbits=HISTORY_BITS;
-		final int hshift=getHistoryShift();
-		final int hmask=(1<<hbits)-1;
-		final int emask=(1<<nlzShift())-1;
-
-		final int[] absNlzArr=new int[buckets];
-		final int[] histArr=new int[buckets];
-		int maxNlz=0, nonEmpty=0, hasHistory=0;
-
-		for(int i=0; i<buckets; i++){
-			final int stored=maxArray[i]&0xFFFF;
-			if(stored==0){
-				absNlzArr[i]=-1;
-			}else{
-				final int absNlz=getAbsNlz(stored);
-				absNlzArr[i]=absNlz;
-				final int hist=((stored&emask)>>>hshift)&hmask;
-				histArr[i]=hist;
-				if(absNlz>maxNlz) maxNlz=absNlz;
-				nonEmpty++;
-				if(hist!=0) hasHistory++;
-			}
-		}
-
-		// Build a CardStats to get DLC, lcMin, and HLL from the standard pipeline.
-		final CardStats s=summarize();
+		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
+		lastSummarized=null;
+		final double hc=s.hc();
 		final double dlc=s.dlcRaw();
 		final double lcMin=s.lcMin();
 		final double hll=s.hllRaw();
 
-		// HC: history-only per-tier LC, generalized for variable history bits.
-		// For each history bit offset d (0=MSB=most recent, hbits-1=LSB=oldest):
-		//   buckets at tier t+d+1 with bit d set means they saw tier t.
-		final int[] nlzBucketCount=new int[64];
-		final int[][] nlzHbitSet=new int[hbits][64]; // [bit_offset][tier]
-		for(int i=0; i<buckets; i++){
-			final int n=absNlzArr[i];
-			if(n>=0 && n<64){
-				nlzBucketCount[n]++;
-				for(int d=0; d<hbits; d++){
-					final int bitMask=1<<(hbits-1-d);
-					if((histArr[i]&bitMask)!=0) nlzHbitSet[d][n]++;
-				}
-			}
-		}
-
-		final int maxTier=Math.min(maxNlz+2, 63);
-		double hcSumW=0, hcSumWLogE=0;
-		for(int t=0; t<=maxTier; t++){
-			int hcBeff=0, hcUnseen=0;
-			for(int d=0; d<hbits; d++){
-				final int sourceTier=t+d+1;
-				if(sourceTier<64){
-					hcBeff+=nlzBucketCount[sourceTier];
-					hcUnseen+=(nlzBucketCount[sourceTier]-nlzHbitSet[d][sourceTier]);
-				}
-			}
-			if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
-				final double est=(1L<<(t+1))*(double)buckets*Math.log((double)hcBeff/hcUnseen);
-				if(est>0 && !Double.isNaN(est)){
-					final int hcOcc=hcBeff-hcUnseen;
-					final double hcErr=AbstractCardStats.SQRT_2_OVER_PI
-						*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
-						/Math.log((double)hcBeff/hcUnseen);
-					final double w=Math.pow(1.0/hcErr, AbstractCardStats.HC_INFO_POWER);
-					hcSumW+=w;
-					hcSumWLogE+=w*Math.log(est);
-				}
-			}
-		}
-		final double hc=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
-
-		// LDLC blend: 60% DLC + 40% HC, with adaptive ramp
+		// LDLC blend: coverage-based HC ramp
 		double ldlc;
 		if(hc<=0 || dlc<=0){
 			ldlc=dlc;
 		}else{
-			final double coverage=(nonEmpty>0 ? (double)hasHistory/nonEmpty : 0);
+			final double coverage=s.historyCoverage();
 			final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
 			final double ramp=Math.max(0, Math.min(1, (coverage-0.30)/0.50));
 			final double hcWeight=maxHcWeight*ramp;
@@ -468,10 +403,13 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
     @Override
     public double[] rawEstimates(){
-        final CardStats s=summarize();
-        final double hybridEst=s.hybridDLL();
-        return AbstractCardStats.buildLegacyArray(s, hybridEst);
+        lastSummarized=summarize();
+        final double hybridEst=lastSummarized.hybridDLL();
+        return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
     }
+
+    /** Cached CardStats from rawEstimates(), consumed by ldlcEstimate(). */
+    private CardStats lastSummarized;
 
     private static int getActiveExtraBits(){
         int b=0;

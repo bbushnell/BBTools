@@ -152,6 +152,10 @@ public final class CardStats extends AbstractCardStats {
 			final double termCF=StateTable.terminalCF(histBits_, 0);
 			double cDif=0, cGSum=0;
 			sbsStatesArr=new byte[numBuckets];
+			// HC accumulators: per-NLZ bucket count and per-history-bit set counts
+			final int[] nlzBucketCount=new int[64];
+			final int[][] nlzHbitSet=new int[histBits_][64];
+			int bucketsWithHistory=0;
 			for(int i=0; i<numBuckets; i++){
 				final int val=buckets_[i];
 				if(val==0){
@@ -160,6 +164,7 @@ public final class CardStats extends AbstractCardStats {
 				}
 				final int absNlz=(val>>>histBits_)-1;
 				final int histPattern=val&histMask;
+				if(histPattern!=0) bucketsWithHistory++;
 				final int nlzBin=Math.min(absNlz, histBits_+1);
 
 				// Per-bucket dif: must match old UDLL6 formula exactly
@@ -174,9 +179,52 @@ public final class CardStats extends AbstractCardStats {
 
 				// LC history state index for sbs computation
 				sbsStatesArr[i]=(byte)CorrectionFactor.sbsStateIndex(nlzBin, histPattern, histBits_);
+
+				// HC: accumulate per-NLZ bucket counts and per-bit history set counts
+				if(absNlz>=0 && absNlz<64){
+					nlzBucketCount[absNlz]++;
+					for(int d=0; d<histBits_; d++){
+						if((histPattern&(1<<(histBits_-1-d)))!=0) nlzHbitSet[d][absNlz]++;
+					}
+				}
 			}
 			corrDifSum=cDif;
 			corrGSum=cGSum;
+
+			// HC: history-only per-tier exact LC with info-power weighting
+			int maxNlzHC=0;
+			for(int t=63; t>=0; t--){
+				if(nlzBucketCount[t]>0){ maxNlzHC=t; break; }
+			}
+			final int maxTierHC=Math.min(maxNlzHC+2, 63);
+			double hcSumW=0, hcSumWLogE=0;
+			for(int t=0; t<=maxTierHC; t++){
+				int hcBeff=0, hcUnseen=0;
+				for(int d=0; d<histBits_; d++){
+					final int sourceTier=t+d+1;
+					if(sourceTier<64){
+						hcBeff+=nlzBucketCount[sourceTier];
+						hcUnseen+=(nlzBucketCount[sourceTier]-nlzHbitSet[d][sourceTier]);
+					}
+				}
+				if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
+					final double est=(1L<<(t+1))*(double)numBuckets*Math.log((double)hcBeff/hcUnseen);
+					if(est>0 && !Double.isNaN(est)){
+						final int hcOcc=hcBeff-hcUnseen;
+						final double hcErr=SQRT_2_OVER_PI
+							*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
+							/Math.log((double)hcBeff/hcUnseen);
+						final double w=Math.pow(1.0/hcErr, HC_INFO_POWER);
+						hcSumW+=w;
+						hcSumWLogE+=w*Math.log(est);
+					}
+				}
+			}
+			hcF=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
+			historyCoverage=(filled>0 ? (double)bucketsWithHistory/filled : 0);
+		}else{
+			hcF=0;
+			historyCoverage=0;
 		}
 		hasHistoryCorrection=hasHistCorr;
 
@@ -560,6 +608,10 @@ public final class CardStats extends AbstractCardStats {
 	public double sbs(){return sbsF;}
 	/** History-aware LC using multipliers. Falls back to lcRaw. */
 	public double sbsMult(){return sbsMultF;}
+	/** HC estimate (history-only per-tier LC with info-power weighting). 0 when no history. */
+	public double hc(){return hcF;}
+	/** Fraction of filled buckets with any history bit set. 0 when no history. */
+	public double historyCoverage(){return historyCoverage;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Fields               ----------------*/
@@ -623,6 +675,8 @@ public final class CardStats extends AbstractCardStats {
 	final double sbsF;       // history-aware LC
 	final double sbsMultF;   // history-aware LC using multipliers
 	final double lcForHybridF;  // LC value used for hybrid blending (sbs or lcMin)
+	final double hcF;        // HC estimate (history-only per-tier LC, 0 when no history)
+	final double historyCoverage; // fraction of filled buckets with any history bit set
 
 	// --- Phase 2b: mantissa estimates (defaults to non-mantissa equivalents) ---
 	final double hllSumFilledM; // mantissa-corrected harmonic indicator sum
