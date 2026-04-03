@@ -58,7 +58,7 @@ public final class LogLog6 extends CardinalityTracker {
 	 * No tier promotion: stored value IS the absolute encoding (0=empty, 1-63=absNlz+1).
 	 */
 	private CardStats summarize(){
-		final int[] nlzCounts=new int[66];
+		nlzCounts=new int[66];
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int stored=maxArray[i]&0xFF;
