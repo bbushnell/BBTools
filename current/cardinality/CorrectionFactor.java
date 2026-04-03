@@ -764,6 +764,10 @@ public class CorrectionFactor{
 	 *  Stable for arbitrarily large cardinalities (no divergence).  @author Eru */
 	public static boolean USE_MEAN_CF_FORMULA=false;
 
+	/** When true, enables all available formula modes (SBS, Mean CF, HC CF).
+	 *  Individual flags can still override.  @author Eru */
+	public static boolean USE_FORMULAS=false;
+
 	/** Per-class 3S2G coefficient arrays.
 	 *  Order: {a0, a1, c1, w1, a2, c2, w2, a3, c3, w3, g1, gc1, gw1, g2, gc2, gw2} */
 	// DLL4: R²=0.999998, maxErr=0.00045, terminal=0.72096
@@ -1000,5 +1004,39 @@ public class CorrectionFactor{
 		}
 		sbsMultBuckets=buckets;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*---       HC CF Formula (correction factor for HC)         ---*/
+	/*--------------------------------------------------------------*/
+
+	/** HC correction factor: exponential base + linear-amplitude sine/cosine.
+	 *  CF(C) = t - a*exp(-b*lc) + (s0+s1*lc)*sin(2*pi*lc) + (c0+c1*lc)*cos(2*pi*lc)
+	 *  where lc = log2(C).
+	 *  The sine frequency is EXACTLY 1 cycle per octave (structural, not fitted).
+	 *  R²=0.99995, maxRes=0.00076, 0 strictly-better violations (B=2048, 2M estimators).
+	 *  Returns 1.0 when formulas are disabled.  @author Eru, Ady */
+	public static boolean USE_HC_CF_FORMULA=false;
+
+	private static final double HC_CF_T =   0.998484777537405;
+	private static final double HC_CF_A = 562.709161557896778;
+	private static final double HC_CF_B =   1.011821147415617;
+	private static final double HC_CF_S0=   0.000344111534286;
+	private static final double HC_CF_S1=  -0.000037079356918;
+	private static final double HC_CF_C0=   0.000424944596363;
+	private static final double HC_CF_C1=  -0.000035494763272;
+
+	/** Returns the HC correction factor for a given cardinality estimate.
+	 *  When USE_HC_CF_FORMULA is false, returns 1.0 (no correction). */
+	public static double hcCfFormula(double card){
+		if(!USE_HC_CF_FORMULA && !USE_FORMULAS){return 1.0;}
+		if(card<=0){return HC_CF_T;} // terminal value
+		final double lc=Math.log(card)*INV_LOG2;
+		final double base=HC_CF_T-HC_CF_A*Math.exp(-HC_CF_B*lc);
+		final double angle=TWO_PI*lc;
+		final double s=Math.sin(angle), c=Math.cos(angle);
+		return base+(HC_CF_S0+HC_CF_S1*lc)*s+(HC_CF_C0+HC_CF_C1*lc)*c;
+	}
+
+	private static final double TWO_PI=2.0*Math.PI;
 
 }
