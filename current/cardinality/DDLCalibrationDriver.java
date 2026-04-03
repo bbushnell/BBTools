@@ -50,8 +50,8 @@ public class DDLCalibrationDriver {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Number of estimators reported by rawEstimates(). */
-	static final int NUM_EST=11+6+CardinalityStats.NUM_DLC_TIERS;
+	/** Number of estimators reported by rawEstimates(). Includes MeanH and MeanM at end. */
+	static final int NUM_EST=11+6+CardinalityStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES;
 	/** Which estimators get a CF column in File 2. LC and Micro excluded (no CF applied).
@@ -63,6 +63,8 @@ public class DDLCalibrationDriver {
 		ESTIMATOR_NAMES=new String[NUM_EST];
 		System.arraycopy(base, 0, ESTIMATOR_NAMES, 0, base.length);
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
+		ESTIMATOR_NAMES[AbstractCardStats.MEANH_IDX]="MeanH";
+		ESTIMATOR_NAMES[AbstractCardStats.MEANM_IDX]="MeanM";
 		NEEDS_CF=new boolean[NUM_EST];
 		//                      Mean  HMean HMnM  GMean HLL   LC    Hybr  HD50  DThH  LCmin DPure DLC
 		final boolean[] baseCF={true, true, true, true, false,false,true, true, true, false,false,false};
@@ -197,6 +199,7 @@ public class DDLCalibrationDriver {
 		final long maxTrue=(long)buckets*maxMult;
 		final int numThreads=Math.min(threads, numDDLs);
 		final long[] thresholds=computeThresholds(maxTrue, reportFrac);
+		v3ColsForType(loglogtype);
 
 		// Pre-generate DDL seeds sequentially from masterSeed for reproducibility
 		final Random seedRng=new Random(masterSeed);
@@ -465,9 +468,36 @@ public class DDLCalibrationDriver {
 	/** DLC (dlcLogSpace025) index in rawEstimates() array. */
 	static final int DLC_IDX=11;
 
-	/** v3 CF column definitions: rawEstimates() index → output column name. */
-	static final int[] V3_EST_INDICES={0, 1, 2, 3, 4, 6, 11, 13, 12, 8}; // Mean,HMean,HMeanM,GMean,HLL,Hybrid,DLC,DLCBest,DLC3B,DThHyb
-	static final String[] V3_COL_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","HLL_cf","Hybrid_cf","DLC_cf","DLCBest_cf","DLC3B_cf","DThHyb_cf"};
+	/** Base v3 CF column definitions: rawEstimates() index → output column name.
+	 *  Extended per-class by v3ColsForType() to include MeanH_cf, MeanM_cf as needed. */
+	static final int[] V3_BASE_INDICES={0, 1, 2, 3, 4, 6, 11, 13, 12, 8}; // Mean,HMean,HMeanM,GMean,HLL,Hybrid,DLC,DLCBest,DLC3B,DThHyb
+	static final String[] V3_BASE_NAMES={"Mean_cf","HMean_cf","HMeanM_cf","GMean_cf","HLL_cf","Hybrid_cf","DLC_cf","DLCBest_cf","DLC3B_cf","DThHyb_cf"};
+	/** Active CF column definitions — set per-class by v3ColsForType(). */
+	static int[] V3_EST_INDICES=V3_BASE_INDICES;
+	static String[] V3_COL_NAMES=V3_BASE_NAMES;
+
+	/** Configures V3_COL_NAMES/V3_EST_INDICES based on the DDL class type.
+	 *  Classes with history get MeanH_cf; classes with mantissa get MeanM_cf.
+	 *  No wasted columns: only outputs columns the class actually uses. */
+	static void v3ColsForType(String type){
+		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c");
+		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
+			|| type.equals("ddl8v2") || type.equals("ddl2");
+		final int extra=(hasHistory ? 1 : 0)+(hasMantissa ? 1 : 0);
+		if(extra==0){
+			V3_EST_INDICES=V3_BASE_INDICES;
+			V3_COL_NAMES=V3_BASE_NAMES;
+			return;
+		}
+		final int base=V3_BASE_INDICES.length;
+		V3_EST_INDICES=new int[base+extra];
+		V3_COL_NAMES=new String[base+extra];
+		System.arraycopy(V3_BASE_INDICES, 0, V3_EST_INDICES, 0, base);
+		System.arraycopy(V3_BASE_NAMES, 0, V3_COL_NAMES, 0, base);
+		int idx=base;
+		if(hasHistory){V3_EST_INDICES[idx]=AbstractCardStats.MEANH_IDX; V3_COL_NAMES[idx]="MeanH_cf"; idx++;}
+		if(hasMantissa){V3_EST_INDICES[idx]=AbstractCardStats.MEANM_IDX; V3_COL_NAMES[idx]="MeanM_cf"; idx++;}
+	}
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
 	static int computeNumV3Slots(long maxTrue){

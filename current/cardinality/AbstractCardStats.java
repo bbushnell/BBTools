@@ -533,7 +533,7 @@ public abstract class AbstractCardStats {
 	 * @return double[] in the exact same column order as old CardinalityStats.toArray()
 	 */
 	static double[] buildLegacyArray(final CardStats s, final double hybridEst){
-		final int total=17+NUM_DLC_TIERS;
+		final int total=17+NUM_DLC_TIERS+NUM_EXTRA;
 		if(s.filled==0){
 			final double[] z=new double[total];
 			final double micro=s.microEst;
@@ -564,6 +564,8 @@ public abstract class AbstractCardStats {
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[17+t]=s.dlcTier(t);
 		}
+		r[MEANH_IDX]=s.meanCorrRawF; // history-corrected Mean raw (before CF)
+		r[MEANM_IDX]=s.meanMRawF;    // mantissa-corrected Mean raw (before CF)
 		return r;
 	}
 
@@ -576,6 +578,13 @@ public abstract class AbstractCardStats {
 
 	/** Number of DLC tiers in output. */
 	public static final int NUM_DLC_TIERS=64;
+
+	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw. */
+	public static final int NUM_EXTRA=2;
+	/** rawEstimates() index for MeanH (history-corrected Mean, raw before CF). */
+	public static final int MEANH_IDX=17+NUM_DLC_TIERS;
+	/** rawEstimates() index for MeanM (mantissa-corrected Mean, raw before CF). */
+	public static final int MEANM_IDX=17+NUM_DLC_TIERS+1;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / B. */
 	public static float DLC_ALPHA=9.0f;

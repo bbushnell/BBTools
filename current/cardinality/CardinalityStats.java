@@ -605,7 +605,7 @@ public class CardinalityStats {
 	 * The hybrid value is passed in by the caller (use hybridDLL() or hybridDDL()).
 	 */
 	public double[] toArray(double hybridEst){
-		final int total=11+6+NUM_DLC_TIERS;
+		final int total=11+6+NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
 		final double micro=microEst;
 		if(count==0){final double[] z=new double[total]; for(int i=0;i<10;i++){z[i]=micro;} z[10]=microEst; return z;}
 		final double[] r=new double[total];
@@ -635,6 +635,9 @@ public class CardinalityStats {
 		for(int t=0; t<NUM_DLC_TIERS; t++){
 			r[17+t]=dlcEstimate(t);
 		}
+		// MeanH and MeanM: old class has no history/mantissa correction, so raw mean = mean
+		r[AbstractCardStats.MEANH_IDX]=meanEst; // no history correction in old class
+		r[AbstractCardStats.MEANM_IDX]=meanEst; // old class already uses best available mean
 		return r;
 	}
 

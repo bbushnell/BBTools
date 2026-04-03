@@ -244,6 +244,8 @@ public class DDLCalibrationDriver2 {
 		// Creating a dummy instance here triggers that class init; then we overwrite
 		// the default CF with the user-provided file.
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
+		// Configure per-class CF table columns (MeanH for history, MeanM for mantissa)
+		DDLCalibrationDriver.v3ColsForType(loglogtype);
 		// Set per-class Mean CF formula coefficients
 		// Set per-class formula coefficients. Only whitelisted classes get formulas;
 		// USE_FORMULAS is suppressed for classes without fitted coefficients.
@@ -535,7 +537,7 @@ public class DDLCalibrationDriver2 {
 								out4Pw.println();
 							}
 						}
-						for(int e=0; e<NUM_EST; e++){
+						for(int e=0; e<Math.min(NUM_EST, est.length); e++){
 							final double v=CLAMP_TO_ADDED ? Math.min(est[e], trueCard) : est[e];
 							final double err=(v-trueCard)/(double)trueCard;
 							sumErr[ti][e]+=err;
