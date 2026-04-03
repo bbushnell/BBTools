@@ -259,8 +259,8 @@ public final class CardStats extends AbstractCardStats {
 		}
 		lcForHybridF=lcForHybridTmp;
 
-		// DSBS: DLC with sbs as fallback, extended blend zone
-		dlcSbsF=dlcInfoPow(counts, V, numBuckets, sbsF, DLC_INFO_POWER, DLCSBS_BLEND_LO, DLCSBS_BLEND_HI);
+		// DSBS: DLC with sbs as fallback, blended in cardinality space using dlcRaw
+		dlcSbsF=dlcBlendWithSbs(dlcPureF, sbsF, dlcRawF, numBuckets, DLCSBS_BLEND_LO, DLCSBS_BLEND_HI);
 
 		/*--- Phase 2b: mantissa estimates (when mantissaBits > 0) ---*/
 

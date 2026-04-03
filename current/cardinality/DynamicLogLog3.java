@@ -420,8 +420,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  clamping at tier 7+. Uses cumulative-space Poisson correction with per-DDL stored
 	 *  overflow estimates. Each tier is corrected independently in reverse-cumulative space. */
 	public static boolean CORRECT_OVERFLOW=true;
-	/** Scale factor for overflow correction boost (1.0=full, 0.5=half). */
-	public static double OVERFLOW_SCALE=1.0;
+	/** Scale factor for overflow correction boost.  1.0 is theoretically correct and
+	 *  may be best for gaussian weighting (mode 3), but for error-rate-based blending
+	 *  (mode 2), 1.7 minimizes peak error and 1.8 minimizes terminal error.
+	 *  Found empirically via agent investigation. */
+	public static double OVERFLOW_SCALE=1.7;
 	/** When true, use per-tier stored overflow estimates (recorded at tier transitions)
 	 *  instead of the constant xOverflow formula. More accurate because it uses actual state. */
 	public static boolean USE_STORED_OVERFLOW=true;
