@@ -301,6 +301,26 @@ public abstract class AbstractCardStats {
 		return Math.exp(sumWLogE/sumW);
 	}
 
+	/** Blend dlcPure with SBS in cardinality space using dlcRaw as zone detector.
+	 *  Below blendLo*B, pure SBS; above blendHi*B, pure dlcPure; log-interpolated between. */
+	/** Cardinality-based blend with log interpolation (for DlcSbs, Hybrid-like). */
+	static double dlcBlendWithSbs(final double dlcPure, final double sbs,
+			final double dlcRaw, final int B, final float blendLo, final float blendHi){
+		if(Double.isNaN(dlcPure) || dlcRaw<=blendLo*B){return sbs;}
+		if(dlcRaw>=blendHi*B){return dlcPure;}
+		final double t=Math.log(dlcRaw/(blendLo*B))/Math.log(blendHi/blendLo);
+		return (1-t)*sbs+t*dlcPure;
+	}
+
+	/** Cardinality-based blend with linear interpolation (for DLC 2-pass). */
+	static double dlcBlendCardLinear(final double dlcPure, final double lcMin,
+			final double zoneEst, final int B, final float blendLo, final float blendHi){
+		if(Double.isNaN(dlcPure) || zoneEst<=blendLo*B){return lcMin;}
+		if(zoneEst>=blendHi*B){return dlcPure;}
+		final double t=(zoneEst-blendLo*B)/((blendHi-blendLo)*B);
+		return (1-t)*lcMin+t*dlcPure;
+	}
+
 	/** Blend dlcPure with lcMin based on V/B fraction. */
 	static double dlcBlendWithLcMin(final double dlcPure, final double lcMin,
 			final int V, final int B, final float blendLo, final float blendHi){
@@ -440,7 +460,7 @@ public abstract class AbstractCardStats {
 	 */
 	static double hybridDLL(final double lcForHybrid, final double lcMin,
 			final double meanCF, final int B){
-		final double hb0=0.20*B, hb1=5.0*B;
+		final double hb0=HYBRID_BLEND_LO*B, hb1=HYBRID_BLEND_HI*B;
 		if(lcMin<=hb0){return lcForHybrid;}
 		if(lcMin<hb1){
 			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
@@ -562,9 +582,9 @@ public abstract class AbstractCardStats {
 	/** Target occupancy fraction for DLC blending (0.25 = 75% full). */
 	public static float DLC_TARGET_FRAC=0.25f;
 	/** Below this V/B fraction, DLC blend is pure; above, transitions to lcMin. */
-	public static float DLC_BLEND_LO=0.3f;
+	public static float DLC_BLEND_LO=0.088f;
 	/** Above this V/B fraction, DLC returns lcMin (too few filled buckets). */
-	public static float DLC_BLEND_HI=0.5f;
+	public static float DLC_BLEND_HI=0.952f;
 	/** Minimum V_k fraction for tier to participate in DLC blend. */
 	public static float DLC_MIN_VK_FRACTION=0.002f;
 	/** Absolute minimum V_k for tier participation. */
@@ -582,13 +602,18 @@ public abstract class AbstractCardStats {
 	/** Error model mode: 0=2-param empirical, 1=1-param fitted, 2=0-param theory (default). */
 	public static int DLC_INFO_MODE=2;
 
-	/** DSBS blend limits — extended to keep sbs influence at higher cardinality. */
-	public static float DLCSBS_BLEND_LO=0.018f;
-	public static float DLCSBS_BLEND_HI=0.135f;
+	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
+	public static float HYBRID_BLEND_LO=0.20f;
+	public static float HYBRID_BLEND_HI=7.5f;
+
+	/** DlcSbs blend: below LO*B pure SBS, above HI*B pure DLCPure. Multipliers of B.
+	 *  Uses dlcRaw as zone detector (cardinality space, not V/B). */
+	public static float DLCSBS_BLEND_LO=2.0f;
+	public static float DLCSBS_BLEND_HI=6.0f;
 
 	/** LDLC HC blend zone multipliers (as fractions of B).
 	 *  HC ramps in over [LDLC_B_LO*B, LDLC_B_HI*B]. */
-	public static float LDLC_B_LO=2.0f, LDLC_B_HI=5.0f;
+	public static float LDLC_B_LO=0.5f, LDLC_B_HI=4.5f;
 
 	/** When false, microIndex does not adjust V for LC calculation. */
 	public static boolean USE_MICRO_FOR_LC=true;
