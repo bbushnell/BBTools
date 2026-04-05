@@ -78,26 +78,23 @@ public final class CardStats extends AbstractCardStats {
 		assert filled+counts[0]==numBuckets :
 			"counts sum ("+filled+"+"+counts[0]+") != numBuckets ("+numBuckets+")";
 
-		// Empty buckets: counts[0], adjusted by microIndex for improved LC at low card
-		final int microFilled=USE_MICRO_FOR_LC ? microBits : 0;
-		V=numBuckets-Math.max(filled, microFilled);
+		// Empty buckets from NLZ counts only (no microIndex adjustment to V)
+		V=numBuckets-filled;
 
 		// Bias correction constants
 		alpha_m=0.7213/(1.0+1.079/numBuckets);
 		// NOTE: float cast matches CardinalityStats line 144 exactly — do not change to double
 		correction=(filled+numBuckets)/(float)(numBuckets+numBuckets);
 
-		// MicroIndex estimate: LC over 64 virtual buckets
+		// MicroIndex estimate: LC over 64 virtual buckets (calculated but not used for flooring)
 		microEst=microEstimate(microBits);
 
-		// LC floor from history bits and micro count
-		final int lcFloor=(CardinalityTracker.USE_HISTORY_FOR_LC ? microFilled : 0);
+		// 1. LC — pure linear counting, floored by microIndex bit count
+		lcNoMicroF=lcRaw(V, numBuckets);
+		lcRawF=Math.max(lcNoMicroF, microBits);
 
-		// 1. LC raw — basic linear counting
-		lcRawF=Math.max(lcRaw(V, numBuckets), lcFloor);
-
-		// 2. LCMin — tier-compensated LC (walks counts to find first tier with empties)
-		lcMinF=lcMin(counts, V, numBuckets, lcFloor);
+		// 2. LCMin — tier-compensated LC, floored by microIndex bit count
+		lcMinF=Math.max(lcMin(counts, V, numBuckets, 0), microBits);
 
 		// 3. DLC — primary CF-free estimator; info-power weighted blend (mode 2 = 0-param theory)
 		//    dlcPure is the raw tier blend; dlcRaw blends it with lcMin at low occupancy.
@@ -247,9 +244,11 @@ public final class CardStats extends AbstractCardStats {
 			gmeanCorrCF=gmeanCF;
 		}
 
-		// SBS: history-aware LC from per-bucket state indices
-		sbsF=computeSbs(sbsStatesArr, filled, numBuckets, lcRawF);
-		sbsMultF=computeSbsMult(sbsStatesArr, filled, numBuckets, lcRawF);
+		// SBS: history-aware LC from per-bucket state indices, floored by microIndex bit count
+		final double sbsRaw=computeSbs(sbsStatesArr, filled, numBuckets, lcNoMicroF);
+		sbsF=Math.max(sbsRaw, microBits);
+		sbsNoMicroF=sbsRaw;
+		sbsMultF=computeSbsMult(sbsStatesArr, filled, numBuckets, lcNoMicroF);
 
 		// If sbs table is available and enabled, use sbs for hybrid blending
 		if(CardinalityTracker.USE_SBS_IN_HYBRID
@@ -653,6 +652,7 @@ public final class CardStats extends AbstractCardStats {
 
 	// --- Phase 1: counts-only estimates ---
 	final double lcRawF;        // basic LC
+	final double lcNoMicroF;    // pure LC without microIndex adjustment
 	final double lcMinF;        // tier-compensated LC
 	final double dlcPureF;      // pure tier blend (no lcMin transition)
 	final double dlcRawF;       // primary DLC (dlcPure blended with lcMin), CF-free
@@ -683,6 +683,7 @@ public final class CardStats extends AbstractCardStats {
 	final double gmeanCorrRawF; // history-corrected GMean raw
 	final double gmeanCorrCF;   // history-corrected GMean with CF
 	final double sbsF;       // history-aware LC
+	final double sbsNoMicroF; // SBS without microIndex
 	final double sbsMultF;   // history-aware LC using multipliers
 	final double lcForHybridF;  // LC value used for hybrid blending (sbs or lcMin)
 	final double hcF;        // HC estimate (CF-corrected, 0 when no history)

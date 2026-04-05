@@ -56,9 +56,9 @@ public class DDLCalibrationDriver2 {
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
 
-	/** Number of extra LDLC columns: {LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2}. Populated for UDLL6 and PLL16c. */
-	static final int NUM_LDLC=7;
-	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2"};
+	/** Number of extra LDLC columns: {LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2, LC_noMicro, SBS_noMicro}. */
+	static final int NUM_LDLC=9;
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -73,7 +73,7 @@ public class DDLCalibrationDriver2 {
 		int numDDLs=128;
 		int buckets=2048;
 		int k=31;
-		long maxMult=10;
+		double maxMult=10;
 		double reportFrac=0.01;
 		long masterSeed=12345L;
 		int threads=Shared.threads();
@@ -94,7 +94,7 @@ public class DDLCalibrationDriver2 {
 			if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Parse.parseIntKMG(b);}
+			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Double.parseDouble(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){/*ignored: single-rng design uses seed only*/}
@@ -241,7 +241,7 @@ public class DDLCalibrationDriver2 {
 			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
 		}
 
-		final long maxTrue=(long)buckets*maxMult;
+		final long maxTrue=Math.max(1, (long)(buckets*maxMult));
 		final int numThreads=Math.min(threads, numDDLs);
 
 		// Force class initialization of the DDL type BEFORE loading the user CF file.
@@ -559,12 +559,23 @@ public class DDLCalibrationDriver2 {
 						}else{ldlcR=null;}
 						if(ldlcR!=null){
 							final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7};
-							for(int e=0; e<NUM_LDLC; e++){
+							for(int e=0; e<7; e++){
 								final double v=ldlcR[ldlcIdx[e]];
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][e]+=lerr;
 								ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
 								ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+						}
+						// LC_noMicro and SBS_noMicro from rawEstimates array
+						{
+							final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};
+							for(int e=0; e<extraIdx.length; e++){
+								final double v=(extraIdx[e]<est.length ? est[extraIdx[e]] : 0);
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][7+e]+=lerr;
+								ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr);
+								ldlcSumSqErr[ti][7+e]+=lerr*lerr;
 							}
 						}
 						ti++;
