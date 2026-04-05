@@ -555,16 +555,16 @@ public abstract class AbstractCardStats {
 		r[1] =s.hmeanCF;             // HMean
 		r[2] =s.hmeanMCF;            // HMeanM
 		r[3] =s.gmeanMCF();          // GMean
-		r[4] =s.hllCF;               // HLL
+		r[4] =s.hllRawF;             // HLL (no CF — formula-based, needs no correction)
 		r[5] =s.lcRawF;              // LC
 		r[6] =hybridEst;             // Hybrid
 		r[7] =s.hybDLC50CF;          // HybDLC50
 		r[8] =s.dThHybF;             // DThHyb
 		r[9] =s.dlcLowestF;          // LCmin
 		r[10]=s.dlcPureF;             // DLCPure (tier blend, no lcMin transition)
-		r[11]=s.dlcCF;               // DLC
-		r[12]=s.dlc3bCF;             // DLC3B
-		r[13]=s.dlcBestCF;           // DLCBest
+		r[11]=s.dlcRawF;             // DLC (no CF — formula-based, needs no correction)
+		r[12]=s.dlc3bF;              // DLC3B (no CF)
+		r[13]=s.dlcBestF;            // DLCBest (no CF)
 		r[14]=s.hybDLCcf;            // HybDLC
 		r[15]=s.sbsF;             // SBS
 		r[16]=s.sbsMultF;          // SBSMult
@@ -573,6 +573,8 @@ public abstract class AbstractCardStats {
 		}
 		r[MEANH_IDX]=s.meanCorrRawF; // history-corrected Mean raw (before CF)
 		r[MEANM_IDX]=s.meanMRawF;    // mantissa-corrected Mean raw (before CF)
+		r[LC_NOMICRO_IDX]=s.lcNoMicroF;  // pure LC without microIndex
+		r[SBS_NOMICRO_IDX]=s.sbsNoMicroF; // SBS without microIndex
 		return r;
 	}
 
@@ -586,12 +588,16 @@ public abstract class AbstractCardStats {
 	/** Number of DLC tiers in output. */
 	public static final int NUM_DLC_TIERS=64;
 
-	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw. */
-	public static final int NUM_EXTRA=2;
+	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw, LC_noMicro, SBS_noMicro. */
+	public static final int NUM_EXTRA=4;
 	/** rawEstimates() index for MeanH (history-corrected Mean, raw before CF). */
 	public static final int MEANH_IDX=17+NUM_DLC_TIERS;
 	/** rawEstimates() index for MeanM (mantissa-corrected Mean, raw before CF). */
 	public static final int MEANM_IDX=17+NUM_DLC_TIERS+1;
+	/** rawEstimates() index for LC without microIndex. */
+	public static final int LC_NOMICRO_IDX=17+NUM_DLC_TIERS+2;
+	/** rawEstimates() index for SBS without microIndex. */
+	public static final int SBS_NOMICRO_IDX=17+NUM_DLC_TIERS+3;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / B. */
 	public static float DLC_ALPHA=9.0f;

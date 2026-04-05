@@ -65,6 +65,8 @@ public class DDLCalibrationDriver {
 		for(int i=0; i<CardinalityStats.NUM_DLC_TIERS; i++){ESTIMATOR_NAMES[base.length+i]="DLC"+i;}
 		ESTIMATOR_NAMES[AbstractCardStats.MEANH_IDX]="MeanH";
 		ESTIMATOR_NAMES[AbstractCardStats.MEANM_IDX]="MeanM";
+		ESTIMATOR_NAMES[AbstractCardStats.LC_NOMICRO_IDX]="LC_noMicro";
+		ESTIMATOR_NAMES[AbstractCardStats.SBS_NOMICRO_IDX]="SBS_noMicro";
 		NEEDS_CF=new boolean[NUM_EST];
 		//                      Mean  HMean HMnM  GMean HLL   LC    Hybr  HD50  DThH  LCmin DPure DLC
 		final boolean[] baseCF={true, true, true, true, false,false,true, true, true, false,false,false};
