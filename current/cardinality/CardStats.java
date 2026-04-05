@@ -539,8 +539,35 @@ public final class CardStats extends AbstractCardStats {
 			final int numBuckets, final double lcRaw){
 		if(states==null){return lcRaw;}
 
-		// Formula mode: no table needed, B-independent
-		if(CorrectionFactor.USE_SBS_FORMULA || CorrectionFactor.USE_FORMULAS){
+		// Table mode (preferred when available)
+		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
+		if(table!=null){
+			final int tableBuckets=CorrectionFactor.sbsBuckets;
+			final float[] row;
+			if(numBuckets==tableBuckets){
+				row=table[Math.min(filled, tableBuckets)];
+			}else{
+				final double pos=(double)filled*tableBuckets/numBuckets;
+				final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
+				final int hi=Math.min(lo+1, tableBuckets);
+				final double frac=pos-lo;
+				row=new float[CorrectionFactor.SBS_STATES];
+				final float[] rowLo=table[lo];
+				final float[] rowHi=table[hi];
+				for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
+					row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
+				}
+			}
+			double est=0;
+			for(int i=0; i<states.length; i++){
+				final int si=states[i];
+				if(si>=0){est+=row[si];}
+			}
+			return est;
+		}
+
+		// Formula fallback: SBS must always use table or formula, never bare lcRaw
+		{
 			double est=0;
 			for(int i=0; i<states.length; i++){
 				final int si=states[i];
@@ -548,32 +575,6 @@ public final class CardStats extends AbstractCardStats {
 			}
 			return est;
 		}
-
-		// Table mode: original behavior
-		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
-		if(table==null){return lcRaw;}
-		final int tableBuckets=CorrectionFactor.sbsBuckets;
-		final float[] row;
-		if(numBuckets==tableBuckets){
-			row=table[Math.min(filled, tableBuckets)];
-		}else{
-			final double pos=(double)filled*tableBuckets/numBuckets;
-			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
-			final int hi=Math.min(lo+1, tableBuckets);
-			final double frac=pos-lo;
-			row=new float[CorrectionFactor.SBS_STATES];
-			final float[] rowLo=table[lo];
-			final float[] rowHi=table[hi];
-			for(int s=0; s<CorrectionFactor.SBS_STATES; s++){
-				row[s]=(float)(rowLo[s]+(rowHi[s]-rowLo[s])*frac);
-			}
-		}
-		double est=0;
-		for(int i=0; i<states.length; i++){
-			final int si=states[i];
-			if(si>=0){est+=row[si];}
-		}
-		return est;
 	}
 
 	/** History-aware LC using multipliers: lcRaw × weightedAvg(CF per bucket state).

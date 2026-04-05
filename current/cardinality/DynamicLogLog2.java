@@ -178,6 +178,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		}
 
 		// Stored = relNlz+1, clamped to [1,3] for overflow
+		if(IGNORE_OVERFLOW && relNlz+1>3){return;} // silently ignore overflow
 		final int newStored=Math.min(relNlz+1, 3);
 		final int oldStored=readBucket(bucket);
 
@@ -263,6 +264,10 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	private static final int wordlen=64;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
+
+	/** When true, hashes that would overflow the 2-bit register are silently ignored.
+	 *  Eliminates overflow corruption; the CF table absorbs resulting bias. */
+	public static boolean IGNORE_OVERFLOW=false;
 
 	/** Default resource file for DLL2 correction factors (using DLL3 table until DLL2-specific table is generated). */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";

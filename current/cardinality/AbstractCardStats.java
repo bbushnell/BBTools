@@ -286,6 +286,13 @@ public abstract class AbstractCardStats {
 						w=Math.exp(-alpha*Math.abs(vk-target));
 						break;
 					}
+					case 4:{
+						// DLL3 overflow-aware model: fitted from tier 8 steady-state data.
+						// err = a/(occ/B + d)^b + c. Captures overflow-induced underestimation.
+						final double err4=DLL3_OVF_A/Math.pow((double)occ/Bd+DLL3_OVF_D, DLL3_OVF_B)+DLL3_OVF_C;
+						w=Math.pow(1.0/Math.max(err4, 1e-6), power);
+						break;
+					}
 					default:{
 						final double err=SQRT_2_OVER_PI*Math.sqrt((double)occ/(Bd*vk))/Math.log(Bd/vk);
 						w=Math.pow(1.0/err, power);
@@ -608,8 +615,15 @@ public abstract class AbstractCardStats {
 	/** Power for HC (history counting) tier weighting. HC tiers have fewer effective
 	 *  buckets than DLC tiers, so a lower power avoids over-concentrating on one tier. */
 	public static float HC_INFO_POWER=2.0f;
-	/** Error model mode: 0=2-param empirical, 1=1-param fitted, 2=0-param theory (default). */
+	/** Error model mode: 0=2-param empirical, 1=1-param fitted, 2=0-param theory (default), 4=DLL3 overflow. */
 	public static int DLC_INFO_MODE=2;
+
+	/** DLL3 overflow per-tier error model (mode 4): err = a/(occ/B + d)^b + c.
+	 *  Fitted from DLCTierAccuracy tier 8, 40k DDLs, B=2048. R²=0.99967. */
+	public static double DLL3_OVF_A=0.06554334;
+	public static double DLL3_OVF_B=1.01917095;
+	public static double DLL3_OVF_C=-0.03234034;
+	public static double DLL3_OVF_D=0.06711951;
 
 	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
 	public static float HYBRID_BLEND_LO=0.20f;

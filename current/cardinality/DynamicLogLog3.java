@@ -82,7 +82,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardStats s=summarize();
-		final double rawHyb=s.hybridDLL();
+		double rawHyb=s.hybridDLL();
+		if(IGNORE_OVERFLOW){rawHyb=ioBiasCorrect(rawHyb, buckets);}
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
@@ -175,6 +176,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		}
 
 		// Stored = relNlz+1, clamped to [1,7] for overflow
+		if(IGNORE_OVERFLOW && relNlz+1>7){return;} // silently ignore overflow
 		final int newStored=Math.min(relNlz+1, 7);
 		final int oldStored=readBucket(bucket);
 
@@ -365,7 +367,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
 		final double hybridEst=s.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(s, hybridEst);
+		double[] r=AbstractCardStats.buildLegacyArray(s, hybridEst);
+		if(IGNORE_OVERFLOW){
+			final double mult=ioBiasMult(hybridEst, buckets);
+			for(int i=0; i<r.length; i++){r[i]*=mult;}
+		}
+		return r;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -428,6 +435,35 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/** When true, use per-tier stored overflow estimates (recorded at tier transitions)
 	 *  instead of the constant xOverflow formula. More accurate because it uses actual state. */
 	public static boolean USE_STORED_OVERFLOW=true;
+	/** When true, hashes that would overflow the register are silently ignored.
+	 *  Eliminates overflow corruption at the cost of delayed information.
+	 *  Per-tier bias correction absorbs the resulting systematic underestimate. */
+	public static boolean IGNORE_OVERFLOW=false;
+
+	/** Per-tier bias constants for IO mode. Indexed by tier+IO_TIER_OFFSET.
+	 *  tier = floor(log2(estimate/buckets)). Fitted from 2048-bucket, 1000-estimator data. */
+	private static final double[] IO_BIAS={
+		-0.015172, -0.016103, -0.015661, -0.014902, -0.014328, // tiers -8..-4
+		-0.013666, -0.016286, -0.017821, -0.020524, -0.028997, // tiers -3..1
+		-0.045063, -0.070147, -0.095604, -0.115183, -0.128107, // tiers 2..6
+		-0.132166, -0.129972, -0.126304, -0.126153, -0.126579, // tiers 7..11
+		-0.126523                                                // tier 12
+	};
+	private static final int IO_TIER_OFFSET=8; // IO_BIAS[0] corresponds to tier -8
+	private static final int IO_TIER_MIN=-8, IO_TIER_MAX=12;
+
+	/** Returns IO-bias-corrected estimate: raw / (1 + bias[tier]). */
+	static double ioBiasCorrect(double raw, int buckets){
+		return raw*ioBiasMult(raw, buckets);
+	}
+
+	/** Returns the multiplicative correction factor for IO mode. */
+	static double ioBiasMult(double raw, int buckets){
+		if(raw<=0){return 1;}
+		int tier=(int)Math.floor(Math.log(raw/buckets)/Math.log(2));
+		tier=Math.max(IO_TIER_MIN, Math.min(IO_TIER_MAX, tier));
+		return 1.0/(1.0+IO_BIAS[tier+IO_TIER_OFFSET]);
+	}
 
 	/** Set to true externally to trigger one debug dump from summarize(), then auto-clears. */
 	public static boolean DEBUG_ONCE=false;

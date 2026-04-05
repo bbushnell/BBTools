@@ -184,6 +184,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			}
 		}
 
+		if(IGNORE_OVERFLOW && localRelNlz+1>7){return;} // silently ignore overflow
 		final int newStored=Math.min(localRelNlz+1, 7);
 		if(newStored<1){return;} // below current floor
 		// Read oldStored and currentBank AFTER potential bank promotion, so both
@@ -432,6 +433,10 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	public static boolean CORRECT_OVERFLOW=true;
 	public static double OVERFLOW_SCALE=1.0;
 	public static boolean USE_STORED_OVERFLOW=true;
+	/** When true, hashes that would overflow the register are silently ignored.
+	 *  Eliminates overflow corruption at the cost of delayed information.
+	 *  The CF table absorbs the resulting systematic bias. */
+	public static boolean IGNORE_OVERFLOW=false;
 	public static boolean DEBUG_ONCE=false;
 
 	/** Use DLL3's CF table initially — will need its own table eventually. */

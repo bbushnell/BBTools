@@ -104,6 +104,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ULLd();
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m();
+		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
+			return new HyperTwoBits();
+		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
+			return new HLLTailCut();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -183,6 +187,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ULLd(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
+			return new HyperTwoBits(p);
+		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
+			return new HLLTailCut(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -257,6 +265,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ULLd(buckets_, k_, seed, minProb_);
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m(buckets_, k_, seed, minProb_);
+		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
+			return new HyperTwoBits(buckets_, k_, seed, minProb_);
+		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
+			return new HLLTailCut(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
