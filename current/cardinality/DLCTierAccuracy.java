@@ -43,6 +43,18 @@ public class DLCTierAccuracy {
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("points")){numPoints=Integer.parseInt(b);}
 			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
+			else if(a.equals("correctoverflow") || a.equals("co")){
+				final boolean v=b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");
+				DynamicLogLog3.CORRECT_OVERFLOW=v;
+				BankedDynamicLogLog3.CORRECT_OVERFLOW=v;
+			}else if(a.equals("ignoreoverflow") || a.equals("io")){
+				final boolean v=b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");
+				DynamicLogLog3.IGNORE_OVERFLOW=v;
+				DynamicLogLog2.IGNORE_OVERFLOW=v;
+				BankedDynamicLogLog3.IGNORE_OVERFLOW=v;
+			}else if(a.equals("overflowscale") || a.equals("os")){
+				DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
+			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
 		final long maxCard=(long)buckets*maxmult;
@@ -50,7 +62,9 @@ public class DLCTierAccuracy {
 
 		System.err.println("DLCTierAccuracy: type="+loglogtype+" buckets="+buckets+" ddls="+ddls+
 			" maxmult="+maxmult+" tier="+targetTier+" threads="+threads+
-			" points="+numPoints+" maxCard="+maxCard);
+			" points="+numPoints+" maxCard="+maxCard+
+			" io="+DynamicLogLog3.IGNORE_OVERFLOW+
+			" os="+DynamicLogLog3.OVERFLOW_SCALE);
 
 		// Precompute cardinality thresholds (log-spaced)
 		final long[] thresholds=new long[numPoints];

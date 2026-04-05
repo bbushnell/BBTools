@@ -72,6 +72,13 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("correctoverflow") || a.equals("co")){
 				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
 				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("ignoreoverflow") || a.equals("io")){
+				DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("overflowscale") || a.equals("os")){
+				DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
+				BankedDynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
