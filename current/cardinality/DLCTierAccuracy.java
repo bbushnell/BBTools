@@ -47,11 +47,13 @@ public class DLCTierAccuracy {
 				final boolean v=b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");
 				DynamicLogLog3.CORRECT_OVERFLOW=v;
 				BankedDynamicLogLog3.CORRECT_OVERFLOW=v;
+				if(v){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false;}
 			}else if(a.equals("ignoreoverflow") || a.equals("io")){
 				final boolean v=b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");
 				DynamicLogLog3.IGNORE_OVERFLOW=v;
 				DynamicLogLog2.IGNORE_OVERFLOW=v;
 				BankedDynamicLogLog3.IGNORE_OVERFLOW=v;
+				if(v){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false;}
 			}else if(a.equals("overflowscale") || a.equals("os")){
 				DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
