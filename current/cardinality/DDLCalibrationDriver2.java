@@ -16,32 +16,14 @@ import shared.Tools;
  * <p>
  * Each thread processes one DDL at a time: create, feed all values sequentially,
  * record measurements at reporting thresholds, discard, repeat. This keeps the DDL's
- * working set in L1/L2 cache throughout its lifetime, eliminating the cache-miss storm
- * of DDLCalibrationDriver where each value touched all N DDLs.
+ * working set in L1/L2 cache throughout its lifetime.
  * <p>
- * After all threads finish, the main thread merges per-threshold accumulators and
- * prints all rows (File 1), then writes File 3 (v4 CF table).
- * <p>
- * Each thread is seeded with (masterSeed + threadId), giving one deterministic
- * FastRandomXoshiro per thread that generates both DDL seeds and hash values.
- * This guarantees bit-for-bit reproducibility across runs with the same parameters.
- * <p>
- * Parameters (key=value format):
- * <ul>
- *   <li>ddls=1000        - total DDL instances across all threads</li>
- *   <li>buckets=2048     - buckets per DDL (must be a multiple of 256)</li>
- *   <li>k=31             - k-mer length (needed by DDL constructor)</li>
- *   <li>maxmult=10       - stop when trueCard reaches buckets*maxmult</li>
- *   <li>reportfrac=0.01  - report every this fraction of current cardinality</li>
- *   <li>seed=12345       - master seed; thread t uses seed+t</li>
- *   <li>threads=1        - number of parallel simulation threads</li>
- *   <li>out1=path        - output file for per-threshold statistics (File 1)</li>
- *   <li>out3=path        - output file for v5 CF table (File 3)</li>
- *   <li>type=ddl         - DDL type: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4</li>
- * </ul>
+ * Follows BBTools MT template: constructor wraps global state changes in synchronized(class),
+ * threads take defensive local copies of statics at initialization, accumulator merge
+ * synchronizes on each thread before reading.
  *
- * @author Chloe
- * @date March 2026
+ * @author Chloe, Brian Bushnell
+ * @date April 2026
  */
 public class DDLCalibrationDriver2 {
 
@@ -49,14 +31,9 @@ public class DDLCalibrationDriver2 {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** When true, clamp estimates to trueCard (never overestimate). Only valid for unique-element calibration. */
 	static boolean CLAMP_TO_ADDED=false;
-
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
-	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-
-	/** Number of extra LDLC columns: {LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2, LC_noMicro, SBS_noMicro}. */
 	static final int NUM_LDLC=9;
 	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro"};
 
@@ -65,28 +42,31 @@ public class DDLCalibrationDriver2 {
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
-		{//Preparse block to strip JVM flags, config files, etc.
-			PreParser pp=new PreParser(args, null, false);
-			args=pp.args;
-		}
 		final long t0=System.nanoTime();
-		int numDDLs=128;
-		int buckets=2048;
-		int k=31;
-		double maxMult=10;
-		double reportFrac=0.01;
-		long masterSeed=12345L;
-		int threads=Shared.threads();
-		int dupFactor=1;
-		String out1="stdout.txt";
-		String out3=null;
-		String out4=null;
-		String loglogtype="ddl";
-		String notes="";
-		String cffile=null;
-		String pllmode=null; // deferred: setMode needs hbits/mbits set first
-		boolean hcWeightExplicit=false;
+		DDLCalibrationDriver2 driver=new DDLCalibrationDriver2(args);
+		driver.process(t0);
+	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	DDLCalibrationDriver2(String[] args){
+		synchronized(DDLCalibrationDriver2.class){
+			{
+				PreParser pp=new PreParser(args, null, false);
+				args=pp.args;
+			}
+			parse(args);
+			initGlobalState();
+		}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Initialization Helpers    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private void parse(String[] args){
 		for(String arg : args){
 			final String[] split=arg.split("=");
 			if(split.length!=2){throw new RuntimeException("Unknown parameter '"+arg+"'");}
@@ -99,7 +79,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("dupfactor") || a.equals("dupefactor") || a.equals("dupes")){dupFactor=Integer.parseInt(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
-			else if(a.equals("valseed")){/*ignored: single-rng design uses seed only*/}
+			else if(a.equals("valseed")){/*ignored*/}
 			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("out") || a.equals("out1")){out1=b;}
 			else if(a.equals("out3")){out3=b;}
@@ -126,14 +106,13 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("dlchistblendhi")){AbstractCardStats.DLCSBS_BLEND_HI=Float.parseFloat(b);}
 			else if(a.equals("ldlcblo")){AbstractCardStats.LDLC_B_LO=Float.parseFloat(b);}
 			else if(a.equals("ldlcbhi")){AbstractCardStats.LDLC_B_HI=Float.parseFloat(b);}
-			else if(a.equals("dlcinfomode") || a.equals("infomode")){AbstractCardStats.DLC_INFO_MODE=Integer.parseInt(b);}else if(a.equals("promotethreshold") || a.equals("pt")){
+			else if(a.equals("dlcinfomode") || a.equals("infomode")){AbstractCardStats.DLC_INFO_MODE=Integer.parseInt(b);}
+			else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
-			}else if(a.equals("promotefrac") || a.equals("pf")){
-				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
-			}else if(a.equals("resetonpromote") || a.equals("rop")){
-				DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("promotefrac") || a.equals("pf")){DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
+			}else if(a.equals("resetonpromote") || a.equals("rop")){DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
@@ -153,20 +132,15 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("usestoredoverflow") || a.equals("uso")){
 				DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 				BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
-		}else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);
-		}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
+			}else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);
+			}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
 			}else if(a.equals("printstd")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);
-			}else if(a.equals("out2")){
-				System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
+			}else if(a.equals("out2")){System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
-			}else if(a.equals("frozenhistory") || a.equals("frozen")){
-				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
-			}else if(a.equals("statepower") || a.equals("sp")){
-				UltraLogLog8.STATE_POWER=Double.parseDouble(b);
-			}else if(a.equals("statecfoffset") || a.equals("sco")){
-				UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
-			}else if(a.equals("pllmode") || a.equals("pmode")){
-				pllmode=b; // deferred: setMode needs hbits/mbits set first
+			}else if(a.equals("frozenhistory") || a.equals("frozen")){UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
+			}else if(a.equals("statepower") || a.equals("sp")){UltraLogLog8.STATE_POWER=Double.parseDouble(b);
+			}else if(a.equals("statecfoffset") || a.equals("sco")){UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
+			}else if(a.equals("pllmode") || a.equals("pmode")){pllmode=b;
 			}else if(a.equals("plloffset") || a.equals("pco")){
 				ProtoLogLog16b.CF_OFFSET=Double.parseDouble(b);
 				ProtoLogLog16.CF_OFFSET=Double.parseDouble(b);
@@ -176,52 +150,33 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("mbits")){int v=Integer.parseInt(b); ProtoLogLog16.MANTISSA_BITS=v; ProtoLogLog16b.MANTISSA_BITS=v; ProtoLogLog16c.MANTISSA_BITS=v;
 			}else if(a.equals("abits")){int v=Integer.parseInt(b); ProtoLogLog16.ANDTISSA_BITS=v; ProtoLogLog16b.ANDTISSA_BITS=v; ProtoLogLog16c.ANDTISSA_BITS=v;
 			}else if(a.equals("nbits")){int v=Integer.parseInt(b); ProtoLogLog16.NLZ2_BITS=v; ProtoLogLog16b.NLZ2_BITS=v; ProtoLogLog16c.NLZ2_BITS=v;
-			}else if(a.equals("emode") || a.equals("estimatemode")){
-				ProtoLogLog16b.ESTIMATE_MODE=Integer.parseInt(b);
-			}else if(a.equals("nocf")){
-				if(Parse.parseBoolean(b)){ProtoLogLog16b.CORRECTION_TABLE=null; ProtoLogLog16.CORRECTION_TABLE=null;}
-			}else if(a.equals("empiricalmantissa") || a.equals("em")){
-				DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);
-			}else if(a.equals("mantissacfoffset") || a.equals("mco")){
-				DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
-			}else if(a.equals("printcv") || a.equals("cv")){
-				DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
-			}else if(a.equals("clamp") || a.equals("clamptoadded")){
-				CLAMP_TO_ADDED=Parse.parseBoolean(b);
-			}else if(a.equals("hllhistcf") || a.equals("histcf")){
-				CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
-			}else if(a.equals("tracecf")){
-				CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
-			}else if(a.equals("saturate") || a.equals("sat")){
-				UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
-			}else if(a.equals("histlc") || a.equals("historylc")){
-				CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
-			}else if(a.equals("lchistfile")){
-				CorrectionFactor.sbsFile=b;
-			}else if(a.equals("lchistmultfile")){
-				CorrectionFactor.sbsMultFile=b;
-			}else if(a.equals("microlc")){
-				CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
-				AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
-			}else if(a.equals("usemicro") || a.equals("usemicroindex")){
-				AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);
-			}else if(a.equals("lchisthybrid") || a.equals("lchybrid")){
-				CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
-			}else if(a.equals("sbsformula") || a.equals("usesbsformula")){
-				CorrectionFactor.USE_SBS_FORMULA=Parse.parseBoolean(b);
-			}else if(a.equals("meancfformula") || a.equals("usemeancfformula")){
-				CorrectionFactor.USE_MEAN_CF_FORMULA=Parse.parseBoolean(b);
-			}else if(a.equals("hccfformula") || a.equals("usehccfformula")){
-				CorrectionFactor.USE_HC_CF_FORMULA=Parse.parseBoolean(b);
-			}else if(a.equals("formulas") || a.equals("useformulas")){
-				CorrectionFactor.USE_FORMULAS=Parse.parseBoolean(b);
-			}else if(a.equals("hcweight") || a.equals("ldlcweight")){
-				CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);
-				hcWeightExplicit=true;
+			}else if(a.equals("emode") || a.equals("estimatemode")){ProtoLogLog16b.ESTIMATE_MODE=Integer.parseInt(b);
+			}else if(a.equals("nocf")){if(Parse.parseBoolean(b)){ProtoLogLog16b.CORRECTION_TABLE=null; ProtoLogLog16.CORRECTION_TABLE=null;}
+			}else if(a.equals("empiricalmantissa") || a.equals("em")){DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);
+			}else if(a.equals("mantissacfoffset") || a.equals("mco")){DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
+			}else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
+			}else if(a.equals("clamp") || a.equals("clamptoadded")){CLAMP_TO_ADDED=Parse.parseBoolean(b);
+			}else if(a.equals("hllhistcf") || a.equals("histcf")){CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
+			}else if(a.equals("tracecf")){CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
+			}else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
+			}else if(a.equals("histlc") || a.equals("historylc")){CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("lchistfile")){CorrectionFactor.sbsFile=b;
+			}else if(a.equals("lchistmultfile")){CorrectionFactor.sbsMultFile=b;
+			}else if(a.equals("microlc")){CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b); AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);
+			}else if(a.equals("usemicro") || a.equals("usemicroindex")){AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);
+			}else if(a.equals("lchisthybrid") || a.equals("lchybrid")){CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
+			}else if(a.equals("sbsformula") || a.equals("usesbsformula")){CorrectionFactor.USE_SBS_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("meancfformula") || a.equals("usemeancfformula")){CorrectionFactor.USE_MEAN_CF_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("hccfformula") || a.equals("usehccfformula")){CorrectionFactor.USE_HC_CF_FORMULA=Parse.parseBoolean(b);
+			}else if(a.equals("formulas") || a.equals("useformulas")){CorrectionFactor.USE_FORMULAS=Parse.parseBoolean(b);
+			}else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b); hcWeightExplicit=true;
 			}else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
+	}
 
-		// Apply deferred pllmode now that hbits/mbits are set
+	/** Configure global state: class init, CF loading, formula coefficients.
+	 *  Must be called inside synchronized(DDLCalibrationDriver2.class). */
+	private void initGlobalState(){
 		if(pllmode!=null){
 			if(pllmode.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_MANTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_MANTISSA);}
 			else if(pllmode.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_ANDTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_ANDTISSA);}
@@ -232,32 +187,17 @@ public class DDLCalibrationDriver2 {
 			else if(pllmode.equals("histmant") || pllmode.equals("historymantissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY|ProtoLogLog16c.MODE_MANTISSA);}
 			else{throw new RuntimeException("Unknown pllmode: "+pllmode);}
 		}
-
-		// Auto-set optimal LDLC HC weight based on history bits if not explicitly provided.
-		// Optimal weights determined by bisection search (LinWtAbsErr minimization,
-		// 8k estimators, 512 buckets, maxmult=40, verified bucket-count independent):
-		//   1-bit: 0.456, 2-bit: 0.419, 3-bit: 0.475
 		if(!hcWeightExplicit){
 			final int hb=ProtoLogLog16c.HISTORY_BITS;
 			if(hb==1){CardinalityTracker.LDLC_HC_WEIGHT=0.456;}
 			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.50;}
 			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
 		}
-
-		final long maxTrue=Math.max(1, (long)(buckets*maxMult));
-		final int numThreads=Math.min(threads, numDDLs);
-
-		// Force class initialization of the DDL type BEFORE loading the user CF file.
-		// Each DDL class loads its own default (v4) CF on first use, which resets
-		// CorrectionFactor.v1Buckets=0 and clobbers any v5 table loaded earlier.
-		// Creating a dummy instance here triggers that class init; then we overwrite
-		// the default CF with the user-provided file.
+		maxTrue=Math.max(1, (long)(buckets*maxMult));
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
-		// Configure per-class CF table columns (MeanH for history, MeanM for mantissa)
 		DDLCalibrationDriver.v3ColsForType(loglogtype);
-		// Set per-class Mean CF formula coefficients
-		// Set per-class formula coefficients. Only whitelisted classes get formulas;
-		// USE_FORMULAS is suppressed for classes without fitted coefficients.
+
+		// Per-class Mean CF formula coefficients
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false, classHasMeanhCf=false;
 		if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
@@ -275,7 +215,6 @@ public class DDLCalibrationDriver2 {
 		}else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DDL; CorrectionFactor.hmeanmCfCoeffs=CorrectionFactor.HMCF_DDL; classHasHmeanmCf=true;}
 		else if(loglogtype.equals("ddl8")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DDL8; CorrectionFactor.hmeanmCfCoeffs=CorrectionFactor.HMCF_DDL8; classHasHmeanmCf=true;}
 		else{classHasMeanCf=false;}
-		// Suppress formula flags for classes without fitted coefficients
 		if(CorrectionFactor.USE_FORMULAS){
 			if(!classHasMeanCf){CorrectionFactor.USE_MEAN_CF_FORMULA=false;}
 			if(!classHasHcCf){CorrectionFactor.USE_HC_CF_FORMULA=false;}
@@ -285,192 +224,204 @@ public class DDLCalibrationDriver2 {
 		CorrectionFactor.loadSbsMultTable();
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
-			// Push custom CF table into per-class matrices.
-			// IMPORTANT: Only set CF on the class being tested, because calling
-			// setCFMatrix on other classes triggers their class initialization,
-			// which loads their default CF file and clobbers CorrectionFactor.v1Matrix.
 			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
-		final long[] thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
+		thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Outer Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	void process(final long t0){
+		final int numThreads=Math.min(threads, numDDLs);
 		final int numThresholds=thresholds.length;
-
-		// Create and start worker threads.
-		// Each thread t is seeded with (masterSeed+t) — one RNG generates both DDL seeds and values.
-		final CalibrationThread2[] calThreads=new CalibrationThread2[numThreads];
-		for(int t=0; t<numThreads; t++){
-			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
-			calThreads[t]=new CalibrationThread2(
-				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype, out4, dupFactor);
-		}
-		for(CalibrationThread2 ct : calThreads){ct.start();}
-
-		// Wait for all threads
-		for(CalibrationThread2 ct : calThreads){
+		final CalThread[] calThreads=spawnThreads(numThreads);
+		for(CalThread ct : calThreads){
 			try{ct.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
 			if(!ct.success){System.err.println("Warning: a calibration thread did not complete successfully.");}
 		}
+		final MergedResults merged=accumulate(calThreads, numThresholds);
+		final ArrayList<DDLCalibrationDriver.ReportRow> mergedRows=buildRows(merged, numThresholds);
+		printSummary(mergedRows, merged, numThresholds, t0);
+		writeFile1(mergedRows, merged, numThresholds);
+		if(out3!=null){writeFile3(mergedRows);}
+	}
 
-		// Merge per-threshold accumulators across threads
-		// sumErr[ti][e], sumAbsErr[ti][e], sumSqErr[ti][e], occSum[ti], n[ti]
-		final double[][] sumErr=new double[numThresholds][NUM_EST];
-		final double[][] sumAbsErr=new double[numThresholds][NUM_EST];
-		final double[][] sumSqErr=new double[numThresholds][NUM_EST];
-		final double[][] ldlcMergedErr=new double[numThresholds][NUM_LDLC];
-		final double[][] ldlcMergedAbsErr=new double[numThresholds][NUM_LDLC];
-		final double[][] ldlcMergedSqErr=new double[numThresholds][NUM_LDLC];
-		final double[] occSum=new double[numThresholds];
-		final int[] n=new int[numThresholds];
-		for(CalibrationThread2 ct : calThreads){
+	/*--------------------------------------------------------------*/
+	/*----------------       Thread Management      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private CalThread[] spawnThreads(int numThreads){
+		final CalThread[] calThreads=new CalThread[numThreads];
+		for(int t=0; t<numThreads; t++){
+			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
+			calThreads[t]=new CalThread(masterSeed+t, threadDDLs, thresholds,
+				buckets, k, maxTrue, loglogtype, out4, dupFactor);
+		}
+		for(CalThread ct : calThreads){ct.start();}
+		return calThreads;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Accumulation          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static final class MergedResults {
+		MergedResults(int nt){
+			sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
+			ldlcErr=new double[nt][NUM_LDLC]; ldlcAbsErr=new double[nt][NUM_LDLC]; ldlcSqErr=new double[nt][NUM_LDLC];
+			occSum=new double[nt]; n=new int[nt];
+		}
+		final double[][] sumErr, sumAbsErr, sumSqErr;
+		final double[][] ldlcErr, ldlcAbsErr, ldlcSqErr;
+		final double[] occSum;
+		final int[] n;
+	}
+
+	private MergedResults accumulate(CalThread[] calThreads, int numThresholds){
+		final MergedResults m=new MergedResults(numThresholds);
+		for(CalThread ct : calThreads){
 			synchronized(ct){
 				for(int ti=0; ti<numThresholds; ti++){
-					n[ti]+=ct.n[ti];
-					occSum[ti]+=ct.occSum[ti];
+					m.n[ti]+=ct.n[ti]; m.occSum[ti]+=ct.occSum[ti];
 					for(int e=0; e<NUM_EST; e++){
-						sumErr[ti][e]+=ct.sumErr[ti][e];
-						sumAbsErr[ti][e]+=ct.sumAbsErr[ti][e];
-						sumSqErr[ti][e]+=ct.sumSqErr[ti][e];
+						m.sumErr[ti][e]+=ct.sumErr[ti][e];
+						m.sumAbsErr[ti][e]+=ct.sumAbsErr[ti][e];
+						m.sumSqErr[ti][e]+=ct.sumSqErr[ti][e];
 					}
 					for(int e=0; e<NUM_LDLC; e++){
-						ldlcMergedErr[ti][e]+=ct.ldlcSumErr[ti][e];
-						ldlcMergedAbsErr[ti][e]+=ct.ldlcSumAbsErr[ti][e];
-						ldlcMergedSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
+						m.ldlcErr[ti][e]+=ct.ldlcSumErr[ti][e];
+						m.ldlcAbsErr[ti][e]+=ct.ldlcSumAbsErr[ti][e];
+						m.ldlcSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
 					}
 				}
 			}
 		}
+		return m;
+	}
 
-		// Build ReportRows for output (reuses DDLCalibrationDriver's row/format logic)
-		final ArrayList<DDLCalibrationDriver.ReportRow> mergedRows=new ArrayList<>(numThresholds);
+	/*--------------------------------------------------------------*/
+	/*----------------         Report Building      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private ArrayList<DDLCalibrationDriver.ReportRow> buildRows(MergedResults m, int numThresholds){
+		final int NUM_OUT1=DDLCalibrationDriver.NUM_OUT1;
+		final ArrayList<DDLCalibrationDriver.ReportRow> rows=new ArrayList<>(numThresholds);
 		for(int ti=0; ti<numThresholds; ti++){
-			if(n[ti]<1){continue;}
-			// ReportRow constructor takes arrays of length NUM_OUT1; pad with zeros for MedianLC slot
-			final int NUM_OUT1=DDLCalibrationDriver.NUM_OUT1;
-			final double[] rErr=new double[NUM_OUT1];
-			final double[] rAbsErr=new double[NUM_OUT1];
-			final double[] rSqErr=new double[NUM_OUT1];
-			System.arraycopy(sumErr[ti], 0, rErr, 0, NUM_EST);
-			System.arraycopy(sumAbsErr[ti], 0, rAbsErr, 0, NUM_EST);
-			System.arraycopy(sumSqErr[ti], 0, rSqErr, 0, NUM_EST);
-			mergedRows.add(new DDLCalibrationDriver.ReportRow(
-				thresholds[ti], n[ti], occSum[ti], rErr, rAbsErr, rSqErr));
+			if(m.n[ti]<1){continue;}
+			final double[] rErr=new double[NUM_OUT1], rAbsErr=new double[NUM_OUT1], rSqErr=new double[NUM_OUT1];
+			System.arraycopy(m.sumErr[ti], 0, rErr, 0, NUM_EST);
+			System.arraycopy(m.sumAbsErr[ti], 0, rAbsErr, 0, NUM_EST);
+			System.arraycopy(m.sumSqErr[ti], 0, rSqErr, 0, NUM_EST);
+			rows.add(new DDLCalibrationDriver.ReportRow(thresholds[ti], m.n[ti], m.occSum[ti], rErr, rAbsErr, rSqErr));
 		}
+		return rows;
+	}
 
-		// Print stderr summary
-		{
-			final double elapsed=(System.nanoTime()-t0)*1e-9;
-			System.err.println();
-			System.err.println("=== DDL2 Calibration Summary ===");
-			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
-				+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
-				+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
-				+(dupFactor>1 ? "  DupFactor: "+dupFactor : ""));
-			System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
-			final double[] totalMeanAbsErr=new double[NUM_EST];
-			final double[] linWtAbsErr=new double[NUM_EST];
-			final double[] peakMeanAbsErr=new double[NUM_EST];
-			final double[] totalMeanSignedErr=new double[NUM_EST];
-			final double[] totalCV=new double[NUM_EST];
-			double linWeightSum=0;
-			int cvRows=0;
-			for(DDLCalibrationDriver.ReportRow row : mergedRows){
-				final double card=row.trueCard;
-				linWeightSum+=card;
-				for(int e=0; e<NUM_EST; e++){
-					final double meanErr=row.sumErr[e]/row.n;
-					final double meanAbsAtRow=row.sumAbsErr[e]/row.n;
-					totalMeanAbsErr[e]+=meanAbsAtRow;
-					linWtAbsErr[e]+=meanAbsAtRow*card;
-					totalMeanSignedErr[e]+=meanErr;
-					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
-					final double variance=row.sumSqErr[e]/row.n-meanErr*meanErr;
-					final double stdev=Math.sqrt(Math.max(0, variance));
-					final double denom=Math.abs(1.0+meanErr);
-					if(denom>0){totalCV[e]+=stdev/denom;}
-				}
-				cvRows++;
+	/*--------------------------------------------------------------*/
+	/*----------------         Output Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private void printSummary(ArrayList<DDLCalibrationDriver.ReportRow> mergedRows,
+			MergedResults m, int numThresholds, long t0){
+		final double elapsed=(System.nanoTime()-t0)*1e-9;
+		System.err.println();
+		System.err.println("=== DDL2 Calibration Summary ===");
+		System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+			+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
+			+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
+			+(dupFactor>1 ? "  DupFactor: "+dupFactor : ""));
+		System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
+		final int rows=mergedRows.size();
+		final double[] totalAbsErr=new double[NUM_EST], linWtAbsErr=new double[NUM_EST];
+		final double[] peakAbsErr=new double[NUM_EST], totalSignErr=new double[NUM_EST], totalCV=new double[NUM_EST];
+		double linWeightSum=0; int cvRows=0;
+		for(DDLCalibrationDriver.ReportRow row : mergedRows){
+			final double card=row.trueCard; linWeightSum+=card;
+			for(int e=0; e<NUM_EST; e++){
+				final double meanErr=row.sumErr[e]/row.n;
+				final double absAtRow=row.sumAbsErr[e]/row.n;
+				totalAbsErr[e]+=absAtRow; linWtAbsErr[e]+=absAtRow*card; totalSignErr[e]+=meanErr;
+				if(absAtRow>peakAbsErr[e]){peakAbsErr[e]=absAtRow;}
+				final double var=row.sumSqErr[e]/row.n-meanErr*meanErr;
+				final double sd=Math.sqrt(Math.max(0, var));
+				final double denom=Math.abs(1.0+meanErr);
+				if(denom>0){totalCV[e]+=sd/denom;}
 			}
-			final int rows=mergedRows.size();
-			System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s", "", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
-			final int[] keyIdx={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16};
-			for(int ki=0; ki<keyIdx.length; ki++){
-				final int e=keyIdx[ki];
-				if(e>=NUM_EST){continue;}
-				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
-					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows,
-					linWeightSum>0 ? linWtAbsErr[e]/linWeightSum : 0,
-					peakMeanAbsErr[e],
-					rows>0 ? totalMeanSignedErr[e]/rows : 0,
-					cvRows>0 ? totalCV[e]/cvRows : 0));
-			}
-			// LDLC summary rows
-			final double[] ldlcTotalAbsErr=new double[NUM_LDLC];
-			final double[] ldlcLinWtAbsErr=new double[NUM_LDLC];
-			final double[] ldlcPeakAbsErr=new double[NUM_LDLC];
-			final double[] ldlcTotalSignedErr=new double[NUM_LDLC];
-			double ldlcLinWeightSum=0;
-			for(int ti=0; ti<numThresholds; ti++){
-				if(n[ti]<1){continue;}
-				final double card=thresholds[ti];
-				ldlcLinWeightSum+=card;
-				for(int e=0; e<NUM_LDLC; e++){
-					final double meanAbsAtRow=ldlcMergedAbsErr[ti][e]/n[ti];
-					ldlcTotalAbsErr[e]+=meanAbsAtRow;
-					ldlcLinWtAbsErr[e]+=meanAbsAtRow*card;
-					ldlcTotalSignedErr[e]+=ldlcMergedErr[ti][e]/n[ti];
-					if(meanAbsAtRow>ldlcPeakAbsErr[e]){ldlcPeakAbsErr[e]=meanAbsAtRow;}
-				}
-			}
+			cvRows++;
+		}
+		System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s",
+			"", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
+		for(int e=0; e<Math.min(17, NUM_EST); e++){
+			System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+				ESTIMATOR_NAMES[e], totalAbsErr[e]/rows,
+				linWeightSum>0 ? linWtAbsErr[e]/linWeightSum : 0, peakAbsErr[e],
+				rows>0 ? totalSignErr[e]/rows : 0, cvRows>0 ? totalCV[e]/cvRows : 0));
+		}
+		// LDLC summary
+		final double[] ldlcTotAbs=new double[NUM_LDLC], ldlcLinWt=new double[NUM_LDLC];
+		final double[] ldlcPeak=new double[NUM_LDLC], ldlcTotSign=new double[NUM_LDLC];
+		double ldlcLinSum=0;
+		for(int ti=0; ti<numThresholds; ti++){
+			if(m.n[ti]<1){continue;}
+			final double card=thresholds[ti]; ldlcLinSum+=card;
 			for(int e=0; e<NUM_LDLC; e++){
-				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
-					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows,
-					ldlcLinWeightSum>0 ? ldlcLinWtAbsErr[e]/ldlcLinWeightSum : 0,
-					ldlcPeakAbsErr[e],
-					rows>0 ? ldlcTotalSignedErr[e]/rows : 0, 0.0));
+				final double absAtRow=m.ldlcAbsErr[ti][e]/m.n[ti];
+				ldlcTotAbs[e]+=absAtRow; ldlcLinWt[e]+=absAtRow*card;
+				ldlcTotSign[e]+=m.ldlcErr[ti][e]/m.n[ti];
+				if(absAtRow>ldlcPeak[e]){ldlcPeak[e]=absAtRow;}
 			}
-			System.err.println();
 		}
+		for(int e=0; e<NUM_LDLC; e++){
+			System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+				LDLC_NAMES[e], ldlcTotAbs[e]/rows,
+				ldlcLinSum>0 ? ldlcLinWt[e]/ldlcLinSum : 0, ldlcPeak[e],
+				rows>0 ? ldlcTotSign[e]/rows : 0, 0.0));
+		}
+		System.err.println();
+	}
 
-		// Write File 1 with LDLC columns appended
-		final ByteStreamWriter bsw1=new ByteStreamWriter(out1, true, false, false);
-		bsw1.start();
+	private void writeFile1(ArrayList<DDLCalibrationDriver.ReportRow> mergedRows,
+			MergedResults m, int numThresholds){
+		final ByteStreamWriter bsw=new ByteStreamWriter(out1, true, false, false);
+		bsw.start();
 		{
-			// Header: standard columns + LDLC columns
 			final StringBuilder hdr=new StringBuilder(DDLCalibrationDriver.header1());
 			for(int e=0; e<NUM_LDLC; e++){
 				hdr.append('\t').append(LDLC_NAMES[e]).append("_err");
 				hdr.append('\t').append(LDLC_NAMES[e]).append("_abs");
 			}
-			bsw1.println(hdr.toString());
+			bsw.println(hdr.toString());
 		}
 		int finalTi=0;
 		for(DDLCalibrationDriver.ReportRow row : mergedRows){
 			final StringBuilder sb=new StringBuilder(DDLCalibrationDriver.formatRow1(row));
 			for(int e=0; e<NUM_LDLC; e++){
 				final int ni=row.n;
-				sb.append('\t').append(String.format("%.6f", ldlcMergedErr[finalTi][e]/ni));
-				sb.append('\t').append(String.format("%.6f", ldlcMergedAbsErr[finalTi][e]/ni));
+				sb.append('\t').append(String.format("%.6f", m.ldlcErr[finalTi][e]/ni));
+				sb.append('\t').append(String.format("%.6f", m.ldlcAbsErr[finalTi][e]/ni));
 			}
-			bsw1.println(sb.toString());
+			bsw.println(sb.toString());
 			finalTi++;
 		}
-		bsw1.poisonAndWait();
+		bsw.poisonAndWait();
+	}
 
-		// Write File 3 (v5 CF table)
-		if(out3!=null){
-			try(PrintStream ps=new PrintStream(new FileOutputStream(out3))){
-				DDLCalibrationDriver.printHistogramV5(mergedRows, ps,
-						loglogtype, buckets, numDDLs, maxTrue,
-						CorrectionFactor.USE_CORRECTION,
-						DynamicLogLog3.EARLY_PROMOTE,
-						DynamicLogLog3.PROMOTE_THRESHOLD,
-						notes);
-				System.err.println("V5 CF table written to "+out3);
-			}catch(Exception e){
-				System.err.println("Error writing CF file: "+e.getMessage());
-			}
+	private void writeFile3(ArrayList<DDLCalibrationDriver.ReportRow> mergedRows){
+		try(PrintStream ps=new PrintStream(new FileOutputStream(out3))){
+			DDLCalibrationDriver.printHistogramV5(mergedRows, ps,
+				loglogtype, buckets, numDDLs, maxTrue,
+				CorrectionFactor.USE_CORRECTION,
+				DynamicLogLog3.EARLY_PROMOTE,
+				DynamicLogLog3.PROMOTE_THRESHOLD,
+				notes);
+			System.err.println("V5 CF table written to "+out3);
+		}catch(Exception e){
+			System.err.println("Error writing CF file: "+e.getMessage());
 		}
 	}
 
@@ -478,83 +429,50 @@ public class DDLCalibrationDriver2 {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Cache-friendly calibration thread.
-	 * Processes one DDL at a time: create, feed maxTrue values, record stats at each threshold, discard.
-	 * Uses FastRandomXoshiro for value generation — no LongHashSet needed (PRNG uniqueness assumed).
-	 * Accumulates per-threshold sums locally; main thread merges after all threads join.
-	 */
-	static final class CalibrationThread2 extends Thread {
+	static final class CalThread extends Thread {
 
-		CalibrationThread2(long seed, int numDDLs, long[] thresholds,
-			int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor){
-			this.seed=seed;
-			this.numDDLs=numDDLs;
-			this.thresholds=thresholds;
-			this.buckets=buckets;
-			this.k=k;
-			this.maxTrue=maxTrue;
-			this.loglogtype=loglogtype;
-			this.out4=out4;
-			this.dupFactor=dupFactor;
+		CalThread(long seed, int numDDLs, long[] thresholds,
+				int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor){
+			this.seed=seed; this.numDDLs=numDDLs; this.thresholds=thresholds;
+			this.buckets=buckets; this.k=k; this.maxTrue=maxTrue;
+			this.loglogtype=loglogtype; this.out4=out4; this.dupFactor=dupFactor;
 			final int nt=thresholds.length;
-			n=new int[nt];
-			occSum=new double[nt];
-			sumErr=new double[nt][NUM_EST];
-			sumAbsErr=new double[nt][NUM_EST];
-			sumSqErr=new double[nt][NUM_EST];
-			ldlcSumErr=new double[nt][NUM_LDLC];
-			ldlcSumAbsErr=new double[nt][NUM_LDLC];
-			ldlcSumSqErr=new double[nt][NUM_LDLC];
+			n=new int[nt]; occSum=new double[nt];
+			sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
+			ldlcSumErr=new double[nt][NUM_LDLC]; ldlcSumAbsErr=new double[nt][NUM_LDLC]; ldlcSumSqErr=new double[nt][NUM_LDLC];
 		}
 
 		@Override
 		public void run(){
+			synchronized(DDLCalibrationDriver2.class){
+				// Ensures visibility of all global state set before thread creation on NUMA
+			}
 			synchronized(this){
-				try{
-					runInner();
-					success=true;
-				}catch(Exception e){
-					e.printStackTrace();
-				}
+				try{runInner(); success=true;}
+				catch(Exception e){e.printStackTrace();}
 			}
 		}
 
 		void runInner(){
-			// One RNG per thread, seeded with (masterSeed+threadId).
-			// It generates the DDL seed for each DDL, then all hash values for that DDL.
-			// Fully deterministic: same seed → same output regardless of system state.
 			final FastRandomXoshiro rng=new FastRandomXoshiro(seed);
 			java.io.PrintWriter out4Pw=null;
 			if(out4!=null){try{out4Pw=new java.io.PrintWriter(new java.io.FileOutputStream(out4));}catch(Exception e){e.printStackTrace();}}
 			for(int di=0; di<numDDLs; di++){
-				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE; // positive: literal seed, not nanoTime
-				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(
-					loglogtype, buckets, k, ddlSeed, 0);
-
+				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE;
+				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, ddlSeed, 0);
 				int ti=0;
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
-					{
-						final long val=rng.nextLong();
-						for(int d=0; d<dupFactor; d++){ddl.add(val);}
-					}
-
-
-					// Check reporting threshold
+					{final long val=rng.nextLong(); for(int d=0; d<dupFactor; d++){ddl.add(val);}}
 					if(trueCard>=thresholds[ti]){
 						final double occ=ddl.occupancy();
 						final double[] est=ddl.rawEstimates();
-						occSum[ti]+=occ;
-						n[ti]++;
+						occSum[ti]+=occ; n[ti]++;
 						if(di==0 && out4Pw!=null){
-							int[] raw=null, corr=null;
-							int mz=0;
+							int[] raw=null, corr=null; int mz=0;
 							if(ddl.getClass()==DynamicLogLog3.class){
-								final DynamicLogLog3 d=(DynamicLogLog3)ddl;
-								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+								final DynamicLogLog3 d=(DynamicLogLog3)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
 							}else if(ddl.getClass()==DynamicLogLog4.class){
-								final DynamicLogLog4 d=(DynamicLogLog4)ddl;
-								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
+								final DynamicLogLog4 d=(DynamicLogLog4)ddl; raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
 							}
 							if(raw!=null){
 								out4Pw.print(trueCard+"\t"+mz);
@@ -566,12 +484,8 @@ public class DDLCalibrationDriver2 {
 						for(int e=0; e<Math.min(NUM_EST, est.length); e++){
 							final double v=CLAMP_TO_ADDED ? Math.min(est[e], trueCard) : est[e];
 							final double err=(v-trueCard)/(double)trueCard;
-							sumErr[ti][e]+=err;
-							sumAbsErr[ti][e]+=Math.abs(err);
-							sumSqErr[ti][e]+=err*err;
+							sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
 						}
-						// LDLC columns: named getters from CardStats, no bundled arrays.
-						// LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2
 						if(ddl.getClass()==UltraDynamicLogLog6.class){
 							final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)ddl;
 							final CardStats cs=u.consumeLastSummarized();
@@ -580,9 +494,7 @@ public class DDLCalibrationDriver2 {
 							for(int e=0; e<7; e++){
 								final double v=ldlcVals[e];
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][e]+=lerr;
-								ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
-								ldlcSumSqErr[ti][e]+=lerr*lerr;
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
@@ -591,20 +503,15 @@ public class DDLCalibrationDriver2 {
 							for(int e=0; e<7; e++){
 								final double v=ldlcR[ldlcIdx[e]];
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][e]+=lerr;
-								ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
-								ldlcSumSqErr[ti][e]+=lerr*lerr;
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 						}
-						// LC_noMicro and SBS_noMicro from rawEstimates array
 						{
 							final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};
 							for(int e=0; e<extraIdx.length; e++){
 								final double v=(extraIdx[e]<est.length ? est[extraIdx[e]] : 0);
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][7+e]+=lerr;
-								ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr);
-								ldlcSumSqErr[ti][7+e]+=lerr*lerr;
+								ldlcSumErr[ti][7+e]+=lerr; ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr); ldlcSumSqErr[ti][7+e]+=lerr*lerr;
 							}
 						}
 						ti++;
@@ -615,43 +522,36 @@ public class DDLCalibrationDriver2 {
 			if(out4Pw!=null){out4Pw.close();}
 		}
 
-		/** Seed for this thread's RNG (masterSeed + threadId). */
-		final long seed;
-		/** Number of DDLs this thread processes. */
-		final int numDDLs;
-		/** Pre-computed reporting thresholds (shared read-only). */
-		final long[] thresholds;
-		/** Bucket count. */
-		final int buckets;
-		/** k-mer length. */
-		final int k;
-		/** Maximum true cardinality. */
-		final long maxTrue;
-		/** DDL type string. */
-		final String loglogtype;
-		/** Output file for per-tier nlzCounts (first DDL only). */
-		final String out4;
-		/** Number of times each value is added (1=normal, 2+=duplicate stress test). */
-		final int dupFactor;
-
-		/** Number of DDLs that contributed to each threshold row. */
-		final int[] n;
-		/** Sum of occupancy at each threshold. */
-		final double[] occSum;
-		/** Sum of signed relative errors per threshold per estimator. */
-		final double[][] sumErr;
-		/** Sum of absolute relative errors per threshold per estimator. */
-		final double[][] sumAbsErr;
-		/** Sum of squared relative errors per threshold per estimator. */
-		final double[][] sumSqErr;
-
-		/** LDLC accumulators (UDLL6 only). */
-		final double[][] ldlcSumErr;
-		final double[][] ldlcSumAbsErr;
-		final double[][] ldlcSumSqErr;
-
-		/** Set to true after runInner() completes without exception. */
+		final long seed; final int numDDLs; final long[] thresholds;
+		final int buckets; final int k; final long maxTrue;
+		final String loglogtype; final String out4; final int dupFactor;
+		final int[] n; final double[] occSum;
+		final double[][] sumErr, sumAbsErr, sumSqErr;
+		final double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
 		volatile boolean success=false;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	int numDDLs=128;
+	int buckets=2048;
+	int k=31;
+	double maxMult=10;
+	double reportFrac=0.01;
+	long masterSeed=12345L;
+	int threads=Shared.threads();
+	int dupFactor=1;
+	String out1="stdout.txt";
+	String out3=null;
+	String out4=null;
+	String loglogtype="ddl";
+	String notes="";
+	String cffile=null;
+	String pllmode=null;
+	boolean hcWeightExplicit=false;
+	long maxTrue;
+	long[] thresholds;
 
 }
