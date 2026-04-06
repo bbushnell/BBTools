@@ -65,7 +65,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 	 * @param args Command-line arguments containing input/output paths and options
 	 */
 	public A_SampleMT(String[] args){
-		
+		synchronized(this.getClass()){//In case any global state needs modification
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
@@ -112,6 +112,7 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -436,14 +437,19 @@ public class A_SampleMT implements Accumulator<A_SampleMT.ProcessThread> {
 		@Override
 		public void run(){
 			//Do anything necessary prior to processing
+			synchronized(A_SampleMT.class) {
+				//If any global state needs to be read and initialized locally
+			}
 			
 			//Process the reads
-			processInner();
-			
-			//Do anything necessary after processing
-			
-			//Indicate successful exit status
-			success=true;
+			synchronized(this) {
+				processInner();
+
+				//Do anything necessary after processing
+
+				//Indicate successful exit status
+				success=true;
+			}
 		}
 		
 		/**
