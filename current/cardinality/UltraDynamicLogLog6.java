@@ -119,6 +119,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	}
 
 	public double fgraEstimate(){
+		if(!CALC_FGRA){return 0;}
 		final int p=bucketBits;
 		final int regOffset=4*(minZeros+p-1-HISTORY_MARGIN);
 		final byte[] ertlRegs=new byte[buckets];
@@ -136,7 +137,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		long card=Math.max(0, Math.round(fgraEstimate()));
+		final CardStats s=summarize();
+		long card=Math.max(0, Math.round(s.ldlc()));
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
 		return card;
@@ -248,8 +250,13 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	/** Alias for getRegPublic. */
 	public int getRegister(int i){return getReg(i);}
 
-	/** Alias for ldlcEstimate() for backward compatibility. */
-	public double[] udlcEstimate(){return ldlcEstimate();}
+	/** Legacy array format for backward compatibility.
+	 *  Returns {ldlc, dlcSbs, hc, lcMin, fgra, hll, meanH, hybridPlus2}. */
+	public double[] udlcEstimate(){
+		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
+		return new double[]{s.ldlc(), s.dlcSbs(), s.hc(), s.lcMin(),
+			fgraEstimate(), s.hllRaw(), s.meanHistCF(), s.hybridPlus2()};
+	}
 
 	/** Debug: print all register values. */
 	public void printRegisters(){
@@ -264,41 +271,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	/*----------------     LDLC Estimation          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * LDLC (Layered Dynamic Linear Counting).
-	 * Blends surface DLC (cumulative) with history-only per-tier LC.
-	 * Reuses cached CardStats from rawEstimates() to avoid double-summarize.
-	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2}.
-	 */
-	public double[] ldlcEstimate(){
-		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
+	/** Returns the cached CardStats from the last rawEstimates() call, then clears it. */
+	public CardStats consumeLastSummarized(){
+		final CardStats s=lastSummarized;
 		lastSummarized=null;
-		final double hc=s.hc();
-		final double dlc=s.dlcSbs();
-		final double lcMin=s.lcMin();
-
-		// LDLC: DLCSbs handles the SBS→DLC transition internally.
-		// HC ramps in over [bLo*B, bHi*B] to maxHcWeight.
-		final double B=(double)buckets;
-		final double bLo=AbstractCardStats.LDLC_B_LO*B, bHi=AbstractCardStats.LDLC_B_HI*B;
-		final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
-		final boolean hcUsable=(hc>0 && dlc>0);
-		double ldlc;
-		if(dlc<=bLo || !hcUsable){
-			ldlc=dlc;
-		}else if(dlc<=bHi){
-			final double tB=(dlc-bLo)/(bHi-bLo);
-			final double hcW=tB*maxHcWeight;
-			ldlc=(1-hcW)*dlc+hcW*hc;
-		}else{
-			ldlc=(1-maxHcWeight)*dlc+maxHcWeight*hc;
-		}
-
-		final double fgra=fgraEstimate();
-		final double hll=s.hllRaw();
-		final double meanH=s.meanHistCF();
-		final double hybridPlus2=s.hybridPlus2();
-		return new double[]{ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2};
+		return s;
 	}
 
 	private static final int wordlen=64;
@@ -307,6 +284,10 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	/** When true, clamp register at MAX_REGISTER instead of wrapping. */
 	public static boolean SATURATE_ON_OVERFLOW=true;
+
+	/** When true, fgraEstimate() is calculated. Default false to avoid per-call overhead.
+	 *  ErtlULL always calculates FGRA regardless of this flag. */
+	public static boolean CALC_FGRA=false;
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}

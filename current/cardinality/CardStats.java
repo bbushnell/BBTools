@@ -149,6 +149,19 @@ public final class CardStats extends AbstractCardStats {
 			hasHistCorr=true;
 			final int histMask=(1<<histBits_)-1;
 			final double termCF=StateTable.terminalCF(histBits_, 0);
+			final double invTermCF=1.0/termCF;
+
+			// Precompute tierMult for all (nlzBin, histPattern) combos to avoid per-bucket Math.pow
+			final int maxNlzBin=histBits_+2; // nlzBin is clamped to histBits_+1
+			final int numPatterns=1<<histBits_;
+			final double[][] tierMultTable=new double[maxNlzBin][numPatterns];
+			for(int nb=0; nb<maxNlzBin; nb++){
+				for(int hp=0; hp<numPatterns; hp++){
+					final double cf=StateTable.historyOffset(nb, histBits_, hp);
+					tierMultTable[nb][hp]=Math.pow(2.0, -(cf+StateTable.CF_OFFSET))*invTermCF;
+				}
+			}
+
 			double cDif=0, cGSum=0;
 			sbsStatesArr=new byte[numBuckets];
 			// HC accumulators: per-NLZ bucket count and per-history-bit set counts
@@ -169,9 +182,8 @@ public final class CardStats extends AbstractCardStats {
 				// Per-bucket dif: must match old UDLL6 formula exactly
 				final long dif=(absNlz==0 ? Long.MAX_VALUE : (absNlz<64 ? 1L<<(63-absNlz) : 1L));
 
-				// Per-state correction for Mean/GMean only
-				final double cf=StateTable.historyOffset(nlzBin, histBits_, histPattern);
-				final double tierMult=Math.pow(2.0, -(cf+StateTable.CF_OFFSET))/termCF;
+				// Per-state correction for Mean/GMean only (precomputed table lookup)
+				final double tierMult=tierMultTable[nlzBin][histPattern];
 
 				cDif+=dif*tierMult;
 				cGSum+=Math.log(Math.max(1, dif*tierMult));
@@ -355,6 +367,23 @@ public final class CardStats extends AbstractCardStats {
 
 		/*--- Hybrid+2: SBS → Mean+H blend, DLC as zone detector ---*/
 		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanForHybridH, numBuckets);
+
+		/*--- LDLC: DlcSbs blended with HC ---*/
+		{
+			final double B=(double)numBuckets;
+			final double bLo=LDLC_B_LO*B, bHi=LDLC_B_HI*B;
+			final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
+			final boolean hcUsable=(hcF>0 && dlcSbsF>0);
+			if(dlcSbsF<=bLo || !hcUsable){
+				ldlcF=dlcSbsF;
+			}else if(dlcSbsF<=bHi){
+				final double t=(dlcSbsF-bLo)/(bHi-bLo);
+				final double hcW=t*maxHcWeight;
+				ldlcF=(1-hcW)*dlcSbsF+hcW*hcF;
+			}else{
+				ldlcF=(1-maxHcWeight)*dlcSbsF+maxHcWeight*hcF;
+			}
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -517,6 +546,8 @@ public final class CardStats extends AbstractCardStats {
 	public double hybridDDLHist(){return hybridDDLHistF;}
 	/** Hybrid+2: SBS → Mean+H with DLC zone detection. */
 	public double hybridPlus2(){return hybridPlus2F;}
+	/** LDLC: DlcSbs blended with HC. */
+	public double ldlc(){return ldlcF;}
 	/** DLC-threshold hybrid. */
 	public double dlcThreshHybrid(){return dThHybF;}
 	/** MicroIndex-derived cardinality floor. 0 if micro disabled. */
@@ -706,5 +737,6 @@ public final class CardStats extends AbstractCardStats {
 	final double hybridDLLHistF; // History-corrected LC/Mean blend
 	final double hybridDDLHistF; // History-corrected LC/Mean/HMeanM blend
 	final double hybridPlus2F;  // SBS → Mean+H with DLC zone detection
+	final double ldlcF;         // DlcSbs blended with HC
 
 }

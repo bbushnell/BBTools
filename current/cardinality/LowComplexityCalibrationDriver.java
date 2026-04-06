@@ -194,20 +194,38 @@ public class LowComplexityCalibrationDriver {
 								lSumAbsErr[ti][e]+=Math.abs(err);
 								lSumSqErr[ti][e]+=err*err;
 							}
-							// LDLC columns (UDLL6 or PLL16c with history)
-							final double[] ldlcR;
-							if(est instanceof UltraDynamicLogLog6){
-								ldlcR=((UltraDynamicLogLog6)est).ldlcEstimate();
-							}else if(est instanceof ProtoLogLog16c){
-								ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
-							}else{ldlcR=null;}
-							if(ldlcR!=null){
-								for(int e=0; e<NUM_LDLC; e++){
+							// LDLC columns: named getters from CardStats
+							if(est.getClass()==UltraDynamicLogLog6.class){
+								final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)est;
+								final CardStats cs=u.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									u.fgraEstimate(), cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+							}else if(est.getClass()==ProtoLogLog16c.class){
+								final double[] ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
+								for(int e=0; e<7; e++){
 									final double v=ldlcR[ldlcIdx[e]];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
 									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
 									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+							}
+							// LC_noMicro and SBS_noMicro from rawEstimates array
+							{
+								final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};
+								for(int e=0; e<extraIdx.length; e++){
+									final double v=(extraIdx[e]<estimates.length ? estimates[extraIdx[e]] : 0);
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][7+e]+=lerr;
+									lLdlcAbsErr[ti][7+e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][7+e]+=lerr*lerr;
 								}
 							}
 						}

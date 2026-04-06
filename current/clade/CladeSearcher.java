@@ -130,7 +130,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}else if(Shared.PERLMUTTER) {
 			return ("/global/cfs/cdirs/bbtools/clade/refseqA48_with_ribo.spectra.gz");
 		}else {
-			return Data.findPath("?refseqA48_with_ribo.spectra.gz");
+			return Data.findPath("?refseqA48_with_ribo.spectra.gz", false);
 		}
 	}
 	

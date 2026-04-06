@@ -281,11 +281,20 @@ public class ScafMap {
 	 * @return Added or existing Scaffold object
 	 */
 	public Scaffold addFromVcf(byte[] line){
-		int comma=Tools.indexOf(line, (byte)',');
-		String name=new String(line, 13, comma-13);
-		int stop=Tools.indexOf(line, (byte)',', comma+1);
-		stop=(stop<0 ? line.length : stop);
-		int length=Parse.parseInt(line, comma+8, stop-1);
+		String s=new String(line);
+		int idStart=s.indexOf("ID=")+3;
+		int lengthKeyStart=s.indexOf("length=");
+		if(lengthKeyStart<0){lengthKeyStart=s.indexOf("Length=");}
+		//Name ends at the comma before "length="
+		int commaBeforeLength=s.lastIndexOf(',', lengthKeyStart);
+		String name=s.substring(idStart, commaBeforeLength);
+		//Parse length from after '=' to first non-digit
+		int lengthValStart=s.indexOf('=', lengthKeyStart)+1;
+		int lengthValEnd=lengthValStart;
+		while(lengthValEnd<line.length && line[lengthValEnd]>='0' && line[lengthValEnd]<='9'){
+			lengthValEnd++;
+		}
+		int length=Parse.parseInt(line, lengthValStart, lengthValEnd);
 		Scaffold scaf=new Scaffold(name, size(), length);
 		Scaffold old=map.get(scaf.name);
 		if(old!=null){return old;}
