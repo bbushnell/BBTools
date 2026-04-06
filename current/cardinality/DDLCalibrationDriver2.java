@@ -77,6 +77,7 @@ public class DDLCalibrationDriver2 {
 		double reportFrac=0.01;
 		long masterSeed=12345L;
 		int threads=Shared.threads();
+		int dupFactor=1;
 		String out1="stdout.txt";
 		String out3=null;
 		String out4=null;
@@ -95,6 +96,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Double.parseDouble(b);}
+			else if(a.equals("dupfactor") || a.equals("dupefactor") || a.equals("dupes")){dupFactor=Integer.parseInt(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("valseed")){/*ignored: single-rng design uses seed only*/}
@@ -293,7 +295,7 @@ public class DDLCalibrationDriver2 {
 		for(int t=0; t<numThreads; t++){
 			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
 			calThreads[t]=new CalibrationThread2(
-				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype, out4);
+				masterSeed+t, threadDDLs, thresholds, buckets, k, maxTrue, loglogtype, out4, dupFactor);
 		}
 		for(CalibrationThread2 ct : calThreads){ct.start();}
 
@@ -355,7 +357,8 @@ public class DDLCalibrationDriver2 {
 			System.err.println("=== DDL2 Calibration Summary ===");
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
-				+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
+				+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
+				+(dupFactor>1 ? "  DupFactor: "+dupFactor : ""));
 			System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
 			final double[] totalMeanAbsErr=new double[NUM_EST];
 			final double[] linWtAbsErr=new double[NUM_EST];
@@ -476,7 +479,7 @@ public class DDLCalibrationDriver2 {
 	static final class CalibrationThread2 extends Thread {
 
 		CalibrationThread2(long seed, int numDDLs, long[] thresholds,
-			int buckets, int k, long maxTrue, String loglogtype, String out4){
+			int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor){
 			this.seed=seed;
 			this.numDDLs=numDDLs;
 			this.thresholds=thresholds;
@@ -485,6 +488,7 @@ public class DDLCalibrationDriver2 {
 			this.maxTrue=maxTrue;
 			this.loglogtype=loglogtype;
 			this.out4=out4;
+			this.dupFactor=dupFactor;
 			final int nt=thresholds.length;
 			n=new int[nt];
 			occSum=new double[nt];
@@ -522,7 +526,10 @@ public class DDLCalibrationDriver2 {
 
 				int ti=0;
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
-					ddl.add(rng.nextLong());
+					{
+						final long val=rng.nextLong();
+						for(int d=0; d<dupFactor; d++){ddl.add(val);}
+					}
 
 
 					// Check reporting threshold
@@ -616,6 +623,8 @@ public class DDLCalibrationDriver2 {
 		final String loglogtype;
 		/** Output file for per-tier nlzCounts (first DDL only). */
 		final String out4;
+		/** Number of times each value is added (1=normal, 2+=duplicate stress test). */
+		final int dupFactor;
 
 		/** Number of DDLs that contributed to each threshold row. */
 		final int[] n;
