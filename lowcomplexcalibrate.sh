@@ -2,8 +2,8 @@
 
 usage(){
 echo "
-Written by Brian Bushnell and Chloe
-Last modified March 16, 2026
+Written by Brian Bushnell, Chloe, and Eru
+Last modified April 6, 2026
 
 Description:  Tests cardinality estimator accuracy on low-complexity datasets
 with bounded cardinality and repeated values.  Draws with replacement from a
@@ -13,16 +13,24 @@ every add to capture behavior while 'parked' at a given cardinality.
 
 Usage:  lowcomplexcalibrate.sh card=5000 ddls=128 type=dll3
 
+Estimator types (type= or loglogtype=):
+  ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4, dll4m, bdll3, ll6, udll6,
+  pll16c, htb, htc, ull8, ertl  (see ddlcalibrate.sh for descriptions)
+
 Parameters:
 card=5000       Maximum true cardinality (number of unique values).
 ddls=128        Number of estimator instances with varied seeds.
 buckets=2048    Buckets per estimator. Must be a multiple of 256.
 iter=0          Iterations as a multiplier of cardinality. 0=stop on saturation.
-type=dll4       Estimator type: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4.
 threads=4       Number of parallel threads.
 seed=1          Master seed for value array and estimator seeds.
-cf=t            Enable/disable correction factors.
+reportfrac=0.01 Reporting fraction for cardinality checkpoints.
+cf=t            Enable/disable correction factors (cf=f for raw data).
 cardcf=t        Enable/disable cardinality-based correction factors.
+
+Overflow control (DLL2/DLL3/BDLL3 only):
+co=t            Apply overflow correction (correctoverflow).
+ep=t            Early promotion (earlypromote).
 
 Java Parameters:
 -Xmx            Set Java's memory usage (e.g. -Xmx4g).

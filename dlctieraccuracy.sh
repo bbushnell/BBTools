@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Eru
-Last modified April 1, 2026
+Last modified April 6, 2026
 
 Description:  Measures DLC per-tier absolute error as a function of tier occupancy.
 Uses LogLog6 (no minZeros, no microIndex, no tier promotion) for clean measurement.
@@ -20,6 +20,7 @@ tier=3          Which DLC tier to measure (0-63).
 seed=1          Master seed for instance seed generation.
 threads=1       Number of parallel simulation threads.
 points=500      Number of log-spaced cardinality checkpoints.
+type=ll6        Estimator type (usually ll6 for clean tier measurement).
 
 Output columns (stdout, TSV):
 Occupancy       Integer tier occupancy (0..buckets).
@@ -29,10 +30,12 @@ AvgSignedErr    Mean (DLC_tier_est - trueCard) / trueCard.
 
 Java Parameters:
 -Xmx            Memory limit.  -Xmx20g = 20 GB.
+-eoom           Exit on out-of-memory.
+-da             Disable assertions.
 "
 }
 
-if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi

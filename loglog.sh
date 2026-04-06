@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified March 7, 2026
+Last modified April 6, 2026
 
 Description:  Estimates cardinality of unique kmers in sequence data.
 See also kmercountmulti.sh.
@@ -20,7 +20,16 @@ seed=-1         Use this seed for hash functions.  A negative number forces
                 a random seed.
 minprob=0       Set to a value between 0 and 1 to exclude kmers with a lower
                 probability of being correct.
-loglogtype=ddl  Type of subclass to use.
+loglogtype=ddl  Estimator type:
+                  ddl       DynamicDemiLog (default), 10-bit mantissa.
+                  ddl8      DynamicDemiLog8, 8-bit mantissa.
+                  dll3      DynamicLogLog3, 3-bit registers.
+                  dll4      DynamicLogLog4, 4-bit registers.
+                  ll6       LogLog6, 6-bit registers.
+                  udll6     UltraDynamicLogLog6, 6-bit with history.
+                  bdll3     BankedDynamicLogLog3, banked 3-bit.
+                  htb       HyperTwoBits, 2-bit threshold estimator.
+                  (and others; see ddlcalibrate.sh for full list)
 
 
 Shortcuts:
