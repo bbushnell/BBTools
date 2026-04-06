@@ -401,6 +401,11 @@ public final class CardStats extends AbstractCardStats {
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS) && type==CorrectionFactor.MEAN){
 			return CorrectionFactor.meanCfFormula(dlcRawF);
 		}
+		// Formula mode for MeanH CF (history-blended mean): bypasses table entirely
+		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
+				&& type==CorrectionFactor.MEANH && CorrectionFactor.meanhCfCoeffs!=null){
+			return CorrectionFactor.meanCfFormula(dlcRawF, CorrectionFactor.meanhCfCoeffs);
+		}
 		// Formula mode for HMeanM CF: bypasses table entirely
 		if((CorrectionFactor.USE_HMEANM_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
 				&& type==CorrectionFactor.HMEANM && CorrectionFactor.hmeanmCfCoeffs!=null){

@@ -258,13 +258,21 @@ public class DDLCalibrationDriver2 {
 		// Set per-class Mean CF formula coefficients
 		// Set per-class formula coefficients. Only whitelisted classes get formulas;
 		// USE_FORMULAS is suppressed for classes without fitted coefficients.
-		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
+		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false, classHasMeanhCf=false;
 		if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
-		else if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3;}
-		else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
-		else if(loglogtype.equals("udll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6; classHasHcCf=true;}
-		else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DDL; CorrectionFactor.hmeanmCfCoeffs=CorrectionFactor.HMCF_DDL; classHasHmeanmCf=true;}
+		else if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){
+			if(DynamicLogLog3.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3_IOF;}
+			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3_IOT;}
+		}else if(loglogtype.equals("dll2")){
+			if(DynamicLogLog2.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOF;}
+			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOT;}
+		}else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
+		else if(loglogtype.equals("udll6")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
+			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
+			classHasHcCf=true; classHasMeanhCf=true;
+		}else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DDL; CorrectionFactor.hmeanmCfCoeffs=CorrectionFactor.HMCF_DDL; classHasHmeanmCf=true;}
 		else if(loglogtype.equals("ddl8")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DDL8; CorrectionFactor.hmeanmCfCoeffs=CorrectionFactor.HMCF_DDL8; classHasHmeanmCf=true;}
 		else{classHasMeanCf=false;}
 		// Suppress formula flags for classes without fitted coefficients
