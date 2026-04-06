@@ -314,18 +314,20 @@ public class DDLCalibrationDriver2 {
 		final double[] occSum=new double[numThresholds];
 		final int[] n=new int[numThresholds];
 		for(CalibrationThread2 ct : calThreads){
-			for(int ti=0; ti<numThresholds; ti++){
-				n[ti]+=ct.n[ti];
-				occSum[ti]+=ct.occSum[ti];
-				for(int e=0; e<NUM_EST; e++){
-					sumErr[ti][e]+=ct.sumErr[ti][e];
-					sumAbsErr[ti][e]+=ct.sumAbsErr[ti][e];
-					sumSqErr[ti][e]+=ct.sumSqErr[ti][e];
-				}
-				for(int e=0; e<NUM_LDLC; e++){
-					ldlcMergedErr[ti][e]+=ct.ldlcSumErr[ti][e];
-					ldlcMergedAbsErr[ti][e]+=ct.ldlcSumAbsErr[ti][e];
-					ldlcMergedSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
+			synchronized(ct){
+				for(int ti=0; ti<numThresholds; ti++){
+					n[ti]+=ct.n[ti];
+					occSum[ti]+=ct.occSum[ti];
+					for(int e=0; e<NUM_EST; e++){
+						sumErr[ti][e]+=ct.sumErr[ti][e];
+						sumAbsErr[ti][e]+=ct.sumAbsErr[ti][e];
+						sumSqErr[ti][e]+=ct.sumSqErr[ti][e];
+					}
+					for(int e=0; e<NUM_LDLC; e++){
+						ldlcMergedErr[ti][e]+=ct.ldlcSumErr[ti][e];
+						ldlcMergedAbsErr[ti][e]+=ct.ldlcSumAbsErr[ti][e];
+						ldlcMergedSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
+					}
 				}
 			}
 		}
@@ -496,11 +498,13 @@ public class DDLCalibrationDriver2 {
 
 		@Override
 		public void run(){
-			try{
-				runInner();
-				success=true;
-			}catch(Exception e){
-				e.printStackTrace();
+			synchronized(this){
+				try{
+					runInner();
+					success=true;
+				}catch(Exception e){
+					e.printStackTrace();
+				}
 			}
 		}
 
