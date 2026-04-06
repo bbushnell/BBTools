@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Eru
-Last modified March 29, 2026
+Last modified April 6, 2026
 
 Description:  Trains an LC history correction table for history-aware Linear Counting.
 Simulates HyperLogLog with N-bit history, recording per-bucket state distributions

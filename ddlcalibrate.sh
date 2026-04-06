@@ -2,8 +2,8 @@
 
 usage(){
 echo "
-Written by Brian Bushnell and Chloe
-Last modified March 12, 2026
+Written by Brian Bushnell, Chloe, and Eru
+Last modified April 6, 2026
 
 Description:  Calibrates DynamicDemiLog cardinality estimators by feeding random
 longs to DDL instances with varied seeds, tracking true cardinality via PRNG counter,
@@ -14,21 +14,61 @@ L1/L2 cache throughout.  Results are merged after all threads complete.
 
 Usage:  ddlcalibrate.sh loglogtype=ddl ddls=1000 buckets=2048
 
+Estimator types (loglogtype= or type=):
+  ddl (ddl10)   DynamicDemiLog, 10-bit mantissa.
+  ddl2          DynamicDemiLog2, 2-bit mantissa.
+  ddl8          DynamicDemiLog8, 8-bit mantissa.
+  dll2          DynamicLogLog2, 2-bit registers.
+  dll3          DynamicLogLog3, 3-bit registers (1-bit mantissa).
+  dll3v2        DynamicLogLog3v2, variant with social promotion.
+  dll4          DynamicLogLog4, 4-bit registers (no mantissa).
+  dll4m         DynamicLogLog4m, mantissa variant.
+  bdll3         BankedDynamicLogLog3, banked 3-bit registers.
+  ll6           LogLog6, 6-bit registers (no tier promotion).
+  udll6         UltraDynamicLogLog6, 6-bit with 2-bit history.
+  pll16c        ProtoLogLog16c, 16-bit with configurable mode bits.
+  htb           HyperTwoBits, 2-bit threshold estimator.
+  htc           HLLTailCut, tail-cutoff HLL variant.
+  ull8          UltraLogLog8, 8-bit with history.
+  ertl          ErtlULL, Ertl's improved estimator.
+
 Parameters:
-loglogtype=ddl  Estimator class: ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4.
-                Default bucket counts: ddl/ddl2=2048, ddl8=4096, dll4=8192.
-                For uniform 2048-bucket CF files, pass buckets=2048 explicitly.
 ddls=1000       Number of DDL instances with varied seeds (distributed across threads).
 buckets=2048    Buckets per DDL instance. Must be a multiple of 256.
 maxmult=10      Stop when trueCard reaches buckets*maxmult.
+dupfactor=0     Number of duplicate adds per unique value (0=none).
 reportfrac=0.01 Report every this fraction of current cardinality (cascading:
                 gives one row per add at low cardinality, one per 10 at 1000, etc).
 seed=12345      Master seed for DDL seed generation.
-valseed=42      Master seed for per-thread value generation.
 threads=1       Number of parallel simulation threads.
-out3=           Output file for v4 CF table (File 3).  Not written if omitted.
+out3=           Output file for v5 CF table (File 3).  Not written if omitted.
+out4=           Output file for per-DLC-tier data.  Not written if omitted.
 cf=f            Set cf=t to apply existing correction factors during calibration.
                 Requires matching *CorrectionFactor.tsv in resources/.
+formulas=f      Use closed-form CF formulas instead of tables (for whitelisted types).
+clamp=t         Clamp estimates to added count (clamptoadded).
+
+Overflow control (DLL2/DLL3/BDLL3 only):
+io=t            Ignore overflow buckets in estimation (ignoreoverflow).
+co=t            Apply overflow correction (correctoverflow).
+ep=t            Early promotion (advance tier when all buckets nonzero).
+
+DLC tuning:
+dlcalpha=0.25   DLC logspace alpha.
+dlcblendlo=     DLC blend low threshold (fraction of buckets).
+dlcblendhi=     DLC blend high threshold (fraction of buckets).
+
+Formula control:
+meancfformula=f     Use Mean CF formula (per-class).
+hccfformula=f       Use HC CF formula (UDLL6 only).
+sbsformula=f        Use SBS formula instead of SBS table.
+useformulas=f       Enable all available formulas (alias: formulas).
+
+ProtoLogLog16 mode bits (PLL16c only):
+hbits=2         History bits (1, 2, or 3).
+lbits=0         Luck bits.
+mbits=0         Mantissa bits.
+pllmode=        Mode: mantissa, andtissa, nlz2, history, luck, histmant, none.
 
 File 1 output columns (written after all threads complete):
 TrueCard        Ground-truth distinct count.
