@@ -964,34 +964,15 @@ public class CardinalityStats {
 	 * @return correction factor to multiply rawEst by
 	 */
 	double cf(double rawEst, int type){
-		if(CorrectionFactor.tableVersion>=3){
-			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
-					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-			if(CorrectionFactor.TRACE_CF){System.err.println("cf(rawEst="+String.format("%.2f",rawEst)+", type="+type+", dlcEst="+String.format("%.2f",dlcEst)+")");}
-			// v5+ tables record their bucket count; scale the lookup key so a 512-bucket run
-			// correctly addresses a table built at 2048 buckets: key *= (tableBuckets/currentBuckets).
-			final double keyScale=(CorrectionFactor.v1Buckets>0 ?
-					(double)CorrectionFactor.v1Buckets/buckets : 1.0);
-			final int iters=(dlcEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
-			return CorrectionFactor.getCF(dlcEst, rawEst,
-					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF, keyScale);
-		}
-		if(CorrectionFactor.tableVersion>=1){
-			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
-					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-			final double keyScale=(CorrectionFactor.v1Buckets>0 ?
-					(double)CorrectionFactor.v1Buckets/buckets : 1.0);
-			final int iters=(dlc3bEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
-			return CorrectionFactor.getCF(dlc3bEst, rawEst,
-					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF, keyScale);
-		}
-		if(matrixCard!=null && CardinalityTracker.USE_CARD_CF && CorrectionFactor.USE_CORRECTION){
-			return CorrectionFactor.getCF(cfMatrix, cfBuckets, matrixCard, cardKeys,
-			                              count, buckets, meanEst, type);
-		}
-		return CorrectionFactor.getCF(cfMatrix, cfBuckets, count, buckets, type);
+		if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
+				|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
+		if(CorrectionFactor.TRACE_CF){System.err.println("cf(rawEst="+String.format("%.2f",rawEst)+", type="+type+", dlcEst="+String.format("%.2f",dlcEst)+")");}
+		final double keyScale=(CorrectionFactor.v1Buckets>0 ?
+				(double)CorrectionFactor.v1Buckets/buckets : 1.0);
+		final int iters=(dlcEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
+		return CorrectionFactor.getCF(dlcEst, rawEst,
+				CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+				iters, DEFAULT_CF_DIF, keyScale);
 	}
 
 	/*--------------------------------------------------------------*/

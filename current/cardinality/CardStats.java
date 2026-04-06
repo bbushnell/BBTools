@@ -406,32 +406,13 @@ public final class CardStats extends AbstractCardStats {
 				&& type==CorrectionFactor.HMEANM && CorrectionFactor.hmeanmCfCoeffs!=null){
 			return CorrectionFactor.hmeanmCfFormula(dlcRawF);
 		}
-		// v3+ tables: use dlcRawF as seed (the primary DLC estimator)
-		if(CorrectionFactor.tableVersion>=3){
-			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
-					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-			final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
-			return CorrectionFactor.getCF(dlcRawF, rawEst,
-					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF, keyScale);
-		}
-		// v1+ tables: use dlc3bF as seed (legacy DLC3B-indexed)
-		if(CorrectionFactor.tableVersion>=1){
-			if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
-					|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-			final int iters=(dlc3bF*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
-			return CorrectionFactor.getCF(dlc3bF, rawEst,
-					CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
-					iters, DEFAULT_CF_DIF, keyScale);
-		}
-		// Legacy: occupancy-indexed + optional cardinality table
-		if(CorrectionFactor.lastCardMatrix!=null && CardinalityTracker.USE_CARD_CF
-				&& CorrectionFactor.USE_CORRECTION){
-			return CorrectionFactor.getCF(cfMatrix, cfBuckets,
-					CorrectionFactor.lastCardMatrix, CorrectionFactor.lastCardKeys,
-					filled, numBuckets, meanRawF, type);
-		}
-		return CorrectionFactor.getCF(cfMatrix, cfBuckets, filled, numBuckets, type);
+		// v5 table: use dlcRawF as seed (the primary DLC estimator)
+		if(CorrectionFactor.v1Matrix==null
+				|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
+		final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
+		return CorrectionFactor.getCF(dlcRawF, rawEst,
+				CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+				iters, DEFAULT_CF_DIF, keyScale);
 	}
 
 	/**
