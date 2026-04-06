@@ -654,7 +654,7 @@ public class DDLCalibrationDriver {
 		final int n=row.n;
 		final double avgOcc=row.occSum/n;
 		final StringBuilder sb=new StringBuilder();
-		sb.append(row.trueCard).append('\t').append(String.format("%.5f", avgOcc));
+		sb.append(row.trueCard).append('\t').append(String.format("%.5f", avgOcc)).append('\t').append(n);
 		for(int e=0; e<NUM_OUT1; e++){
 			if(!PRINT_DLC_TIERS && e>=17){break;}
 			final double meanErr=row.sumErr[e]/n;
@@ -805,7 +805,7 @@ public class DDLCalibrationDriver {
 	}
 
 	static String header1(){
-		final StringBuilder sb=new StringBuilder("TrueCard\tOccupancy");
+		final StringBuilder sb=new StringBuilder("TrueCard\tOccupancy\tCount");
 		for(int e=0; e<NUM_EST; e++){
 			if(!PRINT_DLC_TIERS && e>=17){break;}
 			final String name=ESTIMATOR_NAMES[e];

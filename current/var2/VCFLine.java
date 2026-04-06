@@ -7,6 +7,7 @@ import java.util.Collections;
 import java.util.HashMap;
 
 import parse.Parse;
+import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
@@ -66,7 +67,18 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		
 		while(b<line.length && line[b]!='\t'){b++;}
 		assert(b>a) : "Missing field 0: "+new String(line);
-		scaf=new String(line, a, b-a, StandardCharsets.US_ASCII);
+		{
+			String s=new String(line, a, b-a, StandardCharsets.US_ASCII);
+			if(Shared.TRIM_READ_COMMENTS){
+				for(int i=0; i<s.length(); i++){
+					if(Character.isWhitespace(s.charAt(i))){
+						s=s.substring(0, i);
+						break;
+					}
+				}
+			}
+			scaf=s;
+		}
 		b++;
 		a=b;
 		

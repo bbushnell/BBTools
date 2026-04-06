@@ -151,6 +151,7 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("usestoredoverflow") || a.equals("uso")){
 				DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 				BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
+		}else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);
 		}else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);
 			}else if(a.equals("printstd")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);
 			}else if(a.equals("out2")){
@@ -529,10 +530,10 @@ public class DDLCalibrationDriver2 {
 						if(di==0 && out4Pw!=null){
 							int[] raw=null, corr=null;
 							int mz=0;
-							if(ddl instanceof DynamicLogLog3){
+							if(ddl.getClass()==DynamicLogLog3.class){
 								final DynamicLogLog3 d=(DynamicLogLog3)ddl;
 								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
-							}else if(ddl instanceof DynamicLogLog4){
+							}else if(ddl.getClass()==DynamicLogLog4.class){
 								final DynamicLogLog4 d=(DynamicLogLog4)ddl;
 								raw=d.lastRawNlz; corr=d.lastCorrNlz; mz=d.getMinZeros();
 							}
@@ -550,14 +551,23 @@ public class DDLCalibrationDriver2 {
 							sumAbsErr[ti][e]+=Math.abs(err);
 							sumSqErr[ti][e]+=err*err;
 						}
-						// LDLC columns (UDLL6 or PLL16c with history)
-						final double[] ldlcR;
-						if(ddl instanceof UltraDynamicLogLog6){
-							ldlcR=((UltraDynamicLogLog6)ddl).ldlcEstimate();
-						}else if(ddl instanceof ProtoLogLog16c){
-							ldlcR=((ProtoLogLog16c)ddl).ldlcEstimate();
-						}else{ldlcR=null;}
-						if(ldlcR!=null){
+						// LDLC columns: named getters from CardStats, no bundled arrays.
+						// LDLC, DLC_L, HC, FGRA, HLL+H, Mean+H, Hybrid+2
+						if(ddl.getClass()==UltraDynamicLogLog6.class){
+							final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)ddl;
+							final CardStats cs=u.consumeLastSummarized();
+							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+								u.fgraEstimate(), cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+							for(int e=0; e<7; e++){
+								final double v=ldlcVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr;
+								ldlcSumAbsErr[ti][e]+=Math.abs(lerr);
+								ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+						}else if(ddl.getClass()==ProtoLogLog16c.class){
+							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
+							final double[] ldlcR=p.ldlcEstimate();
 							final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7};
 							for(int e=0; e<7; e++){
 								final double v=ldlcR[ldlcIdx[e]];
