@@ -171,13 +171,7 @@ public final class LogLog6 extends CardinalityTracker {
 	/** Loads the correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
-		final float[][] mat=CorrectionFactor.loadFile(CF_FILE, buckets);
-		System.err.println("LL6.initializeCF: buckets="+buckets
-			+" v1Buckets="+CorrectionFactor.v1Buckets
-			+" v1Matrix="+(CorrectionFactor.v1Matrix==null ? "null" : CorrectionFactor.v1Matrix.length+"x"+(CorrectionFactor.v1Matrix[0]==null ? "null" : CorrectionFactor.v1Matrix[0].length))
-			+" tableVersion="+CorrectionFactor.tableVersion
-			+" thread="+Thread.currentThread().getName());
-		return CF_MATRIX=mat;
+		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
 }

@@ -119,9 +119,10 @@ public final class CardStats extends AbstractCardStats {
 		hmeanRawF=hmeanEstimate(hllSumFilled, filled, alpha_m);
 
 		// 8. CF-corrected estimates — use DLC raw as cardinality seed for table lookup
-		//    keyScale adjusts for table built at different bucket count than current
-		final double keyScale=(CorrectionFactor.v1Buckets>0 ?
-				(double)CorrectionFactor.v1Buckets/numBuckets : 1.0);
+		//    Grab immutable CF snapshot once; all lookups use this local reference
+		cfd=CorrectionFactor.cfData;
+		final double keyScale=(cfd!=null && cfd.buckets>0 ?
+				(double)cfd.buckets/numBuckets : 1.0);
 		meanCF=meanRawF*cardCF(meanRawF, CorrectionFactor.MEAN, keyScale);
 		hmeanCF=hmeanRawF*cardCF(hmeanRawF, CorrectionFactor.HMEAN, keyScale);
 		// NOTE: hmeanMCF uses the HMEANM CF row (index 3), not HMEAN (index 2),
@@ -399,24 +400,27 @@ public final class CardStats extends AbstractCardStats {
 		if(!CorrectionFactor.USE_CORRECTION){return 1;}
 		// Formula mode for Mean CF: bypasses table entirely
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS) && type==CorrectionFactor.MEAN){
-			return CorrectionFactor.meanCfFormula(dlcRawF);
+			return CorrectionFactor.meanCfFormula(dlcRawF, cfd!=null ? cfd.meanCoeffs : CorrectionFactor.meanCfCoeffs);
 		}
 		// Formula mode for MeanH CF (history-blended mean): bypasses table entirely
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
-				&& type==CorrectionFactor.MEANH && CorrectionFactor.meanhCfCoeffs!=null){
-			return CorrectionFactor.meanCfFormula(dlcRawF, CorrectionFactor.meanhCfCoeffs);
+				&& type==CorrectionFactor.MEANH){
+			final double[] mc=(cfd!=null ? cfd.meanhCoeffs : CorrectionFactor.meanhCfCoeffs);
+			if(mc!=null){return CorrectionFactor.meanCfFormula(dlcRawF, mc);}
 		}
 		// Formula mode for HMeanM CF: bypasses table entirely
 		if((CorrectionFactor.USE_HMEANM_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
-				&& type==CorrectionFactor.HMEANM && CorrectionFactor.hmeanmCfCoeffs!=null){
-			return CorrectionFactor.hmeanmCfFormula(dlcRawF);
+				&& type==CorrectionFactor.HMEANM){
+			final double[] hmc=(cfd!=null ? cfd.hmeanmCoeffs : CorrectionFactor.hmeanmCfCoeffs);
+			if(hmc!=null){return CorrectionFactor.meanCfFormula(dlcRawF, hmc);}
 		}
 		// v5 table: use dlcRawF as seed (the primary DLC estimator)
-		if(CorrectionFactor.v1Matrix==null
-				|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
-		final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
-		return CorrectionFactor.getCF(dlcRawF, rawEst,
-				CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.v1Matrix);
+		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.v1Keys);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		if(mat==null || type==CorrectionFactor.LINEAR || type>=mat.length){return 1;}
+		final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*cfBkt ? DEFAULT_CF_ITERS : 1);
+		return CorrectionFactor.getCF(dlcRawF, rawEst, mat[type], keys,
 				iters, DEFAULT_CF_DIF, keyScale);
 	}
 
@@ -476,8 +480,8 @@ public final class CardStats extends AbstractCardStats {
 	 * Package-private; only for migration. Callers should eventually use pre-corrected getters.
 	 */
 	double cf(final double rawEst, final int type){
-		final double ks=(CorrectionFactor.v1Buckets>0 ?
-				(double)CorrectionFactor.v1Buckets/numBuckets : 1.0);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		final double ks=(cfBkt>0 ? (double)cfBkt/numBuckets : 1.0);
 		return cardCF(rawEst, type, ks);
 	}
 
@@ -641,6 +645,9 @@ public final class CardStats extends AbstractCardStats {
 	/*--------------------------------------------------------------*/
 	/*----------------         Fields               ----------------*/
 	/*--------------------------------------------------------------*/
+
+	// --- CF table snapshot (grabbed once in constructor for thread safety) ---
+	private final CorrectionFactor.CFTableData cfd;
 
 	// --- Configuration (set once in constructor) ---
 	final int numBuckets;       // total bucket count

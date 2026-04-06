@@ -229,6 +229,8 @@ public class DDLCalibrationDriver2 {
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
+		// Publish immutable CF snapshot for worker threads
+		CorrectionFactor.publishSnapshot();
 		thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 	}
 

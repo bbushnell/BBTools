@@ -425,6 +425,7 @@ public class CorrectionFactor{
 		// v1 has no occupancy-indexed table
 		lastCardMatrix=null;
 		lastCardKeys=null;
+		publishSnapshot();
 		return null;
 	}
 
@@ -662,6 +663,46 @@ public class CorrectionFactor{
 	public static int tableVersion=0;
 	/** Bucket count used when building v1Matrix; 0 = unknown (no scaling). Set from #Buckets header in v5+. */
 	public static int v1Buckets=0;
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Immutable CF Snapshot     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Immutable snapshot of CF table state for thread-safe access.
+	 * Bundles v1Matrix, v1Keys, v1Buckets, and formula coefficients into
+	 * a single object published atomically via volatile write.
+	 * Readers grab a local final reference once and use it for all lookups,
+	 * eliminating races on the individual static fields.
+	 */
+	public static final class CFTableData {
+		public final float[][] matrix;
+		public final float[] keys;
+		public final int buckets;
+		public final double[] meanCoeffs;
+		public final double[] meanhCoeffs;
+		public final double[] hmeanmCoeffs;
+
+		CFTableData(float[][] matrix, float[] keys, int buckets,
+				double[] meanCoeffs, double[] meanhCoeffs, double[] hmeanmCoeffs){
+			this.matrix=matrix;
+			this.keys=keys;
+			this.buckets=buckets;
+			this.meanCoeffs=meanCoeffs;
+			this.meanhCoeffs=meanhCoeffs;
+			this.hmeanmCoeffs=hmeanmCoeffs;
+		}
+	}
+
+	/** Current immutable CF snapshot. Volatile for safe publication across threads. */
+	public static volatile CFTableData cfData;
+
+	/** Creates and publishes an immutable snapshot from current statics.
+	 *  Call after loadFileV1 completes or after formula coefficients change. */
+	public static void publishSnapshot(){
+		cfData=new CFTableData(v1Matrix, v1Keys, v1Buckets,
+			meanCfCoeffs, meanhCfCoeffs, hmeanmCfCoeffs);
+	}
 
 	/** Maximum CF key value for table extension. Beyond this, CF is clamped to the last value.
 	 *  Set to Long.MAX_VALUE cast to double; float precision limits to ~2^63 anyway. */
