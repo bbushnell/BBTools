@@ -104,7 +104,9 @@ public class LowComplexityCalibrationDriver {
 		// Set up per-class CF/formula whitelist (same as Driver2)
 		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
 		DDLCalibrationDriver.v3ColsForType(loglogtype);
-		// Publish immutable CF snapshot for worker threads
+		// Load SBS tables and publish immutable CF snapshot for worker threads
+		CorrectionFactor.loadSbsTable();
+		CorrectionFactor.loadSbsMultTable();
 		CorrectionFactor.publishSnapshot();
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)

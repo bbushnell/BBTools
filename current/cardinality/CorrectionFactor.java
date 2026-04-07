@@ -786,8 +786,7 @@ public class CorrectionFactor{
 	 * @return expected distinct elements for this bucket state at this occupancy
 	 */
 	public static double sbsFormula(int stateIdx, int filled, int B){
-		final double V=B-filled;
-		if(V<=0){return B;} // singularity cap
+		final double V=Math.max(0.5, B-filled); // clamp V to 0.5 to avoid singularity
 		final double L=Math.log((double)B/V);
 		return SBS_FORMULA_BASE[stateIdx]
 			+SBS_FORMULA_A[stateIdx]*L

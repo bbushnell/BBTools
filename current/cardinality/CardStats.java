@@ -559,15 +559,23 @@ public final class CardStats extends AbstractCardStats {
 			final int numBuckets, final double lcRaw){
 		if(states==null){return lcRaw;}
 
-		// Table mode (preferred when available)
-		final float[][] table=CorrectionFactor.SBS_CF_TABLE;
+		// Count actually contributing buckets (si>=0); phantoms have si=-1
+		// and are skipped in the sum, so row selection must match.
+		int contributing=0;
+		for(int i=0; i<states.length; i++){
+			if(states[i]>=0){contributing++;}
+		}
+		if(contributing==0){return lcRaw;}
+
+		// Table mode (preferred when available; formula override skips table)
+		final float[][] table=CorrectionFactor.USE_SBS_FORMULA ? null : CorrectionFactor.SBS_CF_TABLE;
 		if(table!=null){
 			final int tableBuckets=CorrectionFactor.sbsBuckets;
 			final float[] row;
 			if(numBuckets==tableBuckets){
-				row=table[Math.min(filled, tableBuckets)];
+				row=table[Math.min(contributing, tableBuckets)];
 			}else{
-				final double pos=(double)filled*tableBuckets/numBuckets;
+				final double pos=(double)contributing*tableBuckets/numBuckets;
 				final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 				final int hi=Math.min(lo+1, tableBuckets);
 				final double frac=pos-lo;
@@ -591,7 +599,7 @@ public final class CardStats extends AbstractCardStats {
 			double est=0;
 			for(int i=0; i<states.length; i++){
 				final int si=states[i];
-				if(si>=0){est+=CorrectionFactor.sbsFormula(si, filled, numBuckets);}
+				if(si>=0){est+=CorrectionFactor.sbsFormula(si, contributing, numBuckets);}
 			}
 			return est;
 		}
@@ -603,12 +611,20 @@ public final class CardStats extends AbstractCardStats {
 			final int numBuckets, final double lcRaw){
 		final float[][] table=CorrectionFactor.SBS_MULT_TABLE;
 		if(table==null || states==null){return lcRaw;}
+
+		// Count contributing buckets (same phantom fix as computeSbs)
+		int contributing=0;
+		for(int i=0; i<states.length; i++){
+			if(states[i]>=0){contributing++;}
+		}
+		if(contributing==0){return lcRaw;}
+
 		final int tableBuckets=CorrectionFactor.sbsMultBuckets;
 		final float[] row;
 		if(numBuckets==tableBuckets){
-			row=table[Math.min(filled, tableBuckets)];
+			row=table[Math.min(contributing, tableBuckets)];
 		}else{
-			final double pos=(double)filled*tableBuckets/numBuckets;
+			final double pos=(double)contributing*tableBuckets/numBuckets;
 			final int lo=Math.max(1, Math.min((int)pos, tableBuckets-1));
 			final int hi=Math.min(lo+1, tableBuckets);
 			final double frac=pos-lo;
