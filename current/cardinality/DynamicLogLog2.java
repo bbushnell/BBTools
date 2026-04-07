@@ -89,17 +89,21 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		}
 		nlzCounts[0]=buckets-filledCount;
 		// DLL2 is counts-only: no history, luck, or mantissa bits. buckets=null.
+		// nativeRelTiers=3: 2-bit DLL has 3 stored tiers (relNlz 0,1,2).
+		// The top stored tier (startTier+2) loses overflows in io=t mode; dlcBest
+		// applies bias correction only when it selects that specific tier.
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				IGNORE_OVERFLOW ? 3 : Integer.MAX_VALUE,
+				IGNORE_OVERFLOW ? CorrectionFactor.DLC_TIER_ERR_DLL2 : null);
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardStats s=summarize();
-		final double rawHyb=s.hybridDLL();
-		long card=(long)(rawHyb);
-		card=Math.max(card, s.microCardinality());
+		long card=Math.max(0, Math.round(s.dlcRaw()));
+		card=LAZY_ALLOCATE ? Math.max(card, s.microCardinality()) : card;
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
 		return card;
@@ -270,7 +274,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	public static boolean IGNORE_OVERFLOW=false;
 
 	/** Default resource file for DLL2 correction factors (using DLL3 table until DLL2-specific table is generated). */
-	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionDLL2_iof.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
 	/** Per-class correction factor matrix; null until initializeCF() is called. */
