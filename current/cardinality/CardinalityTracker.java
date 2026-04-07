@@ -207,7 +207,12 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @return New CardinalityTracker instance with specified configuration
 	 */
 	public static CardinalityTracker makeTracker(int buckets_, int k_, long seed, float minProb_){
-		final String type=pickType(Parser.loglogType);
+		return makeTracker(Parser.loglogType, buckets_, k_, seed, minProb_);
+	}
+
+	/** Thread-safe factory: takes type explicitly instead of reading Parser.loglogType. */
+	public static CardinalityTracker makeTracker(String type0, int buckets_, int k_, long seed, float minProb_){
+		final String type=pickType(type0);
 		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog(buckets_, k_, seed, minProb_);
 		}else if("LogLog".equalsIgnoreCase(type)){
