@@ -108,6 +108,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HyperTwoBits();
 		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
 			return new HLLTailCut();
+		}else if("HTC4".equalsIgnoreCase(type) || "HLLTailCut4".equalsIgnoreCase(type)){
+			return new HLLTailCut4();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -191,6 +193,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HyperTwoBits(p);
 		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
 			return new HLLTailCut(p);
+		}else if("HTC4".equalsIgnoreCase(type) || "HLLTailCut4".equalsIgnoreCase(type)){
+			return new HLLTailCut4(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -274,6 +278,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HyperTwoBits(buckets_, k_, seed, minProb_);
 		}else if("HTC".equalsIgnoreCase(type) || "HLLTailCut".equalsIgnoreCase(type)){
 			return new HLLTailCut(buckets_, k_, seed, minProb_);
+		}else if("HTC4".equalsIgnoreCase(type) || "HLLTailCut4".equalsIgnoreCase(type)){
+			return new HLLTailCut4(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
