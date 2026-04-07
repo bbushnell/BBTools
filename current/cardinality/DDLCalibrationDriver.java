@@ -593,13 +593,7 @@ public class DDLCalibrationDriver {
 	 * Delegates to CardinalityTracker.makeTracker for the canonical factory.
 	 */
 	static CardinalityTracker makeInstance(String type, int buckets, int k, long seed, float minProb){
-		final String saved=parse.Parser.loglogType;
-		parse.Parser.loglogType=type;
-		try{
-			return CardinalityTracker.makeTracker(buckets, k, seed, minProb);
-		}finally{
-			parse.Parser.loglogType=saved;
-		}
+		return CardinalityTracker.makeTracker(type, buckets, k, seed, minProb);
 	}
 
 	/**
