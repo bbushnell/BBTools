@@ -49,6 +49,22 @@ public final class CardStats extends AbstractCardStats {
 			final int numBuckets_, final long microIndex_, final long added_,
 			final float[][] cfMatrix_, final int cfBuckets_,
 			final double mantissaOff_){
+		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
+			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
+			Integer.MAX_VALUE, null);
+	}
+
+	/**
+	 * Constructor with overflow tier correction for DLC.
+	 * @param nativeRelTiers_  number of native relative NLZ levels (3 for DLL2, 7 for DLL3); Integer.MAX_VALUE = no correction
+	 * @param tierErrCoeffs_   polynomial coefficients for signed error vs log2(B/V_k), or null
+	 */
+	CardStats(final char[] buckets_, final int[] counts_,
+			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
+			final int numBuckets_, final long microIndex_, final long added_,
+			final float[][] cfMatrix_, final int cfBuckets_,
+			final double mantissaOff_,
+			final int nativeRelTiers_, final double[] tierErrCoeffs_){
 
 		assert(counts_!=null && counts_.length==66);
 		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null) :
@@ -66,6 +82,8 @@ public final class CardStats extends AbstractCardStats {
 		counts=counts_;
 		cfMatrix=cfMatrix_;
 		cfBuckets=cfBuckets_;
+		nativeRelTiers=nativeRelTiers_;
+		tierErrCoeffs=tierErrCoeffs_;
 
 		/*--- Phase 1: counts-only estimates (all classes) ---*/
 
@@ -81,6 +99,23 @@ public final class CardStats extends AbstractCardStats {
 		// Empty buckets from NLZ counts only (no microIndex adjustment to V)
 		V=numBuckets-filled;
 
+		// Overflow compensation for LC in io=t mode.
+		// For DLL2 (nativeRelTiers=3): NLZ 0-2 are stored, NLZ >= 3 is dropped.
+		// The count at absNlz=2 (the last stored tier) estimates the missing overflow:
+		//   T3+T4+... ≈ T2 (geometric series sum).
+		// Collision-adjusted: missing_fills = T2 * (V / B).
+		final int lcV;
+		if(nativeRelTiers<Integer.MAX_VALUE && V>0){
+			// counts[k+1] = buckets at absNlz=k. The overflow boundary tier is nativeRelTiers-1.
+			// Use the count at that tier as the overflow estimate.
+			final int overflowBoundaryTier=nativeRelTiers-1; // absNlz=2 for DLL2
+			final int tBoundary=(overflowBoundaryTier+1<counts.length) ? counts[overflowBoundaryTier+1] : 0;
+			final double missingFills=tBoundary*((double)V/numBuckets);
+			lcV=Math.max(0, (int)Math.round(V-missingFills));
+		}else{
+			lcV=V;
+		}
+
 		// Bias correction constants
 		alpha_m=0.7213/(1.0+1.079/numBuckets);
 		// NOTE: float cast matches CardinalityStats line 144 exactly — do not change to double
@@ -90,11 +125,12 @@ public final class CardStats extends AbstractCardStats {
 		microEst=microEstimate(microBits);
 
 		// 1. LC — pure linear counting, floored by microIndex bit count
-		lcNoMicroF=lcRaw(V, numBuckets);
+		//    Uses lcV (overflow-compensated empties) when applicable.
+		lcNoMicroF=lcRaw(lcV, numBuckets);
 		lcRawF=Math.max(lcNoMicroF, microBits);
 
 		// 2. LCMin — tier-compensated LC, floored by microIndex bit count
-		lcMinF=Math.max(lcMin(counts, V, numBuckets, 0), microBits);
+		lcMinF=Math.max(lcMin(counts, lcV, numBuckets, 0), microBits);
 
 		// 3. DLC — primary CF-free estimator; info-power weighted blend (mode 2 = 0-param theory)
 		//    dlcPure is the raw tier blend; dlcRaw blends it with lcMin at low occupancy.
@@ -103,7 +139,7 @@ public final class CardStats extends AbstractCardStats {
 		dlcRawF=dlcBlendWithLcMin(dlcPureF, lcMinF, V, numBuckets, DLC_BLEND_LO, DLC_BLEND_HI);
 
 		// 4. DLC variants
-		dlcBestF=dlcBest(counts, V, numBuckets, lcMinF);
+		dlcBestF=dlcBest(counts, V, numBuckets, lcMinF, nativeRelTiers, tierErrCoeffs);
 		dlc3bF=dlcBlend3(counts, V, numBuckets, lcMinF);
 		dlcLowestF=lcMinF; // tier-compensated LC at actual floor; no separate computation needed
 
@@ -670,6 +706,8 @@ public final class CardStats extends AbstractCardStats {
 	final int microBits;        // Long.bitCount(microIndex)
 	final long added;           // total elements added
 	final int nlzBits;          // NLZ bit width per bucket value
+	final int nativeRelTiers;   // native relative NLZ levels (3 for DLL2); Integer.MAX_VALUE = no correction
+	final double[] tierErrCoeffs; // polynomial coefficients for tier signed error, or null
 	final int histBits;         // history bit width (0=none)
 	final int luckBits;         // luck bit width (0=none)
 	final int mantissaBits;     // mantissa bit width (0=none)

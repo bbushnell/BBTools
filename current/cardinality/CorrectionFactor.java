@@ -1165,4 +1165,39 @@ public class CorrectionFactor{
 
 	private static final double TWO_PI=2.0*Math.PI;
 
+	/*--------------------------------------------------------------*/
+	/*----------   DLC Tier Signed-Error Correction (IOT)   --------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Polynomial coefficients for DLC per-tier signed-error correction.
+	 * Model: signed_err(x) = c0 + c1*x + c2*x^2 + ... + c6*x^6
+	 * where x = log2(B / (B - occupancy)) = log2(B / V_k).
+	 * Fitted from dll2_dlc_400k_iot.tsv (400K DLL2 instances, tier=8, B=2048, io=t).
+	 * R²=0.9999928, RMSE=2.56e-4, MaxErr=9.0e-4.
+	 */
+	static final double[] DLC_TIER_ERR_DLL2={
+		-9.99725423003096192e-01,  // c0
+		 1.72298461240387113e-01,  // c1
+		-5.47398045478200840e-02,  // c2
+		 1.28416845106962031e-02,  // c3
+		-1.69596695107979752e-03,  // c4
+		 1.13378952285194315e-04,  // c5
+		-3.00142977327196711e-06}; // c6
+
+	/**
+	 * Evaluates the DLC tier signed-error polynomial at x = log2(B/V_k).
+	 * Returns the expected signed error (negative = underestimation).
+	 * CF = 1 / (1 + signedErr) gives the correction multiplier.
+	 */
+	public static double dlcTierSignedErr(final double x, final double[] coeffs){
+		double result=coeffs[0];
+		double xp=1;
+		for(int i=1; i<coeffs.length; i++){
+			xp*=x;
+			result+=coeffs[i]*xp;
+		}
+		return result;
+	}
+
 }
