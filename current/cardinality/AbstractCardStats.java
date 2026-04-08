@@ -105,6 +105,33 @@ public abstract class AbstractCardStats {
 		return (1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
 	}
 
+	/**
+	 * Bias-corrected DLC estimate at a single tier.
+	 * For native tiers (below startTier + nativeRelTiers), returns the raw LC estimate.
+	 * For overflow tiers, applies a polynomial correction to compensate for
+	 * systematic underestimation caused by overflow truncation in io=t mode.
+	 *
+	 * @param tier             NLZ tier index
+	 * @param vk               empty-equivalent count (empties + buckets below this tier)
+	 * @param B                total buckets
+	 * @param overflowTier     first tier needing correction (startTier + nativeRelTiers)
+	 * @param tierErrCoeffs    polynomial coefficients for signed error vs log2(B/V_k), or null
+	 */
+	static double dlcFromVk(final int tier, final int vk, final int B,
+			final int overflowTier, final double[] tierErrCoeffs){
+		final double raw=(1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+		if(tier<overflowTier || tierErrCoeffs==null || vk<1 || vk>=B){return raw;}
+		// Guard: don't correct at very low V_k (near-full tiers where x is huge)
+		// or very high V_k (near-empty tiers where the tier just appeared).
+		// The best tier typically has occ ~75% (V_k ~512), so this rarely triggers.
+		if(vk<2 || B-vk<2){return raw;}
+		final double x=Math.log((double)B/vk)/LOG2;
+		final double err=CorrectionFactor.dlcTierSignedErr(x, tierErrCoeffs);
+		return raw/(1.0+err);
+	}
+
+	private static final double LOG2=Math.log(2);
+
 	/** Returns the lowest tier (absNlz) that has filled buckets. counts[k+1]=buckets at absNlz=k. */
 	static int lowestActiveTier(final int[] counts){
 		for(int k=0; k<counts.length-1; k++){
@@ -188,15 +215,30 @@ public abstract class AbstractCardStats {
 		return blendEst;
 	}
 
+	/** DLC best without overflow correction (for classes with native-width tiers). */
+	static double dlcBest(final int[] counts, final int V, final int B,
+			final double lcMin){
+		return dlcBest(counts, V, B, lcMin, Integer.MAX_VALUE, null);
+	}
+
 	/**
 	 * DLC best: single tier closest to 25% free (75% occupancy).
 	 * Only averages when two adjacent tiers are equidistant from target.
+	 * When nativeRelTiers and tierErrCoeffs are provided, applies bias correction
+	 * to the top stored tier (the one that absorbs/loses overflows).
+	 *
+	 * @param nativeRelTiers number of storable relative NLZ levels (3 for DLL2, Integer.MAX_VALUE = no correction)
+	 * @param tierErrCoeffs  polynomial coefficients for signed error, or null
 	 */
 	static double dlcBest(final int[] counts, final int V, final int B,
-			final double lcMin){
+			final double lcMin, final int nativeRelTiers, final double[] tierErrCoeffs){
 		if(V>0.4*B){return lcMin;}
 		final double target=B*0.25;
 		final int startTier=lowestActiveTier(counts);
+		// In io=t mode, tiers >= nativeRelTiers need bias correction.
+		// For DLL2 (nativeRelTiers=3): tiers 0-2 are always native; tier 3+ is
+		// the first tier that can lose overflows (after the first floor advance).
+		final int dynOverflowTier=(nativeRelTiers<Integer.MAX_VALUE) ? nativeRelTiers : Integer.MAX_VALUE;
 		int vk=V;
 		int bestTier=startTier;
 		double bestDist=Math.abs(vk-target);
@@ -209,18 +251,18 @@ public abstract class AbstractCardStats {
 			if(dist<bestDist && vk>=1 && vk<B){bestDist=dist; bestTier=tier;}
 			if(vk>=B){break;}
 		}
-		final double estBest=dlcFromVk(bestTier, vks[bestTier], B);
+		final double estBest=dlcFromVk(bestTier, vks[bestTier], B, dynOverflowTier, tierErrCoeffs);
 		// Average with adjacent tier if equidistant
 		if(bestTier>0){
 			final double distLo=Math.abs(vks[bestTier-1]-target);
 			if(Math.abs(distLo-bestDist)<0.5){
-				return 0.5*estBest+0.5*dlcFromVk(bestTier-1, vks[bestTier-1], B);
+				return 0.5*estBest+0.5*dlcFromVk(bestTier-1, vks[bestTier-1], B, dynOverflowTier, tierErrCoeffs);
 			}
 		}
 		if(bestTier+1<NUM_DLC_TIERS && vks[bestTier+1]<B){
 			final double distHi=Math.abs(vks[bestTier+1]-target);
 			if(Math.abs(distHi-bestDist)<0.5){
-				return 0.5*estBest+0.5*dlcFromVk(bestTier+1, vks[bestTier+1], B);
+				return 0.5*estBest+0.5*dlcFromVk(bestTier+1, vks[bestTier+1], B, dynOverflowTier, tierErrCoeffs);
 			}
 		}
 		return estBest;
@@ -630,6 +672,10 @@ public abstract class AbstractCardStats {
 	public static double DLL3_OVF_B=1.01917095;
 	public static double DLL3_OVF_C=-0.03234034;
 	public static double DLL3_OVF_D=0.06711951;
+
+	/** Minimum occupancy fraction for DLC tier bias correction.
+	 *  Below this, the correction factor is too large and noisy. */
+	public static double DLC_TIER_CF_MIN_OCC_FRAC=0.70;
 
 	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
 	public static float HYBRID_BLEND_LO=0.20f;
