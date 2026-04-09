@@ -122,13 +122,20 @@ public final class FutureLogLog2 extends CardinalityTracker {
 		final int absNLZ = globalExp + localExp;
 		final int delta = hashNLZ - absNLZ;
 
-		// IOT: only delta 0 (floor hit) and 1 (future hit) are representable
-		if (delta < 0 || delta > 1) { return; }
+		if (CLAMP_OVERFLOW) {
+			// Overflow hashes (delta>1) set the MSB: proves NLZ >= absNLZ+1
+			if (delta < 0) { return; }
+		} else {
+			// IOT: only delta 0 (floor hit) and 1 (future hit) are representable
+			if (delta < 0 || delta > 1) { return; }
+		}
+		final int clampedDelta = Math.min(delta, 1);
 
-		final int bitToSet = 1 << (delta + register * 2);
+		final int bitToSet = 1 << (clampedDelta + register * 2);
 		if ((word & bitToSet) != 0) { return; } // bit already set
 
 		lastCardinality = -1;
+		lastEstimates = null;
 		word |= bitToSet;
 
 		// Check for promotion: all 6 LSBs set?
@@ -285,9 +292,12 @@ public final class FutureLogLog2 extends CardinalityTracker {
 
 	/** Flat correction multiplier for state-table bias. Modifiable at runtime via fll2mult=. */
 	public static double TERMINAL_CORRECTION = 0.883319848;
+	/** When true, overflow hashes (delta>1) set the MSB (future bit) instead of being ignored. */
+	public static boolean CLAMP_OVERFLOW = false;
 
 	/** Raw CF-table estimate without clamp or microCardinality. */
 	private double rawCFEstimate() {
+		if (CF_TABLE_TIERS <= 0) { return 0; }
 		double sum = 0;
 		for (int i = 0; i < numWords; i++) {
 			final int w = words[i] & 0xFFFF;
@@ -312,6 +322,7 @@ public final class FutureLogLog2 extends CardinalityTracker {
 
 	@Override
 	public double[] rawEstimates() {
+		if (lastEstimates != null && lastCardinality >= 0) { return lastEstimates; }
 		final double fllEst = rawCFEstimate();
 		final double microEst = microCardinalityDouble();
 		final double hybridEst = blendEstimate(fllEst, microEst);
@@ -321,6 +332,7 @@ public final class FutureLogLog2 extends CardinalityTracker {
 		r[0] = fllEst;    // Mean = FLLPure (CF table always generated from this)
 		r[5] = microEst;   // LC = microIndex estimate
 		r[6] = hybridEst;  // Hybrid = blended FLL+micro
+		lastEstimates = r;
 		return r;
 	}
 
@@ -396,6 +408,8 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	private int numLocalZeros;
 	/** Early-exit mask: hashes above this are below the global floor. */
 	private long eeMask = -1L;
+	/** Cached rawEstimates array; invalidated when lastCardinality is set to -1. */
+	private double[] lastEstimates;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Correction Factors    ----------------*/
@@ -419,6 +433,13 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	static final String STATE_TABLE_FILE = "stateTableFLL2.tsv.gz";
 	/** Resource file for cardinality-keyed correction factors (from calibration). */
 	static final String CF_FILE = "cardinalityCorrectionFLL2.tsv.gz";
+
+	/** Static initializer: auto-load state table and cardinality CF on first class access.
+	 *  MUST appear after all static field declarations to avoid initializer-order bugs. */
+	static {
+		loadCFTable();
+		loadCardCFTable();
+	}
 
 	/**
 	 * Loads the FLL2 correction factor table from resources.

@@ -41,6 +41,8 @@ public class FLL2Simulator {
 
 	/** Number of equivalence classes for 6 buckets with 4 possible states = C(9,3). */
 	static final int NUM_EQUIV = 84;
+	/** When true, overflow hashes (delta>1) clamp to delta=1 instead of being discarded. */
+	static boolean CLAMP_OVERFLOW = false;
 
 	/**
 	 * Prefix sums for idx84 computation.
@@ -222,11 +224,12 @@ public class FLL2Simulator {
 							int tier    = (word >>> 12) & 0xF;
 							int delta   = hashNLZ - tier;
 
-							if (delta > 1) {
+							if (CLAMP_OVERFLOW ? (delta < 0) : (delta < 0 || delta > 1)) {
 								lOver++;
 							} else {
+								int clampedDelta = Math.min(delta, 1);
 								int bucket   = (int)((hash & 0x7FFF_FFFFL) % BUCKETS_PER_WORD);
-								int bitToSet = 1 << (delta + bucket * 2);
+								int bitToSet = 1 << (clampedDelta + bucket * 2);
 								if ((word & bitToSet) == 0) {
 									word |= bitToSet;
 									if ((word & LSB_MASK) == LSB_MASK) {
@@ -530,6 +533,7 @@ public class FLL2Simulator {
 				case "startState": startState = Integer.decode(kv[1]);    break;
 				case "validate":   validate   = Boolean.parseBoolean(kv[1]); break;
 				case "valIters":   valIters   = Integer.parseInt(kv[1]);  break;
+				case "clampoverflow": CLAMP_OVERFLOW = Boolean.parseBoolean(kv[1]); break;
 				default: System.err.println("Unknown arg: " + arg);
 			}
 		}
