@@ -414,6 +414,99 @@ public class FLL2Simulator {
 	}
 
 	// ---------------------------------------------------------------------------
+	// Validation: re-run simulation and check estimate vs truth using CF table
+	// ---------------------------------------------------------------------------
+
+	/**
+	 * Runs fresh single-threaded simulations, computing estimate at each step
+	 * using the provided CF table. Reports signed and absolute error.
+	 * This validates that the CF table produces correct estimates in the
+	 * exact same simulation environment that generated it.
+	 */
+	static void validateTable(double[] tierAvg, double[][] mult, int valIters, int maxTier) {
+		System.err.println();
+		System.err.println("=== CF Table Validation (single-word estimate) ===");
+		System.err.println("valIters=" + valIters + "  maxTier=" + maxTier);
+		int cfTiers = mult.length;
+
+		FastRandomXoshiro rng = new FastRandomXoshiro(999);
+		double sumSignedErr = 0, sumAbsErr = 0;
+		long totalObs = 0;
+
+		// Also track per-tier stats
+		double[] tierSignedSum = new double[NUM_TIERS];
+		double[] tierAbsSum = new double[NUM_TIERS];
+		long[] tierObs = new long[NUM_TIERS];
+
+		for (int iter = 0; iter < valIters; iter++) {
+			int word = 0;
+			long eeMask = -1L;
+
+			for (long trueCard = 1; trueCard <= 10_000_000L; trueCard++) {
+				long hash = hash64shift(rng.nextLong());
+
+				if (Long.compareUnsigned(hash, eeMask) > 0) {
+					// below floor, no state change
+				} else {
+					int hashNLZ = Long.numberOfLeadingZeros(hash);
+					int tier    = (word >>> 12) & 0xF;
+					int delta   = hashNLZ - tier;
+
+					if (delta <= 1 && delta >= 0) {
+						int bucket   = (int)((hash & 0x7FFF_FFFFL) % BUCKETS_PER_WORD);
+						int bitToSet = 1 << (delta + bucket * 2);
+						if ((word & bitToSet) == 0) {
+							word |= bitToSet;
+							if ((word & LSB_MASK) == LSB_MASK) {
+								word = promote(word, null);
+								eeMask = -1L >>> ((word >>> 12) & 0xF);
+							}
+						}
+					}
+				}
+
+				// Compute estimate using CF table
+				int curTier = (word >>> 12) & 0xF;
+				int history = word & 0xFFF;
+				int eqIdx   = idx84(history);
+				int cfTier  = Math.min(curTier, cfTiers - 1);
+
+				double estimate;
+				if (word == 0) {
+					estimate = 0; // match estimator's zero-word skip
+				} else if (curTier < tierAvg.length) {
+					estimate = tierAvg[curTier] * mult[cfTier][eqIdx];
+				} else {
+					// extrapolate tierAvg
+					double lastGrowth = tierAvg[tierAvg.length-1] / tierAvg[tierAvg.length-2];
+					double base = tierAvg[tierAvg.length-1];
+					int extra = curTier - (tierAvg.length - 1);
+					estimate = base * Math.pow(lastGrowth, extra) * mult[cfTier][eqIdx];
+				}
+
+				double err = (estimate - trueCard) / (double) trueCard;
+				sumSignedErr += err;
+				sumAbsErr += Math.abs(err);
+				totalObs++;
+				tierSignedSum[curTier] += err;
+				tierAbsSum[curTier] += Math.abs(err);
+				tierObs[curTier]++;
+
+				if (curTier > maxTier) break;
+			}
+		}
+
+		System.err.printf("Overall: signedErr=%.6f  absErr=%.6f  observations=%d%n",
+			sumSignedErr / totalObs, sumAbsErr / totalObs, totalObs);
+		System.err.printf("%-6s %-14s %-14s %-12s%n", "Tier", "SignedErr", "AbsErr", "Observations");
+		for (int t = 0; t < NUM_TIERS; t++) {
+			if (tierObs[t] == 0) continue;
+			System.err.printf("%-6d %-14.6f %-14.6f %-12d%n",
+				t, tierSignedSum[t] / tierObs[t], tierAbsSum[t] / tierObs[t], tierObs[t]);
+		}
+	}
+
+	// ---------------------------------------------------------------------------
 	// main
 	// ---------------------------------------------------------------------------
 
@@ -423,6 +516,8 @@ public class FLL2Simulator {
 		int  maxTier    = 15;
 		long minObs     = 100;
 		int  startState = 0;
+		boolean validate = false;
+		int  valIters   = 1000;
 
 		for (String arg : args) {
 			String[] kv = arg.split("=", 2);
@@ -433,6 +528,8 @@ public class FLL2Simulator {
 				case "maxTier":    maxTier    = Integer.parseInt(kv[1]);  break;
 				case "minObs":     minObs     = Long.parseLong(kv[1]);    break;
 				case "startState": startState = Integer.decode(kv[1]);    break;
+				case "validate":   validate   = Boolean.parseBoolean(kv[1]); break;
+				case "valIters":   valIters   = Integer.parseInt(kv[1]);  break;
 				default: System.err.println("Unknown arg: " + arg);
 			}
 		}
@@ -457,5 +554,9 @@ public class FLL2Simulator {
 		sim.smoothSparseStates(minObs);
 		double[][] mult = sim.buildMultipliers(tierAvg);
 		sim.printResults(tierAvg, mult, origCounts);
+
+		if (validate) {
+			validateTable(tierAvg, mult, valIters, maxTier);
+		}
 	}
 }
