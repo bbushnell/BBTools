@@ -156,6 +156,7 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("mantissacfoffset") || a.equals("mco")){DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
 			}else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
 			}else if(a.equals("clamp") || a.equals("clamptoadded")){CLAMP_TO_ADDED=Parse.parseBoolean(b);
+			}else if(a.equals("fll2mult")){FutureLogLog2.TERMINAL_CORRECTION=Double.parseDouble(b);
 			}else if(a.equals("hllhistcf") || a.equals("histcf")){CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
 			}else if(a.equals("tracecf")){CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
 			}else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
@@ -222,6 +223,7 @@ public class DDLCalibrationDriver2 {
 		}
 		CorrectionFactor.loadSbsTable();
 		CorrectionFactor.loadSbsMultTable();
+		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
 			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}

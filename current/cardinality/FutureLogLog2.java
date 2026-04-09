@@ -1,5 +1,8 @@
 package cardinality;
 
+import dna.Data;
+import fileIO.ByteFile;
+import fileIO.FileFormat;
 import shared.Tools;
 
 /**
@@ -46,7 +49,10 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	static final int MSB_MASK = 0xAAA;
 	static final int HISTORY_MASK = 0xFFF;
 	static final int NUM_TIERS = 16;
-	static final int HISTORY_STATES = 4096;
+	/** Number of equivalence classes for 6 buckets with 4 states = C(9,3). */
+	static final int NUM_EQUIV = 84;
+	/** Prefix sums for idx84 computation. */
+	static final int[] OFFSET_A = {0, 28, 49, 64, 74, 80, 83};
 	/** Enable expensive invariant checks. Set false for production. */
 	private static final boolean debugging = false;
 
@@ -182,23 +188,35 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------    Equivalence Class Index   ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Converts a 12-bit history state to its 84-slot equivalence class index.
+	 * Bucket histogram (a,b,c,d) where a=count(00), b=count(01), c=count(10),
+	 * d=count(11), a+b+c+d=6. Zero allocation, ~15 ops, 3 popcounts.
+	 */
+	static int idx84(int history) {
+		int h1 = history >>> 1;
+		int d = Integer.bitCount(history & h1 & LSB_MASK);
+		int a = 6 - Integer.bitCount((history | h1) & LSB_MASK);
+		int c = Integer.bitCount(~history & h1 & LSB_MASK);
+		int b = 6 - a - c - d;
+		int r = 6 - a;
+		return OFFSET_A[a] + b * (r + 1) - b * (b - 1) / 2 + c;
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------         Estimation           ----------------*/
 	/*--------------------------------------------------------------*/
 
 	@Override
 	public final long cardinality() {
 		if (lastCardinality >= 0) { return lastCardinality; }
-		double sum = 0;
-		for (int i = 0; i < numWords; i++) {
-			final int w = words[i] & 0xFFFF;
-			final int localExp = (w >>> 12) & 0xF;
-			final int history = w & HISTORY_MASK;
-			final int absNLZ = localExp + globalExp;
-			final int tier = Math.min(localExp, CF_TABLE_TIERS - 1);
-			sum += tierCardinality(absNLZ) * cfTable[tier][history];
-		}
-		long card = (long) sum;
-		card = Math.max(card, microCardinality());
+		double fllEst = rawCFEstimate();
+		double microEst = microCardinalityDouble();
+		long card = (long) blendEstimate(fllEst, microEst);
+		card = Math.max(card, 0);
 		card = Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality = card;
 		return card;
@@ -256,6 +274,94 @@ public final class FutureLogLog2 extends CardinalityTracker {
 		return true;
 	}
 
+	/** Fraction of words with any bucket activity (localExp > 0 or history != 0). */
+	public double occupancy() {
+		int filled = 0;
+		for (int i = 0; i < numWords; i++) {
+			if ((words[i] & 0xFFFF) != 0) { filled++; }
+		}
+		return (double) filled / numWords;
+	}
+
+	/** Flat correction multiplier for state-table bias. Modifiable at runtime via fll2mult=. */
+	public static double TERMINAL_CORRECTION = 0.883319848;
+
+	/** Raw CF-table estimate without clamp or microCardinality. */
+	private double rawCFEstimate() {
+		double sum = 0;
+		for (int i = 0; i < numWords; i++) {
+			final int w = words[i] & 0xFFFF;
+			if (w == 0) { continue; }
+			final int localExp = (w >>> 12) & 0xF;
+			final int history = w & HISTORY_MASK;
+			final int absNLZ = localExp + globalExp;
+			final int tier = Math.min(absNLZ, CF_TABLE_TIERS - 1);
+			sum += tierCardinality(absNLZ) * cfTable[tier][idx84(history)];
+		}
+		sum *= TERMINAL_CORRECTION;
+		// Apply cardinality-keyed CF iteratively if available
+		if (cardCFKeys != null && cardCFKeys.length > 0) {
+			double keyScale = (cardCFBuckets > 0 && modBuckets != cardCFBuckets)
+				? (double) cardCFBuckets / modBuckets : 1.0;
+			double cf = CorrectionFactor.getCF(sum, sum,
+				cardCFValues, cardCFKeys, 5, 0.0001, keyScale);
+			sum *= cf;
+		}
+		return sum;
+	}
+
+	@Override
+	public double[] rawEstimates() {
+		final double fllEst = rawCFEstimate();
+		final double microEst = microCardinalityDouble();
+		final double hybridEst = blendEstimate(fllEst, microEst);
+		final int total = 17 + AbstractCardStats.NUM_DLC_TIERS + AbstractCardStats.NUM_EXTRA;
+		final double[] r = new double[total];
+		java.util.Arrays.fill(r, hybridEst);
+		r[0] = fllEst;    // Mean = FLLPure (CF table always generated from this)
+		r[5] = microEst;   // LC = microIndex estimate
+		r[6] = hybridEst;  // Hybrid = blended FLL+micro
+		return r;
+	}
+
+	/** Floating-point microCardinality (LC on 64-bit microIndex),
+	 *  floored by the total set bits across all word histories. */
+	private double microCardinalityDouble() {
+		final int bits = Long.bitCount(microIndex);
+		double micro = (bits >= 64) ? 64.0 : -64.0 * Math.log(1.0 - bits / 64.0);
+		// Floor: total set history bits across all words.
+		// Each element sets at most 1 bit, so this is a lower bound.
+		int totalSetBits = 0;
+		for (int i = 0; i < numWords; i++) {
+			totalSetBits += Integer.bitCount(words[i] & HISTORY_MASK);
+		}
+		return Math.max(micro, totalSetBits);
+	}
+
+	private static final double BLEND_LO = 8.0;
+	private static final double BLEND_HI = 100.0;
+	private static final double BLEND_LOG_LO = Math.log(BLEND_LO);
+	private static final double BLEND_LOG_RANGE = Math.log(BLEND_HI) - Math.log(BLEND_LO);
+
+	/**
+	 * Blends micro and FLL estimates on an exponential scale.
+	 * 100% micro below 8, 100% FLL above 80, log-linear blend between.
+	 * Midpoint (50/50) at sqrt(8×80) ≈ 25.3.
+	 *
+	 * Bootstrap: uses microEst as the blend key when the microIndex isn't
+	 * saturated (reliable below ~50), switches to fllEst when it is.
+	 */
+	private double blendEstimate(double fllEst, double microEst) {
+		final int microBits = Long.bitCount(microIndex);
+		// Micro is reliable when not near saturation (64 bits)
+		double key = (microBits < 58) ? microEst : fllEst;
+		key = Math.max(key, 1.0);
+		if (key <= BLEND_LO) { return microEst; }
+		if (key >= BLEND_HI) { return fllEst; }
+		double frac = (Math.log(key) - BLEND_LOG_LO) / BLEND_LOG_RANGE;
+		return microEst * (1.0 - frac) + fllEst * frac;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Merge/Misc          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -271,6 +377,8 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	public int getNumWords() { return numWords; }
 	public int getModBuckets() { return modBuckets; }
 	public int getGlobalExp() { return globalExp; }
+	/** Debug: return raw word value at index i. */
+	public int getWord(int i) { return words[i] & 0xFFFF; }
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
@@ -293,108 +401,141 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	/*----------------        Correction Factors    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Per-tier correction multipliers: cfTable[tier][12-bit history]. */
+	/** Per-tier correction multipliers: cfTable[tier][idx84]. */
 	static double[][] cfTable;
 	/** Number of tiers in the loaded table. */
 	static int CF_TABLE_TIERS = 0;
 	/** Average cardinality at each tier (from simulator). */
 	static double[] tierAvg;
 
-	/** Resource file for correction factors. */
+	/** Cardinality-keyed CF values (from calibration). */
+	static float[] cardCFValues;
+	/** Cardinality keys for binary search into cardCFValues. */
+	static float[] cardCFKeys;
+	/** Bucket count the cardinality CF table was built at. */
+	static int cardCFBuckets = 0;
+
+	/** Resource file for per-state correction factors (84-slot equivalence classes). */
+	static final String STATE_TABLE_FILE = "stateTableFLL2.tsv.gz";
+	/** Resource file for cardinality-keyed correction factors (from calibration). */
 	static final String CF_FILE = "cardinalityCorrectionFLL2.tsv.gz";
 
 	/**
 	 * Loads the FLL2 correction factor table from resources.
-	 * Expected format: TSV with rows starting with "tierAvg" or tier numbers.
+	 * Format: tierAvg lines, then header, then per-tier count/mult rows.
+	 * Each mult row has 84 columns (one per equivalence class).
 	 * Called once at startup (e.g., by DDLCalibrationDriver2 or on first use).
 	 */
 	public static synchronized void loadCFTable() {
-		if (cfTable != null) { return; } // already loaded
-		try {
-			java.io.InputStream is = FutureLogLog2.class.getResourceAsStream("/cardinality/" + CF_FILE);
-			if (is == null) {
-				is = FutureLogLog2.class.getResourceAsStream(CF_FILE);
-			}
-			if (is == null) {
-				System.err.println("WARNING: FLL2 CF table not found: " + CF_FILE);
-				cfTable = new double[1][HISTORY_STATES];
-				java.util.Arrays.fill(cfTable[0], 1.0);
-				tierAvg = new double[]{1.0};
-				CF_TABLE_TIERS = 1;
-				return;
-			}
-			if (CF_FILE.endsWith(".gz")) {
-				is = new java.util.zip.GZIPInputStream(is);
-			}
-			java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is));
-
-			java.util.ArrayList<double[]> multRows = new java.util.ArrayList<>();
-			java.util.ArrayList<Double> avgList = new java.util.ArrayList<>();
-			String line;
-
-			while ((line = br.readLine()) != null) {
-				if (line.startsWith("#") || line.startsWith("Tier\t")) { continue; }
-				String[] parts = line.split("\t");
-				if (parts.length < 3) { continue; }
-
-				if (parts[0].equals("tierAvg")) {
-					// tierAvg	tier	avgCard	growth	observations
-					int tier = Integer.parseInt(parts[1]);
-					double avg = Double.parseDouble(parts[2]);
-					while (avgList.size() <= tier) { avgList.add(0.0); }
-					avgList.set(tier, avg);
-				} else {
-					// tier	type	state0	state1	...
-					int tier;
-					try { tier = Integer.parseInt(parts[0]); }
-					catch (NumberFormatException e) { continue; }
-					String type = parts[1];
-					if (!"mult".equals(type)) { continue; } // skip count rows
-
-					double[] row = new double[HISTORY_STATES];
-					java.util.Arrays.fill(row, 1.0);
-					// Parts 2..N are the canonical state multipliers
-					// We need to map them back to all 4096 history states
-					// For now, store as-is; the table has all 84 canonical columns
-					// We need the header to know the state mapping
-					// Actually, the easiest approach: store raw multiplier values
-					// and do a separate mapping pass
-					while (multRows.size() <= tier) { multRows.add(null); }
-					multRows.set(tier, row);
-					// Parse multiplier values from columns
-					for (int i = 2; i < parts.length && (i - 2) < row.length; i++) {
-						try {
-							row[i - 2] = Double.parseDouble(parts[i]);
-						} catch (NumberFormatException e) {
-							// leave as 1.0
-						}
-					}
-				}
-			}
-			br.close();
-
-			tierAvg = new double[avgList.size()];
-			for (int i = 0; i < avgList.size(); i++) { tierAvg[i] = avgList.get(i); }
-
-			CF_TABLE_TIERS = multRows.size();
-			cfTable = new double[CF_TABLE_TIERS][HISTORY_STATES];
-			for (int t = 0; t < CF_TABLE_TIERS; t++) {
-				if (multRows.get(t) != null) {
-					cfTable[t] = multRows.get(t);
-				} else {
-					java.util.Arrays.fill(cfTable[t], 1.0);
-				}
-			}
-
-			System.err.println("Loaded FLL2 CF table: " + CF_TABLE_TIERS + " tiers, "
-				+ tierAvg.length + " tier averages");
-
-		} catch (java.io.IOException e) {
-			System.err.println("WARNING: Failed to load FLL2 CF table: " + e.getMessage());
-			cfTable = new double[1][HISTORY_STATES];
-			java.util.Arrays.fill(cfTable[0], 1.0);
-			tierAvg = new double[]{1.0};
-			CF_TABLE_TIERS = 1;
+		if (cfTable != null) { return; }
+		String path = Data.findPath("?" + STATE_TABLE_FILE);
+		if (path == null) {
+			System.err.println("WARNING: FLL2 CF table not found: " + CF_FILE);
+			setFallbackCF();
+			return;
 		}
+		FileFormat ff = FileFormat.testInput(path, null, false);
+		if (ff == null) { setFallbackCF(); return; }
+		ByteFile bf = ByteFile.makeByteFile(ff, 1);
+		if (bf == null) { setFallbackCF(); return; }
+
+		java.util.ArrayList<double[]> multRows = new java.util.ArrayList<>();
+		java.util.ArrayList<Double> avgList = new java.util.ArrayList<>();
+
+		for (byte[] line = bf.nextLine(); line != null; line = bf.nextLine()) {
+			if (line.length == 0) { continue; }
+			String s = new String(line).trim();
+			if (s.startsWith("#") || s.startsWith("Tier\t")) { continue; }
+			String[] parts = s.split("\t");
+			if (parts.length < 3) { continue; }
+
+			if (parts[0].equals("tierAvg")) {
+				int tier = Integer.parseInt(parts[1]);
+				double avg = Double.parseDouble(parts[2]);
+				while (avgList.size() <= tier) { avgList.add(0.0); }
+				avgList.set(tier, avg);
+			} else {
+				int tier;
+				try { tier = Integer.parseInt(parts[0]); }
+				catch (NumberFormatException e) { continue; }
+				if (!"mult".equals(parts[1])) { continue; }
+
+				double[] row = new double[NUM_EQUIV];
+				java.util.Arrays.fill(row, 1.0);
+				for (int i = 2; i < parts.length && (i - 2) < NUM_EQUIV; i++) {
+					try { row[i - 2] = Double.parseDouble(parts[i]); }
+					catch (NumberFormatException e) { /* leave as 1.0 */ }
+				}
+				while (multRows.size() <= tier) { multRows.add(null); }
+				multRows.set(tier, row);
+			}
+		}
+		bf.close();
+
+		tierAvg = new double[avgList.size()];
+		for (int i = 0; i < avgList.size(); i++) { tierAvg[i] = avgList.get(i); }
+
+		CF_TABLE_TIERS = multRows.size();
+		cfTable = new double[CF_TABLE_TIERS][NUM_EQUIV];
+		for (int t = 0; t < CF_TABLE_TIERS; t++) {
+			if (multRows.get(t) != null) {
+				cfTable[t] = multRows.get(t);
+			} else {
+				java.util.Arrays.fill(cfTable[t], 1.0);
+			}
+		}
+
+		System.err.println("Loaded FLL2 CF table: " + CF_TABLE_TIERS + " tiers, "
+			+ tierAvg.length + " tier averages, " + NUM_EQUIV + " equiv classes");
+	}
+
+	/**
+	 * Loads the cardinality-keyed CF table (V5 format from calibration).
+	 * Columns: #TrueCard Mean_cf HMean_cf ... — we use Mean_cf (column 1).
+	 */
+	public static synchronized void loadCardCFTable() {
+		if (cardCFKeys != null) { return; }
+		String path = Data.findPath("?" + CF_FILE);
+		if (path == null) {
+			System.err.println("WARNING: FLL2 cardinality CF table not found: " + CF_FILE);
+			return;
+		}
+		FileFormat ff = FileFormat.testInput(path, null, false);
+		if (ff == null) { return; }
+		ByteFile bf = ByteFile.makeByteFile(ff, 1);
+		if (bf == null) { return; }
+
+		structures.FloatList keys = new structures.FloatList();
+		structures.FloatList vals = new structures.FloatList();
+
+		for (byte[] line = bf.nextLine(); line != null; line = bf.nextLine()) {
+			if (line.length == 0) { continue; }
+			String s = new String(line).trim();
+			if (s.startsWith("#Buckets")) {
+				String[] parts = s.split("\t");
+				if (parts.length >= 2) { cardCFBuckets = Integer.parseInt(parts[1].trim()); }
+				continue;
+			}
+			if (s.startsWith("#") || !Character.isDigit(s.charAt(0))) { continue; }
+			String[] parts = s.split("\t");
+			if (parts.length < 2) { continue; }
+			float key = Float.parseFloat(parts[0]);
+			float cf = Float.parseFloat(parts[1]); // Mean_cf column
+			keys.add(key);
+			vals.add(cf);
+		}
+		bf.close();
+
+		cardCFKeys = keys.toArray();
+		cardCFValues = vals.toArray();
+		System.err.println("Loaded FLL2 cardinality CF table: " + cardCFKeys.length
+			+ " entries, buckets=" + cardCFBuckets);
+	}
+
+	private static void setFallbackCF() {
+		cfTable = new double[1][NUM_EQUIV];
+		java.util.Arrays.fill(cfTable[0], 1.0);
+		tierAvg = new double[]{1.0};
+		CF_TABLE_TIERS = 1;
 	}
 }

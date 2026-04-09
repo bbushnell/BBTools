@@ -107,6 +107,7 @@ public class LowComplexityCalibrationDriver {
 		// Load SBS tables and publish immutable CF snapshot for worker threads
 		CorrectionFactor.loadSbsTable();
 		CorrectionFactor.loadSbsMultTable();
+		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
 		CorrectionFactor.publishSnapshot();
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)
