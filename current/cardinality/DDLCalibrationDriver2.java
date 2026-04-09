@@ -157,6 +157,8 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);
 			}else if(a.equals("clamp") || a.equals("clamptoadded")){CLAMP_TO_ADDED=Parse.parseBoolean(b);
 			}else if(a.equals("fll2mult")){FutureLogLog2.TERMINAL_CORRECTION=Double.parseDouble(b);
+			}else if(a.equals("lcmode") || a.equals("lc")){lcMode=Parse.parseBoolean(b);
+			}else if(a.equals("clampoverflow") || a.equals("co")){FutureLogLog2.CLAMP_OVERFLOW=Parse.parseBoolean(b);
 			}else if(a.equals("hllhistcf") || a.equals("histcf")){CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);
 			}else if(a.equals("tracecf")){CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);
 			}else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);
@@ -264,7 +266,7 @@ public class DDLCalibrationDriver2 {
 		for(int t=0; t<numThreads; t++){
 			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
 			calThreads[t]=new CalThread(masterSeed+t, threadDDLs, thresholds,
-				buckets, k, maxTrue, loglogtype, out4, dupFactor);
+				buckets, k, maxTrue, loglogtype, out4, dupFactor, lcMode);
 		}
 		for(CalThread ct : calThreads){ct.start();}
 		return calThreads;
@@ -436,10 +438,10 @@ public class DDLCalibrationDriver2 {
 	static final class CalThread extends Thread {
 
 		CalThread(long seed, int numDDLs, long[] thresholds,
-				int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor){
+				int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor, boolean lcMode){
 			this.seed=seed; this.numDDLs=numDDLs; this.thresholds=thresholds;
 			this.buckets=buckets; this.k=k; this.maxTrue=maxTrue;
-			this.loglogtype=loglogtype; this.out4=out4; this.dupFactor=dupFactor;
+			this.loglogtype=loglogtype; this.out4=out4; this.dupFactor=dupFactor; this.lcMode=lcMode;
 			final int nt=thresholds.length;
 			n=new int[nt]; occSum=new double[nt];
 			sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
@@ -465,6 +467,10 @@ public class DDLCalibrationDriver2 {
 				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE;
 				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, ddlSeed, 0);
 				int ti=0;
+				if(lcMode){
+					runLC(ddl, ddlSeed, ti, di, out4Pw);
+					continue;
+				}
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
 					{final long val=rng.nextLong(); for(int d=0; d<dupFactor; d++){ddl.add(val);}}
 					if(trueCard>=thresholds[ti]){
@@ -524,11 +530,49 @@ public class DDLCalibrationDriver2 {
 				}
 			}
 			if(out4Pw!=null){out4Pw.close();}
+
+		}
+
+		/** LC mode: replay from same seed with increasing windows. */
+		void runLC(CardinalityTracker ddl, long ddlSeed, int ti, int di, java.io.PrintWriter out4Pw){
+			final long valSeed=ddlSeed*3+1; // Must differ from ddlSeed to avoid hash correlation
+			final FastRandomXoshiro valRng=new FastRandomXoshiro(valSeed);
+			long trueCard=0;
+			long currentCount=0;
+			long currentLimit=1;
+			while(trueCard<maxTrue){
+				valRng.setSeed(valSeed);
+				currentCount=0;
+				while(currentCount<currentLimit){
+					final long val=valRng.nextLong();
+					ddl.add(val);
+					currentCount++;
+					if(currentCount>trueCard){
+						trueCard=currentCount;
+						// Check threshold
+						if(ti<thresholds.length && trueCard>=thresholds[ti]){
+							final double occ=ddl.occupancy();
+							final double[] est=ddl.rawEstimates();
+							occSum[ti]+=occ; n[ti]++;
+							for(int e=0; e<Math.min(NUM_EST, est.length); e++){
+								final double v=CLAMP_TO_ADDED ? Math.min(est[e], trueCard) : est[e];
+								final double err=(v-trueCard)/(double)trueCard;
+								sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
+							}
+							ti++;
+							if(ti>=thresholds.length){return;}
+						}
+					}
+				}
+				// Grow window for next round
+				long growth=1+valRng.nextLong(Math.max(1, currentLimit*2));
+				currentLimit=Math.min(maxTrue, currentLimit+growth);
+			}
 		}
 
 		final long seed; final int numDDLs; final long[] thresholds;
 		final int buckets; final int k; final long maxTrue;
-		final String loglogtype; final String out4; final int dupFactor;
+		final String loglogtype; final String out4; final int dupFactor; final boolean lcMode;
 		final int[] n; final double[] occSum;
 		final double[][] sumErr, sumAbsErr, sumSqErr;
 		final double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
@@ -555,6 +599,7 @@ public class DDLCalibrationDriver2 {
 	String cffile=null;
 	String pllmode=null;
 	boolean hcWeightExplicit=false;
+	boolean lcMode=false;
 	long maxTrue;
 	long[] thresholds;
 

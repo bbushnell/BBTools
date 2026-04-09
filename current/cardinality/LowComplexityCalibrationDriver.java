@@ -43,13 +43,14 @@ public class LowComplexityCalibrationDriver {
 	public static void main(String[] args){
 		int cardinality=5000;
 		int numDDLs=128;
-		float iterations=0;     // 0 = stop on saturation; >0 = run for cardinality*iterations adds
+		float iterations=4;     // 0 = stop on saturation; >0 = run for cardinality*iterations adds
 		int buckets=2048;
 		int k=31;
 		int threads=4;
 		long masterSeed=1;
 		double reportFrac=0.01;
 		String loglogtype="dll4";
+		boolean minRand=true;   // true=min(rand,rand) low-complexity skew; false=uniform like HC
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -92,6 +93,9 @@ public class LowComplexityCalibrationDriver {
 			}else if(a.equals("usesbs") || a.equals("sbsinhybrid")){
 				CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
 			}
+			else if(a.equals("fll2mult")){FutureLogLog2.TERMINAL_CORRECTION=Double.parseDouble(b);}
+			else if(a.equals("clampoverflow") || a.equals("co")){FutureLogLog2.CLAMP_OVERFLOW=Parse.parseBoolean(b);}
+			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 
@@ -149,6 +153,7 @@ public class LowComplexityCalibrationDriver {
 		final int finalNumThresholds=numThresholds;
 		final int estPerThread=(numDDLs+threads-1)/threads;
 		final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7}; // Indices into ldlcEstimate() array
+		final boolean finalMinRand=minRand;
 
 		final long t0=System.nanoTime();
 		final Thread[] threadArray=new Thread[threads];
@@ -179,7 +184,7 @@ public class LowComplexityCalibrationDriver {
 						finalType, finalBuckets, finalK, seeds[estIdx], 0);
 
 					for(long add=0; add<finalTotalAdds; add++){
-						final int pos=Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality));
+						final int pos=finalMinRand ? Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality)) : rng.nextInt(finalCardinality);
 						est.add(valueArray[pos]);
 						if(!seen.get(pos)){
 							seen.set(pos);
