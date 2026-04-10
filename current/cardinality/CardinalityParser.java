@@ -82,6 +82,7 @@ public class CardinalityParser {
 			DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 		}
+		else if(a.equals("clampoutliers") || a.equals("clamp4")){DynamicLogLog4.CLAMP_OUTLIERS=Parse.parseBoolean(b);}
 		else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);}
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
@@ -128,8 +129,10 @@ public class CardinalityParser {
 		}
 		else if(a.equals("ignoreoverflow") || a.equals("io")){
 			DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+			DynamicLogLog3v2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+			DynamicLogLog4.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false;}
 		}
 		else{return false;}

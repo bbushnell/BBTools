@@ -103,10 +103,47 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			int sum=0; for(int t=1; t<66; t++){sum+=nlzCounts[t];} nlzCounts[0]=buckets-sum;
 		}
 		lastRawNlz=nlzCounts.clone();
-		lastCorrNlz=lastRawNlz; // DLL4 has no overflow correction
+		int effectiveBuckets=buckets;
+		if(CLAMP_OUTLIERS){effectiveBuckets-=clampOutlierTiers(nlzCounts);}
+		lastCorrNlz=nlzCounts.clone();
 		// DLL4 is counts-only: no history, luck, or mantissa bits. buckets=null.
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				effectiveBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+	}
+
+	/**
+	 * Clamp outlier tiers in the NLZ histogram.
+	 * Computes the mean occupied tier, then sets a ceiling at meanTier + log2(filled).
+	 * Buckets above the ceiling are moved down to the ceiling tier.
+	 * Total bucket count is preserved.
+	 */
+	/** Move outlier tier buckets down to the mean tier. Returns 0 (no bucket count change). */
+	private static int clampOutlierTiers(final int[] counts){
+		// Compute filled count and mean tier (counts[t+1] = buckets at absNlz=t)
+		int filled=0;
+		double tierSum=0;
+		int maxTier=0;
+		for(int t=1; t<counts.length; t++){
+			if(counts[t]>0){
+				filled+=counts[t];
+				tierSum+=counts[t]*(t-1); // absNlz = t-1
+				maxTier=t;
+			}
+		}
+		if(filled<2){return 0;} // nothing to clamp
+		final double meanTier=tierSum/filled;
+		final int ceiling=Math.max(1, (int)(meanTier+Math.log(filled)/Math.log(2))-3); // clamp floor to 1 to protect card=1
+		if(ceiling>=maxTier){return 0;} // nothing above ceiling
+
+		// Move outlier buckets above ceiling down to mean tier
+		final int meanIdx=(int)Math.round(meanTier)+1; // +1 for index offset
+		int excess=0;
+		for(int t=ceiling+1; t<counts.length; t++){
+			excess+=counts[t];
+			counts[t]=0;
+		}
+		counts[meanIdx]+=excess;
+		return 0;
 	}
 
 	@Override
@@ -210,6 +247,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		}
 
 		// Stored = relNlz+1, clamped to [1,15] for overflow
+		if(IGNORE_OVERFLOW && relNlz+1>15){return;} // silently ignore overflow
 		final int newStored=Math.min(relNlz+1, 15);
 		final int oldStored=readBucket(bucket);
 
@@ -399,6 +437,14 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
 	 * Reduces tier-15+ overflow pollution; requires new CF table generation when changed. */
 	public static boolean EARLY_PROMOTE=true;
+	/** When true, silently drop hashes that would overflow (relNlz >= 15).
+	 * Eliminates overflow pollution at the cost of a small systematic bias
+	 * that the CF table corrects. */
+	public static boolean IGNORE_OVERFLOW=false;
+	/** When true, clamp outlier tiers in the NLZ histogram before passing to CardStats.
+	 * Buckets above meanTier + log2(filledBuckets) are moved down to the ceiling tier.
+	 * Reduces overflow pollution and early-lucky-hash distortion. */
+	public static boolean CLAMP_OUTLIERS=false;
 
 
 	/** Default resource file for DDL correction factors. */

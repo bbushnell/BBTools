@@ -95,7 +95,7 @@ public class DDLCalibrationDriver2 {
 			}else if(a.equals("pllmode") || a.equals("pmode")){pllmode=b;
 			}else if(a.equals("clamp") || a.equals("clamptoadded")){CLAMP_TO_ADDED=Parse.parseBoolean(b);
 			}else if(a.equals("lcmode") || a.equals("lc")){lcMode=Parse.parseBoolean(b);
-			}else{Parser.parseStatic(arg, a, b);}
+			}else if(!Parser.parseStatic(arg, a, b)){throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 	}
 
