@@ -196,7 +196,8 @@ public class CardinalityParser {
 		CorrectionFactor.loadSbsMultTable();
 		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
 
-		// Load cffile if specified
+		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
+		if(cffile==null){cffile=defaultCFFile(loglogtype);}
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
 			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
@@ -207,6 +208,36 @@ public class CardinalityParser {
 
 		// Publish immutable CF snapshot for worker threads
 		CorrectionFactor.publishSnapshot();
+	}
+
+	/**
+	 * Select the default CF table file for a given estimator type and overflow mode.
+	 * Returns null if no table exists for the type.
+	 */
+	private static String defaultCFFile(String loglogtype){
+		if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){
+			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
+			else if(!DynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3_iof.tsv.gz";}
+			else{return DynamicLogLog3.CF_FILE;}
+		}else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){
+			return DynamicLogLog4.CF_FILE;
+		}else if(loglogtype.equals("dll2")){
+			if(DynamicLogLog2.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL2_iot.tsv.gz";}
+			else{return "?cardinalityCorrectionDLL2_iof.tsv.gz";}
+		}else if(loglogtype.equals("bdll3")){
+			if(BankedDynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionBDLL3_iot.tsv.gz";}
+			else if(!BankedDynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionBDLL3_cof.tsv.gz";}
+			else{return "?cardinalityCorrectionBDLL3_cot.tsv.gz";}
+		}else if(loglogtype.equals("ll6")){
+			return LogLog6.CF_FILE;
+		}else if(loglogtype.equals("udll6")){
+			return UltraDynamicLogLog6.CF_FILE;
+		}else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){
+			return DynamicDemiLog.CF_FILE;
+		}else if(loglogtype.equals("ddl8")){
+			return DynamicDemiLog8.CF_FILE;
+		}
+		return null;
 	}
 
 }
