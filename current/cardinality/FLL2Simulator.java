@@ -26,7 +26,7 @@ import rand.FastRandomXoshiro;
  *
  * Run with: java -ea cardinality.FLL2Simulator [iters=N] [threads=N] [maxTier=N]
  *
- * @author Brian Bushnell, Chloe von Einzbern-Bushnell
+ * @author Brian Bushnell, Chloe
  * @date April 8, 2026
  */
 public class FLL2Simulator {
