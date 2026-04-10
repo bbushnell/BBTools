@@ -1,5 +1,7 @@
 package cardinality;
 
+import fileIO.ByteFile;
+import fileIO.FileFormat;
 import parse.Parser;
 import shared.Tools;
 import structures.LongList;
@@ -288,7 +290,75 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
 		final double hybridEst=s.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(s, hybridEst);
+		double[] legacy=AbstractCardStats.buildLegacyArray(s, hybridEst);
+		// Append word-based estimates if table is loaded
+		if(wordTable!=null && WORD_TABLE_TIERS>0){
+			double wordEst=rawWordEstimate();
+			double wordEstCV=rawWordEstimateCV();
+			// Extend array: add WordEst, WordEstCV at the end
+			double[] ext=new double[legacy.length+2];
+			System.arraycopy(legacy, 0, ext, 0, legacy.length);
+			ext[legacy.length]=wordEst*WORD_TERMINAL_CORRECTION;
+			ext[legacy.length+1]=wordEstCV*WORD_TERMINAL_CORRECTION;
+			return ext;
+		}
+		return legacy;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Word-Based Estimation     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Estimates cardinality using canonical per-word state table lookup.
+	 * For each 4-bucket word: pack raw registers into 16-bit key, remap
+	 * to canonical index. Tier = minZeros + wordMin. Sums stateAvg.
+	 */
+	public double rawWordEstimate(){
+		if(wordTable==null || WORD_TABLE_TIERS<=0){return 0;}
+		final int numWords=buckets>>>2;
+		double sum=0;
+		for(int w=0; w<numWords; w++){
+			final int base=w<<2;
+			int r0=readBucket(base), r1=readBucket(base+1);
+			int r2=readBucket(base+2), r3=readBucket(base+3);
+			if(r0==0 && r1==0 && r2==0 && r3==0 && minZeros==0){continue;}
+			int wMin=Math.min(Math.min(r0, r1), Math.min(r2, r3));
+			int tier=Math.min(minZeros+wMin, WORD_TABLE_TIERS-1);
+			int rawKey=r0|(r1<<4)|(r2<<8)|(r3<<12);
+			int idx=WORD_REMAP[rawKey];
+			sum+=wordTable[tier][idx];
+		}
+		return sum;
+	}
+
+	/**
+	 * CV-weighted word-based estimate. Weights each word's contribution
+	 * by inverse CV raised to CV_POWER.
+	 */
+	public double rawWordEstimateCV(){
+		if(wordTable==null || WORD_TABLE_TIERS<=0 || wordCVTable==null){return rawWordEstimate();}
+		final int numWords=buckets>>>2;
+		double weightedSum=0, weightSum=0;
+		int filledWords=0;
+		for(int w=0; w<numWords; w++){
+			final int base=w<<2;
+			int r0=readBucket(base), r1=readBucket(base+1);
+			int r2=readBucket(base+2), r3=readBucket(base+3);
+			if(r0==0 && r1==0 && r2==0 && r3==0 && minZeros==0){continue;}
+			filledWords++;
+			int wMin=Math.min(Math.min(r0, r1), Math.min(r2, r3));
+			int tier=Math.min(minZeros+wMin, WORD_TABLE_TIERS-1);
+			int rawKey=r0|(r1<<4)|(r2<<8)|(r3<<12);
+			int idx=WORD_REMAP[rawKey];
+			double value=wordTable[tier][idx];
+			double cv=wordCVTable[tier][idx];
+			double weight=Math.pow(1.0/Math.max(cv, 0.001), CV_POWER);
+			weightedSum+=value*weight;
+			weightSum+=weight;
+		}
+		if(weightSum<=0){return 0;}
+		return (weightedSum/weightSum)*filledWords;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -341,6 +411,102 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------   Word State Table Statics   ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Remap: raw 16-bit register state -> compact canonical index. */
+	static final char[] WORD_REMAP=new char[65536];
+	/** Number of unique canonical states. */
+	static final int WORD_NUM_CANONICAL;
+	static {
+		structures.IntHashMap map=new structures.IntHashMap(1024);
+		for(int state=0; state<65536; state++){
+			int r0=state&0xF, r1=(state>>4)&0xF, r2=(state>>8)&0xF, r3=(state>>12)&0xF;
+			int wMin=Math.min(Math.min(r0, r1), Math.min(r2, r3));
+			int d0=r0-wMin, d1=r1-wMin, d2=r2-wMin, d3=r3-wMin;
+			if(d0>d1){int t=d0; d0=d1; d1=t;}
+			if(d2>d3){int t=d2; d2=d3; d3=t;}
+			if(d0>d2){int t=d0; d0=d2; d2=t;}
+			if(d1>d3){int t=d1; d1=d3; d3=t;}
+			if(d1>d2){int t=d1; d1=d2; d2=t;}
+			int canonKey=d0|(d1<<4)|(d2<<8)|(d3<<12);
+			if(!map.containsKey(canonKey)){map.put(canonKey, map.size());}
+			WORD_REMAP[state]=(char)map.get(canonKey);
+		}
+		WORD_NUM_CANONICAL=map.size();
+	}
+
+	/** Per-tier word state averages [tier][numCanonical]. null until loaded. */
+	static double[][] wordTable;
+	/** Per-tier word state CVs [tier][numCanonical]. null until loaded. */
+	static double[][] wordCVTable;
+	/** Number of tiers in the word table. */
+	static int WORD_TABLE_TIERS=0;
+	/** Terminal correction multiplier applied to word estimates. */
+	public static double WORD_TERMINAL_CORRECTION=1.0;
+	/** CV weighting power: weight = (1/CV)^CV_POWER. */
+	public static double CV_POWER=2.0;
+
+	static final String WORD_TABLE_FILE="stateTableDLL4Word.tsv.gz";
+
+	/**
+	 * Loads the DLL4 word state table from resources.
+	 * Sparse format: #tier \t idx \t canonKey \t stateAvg \t count \t cv
+	 * Populates wordTable[tier][idx] = stateAvg.
+	 */
+	public static synchronized void loadWordTable(){
+		if(wordTable!=null){return;}
+		String path=dna.Data.findPath("?"+WORD_TABLE_FILE);
+		if(path==null){
+			System.err.println("WARNING: DLL4 word state table not found: "+WORD_TABLE_FILE);
+			return;
+		}
+		FileFormat ff=FileFormat.testInput(path, null, false);
+		if(ff==null){return;}
+		ByteFile bf=ByteFile.makeByteFile(ff, 1);
+		if(bf==null){return;}
+
+		int maxTier=0;
+		java.util.ArrayList<byte[]> allLines=new java.util.ArrayList<>();
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0 || line[0]=='#'){continue;}
+			allLines.add(line);
+			String s=new String(line);
+			int tier=Integer.parseInt(s.substring(0, s.indexOf('\t')));
+			if(tier>maxTier){maxTier=tier;}
+		}
+		bf.close();
+
+		WORD_TABLE_TIERS=maxTier+1;
+		wordTable=new double[WORD_TABLE_TIERS][WORD_NUM_CANONICAL];
+		wordCVTable=new double[WORD_TABLE_TIERS][WORD_NUM_CANONICAL];
+		for(int t=0; t<WORD_TABLE_TIERS; t++){
+			java.util.Arrays.fill(wordCVTable[t], 1.0);
+		}
+
+		int loaded=0;
+		for(byte[] line : allLines){
+			String s=new String(line);
+			String[] parts=s.split("\t");
+			if(parts.length<6){continue;}
+			int tier=Integer.parseInt(parts[0]);
+			int idx=Integer.parseInt(parts[1]);
+			// parts[2] = canonKey (for reference)
+			double avg=Double.parseDouble(parts[3]);
+			// parts[4] = count
+			double cv=Double.parseDouble(parts[5]);
+			if(tier<WORD_TABLE_TIERS && idx>=0 && idx<WORD_NUM_CANONICAL){
+				wordTable[tier][idx]=avg;
+				wordCVTable[tier][idx]=cv;
+				loaded++;
+			}
+		}
+
+		System.err.println("Loaded DLL4 word table: "+WORD_TABLE_TIERS+" tiers, "
+			+loaded+" entries, "+WORD_NUM_CANONICAL+" canonical states");
 	}
 
 }
