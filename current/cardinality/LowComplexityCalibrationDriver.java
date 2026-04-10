@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import rand.FastRandomXoshiro;
 import parse.Parse;
+import parse.Parser;
+import shared.Shared;
 
 /**
  * Low-complexity cardinality calibration driver.
@@ -51,6 +53,8 @@ public class LowComplexityCalibrationDriver {
 		double reportFrac=0.01;
 		String loglogtype="dll4";
 		boolean minRand=true;   // true=min(rand,rand) low-complexity skew; false=uniform like HC
+		Shared.capThreads(4);
+		Parser.printSetThreads=false;
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
@@ -62,42 +66,14 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
-			else if(a.equals("loglogtype") || a.equals("type")){loglogtype=b.toLowerCase();}
-			else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
-			else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
-			else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);}
-			else if(a.equals("printstd") || a.equals("std")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);}
-			else if(a.equals("correctoverflow") || a.equals("co")){
-				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-				if(Parse.parseBoolean(b)){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false;}
-			}else if(a.equals("ignoreoverflow") || a.equals("io")){
-				DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-				DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-				BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-				if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false;}
-			}else if(a.equals("overflowscale") || a.equals("os")){
-				DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
-				BankedDynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
-			}else if(a.equals("earlypromote") || a.equals("ep")){
-				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
-				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
-				BankedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
-			}else if(a.equals("sbsformula") || a.equals("usesbsformula")){
-				CorrectionFactor.USE_SBS_FORMULA=Parse.parseBoolean(b);
-			}else if(a.equals("formulas") || a.equals("useformulas")){
-				CorrectionFactor.USE_FORMULAS=Parse.parseBoolean(b);
-			}else if(a.equals("usesbs") || a.equals("sbsinhybrid")){
-				CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);
-			}
-			else if(a.equals("fll2mult")){FutureLogLog2.TERMINAL_CORRECTION=Double.parseDouble(b);}
-			else if(a.equals("clampoverflow") || a.equals("co")){FutureLogLog2.CLAMP_OVERFLOW=Parse.parseBoolean(b);}
+			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
-			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
+			else{Parser.parseStatic(arg, a, b);}
 		}
+		loglogtype=Parser.loglogType;
+		threads=Shared.threads();
 
 		// Reuse constants from DDLCalibrationDriver/Driver2
 		final int NUM_EST=DDLCalibrationDriver.NUM_EST;
@@ -105,14 +81,8 @@ public class LowComplexityCalibrationDriver {
 		final int NUM_LDLC=DDLCalibrationDriver2.NUM_LDLC;
 		final String[] LDLC_NAMES=DDLCalibrationDriver2.LDLC_NAMES;
 
-		// Set up per-class CF/formula whitelist (same as Driver2)
-		DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0L, 0);
-		DDLCalibrationDriver.v3ColsForType(loglogtype);
-		// Load SBS tables and publish immutable CF snapshot for worker threads
-		CorrectionFactor.loadSbsTable();
-		CorrectionFactor.loadSbsMultTable();
-		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
-		CorrectionFactor.publishSnapshot();
+		// Initialize global cardinality state (CF tables, formula coefficients, etc.)
+		CardinalityParser.initializeAll(loglogtype, buckets, k, null, null, true);
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)
 		final long totalAdds=(iterations>0 ? (long)(cardinality*iterations) : Long.MAX_VALUE);
