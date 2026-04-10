@@ -635,6 +635,9 @@ public class CorrectionFactor{
 	public static int correctionBuckets=2048;
 	/** When false, getCF always returns 1 (raw estimates, no correction applied). */
 	public static boolean USE_CORRECTION=true;
+	/** When true (and USE_CORRECTION is also true), apply CF table correction to DLC estimators.
+	 * DLC is formula-corrected internally, so table CF is normally unnecessary. Default false. */
+	public static boolean USE_DLC_CF=false;
 
 	/** Estimator type constants: index into CF_MATRIX rows.
 	 * Matches CF file column order (Slot + CF columns; Hybrid at end as column 10).
