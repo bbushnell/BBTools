@@ -35,8 +35,8 @@ public class DDLCalibrationDriver2 {
 	static boolean CLAMP_TO_ADDED=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-	static final int NUM_LDLC=9;
-	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro"};
+	static final int NUM_LDLC=11;
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -393,6 +393,17 @@ public class DDLCalibrationDriver2 {
 								ldlcSumErr[ti][7+e]+=lerr; ldlcSumAbsErr[ti][7+e]+=Math.abs(lerr); ldlcSumSqErr[ti][7+e]+=lerr*lerr;
 							}
 						}
+						if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
+							final DynamicLogLog4 d4=(DynamicLogLog4)ddl;
+							final double wEst=d4.rawWordEstimate()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+							final double wEstCV=d4.rawWordEstimateCV()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+							final double[] wVals={wEst, wEstCV};
+							for(int e=0; e<2; e++){
+								final double v=wVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
+							}
+						}
 						ti++;
 						if(ti>=thresholds.length){break;}
 					}
@@ -427,6 +438,17 @@ public class DDLCalibrationDriver2 {
 								final double v=CLAMP_TO_ADDED ? Math.min(est[e], trueCard) : est[e];
 								final double err=(v-trueCard)/(double)trueCard;
 								sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
+							}
+							if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
+								final DynamicLogLog4 d4=(DynamicLogLog4)ddl;
+								final double wEst=d4.rawWordEstimate()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+								final double wEstCV=d4.rawWordEstimateCV()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+								final double[] wVals={wEst, wEstCV};
+								for(int e=0; e<2; e++){
+									final double v=wVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
+								}
 							}
 							ti++;
 							if(ti>=thresholds.length){return;}

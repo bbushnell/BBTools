@@ -112,6 +112,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4();
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2();
+		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
+			return new BankedCeilingLogLog();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -199,6 +201,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4(p);
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2(p);
+		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
+			return new BankedCeilingLogLog(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -286,6 +290,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4(buckets_, k_, seed, minProb_);
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2(buckets_, k_, seed, minProb_);
+		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
+			return new BankedCeilingLogLog(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);

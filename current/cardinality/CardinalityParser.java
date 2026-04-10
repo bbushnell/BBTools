@@ -112,6 +112,14 @@ public class CardinalityParser {
 		else if(a.equals("clampoverflow")){FutureLogLog2.CLAMP_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);}
 
+		// BCLL flags
+		else if(a.equals("bcllmult")){BankedCeilingLogLog.TERMINAL_CORRECTION=Double.parseDouble(b);}
+		else if(a.equals("cvpow") || a.equals("cvpower")){BankedCeilingLogLog.CV_POWER=Double.parseDouble(b); DynamicLogLog4.CV_POWER=Double.parseDouble(b);}
+
+		// DLL4 word table flags
+		else if(a.equals("dll4wordmult")){DynamicLogLog4.WORD_TERMINAL_CORRECTION=Double.parseDouble(b);}
+		else if(a.equals("dll4cvpow")){DynamicLogLog4.CV_POWER=Double.parseDouble(b);}
+
 		// Cascading overflow flags (co/io are mutually exclusive; "co" alias is handled by correctoverflow)
 		else if(a.equals("correctoverflow") || a.equals("co")){
 			DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
@@ -192,10 +200,12 @@ public class CardinalityParser {
 			if(!classHasHmeanmCf){CorrectionFactor.USE_HMEANM_CF_FORMULA=false;}
 		}
 
-		// Load SBS and FLL2 tables
+		// Load SBS, FLL2, BCLL, and DLL4 word tables
 		CorrectionFactor.loadSbsTable();
 		CorrectionFactor.loadSbsMultTable();
 		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
+		if("bcll".equals(loglogtype)){BankedCeilingLogLog.loadCFTable(); BankedCeilingLogLog.loadCardCFTable();}
+		if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.loadWordTable();}
 
 		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
 		if(cffile==null){cffile=defaultCFFile(loglogtype);}
