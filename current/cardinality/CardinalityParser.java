@@ -24,6 +24,7 @@ public class CardinalityParser {
 		if(a.equals("loglogtype") || a.equals("type")){Parser.loglogType=b.toLowerCase();}
 		else if(a.equals("cf") || a.equals("loglogcf")){CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);}
 		else if(a.equals("cardcf")){CardinalityTracker.USE_CARD_CF=Parse.parseBoolean(b);}
+		else if(a.equals("dlccf")){CorrectionFactor.USE_DLC_CF=Parse.parseBoolean(b);}
 		else if(a.equals("printcv") || a.equals("cv")){DDLCalibrationDriver.PRINT_CV=Parse.parseBoolean(b);}
 		else if(a.equals("printstd") || a.equals("std")){DDLCalibrationDriver.PRINT_STD=Parse.parseBoolean(b);}
 		else if(a.equals("formulas") || a.equals("useformulas")){CorrectionFactor.USE_FORMULAS=Parse.parseBoolean(b);}

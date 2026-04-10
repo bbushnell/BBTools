@@ -604,9 +604,9 @@ public abstract class AbstractCardStats {
 		r[8] =s.dThHybF;             // DThHyb
 		r[9] =s.dlcLowestF;          // LCmin
 		r[10]=s.dlcPureF;             // DLCPure (tier blend, no lcMin transition)
-		r[11]=s.dlcRawF;             // DLC (no CF — formula-based, needs no correction)
-		r[12]=s.dlc3bF;              // DLC3B (no CF)
-		r[13]=s.dlcBestF;            // DLCBest (no CF)
+		r[11]=CorrectionFactor.USE_DLC_CF ? s.dlcCF : s.dlcRawF;  // DLC (table CF only when dlccf=t)
+		r[12]=CorrectionFactor.USE_DLC_CF ? s.dlc3bCF : s.dlc3bF; // DLC3B
+		r[13]=CorrectionFactor.USE_DLC_CF ? s.dlcBestCF : s.dlcBestF; // DLCBest
 		r[14]=s.hybDLCcf;            // HybDLC
 		r[15]=s.sbsF;             // SBS
 		r[16]=s.sbsMultF;          // SBSMult
