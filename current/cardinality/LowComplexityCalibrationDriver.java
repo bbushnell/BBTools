@@ -70,7 +70,7 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
-			else{Parser.parseStatic(arg, a, b);}
+			else if(!Parser.parseStatic(arg, a, b)){throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
 		loglogtype=Parser.loglogType;
 		threads=Shared.threads();

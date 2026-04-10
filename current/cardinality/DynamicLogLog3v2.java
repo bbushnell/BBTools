@@ -156,6 +156,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 		final int relNlz=nlz-minZeros;
 
 		// Stored = relNlz+1, clamped to [1,7] for overflow
+		if(IGNORE_OVERFLOW && relNlz+1>7){return;} // silently ignore overflow
 		final int newStored=Math.min(relNlz+1, 7);
 		final int oldStored=readBucket(bucket);
 
@@ -286,11 +287,13 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	/** Fraction of buckets to use as social promotion threshold.
 	 * When >0, overrides PROMOTE_THRESHOLD: promoteThreshold = (int)(buckets * PROMOTE_FRAC).
 	 * E.g. 0.05 = promote when last 5% of tier-0 remain (default). */
-	public static float PROMOTE_FRAC=0.05f;
+	public static float PROMOTE_FRAC=0.02f;
 	/** When true, social promotion resets tier-0 (stored=1) buckets to empty (stored=0)
 	 *  instead of retaining them. Tests whether CF tables converge better without
 	 *  retained stale tier-0 values biasing the estimator after floor advancement. */
 	public static boolean RESET_ON_PROMOTE=false;
+	/** When true, silently drop hashes that would overflow (relNlz >= 7). */
+	public static boolean IGNORE_OVERFLOW=false;
 
 	/** Default resource file for DLL3 correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";
