@@ -43,7 +43,7 @@ import shared.Tools;
  * Estimation: state-table CF (84 equivalence classes, same as FLL2),
  * plus DLC/HC/LDLC via variable-observation-count framework.
  *
- * @author Brian Bushnell, Chloe von Einzbern-Bushnell
+ * @author Brian Bushnell, Chloe
  * @date April 9, 2026
  */
 public final class BankedCeilingLogLog extends CardinalityTracker {

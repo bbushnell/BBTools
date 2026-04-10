@@ -22,7 +22,7 @@ import rand.FastRandomXoshiro;
  *
  * Run: java -ea cardinality.BCLLSimulator [iters=N] [threads=N] [maxTier=N]
  *
- * @author Brian Bushnell, Chloe von Einzbern-Bushnell
+ * @author Brian Bushnell, Chloe
  * @date April 9, 2026
  */
 public class BCLLSimulator {

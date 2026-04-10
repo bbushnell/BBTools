@@ -33,7 +33,7 @@ import shared.Tools;
  * Uses modulo bucket addressing since numBuckets = numWords * 6 is never a
  * power of 2. Follows the DLL4m pattern for non-power-of-2 bucket counts.
  *
- * @author Brian Bushnell, Chloe von Einzbern-Bushnell
+ * @author Brian Bushnell, Chloe
  * @date April 8, 2026
  */
 public final class FutureLogLog2 extends CardinalityTracker {
