@@ -486,7 +486,7 @@ public class DDLCalibrationDriver {
 	static final int WORDEST_RAW_IDX=17+AbstractCardStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
 
 	static void v3ColsForType(String type){
-		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c");
+		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c") || type.equals("ttll");
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");

@@ -625,7 +625,7 @@ public final class CardStats extends AbstractCardStats {
 			double est=0;
 			for(int i=0; i<states.length; i++){
 				final int si=states[i];
-				if(si>=0){est+=row[si];}
+				if(si>=0 && si<row.length){est+=row[si];}
 			}
 			return est;
 		}
@@ -635,7 +635,7 @@ public final class CardStats extends AbstractCardStats {
 			double est=0;
 			for(int i=0; i<states.length; i++){
 				final int si=states[i];
-				if(si>=0){est+=CorrectionFactor.sbsFormula(si, contributing, numBuckets);}
+				if(si>=0 && si<CorrectionFactor.SBS_STATES){est+=CorrectionFactor.sbsFormula(si, contributing, numBuckets);}
 			}
 			return est;
 		}
@@ -675,7 +675,7 @@ public final class CardStats extends AbstractCardStats {
 		int n=0;
 		for(int i=0; i<states.length; i++){
 			final int si=states[i];
-			if(si>=0){sumCF+=row[si]; n++;}
+			if(si>=0 && si<row.length){sumCF+=row[si]; n++;}
 		}
 		if(n==0){return lcRaw;}
 		return lcRaw*(sumCF/n);
