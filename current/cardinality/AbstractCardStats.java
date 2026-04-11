@@ -683,8 +683,8 @@ public abstract class AbstractCardStats {
 	public static double DLC_TIER_CF_MIN_OCC_FRAC=0.70;
 
 	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
-	public static float HYBRID_BLEND_LO=0.20f;
-	public static float HYBRID_BLEND_HI=7.5f;
+	public static float HYBRID_BLEND_LO=1.0f;
+	public static float HYBRID_BLEND_HI=6.0f;
 	/** When true, use log interpolation in hybridDLL; when false, use linear. */
 	public static boolean HYBRID_BLEND_LOG=true;
 
