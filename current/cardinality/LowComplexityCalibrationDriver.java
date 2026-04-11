@@ -187,6 +187,12 @@ public class LowComplexityCalibrationDriver {
 									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
 									lLdlcSqErr[ti][e]+=lerr*lerr;
 								}
+								// HLDLC: 50/50 blend of Hybrid+2 and LDLC
+								{
+									final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
 							}else if(est.getClass()==ProtoLogLog16c.class){
 								final double[] ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
 								for(int e=0; e<7; e++){
