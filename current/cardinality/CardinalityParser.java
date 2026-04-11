@@ -57,6 +57,9 @@ public class CardinalityParser {
 		else if(a.equals("hcinfopow") || a.equals("hcpow")){AbstractCardStats.HC_INFO_POWER=Float.parseFloat(b);}
 		else if(a.equals("dlchistblendlo")){AbstractCardStats.DLCSBS_BLEND_LO=Float.parseFloat(b);}
 		else if(a.equals("dlchistblendhi")){AbstractCardStats.DLCSBS_BLEND_HI=Float.parseFloat(b);}
+		else if(a.equals("hybridblendlo") || a.equals("hblo")){AbstractCardStats.HYBRID_BLEND_LO=Float.parseFloat(b);}
+		else if(a.equals("hybridblendhi") || a.equals("hbhi")){AbstractCardStats.HYBRID_BLEND_HI=Float.parseFloat(b);}
+		else if(a.equals("hybridblendlog") || a.equals("hblog")){AbstractCardStats.HYBRID_BLEND_LOG=Parse.parseBoolean(b);}
 		else if(a.equals("ldlcblo")){AbstractCardStats.LDLC_B_LO=Float.parseFloat(b);}
 		else if(a.equals("ldlcbhi")){AbstractCardStats.LDLC_B_HI=Float.parseFloat(b);}
 		else if(a.equals("dlcinfomode") || a.equals("infomode")){AbstractCardStats.DLC_INFO_MODE=Integer.parseInt(b);}

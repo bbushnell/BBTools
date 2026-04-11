@@ -512,7 +512,9 @@ public abstract class AbstractCardStats {
 		final double hb0=HYBRID_BLEND_LO*B, hb1=HYBRID_BLEND_HI*B;
 		if(lcMin<=hb0){return lcForHybrid;}
 		if(lcMin<hb1){
-			final double t=Math.log(lcMin/hb0)/Math.log(hb1/hb0);
+			final double t=HYBRID_BLEND_LOG ?
+				Math.log(lcMin/hb0)/Math.log(hb1/hb0) :
+				(lcMin-hb0)/(hb1-hb0);
 			return (1-t)*lcForHybrid+t*meanCF;
 		}
 		return meanCF;
@@ -683,6 +685,8 @@ public abstract class AbstractCardStats {
 	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
 	public static float HYBRID_BLEND_LO=0.20f;
 	public static float HYBRID_BLEND_HI=7.5f;
+	/** When true, use log interpolation in hybridDLL; when false, use linear. */
+	public static boolean HYBRID_BLEND_LOG=true;
 
 	/** DlcSbs blend: below LO*B pure SBS, above HI*B pure DLCPure. Multipliers of B.
 	 *  Uses dlcRaw as zone detector (cardinality space, not V/B). */
