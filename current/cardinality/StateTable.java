@@ -31,6 +31,11 @@ public final class StateTable {
 	/** Steady-state per-state CFs for 3-bit history (8 states). */
 	static final double[] CF_HISTORY_3={-3.58851053, -2.29626211, -2.72632606, -1.11858788, -2.86374753, -1.57703255, -2.14003646, +0.21427608};
 
+	/** Per-tier CFs for 1-bit history (tiers 0-1; tier 2+ uses steady-state). */
+	static final double[][] CF_HISTORY_1_TIERS={
+		{+0.00000000, 0.00000000},
+		{-1.84719642, +0.20506580},
+	};
 	/** Per-tier CFs for 2-bit history (tiers 0-2; tier 3+ uses steady-state). */
 	static final double[][] CF_HISTORY_2_TIERS={
 		{+0.00000000,  0.00000000,  0.00000000,  0.00000000},
@@ -53,7 +58,7 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(hbits==1){steadyState=CF_HISTORY_1; tierTables=null;}
+		if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}
 		else{return 0;}
@@ -237,8 +242,11 @@ public final class StateTable {
 	 * CF_OFFSET is NOT included.
 	 */
 	static double terminalCF(int hbits, int mbits){
-		if(hbits==2 && mbits==0){return 0.929224472;}
-		// Other configurations: return 1.0 (no correction) until measured
+		if(mbits==0){
+			if(hbits==1){return 0.84237;}
+			if(hbits==2){return 0.929224472;}
+			if(hbits==3){return 0.97751;}
+		}
 		return 1.0;
 	}
 
