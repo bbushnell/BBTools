@@ -39,7 +39,6 @@ public class DDLCalibrationDriver2 {
 	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV",
 		"HLDLC"};
 	// Indices into rawEstimates() for the three primary estimators
-	static final int HYBRID_IDX=6, DLC_IDX=11;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -413,14 +412,6 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
 							}
-							// Pairwise and triple combinations
-							final double hyb=est[HYBRID_IDX], dlc=est[DLC_IDX];
-							final double[] combos={(hyb+dlc)*0.5, (7*hyb+wEst)*0.125, (dlc+wEst)*0.5, (hyb+dlc+wEst)/3.0};
-							for(int e=0; e<4; e++){
-								final double v=combos[e];
-								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][11+e]+=lerr; ldlcSumAbsErr[ti][11+e]+=Math.abs(lerr); ldlcSumSqErr[ti][11+e]+=lerr*lerr;
-							}
 						}
 						ti++;
 						if(ti>=thresholds.length){break;}
@@ -467,14 +458,6 @@ public class DDLCalibrationDriver2 {
 									final double v=wVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
-								}
-								// Pairwise and triple combinations
-								final double hyb=est[HYBRID_IDX], dlc=est[DLC_IDX];
-								final double[] combos={(hyb+dlc)*0.5, (7*hyb+wEst)*0.125, (dlc+wEst)*0.5, (hyb+dlc+wEst)/3.0};
-								for(int e=0; e<4; e++){
-									final double v=combos[e];
-									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
-									ldlcSumErr[ti][11+e]+=lerr; ldlcSumAbsErr[ti][11+e]+=Math.abs(lerr); ldlcSumSqErr[ti][11+e]+=lerr*lerr;
 								}
 							}
 							ti++;
