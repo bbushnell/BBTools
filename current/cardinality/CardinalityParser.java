@@ -114,7 +114,11 @@ public class CardinalityParser {
 
 		// BCLL flags
 		else if(a.equals("bcllmult")){BankedCeilingLogLog.TERMINAL_CORRECTION=Double.parseDouble(b);}
-		else if(a.equals("cvpow") || a.equals("cvpower")){BankedCeilingLogLog.CV_POWER=Double.parseDouble(b); DynamicLogLog4.CV_POWER=Double.parseDouble(b);}
+		else if(a.equals("cvpow") || a.equals("cvpower")){BankedCeilingLogLog.CV_POWER=Double.parseDouble(b); DynamicLogLog4.CV_POWER=Double.parseDouble(b); TwinTailLogLog.CV_POWER=Double.parseDouble(b);}
+
+		// TTLL flags
+		else if(a.equals("ttllmult")){TwinTailLogLog.TERMINAL_CORRECTION=Double.parseDouble(b);}
+		else if(a.equals("ttllcvpow")){TwinTailLogLog.CV_POWER=Double.parseDouble(b);}
 
 		// DLL4 word table flags
 		else if(a.equals("dll4wordmult")){DynamicLogLog4.WORD_TERMINAL_CORRECTION=Double.parseDouble(b);}
@@ -207,6 +211,7 @@ public class CardinalityParser {
 		CorrectionFactor.loadSbsMultTable();
 		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
 		if("bcll".equals(loglogtype)){BankedCeilingLogLog.loadCFTable(); BankedCeilingLogLog.loadCardCFTable();}
+		if("ttll".equals(loglogtype)){TwinTailLogLog.loadCFTable(); TwinTailLogLog.loadCardCFTable();}
 		if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.loadWordTable();}
 
 		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
@@ -249,6 +254,8 @@ public class CardinalityParser {
 			return DynamicDemiLog.CF_FILE;
 		}else if(loglogtype.equals("ddl8")){
 			return DynamicDemiLog8.CF_FILE;
+		}else if(loglogtype.equals("ttll")){
+			return "?"+TwinTailLogLog.CF_FILE;
 		}
 		return null;
 	}
