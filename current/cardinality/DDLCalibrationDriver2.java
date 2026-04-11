@@ -35,8 +35,11 @@ public class DDLCalibrationDriver2 {
 	static boolean CLAMP_TO_ADDED=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-	static final int NUM_LDLC=11;
-	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV"};
+	static final int NUM_LDLC=12;
+	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV",
+		"HLDLC"};
+	// Indices into rawEstimates() for the three primary estimators
+	static final int HYBRID_IDX=6, DLC_IDX=11;
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -375,6 +378,12 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
+							// HLDLC: 50/50 blend of Hybrid+2 and LDLC
+							{
+								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
 							final double[] ldlcR=p.ldlcEstimate();
@@ -394,14 +403,23 @@ public class DDLCalibrationDriver2 {
 							}
 						}
 						if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
-							final DynamicLogLog4 d4=(DynamicLogLog4)ddl;
-							final double wEst=d4.rawWordEstimate()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
-							final double wEstCV=d4.rawWordEstimateCV()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+							// Pull CF-corrected WordEst from rawEstimates() array
+							final int wIdx=DDLCalibrationDriver.WORDEST_RAW_IDX;
+							final double wEst=(wIdx<est.length ? est[wIdx] : 0);
+							final double wEstCV=(wIdx+1<est.length ? est[wIdx+1] : 0);
 							final double[] wVals={wEst, wEstCV};
 							for(int e=0; e<2; e++){
 								final double v=wVals[e];
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
+							}
+							// Pairwise and triple combinations
+							final double hyb=est[HYBRID_IDX], dlc=est[DLC_IDX];
+							final double[] combos={(hyb+dlc)*0.5, (7*hyb+wEst)*0.125, (dlc+wEst)*0.5, (hyb+dlc+wEst)/3.0};
+							for(int e=0; e<4; e++){
+								final double v=combos[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11+e]+=lerr; ldlcSumAbsErr[ti][11+e]+=Math.abs(lerr); ldlcSumSqErr[ti][11+e]+=lerr*lerr;
 							}
 						}
 						ti++;
@@ -440,14 +458,23 @@ public class DDLCalibrationDriver2 {
 								sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
 							}
 							if(ddl.getClass()==DynamicLogLog4.class && DynamicLogLog4.wordTable!=null){
-								final DynamicLogLog4 d4=(DynamicLogLog4)ddl;
-								final double wEst=d4.rawWordEstimate()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
-								final double wEstCV=d4.rawWordEstimateCV()*DynamicLogLog4.WORD_TERMINAL_CORRECTION;
+								// Pull CF-corrected WordEst from rawEstimates() array
+								final int wIdx=DDLCalibrationDriver.WORDEST_RAW_IDX;
+								final double wEst=(wIdx<est.length ? est[wIdx] : 0);
+								final double wEstCV=(wIdx+1<est.length ? est[wIdx+1] : 0);
 								final double[] wVals={wEst, wEstCV};
 								for(int e=0; e<2; e++){
 									final double v=wVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									ldlcSumErr[ti][9+e]+=lerr; ldlcSumAbsErr[ti][9+e]+=Math.abs(lerr); ldlcSumSqErr[ti][9+e]+=lerr*lerr;
+								}
+								// Pairwise and triple combinations
+								final double hyb=est[HYBRID_IDX], dlc=est[DLC_IDX];
+								final double[] combos={(hyb+dlc)*0.5, (7*hyb+wEst)*0.125, (dlc+wEst)*0.5, (hyb+dlc+wEst)/3.0};
+								for(int e=0; e<4; e++){
+									final double v=combos[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][11+e]+=lerr; ldlcSumAbsErr[ti][11+e]+=Math.abs(lerr); ldlcSumSqErr[ti][11+e]+=lerr*lerr;
 								}
 							}
 							ti++;

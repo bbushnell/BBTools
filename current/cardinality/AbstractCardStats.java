@@ -617,6 +617,7 @@ public abstract class AbstractCardStats {
 		r[MEANM_IDX]=s.meanMRawF;    // mantissa-corrected Mean raw (before CF)
 		r[LC_NOMICRO_IDX]=s.lcNoMicroF;  // pure LC without microIndex
 		r[SBS_NOMICRO_IDX]=s.sbsNoMicroF; // SBS without microIndex
+		r[HC_IDX]=s.hcF;                  // HC (formula-corrected, before table CF)
 		return r;
 	}
 
@@ -630,8 +631,8 @@ public abstract class AbstractCardStats {
 	/** Number of DLC tiers in output. */
 	public static final int NUM_DLC_TIERS=64;
 
-	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw, LC_noMicro, SBS_noMicro. */
-	public static final int NUM_EXTRA=4;
+	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw, LC_noMicro, SBS_noMicro, HC_raw. */
+	public static final int NUM_EXTRA=5;
 	/** rawEstimates() index for MeanH (history-corrected Mean, raw before CF). */
 	public static final int MEANH_IDX=17+NUM_DLC_TIERS;
 	/** rawEstimates() index for MeanM (mantissa-corrected Mean, raw before CF). */
@@ -640,6 +641,8 @@ public abstract class AbstractCardStats {
 	public static final int LC_NOMICRO_IDX=17+NUM_DLC_TIERS+2;
 	/** rawEstimates() index for SBS without microIndex. */
 	public static final int SBS_NOMICRO_IDX=17+NUM_DLC_TIERS+3;
+	/** rawEstimates() index for HC raw (before table CF, after formula CF). */
+	public static final int HC_IDX=17+NUM_DLC_TIERS+4;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / B. */
 	public static float DLC_ALPHA=9.0f;

@@ -331,16 +331,30 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		double[] legacy=AbstractCardStats.buildLegacyArray(s, hybridEst);
 		// Append word-based estimates if table is loaded
 		if(wordTable!=null && WORD_TABLE_TIERS>0){
-			double wordEst=rawWordEstimate();
-			double wordEstCV=rawWordEstimateCV();
+			double wordEst=rawWordEstimateShuffle()*WORD_TERMINAL_CORRECTION;
+			double wordEstCV=rawWordEstimateCV()*WORD_TERMINAL_CORRECTION;
+			// Apply CF correction to WordEst using DLC as seed estimate
+			wordEst*=wordEstCF(s.dlcRawF, wordEst);
 			// Extend array: add WordEst, WordEstCV at the end
 			double[] ext=new double[legacy.length+2];
 			System.arraycopy(legacy, 0, ext, 0, legacy.length);
-			ext[legacy.length]=wordEst*WORD_TERMINAL_CORRECTION;
-			ext[legacy.length+1]=wordEstCV*WORD_TERMINAL_CORRECTION;
+			ext[legacy.length]=wordEst;
+			ext[legacy.length+1]=wordEstCV;
 			return ext;
 		}
 		return legacy;
+	}
+
+	/** Returns the CF correction factor for WordEst.
+	 *  Uses the v1/v5 CF table with DLC as the seed estimate for key lookup.
+	 *  Returns 1.0 if CF is disabled or no table is loaded. */
+	private static double wordEstCF(double dlcSeed, double rawWordEst){
+		if(!CorrectionFactor.USE_CORRECTION){return 1;}
+		final float[][] mat=CorrectionFactor.v1Matrix;
+		final float[] keys=CorrectionFactor.v1Keys;
+		if(mat==null || CorrectionFactor.WORDEST>=mat.length){return 1;}
+		return CorrectionFactor.getCF(dlcSeed, rawWordEst, mat[CorrectionFactor.WORDEST], keys,
+			AbstractCardStats.DEFAULT_CF_ITERS, AbstractCardStats.DEFAULT_CF_DIF);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -397,6 +411,47 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		}
 		if(weightSum<=0){return 0;}
 		return (weightedSum/weightSum)*filledWords;
+	}
+
+	/**
+	 * Shuffled multi-context word estimate.  Each pass groups all buckets into
+	 * words of 4 and sums per-word stateAvg.  Pass 0 uses the natural order;
+	 * passes 1..SHUFFLE_PASSES-1 use a Fisher-Yates shuffle with a fixed seed
+	 * so every bucket appears in SHUFFLE_PASSES different word contexts.
+	 * Final result is the average across all passes.
+	 * Reduces variance by ~sqrt(SHUFFLE_PASSES) compared to rawWordEstimate().
+	 */
+	public double rawWordEstimateShuffle(){
+		if(wordTable==null || WORD_TABLE_TIERS<=0){return 0;}
+		final int numWords=buckets>>>2;
+		final int[] indices=new int[buckets];
+		for(int i=0; i<buckets; i++){indices[i]=i;}
+
+		double totalSum=0;
+		final java.util.Random shuffleRng=new java.util.Random(SHUFFLE_SEED);
+		for(int pass=0; pass<SHUFFLE_PASSES; pass++){
+			if(pass>0){
+				// Fisher-Yates shuffle
+				for(int i=buckets-1; i>0; i--){
+					final int j=shuffleRng.nextInt(i+1);
+					final int tmp=indices[i]; indices[i]=indices[j]; indices[j]=tmp;
+				}
+			}
+			double passSum=0;
+			for(int w=0; w<numWords; w++){
+				final int base=w<<2;
+				final int r0=readBucket(indices[base]), r1=readBucket(indices[base+1]);
+				final int r2=readBucket(indices[base+2]), r3=readBucket(indices[base+3]);
+				if(r0==0 && r1==0 && r2==0 && r3==0 && minZeros==0){continue;}
+				final int wMin=Math.min(Math.min(r0, r1), Math.min(r2, r3));
+				final int tier=Math.min(minZeros+wMin, WORD_TABLE_TIERS-1);
+				final int rawKey=r0|(r1<<4)|(r2<<8)|(r3<<12);
+				final int idx=WORD_REMAP[rawKey];
+				passSum+=wordTable[tier][idx];
+			}
+			totalSum+=passSum;
+		}
+		return totalSum/SHUFFLE_PASSES;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -495,6 +550,10 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public static double WORD_TERMINAL_CORRECTION=1.0;
 	/** CV weighting power: weight = (1/CV)^CV_POWER. */
 	public static double CV_POWER=2.0;
+	/** Number of shuffle passes for rawWordEstimateShuffle(). Pass 0=natural order. */
+	public static int SHUFFLE_PASSES=1;
+	/** Fixed RNG seed for deterministic shuffle order. */
+	public static final long SHUFFLE_SEED=48577L;
 
 	static final String WORD_TABLE_FILE="stateTableDLL4Word.tsv.gz";
 

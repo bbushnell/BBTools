@@ -51,7 +51,7 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	/** Number of estimators reported by rawEstimates(). Includes MeanH and MeanM at end. */
-	static final int NUM_EST=11+6+CardinalityStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
+	static final int NUM_EST=11+6+CardinalityStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA+2;// +2 for WordEst, WordEstCV
 	/** Estimator names in rawEstimates() index order. */
 	static final String[] ESTIMATOR_NAMES;
 	/** Which estimators get a CF column in File 2. LC and Micro excluded (no CF applied).
@@ -481,11 +481,16 @@ public class DDLCalibrationDriver {
 	/** Configures V3_COL_NAMES/V3_EST_INDICES based on the DDL class type.
 	 *  Classes with history get MeanH_cf; classes with mantissa get MeanM_cf.
 	 *  No wasted columns: only outputs columns the class actually uses. */
+	/** Index of WordEst in rawEstimates() when appended by DynamicLogLog4.
+	 *  = 17 + NUM_DLC_TIERS + NUM_EXTRA = 85. */
+	static final int WORDEST_RAW_IDX=17+AbstractCardStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
+
 	static void v3ColsForType(String type){
 		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c");
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
-		final int extra=(hasHistory ? 1 : 0)+(hasMantissa ? 1 : 0);
+		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");
+		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0);// 2 for history: MeanH + HC
 		if(extra==0){
 			V3_EST_INDICES=V3_BASE_INDICES;
 			V3_COL_NAMES=V3_BASE_NAMES;
@@ -497,8 +502,10 @@ public class DDLCalibrationDriver {
 		System.arraycopy(V3_BASE_INDICES, 0, V3_EST_INDICES, 0, base);
 		System.arraycopy(V3_BASE_NAMES, 0, V3_COL_NAMES, 0, base);
 		int idx=base;
-		if(hasHistory){V3_EST_INDICES[idx]=AbstractCardStats.MEANH_IDX; V3_COL_NAMES[idx]="MeanH_cf"; idx++;}
+		if(hasHistory){V3_EST_INDICES[idx]=AbstractCardStats.MEANH_IDX; V3_COL_NAMES[idx]="MeanH_cf"; idx++;
+			V3_EST_INDICES[idx]=AbstractCardStats.HC_IDX; V3_COL_NAMES[idx]="HC_cf"; idx++;}
 		if(hasMantissa){V3_EST_INDICES[idx]=AbstractCardStats.MEANM_IDX; V3_COL_NAMES[idx]="MeanM_cf"; idx++;}
+		if(hasWordEst){V3_EST_INDICES[idx]=WORDEST_RAW_IDX; V3_COL_NAMES[idx]="WordEst_cf"; idx++;}
 	}
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
