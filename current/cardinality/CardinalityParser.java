@@ -82,7 +82,6 @@ public class CardinalityParser {
 			DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 		}
-		else if(a.equals("clampoutliers") || a.equals("clamp4")){DynamicLogLog4.CLAMP_OUTLIERS=Parse.parseBoolean(b);}
 		else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);}
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
@@ -129,10 +128,8 @@ public class CardinalityParser {
 		}
 		else if(a.equals("ignoreoverflow") || a.equals("io")){
 			DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog4.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 			if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false;}
 		}
 		else{return false;}
@@ -183,9 +180,11 @@ public class CardinalityParser {
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
 		if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
-		else if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){
+		else if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3_IOF;}
 			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3_IOT;}
+		}else if(loglogtype.equals("dll3v2")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL3_IOT;
 		}else if(loglogtype.equals("dll2")){
 			if(DynamicLogLog2.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOF;}
 			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOT;}
@@ -229,7 +228,7 @@ public class CardinalityParser {
 	 * Returns null if no table exists for the type.
 	 */
 	private static String defaultCFFile(String loglogtype){
-		if(loglogtype.equals("dll3") || loglogtype.equals("dll3v2")){
+		if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
 			else if(!DynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3_iof.tsv.gz";}
 			else{return DynamicLogLog3.CF_FILE;}
