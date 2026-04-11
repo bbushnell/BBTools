@@ -407,6 +407,12 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
+						}else if(ddl.getClass()==ErtlULL.class){
+							final ErtlULL u=(ErtlULL)ddl;
+							// Only FGRA applies to ULL; other LDLC slots stay 0 → sentinel -1.0
+							final double fgra=u.fgraEstimatePublic();
+							final double lerr=(fgra>0 ? (fgra-trueCard)/(double)trueCard : -1.0);
+							ldlcSumErr[ti][3]+=lerr; ldlcSumAbsErr[ti][3]+=Math.abs(lerr); ldlcSumSqErr[ti][3]+=lerr*lerr;
 						}
 						{
 							final int[] extraIdx={AbstractCardStats.LC_NOMICRO_IDX, AbstractCardStats.SBS_NOMICRO_IDX};

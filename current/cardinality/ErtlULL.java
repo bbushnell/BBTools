@@ -366,20 +366,36 @@ public final class ErtlULL extends CardinalityTracker {
 
     @Override public final float[] compensationFactorLogBucketsArray(){return null;}
 
+    /**
+     * Build standard NLZ histogram from Ertl registers.
+     * Extracts the maximum NLZ per bucket from the hash-prefix bitset
+     * so CardStats can compute Mean, HLL, Hybrid, DLC, etc.
+     */
+    private CardStats summarize(){
+        final int[] nlzCounts=new int[66];
+        int filledCount=0;
+        final int nlzOffset=bucketBits-1; // bit position of nlz=0 in hash prefix
+        for(int i=0; i<buckets; i++){
+            if(registers[i]==0){continue;} // empty bucket
+            final long hp=unpack(registers[i]);
+            if(hp==0){continue;}
+            final int highBit=63-Long.numberOfLeadingZeros(hp);
+            final int absNlz=highBit-nlzOffset;
+            if(absNlz>=0 && absNlz<65){
+                nlzCounts[absNlz+1]++;
+                filledCount++;
+            }
+        }
+        nlzCounts[0]=buckets-filledCount;
+        return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+                buckets, microIndex, added, null, 0, 0);
+    }
+
     @Override
     public double[] rawEstimates(){
-        // ErtlULL uses FGRA estimator directly — CardinalityStats estimators don't apply
-        // because the register encoding is incompatible with standard NLZ conventions.
-        // Fill key slots with unclamped FGRA estimate for fair comparison.
-        final int total=11+6+CardinalityStats.NUM_DLC_TIERS;
-        final double[] r=new double[total];
-        final double fgra=fgraEstimate();
-        r[0]=fgra;  // Mean
-        r[1]=fgra;  // HMean
-        r[4]=fgra;  // HLL
-        r[6]=fgra;  // Hybrid
-        r[8]=fgra;  // DThHyb
-        return r;
+        final CardStats s=summarize();
+        final double hybridEst=s.hybridDLL();
+        return AbstractCardStats.buildLegacyArray(s, hybridEst);
     }
 
     // No static CF loading — ErtlULL uses its own FGRA estimator, not CF tables
