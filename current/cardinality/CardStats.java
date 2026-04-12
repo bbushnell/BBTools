@@ -216,8 +216,9 @@ public final class CardStats extends AbstractCardStats {
 				if(histPattern!=0) bucketsWithHistory++;
 				final int nlzBin=Math.min(absNlz, histBits_+1);
 
-				// Per-bucket dif: must match old UDLL6 formula exactly
-				final long dif=(absNlz==0 ? Long.MAX_VALUE : (absNlz<64 ? 1L<<(63-absNlz) : 1L));
+				// Per-bucket dif: scaled by TIER_SCALE for compressed-tier variants
+				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE
+					: Math.pow(2.0, 63-absNlz*AbstractCardStats.TIER_SCALE));
 
 				// Per-state correction for Mean/GMean only (precomputed table lookup)
 				final double tierMult=tierMultTable[nlzBin][histPattern];
@@ -256,7 +257,8 @@ public final class CardStats extends AbstractCardStats {
 					}
 				}
 				if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
-					final double est=(1L<<(t+1))*(double)numBuckets*Math.log((double)hcBeff/hcUnseen);
+					final double tierRatio=Math.pow(2.0, AbstractCardStats.TIER_SCALE);
+					final double est=Math.pow(2.0, (t+1)*AbstractCardStats.TIER_SCALE)/(tierRatio-1.0)*(double)numBuckets*Math.log((double)hcBeff/hcUnseen);
 					if(est>0 && !Double.isNaN(est)){
 						final int hcOcc=hcBeff-hcUnseen;
 						final double hcErr=SQRT_2_OVER_PI
@@ -403,7 +405,8 @@ public final class CardStats extends AbstractCardStats {
 		hybridDDLHistF=hybridDDL(lcForHybridF, lcMinF, meanForHybridH, hmeanMCF, numBuckets);
 
 		/*--- Hybrid+2: SBS → Mean+H blend, DLC as zone detector ---*/
-		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanForHybridH, numBuckets);
+		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanForHybridH, numBuckets,
+				HYBRID2_BLEND_LO, HYBRID2_BLEND_HI);
 
 		/*--- LDLC: DlcSbs blended with HC ---*/
 		{

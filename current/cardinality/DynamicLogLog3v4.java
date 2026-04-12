@@ -5,7 +5,7 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * DynamicLogLog3: 3-bit packed variant of DynamicLogLog using relative NLZ storage.
+ * DynamicLogLog3v4: 3-bit packed variant of DynamicLogLog using relative NLZ storage.
  * <p>
  * Packs 10 buckets into each int, 3 bits per bucket.
  * Encoding: 0 = empty; 1-7 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
@@ -25,30 +25,32 @@ import structures.LongList;
  * @author Brian Bushnell, Chloe
  * @date March 2026
  */
-public final class DynamicLogLog3 extends CardinalityTracker {
+public final class DynamicLogLog3v4 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	DynamicLogLog3(){
+	DynamicLogLog3v4(){
 		this(2048, 31, -1, 0);
 	}
 
-	DynamicLogLog3(Parser p){
+	DynamicLogLog3v4(Parser p){
 		super(p);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(buckets*PROMOTE_FRAC) : PROMOTE_THRESHOLD);
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
-	DynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
+	DynamicLogLog3v4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
+		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(buckets*PROMOTE_FRAC) : PROMOTE_THRESHOLD);
 		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
 		overflowExpFactor=Math.exp(-xOverflow/buckets);
 		storedOverflow=new int[64];
@@ -56,7 +58,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	}
 
 	@Override
-	public DynamicLogLog3 copy(){return new DynamicLogLog3(buckets, k, -1, minProb);}
+	public DynamicLogLog3v4 copy(){return new DynamicLogLog3v4(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
@@ -94,11 +96,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((DynamicLogLog3)log);
+		add((DynamicLogLog3v4)log);
 	}
 
 	/**
-	 * Merges another DynamicLogLog3 into this one.
+	 * Merges another DynamicLogLog3v4 into this one.
 	 * <p>
 	 * Correct merge sequence:
 	 * <ol>
@@ -122,7 +124,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * t=8 ~6.3M — roughly halving with each doubling of threads.
 	 * For parallel use on the same stream, prefer a single synchronized instance.
 	 */
-	public void add(DynamicLogLog3 log){
+	public void add(DynamicLogLog3v4 log){
 		added+=log.added;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
@@ -150,7 +152,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
@@ -207,8 +209,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		// EARLY_PROMOTE=true  (new):     tracks empty only;    advances when all buckets >= 1.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
-		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
+		if(shouldDecrement && --minZeroCount<=promoteThreshold){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				// Record overflow estimate before advancing: count buckets at stored=7
 				// (the max tier, absNlz=6+minZeros). Half of those are estimated overflow victims.
 				if(USE_STORED_OVERFLOW){
@@ -390,8 +392,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  Used instead of constant xOverflow when USE_STORED_OVERFLOW=true. */
 	private final int[] storedOverflow;
 	private int minZeros=0;
-	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
+	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when <=promoteThreshold. */
 	private int minZeroCount;
+	private final int promoteThreshold;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
@@ -415,7 +418,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
 	public static final boolean FAST_COUNT=false;
-	/** Social promotion threshold — see DynamicLogLog3v2 for implementation.
+	/** Social promotion threshold — see DynamicLogLog3v4v2 for implementation.
 	 * In DLL3, this field is parsed but has no effect (DLL3 uses classic promotion). */
 	public static int PROMOTE_THRESHOLD=0;
 	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.
@@ -423,6 +426,8 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * This is safe because lcMin (tier-compensated LC) handles post-advance zero buckets correctly.
 	 * Reduces tier-7+ overflow pollution in DLL3; requires new CF table generation when changed. */
 	public static boolean EARLY_PROMOTE=true;
+	/** Fraction of buckets for social promotion threshold. 0 = classic (promote when all full). */
+	public static float PROMOTE_FRAC=0;
 	/** When true, corrects the systematic underestimate caused by 3-bit relNlz overflow
 	 *  clamping at tier 7+. Uses cumulative-space Poisson correction with per-DDL stored
 	 *  overflow estimates. Each tier is corrected independently in reverse-cumulative space. */
@@ -497,7 +502,6 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	static double ioBiasMult(double raw, int buckets){
 		if(raw<=0){return 1;}
 		double ftier=Math.log(raw/buckets)/Math.log(2);
-		// Convert continuous tier to array index space
 		double fidx=(ftier-IO_TIER_MIN)/IO_TIER_STEP;
 		int lo=(int)Math.floor(fidx);
 		lo=Math.max(0, Math.min(IO_BIAS.length-1, lo));

@@ -24,23 +24,33 @@ public final class StateTable {
 	/*----------------    History Corrections       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Steady-state per-state CFs for 1-bit history (2 states). */
+	/** Steady-state per-state CFs for 1-bit history, standard 2x tiers (2 states). */
 	static final double[] CF_HISTORY_1={-1.37003787, +0.16864767};
-	/** Steady-state per-state CFs for 2-bit history (4 states). */
-	static final double[] CF_HISTORY_2={-2.50813368, -1.16962885, -1.64933633, +0.20806313};
+	/** Steady-state per-state CFs for 1-bit history, CTLL 2*sqrt(2) tiers (2 states). */
+	static final double[] CF_CTLL_1={-2.25812459, +0.06630797};
+	/** Steady-state per-state CFs for 2-bit history (4 states).
+	 *  Geometric mean averaging (all/geo model). See CardinalityGuide Section 14. */
+	static final double[] CF_HISTORY_2={-2.47695300, -1.04241499, -1.49783388, +0.33529584};
 	/** Steady-state per-state CFs for 3-bit history (8 states). */
 	static final double[] CF_HISTORY_3={-3.58851053, -2.29626211, -2.72632606, -1.11858788, -2.86374753, -1.57703255, -2.14003646, +0.21427608};
 
-	/** Per-tier CFs for 1-bit history (tiers 0-1; tier 2+ uses steady-state). */
+	/** Per-tier CFs for 1-bit history, standard 2x tiers (tiers 0-1; tier 2+ uses steady-state). */
 	static final double[][] CF_HISTORY_1_TIERS={
 		{+0.00000000, 0.00000000},
 		{-1.84719642, +0.20506580},
 	};
-	/** Per-tier CFs for 2-bit history (tiers 0-2; tier 3+ uses steady-state). */
+	/** Per-tier CFs for 1-bit history, CTLL 2*sqrt(2) tiers (tiers 0-2; tier 3+ uses steady-state). */
+	static final double[][] CF_CTLL_1_TIERS={
+		{+0.00000000, +0.00000000},
+		{-2.92376351, +0.07421738},
+		{-2.42655451, +0.07051413},
+	};
+	/** Per-tier CFs for 2-bit history (tiers 0-2; tier 3+ uses steady-state).
+	 *  Geometric mean averaging (all/geo model). */
 	static final double[][] CF_HISTORY_2_TIERS={
 		{+0.00000000,  0.00000000,  0.00000000,  0.00000000},
-		{-1.84448832,  0.00000000, +0.20510426,  0.00000000},
-		{-3.17437230, -1.29310079, -1.92165476, +0.22896780},
+		{-1.65696228,  0.00000000, +0.32837686,  0.00000000},
+		{-2.91244222, -1.12151874, -1.62633275, +0.37701175},
 	};
 	/** Per-tier CFs for 3-bit history (tiers 0-3; tier 4+ uses steady-state). */
 	static final double[][] CF_HISTORY_3_TIERS={
@@ -58,7 +68,14 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
+		// Check for HSB table override first
+		if(hbits>=1 && hbits<=3 && hsbOverrideSS[hbits-1]!=null){
+			steadyState=hsbOverrideSS[hbits-1];
+			tierTables=hsbOverrideTiers[hbits-1];
+		}else if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
+			// CTLL: compressed tiers (2*sqrt(2) per tier)
+			steadyState=CF_CTLL_1; tierTables=CF_CTLL_1_TIERS;
+		}else if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}
 		else{return 0;}
@@ -66,6 +83,56 @@ public final class StateTable {
 			return tierTables[nlzBin][histPattern];
 		}
 		return steadyState[histPattern];
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------   HSB Table Override         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Override arrays for history state bias tables (indexed by hbits-1). */
+	static final double[][] hsbOverrideSS=new double[3][];
+	static final double[][][] hsbOverrideTiers=new double[3][][];
+
+	/**
+	 * Load an HSB table from a TSV file. Format:
+	 * Lines starting with # are comments. Each data line:
+	 *   tier\tCF(0)\tCF(1)\t...\tCF(n-1)
+	 * where tier is an integer (per-tier entry) or "ss" (steady-state).
+	 */
+	static void loadHsbTable(int hbits, String filename){
+		try{
+			java.util.List<double[]> tierList=new java.util.ArrayList<>();
+			double[] ss=null;
+			java.io.BufferedReader br=new java.io.BufferedReader(new java.io.FileReader(filename));
+			String line;
+			while((line=br.readLine())!=null){
+				line=line.trim();
+				if(line.isEmpty() || line.startsWith("#")){continue;}
+				String[] parts=line.split("\t");
+				double[] cfs=new double[parts.length-1];
+				for(int i=1; i<parts.length; i++){
+					cfs[i-1]=Double.parseDouble(parts[i].trim());
+				}
+				if(parts[0].equals("ss")){
+					ss=cfs;
+				}else{
+					int tier=Integer.parseInt(parts[0].trim());
+					while(tierList.size()<=tier){tierList.add(null);}
+					tierList.set(tier, cfs);
+				}
+			}
+			br.close();
+			if(ss!=null){
+				hsbOverrideSS[hbits-1]=ss;
+				System.err.println("Loaded HSB table (hbits="+hbits+"): ss="+java.util.Arrays.toString(ss)+" from "+filename);
+			}
+			if(!tierList.isEmpty()){
+				hsbOverrideTiers[hbits-1]=tierList.toArray(new double[0][]);
+				System.err.println("Loaded HSB per-tier table (hbits="+hbits+"): "+tierList.size()+" tiers from "+filename);
+			}
+		}catch(Exception e){
+			System.err.println("WARNING: Failed to load HSB table from "+filename+": "+e.getMessage());
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -224,6 +291,78 @@ public final class StateTable {
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------    TwinTail Corrections       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Steady-state per-state CFs for TTLL symmetric encoding (mode 0).
+	 *  State = (h1<<2)|h0.  Both tails bit-filtered by histBit.
+	 *  States 0,1,4,5 are unreachable (CF=0).
+	 *  Generated by MantissaCompare2 mode=twintail, tier 8, 131072 trials. */
+	static final double[] CF_TWINTAIL_SYM={
+		 0.00000000,  0.00000000, -1.50066093, -0.64509667,
+		 0.00000000,  0.00000000, -0.63055179, +0.16309803,
+		-1.49236871, -0.62301546, -0.76239222, -0.05218195,
+		-0.62963563, +0.17596873, -0.04245230, +0.80403667,
+	};
+
+	/** Per-tier CFs for TTLL symmetric encoding (tiers 0-2).
+	 *  Generated by MantissaCompare2 mode=twintail, 131072 trials. */
+	static final double[][] CF_TWINTAIL_SYM_TIERS={
+		{ 0.00000000,  0.00000000, -0.52545084,  0.00000000,
+		  0.00000000,  0.00000000,  0.00000000,  0.00000000,
+		 -0.50927428,  0.00000000, +0.74434833,  0.00000000,
+		  0.00000000,  0.00000000,  0.00000000,  0.00000000},
+		{ 0.00000000,  0.00000000, -2.02033088, -0.70227862,
+		  0.00000000,  0.00000000, -0.69092819, +0.23481266,
+		 -1.72367497,  0.00000000, -0.74261459, -0.04461779,
+		 -0.38996089,  0.00000000, +0.05698137, +0.87483696},
+		{ 0.00000000,  0.00000000, -1.53791461, -0.66457773,
+		  0.00000000,  0.00000000, -0.65254439, +0.18413068,
+		 -1.50932050, -0.65413920, -0.79414050, -0.07167451,
+		 -0.67736916, +0.18888313, -0.00855258, +0.89720538},
+	};
+
+	/** Steady-state per-state CFs for TTLL master/slave encoding (mode 1).
+	 *  h0=master (pure NLZ history), h1=slave (bit-filtered).
+	 *  States 4,5,12,13 are unreachable (h1 LSB implies h0 MSB).
+	 *  Generated by MantissaCompare2 mode=masterslave, tier 8, 131072 trials. */
+	static final double[] CF_TWINTAIL_MS={
+		-2.56877716, -1.28498958, -1.86206858, -0.57087433,
+		 0.00000000,  0.00000000, -1.64348317, -0.00604344,
+		-2.47862996, -1.08536538, -1.76859553, -0.31189907,
+		 0.00000000,  0.00000000, -1.50950109, +0.44596520,
+	};
+
+	/** Per-tier CFs for TTLL master/slave encoding (tiers 0-2).
+	 *  Generated by MantissaCompare2 mode=masterslave, 131072 trials. */
+	static final double[][] CF_TWINTAIL_MS_TIERS={
+		{-0.52545084,  0.00000000,  0.00000000,  0.00000000,
+		  0.00000000,  0.00000000,  0.00000000,  0.00000000,
+		 +0.21621199,  0.00000000,  0.00000000,  0.00000000,
+		  0.00000000,  0.00000000,  0.00000000,  0.00000000},
+		{-2.02033088,  0.00000000, -0.70227862,  0.00000000,
+		  0.00000000,  0.00000000, -0.01233110,  0.00000000,
+		 -1.72367497,  0.00000000, -0.38996089,  0.00000000,
+		  0.00000000,  0.00000000, +0.49249908,  0.00000000},
+		{-3.25513125, -1.43401710, -2.15516393, -0.59667791,
+		  0.00000000,  0.00000000, -1.90153823, +0.00012165,
+		 -3.11571448, -1.21526443, -2.02921692, -0.32833169,
+		  0.00000000,  0.00000000, -1.76944138, +0.49343931},
+	};
+
+	/** Additive NLZ correction for a TTLL bucket with the given combined_h state.
+	 *  Selects symmetric or master/slave tables based on TwinTailLogLog.ENCODING_MODE.
+	 *  For absNlz < 3, returns per-tier correction.  For absNlz >= 3, returns steady-state. */
+	static double ttllOffset(int absNlz, int combinedH){
+		final double[] ss=(TwinTailLogLog.ENCODING_MODE==0) ? CF_TWINTAIL_SYM : CF_TWINTAIL_MS;
+		final double[][] tiers=(TwinTailLogLog.ENCODING_MODE==0) ? CF_TWINTAIL_SYM_TIERS : CF_TWINTAIL_MS_TIERS;
+		if(tiers!=null && absNlz<tiers.length){
+			return tiers[absNlz][combinedH];
+		}
+		return ss[combinedH];
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------    Global Tuning Parameters   ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -241,10 +380,18 @@ public final class StateTable {
 	 * This constant captures the convergent bias.
 	 * CF_OFFSET is NOT included.
 	 */
+	/** Override: set to non-zero to use this value instead of the default terminalCF. */
+	static double terminalCFOverride=0;
+
 	static double terminalCF(int hbits, int mbits){
+		if(terminalCFOverride!=0){return terminalCFOverride;}
 		if(mbits==0){
-			if(hbits==1){return 0.84237;}
-			if(hbits==2){return 0.929224472;}
+			if(hbits==1){
+				// CTLL compressed tiers: 2^(-CF_CTLL_1[1]) = 2^(-0.0663) ≈ 0.9551
+				if(AbstractCardStats.TIER_SCALE>1.0){return Math.pow(2.0, -CF_CTLL_1[1]);}
+				return 0.84237;
+			}
+			if(hbits==2){return 0.772605900;} // geo model terminal CF
 			if(hbits==3){return 0.97751;}
 		}
 		return 1.0;

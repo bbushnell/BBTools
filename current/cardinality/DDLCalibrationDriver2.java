@@ -35,9 +35,9 @@ public class DDLCalibrationDriver2 {
 	static boolean CLAMP_TO_ADDED=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-	static final int NUM_LDLC=12;
+	static final int NUM_LDLC=14;
 	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV",
-		"HLDLC"};
+		"HLDLC", "Mean16", "DualLC"};
 	// Indices into rawEstimates() for the three primary estimators
 
 	/*--------------------------------------------------------------*/
@@ -91,6 +91,10 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("out4")){out4=b;}
 			else if(a.equals("hcweight") || a.equals("ldlcweight")){hcWeightExplicit=true; CardinalityParser.parse(arg, a, b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
+			else if(a.equals("hsbtable1")){StateTable.loadHsbTable(1, b);}
+			else if(a.equals("hsbtable2")){StateTable.loadHsbTable(2, b);}
+			else if(a.equals("hsbtable3")){StateTable.loadHsbTable(3, b);}
+			else if(a.equals("termcf")){StateTable.terminalCFOverride=Double.parseDouble(b);}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("out2")){System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
@@ -242,22 +246,30 @@ public class DDLCalibrationDriver2 {
 		// LDLC summary
 		final double[] ldlcTotAbs=new double[NUM_LDLC], ldlcLinWt=new double[NUM_LDLC];
 		final double[] ldlcPeak=new double[NUM_LDLC], ldlcTotSign=new double[NUM_LDLC];
-		double ldlcLinSum=0;
+		final double[] ldlcTotCV=new double[NUM_LDLC];
+		double ldlcLinSum=0; int ldlcCvRows=0;
 		for(int ti=0; ti<numThresholds; ti++){
 			if(m.n[ti]<1){continue;}
 			final double card=thresholds[ti]; ldlcLinSum+=card;
 			for(int e=0; e<NUM_LDLC; e++){
+				final double meanErr=m.ldlcErr[ti][e]/m.n[ti];
 				final double absAtRow=m.ldlcAbsErr[ti][e]/m.n[ti];
 				ldlcTotAbs[e]+=absAtRow; ldlcLinWt[e]+=absAtRow*card;
-				ldlcTotSign[e]+=m.ldlcErr[ti][e]/m.n[ti];
+				ldlcTotSign[e]+=meanErr;
 				if(absAtRow>ldlcPeak[e]){ldlcPeak[e]=absAtRow;}
+				final double var=m.ldlcSqErr[ti][e]/m.n[ti]-meanErr*meanErr;
+				final double sd=Math.sqrt(Math.max(0, var));
+				final double denom=Math.abs(1.0+meanErr);
+				if(denom>0){ldlcTotCV[e]+=sd/denom;}
 			}
+			ldlcCvRows++;
 		}
 		for(int e=0; e<NUM_LDLC; e++){
 			System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
 				LDLC_NAMES[e], ldlcTotAbs[e]/rows,
 				ldlcLinSum>0 ? ldlcLinWt[e]/ldlcLinSum : 0, ldlcPeak[e],
-				rows>0 ? ldlcTotSign[e]/rows : 0, 0.0));
+				rows>0 ? ldlcTotSign[e]/rows : 0,
+				ldlcCvRows>0 ? ldlcTotCV[e]/ldlcCvRows : 0));
 		}
 		System.err.println();
 	}
@@ -383,6 +395,22 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
+						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
+							final CompressedDynamicLogLog4 c=(CompressedDynamicLogLog4)ddl;
+							final CardStats cs=c.consumeLastSummarized();
+							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+								0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+							for(int e=0; e<7; e++){
+								final double v=ldlcVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+							// HLDLC: 50/50 blend of Hybrid+2 and LDLC
+							{
+								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
 							final double[] ldlcR=p.ldlcEstimate();
@@ -406,6 +434,18 @@ public class DDLCalibrationDriver2 {
 								final double hldlc=(ldlcR[0]+ldlcR[7])*0.5;
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
+							// Mean16: 16-state TTLL-native Mean estimate
+							{
+								final double mean16=ldlcR[8];
+								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][12]+=lerr; ldlcSumAbsErr[ti][12]+=Math.abs(lerr); ldlcSumSqErr[ti][12]+=lerr*lerr;
+							}
+							// DualLC: dual-bucket LC from symmetric tails
+							if(ldlcR.length>9){
+								final double dualLC=ldlcR[9];
+								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][13]+=lerr; ldlcSumAbsErr[ti][13]+=Math.abs(lerr); ldlcSumSqErr[ti][13]+=lerr*lerr;
 							}
 						}else if(ddl.getClass()==ErtlULL.class){
 							final ErtlULL u=(ErtlULL)ddl;
