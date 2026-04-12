@@ -34,27 +34,30 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	BankedDynamicLogLog3(Parser p){
-		super(p);
-		maxArray=new int[(buckets+9)/10];
-		minZeroCount=buckets;
-		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
-		overflowExpFactor=Math.exp(-xOverflow/buckets);
-		storedOverflow=new int[64];
-		if(FAST_COUNT){nlzCounts=new int[66];}
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
 	BankedDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
-		super(buckets_, k_, seed, minProb_);
-		maxArray=new int[(buckets+9)/10];
-		minZeroCount=buckets;
-		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
-		overflowExpFactor=Math.exp(-xOverflow/buckets);
+		super(roundToWords(buckets_)*10 <= 0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*10-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*10;
+		modBuckets=rounded>0 ? rounded : buckets;
+		words=modBuckets/10;
+		maxArray=new int[words];
+		minZeroCount=modBuckets;
+		xOverflow=modBuckets*Math.log(2.0*modBuckets)/256.0;
+		overflowExpFactor=Math.exp(-xOverflow/modBuckets);
 		storedOverflow=new int[64];
+		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(modBuckets*PROMOTE_FRAC) : 0);
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/** Rounds bucket count to the nearest multiple of 10 (minimum 10). */
+	private static int roundToWords(int b){return Math.max(1, (b+5)/10);}
+
 	@Override
-	public BankedDynamicLogLog3 copy(){return new BankedDynamicLogLog3(buckets, k, -1, minProb);}
+	public BankedDynamicLogLog3 copy(){return new BankedDynamicLogLog3(modBuckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
@@ -90,7 +93,8 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardStats s=summarize();
-		final double rawHyb=s.hybridDLL();
+		double rawHyb=s.hybridDLL();
+		if(IGNORE_OVERFLOW && USE_IO_BIAS){rawHyb=ioBiasCorrect(rawHyb, modBuckets);}
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
@@ -118,7 +122,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			for(int w=0; w<maxArray.length; w++){
 				writeBank(w, 0);
 			}
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int wordA=i/10, wordB=i/10;
 				final int bankA=readBank(wordA);
 				final int bankB=log.readBank(wordB);
@@ -136,7 +140,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			minZeroCount=0;
 			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
 			final int phantomNlz=minZeros-1;
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
@@ -146,7 +150,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				minZeros++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
@@ -162,12 +166,12 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
 		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
-		final int bucket=(int)(key&bucketMask);
+		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
 		final int wordIdx=bucket/10;
 		final int bank=readBank(wordIdx);
 		int localRelNlz=nlz-minZeros-bank;
 
-		final long micro=(key>>bucketBits)&0x3FL;
+		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro);
 		if(LAZY_ALLOCATE){
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
@@ -184,6 +188,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			}
 		}
 
+		if(localRelNlz+1>7){totalOverflows++;}
 		if(IGNORE_OVERFLOW && localRelNlz+1>7){return;} // silently ignore overflow
 		final int newStored=Math.min(localRelNlz+1, 7);
 		if(newStored<1){return;} // below current floor
@@ -193,6 +198,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
+		branch2++;
 		lastCardinality=-1;
 
 		writeBucket(bucket, newStored);
@@ -224,16 +230,18 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		// consistent — if bank promotion just fired, curBank reflects the new bank.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0 && curBank==0) : (localRelNlz>oldRelNlz && oldRelNlz==0 && curBank==0);
-		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
+		if(shouldDecrement && --minZeroCount<=promoteThreshold){
+			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
 				if(USE_STORED_OVERFLOW){
-					final int nextCorrTier=7+minZeros;
-					if(nextCorrTier<64){
-						int topCount=0;
-						for(int i=0; i<buckets; i++){
-							if(readBucket(i)==7){topCount++;}
-						}
-						storedOverflow[nextCorrTier]=topCount/2;
+					// Group stored=7 counts by bank: a stored=7 bucket in bank=b
+					// overflows at tier 7+minZeros+b, not 7+minZeros.
+					int[] topByBank=new int[4];
+					for(int i=0; i<modBuckets; i++){
+						if(readBucket(i)==7){topByBank[readBank(i/10)]++;}
+					}
+					for(int b=0; b<4; b++){
+						int tier=7+minZeros+b;
+						if(tier<64){storedOverflow[tier]+=topByBank[b]/2;}
 					}
 				}
 				minZeros++;
@@ -299,7 +307,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				int word=maxArray[w];
 				if((word&0x3FFFFFFF)==0){
 					// All registers empty — count them toward minZeroCount
-					final int regsInWord=Math.min(10, buckets-w*10);
+					final int regsInWord=Math.min(10, modBuckets-w*10);
 					newMinZeroCount+=regsInWord;
 					continue;
 				}
@@ -324,7 +332,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	public double occupancy(){return (double)filledBuckets/buckets;}
+	public double occupancy(){return (double)filledBuckets/modBuckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -336,7 +344,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 		int filledCount=0;
-		for(int i=0; i<buckets; i++){
+		for(int i=0; i<modBuckets; i++){
 			final int wordIdx=i/10;
 			final int bank=readBank(wordIdx);
 			final int stored=readBucket(i);
@@ -352,19 +360,19 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			}
 			// else: stored=0, bank=0, minZeros=0 → truly empty
 		}
-		nlzCounts[0]=buckets-filledCount;
-		assert nlzCounts[0]>=0 : "Negative empties: "+nlzCounts[0]+" filledCount="+filledCount+" buckets="+buckets;
+		nlzCounts[0]=modBuckets-filledCount;
+		assert nlzCounts[0]>=0 : "Negative empties: "+nlzCounts[0]+" filledCount="+filledCount+" modBuckets="+modBuckets;
 		final boolean doDebug=DEBUG_ONCE;
 		if(doDebug){
 			DEBUG_ONCE=false;
-			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" buckets="+buckets);
+			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" modBuckets="+modBuckets);
 			System.err.println("  nlzCounts (nonzero):");
 			for(int t=0; t<66; t++){if(nlzCounts[t]>0){System.err.println("    tier "+(t-1)+": "+nlzCounts[t]);}}
 		}
 		final int[] counts;
 		if(CORRECT_OVERFLOW && minZeros>=1){
 			final int lo=Math.max(7, minZeros);
-			final int hi=Math.min(6+minZeros, 63);
+			final int hi=Math.min(9+minZeros, 63); // 6+maxBank(3): bank=b overflows at 6+minZeros+b
 			final int[] cumRaw=new int[64];
 			cumRaw[63]=nlzCounts[64]; // absNlz=63 at index 64
 			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
@@ -373,7 +381,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				final double x=(USE_STORED_OVERFLOW && storedOverflow[t]>0)
 					? storedOverflow[t]*OVERFLOW_SCALE : xOverflow*OVERFLOW_SCALE;
 				final int addToCum=(int)Math.round(
-					(buckets-cumRaw[t])*(1.0-Math.exp(-x/buckets)));
+					(modBuckets-cumRaw[t])*(1.0-Math.exp(-x/modBuckets)));
 				corrCum[t]+=addToCum;
 			}
 			final int maxHi=Math.min(hi+1, 63);
@@ -385,20 +393,25 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			for(int t=lo; t<maxHi; t++){counts[t+1]=corrCum[t]-corrCum[t+1];}
 			counts[maxHi+1]=corrCum[maxHi];
 			int corrSum=0; for(int t=1; t<66; t++){corrSum+=counts[t];}
-			counts[0]=buckets-corrSum;
+			counts[0]=modBuckets-corrSum;
 		}else{
 			counts=nlzCounts;
 		}
 		lastRawNlz=nlzCounts.clone();
 		lastCorrNlz=(counts==nlzCounts) ? lastRawNlz : counts;
-		return new CardStats(null, counts, 0, 0, 0, 0, buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+		return new CardStats(null, counts, 0, 0, 0, 0, modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
 		final double hybridEst=s.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(s, hybridEst);
+		double[] r=AbstractCardStats.buildLegacyArray(s, hybridEst);
+		if(IGNORE_OVERFLOW && USE_IO_BIAS){
+			final double mult=ioBiasMult(hybridEst, modBuckets);
+			for(int i=0; i<r.length; i++){r[i]*=mult;}
+		}
+		return r;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -408,8 +421,13 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	/** Packed 3-bit bucket array with 2-bit bank exponent in bits 30-31. */
 	private final int[] maxArray;
 	private final double xOverflow;
+	/** Actual bucket count (multiple of 10, may be non-power-of-2). */
+	private final int modBuckets;
+	/** Number of 32-bit words (modBuckets / 10). */
+	private final int words;
 	private final double overflowExpFactor;
 	private final int[] storedOverflow;
+	private final int promoteThreshold;
 	private int minZeros=0;
 	private int minZeroCount;
 	private int filledBuckets=0;
@@ -420,8 +438,28 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	int[] lastRawNlz, lastCorrNlz;
 
 	public long branch1=0, branch2=0;
+	public long totalOverflows=0;
+	private int peakOverflows=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/** Counts buckets currently at stored=7, updates peakOverflows. */
+	public int countCurrentOverflows(){
+		int count=0;
+		for(int i=0; i<modBuckets; i++){if(readBucket(i)==7){count++;}}
+		peakOverflows=Math.max(peakOverflows, count);
+		return count;
+	}
+
+	public void printOverflowStats(){
+		final int current=countCurrentOverflows();
+		System.err.println("BDLL3 overflow: total="+totalOverflows
+			+" updates="+branch2
+			+" overflowRate="+(branch2>0 ? String.format("%.4f", (double)totalOverflows/branch2) : "N/A")
+			+" current="+current
+			+" peak="+peakOverflows
+			+" peakFrac="+String.format("%.4f", (double)peakOverflows/modBuckets));
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
@@ -430,6 +468,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	private static final int wordlen=64;
 	public static final boolean FAST_COUNT=false;
 	public static boolean EARLY_PROMOTE=true;
+	public static float PROMOTE_FRAC=0;
 	public static boolean CORRECT_OVERFLOW=true;
 	public static double OVERFLOW_SCALE=1.0;
 	public static boolean USE_STORED_OVERFLOW=true;
@@ -437,7 +476,66 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	 *  Eliminates overflow corruption at the cost of delayed information.
 	 *  The CF table absorbs the resulting systematic bias. */
 	public static boolean IGNORE_OVERFLOW=false;
+	/** When true, apply per-tier IO_BIAS correction in IO mode. */
+	public static boolean USE_IO_BIAS=true;
 	public static boolean DEBUG_ONCE=false;
+
+	/** Per-tier bias constants for IO mode. Indexed by (tier-IO_TIER_MIN)/IO_TIER_STEP.
+	 *  Can be overridden at runtime via iobfile= flag. */
+	private static double[] IO_BIAS={
+		-0.003811, -0.006690, -0.007194, -0.007460, -0.007832, // tiers -8..-4
+		-0.008336, -0.009006, -0.010032, -0.013225, -0.021499, // tiers -3..1
+		-0.034044, -0.048617, -0.061926, -0.074824, -0.086059, // tiers 2..6
+		-0.093379, -0.095804, -0.096391, -0.096950, -0.097141, // tiers 7..11
+		-0.097141                                                // tier 12
+	};
+	static double IO_TIER_STEP=1.0;
+	static final int IO_TIER_MIN=-8, IO_TIER_MAX=12;
+
+	public static void loadIOBias(String path){
+		try{
+			java.util.ArrayList<Double> vals=new java.util.ArrayList<>();
+			java.io.BufferedReader br=new java.io.BufferedReader(new java.io.FileReader(path));
+			for(String line=br.readLine(); line!=null; line=br.readLine()){
+				line=line.trim();
+				if(line.isEmpty() || line.startsWith("#")){continue;}
+				String[] parts=line.split("\\s+");
+				vals.add(Double.parseDouble(parts[0]));
+			}
+			br.close();
+			final int fullCount=IO_TIER_MAX-IO_TIER_MIN+1; // 21
+			final int halfCount=(IO_TIER_MAX-IO_TIER_MIN)*2+1; // 41
+			if(vals.size()==fullCount){
+				IO_TIER_STEP=1.0;
+			}else if(vals.size()==halfCount){
+				IO_TIER_STEP=0.5;
+			}else{
+				throw new RuntimeException("IO_BIAS file "+path+" has "+vals.size()+" values, expected "+fullCount+" or "+halfCount);
+			}
+			IO_BIAS=new double[vals.size()];
+			for(int i=0; i<vals.size(); i++){IO_BIAS[i]=vals.get(i);}
+		}catch(java.io.IOException e){throw new RuntimeException("Failed to load IO_BIAS from "+path, e);}
+	}
+
+	public static void setIOBias(double[] bias){IO_BIAS=bias;}
+
+	/** Returns IO-bias-corrected estimate: raw / (1 + bias[tier]). */
+	static double ioBiasCorrect(double raw, int buckets){
+		return raw*ioBiasMult(raw, buckets);
+	}
+
+	/** Returns the multiplicative correction factor for IO mode. */
+	static double ioBiasMult(double raw, int buckets){
+		if(raw<=0){return 1;}
+		double ftier=Math.log(raw/buckets)/Math.log(2);
+		double fidx=(ftier-IO_TIER_MIN)/IO_TIER_STEP;
+		int lo=(int)Math.floor(fidx);
+		lo=Math.max(0, Math.min(IO_BIAS.length-1, lo));
+		int hi=Math.min(lo+1, IO_BIAS.length-1);
+		double frac=fidx-Math.floor(fidx);
+		double bias=IO_BIAS[lo]+(IO_BIAS[hi]-IO_BIAS[lo])*frac;
+		return 1.0/(1.0+bias);
+	}
 
 	/** Use DLL3's CF table initially — will need its own table eventually. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL3.tsv.gz";

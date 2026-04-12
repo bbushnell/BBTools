@@ -50,9 +50,10 @@ public abstract class AbstractCardStats {
 			if(n==0){continue;}
 			filled+=n;
 			final int absNlz=i-1;
-			final long dif=(absNlz==0 ? Long.MAX_VALUE : (absNlz<WORDLEN ? 1L<<(WORDLEN-absNlz-1) : 1L));
-			difSum+=n*(double)dif;
-			hllSumFilled+=n*Math.pow(2.0, -absNlz);
+			final double scaledNlz=absNlz*TIER_SCALE;
+			final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : Math.pow(2.0, WORDLEN-scaledNlz-1));
+			difSum+=n*dif;
+			hllSumFilled+=n*Math.pow(2.0, -scaledNlz);
 			gSum+=n*Math.log(Math.max(1, dif));
 		}
 		return new double[]{difSum, hllSumFilled, gSum, filled};
@@ -90,7 +91,7 @@ public abstract class AbstractCardStats {
 		for(int k=0; k<counts.length-1; k++){
 			vk+=counts[k+1]; // counts[k+1] = buckets at tier k
 			if(vk>0){
-				return Math.max((1L<<(k+1))*(double)B*Math.log((double)B/Math.max(vk, 0.5)), lcFloor);
+				return Math.max(Math.pow(2.0, (k+1)*TIER_SCALE)*(double)B*Math.log((double)B/Math.max(vk, 0.5)), lcFloor);
 			}
 		}
 		return lcFloor;
@@ -100,9 +101,9 @@ public abstract class AbstractCardStats {
 	/*----------------       DLC Estimators         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** DLC estimate at a single tier: 2^tier * B * ln(B / max(V_k, 0.5)). */
+	/** DLC estimate at a single tier: 2^(tier*TIER_SCALE) * B * ln(B / max(V_k, 0.5)). */
 	static double dlcFromVk(final int tier, final int vk, final int B){
-		return (1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+		return Math.pow(2.0, tier*TIER_SCALE)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
 	}
 
 	/**
@@ -119,7 +120,7 @@ public abstract class AbstractCardStats {
 	 */
 	static double dlcFromVk(final int tier, final int vk, final int B,
 			final int overflowTier, final double[] tierErrCoeffs){
-		final double raw=(1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+		final double raw=Math.pow(2.0, tier*TIER_SCALE)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
 		if(tier<overflowTier || tierErrCoeffs==null || vk<1 || vk>=B){return raw;}
 		// Guard: don't correct at very low V_k (near-full tiers where x is huge)
 		// or very high V_k (near-empty tiers where the tier just appeared).
@@ -402,7 +403,7 @@ public abstract class AbstractCardStats {
 		for(int i=0; i<tier && i+1<counts.length; i++){
 			vk+=counts[i+1]; // counts[i+1] = buckets at absNlz=i
 		}
-		return (1L<<tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+		return Math.pow(2.0, tier*TIER_SCALE)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -509,7 +510,12 @@ public abstract class AbstractCardStats {
 	 */
 	static double hybridDLL(final double lcForHybrid, final double lcMin,
 			final double meanCF, final int B){
-		final double hb0=HYBRID_BLEND_LO*B, hb1=HYBRID_BLEND_HI*B;
+		return hybridDLL(lcForHybrid, lcMin, meanCF, B, HYBRID_BLEND_LO, HYBRID_BLEND_HI);
+	}
+
+	static double hybridDLL(final double lcForHybrid, final double lcMin,
+			final double meanCF, final int B, final float blendLo, final float blendHi){
+		final double hb0=blendLo*B, hb1=blendHi*B;
 		if(lcMin<=hb0){return lcForHybrid;}
 		if(lcMin<hb1){
 			final double t=HYBRID_BLEND_LOG ?
@@ -682,9 +688,16 @@ public abstract class AbstractCardStats {
 	 *  Below this, the correction factor is too large and noisy. */
 	public static double DLC_TIER_CF_MIN_OCC_FRAC=0.70;
 
+	/** Tier scale factor for dual-hash variants.  Standard = 1 (2^tier per DLC tier).
+	 *  Dual-hash max = 2 (4^tier per DLC tier, because P(minNLZ >= k) = 4^{-k}). */
+	public static double TIER_SCALE=1;
+
 	/** HybridDLL blend: below hb0, pure LC; above hb1, pure Mean. Multipliers of B. */
-	public static float HYBRID_BLEND_LO=1.0f;
-	public static float HYBRID_BLEND_HI=6.0f;
+	public static float HYBRID_BLEND_LO=0.20f;
+	public static float HYBRID_BLEND_HI=7.5f;
+	/** Hybrid+2 blend endpoints (separate from plain Hybrid). */
+	public static float HYBRID2_BLEND_LO=1.0f;
+	public static float HYBRID2_BLEND_HI=6.0f;
 	/** When true, use log interpolation in hybridDLL; when false, use linear. */
 	public static boolean HYBRID_BLEND_LOG=true;
 

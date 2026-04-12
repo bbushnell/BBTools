@@ -45,6 +45,15 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	/** MSB mask for combined_h: bits 1 and 3. */
 	static final int CH_MSB_MASK =0xA;// 0b1010
 
+	/** Encoding mode.
+	 *  0 = symmetric: both tails use histBit to select which tail updates.
+	 *      h0 responds to histBit==0, h1 responds to histBit==1.
+	 *      MSB = "saw current NLZ with my histBit", LSB = "saw NLZ-1 with my histBit".
+	 *  1 = master/slave: h0 is pure NLZ history (unconditional, UDLL6-style).
+	 *      h0 MSB = "saw NLZ-1", h0 LSB = "saw NLZ-2".
+	 *      h1 MSB = "saw current NLZ with histBit=1", h1 LSB = "saw NLZ-1 with histBit=1". */
+	public static int ENCODING_MODE=0;
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -74,7 +83,7 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	public final void hashAndStore(final long number){
 		final long key=Tools.hash64shift(number^hashXor);
 
-		// Early exit: reject hashes below globalExp - 1
+		// Early exit
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
 
 		final int hashNLZ=Long.numberOfLeadingZeros(key);
@@ -90,43 +99,81 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		final int absNLZ=globalExp+localExp;
 		final int delta=hashNLZ-absNLZ;
 
-		if(delta<-1){return;}// too far below ceiling
-
-		if(delta>0){
-			// Hash exceeds ceiling — must raise it
-			final int newLocalExp=localExp+delta;
-			if(newLocalExp>15){return;}// overflow: ignore
-			final boolean wasZeroExp=(localExp==0);
-			// Shift both histories independently
-			final int shiftAmt=Math.min(delta, 2);
-			final int oldH=b&0xF;
-			final int h0=(oldH&0x3)>>>shiftAmt;
-			final int h1=((oldH>>>2)&0x3)>>>shiftAmt;
-			int newByte=(newLocalExp<<4)|(h1<<2)|h0;
-			// Set MSB of triggering history
-			final int bitPos=(histBit==0) ? 1 : 3;
-			newByte|=(1<<bitPos);
-			lastCardinality=-1;
-			lastSummarized=null;
-			regs[bucket]=(byte)newByte;
-			// Track floor-bucket count for advanceGlobal
-			if(wasZeroExp){
-				numFloorBuckets--;
-				if(numFloorBuckets==0){advanceGlobal();}
+		if(ENCODING_MODE==0){
+			// Symmetric: both tails selected by histBit
+			if(delta<-1){return;}
+			if(delta>0){
+				final int newLocalExp=localExp+delta;
+				if(newLocalExp>15){return;}
+				final boolean wasZeroExp=(localExp==0);
+				final int shiftAmt=Math.min(delta, 2);
+				final int oldH=b&0xF;
+				final int h0=(oldH&0x3)>>>shiftAmt;
+				final int h1=((oldH>>>2)&0x3)>>>shiftAmt;
+				int newByte=(newLocalExp<<4)|(h1<<2)|h0;
+				final int bitPos=(histBit==0) ? 1 : 3;
+				newByte|=(1<<bitPos);
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)newByte;
+				if(wasZeroExp){
+					numFloorBuckets--;
+					if(numFloorBuckets==0){advanceGlobal();}
+				}
+			}else{
+				final int bitPos;
+				if(delta==0){
+					bitPos=(histBit==0) ? 1 : 3;
+				}else{
+					bitPos=(histBit==0) ? 0 : 2;
+				}
+				final int bitToSet=1<<bitPos;
+				if((b&bitToSet)!=0){return;}
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)(b|bitToSet);
 			}
 		}else{
-			// delta == 0: set MSB; delta == -1: set LSB
-			final int bitPos;
-			if(delta==0){
-				bitPos=(histBit==0) ? 1 : 3;// MSB of h0 or h1
-			}else{
-				bitPos=(histBit==0) ? 0 : 2;// LSB of h0 or h1
+			// Master/slave: h0=unconditional NLZ history, h1=bit-filtered
+			if(delta<-2){return;}
+			if(delta>0){
+				final int newLocalExp=localExp+delta;
+				if(newLocalExp>15){return;}
+				final boolean wasZeroExp=(localExp==0);
+				final int oldH0=b&0x3;
+				final int oldH1=(b>>>2)&0x3;
+				final int carry=(b!=0) ? (1<<2) : 0;
+				final int h0=((oldH0|carry)>>>delta)&0x3;
+				int h1=(oldH1>>>Math.min(delta, 2))&0x3;
+				if(histBit==1){ h1|=0x2; }
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)((newLocalExp<<4)|(h1<<2)|h0);
+				if(wasZeroExp){
+					numFloorBuckets--;
+					if(numFloorBuckets==0){advanceGlobal();}
+				}
+			}else if(delta==0){
+				if(histBit==0){return;}
+				final int bitToSet=1<<3;
+				if((b&bitToSet)!=0){return;}
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)(b|bitToSet);
+			}else if(delta==-1){
+				int newBits=(1<<1);
+				if(histBit==1){ newBits|=(1<<2); }
+				if((b&newBits)==newBits){return;}
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)(b|newBits);
+			}else if(delta==-2){
+				final int bitToSet=1<<0;
+				if((b&bitToSet)!=0){return;}
+				lastCardinality=-1;
+				lastSummarized=null;
+				regs[bucket]=(byte)(b|bitToSet);
 			}
-			final int bitToSet=1<<bitPos;
-			if((b&bitToSet)!=0){return;}// idempotent: already set
-			lastCardinality=-1;
-			lastSummarized=null;
-			regs[bucket]=(byte)(b|bitToSet);
 		}
 	}
 
@@ -150,7 +197,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 				regs[i]=(byte)((le<<4)|(b&0xF));
 				if(le==0){numFloorBuckets++;}
 			}
-			eeMask=(globalExp<=1) ? -1L : (-1L)>>>(globalExp-1);
+			final int margin=(ENCODING_MODE==0) ? 1 : 2;
+			eeMask=(globalExp<=margin) ? -1L : (-1L)>>>(globalExp-margin);
 		}
 	}
 
@@ -174,19 +222,28 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	public double[] rawEstimates(){
 		lastSummarized=summarize();
 		final double hybridEst=lastSummarized.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		double[] r=AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		if(r.length<=MEAN16_RAW_IDX){
+			r=java.util.Arrays.copyOf(r, MEAN16_RAW_IDX+1);
+		}
+		r[MEAN16_RAW_IDX]=ttllMeanEstimate();
+		return r;
 	}
+
+	/** Index of Mean16 in rawEstimates() output. */
+	public static final int MEAN16_RAW_IDX=AbstractCardStats.HC_IDX+1;
 
 	/**
 	 * LDLC estimate with 1-bit history support.
 	 * Reuses cached CardStats from rawEstimates() to avoid double-summarize.
-	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2}.
+	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2, mean16, dualLC}.
 	 */
 	public double[] ldlcEstimate(){
 		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
 		lastSummarized=null;
 		return new double[]{s.ldlc(), s.dlcRaw(), s.hc(), s.lcMin(),
-				0, s.hllRaw(), s.meanHistCF(), s.hybridPlus2()};
+				0, s.hllRaw(), s.meanHistCF(), s.hybridPlus2(),
+				ttllMeanEstimate(), dualBucketLC()};
 	}
 
 	/*--------------------------------------------------------------*/
@@ -195,8 +252,9 @@ public final class TwinTailLogLog extends CardinalityTracker {
 
 	/**
 	 * Builds a CardStats from the current register state.
-	 * Extracts 1-bit effective history per bucket: OR of both LSBs
-	 * (h0_lsb | h1_lsb), equivalent to HISTORY_BITS=1 in PLL16c.
+	 * Extracts 1-bit effective history per bucket.
+	 * Mode 0 (symmetric): OR of both tails' LSBs — "saw NLZ-1 with either histBit".
+	 * Mode 1 (master/slave): h0 MSB — "saw NLZ-1" (unconditional, UDLL6-style).
 	 *
 	 * Packed bucket format: ((absNlz+1) &lt;&lt; 1) | histBit
 	 */
@@ -212,13 +270,19 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			}
 			final int localExp=(b>>>4)&0xF;
 			final int absNlz=globalExp+localExp;
-			final int ch=b&0xF;
 
 			if(absNlz>=0 && absNlz<64){
 				nlzCounts[absNlz+1]++;
 				filledCount++;
-				// 1-bit effective history: OR of both LSBs
-				final int histBit=((ch&1)|((ch>>>2)&1));
+				final int histBit;
+				if(ENCODING_MODE==0){
+					// Symmetric: OR of both LSBs
+					final int ch=b&0xF;
+					histBit=((ch&1)|((ch>>>2)&1));
+				}else{
+					// Master/slave: h0 MSB (bit 1)
+					histBit=(b>>>1)&1;
+				}
 				packedBuckets[i]=(char)(((absNlz+1)<<1)|histBit);
 			}
 		}
@@ -227,6 +291,130 @@ public final class TwinTailLogLog extends CardinalityTracker {
 
 		return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
 				buckets, microIndex, added, null, 0, 0.0);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Dual-Bucket LC/DLC       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * LC estimate treating each tail as an independent virtual bucket.
+	 * Symmetric encoding (mode 0) only.
+	 *
+	 * Each physical bucket contributes 0, 1, or 2 virtual buckets:
+	 *   For each tail (h0, h1):
+	 *     tail == 10 or 11: filled virtual bucket at tier absNlz
+	 *     tail == 01:       filled virtual bucket at tier absNlz-1
+	 *     tail == 00:
+	 *       absNlz < 2: empty virtual bucket (all possible sub-tiers are visible)
+	 *       absNlz >= 2: unknown (observation may have shifted out), exclude
+	 *
+	 * Total virtual buckets varies per register but is up to 2*physical.
+	 * LC = virtualBuckets * ln(virtualBuckets / emptyVirtual)
+	 *
+	 * @return dual-bucket LC estimate, or 0 if not applicable
+	 */
+	public double dualBucketLC(){
+		if(ENCODING_MODE!=0){return 0;}
+		int virtualTotal=0;
+		int virtualEmpty=0;
+		int[] virtualNlzCounts=new int[66]; // for potential DLC use
+
+		for(int i=0; i<buckets; i++){
+			final int b=regs[i]&0xFF;
+			if(b==0 && globalExp==0){
+				// Truly empty register: 2 empty virtual buckets
+				virtualTotal+=2;
+				virtualEmpty+=2;
+				virtualNlzCounts[0]+=2;
+				continue;
+			}
+			final int localExp=(b>>>4)&0xF;
+			final int absNlz=globalExp+localExp;
+
+			// Process each tail independently
+			for(int t=0; t<2; t++){
+				final int tail=(t==0) ? (b&0x3) : ((b>>>2)&0x3);
+				if(tail>=2){
+					// MSB set (10 or 11): filled at absNlz
+					virtualTotal++;
+					if(absNlz>=0 && absNlz<64){virtualNlzCounts[absNlz+1]++;}
+				}else if(tail==1){
+					// Only LSB set (01): filled at absNlz-1
+					virtualTotal++;
+					final int prevNlz=absNlz-1;
+					if(prevNlz>=0 && prevNlz<64){virtualNlzCounts[prevNlz+1]++;}
+				}else{
+					// tail == 00: empty if absNlz < 2, else unknown (exclude)
+					if(absNlz<2){
+						virtualTotal++;
+						virtualEmpty++;
+						virtualNlzCounts[0]++;
+					}
+					// absNlz >= 2: don't count this tail at all
+				}
+			}
+		}
+
+		if(virtualTotal==0 || virtualEmpty==0){return 0;}
+		return (double)virtualTotal*Math.log((double)virtualTotal/virtualEmpty);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    16-State Mean Estimate    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * 16-state Mean estimate using MantissaCompare2-derived log-space CFs.
+	 * Same structure as CardStats Phase 2a (Mean+H), but with 16 states
+	 * from the 4-bit combined_h instead of 2-4 from histBits.
+	 *
+	 * Per-bucket correction: tierMult = 2^(-(cf + CF_OFFSET))
+	 * where cf = StateTable.ttllOffset(absNlz, combinedH).
+	 * Systematic bias is corrected by the v5 CF table (Mean16_cf column).
+	 */
+	public double ttllMeanEstimate(){
+		// Precompute tierMult for all (nlzBin, combinedH) to avoid per-bucket Math.pow
+		final int maxNlzBin=4; // tiers 0,1,2 have per-tier CFs; 3+ use steady-state
+		final double[][] tierMultTable=new double[maxNlzBin][16];
+		for(int nb=0; nb<maxNlzBin; nb++){
+			for(int ch=0; ch<16; ch++){
+				final double cf=StateTable.ttllOffset(nb, ch);
+				tierMultTable[nb][ch]=Math.pow(2.0, -(cf+StateTable.CF_OFFSET));
+			}
+		}
+
+		double corrDifSum=0;
+		int filled=0;
+		for(int i=0; i<buckets; i++){
+			final int b=regs[i]&0xFF;
+			if(b==0 && globalExp==0){continue;}
+			final int localExp=(b>>>4)&0xF;
+			final int absNlz=globalExp+localExp;
+			final int ch=b&0xF;
+			final int nlzBin=Math.min(absNlz, maxNlzBin-1);
+
+			final long dif=(absNlz==0 ? Long.MAX_VALUE : (absNlz<64 ? 1L<<(63-absNlz) : 1L));
+			corrDifSum+=dif*tierMultTable[nlzBin][ch];
+			filled++;
+		}
+		if(filled==0){return 0;}
+		final double mean=corrDifSum/filled;
+		final float correction=(filled+buckets)/(float)(buckets+buckets);
+		double est=2*(Long.MAX_VALUE/Tools.max(1.0, mean))*filled*correction;
+
+		// Apply v5 CF table correction (Mean16_cf column)
+		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
+				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
+			final double keyScale=(CorrectionFactor.v1Buckets>0 && buckets!=CorrectionFactor.v1Buckets)
+				? (double)CorrectionFactor.v1Buckets/buckets : 1.0;
+			final double cf=CorrectionFactor.getCF(est, est,
+				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
+				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+			est*=cf;
+		}
+		return est;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -327,6 +515,10 @@ public final class TwinTailLogLog extends CardinalityTracker {
 
 	static double[][] cfTable;  // [tier][combined_h] multipliers
 	static double[][] cvTable;  // [tier][combined_h] CV values
+	/** Normalized inverse of cfTable for Mean formula correction.
+	 *  meanCorrTable[t][ch] = (1/cfTable[t][ch]) / mean(1/cfTable[t][*]).
+	 *  Ensures average correction per tier = 1.0, avoiding Jensen's bias. */
+	static double[][] meanCorrTable;
 	static int CF_TABLE_TIERS=0;
 	static double[] tierAvg;
 
@@ -432,6 +624,21 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			else{java.util.Arrays.fill(cvTable[t], 1.0);}
 		}
 
+		// Build meanCorrTable: normalized 1/cfTable per tier
+		meanCorrTable=new double[CF_TABLE_TIERS][NUM_COMBINED];
+		for(int t=0; t<CF_TABLE_TIERS; t++){
+			double invSum=0;
+			for(int ch=0; ch<NUM_COMBINED; ch++){
+				final double v=cfTable[t][ch];
+				invSum+=1.0/(v>0.001 ? v : 0.001);
+			}
+			final double invMean=invSum/NUM_COMBINED;
+			for(int ch=0; ch<NUM_COMBINED; ch++){
+				final double v=cfTable[t][ch];
+				meanCorrTable[t][ch]=(1.0/(v>0.001 ? v : 0.001))/invMean;
+			}
+		}
+
 		System.err.println("Loaded TTLL CF table: "+CF_TABLE_TIERS+" tiers, "
 			+tierAvg.length+" tier averages, "+NUM_COMBINED+" states"
 			+", "+cvTable.length+" CV tiers");
@@ -476,6 +683,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	private static void setFallbackCF(){
 		cfTable=new double[1][NUM_COMBINED];
 		java.util.Arrays.fill(cfTable[0], 1.0);
+		meanCorrTable=new double[1][NUM_COMBINED];
+		java.util.Arrays.fill(meanCorrTable[0], 1.0);
 		tierAvg=new double[]{1.0};
 		CF_TABLE_TIERS=1;
 	}

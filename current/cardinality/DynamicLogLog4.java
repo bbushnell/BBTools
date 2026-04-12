@@ -342,7 +342,10 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			ext[legacy.length+1]=wordEstCV;
 			return ext;
 		}
-		return legacy;
+		// Pad to include WordEst/WordEstCV slots (unused, 0.0) for calibration driver compatibility
+		double[] ext=new double[legacy.length+2];
+		System.arraycopy(legacy, 0, ext, 0, legacy.length);
+		return ext;
 	}
 
 	/** Returns the CF correction factor for WordEst.

@@ -339,6 +339,7 @@ public class CorrectionFactor{
 		if("MeanM_cf".equals(name)){return MEANM;}
 		if("WordEst_cf".equals(name)){return WORDEST;}
 		if("HC_cf".equals(name)){return HC;}
+		if("Mean16_cf".equals(name)){return MEAN16;}
 		return -1;
 	}
 
@@ -405,7 +406,7 @@ public class CorrectionFactor{
 
 		// Build v1Matrix: v1Matrix[type][row] = CF value; v1Keys[row] = DLC3B key
 		final int n=keyList.size();
-		final int maxType=HC+1; // need indices 0..HC
+		final int maxType=MEAN16+1; // need indices 0..MEAN16
 		final float[][] mat=new float[maxType][n];
 		v1Keys=new float[n];
 		for(int i=0; i<n; i++){v1Keys[i]=keyList.get(i);}
@@ -646,7 +647,7 @@ public class CorrectionFactor{
 	 * v1 adds DLC3B and HYBDLC. */
 	public static final int OCCUPIED=0, MEAN=1, HMEAN=2, HMEANM=3, GMEAN=4, HLL=5,
 		LINEAR=6, MWA=7, MEDCORR=8, MEAN99=9, HYBRID=10, DLC3B=11, HYBDLC=12, DLC=13, HYBDLC50=14, DLCBEST=15, DTHTHYB=16,
-		MEANH=17, MEANM=18, WORDEST=19, HC=20;
+		MEANH=17, MEANM=18, WORDEST=19, HC=20, MEAN16=21;
 
 	/** Per-occupancy correction factor matrix: CF_MATRIX[type][filled_buckets]. Null until initialize() is called. */
 	public static float[][] CF_MATRIX=null;

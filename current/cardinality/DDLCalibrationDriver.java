@@ -101,6 +101,7 @@ public class DDLCalibrationDriver {
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
+		if(true){throw new RuntimeException("Use ddlcalibrate.sh.");}
 		final long t0=System.nanoTime();
 		int numDDLs=128;
 		int buckets=2048;
@@ -191,6 +192,24 @@ public class DDLCalibrationDriver {
 				DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);
 			}else if(a.equals("mantissacfoffset") || a.equals("mco")){
 				DynamicDemiLog8.MANTISSA_CF_OFFSET=Double.parseDouble(b);
+			}
+			else if(a.equals("correctoverflow") || a.equals("co")){
+				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				DualHashDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				if(Parse.parseBoolean(b)){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false; DualHashDynamicLogLog3.IGNORE_OVERFLOW=false;}
+			}else if(a.equals("ignoreoverflow") || a.equals("io")){
+				DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				DynamicLogLog4.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				DualHashDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false; DualHashDynamicLogLog3.CORRECT_OVERFLOW=false;}
+			}else if(a.equals("earlypromote") || a.equals("ep")){
+				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
+				DualHashDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+				DualHashDynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
@@ -490,7 +509,8 @@ public class DDLCalibrationDriver {
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");
-		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0);// 2 for history: MeanH + HC
+		final boolean hasMean16=type.equals("ttll");
+		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0)+(hasMean16 ? 1 : 0);
 		if(extra==0){
 			V3_EST_INDICES=V3_BASE_INDICES;
 			V3_COL_NAMES=V3_BASE_NAMES;
@@ -506,6 +526,7 @@ public class DDLCalibrationDriver {
 			V3_EST_INDICES[idx]=AbstractCardStats.HC_IDX; V3_COL_NAMES[idx]="HC_cf"; idx++;}
 		if(hasMantissa){V3_EST_INDICES[idx]=AbstractCardStats.MEANM_IDX; V3_COL_NAMES[idx]="MeanM_cf"; idx++;}
 		if(hasWordEst){V3_EST_INDICES[idx]=WORDEST_RAW_IDX; V3_COL_NAMES[idx]="WordEst_cf"; idx++;}
+		if(hasMean16){V3_EST_INDICES[idx]=TwinTailLogLog.MEAN16_RAW_IDX; V3_COL_NAMES[idx]="Mean16_cf"; idx++;}
 	}
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */
