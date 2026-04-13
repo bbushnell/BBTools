@@ -690,9 +690,9 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		CF_TABLE_TIERS=1;
 	}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.721805f;}
 
-	/** Stub: TTLL has 1-bit history. */
-	@Override public float terminalMeanPlusCF(){return 1f;}
+	/** Asymptotic Mean+H ratio (1-bit history), measured 128k ddls maxmult=4096 (Apr 13 2026). */
+	@Override public float terminalMeanPlusCF(){return 0.844367f;}
 }

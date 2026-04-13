@@ -618,7 +618,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			+loaded+" entries, "+WORD_NUM_CANONICAL+" canonical states");
 	}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.721015f;}
 
 }

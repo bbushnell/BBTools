@@ -547,7 +547,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.718159f;}
 
 }
