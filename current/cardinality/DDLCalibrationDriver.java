@@ -153,41 +153,13 @@ public class DDLCalibrationDriver {
 				}
 			}else if(a.equals("promotethreshold") || a.equals("pt")){
 				DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
-				DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 				DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
-			}else if(a.equals("promotefrac") || a.equals("pf")){
-				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
-			}else if(a.equals("resetonpromote") || a.equals("rop")){
-				DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);
 			}else if(a.equals("assertdlc")){
 				ASSERT_DLC=Parse.parseBoolean(b);
 			}else if(a.equals("benchmark") || a.equals("bench")){
 				BENCHMARK_MODE=Parse.parseBoolean(b);
 			}else if(a.equals("printcv") || a.equals("cv")){
 				PRINT_CV=Parse.parseBoolean(b);
-			}else if(a.equals("statepower") || a.equals("sp")){
-				UltraLogLog8.STATE_POWER=Double.parseDouble(b);
-			}else if(a.equals("statecfoffset") || a.equals("sco")){
-				UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);
-			}else if(a.equals("frozenhistory") || a.equals("frozen")){
-				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
-			}else if(a.equals("pllmode") || a.equals("pmode")){
-				// Set mode on both PLL16 and PLL16b
-				if(b.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_MANTISSA;}
-				else if(b.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_ANDTISSA;}
-				else if(b.equals("nlz2")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NLZ2); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_NLZ2;}
-				else if(b.equals("history")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_HISTORY); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_HISTORY);}
-				else if(b.equals("luck")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_LUCK); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_LUCK);}
-				else if(b.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.MODE=ProtoLogLog16b.MODE_NONE;}
-				else{throw new RuntimeException("Unknown pllmode: "+b);}
-			}else if(a.equals("plloffset") || a.equals("pco")){
-				ProtoLogLog16.CF_OFFSET=Double.parseDouble(b);
-				ProtoLogLog16b.CF_OFFSET=Double.parseDouble(b);
-			}else if(a.equals("hbits")){ProtoLogLog16.HISTORY_BITS=Integer.parseInt(b); ProtoLogLog16b.HISTORY_BITS=Integer.parseInt(b);
-			}else if(a.equals("lbits")){ProtoLogLog16.LUCK_BITS=Integer.parseInt(b); ProtoLogLog16b.LUCK_BITS=Integer.parseInt(b);
-			}else if(a.equals("mbits")){ProtoLogLog16.MANTISSA_BITS=Integer.parseInt(b); ProtoLogLog16b.MANTISSA_BITS=Integer.parseInt(b);
-			}else if(a.equals("abits")){ProtoLogLog16.ANDTISSA_BITS=Integer.parseInt(b); ProtoLogLog16b.ANDTISSA_BITS=Integer.parseInt(b);
-			}else if(a.equals("nbits")){ProtoLogLog16.NLZ2_BITS=Integer.parseInt(b); ProtoLogLog16b.NLZ2_BITS=Integer.parseInt(b);
 			}else if(a.equals("empiricalmantissa") || a.equals("em")){
 				DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);
 			}else if(a.equals("mantissacfoffset") || a.equals("mco")){
@@ -196,19 +168,19 @@ public class DDLCalibrationDriver {
 			else if(a.equals("correctoverflow") || a.equals("co")){
 				DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
 				BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-				DualHashDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-				if(Parse.parseBoolean(b)){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false; DualHashDynamicLogLog3.IGNORE_OVERFLOW=false;}
+				CompressedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
+				if(Parse.parseBoolean(b)){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false; CompressedDynamicLogLog3.IGNORE_OVERFLOW=false;}
 			}else if(a.equals("ignoreoverflow") || a.equals("io")){
 				DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 				DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 				BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
 				DynamicLogLog4.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-				DualHashDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-				if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false; DualHashDynamicLogLog3.CORRECT_OVERFLOW=false;}
+				CompressedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
+				if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false; CompressedDynamicLogLog3.CORRECT_OVERFLOW=false;}
 			}else if(a.equals("earlypromote") || a.equals("ep")){
 				DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
-				DualHashDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
+				CompressedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DualHashDynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}

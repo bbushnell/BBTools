@@ -71,50 +71,37 @@ public class CardinalityParser {
 			DynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 			DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
-			DynamicLogLog3v3.EARLY_PROMOTE=Parse.parseBoolean(b);
 			DynamicLogLog3v4.EARLY_PROMOTE=Parse.parseBoolean(b);
 		}
 		else if(a.equals("promotethreshold") || a.equals("pt")){
 			DynamicLogLog3.PROMOTE_THRESHOLD=Integer.parseInt(b);
-			DynamicLogLog3v2.PROMOTE_THRESHOLD=Integer.parseInt(b);
 			DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
-			DynamicLogLog3v3.PROMOTE_THRESHOLD=Integer.parseInt(b);
 			DynamicLogLog3v4.PROMOTE_THRESHOLD=Integer.parseInt(b);
 		}
-		else if(a.equals("promotefrac") || a.equals("pf")){DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b); DynamicLogLog3v3.PROMOTE_FRAC=Float.parseFloat(b); DynamicLogLog3v4.PROMOTE_FRAC=Float.parseFloat(b); BankedDynamicLogLog3.PROMOTE_FRAC=Float.parseFloat(b);}
-		else if(a.equals("resetonpromote") || a.equals("rop")){DynamicLogLog3v2.RESET_ON_PROMOTE=Parse.parseBoolean(b);}
+		else if(a.equals("promotefrac") || a.equals("pf")){DynamicLogLog3v4.PROMOTE_FRAC=BankedDynamicLogLog3.PROMOTE_FRAC=Float.parseFloat(b);}
 		else if(a.equals("overflowscale") || a.equals("os")){
 			DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
 			BankedDynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
-			DynamicLogLog3v3.OVERFLOW_SCALE=Double.parseDouble(b);
 			DynamicLogLog3v4.OVERFLOW_SCALE=Double.parseDouble(b);
 		}
 		else if(a.equals("usestoredoverflow") || a.equals("uso")){
 			DynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 			BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 			DynamicLogLog3v4.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 		}
 		else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);}
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
-		else if(a.equals("frozenhistory") || a.equals("frozen")){UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);}
-		else if(a.equals("statepower") || a.equals("sp")){UltraLogLog8.STATE_POWER=Double.parseDouble(b);}
-		else if(a.equals("statecfoffset") || a.equals("sco")){UltraLogLog8.STATE_CF_OFFSET=Double.parseDouble(b);}
 
 		// PLL family flags
 		else if(a.equals("plloffset") || a.equals("pco")){
-			ProtoLogLog16b.CF_OFFSET=Double.parseDouble(b);
-			ProtoLogLog16.CF_OFFSET=Double.parseDouble(b);
 			ProtoLogLog16c.CF_OFFSET=Double.parseDouble(b);
 		}
-		else if(a.equals("hbits")){int v=Integer.parseInt(b); ProtoLogLog16.HISTORY_BITS=v; ProtoLogLog16b.HISTORY_BITS=v; ProtoLogLog16c.HISTORY_BITS=v;}
-		else if(a.equals("lbits")){int v=Integer.parseInt(b); ProtoLogLog16.LUCK_BITS=v; ProtoLogLog16b.LUCK_BITS=v; ProtoLogLog16c.LUCK_BITS=v;}
-		else if(a.equals("mbits")){int v=Integer.parseInt(b); ProtoLogLog16.MANTISSA_BITS=v; ProtoLogLog16b.MANTISSA_BITS=v; ProtoLogLog16c.MANTISSA_BITS=v;}
-		else if(a.equals("abits")){int v=Integer.parseInt(b); ProtoLogLog16.ANDTISSA_BITS=v; ProtoLogLog16b.ANDTISSA_BITS=v; ProtoLogLog16c.ANDTISSA_BITS=v;}
-		else if(a.equals("nbits")){int v=Integer.parseInt(b); ProtoLogLog16.NLZ2_BITS=v; ProtoLogLog16b.NLZ2_BITS=v; ProtoLogLog16c.NLZ2_BITS=v;}
-		else if(a.equals("emode") || a.equals("estimatemode")){ProtoLogLog16b.ESTIMATE_MODE=Integer.parseInt(b);}
-		else if(a.equals("nocf")){if(Parse.parseBoolean(b)){ProtoLogLog16b.CORRECTION_TABLE=null; ProtoLogLog16.CORRECTION_TABLE=null;}}
+		else if(a.equals("hbits")){int v=Integer.parseInt(b); ProtoLogLog16c.HISTORY_BITS=v;}
+		else if(a.equals("lbits")){int v=Integer.parseInt(b); ProtoLogLog16c.LUCK_BITS=v;}
+		else if(a.equals("mbits")){int v=Integer.parseInt(b); ProtoLogLog16c.MANTISSA_BITS=v;}
+		else if(a.equals("abits")){int v=Integer.parseInt(b); ProtoLogLog16c.ANDTISSA_BITS=v;}
+		else if(a.equals("nbits")){int v=Integer.parseInt(b); ProtoLogLog16c.NLZ2_BITS=v;}
 
 		// DynamicDemiLog8 flags
 		else if(a.equals("empiricalmantissa") || a.equals("em")){DynamicDemiLog8.USE_EMPIRICAL_MANTISSA=Parse.parseBoolean(b);}
@@ -139,40 +126,36 @@ public class CardinalityParser {
 
 		// Cascading overflow flags (co/io are mutually exclusive; "co" alias is handled by correctoverflow)
 		else if(a.equals("correctoverflow") || a.equals("co")){
-			DynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			BankedDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			DualHashDynamicLogLog3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v3.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v4.CORRECT_OVERFLOW=Parse.parseBoolean(b);
-			if(Parse.parseBoolean(b)){DynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog2.IGNORE_OVERFLOW=false; BankedDynamicLogLog3.IGNORE_OVERFLOW=false; DynamicLogLog3v2.IGNORE_OVERFLOW=false; DynamicLogLog3v3.IGNORE_OVERFLOW=false; DynamicLogLog3v4.IGNORE_OVERFLOW=false;}
+			final boolean x=Parse.parseBoolean(b);
+			DynamicLogLog3.CORRECT_OVERFLOW=x;
+			BankedDynamicLogLog3.CORRECT_OVERFLOW=x;
+			CompressedDynamicLogLog3.CORRECT_OVERFLOW=x;
+			DynamicLogLog3v4.CORRECT_OVERFLOW=x;
+			if(x){DynamicLogLog3.IGNORE_OVERFLOW=DynamicLogLog2.IGNORE_OVERFLOW=BankedDynamicLogLog3.IGNORE_OVERFLOW=DynamicLogLog3v4.IGNORE_OVERFLOW=false;}
 		}
 		else if(a.equals("ignoreoverflow") || a.equals("io")){
-			DynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			BankedDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DualHashDynamicLogLog3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v2.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v3.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			DynamicLogLog3v4.IGNORE_OVERFLOW=Parse.parseBoolean(b);
-			if(Parse.parseBoolean(b)){DynamicLogLog3.CORRECT_OVERFLOW=false; BankedDynamicLogLog3.CORRECT_OVERFLOW=false; DynamicLogLog3v3.CORRECT_OVERFLOW=false; DynamicLogLog3v4.CORRECT_OVERFLOW=false;}
+			final boolean x=Parse.parseBoolean(b);
+			DynamicLogLog3.IGNORE_OVERFLOW=x;
+			DynamicLogLog2.IGNORE_OVERFLOW=x;
+			BankedDynamicLogLog3.IGNORE_OVERFLOW=x;
+			CompressedDynamicLogLog3.IGNORE_OVERFLOW=x;
+			DynamicLogLog3v4.IGNORE_OVERFLOW=x;
+			if(x){DynamicLogLog3.CORRECT_OVERFLOW=BankedDynamicLogLog3.CORRECT_OVERFLOW=DynamicLogLog3v4.CORRECT_OVERFLOW=false;}
 		}
 		else if(a.equals("iobias") || a.equals("iob")){
-			DynamicLogLog3.USE_IO_BIAS=Parse.parseBoolean(b);
-			DynamicLogLog3v2.USE_IO_BIAS=Parse.parseBoolean(b);
-			DynamicLogLog3v3.USE_IO_BIAS=Parse.parseBoolean(b);
-			DynamicLogLog3v4.USE_IO_BIAS=Parse.parseBoolean(b);
-			BankedDynamicLogLog3.USE_IO_BIAS=Parse.parseBoolean(b);
+			final boolean x=Parse.parseBoolean(b);
+			DynamicLogLog3.USE_IO_BIAS=x;
+			DynamicLogLog3v4.USE_IO_BIAS=x;
+			BankedDynamicLogLog3.USE_IO_BIAS=x;
 		}
 		else if(a.equals("iobfile") || a.equals("iobf")){
 			DynamicLogLog3.loadIOBias(b);
-			DynamicLogLog3v2.loadIOBias(b);
-			DynamicLogLog3v3.loadIOBias(b);
 			DynamicLogLog3v4.loadIOBias(b);
 			BankedDynamicLogLog3.loadIOBias(b);
 		}
 		else if(a.equals("clamptoadded") || a.equals("clamp")){CardinalityTracker.clampToAdded=Parse.parseBoolean(b);}
 		else if(a.equals("dual")){
-			DualHashDynamicLogLog3.DUAL=Parse.parseBoolean(b);
+//			CompressedDynamicLogLog3.DUAL=Parse.parseBoolean(b);//Do nothing
 		}
 		else{return false;}
 		return true;
@@ -196,12 +179,12 @@ public class CardinalityParser {
 
 		// PLL mode application
 		if(pllmode!=null){
-			if(pllmode.equals("mantissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_MANTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_MANTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_MANTISSA);}
-			else if(pllmode.equals("andtissa")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_ANDTISSA); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_ANDTISSA); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_ANDTISSA);}
-			else if(pllmode.equals("nlz2")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NLZ2); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NLZ2); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NLZ2);}
-			else if(pllmode.equals("history")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_HISTORY); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_HISTORY); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY);}
-			else if(pllmode.equals("luck")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_LUCK); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_LUCK); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_LUCK);}
-			else if(pllmode.equals("none")){ProtoLogLog16.setMode(ProtoLogLog16.MODE_NONE); ProtoLogLog16b.setMode(ProtoLogLog16b.MODE_NONE); ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NONE);}
+			if(pllmode.equals("mantissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_MANTISSA);}
+			else if(pllmode.equals("andtissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_ANDTISSA);}
+			else if(pllmode.equals("nlz2")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NLZ2);}
+			else if(pllmode.equals("history")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY);}
+			else if(pllmode.equals("luck")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_LUCK);}
+			else if(pllmode.equals("none")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_NONE);}
 			else if(pllmode.equals("histmant") || pllmode.equals("historymantissa")){ProtoLogLog16c.setMode(ProtoLogLog16c.MODE_HISTORY|ProtoLogLog16c.MODE_MANTISSA);}
 			else{throw new RuntimeException("Unknown pllmode: "+pllmode);}
 		}
@@ -221,7 +204,7 @@ public class CardinalityParser {
 		// Per-class Mean CF formula coefficients
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
 		if(loglogtype.equals("cdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
-		else if(loglogtype.equals("dhdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(DualHashDynamicLogLog3.DUAL ? 2 : 1.5);}
+		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
@@ -262,8 +245,7 @@ public class CardinalityParser {
 		if(cffile==null){cffile=defaultCFFile(loglogtype);}
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
-			if("pll16b".equals(loglogtype)){ProtoLogLog16b.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
-			else if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
@@ -277,7 +259,7 @@ public class CardinalityParser {
 	 * Returns null if no table exists for the type.
 	 */
 	private static String defaultCFFile(String loglogtype){
-		if(loglogtype.equals("cdll4") || loglogtype.equals("dhdll3") || loglogtype.equals("dhdll4")){
+		if(loglogtype.equals("cdll4") || loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return null; // No CF table yet for compressed/dual-hash variants
 		}else if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}

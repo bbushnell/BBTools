@@ -469,7 +469,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	private static final int wordlen=64;
 	public static final boolean FAST_COUNT=false;
 	public static boolean EARLY_PROMOTE=true;
-	public static float PROMOTE_FRAC=0;
+	public static float PROMOTE_FRAC=0.004f;
 	public static boolean CORRECT_OVERFLOW=true;
 	public static double OVERFLOW_SCALE=1.0;
 	public static boolean USE_STORED_OVERFLOW=true;
