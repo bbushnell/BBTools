@@ -4,6 +4,7 @@ import java.io.PrintStream;
 
 import fileIO.ByteFile;
 import parse.Parse;
+import parse.PreParser;
 import rand.FastRandomXoshiro;
 
 /**
@@ -571,6 +572,7 @@ public class TTLLSimulator {
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args) throws Exception {
+		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
 		int    iters    =10000;
 		int    threads  =8;
 		int    maxTier  =14;

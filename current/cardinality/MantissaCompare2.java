@@ -2,6 +2,7 @@ package cardinality;
 
 import rand.FastRandomXoshiro;
 import parse.Parse;
+import parse.PreParser;
 import shared.Tools;
 
 /**
@@ -18,6 +19,7 @@ public class MantissaCompare2 {
     static final String[] SAMPLE_NAMES={"all", "entry", "both"};
 
     public static void main(String[] args) throws InterruptedException {
+        {PreParser pp=new PreParser(args, null, false); args=pp.args;}
         int inner=32768, outer=131072, maxTier=11, mode=MODE_MANTISSA, bits=2, threads=1;
         int sampleMode=SAMPLE_ALL;
         int hbits=-1, mbits=-1; // for combined mode; -1 = use 'bits'
