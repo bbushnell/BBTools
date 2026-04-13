@@ -484,13 +484,14 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	/** Per-tier bias constants for IO mode. Indexed by (tier-IO_TIER_MIN)/IO_TIER_STEP.
 	 *  Can be overridden at runtime via iobfile= flag. */
 	private static double[] IO_BIAS={
-		-0.003811, -0.006690, -0.007194, -0.007460, -0.007832, // tiers -8..-4
-		-0.008336, -0.009006, -0.010032, -0.013225, -0.021499, // tiers -3..1
-		-0.034044, -0.048617, -0.061926, -0.074824, -0.086059, // tiers 2..6
-		-0.093379, -0.095804, -0.096391, -0.096950, -0.097141, // tiers 7..11
-		-0.097141                                                // tier 12
+		-0.002695, -0.004993, -0.006832, -0.007470, -0.007544, -0.007553, -0.007550, -0.007533, // tiers -8..-4.5
+		-0.007534, -0.007564, -0.007653, -0.007815, -0.008063, -0.008445, -0.009042, -0.009977, // tiers -4..-0.5
+		-0.011512, -0.014228, -0.018760, -0.024301, -0.030535, -0.036450, -0.042448, -0.047506, // tiers 0..3.5
+		-0.053428, -0.058121, -0.063517, -0.067957, -0.071738, -0.075497, -0.076537, -0.078832, // tiers 4..7.5
+		-0.077179, -0.078878, -0.076185, -0.078565, -0.075195, -0.078381, -0.074420, -0.078276, // tiers 8..11.5
+		-0.073731                                                                                 // tier 12
 	};
-	static double IO_TIER_STEP=1.0;
+	static double IO_TIER_STEP=0.5;
 	static final int IO_TIER_MIN=-8, IO_TIER_MAX=12;
 
 	public static void loadIOBias(String path){

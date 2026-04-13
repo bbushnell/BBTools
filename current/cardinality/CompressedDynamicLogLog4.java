@@ -185,7 +185,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	public final void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
 		final long key=Tools.hash64shift(rawKey);
-		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){cntEarlyExit++; return;}
+		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){/*cntEarlyExit++;*/ return;}
 
 		final int rawNlz=Long.numberOfLeadingZeros(key);
 		final int mantissa;
@@ -199,7 +199,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		final int absTier=halfNlz/3;
 		final int relTier=absTier-minZeros;
 		// Allow relTier == -1 through: needed for history (delta == -1)
-		if(relTier<-1){cntBelowFloor++; return;}
+		if(relTier<-1){/*cntBelowFloor++;*/ return;}
 
 		final int bucket=(int)(key&bucketMask);
 		final long micro=(key>>bucketBits)&0x3FL;
@@ -220,7 +220,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 				// so delta = absTier - (minZeros-1) = relTier+1.
 				final int delta=(oldTierPart>0) ? (newTierPart-oldTierPart) : (relTier+1);
 				final int newHist=(delta==1) ? 1 : 0;
-				if(newHist==1){cntAdvanceSet++;}else{cntAdvanceClear++;}
+				//if(newHist==1){cntAdvanceSet++;}else{cntAdvanceClear++;}
 				lastCardinality=-1;
 				writeNibble(bucket, makeNibble(newTierPart, newHist));
 				if(oldTierPart==0){filledBuckets++;}
@@ -238,14 +238,14 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 			}
 			// delta == -1: element from previous tier, set history
 			if(newTierPart==oldTierPart-1){
-				if(oldHist==0){cntDeltaNeg1Set++; lastCardinality=-1; writeNibble(bucket, oldNibble|1);}
-				else{cntDeltaNeg1Skip++;}
+				if(oldHist==0){/*cntDeltaNeg1Set++;*/ lastCardinality=-1; writeNibble(bucket, oldNibble|1);}
+				else{/*cntDeltaNeg1Skip++;*/}
 			}
 		}else{
 			// relTier == -1: element from one tier below floor
 			if(oldTierPart<=1){
-				if(oldHist==0){cntDeltaNeg1Set++; lastCardinality=-1; writeNibble(bucket, oldNibble|1);}
-				else{cntDeltaNeg1Skip++;}
+				if(oldHist==0){/*cntDeltaNeg1Set++;*/ lastCardinality=-1; writeNibble(bucket, oldNibble|1);}
+				else{/*cntDeltaNeg1Skip++;*/}
 			}
 		}
 	}
