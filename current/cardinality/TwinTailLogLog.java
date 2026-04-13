@@ -290,7 +290,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		lastRawNlz=nlzCounts;
 
 		return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
-				buckets, microIndex, added, null, 0, 0.0);
+				buckets, microIndex, added, null, 0, 0.0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	/*--------------------------------------------------------------*/
@@ -688,4 +689,10 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		tierAvg=new double[]{1.0};
 		CF_TABLE_TIERS=1;
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
+
+	/** Stub: TTLL has 1-bit history. */
+	@Override public float terminalMeanPlusCF(){return 1f;}
 }

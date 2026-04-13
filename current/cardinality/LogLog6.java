@@ -73,7 +73,8 @@ public final class LogLog6 extends CardinalityTracker {
 		lastCorrNlz=nlzCounts;
 		// microIndex=0: LL6 doesn't use micro floor (keeps HLL comparison fair)
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-				buckets, 0, added, CF_MATRIX, CF_BUCKETS, 0);
+				buckets, 0, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	@Override
@@ -173,5 +174,8 @@ public final class LogLog6 extends CardinalityTracker {
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
 
 }

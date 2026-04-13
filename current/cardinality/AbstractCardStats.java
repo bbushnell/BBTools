@@ -720,6 +720,15 @@ public abstract class AbstractCardStats {
 	/** Terminal HMean CF for history-corrected HLL. Default 1.0 = standard HLL. */
 	public static double HLL_HIST_TERMINAL_CF=1.0;
 
+	/** When > 0, overrides every tracker's terminalMeanCF() at CardStats construction.
+	 *  Used during preliminary CF table generation: set to 1 so per-class bias corrections
+	 *  are disabled and the raw convergent ratios can be measured from the output CF file. */
+	public static float OVERRIDE_TERMINAL_MEAN_CF=0f;
+
+	/** When > 0, overrides every tracker's terminalMeanPlusCF() at CardStats construction.
+	 *  Same purpose as OVERRIDE_TERMINAL_MEAN_CF but for the Mean+H path. */
+	public static float OVERRIDE_TERMINAL_MEAN_PLUS_CF=0f;
+
 	/** Max iterations for iterative CF refinement. */
 	public static int DEFAULT_CF_ITERS=2;
 	/** Convergence threshold for iterative CF. */

@@ -87,7 +87,8 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		AbstractCardStats.TIER_SCALE=2;
 		try{
 			return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+					terminalMeanCF(), terminalMeanPlusCF());
 		}finally{
 			AbstractCardStats.TIER_SCALE=savedScale;
 		}
@@ -279,5 +280,8 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 			return CF_MATRIX=null;
 		}
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
 
 }

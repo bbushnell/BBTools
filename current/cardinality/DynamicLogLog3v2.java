@@ -250,7 +250,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
-		return new CardStats(null, nlzCounts, 0, 0, 0, 0, buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0, buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	@Override
@@ -385,5 +386,8 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	private static float[][] CF_MATRIX_CARD=null;
 	/** MeanEst key array for CF_MATRIX_CARD binary search. */
 	private static float[] CF_CARD_KEYS=null;
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
 
 }

@@ -118,7 +118,8 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		AbstractCardStats.TIER_SCALE=1.5;
 		try{
 			return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+					terminalMeanCF(), terminalMeanPlusCF());
 		}finally{
 			AbstractCardStats.TIER_SCALE=savedScale;
 		}
@@ -367,5 +368,11 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 			return CF_MATRIX=null;
 		}
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
+
+	/** Stub: CDLL4 has 1-bit CTLL history. */
+	@Override public float terminalMeanPlusCF(){return 1f;}
 
 }
