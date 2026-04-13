@@ -3,24 +3,34 @@ package cardinality;
 import shared.Tools;
 
 /**
- * DualHashDynamicLogLog3: dual-hash variant of DynamicLogLog3.
+ * CompressedDynamicLogLog3: 3-bit DLL variant with compressed NLZ tiers.
  * <p>
- * Uses max(hash1, hash2) to suppress extreme NLZ outliers.
- * NLZ(max(h1,h2)) = min(NLZ(h1), NLZ(h2)), so P(NLZ >= k) = 4^{-k}
- * instead of 2^{-k}.  This compresses the NLZ tail so that 3-bit
- * exponents (7 relative levels) give an effective dynamic range of
- * 4^7 = 16384, equivalent to a 14-bit single-hash register.
+ * Packs 10 buckets per int at 3 bits each (7 usable levels + phantom).
+ * Compresses the NLZ tail so that 3 storage bits cover a wider dynamic
+ * range than a raw 3-bit single-hash register would.  Two compression
+ * modes are supported, selected by the static final {@link #DUAL}:
  * <p>
- * Overflow (relNlz >= 7) is astronomically rare with dual hash:
- * P = 4^{-7} ≈ 6e-5 per element, compared to 2^{-7} ≈ 0.8% for
- * single-hash DLL3.  No overflow correction machinery is needed.
+ * <b>Mantissa mode (DUAL=false, current default):</b> One hash per
+ * element.  A mantissa bit is derived from the top 16 bits after the
+ * leading 1, thresholded at (2-sqrt(2)) so P(mantissa=1) = sqrt(2)-1.
+ * halfNlz = 2*rawNlz + mantissa, tier = halfNlz/3.  Each tier divides
+ * probability by 2*sqrt(2), giving effective dynamic range
+ * (2*sqrt(2))^7 ~= 1448 — equivalent to ~10.5 bits of single-hash NLZ.
+ * P(overflow per above-floor element) = (2*sqrt(2))^-7 ~= 7e-4.
+ * TIER_SCALE=1.5 for DLC math.
  * <p>
- * Packs 10 buckets into each int, 3 bits per bucket.
+ * <b>Dual-hash mode (DUAL=true):</b> Two independent hashes per element.
+ * NLZ(max(h1,h2)) = min(NLZ(h1), NLZ(h2)), so P(NLZ >= k) = 4^-k
+ * instead of 2^-k.  Equivalent in distribution to simply dividing a
+ * single-hash NLZ by 2 — each stored level covers 2 NLZ bits.  7 levels
+ * give dynamic range 4^7 = 16384.  P(overflow per above-floor element)
+ * = 4^-7 ~= 6e-5, astronomically rare; no overflow correction needed.
+ * TIER_SCALE=2 for DLC math.
+ * <p>
  * Memory: 3 bits/bucket — 33% more buckets than DLL4 for the same memory.
- * <p>
- * For DLC estimation, the tier multiplier changes from 2^tier to 4^tier.
- * This is handled by setting AbstractCardStats.TIER_SCALE=2 during
- * summarize/rawEstimates calls.
+ * Overflow-correction machinery ({@link #CORRECT_OVERFLOW},
+ * storedOverflow[], xOverflow) is present but off by default; it is
+ * primarily useful in mantissa mode at very high cardinality.
  *
  * @author Brian Bushnell, Chloe
  * @date April 2026
@@ -360,8 +370,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026).
-	 *  Dual-hash 4^(-k) regime converges above 1, unlike HLL-family estimators. */
-	@Override public float terminalMeanCF(){return 1.082177f;}
+	/** Stub: Mean formula is unrederived for mantissa mode. Only DLC is trusted. */
+	@Override public float terminalMeanCF(){return 1f;}
 
 }
