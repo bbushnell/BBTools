@@ -1,6 +1,7 @@
 package cardinality;
 
 import rand.FastRandomXoshiro;
+import parse.Parse;
 
 /**
  * FLL2 (FutureLogLog 2-bit) Simulator.
@@ -524,17 +525,17 @@ public class FLL2Simulator {
 
 		for (String arg : args) {
 			String[] kv = arg.split("=", 2);
-			if (kv.length != 2) continue;
+			if (kv.length != 2) throw new RuntimeException("Unknown parameter '" + arg + "'");
 			switch (kv[0]) {
-				case "iters":      iters      = Integer.parseInt(kv[1]);  break;
-				case "threads":    threads    = Integer.parseInt(kv[1]);  break;
-				case "maxTier":    maxTier    = Integer.parseInt(kv[1]);  break;
-				case "minObs":     minObs     = Long.parseLong(kv[1]);    break;
+				case "iters":      iters      = Parse.parseIntKMG(kv[1]);  break;
+				case "threads":    threads    = Integer.parseInt(kv[1]);   break;
+				case "maxTier":    maxTier    = Integer.parseInt(kv[1]);   break;
+				case "minObs":     minObs     = Parse.parseKMG(kv[1]);     break;
 				case "startState": startState = Integer.decode(kv[1]);    break;
 				case "validate":   validate   = Boolean.parseBoolean(kv[1]); break;
-				case "valIters":   valIters   = Integer.parseInt(kv[1]);  break;
+				case "valIters":   valIters   = Parse.parseIntKMG(kv[1]);  break;
 				case "clampoverflow": CLAMP_OVERFLOW = Boolean.parseBoolean(kv[1]); break;
-				default: System.err.println("Unknown arg: " + arg);
+				default: throw new RuntimeException("Unknown parameter '" + arg + "'");
 			}
 		}
 

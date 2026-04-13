@@ -3,6 +3,7 @@ package cardinality;
 import java.io.PrintStream;
 
 import fileIO.ByteFile;
+import parse.Parse;
 import rand.FastRandomXoshiro;
 
 /**
@@ -580,12 +581,12 @@ public class TTLLSimulator {
 
 		for(final String arg : args){
 			final String[] kv=arg.split("=", 2);
-			if(kv.length!=2){continue;}
+			if(kv.length!=2){throw new RuntimeException("Unknown parameter '"+arg+"'");}
 			switch(kv[0]){
-				case "iters":   iters  =Integer.parseInt(kv[1]); break;
+				case "iters":   iters  =Parse.parseIntKMG(kv[1]); break;
 				case "threads": threads=Integer.parseInt(kv[1]); break;
 				case "maxTier": maxTier=Integer.parseInt(kv[1]); break;
-				case "minObs":  minObs =Long.parseLong(kv[1]);   break;
+				case "minObs":  minObs =Parse.parseKMG(kv[1]);    break;
 				case "out":     outFile  =kv[1];                 break;
 				case "table":   tableFile=kv[1];                 break;
 				case "avg":
@@ -594,10 +595,10 @@ public class TTLLSimulator {
 						case "geo":   case "geometric":avgMode=AVG_GEO;   break;
 						case "harm":  case "harmonic": avgMode=AVG_HARM;  break;
 						case "blend":                  avgMode=AVG_BLEND; break;
-						default: System.err.println("Unknown avg: "+kv[1]);
+						default: throw new RuntimeException("Unknown avg mode '"+kv[1]+"'");
 					}
 					break;
-				default: System.err.println("Unknown arg: "+arg);
+				default: throw new RuntimeException("Unknown parameter '"+arg+"'");
 			}
 		}
 
