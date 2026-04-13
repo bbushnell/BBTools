@@ -369,10 +369,10 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.883474f;}
 
-	/** Stub: CDLL4 has 1-bit CTLL history. */
+	/** Stub: CDLL4 TSV has no Mean+H column; leave at 1 until measured. */
 	@Override public float terminalMeanPlusCF(){return 1f;}
 
 }
