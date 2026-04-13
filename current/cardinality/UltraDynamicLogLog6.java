@@ -310,10 +310,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.721123f;}
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio.
-	 *  UDLL6 has 2-bit history, so Mean+H is meaningful here. */
-	@Override public float terminalMeanPlusCF(){return 1f;}
+	/** Asymptotic Mean+H ratio (2-bit history), measured 128k ddls maxmult=4096 (Apr 13 2026).
+	 *  Replaces the old StateTable.terminalCF(2,0)=0.7726 which was measured under
+	 *  different conditions. */
+	@Override public float terminalMeanPlusCF(){return 0.856020f;}
 }

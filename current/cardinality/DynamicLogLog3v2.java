@@ -387,7 +387,7 @@ public final class DynamicLogLog3v2 extends CardinalityTracker {
 	/** MeanEst key array for CF_MATRIX_CARD binary search. */
 	private static float[] CF_CARD_KEYS=null;
 
-	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
-	@Override public float terminalMeanCF(){return 1f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
+	@Override public float terminalMeanCF(){return 0.751349f;}
 
 }
