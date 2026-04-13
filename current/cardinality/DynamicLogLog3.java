@@ -448,13 +448,14 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  half-tier (41 values, step=0.5) resolution. Linearly interpolated at lookup time.
 	 *  Can be overridden at runtime via iobfile= flag. */
 	private static double[] IO_BIAS={
-		-0.015172, -0.016103, -0.015661, -0.014902, -0.014328, // tiers -8..-4
-		-0.013666, -0.016286, -0.017821, -0.020524, -0.028997, // tiers -3..1
-		-0.045063, -0.070147, -0.095604, -0.115183, -0.128107, // tiers 2..6
-		-0.132166, -0.129972, -0.126304, -0.126153, -0.126579, // tiers 7..11
-		-0.126523                                                // tier 12
+		-0.002732, -0.004958, -0.006791, -0.007470, -0.007549, -0.007547, -0.007556, -0.007549, // tiers -8..-4.5
+		-0.007545, -0.007576, -0.007664, -0.007821, -0.008072, -0.008466, -0.009072, -0.010017, // tiers -4..-0.5
+		-0.011560, -0.014353, -0.019482, -0.027160, -0.037895, -0.052131, -0.065741, -0.078948, // tiers 0..3.5
+		-0.091305, -0.103973, -0.115500, -0.127377, -0.137319, -0.146300, -0.151431, -0.154744, // tiers 4..7.5
+		-0.154942, -0.155709, -0.155361, -0.156109, -0.155732, -0.156441, -0.156066, -0.156739, // tiers 8..11.5
+		-0.156303                                                                                 // tier 12
 	};
-	static double IO_TIER_STEP=1.0; // 1.0=full tiers (21 entries), 0.5=half tiers (41 entries)
+	static double IO_TIER_STEP=0.5; // 1.0=full tiers (21 entries), 0.5=half tiers (41 entries)
 	static final int IO_TIER_MIN=-8, IO_TIER_MAX=12;
 
 	/** Load IO_BIAS table from a file. Accepts 21 values (full-tier, step=1.0) or
