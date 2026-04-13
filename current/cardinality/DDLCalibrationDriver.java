@@ -576,6 +576,7 @@ public class DDLCalibrationDriver {
 		ps.println("#EarlyPromote\t"+earlyPromote);
 		ps.println("#PROMOTE_THRESHOLD\t"+promoteThreshold);
 		if(notes!=null && !notes.isEmpty()){ps.println("#Notes\t"+notes);}
+		ps.println(terminalRow(rows));
 		final StringBuilder hdr=new StringBuilder("#TrueCard");
 		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
 		ps.println(hdr);
@@ -593,6 +594,32 @@ public class DDLCalibrationDriver {
 		for(String name : V3_COL_NAMES){hdr.append('\t').append(name);}
 		ps.println(hdr);
 		printHistogramRows(rows, ps);
+	}
+
+	/** Builds the "#terminal" header row: per-column average CF over the last octave
+	 *  (rows where trueCard >= maxTrueCard/2). Used by downstream code to read the
+	 *  asymptotic per-column bias directly from the CF file header. */
+	private static String terminalRow(final ArrayList<ReportRow> rows){
+		long maxCard=0;
+		for(final ReportRow r : rows){if(r.n>=1 && r.trueCard>maxCard){maxCard=r.trueCard;}}
+		final long threshold=maxCard/2;
+		final int ncols=V3_EST_INDICES.length;
+		final double[] sums=new double[ncols];
+		final int[] counts=new int[ncols];
+		for(final ReportRow r : rows){
+			if(r.trueCard<threshold || r.n<1){continue;}
+			for(int c=0; c<ncols; c++){
+				final double avgErr=r.sumErr[V3_EST_INDICES[c]]/r.n;
+				final double cf=(avgErr<=-0.99) ? 1.0 : 1.0/(1.0+avgErr);
+				if(Double.isFinite(cf)){sums[c]+=cf; counts[c]++;}
+			}
+		}
+		final StringBuilder sb=new StringBuilder("#terminal");
+		for(int c=0; c<ncols; c++){
+			final double avg=counts[c]>0 ? sums[c]/counts[c] : Double.NaN;
+			sb.append('\t').append(String.format("%.6f", avg));
+		}
+		return sb.toString();
 	}
 
 	/** Shared row-printing logic for v3/v4/v5 CF tables. */
