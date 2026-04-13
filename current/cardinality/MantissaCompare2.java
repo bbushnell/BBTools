@@ -1,6 +1,7 @@
 package cardinality;
 
 import rand.FastRandomXoshiro;
+import parse.Parse;
 import shared.Tools;
 
 /**
@@ -24,8 +25,8 @@ public class MantissaCompare2 {
         for(String arg : args){
             final String[] ab=arg.split("=");
             final String a=ab[0].toLowerCase(), b=ab.length>1 ? ab[1] : "";
-            if(a.equals("inner")){inner=Integer.parseInt(b);}
-            else if(a.equals("outer")){outer=Integer.parseInt(b);}
+            if(a.equals("inner")){inner=Parse.parseIntKMG(b);}
+            else if(a.equals("outer")){outer=Parse.parseIntKMG(b);}
             else if(a.equals("maxtier") || a.equals("mt")){maxTier=Integer.parseInt(b);}
             else if(a.equals("bits")){bits=Integer.parseInt(b);}
             else if(a.equals("hbits")){hbits=Integer.parseInt(b);}
@@ -35,6 +36,7 @@ public class MantissaCompare2 {
                 if(b.equals("all")){sampleMode=SAMPLE_ALL;}
                 else if(b.equals("entry")){sampleMode=SAMPLE_ENTRY;}
                 else if(b.equals("both")){sampleMode=SAMPLE_BOTH;}
+                else{throw new RuntimeException("Unknown sample mode '"+b+"'");}
             }
             else if(a.equals("mode")){
                 if(b.equals("mantissa")){mode=MODE_MANTISSA;}
@@ -50,7 +52,9 @@ public class MantissaCompare2 {
                 else if(b.equals("median3") || b.equals("med3")){mode=MODE_MEDIAN3;}
                 else if(b.equals("minplus1") || b.equals("mp1")){mode=MODE_MINPLUS1;}
                 else if(b.equals("ctll") || b.equals("compressedtier") || b.equals("manttier")){mode=MODE_CTLL;}
+                else{throw new RuntimeException("Unknown mode '"+b+"'");}
             }
+            else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
         }
         if(mode==MODE_HISTMANT){
             if(hbits<0){hbits=2;}

@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import parse.Parse;
+
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import rand.FastRandomXoshiro;
@@ -876,9 +878,9 @@ public class DLL4WordSimulator implements Accumulator<DLL4WordSimulator.SimThrea
 
 		for(String arg : args){
 			String[] kv=arg.split("=", 2);
-			if(kv.length!=2){continue;}
+			if(kv.length!=2){throw new RuntimeException("Unknown parameter '"+arg+"'");}
 			switch(kv[0]){
-				case "iters":     iters=Integer.parseInt(kv[1]);   break;
+				case "iters":     iters=Parse.parseIntKMG(kv[1]);   break;
 				case "threads":   threads=Integer.parseInt(kv[1]); break;
 				case "maxTier":   maxTier=Integer.parseInt(kv[1]); break;
 				case "words":     words=Integer.parseInt(kv[1]);   break;
@@ -887,7 +889,7 @@ public class DLL4WordSimulator implements Accumulator<DLL4WordSimulator.SimThrea
 				case "avg":       avgMode=parseAvgMode(kv[1]);     break;
 				case "geoweight": geoW=Double.parseDouble(kv[1]);  break;
 				case "harmweight":harmW=Double.parseDouble(kv[1]); break;
-				default: System.err.println("Unknown arg: "+arg);
+				default: throw new RuntimeException("Unknown parameter '"+arg+"'");
 			}
 		}
 

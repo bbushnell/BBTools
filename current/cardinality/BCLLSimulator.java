@@ -1,6 +1,7 @@
 package cardinality;
 
 import rand.FastRandomXoshiro;
+import parse.Parse;
 
 /**
  * BCLL (BankedCeilingLogLog) Simulator.
@@ -364,13 +365,13 @@ public class BCLLSimulator {
 
 		for (String arg : args) {
 			String[] kv = arg.split("=", 2);
-			if (kv.length != 2) continue;
+			if (kv.length != 2) throw new RuntimeException("Unknown parameter '" + arg + "'");
 			switch (kv[0]) {
-				case "iters":   iters   = Integer.parseInt(kv[1]);  break;
-				case "threads": threads = Integer.parseInt(kv[1]);  break;
-				case "maxTier": maxTier = Integer.parseInt(kv[1]);  break;
-				case "minObs":  minObs  = Long.parseLong(kv[1]);    break;
-				default: System.err.println("Unknown arg: " + arg);
+				case "iters":   iters   = Parse.parseIntKMG(kv[1]);  break;
+				case "threads": threads = Integer.parseInt(kv[1]);   break;
+				case "maxTier": maxTier = Integer.parseInt(kv[1]);   break;
+				case "minObs":  minObs  = Parse.parseKMG(kv[1]);     break;
+				default: throw new RuntimeException("Unknown parameter '" + arg + "'");
 			}
 		}
 
