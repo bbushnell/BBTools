@@ -24,6 +24,9 @@ import shared.Tools;
  */
 public final class CardStats extends AbstractCardStats {
 
+	/** Log-once flag for resolved terminal CF values (per JVM). */
+	private static boolean loggedTerminalCF=false;
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Construction          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -51,7 +54,22 @@ public final class CardStats extends AbstractCardStats {
 			final double mantissaOff_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			Integer.MAX_VALUE, null);
+			Integer.MAX_VALUE, null, 1f, 1f);
+	}
+
+	/**
+	 * 12-base constructor plus per-class terminal Mean bias correction.
+	 * Used by trackers that override terminalMeanCF()/terminalMeanPlusCF().
+	 */
+	CardStats(final char[] buckets_, final int[] counts_,
+			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
+			final int numBuckets_, final long microIndex_, final long added_,
+			final float[][] cfMatrix_, final int cfBuckets_,
+			final double mantissaOff_,
+			final float terminalMeanCF_, final float terminalMeanPlusCF_){
+		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
+			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
+			Integer.MAX_VALUE, null, terminalMeanCF_, terminalMeanPlusCF_);
 	}
 
 	/**
@@ -65,10 +83,37 @@ public final class CardStats extends AbstractCardStats {
 			final float[][] cfMatrix_, final int cfBuckets_,
 			final double mantissaOff_,
 			final int nativeRelTiers_, final double[] tierErrCoeffs_){
+		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
+			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
+			nativeRelTiers_, tierErrCoeffs_, 1f, 1f);
+	}
+
+	/**
+	 * Full constructor with per-class terminal Mean bias correction.
+	 * @param terminalMeanCF_      asymptotic meanRaw/trueCard ratio for plain Mean (1 = no correction)
+	 * @param terminalMeanPlusCF_  asymptotic ratio for Mean+H (1 = no correction; only matters if histBits>0)
+	 */
+	CardStats(final char[] buckets_, final int[] counts_,
+			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
+			final int numBuckets_, final long microIndex_, final long added_,
+			final float[][] cfMatrix_, final int cfBuckets_,
+			final double mantissaOff_,
+			final int nativeRelTiers_, final double[] tierErrCoeffs_,
+			final float terminalMeanCF_, final float terminalMeanPlusCF_){
 
 		assert(counts_!=null && counts_.length==66);
 		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null) :
 			"Per-bucket array required when sub-NLZ bits are present";
+
+		// Override resolution: static AbstractCardStats.OVERRIDE_* wins when > 0.
+		// Set tmcf=1 tmpcf=1 on the command line during preliminary CF generation
+		// so per-class bias corrections are disabled and raw ratios can be measured.
+		final float tmCF=(OVERRIDE_TERMINAL_MEAN_CF>0 ? OVERRIDE_TERMINAL_MEAN_CF : terminalMeanCF_);
+		final float tmPlusCF=(OVERRIDE_TERMINAL_MEAN_PLUS_CF>0 ? OVERRIDE_TERMINAL_MEAN_PLUS_CF : terminalMeanPlusCF_);
+		if(!loggedTerminalCF){
+			loggedTerminalCF=true;
+			System.err.println("terminalMeanCF="+tmCF+" terminalMeanPlusCF="+tmPlusCF);
+		}
 
 		/*--- Store configuration ---*/
 		numBuckets=numBuckets_;
@@ -150,7 +195,9 @@ public final class CardStats extends AbstractCardStats {
 		hllHistoryF=hllHistory(hllSumFilled, V, numBuckets, alpha_m);
 
 		// 7. Mean, GMean, HMean — raw (pre-CF) estimates from counts-derived sums
-		meanRawF=meanEstimate(difSum, filled, numBuckets);
+		//    Mean gets the class-specific terminal bias divided out so downstream
+		//    CF tables can converge to 1.0 at high cardinality.
+		meanRawF=meanEstimate(difSum, filled, numBuckets)/tmCF;
 		gmeanRawF=gmeanEstimate(gSum, filled, numBuckets);
 		hmeanRawF=hmeanEstimate(hllSumFilled, filled, alpha_m);
 
@@ -185,8 +232,11 @@ public final class CardStats extends AbstractCardStats {
 		if(histBits_>0 && buckets_!=null){
 			hasHistCorr=true;
 			final int histMask=(1<<histBits_)-1;
-			final double termCF=StateTable.terminalCF(histBits_, 0);
-			final double invTermCF=1.0/termCF;
+			// Use per-class terminalMeanPlusCF_ (set by the tracker subclass) to
+			// fold the Mean+H asymptotic bias into tierMult. The old global
+			// StateTable.terminalCF(histBits_, 0) lookup is replaced by this
+			// class-specific value so regenerated CF tables converge to 1.0.
+			final double invTermCF=1.0/tmPlusCF;
 
 			// Precompute tierMult for all (nlzBin, histPattern) combos to avoid per-bucket Math.pow
 			final int maxNlzBin=histBits_+2; // nlzBin is clamped to histBits_+1
@@ -354,7 +404,7 @@ public final class CardStats extends AbstractCardStats {
 			final int divM=Math.max(filledM, 1);
 			final double meanM=difSumM/divM;
 			final float correctionM=(filledM+numBuckets)/(float)(numBuckets+numBuckets);
-			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM;
+			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM/tmCF;
 			meanMCF_=meanMRawF*cardCF(meanMRawF, CorrectionFactor.MEANM, keyScale);
 			final double gmeanM=Math.exp(gSumM/divM);
 			gmeanMRawF=2*(Long.MAX_VALUE/gmeanM)*divM*correctionM;

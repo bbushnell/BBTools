@@ -797,6 +797,25 @@ public abstract class CardinalityTracker implements Drivable {
 	 */
 	public abstract float[] compensationFactorLogBucketsArray();
 
+	/**
+	 * Terminal correction for the plain Mean estimator.
+	 * At high cardinality the uncorrected Mean converges to some class-specific
+	 * ratio of the true cardinality; this method returns that ratio so it can
+	 * be divided out before CF-table lookup. Default 1.0 leaves Mean unchanged.
+	 * Override in subclasses with the empirically measured asymptotic bias
+	 * (average CF_Mean across the top octave of a preliminary CF table).
+	 * When the override matches reality, regenerated CF tables converge to 1.0.
+	 */
+	public float terminalMeanCF(){return 1f;}
+
+	/**
+	 * Terminal correction for the history-corrected Mean+H estimator.
+	 * Only meaningful for classes with history bits. Default 1.0 leaves Mean+H
+	 * unchanged. Override in UDLL6 and other history classes with the
+	 * empirically measured asymptotic bias of Mean+H.
+	 */
+	public float terminalMeanPlusCF(){return 1f;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Drivable Methods       ----------------*/
 	/*--------------------------------------------------------------*/

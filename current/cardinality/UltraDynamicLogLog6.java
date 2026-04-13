@@ -242,7 +242,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		}
 		nlzCounts[0]=buckets-filledCount;
 		return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	/** Public accessor for register value. */
@@ -293,12 +294,6 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
-	/** Terminal CF for mean estimator with 2-bit history.
-	 *  At high cardinality, the uncorrected mean converges to trueCard/MEAN_TERMINAL_CF.
-	 *  Folded into tierMult during summarize() so the external CF table converges to ~1.0.
-	 *  Will be refined once UDLL6-specific CF tables are generated. */
-	public static double MEAN_TERMINAL_CF=0.929224472;
-
 	/** Default resource file for UDLL6 correction factors.
 	 *  Placeholder: uses DLL4's table until a UDLL6-specific table is generated. */
 	public static final String CF_FILE="?cardinalityCorrectionUDLL6.tsv.gz";
@@ -314,4 +309,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public static void setCFMatrix(float[][] matrix, int buckets){
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio.
+	 *  UDLL6 has 2-bit history, so Mean+H is meaningful here. */
+	@Override public float terminalMeanPlusCF(){return 1f;}
 }

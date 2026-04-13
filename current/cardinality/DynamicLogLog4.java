@@ -108,7 +108,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		lastCorrNlz=nlzCounts.clone();
 		// DLL4 is counts-only: no history, luck, or mantissa bits. buckets=null.
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-				effectiveBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				effectiveBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	/**
@@ -616,5 +617,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		System.err.println("Loaded DLL4 word table: "+WORD_TABLE_TIERS+" tiers, "
 			+loaded+" entries, "+WORD_NUM_CANONICAL+" canonical states");
 	}
+
+	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+	@Override public float terminalMeanCF(){return 1f;}
 
 }

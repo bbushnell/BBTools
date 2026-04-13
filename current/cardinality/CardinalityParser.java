@@ -37,6 +37,8 @@ public class CardinalityParser {
 		else if(a.equals("histlc") || a.equals("historylc")){CardinalityTracker.USE_HISTORY_FOR_LC=Parse.parseBoolean(b);}
 		else if(a.equals("lchisthybrid") || a.equals("lchybrid") || a.equals("usesbs") || a.equals("sbsinhybrid")){CardinalityTracker.USE_SBS_IN_HYBRID=Parse.parseBoolean(b);}
 		else if(a.equals("hllhistcf") || a.equals("histcf")){CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);}
+		else if(a.equals("tmcf") || a.equals("terminalmeancf")){AbstractCardStats.OVERRIDE_TERMINAL_MEAN_CF=Float.parseFloat(b);}
+		else if(a.equals("tmpcf") || a.equals("terminalmeanpluscf")){AbstractCardStats.OVERRIDE_TERMINAL_MEAN_PLUS_CF=Float.parseFloat(b);}
 		else if(a.equals("microlc")){CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b); AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);}
 		else if(a.equals("usemicro") || a.equals("usemicroindex")){AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);}
 

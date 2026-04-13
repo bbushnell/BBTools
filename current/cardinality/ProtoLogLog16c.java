@@ -349,7 +349,8 @@ public final class ProtoLogLog16c extends CardinalityTracker {
         lastRawNlz=nlzCounts;
         final double mantOff=hasMant ? 0.5 : 0;
         return new CardStats(packedBuckets, nlzCounts, 0, csHistBits, 0, csMantBits,
-                buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, mantOff);
+                buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, mantOff,
+                terminalMeanCF(), terminalMeanPlusCF());
     }
 
     @Override
@@ -434,4 +435,10 @@ public final class ProtoLogLog16c extends CardinalityTracker {
     public static void setCFMatrix(float[][] matrix, int buckets){
         CF_MATRIX=matrix; CF_BUCKETS=buckets;
     }
+
+    /** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
+    @Override public float terminalMeanCF(){return 1f;}
+
+    /** Stub: PLL16c has history bits when configured. */
+    @Override public float terminalMeanPlusCF(){return 1f;}
 }
