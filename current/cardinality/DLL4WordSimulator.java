@@ -5,6 +5,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import parse.Parse;
+import parse.PreParser;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -867,6 +868,7 @@ public class DLL4WordSimulator implements Accumulator<DLL4WordSimulator.SimThrea
 	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
+		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
 		int iters=10000;
 		int threads=8;
 		int maxTier=12;

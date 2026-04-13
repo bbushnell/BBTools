@@ -2,6 +2,7 @@ package cardinality;
 
 import rand.FastRandomXoshiro;
 import parse.Parse;
+import parse.PreParser;
 
 /**
  * BCLL (BankedCeilingLogLog) Simulator.
@@ -358,6 +359,7 @@ public class BCLLSimulator {
 	}
 
 	public static void main(String[] args) throws InterruptedException {
+		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
 		int  iters   = 10000;
 		int  threads = 8;
 		int  maxTier = 12;
