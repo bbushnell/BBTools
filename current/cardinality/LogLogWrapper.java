@@ -157,10 +157,7 @@ class LogLogWrapper {
 			}else if(a.equals("promotethreshold") || a.equals("pt")){
 				final int pt=Integer.parseInt(b);
 				DynamicLogLog3.PROMOTE_THRESHOLD=pt;
-				DynamicLogLog3v2.PROMOTE_THRESHOLD=pt;
 				DynamicLogLog4.PROMOTE_THRESHOLD=pt;
-			}else if(a.equals("promotefrac") || a.equals("pf")){
-				DynamicLogLog3v2.PROMOTE_FRAC=Float.parseFloat(b);
 			}else if(a.equals("frozenhistory") || a.equals("frozen")){
 //				UltraLogLog8.FROZEN_HISTORY=Parse.parseBoolean(b);
 			}else if(a.equals("atomic")){

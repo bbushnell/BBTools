@@ -3,7 +3,7 @@ package cardinality;
 import shared.Tools;
 
 /**
- * Single-bucket simulation for ProtoLogLog16.
+ * Single-bucket simulation for ProtoLogLog16c.
  * Measures avg cardinality per (tier, extra_state) for any mode/combination.
  * Supports up to 10 extra bits = 1024 states.
  *
@@ -27,47 +27,47 @@ public class ProtoTierStats {
 			else if(a.equals("outer")){outer=Integer.parseInt(b);}
 			else if(a.equals("maxtier") || a.equals("mt")){maxTier=Integer.parseInt(b);}
 			else if(a.equals("mode")){
-				ProtoLogLog16.MODE=0;
+				ProtoLogLog16c.MODE=0;
 				for(String m : b.split("\\+")){
-					if(m.equals("mantissa")){ProtoLogLog16.MODE|=ProtoLogLog16.MODE_MANTISSA;}
-					else if(m.equals("nlz2")){ProtoLogLog16.MODE|=ProtoLogLog16.MODE_NLZ2;}
-					else if(m.equals("history")){ProtoLogLog16.MODE|=ProtoLogLog16.MODE_HISTORY;}
-					else if(m.equals("luck")){ProtoLogLog16.MODE|=ProtoLogLog16.MODE_LUCK;}
-					else if(m.equals("andtissa")){ProtoLogLog16.MODE|=ProtoLogLog16.MODE_ANDTISSA;}
-					else if(m.equals("none")){ProtoLogLog16.MODE=0;}
+					if(m.equals("mantissa")){ProtoLogLog16c.MODE|=ProtoLogLog16c.MODE_MANTISSA;}
+					else if(m.equals("nlz2")){ProtoLogLog16c.MODE|=ProtoLogLog16c.MODE_NLZ2;}
+					else if(m.equals("history")){ProtoLogLog16c.MODE|=ProtoLogLog16c.MODE_HISTORY;}
+					else if(m.equals("luck")){ProtoLogLog16c.MODE|=ProtoLogLog16c.MODE_LUCK;}
+					else if(m.equals("andtissa")){ProtoLogLog16c.MODE|=ProtoLogLog16c.MODE_ANDTISSA;}
+					else if(m.equals("none")){ProtoLogLog16c.MODE=0;}
 				}
 			}
-			else if(a.equals("mbits")){ProtoLogLog16.MANTISSA_BITS=Integer.parseInt(b);}
-			else if(a.equals("nbits")){ProtoLogLog16.NLZ2_BITS=Integer.parseInt(b);}
-			else if(a.equals("hbits")){ProtoLogLog16.HISTORY_BITS=Integer.parseInt(b);}
-			else if(a.equals("lbits")){ProtoLogLog16.LUCK_BITS=Integer.parseInt(b);}
-			else if(a.equals("abits")){ProtoLogLog16.ANDTISSA_BITS=Integer.parseInt(b);}
-			else if(a.equals("nlzbits")){ProtoLogLog16.NLZ_BITS=Integer.parseInt(b);}
+			else if(a.equals("mbits")){ProtoLogLog16c.MANTISSA_BITS=Integer.parseInt(b);}
+			else if(a.equals("nbits")){ProtoLogLog16c.NLZ2_BITS=Integer.parseInt(b);}
+			else if(a.equals("hbits")){ProtoLogLog16c.HISTORY_BITS=Integer.parseInt(b);}
+			else if(a.equals("lbits")){ProtoLogLog16c.LUCK_BITS=Integer.parseInt(b);}
+			else if(a.equals("abits")){ProtoLogLog16c.ANDTISSA_BITS=Integer.parseInt(b);}
+			else if(a.equals("nlzbits")){ProtoLogLog16c.NLZ_BITS=Integer.parseInt(b);}
 		}
 
 		// Calculate total extra bits used
 		int totalExtra=0;
-		if((ProtoLogLog16.MODE & ProtoLogLog16.MODE_MANTISSA)!=0) totalExtra+=ProtoLogLog16.MANTISSA_BITS;
-		if((ProtoLogLog16.MODE & ProtoLogLog16.MODE_ANDTISSA)!=0) totalExtra+=ProtoLogLog16.ANDTISSA_BITS;
-		if((ProtoLogLog16.MODE & ProtoLogLog16.MODE_NLZ2)!=0) totalExtra+=ProtoLogLog16.NLZ2_BITS;
-		if((ProtoLogLog16.MODE & ProtoLogLog16.MODE_HISTORY)!=0) totalExtra+=ProtoLogLog16.HISTORY_BITS;
-		if((ProtoLogLog16.MODE & ProtoLogLog16.MODE_LUCK)!=0) totalExtra+=ProtoLogLog16.LUCK_BITS;
+		if((ProtoLogLog16c.MODE & ProtoLogLog16c.MODE_MANTISSA)!=0) totalExtra+=ProtoLogLog16c.MANTISSA_BITS;
+		if((ProtoLogLog16c.MODE & ProtoLogLog16c.MODE_ANDTISSA)!=0) totalExtra+=ProtoLogLog16c.ANDTISSA_BITS;
+		if((ProtoLogLog16c.MODE & ProtoLogLog16c.MODE_NLZ2)!=0) totalExtra+=ProtoLogLog16c.NLZ2_BITS;
+		if((ProtoLogLog16c.MODE & ProtoLogLog16c.MODE_HISTORY)!=0) totalExtra+=ProtoLogLog16c.HISTORY_BITS;
+		if((ProtoLogLog16c.MODE & ProtoLogLog16c.MODE_LUCK)!=0) totalExtra+=ProtoLogLog16c.LUCK_BITS;
 		final int numStates=1<<totalExtra;
 
 		System.err.println("ProtoTierStats: inner="+inner+" outer="+outer+" maxtier="+maxTier
-			+" mode="+ProtoLogLog16.MODE+" extraBits="+totalExtra+" states="+numStates);
+			+" mode="+ProtoLogLog16c.MODE+" extraBits="+totalExtra+" states="+numStates);
 		final long t0=System.nanoTime();
 
-		// Single-bucket simulation using ProtoLogLog16's hashAndStore
+		// Single-bucket simulation using ProtoLogLog16c's hashAndStore
 		final long[][] count=new long[64][numStates];
 		final double[][] sum=new double[64][numStates];
 
-		final int nlzShift=16-ProtoLogLog16.NLZ_BITS;
+		final int nlzShift=16-ProtoLogLog16c.NLZ_BITS;
 		final int extraMask=(1<<nlzShift)-1;
 
 		for(int trial=0; trial<outer; trial++){
 			long seed=Tools.hash64shift((long)trial*1234567891L+54321);
-			ProtoLogLog16 proto=new ProtoLogLog16(4, 2, -1, 0); // 4 buckets (min valid)
+			ProtoLogLog16c proto=new ProtoLogLog16c(4, 2, -1, 0); // 4 buckets (min valid)
 
 			for(int card=1; card<=inner; card++){
 				long val=Tools.hash64shift(seed+card);

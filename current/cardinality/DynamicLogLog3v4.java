@@ -427,7 +427,7 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 	 * Reduces tier-7+ overflow pollution in DLL3; requires new CF table generation when changed. */
 	public static boolean EARLY_PROMOTE=true;
 	/** Fraction of buckets for social promotion threshold. 0 = classic (promote when all full). */
-	public static float PROMOTE_FRAC=0;
+	public static float PROMOTE_FRAC=0.008f;
 	/** When true, corrects the systematic underestimate caused by 3-bit relNlz overflow
 	 *  clamping at tier 7+. Uses cumulative-space Poisson correction with per-DDL stored
 	 *  overflow estimates. Each tier is corrected independently in reverse-cumulative space. */

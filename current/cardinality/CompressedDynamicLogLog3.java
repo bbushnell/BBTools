@@ -25,17 +25,17 @@ import shared.Tools;
  * @author Brian Bushnell, Chloe
  * @date April 2026
  */
-public final class DualHashDynamicLogLog3 extends CardinalityTracker {
+public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	DualHashDynamicLogLog3(){
+	CompressedDynamicLogLog3(){
 		this(2048, 31, -1, 0);
 	}
 
-	DualHashDynamicLogLog3(parse.Parser p){
+	CompressedDynamicLogLog3(parse.Parser p){
 		super(p);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
@@ -43,7 +43,7 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 		storedOverflow=new int[64];
 	}
 
-	DualHashDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
+	CompressedDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
 		minZeroCount=buckets;
@@ -52,7 +52,7 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	@Override
-	public DualHashDynamicLogLog3 copy(){return new DualHashDynamicLogLog3(buckets, k, -1, minProb);}
+	public CompressedDynamicLogLog3 copy(){return new CompressedDynamicLogLog3(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
@@ -147,10 +147,10 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((DualHashDynamicLogLog3)log);
+		add((CompressedDynamicLogLog3)log);
 	}
 
-	public void add(DualHashDynamicLogLog3 log){
+	public void add(CompressedDynamicLogLog3 log){
 		added+=log.added;
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
@@ -209,8 +209,9 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 			// to give each half-NLZ step exactly sqrt(2) probability ratio.
 			// Threshold: (2-sqrt(2)) * 65536 = 38370 (0.58579...)
 			final int mantissa;
+			
 			if(rawNlz>=47){
-				mantissa=0; // not enough mantissa bits; treat as lower half
+				mantissa=(int)((key<<(rawNlz-47))&0xFFFF);//Use remaining bits
 			}else{
 				final int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
 				mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
@@ -344,9 +345,9 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 
 	/** When true, use dual-hash max (4x per tier).
 	 *  When false, use single-hash with mantissa bit (2*sqrt(2) per tier). */
-	public static boolean DUAL=true;
+	public static final boolean DUAL=false;
 
-	public static final String CF_FILE="?cardinalityCorrectionDHDLL3.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionCDLL3.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null; // No CF table yet
 	public static float[][] initializeCF(int buckets){
@@ -354,7 +355,7 @@ public final class DualHashDynamicLogLog3 extends CardinalityTracker {
 		try{
 			return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 		}catch(RuntimeException e){
-			System.err.println("DHDLL3: No CF table found (expected for new class); running without CF.");
+			System.err.println("CDLL3: No CF table found (expected for new class); running without CF.");
 			return CF_MATRIX=null;
 		}
 	}

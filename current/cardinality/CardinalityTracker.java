@@ -72,8 +72,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog8v2();
 		}else if("CDLL4".equalsIgnoreCase(type) || "CompressedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog4();
-		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type)){
-			return new DualHashDynamicLogLog3();
+		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new CompressedDynamicLogLog3();
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
 			return new DualHashDynamicLogLog4();
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
@@ -82,10 +82,6 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3();
-		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v2();
-		}else if("DLL3v3".equalsIgnoreCase(type) || "DynamicLogLog3v3".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v3();
 		}else if("DLL3v4".equalsIgnoreCase(type) || "DynamicLogLog3v4".equalsIgnoreCase(type)){
 			return new DynamicLogLog3v4();
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
@@ -98,20 +94,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6();
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3();
-		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
-			return new UltraLogLog8();
-		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
-			return new ProtoLogLog16();
-		}else if("PLL16b".equalsIgnoreCase(type)){
-			return new ProtoLogLog16b();
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c();
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
 			return new ErtlULLb();
-		}else if("ULLc".equalsIgnoreCase(type)){
-			return new ULLc();
-		}else if("ULLd".equalsIgnoreCase(type)){
-			return new ULLd();
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m();
 		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
@@ -173,8 +159,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog8v2(p);
 		}else if("CDLL4".equalsIgnoreCase(type) || "CompressedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog4(p);
-		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type)){
-			return new DualHashDynamicLogLog3(p);
+		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new CompressedDynamicLogLog3(p);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
 			return new DualHashDynamicLogLog4(p);
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
@@ -183,10 +169,6 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3(p);
-		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v2(p);
-		}else if("DLL3v3".equalsIgnoreCase(type) || "DynamicLogLog3v3".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v3(p);
 		}else if("DLL3v4".equalsIgnoreCase(type) || "DynamicLogLog3v4".equalsIgnoreCase(type)){
 			return new DynamicLogLog3v4(p);
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
@@ -199,20 +181,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(p);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(p);
-		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
-			return new UltraLogLog8(p);
-		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
-			return new ProtoLogLog16(p);
-		}else if("PLL16b".equalsIgnoreCase(type)){
-			return new ProtoLogLog16b(p);
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c(p);
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
 			return new ErtlULLb(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
-		}else if("ULLc".equalsIgnoreCase(type)){
-			return new ULLc(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
-		}else if("ULLd".equalsIgnoreCase(type)){
-			return new ULLd(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
@@ -274,8 +246,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new DynamicDemiLog8v2(buckets_, k_, seed, minProb_);
 		}else if("CDLL4".equalsIgnoreCase(type) || "CompressedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog4(buckets_, k_, seed, minProb_);
-		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type)){
-			return new DualHashDynamicLogLog3(buckets_, k_, seed, minProb_);
+		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new CompressedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
 			return new DualHashDynamicLogLog4(buckets_, k_, seed, minProb_);
 		}else if("DLL4".equalsIgnoreCase(type) || "DynamicLogLog4".equalsIgnoreCase(type) ||
@@ -284,10 +256,6 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("DLL3".equalsIgnoreCase(type) || "DynamicLogLog3".equalsIgnoreCase(type) ||
 			"DDL3".equalsIgnoreCase(type) || "DynamicDemiLog3".equalsIgnoreCase(type)){
 			return new DynamicLogLog3(buckets_, k_, seed, minProb_);
-		}else if("DLL3v2".equalsIgnoreCase(type) || "DynamicLogLog3v2".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v2(buckets_, k_, seed, minProb_);
-		}else if("DLL3v3".equalsIgnoreCase(type) || "DynamicLogLog3v3".equalsIgnoreCase(type)){
-			return new DynamicLogLog3v3(buckets_, k_, seed, minProb_);
 		}else if("DLL3v4".equalsIgnoreCase(type) || "DynamicLogLog3v4".equalsIgnoreCase(type)){
 			return new DynamicLogLog3v4(buckets_, k_, seed, minProb_);
 		}else if("DLL2".equalsIgnoreCase(type) || "DynamicLogLog2".equalsIgnoreCase(type)){
@@ -300,20 +268,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
-		}else if("ULL8".equalsIgnoreCase(type) || "UltraLogLog8".equalsIgnoreCase(type)){
-			return new UltraLogLog8(buckets_, k_, seed, minProb_);
-		}else if("PLL16".equalsIgnoreCase(type) || "ProtoLogLog16".equalsIgnoreCase(type)){
-			return new ProtoLogLog16(buckets_, k_, seed, minProb_);
-		}else if("PLL16b".equalsIgnoreCase(type)){
-			return new ProtoLogLog16b(buckets_, k_, seed, minProb_);
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c(buckets_, k_, seed, minProb_);
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
 			return new ErtlULLb(buckets_, k_, seed, minProb_);
-		}else if("ULLc".equalsIgnoreCase(type)){
-			return new ULLc(buckets_, k_, seed, minProb_);
-		}else if("ULLd".equalsIgnoreCase(type)){
-			return new ULLd(buckets_, k_, seed, minProb_);
 		}else if("DLL4m".equalsIgnoreCase(type) || "DynamicLogLog4m".equalsIgnoreCase(type)){
 			return new DynamicLogLog4m(buckets_, k_, seed, minProb_);
 		}else if("HTB".equalsIgnoreCase(type) || "HyperTwoBits".equalsIgnoreCase(type)){
