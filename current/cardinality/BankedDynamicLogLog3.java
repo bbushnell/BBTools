@@ -484,12 +484,12 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	/** Per-tier bias constants for IO mode. Indexed by (tier-IO_TIER_MIN)/IO_TIER_STEP.
 	 *  Can be overridden at runtime via iobfile= flag. */
 	private static double[] IO_BIAS={
-		-0.002695, -0.004993, -0.006832, -0.007470, -0.007544, -0.007553, -0.007550, -0.007533, // tiers -8..-4.5
-		-0.007534, -0.007564, -0.007653, -0.007815, -0.008063, -0.008445, -0.009042, -0.009977, // tiers -4..-0.5
-		-0.011512, -0.014228, -0.018760, -0.024301, -0.030535, -0.036450, -0.042448, -0.047506, // tiers 0..3.5
-		-0.053428, -0.058121, -0.063517, -0.067957, -0.071738, -0.075497, -0.076537, -0.078832, // tiers 4..7.5
-		-0.077179, -0.078878, -0.076185, -0.078565, -0.075195, -0.078381, -0.074420, -0.078276, // tiers 8..11.5
-		-0.073731                                                                                 // tier 12
+		-0.002696, -0.004979, -0.006794, -0.007470, -0.007553, -0.007582, -0.007567, -0.007543, // tiers -8..-4.5
+		-0.007556, -0.007578, -0.007660, -0.007811, -0.008060, -0.008445, -0.009044, -0.009981, // tiers -4..-0.5
+		-0.011518, -0.014230, -0.018743, -0.024282, -0.030522, -0.036442, -0.042419, -0.047468, // tiers 0..3.5
+		-0.053413, -0.058115, -0.063512, -0.067936, -0.071727, -0.075495, -0.076534, -0.078819, // tiers 4..7.5
+		-0.077188, -0.078890, -0.076174, -0.078573, -0.075200, -0.078367, -0.074412, -0.078283, // tiers 8..11.5
+		-0.073747                                                                                 // tier 12
 	};
 	static double IO_TIER_STEP=0.5;
 	static final int IO_TIER_MIN=-8, IO_TIER_MAX=12;
@@ -549,6 +549,6 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 0.718159f;}
+	@Override public float terminalMeanCF(){return 0.691154f;}
 
 }

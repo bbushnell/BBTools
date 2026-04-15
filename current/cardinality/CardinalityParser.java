@@ -263,17 +263,17 @@ public class CardinalityParser {
 			return null; // No CF table yet for compressed/dual-hash variants
 		}else if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
-			else if(!DynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3_iof.tsv.gz";}
-			else{return DynamicLogLog3.CF_FILE;}
+			else if(!DynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3_cof.tsv.gz";}
+			else{return "?cardinalityCorrectionDLL3_cot.tsv.gz";}
 		}else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){
 			return DynamicLogLog4.CF_FILE;
 		}else if(loglogtype.equals("dll2")){
 			if(DynamicLogLog2.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL2_iot.tsv.gz";}
 			else{return "?cardinalityCorrectionDLL2_iof.tsv.gz";}
 		}else if(loglogtype.equals("dll3v4")){
-			if(DynamicLogLog3v4.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
-			else if(!DynamicLogLog3v4.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3_iof.tsv.gz";}
-			else{return DynamicLogLog3v4.CF_FILE;}
+			if(DynamicLogLog3v4.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3v4_iot.tsv.gz";}
+			else if(!DynamicLogLog3v4.CORRECT_OVERFLOW){return "?cardinalityCorrectionDLL3v4_cof.tsv.gz";}
+			else{return "?cardinalityCorrectionDLL3v4_cot.tsv.gz";}
 		}else if(loglogtype.equals("dll3v2") || loglogtype.equals("dll3v3")){
 			return DynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bdll3")){
