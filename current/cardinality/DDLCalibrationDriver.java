@@ -182,6 +182,10 @@ public class DDLCalibrationDriver {
 				DynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
 				CompressedDynamicLogLog3.EARLY_PROMOTE=Parse.parseBoolean(b);
 				DualHashDynamicLogLog4.EARLY_PROMOTE=Parse.parseBoolean(b);
+			}else if(a.equals("promotefrac") || a.equals("pf")){
+				final float pf=Float.parseFloat(b);
+				BankedDynamicLogLog3.PROMOTE_FRAC=pf;
+				BankedDynamicLogLog5.PROMOTE_FRAC=pf;
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
 		}
@@ -477,7 +481,7 @@ public class DDLCalibrationDriver {
 	static final int WORDEST_RAW_IDX=17+AbstractCardStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
 
 	static void v3ColsForType(String type){
-		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c") || type.equals("ttll") || type.equals("bdll5");
+		final boolean hasHistory=type.equals("udll6") || type.equals("pll16c") || type.equals("ttll") || type.equals("bdll4") || type.equals("bdll5") || type.equals("cdll5");
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");

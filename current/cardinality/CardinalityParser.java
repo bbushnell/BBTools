@@ -78,7 +78,7 @@ public class CardinalityParser {
 			DynamicLogLog4.PROMOTE_THRESHOLD=Integer.parseInt(b);
 			DynamicLogLog3v4.PROMOTE_THRESHOLD=Integer.parseInt(b);
 		}
-		else if(a.equals("promotefrac") || a.equals("pf")){DynamicLogLog3v4.PROMOTE_FRAC=BankedDynamicLogLog3.PROMOTE_FRAC=Float.parseFloat(b);}
+		else if(a.equals("promotefrac") || a.equals("pf")){DynamicLogLog3v4.PROMOTE_FRAC=BankedDynamicLogLog3.PROMOTE_FRAC=BankedDynamicLogLog4.PROMOTE_FRAC=BankedDynamicLogLog5.PROMOTE_FRAC=Float.parseFloat(b);}
 		else if(a.equals("overflowscale") || a.equals("os")){
 			DynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
 			BankedDynamicLogLog3.OVERFLOW_SCALE=Double.parseDouble(b);
@@ -129,18 +129,20 @@ public class CardinalityParser {
 			final boolean x=Parse.parseBoolean(b);
 			DynamicLogLog3.CORRECT_OVERFLOW=x;
 			BankedDynamicLogLog3.CORRECT_OVERFLOW=x;
+			BankedDynamicLogLog4.CORRECT_OVERFLOW=x;
 			CompressedDynamicLogLog3.CORRECT_OVERFLOW=x;
 			DynamicLogLog3v4.CORRECT_OVERFLOW=x;
-			if(x){DynamicLogLog3.IGNORE_OVERFLOW=DynamicLogLog2.IGNORE_OVERFLOW=BankedDynamicLogLog3.IGNORE_OVERFLOW=DynamicLogLog3v4.IGNORE_OVERFLOW=false;}
+			if(x){DynamicLogLog3.IGNORE_OVERFLOW=DynamicLogLog2.IGNORE_OVERFLOW=BankedDynamicLogLog3.IGNORE_OVERFLOW=BankedDynamicLogLog4.IGNORE_OVERFLOW=DynamicLogLog3v4.IGNORE_OVERFLOW=false;}
 		}
 		else if(a.equals("ignoreoverflow") || a.equals("io")){
 			final boolean x=Parse.parseBoolean(b);
 			DynamicLogLog3.IGNORE_OVERFLOW=x;
 			DynamicLogLog2.IGNORE_OVERFLOW=x;
 			BankedDynamicLogLog3.IGNORE_OVERFLOW=x;
+			BankedDynamicLogLog4.IGNORE_OVERFLOW=x;
 			CompressedDynamicLogLog3.IGNORE_OVERFLOW=x;
 			DynamicLogLog3v4.IGNORE_OVERFLOW=x;
-			if(x){DynamicLogLog3.CORRECT_OVERFLOW=BankedDynamicLogLog3.CORRECT_OVERFLOW=DynamicLogLog3v4.CORRECT_OVERFLOW=false;}
+			if(x){DynamicLogLog3.CORRECT_OVERFLOW=BankedDynamicLogLog3.CORRECT_OVERFLOW=BankedDynamicLogLog4.CORRECT_OVERFLOW=DynamicLogLog3v4.CORRECT_OVERFLOW=false;}
 		}
 		else if(a.equals("iobias") || a.equals("iob")){
 			final boolean x=Parse.parseBoolean(b);
@@ -204,6 +206,7 @@ public class CardinalityParser {
 		// Per-class Mean CF formula coefficients
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
 		if(loglogtype.equals("cdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5; CorrectionFactor.sbsFile=CompressedDynamicLogLog4.SBS_FILE;}
+		else if(loglogtype.equals("cdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5; CorrectionFactor.sbsFile=CompressedDynamicLogLog5.SBS_FILE;}
 		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
@@ -220,7 +223,8 @@ public class CardinalityParser {
 			if(DynamicLogLog2.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOF;}
 			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOT;}
 		}else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
-		else if(loglogtype.equals("bdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
+		else if(loglogtype.equals("bdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
+		else if(loglogtype.equals("bdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF; CorrectionFactor.sbsFile=BankedDynamicLogLog5.SBS_FILE;}
 		else if(loglogtype.equals("udll6")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
@@ -248,6 +252,9 @@ public class CardinalityParser {
 			CorrectionFactor.initialize(cffile, buckets);
 			if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("bdll4".equals(loglogtype)){BankedDynamicLogLog4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("bdll5".equals(loglogtype)){BankedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("cdll5".equals(loglogtype)){CompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 
@@ -260,7 +267,7 @@ public class CardinalityParser {
 	 * Returns null if no table exists for the type.
 	 */
 	private static String defaultCFFile(String loglogtype){
-		if(loglogtype.equals("cdll4") || loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
+		if(loglogtype.equals("cdll4") || loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4") || loglogtype.equals("cdll5")){
 			return null; // No CF table yet for compressed/dual-hash variants
 		}else if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
@@ -281,6 +288,8 @@ public class CardinalityParser {
 			if(BankedDynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionBDLL3_iot.tsv.gz";}
 			else if(!BankedDynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionBDLL3_cof.tsv.gz";}
 			else{return "?cardinalityCorrectionBDLL3_cot.tsv.gz";}
+		}else if(loglogtype.equals("bdll4")){
+			return BankedDynamicLogLog4.CF_FILE;
 		}else if(loglogtype.equals("bdll5")){
 			return BankedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("ll6")){

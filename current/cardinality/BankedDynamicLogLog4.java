@@ -4,96 +4,85 @@ import parse.Parser;
 import shared.Tools;
 
 /**
- * BankedDynamicLogLog5: BDLL3's banked 3-bit exponent system with UDLL6's 2-bit
- * history, packed 6 buckets per 32-bit word at 5 bits each plus a 2-bit bank.
+ * BankedDynamicLogLog4: BDLL3's banked exponent system with 1-bit history,
+ * packed 7 buckets per 32-bit word at 4 bits each plus a 4-bit bank.
  * <p>
  * Word layout (32 bits):
  * <ul>
- *   <li>Bits 0-4, 5-9, ..., 25-29: six 5-bit buckets
- *   <li>Bits 30-31: 2-bit bank exponent (shared across the word)
+ *   <li>Bits 0-3, 4-7, ..., 24-27: seven 4-bit buckets
+ *   <li>Bits 28-31: 4-bit bank exponent (shared across the word)
  * </ul>
- * Each 5-bit bucket:
+ * Each 4-bit bucket:
  * <ul>
  *   <li>Bits 0-2 (low 3): stored value (0=empty/phantom, 1-7 = localRelNlz+1)
- *   <li>Bits 3-4 (high 2): 2-bit history pattern (same semantics as UDLL6)
+ *   <li>Bit 3 (high 1): 1-bit history pattern
  * </ul>
  * <p>
  * Absolute NLZ = (stored-1) + minZeros + bank when stored>0;
  * phantom absNlz = minZeros + bank - 1 when stored==0 and minZeros+bank>0.
  * <p>
- * Bank promotion: when localRelNlz would overflow and all 6 buckets in the
+ * Bank promotion: when localRelNlz would overflow and all 7 buckets in the
  * word have stored>=1, subtract 1 from each stored (preserving hist bits)
- * and increment the bank. Effective per-word range expands from 7 to 10 tiers.
- * <p>
- * Global promotion absorption: for words with bank>0, decrement bank instead
- * of touching the buckets. This leaves all hist bits intact — they remain
- * valid because absNlz is preserved across the promotion.
- * <p>
- * History update follows UDLL6's carry-shift rule for 2-bit hist:
- *   newHist = ((1&lt;&lt;2) | oldHist) &gt;&gt; delta &amp; 0x3, for delta in [1,3+].
+ * and increment the bank. 4-bit bank gives range 0-15, extending effective
+ * per-word range from 7 to 22 tiers.
  *
- * @author Brian Bushnell, Chloe
+ * @author Brian Bushnell, Eru
  * @date April 2026
  */
-public final class BankedDynamicLogLog5 extends CardinalityTracker {
+public final class BankedDynamicLogLog4 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	BankedDynamicLogLog5(){this(2048, 31, -1, 0);}
+	BankedDynamicLogLog4(){this(2048, 31, -1, 0);}
 
-	BankedDynamicLogLog5(Parser p){
+	BankedDynamicLogLog4(Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
-	BankedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
-		super(roundToWords(buckets_)*6 <= 0 ? buckets_ :
-			Integer.highestOneBit(roundToWords(buckets_)*6-1)<<1,
+	BankedDynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
+		super(roundToWords(buckets_)*7 <= 0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*7-1)<<1,
 			k_, seed, minProb_);
-		final int rounded=roundToWords(buckets_)*6;
+		final int rounded=roundToWords(buckets_)*7;
 		modBuckets=rounded>0 ? rounded : buckets;
-		words=modBuckets/6;
+		words=modBuckets/7;
 		maxArray=new int[words];
 		minZeroCount=modBuckets;
 		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(modBuckets*PROMOTE_FRAC) : 0);
 	}
 
-	private static int roundToWords(int b){return Math.max(1, (b+3)/6);}
+	private static int roundToWords(int b){return Math.max(1, (b+6)/7);}
 
 	@Override
-	public BankedDynamicLogLog5 copy(){return new BankedDynamicLogLog5(modBuckets, k, -1, minProb);}
+	public BankedDynamicLogLog4 copy(){return new BankedDynamicLogLog4(modBuckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Reads the 3-bit stored value for bucket i (0=empty, 1-7=relNlz+1). */
 	private int readStored(final int i){
-		return (maxArray[i/6]>>>((i%6)*5))&0x7;
+		return (maxArray[i/7]>>>((i%7)*4))&0x7;
 	}
 
-	/** Reads the 2-bit hist pattern for bucket i. */
 	private int readHist(final int i){
-		return (maxArray[i/6]>>>((i%6)*5+3))&0x3;
+		return (maxArray[i/7]>>>((i%7)*4+3))&0x1;
 	}
 
-	/** Writes stored + hist together for bucket i. Both values masked. */
 	private void writeBucket(final int i, final int stored, final int hist){
-		final int wordIdx=i/6;
-		final int shift=(i%6)*5;
-		final int nibble=(stored&0x7)|((hist&0x3)<<3);
-		maxArray[wordIdx]=(maxArray[wordIdx]&~(0x1F<<shift))|(nibble<<shift);
+		final int wordIdx=i/7;
+		final int shift=(i%7)*4;
+		final int nibble=(stored&0x7)|((hist&0x1)<<3);
+		maxArray[wordIdx]=(maxArray[wordIdx]&~(0xF<<shift))|(nibble<<shift);
 	}
 
-	/** Reads the 2-bit bank exponent for the given word. */
 	private int readBank(final int wordIdx){
-		return (maxArray[wordIdx]>>>30)&0x3;
+		return (maxArray[wordIdx]>>>28)&0xF;
 	}
 
-	/** Writes the 2-bit bank exponent for the given word. */
 	private void writeBank(final int wordIdx, final int val){
-		maxArray[wordIdx]=(maxArray[wordIdx]&0x3FFFFFFF)|((val&0x3)<<30);
+		maxArray[wordIdx]=(maxArray[wordIdx]&0x0FFFFFFF)|((val&0xF)<<28);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -115,11 +104,10 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
-		add((BankedDynamicLogLog5)log);
+		add((BankedDynamicLogLog4)log);
 	}
 
-	/** Merges another BDLL5 into this one. Bank exponents reset to 0. */
-	public void add(BankedDynamicLogLog5 log){
+	public void add(BankedDynamicLogLog4 log){
 		added+=log.added;
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
@@ -130,7 +118,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 			final int[] newStoredA=new int[modBuckets];
 			final int[] newStoredB=new int[modBuckets];
 			for(int i=0; i<modBuckets; i++){
-				final int wordIdx=i/6;
+				final int wordIdx=i/7;
 				final int bankA=readBank(wordIdx);
 				final int bankB=log.readBank(wordIdx);
 				final int sA=readStored(i), hA=readHist(i);
@@ -147,7 +135,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				final int finalStored, finalHist;
 				if(sA>sB){finalStored=sA; finalHist=newHistA[i];}
 				else if(sB>sA){finalStored=sB; finalHist=newHistB[i];}
-				else{finalStored=sA; finalHist=(newHistA[i]|newHistB[i])&0x3;}
+				else{finalStored=sA; finalHist=(newHistA[i]|newHistB[i])&0x1;}
 				writeBucket(i, finalStored, finalHist);
 			}
 			minZeros=newMinZeros;
@@ -176,7 +164,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
-		final int wordIdx=bucket/6;
+		final int wordIdx=bucket/7;
 		int bank=readBank(wordIdx);
 		int localRelNlz=nlz-minZeros-bank;
 
@@ -186,10 +174,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 		}
 
-		// Single-attempt bank promotion (matches BDLL3). Cascading breaks
-		// minZeroCount tracking: shouldDecrement requires curBank==0, which
-		// is never true after any cascade step (curBank>=1).
-		if(localRelNlz>=7 && bank<3){
+		if(localRelNlz>=7 && bank<15){
 			if(canPromoteBank(wordIdx)){
 				promoteBank(wordIdx);
 				bank=readBank(wordIdx);
@@ -205,75 +190,47 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		final int oldHist=readHist(bucket);
 
 		if(newStored<=0){
-			// Below current floor — only hist update possible.
+			// Sub-floor observation. delta_abs from real bucket (oldStored-1)+minZeros+bank
+			// is oldStored-newStored; from phantom at minZeros+bank-1 is -newStored.
+			// 1-bit hist captures only delta_abs==1 events.
 			if(oldStored>0){
-				// Real bucket: sub-max from current absNlz.
-				final int delta=oldStored-newStored; // = oldStored - localRelNlz - 1; >=1
-				if(delta==1 || delta==2){
-					final int bit=1<<(2-delta); // delta=1→bit 1, delta=2→bit 0
-					final int nh=oldHist|bit;
-					if(nh!=oldHist){
-						lastCardinality=-1;
-						writeBucket(bucket, oldStored, nh);
-					}
+				final int delta=oldStored-newStored;
+				if(delta==1 && oldHist==0){
+					lastCardinality=-1;
+					writeBucket(bucket, oldStored, 1);
 				}
-			}else if(minZeros+bank>0){
-				// Phantom: effective absNlz=(minZeros+bank-1). Sub-max delta
-				// from phantom's max to insert = -1-localRelNlz.
-				//   localRelNlz=-2 → delta=1 → set bit 1.
-				//   localRelNlz=-3 → delta=2 → set bit 0.
-				//   localRelNlz=-1 → delta=0 (matches max), no change.
-				final int delta=-1-localRelNlz;
-				if(delta==1 || delta==2){
-					final int bit=1<<(2-delta);
-					final int nh=oldHist|bit;
-					if(nh!=oldHist){
-						lastCardinality=-1;
-						writeBucket(bucket, 0, nh);
-					}
-				}
+			}else if(minZeros+bank>0 && newStored==-1 && oldHist==0){
+				// Phantom sub-floor: delta_abs = -newStored = 1
+				lastCardinality=-1;
+				writeBucket(bucket, 0, 1);
 			}
 			return;
 		}
 
 		if(newStored==oldStored){return;}
 		if(newStored<oldStored){
-			// hist update for sub-max observation: delta in {1, 2} → set bit.
 			final int delta=oldStored-newStored;
-			if(delta==1 || delta==2){
-				final int bit=1<<(2-delta);
-				final int nh=oldHist|bit;
-				if(nh!=oldHist){
+			if(delta==1){
+				if(oldHist==0){
 					lastCardinality=-1;
-					writeBucket(bucket, oldStored, nh);
+					writeBucket(bucket, oldStored, 1);
 				}
 			}
 			return;
 		}
 
-		// newStored > oldStored: advance.
+		// newStored > oldStored: advance. Follows CDLL4 pattern:
+		//   delta = (oldStored>0) ? (newStored-oldStored) : newStored
+		// For oldStored==0, delta encodes observation vs phantom/implicit tier at
+		// minZeros+bank-1. Preserves hist=1 on phantom→real delta_abs==1 transitions.
+		// 1-bit hist: newHist=(delta==1)?1:0.
 		branch2++;
 		lastCardinality=-1;
-		final int newHist;
-		if(oldStored==0){
-			if(minZeros+bank>0){
-				// Phantom transitioning to real: carry-shift hist as if phantom's
-				// effective max was at absNlz=(minZeros+bank-1). Delta in absNlz
-				// from phantom's max to new max = newStored.
-				newHist=(newStored>=3) ? 0 : (((1<<2)|oldHist)>>>newStored)&0x3;
-			}else{
-				// Truly first insert (no prior phantom): no carry possible.
-				newHist=0;
-			}
-		}else{
-			final int delta=newStored-oldStored;
-			// Carry-shift: ((1<<2) | oldHist) >> delta, masked to 2 bits.
-			newHist=(delta>=3) ? 0 : (((1<<2)|oldHist)>>>delta)&0x3;
-		}
+		final int delta=(oldStored>0) ? (newStored-oldStored) : newStored;
+		final int newHist=(delta==1) ? 1 : 0;
 		writeBucket(bucket, newStored, newHist);
 		if(oldStored==0){filledBuckets++;}
 
-		// minZeroCount tracking (same logic as BDLL3).
 		final int curBank=bank;
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE
@@ -289,33 +246,29 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		}
 	}
 
-	/** Returns true if all 6 stored fields in the word are >= 1. */
 	private boolean canPromoteBank(final int wordIdx){
 		final int word=maxArray[wordIdx];
-		for(int b=0; b<6; b++){
-			if(((word>>>(b*5))&0x7)==0){return false;}
+		for(int b=0; b<7; b++){
+			if(((word>>>(b*4))&0x7)==0){return false;}
 		}
 		return true;
 	}
 
-	/** Subtracts 1 from each stored field and increments bank. Preserves hist. */
 	private void promoteBank(final int wordIdx){
 		int word=maxArray[wordIdx];
-		final int oldBank=(word>>>30)&0x3;
+		final int oldBank=(word>>>28)&0xF;
 		int result=0;
-		for(int b=0; b<6; b++){
-			final int shift=b*5;
-			final int nibble=(word>>>shift)&0x1F;
+		for(int b=0; b<7; b++){
+			final int shift=b*4;
+			final int nibble=(word>>>shift)&0xF;
 			int stored=nibble&0x7;
-			final int hist=nibble&0x18; // already in position (bits 3-4)
-			stored--; // guaranteed >= 1 by canPromoteBank check
+			final int hist=nibble&0x8;
+			stored--;
 			result|=((stored|hist)<<shift);
 		}
-		maxArray[wordIdx]=result|((oldBank+1)<<30);
+		maxArray[wordIdx]=result|((oldBank+1)<<28);
 	}
 
-	/** Global tier promotion. Bank>0 words decrement bank; bank==0 words
-	 *  decrement each non-empty stored by 1. Hist bits always preserved. */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int w=0; w<words; w++){
@@ -324,8 +277,8 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				final int newBank=bank-1;
 				writeBank(w, newBank);
 				if(newBank==0){
-					for(int b=0; b<6; b++){
-						final int stored=(maxArray[w]>>>(b*5))&0x7;
+					for(int b=0; b<7; b++){
+						final int stored=(maxArray[w]>>>(b*4))&0x7;
 						if(EARLY_PROMOTE){
 							if(stored==0){newMinZeroCount++;}
 						}else{
@@ -335,16 +288,16 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				}
 			}else{
 				int word=maxArray[w];
-				if((word&0x3FFFFFFF)==0){
-					newMinZeroCount+=6;
+				if((word&0x0FFFFFFF)==0){
+					newMinZeroCount+=7;
 					continue;
 				}
 				int result=0;
-				for(int b=0; b<6; b++){
-					final int shift=b*5;
-					final int nibble=(word>>>shift)&0x1F;
+				for(int b=0; b<7; b++){
+					final int shift=b*4;
+					final int nibble=(word>>>shift)&0xF;
 					int stored=nibble&0x7;
-					final int hist=nibble&0x18;
+					final int hist=nibble&0x8;
 					if(stored>0){
 						stored--;
 						if(EARLY_PROMOTE){
@@ -355,13 +308,14 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 					}
 					result|=((stored|hist)<<shift);
 				}
-				maxArray[w]=result; // bank stays 0
+				maxArray[w]=result;
 			}
 		}
 		return newMinZeroCount;
 	}
 
 	public int filledBuckets(){return filledBuckets;}
+
 	/** True occupancy: a bucket is "empty" only when stored==0 AND minZeros+bank==0.
 	 *  Once minZeros>0 (or any word has bank>0), phantom buckets are informative and
 	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
@@ -371,26 +325,26 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		if(minZeros>0){return 1.0;}
 		int empty=0;
 		for(int w=0; w<words; w++){
-			if(readBank(w)>0){continue;}
+			if(readBank(w)>0){continue;} // bank>0: all 7 buckets are phantoms, occupied
 			final int word=maxArray[w];
-			for(int b=0; b<6; b++){
-				if(((word>>>(b*5))&0x7)==0){empty++;}
+			for(int b=0; b<7; b++){
+				if(((word>>>(b*4))&0x7)==0){empty++;}
 			}
 		}
 		return 1.0-(double)empty/modBuckets;
 	}
+
 	public int getMinZeros(){return minZeros;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
-	/** Build absolute-NLZ histogram + packedBuckets (with 2-bit hist) for CardStats. */
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
 		final char[] packedBuckets=new char[modBuckets];
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
-			final int wordIdx=i/6;
+			final int wordIdx=i/7;
 			final int bank=readBank(wordIdx);
 			final int stored=readStored(i);
 			final int hist=readHist(i);
@@ -399,21 +353,21 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				if(absNlz<64){
 					nlzCounts[absNlz+1]++;
 					final int emitHist=(absNlz==0) ? 0 : hist;
-					packedBuckets[i]=(char)(((absNlz+1)<<2)|emitHist);
-					filledCount++;
+					packedBuckets[i]=(char)(((absNlz+1)<<1)|emitHist);
 				}
+				filledCount++;
 			}else if(minZeros+bank>0){
 				final int absNlz=minZeros+bank-1;
 				if(absNlz<64){
 					nlzCounts[absNlz+1]++;
 					final int emitHist=(absNlz==0) ? 0 : hist;
-					packedBuckets[i]=(char)(((absNlz+1)<<2)|emitHist);
-					filledCount++;
+					packedBuckets[i]=(char)(((absNlz+1)<<1)|emitHist);
 				}
+				filledCount++;
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
-		lastSummarized=new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
+		lastSummarized=new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
 				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				terminalMeanCF(), terminalMeanPlusCF());
 		return lastSummarized;
@@ -456,19 +410,15 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private static final int wordlen=64;
-	/** Sub-NLZ window preserved below the floor. For 2-bit history we must keep
-	 *  hashes up to 2 below minZeros so sub-max hist updates aren't filtered. */
-	public static final int HISTORY_MARGIN=2;
+	/** Conservative eeMask margin: lag by this many tiers so sub-floor hashes
+	 *  reach the hot path to populate history bits. Equals HIST_BITS (1 here). */
+	private static final int HISTORY_MARGIN=1;
 	public static boolean EARLY_PROMOTE=true;
 	public static float PROMOTE_FRAC=0.004f;
-	/** COF mode default: ignore overflow = false, correct overflow = false. */
 	public static boolean IGNORE_OVERFLOW=false;
 	public static boolean CORRECT_OVERFLOW=false;
 
-	/** BDLL5-specific CF table, 16k ddls maxmult=4000 pf=0.004 (Apr 15 2026). */
-	public static final String CF_FILE="?cardinalityCorrectionBDLL5.tsv.gz";
-	/** BDLL5-specific SBS table, 4M iters 128t (Apr 15 2026). */
-	public static final String SBS_FILE="?cardinalityCorrectionBDLL5_LC2BitHist.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	public static float[][] initializeCF(int buckets){
@@ -479,10 +429,8 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Measured 16k ddls maxmult=4000 buckets=2048, cf=f (Apr 15 2026). */
-	@Override public float terminalMeanCF(){return 1.441432f;}
-	/** Measured with bdll5_hsb_v2 HSB (HISTORY_MARGIN=2, cascade, uniform sampling),
-	 *  32 ddls maxmult=512 cf=f (Apr 15 2026). 0.6644/(1+0.099) = 0.6046. */
-	@Override public float terminalMeanPlusCF(){return 0.6046f;}
+	/** Measured: raw Mean at saturation ≈ 1.4415 × trueCard (16k ddls, maxmult=4000, co=f). */
+	@Override public float terminalMeanCF(){return 1.4415f;}
+	@Override public float terminalMeanPlusCF(){return 0.86f;}
 
 }
