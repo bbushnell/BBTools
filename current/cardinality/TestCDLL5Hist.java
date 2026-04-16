@@ -1,0 +1,58 @@
+package cardinality;
+
+/**
+ * Eru's quick validation: dump CDLL5 per-tier hist-pattern distribution
+ * and compare against MantissaCompare2 mode=ctll bits=2 expectations.
+ *
+ * Simulator steady-state (tier 7) for 2-bit hist:
+ *   P(0)=0.098  P(1)=0.333  P(2)=0.056  P(3)=0.514
+ * Low-tier saturated (tier 3-5):
+ *   P(3) dominates (~0.94) — both below-tier obs have fired.
+ * If CDLL5 produces wildly different shape, carry-shift is buggy.
+ */
+public class TestCDLL5Hist {
+	public static void main(String[] args){
+		int buckets=2048;
+		long N=4_000_000L;
+		long seed=42L;
+		if(args.length>=1){N=Long.parseLong(args[0]);}
+		if(args.length>=2){buckets=Integer.parseInt(args[1]);}
+
+		CompressedDynamicLogLog5 cdll=new CompressedDynamicLogLog5(buckets, 31, seed, 0);
+		java.util.Random r=new java.util.Random(seed);
+		for(long i=0; i<N; i++){cdll.hashAndStore(r.nextLong());}
+
+		final int minZeros=cdll.getMinZeros();
+		int[][] counts=new int[20][4];
+		int phantomCount=0;
+		int[] phantomHist=new int[4];
+		for(int b=0; b<buckets; b++){
+			int reg=cdll.readBucket(b);
+			int tp=(reg>>>2)&0x7;
+			int h=reg&0x3;
+			if(tp==0){phantomCount++; phantomHist[h]++;}
+			else{
+				int absTier=tp-1+minZeros;
+				if(absTier<counts.length){counts[absTier][h]++;}
+			}
+		}
+
+		System.err.println("=== CDLL5 hist distribution ===");
+		System.err.println("minZeros="+minZeros+" N="+N+" buckets="+buckets
+			+" occupancy="+String.format("%.4f", cdll.occupancy()));
+		System.err.println("tier  count  P(0)    P(1)    P(2)    P(3)");
+		for(int t=0; t<counts.length; t++){
+			int tot=counts[t][0]+counts[t][1]+counts[t][2]+counts[t][3];
+			if(tot==0){continue;}
+			System.err.printf("%4d  %5d  %.4f  %.4f  %.4f  %.4f%n", t, tot,
+				counts[t][0]/(double)tot, counts[t][1]/(double)tot,
+				counts[t][2]/(double)tot, counts[t][3]/(double)tot);
+		}
+		if(phantomCount>0){
+			System.err.printf("phantom(eff=%d) count=%d  P(0)=%.4f P(1)=%.4f P(2)=%.4f P(3)=%.4f%n",
+				minZeros-1, phantomCount,
+				phantomHist[0]/(double)phantomCount, phantomHist[1]/(double)phantomCount,
+				phantomHist[2]/(double)phantomCount, phantomHist[3]/(double)phantomCount);
+		}
+	}
+}

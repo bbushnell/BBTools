@@ -332,7 +332,23 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	public double occupancy(){return (double)filledBuckets/modBuckets;}
+	/** True occupancy: a bucket is "empty" only when stored==0 AND minZeros+bank==0.
+	 *  Once minZeros>0 (or any word has bank>0), phantom buckets are informative and
+	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
+	 *  global promotion decrements it when stored drops 1→0, even though that bucket
+	 *  becomes a valid phantom at the new floor. */
+	public double occupancy(){
+		if(minZeros>0){return 1.0;}
+		int empty=0;
+		for(int w=0; w<maxArray.length; w++){
+			if(readBank(w)>0){continue;}
+			final int word=maxArray[w];
+			for(int b=0; b<10; b++){
+				if(((word>>>(b*3))&0x7)==0){empty++;}
+			}
+		}
+		return 1.0-(double)empty/modBuckets;
+	}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -548,7 +564,9 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 0.691154f;}
+	/** Asymptotic meanRaw/trueCard ratio at saturation (co=f, buckets=2048).
+	 *  Measured 16k ddls, maxmult=4000, tmcf=1, cf=f (Apr 15 2026): 1.4394.
+	 *  Prior value 0.691154 produced +108% Mean_err at saturation — confirmed wrong. */
+	@Override public float terminalMeanCF(){return 1.4394f;}
 
 }

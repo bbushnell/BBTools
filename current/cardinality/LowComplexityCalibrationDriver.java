@@ -53,6 +53,7 @@ public class LowComplexityCalibrationDriver {
 		double reportFrac=0.01;
 		String loglogtype="dll4";
 		boolean minRand=true;   // true=min(rand,rand) low-complexity skew; false=uniform like HC
+		String cffile=null;
 		Shared.capThreads(4);
 		Parser.printSetThreads=false;
 
@@ -68,6 +69,10 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
+			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
+			else if(a.equals("hsbtable1")){StateTable.loadHsbTable(1, b);}
+			else if(a.equals("hsbtable2")){StateTable.loadHsbTable(2, b);}
+			else if(a.equals("hsbtable3")){StateTable.loadHsbTable(3, b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
 			else if(!Parser.parseStatic(arg, a, b)){throw new RuntimeException("Unknown parameter '"+arg+"'");}
@@ -82,7 +87,7 @@ public class LowComplexityCalibrationDriver {
 		final String[] LDLC_NAMES=DDLCalibrationDriver2.LDLC_NAMES;
 
 		// Initialize global cardinality state (CF tables, formula coefficients, etc.)
-		CardinalityParser.initializeAll(loglogtype, buckets, k, null, null, true);
+		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, null, true);
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)
 		final long totalAdds=(iterations>0 ? (long)(cardinality*iterations) : Long.MAX_VALUE);
@@ -193,6 +198,40 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
 								}
+							}else if(est.getClass()==BankedDynamicLogLog5.class){
+								final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
+							}else if(est.getClass()==CompressedDynamicLogLog4.class){
+								final CompressedDynamicLogLog4 c=(CompressedDynamicLogLog4)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
 							}else if(est.getClass()==ProtoLogLog16c.class){
 								final double[] ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
 								for(int e=0; e<7; e++){
@@ -262,22 +301,35 @@ public class LowComplexityCalibrationDriver {
 				+"  MaxCard: "+cardinality+"  Rows: "+mergedRows.size()
 				+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
 				+"  LowComplexity: iter="+iterations);
-			System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
+			System.err.println("--- Log-Weighted and Width-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
+			final int rows=mergedRows.size();
+			// Bucket widths: trailing difference of trueCard (defined for row 0 as trueCard[0]-0, typically 1).
+			final double[] widths=new double[rows];
+			widths[0]=Math.max(1, mergedRows.get(0).trueCard);
+			for(int i=1; i<rows; i++){
+				widths[i]=Math.max(1, mergedRows.get(i).trueCard-mergedRows.get(i-1).trueCard);
+			}
+
 			final double[] totalMeanAbsErr=new double[NUM_EST];
-			final double[] linWtAbsErr=new double[NUM_EST];
+			final double[] widthWtAbsErr=new double[NUM_EST];
+			final double[] countWtAbsErr=new double[NUM_EST];
 			final double[] peakMeanAbsErr=new double[NUM_EST];
 			final double[] totalMeanSignedErr=new double[NUM_EST];
 			final double[] totalCV=new double[NUM_EST];
-			double linWeightSum=0;
+			double widthWeightSum=0;
+			double countWeightSum=0;
 			int cvRows=0;
+			int rowIdx=0;
 			for(DDLCalibrationDriver.ReportRow row : mergedRows){
-				final double card=row.trueCard;
-				linWeightSum+=card;
+				final double w=widths[rowIdx];
+				widthWeightSum+=w;
+				countWeightSum+=row.n;
 				for(int e=0; e<NUM_EST; e++){
 					final double meanErr=row.sumErr[e]/row.n;
 					final double meanAbsAtRow=row.sumAbsErr[e]/row.n;
 					totalMeanAbsErr[e]+=meanAbsAtRow;
-					linWtAbsErr[e]+=meanAbsAtRow*card;
+					widthWtAbsErr[e]+=meanAbsAtRow*w;
+					countWtAbsErr[e]+=meanAbsAtRow*row.n;
 					totalMeanSignedErr[e]+=meanErr;
 					if(meanAbsAtRow>peakMeanAbsErr[e]){peakMeanAbsErr[e]=meanAbsAtRow;}
 					final double variance=row.sumSqErr[e]/row.n-meanErr*meanErr;
@@ -286,41 +338,57 @@ public class LowComplexityCalibrationDriver {
 					if(denom>0){totalCV[e]+=stdev/denom;}
 				}
 				cvRows++;
+				rowIdx++;
 			}
-			final int rows=mergedRows.size();
-			System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s",
-				"", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
+			System.err.println(String.format("%-12s %-13s %-13s %-13s %-13s %-13s %s",
+				"", "LogWtAbsErr", "WidthWtAbsErr", "CountWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
 			final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
 			for(int e=0; e<Math.min(17, NUM_EST); e++){
-				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+				System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
 					ESTIMATOR_NAMES[e], totalMeanAbsErr[e]/rows,
-					linWeightSum>0 ? linWtAbsErr[e]/linWeightSum : 0,
+					widthWeightSum>0 ? widthWtAbsErr[e]/widthWeightSum : 0,
+					countWeightSum>0 ? countWtAbsErr[e]/countWeightSum : 0,
 					peakMeanAbsErr[e],
 					rows>0 ? totalMeanSignedErr[e]/rows : 0,
 					cvRows>0 ? totalCV[e]/cvRows : 0));
 			}
-			// LDLC summary rows
+			// LDLC summary rows — trailing-difference widths, gap-aware across skipped empty thresholds
+			final double[] tWidths=new double[numThresholds];
+			{
+				long prev=0;
+				for(int ti=0; ti<numThresholds; ti++){
+					if(nArr[ti]<1){tWidths[ti]=0; continue;}
+					tWidths[ti]=Math.max(1, thresholds[ti]-prev);
+					prev=thresholds[ti];
+				}
+			}
+
 			final double[] ldlcTotalAbsErr=new double[NUM_LDLC];
-			final double[] ldlcLinWtAbsErr=new double[NUM_LDLC];
+			final double[] ldlcWidthWtAbsErr=new double[NUM_LDLC];
+			final double[] ldlcCountWtAbsErr=new double[NUM_LDLC];
 			final double[] ldlcPeakAbsErr=new double[NUM_LDLC];
 			final double[] ldlcTotalSignedErr=new double[NUM_LDLC];
-			double ldlcLinWeightSum=0;
+			double ldlcWidthWeightSum=0;
+			double ldlcCountWeightSum=0;
 			for(int ti=0; ti<numThresholds; ti++){
 				if(nArr[ti]<1){continue;}
-				final double card=thresholds[ti];
-				ldlcLinWeightSum+=card;
+				final double w=tWidths[ti];
+				ldlcWidthWeightSum+=w;
+				ldlcCountWeightSum+=nArr[ti];
 				for(int e=0; e<NUM_LDLC; e++){
 					final double meanAbsAtRow=ldlcSumAbsErr[ti][e]/nArr[ti];
 					ldlcTotalAbsErr[e]+=meanAbsAtRow;
-					ldlcLinWtAbsErr[e]+=meanAbsAtRow*card;
+					ldlcWidthWtAbsErr[e]+=meanAbsAtRow*w;
+					ldlcCountWtAbsErr[e]+=meanAbsAtRow*nArr[ti];
 					ldlcTotalSignedErr[e]+=ldlcSumErr[ti][e]/nArr[ti];
 					if(meanAbsAtRow>ldlcPeakAbsErr[e]){ldlcPeakAbsErr[e]=meanAbsAtRow;}
 				}
 			}
 			for(int e=0; e<NUM_LDLC; e++){
-				System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+				System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
 					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows,
-					ldlcLinWeightSum>0 ? ldlcLinWtAbsErr[e]/ldlcLinWeightSum : 0,
+					ldlcWidthWeightSum>0 ? ldlcWidthWtAbsErr[e]/ldlcWidthWeightSum : 0,
+					ldlcCountWeightSum>0 ? ldlcCountWtAbsErr[e]/ldlcCountWeightSum : 0,
 					ldlcPeakAbsErr[e],
 					rows>0 ? ldlcTotalSignedErr[e]/rows : 0, 0.0));
 			}

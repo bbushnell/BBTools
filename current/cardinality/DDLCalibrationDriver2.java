@@ -216,17 +216,25 @@ public class DDLCalibrationDriver2 {
 			+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
 			+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
 			+(dupFactor>1 ? "  DupFactor: "+dupFactor : ""));
-		System.err.println("--- Log-Weighted and Linear-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
+		System.err.println("--- Log-Weighted and Width-Weighted Avg Absolute Error, Peak, Signed (lower = better) ---");
 		final int rows=mergedRows.size();
-		final double[] totalAbsErr=new double[NUM_EST], linWtAbsErr=new double[NUM_EST];
+		// Bucket widths: trailing difference of trueCard (row 0 uses trueCard[0]-0).
+		final double[] widths=new double[rows];
+		widths[0]=Math.max(1, mergedRows.get(0).trueCard);
+		for(int i=1; i<rows; i++){
+			widths[i]=Math.max(1, mergedRows.get(i).trueCard-mergedRows.get(i-1).trueCard);
+		}
+
+		final double[] totalAbsErr=new double[NUM_EST], widthWtAbsErr=new double[NUM_EST], countWtAbsErr=new double[NUM_EST];
 		final double[] peakAbsErr=new double[NUM_EST], totalSignErr=new double[NUM_EST], totalCV=new double[NUM_EST];
-		double linWeightSum=0; int cvRows=0;
+		double widthWeightSum=0; double countWeightSum=0; int cvRows=0;
+		int rowIdx=0;
 		for(DDLCalibrationDriver.ReportRow row : mergedRows){
-			final double card=row.trueCard; linWeightSum+=card;
+			final double w=widths[rowIdx]; widthWeightSum+=w; countWeightSum+=row.n;
 			for(int e=0; e<NUM_EST; e++){
 				final double meanErr=row.sumErr[e]/row.n;
 				final double absAtRow=row.sumAbsErr[e]/row.n;
-				totalAbsErr[e]+=absAtRow; linWtAbsErr[e]+=absAtRow*card; totalSignErr[e]+=meanErr;
+				totalAbsErr[e]+=absAtRow; widthWtAbsErr[e]+=absAtRow*w; countWtAbsErr[e]+=absAtRow*row.n; totalSignErr[e]+=meanErr;
 				if(absAtRow>peakAbsErr[e]){peakAbsErr[e]=absAtRow;}
 				final double var=row.sumSqErr[e]/row.n-meanErr*meanErr;
 				final double sd=Math.sqrt(Math.max(0, var));
@@ -234,27 +242,40 @@ public class DDLCalibrationDriver2 {
 				if(denom>0){totalCV[e]+=sd/denom;}
 			}
 			cvRows++;
+			rowIdx++;
 		}
-		System.err.println(String.format("%-12s %-12s %-12s %-12s %-12s %s",
-			"", "LogWtAbsErr", "LinWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
+		System.err.println(String.format("%-12s %-13s %-13s %-13s %-13s %-13s %s",
+			"", "LogWtAbsErr", "WidthWtAbsErr", "CountWtAbsErr", "PeakAbsErr", "AvgSignErr", "AvgCV"));
 		for(int e=0; e<Math.min(17, NUM_EST); e++){
-			System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+			System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
 				ESTIMATOR_NAMES[e], totalAbsErr[e]/rows,
-				linWeightSum>0 ? linWtAbsErr[e]/linWeightSum : 0, peakAbsErr[e],
+				widthWeightSum>0 ? widthWtAbsErr[e]/widthWeightSum : 0,
+				countWeightSum>0 ? countWtAbsErr[e]/countWeightSum : 0,
+				peakAbsErr[e],
 				rows>0 ? totalSignErr[e]/rows : 0, cvRows>0 ? totalCV[e]/cvRows : 0));
 		}
-		// LDLC summary
-		final double[] ldlcTotAbs=new double[NUM_LDLC], ldlcLinWt=new double[NUM_LDLC];
+		// LDLC summary — trailing-difference widths, gap-aware across skipped empty thresholds
+		final double[] tWidths=new double[numThresholds];
+		{
+			long prev=0;
+			for(int ti=0; ti<numThresholds; ti++){
+				if(m.n[ti]<1){tWidths[ti]=0; continue;}
+				tWidths[ti]=Math.max(1, thresholds[ti]-prev);
+				prev=thresholds[ti];
+			}
+		}
+
+		final double[] ldlcTotAbs=new double[NUM_LDLC], ldlcWidthWt=new double[NUM_LDLC], ldlcCountWt=new double[NUM_LDLC];
 		final double[] ldlcPeak=new double[NUM_LDLC], ldlcTotSign=new double[NUM_LDLC];
 		final double[] ldlcTotCV=new double[NUM_LDLC];
-		double ldlcLinSum=0; int ldlcCvRows=0;
+		double ldlcWidthSum=0; double ldlcCountSum=0; int ldlcCvRows=0;
 		for(int ti=0; ti<numThresholds; ti++){
 			if(m.n[ti]<1){continue;}
-			final double card=thresholds[ti]; ldlcLinSum+=card;
+			final double w=tWidths[ti]; ldlcWidthSum+=w; ldlcCountSum+=m.n[ti];
 			for(int e=0; e<NUM_LDLC; e++){
 				final double meanErr=m.ldlcErr[ti][e]/m.n[ti];
 				final double absAtRow=m.ldlcAbsErr[ti][e]/m.n[ti];
-				ldlcTotAbs[e]+=absAtRow; ldlcLinWt[e]+=absAtRow*card;
+				ldlcTotAbs[e]+=absAtRow; ldlcWidthWt[e]+=absAtRow*w; ldlcCountWt[e]+=absAtRow*m.n[ti];
 				ldlcTotSign[e]+=meanErr;
 				if(absAtRow>ldlcPeak[e]){ldlcPeak[e]=absAtRow;}
 				final double var=m.ldlcSqErr[ti][e]/m.n[ti]-meanErr*meanErr;
@@ -265,9 +286,11 @@ public class DDLCalibrationDriver2 {
 			ldlcCvRows++;
 		}
 		for(int e=0; e<NUM_LDLC; e++){
-			System.err.println(String.format("%-12s %.8f  %.8f  %.8f  %+.8f  %.8f",
+			System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
 				LDLC_NAMES[e], ldlcTotAbs[e]/rows,
-				ldlcLinSum>0 ? ldlcLinWt[e]/ldlcLinSum : 0, ldlcPeak[e],
+				ldlcWidthSum>0 ? ldlcWidthWt[e]/ldlcWidthSum : 0,
+				ldlcCountSum>0 ? ldlcCountWt[e]/ldlcCountSum : 0,
+				ldlcPeak[e],
 				rows>0 ? ldlcTotSign[e]/rows : 0,
 				ldlcCvRows>0 ? ldlcTotCV[e]/ldlcCvRows : 0));
 		}
@@ -411,8 +434,38 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
+						}else if(ddl.getClass()==BankedDynamicLogLog4.class){
+							final BankedDynamicLogLog4 c=(BankedDynamicLogLog4)ddl;
+							final CardStats cs=c.consumeLastSummarized();
+							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+								0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+							for(int e=0; e<7; e++){
+								final double v=ldlcVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+							{
+								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
 						}else if(ddl.getClass()==BankedDynamicLogLog5.class){
 							final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)ddl;
+							final CardStats cs=c.consumeLastSummarized();
+							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+								0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+							for(int e=0; e<7; e++){
+								final double v=ldlcVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+							{
+								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
+						}else if(ddl.getClass()==CompressedDynamicLogLog5.class){
+							final CompressedDynamicLogLog5 c=(CompressedDynamicLogLog5)ddl;
 							final CardStats cs=c.consumeLastSummarized();
 							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 								0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
