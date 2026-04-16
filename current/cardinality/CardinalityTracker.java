@@ -792,6 +792,10 @@ public abstract class CardinalityTracker implements Drivable {
 	 */
 	public float terminalMeanPlusCF(){return 1f;}
 
+	/** LDLC weight in HLDLC blend: HLDLC = w*LDLC + (1-w)*Hybrid+2.
+	 *  Default 0.5; override per class based on empirical sweep. */
+	public float hldlcWeight(){return 0.5f;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Drivable Methods       ----------------*/
 	/*--------------------------------------------------------------*/

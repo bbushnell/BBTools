@@ -366,7 +366,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	 *  Set by CardinalityParser for loglogtype=cdll4 before loadSbsTable(). */
 	public static final String SBS_FILE="?cardinalityCorrectionCDLL4_LC1BitHist.tsv.gz";
 	private static int CF_BUCKETS=2048;
-	private static float[][] CF_MATRIX=null;
+	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		try{
@@ -383,5 +383,9 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 
 	/** Asymptotic Mean+H ratio. Measured 2026-04-15 same run, Mean+H_err averaged. */
 	@Override public float terminalMeanPlusCF(){return 1.066213f;}
+
+	/** Optimal LDLC weight for HLDLC blend. Measured 2026-04-16 via
+	 *  ddlcalibrate2 cf=t ddls=32k maxmult=8192, geo-mean(LogWt,WidthWt,Peak) sweep. */
+	@Override public float hldlcWeight(){return 0.325f;}
 
 }
