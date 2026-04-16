@@ -411,6 +411,21 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
+						}else if(ddl.getClass()==BankedDynamicLogLog5.class){
+							final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)ddl;
+							final CardStats cs=c.consumeLastSummarized();
+							final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+								0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+							for(int e=0; e<7; e++){
+								final double v=ldlcVals[e];
+								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
+							}
+							{
+								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
+							}
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
 							final double[] ldlcR=p.ldlcEstimate();

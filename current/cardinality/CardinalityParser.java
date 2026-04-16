@@ -203,7 +203,7 @@ public class CardinalityParser {
 
 		// Per-class Mean CF formula coefficients
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
-		if(loglogtype.equals("cdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
+		if(loglogtype.equals("cdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5; CorrectionFactor.sbsFile=CompressedDynamicLogLog4.SBS_FILE;}
 		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
@@ -220,6 +220,7 @@ public class CardinalityParser {
 			if(DynamicLogLog2.IGNORE_OVERFLOW){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOF;}
 			else{CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL2_IOT;}
 		}else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
+		else if(loglogtype.equals("bdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
 		else if(loglogtype.equals("udll6")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
@@ -280,6 +281,8 @@ public class CardinalityParser {
 			if(BankedDynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionBDLL3_iot.tsv.gz";}
 			else if(!BankedDynamicLogLog3.CORRECT_OVERFLOW){return "?cardinalityCorrectionBDLL3_cof.tsv.gz";}
 			else{return "?cardinalityCorrectionBDLL3_cot.tsv.gz";}
+		}else if(loglogtype.equals("bdll5")){
+			return BankedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("ll6")){
 			return LogLog6.CF_FILE;
 		}else if(loglogtype.equals("udll6")){

@@ -89,12 +89,17 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 				final int absTier=(tp-1)+minZeros;
 				if(absTier<64){
 					nlzCounts[absTier+1]++;
-					packedBuckets[i]=(char)(((absTier+1)<<1)|hist);
+					// Mask hist=0 at absTier=0: sbsStateIndex treats (bin=0, hist!=0) as
+					// structurally invalid (drops the bucket from SBS). CDLL4's first-insert
+					// rule sets hist=1 at tier=0, so without masking SBS drops ~65% of buckets.
+					final int emitHist=(absTier==0) ? 0 : hist;
+					packedBuckets[i]=(char)(((absTier+1)<<1)|emitHist);
 				}
 				filledCount++;
 			}else if(minZeros>0 && phantomTier>=0 && phantomTier<64){
 				nlzCounts[phantomTier+1]++;
-				packedBuckets[i]=(char)(((phantomTier+1)<<1)|hist);
+				final int emitHist=(phantomTier==0) ? 0 : hist;
+				packedBuckets[i]=(char)(((phantomTier+1)<<1)|emitHist);
 				filledCount++;
 			}
 		}
@@ -357,6 +362,9 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	}
 
 	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
+	/** SBS (per-state LC) correction table, 1-bit history with half-NLZ tier geometry.
+	 *  Set by CardinalityParser for loglogtype=cdll4 before loadSbsTable(). */
+	public static final String SBS_FILE="?cardinalityCorrectionCDLL4_LC1BitHist.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null;
 	public static float[][] initializeCF(int buckets){
@@ -369,10 +377,11 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 0.883474f;}
+	/** Asymptotic meanRaw/trueCard ratio. Measured 2026-04-15 via ddlcalibrate
+	 *  cf=f maxmult=8192 ddls=16k, then Mean_err averaged over card>=maxCard/2. */
+	@Override public float terminalMeanCF(){return 1.131688f;}
 
-	/** Stub: CDLL4 TSV has no Mean+H column; leave at 1 until measured. */
-	@Override public float terminalMeanPlusCF(){return 1f;}
+	/** Asymptotic Mean+H ratio. Measured 2026-04-15 same run, Mean+H_err averaged. */
+	@Override public float terminalMeanPlusCF(){return 1.066213f;}
 
 }

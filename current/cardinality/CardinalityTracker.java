@@ -94,6 +94,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6();
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3();
+		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog5();
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c();
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
@@ -181,6 +183,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(p);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(p);
+		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog5(p);
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c(p);
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
@@ -268,6 +272,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
+		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedDynamicLogLog5(buckets_, k_, seed, minProb_);
 		}else if("PLL16c".equalsIgnoreCase(type)){
 			return new ProtoLogLog16c(buckets_, k_, seed, minProb_);
 		}else if("ErtlB".equalsIgnoreCase(type) || "ErtlULLb".equalsIgnoreCase(type)){
