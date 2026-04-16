@@ -412,9 +412,9 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
-							// HLDLC: 50/50 blend of Hybrid+2 and LDLC
 							{
-								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
@@ -428,9 +428,9 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
-							// HLDLC: 50/50 blend of Hybrid+2 and LDLC
 							{
-								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
@@ -445,7 +445,7 @@ public class DDLCalibrationDriver2 {
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 							{
-								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
@@ -460,7 +460,7 @@ public class DDLCalibrationDriver2 {
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 							{
-								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
@@ -475,7 +475,7 @@ public class DDLCalibrationDriver2 {
 								ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 							}
 							{
-								final double hldlc=(ldlcVals[0]+ldlcVals[6])*0.5;
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
@@ -499,7 +499,7 @@ public class DDLCalibrationDriver2 {
 							}
 							// HLDLC: 50/50 blend of Hybrid+2 and LDLC
 							{
-								final double hldlc=(ldlcR[0]+ldlcR[7])*0.5;
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
 								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][11]+=lerr; ldlcSumAbsErr[ti][11]+=Math.abs(lerr); ldlcSumSqErr[ti][11]+=lerr*lerr;
 							}
