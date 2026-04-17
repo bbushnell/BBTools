@@ -210,7 +210,7 @@ public class CardinalityParser {
 		else if(loglogtype.equals("cdll5")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;
 			CorrectionFactor.sbsFile=CompressedDynamicLogLog5.SBS_FILE;
-			final String hsbPath=Data.findPath(CompressedDynamicLogLog5.SBS_FILE);
+			final String hsbPath=Data.findPath(CompressedDynamicLogLog5.HSB_FILE);
 			if(hsbPath!=null){StateTable.loadHsbTable(2, hsbPath);}
 		}
 		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}

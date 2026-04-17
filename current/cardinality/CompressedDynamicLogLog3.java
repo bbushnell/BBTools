@@ -310,9 +310,9 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
+		lastSummarized=s;
 		final double hybridEst=s.hybridDLL();
 		double[] legacy=AbstractCardStats.buildLegacyArray(s, hybridEst);
-		// Pad for WordEst/WordEstCV slots (calibration driver compatibility)
 		double[] ext=new double[legacy.length+2];
 		System.arraycopy(legacy, 0, ext, 0, legacy.length);
 		return ext;
@@ -332,6 +332,13 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 
 	public int getMinZeros(){return minZeros;}
 	private int[] nlzCounts;
+	private CardStats lastSummarized;
+
+	public CardStats consumeLastSummarized(){
+		final CardStats cs=lastSummarized;
+		lastSummarized=null;
+		return cs;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
@@ -351,7 +358,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	 *  When false, use single-hash with mantissa bit (2*sqrt(2) per tier). */
 	public static final boolean DUAL=false;
 
-	public static final String CF_FILE="?cardinalityCorrectionCDLL3.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null; // No CF table yet
 	public static float[][] initializeCF(int buckets){
@@ -364,7 +371,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
-	/** Stub: Mean formula is unrederived for mantissa mode. Only DLC is trusted. */
-	@Override public float terminalMeanCF(){return 1f;}
+	@Override public float terminalMeanCF(){return 0.883441f;}
+	@Override public float terminalMeanPlusCF(){return 1.0f;}
 
 }
