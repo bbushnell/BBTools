@@ -375,9 +375,10 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	public static boolean DISABLE_EEMASK=false;
 
 	public static final String CF_FILE="?cardinalityCorrectionCDLL5.tsv.gz";
-	/** SBS (per-state LC) correction table, 2-bit history with half-NLZ tier geometry.
-	 *  Set by CardinalityParser for loglogtype=cdll5 before loadSbsTable(). */
-	public static final String SBS_FILE="?cardinalityCorrectionCDLL5_LC2BitHist.tsv.gz";
+	/** SBS (per-fill LC correction) table, 2-bit history with half-NLZ tier geometry. */
+	public static final String SBS_FILE="?cardinalityCorrectionCDLL5_LC2BitHistSBS.tsv.gz";
+	/** HSB (per-tier state-bias) table for Mean/HMean correction. */
+	public static final String HSB_FILE="?cardinalityCorrectionCDLL5_LC2BitHist.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null;
 	public static float[][] initializeCF(int buckets){

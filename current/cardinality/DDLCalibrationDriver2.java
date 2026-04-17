@@ -423,6 +423,8 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(((BankedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog5.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
+							accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
 							accumulateLdlcEstimate(p.ldlcEstimate(), trueCard, ti);
