@@ -559,8 +559,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @return The ByteBuilder with appended result
 	 */
 	ByteBuilder appendResult(Comparison c, ByteBuilder bb, int hitNum) {
-		if(format==MACHINE) {return appendResultMachine(c, bb);}
-		else {return appendResultHuman(c, bb, hitNum);}
+		if(format==MACHINE) {
+			return appendResultMachine(c, bb);
+		}else {return appendResultHuman(c, bb, hitNum);}
 	}
 	
 	/**
@@ -588,6 +589,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 */
 	ByteBuilder appendResultMachine(Comparison c, ByteBuilder bb) {
 		if(bb==null) {bb=new ByteBuilder();}
+		if(c==null || c.ref==null) {return bb;}//TODO:  Best to print "no hits"
 		c.appendResultMachine(printQTID, bb);
 		bb.nl();
 		bytesOut+=bb.length;
