@@ -107,15 +107,9 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		}
 		nlzCounts[0]=buckets-filledCount;
 
-		final double savedScale=AbstractCardStats.TIER_SCALE;
-		AbstractCardStats.TIER_SCALE=1.5;
-		try{
-			return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
-					terminalMeanCF(), terminalMeanPlusCF());
-		}finally{
-			AbstractCardStats.TIER_SCALE=savedScale;
-		}
+		return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.5);
 	}
 
 	/** Mask hist bits to ones valid at the given absolute tier.

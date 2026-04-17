@@ -82,16 +82,9 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		}
 		nlzCounts[0]=buckets-filledCount;
 		lastRawNlz=nlzCounts.clone();
-		// Set TIER_SCALE=2 for dual-hash estimation (4^tier instead of 2^tier)
-		final double savedScale=AbstractCardStats.TIER_SCALE;
-		AbstractCardStats.TIER_SCALE=2;
-		try{
-			return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
-					terminalMeanCF(), terminalMeanPlusCF());
-		}finally{
-			AbstractCardStats.TIER_SCALE=savedScale;
-		}
+		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 2.0);
 	}
 
 	@Override

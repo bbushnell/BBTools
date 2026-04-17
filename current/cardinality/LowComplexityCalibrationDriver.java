@@ -185,7 +185,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=u.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									u.fgraEstimate(), cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<7; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -196,14 +196,14 @@ public class LowComplexityCalibrationDriver {
 								{
 									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
 								}
 							}else if(est.getClass()==BankedDynamicLogLog5.class){
 								final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)est;
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<7; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -213,14 +213,14 @@ public class LowComplexityCalibrationDriver {
 								{
 									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
 								}
 							}else if(est.getClass()==CompressedDynamicLogLog4.class){
 								final CompressedDynamicLogLog4 c=(CompressedDynamicLogLog4)est;
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<7; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -230,11 +230,11 @@ public class LowComplexityCalibrationDriver {
 								{
 									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
 								}
 							}else if(est.getClass()==ProtoLogLog16c.class){
 								final double[] ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
-								for(int e=0; e<7; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
 									final double v=ldlcR[ldlcIdx[e]];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -296,7 +296,7 @@ public class LowComplexityCalibrationDriver {
 		{
 			final double elapsed=(System.nanoTime()-t0)*1e-9;
 			System.err.println();
-			System.err.println("=== DDL2 Calibration Summary ===");
+			System.err.println("=== LC Calibration Summary ===");
 			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
 				+"  MaxCard: "+cardinality+"  Rows: "+mergedRows.size()
 				+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
