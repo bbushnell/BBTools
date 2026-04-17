@@ -379,10 +379,10 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 
 	/** Asymptotic meanRaw/trueCard ratio. Measured 2026-04-15 via ddlcalibrate
 	 *  cf=f maxmult=8192 ddls=16k, then Mean_err averaged over card>=maxCard/2. */
-	@Override public float terminalMeanCF(){return 1.131688f;}
+	@Override public float terminalMeanCF(){return 0.883513f;}
 
 	/** Asymptotic Mean+H ratio. Measured 2026-04-15 same run, Mean+H_err averaged. */
-	@Override public float terminalMeanPlusCF(){return 1.066213f;}
+	@Override public float terminalMeanPlusCF(){return 1.067095f;}
 
 	/** Optimal LDLC weight for HLDLC blend. Measured 2026-04-16 via
 	 *  ddlcalibrate2 cf=t ddls=32k maxmult=8192, geo-mean(LogWt,WidthWt,Peak) sweep. */
