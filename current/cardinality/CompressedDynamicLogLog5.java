@@ -400,7 +400,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	}
 
 	/** Placeholder — measure via ddlcalibrate with tmcf=1, replace with real value. */
-	@Override public float terminalMeanCF(){return 1.131688f;}
+	@Override public float terminalMeanCF(){return 0.883636f;}
 
 	/** Placeholder — measure via ddlcalibrate with tmpcf=1, replace with real value. */
 	@Override public float terminalMeanPlusCF(){return 1.066213f;}

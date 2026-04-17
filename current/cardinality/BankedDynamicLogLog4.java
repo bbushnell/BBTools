@@ -430,7 +430,7 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 	}
 
 	/** Measured: raw Mean at saturation ≈ 1.4415 × trueCard (16k ddls, maxmult=4000, co=f). */
-	@Override public float terminalMeanCF(){return 1.4415f;}
+	@Override public float terminalMeanCF(){return 0.693722f;}
 	@Override public float terminalMeanPlusCF(){return 0.86f;}
 
 }

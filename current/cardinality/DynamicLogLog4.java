@@ -619,6 +619,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	}
 
 	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 0.721015f;}
+	@Override public float terminalMeanCF(){return 1.386934f;}
 
 }
