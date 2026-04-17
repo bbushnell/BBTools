@@ -163,16 +163,29 @@ public final class CardStats extends AbstractCardStats {
 		// NOTE: float cast matches CardinalityStats line 144 exactly — do not change to double
 		correction=(filled+numBuckets)/(float)(numBuckets+numBuckets);
 
+		// History-based cardinality floor: filled buckets + total set history bits.
+		// Each filled bucket saw >=1 element; each set history bit saw >=1 additional.
+		{
+			int hbCount=0;
+			if(histBits_>0 && buckets_!=null){
+				final int hm=(1<<histBits_)-1;
+				for(int i=0; i<numBuckets; i++){
+					if(buckets_[i]!=0){hbCount+=Integer.bitCount(buckets_[i]&hm);}
+				}
+			}
+			historyFloor=filled+hbCount;
+		}
+
 		// MicroIndex estimate: LC over 64 virtual buckets (calculated but not used for flooring)
 		microEst=microEstimate(microBits);
 
-		// 1. LC — pure linear counting, floored by microIndex bit count
+		// 1. LC — pure linear counting, floored by microIndex and history bit count
 		//    Uses lcV (overflow-compensated empties) when applicable.
 		lcNoMicroF=lcRaw(lcV, numBuckets);
-		lcRawF=Math.max(lcNoMicroF, microBits);
+		lcRawF=Math.max(Math.max(lcNoMicroF, microBits), historyFloor);
 
-		// 2. LCMin — tier-compensated LC, floored by microIndex bit count
-		lcMinF=Math.max(lcMin(counts, lcV, numBuckets, 0), microBits);
+		// 2. LCMin — tier-compensated LC, floored by microIndex and history bit count
+		lcMinF=Math.max(Math.max(lcMin(counts, lcV, numBuckets, 0), microBits), historyFloor);
 
 		// 3. DLC — primary CF-free estimator; info-power weighted blend (mode 2 = 0-param theory)
 		//    dlcPure is the raw tier blend; dlcRaw blends it with lcMin at low occupancy.
@@ -342,9 +355,9 @@ public final class CardStats extends AbstractCardStats {
 			gmeanCorrCF=gmeanCF;
 		}
 
-		// SBS: history-aware LC from per-bucket state indices, floored by microIndex bit count
+		// SBS: history-aware LC from per-bucket state indices, floored by history floor
 		final double sbsRaw=computeSbs(sbsStatesArr, filled, numBuckets, lcNoMicroF);
-		sbsF=Math.max(sbsRaw, microBits);
+		sbsF=Math.max(sbsRaw, Math.max(microBits, historyFloor));
 		sbsNoMicroF=sbsRaw;
 		sbsMultF=computeSbsMult(sbsStatesArr, filled, numBuckets, lcNoMicroF);
 
@@ -805,6 +818,7 @@ public final class CardStats extends AbstractCardStats {
 	final double dThHybF;       // DLC-threshold hybrid
 
 	// --- Phase 2a: history estimates (defaults to counts-only equivalents) ---
+	final int historyFloor;     // lower bound: filledBuckets + totalSetHistoryBits (0 when no history)
 	final boolean hasHistoryCorrection; // true when per-state history corrections applied
 	final double meanCorrRawF;  // history-corrected Mean raw (before CF)
 	final double meanCorrCF;    // history-corrected Mean with CF
