@@ -2,6 +2,7 @@ package cardinality;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.concurrent.atomic.AtomicLong;
 import rand.FastRandomXoshiro;
 import parse.Parse;
 import parse.Parser;
@@ -126,37 +127,36 @@ public class LowComplexityCalibrationDriver {
 		final int finalBuckets=buckets;
 		final int finalK=k;
 		final int finalNumThresholds=numThresholds;
-		final int estPerThread=(numDDLs+threads-1)/threads;
 		final int[] ldlcIdx={0, 1, 2, 4, 5, 6, 7}; // Indices into ldlcEstimate() array
 		final boolean finalMinRand=minRand;
+		final AtomicLong nextDDL=new AtomicLong(0);
+		final int finalNumDDLs=numDDLs;
 
 		final long t0=System.nanoTime();
 		final Thread[] threadArray=new Thread[threads];
 		for(int tid=0; tid<threads; tid++){
-			final int estStart=tid*estPerThread;
-			final int estEnd=Math.min(estStart+estPerThread, numDDLs);
-
-			// Per-thread local accumulators
-			final double[][] lSumErr=new double[finalNumThresholds][NUM_OUT1];
-			final double[][] lSumAbsErr=new double[finalNumThresholds][NUM_OUT1];
-			final double[][] lSumSqErr=new double[finalNumThresholds][NUM_OUT1];
-			final double[][] lLdlcErr=new double[finalNumThresholds][NUM_LDLC];
-			final double[][] lLdlcAbsErr=new double[finalNumThresholds][NUM_LDLC];
-			final double[][] lLdlcSqErr=new double[finalNumThresholds][NUM_LDLC];
-			final double[] lOccSum=new double[finalNumThresholds];
-			final int[] lN=new int[finalNumThresholds];
 
 			threadArray[tid]=new Thread(()->{
-				final FastRandomXoshiro rng=new FastRandomXoshiro(seeds[estStart]);
+				// Allocate accumulators on this thread's NUMA node
+				final double[][] lSumErr=new double[finalNumThresholds][NUM_OUT1];
+				final double[][] lSumAbsErr=new double[finalNumThresholds][NUM_OUT1];
+				final double[][] lSumSqErr=new double[finalNumThresholds][NUM_OUT1];
+				final double[][] lLdlcErr=new double[finalNumThresholds][NUM_LDLC];
+				final double[][] lLdlcAbsErr=new double[finalNumThresholds][NUM_LDLC];
+				final double[][] lLdlcSqErr=new double[finalNumThresholds][NUM_LDLC];
+				final double[] lOccSum=new double[finalNumThresholds];
+				final int[] lN=new int[finalNumThresholds];
+				final FastRandomXoshiro rng=new FastRandomXoshiro(0);
 				final BitSet seen=new BitSet(finalCardinality);
 
-				for(int estIdx=estStart; estIdx<estEnd; estIdx++){
-					rng.setSeed(seeds[estIdx]);
+				long estIdx;
+				while((estIdx=nextDDL.getAndIncrement())<finalNumDDLs){
+					rng.setSeed(seeds[(int)estIdx]);
 					seen.clear();
 					int trueCard=0;
 					int ti=0;
 					final CardinalityTracker est=DDLCalibrationDriver.makeInstance(
-						finalType, finalBuckets, finalK, seeds[estIdx], 0);
+						finalType, finalBuckets, finalK, seeds[(int)estIdx], 0);
 
 					for(long add=0; add<finalTotalAdds; add++){
 						final int pos=finalMinRand ? Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality)) : rng.nextInt(finalCardinality);
