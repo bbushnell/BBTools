@@ -393,10 +393,12 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Placeholder — measure via ddlcalibrate with tmcf=1, replace with real value. */
-	@Override public float terminalMeanCF(){return 0.883636f;}
+	/** Measured 2026-04-16: cluster run ddls=128k maxmult=8192 tmcf=1 tmpcf=1.
+	 *  Raw Mean/true = 1.131843 at saturation; new convention est=raw*tmCF → tmCF=1/1.131843. */
+	@Override public float terminalMeanCF(){return 0.883501f;}
 
-	/** Placeholder — measure via ddlcalibrate with tmpcf=1, replace with real value. */
-	@Override public float terminalMeanPlusCF(){return 1.066213f;}
+	/** Measured same run. Raw Mean+H/true = 0.9139; tmPlusCF = 1/0.9139 = 1.0943.
+	 *  (est ∝ tmPlusCF via invTermCF = 1/tmPlusCF in tierMult.) */
+	@Override public float terminalMeanPlusCF(){return 1.094262f;}
 
 }

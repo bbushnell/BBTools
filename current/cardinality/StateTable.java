@@ -110,7 +110,9 @@ public final class StateTable {
 		try{
 			java.util.List<double[]> tierList=new java.util.ArrayList<>();
 			double[] ss=null;
-			java.io.BufferedReader br=new java.io.BufferedReader(new java.io.FileReader(filename));
+			java.io.InputStream in=new java.io.FileInputStream(filename);
+			if(filename.endsWith(".gz")){in=new java.util.zip.GZIPInputStream(in);}
+			java.io.BufferedReader br=new java.io.BufferedReader(new java.io.InputStreamReader(in));
 			String line;
 			while((line=br.readLine())!=null){
 				line=line.trim();

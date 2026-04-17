@@ -2,6 +2,7 @@ package cardinality;
 
 import parse.Parse;
 import parse.Parser;
+import dna.Data;
 
 /**
  * Centralized parser for cardinality estimator flags.
@@ -206,7 +207,12 @@ public class CardinalityParser {
 		// Per-class Mean CF formula coefficients
 		boolean classHasMeanCf=true, classHasHcCf=false, classHasHmeanmCf=false;
 		if(loglogtype.equals("cdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5; CorrectionFactor.sbsFile=CompressedDynamicLogLog4.SBS_FILE;}
-		else if(loglogtype.equals("cdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5; CorrectionFactor.sbsFile=CompressedDynamicLogLog5.SBS_FILE;}
+		else if(loglogtype.equals("cdll5")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;
+			CorrectionFactor.sbsFile=CompressedDynamicLogLog5.SBS_FILE;
+			final String hsbPath=Data.findPath(CompressedDynamicLogLog5.SBS_FILE);
+			if(hsbPath!=null){StateTable.loadHsbTable(2, hsbPath);}
+		}
 		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
@@ -267,7 +273,11 @@ public class CardinalityParser {
 	 * Returns null if no table exists for the type.
 	 */
 	private static String defaultCFFile(String loglogtype){
-		if(loglogtype.equals("cdll4") || loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4") || loglogtype.equals("cdll5")){
+		if(loglogtype.equals("cdll4")){
+			return CompressedDynamicLogLog4.CF_FILE;
+		}else if(loglogtype.equals("cdll5")){
+			return CompressedDynamicLogLog5.CF_FILE;
+		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return null; // No CF table yet for compressed/dual-hash variants
 		}else if(loglogtype.equals("dll3")){
 			if(DynamicLogLog3.IGNORE_OVERFLOW){return "?cardinalityCorrectionDLL3_iot.tsv.gz";}
