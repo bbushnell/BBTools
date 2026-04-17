@@ -480,7 +480,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	}
 
 	/** Measured 16k ddls maxmult=4000 buckets=2048, cf=f (Apr 15 2026). */
-	@Override public float terminalMeanCF(){return 1.441432f;}
+	@Override public float terminalMeanCF(){return 0.693755f;}
 	/** Measured with bdll5_hsb_v2 HSB (HISTORY_MARGIN=2, cascade, uniform sampling),
 	 *  32 ddls maxmult=512 cf=f (Apr 15 2026). 0.6644/(1+0.099) = 0.6046. */
 	@Override public float terminalMeanPlusCF(){return 0.6046f;}

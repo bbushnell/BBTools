@@ -311,7 +311,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	}
 
 	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 0.721123f;}
+	@Override public float terminalMeanCF(){return 1.386726f;}
 
 	/** Asymptotic Mean+H ratio (2-bit history), measured 128k ddls maxmult=4096 (Apr 13 2026).
 	 *  Replaces the old StateTable.terminalCF(2,0)=0.7726 which was measured under

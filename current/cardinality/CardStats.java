@@ -195,9 +195,9 @@ public final class CardStats extends AbstractCardStats {
 		hllHistoryF=hllHistory(hllSumFilled, V, numBuckets, alpha_m);
 
 		// 7. Mean, GMean, HMean — raw (pre-CF) estimates from counts-derived sums
-		//    Mean gets the class-specific terminal bias divided out so downstream
+		//    Mean gets the class-specific terminal bias multiplied out so downstream
 		//    CF tables can converge to 1.0 at high cardinality.
-		meanRawF=meanEstimate(difSum, filled, numBuckets)/tmCF;
+		meanRawF=meanEstimate(difSum, filled, numBuckets)*tmCF;
 		gmeanRawF=gmeanEstimate(gSum, filled, numBuckets);
 		hmeanRawF=hmeanEstimate(hllSumFilled, filled, alpha_m);
 

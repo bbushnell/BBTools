@@ -567,6 +567,6 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	/** Asymptotic meanRaw/trueCard ratio at saturation (co=f, buckets=2048).
 	 *  Measured 16k ddls, maxmult=4000, tmcf=1, cf=f (Apr 15 2026): 1.4394.
 	 *  Prior value 0.691154 produced +108% Mean_err at saturation — confirmed wrong. */
-	@Override public float terminalMeanCF(){return 1.4394f;}
+	@Override public float terminalMeanCF(){return 0.694734f;}
 
 }
