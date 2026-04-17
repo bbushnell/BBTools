@@ -130,16 +130,10 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			counts=nlzCounts;
 		}
 
-		// Set TIER_SCALE for DLC: 2 for dual-hash (4^tier), 1.5 for mantissa (2*sqrt(2) per tier)
-		final double savedScale=AbstractCardStats.TIER_SCALE;
-		AbstractCardStats.TIER_SCALE=(DUAL ? 2 : 1.5);
-		try{
-			return new CardStats(null, counts, 0, 0, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
-					terminalMeanCF(), terminalMeanPlusCF());
-		}finally{
-			AbstractCardStats.TIER_SCALE=savedScale;
-		}
+		return new CardStats(null, counts, 0, 0, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(),
+				(DUAL ? 2.0 : 1.5));
 	}
 
 	@Override

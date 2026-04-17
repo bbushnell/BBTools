@@ -119,15 +119,9 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 				" minZeros="+minZeros+" filled="+filledCount);
 		}
 
-		final double savedScale=AbstractCardStats.TIER_SCALE;
-		AbstractCardStats.TIER_SCALE=1.5;
-		try{
-			return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
-					buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
-					terminalMeanCF(), terminalMeanPlusCF());
-		}finally{
-			AbstractCardStats.TIER_SCALE=savedScale;
-		}
+		return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.5);
 	}
 
 	@Override
@@ -342,24 +336,6 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	public static boolean EARLY_PROMOTE=true;
 	public static boolean DEBUG_HIST=false;
 	public static boolean DISABLE_EEMASK=false;
-
-	// Debug counters (valid for ddls=1 only)
-	public static long cntAdvanceSet=0;     // carry set history=1 during tier advance (delta==1)
-	public static long cntAdvanceClear=0;   // carry cleared history during tier advance (delta>=2)
-	public static long cntDeltaNeg1Set=0;   // delta==-1 set history (was 0)
-	public static long cntDeltaNeg1Skip=0;  // delta==-1 skipped (already 1)
-	public static long cntEarlyExit=0;      // filtered by eeMask
-	public static long cntBelowFloor=0;     // filtered by relTier < -1
-
-	public static void printDebugCounters(){
-		System.err.println("=== CDLL4 History Debug ===");
-		System.err.println("  advance set hist=1 (delta=1): "+cntAdvanceSet);
-		System.err.println("  advance clear hist (delta>=2): "+cntAdvanceClear);
-		System.err.println("  delta=-1 set hist: "+cntDeltaNeg1Set);
-		System.err.println("  delta=-1 skip (already set): "+cntDeltaNeg1Skip);
-		System.err.println("  early exit (eeMask): "+cntEarlyExit);
-		System.err.println("  below floor (relTier<-1): "+cntBelowFloor);
-	}
 
 	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
 	/** SBS (per-state LC) correction table, 1-bit history with half-NLZ tier geometry.

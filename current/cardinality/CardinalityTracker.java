@@ -46,7 +46,9 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @return New CardinalityTracker instance of the configured type
 	 */
 	public static CardinalityTracker makeTracker(String type){
-		type=pickType(Parser.loglogType);
+		assert(type==null || type.equalsIgnoreCase(Parser.loglogType)) :
+			"Passed type '"+type+"' differs from configured Parser.loglogType '"+Parser.loglogType+"'";
+		type=pickType(type);
 		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog();//Fastest, most accurate
 		}else if("LogLog".equalsIgnoreCase(type)){
@@ -431,7 +433,6 @@ public abstract class CardinalityTracker implements Drivable {
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		final int lenmask=(-1)>>>k;
-		final int lenmask2=lenmask>>1;
 		
 		long kmer=0, rkmer=0;
 		
@@ -547,36 +548,6 @@ public abstract class CardinalityTracker implements Drivable {
 		}
 	}
 	
-	/**
-	 * Makes a table of random bitmasks for hashing (deprecated).
-	 * Creates random bit patterns with controlled bit density for XOR operations.
-	 * Short-circuited to return null as this method is superseded.
-	 * @param length Number of hash rounds
-	 * @param bits Bits per hash step
-	 * @param seed Random seed for table generation
-	 * @return Random bitmask table (currently returns null)
-	 */
-	private static final long[][] makeCodes(int length, int bits, long seed){
-		if(true) {return null;}//Short circuit
-		Random randy=Shared.threadLocalRandom(seed);
-		int modes=1<<bits;
-		long[][] r=new long[length][modes];
-		for(int i=0; i<length; i++){
-			for(int j=0; j<modes; j++){
-				long x=randy.nextLong();
-				while(Long.bitCount(x)>33){
-					x&=(~(1L<<randy.nextInt(64)));
-				}
-				while(Long.bitCount(x)<31){
-					x|=(1L<<randy.nextInt(64));
-				}
-				r[i][j]=x;
-				
-			}
-		}
-		return r;
-	}
-	
 	public final float compensationFactorBuckets(){
 		assert(Integer.bitCount(buckets)==1) : buckets;
 		int zeros=Integer.numberOfTrailingZeros(buckets);
@@ -616,13 +587,7 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param decimals Number of decimal places for supersampled counts
 	 */
 	public void printKhist(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
-		if(this.getClass()==LogLog16.class) {
-			System.err.println("a");
-			printKhist32(path, overwrite, append, supersample, decimals);
-		}else {
-			System.err.println("b");
-			printKhist32(path, overwrite, append, supersample, decimals);
-		}
+		printKhist32(path, overwrite, append, supersample, decimals);
 	}
 	
 	public void printKhist32(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
@@ -715,10 +680,6 @@ public abstract class CardinalityTracker implements Drivable {
 		int[] counts=getCounts();
 		return counts==null ? 0 : simd.Vector.sum(counts);
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------       Abstract Methods       ----------------*/
-	/*--------------------------------------------------------------*/
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Abstract Methods       ----------------*/
@@ -851,8 +812,13 @@ public abstract class CardinalityTracker implements Drivable {
 	protected Kmer getLocalKmer(){
 		Kmer kmer=localKmer.get();
 		if(kmer==null){
-			localKmer.set(new Kmer(k));
-			kmer=localKmer.get();
+			synchronized(localKmer){
+				kmer=localKmer.get();
+				if(kmer==null){
+					kmer=new Kmer(k);
+					localKmer.set(kmer);
+				}
+			}
 		}
 		kmer.clearFast();
 		return kmer;
@@ -883,25 +849,24 @@ public abstract class CardinalityTracker implements Drivable {
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 128);
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 128);
 	
-	/** Whether to track occurrence counts for each bucket value */
+	// --- Global configuration ---
+	// These fields are set once by CardinalityParser.initializeAll() on the main thread
+	// before any worker threads are created. Thread.start() provides happens-before
+	// visibility to worker threads. Do not mutate after threads are running.
+	//TODO: Replace with a final immutable config container published before thread creation
+
 	public static boolean trackCounts=false;
 	public static boolean clampToAdded=true;
-	/** Records the most recent cardinality estimate for static contexts */
 	public static long lastCardinalityStatic=-1;
-//	/** Ignore hashed values above this, to skip expensive read and store functions. */
-//	static final long maxHashedValue=((-1L)>>>3);//No longer used
-	
 	public static long defaultSeed=0;
-	
-	/** Whether to use arithmetic mean for combining multiple bucket estimates */
-	public static boolean USE_MEAN=true;//Arithmetic mean of inverted differences
+	public static boolean USE_MEAN=true;
 	public static boolean USE_MEDIAN=false;
-	public static boolean USE_MWA=false;//Median-weighted-average
-	public static boolean USE_HMEAN=false;//Harmonic mean
-	public static boolean USE_HMEANM=false;//Harmonic mean including mantissa
-	public static boolean USE_GMEAN=false;//Geometric mean
-	public static boolean USE_HLL=false;//HLL formula
-	public static boolean USE_HYBRID=false;//Hybrid of LC and Mean
+	public static boolean USE_MWA=false;
+	public static boolean USE_HMEAN=false;
+	public static boolean USE_HMEANM=false;
+	public static boolean USE_GMEAN=false;
+	public static boolean USE_HLL=false;
+	public static boolean USE_HYBRID=false;
 	public static final boolean LAZY_ALLOCATE=false;
 	/** When true, allocate and fill sortBuf for median/MWA/mean99 estimators.
 	 * When false (default), those estimators return fallback values and no LongList is allocated. */

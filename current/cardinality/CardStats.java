@@ -24,8 +24,6 @@ import shared.Tools;
  */
 public final class CardStats extends AbstractCardStats {
 
-	/** Log-once flag for resolved terminal CF values (per JVM). */
-	private static boolean loggedTerminalCF=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Construction          ----------------*/
@@ -54,7 +52,7 @@ public final class CardStats extends AbstractCardStats {
 			final double mantissaOff_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			Integer.MAX_VALUE, null, 1f, 1f);
+			Integer.MAX_VALUE, null, 1f, 1f, 1.0);
 	}
 
 	/**
@@ -69,7 +67,7 @@ public final class CardStats extends AbstractCardStats {
 			final float terminalMeanCF_, final float terminalMeanPlusCF_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			Integer.MAX_VALUE, null, terminalMeanCF_, terminalMeanPlusCF_);
+			Integer.MAX_VALUE, null, terminalMeanCF_, terminalMeanPlusCF_, 1.0);
 	}
 
 	/**
@@ -85,13 +83,14 @@ public final class CardStats extends AbstractCardStats {
 			final int nativeRelTiers_, final double[] tierErrCoeffs_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			nativeRelTiers_, tierErrCoeffs_, 1f, 1f);
+			nativeRelTiers_, tierErrCoeffs_, 1f, 1f, 1.0);
 	}
 
 	/**
 	 * Full constructor with per-class terminal Mean bias correction.
 	 * @param terminalMeanCF_      asymptotic meanRaw/trueCard ratio for plain Mean (1 = no correction)
 	 * @param terminalMeanPlusCF_  asymptotic ratio for Mean+H (1 = no correction; only matters if histBits>0)
+	 * @param tierScale_           DLC tier scale factor (1.0 standard, 1.5 compressed, 2.0 dual-hash)
 	 */
 	CardStats(final char[] buckets_, final int[] counts_,
 			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
@@ -99,7 +98,8 @@ public final class CardStats extends AbstractCardStats {
 			final float[][] cfMatrix_, final int cfBuckets_,
 			final double mantissaOff_,
 			final int nativeRelTiers_, final double[] tierErrCoeffs_,
-			final float terminalMeanCF_, final float terminalMeanPlusCF_){
+			final float terminalMeanCF_, final float terminalMeanPlusCF_,
+			final double tierScale_){
 
 		assert(counts_!=null && counts_.length==66);
 		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null) :
@@ -110,12 +110,9 @@ public final class CardStats extends AbstractCardStats {
 		// so per-class bias corrections are disabled and raw ratios can be measured.
 		final float tmCF=(OVERRIDE_TERMINAL_MEAN_CF>0 ? OVERRIDE_TERMINAL_MEAN_CF : terminalMeanCF_);
 		final float tmPlusCF=(OVERRIDE_TERMINAL_MEAN_PLUS_CF>0 ? OVERRIDE_TERMINAL_MEAN_PLUS_CF : terminalMeanPlusCF_);
-		if(!loggedTerminalCF){
-			loggedTerminalCF=true;
-			System.err.println("terminalMeanCF="+tmCF+" terminalMeanPlusCF="+tmPlusCF);
-		}
 
 		/*--- Store configuration ---*/
+		tierScale=tierScale_;
 		numBuckets=numBuckets_;
 		final long effectiveMicro=USE_MICRO_INDEX ? microIndex_ : 0;
 		microBits=(int)Long.bitCount(effectiveMicro);
@@ -266,9 +263,9 @@ public final class CardStats extends AbstractCardStats {
 				if(histPattern!=0) bucketsWithHistory++;
 				final int nlzBin=Math.min(absNlz, histBits_+1);
 
-				// Per-bucket dif: scaled by TIER_SCALE for compressed-tier variants
+				// Per-bucket dif: scaled by tierScale for compressed-tier variants
 				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE
-					: Math.pow(2.0, 63-absNlz*AbstractCardStats.TIER_SCALE));
+					: Math.pow(2.0, 63-absNlz*tierScale));
 
 				// Per-state correction for Mean/GMean only (precomputed table lookup)
 				final double tierMult=tierMultTable[nlzBin][histPattern];
@@ -307,8 +304,8 @@ public final class CardStats extends AbstractCardStats {
 					}
 				}
 				if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
-					final double tierRatio=Math.pow(2.0, AbstractCardStats.TIER_SCALE);
-					final double est=Math.pow(2.0, (t+1)*AbstractCardStats.TIER_SCALE)/(tierRatio-1.0)*(double)numBuckets*Math.log((double)hcBeff/hcUnseen);
+					final double tierRatio=Math.pow(2.0, tierScale);
+					final double est=Math.pow(2.0, (t+1)*tierScale)/(tierRatio-1.0)*(double)numBuckets*Math.log((double)hcBeff/hcUnseen);
 					if(est>0 && !Double.isNaN(est)){
 						final int hcOcc=hcBeff-hcUnseen;
 						final double hcErr=SQRT_2_OVER_PI
@@ -404,7 +401,7 @@ public final class CardStats extends AbstractCardStats {
 			final int divM=Math.max(filledM, 1);
 			final double meanM=difSumM/divM;
 			final float correctionM=(filledM+numBuckets)/(float)(numBuckets+numBuckets);
-			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM/tmCF;
+			meanMRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanM))*divM*correctionM*tmCF;
 			meanMCF_=meanMRawF*cardCF(meanMRawF, CorrectionFactor.MEANM, keyScale);
 			final double gmeanM=Math.exp(gSumM/divM);
 			gmeanMRawF=2*(Long.MAX_VALUE/gmeanM)*divM*correctionM;
@@ -423,7 +420,6 @@ public final class CardStats extends AbstractCardStats {
 		}
 
 		// hasMantissa: true when mantissa-corrected sums differ from plain sums
-		// Currently false until phase 2b is implemented with actual mantissa correction
 		hasMantissa=(mantissaBits_>0 && buckets_!=null);
 
 		/*--- Phase 2c: luck estimates (when luckBits > 0) ---*/
@@ -755,6 +751,7 @@ public final class CardStats extends AbstractCardStats {
 	private final CorrectionFactor.CFTableData cfd;
 
 	// --- Configuration (set once in constructor) ---
+	final double tierScale;     // DLC tier scale (1.0 standard, 1.5 compressed, 2.0 dual-hash)
 	final int numBuckets;       // total bucket count
 	final int microBits;        // Long.bitCount(microIndex)
 	final long added;           // total elements added
@@ -765,8 +762,8 @@ public final class CardStats extends AbstractCardStats {
 	final int luckBits;         // luck bit width (0=none)
 	final int mantissaBits;     // mantissa bit width (0=none)
 	final int[] counts;         // NLZ histogram (int[64])
-	final float[][] cfMatrix;   // per-class CF matrix
-	final int cfBuckets;        // bucket count used to build cfMatrix
+	final float[][] cfMatrix;   //TODO: Unused — remove if no downstream consumer needs post-construction access to the CF matrix
+	final int cfBuckets;        //TODO: Unused — remove along with cfMatrix
 	final boolean hasMantissa;  // true when mantissa-corrected sums differ from plain
 
 	// --- Counts-derived sums ---
@@ -822,8 +819,8 @@ public final class CardStats extends AbstractCardStats {
 
 	// --- Phase 2b: mantissa estimates (defaults to non-mantissa equivalents) ---
 	final double hllSumFilledM; // mantissa-corrected harmonic indicator sum
-	final double difSumM_;      // mantissa-corrected dif sum
-	final double gSumM_;        // mantissa-corrected geometric sum
+	final double difSumM_;      //TODO: Unused — stored for diagnostics but never read; remove or expose via getter
+	final double gSumM_;        //TODO: Unused — same as difSumM_
 	final double hmeanMRawF;    // mantissa-corrected harmonic mean raw
 	final double hmeanMCF;      // mantissa-corrected harmonic mean with CF
 	final double meanMRawF;     // mantissa-corrected mean raw
