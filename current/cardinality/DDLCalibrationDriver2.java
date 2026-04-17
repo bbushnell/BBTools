@@ -3,6 +3,7 @@ package cardinality;
 import java.io.FileOutputStream;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import fileIO.ByteStreamWriter;
 import parse.Parse;
@@ -137,10 +138,10 @@ public class DDLCalibrationDriver2 {
 	/*--------------------------------------------------------------*/
 
 	private CalThread[] spawnThreads(int numThreads){
+		final AtomicLong nextDDL=new AtomicLong(0);
 		final CalThread[] calThreads=new CalThread[numThreads];
 		for(int t=0; t<numThreads; t++){
-			final int threadDDLs=numDDLs/numThreads+(t<numDDLs%numThreads ? 1 : 0);
-			calThreads[t]=new CalThread(masterSeed+t, threadDDLs, thresholds,
+			calThreads[t]=new CalThread(masterSeed, numDDLs, nextDDL, thresholds,
 				buckets, k, maxTrue, loglogtype, out4, dupFactor, lcMode);
 		}
 		for(CalThread ct : calThreads){ct.start();}
@@ -343,15 +344,12 @@ public class DDLCalibrationDriver2 {
 
 	static final class CalThread extends Thread {
 
-		CalThread(long seed, int numDDLs, long[] thresholds,
+		CalThread(long masterSeed, int totalDDLs, AtomicLong nextDDL, long[] thresholds,
 				int buckets, int k, long maxTrue, String loglogtype, String out4, int dupFactor, boolean lcMode){
-			this.seed=seed; this.numDDLs=numDDLs; this.thresholds=thresholds;
+			this.masterSeed=masterSeed; this.totalDDLs=totalDDLs; this.nextDDL=nextDDL;
+			this.thresholds=thresholds;
 			this.buckets=buckets; this.k=k; this.maxTrue=maxTrue;
 			this.loglogtype=loglogtype; this.out4=out4; this.dupFactor=dupFactor; this.lcMode=lcMode;
-			final int nt=thresholds.length;
-			n=new int[nt]; occSum=new double[nt];
-			sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
-			ldlcSumErr=new double[nt][NUM_LDLC]; ldlcSumAbsErr=new double[nt][NUM_LDLC]; ldlcSumSqErr=new double[nt][NUM_LDLC];
 		}
 
 		@Override
@@ -360,21 +358,27 @@ public class DDLCalibrationDriver2 {
 				// Ensures visibility of all global state set before thread creation on NUMA
 			}
 			synchronized(this){
+				final int nt=thresholds.length;
+				n=new int[nt]; occSum=new double[nt];
+				sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
+				ldlcSumErr=new double[nt][NUM_LDLC]; ldlcSumAbsErr=new double[nt][NUM_LDLC]; ldlcSumSqErr=new double[nt][NUM_LDLC];
 				try{runInner(); success=true;}
 				catch(Exception e){e.printStackTrace();}
 			}
 		}
 
 		void runInner(){
-			final FastRandomXoshiro rng=new FastRandomXoshiro(seed);
+			final FastRandomXoshiro rng=new FastRandomXoshiro(0);
 			java.io.PrintWriter out4Pw=null;
 			if(out4!=null){try{out4Pw=new java.io.PrintWriter(new java.io.FileOutputStream(out4));}catch(Exception e){e.printStackTrace();}}
-			for(int di=0; di<numDDLs; di++){
+			long di;
+			while((di=nextDDL.getAndIncrement())<totalDDLs){
+				rng.setSeed(masterSeed+di);
 				final long ddlSeed=rng.nextLong()&Long.MAX_VALUE;
 				final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, ddlSeed, 0);
 				int ti=0;
 				if(lcMode){
-					runLC(ddl, ddlSeed, ti, di, out4Pw);
+					runLC(ddl, ddlSeed, ti, (int)di, out4Pw);
 					continue;
 				}
 				for(long trueCard=1; trueCard<=maxTrue; trueCard++){
@@ -600,12 +604,13 @@ public class DDLCalibrationDriver2 {
 			}
 		}
 
-		final long seed; final int numDDLs; final long[] thresholds;
+		final long masterSeed; final int totalDDLs; final AtomicLong nextDDL;
+		final long[] thresholds;
 		final int buckets; final int k; final long maxTrue;
 		final String loglogtype; final String out4; final int dupFactor; final boolean lcMode;
-		final int[] n; final double[] occSum;
-		final double[][] sumErr, sumAbsErr, sumSqErr;
-		final double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
+		int[] n; double[] occSum;
+		double[][] sumErr, sumAbsErr, sumSqErr;
+		double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
 		volatile boolean success=false;
 	}
 
