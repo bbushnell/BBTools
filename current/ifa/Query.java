@@ -79,9 +79,7 @@ public class Query {
 
 	public int length(){return bases.length;}
 
-	/**
-	 * Creates k-mer indices for forward and reverse orientations.
-	 */
+	/** Creates k-mer indices for forward and reverse orientations. */
 	private static int[][] makeIndex(byte[] sequence, int k, int mask){
 		if(sequence.length<k || k<1){return blankIndex;}
 
