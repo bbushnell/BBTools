@@ -76,6 +76,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new CompressedDynamicLogLog4();
 		}else if("CDLL5".equalsIgnoreCase(type) || "CompressedDynamicLogLog5".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog5();
+		}else if("BCDLL5".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog5();
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3();
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
@@ -171,6 +173,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new CompressedDynamicLogLog4(p);
 		}else if("CDLL5".equalsIgnoreCase(type) || "CompressedDynamicLogLog5".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog5(p);
+		}else if("BCDLL5".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog5(p);
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3(p);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
@@ -266,6 +270,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new CompressedDynamicLogLog4(buckets_, k_, seed, minProb_);
 		}else if("CDLL5".equalsIgnoreCase(type) || "CompressedDynamicLogLog5".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog5(buckets_, k_, seed, minProb_);
+		}else if("BCDLL5".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog5".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog5(buckets_, k_, seed, minProb_);
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
