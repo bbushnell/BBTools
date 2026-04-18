@@ -99,6 +99,15 @@ public class CladeIndex implements Cloneable {
 			Comparison.earlyExit=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("calcCladeEntropy") || a.equals("entropy")){
 			CladeObject.calcCladeEntropy=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("makeddls") || a.equals("ddls")){
+			Clade.MAKE_DDLS=Parse.parseBoolean(b);
+		}else if(a.equals("ddl") || a.equals("ddlfile") || a.equals("ddlref")){
+			CladeLoader.ddlFile=b;
+			Clade.MAKE_DDLS=true;
+		}else if(a.equalsIgnoreCase("ddlk")){
+			Clade.DDL_K=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("ddlbuckets")){
+			Clade.DDL_BUCKETS=Integer.parseInt(b);
 		}else if(a.equals("banself")){
 			banSelf=Parse.parseBoolean(b);
 		}else if(a.equals("includeself")){
@@ -158,7 +167,11 @@ public class CladeIndex implements Cloneable {
 //			assert(heap.size()==1) : heap;
 //			return new ArrayList<Comparison>(1);//Could return null but this can be used as a placeholder
 //		}
-		return heap.toList();
+		ArrayList<Comparison> results=heap.toList();
+		if(Clade.MAKE_DDLS){
+			for(Comparison comp : results){comp.compareDDL();}
+		}
+		return results;
 	}
 
 	private void findBestLinear(Clade a, ArrayList<Clade> list, ComparisonHeap heap,

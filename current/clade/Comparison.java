@@ -1,6 +1,7 @@
 package clade;
 
 import bin.SimilarityMeasures;
+import cardinality.DynamicDemiLog;
 import idaligner.IDAligner;
 import parse.LineParserS1;
 import simd.Vector;
@@ -45,30 +46,21 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		ref.setBases(lp.parseLong(7));
 		ref.contigs=lp.parseLong(8);
 		ref.level=lp.parseInt(9);
-		ref.lineage=lp.parseString(15);
 
 		gcdif=lp.parseFloat(10);
 		strdif=lp.parseFloat(11);
 		k3dif=lp.parseFloat(12);
 		k4dif=lp.parseFloat(13);
 		k5dif=lp.parseFloat(14);
-		
-//		bb.append(query.name).tab();//0
-//		bb.append(String.format("%.3f", query.gc)).tab();//1
-//		bb.append(query.bases).tab();//2
-//		bb.append(query.contigs).tab();//3
-//		bb.append(ref.name != null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();//4
-//		bb.append(ref.taxID).tab();//5
-//		bb.append(String.format("%.3f", ref.gc)).tab();//6
-//		bb.append(ref.bases).tab();//7
-//		bb.append(ref.contigs).tab();//8
-//		bb.append(ref.level).tab();//9
-//		bb.append(String.format("%.3f", comp.gcdif)).tab();//10
-//		bb.append(String.format("%.3f", comp.strdif)).tab();//11
-//		bb.append(String.format("%.3f", comp.k3dif)).tab();//12
-//		bb.append(String.format("%.3f", comp.k4dif)).tab();//13
-//		bb.append(String.format("%.3f", comp.k5dif)).tab();//14
-//		bb.append(ref.lineage()).nl();//15
+		int col=15;
+		if(Clade.callSSU && lp.terms()>col+1){ssudif=1-lp.parseFloat(col); col++;}
+		if(Clade.MAKE_DDLS && lp.terms()>col+3){
+			ani=lp.parseFloat(col); col++;
+			containment=lp.parseFloat(col); col++;
+			completeness=lp.parseFloat(col); col++;
+			kmerMatches=lp.parseInt(col); col++;
+		}
+		ref.lineage=lp.parseString(col);
 	}
 	
 	/**
@@ -243,6 +235,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	void clearDif() {
 		gcdif=entdif=strdif=hhdif=cagadif=k3dif=k4dif=k5dif=ssudif=1;
+		ani=containment=completeness=-1;
+		kmerMatches=-1;
 	}
 	
 	/**
@@ -262,6 +256,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		k4dif=b.k4dif;
 		k5dif=b.k5dif;
 		ssudif=b.ssudif;
+		ani=b.ani;
+		containment=b.containment;
+		completeness=b.completeness;
+		kmerMatches=b.kmerMatches;
 	}
 	
 	/**
@@ -283,9 +281,21 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return id>0;
 	}
 	
+	/** Computes ANI, containment, and completeness from DDL bucket comparison.
+	 *  Only runs when both query and ref have DDL sketches. */
+	public final void compareDDL(){
+		if(query==null || ref==null || query.ddl==null || ref.ddl==null){return;}
+		int[] cmp=Vector.compareDDL(query.ddl.maxArray(), ref.ddl.maxArray());
+		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
+		kmerMatches=equal;
+		containment=DynamicDemiLog.containment(lower, equal, higher);
+		ani=DynamicDemiLog.ani(lower, equal, higher, Clade.DDL_K);
+		completeness=DynamicDemiLog.completeness(lower, equal, higher);
+	}
+
 	/**
 	 * Returns a string representation of this Comparison.
-	 * 
+	 *
 	 * @return A descriptive string, or null if the reference Clade is null
 	 */
 	public String toString() {
@@ -311,6 +321,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("\tk3dif=").append(k3dif, 6).append("\tk4dif=").append(k4dif, 6);
 		bb.append("\tk5dif=").append(k5dif, 6);
 		if(ssudif<1) {bb.append("\tssu=").append(1-ssudif, 4);}
+		if(ani>=0){bb.append("\tani=").append(ani, 4);}
+		if(containment>=0){bb.append("\tcont=").append(containment, 4);}
+		if(completeness>=0){bb.append("\tcomp=").append(completeness, 4);}
+		if(kmerMatches>=0){bb.append("\tmatches=").append(kmerMatches);}
 		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(ref.lineage());}
 		return bb;
 	}
@@ -354,7 +368,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt("k3dif");
 		bb.appendt("k4dif");
 		bb.append("k5dif");
-		if(Clade.callSSU) {bb.append("ssuID");}
+		if(Clade.callSSU) {bb.tab().append("ssuID");}
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tContainment\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
 		
 		if(false) {bb.append("\tconfidence");}
@@ -393,7 +408,13 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt(k3dif, 5);
 		bb.appendt(k4dif, 5);
 		bb.append(k5dif, 5);
-		if(Clade.callSSU) {bb.append(1-ssudif, 4);}
+		if(Clade.callSSU) {bb.tab().append(1-ssudif, 4);}
+		if(Clade.MAKE_DDLS){
+			bb.tab().append(ani>=0 ? ani : -1, 4);
+			bb.tab().append(containment>=0 ? containment : -1, 4);
+			bb.tab().append(completeness>=0 ? completeness : -1, 4);
+			bb.tab().append(kmerMatches);
+		}
 		bb.tab().append(lineage());
 		
 		if(false) {bb.append("\tNA");}
@@ -530,6 +551,15 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * Small subunit rRNA sequence difference (1 - identity) between query and reference
 	 */
 	float ssudif=1;
+
+	/** ANI estimated from DDL 31-mer containment. -1 when not computed. */
+	float ani=-1;
+	/** Containment of smaller DDL in larger. -1 when not computed. */
+	float containment=-1;
+	/** Completeness estimate from DDL bucket asymmetry. -1 when not computed. */
+	float completeness=-1;
+	/** Number of matching DDL buckets (excluding empty-empty). -1 when not computed. */
+	int kmerMatches=-1;
 
 	/** Whether to use early exit optimization to avoid unnecessary calculations */
 	static boolean earlyExit=true;

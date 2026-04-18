@@ -12,7 +12,7 @@ import tax.TaxTree;
  * Trained on 559M hit observations from 7062 prokaryotic genomes shredded at
  * both fixed and variable lengths, with top-20 to top-100 hits per query.
  *
- * @author Ady
+ * @author Brian Bushnell, Ady
  */
 public class CladeConfidence {
 

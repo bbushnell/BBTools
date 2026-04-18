@@ -184,6 +184,15 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				replaceRibo=Parse.parseBoolean(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
 				perSequence=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("makeddls") || a.equals("ddls")){
+				Clade.MAKE_DDLS=Parse.parseBoolean(b);
+			}else if(a.equals("ddl") || a.equals("ddlfile") || a.equals("ddlref")){
+				ddlFile=b;
+				Clade.MAKE_DDLS=true;
+			}else if(a.equalsIgnoreCase("ddlk")){
+				Clade.DDL_K=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("ddlbuckets")){
+				Clade.DDL_BUCKETS=Integer.parseInt(b);
 			}
 			
 			else if(b==null && new File(arg).isFile()){
@@ -293,14 +302,41 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	 * @param map Map to store clades in (created if null)
 	 * @return Map containing loaded clades
 	 */
-	public ConcurrentHashMap<Integer, Clade> load(Collection<String> fnames, 
+	public ConcurrentHashMap<Integer, Clade> load(Collection<String> fnames,
 			ConcurrentHashMap<Integer, Clade> map){
 		assert(fnames!=null && !fnames.isEmpty());
+
+		//Start DDL loading in parallel if a separate DDL file is specified
+		final ArrayList<ddl.DDLRecord> ddlRecords=new ArrayList<ddl.DDLRecord>();
+		Thread ddlThread=null;
+		if(ddlFile!=null){
+			ddlThread=new Thread("DDLLoader"){
+				@Override
+				public void run(){
+					ddlRecords.addAll(ddl.DDLLoader.loadFile(ddlFile, Clade.DDL_K));
+				}
+			};
+			ddlThread.start();
+		}
+
 		//Loop through input files
 		for(String fname : fnames) {
 			map=load(fname, map);
 			assert(map!=null);
 		}
+
+		//Wait for DDL loading and attach to Clades by TID
+		if(ddlThread!=null){
+			try{ddlThread.join();}
+			catch(InterruptedException e){e.printStackTrace();}
+			int attached=0;
+			for(ddl.DDLRecord rec : ddlRecords){
+				Clade c=map.get(rec.taxID);
+				if(c!=null){c.ddl=rec.ddl; attached++;}
+			}
+			System.err.println("Attached "+attached+"/"+ddlRecords.size()+" DDL sketches to clades.");
+		}
+
 		for(Clade c : map.values()) {
 			Integer key=c.taxID;
 			if(map.get(key)!=c) {
@@ -836,6 +872,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	private String extin=null;
 	/** Override output file extension */
 	private String extout=null;
+	/** Optional separate DDL file to load in parallel with Clade data */
+	public static String ddlFile=null;
 	
 	/*--------------------------------------------------------------*/
 

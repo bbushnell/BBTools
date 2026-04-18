@@ -215,6 +215,36 @@ public final class Vector {
 	}
 
 	/**
+	 * SIMD-accelerated DDL bucket comparison.
+	 * Compares two DynamicDemiLog maxArray char arrays, counting lower/equal/higher
+	 * buckets while skipping empty-empty pairs.
+	 * @param a First DDL maxArray
+	 * @param b Second DDL maxArray
+	 * @return int[]{lower, equal, higher, bothEmpty}
+	 */
+	public static int[] compareDDL(char[] a, char[] b){
+		if(Shared.SIMD){return SIMDLogLog.compareDetailed(a, b);}
+		return compareDDLScalar(a, b);
+	}
+
+	/** Scalar fallback for DDL bucket comparison. */
+	private static int[] compareDDLScalar(char[] a, char[] b){
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<a.length; i++){
+			final int ai=a[i], bi=b[i];
+			if(ai==0 && bi==0){bothEmpty++; continue;}
+			int dif=ai-bi;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
+	/**
 	 * GC-content compensation for k-mer frequency arrays.
 	 * Normalizes values based on GC content to reduce compositional bias.
 	 *
