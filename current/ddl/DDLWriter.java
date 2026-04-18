@@ -6,7 +6,8 @@ import cardinality.DynamicDemiLog;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import HashMap;
+import java.util.List;
+import map.IntObjectMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import dna.AminoAcid;
@@ -129,7 +130,7 @@ public class DDLWriter {
 	}
 
 	void processPerFileMulti(Timer t, int threads){
-		final ArrayList<DDLRecord> allRecords=
+		final List<DDLRecord> allRecords=
 			Collections.synchronizedList(new ArrayList<DDLRecord>());
 		final AtomicInteger fileIndex=new AtomicInteger(0);
 
@@ -271,8 +272,8 @@ public class DDLWriter {
 	}
 
 	void processPerTid(Timer t){
-		final HashMap<Integer, DDLRecord> tidMap=new HashMap<>();
-		final HashMap<Integer, long[]> gcMap=new HashMap<>(); //{gcBases, atBases}
+		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
+		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(); //{gcBases, atBases}
 		int nextId=0;
 
 		for(int f=0; f<inFiles.length; f++){
@@ -320,11 +321,13 @@ public class DDLWriter {
 		}
 
 		//Finalize and sort
-		ArrayList<DDLRecord> records=new ArrayList<>(tidMap.values());
-		for(DDLRecord rec : records){
+		ArrayList<DDLRecord> records=new ArrayList<DDLRecord>();
+		for(DDLRecord rec : tidMap.values()){
+			if(rec==null){continue;}
 			rec.cardinality=rec.ddl.cardinality();
 			long[] gc=gcMap.get(rec.taxID);
 			if(gc!=null && gc[0]+gc[1]>0){rec.gc=gc[0]*1f/(gc[0]+gc[1]);}
+			records.add(rec);
 		}
 		Collections.sort(records);
 		DDLLoader.writeFile(records, out, overwrite, k, seed);
