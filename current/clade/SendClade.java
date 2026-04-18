@@ -241,7 +241,7 @@ public class SendClade extends CladeObject {
 		
 		if(oneline && tsw!=null){
 			//Print header for oneline format
-			tsw.println("#QueryName\tQ_GC\tQ_Bases\tQ_Contigs\tRefName\tR_TaxID\tR_GC\tR_Bases\tR_Contigs\tR_Level\tGCdif\tSTRdif\tk3dif\tk4dif\tk5dif\tlineage");
+			tsw.println(Comparison.machineHeader(false));
 		}
 
 		//Process all input files

@@ -12,7 +12,10 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+import java.util.Collections;
+
 import fileIO.ReadWrite;
+import idaligner.IDAligner;
 import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
@@ -99,6 +102,8 @@ public class CladeServer {
 				addressPrefix=b;
 			}else if(a.equals("ref") || a.equals("reference")){
 				Tools.getFileOrFiles(b, ref_, true, false, false, false);
+			}else if(CladeIndex.parse(arg, a, b)){
+				//do nothing
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -376,11 +381,16 @@ public class CladeServer {
 
 				//Process clades and generate response
 				ByteBuilder response=new ByteBuilder();
+				IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
 
 				int queryNumber=1;
 				for(Clade clade : clades){
 					//Use thread-safe findBest method with context-specific hits parameter
 					ArrayList<Comparison> results=index.findBest(clade, context.hits);
+					if(ssa!=null){
+						for(Comparison comp : results){comp.align(ssa);}
+						Collections.sort(results);
+					}
 					formatResults(clade, results, response, context, queryNumber);
 					queryNumber++;
 				}
@@ -606,24 +616,8 @@ public class CladeServer {
 				bb.append("#Query").append(queryNumber).append('\n');
 				for(int i=0; i<maxHits; i++){
 					Comparison comp=validResults.get(i);
-					Clade ref=comp.ref;
-
-					bb.append(query.name).tab();
-					bb.append(String.format("%.3f", query.gc)).tab();
-					bb.append(query.monomerSum()).tab();
-					bb.append(query.contigs).tab();
-					bb.append(ref.name!=null ? ref.name : "Unknown_TaxID_" + ref.taxID).tab();
-					bb.append(ref.taxID).tab();
-					bb.append(String.format("%.3f", ref.gc)).tab();
-					bb.append(ref.monomerSum()).tab();
-					bb.append(ref.contigs).tab();
-					bb.append(ref.level).tab();
-					bb.append(String.format("%.3f", comp.gcdif)).tab();
-					bb.append(String.format("%.3f", comp.strdif)).tab();
-					bb.append(String.format("%.3f", comp.k3dif)).tab();
-					bb.append(String.format("%.3f", comp.k4dif)).tab();
-					bb.append(String.format("%.3f", comp.k5dif)).tab();
-					bb.append(ref.lineage()).nl();
+					comp.appendResultMachine(false, bb);
+					bb.nl();
 				}
 			}else{
 				//Human-readable format
@@ -635,15 +629,8 @@ public class CladeServer {
 
 				for(int i=0; i<maxHits; i++){
 					Comparison comp=validResults.get(i);
-					Clade ref=comp.ref;
-
-					bb.append("Hit ").append(i+1).append(":\n");
-					bb.append("  Name: ").append(ref.name!=null ? ref.name : "Unknown_TaxID_" + ref.taxID).nl();
-					bb.append("  TaxID: ").append(ref.taxID).nl();
-					bb.append("  Level: ").append(ref.level).nl();
-					bb.append("  k5dif: ").append(String.format("%.3f", comp.k5dif)).nl();
-					bb.append("  Lineage: ").append(ref.lineage()).nl();
-					bb.nl();
+					comp.appendResultHuman(bb, i);
+					bb.nl().nl();
 				}
 			}
 		}

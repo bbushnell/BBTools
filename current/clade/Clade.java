@@ -8,6 +8,7 @@ import parse.LineParser1;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
+import cardinality.DynamicDemiLog;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
@@ -42,6 +43,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		counts[3]=new long[arrayLength[3]];
 		counts[4]=new long[arrayLength[4]];
 		counts[5]=new long[arrayLength[5]];//Could be optionally allocated later
+		if(MAKE_DDLS){ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f);}
 	}
 
 	public static Clade makeClade(int tid) {
@@ -142,9 +144,17 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 					c.r16S=lp.parseByteArray(1);
 				}else if(lp.startsWith("18S")) {
 					c.r18S=lp.parseByteArray(1);
+				}else if(lp.startsWith("ddl")) {
+					if(lp.terms()>1){
+						char[] loaded=new char[lp.terms()-1];
+						for(int i=0; i<loaded.length; i++){
+							loaded[i]=(char)lp.parseLongA48(i+1);
+						}
+						c.ddl=DynamicDemiLog.fromArray(loaded, c.taxID, c.name, DDL_K);
+					}
 				}else if(lp.startsWith("k") && MAXK<5) {
 					//do nothing
-				}else{//TODO: Sometimes terminal blank lines are added 
+				}else{//TODO: Sometimes terminal blank lines are added
 					assert(line==null || line.length==0) : "Unknown line for TaxID "+c+
 						"\npos="+pos+", line='"+new String(line)+"'";
 				}
@@ -176,9 +186,10 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		countKmersMulti(seq, counts, 5);
 		float seqEntropy=(calcCladeEntropy ? et.averageEntropy(seq, false) : 0);
 		entropy=(entropy*bases+seqEntropy*seq.length)/(float)(bases+seq.length);
-		
+
 		incrementBases(seq.length);
 		contigs++;
+		if(ddl!=null){ddl.hash(seq, null);}
 	}
 	
 	/**
@@ -205,6 +216,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 			incrementBases(c.bases);
 			contigs+=c.contigs;
+			if(ddl!=null && c.ddl!=null){ddl.add(c.ddl);}
 		}
 	}
 	
@@ -254,14 +266,16 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	
 	public synchronized void clear() {
 		finished=false;
-		
+
 		taxID=level=-1;
 		name=lineage=null;
-		
+
 		setBases(0);
 		contigs=0;
 		gc=entropy=gcCompEntropy=strandedness=hh=caga=0;
 		Tools.fill(counts, 0);
+		if(MAKE_DDLS){ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f);}
+		else{ddl=null;}
 	}
 	
 	@Override
@@ -298,6 +312,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 //		final byte[] temp=(outDEC ? null : KillSwitch.allocByte1D(12));
 		{//header
 			int lines=10+counts.length-1;
+			if(ddl!=null){lines++;}
 			if(r16S!=null) {lines++;}
 			else if(r18S!=null) {lines++;}
 			bb.append('#').tab().append(lines);
@@ -326,6 +341,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			}
 			bb.nl();
 		}
+		if(ddl!=null){bb.append("ddl\t"); ddl.toBytes(bb); bb.nl();}
 		if(r16S!=null) {bb.append("16S\t").append(r16S).nl();}
 		else if(r18S!=null) {bb.append("18S\t").append(r18S).nl();}
 		return bb;
@@ -342,6 +358,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 	public byte[] r16S;
 	public byte[] r18S;
+	public DynamicDemiLog ddl;
 
 	public void setBases(long x) {
 		bases=x;
@@ -370,5 +387,9 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static boolean MAKE_FREQUENCIES=true;
 	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.
 	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
+	public static boolean MAKE_DDLS=false;
+	public static int DDL_K=31;
+	public static int DDL_BUCKETS=2048;
+	public static long DDL_SEED=12345L;
 	
 }

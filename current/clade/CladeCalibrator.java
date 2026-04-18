@@ -29,7 +29,7 @@ import tax.TaxTree;
  * Output: one TSV per taxonomic level (species, genus, family, order, class,
  * phylum, kingdom, domain). Columns: len, k5difBin, k5difLow, correct, total, prob.
  *
- * @author Ady
+ * @author Brian Bushnell, Ady
  */
 public class CladeCalibrator {
 
