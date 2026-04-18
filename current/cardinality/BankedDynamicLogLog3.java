@@ -451,6 +451,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	private long eeMask=-1L;
 
 	public int getMinZeros(){return minZeros;}
+	@Override public int actualBuckets(){return modBuckets;}
 	public int[] getStoredOverflow(){return storedOverflow;}
 	int[] lastRawNlz, lastCorrNlz;
 

@@ -46,23 +46,26 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	CompressedDynamicLogLog3(parse.Parser p){
-		super(p);
-		maxArray=new int[(buckets+9)/10];
-		minZeroCount=buckets;
-		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
-		storedOverflow=new int[64];
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
 	CompressedDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
-		super(buckets_, k_, seed, minProb_);
-		maxArray=new int[(buckets+9)/10];
-		minZeroCount=buckets;
-		xOverflow=buckets*Math.log(2.0*buckets)/256.0;
+		super(roundToWords(buckets_)*10<=0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*10-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*10;
+		modBuckets=rounded>0 ? rounded : buckets;
+		words=modBuckets/10;
+		maxArray=new int[words];
+		minZeroCount=modBuckets;
+		xOverflow=modBuckets*Math.log(2.0*modBuckets)/256.0;
 		storedOverflow=new int[64];
 	}
 
+	private static int roundToWords(int b){return Math.max(1, (b+5)/10);}
+
 	@Override
-	public CompressedDynamicLogLog3 copy(){return new CompressedDynamicLogLog3(buckets, k, -1, minProb);}
+	public CompressedDynamicLogLog3 copy(){return new CompressedDynamicLogLog3(modBuckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Bucket Access         ----------------*/
@@ -87,7 +90,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 		final int phantomNlz=minZeros-1;
 		int filledCount=0;
-		for(int i=0; i<buckets; i++){
+		for(int i=0; i<modBuckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
 				final int absNlz=(stored-1)+minZeros;
@@ -98,7 +101,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 				filledCount++;
 			}
 		}
-		nlzCounts[0]=buckets-filledCount;
+		nlzCounts[0]=modBuckets-filledCount;
 
 		final int[] counts;
 		if(CORRECT_OVERFLOW && minZeros>=1){
@@ -112,7 +115,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 				final double x=(storedOverflow[t]>0)
 					? storedOverflow[t]*OVERFLOW_SCALE : xOverflow*OVERFLOW_SCALE;
 				final int addToCum=(int)Math.round(
-					(buckets-cumRaw[t])*(1.0-Math.exp(-x/buckets)));
+					(modBuckets-cumRaw[t])*(1.0-Math.exp(-x/modBuckets)));
 				corrCum[t]+=addToCum;
 			}
 			final int maxHi=Math.min(hi+1, 63);
@@ -125,13 +128,13 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			counts[maxHi+1]=corrCum[maxHi];
 			int corrSum=0;
 			for(int t=1; t<66; t++){corrSum+=counts[t];}
-			counts[0]=buckets-corrSum;
+			counts[0]=modBuckets-corrSum;
 		}else{
 			counts=nlzCounts;
 		}
 
 		return new CardStats(null, counts, 0, 0, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(),
 				(DUAL ? 2.0 : 1.5));
 	}
@@ -160,7 +163,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
 			final int newMinZeros=Math.max(minZeros, log.minZeros);
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 7)));
@@ -170,7 +173,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			minZeros=newMinZeros;
 			filledBuckets=0;
 			minZeroCount=0;
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int s=readBucket(i);
 				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
@@ -200,8 +203,8 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			if(Long.compareUnsigned(key, eeMask)>0){return;}
 
 			nlz=Long.numberOfLeadingZeros(key);
-			bucket=(int)(key1&bucketMask);
-			micro=(key1>>bucketBits)&0x3FL;
+			bucket=(int)(Long.remainderUnsigned(key1, modBuckets));
+			micro=(key1>>>58)&0x3FL;
 		}else{
 			// --- Mantissa mode: single hash, half-NLZ tiers, 2*sqrt(2) per tier ---
 			final long rawKey=number^hashXor;
@@ -222,8 +225,8 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			}
 			// halfNlz encodes NLZ in half-steps; tier = halfNlz/3
 			nlz=(2*rawNlz+mantissa)/3;  // absolute tier number
-			bucket=(int)(key&bucketMask);
-			micro=(key>>bucketBits)&0x3FL;
+			bucket=(int)(Long.remainderUnsigned(key, modBuckets));
+			micro=(key>>>58)&0x3FL;
 		}
 
 		final int relNlz=nlz-minZeros;
@@ -253,7 +256,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 					final int nextCorrTier=7+minZeros;
 					if(nextCorrTier<64){
 						int topCount=0;
-						for(int i=0; i<buckets; i++){if(readBucket(i)==7){topCount++;}}
+						for(int i=0; i<modBuckets; i++){if(readBucket(i)==7){topCount++;}}
 						storedOverflow[nextCorrTier]=topCount/2;
 					}
 				}
@@ -302,7 +305,8 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	public double occupancy(){return (double)filledBuckets/buckets;}
+	public double occupancy(){return (double)filledBuckets/modBuckets;}
+	@Override public int actualBuckets(){return modBuckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -325,12 +329,16 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	private final int[] maxArray;
 	private final double xOverflow;
 	private final int[] storedOverflow;
+	private final int modBuckets;
+	private final int words;
 	private int minZeros=0;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
 	public int getMinZeros(){return minZeros;}
+	int[] getNlzSnapshot(){summarize(); return nlzCounts.clone();}
+	int readBucketAt(int i){return readBucket(i);}
 	private int[] nlzCounts;
 	private CardStats lastSummarized;
 

@@ -2,6 +2,7 @@ package cardinality;
 
 import parse.Parser;
 import shared.Tools;
+import structures.ByteBuilder;
 import structures.LongList;
 
 /**
@@ -50,6 +51,32 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		maxArray=new char[buckets];
 		countArray=new char[buckets];
 		minZeroCount=buckets;
+	}
+
+	/** Public factory for creating a new empty DDL.
+	 * @param buckets Number of buckets (power of 2)
+	 * @param k K-mer length
+	 * @param seed Hash seed
+	 * @param minProb Minimum probability filter */
+	public static DynamicDemiLog create(int buckets, int k, long seed, float minProb){
+		return new DynamicDemiLog(buckets, k, seed, minProb);
+	}
+
+	/** Creates a DDL from a pre-filled maxArray (e.g., loaded from file).
+	 * Reconstructs filledBuckets, minZeros, minZeroCount, and eeMask.
+	 * @param loaded Pre-filled bucket values (will be copied)
+	 * @param id_ Taxonomy or file ID
+	 * @param name_ Optional name
+	 * @param k_ K-mer length */
+	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_){
+		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0);
+		System.arraycopy(loaded, 0, ddl.maxArray, 0, loaded.length);
+		ddl.id=id_;
+		ddl.name=name_;
+		ddl.filledBuckets=0;
+		for(char c : ddl.maxArray){if(c>0){ddl.filledBuckets++;}}
+		ddl.scanFrom(0);
+		return ddl;
 	}
 
 	@Override
@@ -209,11 +236,24 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public char[] counts16(){return countArray;}
 
+	/** Returns the underlying maxArray for external comparison. */
+	public char[] maxArray(){return maxArray;}
+
 	/** Returns the number of buckets with any data (maxArray[i] > 0). O(1). */
 	public int filledBuckets(){return filledBuckets;}
 
 	/** Returns the fraction of buckets with any data (filled / total). O(1). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
+
+	/** Appends this DDL as tab-separated A48-encoded bucket values.
+	 * Each 16-bit value becomes 1-3 A48 characters. */
+	public ByteBuilder toBytes(ByteBuilder bb){
+		for(int i=0; i<maxArray.length; i++){
+			if(i>0){bb.tab();}
+			bb.appendA48((int)maxArray[i]);
+		}
+		return bb;
+	}
 
 	/**
 	 * Returns cardinality estimates for calibration, without the added-count cap.
@@ -275,18 +315,90 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return new int[]{lower, equal, higher};
 	}
 
-	public static float ani(int lower, int equal, int higher) {
-		//TODO
-		return -1;
+	/** Compares two DDLs excluding empty-empty bucket pairs.
+	 * @return int[]{lower, equal, higher, bothEmpty} */
+	public static int[] compareDetailed(char[] arrayA, char[] arrayB){
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<arrayA.length; i++){
+			final int a=arrayA[i], b=arrayB[i];
+			if(a==0 && b==0){bothEmpty++; continue;}
+			int dif=a-b;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		return new int[]{lower, equal, higher, bothEmpty};
 	}
 
-	public static float completeness(int lower, int equal, int higher) {
-		//TODO
-		return -1;
+	/** Instance version of compareDetailed. */
+	public int[] compareToDetailed(DynamicDemiLog other){
+		return compareDetailed(maxArray, other.maxArray);
 	}
 
-	public static float contam(int lower, int equal, int higher) {
-		//TODO
+	/** Containment of the smaller set in the larger.
+	 * equal / min(equal+lower, equal+higher), analogous to
+	 * BBSketch's hits / min(queryDivisor, refDivisor).
+	 * @param lower Buckets where A < B (from compareDetailed, excluding empty-empty)
+	 * @param equal Matching buckets (excluding empty-empty)
+	 * @param higher Buckets where A > B (excluding empty-empty) */
+	public static float containment(int lower, int equal, int higher){
+		int minDiv=Math.min(equal+lower, equal+higher);
+		if(minDiv<=0 || equal<=0){return 0;}
+		return Math.min(1f, (float)equal/minDiv);
+	}
+
+	/** Containment of A in B: fraction of B's buckets matched by A.
+	 * If A has everything B has, this is 1.0 regardless of A's extra content. */
+	public static float containmentAB(int lower, int equal, int higher){
+		int denom=equal+lower;
+		return denom>0 ? Math.min(1f, (float)equal/denom) : 0;
+	}
+
+	/** Containment of B in A: fraction of A's buckets matched by B. */
+	public static float containmentBA(int lower, int equal, int higher){
+		int denom=equal+higher;
+		return denom>0 ? Math.min(1f, (float)equal/denom) : 0;
+	}
+
+	/** Estimates ANI from DDL bucket comparison.
+	 * Uses max containment (containment of the smaller set in the larger),
+	 * then ANI = containment^(1/k), as in BBSketch.
+	 * @param lower Buckets where A < B (excluding empty-empty)
+	 * @param equal Matching buckets (excluding empty-empty)
+	 * @param higher Buckets where A > B (excluding empty-empty)
+	 * @param k K-mer length used for hashing */
+	public static float ani(int lower, int equal, int higher, int k){
+		float c=containment(lower, equal, higher);
+		return c>0 ? (float)Math.exp(Math.log(c)/k) : 0;
+	}
+
+	/** @deprecated Use ani(lower, equal, higher, k) instead */
+	@Deprecated
+	public static float ani(int lower, int equal, int higher){
+		return ani(lower, equal, higher, 31);
+	}
+
+	/** Genomic completeness of A relative to B: does A's genome cover B's?
+	 * If A is "higher" in a bucket, A had a k-mer B didn't have.
+	 * The ratio (equal+higher)/(equal+lower) estimates |A|/|B|, clamped to [0,1].
+	 * @return Estimated fraction of B's genome covered by A */
+	public static float completeness(int lower, int equal, int higher){
+		int denom=equal+lower;
+		if(denom<=0){return 0;}
+		return Math.min(1f, (float)(equal+higher)/denom);
+	}
+
+	/** Genomic completeness of B relative to A. */
+	public static float completenessBA(int lower, int equal, int higher){
+		return completeness(higher, equal, lower);
+	}
+
+	/** Contamination: requires multi-reference comparison; not supported pairwise.
+	 * @return -1 (not applicable) */
+	public static float contam(int lower, int equal, int higher){
 		return -1;
 	}
 
@@ -312,6 +424,11 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	// lastCardinality inherited from CardinalityTracker
 
 	/*--------------------------------------------------------------*/
+
+	/** Taxonomy or file ID for this DDL; -1 if unassigned. */
+	public int id=-1;
+	/** Optional name (e.g., organism name). */
+	public String name;
 
 	/** For tracking branch prediction rates; disable in production */
 	public long branch1=0, branch2=0;

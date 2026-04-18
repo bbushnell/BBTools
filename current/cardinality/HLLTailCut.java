@@ -32,7 +32,7 @@ import shared.Tools;
  * permanently lose their true rho.  Under low-complexity streams with many
  * duplicates, re-observation after base advance can cause order-dependent errors.
  *
- * @author Ady
+ * @author Brian Bushnell, Ady
  * @date April 2026
  */
 public final class HLLTailCut extends CardinalityTracker {
