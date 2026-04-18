@@ -286,7 +286,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("cdll5")){
 			return CompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("bcdll5")){
-			return null; // No CF table yet
+			return BankedCompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return CompressedDynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bcdll3")){

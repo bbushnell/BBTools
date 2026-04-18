@@ -298,8 +298,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 	public static boolean calcEntropy=true;
 	public static boolean calcEntropyFast=false;
 	public static boolean calcStrandedness=true;
-	public static boolean call16S=false;
-	public static boolean call18S=false;
+	public static boolean call16S=true;
+	public static boolean call18S=true;
 	public static int loadThreadsOverride=-1;
 	
 }
