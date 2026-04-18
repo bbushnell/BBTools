@@ -98,6 +98,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6();
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3();
+		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog3();
 		}else if("BDLL4".equalsIgnoreCase(type) || "BankedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog4();
 		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
@@ -191,6 +193,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(p);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(p);
+		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog3(p);
 		}else if("BDLL4".equalsIgnoreCase(type) || "BankedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog4(p);
 		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
@@ -284,6 +288,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
+		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
+			return new BankedCompressedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("BDLL4".equalsIgnoreCase(type) || "BankedDynamicLogLog4".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog4(buckets_, k_, seed, minProb_);
 		}else if("BDLL5".equalsIgnoreCase(type) || "BankedDynamicLogLog5".equalsIgnoreCase(type)){
@@ -791,6 +797,7 @@ public abstract class CardinalityTracker implements Drivable {
 	
 	/** Number of buckets for tracking; must be a power of 2 for efficiency */
 	public final int buckets;
+	public int actualBuckets(){return buckets;}
 	
 	public final int bucketBits;
 	

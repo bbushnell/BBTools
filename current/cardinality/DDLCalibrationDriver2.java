@@ -218,7 +218,8 @@ public class DDLCalibrationDriver2 {
 		final double elapsed=(System.nanoTime()-t0)*1e-9;
 		System.err.println();
 		System.err.println("=== Calibration Summary ===");
-		System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+		final int actualBk=DDLCalibrationDriver.makeInstance(loglogtype, buckets, k, 0, 0).actualBuckets();
+		System.err.println("Type: "+loglogtype+"  Buckets: "+actualBk+"  DDLs: "+numDDLs
 			+"  MaxCard: "+maxTrue+"  Rows: "+mergedRows.size()
 			+"  Elapsed: "+String.format("%.1f", elapsed)+"s"
 			+(dupFactor>1 ? "  DupFactor: "+dupFactor : ""));
@@ -425,6 +426,8 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==BankedCompressedDynamicLogLog3.class){
+							accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
 							accumulateLdlcEstimate(p.ldlcEstimate(), trueCard, ti);

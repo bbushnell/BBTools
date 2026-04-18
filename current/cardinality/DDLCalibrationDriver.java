@@ -280,7 +280,8 @@ public class DDLCalibrationDriver {
 			final double elapsed=(System.nanoTime()-t0)*1e-9;
 			System.err.println();
 			System.err.println("=== DDL Calibration Summary ===");
-			System.err.println("Type: "+loglogtype+"  Buckets: "+buckets+"  DDLs: "+numDDLs
+			final int actualBk=makeInstance(loglogtype, buckets, k, 0, 0).actualBuckets();
+			System.err.println("Type: "+loglogtype+"  Buckets: "+actualBk+"  DDLs: "+numDDLs
 				+"  MaxCard: "+maxTrue+"  Rows: "+numRows+"  Elapsed: "+String.format("%.1f", elapsed)+"s");
 			System.err.println("--- Avg Mean Absolute Error (lower = better) ---");
 			// Key estimators only: indices 0-6, 11-14, then MedianLC

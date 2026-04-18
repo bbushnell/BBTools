@@ -757,7 +757,7 @@ public class CorrectionFactor{
 	 *  is B-independent (verified on B=2048 and B=256) and eliminates
 	 *  the need for resource files and bucket-count interpolation.
 	 *  Coefficients fitted jointly on B=2048 (32M trials) and B=256 (300K trials).
-	 *  Combined R^2 >= 0.999 for all 11 states.  @author Ady */
+	 *  Combined R^2 >= 0.999 for all 11 states.  @author Brian Bushnell, Ady */
 	public static boolean USE_SBS_FORMULA=false;
 
 	/** Base values per state: minimum distinct count implied by the history pattern. */
