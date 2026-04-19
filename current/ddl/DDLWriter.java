@@ -154,7 +154,7 @@ public class DDLWriter {
 
 		//Sort by id (load order) for deterministic output
 		ArrayList<DDLRecord> records=new ArrayList<>(allRecords);
-		records.sort((a, b) -> a.id-b.id);
+		records.sort((a, b) -> Long.compare(a.id, b.id));
 		DDLLoader.writeFile(records, out, overwrite, k, seed);
 
 		t.stop();
@@ -272,10 +272,6 @@ public class DDLWriter {
 	}
 
 	void processPerTid(Timer t){
-		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
-		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(); //{gcBases, atBases}
-		int nextId=0;
-
 		for(int f=0; f<inFiles.length; f++){
 			final String path=inFiles[f];
 			if(verbose){outstream.println("Processing "+path);}
@@ -284,57 +280,114 @@ public class DDLWriter {
 			final Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
 			cris.start();
 
-			ListNum<Read> ln=cris.nextList();
-			ArrayList<Read> list=(ln!=null ? ln.list : null);
-			while(ln!=null && list!=null && list.size()>0){
-				for(Read r : list){
-					int tid=parseTID(r.id);
-					if(tid<1){
-						outstream.println("WARNING: No TID in header, skipping: "+r.id);
-						continue;
-					}
-					DDLRecord rec=tidMap.get(tid);
-					if(rec==null){
-						DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f);
-						rec=new DDLRecord(ddl, nextId++, tid, r.id);
-						tidMap.put(tid, rec);
-						gcMap.put(tid, new long[2]);
-					}
-					rec.ddl.hash(r);
-					rec.bases+=r.length();
-					rec.contigs++;
-					if(r.bases!=null){
-						long[] gc=gcMap.get(tid);
-						for(byte b : r.bases){
-							int x=AminoAcid.baseToNumber[b];
-							if(x==1 || x==2){gc[0]++;}
-							else if(x==0 || x==3){gc[1]++;}
+			final int threads=Shared.threads();
+			TidWorker[] workers=new TidWorker[threads];
+			for(int i=0; i<threads; i++){
+				workers[i]=new TidWorker(cris, i);
+				workers[i].start();
+			}
+
+			//Merge thread-local maps; synchronize on each worker
+			final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
+			final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>();
+			for(TidWorker w : workers){
+				try{w.join();}catch(InterruptedException e){e.printStackTrace();}
+				synchronized(w){
+					for(int tid : w.tidMap.toArray()){
+						DDLRecord partial=w.tidMap.get(tid);
+						long[] partialGC=w.gcMap.get(tid);
+						DDLRecord keeper=tidMap.get(tid);
+						if(keeper==null){
+							tidMap.put(tid, partial);
+							gcMap.put(tid, partialGC);
+						}else{
+							//Keep whichever was observed first (lower id);
+							//merge donor's data into keeper
+							DDLRecord kept, donor;
+							long[] keptGC, donorGC;
+							if(partial.id<keeper.id){
+								kept=partial; donor=keeper;
+								keptGC=partialGC; donorGC=gcMap.get(tid);
+								tidMap.put(tid, kept);
+								gcMap.put(tid, keptGC);
+							}else{
+								kept=keeper; donor=partial;
+								keptGC=gcMap.get(tid); donorGC=partialGC;
+							}
+							kept.ddl.add(donor.ddl);
+							kept.bases+=donor.bases;
+							kept.contigs+=donor.contigs;
+							keptGC[0]+=donorGC[0];
+							keptGC[1]+=donorGC[1];
 						}
 					}
 				}
-				cris.returnList(ln);
-				ln=cris.nextList();
-				list=(ln!=null ? ln.list : null);
 			}
-			cris.returnList(ln);
 			ReadWrite.closeStreams(cris);
+
+			//Finalize and sort
+			ArrayList<DDLRecord> records=new ArrayList<DDLRecord>();
+			for(int tid : tidMap.toArray()){
+				DDLRecord rec=tidMap.get(tid);
+				rec.cardinality=rec.ddl.cardinality();
+				long[] gc=gcMap.get(tid);
+				if(gc!=null && gc[0]+gc[1]>0){rec.gc=gc[0]*1f/(gc[0]+gc[1]);}
+				records.add(rec);
+			}
+			Collections.sort(records);
+			DDLLoader.writeFile(records, out, overwrite, k, seed);
+
+			t.stop();
+			outstream.println("Wrote "+records.size()+" DDL sketches to "+out+" using "+threads+" threads");
+			outstream.println("Time: \t"+t);
+		}
+	}
+
+	/** Worker thread for multithreaded pertid mode.
+	 * Each thread has its own tidMap/gcMap — no contention. */
+	class TidWorker extends Thread {
+		TidWorker(Streamer cris_, int tid_){
+			cris=cris_;
+			threadId=tid_;
 		}
 
-		//Finalize and sort
-		ArrayList<DDLRecord> records=new ArrayList<DDLRecord>();
-		for(DDLRecord rec : tidMap.values()){
-			if(rec==null){continue;}
-			rec.cardinality=rec.ddl.cardinality();
-			long[] gc=gcMap.get(rec.taxID);
-			if(gc!=null && gc[0]+gc[1]>0){rec.gc=gc[0]*1f/(gc[0]+gc[1]);}
-			records.add(rec);
+		@Override
+		public void run(){
+			synchronized(this){
+				ListNum<Read> ln=cris.nextList();
+				while(ln!=null && ln.size()>0){
+					for(Read r : ln){
+						int tid=parseTID(r.id);
+						if(tid<1){continue;}
+						DDLRecord rec=tidMap.get(tid);
+						if(rec==null){
+							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f);
+							rec=new DDLRecord(ddl, r.numericID, tid, r.id);
+							tidMap.put(tid, rec);
+							gcMap.put(tid, new long[2]);
+						}
+						rec.ddl.hash(r);
+						rec.bases+=r.length();
+						rec.contigs++;
+						if(r.bases!=null){
+							long[] gc=gcMap.get(tid);
+							for(byte b : r.bases){
+								int x=AminoAcid.baseToNumber[b];
+								if(x==1 || x==2){gc[0]++;}
+								else if(x==0 || x==3){gc[1]++;}
+							}
+						}
+					}
+					cris.returnList(ln);
+					ln=cris.nextList();
+				}
+			}
 		}
-		Collections.sort(records);
-		DDLLoader.writeFile(records, out, overwrite, k, seed);
 
-		t.stop();
-		outstream.println("Wrote "+records.size()+" DDL sketches to "+out);
-		outstream.println("Time: \t"+t);
+		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
+		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>();
+		private final Streamer cris;
+		final int threadId;
 	}
 
 	/*--------------------------------------------------------------*/

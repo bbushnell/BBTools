@@ -288,7 +288,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		int[] cmp=Vector.compareDDL(query.ddl.maxArray(), ref.ddl.maxArray());
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 		kmerMatches=equal;
-		containment=DynamicDemiLog.containment(lower, equal, higher);
+		containment=DynamicDemiLog.wkid(lower, equal, higher);
 		ani=DynamicDemiLog.ani(lower, equal, higher, Clade.DDL_K);
 		completeness=DynamicDemiLog.completeness(lower, equal, higher);
 	}
