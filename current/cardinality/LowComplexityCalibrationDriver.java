@@ -63,7 +63,7 @@ public class LowComplexityCalibrationDriver {
 			if(split.length!=2){continue;}
 			final String a=split[0].toLowerCase();
 			final String b=split[1];
-			if(a.equals("cardinality") || a.equals("card")){cardinality=Parse.parseIntKMG(b);}
+			if(a.equals("cardinality") || a.equals("card") || a.equals("maxcard")){cardinality=Parse.parseIntKMG(b);}
 			else if(a.equals("iterations") || a.equals("iter")){iterations=Float.parseFloat(b);}
 			else if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}

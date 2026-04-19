@@ -568,10 +568,10 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	}
 
 	/** Terminal Mean CF: 1/(raw Mean/true) at saturation.
-	 *  Measured 2026-04-18: 131k DDLs, 1536 buckets, maxmult=8192, banked HSB. */
-	@Override public float terminalMeanCF(){return 0.883874f;}
+	 *  Measured 2026-04-18: 512k DDLs, 1536 buckets, maxmult=8192, bug-fixed banks. */
+	@Override public float terminalMeanCF(){return 0.880801f;}
 	/** Terminal Mean+H CF: 1/(raw Mean+H/true) at saturation.
 	 *  Measured 2026-04-18: same run as terminalMeanCF. */
-	@Override public float terminalMeanPlusCF(){return 0.912702f;}
+	@Override public float terminalMeanPlusCF(){return 0.909594f;}
 
 }
