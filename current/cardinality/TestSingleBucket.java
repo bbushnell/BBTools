@@ -3,7 +3,7 @@ import shared.Tools;
 
 /** Minimal single-bucket simulation of the 3-rule history mechanism. */
 public class TestSingleBucket {
-    static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+    static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
     public static void main(String[] args){
         // Single bucket, feed random hashes, track history
@@ -17,11 +17,13 @@ public class TestSingleBucket {
         for(int i=0; i<50_000_000; i++){
             long key=Tools.hash64shift(rng.nextLong());
             int rawNlz=Long.numberOfLeadingZeros(key);
-            int mant=0;
-            if(rawNlz<47){
-                int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-                mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+            final int mBits;
+            if(rawNlz>=43){
+                mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
+            }else{
+                mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
             }
+            int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
             int elemTier=(2*rawNlz+mant)/3;
 
             if(!occupied){

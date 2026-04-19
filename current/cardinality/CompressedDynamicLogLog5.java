@@ -185,13 +185,13 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){return;}
 
 		final int rawNlz=Long.numberOfLeadingZeros(key);
-		final int mantissa;
-		if(rawNlz>=47){
-			mantissa=0;
+		final int mBits;
+		if(rawNlz>=43){
+			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
 		}else{
-			final int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-			mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 		}
+		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3;
 		final int relTier=absTier-minZeros;
@@ -368,8 +368,8 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	private static final int HIST_CARRY=1<<HBITS;
 	static final int HISTORY_MARGIN=2;
 
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 65536 */
-	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576 */
+	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	public static boolean EARLY_PROMOTE=true;
 	public static boolean DISABLE_EEMASK=false;

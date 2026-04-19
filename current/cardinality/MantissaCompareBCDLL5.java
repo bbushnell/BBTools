@@ -28,7 +28,7 @@ import java.util.zip.GZIPOutputStream;
  */
 public class MantissaCompareBCDLL5 {
 
-	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 	static final int HBITS=2;
 	static final int HMASK=(1<<HBITS)-1;
 	static final int HIST_CARRY=1<<HBITS;
@@ -50,12 +50,13 @@ public class MantissaCompareBCDLL5 {
 	static int tierOf(long key){
 		final int rawNlz=Long.numberOfLeadingZeros(key);
 		final int mant;
-		if(rawNlz>=47){
-			mant=0;
+		final int mBits;
+		if(rawNlz>=43){
+			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
 		}else{
-			final int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-			mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 		}
+		mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		return (2*rawNlz+mant)/3;
 	}
 

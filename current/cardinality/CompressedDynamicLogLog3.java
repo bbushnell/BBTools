@@ -212,17 +212,16 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			if(Long.compareUnsigned(key, eeMask)>0){return;}
 
 			final int rawNlz=Long.numberOfLeadingZeros(key);
-			// Mantissa: top 16 bits after leading 1, thresholded at (2-sqrt(2))
+			// Mantissa: top 20 bits after leading 1, thresholded at (2-sqrt(2))
 			// to give each half-NLZ step exactly sqrt(2) probability ratio.
-			// Threshold: (2-sqrt(2)) * 65536 = 38390 (0.58579...)
-			final int mantissa;
-			
-			if(rawNlz>=47){
-				mantissa=(int)((key<<(rawNlz-47))&0xFFFF);//Use remaining bits
+			// Threshold: (2-sqrt(2)) * 1048576 = 614242 (0.58579...)
+			final int mBits;
+			if(rawNlz>=43){
+				mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
 			}else{
-				final int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-				mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+				mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 			}
+			final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 			// halfNlz encodes NLZ in half-steps; tier = halfNlz/3
 			nlz=(2*rawNlz+mantissa)/3;  // absolute tier number
 			bucket=(int)(Long.remainderUnsigned(key, modBuckets));
@@ -354,8 +353,8 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 
 	private static final int wordlen=64;
 	private static final long HASH_OFFSET=123456789L;
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 65536 */
-	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576 */
+	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	public static boolean EARLY_PROMOTE=true;
 	public static boolean CORRECT_OVERFLOW=false;
