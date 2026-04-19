@@ -84,6 +84,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Double.parseDouble(b);}
+			else if(a.equals("card") || a.equals("maxcard") || a.equals("cardinality")){maxCard=Parse.parseKMG(b);}
 			else if(a.equals("dupfactor") || a.equals("dupefactor") || a.equals("dupes")){dupFactor=Integer.parseInt(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
@@ -110,7 +111,7 @@ public class DDLCalibrationDriver2 {
 	/** Configure global state: class init, CF loading, formula coefficients.
 	 *  Must be called inside synchronized(DDLCalibrationDriver2.class). */
 	private void initGlobalState(){
-		maxTrue=Math.max(1, (long)(buckets*maxMult));
+		maxTrue=(maxCard>0) ? maxCard : Math.max(1, (long)(buckets*maxMult));
 		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, pllmode, hcWeightExplicit);
 		thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 	}
@@ -582,6 +583,7 @@ public class DDLCalibrationDriver2 {
 	int buckets=2048;
 	int k=31;
 	double maxMult=10;
+	long maxCard=-1;
 	double reportFrac=0.01;
 	long masterSeed=12345L;
 	int threads=Shared.threads();

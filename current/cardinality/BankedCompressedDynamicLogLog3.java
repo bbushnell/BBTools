@@ -422,7 +422,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 	public static double OVERFLOW_SCALE=1.7;
 	public static boolean IGNORE_OVERFLOW=false;
 
-	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionBCDLL3.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null;
 	public static float[][] initializeCF(int buckets){
@@ -435,7 +435,8 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
-	@Override public float terminalMeanCF(){return 0.883441f;}
+	/** Measured 2026-04-18 via ddlcalibrate2 tmcf=1 cf=f ddls=512k buckets=2560 maxmult=8192. */
+	@Override public float terminalMeanCF(){return 0.880620f;}
 	@Override public float terminalMeanPlusCF(){return 1.0f;}
 
 }
