@@ -61,7 +61,8 @@ public class DDLLoader {
 		final ByteFile bf=ByteFile.makeByteFile(ff);
 		final LineParser1 lp=new LineParser1('\t');
 
-		int currentId=-1, currentTid=-1;
+		long currentId=-1;
+		int currentTid=-1;
 		String currentName=null, currentFile=null;
 		long currentBases=0;
 		int currentContigs=0;
@@ -79,7 +80,7 @@ public class DDLLoader {
 					}
 				}
 				else if(lp.termEquals("#seed", 0)){/*file-level, informational*/}
-				else if(lp.termEquals("#id", 0)){currentId=(int)lp.parseLong(1);}
+				else if(lp.termEquals("#id", 0)){currentId=lp.parseLong(1);}
 				else if(lp.termEquals("#tid", 0)){currentTid=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#name", 0)){currentName=lp.parseString(1);}
 				else if(lp.termEquals("#file", 0)){currentFile=lp.parseString(1);}
@@ -98,7 +99,7 @@ public class DDLLoader {
 			rec.cardinality=ddl.cardinality();
 			records.add(rec);
 
-			currentId=-1; currentTid=-1; currentName=null; currentFile=null;
+			currentId=-1L; currentTid=-1; currentName=null; currentFile=null;
 			currentBases=0; currentContigs=0; currentGC=-1;
 		}
 		bf.close();

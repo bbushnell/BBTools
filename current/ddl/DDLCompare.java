@@ -31,7 +31,7 @@ public class DDLCompare {
 		}
 
 		String file1=null, file2=null, refFile=null;
-		int k=31, buckets=2048, maxRecords=Integer.MAX_VALUE, minHits=0;
+		int k=31, buckets=2048, maxRecords=Integer.MAX_VALUE, minHits=3;
 		boolean collisionTest=false;
 		for(int i=0; i<args.length; i++){
 			String[] split=args[i].split("=");
@@ -43,6 +43,8 @@ public class DDLCompare {
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("collisiontest")){collisionTest=true;}
+			else if(a.equals("in") || a.equals("in1") || a.equals("query")){file1=b;}
+			else if(a.equals("in2")){file2=b;}
 			else if(file1==null){file1=args[i];}
 			else if(file2==null){file2=args[i];}
 		}
@@ -70,7 +72,7 @@ public class DDLCompare {
 		int[] cmp=ddlA.compareToDetailed(ddlB);
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2], bothEmpty=cmp[3];
 
-		float c=DynamicDemiLog.containment(lower, equal, higher);
+		float c=DynamicDemiLog.wkid(lower, equal, higher);
 		float cAB=DynamicDemiLog.containmentAB(lower, equal, higher);
 		float cBA=DynamicDemiLog.containmentBA(lower, equal, higher);
 		float ani=DynamicDemiLog.ani(lower, equal, higher, k);
@@ -147,7 +149,7 @@ public class DDLCompare {
 			int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 			if(equal<minHits){continue;}
 			float ani=DynamicDemiLog.ani(lower, equal, higher, k);
-			float c=DynamicDemiLog.containment(lower, equal, higher);
+			float c=DynamicDemiLog.wkid(lower, equal, higher);
 			float comp=DynamicDemiLog.completeness(lower, equal, higher);
 			System.out.println(String.format("%.4f\t%.4f\t%.4f\t%d\t%d\t%d\t%s",
 				ani, c, comp, equal, ref.bases, ref.taxID, ref.name));

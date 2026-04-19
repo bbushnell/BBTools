@@ -338,47 +338,53 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return compareDetailed(maxArray, other.maxArray);
 	}
 
-	/** Containment of the smaller set in the larger.
-	 * equal / min(equal+lower, equal+higher), analogous to
-	 * BBSketch's hits / min(queryDivisor, refDivisor).
+	/** Minimum reliable divisor for WKID calculation.
+	 * When fewer than this many buckets contribute to the smaller genome's
+	 * side of the comparison, results are unreliable. */
+	private static final int MIN_DIVISOR=6;
+
+	/** WKID: equal / minDivisor, where minDivisor = equal + min(lower, higher).
+	 * The smaller genome's "greater-than" count represents real mismatches;
+	 * the larger genome's excess is expected and ignored.
+	 * When minDivisor < MIN_DIVISOR, pads the mismatch count so that
+	 * minDivisor reaches MIN_DIVISOR, preventing inflated scores from
+	 * random bucket collisions.
 	 * @param lower Buckets where A < B (from compareDetailed, excluding empty-empty)
 	 * @param equal Matching buckets (excluding empty-empty)
 	 * @param higher Buckets where A > B (excluding empty-empty) */
-	public static float containment(int lower, int equal, int higher){
+	public static float wkid(int lower, int equal, int higher){
 		int minDiv=Math.min(equal+lower, equal+higher);
-		if(minDiv<=0 || equal<=0){return 0;}
+		if(minDiv<MIN_DIVISOR){minDiv=MIN_DIVISOR;}
+		if(equal<=0){return 0;}
 		return Math.min(1f, (float)equal/minDiv);
 	}
 
-	/** Containment of A in B: fraction of B's buckets matched by A.
-	 * If A has everything B has, this is 1.0 regardless of A's extra content. */
+	/** Containment of A in B: equal / (equal + higher).
+	 * From A's perspective, higher = buckets where A exceeds B = A's mismatches.
+	 * If A is smaller than B, this estimates what fraction of A's content
+	 * is shared with B. */
 	public static float containmentAB(int lower, int equal, int higher){
-		int denom=equal+lower;
-		return denom>0 ? Math.min(1f, (float)equal/denom) : 0;
-	}
-
-	/** Containment of B in A: fraction of A's buckets matched by B. */
-	public static float containmentBA(int lower, int equal, int higher){
 		int denom=equal+higher;
 		return denom>0 ? Math.min(1f, (float)equal/denom) : 0;
 	}
 
+	/** Containment of B in A: equal / (equal + lower). */
+	public static float containmentBA(int lower, int equal, int higher){
+		int denom=equal+lower;
+		return denom>0 ? Math.min(1f, (float)equal/denom) : 0;
+	}
+
 	/** Estimates ANI from DDL bucket comparison.
-	 * Uses max containment (containment of the smaller set in the larger),
-	 * then ANI = containment^(1/k), as in BBSketch.
+	 * WKID = equal / (equal + min(lower, higher)), then ANI = WKID^(1/k).
+	 * min(lower, higher) selects the mismatch count from the smaller genome,
+	 * analogous to BBSketch's minDivisor approach.
 	 * @param lower Buckets where A < B (excluding empty-empty)
 	 * @param equal Matching buckets (excluding empty-empty)
 	 * @param higher Buckets where A > B (excluding empty-empty)
 	 * @param k K-mer length used for hashing */
 	public static float ani(int lower, int equal, int higher, int k){
-		float c=containment(lower, equal, higher);
-		return c>0 ? (float)Math.exp(Math.log(c)/k) : 0;
-	}
-
-	/** @deprecated Use ani(lower, equal, higher, k) instead */
-	@Deprecated
-	public static float ani(int lower, int equal, int higher){
-		return ani(lower, equal, higher, 31);
+		float w=wkid(lower, equal, higher);
+		return w>0 ? (float)Math.exp(Math.log(w)/k) : 0;
 	}
 
 	/** Genomic completeness of A relative to B: does A's genome cover B's?

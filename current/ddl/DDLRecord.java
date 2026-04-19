@@ -17,9 +17,11 @@ public class DDLRecord implements Comparable<DDLRecord> {
 
 	public DDLRecord(DynamicDemiLog ddl_){
 		ddl=ddl_;
+		id=-1;
+		name=null;
 	}
 
-	public DDLRecord(DynamicDemiLog ddl_, int id_, int taxID_, String name_){
+	public DDLRecord(DynamicDemiLog ddl_, long id_, int taxID_, String name_){
 		ddl=ddl_;
 		id=id_;
 		taxID=taxID_;
@@ -34,7 +36,7 @@ public class DDLRecord implements Comparable<DDLRecord> {
 	@Override
 	public int compareTo(DDLRecord o){
 		int x=taxID-o.taxID;
-		return x!=0 ? x : id-o.id;
+		return x!=0 ? x : Long.compare(id, o.id);
 	}
 
 	@Override
@@ -48,11 +50,11 @@ public class DDLRecord implements Comparable<DDLRecord> {
 
 	public final DynamicDemiLog ddl;
 
-	/** Load order index — always present, always unique */
-	public int id=-1;
+	/** First-observed sequence ID — numericID from Streamer, or file index */
+	public final long id;
 	/** Real taxonomy ID from tid_NNNN or tid|NNNN; -1 when unknown */
 	public int taxID=-1;
-	public String name;
+	public final String name;
 	public String filename;
 	public long bases;
 	public int contigs;

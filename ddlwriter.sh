@@ -51,7 +51,7 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	parseJavaArgs "--xmx=400m" "--xms=400m" "--mode=fixed" "$@"
+	parseJavaArgs "--xmx=4g" "--xms=400m" "--mode=fixed" "$@"
 	setEnvironment
 }
 
