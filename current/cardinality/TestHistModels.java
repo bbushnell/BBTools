@@ -3,15 +3,17 @@ import shared.Tools;
 
 /** Compare 3-rule carry model vs bitmap model for 1-bit history. */
 public class TestHistModels {
-    static final int MT=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+    static final int MT=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
     static int toTier(long key){
         int rawNlz=Long.numberOfLeadingZeros(key);
-        int mant=0;
-        if(rawNlz<47){
-            int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-            mant=(mBits>=MT) ? 1 : 0;
+        final int mBits;
+        if(rawNlz>=43){
+            mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
+        }else{
+            mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
         }
+        int mant=(mBits>=MT) ? 1 : 0;
         return (2*rawNlz+mant)/3;
     }
 
@@ -32,7 +34,13 @@ public class TestHistModels {
             long key=Tools.hash64shift(rng.nextLong());
             int elemTier=toTier(key);
             int rawNlz=Long.numberOfLeadingZeros(key);
-            int mant=(rawNlz<47) ? ((int)((key>>>(46-rawNlz))&0xFFFF)>=MT ? 1 : 0) : 0;
+            final int mBits2;
+            if(rawNlz>=43){
+                mBits2=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
+            }else{
+                mBits2=(int)((key>>>(42-rawNlz))&0xFFFFF);
+            }
+            int mant=(mBits2>=MT) ? 1 : 0;
             int halfNlz=2*rawNlz+mant;
 
             // Model A: 3 rules

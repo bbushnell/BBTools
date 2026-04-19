@@ -245,13 +245,13 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){return;} // early-exit mask
 
 		final int rawNlz=Long.numberOfLeadingZeros(key);
-		final int mantissa;
-		if(rawNlz>=47){
-			mantissa=0; // not enough bits below NLZ for mantissa extraction
+		final int mBits;
+		if(rawNlz>=43){
+			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
 		}else{
-			final int mBits=(int)((key>>>(46-rawNlz))&0xFFFF);
-			mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0; // threshold: 2-sqrt(2)
+			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 		}
+		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3; // compressed tier
 
@@ -532,8 +532,8 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	/** eeMask relaxation: accept hashes this many tiers below floor for history. */
 	static final int HISTORY_MARGIN=2;
 
-	/** Mantissa threshold for compressed tiers: (2-sqrt(2)) * 65536 ≈ 38340. */
-	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
+	/** Mantissa threshold for compressed tiers: (2-sqrt(2)) * 1048576 ≈ 614242. */
+	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
