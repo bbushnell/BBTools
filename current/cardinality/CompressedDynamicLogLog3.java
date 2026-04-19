@@ -214,7 +214,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			final int rawNlz=Long.numberOfLeadingZeros(key);
 			// Mantissa: top 16 bits after leading 1, thresholded at (2-sqrt(2))
 			// to give each half-NLZ step exactly sqrt(2) probability ratio.
-			// Threshold: (2-sqrt(2)) * 65536 = 38370 (0.58579...)
+			// Threshold: (2-sqrt(2)) * 65536 = 38390 (0.58579...)
 			final int mantissa;
 			
 			if(rawNlz>=47){

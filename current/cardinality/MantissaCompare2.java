@@ -13,7 +13,7 @@ public class MantissaCompare2 {
 
     static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5, MODE_TWINTAIL=6, MODE_MASTERSLAVE=7, MODE_SUPER1BIT=8, MODE_AVGNLZ=9, MODE_MEDIAN3=10, MODE_MINPLUS1=11, MODE_CTLL=12;
     static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant", "TwinTail", "MasterSlave", "Super1Bit", "AvgNlz", "Median3", "MinPlus1", "CTLL"};
-    static final int MANTISSA_THRESHOLD=38370; // round((2-sqrt(2)) * 65536)
+    static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*65536);
 
     static final int SAMPLE_ALL=0, SAMPLE_ENTRY=1, SAMPLE_BOTH=2;
     static final String[] SAMPLE_NAMES={"all", "entry", "both"};
