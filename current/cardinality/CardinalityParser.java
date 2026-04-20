@@ -288,10 +288,8 @@ public class CardinalityParser {
 			return CompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("bcdll5")){
 			return BankedCompressedDynamicLogLog5.CF_FILE;
-		// acdll5: CF table not yet generated; defaultCFFile returns null to skip loading.
-		// Uncomment when cardinalityCorrectionACDLL5.tsv.gz exists:
-		// }else if(loglogtype.equals("acdll5")){
-		//     return ArithmeticCompressedDynamicLogLog5.CF_FILE;
+		}else if(loglogtype.equals("acdll5")){
+			return ArithmeticCompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return CompressedDynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bcdll3")){
