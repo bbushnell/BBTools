@@ -46,31 +46,34 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 
 	/** Construct from parsed command-line arguments. */
 	BankedCompressedDynamicLogLog5(parse.Parser p){
-		super(p);
-		packedLen=(buckets+5)/6;
-		packed=new int[packedLen];
-		minZeroCount=buckets;
-		assert(buckets>0 && Integer.bitCount(buckets)==1) : "buckets must be power of 2: "+buckets;
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
 	/**
 	 * Full constructor.
-	 * @param buckets_ Number of buckets (should be power of 2)
+	 * Bucket count is rounded up to the next multiple of 6 (complete words).
+	 * @param buckets_ Number of buckets (rounded to next multiple of 6)
 	 * @param k_ Hash prefix length
 	 * @param seed Random seed (-1 for default)
 	 * @param minProb_ Minimum probability threshold
 	 */
 	BankedCompressedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
-		super(buckets_, k_, seed, minProb_);
-		packedLen=(buckets+5)/6;
+		super(roundToWords(buckets_)*6<=0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*6-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*6;
+		modBuckets=rounded>0 ? rounded : buckets;
+		packedLen=modBuckets/6;
 		packed=new int[packedLen];
-		minZeroCount=buckets;
-		assert(buckets>0 && Integer.bitCount(buckets)==1) : "buckets must be power of 2: "+buckets;
+		minZeroCount=modBuckets;
 	}
+
+	private static int roundToWords(int b){return Math.max(1, (b+5)/6);}
 
 	/** Create an independent copy with a fresh seed. */
 	@Override
-	public BankedCompressedDynamicLogLog5 copy(){return new BankedCompressedDynamicLogLog5(buckets, k, -1, minProb);}
+	public BankedCompressedDynamicLogLog5 copy(){return new BankedCompressedDynamicLogLog5(modBuckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return modBuckets;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/
@@ -117,11 +120,11 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-		if(packedBuckets==null){packedBuckets=new char[buckets];}
+		if(packedBuckets==null){packedBuckets=new char[modBuckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
 		int filledCount=0;
-		for(int i=0; i<buckets; i++){
+		for(int i=0; i<modBuckets; i++){
 			final int wordIdx=i/6;
 			final int bank=readBank(wordIdx);
 			final int reg=readBucket(i);
@@ -145,11 +148,11 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 				}
 			}
 		}
-		nlzCounts[0]=buckets-filledCount;
-		assert(nlzCounts[0]>=0) : "Negative empties: "+nlzCounts[0]+" filled="+filledCount+" buckets="+buckets;
+		nlzCounts[0]=modBuckets-filledCount;
+		assert(nlzCounts[0]>=0) : "Negative empties: "+nlzCounts[0]+" filled="+filledCount+" modBuckets="+modBuckets;
 
 		return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.5);
 	}
 
@@ -200,7 +203,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 				savedBanks[w]=readBank(w);
 				writeBank(w, 0); // merged result uses bank=0
 			}
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int wordIdx=i/6;
 				final int bankA=savedBanks[wordIdx]; // this's pre-merge bank
 				final int bankB=log.readBank(wordIdx);
@@ -220,12 +223,12 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			}
 			minZeros=newMinZeros;
 			filledBuckets=0; minZeroCount=0;
-			for(int i=0; i<buckets; i++){// recount after merge (all banks are 0)
+			for(int i=0; i<modBuckets; i++){// recount after merge (all banks are 0)
 				final int tp=tierPart(readBucket(i));
 				if(tp>0){filledBuckets++;}
 				if(tp==0 || (!EARLY_PROMOTE && tp==1)){minZeroCount++;}
 			}
-			assert(filledBuckets>=0 && filledBuckets<=buckets) : "Bad filledBuckets="+filledBuckets;
+			assert(filledBuckets>=0 && filledBuckets<=modBuckets) : "Bad filledBuckets="+filledBuckets;
 			while(minZeroCount==0 && minZeros<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
@@ -255,14 +258,14 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3; // compressed tier
 
-		final int bucket=(int)(key&bucketMask);
+		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
 		final int wordIdx=bucket/6;
 		final int bank=readBank(wordIdx);
 		final int relTier=absTier-minZeros-bank; // tier relative to this word's floor
 
 		if(relTier<-HISTORY_MARGIN){return;} // too far below floor even for history
 
-		final long micro=(key>>bucketBits)&0x3FL;
+		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro); // 64-bit micro cardinality sketch
 		if(LAZY_ALLOCATE){
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
@@ -404,7 +407,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 				if(bank==1){ // bank drops to 0: stored=0 slots become floor-level
 					for(int b=0; b<6; b++){
 						final int idx=w*6+b;
-						if(idx>=buckets){break;}
+						if(idx>=modBuckets){break;}
 						final int tp=tierPart(readBucket(idx));
 						if(EARLY_PROMOTE){
 							if(tp==0){newMinZeroCount++;}
@@ -416,7 +419,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			}else{
 				int word=packed[w];
 				if((word&0x3FFFFFFF)==0){ // all registers empty, fast path
-					final int regsInWord=Math.min(6, buckets-w*6);
+					final int regsInWord=Math.min(6, modBuckets-w*6);
 					newMinZeroCount+=regsInWord;
 					continue;
 				}
@@ -458,11 +461,11 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			if(readBank(w)>0){continue;} // banked words have no truly empty slots
 			for(int b=0; b<6; b++){
 				final int idx=w*6+b;
-				if(idx>=buckets){break;}
+				if(idx>=modBuckets){break;}
 				if(tierPart(readBucket(idx))==0){empty++;}
 			}
 		}
-		return 1.0-(double)empty/buckets;
+		return 1.0-(double)empty/modBuckets;
 	}
 
 	/** Not used; CF correction handled via CF_MATRIX. */
@@ -490,8 +493,10 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 
 	/** Packed storage: 6 × 5-bit registers + 2-bit bank per 32-bit int. */
 	private final int[] packed;
-	/** Number of packed ints: ceil(buckets/6). */
+	/** Number of packed ints: ceil(modBuckets/6). */
 	private final int packedLen;
+	/** Actual bucket count (multiple of 6, may differ from super.buckets). */
+	private final int modBuckets;
 	/** Global floor tier. absNlz = stored-1 + minZeros + bank. */
 	private int minZeros=0;
 	/** Buckets at the global floor eligible for next advance. */

@@ -209,7 +209,7 @@ public class Parser {
 		}else if(a.equals("buckets") || a.equals("loglogbuckets")){
 			loglogbuckets=Parse.parseIntKMG(b);
 			assert(loglogbuckets>0);
-			loglogbuckets=CardinalityTracker.powerOf2AtLeast(loglogbuckets);
+//			loglogbuckets=CardinalityTracker.powerOf2AtLeast(loglogbuckets);
 		}else if(a.equals("loglogcorrection") || a.equals("loglogcf")){
 			CorrectionFactor.USE_CORRECTION=Parse.parseBoolean(b);
 		}else if(a.equals("loglogbits")){
