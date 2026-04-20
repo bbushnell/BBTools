@@ -386,7 +386,6 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 
 	public static final String CF_FILE="?cardinalityCorrectionACDLL5.tsv.gz";
 	public static final String SBS_FILE="?cardinalityCorrectionACDLL5_LC2BitHistSBS.tsv.gz";
-	public static final String HSB_FILE="?cardinalityCorrectionACDLL5_LC2BitHist.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null;
 	public static float[][] initializeCF(int buckets){

@@ -28,8 +28,8 @@ public final class StateTable {
 	 *  Regenerated 2026-04-12 from mc2_hist1_128m_32k.txt tier 11 LinCF. */
 	static final double[] CF_HISTORY_1={-1.35708218, +0.16616068};
 	/** Steady-state per-state CFs for 1-bit history, CTLL 2*sqrt(2) tiers (2 states).
-	 *  Regenerated 2026-04-12 from mc2_ctll1_128m_32k.txt tier 7 LinCF (pre-saturation). */
-	static final double[] CF_CTLL_1={-2.23294043, +0.06749225};
+	 *  Regenerated 2026-04-19 from MC2 mode=ctll bits=1 outer=2M inner=32k, tier 7 LinCF. */
+	static final double[] CF_CTLL_1={-2.22885953, +0.06747291};
 	/** Steady-state per-state CFs for 2-bit history (4 states).
 	 *  Geometric mean averaging (all/geo model). See CardinalityGuide Section 14.
 	 *  Regenerated 2026-04-12 from mc2_hist2_128m_32k.txt tier 11 GeoCF. */
@@ -45,11 +45,21 @@ public final class StateTable {
 		{-1.90683416, +0.19744068},
 	};
 	/** Per-tier CFs for 1-bit history, CTLL 2*sqrt(2) tiers (tiers 0-2; tier 3+ uses steady-state).
-	 *  Regenerated 2026-04-12 from mc2_ctll1 LinCF rows. */
+	 *  Regenerated 2026-04-19 from MC2 mode=ctll bits=1 outer=2M inner=32k LinCF rows. */
 	static final double[][] CF_CTLL_1_TIERS={
 		{+0.00000000, +0.00000000},
-		{-2.92242058, +0.07416622},
-		{-2.43109180, +0.06969528},
+		{-2.92159826, +0.07409516},
+		{-2.43085655, +0.06963695},
+	};
+	/** Steady-state per-state CFs for 2-bit history, CTLL 2*sqrt(2) tiers (4 states).
+	 *  Generated 2026-04-19 from MC2 mode=ctll bits=2 outer=2M inner=32k, tier 7 LinCF. */
+	static final double[] CF_CTLL_2={-3.86427049, -2.11815111, -3.06401825, +0.07339904};
+	/** Per-tier CFs for 2-bit history, CTLL 2*sqrt(2) tiers (tiers 0-2; tier 3+ uses steady-state).
+	 *  Generated 2026-04-19 from MC2 mode=ctll bits=2 outer=2M inner=32k LinCF rows. */
+	static final double[][] CF_CTLL_2_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-2.92159826, +0.00000000, +0.07409516, +0.00000000},
+		{-4.76961496, -2.30133622, -3.48567704, +0.07572406},
 	};
 	/** Per-tier CFs for 2-bit history (tiers 0-2; tier 3+ uses steady-state).
 	 *  Geometric mean averaging (all/geo model). Regenerated 2026-04-12 from mc2_hist2 GeoCF rows. */
@@ -75,13 +85,10 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		// Check for HSB table override first
-		if(hbits>=1 && hbits<=3 && hsbOverrideSS[hbits-1]!=null){
-			steadyState=hsbOverrideSS[hbits-1];
-			tierTables=hsbOverrideTiers[hbits-1];
-		}else if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
-			// CTLL: compressed tiers (2*sqrt(2) per tier)
+		if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
 			steadyState=CF_CTLL_1; tierTables=CF_CTLL_1_TIERS;
+		}else if(hbits==2 && AbstractCardStats.TIER_SCALE>1.0){
+			steadyState=CF_CTLL_2; tierTables=CF_CTLL_2_TIERS;
 		}else if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}
@@ -90,58 +97,6 @@ public final class StateTable {
 			return tierTables[nlzBin][histPattern];
 		}
 		return steadyState[histPattern];
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------   HSB Table Override         ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Override arrays for history state bias tables (indexed by hbits-1). */
-	static final double[][] hsbOverrideSS=new double[3][];
-	static final double[][][] hsbOverrideTiers=new double[3][][];
-
-	/**
-	 * Load an HSB table from a TSV file. Format:
-	 * Lines starting with # are comments. Each data line:
-	 *   tier\tCF(0)\tCF(1)\t...\tCF(n-1)
-	 * where tier is an integer (per-tier entry) or "ss" (steady-state).
-	 */
-	static void loadHsbTable(int hbits, String filename){
-		try{
-			java.util.List<double[]> tierList=new java.util.ArrayList<>();
-			double[] ss=null;
-			java.io.InputStream in=new java.io.FileInputStream(filename);
-			if(filename.endsWith(".gz")){in=new java.util.zip.GZIPInputStream(in);}
-			java.io.BufferedReader br=new java.io.BufferedReader(new java.io.InputStreamReader(in));
-			String line;
-			while((line=br.readLine())!=null){
-				line=line.trim();
-				if(line.isEmpty() || line.startsWith("#")){continue;}
-				String[] parts=line.split("\t");
-				double[] cfs=new double[parts.length-1];
-				for(int i=1; i<parts.length; i++){
-					cfs[i-1]=Double.parseDouble(parts[i].trim());
-				}
-				if(parts[0].equals("ss")){
-					ss=cfs;
-				}else{
-					int tier=Integer.parseInt(parts[0].trim());
-					while(tierList.size()<=tier){tierList.add(null);}
-					tierList.set(tier, cfs);
-				}
-			}
-			br.close();
-			if(ss!=null){
-				hsbOverrideSS[hbits-1]=ss;
-				System.err.println("Loaded HSB table (hbits="+hbits+"): ss="+java.util.Arrays.toString(ss)+" from "+filename);
-			}
-			if(!tierList.isEmpty()){
-				hsbOverrideTiers[hbits-1]=tierList.toArray(new double[0][]);
-				System.err.println("Loaded HSB per-tier table (hbits="+hbits+"): "+tierList.size()+" tiers from "+filename);
-			}
-		}catch(Exception e){
-			System.err.println("WARNING: Failed to load HSB table from "+filename+": "+e.getMessage());
-		}
 	}
 
 	/*--------------------------------------------------------------*/
