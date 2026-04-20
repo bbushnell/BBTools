@@ -343,20 +343,20 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * side of the comparison, results are unreliable. */
 	private static final int MIN_DIVISOR=6;
 
-	/** WKID: equal / minDivisor, where minDivisor = equal + min(lower, higher).
-	 * The smaller genome's "greater-than" count represents real mismatches;
-	 * the larger genome's excess is expected and ignored.
-	 * When minDivisor < MIN_DIVISOR, pads the mismatch count so that
-	 * minDivisor reaches MIN_DIVISOR, preventing inflated scores from
-	 * random bucket collisions.
+	/** WKID: equal / (equal + min(lower, higher)).
+	 * min(lower, higher) selects the mismatch count from the smaller genome —
+	 * the genome whose "exceeds" count represents real mismatches rather than
+	 * expected size differences. Analogous to BBSketch's hits / minDivisor.
+	 * When the divisor < MIN_DIVISOR, pads to MIN_DIVISOR to prevent
+	 * inflated scores from random bucket collisions.
 	 * @param lower Buckets where A < B (from compareDetailed, excluding empty-empty)
 	 * @param equal Matching buckets (excluding empty-empty)
 	 * @param higher Buckets where A > B (excluding empty-empty) */
 	public static float wkid(int lower, int equal, int higher){
-		int minDiv=Math.min(equal+lower, equal+higher);
-		if(minDiv<MIN_DIVISOR){minDiv=MIN_DIVISOR;}
+		int div=Math.min(equal+lower, equal+higher);
+		if(div<MIN_DIVISOR){div=MIN_DIVISOR;}
 		if(equal<=0){return 0;}
-		return Math.min(1f, (float)equal/minDiv);
+		return Math.min(1f, (float)equal/div);
 	}
 
 	/** Containment of A in B: equal / (equal + higher).

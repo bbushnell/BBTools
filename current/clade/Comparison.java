@@ -322,7 +322,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("\tk5dif=").append(k5dif, 6);
 		if(ssudif<1) {bb.append("\tssu=").append(1-ssudif, 4);}
 		if(ani>=0){bb.append("\tani=").append(ani, 4);}
-		if(containment>=0){bb.append("\tcont=").append(containment, 4);}
+		if(containment>=0){bb.append("\twkid=").append(containment, 4);}
 		if(completeness>=0){bb.append("\tcomp=").append(completeness, 4);}
 		if(kmerMatches>=0){bb.append("\tmatches=").append(kmerMatches);}
 		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(ref.lineage());}
@@ -369,7 +369,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt("k4dif");
 		bb.append("k5dif");
 		if(Clade.callSSU) {bb.tab().append("ssuID");}
-		if(Clade.MAKE_DDLS){bb.append("\tANI\tContainment\tCompleteness\tKmerMatches");}
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
 		
 		if(false) {bb.append("\tconfidence");}

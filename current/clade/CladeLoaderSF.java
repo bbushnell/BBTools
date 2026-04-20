@@ -7,6 +7,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import bin.AdjustEntropy;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import prok.GeneCaller;
+import bin.GeneTools;
 import shared.Shared;
 import shared.Tools;
 import stream.Streamer;
@@ -111,6 +113,8 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 				merged.incrementBases(partial.bases);
 				merged.contigs+=partial.contigs;
 				if(merged.ddl!=null && partial.ddl!=null){merged.ddl.add(partial.ddl);}
+				if(merged.r16S==null && partial.r16S!=null){merged.r16S=partial.r16S;}
+				if(merged.r18S==null && partial.r18S!=null){merged.r18S=partial.r18S;}
 			}
 			if(finish && merged.bases>0) {merged.finish();}
 			if(merged.bases>0) {result.add(merged);}
@@ -181,16 +185,17 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 		public void runInner() {
 			partialClade=new Clade(-1, -1, "partial_"+tid);
 			et=(calcCladeEntropy ? new EntropyTracker(entropyK, entropyWindow, false) : null);
+			final GeneCaller caller=(Clade.callSSU ? GeneTools.makeGeneCaller() : null);
 			ListNum<Read> ln=cris.nextList();
 			while(ln!=null && ln.size()>0) {
 				for(Read r : ln) {
 					if(r.bases==null || r.bases.length<minContig) {continue;}
 					if(!perContig) {
-						partialClade.add(r.bases, et);
+						partialClade.add(r, et, caller);
 					} else {
 						int taxID=CladeObject.resolveTaxID(r.id);
 						Clade c=new Clade(taxID<1 ? -1 : taxID, -1, r.id);
-						c.add(r.bases, et);
+						c.add(r, et, caller);
 						if(finish) {c.finish();}
 						perContigClades.add(c);
 						numericIDs.add(r.numericID);
