@@ -404,8 +404,8 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Placeholder terminal CFs — must be calibrated via cluster run. */
-	@Override public float terminalMeanCF(){return 1.0f;}
-	@Override public float terminalMeanPlusCF(){return 1.0f;}
+	/** Terminal CFs from cluster calibration: 512k DDLs, 1536 buckets, tmcf=1. */
+	@Override public float terminalMeanCF(){return 0.878596f;}
+	@Override public float terminalMeanPlusCF(){return 1.088939f;}
 
 }
