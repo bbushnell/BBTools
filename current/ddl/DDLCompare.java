@@ -93,15 +93,15 @@ public class DDLCompare {
 		System.out.println("Equal:\t"+equal);
 		System.out.println("Higher:\t"+higher);
 		System.out.println("BothEmpty:\t"+bothEmpty);
-		System.out.println("Containment:\t"+String.format("%.6f", c));
-		System.out.println("Contain(1in2):\t"+String.format("%.6f", cAB));
-		System.out.println("Contain(2in1):\t"+String.format("%.6f", cBA));
+		System.out.println("WKID:\t"+String.format("%.6f", c));
+		System.out.println("WKID(1in2):\t"+String.format("%.6f", cAB));
+		System.out.println("WKID(2in1):\t"+String.format("%.6f", cBA));
 		System.out.println("ANI:\t"+String.format("%.6f", ani));
 		System.out.println("Completeness(1->2):\t"+String.format("%.6f", compAB));
 		System.out.println("Completeness(2->1):\t"+String.format("%.6f", compBA));
 		System.out.println("Time:\t"+t);
 
-		System.err.println(String.format("ANI: %.2f%%  Contain: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
+		System.err.println(String.format("ANI: %.2f%%  WKID: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
 			ani*100, c, compAB, compBA, equal, lower+equal+higher));
 	}
 
@@ -139,7 +139,7 @@ public class DDLCompare {
 		}
 
 		//Print top records (skip those below minHits)
-		System.out.println("ANI\tContain\tComplt\tMatches\tBases\tTID\tName");
+		System.out.println("ANI\tWKID\tComplt\tMatches\tBases\tTID\tName");
 		int shown=0;
 		final int toShow=Math.min(maxRecords, n);
 		for(int r=0; r<n && shown<toShow; r++){
