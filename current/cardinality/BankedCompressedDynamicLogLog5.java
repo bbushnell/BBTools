@@ -549,8 +549,6 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	public static final String CF_FILE="?cardinalityCorrectionBCDLL5.tsv.gz";
 	/** SBS (per-fill LC correction) table for banked compressed 2-bit history. */
 	public static final String SBS_FILE="?cardinalityCorrectionBCDLL5_LC2BitHistSBS.tsv.gz";
-	/** HSB (per-tier state-bias) table for banked compressed 2-bit history. */
-	public static final String HSB_FILE="?cardinalityCorrectionBCDLL5_LC2BitHist.tsv.gz";
 	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
 	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
