@@ -219,6 +219,12 @@ public class CardinalityParser {
 			final String hsbPath=Data.findPath(BankedCompressedDynamicLogLog5.HSB_FILE);
 			if(hsbPath!=null){StateTable.loadHsbTable(2, hsbPath);}
 		}
+		else if(loglogtype.equals("acdll5")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;
+			CorrectionFactor.sbsFile=ArithmeticCompressedDynamicLogLog5.SBS_FILE;
+			final String hsbPath=Data.findPath(ArithmeticCompressedDynamicLogLog5.HSB_FILE);
+			if(hsbPath!=null){StateTable.loadHsbTable(2, hsbPath);}
+		}
 		else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
@@ -269,6 +275,7 @@ public class CardinalityParser {
 			else if("bdll5".equals(loglogtype)){BankedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("cdll5".equals(loglogtype)){CompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("bcdll5".equals(loglogtype)){BankedCompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("acdll5".equals(loglogtype)){ArithmeticCompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 
@@ -287,6 +294,10 @@ public class CardinalityParser {
 			return CompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("bcdll5")){
 			return BankedCompressedDynamicLogLog5.CF_FILE;
+		// acdll5: CF table not yet generated; defaultCFFile returns null to skip loading.
+		// Uncomment when cardinalityCorrectionACDLL5.tsv.gz exists:
+		// }else if(loglogtype.equals("acdll5")){
+		//     return ArithmeticCompressedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return CompressedDynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bcdll3")){
