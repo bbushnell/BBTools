@@ -71,9 +71,7 @@ public class LowComplexityCalibrationDriver {
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("reportfrac")){reportFrac=Double.parseDouble(b);}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
-			else if(a.equals("hsbtable1")){StateTable.loadHsbTable(1, b);}
-			else if(a.equals("hsbtable2")){StateTable.loadHsbTable(2, b);}
-			else if(a.equals("hsbtable3")){StateTable.loadHsbTable(3, b);}
+			else if(a.startsWith("hsbtable")){System.err.println("Note: hsbtable= is deprecated; HSB values are now hardcoded in StateTable.");}
 			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.equals("minrand") || a.equals("skew")){minRand=Parse.parseBoolean(b);}
 			else if(!Parser.parseStatic(arg, a, b)){throw new RuntimeException("Unknown parameter '"+arg+"'");}

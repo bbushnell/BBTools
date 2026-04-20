@@ -31,23 +31,25 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	}
 
 	ArithmeticCompressedDynamicLogLog5(parse.Parser p){
-		super(p);
-		packedLen=(buckets+5)/6;
-		packed=new int[packedLen];
-		minZeroCount=buckets;
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
 	ArithmeticCompressedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
-		super(buckets_, k_, seed, minProb_);
-		packedLen=(buckets+5)/6;
+		super(roundToWords(buckets_)*6<=0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*6-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*6;
+		modBuckets=rounded>0 ? rounded : buckets;
+		packedLen=modBuckets/6;
 		packed=new int[packedLen];
-		minZeroCount=buckets;
+		minZeroCount=modBuckets;
 	}
 
+	private static int roundToWords(int b){return Math.max(1, (b+5)/6);}
+
 	@Override
-	public ArithmeticCompressedDynamicLogLog5 copy(){
-		return new ArithmeticCompressedDynamicLogLog5(buckets, k, -1, minProb);
-	}
+	public ArithmeticCompressedDynamicLogLog5 copy(){return new ArithmeticCompressedDynamicLogLog5(modBuckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return modBuckets;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/
@@ -102,12 +104,12 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-		if(packedBuckets==null){packedBuckets=new char[buckets];}
+		if(packedBuckets==null){packedBuckets=new char[modBuckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
 		final int phantomTier=minZeros-1;
 		int filledCount=0;
-		for(int i=0; i<buckets; i++){
+		for(int i=0; i<modBuckets; i++){
 			final int exp=readExponent(i);
 			final int hist=readHistory(i);
 			if(exp>0){
@@ -125,10 +127,10 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 				filledCount++;
 			}
 		}
-		nlzCounts[0]=buckets-filledCount;
+		nlzCounts[0]=modBuckets-filledCount;
 
 		return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.5);
 	}
 
@@ -162,7 +164,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		microIndex|=log.microIndex;
 		if(packed!=log.packed){
 			final int newMinZeros=Math.max(minZeros, log.minZeros);
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				int expA=adjustExp(readExponent(i), readHistory(i), minZeros, newMinZeros);
 				int expB=adjustExp(log.readExponent(i), log.readHistory(i), log.minZeros, newMinZeros);
 				int histA=readHistory(i);
@@ -178,7 +180,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 			}
 			minZeros=newMinZeros;
 			filledBuckets=0; minZeroCount=0;
-			for(int i=0; i<buckets; i++){
+			for(int i=0; i<modBuckets; i++){
 				final int exp=readExponent(i);
 				if(exp>0){filledBuckets++;}
 				if(exp==0 || (!EARLY_PROMOTE && exp==1)){minZeroCount++;}
@@ -214,8 +216,8 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		final int relTier=absTier-minZeros;
 		if(relTier<-HISTORY_MARGIN){return;}
 
-		final int bucket=(int)(key&bucketMask);
-		final long micro=(key>>bucketBits)&0x3FL;
+		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
+		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro);
 		if(LAZY_ALLOCATE){
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
@@ -321,7 +323,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	public double occupancy(){return (double)filledBuckets/buckets;}
+	public double occupancy(){return (double)filledBuckets/modBuckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -341,6 +343,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	private final int modBuckets;
 	private final int[] packed;
 	private final int packedLen;
 	private int minZeros=0;
