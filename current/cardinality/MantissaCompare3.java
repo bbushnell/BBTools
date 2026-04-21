@@ -11,12 +11,13 @@ import java.util.zip.GZIPOutputStream;
 /**
  * Multi-bucket HSB table generator with per-bucket cardinality tracking.
  * Replaces MantissaCompareBCDLL5 (which used global cardinality — broken).
- *
+ * <p>
  * Three modes:
- *   history — uncompressed 2x tiers, validates against MC2 mode=history
- *   ctll    — compressed tiers (halfNlz/3), validates against MC2 mode=ctll
- *   bcdll5  — compressed tiers + 2-bit banking per 6-register word
- *
+ * <ul>
+ *   <li>history — uncompressed 2x tiers, validates against MC2 mode=history
+ *   <li>ctll    — compressed tiers (halfNlz/3), validates against MC2 mode=ctll
+ *   <li>bcdll5  — compressed tiers + 2-bit banking per 6-register word
+ * </ul>
  * Per-bucket cardinality: each bucket tracks trueCard[i]++. When sampling,
  * sum[tier][state] += trueCard[i], treating each bucket as an independent
  * single-register experiment.
@@ -26,35 +27,211 @@ import java.util.zip.GZIPOutputStream;
  */
 public class MantissaCompare3 {
 
-	static final int MODE_HISTORY=0, MODE_CTLL=1, MODE_BCDLL5=2;
-	static final String[] MODE_NAMES={"history", "ctll", "bcdll5"};
-	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
-	static final int HBITS=2;
-	static final int HMASK=(1<<HBITS)-1;
-	static final int HIST_CARRY=1<<HBITS;
-	static final int HISTORY_MARGIN=2;
-	static final int REGS_PER_WORD=6;
-	static final int NUM_HIST=1<<HBITS;
+	/*--------------------------------------------------------------*/
+	/*----------------            Main              ----------------*/
+	/*--------------------------------------------------------------*/
 
-	static int tierOf(long key, int mode){
-		final int rawNlz=Long.numberOfLeadingZeros(key);
-		if(mode==MODE_HISTORY){return rawNlz;}
-		final int mBits;
-		if(rawNlz>=43){
-			mBits=(int)((key<<(rawNlz-42))&0xFFFFF);
-		}else{
-			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
+	public static void main(String[] args){
+		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
+		final long t0=System.nanoTime();
+		int buckets=256;
+		int outerTrials=131072;
+		int innerSteps=32768;
+		int maxTier=11;
+		int threads=Shared.threads();
+		long masterSeed=42;
+		int mode=MODE_CTLL;
+		boolean geoAvg=false;
+
+		for(String arg : args){
+			final int eq=arg.indexOf('=');
+			if(eq<0){continue;}
+			final String a=arg.substring(0, eq).toLowerCase();
+			final String b=arg.substring(eq+1);
+			if(a.equals("buckets") || a.equals("b")){buckets=Parse.parseIntKMG(b);}
+			else if(a.equals("outer") || a.equals("trials")){outerTrials=Parse.parseIntKMG(b);}
+			else if(a.equals("inner") || a.equals("steps")){innerSteps=Parse.parseIntKMG(b);}
+			else if(a.equals("maxtier") || a.equals("mt")){maxTier=Integer.parseInt(b);}
+			else if(a.equals("threads") || a.equals("t")){threads=Integer.parseInt(b);}
+			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
+			else if(a.equals("avg")){geoAvg=b.equalsIgnoreCase("geo");}
+			else if(a.equals("mode")){
+				if(b.equals("history")){mode=MODE_HISTORY;}
+				else if(b.equals("ctll")){mode=MODE_CTLL;}
+				else if(b.equals("bcdll5")){mode=MODE_BCDLL5;}
+				else{throw new RuntimeException("Unknown mode '"+b+"'");}
+			}
 		}
-		final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
-		return (2*rawNlz+mant)/3;
+
+		if(mode==MODE_BCDLL5){
+			buckets=((buckets+REGS_PER_WORD-1)/REGS_PER_WORD)*REGS_PER_WORD;
+			if(buckets<REGS_PER_WORD*32){buckets=REGS_PER_WORD*32;}
+		}
+		if(mode!=MODE_HISTORY && maxTier>11){maxTier=11;}
+
+		final int numThreads=Math.min(threads, outerTrials);
+		System.err.println("MantissaCompare3: mode="+MODE_NAMES[mode]+" buckets="+buckets+
+			" outer="+outerTrials+" inner="+innerSteps+" maxTier="+maxTier+
+			" threads="+numThreads+" avg="+(geoAvg?"geo":"lin")+" seed="+masterSeed);
+
+		final SimThread[] workers=new SimThread[numThreads];
+		for(int i=0; i<numThreads; i++){
+			final int threadTrials=outerTrials/numThreads+(i<outerTrials%numThreads?1:0);
+			workers[i]=new SimThread(masterSeed+i, threadTrials, buckets, maxTier,
+				innerSteps, mode, geoAvg);
+		}
+		for(SimThread w : workers){w.start();}
+		long totalBankPromotions=0;
+		for(SimThread w : workers){
+			try{w.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
+			if(!w.success){System.err.println("Warning: a sim thread did not complete.");}
+			totalBankPromotions+=w.bankPromotions;
+		}
+
+		// Merge
+		final double[][] totalCardSums=new double[maxTier+1][NUM_HIST];
+		final double[][] totalGeoSums=new double[maxTier+1][NUM_HIST];
+		final long[][] totalCounts=new long[maxTier+1][NUM_HIST];
+		for(SimThread w : workers){
+			for(int t=0; t<=maxTier; t++){
+				for(int h=0; h<NUM_HIST; h++){
+					totalCardSums[t][h]+=w.cardSums[t][h];
+					totalGeoSums[t][h]+=w.geoSums[t][h];
+					totalCounts[t][h]+=w.counts[t][h];
+				}
+			}
+		}
+
+		final double elapsed=(System.nanoTime()-t0)/1e9;
+		System.err.println("Simulation done: "+String.format("%.1f", elapsed)+"s");
+		if(mode==MODE_BCDLL5){
+			System.err.println("Bank promotions: "+totalBankPromotions+
+				" (avg "+String.format("%.1f", (double)totalBankPromotions/outerTrials)+" per trial)");
+			if(totalBankPromotions==0){
+				System.err.println("WARNING: Zero bank promotions! inner="+innerSteps+
+					" may be too small. Try inner=262144 or larger.");
+			}
+		}
+
+		// Compute per-state mean cardinalities
+		final double[][] meanCard=new double[maxTier+1][NUM_HIST];
+		for(int t=0; t<=maxTier; t++){
+			for(int h=0; h<NUM_HIST; h++){
+				if(totalCounts[t][h]>0){meanCard[t][h]=totalCardSums[t][h]/totalCounts[t][h];}
+			}
+		}
+
+		// Compute per-tier average and CFs
+		final double[] tierMean=new double[maxTier+1];
+		final double[][] cf=new double[maxTier+1][NUM_HIST];
+		for(int t=0; t<=maxTier; t++){
+			if(geoAvg){
+				double logSum=0; int n=0;
+				for(int h=0; h<NUM_HIST; h++){
+					if(totalCounts[t][h]>0){
+						final double stateGeoMean=Math.exp(totalGeoSums[t][h]/totalCounts[t][h]);
+						logSum+=Math.log(stateGeoMean); n++;
+					}
+				}
+				tierMean[t]=(n>0) ? Math.exp(logSum/n) : 0;
+				for(int h=0; h<NUM_HIST; h++){
+					if(totalCounts[t][h]>0 && tierMean[t]>0){
+						final double stateGeoMean=Math.exp(totalGeoSums[t][h]/totalCounts[t][h]);
+						cf[t][h]=Math.log(stateGeoMean/tierMean[t])/Math.log(2.0);
+					}
+				}
+			}else{
+				double sumCard=0; long sumCount=0;
+				for(int h=0; h<NUM_HIST; h++){
+					sumCard+=totalCardSums[t][h];
+					sumCount+=totalCounts[t][h];
+				}
+				tierMean[t]=(sumCount>0) ? sumCard/sumCount : 0;
+				for(int h=0; h<NUM_HIST; h++){
+					if(totalCounts[t][h]>10 && tierMean[t]>0){
+						cf[t][h]=Math.log(meanCard[t][h]/tierMean[t])/Math.log(2.0);
+					}
+				}
+			}
+		}
+
+		// Steady-state CF (average of high tiers)
+		final int ssStart=(mode==MODE_HISTORY) ? Math.max(8, maxTier-3) : 3;
+		final double[] ssCF=new double[NUM_HIST];
+		int ssTiers=0;
+		for(int t=ssStart; t<=maxTier; t++){
+			boolean allNonzero=true;
+			for(int h=0; h<NUM_HIST; h++){if(totalCounts[t][h]<100){allNonzero=false; break;}}
+			if(allNonzero){
+				for(int h=0; h<NUM_HIST; h++){ssCF[h]+=cf[t][h];}
+				ssTiers++;
+			}
+		}
+		if(ssTiers>0){for(int h=0; h<NUM_HIST; h++){ssCF[h]/=ssTiers;}}
+
+		// Per-tier detailed report (to stderr)
+		System.err.println("\nPer-tier results:");
+		StringBuilder hdr=new StringBuilder("Tier\tTotal\tAvgCard");
+		for(int h=0; h<NUM_HIST; h++){hdr.append("\tP("+h+")\tCF("+h+")");}
+		System.err.println(hdr);
+		for(int t=0; t<=maxTier; t++){
+			long tierTotal=0;
+			for(int h=0; h<NUM_HIST; h++){tierTotal+=totalCounts[t][h];}
+			if(tierTotal<100){continue;}
+			StringBuilder row=new StringBuilder();
+			row.append(t).append('\t').append(tierTotal);
+			row.append('\t').append(String.format("%.2f", tierMean[t]));
+			for(int h=0; h<NUM_HIST; h++){
+				row.append('\t').append(String.format("%.6f", totalCounts[t][h]/(double)tierTotal));
+				row.append('\t').append(String.format("%+.8f", cf[t][h]));
+			}
+			System.err.println(row);
+		}
+		System.err.println("\nSteady-state CFs (tiers "+ssStart+"-"+maxTier+", "+ssTiers+" tiers):");
+		StringBuilder ssSb=new StringBuilder("ss");
+		for(int h=0; h<NUM_HIST; h++){ssSb.append('\t').append(String.format("%+.8f", ssCF[h]));}
+		System.err.println(ssSb);
+
+		// HSB table output (to stdout, for StateTable.loadHsbTable)
+		System.out.println("# MantissaCompare3 HSB table");
+		System.out.println("# mode="+MODE_NAMES[mode]+" buckets="+buckets+
+			" outer="+outerTrials+" inner="+innerSteps+" maxTier="+maxTier+
+			" avg="+(geoAvg?"geo":"lin"));
+		System.out.println("# Columns: tier  CF(hist=00)  CF(hist=01)  CF(hist=10)  CF(hist=11)");
+		for(int t=0; t<=maxTier; t++){
+			long tierTotal=0;
+			for(int h=0; h<NUM_HIST; h++){tierTotal+=totalCounts[t][h];}
+			if(tierTotal<100){continue;}
+			StringBuilder row=new StringBuilder();
+			row.append(t);
+			for(int h=0; h<NUM_HIST; h++){
+				row.append('\t').append(String.format("%+.8f", cf[t][h]));
+			}
+			System.out.println(row);
+		}
+		StringBuilder ssRow=new StringBuilder("ss");
+		for(int h=0; h<NUM_HIST; h++){
+			ssRow.append('\t').append(String.format("%+.8f", ssCF[h]));
+		}
+		System.out.println(ssRow);
+
+		System.err.println("\nDone. "+(geoAvg?"Geometric":"Linear")+" averaging.");
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Worker Thread        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Simulation worker: runs numTrials independent experiments and accumulates per-(tier,hist) statistics. */
 	static final class SimThread extends Thread {
 
+		/** @param seed Per-thread RNG seed (masterSeed+threadIndex).
+		 *  @param numTrials Number of independent trials this thread runs.
+		 *  @param buckets Total bucket count (multiple of REGS_PER_WORD for bcdll5 mode).
+		 *  @param maxTier Maximum absolute tier to record; observations above are discarded.
+		 *  @param innerSteps Hash insertions per trial.
+		 *  @param mode Simulation mode: MODE_HISTORY, MODE_CTLL, or MODE_BCDLL5.
+		 *  @param geoAvg If true, accumulate log(card) for geometric averaging; otherwise linear. */
 		SimThread(long seed, int numTrials, int buckets, int maxTier,
 				int innerSteps, int mode, boolean geoAvg){
 			this.seed=seed;
@@ -76,10 +253,11 @@ public class MantissaCompare3 {
 
 		@Override
 		public void run(){
-			try{ runInner(); success=true; }
-			catch(Exception e){ e.printStackTrace(); }
+			try{runInner(); success=true;}
+			catch(Exception e){e.printStackTrace();}
 		}
 
+		/** Main simulation loop: runs all trials and accumulates statistics. */
 		void runInner(){
 			final rand.FastRandomXoshiro rng=new rand.FastRandomXoshiro(seed);
 			final int B=buckets;
@@ -175,22 +353,16 @@ public class MantissaCompare3 {
 							}
 						}else if(newTp<oldTp){
 							final int diff=oldTp-newTp;
-							if(diff>=1 && diff<=HBITS){
-								hist[bucket]|=1<<(HBITS-diff);
-							}
+							if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 						}
 					}else if(relTier==-1){
 						if(oldTp>0){
 							final int diff=oldTp;
-							if(diff>=1 && diff<=HBITS){
-								hist[bucket]|=1<<(HBITS-diff);
-							}
+							if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 						}
 					}else{
 						final int diff=(oldTp>0) ? (oldTp+1) : 1;
-						if(diff>=1 && diff<=HBITS){
-							hist[bucket]|=1<<(HBITS-diff);
-						}
+						if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 					}
 
 					sampleBucket(bucket, tierPart, hist, bank, globalNLZ, trueCard);
@@ -200,6 +372,7 @@ public class MantissaCompare3 {
 			this.bankPromotions=bankPromotions;
 		}
 
+		/** Record the current (tier, hist) state of bucket i into the accumulator arrays. */
 		void sampleBucket(int i, int[] tierPart, int[] hist, int[] bank,
 				int globalNLZ, long[] trueCard){
 			final int tp=tierPart[i];
@@ -207,13 +380,18 @@ public class MantissaCompare3 {
 			final int h=hist[i];
 			final int absTier=tp+globalNLZ+bk;
 			if(absTier<0){return;}
-			if(absTier>=0 && absTier<=maxTier && trueCard[i]>0){
+			if(absTier<=maxTier && trueCard[i]>0){
 				cardSums[absTier][h]+=trueCard[i];
 				if(geoAvg){geoSums[absTier][h]+=Math.log(trueCard[i]);}
 				counts[absTier][h]++;
 			}
 		}
 
+		/**
+		 * Advance global floor by one tier: decrement all bank exponents and tierParts.
+		 * Words with bank > 0 absorb the advance by decrementing their bank instead.
+		 * @return New minZeroCount after decrement.
+		 */
 		static int countAndDecrement(int[] tierPart, int[] hist, int[] bank,
 				int words, int buckets, boolean isBanked){
 			int newMinZeroCount=0;
@@ -225,9 +403,7 @@ public class MantissaCompare3 {
 						if(bk==1){
 							final int base=w*REGS_PER_WORD;
 							for(int r=0; r<REGS_PER_WORD; r++){
-								if(base+r<buckets && tierPart[base+r]==0){
-									newMinZeroCount++;
-								}
+								if(base+r<buckets && tierPart[base+r]==0){newMinZeroCount++;}
 							}
 						}
 					}else{
@@ -257,6 +433,10 @@ public class MantissaCompare3 {
 			return newMinZeroCount;
 		}
 
+		/*--------------------------------------------------------------*/
+		/*----------------            Fields            ----------------*/
+		/*--------------------------------------------------------------*/
+
 		final long seed;
 		final int numTrials, buckets, words, maxTier, innerSteps, mode;
 		final boolean geoAvg;
@@ -267,195 +447,44 @@ public class MantissaCompare3 {
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------            Main              ----------------*/
+	/*----------------          Constants           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static void main(String[] args){
-		{ PreParser pp=new PreParser(args, null, false); args=pp.args; }
-		final long t0=System.nanoTime();
-		int buckets=256;
-		int outerTrials=131072;
-		int innerSteps=32768;
-		int maxTier=11;
-		int threads=Shared.threads();
-		long masterSeed=42;
-		int mode=MODE_CTLL;
-		boolean geoAvg=false;
+	/** Simulation mode: raw NLZ tiers (no mantissa compression). */
+	static final int MODE_HISTORY=0;
+	/** Simulation mode: compressed tiers via halfNlz/3. */
+	static final int MODE_CTLL=1;
+	/** Simulation mode: compressed tiers with 2-bit per-word banking. */
+	static final int MODE_BCDLL5=2;
+	/** Display names for the three simulation modes. */
+	static final String[] MODE_NAMES={"history", "ctll", "bcdll5"};
+	/** Mantissa threshold for compressed tiers: (2-sqrt(2))*2^20. */
+	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
+	/** Number of history bits per bucket. */
+	static final int HBITS=2;
+	/** Bitmask for history: (1<<HBITS)-1 = 0x3. */
+	static final int HMASK=(1<<HBITS)-1;
+	/** Carry bit injected on tier advance: 1<<HBITS = 4. */
+	static final int HIST_CARRY=1<<HBITS;
+	/** eeMask relaxation: accept hashes this many tiers below floor for history. */
+	static final int HISTORY_MARGIN=2;
+	/** Number of registers (buckets) packed per 32-bit word in bcdll5 mode. */
+	static final int REGS_PER_WORD=6;
+	/** Number of distinct history states: 2^HBITS = 4. */
+	static final int NUM_HIST=1<<HBITS;
 
-		for(String arg : args){
-			final int eq=arg.indexOf('=');
-			if(eq<0) continue;
-			final String a=arg.substring(0, eq).toLowerCase();
-			final String b=arg.substring(eq+1);
-			if(a.equals("buckets")||a.equals("b")){buckets=Parse.parseIntKMG(b);}
-			else if(a.equals("outer")||a.equals("trials")){outerTrials=Parse.parseIntKMG(b);}
-			else if(a.equals("inner")||a.equals("steps")){innerSteps=Parse.parseIntKMG(b);}
-			else if(a.equals("maxtier")||a.equals("mt")){maxTier=Integer.parseInt(b);}
-			else if(a.equals("threads")||a.equals("t")){threads=Integer.parseInt(b);}
-			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
-			else if(a.equals("avg")){geoAvg=b.equalsIgnoreCase("geo");}
-			else if(a.equals("mode")){
-				if(b.equals("history")){mode=MODE_HISTORY;}
-				else if(b.equals("ctll")){mode=MODE_CTLL;}
-				else if(b.equals("bcdll5")){mode=MODE_BCDLL5;}
-				else{throw new RuntimeException("Unknown mode '"+b+"'");}
-			}
+	/** Compute the compressed tier for a hash key in the given simulation mode. */
+	static int tierOf(long key, int mode){
+		final int rawNlz=Long.numberOfLeadingZeros(key);
+		if(mode==MODE_HISTORY){return rawNlz;}
+		final int mBits;
+		if(rawNlz>=43){
+			mBits=(int)((key<<(rawNlz-42))&0xFFFFF);
+		}else{
+			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 		}
-
-		if(mode==MODE_BCDLL5){
-			buckets=((buckets+REGS_PER_WORD-1)/REGS_PER_WORD)*REGS_PER_WORD;
-			if(buckets<REGS_PER_WORD*32){buckets=REGS_PER_WORD*32;}
-		}
-		if(mode!=MODE_HISTORY && maxTier>11){maxTier=11;}
-
-		final int numThreads=Math.min(threads, outerTrials);
-		System.err.println("MantissaCompare3: mode="+MODE_NAMES[mode]+" buckets="+buckets+
-			" outer="+outerTrials+" inner="+innerSteps+" maxTier="+maxTier+
-			" threads="+numThreads+" avg="+(geoAvg?"geo":"lin")+" seed="+masterSeed);
-
-		final SimThread[] workers=new SimThread[numThreads];
-		for(int i=0; i<numThreads; i++){
-			final int threadTrials=outerTrials/numThreads+(i<outerTrials%numThreads?1:0);
-			workers[i]=new SimThread(masterSeed+i, threadTrials, buckets, maxTier,
-				innerSteps, mode, geoAvg);
-		}
-		for(SimThread w : workers) w.start();
-		long totalBankPromotions=0;
-		for(SimThread w : workers){
-			try{ w.join(); }catch(InterruptedException e){ Thread.currentThread().interrupt(); }
-			if(!w.success) System.err.println("Warning: a sim thread did not complete.");
-			totalBankPromotions+=w.bankPromotions;
-		}
-
-		// Merge
-		final double[][] totalCardSums=new double[maxTier+1][NUM_HIST];
-		final double[][] totalGeoSums=new double[maxTier+1][NUM_HIST];
-		final long[][] totalCounts=new long[maxTier+1][NUM_HIST];
-		for(SimThread w : workers){
-			for(int t=0; t<=maxTier; t++){
-				for(int h=0; h<NUM_HIST; h++){
-					totalCardSums[t][h]+=w.cardSums[t][h];
-					totalGeoSums[t][h]+=w.geoSums[t][h];
-					totalCounts[t][h]+=w.counts[t][h];
-				}
-			}
-		}
-
-		final double elapsed=(System.nanoTime()-t0)/1e9;
-		System.err.println("Simulation done: "+String.format("%.1f", elapsed)+"s");
-		if(mode==MODE_BCDLL5){
-			System.err.println("Bank promotions: "+totalBankPromotions+
-				" (avg "+String.format("%.1f", (double)totalBankPromotions/outerTrials)+" per trial)");
-			if(totalBankPromotions==0){
-				System.err.println("WARNING: Zero bank promotions! inner="+innerSteps+
-					" may be too small. Try inner=262144 or larger.");
-			}
-		}
-
-		// Compute per-state mean cardinalities
-		final double[][] meanCard=new double[maxTier+1][NUM_HIST];
-		for(int t=0; t<=maxTier; t++){
-			for(int h=0; h<NUM_HIST; h++){
-				if(totalCounts[t][h]>0){
-					meanCard[t][h]=totalCardSums[t][h]/totalCounts[t][h];
-				}
-			}
-		}
-
-		// Compute per-tier average and CFs
-		final double[] tierMean=new double[maxTier+1];
-		final double[][] cf=new double[maxTier+1][NUM_HIST];
-		for(int t=0; t<=maxTier; t++){
-			if(geoAvg){
-				double logSum=0; int n=0;
-				for(int h=0; h<NUM_HIST; h++){
-					if(totalCounts[t][h]>0){
-						final double stateGeoMean=Math.exp(totalGeoSums[t][h]/totalCounts[t][h]);
-						logSum+=Math.log(stateGeoMean); n++;
-					}
-				}
-				tierMean[t]=(n>0) ? Math.exp(logSum/n) : 0;
-				for(int h=0; h<NUM_HIST; h++){
-					if(totalCounts[t][h]>0 && tierMean[t]>0){
-						final double stateGeoMean=Math.exp(totalGeoSums[t][h]/totalCounts[t][h]);
-						cf[t][h]=Math.log(stateGeoMean/tierMean[t])/Math.log(2.0);
-					}
-				}
-			}else{
-				double sumCard=0; long sumCount=0;
-				for(int h=0; h<NUM_HIST; h++){
-					sumCard+=totalCardSums[t][h];
-					sumCount+=totalCounts[t][h];
-				}
-				tierMean[t]=(sumCount>0) ? sumCard/sumCount : 0;
-				for(int h=0; h<NUM_HIST; h++){
-					if(totalCounts[t][h]>10 && tierMean[t]>0){
-						cf[t][h]=Math.log(meanCard[t][h]/tierMean[t])/Math.log(2.0);
-					}
-				}
-			}
-		}
-
-		// Steady-state CF (average of high tiers)
-		final int ssStart=(mode==MODE_HISTORY) ? Math.max(8, maxTier-3) : 3;
-		final double[] ssCF=new double[NUM_HIST];
-		int ssTiers=0;
-		for(int t=ssStart; t<=maxTier; t++){
-			boolean allNonzero=true;
-			for(int h=0; h<NUM_HIST; h++){if(totalCounts[t][h]<100){allNonzero=false; break;}}
-			if(allNonzero){
-				for(int h=0; h<NUM_HIST; h++){ssCF[h]+=cf[t][h];}
-				ssTiers++;
-			}
-		}
-		if(ssTiers>0){for(int h=0; h<NUM_HIST; h++){ssCF[h]/=ssTiers;}}
-
-		// Per-tier detailed report (to stderr)
-		System.err.println("\nPer-tier results:");
-		StringBuilder hdr=new StringBuilder("Tier\tTotal\tAvgCard");
-		for(int h=0; h<NUM_HIST; h++){hdr.append("\tP("+h+")\tCF("+h+")");}
-		System.err.println(hdr);
-		for(int t=0; t<=maxTier; t++){
-			long tierTotal=0;
-			for(int h=0; h<NUM_HIST; h++){tierTotal+=totalCounts[t][h];}
-			if(tierTotal<100) continue;
-			StringBuilder row=new StringBuilder();
-			row.append(t).append('\t').append(tierTotal);
-			row.append('\t').append(String.format("%.2f", tierMean[t]));
-			for(int h=0; h<NUM_HIST; h++){
-				row.append('\t').append(String.format("%.6f", totalCounts[t][h]/(double)tierTotal));
-				row.append('\t').append(String.format("%+.8f", cf[t][h]));
-			}
-			System.err.println(row);
-		}
-		System.err.println("\nSteady-state CFs (tiers "+ssStart+"-"+maxTier+", "+ssTiers+" tiers):");
-		StringBuilder ssSb=new StringBuilder("ss");
-		for(int h=0; h<NUM_HIST; h++){ssSb.append('\t').append(String.format("%+.8f", ssCF[h]));}
-		System.err.println(ssSb);
-
-		// HSB table output (to stdout, for StateTable.loadHsbTable)
-		System.out.println("# MantissaCompare3 HSB table");
-		System.out.println("# mode="+MODE_NAMES[mode]+" buckets="+buckets+
-			" outer="+outerTrials+" inner="+innerSteps+" maxTier="+maxTier+
-			" avg="+(geoAvg?"geo":"lin"));
-		System.out.println("# Columns: tier  CF(hist=00)  CF(hist=01)  CF(hist=10)  CF(hist=11)");
-		for(int t=0; t<=maxTier; t++){
-			long tierTotal=0;
-			for(int h=0; h<NUM_HIST; h++){tierTotal+=totalCounts[t][h];}
-			if(tierTotal<100) continue;
-			StringBuilder row=new StringBuilder();
-			row.append(t);
-			for(int h=0; h<NUM_HIST; h++){
-				row.append('\t').append(String.format("%+.8f", cf[t][h]));
-			}
-			System.out.println(row);
-		}
-		StringBuilder ssRow=new StringBuilder("ss");
-		for(int h=0; h<NUM_HIST; h++){
-			ssRow.append('\t').append(String.format("%+.8f", ssCF[h]));
-		}
-		System.out.println(ssRow);
-
-		System.err.println("\nDone. "+(geoAvg?"Geometric":"Linear")+" averaging.");
+		final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+		return (2*rawNlz+mant)/3;
 	}
+
 }

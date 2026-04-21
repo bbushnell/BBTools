@@ -18,7 +18,7 @@ import shared.Tools;
  *   <li>Bit 3 (high 1): 1-bit history pattern
  * </ul>
  * <p>
- * Absolute NLZ = stored + globalNLZ + bank (equals old (stored-1)+globalNLZ+bank).
+ * Absolute NLZ = stored + globalNLZ + bank (always, no floor-level special cases).
  * globalNLZ==-1 means nothing seen yet; stored=0+globalNLZ(-1)+bank(0)==-1 → empty.
  * <p>
  * Bank promotion: when localRelNlz would overflow and all 7 buckets in the
@@ -35,12 +35,22 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	BankedDynamicLogLog4(){this(2048, 31, -1, 0);}
 
+	/** Construct from parsed command-line arguments. */
 	BankedDynamicLogLog4(Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
+	/**
+	 * Full constructor.
+	 * Bucket count is rounded up to the next multiple of 7 (complete words).
+	 * @param buckets_ Number of buckets (rounded to next multiple of 7)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	BankedDynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
 		super(roundToWords(buckets_)*7 <= 0 ? buckets_ :
 			Integer.highestOneBit(roundToWords(buckets_)*7-1)<<1,
@@ -53,23 +63,29 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		promoteThreshold=(PROMOTE_FRAC>0 ? (int)(modBuckets*PROMOTE_FRAC) : 0);
 	}
 
+	/** Rounds bucket count to the nearest multiple of 7 (minimum 7). */
 	private static int roundToWords(int b){return Math.max(1, (b+6)/7);}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public BankedDynamicLogLog4 copy(){return new BankedDynamicLogLog4(modBuckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return modBuckets;}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Read the 3-bit stored value for bucket i (0=empty, 1-7=relNlz+1). */
 	private int readStored(final int i){
 		return (maxArray[i/7]>>>((i%7)*4))&0x7;
 	}
 
+	/** Read the 1-bit history pattern for bucket i. */
 	private int readHist(final int i){
 		return (maxArray[i/7]>>>((i%7)*4+3))&0x1;
 	}
 
+	/** Write stored (0-7) and hist (0-1) into bucket i's 4-bit slot. */
 	private void writeBucket(final int i, final int stored, final int hist){
 		final int wordIdx=i/7;
 		final int shift=(i%7)*4;
@@ -77,10 +93,12 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		maxArray[wordIdx]=(maxArray[wordIdx]&~(0xF<<shift))|(nibble<<shift);
 	}
 
+	/** Read the 4-bit bank exponent from bits [31:28] of the given word. */
 	private int readBank(final int wordIdx){
 		return (maxArray[wordIdx]>>>28)&0xF;
 	}
 
+	/** Write the 4-bit bank exponent (0-15) into bits [31:28] of the given word. */
 	private void writeBank(final int wordIdx, final int val){
 		maxArray[wordIdx]=(maxArray[wordIdx]&0x0FFFFFFF)|((val&0xF)<<28);
 	}
@@ -88,6 +106,35 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/**
+	 * Build absolute-NLZ histogram + packedBuckets (with 1-bit hist) for CardStats.
+	 * @return CardStats with all estimator values computed
+	 */
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
+		final char[] packedBuckets=new char[modBuckets];
+		int filledCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int wordIdx=i/7;
+			final int bank=readBank(wordIdx);
+			final int stored=readStored(i);
+			final int hist=readHist(i);
+			final int absNlz=stored+globalNLZ+bank;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
+				final int emitHist=(absNlz==0) ? 0 : hist;
+				packedBuckets[i]=(char)(((absNlz+1)<<1)|emitHist);
+				filledCount++;
+			}
+			// else: absNlz==-1 means stored=0+globalNLZ(=-1)+bank(=0) → truly empty
+		}
+		nlzCounts[0]=modBuckets-filledCount;
+		lastSummarized=new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
+		return lastSummarized;
+	}
 
 	@Override
 	public final long cardinality(){
@@ -107,6 +154,11 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		add((BankedDynamicLogLog4)log);
 	}
 
+	/**
+	 * Merge another BDLL4 into this one.
+	 * Bank exponents reset to 0 in the merged result.
+	 * Each bucket is converted to absolute NLZ then reframed.
+	 */
 	public void add(BankedDynamicLogLog4 log){
 		added+=log.added;
 		lastCardinality=-1;
@@ -155,6 +207,10 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Hash a value and store it in the appropriate bucket.
+	 * Sub-floor observations update the 1-bit history when delta_abs==1.
+	 */
 	@Override
 	public final void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
@@ -246,6 +302,7 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
+	/** Returns true if all 7 stored fields in the word are >= 1 (bank promotion eligible). */
 	private boolean canPromoteBank(final int wordIdx){
 		final int word=maxArray[wordIdx];
 		for(int b=0; b<7; b++){
@@ -254,6 +311,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		return true;
 	}
 
+	/** Subtract 1 from all 7 stored fields in a word and increment its bank exponent. Preserves hist bits.
+	 *  Caller must verify canPromoteBank() and bank < 15. */
 	private void promoteBank(final int wordIdx){
 		int word=maxArray[wordIdx];
 		final int oldBank=(word>>>28)&0xF;
@@ -262,13 +321,19 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 			final int shift=b*4;
 			final int nibble=(word>>>shift)&0xF;
 			int stored=nibble&0x7;
-			final int hist=nibble&0x8;
+			final int hist=nibble&0x8; // already in position (bit 3)
 			stored--;
 			result|=((stored|hist)<<shift);
 		}
 		maxArray[wordIdx]=result|((oldBank+1)<<28);
 	}
 
+	/**
+	 * Decrement all registers after a global floor advance.
+	 * Words with bank > 0 absorb the advance by decrementing their bank.
+	 * Words at bank == 0 undergo standard register decrement. Hist bits always preserved.
+	 * @return New minZeroCount (buckets eligible for next floor advance)
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int w=0; w<words; w++){
@@ -289,7 +354,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 			}else{
 				int word=maxArray[w];
 				if((word&0x0FFFFFFF)==0){
-					newMinZeroCount+=7;
+					final int regsInWord=Math.min(7, modBuckets-w*7);
+					newMinZeroCount+=regsInWord;
 					continue;
 				}
 				int result=0;
@@ -297,7 +363,7 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 					final int shift=b*4;
 					final int nibble=(word>>>shift)&0xF;
 					int stored=nibble&0x7;
-					final int hist=nibble&0x8;
+					final int hist=nibble&0x8; // already in position (bit 3)
 					if(stored>0){
 						stored--;
 						if(EARLY_PROMOTE){
@@ -308,19 +374,22 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 					}
 					result|=((stored|hist)<<shift);
 				}
-				maxArray[w]=result;
+				maxArray[w]=result; // bank stays 0
 			}
 		}
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0 at bank=0 level. */
 	public int filledBuckets(){return filledBuckets;}
 
-	/** True occupancy: a bucket is "empty" only when stored==0 AND globalNLZ+bank<0.
-	 *  Once globalNLZ>=0 (or any word has bank>0), floor-level buckets are informative and
-	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
-	 *  global promotion decrements it when stored drops 1→0, even though that bucket
-	 *  becomes a valid floor-level entry at the new floor. */
+	/**
+	 * True occupancy: a bucket is "empty" only when stored==0 AND globalNLZ+bank&lt;0.
+	 * Once globalNLZ>=0 (or any word has bank>0), floor-level buckets are informative and
+	 * count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
+	 * global promotion decrements it when stored drops 1→0, even though that bucket
+	 * becomes a valid floor-level entry at the new floor.
+	 */
 	public double occupancy(){
 		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
@@ -334,37 +403,11 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		return 1.0-(double)empty/modBuckets;
 	}
 
-	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
-	public int getMinZeros(){return globalNLZ+1;}
-
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
-	private CardStats summarize(){
-		final int[] nlzCounts=new int[66];
-		final char[] packedBuckets=new char[modBuckets];
-		int filledCount=0;
-		for(int i=0; i<modBuckets; i++){
-			final int wordIdx=i/7;
-			final int bank=readBank(wordIdx);
-			final int stored=readStored(i);
-			final int hist=readHist(i);
-			final int absNlz=stored+globalNLZ+bank;
-			if(absNlz>=0 && absNlz<64){
-				nlzCounts[absNlz+1]++;
-				final int emitHist=(absNlz==0) ? 0 : hist;
-				packedBuckets[i]=(char)(((absNlz+1)<<1)|emitHist);
-				filledCount++;
-			}
-			// else: absNlz==-1 means stored=0+globalNLZ(=-1)+bank(=0) → truly empty
-		}
-		nlzCounts[0]=modBuckets-filledCount;
-		lastSummarized=new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
-				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
-				terminalMeanCF(), terminalMeanPlusCF());
-		return lastSummarized;
-	}
-
+	/** Compute all estimator values and return as a legacy-format array. */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -372,6 +415,7 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
+	/** Return and clear the cached CardStats. Used by calibration drivers. */
 	public CardStats consumeLastSummarized(){
 		final CardStats s=lastSummarized;
 		lastSummarized=null;
@@ -382,42 +426,71 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Packed 4-bit bucket array with 4-bit bank exponent in bits 28-31. */
 	private final int[] maxArray;
+	/** Actual bucket count (multiple of 7, may be non-power-of-2). */
 	private final int modBuckets;
+	/** Number of 32-bit words (modBuckets / 7). */
 	private final int words;
+	/** Minimum fill threshold triggering global floor advance (fraction of modBuckets). */
 	private final int promoteThreshold;
-	/** globalNLZ==-1 means nothing seen yet; >=0 means all buckets have absNlz >= globalNLZ. */
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. */
 	private int globalNLZ=-1;
+	/** Buckets at the global floor eligible for next advance. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0 at bank=0 level. */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes below HISTORY_MARGIN tiers of floor. */
 	private long eeMask=-1L;
+	/** Cached CardStats from last summarize() call. */
 	private CardStats lastSummarized;
 
-	public long branch1=0, branch2=0;
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
+
+	/** Total hashes that passed the eeMask check. */
+	public long branch1=0;
+	/** Total hashes that advanced a bucket (newStored > oldStored). */
+	public long branch2=0;
+	/** Total hashes that would overflow the 3-bit stored field. */
 	public long totalOverflows=0;
+	/** Rate of hashes passing eeMask per hash added. */
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	/** Rate of bucket advances per eeMask-passing hash. */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
 	/** Conservative eeMask margin: lag by this many tiers so sub-floor hashes
 	 *  reach the hot path to populate history bits. Equals HIST_BITS (1 here). */
 	private static final int HISTORY_MARGIN=1;
+	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
+	/** Fraction of buckets at floor required before triggering global promotion. */
 	public static float PROMOTE_FRAC=0.004f;
+	/** When true, hashes that would overflow the register are silently ignored. */
 	public static boolean IGNORE_OVERFLOW=false;
+	/** When true, apply overflow correction to the NLZ histogram in summarize(). */
 	public static boolean CORRECT_OVERFLOW=false;
 
+	/** BDLL4-specific CF table (uses DLL4 table as proxy). */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
+	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
+	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+
+	/** Load the CF table from the resource file, scaled to the given bucket count. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
+
+	/** Set the CF matrix directly (used by CardinalityParser after global load). */
 	public static void setCFMatrix(float[][] matrix, int buckets){
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}

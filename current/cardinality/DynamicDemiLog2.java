@@ -31,10 +31,12 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicDemiLog2(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicDemiLog2(Parser p){
 		super(p);
 		maxArray=new char[buckets];
@@ -42,6 +44,13 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		minZeroCount=buckets;
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicDemiLog2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
@@ -49,6 +58,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		minZeroCount=buckets;
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicDemiLog2 copy(){return new DynamicDemiLog2(buckets, k, -1, minProb);}
 
@@ -103,7 +113,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 				USE_GMEAN ? CorrectionFactor.GMEAN : CorrectionFactor.MEAN);
 			total=2*(Long.MAX_VALUE/proxy)*div*correction;
 		}
-		total*=CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,cfType);
+		total*=CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, cfType);
 
 		final double lcEstimate=(V>0 ? 2.0*buckets*Math.log((double)buckets/V) : total);
 		double estimate=total;
@@ -195,6 +205,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		}
 	}
 
+	/** Compares this instance's bucket array to another's bucket by bucket. */
 	public int[] compareTo(DynamicDemiLog2 blog){return compare(maxArray, blog.maxArray);}
 
 	@Override
@@ -203,7 +214,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		final long key=Tools.hash64shift(rawKey);
 
 		//Earliest possible exit, fastest
-		if(Long.compareUnsigned(key, eeMask)>0) {return;}
+		if(Long.compareUnsigned(key, eeMask)>0){return;}
 //		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 
@@ -216,7 +227,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
-		if(score<oldValue) {return;}
+		if(score<oldValue){return;}
 //		branch2++;
 		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
@@ -245,6 +256,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		}
 	}
 
+	/** Rescans to find the correct globalNLZ starting from the given absolute NLZ value. */
 	private int scanFrom(int nlz){
 		globalNLZ=nlz-2;
 		minZeroCount=0;
@@ -263,12 +275,16 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		return globalNLZ+1;
 	}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/** Returns the raw 16-bit countArray (count of observations per bucket). */
 	public char[] counts16(){return countArray;}
 
+	/** Number of buckets with any data (maxArray[i] > 0). */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets with any data. */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	/**
@@ -350,8 +366,8 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 		if(filledBuckets==0){return new double[10];}
 
-		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN);
-		final double hmeanPureMCF =hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEANM);
+		final double meanEstCF    =meanEst   *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN);
+		final double hmeanPureMCF =hmeanPureM*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEANM);
 
 		final double hybridEst;
 		final double hb0=0.5*buckets, hb1=1.5*buckets, hb2=3.0*buckets;
@@ -370,15 +386,15 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		final double mean99Est=2*(Long.MAX_VALUE/Tools.max(1.0, mean99))*div*correction;
 		return new double[]{
 			meanEstCF,
-			hmeanPure *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HMEAN),
+			hmeanPure *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HMEAN),
 			hmeanPureMCF,
-			gmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.GMEAN),
-			hmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.HLL),
+			gmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.GMEAN),
+			hmeanEst  *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.HLL),
 			lcPure,
 			hybridEst,
-			mwaEst    *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MWA),
-			medianCorr*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEDCORR),
-			mean99Est *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets,CorrectionFactor.MEAN99)
+			mwaEst    *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MWA),
+			medianCorr*CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEDCORR),
+			mean99Est *CorrectionFactor.getCF(CF_MATRIX, CF_BUCKETS, count, buckets, CorrectionFactor.MEAN99)
 		};
 	}
 
@@ -420,6 +436,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		return sum;
 	}
 
+	/** Compares two maxArrays bucket by bucket; returns int[]{lower, equal, higher}. */
 	public static int[] compare(char[] arrayA, char[] arrayB){
 		int lower=0, equal=0, higher=0;
 		for(int i=0; i<arrayA.length; i++){
@@ -435,24 +452,33 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		return new int[]{lower, equal, higher};
 	}
 
+	/** Placeholder for ANI calculation; not yet implemented. */
 	public static float ani(int lower, int equal, int higher){return -1;}
+	/** Placeholder for completeness calculation; not yet implemented. */
 	public static float completeness(int lower, int equal, int higher){return -1;}
+	/** Placeholder for contamination calculation; not yet implemented. */
 	public static float contam(int lower, int equal, int higher){return -1;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Compressed 16-bit bucket maxima; relative (relNlz << mantissabits) | invMantissa. */
 	private final char[] maxArray;
+	/** Count of observations at the current maximum score for each bucket. */
 	private final char[] countArray;
 	/** Floor NLZ minus 1. -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ+1. */
 	private int globalNLZ=-1;
+	/** Count of buckets at relative NLZ 0; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Number of buckets with any data (maxArray[i] > 0). */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes whose absolute NLZ is below globalNLZ. */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
+	/** For tracking branch prediction rates; disable in production. */
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
@@ -465,7 +491,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	private static final int mantissabits=10;
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
-	
+
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDDL.tsv.gz";
 	/** Bucket count used to build CF_MATRIX (for interpolation). */
@@ -478,8 +504,11 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
+	/** Occupancy fraction at which linear counting and value-based estimates cross over. */
 	public static double LC_CROSSOVER=0.75;
+	/** Steepness of the sigmoid blend between linear counting and value-based estimates. */
 	public static double LC_SHARPNESS=20.0;
+	/** If true, blend linear counting into the estimate for low occupancy. */
 	public static boolean USE_LC=true;
 
 }

@@ -28,14 +28,26 @@ import java.util.zip.GZIPOutputStream;
  */
 public class MantissaCompareBCDLL5 {
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Statics            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Mantissa threshold for compressed tiers: (2-sqrt(2)) * 1048576 ≈ 614242. */
 	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
+	/** Number of history bits per bucket. */
 	static final int HBITS=2;
+	/** Bitmask for history: (1<<HBITS)-1 = 0x3. */
 	static final int HMASK=(1<<HBITS)-1;
+	/** Carry bit injected on tier advance: 1<<HBITS = 4. */
 	static final int HIST_CARRY=1<<HBITS;
+	/** eeMask relaxation: accept hashes this many tiers below floor for history. */
 	static final int HISTORY_MARGIN=2;
+	/** Number of registers packed into each bank word. */
 	static final int REGS_PER_WORD=6;
+	/** Number of distinct history states: 1<<HBITS = 4. */
 	static final int NUM_HIST=1<<HBITS; // 4
 
+	/** 64-bit hash mixer (Thomas Wang shift-xor). */
 	static long hash64shift(long key){
 		key=(~key)+(key<<21);
 		key=key^(key>>>24);
@@ -47,16 +59,16 @@ public class MantissaCompareBCDLL5 {
 		return key;
 	}
 
+	/** Compute compressed tier index from a 64-bit hash: halfNlz/3 where halfNlz=2*NLZ+mantissa. */
 	static int tierOf(long key){
 		final int rawNlz=Long.numberOfLeadingZeros(key);
-		final int mant;
 		final int mBits;
 		if(rawNlz>=43){
 			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
 		}else{
 			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
 		}
-		mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+		final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		return (2*rawNlz+mant)/3;
 	}
 
@@ -66,6 +78,14 @@ public class MantissaCompareBCDLL5 {
 
 	static final class SimThread extends Thread {
 
+		/**
+		 * Create a simulation thread.
+		 * @param seed RNG seed for this thread
+		 * @param numTrials Number of independent DDL trials to run
+		 * @param buckets Number of HLL buckets (must be power of 2)
+		 * @param maxTier Maximum tier index to accumulate
+		 * @param innerSteps Number of hash insertions per trial
+		 */
 		SimThread(long seed, int numTrials, int buckets, int maxTier, int innerSteps){
 			this.seed=seed;
 			this.numTrials=numTrials;
@@ -81,10 +101,11 @@ public class MantissaCompareBCDLL5 {
 
 		@Override
 		public void run(){
-			try{ runInner(); success=true; }
-			catch(Exception e){ e.printStackTrace(); }
+			try{runInner(); success=true;}
+			catch(Exception e){e.printStackTrace();}
 		}
 
+		/** Run all trials: simulate BCDLL5 insertion and sample per-state cardinality. */
 		void runInner(){
 			final Random rng=new Random(seed);
 			final int B=buckets;
@@ -193,6 +214,7 @@ public class MantissaCompareBCDLL5 {
 			}
 		}
 
+		/** Record cardinality sample for every bucket into [tier][hist] accumulators. */
 		void sampleAll(int[] tierPart, int[] hist, int[] bank, int globalNLZ,
 				int B, long cardinality){
 			for(int i=0; i<B; i++){
@@ -208,6 +230,12 @@ public class MantissaCompareBCDLL5 {
 			}
 		}
 
+		/**
+		 * Decrement all registers after a global floor advance, mirroring BCDLL5.countAndDecrement().
+		 * Words with bank > 0 absorb the advance by decrementing their bank.
+		 * Words at bank=0 undergo destructive tierPart decrement.
+		 * @return New minZeroCount (buckets eligible for next floor advance)
+		 */
 		static int countAndDecrement(int[] tierPart, int[] hist, int[] bank,
 				int words, int buckets){
 			int newMinZeroCount=0;
@@ -270,7 +298,7 @@ public class MantissaCompareBCDLL5 {
 
 		for(String arg : args){
 			final int eq=arg.indexOf('=');
-			if(eq<0) continue;
+			if(eq<0){continue;}
 			final String a=arg.substring(0, eq).toLowerCase();
 			final String b=arg.substring(eq+1);
 			if(a.equals("buckets")||a.equals("b")){buckets=Parse.parseIntKMG(b);}
@@ -295,10 +323,10 @@ public class MantissaCompareBCDLL5 {
 			final int threadTrials=outerTrials/numThreads+(i<outerTrials%numThreads?1:0);
 			workers[i]=new SimThread(masterSeed+i, threadTrials, buckets, maxTier, innerSteps);
 		}
-		for(SimThread w : workers) w.start();
+		for(SimThread w : workers){w.start();}
 		for(SimThread w : workers){
-			try{ w.join(); }catch(InterruptedException e){ Thread.currentThread().interrupt(); }
-			if(!w.success) System.err.println("Warning: a sim thread did not complete successfully.");
+			try{w.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
+			if(!w.success){System.err.println("Warning: a sim thread did not complete successfully.");}
 		}
 
 		// Merge accumulators
@@ -369,9 +397,9 @@ public class MantissaCompareBCDLL5 {
 		// Output in HSB format (matches StateTable.loadHsbTable)
 		try{
 			OutputStream os;
-			if(out.equals("stdout.txt")){ os=System.out; }
-			else if(out.endsWith(".gz")){ os=new GZIPOutputStream(new FileOutputStream(out)); }
-			else{ os=new FileOutputStream(out); }
+			if(out.equals("stdout.txt")){os=System.out;}
+			else if(out.endsWith(".gz")){os=new GZIPOutputStream(new FileOutputStream(out));}
+			else{os=new FileOutputStream(out);}
 			PrintWriter pw=new PrintWriter(new OutputStreamWriter(os));
 
 			pw.println("# BCDLL5 state-bias table, 2-bit history, banked CTLL compressed-tier geometry");

@@ -21,40 +21,136 @@ import java.util.zip.GZIPOutputStream;
  */
 public class LCHistTrainerBCDLL5 {
 
-	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
-	static final int HBITS=2;
-	static final int HMASK=(1<<HBITS)-1;
-	static final int HIST_CARRY=1<<HBITS;
-	static final int HISTORY_MARGIN=2;
-	static final int REGS_PER_WORD=6;
+	/*--------------------------------------------------------------*/
+	/*----------------            Main              ----------------*/
+	/*--------------------------------------------------------------*/
 
-	static long hash64shift(long key){
-		key=(~key)+(key<<21);
-		key=key^(key>>>24);
-		key=(key+(key<<3))+(key<<8);
-		key=key^(key>>>14);
-		key=(key+(key<<2))+(key<<4);
-		key=key^(key>>>28);
-		key=key+(key<<31);
-		return key;
-	}
+	public static void main(String[] args){
+		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
+		final long t0=System.nanoTime();
+		int buckets=192;
+		long iters=100000;
+		int threads=Shared.threads();
+		long masterSeed=42;
+		String out="stdout.txt";
 
-	static int tierOf(long key){
-		final int rawNlz=Long.numberOfLeadingZeros(key);
-		final int mant;
-		final int mBits;
-		if(rawNlz>=43){
-			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
-		}else{
-			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
+		for(String arg : args){
+			final int eq=arg.indexOf('=');
+			if(eq<0){continue;}
+			final String a=arg.substring(0, eq).toLowerCase();
+			final String b=arg.substring(eq+1);
+			if(a.equals("buckets")||a.equals("b")){buckets=Parse.parseIntKMG(b);}
+			else if(a.equals("iters")||a.equals("trials")||a.equals("i")){iters=Parse.parseIntKMG(b);}
+			else if(a.equals("threads")||a.equals("t")){threads=Integer.parseInt(b);}
+			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
+			else if(a.equals("out")){out=b;}
 		}
-		mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
-		return (2*rawNlz+mant)/3;
-	}
 
-	static int stateIndex(int tier, int hist, int hbits){
-		final int numHist=1<<hbits;
-		return Math.min(tier, hbits+1)*numHist+(hist&(numHist-1));
+		// Power of 2 for bucketMask (matching real BCDLL5 behavior)
+		buckets=Integer.highestOneBit(buckets);
+		if(buckets<2){buckets=2;}
+
+		final int numThreads=Math.min(threads, (int)iters);
+		System.err.println("LCHistTrainerBCDLL5: buckets="+buckets+" hbits="+HBITS+
+			" iters="+iters+" threads="+numThreads+" seed="+masterSeed);
+
+		final TrainerThread[] workers=new TrainerThread[numThreads];
+		for(int i=0; i<numThreads; i++){
+			final int threadTrials=(int)(iters/numThreads+(i<iters%numThreads?1:0));
+			workers[i]=new TrainerThread(masterSeed+i, threadTrials, buckets);
+		}
+		for(TrainerThread w : workers){w.start();}
+		for(TrainerThread w : workers){
+			try{w.join();}catch(InterruptedException e){Thread.currentThread().interrupt();}
+			if(!w.success){System.err.println("Warning: a trainer thread did not complete successfully.");}
+		}
+
+		final int nStates=(HBITS+2)*(1<<HBITS);
+		final long[][] totalSums=new long[buckets+1][nStates];
+		final long[][] totalObs=new long[buckets+1][nStates];
+		for(TrainerThread w : workers){
+			for(int f=1; f<=buckets; f++){
+				for(int s=0; s<nStates; s++){
+					totalSums[f][s]+=w.collisionSums[f][s];
+					totalObs[f][s]+=w.observations[f][s];
+				}
+			}
+		}
+
+		final double elapsed=(System.nanoTime()-t0)/1e9;
+		System.err.println("Training done: "+String.format("%.1f", elapsed)+"s");
+
+		// Build valid state list (same as LCHistTrainerCDLL4)
+		final int numValid=3*(1<<HBITS)-1;
+		final int[][] validStates=new int[numValid][2];
+		final String[] stateNames=new String[numValid];
+		int vi=0;
+		for(int bin=0; bin<=HBITS+1; bin++){
+			final int validSlots=Math.min(bin, HBITS);
+			final int invalidBits=HBITS-validSlots;
+			final int numHist=1<<validSlots;
+			final String binLabel=(bin>HBITS) ? (bin+"+") : String.valueOf(bin);
+			for(int j=0; j<numHist; j++){
+				final int h=j<<invalidBits;
+				final int gridIdx=bin*(1<<HBITS)+h;
+				final int minDistinct=1+Integer.bitCount(j);
+				validStates[vi][0]=gridIdx;
+				validStates[vi][1]=minDistinct;
+				StringBuilder name=new StringBuilder(binLabel).append('.');
+				for(int bb=validSlots-1; bb>=0; bb--){name.append((j>>>bb)&1);}
+				if(validSlots==0){name.append('0');}
+				stateNames[vi]=name.toString();
+				vi++;
+			}
+		}
+
+		int zeros=0;
+		for(int s=0; s<nStates; s++){if(totalObs[buckets][s]==0){zeros++;}}
+		final int expectedZeros=nStates-numValid;
+		System.err.println("Zeros in final row: "+zeros+" (expected "+expectedZeros+")");
+
+		double[][] avg=new double[buckets+1][nStates];
+		for(int f=1; f<=buckets; f++){
+			for(int s=0; s<nStates; s++){
+				if(totalObs[f][s]>0){avg[f][s]=(double)totalSums[f][s]/totalObs[f][s];}
+			}
+		}
+
+		try{
+			OutputStream os;
+			if(out.equals("stdout.txt")){os=System.out;}
+			else if(out.endsWith(".gz")){os=new GZIPOutputStream(new FileOutputStream(out));}
+			else{os=new FileOutputStream(out);}
+			PrintWriter pw=new PrintWriter(new OutputStreamWriter(os));
+
+			pw.println("#LC_HISTORY_TABLE_BCDLL5");
+			pw.println("#Buckets\t"+buckets);
+			pw.println("#HistBits\t"+HBITS);
+			pw.println("#TierGeom\tBCDLL5_banked_half_nlz");
+			pw.println("#Trials\t"+iters);
+
+			StringBuilder hdr=new StringBuilder("#Filled");
+			for(String name : stateNames){hdr.append('\t').append(name);}
+			pw.println(hdr);
+
+			for(int f=1; f<=buckets; f++){
+				StringBuilder row=new StringBuilder();
+				row.append(f);
+				for(int v=0; v<numValid; v++){
+					int si=validStates[v][0];
+					int minVal=validStates[v][1];
+					double val=Math.max(avg[f][si], minVal);
+					row.append('\t').append(String.format("%.8f", val));
+				}
+				pw.println(row);
+			}
+
+			pw.flush();
+			if(os!=System.out){pw.close();}
+			System.err.println("Output: "+out);
+		}catch(IOException e){
+			e.printStackTrace();
+		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -63,7 +159,8 @@ public class LCHistTrainerBCDLL5 {
 
 	static final class TrainerThread extends Thread {
 
-		TrainerThread(long seed, int numTrials, int buckets){
+		/** Construct a trainer thread for one batch of trials. */
+		TrainerThread(final long seed, final int numTrials, final int buckets){
 			this.seed=seed;
 			this.numTrials=numTrials;
 			this.buckets=buckets;
@@ -74,12 +171,12 @@ public class LCHistTrainerBCDLL5 {
 			observations=new long[buckets+1][nStates];
 		}
 
-		@Override
-		public void run(){
-			try{ runInner(); success=true; }
-			catch(Exception e){ e.printStackTrace(); }
+		@Override public void run(){
+			try{runInner(); success=true;}
+			catch(Exception e){e.printStackTrace();}
 		}
 
+		/** Run all trials, accumulating collision counts into collisionSums/observations. */
 		void runInner(){
 			final Random rng=new Random(seed);
 			final int B=buckets;
@@ -161,7 +258,7 @@ public class LCHistTrainerBCDLL5 {
 								if(--minZeroCount<1){
 									while(minZeroCount==0 && globalNLZ<64){
 										globalNLZ++;
-										final int relaxedTier=Math.max(0, globalNLZ+1-HISTORY_MARGIN);
+										final int relaxedTier=Math.max(0, globalNLZ-HISTORY_MARGIN);
 										final int minNlz=(3*relaxedTier)/2;
 										eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 										minZeroCount=countAndDecrement(
@@ -178,30 +275,30 @@ public class LCHistTrainerBCDLL5 {
 							}
 						}else if(newTp<oldTp){
 							final int diff=oldTp-newTp;
-							if(diff>=1 && diff<=HBITS){
-								hist[bucket]|=1<<(HBITS-diff);
-							}
+							if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 						}
 					}else if(relTier==-1){
 						if(oldTp>0){
 							final int diff=oldTp;
-							if(diff>=1 && diff<=HBITS){
-								hist[bucket]|=1<<(HBITS-diff);
-							}
+							if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 						}
 					}else{
 						// relTier == -2
 						final int diff=(oldTp>0) ? (oldTp+1) : 1;
-						if(diff>=1 && diff<=HBITS){
-							hist[bucket]|=1<<(HBITS-diff);
-						}
+						if(diff>=1 && diff<=HBITS){hist[bucket]|=1<<(HBITS-diff);}
 					}
 				}
 			}
 		}
 
-		static int countAndDecrement(int[] tierPart, int[] hist, int[] bank,
-				int words, int buckets, int globalNLZ){
+		/**
+		 * Decrement all registers after a global floor advance.
+		 * Words with bank > 0 absorb by decrementing bank only.
+		 * Words at bank=0 decrement each tierPart value.
+		 * @return New minZeroCount (buckets at tierPart=0 eligible for next advance)
+		 */
+		static int countAndDecrement(final int[] tierPart, final int[] hist, final int[] bank,
+				final int words, final int buckets, final int globalNLZ){
 			int newMinZeroCount=0;
 			for(int w=0; w<words; w++){
 				final int bk=bank[w];
@@ -210,9 +307,7 @@ public class LCHistTrainerBCDLL5 {
 					if(bk==1){
 						final int base=w*REGS_PER_WORD;
 						for(int r=0; r<REGS_PER_WORD; r++){
-							if(base+r<buckets && tierPart[base+r]==0){
-								newMinZeroCount++;
-							}
+							if(base+r<buckets && tierPart[base+r]==0){newMinZeroCount++;}
 						}
 					}
 				}else{
@@ -232,15 +327,16 @@ public class LCHistTrainerBCDLL5 {
 			return newMinZeroCount;
 		}
 
-		void snapshot(int filledCount, int[] tierPart, int[] hist, int[] bank,
-				int[] distinct, int globalNLZ, int B){
+		/** Record collision and observation counts for all filled buckets at this fill level. */
+		void snapshot(final int filledCount, final int[] tierPart, final int[] hist, final int[] bank,
+				final int[] distinct, final int globalNLZ, final int B){
 			for(int b=0; b<B; b++){
 				final int tp=tierPart[b];
 				final int bk=bank[b/REGS_PER_WORD];
 				final int h=hist[b];
 				final int absTier=tp+globalNLZ+bk;
 				if(absTier<0){continue;} // truly empty
-				int si=stateIndex(absTier, h, HBITS);
+				final int si=stateIndex(absTier, h, HBITS);
 				collisionSums[filledCount][si]+=distinct[b];
 				observations[filledCount][si]++;
 			}
@@ -258,134 +354,51 @@ public class LCHistTrainerBCDLL5 {
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------            Main              ----------------*/
+	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static void main(String[] args){
-		{ PreParser pp=new PreParser(args, null, false); args=pp.args; }
-		final long t0=System.nanoTime();
-		int buckets=192;
-		long iters=100000;
-		int threads=Shared.threads();
-		long masterSeed=42;
-		String out="stdout.txt";
-
-		for(String arg : args){
-			final int eq=arg.indexOf('=');
-			if(eq<0) continue;
-			final String a=arg.substring(0, eq).toLowerCase();
-			final String b=arg.substring(eq+1);
-			if(a.equals("buckets")||a.equals("b")){buckets=Parse.parseIntKMG(b);}
-			else if(a.equals("iters")||a.equals("trials")||a.equals("i")){iters=Parse.parseIntKMG(b);}
-			else if(a.equals("threads")||a.equals("t")){threads=Integer.parseInt(b);}
-			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
-			else if(a.equals("out")){out=b;}
-		}
-
-		// Power of 2 for bucketMask (matching real BCDLL5 behavior)
-		buckets=Integer.highestOneBit(buckets);
-		if(buckets<2){buckets=2;}
-
-		final int numThreads=Math.min(threads, (int)iters);
-		System.err.println("LCHistTrainerBCDLL5: buckets="+buckets+" hbits="+HBITS+
-			" iters="+iters+" threads="+numThreads+" seed="+masterSeed);
-
-		final TrainerThread[] workers=new TrainerThread[numThreads];
-		for(int i=0; i<numThreads; i++){
-			final int threadTrials=(int)(iters/numThreads+(i<iters%numThreads?1:0));
-			workers[i]=new TrainerThread(masterSeed+i, threadTrials, buckets);
-		}
-		for(TrainerThread w : workers) w.start();
-		for(TrainerThread w : workers){
-			try{ w.join(); }catch(InterruptedException e){ Thread.currentThread().interrupt(); }
-			if(!w.success) System.err.println("Warning: a trainer thread did not complete successfully.");
-		}
-
-		final int nStates=(HBITS+2)*(1<<HBITS);
-		final long[][] totalSums=new long[buckets+1][nStates];
-		final long[][] totalObs=new long[buckets+1][nStates];
-		for(TrainerThread w : workers){
-			for(int f=1; f<=buckets; f++){
-				for(int s=0; s<nStates; s++){
-					totalSums[f][s]+=w.collisionSums[f][s];
-					totalObs[f][s]+=w.observations[f][s];
-				}
-			}
-		}
-
-		final double elapsed=(System.nanoTime()-t0)/1e9;
-		System.err.println("Training done: "+String.format("%.1f", elapsed)+"s");
-
-		// Build valid state list (same as LCHistTrainerCDLL4)
-		final int numValid=3*(1<<HBITS)-1;
-		final int[][] validStates=new int[numValid][2];
-		final String[] stateNames=new String[numValid];
-		int vi=0;
-		for(int bin=0; bin<=HBITS+1; bin++){
-			final int validSlots=Math.min(bin, HBITS);
-			final int invalidBits=HBITS-validSlots;
-			final int numHist=1<<validSlots;
-			final String binLabel=(bin>HBITS) ? (bin+"+") : String.valueOf(bin);
-			for(int j=0; j<numHist; j++){
-				final int h=j<<invalidBits;
-				final int gridIdx=bin*(1<<HBITS)+h;
-				final int minDistinct=1+Integer.bitCount(j);
-				validStates[vi][0]=gridIdx;
-				validStates[vi][1]=minDistinct;
-				StringBuilder name=new StringBuilder(binLabel).append('.');
-				for(int bb=validSlots-1; bb>=0; bb--){ name.append((j>>>bb)&1); }
-				if(validSlots==0) name.append('0');
-				stateNames[vi]=name.toString();
-				vi++;
-			}
-		}
-
-		int zeros=0;
-		for(int s=0; s<nStates; s++){ if(totalObs[buckets][s]==0) zeros++; }
-		final int expectedZeros=nStates-numValid;
-		System.err.println("Zeros in final row: "+zeros+" (expected "+expectedZeros+")");
-
-		double[][] avg=new double[buckets+1][nStates];
-		for(int f=1; f<=buckets; f++){
-			for(int s=0; s<nStates; s++){
-				if(totalObs[f][s]>0){ avg[f][s]=(double)totalSums[f][s]/totalObs[f][s]; }
-			}
-		}
-
-		try{
-			OutputStream os;
-			if(out.equals("stdout.txt")){ os=System.out; }
-			else if(out.endsWith(".gz")){ os=new GZIPOutputStream(new FileOutputStream(out)); }
-			else{ os=new FileOutputStream(out); }
-			PrintWriter pw=new PrintWriter(new OutputStreamWriter(os));
-
-			pw.println("#LC_HISTORY_TABLE_BCDLL5");
-			pw.println("#Buckets\t"+buckets);
-			pw.println("#HistBits\t"+HBITS);
-			pw.println("#TierGeom\tBCDLL5_banked_half_nlz");
-			pw.println("#Trials\t"+iters);
-
-			StringBuilder hdr=new StringBuilder("#Filled");
-			for(String name : stateNames) hdr.append('\t').append(name);
-			pw.println(hdr);
-
-			for(int f=1; f<=buckets; f++){
-				StringBuilder row=new StringBuilder();
-				row.append(f);
-				for(int v=0; v<numValid; v++){
-					int si=validStates[v][0];
-					int minVal=validStates[v][1];
-					double val=Math.max(avg[f][si], minVal);
-					row.append('\t').append(String.format("%.8f", val));
-				}
-				pw.println(row);
-			}
-
-			pw.flush();
-			if(os!=System.out){pw.close();}
-			System.err.println("Output: "+out);
-		}catch(IOException e){
-			e.printStackTrace();
-		}
+	/** Compute compressed-tier state index from absolute tier and history bits. */
+	static int stateIndex(final int tier, final int hist, final int hbits){
+		final int numHist=1<<hbits;
+		return Math.min(tier, hbits+1)*numHist+(hist&(numHist-1));
 	}
+
+	/** Compute compressed absolute tier from a 64-bit hash key. */
+	static int tierOf(final long key){
+		final int rawNlz=Long.numberOfLeadingZeros(key);
+		final int mBits;
+		if(rawNlz>=43){
+			mBits=(int)((key<<(rawNlz-42))&0xFFFFF); // zero-extend remaining bits
+		}else{
+			mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
+		}
+		final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+		return (2*rawNlz+mant)/3;
+	}
+
+	/** BBTools hash64shift: avalanche a 64-bit key. */
+	static long hash64shift(long key){
+		key=(~key)+(key<<21);
+		key=key^(key>>>24);
+		key=(key+(key<<3))+(key<<8);
+		key=key^(key>>>14);
+		key=(key+(key<<2))+(key<<4);
+		key=key^(key>>>28);
+		key=key+(key<<31);
+		return key;
+	}
+
+	/** Mantissa threshold for compressed tiers: (2-sqrt(2)) * 1048576. */
+	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
+	/** Number of history bits per bucket. */
+	static final int HBITS=2;
+	/** Bitmask for history: (1<<HBITS)-1 = 0x3. */
+	static final int HMASK=(1<<HBITS)-1;
+	/** Carry bit injected on tier advance: 1<<HBITS = 4. */
+	static final int HIST_CARRY=1<<HBITS;
+	/** eeMask relaxation: accept hashes this many tiers below floor for history. */
+	static final int HISTORY_MARGIN=2;
+	/** Registers (buckets) packed per word. */
+	static final int REGS_PER_WORD=6;
+
 }

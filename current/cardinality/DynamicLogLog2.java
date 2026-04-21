@@ -21,7 +21,7 @@ import structures.LongList;
  * - Bucket value 0 = empty; value 1-3 = (relNlz+1).
  * - absoluteNlz = stored + globalNLZ, always (no special cases).
  * - globalNLZ = -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ.
- * - minZeroCount tracks floor-level (stored=0) buckets; advances globalNLZ floor when 0.
+ * - minZeroCount tracks floor-level (stored=0 or stored=1) buckets; advances globalNLZ floor when 0.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -32,27 +32,37 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicLogLog2(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicLogLog2(Parser p){
 		super(p);
 		maxArray=new int[buckets>>>4];
 		minZeroCount=buckets;
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (must be a power of 2 and multiple of 16)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog2(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>4];
 		minZeroCount=buckets;
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicLogLog2 copy(){return new DynamicLogLog2(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Reads the 2-bit stored value for bucket i (0=empty, 1-3=relNlz+1). */
@@ -178,7 +188,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}//Allows lazy array allocation
 		}
 
 		// Stored = relNlz+1, clamped to [1,3] for overflow
@@ -230,12 +240,16 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0 (i.e., have seen at least one hash). */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that hold at least one observation. */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/** Compute all estimator values and return as a legacy-format array. */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -249,22 +263,29 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 
 	/** Packed 2-bit bucket array: 16 buckets per int, 0=empty, 1-3=relNlz+1. */
 	private final int[] maxArray;
+	/** Global floor tier: -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ. absNlz = stored + globalNLZ. */
 	private int globalNLZ=-1;
-	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
+	/** Count of floor-level (stored=0 or stored=1) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes below the current global floor. */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
+	/** Diagnostic counter: hashes that pass the eeMask filter. */
 	public long branch1=0, branch2=0;
+	/** Rate of hashes passing eeMask relative to total added. */
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	/** Rate of hashes reaching branch2 relative to branch1. */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;

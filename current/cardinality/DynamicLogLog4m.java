@@ -19,23 +19,34 @@ import shared.Tools;
  */
 public final class DynamicLogLog4m extends CardinalityTracker {
 
-	/** Actual number of buckets (may be non-power-of-2). */
-	private final int modBuckets;
-	private final byte[] registers;
-	/** Global NLZ floor. -1 = nothing seen; >= 0 = all buckets have absNlz >= globalNLZ. */
-	private int globalNLZ=-1;
-	private int minZeroCount;
-	private int filledBuckets=0;
-	private long eeMask=-1L;
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2560 buckets, k=31. */
 	DynamicLogLog4m(){this(2560, 31, -1, 0);}
+
+	/**
+	 * Full constructor. Rounds super.buckets to next power of 2 for hash masking,
+	 * but uses modBuckets (exact) for all register operations.
+	 * @param buckets_ Actual number of buckets (may be non-power-of-2)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog4m(int buckets_, int k_, long seed, float minProb_){
 		super(Integer.highestOneBit(buckets_-1)<<1, k_, seed, minProb_); // next pow2
 		modBuckets=buckets_;
 		registers=new byte[modBuckets];
 		minZeroCount=modBuckets;
 	}
+
+	/** Create an independent copy with a fresh seed. */
 	@Override public DynamicLogLog4m copy(){return new DynamicLogLog4m(modBuckets, k, -1, minProb);}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
 
 	@Override
 	public final void hashAndStore(final long number){
@@ -44,7 +55,7 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		if(Long.compareUnsigned(key, eeMask)>0){return;}
 
 		final int nlz=Long.numberOfLeadingZeros(key);
-		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
+		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets)); // modulo for non-power-of-2
 		final int relNlz=nlz-globalNLZ;
 
 		// MicroIndex from upper hash bits
@@ -70,6 +81,10 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Decrements all buckets with value at least 1 after a global floor advance.
+	 * Returns the count of buckets that dropped to stored=0 (new floor-level).
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int i=0; i<modBuckets; i++){
@@ -83,6 +98,12 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/**
+	 * Build NLZ histogram for CardStats.
+	 * absoluteNlz = stored + globalNLZ, always.
+	 * Buckets with absNlz < 0 or >= 64 are excluded (counted as empty in nlzCounts[0]).
+	 * @return CardStats with all estimator values computed
+	 */
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
 		int filledCount=0;
@@ -115,8 +136,11 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 	public final void add(CardinalityTracker log){throw new UnsupportedOperationException();}
 	@Override public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/** Number of buckets with stored > 0 (non-floor). */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets with stored > 0. */
 	public double occupancy(){return (double)filledBuckets/modBuckets;}
+	/** Actual bucket count (may be non-power-of-2). */
 	public int getModBuckets(){return modBuckets;}
 	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
@@ -128,12 +152,36 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		return AbstractCardStats.buildLegacyArray(s, hybridEst);
 	}
 
-	private static final int wordlen=64;
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
 
-	private static int CF_BUCKETS=2048;
-	private static float[][] CF_MATRIX=DynamicLogLog4.initializeCF(CF_BUCKETS);
+	/** Actual number of buckets (may be non-power-of-2). */
+	private final int modBuckets;
+	/** One byte per bucket; stored value is in [0,15] (upper nibble unused). */
+	private final byte[] registers;
+	/** Global NLZ floor. -1 = nothing seen; >= 0 = all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
+	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
+	private int minZeroCount;
+	/** Count of buckets with stored > 0. */
+	private int filledBuckets=0;
+	/** Early-exit mask: hashes above this value are skipped. */
+	private long eeMask=-1L;
 
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Statics            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final int wordlen=64;
+
+	/** Bucket count used to build CF_MATRIX (for interpolation). */
+	private static int CF_BUCKETS=2048;
+	/** Per-class correction factor matrix; shared with DynamicLogLog4. */
+	private static float[][] CF_MATRIX=DynamicLogLog4.initializeCF(CF_BUCKETS);
+
 }

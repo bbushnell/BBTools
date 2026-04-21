@@ -32,10 +32,12 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicLogLog3v4(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicLogLog3v4(Parser p){
 		super(p);
 		maxArray=new int[(buckets+9)/10];
@@ -47,6 +49,13 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (rounded up to next power of two)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog3v4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
@@ -58,11 +67,12 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicLogLog3v4 copy(){return new DynamicLogLog3v4(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Reads the 3-bit stored value for bucket i (0=empty, 1-7=relNlz+1). */
@@ -172,7 +182,7 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}//Allows lazy array allocation
 		}
 
 		// Stored = relNlz, clamped to [0,7] for overflow
@@ -258,7 +268,9 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0. */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that are occupied (stored > 0). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
@@ -353,6 +365,7 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
 	}
 
+	/** Compute all estimator values and return as a legacy-format array. */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -383,26 +396,34 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 	private int globalNLZ=-1;
 	/** Count of (empty + tier-0) buckets; triggers globalNLZ floor advance when <=promoteThreshold. */
 	private int minZeroCount;
+	/** Social promotion threshold: floor advances when minZeroCount <= this value. */
 	private final int promoteThreshold;
+	/** Count of buckets with stored > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes that passed the sliding NLZ floor. */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
 	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Returns the per-tier stored overflow array (indexed by absNlz tier). */
 	public int[] getStoredOverflow(){return storedOverflow;}
 	/** Last raw and corrected nlzCounts from summarize(). Set after each rawEstimates() call. */
 	int[] lastRawNlz, lastCorrNlz;
 
+	/** Debug counters: branch1=hashes that passed eeMask; branch2 unused. */
 	public long branch1=0, branch2=0;
+	/** Fraction of added items that passed the eeMask filter. */
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	/** Fraction of branch1 items that reached branch2 (currently unused). */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
