@@ -93,7 +93,7 @@ public class BankedBiasSimulator {
 				for(int trial=trialStart; trial<trialEnd; trial++){
 					final FastRandomXoshiro rng=new FastRandomXoshiro(trial*0x9E3779B97F4A7C15L+0x1234567L);
 					java.util.Arrays.fill(maxArray, 0);
-					int minZeros=0;
+					int globalNLZ=-1;
 					int minZeroCount=modBuckets;
 					long eeMask=-1L;
 
@@ -108,7 +108,7 @@ public class BankedBiasSimulator {
 
 						int word=maxArray[wordIdx];
 						int bank=(word>>>30)&0x3;
-						int localRelNlz=nlz-minZeros-bank;
+						int localRelNlz=nlz-globalNLZ-1-bank;
 
 						// Single-attempt bank promotion (matches BDLL3 and fixed
 						// tracker). Cascading breaks minZeroCount tracking.
@@ -130,7 +130,7 @@ public class BankedBiasSimulator {
 								maxArray[wordIdx]=result|((bank+1)<<30);
 								word=maxArray[wordIdx];
 								bank++;
-								localRelNlz=nlz-minZeros-bank;
+								localRelNlz=nlz-globalNLZ-1-bank;
 							}
 						}
 
@@ -150,8 +150,8 @@ public class BankedBiasSimulator {
 										maxArray[wordIdx]=(maxArray[wordIdx]&~(0x1F<<bucketShift))|(nibble<<bucketShift);
 									}
 								}
-							}else if(minZeros+bank>0){
-								// Phantom sub-floor hist update (mirrors tracker fix)
+							}else if(globalNLZ+bank>=0){
+								// Floor-level hist update (mirrors tracker fix)
 								final int delta=-1-localRelNlz;
 								if(delta==1 || delta==2){
 									final int bit=1<<(2-delta);
@@ -178,8 +178,8 @@ public class BankedBiasSimulator {
 							// Advance: newStored > oldStored
 							final int newHist;
 							if(oldStored==0){
-								if(minZeros+bank>0){
-									// Phantom→real: carry-shift from phantom's hist (delta=newStored)
+								if(globalNLZ+bank>=0){
+									// Floor-level→real: carry-shift from floor-level hist (delta=newStored)
 									newHist=(newStored>=3) ? 0 : (((1<<2)|oldHist)>>>newStored)&0x3;
 								}else{
 									newHist=0;
@@ -194,9 +194,9 @@ public class BankedBiasSimulator {
 							// Global promotion trigger (EARLY_PROMOTE)
 							if(oldStored==0 && bank==0){
 								if(--minZeroCount<=promoteThreshold){
-									while(minZeroCount<=promoteThreshold && minZeros<64){
-										minZeros++;
-										final int exitThreshold=Math.max(0, minZeros-2);
+									while(minZeroCount<=promoteThreshold && globalNLZ<64){
+										globalNLZ++;
+										final int exitThreshold=Math.max(0, globalNLZ-1);
 										eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
 										int newMinZeroCount=0;
 										for(int w=0; w<words; w++){
@@ -251,15 +251,9 @@ public class BankedBiasSimulator {
 						final int curHist=(curNibble>>>3)&0x3;
 						int absNlz;
 						int emitHist;
-						if(curStored>0){
-							absNlz=curStored-1+minZeros+curBank;
-							emitHist=(absNlz==0) ? 0 : curHist;
-						}else if(minZeros+curBank>0){
-							absNlz=minZeros+curBank-1;
-							emitHist=(absNlz==0) ? 0 : curHist;
-						}else{
-							continue; // truly empty, skip
-						}
+						absNlz=curStored+globalNLZ+curBank;
+						if(absNlz<0){continue;} // truly empty
+						emitHist=(absNlz==0) ? 0 : curHist;
 						if(absNlz>=0 && absNlz<=fMaxTier){
 							lc[absNlz][emitHist]++;
 							ls[absNlz][emitHist]+=card;
