@@ -496,24 +496,22 @@ public class HCDLCTierAccuracy {
 		if(nlzHbitSet!=null){
 			for(int d=0; d<hbits; d++){java.util.Arrays.fill(nlzHbitSet[d], 0);}
 		}
-		final int minZeros=ct.getMinZeros();
+		final int globalNLZ=ct.getMinZeros()-1;
 		for(int i=0; i<B; i++){
 			final int reg=ct.getReg(i);
 			int absNlz, histPattern;
 			if(reg==0){
-				if(minZeros==0){continue;}// truly empty
-				absNlz=minZeros-1;// phantom
+				absNlz=globalNLZ; // floor level; -1 when nothing seen
 				histPattern=0;
 			}else{
 				final int nlzPart=reg>>>2;
 				final int fullHist=reg&3;
 				if(nlzPart>=HISTORY_MARGIN){
-					absNlz=nlzPart-HISTORY_MARGIN+minZeros;
+					absNlz=nlzPart-HISTORY_MARGIN+globalNLZ+1;
 					histPattern=fullHist;
 				}else{
-					// Sub-margin: phantom at minZeros-1, history preserved
-					if(minZeros==0){continue;}
-					absNlz=minZeros-1;
+					// Sub-margin bucket: at floor level, history preserved
+					absNlz=globalNLZ;
 					histPattern=fullHist;
 				}
 			}
@@ -535,9 +533,8 @@ public class HCDLCTierAccuracy {
 
 	/**
 	 * Decode CDLL4 nibbles into per-absTier counts and per-hbit set counts.
-	 * Nibble layout: bits [3:1]=tierPart (0=phantom, 1-7=relTier 0-6),
-	 * bit [0]=1-bit history.  absTier = (tierPart-1) + minZeros when tierPart > 0;
-	 * phantoms at minZeros-1 when minZeros > 0.
+	 * Nibble layout: bits [3:1]=tierPart (0=empty/floor-level, 1-7=relTier 0-6),
+	 * bit [0]=1-bit history.  absTier = tierPart + globalNLZ.
 	 */
 	static void extractStateCDLL4(CompressedDynamicLogLog4 ct, int B, int hbits,
 			int[] nlzBucketCount, int[][] nlzHbitSet){
@@ -545,20 +542,14 @@ public class HCDLCTierAccuracy {
 		if(nlzHbitSet!=null){
 			for(int d=0; d<hbits; d++){java.util.Arrays.fill(nlzHbitSet[d], 0);}
 		}
-		final int minZeros=ct.getMinZeros();
+		final int globalNLZ=ct.getMinZeros()-1;
 		for(int i=0; i<B; i++){
 			final int nib=ct.readNibble(i);
 			final int tp=nib>>>1;
 			final int hist=nib&1;
-			int absTier;
-			if(tp>0){
-				absTier=(tp-1)+minZeros;
-			}else if(minZeros>0){
-				absTier=minZeros-1;// phantom
-			}else{
-				continue;// truly empty
-			}
-			if(absTier<0 || absTier>=64){continue;}
+			int absTier=tp+globalNLZ;
+			if(absTier<0){continue;} // truly empty
+			if(absTier>=64){continue;}
 			nlzBucketCount[absTier]++;
 			if(hbits>0 && hist!=0){
 				// CDLL4 has 1-bit history; place into d=0 slot.
@@ -600,7 +591,7 @@ public class HCDLCTierAccuracy {
 		// but the definition used in CardStats.dlcPure / paper.md:248 is
 		// V_t = V + sum(n_i for i=0..t-1) = count of buckets at absNlz < t.
 		// That is B minus (filled at absNlz >= t).
-		int filledGE=cumFilled;// filled at absNlz >= 0 = total filled (includes phantoms at -1? no, we skip those)
+		int filledGE=cumFilled;// filled at absNlz >= 0 = total filled (includes floor-level; negatives skipped)
 		// Actually nlzBucketCount[k] is count at absNlz==k, so filledGE at tier 0 = sum_{k>=0}.
 		// We need filled at absNlz >= t for each t; iterate top-down.
 		// Reset and rebuild incrementally.

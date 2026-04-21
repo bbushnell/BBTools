@@ -86,7 +86,7 @@ public class LCHistTrainerBCDLL5 {
 
 			for(int t=0; t<numTrials; t++){
 				// Per-bucket state
-				int[] tierPart=new int[B];  // 0=empty/phantom, 1-7=relTier+1
+				int[] tierPart=new int[B];  // 0=empty/floor-level, 1-7=relTier+1
 				int[] hist=new int[B];
 				int[] distinct=new int[B];
 
@@ -94,7 +94,7 @@ public class LCHistTrainerBCDLL5 {
 				int[] bank=new int[words];
 
 				// Global state
-				int minZeros=0;
+				int globalNLZ=-1;
 				int filledCount=0;  // buckets with tierPart>0 at bank=0 level
 				int minZeroCount=B;
 				long eeMask=-1L;
@@ -109,7 +109,7 @@ public class LCHistTrainerBCDLL5 {
 					final int bucket=(int)(key&bucketMask);
 					final int wordIdx=bucket/REGS_PER_WORD;
 					final int bk=bank[wordIdx];
-					final int relTier=absTier-minZeros-bk;
+					final int relTier=absTier-globalNLZ-1-bk;
 
 					if(relTier<-HISTORY_MARGIN){continue;}
 
@@ -134,14 +134,14 @@ public class LCHistTrainerBCDLL5 {
 									tierPart[base+r]--;
 								}
 								final int newBk=bank[wordIdx];
-								final int newRelTier=absTier-minZeros-newBk;
+								final int newRelTier=absTier-globalNLZ-1-newBk;
 								newTp=Math.min(newRelTier+1, 7);
 								// Re-read bucket state after promotion
 								final int promTp=tierPart[bucket];
 								final int promHist=hist[bucket];
 								if(newTp<=promTp){continue;}
 								final int delta=(promTp>0) ? (newTp-promTp) : (newRelTier+1);
-								final int carry=(promTp>0 || minZeros+newBk>0) ? HIST_CARRY : 0;
+								final int carry=(promTp>0 || globalNLZ+newBk>=0) ? HIST_CARRY : 0;
 								hist[bucket]=((promHist|carry)>>delta)&HMASK;
 								tierPart[bucket]=newTp;
 								continue;
@@ -150,27 +150,27 @@ public class LCHistTrainerBCDLL5 {
 
 						if(newTp>oldTp){
 							final int delta=(oldTp>0) ? (newTp-oldTp) : (relTier+1);
-							final int carry=(oldTp>0 || minZeros+bk>0) ? HIST_CARRY : 0;
+							final int carry=(oldTp>0 || globalNLZ+bk>=0) ? HIST_CARRY : 0;
 							hist[bucket]=((oldHist|carry)>>delta)&HMASK;
 							tierPart[bucket]=newTp;
 
 							if(oldTp==0 && bk==0){
 								filledCount++;
 								snapshot(filledCount, tierPart, hist, bank, distinct,
-									minZeros, B);
+									globalNLZ, B);
 								if(--minZeroCount<1){
-									while(minZeroCount==0 && minZeros<64){
-										minZeros++;
-										final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+									while(minZeroCount==0 && globalNLZ<64){
+										globalNLZ++;
+										final int relaxedTier=Math.max(0, globalNLZ+1-HISTORY_MARGIN);
 										final int minNlz=(3*relaxedTier)/2;
 										eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 										minZeroCount=countAndDecrement(
-											tierPart, hist, bank, words, B, minZeros);
+											tierPart, hist, bank, words, B, globalNLZ);
 									}
 									// Recount filled after floor advance
 									filledCount=0;
 									for(int i=0; i<B; i++){
-										if(tierPart[i]>0 || bank[i/REGS_PER_WORD]>0 || minZeros>0){
+										if(tierPart[i]>0 || bank[i/REGS_PER_WORD]>0 || globalNLZ>=0){
 											filledCount++;
 										}
 									}
@@ -201,7 +201,7 @@ public class LCHistTrainerBCDLL5 {
 		}
 
 		static int countAndDecrement(int[] tierPart, int[] hist, int[] bank,
-				int words, int buckets, int minZeros){
+				int words, int buckets, int globalNLZ){
 			int newMinZeroCount=0;
 			for(int w=0; w<words; w++){
 				final int bk=bank[w];
@@ -233,19 +233,13 @@ public class LCHistTrainerBCDLL5 {
 		}
 
 		void snapshot(int filledCount, int[] tierPart, int[] hist, int[] bank,
-				int[] distinct, int minZeros, int B){
+				int[] distinct, int globalNLZ, int B){
 			for(int b=0; b<B; b++){
 				final int tp=tierPart[b];
 				final int bk=bank[b/REGS_PER_WORD];
 				final int h=hist[b];
-				int absTier;
-				if(tp>0){
-					absTier=(tp-1)+minZeros+bk;
-				}else if(minZeros+bk>0){
-					absTier=minZeros+bk-1;
-				}else{
-					continue; // truly empty
-				}
+				final int absTier=tp+globalNLZ+bk;
+				if(absTier<0){continue;} // truly empty
 				int si=stateIndex(absTier, h, HBITS);
 				collisionSums[filledCount][si]+=distinct[b];
 				observations[filledCount][si]++;
