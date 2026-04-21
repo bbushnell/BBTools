@@ -32,22 +32,32 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	CompressedDynamicLogLog4(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	CompressedDynamicLogLog4(parse.Parser p){
 		super(p);
 		maxArray=new int[(buckets+7)>>>3];
 		minZeroCount=buckets;
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	CompressedDynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+7)>>>3];
 		minZeroCount=buckets;
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public CompressedDynamicLogLog4 copy(){return new CompressedDynamicLogLog4(buckets, k, -1, minProb);}
 
@@ -55,24 +65,36 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Nibble Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Read 4-bit nibble for bucket i: bits [3:1]=tierPart, bit[0]=histBit. */
 	int readNibble(final int i){
 		return (maxArray[i>>>3]>>>((i&7)<<2))&0xF;
 	}
 
+	/** Write 4-bit nibble val into bucket i's slot. */
 	private void writeNibble(final int i, final int val){
 		final int wordIdx=i>>>3;
 		final int shift=(i&7)<<2;
 		maxArray[wordIdx]=(maxArray[wordIdx]&~(0xF<<shift))|((val&0xF)<<shift);
 	}
 
+	/** Extract 3-bit tierPart (bits [3:1]) from a nibble. */
 	private static int tierPart(int nibble){return nibble>>>1;}
+	/** Extract 1-bit history (bit [0]) from a nibble. */
 	private static int histBit(int nibble){return nibble&1;}
+	/** Pack tierPart and history bit into a 4-bit nibble. */
 	private static int makeNibble(int tierPart, int hist){return (tierPart<<1)|hist;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Build NLZ histogram and per-bucket packed state for CardStats.
+	 * Converts each bucket's (tierPart, hist) to absolute tier,
+	 * emitting into nlzCounts[absTier+1] and packedBuckets[i].
+	 * Masks hist=0 at absTier=0 to avoid invalid SBS state indices.
+	 * @return CardStats with all estimator values computed
+	 */
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
@@ -135,6 +157,11 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		add((CompressedDynamicLogLog4)log);
 	}
 
+	/**
+	 * Merge another CDLL4 into this one.
+	 * Adjusts each bucket's tierPart to the new common globalNLZ,
+	 * then takes the max tier; at equal tiers, ORs the history bits.
+	 */
 	public void add(CompressedDynamicLogLog4 log){
 		added+=log.added;
 		lastCardinality=-1;
@@ -165,6 +192,10 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Adjust a nibble from oldFloor to newFloor, shifting tierPart accordingly.
+	 * Floor-level nibbles (nib <= 1) are preserved as-is; history is retained.
+	 */
 	private static int adjustNibble(int nib, int oldFloor, int newFloor){
 		if(nib<=1){return nib;} // floor-level: preserve as-is
 		final int tp=tierPart(nib);
@@ -252,6 +283,12 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
 
+	/**
+	 * Decrement all registers after a global floor advance.
+	 * Subtracts 2 from each nibble >= 2 (decrements tierPart, preserves history bit).
+	 * Nibbles < 2 are floor-level and left unchanged.
+	 * @return New minZeroCount (buckets eligible for next floor advance)
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int w=0; w<maxArray.length; w++){
@@ -279,12 +316,19 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with tierPart > 0. */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that are occupied (tierPart > 0). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/**
+	 * Compute all estimator values and return as a legacy-format array.
+	 * Caches the CardStats for retrieval by consumeLastSummarized().
+	 */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -300,18 +344,27 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Packed storage: 8 × 4-bit nibbles per 32-bit int. */
 	private final int[] maxArray;
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absTier >= globalNLZ. absTier = tierPart + globalNLZ. */
 	private int globalNLZ=-1;
+	/** Buckets at the global floor eligible for next advance. */
 	private int minZeroCount;
+	/** Count of buckets with tierPart > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: relaxed by 1 tier below floor to allow history updates. */
 	private long eeMask=-1L;
 
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Reusable NLZ histogram buffer (index 0=empty, 1-65=absTier 0-64). */
 	private int[] nlzCounts;
+	/** Reusable per-bucket packed state for CardStats: (absTier+1)<<1 | hist. */
 	private char[] packedBuckets;
+	/** Cached CardStats from last rawEstimates() call. */
 	private CardStats lastSummarized;
 
-	/** Return and clear the CardStats from the most recent summarize/rawEstimates call. */
+	/** Return and clear the cached CardStats. Used by calibration drivers. */
 	public CardStats consumeLastSummarized(){
 		final CardStats cs=lastSummarized;
 		lastSummarized=null;
@@ -322,20 +375,28 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576 */
+	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576. */
 	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
+	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
+	/** Debug flag: print history bit distribution on each summarize. */
 	public static boolean DEBUG_HIST=false;
+	/** Debug flag: bypass eeMask filtering. Not for production. */
 	public static boolean DISABLE_EEMASK=false;
 
+	/** Auto-loaded v4 CF table resource path. */
 	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
 	/** SBS (per-state LC) correction table, 1-bit history with half-NLZ tier geometry.
 	 *  Set by CardinalityParser for loglogtype=cdll4 before loadSbsTable(). */
 	public static final String SBS_FILE="?cardinalityCorrectionCDLL4_LC1BitHist.tsv.gz";
+	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
+	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+	/** Load the CF table from the resource file, scaled to the given bucket count. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		try{

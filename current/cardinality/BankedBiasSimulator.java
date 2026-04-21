@@ -27,8 +27,9 @@ import shared.Tools;
  */
 public class BankedBiasSimulator {
 
-	static final int AVG_LIN=0, AVG_GEO=1, AVG_HARM=2;
-	static final String[] AVG_NAMES={"lin", "geo", "harm"};
+	/*--------------------------------------------------------------*/
+	/*----------------            Main              ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args) throws InterruptedException {
 		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
@@ -207,7 +208,7 @@ public class BankedBiasSimulator {
 												if(newBank==0){
 													for(int bi=0; bi<6; bi++){
 														int s=(maxArray[w]>>>(bi*5))&0x7;
-														if(s==0) newMinZeroCount++;
+														if(s==0){newMinZeroCount++;}
 													}
 												}
 											}else{
@@ -224,7 +225,7 @@ public class BankedBiasSimulator {
 													final int hist=nibble2&0x18;
 													if(s>0){
 														s--;
-														if(s==0) newMinZeroCount++;
+														if(s==0){newMinZeroCount++;}
 													}
 													result|=((s|hist)<<shift);
 												}
@@ -249,12 +250,10 @@ public class BankedBiasSimulator {
 						final int curNibble=(curWord>>>sampleShift)&0x1F;
 						final int curStored=curNibble&0x7;
 						final int curHist=(curNibble>>>3)&0x3;
-						int absNlz;
-						int emitHist;
-						absNlz=curStored+globalNLZ+curBank;
+						final int absNlz=curStored+globalNLZ+curBank;
 						if(absNlz<0){continue;} // truly empty
-						emitHist=(absNlz==0) ? 0 : curHist;
-						if(absNlz>=0 && absNlz<=fMaxTier){
+						final int emitHist=(absNlz==0) ? 0 : curHist;
+						if(absNlz<=fMaxTier){
 							lc[absNlz][emitHist]++;
 							ls[absNlz][emitHist]+=card;
 							lg[absNlz][emitHist]+=Math.log(card);
@@ -303,7 +302,7 @@ public class BankedBiasSimulator {
 				tierTotal+=count[t][s]; tierSum+=sum[t][s];
 				tierGeo+=geoSum[t][s]; tierHarm+=harmSum[t][s];
 			}
-			if(tierTotal<100) continue;
+			if(tierTotal<100){continue;}
 			final double tierLinAvg=tierSum/tierTotal;
 			final double tierGeoAvg=Math.exp(tierGeo/tierTotal);
 			final double tierHarmAvg=tierTotal/tierHarm;
@@ -359,4 +358,18 @@ public class BankedBiasSimulator {
 		}
 		System.out.println(ssSb);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Constants           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Linear averaging mode: mean cardinality per state. */
+	static final int AVG_LIN=0;
+	/** Geometric averaging mode: exp(mean(log(card))) per state. */
+	static final int AVG_GEO=1;
+	/** Harmonic averaging mode: n/sum(1/card) per state. */
+	static final int AVG_HARM=2;
+	/** Display names for the three averaging modes. */
+	static final String[] AVG_NAMES={"lin", "geo", "harm"};
+
 }

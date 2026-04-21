@@ -53,6 +53,8 @@ public class HCDLCTierAccuracy {
 	static final int MAX_TIER=50;
 	/** UDLL6 history margin (see UltraDynamicLogLog6.HISTORY_MARGIN). */
 	static final int HISTORY_MARGIN=2;
+	/** Precomputed sqrt(2/π) used in Mode 2 error formula. */
+	private static final double SQRT_2_OVER_PI=Math.sqrt(2.0/Math.PI);
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -570,7 +572,7 @@ public class HCDLCTierAccuracy {
 			1.0, dlcAcc, beffAcc, unsAcc);
 	}
 
-	/** Weighted sample recording. */
+	/** Compute per-tier DLC/HC estimates and accumulate into bins, applying dwell weight. */
 	static void recordSampleWeighted(long trueCard, int B, int hbits, double tierScale,
 			int[] nlzBucketCount, int[][] nlzHbitSet, double weight,
 			double[][] dlcAcc, double[][] beffAcc, double[][] unsAcc){
@@ -647,8 +649,6 @@ public class HCDLCTierAccuracy {
 			}
 		}
 	}
-
-	private static final double SQRT_2_OVER_PI=Math.sqrt(2.0/Math.PI);
 
 	/**
 	 * Compute table- or formula-weighted DLC (and optionally HC) tier-blend
@@ -784,18 +784,11 @@ public class HCDLCTierAccuracy {
 		}
 	}
 
-	static boolean parseBool(String b){
-		if(b==null){return false;}
-		final String s=b.toLowerCase();
-		return s.equals("t") || s.equals("true") || s.equals("1") || s.equals("yes");
-	}
+	/*--------------------------------------------------------------*/
+	/*----------------           Utilities          ----------------*/
+	/*--------------------------------------------------------------*/
 
-	static int log2CardBin(long card){
-		if(card<=0){return 0;}
-		return 63-Long.numberOfLeadingZeros(card);
-	}
-
-	/** Add one sample to accumulator bin. */
+	/** Add one sample to accumulator bin: slots 0=count, 1=sum(w*abs), 2=sum(w*ln(abs)), 3=sum(w/abs), 4=sum(w*signed). */
 	static void addToBin(double[][] acc, int bin, double absErr, double signedErr,
 			double weight){
 		acc[0][bin]+=weight;// count
@@ -805,10 +798,7 @@ public class HCDLCTierAccuracy {
 		acc[4][bin]+=weight*signedErr;
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------           Utilities          ----------------*/
-	/*--------------------------------------------------------------*/
-
+	/** Generate log-spaced cardinality checkpoints from 1 to maxCard, deduplicated. */
 	static long[] logThresh(long maxCard, int points){
 		final long[] tmp=new long[points];
 		for(int p=0; p<points; p++){
@@ -826,6 +816,7 @@ public class HCDLCTierAccuracy {
 		return out;
 	}
 
+	/** Accumulate src into dst element-wise across all 5 stats rows. */
 	static void mergeInto(double[][] dst, double[][] src, int nBins){
 		for(int s=0; s<5; s++){
 			for(int i=0; i<nBins; i++){dst[s][i]+=src[s][i];}
@@ -884,6 +875,7 @@ public class HCDLCTierAccuracy {
 		return table;
 	}
 
+	/** Write accumulator as a TSV with header; columns: axis, count, linAvgAbsErr, geoAvgAbsErr, harmAvgAbsErr, avgSignedErr. */
 	static void writeTable(String path, String hdr, String axisName,
 			double[][] acc, int nBins) throws FileNotFoundException {
 		try(PrintStream out=new PrintStream(path)){
@@ -935,6 +927,7 @@ public class HCDLCTierAccuracy {
 		out.println(sb);
 	}
 
+	/** Print stderr summary of V-axis (or hcBeff-axis) accumulator at quantile bins. */
 	static void summarize(PrintStream out, String label, double[][] acc, int nBins){
 		// Report err at bin B/4, B/2, 3B/4 if present; else nearest
 		final int B=nBins-1;
@@ -956,5 +949,18 @@ public class HCDLCTierAccuracy {
 				best, 100*lin, 100*geo));
 		}
 		out.println(sb);
+	}
+
+	/** Parse common boolean strings (t/true/1/yes → true, anything else → false). */
+	static boolean parseBool(String b){
+		if(b==null){return false;}
+		final String s=b.toLowerCase();
+		return s.equals("t") || s.equals("true") || s.equals("1") || s.equals("yes");
+	}
+
+	/** Map cardinality to log2-space bin index (0 for card<=0, else floor(log2(card))). */
+	static int log2CardBin(long card){
+		if(card<=0){return 0;}
+		return 63-Long.numberOfLeadingZeros(card);
 	}
 }

@@ -38,22 +38,32 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicDemiLog8(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicDemiLog8(Parser p){
 		super(p);
 		maxArray=new byte[buckets];
 		minZeroCount=buckets;
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicDemiLog8(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new byte[buckets];
 		minZeroCount=buckets;
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicDemiLog8 copy(){return new DynamicDemiLog8(buckets, k, -1, minProb);}
 
@@ -165,7 +175,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
 			final long micro=(key>>bucketBits)&0x3FL;
 			microIndex|=(1L<<micro);
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}//Allows lazy array allocation
 		}
 
 		// relNlzStored = relNlz, clamped to [1, maxRelNlzStored]
@@ -187,9 +197,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		if(oldStored==0){filledBuckets++;}
 
 		// Decrement minZeroCount when bucket crosses the tracked threshold.
-		// EARLY_PROMOTE=true:  track empty (stored==0) → advance when all non-empty.
+		// EARLY_PROMOTE=true:  track floor-level (stored < minNonEmpty) → advance when all above floor.
 		// EARLY_PROMOTE=false: track empty+tier-0 (relNlzStored<2) → advance when all tier-1+.
-		// EARLY_PROMOTE: track empty+floor-level (stored < minNonEmpty).
 		// Floor-level entries are created by countAndDecrement (stored 1..minNonEmpty-1).
 		// Must also decrement when a floor-level entry gets filled above the floor.
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored<minNonEmpty && newStored>=minNonEmpty) :
@@ -226,7 +235,9 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with any data (maxArray[i] > 0). */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets with any data. */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	/**
@@ -245,6 +256,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		return mantissa<<shift;
 	}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
@@ -271,15 +283,18 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	private final byte[] maxArray;
 	// mantissaBits, mantissaMask, minNonEmpty, maxRelNlzStored, mantissaScale: see static finals below
 
-	/** Floor NLZ minus 1. -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ+1. */
+	/** Floor NLZ: -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ. relNlzStored = nlz - globalNLZ. */
 	private int globalNLZ=-1;
 	/** Count of (empty + tier-0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Number of buckets with any data (maxArray[i] > 0). */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes whose NLZ is below globalNLZ. */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
+	/** For tracking branch prediction rates; disable in production. */
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
@@ -336,6 +351,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		}
 	}
 
+	/** If true, stored=0 triggers floor advance (vs stored<minNonEmpty when false). */
 	public static boolean EARLY_PROMOTE=true;
 	private static final int wordlen=64;
 	/** Hard-coded mantissa bits: 2-bit inverted mantissa (6-bit exponent = 64 tiers). */

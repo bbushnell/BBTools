@@ -33,10 +33,12 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicLogLog4(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicLogLog4(Parser p){
 		super(p);
 		maxArray=new int[buckets>>>3];
@@ -44,6 +46,13 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (must be a power of 2)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
@@ -51,11 +60,13 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicLogLog4 copy(){return new DynamicLogLog4(buckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return buckets;}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Reads the 4-bit stored value for bucket i (0-14=relNlz, 15=overflow). */
@@ -110,10 +121,9 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/**
 	 * Clamp outlier tiers in the NLZ histogram.
 	 * Computes the mean occupied tier, then sets a ceiling at meanTier + log2(filled).
-	 * Buckets above the ceiling are moved down to the ceiling tier.
-	 * Total bucket count is preserved.
+	 * Buckets above the ceiling are moved down to the mean tier.
+	 * Total bucket count is preserved; returns 0 (no bucket count change).
 	 */
-	/** Move outlier tier buckets down to the mean tier. Returns 0 (no bucket count change). */
 	private static int clampOutlierTiers(final int[] counts){
 		// Compute filled count and mean tier (counts[t+1] = buckets at absNlz=t)
 		int filled=0;
@@ -205,9 +215,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			minZeroCount=0;
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
-				if(s>0){
-					filledBuckets++;
-				}
+				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
 			while(minZeroCount==0 && globalNLZ<wordlen){
@@ -232,7 +240,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}//Allows lazy array allocation
 		}
 
 		// Stored = relNlz, clamped to [0,15] for overflow
@@ -304,12 +312,19 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored value > 0. */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that are occupied (stored > 0). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/**
+	 * Compute all estimator values and return as a legacy-format array.
+	 * Appends WordEst and WordEstCV at the end when the word state table is loaded;
+	 * otherwise pads with zeros for calibration driver compatibility.
+	 */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -456,7 +471,9 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	private int globalNLZ=-1;
 	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0; tracks occupied fraction for occupancy(). */
 	private int filledBuckets=0;
+	/** Early-exit mask: hashes above this value are skipped (below floor probability). */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
@@ -466,14 +483,18 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/** Last raw and corrected nlzCounts from summarize(). */
 	int[] lastRawNlz, lastCorrNlz;
 
+	/** Diagnostic counters: hashes that passed eeMask (branch1) and caused bucket updates (branch2). */
 	public long branch1=0, branch2=0;
+	/** Fraction of added hashes that passed eeMask. */
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	/** Fraction of eeMask-passing hashes that updated a bucket. */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
@@ -494,7 +515,6 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 * Buckets above meanTier + log2(filledBuckets) are moved down to the ceiling tier.
 	 * Reduces overflow pollution and early-lucky-hash distortion. */
 	public static boolean CLAMP_OUTLIERS=false;
-
 
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";

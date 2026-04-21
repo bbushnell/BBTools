@@ -45,14 +45,24 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	CompressedDynamicLogLog3(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	CompressedDynamicLogLog3(parse.Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
+	/**
+	 * Full constructor.
+	 * Bucket count is rounded up to the next multiple of 10 (complete words).
+	 * @param buckets_ Number of buckets (rounded to next multiple of 10)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	CompressedDynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
 		super(roundToWords(buckets_)*10<=0 ? buckets_ :
 			Integer.highestOneBit(roundToWords(buckets_)*10-1)<<1,
@@ -68,17 +78,22 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 
 	private static int roundToWords(int b){return Math.max(1, (b+5)/10);}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public CompressedDynamicLogLog3 copy(){return new CompressedDynamicLogLog3(modBuckets, k, -1, minProb);}
+	/** Returns actual bucket count (multiple of 10, may differ from super.buckets). */
+	@Override public int actualBuckets(){return modBuckets;}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Read 3-bit stored value for bucket i (0=floor-level, 1-7=relNlz). */
 	private int readBucket(final int i){
 		return (maxArray[i/10]>>>((i%10)*3))&0x7;
 	}
 
+	/** Write 3-bit stored value val into bucket i's slot. */
 	private void writeBucket(final int i, final int val){
 		final int wordIdx=i/10;
 		final int shift=(i%10)*3;
@@ -89,6 +104,12 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Build NLZ histogram for CardStats.
+	 * Converts each bucket's stored value to absolute NLZ, optionally
+	 * applying overflow correction if CORRECT_OVERFLOW is enabled.
+	 * @return CardStats with all estimator values computed
+	 */
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
@@ -156,6 +177,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		add((CompressedDynamicLogLog3)log);
 	}
 
+	/** Merge another CDLL3 into this one, taking the max stored value per bucket. */
 	public void add(CompressedDynamicLogLog3 log){
 		added+=log.added;
 		lastCardinality=-1;
@@ -264,7 +286,11 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
-	/** Advance the global floor by one tier and update eeMask. */
+	/**
+	 * Advance global floor by one tier and update eeMask.
+	 * In dual-hash mode, eeMask shifts by 1. In mantissa mode,
+	 * the shift alternates +1/+2 to match (3*tier)/2 NLZ thresholds.
+	 */
 	private void advanceFloor(){
 		if(DUAL){
 			globalNLZ++;
@@ -278,6 +304,10 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Decrement all registers after a global floor advance.
+	 * @return New minZeroCount (buckets eligible for next floor advance)
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int w=0; w<maxArray.length; w++){
@@ -302,13 +332,19 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0. */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that are occupied (stored > 0). */
 	public double occupancy(){return (double)filledBuckets/modBuckets;}
-	@Override public int actualBuckets(){return modBuckets;}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/**
+	 * Compute all estimator values and return as a legacy-format array.
+	 * Caches the CardStats for retrieval by consumeLastSummarized().
+	 */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -324,24 +360,37 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Packed storage: 10 × 3-bit registers per 32-bit int. */
 	private final int[] maxArray;
+	/** Expected overflow count per tier, scaled by OVERFLOW_SCALE, for CORRECT_OVERFLOW mode. */
 	private final double xOverflow;
+	/** Per-absolute-tier overflow bucket count snapshot, used when CORRECT_OVERFLOW is active. */
 	private final int[] storedOverflow;
+	/** Actual bucket count (multiple of 10, may differ from super.buckets). */
 	private final int modBuckets;
+	/** Number of packed ints: modBuckets/10. */
 	private final int words;
-	/** globalNLZ: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. */
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. absNlz = stored + globalNLZ. */
 	private int globalNLZ=-1;
+	/** Buckets at the global floor eligible for next advance. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes below the current floor tier. */
 	private long eeMask=-1L;
 
 	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Returns a snapshot of the NLZ histogram (triggers summarize). Used by tests. */
 	int[] getNlzSnapshot(){summarize(); return nlzCounts.clone();}
+	/** Direct bucket read for testing/debugging. */
 	int readBucketAt(int i){return readBucket(i);}
+	/** Reusable NLZ histogram buffer (index 0=empty, 1-65=absNlz 0-64). */
 	private int[] nlzCounts;
+	/** Cached CardStats from last rawEstimates() call. */
 	private CardStats lastSummarized;
 
+	/** Return and clear the cached CardStats. Used by calibration drivers. */
 	public CardStats consumeLastSummarized(){
 		final CardStats cs=lastSummarized;
 		lastSummarized=null;
@@ -352,23 +401,33 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
+	/** XOR offset for second hash in dual-hash mode. */
 	private static final long HASH_OFFSET=123456789L;
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576 */
+	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576. */
 	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
+	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
+	/** If true, apply overflow correction in summarize() at high cardinality. */
 	public static boolean CORRECT_OVERFLOW=false;
+	/** Scaling factor for overflow correction estimates. */
 	public static double OVERFLOW_SCALE=1.7;
+	/** If true, hashes that would overflow (relNlz > 7) are discarded rather than clamped. */
 	public static boolean IGNORE_OVERFLOW=false;
 
 	/** When true, use dual-hash max (4x per tier).
 	 *  When false, use single-hash with mantissa bit (2*sqrt(2) per tier). */
 	public static final boolean DUAL=false;
 
+	/** Auto-loaded v3 CF table resource path. */
 	public static final String CF_FILE="?cardinalityCorrectionCDLL4.tsv.gz";
+	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
-	private static float[][] CF_MATRIX=null; // No CF table yet
+	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
+	private static float[][] CF_MATRIX=null;
+	/** Load the CF table from the resource file, scaled to the given bucket count. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		try{

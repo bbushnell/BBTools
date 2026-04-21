@@ -34,14 +34,24 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	CompressedDynamicLogLog5(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	CompressedDynamicLogLog5(parse.Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
 
+	/**
+	 * Full constructor.
+	 * Bucket count is rounded up to the next multiple of 6 (complete words).
+	 * @param buckets_ Number of buckets (rounded to next multiple of 6)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	CompressedDynamicLogLog5(int buckets_, int k_, long seed, float minProb_){
 		super(roundToWords(buckets_)*6<=0 ? buckets_ :
 			Integer.highestOneBit(roundToWords(buckets_)*6-1)<<1,
@@ -55,6 +65,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 
 	private static int roundToWords(int b){return Math.max(1, (b+5)/6);}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public CompressedDynamicLogLog5 copy(){return new CompressedDynamicLogLog5(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
@@ -63,25 +74,34 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Read 5-bit bucket i (0..buckets-1). */
+	/** Read 5-bit register for bucket i: bits [4:2]=tierPart, [1:0]=history. */
 	int readBucket(final int i){
 		return (packed[i/6]>>>((i%6)*5))&0x1F;
 	}
 
+	/** Write tierPart (0-7) and hist (0-3) into bucket i's 5-bit slot. */
 	private void writeBucket(final int i, final int tierPart, final int hist){
 		final int idx=i/6;
 		final int shift=(i%6)*5;
-		final int val=((tierPart&0x7)<<2) | (hist&0x3);
+		final int val=((tierPart&0x7)<<2)|(hist&0x3);
 		packed[idx]=(packed[idx]&~(0x1F<<shift))|(val<<shift);
 	}
 
+	/** Extract 3-bit tierPart (bits [4:2]) from a 5-bit register value. */
 	private static int tierPart(int reg){return (reg>>>2)&0x7;}
+	/** Extract 2-bit history (bits [1:0]) from a 5-bit register value. */
 	private static int histBits(int reg){return reg&0x3;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Build NLZ histogram and per-bucket packed state for CardStats.
+	 * Converts each bucket's (tierPart, hist) to absolute tier,
+	 * emits into nlzCounts[absTier+1] and packedBuckets[i].
+	 * @return CardStats with all estimator values computed
+	 */
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
@@ -108,10 +128,12 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.5);
 	}
 
-	/** Mask hist bits to ones valid at the given absolute tier.
-	 *  At absTier=0: all hist invalid (-1, -2 don't exist).
-	 *  At absTier=1: only bit 1 (-1 = 0, valid) remains.
-	 *  At absTier>=2: both bits valid. */
+	/**
+	 * Mask history bits to those valid at the given absolute tier.
+	 * Tier 0: no sub-tiers exist, all hist invalid.
+	 * Tier 1: only bit 1 (one tier below) is valid.
+	 * Tier 2+: both bits valid.
+	 */
 	private static int emitHistMask(int absTier, int hist){
 		if(absTier==0){return 0;}
 		if(absTier==1){return hist&0x2;}
@@ -136,6 +158,10 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		add((CompressedDynamicLogLog5)log);
 	}
 
+	/**
+	 * Merge another CDLL5 into this one.
+	 * Each bucket is reframed to the new common globalNLZ; ties merge history with OR.
+	 */
 	public void add(CompressedDynamicLogLog5 log){
 		added+=log.added;
 		lastCardinality=-1;
@@ -166,6 +192,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		}
 	}
 
+	/** Reframe a 5-bit register from oldFloor to newFloor; returns adjusted register. */
 	private static int adjustBucket(int reg, int oldFloor, int newFloor){
 		final int tp=tierPart(reg);
 		if(tp==0){return reg;}
@@ -174,11 +201,16 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		return (newTp<<2)|hist;
 	}
 
+	/**
+	 * Hash a value and store it in the appropriate bucket.
+	 * Pipeline: hash → NLZ → mantissa → halfNlz → compressed tier →
+	 * relTier (minus globalNLZ+1) → store or update history.
+	 */
 	@Override
 	public final void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
 		final long key=Tools.hash64shift(rawKey);
-		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){return;}
+		if(!DISABLE_EEMASK && Long.compareUnsigned(key, eeMask)>0){return;} // early-exit mask
 
 		final int rawNlz=Long.numberOfLeadingZeros(key);
 		final int mBits;
@@ -278,8 +310,11 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		}
 	}
 
-	/** Advance floor by one tier; relax eeMask by HISTORY_MARGIN tiers so
-	 *  hashes at relTier in [-HISTORY_MARGIN, -1] pass through for history. */
+	/**
+	 * Advance global floor by one tier.
+	 * Relaxes eeMask by HISTORY_MARGIN tiers so hashes at relTier in
+	 * {-HISTORY_MARGIN, ..., -1} pass through for history updates.
+	 */
 	private void advanceFloor(){
 		globalNLZ++;
 		final int relaxedTier=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
@@ -287,6 +322,11 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
 
+	/**
+	 * Decrement all registers after a global floor advance.
+	 * Floor-level buckets (tp==0) are left unchanged; history bits preserved.
+	 * @return New minZeroCount (buckets eligible for next floor advance)
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int w=0; w<packedLen; w++){
@@ -315,12 +355,20 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with tierPart > 0. */
 	public int filledBuckets(){return filledBuckets;}
+
+	/** Fraction of buckets that are occupied (tierPart > 0). */
 	public double occupancy(){return (double)filledBuckets/modBuckets;}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
+	/**
+	 * Compute all estimator values and return as a legacy-format array.
+	 * Caches the CardStats for retrieval by consumeLastSummarized().
+	 */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -336,19 +384,31 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Packed storage: 6 × 5-bit registers per 32-bit int (2 bits wasted). */
 	private final int[] packed;
+	/** Number of packed ints: ceil(modBuckets/6). */
 	private final int packedLen;
+	/** Actual bucket count (multiple of 6, may differ from super.buckets). */
 	private final int modBuckets;
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. absNlz = tierPart + globalNLZ. */
 	private int globalNLZ=-1;
+	/** Buckets at the global floor eligible for next advance. */
 	private int minZeroCount;
+	/** Count of buckets with tierPart > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: filters hashes below HISTORY_MARGIN tiers of floor. */
 	private long eeMask=-1L;
 
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Reusable NLZ histogram buffer (index 0=empty, 1-65=absNlz 0-64). */
 	private int[] nlzCounts;
+	/** Reusable per-bucket packed state for CardStats: (absTier+1)<<2 | hist. */
 	private char[] packedBuckets;
+	/** Cached CardStats from last rawEstimates() call. */
 	private CardStats lastSummarized;
 
+	/** Return and clear the cached CardStats. Used by calibration drivers. */
 	public CardStats consumeLastSummarized(){
 		final CardStats cs=lastSummarized;
 		lastSummarized=null;
@@ -359,23 +419,35 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
+	/** Number of history bits per bucket. */
 	private static final int HBITS=2;
+	/** Bitmask for history: (1<<HBITS)-1 = 0x3. */
 	private static final int HIST_MASK=(1<<HBITS)-1;
+	/** Carry bit injected on tier advance: 1<<HBITS = 4. */
 	private static final int HIST_CARRY=1<<HBITS;
+	/** eeMask relaxation: accept hashes this many tiers below floor for history. */
 	static final int HISTORY_MARGIN=2;
 
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 1048576 */
+	/** Mantissa threshold for compressed tiers: (2-sqrt(2)) * 1048576 ≈ 614242. */
 	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
+	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
+	/** Debug flag: bypass eeMask filtering. Not for production. */
 	public static boolean DISABLE_EEMASK=false;
 
+	/** Auto-loaded v5 CF table resource path. */
 	public static final String CF_FILE="?cardinalityCorrectionCDLL5.tsv.gz";
 	/** SBS (per-fill LC correction) table, 2-bit history with half-NLZ tier geometry. */
 	public static final String SBS_FILE="?cardinalityCorrectionCDLL5_LC2BitHistSBS.tsv.gz";
+	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
+	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
 	private static float[][] CF_MATRIX=null;
+
+	/** Load the CF table from the resource file, scaled to the given bucket count. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		try{
@@ -385,6 +457,8 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 			return CF_MATRIX=null;
 		}
 	}
+
+	/** Set the CF matrix directly (used by CardinalityParser after global load). */
 	public static void setCFMatrix(float[][] matrix, int buckets){
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}

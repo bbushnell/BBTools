@@ -32,10 +32,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicLogLog3(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicLogLog3(Parser p){
 		super(p);
 		maxArray=new int[(buckets+9)/10];
@@ -46,6 +48,13 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (rounded to power of 2)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog3(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[(buckets+9)/10];
@@ -56,11 +65,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicLogLog3 copy(){return new DynamicLogLog3(buckets, k, -1, minProb);}
 
 	/*--------------------------------------------------------------*/
-	/*----------------        Bucket Access         ----------------*/
+	/*----------------        Packed Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Reads the 3-bit stored value for bucket i (0=empty, 1-7=relNlz+1). */
@@ -79,6 +89,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Return cached or freshly computed cardinality estimate. */
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
@@ -92,6 +103,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		return card;
 	}
 
+	/** Merge another tracker of the same class into this one. */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
@@ -158,6 +170,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Hash a value and store it in the appropriate bucket.
+	 * Pipeline: hash → NLZ → relNlz = nlz - globalNLZ - 1 → newStored = relNlz+1 clamped to [1,7].
+	 * Updates the bucket if newStored exceeds the existing value, then
+	 * advances globalNLZ floor if minZeroCount reaches zero.
+	 */
 	@Override
 	public final void hashAndStore(final long number){
 		final long rawKey=number^hashXor;
@@ -168,11 +186,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
 		final int relNlz=nlz-globalNLZ-1;
-		
+
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
-		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
-			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
+		if(LAZY_ALLOCATE){// optional micro-index gate for low cardinality
+			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}// lazy array allocation
 		}
 
 		// Stored = relNlz+1, clamped to [1,7] for overflow
@@ -258,9 +276,12 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0 (at or above floor level). */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets that are occupied (stored > 0). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
+	/** Not used; CF correction handled via CF_MATRIX. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
@@ -356,6 +377,10 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
+	/**
+	 * Compute all estimator values and return as a legacy-format array.
+	 * Applies IO-bias correction if IGNORE_OVERFLOW and USE_IO_BIAS are both set.
+	 */
 	@Override
 	public double[] rawEstimates(){
 		final CardStats s=summarize();
@@ -382,27 +407,36 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  storedOverflow[t] = corrected count at tier t-1 / 2 at the moment t becomes active.
 	 *  Used instead of constant xOverflow when USE_STORED_OVERFLOW=true. */
 	private final int[] storedOverflow;
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. absNlz = stored + globalNLZ. */
 	private int globalNLZ=-1;
 	/** Count of (floor-level + tier-0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: hashes above this threshold are skipped (below floor). */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Direct access to stored per-tier overflow estimates for calibration. */
 	public int[] getStoredOverflow(){return storedOverflow;}
 	/** Last raw and corrected nlzCounts from summarize(). Set after each rawEstimates() call. */
 	int[] lastRawNlz, lastCorrNlz;
 
+	/** Debug branch counters: branch1=hashes passing eeMask, branch2=unused. */
 	public long branch1=0, branch2=0;
+	/** Fraction of added hashes that passed the eeMask filter. */
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	/** Fraction of branch1 hashes that hit branch2 path (currently unused, always 0). */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
 	/** When true, nlzCounts is maintained incrementally in hashAndStore() rather than rebuilt
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup

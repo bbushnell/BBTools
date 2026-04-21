@@ -30,22 +30,32 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DualHashDynamicLogLog4(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DualHashDynamicLogLog4(parse.Parser p){
 		super(p);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (must be a power of 2)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DualHashDynamicLogLog4(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
 		minZeroCount=buckets;
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DualHashDynamicLogLog4 copy(){return new DualHashDynamicLogLog4(buckets, k, -1, minProb);}
 
@@ -53,10 +63,12 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/*----------------        Bucket Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Reads the 4-bit stored value for bucket i (0-14=relNlz, 15=overflow). */
 	private int readBucket(final int i){
 		return (maxArray[i>>>3]>>>((i&7)<<2))&0xF;
 	}
 
+	/** Writes a 4-bit stored value for bucket i. val must be in [0,15]. */
 	private void writeBucket(final int i, final int val){
 		final int wordIdx=i>>>3;
 		final int shift=(i&7)<<2;
@@ -67,6 +79,11 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Build NLZ histogram for CardStats with TIER_SCALE=2.0 (dual-hash 4^tier regime).
+	 * absoluteNlz = stored + globalNLZ, always.
+	 * @return CardStats with all estimator values computed
+	 */
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
@@ -103,6 +120,11 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		add((DualHashDynamicLogLog4)log);
 	}
 
+	/**
+	 * Merges another DualHashDynamicLogLog4 into this one.
+	 * Re-frames both to newGlobalNLZ = max(this.globalNLZ, log.globalNLZ),
+	 * takes per-bucket max, then recounts and advances the floor if needed.
+	 */
 	public void add(DualHashDynamicLogLog4 log){
 		added+=log.added;
 		branch1+=log.branch1;
@@ -189,6 +211,12 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
+	/**
+	 * Decrements all buckets with value at least 1 after a global floor advance.
+	 * Respects EARLY_PROMOTE: when true, newly-zero buckets increment minZeroCount and
+	 * decrement filledBuckets; when false, buckets at stored=1 also count toward minZeroCount.
+	 * Returns the count of new minimum-tier buckets.
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int wordIdx=0; wordIdx<maxArray.length; wordIdx++){
@@ -213,7 +241,9 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		return newMinZeroCount;
 	}
 
+	/** Number of buckets with stored > 0. */
 	public int filledBuckets(){return filledBuckets;}
+	/** Fraction of buckets with stored > 0. */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
@@ -234,16 +264,22 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Packed 4-bit bucket array: 8 buckets per int, 0-14=relNlz, 15=overflow. */
 	private final int[] maxArray;
 	/** globalNLZ = -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ. */
 	private int globalNLZ=-1;
+	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
+	/** Count of buckets with stored > 0. */
 	private int filledBuckets=0;
+	/** Early-exit mask: hashes above this value are skipped. */
 	private long eeMask=-1L;
 
 	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
 	public int getMinZeros(){return globalNLZ+1;}
+	/** Last raw nlzCounts from summarize(). */
 	int[] lastRawNlz;
+	/** Reusable NLZ histogram buffer (index 0=empty, 1-65=absNlz 0-64). */
 	private int[] nlzCounts;
 
 	public long branch1=0, branch2=0;
@@ -258,12 +294,18 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/** Second hash seed offset: hash2 = hash(number ^ (hashXor + HASH_OFFSET)). */
 	private static final long HASH_OFFSET=123456789L;
 
+	/** If true, stored=0 triggers floor advance (vs stored<=1 when false). */
 	public static boolean EARLY_PROMOTE=true;
+	/** If true, skip overflow observations (relNlz > 15) rather than clamping to stored=15. */
 	public static boolean IGNORE_OVERFLOW=false;
 
+	/** Auto-loaded CF table resource path for dual-hash variant. */
 	public static final String CF_FILE="?cardinalityCorrectionDHDLL4.tsv.gz";
+	/** Bucket count used to build CF_MATRIX (for interpolation). */
 	private static int CF_BUCKETS=2048;
+	/** Per-class correction factor matrix; null until initializeCF() is called. */
 	private static float[][] CF_MATRIX=null; // No CF table yet
+	/** Loads the DHDLL4 correction factor matrix from CF_FILE. */
 	public static float[][] initializeCF(int buckets){
 		CF_BUCKETS=buckets;
 		try{

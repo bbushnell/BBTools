@@ -33,10 +33,12 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	DynamicLogLog4_Concise(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	DynamicLogLog4_Concise(Parser p){
 		super(p);
 		maxArray=new int[buckets>>>3];
@@ -44,6 +46,13 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets (must be a power of 2)
+	 * @param k_ Hash prefix length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	DynamicLogLog4_Concise(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets>>>3];
@@ -51,6 +60,7 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 		if(FAST_COUNT){nlzCounts=new int[66];}
 	}
 
+	/** Create an independent copy with a fresh seed. */
 	@Override
 	public DynamicLogLog4_Concise copy(){return new DynamicLogLog4_Concise(buckets, k, -1, minProb);}
 
@@ -179,27 +189,26 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 
 	@Override
 	public final void hashAndStore(final long number){
-		//hashXor allows different hash functions
-		final long key=Tools.hash64shift(number^hashXor);
-		if(Long.compareUnsigned(key, eeMask)>0){return;}//Early exit 1
-		
+		final long key=Tools.hash64shift(number^hashXor); // hashXor allows different hash functions
+		if(Long.compareUnsigned(key, eeMask)>0){return;} // early exit 1
+
 		final int nlz=Long.numberOfLeadingZeros(key);
-		final int bucket=(int)(key&bucketMask);//Low bits choose bucket
-		final int relNlz=nlz-globalNLZ;//Relative nlz for current tier
-		final long micro=(key>>bucketBits)&0x3FL;//6-bit microIndex bit index
-		microIndex|=(1L<<micro);//Set Bloom filter bit
+		final int bucket=(int)(key&bucketMask); // low bits choose bucket
+		final int relNlz=nlz-globalNLZ; // relative nlz for current tier
+		final long micro=(key>>bucketBits)&0x3FL; // 6-bit microIndex bit index
+		microIndex|=(1L<<micro); // set Bloom filter bit
 		if(LAZY_ALLOCATE && Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 
-		final int newStored=Math.min(relNlz, 15);//clamped to [0,15] for overflow
-		final int oldStored=readBucket(bucket);//Unpack 4-bit value from the int
-		if(newStored<=oldStored){return;}//Early exit 2
-		writeBucket(bucket, newStored);//Pack new 4-bit value in the int
+		final int newStored=Math.min(relNlz, 15); // clamped to [0,15] for overflow
+		final int oldStored=readBucket(bucket); // unpack 4-bit value from the int
+		if(newStored<=oldStored){return;} // early exit 2
+		writeBucket(bucket, newStored); // pack new 4-bit value in the int
 
 		// minZeroCount decrements when a bucket leaves the tracked-zero category.
 		if(oldStored==0 && --minZeroCount<1){
-			while(minZeroCount==0 && globalNLZ<wordlen){//Tier is empty
-				globalNLZ++;//Increase tier
-				eeMask>>>=1;//Allow sooner early exit
+			while(minZeroCount==0 && globalNLZ<wordlen){ // tier is empty
+				globalNLZ++; // increase tier
+				eeMask>>>=1; // allow sooner early exit
 				minZeroCount=countAndDecrement();
 			}
 		}
@@ -210,24 +219,24 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	 * Counts buckets that became min-tier (value 0).
 	 * If only called when minZeroCount==0, all buckets will be >=1.
 	 * Returns count of new minimum-tier buckets.
-	 */	
+	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;
 		for(int wordIdx=0; wordIdx<maxArray.length; wordIdx++){
-			final int oldWord=maxArray[wordIdx];//Stores packed buckets
+			final int oldWord=maxArray[wordIdx]; // stores packed buckets
 			int newWord=0;
 			for(int bucketIdx=0; bucketIdx<8; bucketIdx++){
 				final int bucketOffset=bucketIdx<<2;
-				int bucketVal=(oldWord>>>bucketOffset)&0xF;//4-bit mask
+				int bucketVal=(oldWord>>>bucketOffset)&0xF; // 4-bit mask
 				if(bucketVal>0){
-					bucketVal--;//Decrement relative nlz
-					if(bucketVal==0){newMinZeroCount++;}//New empty after decrement
+					bucketVal--; // decrement relative nlz
+					if(bucketVal==0){newMinZeroCount++;} // new empty after decrement
 				}
 				newWord|=(bucketVal<<bucketOffset);
 			}
 			maxArray[wordIdx]=newWord;
 		}
-		return newMinZeroCount;//Number of buckets preventing tier advance
+		return newMinZeroCount; // number of buckets preventing tier advance
 	}
 
 	@Override
@@ -250,6 +259,7 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 //	private int filledBuckets=0;
+	/** Early-exit mask: hashes above this value are skipped. */
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
@@ -274,7 +284,6 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	public static final boolean FAST_COUNT=false;
 	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
-
 
 	/** Default resource file for DDL correction factors. */
 	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
