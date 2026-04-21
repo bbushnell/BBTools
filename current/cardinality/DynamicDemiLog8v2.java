@@ -7,8 +7,8 @@ import structures.LongList;
 /**
  * DynamicDemiLog8v2 cardinality estimator extending DemiLogLog (LogLog16) with an adaptive
  * early-exit mechanism. Maintains two extra integers for metadata:
- * minZeros: The minimum number of leading zeros seen across all buckets
- * minZeroCount: Number of buckets with minZeros
+ * globalNLZ: The minimum number of leading zeros seen across all buckets
+ * minZeroCount: Number of buckets with globalNLZ
  * This drives a dynamic threshold that starts at zero and rises with cardinality, achieving
  * 99.9%+ early exit for large datasets without any loss of accuracy—skipped elements can
  * never improve a bucket that already holds a higher score.
@@ -117,7 +117,7 @@ public final class DynamicDemiLog8v2 extends CardinalityTracker {
 				if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
 				else{countArray[i]=(maxA>maxB ? countA : countB);}
 			}
-			scanFrom(Math.max(minZeros, log.minZeros));
+			scanFrom(Math.max(globalNLZ, log.globalNLZ));
 			//Recompute filledBuckets after merge; incremental tracking is not possible here
 			filledBuckets=0;
 			for(char c : maxArray){if(c>0){filledBuckets++;}}
@@ -139,7 +139,7 @@ public final class DynamicDemiLog8v2 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 
 		// Global early exit if not using eeMask
-//		if(nlz<minZeros){return;}
+//		if(nlz<globalNLZ){return;}
 
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
@@ -174,34 +174,34 @@ public final class DynamicDemiLog8v2 extends CardinalityTracker {
 			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
 
 		//Update the dynamic early exit threshold
-		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier 
+		if(nlz>nlzOld && nlzOld==globalNLZ && --minZeroCount<1) {//Promotion from bottom tier 
 			/* NOTE - Due to a major Eclipse JDK 24 -> Java 8 target bytecode generation bug,
 			 * enabling both of these assertions causes a 40% slowdown even with -da.
 			 * Do not enable them in production.
 			 */
-			//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
-			while(minZeroCount==0 && minZeros<wordlen) {//Scan for new tier
-				minZeros++;
+			//			assert(minZeroCount>=0 && globalNLZ<=64) : minZeroCount+", "+globalNLZ;
+			while(minZeroCount==0 && globalNLZ<wordlen) {//Scan for new tier
+				globalNLZ++;
 				eeMask>>>=1;
-				minZeroCount=countTermsInTier(minZeros, maxArray);
+				minZeroCount=countTermsInTier(globalNLZ, maxArray);
 			}
-			//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
+			//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+globalNLZ;
 		}
 
 	}
 
 	private int scanFrom(int nlz) {
-		minZeros=nlz-1;
+		globalNLZ=nlz-1;
 		minZeroCount=0;
 		eeMask=-1L;
 		//Technically this could be 2-pass: find the lowest, THEN count that tier
 		//But in practice that would be slower
-		while(minZeroCount==0 && minZeros<wordlen) {
-			minZeros++;
+		while(minZeroCount==0 && globalNLZ<wordlen) {
+			globalNLZ++;
 			eeMask>>>=1;
-			minZeroCount=countTermsInTier(minZeros, maxArray);
+			minZeroCount=countTermsInTier(globalNLZ, maxArray);
 		}
-		return minZeros;
+		return globalNLZ;
 	}
 
 	@Override
@@ -300,8 +300,8 @@ public final class DynamicDemiLog8v2 extends CardinalityTracker {
 	private final char[] countArray;
 	/** Minimum leading-zero tier held by any bucket; dynamic early-exit threshold.
 	 * Rises monotonically from 0 toward 63 as cardinality grows. */
-	private int minZeros=0;
-	/** Number of buckets with minZeros */
+	private int globalNLZ=0;
+	/** Number of buckets with globalNLZ */
 	private int minZeroCount;
 	/** Number of buckets with any data (maxArray[i] > 0). Maintained incrementally
 	 * in hashAndStore() for O(1) filledBuckets() and occupancy() calls. */

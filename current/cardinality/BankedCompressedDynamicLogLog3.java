@@ -9,7 +9,7 @@ import shared.Tools;
  * with BDLL3's 2-bit bank exponent in bits 30-31 of each packed word.
  * 10 buckets × 3 bits = 30 bits + 2 bank bits = 32 bits per word.
  * <p>
- * Absolute NLZ = globalMinZeros + bankExponent + (stored - 1).
+ * Absolute NLZ = globalNLZ + bankExponent + stored.
  * <p>
  * Bank promotion: when a register would overflow (localRelNlz >= 7), if all
  * 10 registers in the word are >= 1, subtract 1 from all and increment bank.
@@ -99,21 +99,26 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
-			for(int w=0; w<maxArray.length; w++){writeBank(w, 0);}
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
+			// Save banks before clearing — readBank after writeBank(w,0) returns 0
+			final int[] savedBanks=new int[maxArray.length];
+			for(int w=0; w<maxArray.length; w++){
+				savedBanks[w]=readBank(w);
+				writeBank(w, 0);
+			}
 			for(int i=0; i<modBuckets; i++){
-				final int wordA=i/10, wordB=i/10;
-				final int bankA=readBank(wordA);
-				final int bankB=log.readBank(wordB);
+				final int wordIdx=i/10;
+				final int bankA=savedBanks[wordIdx];
+				final int bankB=log.readBank(wordIdx);
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				final int absA=(sA==0 ? -1 : (sA-1)+minZeros+bankA);
-				final int absB=(sB==0 ? -1 : (sB-1)+log.minZeros+bankB);
+				final int absA=sA+globalNLZ+bankA;
+				final int absB=sB+log.globalNLZ+bankB;
 				final int absMax=Math.max(absA, absB);
-				final int newStored=(absMax<newMinZeros ? 0 : Math.min(absMax-newMinZeros+1, 7));
+				final int newStored=(absMax<=newGlobalNLZ ? 0 : Math.min(absMax-newGlobalNLZ, 7));
 				writeBucket(i, newStored);
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){
@@ -121,7 +126,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -155,7 +160,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 
 		int bank=readBank(wordIdx);
-		int localRelNlz=nlz-minZeros-bank;
+		int localRelNlz=nlz-globalNLZ-1-bank;
 
 		if(localRelNlz>=7 && bank<3){
 			cntBankPromoteAttempt++;
@@ -163,7 +168,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 				cntBankPromoteSuccess++;
 				promoteBank(wordIdx);
 				bank=readBank(wordIdx);
-				localRelNlz=nlz-minZeros-bank;
+				localRelNlz=nlz-globalNLZ-1-bank;
 			}
 		}
 
@@ -184,7 +189,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0 && curBank==0) : (localRelNlz>oldRelNlz && oldRelNlz==0 && curBank==0);
 		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				cntGlobalAdvance++;
 				if(CORRECT_OVERFLOW){
 					int[] topByBank=new int[4];
@@ -192,7 +197,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 						if(readBucket(i)==7){topByBank[readBank(i/10)]++;}
 					}
 					for(int b=0; b<4; b++){
-						int tier=7+minZeros+b;
+						int tier=8+globalNLZ+b;
 						if(tier<64){storedOverflow[tier]+=topByBank[b]/2;}
 					}
 				}
@@ -203,8 +208,8 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	private void advanceFloor(){
-		final int nlzShift=(minZeros%2==0) ? 1 : 2;
-		minZeros++;
+		final int nlzShift=((globalNLZ+1)%2==0) ? 1 : 2;
+		globalNLZ++;
 		eeMask>>>=nlzShift;
 	}
 
@@ -282,22 +287,18 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 			final int wordIdx=i/10;
 			final int bank=readBank(wordIdx);
 			final int stored=readBucket(i);
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros+bank;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
-			}else if(minZeros+bank>0){
-				final int absNlz=minZeros+bank-1;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
+			final int absNlz=stored+globalNLZ+bank;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
 
 		final int[] counts;
-		if(CORRECT_OVERFLOW && minZeros>=1){
-			final int lo=Math.max(7, minZeros);
-			final int hi=Math.min(9+minZeros, 63);
+		if(CORRECT_OVERFLOW && globalNLZ>=0){
+			final int lo=Math.max(7, globalNLZ+1);
+			final int hi=Math.min(10+globalNLZ, 63);
 			final int[] cumRaw=new int[64];
 			cumRaw[63]=nlzCounts[64];
 			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
@@ -331,7 +332,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 
 	public int filledBuckets(){return filledBuckets;}
 	public double occupancy(){
-		if(minZeros>0){return 1.0;}
+		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
 		for(int w=0; w<maxArray.length; w++){
 			if(readBank(w)>0){continue;}
@@ -366,12 +367,12 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 	private final int[] storedOverflow;
 	private final int modBuckets;
 	private final int words;
-	private int minZeros=0;
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	public int getMinZeros(){return globalNLZ+1;}
 	@Override public int actualBuckets(){return modBuckets;}
 	int[] getNlzSnapshot(){summarize(); return nlzCounts.clone();}
 	int readBucketAt(int i){return readBucket(i);}
@@ -401,7 +402,7 @@ public final class BankedCompressedDynamicLogLog3 extends CardinalityTracker {
 			+" bankAbsorb="+cntBankAbsorb
 			+" regDecrement="+cntRegDecrement
 			+" globalAdvance="+cntGlobalAdvance
-			+" minZeros="+minZeros
+			+" globalNLZ="+globalNLZ
 			+" added="+added);
 	}
 

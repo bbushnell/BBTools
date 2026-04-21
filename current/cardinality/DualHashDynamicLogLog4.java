@@ -17,6 +17,9 @@ import shared.Tools;
  * This is a proof-of-concept using 4-bit exponents (same as DLL4).
  * Once validated, the same technique can be applied to 3-bit and 2-bit
  * variants where overflow is a real problem.
+ * <p>
+ * Encoding: globalNLZ starts at -1 (nothing seen). stored=0 means at floor level;
+ * empty only when globalNLZ == -1. absoluteNlz = stored + globalNLZ, always.
  *
  * @author Brian Bushnell, Chloe
  * @date April 2026
@@ -67,16 +70,11 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-		final int phantomNlz=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
-			final int stored=readBucket(i);
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
-			}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-				nlzCounts[phantomNlz+1]++;
+			final int absNlz=readBucket(i)+globalNLZ;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 			}
 		}
@@ -112,15 +110,15 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<buckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 15)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 15)));
+				final int nA=Math.max(0, Math.min(sA+(globalNLZ-newGlobalNLZ), 15));
+				final int nB=Math.max(0, Math.min(sB+(log.globalNLZ-newGlobalNLZ), 15));
 				writeBucket(i, Math.max(nA, nB));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<buckets; i++){
@@ -128,8 +126,8 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -160,7 +158,7 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		final int nlz=Long.numberOfLeadingZeros(key);
 		// Bucket from key1 (consistent element-to-bucket mapping)
 		final int bucket=(int)(key1&bucketMask);
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-globalNLZ;
 
 		// MicroIndex from key1 (element identity, not NLZ value)
 		final long micro=(key1>>bucketBits)&0x3FL;
@@ -169,8 +167,8 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 		}
 
-		if(IGNORE_OVERFLOW && relNlz+1>15){return;}
-		final int newStored=Math.min(relNlz+1, 15);
+		if(IGNORE_OVERFLOW && relNlz>15){return;}
+		final int newStored=Math.min(relNlz, 15);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
@@ -180,11 +178,11 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 		writeBucket(bucket, newStored);
 		if(oldStored==0){filledBuckets++;}
 
-		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
+		final int oldRelNlz=oldStored;
 		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
 		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -237,12 +235,14 @@ public final class DualHashDynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private final int[] maxArray;
-	private int minZeros=0;
+	/** globalNLZ = -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 	int[] lastRawNlz;
 	private int[] nlzCounts;
 

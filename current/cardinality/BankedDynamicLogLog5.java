@@ -18,8 +18,8 @@ import shared.Tools;
  *   <li>Bits 3-4 (high 2): 2-bit history pattern (same semantics as UDLL6)
  * </ul>
  * <p>
- * Absolute NLZ = (stored-1) + minZeros + bank when stored>0;
- * phantom absNlz = minZeros + bank - 1 when stored==0 and minZeros+bank>0.
+ * Absolute NLZ = stored + globalNLZ + bank (always, no phantom special cases).
+ * globalNLZ==-1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ.
  * <p>
  * Bank promotion: when localRelNlz would overflow and all 6 buckets in the
  * word have stored>=1, subtract 1 from each stored (preserving hist bits)
@@ -27,7 +27,7 @@ import shared.Tools;
  * <p>
  * Global promotion absorption: for words with bank>0, decrement bank instead
  * of touching the buckets. This leaves all hist bits intact — they remain
- * valid because absNlz is preserved across the promotion.
+ * valid because absNlz (= stored+globalNLZ+bank) is preserved across the promotion.
  * <p>
  * History update follows UDLL6's carry-shift rule for 2-bit hist:
  *   newHist = ((1&lt;&lt;2) | oldHist) &gt;&gt; delta &amp; 0x3, for delta in [1,3+].
@@ -124,7 +124,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			final int[] newHistA=new int[modBuckets];
 			final int[] newHistB=new int[modBuckets];
 			final int[] newStoredA=new int[modBuckets];
@@ -135,10 +135,10 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				final int bankB=log.readBank(wordIdx);
 				final int sA=readStored(i), hA=readHist(i);
 				final int sB=log.readStored(i), hB=log.readHist(i);
-				final int absA=(sA==0 ? -1 : (sA-1)+minZeros+bankA);
-				final int absB=(sB==0 ? -1 : (sB-1)+log.minZeros+bankB);
-				newStoredA[i]=(absA<newMinZeros ? 0 : Math.min(absA-newMinZeros+1, 7));
-				newStoredB[i]=(absB<newMinZeros ? 0 : Math.min(absB-newMinZeros+1, 7));
+				final int absA=sA+globalNLZ+bankA;
+				final int absB=sB+log.globalNLZ+bankB;
+				newStoredA[i]=(absA<newGlobalNLZ+1 ? 0 : Math.min(absA-newGlobalNLZ, 7));
+				newStoredB[i]=(absB<newGlobalNLZ+1 ? 0 : Math.min(absB-newGlobalNLZ, 7));
 				newHistA[i]=hA; newHistB[i]=hB;
 			}
 			for(int w=0; w<words; w++){writeBank(w, 0);}
@@ -150,7 +150,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				else{finalStored=sA; finalHist=(newHistA[i]|newHistB[i])&0x3;}
 				writeBucket(i, finalStored, finalHist);
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){
@@ -158,9 +158,9 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
-				minZeros++;
-				final int exitThreshold=Math.max(0, minZeros-HISTORY_MARGIN);
+			while(minZeroCount<=promoteThreshold && globalNLZ<wordlen){
+				globalNLZ++;
+				final int exitThreshold=Math.max(0, globalNLZ-HISTORY_MARGIN);
 				eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
 				minZeroCount=countAndDecrement();
 			}
@@ -178,7 +178,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
 		final int wordIdx=bucket/6;
 		int bank=readBank(wordIdx);
-		int localRelNlz=nlz-minZeros-bank;
+		int localRelNlz=nlz-globalNLZ-1-bank;
 
 		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro);
@@ -193,7 +193,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 			if(canPromoteBank(wordIdx)){
 				promoteBank(wordIdx);
 				bank=readBank(wordIdx);
-				localRelNlz=nlz-minZeros-bank;
+				localRelNlz=nlz-globalNLZ-1-bank;
 			}
 		}
 
@@ -217,9 +217,9 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 						writeBucket(bucket, oldStored, nh);
 					}
 				}
-			}else if(minZeros+bank>0){
-				// Phantom: effective absNlz=(minZeros+bank-1). Sub-max delta
-				// from phantom's max to insert = -1-localRelNlz.
+			}else if(globalNLZ+bank>=0){
+				// Floor-level: effective absNlz=(globalNLZ+bank). Sub-max delta
+				// from floor's max to insert = -1-localRelNlz.
 				//   localRelNlz=-2 → delta=1 → set bit 1.
 				//   localRelNlz=-3 → delta=2 → set bit 0.
 				//   localRelNlz=-1 → delta=0 (matches max), no change.
@@ -256,10 +256,10 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		lastCardinality=-1;
 		final int newHist;
 		if(oldStored==0){
-			if(minZeros+bank>0){
-				// Phantom transitioning to real: carry-shift hist as if phantom's
-				// effective max was at absNlz=(minZeros+bank-1). Delta in absNlz
-				// from phantom's max to new max = newStored.
+			if(globalNLZ+bank>=0){
+				// Floor-level transitioning to real: carry-shift hist as if floor's
+				// effective max was at absNlz=(globalNLZ+bank). Delta in absNlz
+				// from floor's max to new max = newStored.
 				newHist=(newStored>=3) ? 0 : (((1<<2)|oldHist)>>>newStored)&0x3;
 			}else{
 				// Truly first insert (no prior phantom): no carry possible.
@@ -280,9 +280,9 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 			? (oldStored==0 && curBank==0)
 			: (localRelNlz>oldRelNlz && oldRelNlz==0 && curBank==0);
 		if(shouldDecrement && --minZeroCount<=promoteThreshold){
-			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
-				minZeros++;
-				final int exitThreshold=Math.max(0, minZeros-HISTORY_MARGIN);
+			while(minZeroCount<=promoteThreshold && globalNLZ<wordlen){
+				globalNLZ++;
+				final int exitThreshold=Math.max(0, globalNLZ-HISTORY_MARGIN);
 				eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
 				minZeroCount=countAndDecrement();
 			}
@@ -368,7 +368,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	 *  global promotion decrements it when stored drops 1→0, even though that bucket
 	 *  becomes a valid phantom at the new floor. */
 	public double occupancy(){
-		if(minZeros>0){return 1.0;}
+		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
 		for(int w=0; w<words; w++){
 			if(readBank(w)>0){continue;}
@@ -379,7 +379,8 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 		}
 		return 1.0-(double)empty/modBuckets;
 	}
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
@@ -394,22 +395,12 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 			final int bank=readBank(wordIdx);
 			final int stored=readStored(i);
 			final int hist=readHist(i);
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros+bank;
-				if(absNlz<64){
-					nlzCounts[absNlz+1]++;
-					final int emitHist=(absNlz==0) ? 0 : hist;
-					packedBuckets[i]=(char)(((absNlz+1)<<2)|emitHist);
-					filledCount++;
-				}
-			}else if(minZeros+bank>0){
-				final int absNlz=minZeros+bank-1;
-				if(absNlz<64){
-					nlzCounts[absNlz+1]++;
-					final int emitHist=(absNlz==0) ? 0 : hist;
-					packedBuckets[i]=(char)(((absNlz+1)<<2)|emitHist);
-					filledCount++;
-				}
+			final int absNlz=stored+globalNLZ+bank;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
+				final int emitHist=(absNlz==0) ? 0 : hist;
+				packedBuckets[i]=(char)(((absNlz+1)<<2)|emitHist);
+				filledCount++;
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
@@ -440,7 +431,8 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	private final int modBuckets;
 	private final int words;
 	private final int promoteThreshold;
-	private int minZeros=0;
+	/** globalNLZ==-1 means nothing seen yet; >=0 means all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;

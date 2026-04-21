@@ -21,7 +21,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	final int[] packed;
 	/** Number of ints in packed array. */
 	private final int packedLen;
-	private int minZeros=0;
+	/** Floor NLZ minus 1. -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ+1. */
+	private int globalNLZ=-1;
 	private int floorCount;
 	private long eeMask=-1L;
 	private int filledBuckets=0;
@@ -67,7 +68,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 		final int idx=(int)(key&bucketMask);
 		final int nlz=Long.numberOfLeadingZeros(key);
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-(globalNLZ+1);
 
 		final int bitPos=relNlz+HISTORY_MARGIN;
 		if(bitPos<0||bitPos>=64){return;}
@@ -96,11 +97,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		if(oldNlzPart<=HISTORY_MARGIN && newNlzPart>HISTORY_MARGIN){
 			floorCount--;
 			if(floorCount<=0){
-				while(floorCount==0 && minZeros<wordlen){
-					minZeros++;
+				while(floorCount==0 && globalNLZ<wordlen){
+					globalNLZ++;
 					floorCount=countAndDecrement();
 				}
-				int exitThreshold=Math.max(0, minZeros-HISTORY_MARGIN);
+				int exitThreshold=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
 				eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
 			}
 		}
@@ -121,7 +122,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public double fgraEstimate(){
 		if(!CALC_FGRA){return 0;}
 		final int p=bucketBits;
-		final int regOffset=4*(minZeros+p-1-HISTORY_MARGIN);
+		final int regOffset=4*((globalNLZ+1)+p-1-HISTORY_MARGIN);
 		final byte[] ertlRegs=new byte[buckets];
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
@@ -154,9 +155,9 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		added+=log.added;
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
-		final int newMinZeros=Math.max(minZeros, log.minZeros);
-		final int deltaA=newMinZeros-minZeros;
-		final int deltaB=newMinZeros-log.minZeros;
+		final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
+		final int deltaA=newGlobalNLZ-globalNLZ;
+		final int deltaB=newGlobalNLZ-log.globalNLZ;
 		for(int i=0; i<buckets; i++){
 			final int rA=getReg(i);
 			final int rB=log.getReg(i);
@@ -169,7 +170,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 				setReg(i, Math.min(ErtlULL.pack(merged)&0xFF, MAX_REGISTER));
 			}
 		}
-		minZeros=newMinZeros;
+		globalNLZ=newGlobalNLZ;
 		filledBuckets=0;
 		floorCount=0;
 		for(int i=0; i<buckets; i++){
@@ -177,11 +178,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 			if(reg>0){filledBuckets++;}
 			if(reg==0 || (reg>>>2)<=HISTORY_MARGIN){floorCount++;}
 		}
-		while(floorCount==0 && minZeros<wordlen){
-			minZeros++;
+		while(floorCount==0 && globalNLZ<wordlen){
+			globalNLZ++;
 			floorCount=countAndDecrement();
 		}
-		int exitThreshold=Math.max(0, minZeros-HISTORY_MARGIN);
+		int exitThreshold=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
 		eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
 	}
 
@@ -189,7 +190,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	public int filledBuckets(){return filledBuckets;}
 	public double occupancy(){return (double)filledBuckets/buckets;}
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 
 	@Override
 	public double[] rawEstimates(){
@@ -207,13 +209,13 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
 		final char[] packedBuckets=new char[buckets];
-		final int phantomNlz=minZeros-1;
+		final int phantomNlz=globalNLZ;
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
 			if(reg==0){
-				// Truly empty or post-decrement empty: phantom if minZeros>0
-				if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+				// Truly empty or post-decrement empty: phantom if globalNLZ>=0
+				if(globalNLZ>=0 && phantomNlz<64){
 					nlzCounts[phantomNlz+1]++;
 					filledCount++;
 					// No history for empty phantoms
@@ -222,8 +224,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 				final int nlzPart=reg>>>2;
 				final int histPattern=reg&3;
 				if(nlzPart>=HISTORY_MARGIN){
-					// Normal filled bucket: absNlz = nlzPart - HISTORY_MARGIN + minZeros
-					final int absNlz=nlzPart-HISTORY_MARGIN+minZeros;
+					// Normal filled bucket: absNlz = nlzPart - HISTORY_MARGIN + globalNLZ+1
+					final int absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
 					if(absNlz<64){
 						nlzCounts[absNlz+1]++;
 						filledCount++;
@@ -232,7 +234,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 				}else{
 					// Sub-margin bucket (after decrement): phantom at phantomNlz.
 					// History bits may still be valid.
-					if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
+					if(globalNLZ>=0 && phantomNlz<64){
 						nlzCounts[phantomNlz+1]++;
 						filledCount++;
 						packedBuckets[i]=(char)(((phantomNlz+1)<<2)|histPattern);

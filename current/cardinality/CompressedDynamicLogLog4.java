@@ -79,28 +79,21 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		if(packedBuckets==null){packedBuckets=new char[buckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
-		final int phantomTier=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int nib=readNibble(i);
 			final int tp=tierPart(nib);
 			final int hist=histBit(nib);
-			if(tp>0){
-				final int absTier=(tp-1)+minZeros;
-				if(absTier<64){
-					nlzCounts[absTier+1]++;
-					// Mask hist=0 at absTier=0: sbsStateIndex treats (bin=0, hist!=0) as
-					// structurally invalid (drops the bucket from SBS). CDLL4's first-insert
-					// rule sets hist=1 at tier=0, so without masking SBS drops ~65% of buckets.
-					final int emitHist=(absTier==0) ? 0 : hist;
-					packedBuckets[i]=(char)(((absTier+1)<<1)|emitHist);
-				}
-				filledCount++;
-			}else if(minZeros>0 && phantomTier>=0 && phantomTier<64){
-				nlzCounts[phantomTier+1]++;
-				final int emitHist=(phantomTier==0) ? 0 : hist;
-				packedBuckets[i]=(char)(((phantomTier+1)<<1)|emitHist);
-				filledCount++;
+			final int absTier=tp+globalNLZ;
+			if(absTier<0){continue;} // empty bucket (tp=0, globalNLZ=-1)
+			filledCount++;
+			if(absTier<64){
+				nlzCounts[absTier+1]++;
+				// Mask hist=0 at absTier=0: sbsStateIndex treats (bin=0, hist!=0) as
+				// structurally invalid (drops the bucket from SBS). CDLL4's first-insert
+				// rule sets hist=1 at tier=0, so without masking SBS drops ~65% of buckets.
+				final int emitHist=(absTier==0) ? 0 : hist;
+				packedBuckets[i]=(char)(((absTier+1)<<1)|emitHist);
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
@@ -116,7 +109,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 			}
 			System.err.println("CDLL4 hist: h0="+h0+" h1="+h1+
 				" P(0)="+String.format("%.3f", (double)h0/(h0+h1))+
-				" minZeros="+minZeros+" filled="+filledCount);
+				" globalNLZ="+globalNLZ+" filled="+filledCount);
 		}
 
 		return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
@@ -147,10 +140,10 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<buckets; i++){
-				final int nA=adjustNibble(readNibble(i), minZeros, newMinZeros);
-				final int nB=adjustNibble(log.readNibble(i), log.minZeros, newMinZeros);
+				final int nA=adjustNibble(readNibble(i), globalNLZ, newGlobalNLZ);
+				final int nB=adjustNibble(log.readNibble(i), log.globalNLZ, newGlobalNLZ);
 				final int tpA=tierPart(nA), tpB=tierPart(nB);
 				final int merged;
 				if(tpA>tpB){merged=nA;}
@@ -158,14 +151,14 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 				else{merged=makeNibble(tpA, histBit(nA)|histBit(nB));}
 				writeNibble(i, merged);
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0; minZeroCount=0;
 			for(int i=0; i<buckets; i++){
 				final int tp=tierPart(readNibble(i));
 				if(tp>0){filledBuckets++;}
 				if(tp==0 || (!EARLY_PROMOTE && tp==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -196,7 +189,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3;
-		final int relTier=absTier-minZeros;
+		final int relTier=absTier-(globalNLZ+1);
 		// Allow relTier == -1 through: needed for history (delta == -1)
 		if(relTier<-1){/*cntBelowFloor++;*/ return;}
 
@@ -215,8 +208,8 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 			final int newTierPart=Math.min(relTier+1, 7);
 			if(newTierPart>oldTierPart){
 				// Tier advance: delta==1 → set hist, delta>=2 → clear hist.
-				// For phantoms (tierPart=0): effective old tier = minZeros-1,
-				// so delta = absTier - (minZeros-1) = relTier+1.
+				// For floor-level (tierPart=0): effective old tier = globalNLZ,
+				// so delta = absTier - globalNLZ = relTier+1.
 				final int delta=(oldTierPart>0) ? (newTierPart-oldTierPart) : (relTier+1);
 				final int newHist=(delta==1) ? 1 : 0;
 				//if(newHist==1){cntAdvanceSet++;}else{cntAdvanceClear++;}
@@ -228,7 +221,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 				final boolean shouldDecrement=EARLY_PROMOTE ? oldTierPart==0
 					: (relTier>oldRelTier && oldRelTier==0);
 				if(shouldDecrement && --minZeroCount<1){
-					while(minZeroCount==0 && minZeros<wordlen){
+					while(minZeroCount==0 && globalNLZ<wordlen){
 						advanceFloor();
 						minZeroCount=countAndDecrement();
 					}
@@ -252,9 +245,9 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/** Advance the global floor by one tier and update eeMask.
 	 *  eeMask is relaxed by 1 tier to allow delta==-1 elements through for history. */
 	private void advanceFloor(){
-		minZeros++;
-		// Relaxed: use minNlz for (minZeros-1) instead of minZeros
-		final int relaxedTier=Math.max(0, minZeros-1);
+		globalNLZ++;
+		// Relaxed: use minNlz for globalNLZ instead of (globalNLZ+1)
+		final int relaxedTier=Math.max(0, globalNLZ);
 		final int minNlz=(3*relaxedTier)/2;
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
@@ -308,12 +301,12 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private final int[] maxArray;
-	private int minZeros=0;
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	public int getMinZeros(){return globalNLZ+1;}
 	private int[] nlzCounts;
 	private char[] packedBuckets;
 	private CardStats lastSummarized;

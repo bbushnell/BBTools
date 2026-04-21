@@ -107,23 +107,15 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		if(packedBuckets==null){packedBuckets=new char[modBuckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
-		final int phantomTier=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
 			final int exp=readExponent(i);
 			final int hist=readHistory(i);
-			if(exp>0){
-				final int absTier=(exp-1)+minZeros;
-				if(absTier<64){
-					nlzCounts[absTier+1]++;
-					final int emitHist=emitHistMask(absTier, hist);
-					packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
-				}
-				filledCount++;
-			}else if(minZeros>0 && phantomTier>=0 && phantomTier<64){
-				nlzCounts[phantomTier+1]++;
-				final int emitHist=emitHistMask(phantomTier, hist);
-				packedBuckets[i]=(char)(((phantomTier+1)<<2)|emitHist);
+			final int absTier=exp+globalNLZ;
+			if(absTier>=0 && absTier<64){
+				nlzCounts[absTier+1]++;
+				final int emitHist=emitHistMask(absTier, hist);
+				packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
 				filledCount++;
 			}
 		}
@@ -163,10 +155,10 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(packed!=log.packed){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newMinZeros=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<modBuckets; i++){
-				int expA=adjustExp(readExponent(i), readHistory(i), minZeros, newMinZeros);
-				int expB=adjustExp(log.readExponent(i), log.readHistory(i), log.minZeros, newMinZeros);
+				int expA=adjustExp(readExponent(i), readHistory(i), globalNLZ, newMinZeros);
+				int expB=adjustExp(log.readExponent(i), log.readHistory(i), log.globalNLZ, newMinZeros);
 				int histA=readHistory(i);
 				int histB=log.readHistory(i);
 				// Adjust history during floor change (approximate: just keep)
@@ -178,14 +170,14 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 					writeBucket(i, expA, histA|histB);
 				}
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newMinZeros;
 			filledBuckets=0; minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){
 				final int exp=readExponent(i);
 				if(exp>0){filledBuckets++;}
 				if(exp==0 || (!EARLY_PROMOTE && exp==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -213,7 +205,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3;
-		final int relTier=absTier-minZeros;
+		final int relTier=absTier-(globalNLZ+1);
 		if(relTier<-HISTORY_MARGIN){return;}
 
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
@@ -230,7 +222,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 			final int newExp=Math.min(relTier+1, MAX_EXP);
 			if(newExp>oldExp){
 				final int delta=(oldExp>0) ? (newExp-oldExp) : (relTier+1);
-				final int carry=(oldExp>0 || minZeros>0) ? HIST_CARRY : 0;
+				final int carry=(oldExp>0 || globalNLZ>=0) ? HIST_CARRY : 0;
 				final int newHist=((oldHist|carry)>>delta)&HIST_MASK;
 				lastCardinality=-1;
 				writeBucket(bucket, newExp, newHist);
@@ -240,7 +232,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 				final boolean shouldDecrement=EARLY_PROMOTE ? oldExp==0
 					: (relTier>oldRelTier && oldRelTier==0);
 				if(shouldDecrement && --minZeroCount<1){
-					while(minZeroCount==0 && minZeros<wordlen){
+					while(minZeroCount==0 && globalNLZ<wordlen){
 						advanceFloor();
 						minZeroCount=countAndDecrement();
 					}
@@ -284,8 +276,8 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	}
 
 	private void advanceFloor(){
-		minZeros++;
-		final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+		globalNLZ++;
+		final int relaxedTier=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
 		final int minNlz=(3*relaxedTier)/2;
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
@@ -346,12 +338,12 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	private final int modBuckets;
 	private final int[] packed;
 	private final int packedLen;
-	private int minZeros=0;
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	public int getMinZeros(){return globalNLZ+1;}
 	private int[] nlzCounts;
 	private char[] packedBuckets;
 	private CardStats lastSummarized;

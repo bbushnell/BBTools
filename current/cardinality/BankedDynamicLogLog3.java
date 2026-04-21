@@ -10,14 +10,16 @@ import structures.LongList;
  * Like DLL3, packs 10 buckets into each int, 3 bits per bucket (30 bits).
  * The 2 unused bits (30-31) become a local bank exponent per word.
  * <p>
- * Absolute NLZ = globalMinZeros + bankExponent + (stored - 1).
+ * Absolute NLZ = globalNLZ + 1 + bankExponent + (stored - 1) = stored + globalNLZ + bank.
+ * globalNLZ == -1 means nothing has been seen yet; >= 0 means all buckets
+ * have absNlz >= globalNLZ.
  * <p>
  * Bank promotion: when a register would overflow (localRelNlz >= 7), if all
  * 10 registers in the word are >= 1, subtract 1 from all and increment bank.
  * This localizes overflow handling — only 10 registers shift, not the whole
  * structure. Extends effective per-word range from 7 to 10 tiers.
  * <p>
- * Global promotion absorption: when globalMinZeros advances, words with
+ * Global promotion absorption: when globalNLZ advances, words with
  * bankExponent > 0 just decrement their bank instead of touching registers.
  *
  * @author Brian Bushnell, Chloe
@@ -117,7 +119,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		added+=log.added;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			// Clear all bank exponents — merge resets to bank=0
 			for(int w=0; w<maxArray.length; w++){
 				writeBank(w, 0);
@@ -129,29 +131,29 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				// Convert to absolute, then to new relative frame (bank=0)
-				final int absA=(sA==0 ? -1 : (sA-1)+minZeros+bankA);
-				final int absB=(sB==0 ? -1 : (sB-1)+log.minZeros+bankB);
+				final int absA=sA+globalNLZ+bankA;
+				final int absB=sB+log.globalNLZ+bankB;
 				final int absMax=Math.max(absA, absB);
-				final int newStored=(absMax<newMinZeros ? 0 : Math.min(absMax-newMinZeros+1, 7));
+				final int newStored=(absMax<newGlobalNLZ+1 ? 0 : Math.min(absMax-newGlobalNLZ, 7));
 				writeBucket(i, newStored);
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
-			final int phantomNlz=minZeros-1;
 			for(int i=0; i<modBuckets; i++){
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
-					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz+1]++;}}
-				}else if(FAST_COUNT && minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-					nlzCounts[phantomNlz+1]++;
+					if(FAST_COUNT){final int absNlz=s+globalNLZ; if(absNlz>=0 && absNlz<64){nlzCounts[absNlz+1]++;}}
+				}else if(FAST_COUNT){
+					final int absNlz=globalNLZ; // stored=0+globalNLZ+0 (bank cleared)
+					if(absNlz>=0 && absNlz<64){nlzCounts[absNlz+1]++;}
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount<=promoteThreshold && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -169,7 +171,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
 		final int wordIdx=bucket/10;
 		final int bank=readBank(wordIdx);
-		int localRelNlz=nlz-minZeros-bank;
+		int localRelNlz=nlz-globalNLZ-1-bank;
 
 		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro);
@@ -184,7 +186,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				localRelNlz++; // bank increased by 1, so localRelNlz decreases by 1
 				// Wait — localRelNlz = nlz - minZeros - bank.
 				// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
-				localRelNlz=nlz-minZeros-readBank(wordIdx); // recompute to be safe
+				localRelNlz=nlz-globalNLZ-1-readBank(wordIdx); // recompute to be safe
 			}
 		}
 
@@ -206,17 +208,14 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 
 		if(FAST_COUNT){
 			// Remove old slot from nlzCounts
-			if(oldStored>0){
-				final int oldAbsNlz=(oldStored-1)+minZeros+curBank;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz+1]--;}
-			}else if(minZeros+curBank>0){
-				final int pNlz=minZeros+curBank-1;
-				if(pNlz<64){nlzCounts[pNlz+1]--;}
+			final int oldAbsNlz=oldStored+globalNLZ+curBank;
+			if(oldAbsNlz>=0 && oldAbsNlz<64){
+				nlzCounts[oldAbsNlz+1]--;
 			}else{
-				nlzCounts[0]--; // was truly empty
+				nlzCounts[0]--; // was truly empty (globalNLZ==-1 and stored==0)
 			}
 			// Add new slot
-			final int newAbsNlz=(newStored-1)+minZeros+curBank;
+			final int newAbsNlz=newStored+globalNLZ+curBank;
 			if(newAbsNlz<64){nlzCounts[newAbsNlz+1]++;}
 		}
 
@@ -231,20 +230,20 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored==0 && curBank==0) : (localRelNlz>oldRelNlz && oldRelNlz==0 && curBank==0);
 		if(shouldDecrement && --minZeroCount<=promoteThreshold){
-			while(minZeroCount<=promoteThreshold && minZeros<wordlen){
+			while(minZeroCount<=promoteThreshold && globalNLZ<wordlen){
 				if(USE_STORED_OVERFLOW){
 					// Group stored=7 counts by bank: a stored=7 bucket in bank=b
-					// overflows at tier 7+minZeros+b, not 7+minZeros.
+					// overflows at tier 8+globalNLZ+b (= 7+minZeros+b).
 					int[] topByBank=new int[4];
 					for(int i=0; i<modBuckets; i++){
 						if(readBucket(i)==7){topByBank[readBank(i/10)]++;}
 					}
 					for(int b=0; b<4; b++){
-						int tier=7+minZeros+b;
+						int tier=8+globalNLZ+b;
 						if(tier<64){storedOverflow[tier]+=topByBank[b]/2;}
 					}
 				}
-				minZeros++;
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -338,7 +337,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	 *  global promotion decrements it when stored drops 1→0, even though that bucket
 	 *  becomes a valid phantom at the new floor. */
 	public double occupancy(){
-		if(minZeros>0){return 1.0;}
+		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
 		for(int w=0; w<maxArray.length; w++){
 			if(readBank(w)>0){continue;}
@@ -364,31 +363,26 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			final int wordIdx=i/10;
 			final int bank=readBank(wordIdx);
 			final int stored=readBucket(i);
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros+bank;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
-			}else if(minZeros+bank>0){
-				// Bucket had data, decremented to 0. absNlz = minZeros+bank-1.
-				final int absNlz=minZeros+bank-1;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
+			final int absNlz=stored+globalNLZ+bank;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 			}
-			// else: stored=0, bank=0, minZeros=0 → truly empty
+			// else: absNlz==-1 means stored=0+globalNLZ(=-1)+bank(=0) → truly empty
 		}
 		nlzCounts[0]=modBuckets-filledCount;
 		assert nlzCounts[0]>=0 : "Negative empties: "+nlzCounts[0]+" filledCount="+filledCount+" modBuckets="+modBuckets;
 		final boolean doDebug=DEBUG_ONCE;
 		if(doDebug){
 			DEBUG_ONCE=false;
-			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" modBuckets="+modBuckets);
+			System.err.println("DEBUG summarize(): globalNLZ="+globalNLZ+" filledBuckets="+filledBuckets+" modBuckets="+modBuckets);
 			System.err.println("  nlzCounts (nonzero):");
 			for(int t=0; t<66; t++){if(nlzCounts[t]>0){System.err.println("    tier "+(t-1)+": "+nlzCounts[t]);}}
 		}
 		final int[] counts;
-		if(CORRECT_OVERFLOW && minZeros>=1){
-			final int lo=Math.max(7, minZeros);
-			final int hi=Math.min(9+minZeros, 63); // 6+maxBank(3): bank=b overflows at 6+minZeros+b
+		if(CORRECT_OVERFLOW && globalNLZ>=0){
+			final int lo=Math.max(7, globalNLZ+1);
+			final int hi=Math.min(10+globalNLZ, 63); // 7+maxBank(3): bank=b overflows at 7+(globalNLZ+1)+b
 			final int[] cumRaw=new int[64];
 			cumRaw[63]=nlzCounts[64]; // absNlz=63 at index 64
 			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
@@ -445,12 +439,14 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	private final double overflowExpFactor;
 	private final int[] storedOverflow;
 	private final int promoteThreshold;
-	private int minZeros=0;
+	/** globalNLZ==-1 means nothing seen yet; >=0 means all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 	@Override public int actualBuckets(){return modBuckets;}
 	public int[] getStoredOverflow(){return storedOverflow;}
 	int[] lastRawNlz, lastCorrNlz;

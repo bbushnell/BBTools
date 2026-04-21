@@ -5,10 +5,11 @@ import shared.Tools;
 import structures.LongList;
 
 /**
- * DynamicLogLog4: 4-bit packed variant of DynamicLogLog using relative NLZ storage.
+ * DynamicLogLog4_Concise: concise 4-bit packed variant of DynamicLogLog using relative NLZ storage.
  * <p>
  * Packs 8 buckets into each int, 4 bits per bucket (nibble packing).
- * Encoding: 0 = empty; 1-15 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
+ * Encoding: stored=0..14 = relNlz 0..14; stored=15 = overflow clamp.
+ * relNlz = absoluteNlz - globalNLZ.
  * No mantissa — coarser precision per bucket, but allows 2x bucket count for the same memory.
  * Overflow (relNlz >= 15) clamped to stored=15 and absorbed by CF matrix.
  * <p>
@@ -17,10 +18,10 @@ import structures.LongList;
  * <p>
  * Key invariants:
  * - maxArray[i>>>3] holds 8 consecutive buckets, each in 4 bits.
- * - Bucket value 0 = empty; value 1-15 = (relNlz+1).
- * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
- * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
- * 
+ * - globalNLZ = -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ.
+ * - absoluteNlz = stored + globalNLZ, always (no special cases).
+ * - minZeroCount tracks floor-level (stored=0) buckets; advances globalNLZ floor when 0.
+ *
  * Simplified for publication.
  *
  * @author Brian Bushnell, Chloe
@@ -57,7 +58,7 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	/*----------------        Bucket Access         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Reads the 4-bit stored value for bucket i (0=empty, 1-15=relNlz+1). */
+	/** Reads the 4-bit stored value for bucket i (0-14=relNlz, 15=overflow). */
 	private int readBucket(final int i){
 		return (maxArray[i>>>3]>>>((i&7)<<2))&0xF;
 	}
@@ -77,24 +78,18 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	 * Scans the bucket array once to populate the absolute NLZ histogram (nlzCounts),
 	 * then delegates all sum computation to CardinalityStats.fromNlzCounts().
 	 * <p>
-	 * Phantom buckets (stored=0 when minZeros>0) are treated as absNlz = minZeros-1,
-	 * one tier below the current floor. This ensures the nlzCounts distribution is
-	 * identical regardless of EARLY_PROMOTE setting.
+	 * absoluteNlz = stored + globalNLZ, always. When globalNLZ == -1 (nothing seen),
+	 * all buckets are empty (absNlz = -1 < 0, excluded from counts).
 	 */
 	private CardinalityStats summarize(){
 		if(!FAST_COUNT){
 			if(nlzCounts==null){nlzCounts=new int[66];}
 			else{java.util.Arrays.fill(nlzCounts, 0);}
-			final int phantomNlz=minZeros-1;
 			int filledCount=0;
 			for(int i=0; i<buckets; i++){
-				final int stored=readBucket(i);
-				if(stored>0){
-					final int absNlz=(stored-1)+minZeros;
-					if(absNlz<64){nlzCounts[absNlz+1]++;}
-					filledCount++;
-				}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-					nlzCounts[phantomNlz+1]++;
+				final int absNlz=readBucket(i)+globalNLZ;
+				if(absNlz>=0 && absNlz<64){
+					nlzCounts[absNlz+1]++;
 					filledCount++;
 				}
 			}
@@ -129,17 +124,16 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	}
 
 	/**
-	 * Merges another DynamicLogLog4 into this one.
+	 * Merges another DynamicLogLog4_Concise into this one.
 	 * <p>
 	 * Correct merge sequence:
 	 * <ol>
-	 *   <li>Re-frame both instances to newMinZeros = max(this.minZeros, log.minZeros).
-	 *       Buckets whose absNlz falls below the new floor correctly become empty (stored=0),
+	 *   <li>Re-frame both instances to newGlobalNLZ = max(this.globalNLZ, log.globalNLZ).
+	 *       Buckets whose absNlz falls below the new floor correctly clamp to stored=0,
 	 *       mirroring what countAndDecrement() would do one step at a time.
-	 *       Note: Math.max(0,...) is correct here — NOT Math.max(1,...).
-	 *       A below-floor bucket is genuinely empty in the new frame.</li>
+	 *       Math.max(0,...) clamps below-floor buckets to floor-level (stored=0).</li>
 	 *   <li>Take per-bucket max of the re-framed values.</li>
-	 *   <li>Scan to recount filledBuckets and minZeroCount, then advance the floor
+	 *   <li>Scan to recount minZeroCount, then advance the floor
 	 *       (possibly multiple times) if minZeroCount==0, exactly as hashAndStore does.</li>
 	 * </ol>
 	 * <p>
@@ -160,23 +154,23 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<buckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 15)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 15)));
+				// Convert to new relative frame: newStored = stored + (oldGlobalNLZ - newGlobalNLZ)
+				final int nA=Math.max(0, Math.min(sA+(globalNLZ-newGlobalNLZ), 15));
+				final int nB=Math.max(0, Math.min(sB+(log.globalNLZ-newGlobalNLZ), 15));
 				writeBucket(i, Math.max(nA, nB));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			minZeroCount=0;
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
 				if(s==0){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -191,20 +185,20 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 		
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);//Low bits choose bucket
-		final int relNlz=nlz-minZeros;//Relative nlz for current tier
+		final int relNlz=nlz-globalNLZ;//Relative nlz for current tier
 		final long micro=(key>>bucketBits)&0x3FL;//6-bit microIndex bit index
 		microIndex|=(1L<<micro);//Set Bloom filter bit
 		if(LAZY_ALLOCATE && Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
-		
-		final int newStored=Math.min(relNlz+1, 15);//clamped to [1,15] for overflow
+
+		final int newStored=Math.min(relNlz, 15);//clamped to [0,15] for overflow
 		final int oldStored=readBucket(bucket);//Unpack 4-bit value from the int
 		if(newStored<=oldStored){return;}//Early exit 2
 		writeBucket(bucket, newStored);//Pack new 4-bit value in the int
 
 		// minZeroCount decrements when a bucket leaves the tracked-zero category.
 		if(oldStored==0 && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){//Tier is empty
-				minZeros++;//Increase tier
+			while(minZeroCount==0 && globalNLZ<wordlen){//Tier is empty
+				globalNLZ++;//Increase tier
 				eeMask>>>=1;//Allow sooner early exit
 				minZeroCount=countAndDecrement();
 			}
@@ -249,17 +243,19 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Packed 4-bit bucket array: 8 buckets per int, 0=empty, 1-15=relNlz+1. */
+	/** Packed 4-bit bucket array: 8 buckets per int, 0-14=relNlz, 15=overflow. */
 	private final int[] maxArray;
-	private int minZeros=0;
-	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
+	/** Global NLZ floor. -1 = nothing seen; >= 0 = all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
+	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 //	private int filledBuckets=0;
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 	/** Last raw and corrected nlzCounts from summarize(). */
 	int[] lastRawNlz, lastCorrNlz;
 

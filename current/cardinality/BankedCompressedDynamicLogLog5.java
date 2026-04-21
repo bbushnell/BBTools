@@ -10,8 +10,8 @@ import shared.Tools;
  * <li>Bits [29:0]: 6 × 5-bit registers (bits [4:2]=tierPart, bits [1:0]=history)
  * <li>Bits [31:30]: 2-bit bank exponent (0-3) shared by all 6 registers
  * </ul>
- * Absolute tier = (tierPart - 1) + minZeros + bankExponent.
- * When minZeros+bank > 0, stored=0 means absNlz = minZeros+bank-1 (not empty).
+ * Absolute tier = tierPart + globalNLZ + bankExponent.
+ * globalNLZ starts at -1 (nothing seen); stored=0 means "at floor level."
  * <p>
  * Tier compression: halfNlz = 2*NLZ + mantissa, tier = halfNlz/3.
  * TIER_SCALE = 1.5 (each tier ≈ 2^1.5 ≈ 2.83× probability ratio).
@@ -130,22 +130,12 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			final int reg=readBucket(i);
 			final int tp=tierPart(reg);
 			final int hist=histBits(reg);
-			if(tp>0){
-				final int absTier=(tp-1)+minZeros+bank;
-				if(absTier<64){
-					nlzCounts[absTier+1]++;
-					final int emitHist=emitHistMask(absTier, hist);
-					packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
-				}
+			final int absTier=tp+globalNLZ+bank;
+			if(absTier>=0 && absTier<64){
+				nlzCounts[absTier+1]++;
+				final int emitHist=emitHistMask(absTier, hist);
+				packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
 				filledCount++;
-			}else if(minZeros+bank>0){ // stored=0 after floor advance: absNlz=minZeros+bank-1
-				final int absTier=minZeros+bank-1;
-				if(absTier>=0 && absTier<64){
-					nlzCounts[absTier+1]++;
-					final int emitHist=emitHistMask(absTier, hist);
-					packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
-					filledCount++;
-				}
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
@@ -196,7 +186,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(packed!=log.packed){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			// Save banks before clearing — readBank after writeBank(w,0) returns 0
 			final int[] savedBanks=new int[packedLen];
 			for(int w=0; w<packedLen; w++){
@@ -209,19 +199,19 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 				final int bankB=log.readBank(wordIdx);
 				final int regA=readBucket(i), regB=log.readBucket(i);
 				final int tpA=tierPart(regA), tpB=tierPart(regB);
-				final int absA=(tpA==0 ? -1 : (tpA-1)+minZeros+bankA);
-				final int absB=(tpB==0 ? -1 : (tpB-1)+log.minZeros+bankB);
+				final int absA=tpA+globalNLZ+bankA;
+				final int absB=tpB+log.globalNLZ+bankB;
 				final int absMax=Math.max(absA, absB);
-				if(absMax<newMinZeros){
-					writeBucket(i, 0, 0); // below new floor
+				if(absMax<=newGlobalNLZ){
+					writeBucket(i, 0, 0); // at or below new floor
 				}else{
-					final int newTp=Math.min(absMax-newMinZeros+1, 7);
+					final int newTp=Math.min(absMax-newGlobalNLZ, 7);
 					final int hA=histBits(regA), hB=histBits(regB);
 					final int mergedHist=(absA==absB) ? (hA|hB) : (absA>absB ? hA : hB);
 					writeBucket(i, newTp, mergedHist);
 				}
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0; minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){// recount after merge (all banks are 0)
 				final int tp=tierPart(readBucket(i));
@@ -229,7 +219,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 				if(tp==0 || (!EARLY_PROMOTE && tp==1)){minZeroCount++;}
 			}
 			assert(filledBuckets>=0 && filledBuckets<=modBuckets) : "Bad filledBuckets="+filledBuckets;
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -261,7 +251,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
 		final int wordIdx=bucket/6;
 		final int bank=readBank(wordIdx);
-		final int relTier=absTier-minZeros-bank; // tier relative to this word's floor
+		final int relTier=absTier-globalNLZ-1-bank; // tier relative to this word's floor
 
 		if(relTier<-HISTORY_MARGIN){return;} // too far below floor even for history
 
@@ -280,14 +270,14 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			if(relTier+1>7 && bank<3 && canPromoteBank(wordIdx)){
 				promoteBank(wordIdx); // decrement all 6 tierParts, increment bank
 				final int newBank=readBank(wordIdx);
-				final int newRelTier=absTier-minZeros-newBank; // recompute with new bank
+				final int newRelTier=absTier-globalNLZ-1-newBank; // recompute with new bank
 				final int newTp=Math.min(newRelTier+1, 7);
 				final int promotedReg=readBucket(bucket); // re-read after promotion
 				final int promotedTp=tierPart(promotedReg);
 				final int promotedHist=histBits(promotedReg);
 				if(newTp<=promotedTp){return;} // no advancement after promotion
 				final int delta=(promotedTp>0) ? (newTp-promotedTp) : (newRelTier+1);
-				final int carry=(promotedTp>0 || minZeros+newBank>0) ? HIST_CARRY : 0;
+				final int carry=(promotedTp>0 || globalNLZ+newBank>=0) ? HIST_CARRY : 0;
 				final int newHist=((promotedHist|carry)>>delta)&HIST_MASK; // carry-shift
 				lastCardinality=-1;
 				writeBucket(bucket, newTp, newHist);
@@ -297,7 +287,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 			final int newTierPart=Math.min(relTier+1, 7); // clamp after promotion check
 			if(newTierPart>oldTierPart){ // tier advance
 				final int delta=(oldTierPart>0) ? (newTierPart-oldTierPart) : (relTier+1);
-				final int carry=(oldTierPart>0 || minZeros+bank>0) ? HIST_CARRY : 0;
+				final int carry=(oldTierPart>0 || globalNLZ+bank>=0) ? HIST_CARRY : 0;
 				final int newHist=((oldHist|carry)>>delta)&HIST_MASK; // carry-shift
 				lastCardinality=-1;
 				writeBucket(bucket, newTierPart, newHist);
@@ -309,7 +299,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 					? (oldTierPart==0 && bank==0)
 					: (relTier>oldRelTier && oldRelTier==0 && bank==0);
 				if(shouldDecrement && --minZeroCount<1){
-					while(minZeroCount==0 && minZeros<wordlen){
+					while(minZeroCount==0 && globalNLZ<wordlen){
 						advanceFloor();
 						minZeroCount=countAndDecrement();
 					}
@@ -385,8 +375,8 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	 * {-HISTORY_MARGIN, ..., -1} pass through for history updates.
 	 */
 	private void advanceFloor(){
-		minZeros++;
-		final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+		globalNLZ++;
+		final int relaxedTier=Math.max(0, globalNLZ-HISTORY_MARGIN);
 		final int minNlz=(3*relaxedTier)/2; // convert compressed tier back to NLZ
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
@@ -455,7 +445,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	 * Before that, only buckets with tierPart > 0 in bank=0 words are occupied.
 	 */
 	public double occupancy(){
-		if(minZeros>0){return 1.0;} // floor advanced: all buckets have data
+		if(globalNLZ>=0){return 1.0;} // floor advanced: all buckets have data
 		int empty=0;
 		for(int w=0; w<packedLen; w++){
 			if(readBank(w)>0){continue;} // banked words have no truly empty slots
@@ -497,8 +487,8 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	private final int packedLen;
 	/** Actual bucket count (multiple of 6, may differ from super.buckets). */
 	private final int modBuckets;
-	/** Global floor tier. absNlz = stored-1 + minZeros + bank. */
-	private int minZeros=0;
+	/** Global floor tier: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. absNlz = tierPart + globalNLZ + bank. */
+	private int globalNLZ=-1;
 	/** Buckets at the global floor eligible for next advance. */
 	private int minZeroCount;
 	/** Count of buckets with tierPart > 0 at bank=0 level. */
@@ -506,8 +496,8 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	/** Early-exit mask: filters hashes below HISTORY_MARGIN tiers of floor. */
 	private long eeMask=-1L;
 
-	/** Accessor for minZeros. */
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 	/** Reusable NLZ histogram buffer (index 0=empty, 1-65=absNlz 0-64). */
 	private int[] nlzCounts;
 	/** Reusable per-bucket packed state for CardStats: (absTier+1)<<2 | hist. */

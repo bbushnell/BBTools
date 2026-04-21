@@ -8,8 +8,8 @@ import structures.LongList;
  * DDL8: Dynamic DemiLog with 8-bit byte registers, parameterized by mantissa bits.
  * <p>
  * Each bucket: 1 byte, split as (exponentBits | mantissaBits) where exponentBits = 8 - mantissaBits.
- * Upper exponentBits hold (relNlz+1) clamped [0, maxRelNlzStored]; lower mantissaBits hold inverted mantissa.
- * Encoding: 0x00 = empty; non-empty = ((relNlz+1) << mantissaBits) | invMantissa.
+ * Upper exponentBits hold relNlzStored=(nlz-globalNLZ) clamped [0, maxRelNlzStored]; lower mantissaBits hold inverted mantissa.
+ * Encoding: 0x00 = empty when globalNLZ==-1; non-empty = (relNlzStored << mantissaBits) | invMantissa.
  * <p>
  * mantissaBits=2: 6-bit exponent (64 tiers), 2-bit invMantissa.
  *   Used for LL8 (Mean estimator, ignores mantissa) and HLL8 (HLL estimator, ignores mantissa).
@@ -27,7 +27,7 @@ import structures.LongList;
  * <p>
  * HMeanM fractional NLZ formula (DLL2-compatible):
  *   fractNlz = absNlz - 0.5 + invMantissa/mantissaScale
- *   hllSumFilledM += 2^(-(s>>>mantissaBits) + 1.5 - (s&mantissaMask)/mantissaScale - minZeros)
+ *   hllSumFilledM += 2^(-(s>>>mantissaBits) + 1.5 - (s&mantissaMask)/mantissaScale - (globalNLZ+1))
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -80,29 +80,15 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
 		final char[] packedBuckets=new char[buckets];
-		final int phantomNlz=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int s=readBucket(i);
-			if(s>=minNonEmpty){
-				// Normal filled bucket: pack ((absNlz+1) << mantissaBits) | invMantissa
-				final int absNlz=(s>>>mantissaBits)-1+minZeros;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
+			final int absNlz=(s>>>mantissaBits)+globalNLZ;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 				packedBuckets[i]=(char)(((absNlz+1)<<mantissaBits)|(s&mantissaMask));
-			}else if(s>0 && minZeros>0){
-				// Sub-floor bucket (stored 1-3 after decrement): phantom at phantomNlz.
-				// Mantissa bits preserved in bottom 2 bits of stored byte after subtract.
-				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz+1]++;}
-				filledCount++;
-				packedBuckets[i]=(char)(((phantomNlz+1)<<mantissaBits)|(s&mantissaMask));
-			}else if(s==0 && minZeros>0){
-				// Post-decrement empty (stored was minNonEmpty, invMant was 0): phantom.
-				if(phantomNlz>=0 && phantomNlz<64){nlzCounts[phantomNlz+1]++;}
-				filledCount++;
-				packedBuckets[i]=(char)((phantomNlz+1)<<mantissaBits); // invMant=0
 			}
-			// else: s==0 && minZeros==0 → truly empty
 		}
 		nlzCounts[0]=buckets-filledCount;
 		return new CardStats(packedBuckets, nlzCounts, 6, 0, 0, mantissaBits,
@@ -127,7 +113,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 
 	/**
 	 * Merges another DDL8 into this one (must have same mantissaBits).
-	 * Converts each bucket to the new common minZeros frame, takes per-bucket max, recounts.
+	 * Converts each bucket to the new common globalNLZ frame, takes per-bucket max, recounts.
 	 */
 	public void add(DynamicDemiLog8 log){
 		added+=log.added;
@@ -135,15 +121,15 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
-			final int deltaA=(minZeros-newMinZeros)*minNonEmpty;
-			final int deltaB=(log.minZeros-newMinZeros)*minNonEmpty;
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
+			final int deltaA=(globalNLZ-newGlobalNLZ)*minNonEmpty;
+			final int deltaB=(log.globalNLZ-newGlobalNLZ)*minNonEmpty;
 			for(int i=0; i<buckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
 				writeBucket(i, Math.max(adjustStored(sA, deltaA), adjustStored(sB, deltaB)));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<buckets; i++){
@@ -156,7 +142,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 
 	/**
 	 * Shifts a stored byte by delta (a multiple of minNonEmpty), clamping to valid range.
-	 * delta is always <= 0 since newMinZeros >= oldMinZeros.
+	 * delta is always <= 0 since newGlobalNLZ >= oldGlobalNLZ.
 	 * Below-floor non-empty values clamp to tier-0 (minNonEmpty) rather than becoming empty.
 	 */
 	private int adjustStored(final int stored, final int delta){
@@ -173,17 +159,17 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
-		final int relNlz=nlz-minZeros;
-//		if(relNlz<0){return;} // safety guard (eeMask should prevent this)
-		
+		final int relNlz=nlz-globalNLZ;
+//		if(relNlz<=0){return;} // safety guard (eeMask should prevent this)
+
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality
 			final long micro=(key>>bucketBits)&0x3FL;
 			microIndex|=(1L<<micro);
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
 		}
-		
-		// relNlzStored = relNlz+1, clamped to [1, maxRelNlzStored]
-		final int newRelNlzStored=Math.min(relNlz+1, maxRelNlzStored);
+
+		// relNlzStored = relNlz, clamped to [1, maxRelNlzStored]
+		final int newRelNlzStored=Math.min(relNlz, maxRelNlzStored);
 
 		// Inverted mantissa: bits immediately after leading-1, inverted.
 		// shift_offset=61 (precomputed); guard shift<0 for extreme NLZ (nlz>61).
@@ -209,8 +195,8 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored<minNonEmpty && newStored>=minNonEmpty) :
 			((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2);
 		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -250,7 +236,7 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	 * HMean uses integer NLZ only (hllSumFilled); HMeanM uses fractional NLZ (hllSumFilledM).
 	 */
 	private long restoreDif(final int s){
-		final int absNlz=(s>>>mantissaBits)-1+minZeros;
+		final int absNlz=(s>>>mantissaBits)+globalNLZ;
 		if(absNlz==0){return Long.MAX_VALUE;}
 		final long lowbits=(~s)&mantissaMask;        // uninvert: higher stored = smaller hash in tier
 		final long mantissa=(1L<<mantissaBits)|lowbits;
@@ -281,12 +267,13 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Byte register array: 1 byte per bucket, encoding ((relNlz+1)<<mantissaBits)|invMantissa. */
+	/** Byte register array: 1 byte per bucket, encoding (relNlzStored<<mantissaBits)|invMantissa where relNlzStored=nlz-globalNLZ. */
 	private final byte[] maxArray;
 	// mantissaBits, mantissaMask, minNonEmpty, maxRelNlzStored, mantissaScale: see static finals below
 
-	private int minZeros=0;
-	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
+	/** Floor NLZ minus 1. -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ+1. */
+	private int globalNLZ=-1;
+	/** Count of (empty + tier-0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;

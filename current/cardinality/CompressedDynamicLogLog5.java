@@ -88,24 +88,16 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		if(packedBuckets==null){packedBuckets=new char[modBuckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
-		final int phantomTier=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
 			final int reg=readBucket(i);
 			final int tp=tierPart(reg);
 			final int hist=histBits(reg);
-			if(tp>0){
-				final int absTier=(tp-1)+minZeros;
-				if(absTier<64){
-					nlzCounts[absTier+1]++;
-					final int emitHist=emitHistMask(absTier, hist);
-					packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
-				}
-				filledCount++;
-			}else if(minZeros>0 && phantomTier>=0 && phantomTier<64){
-				nlzCounts[phantomTier+1]++;
-				final int emitHist=emitHistMask(phantomTier, hist);
-				packedBuckets[i]=(char)(((phantomTier+1)<<2)|emitHist);
+			final int absTier=tp+globalNLZ;
+			if(absTier>=0 && absTier<64){
+				nlzCounts[absTier+1]++;
+				final int emitHist=emitHistMask(absTier, hist);
+				packedBuckets[i]=(char)(((absTier+1)<<2)|emitHist);
 				filledCount++;
 			}
 		}
@@ -149,10 +141,10 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(packed!=log.packed){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<modBuckets; i++){
-				final int rA=adjustBucket(readBucket(i), minZeros, newMinZeros);
-				final int rB=adjustBucket(log.readBucket(i), log.minZeros, newMinZeros);
+				final int rA=adjustBucket(readBucket(i), globalNLZ, newGlobalNLZ);
+				final int rB=adjustBucket(log.readBucket(i), log.globalNLZ, newGlobalNLZ);
 				final int tpA=tierPart(rA), tpB=tierPart(rB);
 				final int merged;
 				if(tpA>tpB){merged=rA;}
@@ -160,14 +152,14 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 				else{merged=(tpA<<2)|(histBits(rA)|histBits(rB));}
 				writeBucket(i, tierPart(merged), histBits(merged));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0; minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){
 				final int tp=tierPart(readBucket(i));
 				if(tp>0){filledBuckets++;}
 				if(tp==0 || (!EARLY_PROMOTE && tp==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -198,7 +190,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 		final int halfNlz=2*rawNlz+mantissa;
 		final int absTier=halfNlz/3;
-		final int relTier=absTier-minZeros;
+		final int relTier=absTier-(globalNLZ+1);
 		// HISTORY_MARGIN=2: accept relTier in {-2, -1, 0, 1, ...}
 		if(relTier<-HISTORY_MARGIN){return;}
 
@@ -224,7 +216,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 				// Equivalent here: suppress carry for a truly-fresh bucket
 				// (oldTierPart==0 AND minZeros==0). Phantoms from floor advance
 				// legitimately carry an observation at minZeros-1, so carry stays.
-				final int carry=(oldTierPart>0 || minZeros>0) ? HIST_CARRY : 0;
+				final int carry=(oldTierPart>0 || globalNLZ>=0) ? HIST_CARRY : 0;
 				final int newHist=((oldHist|carry)>>delta)&HIST_MASK;
 				lastCardinality=-1;
 				writeBucket(bucket, newTierPart, newHist);
@@ -234,7 +226,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 				final boolean shouldDecrement=EARLY_PROMOTE ? oldTierPart==0
 					: (relTier>oldRelTier && oldRelTier==0);
 				if(shouldDecrement && --minZeroCount<1){
-					while(minZeroCount==0 && minZeros<wordlen){
+					while(minZeroCount==0 && globalNLZ<wordlen){
 						advanceFloor();
 						minZeroCount=countAndDecrement();
 					}
@@ -289,8 +281,8 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	/** Advance floor by one tier; relax eeMask by HISTORY_MARGIN tiers so
 	 *  hashes at relTier in [-HISTORY_MARGIN, -1] pass through for history. */
 	private void advanceFloor(){
-		minZeros++;
-		final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+		globalNLZ++;
+		final int relaxedTier=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
 		final int minNlz=(3*relaxedTier)/2;
 		eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 	}
@@ -347,12 +339,12 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	private final int[] packed;
 	private final int packedLen;
 	private final int modBuckets;
-	private int minZeros=0;
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	public int getMinZeros(){return globalNLZ+1;}
 	private int[] nlzCounts;
 	private char[] packedBuckets;
 	private CardStats lastSummarized;
