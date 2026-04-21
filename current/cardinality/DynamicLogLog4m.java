@@ -9,6 +9,10 @@ import shared.Tools;
  * <p>
  * Uses byte[] storage (1 register per byte, 4 bits used) for simplicity.
  * No merge support. No FAST_COUNT. No int packing.
+ * <p>
+ * Encoding: stored=0..14 = relNlz 0..14; stored=15 = overflow clamp.
+ * globalNLZ = -1 means nothing seen; >= 0 means floor.
+ * absoluteNlz = stored + globalNLZ, always.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -18,7 +22,8 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 	/** Actual number of buckets (may be non-power-of-2). */
 	private final int modBuckets;
 	private final byte[] registers;
-	private int minZeros=0;
+	/** Global NLZ floor. -1 = nothing seen; >= 0 = all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
@@ -40,13 +45,13 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(Long.remainderUnsigned(key, modBuckets));
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-globalNLZ;
 
 		// MicroIndex from upper hash bits
 		final long micro=(key>>>58)&0x3FL;
 		microIndex|=(1L<<micro);
 
-		final int newStored=Math.min(relNlz+1, 15);
+		final int newStored=Math.min(relNlz, 15);
 		final int oldStored=registers[bucket]&0xFF;
 
 		if(newStored<=oldStored){return;}
@@ -57,8 +62,8 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 
 		// EARLY_PROMOTE: advance when all buckets are non-empty
 		if(oldStored==0 && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -80,16 +85,11 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
-		final int phantomNlz=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
-			final int stored=registers[i]&0xFF;
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
-			}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-				nlzCounts[phantomNlz+1]++;
+			final int absNlz=(registers[i]&0xFF)+globalNLZ;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 			}
 		}
@@ -118,7 +118,8 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 	public int filledBuckets(){return filledBuckets;}
 	public double occupancy(){return (double)filledBuckets/modBuckets;}
 	public int getModBuckets(){return modBuckets;}
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 
 	@Override
 	public double[] rawEstimates(){

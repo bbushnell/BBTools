@@ -8,7 +8,7 @@ import structures.LongList;
  * DynamicLogLog3: 3-bit packed variant of DynamicLogLog using relative NLZ storage.
  * <p>
  * Packs 10 buckets into each int, 3 bits per bucket.
- * Encoding: 0 = empty; 1-7 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
+ * Encoding: 0 = floor-level; 1-7 = (relNlz + 1), where relNlz = absoluteNlz - globalNLZ - 1.
  * No mantissa — coarser precision per bucket, but allows more buckets for the same memory.
  * Overflow (relNlz >= 7) clamped to stored=7 and absorbed by CF matrix.
  * <p>
@@ -18,9 +18,10 @@ import structures.LongList;
  * <p>
  * Key invariants:
  * - maxArray[i/10] holds bucket i at bit position (i%10)*3, 3 bits wide.
- * - Bucket value 0 = empty; value 1-7 = (relNlz+1).
- * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
- * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
+ * - Bucket value 0 = floor-level; value 1-7 = (relNlz+1).
+ * - absoluteNlz = stored + globalNLZ, always (no special cases).
+ * - globalNLZ = -1 means nothing seen; stored=0 buckets are empty when globalNLZ == -1.
+ * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances globalNLZ floor when 0.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -102,11 +103,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * <p>
 	 * Correct merge sequence:
 	 * <ol>
-	 *   <li>Re-frame both instances to newMinZeros = max(this.minZeros, log.minZeros).
-	 *       Buckets whose absNlz falls below the new floor correctly become empty (stored=0),
+	 *   <li>Re-frame both instances to newGlobalNLZ = max(this.globalNLZ, log.globalNLZ).
+	 *       Buckets whose absNlz falls below the new floor correctly become floor-level (stored=0),
 	 *       mirroring what countAndDecrement() would do one step at a time.
 	 *       Note: Math.max(0,...) is correct here — NOT Math.max(1,...).
-	 *       A below-floor bucket is genuinely empty in the new frame.</li>
+	 *       A below-floor bucket is genuinely floor-level in the new frame.</li>
 	 *   <li>Take per-bucket max of the re-framed values.</li>
 	 *   <li>Scan to recount filledBuckets and minZeroCount, then advance the floor
 	 *       (possibly multiple times) if minZeroCount==0, exactly as hashAndStore does.</li>
@@ -115,7 +116,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * <b>Multi-threaded accuracy warning:</b> Using clonal per-thread estimator copies
 	 * (one DLL3 per thread, merged at the end) nondeterministically reduces accuracy
 	 * and this cannot be compensated for.  The cause is architectural: each per-thread
-	 * copy sees only a fraction of the data, so its sliding minZeros window promotes
+	 * copy sees only a fraction of the data, so its sliding globalNLZ window promotes
 	 * less aggressively than a single estimator seeing all data.  This increases net
 	 * overflow events across the merged result.  With DLL3's narrow 7-tier range, the
 	 * effect is severe: on a 12M-kmer dataset, t=1 gives ~10.8M, t=2 ~10.0M, t=4 ~8.2M,
@@ -126,32 +127,31 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		added+=log.added;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<buckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 7)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 7)));
+				// Convert to new relative frame: newStored = stored + (oldGlobalNLZ - newGlobalNLZ)
+				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(globalNLZ-newGlobalNLZ), 7)));
+				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.globalNLZ-newGlobalNLZ), 7)));
 				writeBucket(i, Math.max(nA, nB));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			if(FAST_COUNT){java.util.Arrays.fill(nlzCounts, 0);}
-			final int phantomNlz=minZeros-1;
 			for(int i=0; i<buckets; i++){
 				final int s=readBucket(i);
 				if(s>0){
 					filledBuckets++;
-					if(FAST_COUNT){final int absNlz=(s-1)+minZeros; if(absNlz<64){nlzCounts[absNlz+1]++;}}
-				}else if(FAST_COUNT && minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-					nlzCounts[phantomNlz+1]++;
+					if(FAST_COUNT){final int absNlz=s+globalNLZ; if(absNlz>=0 && absNlz<64){nlzCounts[absNlz+1]++;}}
+				}else if(FAST_COUNT && globalNLZ>=0 && globalNLZ<64){
+					nlzCounts[globalNLZ+1]++;
 				}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -167,7 +167,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-globalNLZ-1;
 		
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
@@ -188,17 +188,14 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 
 		if(FAST_COUNT){
 			// Remove old slot from nlzCounts
-			if(oldStored>0){
-				final int oldAbsNlz=(oldStored-1)+minZeros;
-				if(oldAbsNlz<64){nlzCounts[oldAbsNlz+1]--;}
-			}else if(minZeros>0){
-				final int pNlz=minZeros-1;
-				if(pNlz<64){nlzCounts[pNlz+1]--;}
+			final int oldAbsNlz=oldStored+globalNLZ;
+			if(oldAbsNlz>=0 && oldAbsNlz<64){
+				nlzCounts[oldAbsNlz+1]--;
 			}else{
-				nlzCounts[0]--; // was truly empty
+				nlzCounts[0]--; // was truly empty (globalNLZ==-1 and stored==0)
 			}
 			// Add new slot
-			final int newAbsNlz=(newStored-1)+minZeros;
+			final int newAbsNlz=newStored+globalNLZ;
 			if(newAbsNlz<64){nlzCounts[newAbsNlz+1]++;}
 		}
 
@@ -208,13 +205,13 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
 		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				// Record overflow estimate before advancing: count buckets at stored=7
-				// (the max tier, absNlz=6+minZeros). Half of those are estimated overflow victims.
+				// (the max tier, absNlz=6+globalNLZ). Half of those are estimated overflow victims.
 				if(USE_STORED_OVERFLOW){
-					final int nextCorrTier=7+minZeros;
+					final int nextCorrTier=8+globalNLZ;
 					if(nextCorrTier<64){
-						// Count buckets at stored=7 (current max tier = absNlz 6+minZeros).
+						// Count buckets at stored=7 (current max tier = absNlz 6+globalNLZ+1).
 						// Half are estimated overflow victims that should be in the next tier.
 						// The raw topCount includes some overflow from previous eras; partially
 						// adjust using half the previous correction to avoid over/undercorrection.
@@ -224,7 +221,7 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 						storedOverflow[nextCorrTier]=topCount/2;
 					}
 				}
-				minZeros++;
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -271,24 +268,19 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 * Scans the bucket array once to populate the absolute NLZ histogram (nlzCounts),
 	 * then delegates all sum computation to CardinalityStats.fromNlzCounts().
 	 * <p>
-	 * Phantom buckets (stored=0 when minZeros>0) are treated as absNlz = minZeros-1,
-	 * one tier below the current floor. This ensures the nlzCounts distribution is
-	 * identical regardless of EARLY_PROMOTE setting.
+	 * absoluteNlz = stored + globalNLZ, always. When globalNLZ == -1 (nothing seen),
+	 * all floor-level buckets (stored=0) have absNlz = -1 &lt; 0 and are excluded from counts.
 	 */
 	private CardStats summarize(){
 		if(!FAST_COUNT){
 			if(nlzCounts==null){nlzCounts=new int[66];}
 			else{java.util.Arrays.fill(nlzCounts, 0);}
-			final int phantomNlz=minZeros-1;
 			int filledCount=0;
 			for(int i=0; i<buckets; i++){
 				final int stored=readBucket(i);
-				if(stored>0){
-					final int absNlz=(stored-1)+minZeros;
-					if(absNlz<64){nlzCounts[absNlz+1]++;}
-					filledCount++;
-				}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-					nlzCounts[phantomNlz+1]++;
+				final int absNlz=stored+globalNLZ;
+				if(absNlz>=0 && absNlz<64){
+					nlzCounts[absNlz+1]++;
 					filledCount++;
 				}
 			}
@@ -303,18 +295,18 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		final boolean doDebug=DEBUG_ONCE;
 		if(doDebug){
 			DEBUG_ONCE=false;
-			System.err.println("DEBUG summarize(): minZeros="+minZeros+" filledBuckets="+filledBuckets+" buckets="+buckets);
+			System.err.println("DEBUG summarize(): globalNLZ="+globalNLZ+" filledBuckets="+filledBuckets+" buckets="+buckets);
 			System.err.println("  CORRECT_OVERFLOW="+CORRECT_OVERFLOW+" xOverflow="+xOverflow+" expFactor="+overflowExpFactor);
 			System.err.println("  nlzCounts (nonzero):");
 			for(int t=0; t<66; t++){if(nlzCounts[t]>0){System.err.println("    tier "+(t-1)+": "+nlzCounts[t]);}}
 		}
 		final int[] counts;
-		if(CORRECT_OVERFLOW && minZeros>=1){
+		if(CORRECT_OVERFLOW && globalNLZ>=0){
 			// Overflow for tier T accumulates BEFORE T is active; X_T is frozen when T activates.
-			// Correction applies across all currently-active tiers in [max(7,minZeros), 6+minZeros].
-			// Phantom tier (absNlz=minZeros-1) is excluded — it is below minZeros.
-			final int lo=Math.max(7, minZeros);
-			final int hi=Math.min(6+minZeros, 63);
+			// Correction applies across all currently-active tiers in [max(7,globalNLZ+1), 6+globalNLZ+1].
+			// Floor-level tier (absNlz=globalNLZ) counted only when globalNLZ>=0.
+			final int lo=Math.max(7, globalNLZ+1);
+			final int hi=Math.min(6+globalNLZ+1, 63);
 			// Build reverse-cumulative array over nlz indices [1..65] (absNlz 0..64)
 			// cumRaw[t] = sum of nlzCounts[t+1..65]  (i.e., buckets with absNlz >= t)
 			final int[] cumRaw=new int[64];
@@ -390,15 +382,15 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	 *  storedOverflow[t] = corrected count at tier t-1 / 2 at the moment t becomes active.
 	 *  Used instead of constant xOverflow when USE_STORED_OVERFLOW=true. */
 	private final int[] storedOverflow;
-	private int minZeros=0;
-	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
+	private int globalNLZ=-1;
+	/** Count of (floor-level + tier-0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 	// sortBuf inherited from CardinalityTracker (lazy, gated by USE_SORTBUF)
 	// lastCardinality inherited from CardinalityTracker
 
-	public int getMinZeros(){return minZeros;}
+	public int getMinZeros(){return globalNLZ+1;}
 	public int[] getStoredOverflow(){return storedOverflow;}
 	/** Last raw and corrected nlzCounts from summarize(). Set after each rawEstimates() call. */
 	int[] lastRawNlz, lastCorrNlz;

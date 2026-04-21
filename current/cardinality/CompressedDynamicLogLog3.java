@@ -5,7 +5,11 @@ import shared.Tools;
 /**
  * CompressedDynamicLogLog3: 3-bit DLL variant with compressed NLZ tiers.
  * <p>
- * Packs 10 buckets per int at 3 bits each (7 usable levels + phantom).
+ * Encoding: globalNLZ starts at -1 (nothing seen). stored=0 means at floor
+ * level (empty only when globalNLZ==-1). absoluteNlz = stored + globalNLZ.
+ * No phantom concept.
+ * <p>
+ * Packs 10 buckets per int at 3 bits each (7 usable levels).
  * Compresses the NLZ tail so that 3 storage bits cover a wider dynamic
  * range than a raw 3-bit single-hash register would.  Two compression
  * modes are supported, selected by the static final {@link #DUAL}:
@@ -88,25 +92,20 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-		final int phantomNlz=minZeros-1;
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
-			final int stored=readBucket(i);
-			if(stored>0){
-				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
-			}else if(minZeros>0 && phantomNlz>=0 && phantomNlz<64){
-				nlzCounts[phantomNlz+1]++;
+			final int absNlz=readBucket(i)+globalNLZ;
+			if(absNlz>=0 && absNlz<64){
+				nlzCounts[absNlz+1]++;
 				filledCount++;
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
 
 		final int[] counts;
-		if(CORRECT_OVERFLOW && minZeros>=1){
-			final int lo=Math.max(7, minZeros);
-			final int hi=Math.min(6+minZeros, 63);
+		if(CORRECT_OVERFLOW && globalNLZ>=0){
+			final int lo=Math.max(7, globalNLZ+1);
+			final int hi=Math.min(7+globalNLZ, 63);
 			final int[] cumRaw=new int[64];
 			cumRaw[63]=nlzCounts[64];
 			for(int t=62; t>=0; t--){cumRaw[t]=cumRaw[t+1]+nlzCounts[t+1];}
@@ -162,15 +161,15 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<modBuckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 7)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 7)));
+				final int nA=Math.max(0, Math.min(sA+(globalNLZ-newGlobalNLZ), 7));
+				final int nB=Math.max(0, Math.min(sB+(log.globalNLZ-newGlobalNLZ), 7));
 				writeBucket(i, Math.max(nA, nB));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<modBuckets; i++){
@@ -178,7 +177,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0 || (!EARLY_PROMOTE && s==1)){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				advanceFloor();
 				minZeroCount=countAndDecrement();
 			}
@@ -228,7 +227,7 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			micro=(key>>>58)&0x3FL;
 		}
 
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-globalNLZ;
 		if(relNlz<0){return;}
 
 		microIndex|=(1L<<micro);
@@ -236,9 +235,9 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS){return;}
 		}
 
-		// Stored = relNlz+1, clamped to [1,7]
-		if(IGNORE_OVERFLOW && relNlz+1>7){return;}
-		final int newStored=Math.min(relNlz+1, 7);
+		// Stored = relNlz, clamped to [1,7]
+		if(IGNORE_OVERFLOW && relNlz>7){return;}
+		final int newStored=Math.min(relNlz, 7);
 		final int oldStored=readBucket(bucket);
 
 		if(newStored<=oldStored){return;}
@@ -247,12 +246,12 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		writeBucket(bucket, newStored);
 		if(oldStored==0){filledBuckets++;}
 
-		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
+		final int oldRelNlz=oldStored;
 		final boolean shouldDecrement=EARLY_PROMOTE ? oldStored==0 : (relNlz>oldRelNlz && oldRelNlz==0);
 		if(shouldDecrement && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
+			while(minZeroCount==0 && globalNLZ<wordlen){
 				if(CORRECT_OVERFLOW){
-					final int nextCorrTier=7+minZeros;
+					final int nextCorrTier=7+globalNLZ;
 					if(nextCorrTier<64){
 						int topCount=0;
 						for(int i=0; i<modBuckets; i++){if(readBucket(i)==7){topCount++;}}
@@ -268,13 +267,13 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	/** Advance the global floor by one tier and update eeMask. */
 	private void advanceFloor(){
 		if(DUAL){
-			minZeros++;
+			globalNLZ++;
 			eeMask>>>=1;
 		}else{
 			// Mantissa mode: NLZ threshold per tier is (3*tier)/2 (integer div)
 			// Shift alternates +1, +2 as tiers advance
-			final int nlzShift=(minZeros%2==0) ? 1 : 2;
-			minZeros++;
+			final int nlzShift=((globalNLZ+1)%2==0) ? 1 : 2;
+			globalNLZ++;
 			eeMask>>>=nlzShift;
 		}
 	}
@@ -330,12 +329,14 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 	private final int[] storedOverflow;
 	private final int modBuckets;
 	private final int words;
-	private int minZeros=0;
+	/** globalNLZ: -1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
 
-	public int getMinZeros(){return minZeros;}
+	/** Compatibility accessor: returns globalNLZ+1 to match legacy minZeros convention. */
+	public int getMinZeros(){return globalNLZ+1;}
 	int[] getNlzSnapshot(){summarize(); return nlzCounts.clone();}
 	int readBucketAt(int i){return readBucket(i);}
 	private int[] nlzCounts;

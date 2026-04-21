@@ -8,7 +8,7 @@ import structures.LongList;
  * DynamicLogLog2: 2-bit packed variant of DynamicLogLog using relative NLZ storage.
  * <p>
  * Packs 16 buckets into each int, 2 bits per bucket.
- * Encoding: 0 = empty; 1-3 = (relNlz + 1), where relNlz = absoluteNlz - minZeros.
+ * Encoding: 0 = empty; 1-3 = (relNlz + 1), where relNlz = absoluteNlz - globalNLZ - 1.
  * No mantissa — coarsest precision per bucket, but allows 2x bucket count vs DLL4
  * for the same memory footprint.
  * Overflow (relNlz >= 3) clamped to stored=3 and absorbed by CF matrix.
@@ -19,8 +19,9 @@ import structures.LongList;
  * Key invariants:
  * - maxArray[i>>>4] holds 16 consecutive buckets, each in 2 bits.
  * - Bucket value 0 = empty; value 1-3 = (relNlz+1).
- * - absoluteNlz = (stored - 1) + minZeros for non-empty buckets.
- * - minZeroCount tracks empty + tier-0 (stored=1) buckets; advances minZeros floor when 0.
+ * - absoluteNlz = stored + globalNLZ, always (no special cases).
+ * - globalNLZ = -1 means nothing seen; >= 0 means all buckets have absNlz >= globalNLZ.
+ * - minZeroCount tracks floor-level (stored=0) buckets; advances globalNLZ floor when 0.
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -82,9 +83,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		for(int i=0; i<buckets; i++){
 			final int stored=readBucket(i);
 			if(stored>0){
-				final int absNlz=(stored-1)+minZeros;
-				if(absNlz<64){nlzCounts[absNlz+1]++;}
-				filledCount++;
+				final int absNlz=stored+globalNLZ;
+				if(absNlz>=0 && absNlz<64){nlzCounts[absNlz+1]++; filledCount++;}
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
@@ -120,7 +120,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	 * <p>
 	 * Correct merge sequence:
 	 * <ol>
-	 *   <li>Re-frame both instances to newMinZeros = max(this.minZeros, log.minZeros).
+	 *   <li>Re-frame both instances to newGlobalNLZ = max(this.globalNLZ, log.globalNLZ).
 	 *       Buckets whose absNlz falls below the new floor correctly become empty (stored=0),
 	 *       mirroring what countAndDecrement() would do one step at a time.
 	 *       Note: Math.max(0,...) is correct here — NOT Math.max(1,...).
@@ -139,16 +139,16 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		lastCardinality=-1;
 		microIndex|=log.microIndex;
 		if(maxArray!=log.maxArray){
-			final int newMinZeros=Math.max(minZeros, log.minZeros);
+			final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
 			for(int i=0; i<buckets; i++){
 				final int sA=readBucket(i);
 				final int sB=log.readBucket(i);
-				// Convert to new relative frame: newStored = stored + (oldMinZeros - newMinZeros)
-				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(minZeros-newMinZeros), 3)));
-				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.minZeros-newMinZeros), 3)));
+				// Convert to new relative frame: newStored = stored + (oldGlobalNLZ - newGlobalNLZ)
+				final int nA=(sA==0 ? 0 : Math.max(0, Math.min(sA+(globalNLZ-newGlobalNLZ), 3)));
+				final int nB=(sB==0 ? 0 : Math.max(0, Math.min(sB+(log.globalNLZ-newGlobalNLZ), 3)));
 				writeBucket(i, Math.max(nA, nB));
 			}
-			minZeros=newMinZeros;
+			globalNLZ=newGlobalNLZ;
 			filledBuckets=0;
 			minZeroCount=0;
 			for(int i=0; i<buckets; i++){
@@ -156,8 +156,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 				if(s>0){filledBuckets++;}
 				if(s==0||s==1){minZeroCount++;}
 			}
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -173,7 +173,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(int)(key&bucketMask);
-		final int relNlz=nlz-minZeros;
+		final int relNlz=nlz-globalNLZ-1;
 
 		final long micro=(key>>bucketBits)&0x3FL;
 		microIndex|=(1L<<micro);
@@ -196,8 +196,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		// minZeroCount decrements whenever a bucket leaves (empty or tier-0) for a higher tier.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
 		if(relNlz>oldRelNlz && oldRelNlz==0 && --minZeroCount<1){
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
@@ -249,8 +249,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 
 	/** Packed 2-bit bucket array: 16 buckets per int, 0=empty, 1-3=relNlz+1. */
 	private final int[] maxArray;
-	private int minZeros=0;
-	/** Count of (empty + tier-0) buckets; triggers minZeros floor advance when 0. */
+	private int globalNLZ=-1;
+	/** Count of floor-level (stored=0) buckets; triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;

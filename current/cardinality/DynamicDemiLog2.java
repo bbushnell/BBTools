@@ -7,9 +7,10 @@ import structures.LongList;
 /**
  * DynamicDemiLog2: variant of DynamicDemiLog using RELATIVE NLZ storage.
  * <p>
- * Each bucket stores (absoluteNLZ - minZeros) instead of absoluteNLZ.
- * When minZeros advances, all bucket values are decremented by 1 NLZ (= 2048 in FP16
+ * Each bucket stores (absoluteNLZ - globalNLZ - 1) instead of absoluteNLZ.
+ * When globalNLZ advances, all bucket values are decremented by 1 NLZ (= 2048 in FP16
  * with 10 mantissa bits), keeping the stored range small and enabling future 4-bit packing.
+ * globalNLZ starts at -1 (nothing seen); all buckets have absNlz >= globalNLZ+1 when >= 0.
  * <p>
  * Overflow: if relNlz would exceed the representable range, it is clamped.
  * For the current 6-bit NLZ (max 63 relative), overflow is essentially impossible.
@@ -17,9 +18,9 @@ import structures.LongList;
  * <p>
  * Key invariants:
  * - maxArray[i] == 0 means empty bucket (same sentinel as DDL)
- * - maxArray[i] > 0 stores (relNlz << mantissabits | mantissa), relNlz = absoluteNlz - minZeros
- * - restore() adds minZeros back to recover the absolute NLZ
- * - hllSum/hllSumFilled calculations apply minZeros correction in exponent
+ * - maxArray[i] > 0 stores (relNlz << mantissabits | mantissa), relNlz = absoluteNlz - (globalNLZ+1)
+ * - restore() adds globalNLZ+1 back to recover the absolute NLZ
+ * - hllSum/hllSumFilled calculations apply (globalNLZ+1) correction in exponent
  *
  * @author Brian Bushnell, Chloe
  * @date March 2026
@@ -70,8 +71,8 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 			if(max>0 && val>0){
 				long dif=val;
 				difSum+=dif;
-				// Absolute NLZ = relative NLZ + minZeros
-				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits)-minZeros);
+				// Absolute NLZ = relative NLZ + globalNLZ+1
+				hllSumFilled+=Math.pow(2.0, -(max>>mantissabits)-(globalNLZ+1));
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
 				list.add(dif);
@@ -124,11 +125,11 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	}
 
 	/**
-	 * Promotes this object's minZeros by 1: subtract 1 NLZ (1<<mantissabits) from every
+	 * Advances globalNLZ by 1: subtract 1 NLZ (1<<mantissabits) from every
 	 * non-empty bucket. Buckets that would underflow become empty (0), count cleared.
 	 */
 	private void promote(){
-		minZeros++;
+		globalNLZ++;
 		eeMask>>>=1;
 		minZeroCount=0;
 		filledBuckets=0;
@@ -149,7 +150,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 	/**
 	 * Merges another DynamicDemiLog2 into this one.
-	 * Promotes whichever has lower minZeros until they match, then combines normally.
+	 * Promotes whichever has lower globalNLZ until they match, then combines normally.
 	 */
 	public void add(DynamicDemiLog2 log){
 		added+=log.added;
@@ -157,11 +158,11 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			// Promote this up to log's minZeros
-			while(minZeros<log.minZeros){promote();}
+			// Promote this up to log's globalNLZ
+			while(globalNLZ<log.globalNLZ){promote();}
 
 			// If log is lower, compute promoted log values inline (same math as promote())
-			final int logPromoSteps=minZeros-log.minZeros;
+			final int logPromoSteps=globalNLZ-log.globalNLZ;
 			final int logShift=logPromoSteps*(1<<mantissabits);
 
 			for(int i=0; i<buckets; i++){
@@ -208,8 +209,8 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 		final int bucket=(int)(key&bucketMask);
 		final int shift=offset-nlz;
-		// Store RELATIVE NLZ = absoluteNlz - minZeros
-		final int relNlz=nlz-minZeros;
+		// Store RELATIVE NLZ = absoluteNlz - (globalNLZ+1)
+		final int relNlz=nlz-(globalNLZ+1);
 		final int score=(relNlz<<mantissabits)+(int)((~(key>>>shift))&mask);//FP16 representation
 		final int oldValue=maxArray[bucket];//Required memory read
 
@@ -234,8 +235,8 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 		// nlzOld==0 means the old bucket was at the relative minimum tier.
 		if(relNlz>nlzOld && nlzOld==0 && --minZeroCount<1){
 			// No more buckets at the old minimum; advance floor and decrement all values.
-			while(minZeroCount==0 && minZeros<wordlen){
-				minZeros++;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
 				// Count buckets at new minimum (relNlz==1 before decrement → 0 after)
 				// and decrement all non-empty buckets by 1 NLZ.
@@ -245,21 +246,21 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	}
 
 	private int scanFrom(int nlz){
-		minZeros=nlz-1;
+		globalNLZ=nlz-2;
 		minZeroCount=0;
 		eeMask=-1L;
-		// NOTE: maxArray values are relative to the minZeros being scanned for.
-		// After this call, values must be re-relativized if minZeros changed significantly.
+		// NOTE: maxArray values are relative to the globalNLZ being scanned for.
+		// After this call, values must be re-relativized if globalNLZ changed significantly.
 		// For now, treat as if re-scanning from scratch (values already converted by add()).
-		while(minZeroCount==0 && minZeros<wordlen){
-			minZeros++;
+		while(minZeroCount==0 && globalNLZ<wordlen){
+			globalNLZ++;
 			eeMask>>>=1;
 			// Count relative-NLZ==0 buckets (those at the new minimum).
 			int count=0;
 			for(final char c : maxArray){if(c>0 && (c>>mantissabits)==0){count++;}}
 			minZeroCount=count;
 		}
-		return minZeros;
+		return globalNLZ+1;
 	}
 
 	@Override
@@ -290,9 +291,9 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 			if(max>0 && val>0){
 				long dif=val;
 				difSum+=dif;
-				// Absolute NLZ = relNlz + minZeros
-				hllSumFilled +=Math.pow(2.0, -(max>>mantissabits)-minZeros);
-				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0-minZeros);
+				// Absolute NLZ = relNlz + globalNLZ+1
+				hllSumFilled +=Math.pow(2.0, -(max>>mantissabits)-(globalNLZ+1));
+				hllSumFilledM+=Math.pow(2.0, -(max>>mantissabits)+0.5-(max&mask)/1024.0-(globalNLZ+1));
 				gSum+=Math.log(Tools.max(1, dif));
 				count++;
 				if(USE_SORTBUF){sortBuf.add(dif);}
@@ -306,7 +307,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 			if(v==0){
 				hllSum+=1.0; // empty: standard HLL register=0
 			}else{
-				hllSum+=Math.pow(2.0, -(v>>mantissabits)-minZeros);
+				hllSum+=Math.pow(2.0, -(v>>mantissabits)-(globalNLZ+1));
 			}
 		}
 		final double alpha_m=0.7213/(1.0+1.079/buckets);
@@ -387,12 +388,12 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 	/**
 	 * Restores relative compressed score to approximate original hash magnitude.
-	 * Adds minZeros to recover absolute NLZ before computing the value.
+	 * Adds globalNLZ+1 to recover absolute NLZ before computing the value.
 	 */
 	private long restore(int score){
 		final int relLeading=(int)(score>>>mantissabits);
-		final int leading=relLeading+minZeros; // absolute NLZ
-		if(relLeading==0 && minZeros==0){return Long.MAX_VALUE;} // absolute NLZ=0 edge case
+		final int leading=relLeading+(globalNLZ+1); // absolute NLZ
+		if(relLeading==0 && globalNLZ<0){return Long.MAX_VALUE;} // absolute NLZ=0 edge case
 		long lowbits=(~score)&mask;
 		long mantissa=(1L<<mantissabits)|lowbits;
 		int shift=wordlen-leading-mantissabits-1;
@@ -404,7 +405,7 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 	/**
 	 * Counts buckets at target relative NLZ tier (BEFORE decrement), then decrements
 	 * all non-empty buckets by incr.  Pass nlz=1, incr=-(1<<mantissabits) when advancing
-	 * minZeros: counts the new minimum tier and shifts all values down by 1 NLZ.
+	 * globalNLZ: counts the new minimum tier and shifts all values down by 1 NLZ.
 	 */
 	private static int countAndDecrementTerms(final int nlz, final char[] array, final int incr){
 		int sum=0;
@@ -444,7 +445,8 @@ public final class DynamicDemiLog2 extends CardinalityTracker {
 
 	private final char[] maxArray;
 	private final char[] countArray;
-	private int minZeros=0;
+	/** Floor NLZ minus 1. -1 = nothing seen; >=0 means all buckets have absNlz >= globalNLZ+1. */
+	private int globalNLZ=-1;
 	private int minZeroCount;
 	private int filledBuckets=0;
 	private long eeMask=-1L;
