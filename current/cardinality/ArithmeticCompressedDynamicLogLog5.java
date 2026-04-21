@@ -10,7 +10,7 @@ import shared.Tools;
  *   - Bits [31:20]: 6 × 2-bit history (12 bits, fixed-width)
  *   - Bits [19:0]:  6 exponents packed radix-10 (10^6 = 1,000,000 < 2^20)
  * <p>
- * Each exponent: 0 = phantom, 1-9 = relTier 0-8.
+ * Each exponent: 0 = floor-level, 1-9 = relTier 0-8.
  * 10 exponent states (vs CDLL5's 8) from 20-bit arithmetic packing.
  * Zero wasted bits per word (vs CDLL5's 2 wasted).
  * <p>
@@ -363,7 +363,7 @@ public final class ArithmeticCompressedDynamicLogLog5 extends CardinalityTracker
 	private static final int HIST_MASK=(1<<HBITS)-1;
 	private static final int HIST_CARRY=1<<HBITS;
 	static final int HISTORY_MARGIN=2;
-	private static final int MAX_EXP=9; // 0=phantom, 1-9=real tiers
+	private static final int MAX_EXP=9; // 0=floor-level, 1-9=real tiers
 
 	/** Radix-10 powers for single-bucket access. */
 	private static final int[] POW10={1, 10, 100, 1000, 10000, 100000};

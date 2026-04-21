@@ -189,9 +189,9 @@ public final class DynamicDemiLog8 extends CardinalityTracker {
 		// Decrement minZeroCount when bucket crosses the tracked threshold.
 		// EARLY_PROMOTE=true:  track empty (stored==0) → advance when all non-empty.
 		// EARLY_PROMOTE=false: track empty+tier-0 (relNlzStored<2) → advance when all tier-1+.
-		// EARLY_PROMOTE: track empty+phantom (stored < minNonEmpty).
-		// Phantoms are created by countAndDecrement (stored 1..minNonEmpty-1).
-		// Must also decrement when a phantom gets filled above floor.
+		// EARLY_PROMOTE: track empty+floor-level (stored < minNonEmpty).
+		// Floor-level entries are created by countAndDecrement (stored 1..minNonEmpty-1).
+		// Must also decrement when a floor-level entry gets filled above the floor.
 		final boolean shouldDecrement=EARLY_PROMOTE ? (oldStored<minNonEmpty && newStored>=minNonEmpty) :
 			((oldStored>>>mantissaBits)<2 && newRelNlzStored>=2);
 		if(shouldDecrement && --minZeroCount<1){

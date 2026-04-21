@@ -184,8 +184,8 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			if(canPromoteBank(wordIdx)){
 				promoteBank(wordIdx);
 				localRelNlz++; // bank increased by 1, so localRelNlz decreases by 1
-				// Wait — localRelNlz = nlz - minZeros - bank.
-				// After promotion: bank is now bank+1, so localRelNlz = nlz - minZeros - (bank+1) = old - 1
+				// Wait — localRelNlz = nlz - globalNLZ - bank.
+				// After promotion: bank is now bank+1, so localRelNlz = nlz - globalNLZ - (bank+1) = old - 1
 				localRelNlz=nlz-globalNLZ-1-readBank(wordIdx); // recompute to be safe
 			}
 		}
@@ -221,10 +221,10 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 
 		// minZeroCount tracking.
 		// A stored=0 slot is in minZeroCount only when curBank==0 (truly at the floor).
-		// Banked-phantom stored=0 slots (curBank>0) are NOT tracked in minZeroCount —
+		// Banked floor-level stored=0 slots (curBank>0) are NOT tracked in minZeroCount —
 		// they had data, bank promotion decremented them, and they are counted only
 		// when countAndDecrement drops their bank to 0.  Decrementing minZeroCount
-		// for a banked-phantom fill would drain the counter prematurely.
+		// for a banked floor-level fill would drain the counter prematurely.
 		// NOTE: curBank and oldStored are both read post-promotion, so they are
 		// consistent — if bank promotion just fired, curBank reflects the new bank.
 		final int oldRelNlz=(oldStored==0 ? 0 : oldStored-1);
@@ -233,7 +233,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 			while(minZeroCount<=promoteThreshold && globalNLZ<wordlen){
 				if(USE_STORED_OVERFLOW){
 					// Group stored=7 counts by bank: a stored=7 bucket in bank=b
-					// overflows at tier 8+globalNLZ+b (= 7+minZeros+b).
+					// overflows at tier 8+globalNLZ+b (= 7+globalNLZ+b+1).
 					int[] topByBank=new int[4];
 					for(int i=0; i<modBuckets; i++){
 						if(readBucket(i)==7){topByBank[readBank(i/10)]++;}
@@ -287,7 +287,7 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 				final int newBank=bank-1;
 				writeBank(w, newBank);
 				// Only count stored=0 slots if the bank has dropped to 0.
-				// While bank>0, stored=0 slots are banked phantoms (had data, bank
+				// While bank>0, stored=0 slots are banked floor-level entries (had data, bank
 				// promotion decremented them) — they are NOT at the minimum floor
 				// and must NOT be added to minZeroCount.  Only when bank reaches 0
 				// do they become true floor-level entries and count toward promotion.
@@ -331,11 +331,11 @@ public final class BankedDynamicLogLog3 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	/** True occupancy: a bucket is "empty" only when stored==0 AND minZeros+bank==0.
-	 *  Once minZeros>0 (or any word has bank>0), phantom buckets are informative and
+	/** True occupancy: a bucket is "empty" only when stored==0 AND globalNLZ+bank<0.
+	 *  Once globalNLZ>=0 (or any word has bank>0), floor-level buckets are informative and
 	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
 	 *  global promotion decrements it when stored drops 1→0, even though that bucket
-	 *  becomes a valid phantom at the new floor. */
+	 *  becomes a valid floor-level entry at the new floor. */
 	public double occupancy(){
 		if(globalNLZ>=0){return 1.0;}
 		int empty=0;

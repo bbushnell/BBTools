@@ -14,11 +14,11 @@ import shared.Tools;
  * </ul>
  * Each 4-bit bucket:
  * <ul>
- *   <li>Bits 0-2 (low 3): stored value (0=empty/phantom, 1-7 = localRelNlz+1)
+ *   <li>Bits 0-2 (low 3): stored value (0=empty/floor-level, 1-7 = localRelNlz+1)
  *   <li>Bit 3 (high 1): 1-bit history pattern
  * </ul>
  * <p>
- * Absolute NLZ = stored + globalNLZ + bank (equals old (stored-1)+minZeros+bank).
+ * Absolute NLZ = stored + globalNLZ + bank (equals old (stored-1)+globalNLZ+bank).
  * globalNLZ==-1 means nothing seen yet; stored=0+globalNLZ(-1)+bank(0)==-1 → empty.
  * <p>
  * Bank promotion: when localRelNlz would overflow and all 7 buckets in the
@@ -190,8 +190,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		final int oldHist=readHist(bucket);
 
 		if(newStored<=0){
-			// Sub-floor observation. delta_abs from real bucket (oldStored-1)+minZeros+bank
-			// is oldStored-newStored; from phantom at minZeros+bank-1 is -newStored.
+			// Sub-floor observation. delta_abs from real bucket (oldStored-1)+globalNLZ+bank
+			// is oldStored-newStored; from floor-level bucket at globalNLZ+bank-1 is -newStored.
 			// 1-bit hist captures only delta_abs==1 events.
 			if(oldStored>0){
 				final int delta=oldStored-newStored;
@@ -200,7 +200,7 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 					writeBucket(bucket, oldStored, 1);
 				}
 			}else if((globalNLZ>=0 || bank>0) && newStored==-1 && oldHist==0){
-				// Phantom sub-floor: delta_abs = -newStored = 1
+				// Floor-level sub-floor: delta_abs = -newStored = 1
 				lastCardinality=-1;
 				writeBucket(bucket, 0, 1);
 			}
@@ -221,8 +221,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 
 		// newStored > oldStored: advance. Follows CDLL4 pattern:
 		//   delta = (oldStored>0) ? (newStored-oldStored) : newStored
-		// For oldStored==0, delta encodes observation vs phantom/implicit tier at
-		// minZeros+bank-1. Preserves hist=1 on phantom→real delta_abs==1 transitions.
+		// For oldStored==0, delta encodes observation vs floor-level/implicit tier at
+		// globalNLZ+bank-1. Preserves hist=1 on floor-level→real delta_abs==1 transitions.
 		// 1-bit hist: newHist=(delta==1)?1:0.
 		branch2++;
 		lastCardinality=-1;
@@ -316,16 +316,16 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 
 	public int filledBuckets(){return filledBuckets;}
 
-	/** True occupancy: a bucket is "empty" only when stored==0 AND minZeros+bank==0.
-	 *  Once minZeros>0 (or any word has bank>0), phantom buckets are informative and
+	/** True occupancy: a bucket is "empty" only when stored==0 AND globalNLZ+bank<0.
+	 *  Once globalNLZ>=0 (or any word has bank>0), floor-level buckets are informative and
 	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
 	 *  global promotion decrements it when stored drops 1→0, even though that bucket
-	 *  becomes a valid phantom at the new floor. */
+	 *  becomes a valid floor-level entry at the new floor. */
 	public double occupancy(){
 		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
 		for(int w=0; w<words; w++){
-			if(readBank(w)>0){continue;} // bank>0: all 7 buckets are phantoms, occupied
+			if(readBank(w)>0){continue;} // bank>0: all 7 buckets are floor-level, occupied
 			final int word=maxArray[w];
 			for(int b=0; b<7; b++){
 				if(((word>>>(b*4))&0x7)==0){empty++;}

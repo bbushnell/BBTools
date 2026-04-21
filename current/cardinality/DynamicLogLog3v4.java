@@ -118,7 +118,7 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 	 * <b>Multi-threaded accuracy warning:</b> Using clonal per-thread estimator copies
 	 * (one DLL3 per thread, merged at the end) nondeterministically reduces accuracy
 	 * and this cannot be compensated for.  The cause is architectural: each per-thread
-	 * copy sees only a fraction of the data, so its sliding minZeros window promotes
+	 * copy sees only a fraction of the data, so its sliding globalNLZ window promotes
 	 * less aggressively than a single estimator seeing all data.  This increases net
 	 * overflow events across the merged result.  With DLL3's narrow 7-tier range, the
 	 * effect is severe: on a 12M-kmer dataset, t=1 gives ~10.8M, t=2 ~10.0M, t=4 ~8.2M,

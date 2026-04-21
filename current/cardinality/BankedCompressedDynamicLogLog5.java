@@ -26,7 +26,7 @@ import shared.Tools;
  * <li>Bank promotion: when a register would overflow (relTier+1 > 7) and
  *     bank &lt; 3, if all 6 registers are non-empty, subtract 1 from all
  *     tierParts and increment the bank. Local operation, 6 registers only.
- * <li>Global floor absorption: when minZeros advances, words with bank > 0
+ * <li>Global floor absorption: when globalNLZ advances, words with bank > 0
  *     decrement their bank instead of touching registers. Preserves history.
  * </ul>
  *
@@ -229,7 +229,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	/**
 	 * Hash a value and store it in the appropriate bucket.
 	 * Pipeline: hash → NLZ → mantissa → halfNlz → compressed tier →
-	 * relTier (minus minZeros and bank) → store or update history.
+	 * relTier (minus globalNLZ+1 and bank) → store or update history.
 	 */
 	@Override
 	public final void hashAndStore(final long number){
@@ -441,7 +441,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 
 	/**
 	 * Fraction of buckets that are occupied.
-	 * After minZeros > 0, all buckets hold valid data (occupancy=1.0).
+	 * After globalNLZ >= 0, all buckets hold valid data (occupancy=1.0).
 	 * Before that, only buckets with tierPart > 0 in bank=0 words are occupied.
 	 */
 	public double occupancy(){

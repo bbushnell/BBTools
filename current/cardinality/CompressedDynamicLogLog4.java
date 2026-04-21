@@ -7,7 +7,7 @@ import shared.Tools;
  * with mantissa-compressed tiers and 1-bit history.
  * <p>
  * Bits per bucket: 4 (8 per int, nibble-packed)
- *   - Bits [3:1]: tier part (0=phantom, 1-7=relTier 0-6)
+ *   - Bits [3:1]: tier part (0=floor-level, 1-7=relTier 0-6)
  *   - Bit [0]: history bit (sub-tier observation marker)
  * <p>
  * Tier compression: single hash with 16-bit mantissa threshold at
@@ -166,7 +166,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	}
 
 	private static int adjustNibble(int nib, int oldFloor, int newFloor){
-		if(nib<=1){return nib;} // phantom: preserve as-is
+		if(nib<=1){return nib;} // floor-level: preserve as-is
 		final int tp=tierPart(nib);
 		final int hist=histBit(nib);
 		final int newTp=Math.max(0, Math.min(tp+(oldFloor-newFloor), 7));
@@ -271,7 +271,7 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 						if(tp<=1){newMinZeroCount++;}
 					}
 				}
-				// nib<2: already phantom, leave as-is
+				// nib<2: already floor-level, leave as-is
 				result|=(nib<<shift);
 			}
 			maxArray[w]=result;

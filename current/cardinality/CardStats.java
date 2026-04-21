@@ -384,7 +384,7 @@ public final class CardStats extends AbstractCardStats {
 			int filledM=0;
 			for(int i=0; i<numBuckets; i++){
 				final int val=buckets_[i];
-				if(val==0){continue;} // empty or phantom bucket
+				if(val==0){continue;} // empty or floor-level bucket
 				filledM++;
 				// Packed format: ((absNlz+1) << mantissaBits) | invMant
 				// The +1 ensures val is never 0 for filled buckets
@@ -657,7 +657,7 @@ public final class CardStats extends AbstractCardStats {
 			final int numBuckets, final double lcRaw){
 		if(states==null){return lcRaw;}
 
-		// Count actually contributing buckets (si>=0); phantoms have si=-1
+		// Count actually contributing buckets (si>=0); floor-level entries have si=-1
 		// and are skipped in the sum, so row selection must match.
 		int contributing=0;
 		for(int i=0; i<states.length; i++){
@@ -710,7 +710,7 @@ public final class CardStats extends AbstractCardStats {
 		final float[][] table=CorrectionFactor.SBS_MULT_TABLE;
 		if(table==null || states==null){return lcRaw;}
 
-		// Count contributing buckets (same phantom fix as computeSbs)
+		// Count contributing buckets (same floor-level fix as computeSbs)
 		int contributing=0;
 		for(int i=0; i<states.length; i++){
 			if(states[i]>=0){contributing++;}

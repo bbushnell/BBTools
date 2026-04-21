@@ -92,7 +92,7 @@ public class MantissaCompare3 {
 				int[] hist=new int[B];
 				long[] trueCard=new long[B];
 				int[] bank=isBanked ? new int[words] : null;
-				int minZeros=0;
+				int globalNLZ=-1;
 				int minZeroCount=B;
 				long eeMask=-1L;
 
@@ -106,9 +106,9 @@ public class MantissaCompare3 {
 					trueCard[bucket]++;
 
 					final int bk=isBanked ? bank[bucket/REGS_PER_WORD] : 0;
-					final int relTier=absTier-minZeros-bk;
+					final int relTier=absTier-globalNLZ-1-bk;
 					if(relTier<-HISTORY_MARGIN){
-						sampleBucket(bucket, tierPart, hist, bank, minZeros, trueCard);
+						sampleBucket(bucket, tierPart, hist, bank, globalNLZ, trueCard);
 						continue;
 					}
 
@@ -131,19 +131,19 @@ public class MantissaCompare3 {
 									tierPart[base+r]--;
 								}
 								final int newBk=bank[wordIdx];
-								final int newRelTier=absTier-minZeros-newBk;
+								final int newRelTier=absTier-globalNLZ-1-newBk;
 								final int newTp=Math.min(newRelTier+1, 7);
 								final int promTp=tierPart[bucket];
 								final int promHist=hist[bucket];
 								if(newTp<=promTp){
-									sampleBucket(bucket, tierPart, hist, bank, minZeros, trueCard);
+									sampleBucket(bucket, tierPart, hist, bank, globalNLZ, trueCard);
 									continue;
 								}
 								final int delta=(promTp>0) ? (newTp-promTp) : (newRelTier+1);
-								final int carry=(promTp>0 || minZeros+newBk>0) ? HIST_CARRY : 0;
+								final int carry=(promTp>0 || globalNLZ+newBk>=0) ? HIST_CARRY : 0;
 								hist[bucket]=((promHist|carry)>>delta)&HMASK;
 								tierPart[bucket]=newTp;
-								sampleBucket(bucket, tierPart, hist, bank, minZeros, trueCard);
+								sampleBucket(bucket, tierPart, hist, bank, globalNLZ, trueCard);
 								continue;
 							}
 						}
@@ -151,7 +151,7 @@ public class MantissaCompare3 {
 						final int newTp=Math.min(relTier+1, 7);
 						if(newTp>oldTp){
 							final int delta=(oldTp>0) ? (newTp-oldTp) : (relTier+1);
-							final int carry=(oldTp>0 || minZeros+bk>0) ? HIST_CARRY : 0;
+							final int carry=(oldTp>0 || globalNLZ+bk>=0) ? HIST_CARRY : 0;
 							hist[bucket]=((oldHist|carry)>>delta)&HMASK;
 							tierPart[bucket]=newTp;
 
@@ -159,13 +159,13 @@ public class MantissaCompare3 {
 								? (oldTp==0 && bk==0)
 								: (oldTp==0);
 							if(shouldDecrement && --minZeroCount<1){
-								while(minZeroCount==0 && minZeros<64){
+								while(minZeroCount==0 && globalNLZ<63){
 									if(isHistory){
-										minZeros++;
+										globalNLZ++;
 										eeMask>>>=1;
 									}else{
-										minZeros++;
-										final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+										globalNLZ++;
+										final int relaxedTier=Math.max(0, globalNLZ+1-HISTORY_MARGIN);
 										final int minNlz=(3*relaxedTier)/2;
 										eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 									}
@@ -193,7 +193,7 @@ public class MantissaCompare3 {
 						}
 					}
 
-					sampleBucket(bucket, tierPart, hist, bank, minZeros, trueCard);
+					sampleBucket(bucket, tierPart, hist, bank, globalNLZ, trueCard);
 				}
 			}
 
@@ -201,18 +201,12 @@ public class MantissaCompare3 {
 		}
 
 		void sampleBucket(int i, int[] tierPart, int[] hist, int[] bank,
-				int minZeros, long[] trueCard){
+				int globalNLZ, long[] trueCard){
 			final int tp=tierPart[i];
 			final int bk=(bank!=null) ? bank[i/REGS_PER_WORD] : 0;
 			final int h=hist[i];
-			final int absTier;
-			if(tp>0){
-				absTier=(tp-1)+minZeros+bk;
-			}else if(minZeros+bk>0){
-				absTier=minZeros+bk-1;
-			}else{
-				return;
-			}
+			final int absTier=tp+globalNLZ+bk;
+			if(absTier<0){return;}
 			if(absTier>=0 && absTier<=maxTier && trueCard[i]>0){
 				cardSums[absTier][h]+=trueCard[i];
 				if(geoAvg){geoSums[absTier][h]+=Math.log(trueCard[i]);}

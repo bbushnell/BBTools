@@ -209,22 +209,19 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
 		final char[] packedBuckets=new char[buckets];
-		final int phantomNlz=globalNLZ;
 		int filledCount=0;
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
 			if(reg==0){
-				// Truly empty or post-decrement empty: phantom if globalNLZ>=0
-				if(globalNLZ>=0 && phantomNlz<64){
-					nlzCounts[phantomNlz+1]++;
+				// Floor-level bucket: absNlz = globalNLZ
+				if(globalNLZ>=0 && globalNLZ<64){
+					nlzCounts[globalNLZ+1]++;
 					filledCount++;
-					// No history for empty phantoms
 				}
 			}else{
 				final int nlzPart=reg>>>2;
 				final int histPattern=reg&3;
 				if(nlzPart>=HISTORY_MARGIN){
-					// Normal filled bucket: absNlz = nlzPart - HISTORY_MARGIN + globalNLZ+1
 					final int absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
 					if(absNlz<64){
 						nlzCounts[absNlz+1]++;
@@ -232,12 +229,11 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 						packedBuckets[i]=(char)(((absNlz+1)<<2)|histPattern);
 					}
 				}else{
-					// Sub-margin bucket (after decrement): phantom at phantomNlz.
-					// History bits may still be valid.
-					if(globalNLZ>=0 && phantomNlz<64){
-						nlzCounts[phantomNlz+1]++;
+					// Sub-margin bucket: at floor level, history preserved.
+					if(globalNLZ>=0 && globalNLZ<64){
+						nlzCounts[globalNLZ+1]++;
 						filledCount++;
-						packedBuckets[i]=(char)(((phantomNlz+1)<<2)|histPattern);
+						packedBuckets[i]=(char)(((globalNLZ+1)<<2)|histPattern);
 					}
 				}
 			}

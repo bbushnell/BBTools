@@ -67,7 +67,7 @@ public class LCHistTrainerBDLL5 {
 				int[] distinct=new int[B];
 				boolean[] filled=new boolean[B];
 				int filledCount=0;
-				int minZeros=0;
+				int globalNLZ=-1;
 				int minZeroCount=B;
 
 				while(filledCount<B){
@@ -77,7 +77,7 @@ public class LCHistTrainerBDLL5 {
 					final int bucket=(int)(Long.remainderUnsigned(key, B));
 					final int wordIdx=bucket/6;
 					int bk=bank[wordIdx];
-					int localRelNlz=nlz-minZeros-bk;
+					int localRelNlz=nlz-globalNLZ-1-bk;
 
 					distinct[bucket]++;
 
@@ -86,7 +86,7 @@ public class LCHistTrainerBDLL5 {
 						if(canPromote(stored, wordIdx)){
 							promoteBank(stored, bank, wordIdx);
 							bk=bank[wordIdx];
-							localRelNlz=nlz-minZeros-bk;
+							localRelNlz=nlz-globalNLZ-1-bk;
 						}
 					}
 
@@ -129,14 +129,14 @@ public class LCHistTrainerBDLL5 {
 					if(!wasFilled){
 						filled[bucket]=true;
 						filledCount++;
-						snapshot(filledCount, stored, hist, bank, distinct, filled, minZeros);
+						snapshot(filledCount, stored, hist, bank, distinct, filled, globalNLZ);
 					}
 
 					// Global promotion
 					if(oldStored==0 && bk==0){
 						minZeroCount--;
-						while(minZeroCount<=PROMOTE_THRESHOLD && minZeros<64){
-							minZeros++;
+						while(minZeroCount<=PROMOTE_THRESHOLD && globalNLZ<63){
+							globalNLZ++;
 							minZeroCount=countAndDecrement(stored, hist, bank, B, W);
 						}
 					}
@@ -185,12 +185,13 @@ public class LCHistTrainerBDLL5 {
 		}
 
 		void snapshot(int filledCount, int[] stored, int[] hist, int[] bank,
-				int[] distinct, boolean[] filled, int minZeros){
+				int[] distinct, boolean[] filled, int globalNLZ){
 			for(int b=0; b<modBuckets; b++){
 				if(filled[b]){
 					final int bk=bank[b/6];
 					final int s=stored[b];
-					final int absNlz=(s>0) ? (s-1)+minZeros+bk : (minZeros+bk>0 ? minZeros+bk-1 : 0);
+					final int absNlz=s+globalNLZ+bk;
+					if(absNlz<0){continue;}
 					final int h=(absNlz==0) ? 0 : hist[b];
 					int si=stateIndex(absNlz, h, HBITS);
 					collisionSums[filledCount][si]+=distinct[b];
