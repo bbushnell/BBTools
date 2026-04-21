@@ -177,7 +177,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 * <b>Multi-threaded accuracy warning:</b> Using clonal per-thread estimator copies
 	 * (one DLL4 per thread, merged at the end) nondeterministically reduces accuracy
 	 * and this cannot be compensated for.  The cause is architectural: each per-thread
-	 * copy sees only a fraction of the data, so its sliding minZeros window promotes
+	 * copy sees only a fraction of the data, so its sliding globalNLZ window promotes
 	 * less aggressively than a single estimator seeing all data.  This increases net
 	 * overflow events across the merged result.  With DLL4's 15-tier range the effect
 	 * is minor in practice: on a 12M-kmer dataset, t=1 gives ~11.43M, t=2 ~11.43M,
@@ -353,7 +353,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	/**
 	 * Estimates cardinality using canonical per-word state table lookup.
 	 * For each 4-bucket word: pack raw registers into 16-bit key, remap
-	 * to canonical index. Tier = minZeros + wordMin. Sums stateAvg.
+	 * to canonical index. Tier = globalNLZ+1 + wordMin. Sums stateAvg.
 	 */
 	public double rawWordEstimate(){
 		if(wordTable==null || WORD_TABLE_TIERS<=0){return 0;}

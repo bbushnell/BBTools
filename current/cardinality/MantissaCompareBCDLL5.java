@@ -93,7 +93,7 @@ public class MantissaCompareBCDLL5 {
 				int[] tierPart=new int[B];
 				int[] hist=new int[B];
 				int[] bank=new int[words];
-				int minZeros=0;
+				int globalNLZ=-1;
 				int minZeroCount=B;
 				long eeMask=-1L;
 				long cardinality=0;
@@ -108,7 +108,7 @@ public class MantissaCompareBCDLL5 {
 					final int bucket=(int)(key&bucketMask);
 					final int wordIdx=bucket/REGS_PER_WORD;
 					final int bk=bank[wordIdx];
-					final int relTier=absTier-minZeros-bk;
+					final int relTier=absTier-globalNLZ-1-bk;
 
 					if(relTier<-HISTORY_MARGIN){continue;}
 
@@ -133,34 +133,34 @@ public class MantissaCompareBCDLL5 {
 									tierPart[base+r]--;
 								}
 								final int newBk=bank[wordIdx];
-								final int newRelTier=absTier-minZeros-newBk;
+								final int newRelTier=absTier-globalNLZ-1-newBk;
 								newTp=Math.min(newRelTier+1, 7);
 								final int promTp=tierPart[bucket];
 								final int promHist=hist[bucket];
 								if(newTp<=promTp){
-									sampleAll(tierPart, hist, bank, minZeros, B, cardinality);
+									sampleAll(tierPart, hist, bank, globalNLZ, B, cardinality);
 									continue;
 								}
 								final int delta=(promTp>0) ? (newTp-promTp) : (newRelTier+1);
-								final int carry=(promTp>0 || minZeros+newBk>0) ? HIST_CARRY : 0;
+								final int carry=(promTp>0 || globalNLZ+newBk>=0) ? HIST_CARRY : 0;
 								hist[bucket]=((promHist|carry)>>delta)&HMASK;
 								tierPart[bucket]=newTp;
-								sampleAll(tierPart, hist, bank, minZeros, B, cardinality);
+								sampleAll(tierPart, hist, bank, globalNLZ, B, cardinality);
 								continue;
 							}
 						}
 
 						if(newTp>oldTp){
 							final int delta=(oldTp>0) ? (newTp-oldTp) : (relTier+1);
-							final int carry=(oldTp>0 || minZeros+bk>0) ? HIST_CARRY : 0;
+							final int carry=(oldTp>0 || globalNLZ+bk>=0) ? HIST_CARRY : 0;
 							hist[bucket]=((oldHist|carry)>>delta)&HMASK;
 							tierPart[bucket]=newTp;
 
 							if(oldTp==0 && bk==0){
 								if(--minZeroCount<1){
-									while(minZeroCount==0 && minZeros<64){
-										minZeros++;
-										final int relaxedTier=Math.max(0, minZeros-HISTORY_MARGIN);
+									while(minZeroCount==0 && globalNLZ<63){
+										globalNLZ++;
+										final int relaxedTier=Math.max(0, globalNLZ+1-HISTORY_MARGIN);
 										final int minNlz=(3*relaxedTier)/2;
 										eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 										minZeroCount=countAndDecrement(
@@ -188,25 +188,19 @@ public class MantissaCompareBCDLL5 {
 						}
 					}
 
-					sampleAll(tierPart, hist, bank, minZeros, B, cardinality);
+					sampleAll(tierPart, hist, bank, globalNLZ, B, cardinality);
 				}
 			}
 		}
 
-		void sampleAll(int[] tierPart, int[] hist, int[] bank, int minZeros,
+		void sampleAll(int[] tierPart, int[] hist, int[] bank, int globalNLZ,
 				int B, long cardinality){
 			for(int i=0; i<B; i++){
 				final int tp=tierPart[i];
 				final int bk=bank[i/REGS_PER_WORD];
 				final int h=hist[i];
-				int absTier;
-				if(tp>0){
-					absTier=(tp-1)+minZeros+bk;
-				}else if(minZeros+bk>0){
-					absTier=minZeros+bk-1;
-				}else{
-					continue;
-				}
+				final int absTier=tp+globalNLZ+bk;
+				if(absTier<0){continue;}
 				if(absTier>=0 && absTier<=maxTier){
 					cardSums[absTier][h]+=cardinality;
 					counts[absTier][h]++;

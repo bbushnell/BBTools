@@ -7,7 +7,7 @@ import shared.Tools;
  * mantissa-compressed tiers and 2-bit history.
  * <p>
  * Bits per bucket: 5 (6 per 32-bit int, 2 bits wasted)
- *   - Bits [4:2]: tier part (0=phantom, 1-7=relTier 0-6)
+ *   - Bits [4:2]: tier part (0=floor-level, 1-7=relTier 0-6)
  *   - Bits [1:0]: 2-bit history pattern
  *     bit 1 = observation at 1 tier below bucket
  *     bit 0 = observation at 2 tiers below bucket
@@ -208,14 +208,14 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		if(relTier>=0){
 			final int newTierPart=Math.min(relTier+1, 7);
 			if(newTierPart>oldTierPart){
-				// Tier advance. Unified delta: phantom's effective tier is minZeros-1,
-				// so delta = absTier - (minZeros-1) = relTier+1 when oldTierPart==0.
+				// Tier advance. Unified delta: floor-level bucket's effective tier is globalNLZ-1,
+				// so delta = absTier - (globalNLZ-1) = relTier+1 when oldTierPart==0.
 				final int delta=(oldTierPart>0) ? (newTierPart-oldTierPart) : (relTier+1);
 				// Carry-shift matches MantissaCompare2 MODE_CTLL (lines 213-215):
 				// simulator uses carry=0 when stored==0 (no prior observation).
 				// Equivalent here: suppress carry for a truly-fresh bucket
-				// (oldTierPart==0 AND minZeros==0). Phantoms from floor advance
-				// legitimately carry an observation at minZeros-1, so carry stays.
+				// (oldTierPart==0 AND globalNLZ<0). Floor-level buckets from floor advance
+				// legitimately carry an observation at globalNLZ-1, so carry stays.
 				final int carry=(oldTierPart>0 || globalNLZ>=0) ? HIST_CARRY : 0;
 				final int newHist=((oldHist|carry)>>delta)&HIST_MASK;
 				lastCardinality=-1;
@@ -248,9 +248,9 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 			}
 			// newTierPart == oldTierPart: same tier, no update
 		}else if(relTier==-1){
-			// Observation at minZeros-1. For oldTierPart>0 (real bucket at
-			// absTier = oldTierPart-1+minZeros), diff = oldTierPart.
-			// For oldTierPart=0 (phantom at effective minZeros-1), diff=0 — no-op.
+			// Observation at globalNLZ-1. For oldTierPart>0 (real bucket at
+			// absTier = oldTierPart-1+globalNLZ), diff = oldTierPart.
+			// For oldTierPart=0 (floor-level at effective globalNLZ-1), diff=0 — no-op.
 			if(oldTierPart>0){
 				final int diff=oldTierPart;
 				if(diff>=1 && diff<=HBITS){
@@ -263,9 +263,9 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 				}
 			}
 		}else{
-			// relTier == -2: observation at minZeros-2.
+			// relTier == -2: observation at globalNLZ-2.
 			// For oldTierPart>0: diff = oldTierPart+1.
-			// For oldTierPart=0 (phantom at minZeros-1): diff = 1.
+			// For oldTierPart=0 (floor-level at globalNLZ-1): diff = 1.
 			final int diff=(oldTierPart>0) ? (oldTierPart+1) : 1;
 			if(diff>=1 && diff<=HBITS){
 				final int bit=HBITS-diff;
@@ -307,7 +307,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 						if(newTp<=1){newMinZeroCount++;}
 					}
 				}
-				// tp==0: already phantom, leave hist intact
+				// tp==0: already floor-level, leave hist intact
 				result|=(reg<<shift);
 			}
 			packed[w]=result;

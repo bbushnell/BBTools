@@ -14,11 +14,11 @@ import shared.Tools;
  * </ul>
  * Each 5-bit bucket:
  * <ul>
- *   <li>Bits 0-2 (low 3): stored value (0=empty/phantom, 1-7 = localRelNlz+1)
+ *   <li>Bits 0-2 (low 3): stored value (0=empty/floor-level, 1-7 = localRelNlz+1)
  *   <li>Bits 3-4 (high 2): 2-bit history pattern (same semantics as UDLL6)
  * </ul>
  * <p>
- * Absolute NLZ = stored + globalNLZ + bank (always, no phantom special cases).
+ * Absolute NLZ = stored + globalNLZ + bank (always, no floor-level special cases).
  * globalNLZ==-1 means nothing seen; >=0 means all buckets have absNlz >= globalNLZ.
  * <p>
  * Bank promotion: when localRelNlz would overflow and all 6 buckets in the
@@ -262,7 +262,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 				// from floor's max to new max = newStored.
 				newHist=(newStored>=3) ? 0 : (((1<<2)|oldHist)>>>newStored)&0x3;
 			}else{
-				// Truly first insert (no prior phantom): no carry possible.
+				// Truly first insert (no prior floor-level entry): no carry possible.
 				newHist=0;
 			}
 		}else{
@@ -362,11 +362,11 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 	}
 
 	public int filledBuckets(){return filledBuckets;}
-	/** True occupancy: a bucket is "empty" only when stored==0 AND minZeros+bank==0.
-	 *  Once minZeros>0 (or any word has bank>0), phantom buckets are informative and
+	/** True occupancy: a bucket is "empty" only when stored==0 AND globalNLZ+bank<0.
+	 *  Once globalNLZ>=0 (or any word has bank>0), floor-level buckets are informative and
 	 *  count as occupied. The raw filledBuckets field lags because EARLY_PROMOTE
 	 *  global promotion decrements it when stored drops 1→0, even though that bucket
-	 *  becomes a valid phantom at the new floor. */
+	 *  becomes a valid floor-level entry at the new floor. */
 	public double occupancy(){
 		if(globalNLZ>=0){return 1.0;}
 		int empty=0;
@@ -449,7 +449,7 @@ public final class BankedDynamicLogLog5 extends CardinalityTracker {
 
 	private static final int wordlen=64;
 	/** Sub-NLZ window preserved below the floor. For 2-bit history we must keep
-	 *  hashes up to 2 below minZeros so sub-max hist updates aren't filtered. */
+	 *  hashes up to 2 below globalNLZ so sub-max hist updates aren't filtered. */
 	public static final int HISTORY_MARGIN=2;
 	public static boolean EARLY_PROMOTE=true;
 	public static float PROMOTE_FRAC=0.004f;

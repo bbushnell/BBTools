@@ -632,7 +632,7 @@ public class DLL4WordSimulator implements Accumulator<DLL4WordSimulator.SimThrea
 
 		// Per-iteration mutable state
 		int[][] regs;       // Register values: regs[wordIdx][0..3]
-		int globalExp;      // Shared floor exponent (minZeros equivalent)
+		int globalExp;      // Shared floor exponent (globalNLZ equivalent)
 		int totalZeros;     // Count of zero-valued registers across ALL words
 		long eeMask;        // Early-exit mask: hashes above this are below floor
 		double[] wordContrib;// Per-word contribution cache for incremental estimate updates

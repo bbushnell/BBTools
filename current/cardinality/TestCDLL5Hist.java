@@ -22,23 +22,23 @@ public class TestCDLL5Hist {
 		java.util.Random r=new java.util.Random(seed);
 		for(long i=0; i<N; i++){cdll.hashAndStore(r.nextLong());}
 
-		final int minZeros=cdll.getMinZeros();
+		final int globalNLZ=cdll.getMinZeros()-1;
 		int[][] counts=new int[20][4];
-		int phantomCount=0;
-		int[] phantomHist=new int[4];
+		int floorCount=0;
+		int[] floorHist=new int[4];
 		for(int b=0; b<buckets; b++){
 			int reg=cdll.readBucket(b);
 			int tp=(reg>>>2)&0x7;
 			int h=reg&0x3;
-			if(tp==0){phantomCount++; phantomHist[h]++;}
+			if(tp==0){floorCount++; floorHist[h]++;}
 			else{
-				int absTier=tp-1+minZeros;
+				int absTier=tp+globalNLZ;
 				if(absTier<counts.length){counts[absTier][h]++;}
 			}
 		}
 
 		System.err.println("=== CDLL5 hist distribution ===");
-		System.err.println("minZeros="+minZeros+" N="+N+" buckets="+buckets
+		System.err.println("globalNLZ="+globalNLZ+" N="+N+" buckets="+buckets
 			+" occupancy="+String.format("%.4f", cdll.occupancy()));
 		System.err.println("tier  count  P(0)    P(1)    P(2)    P(3)");
 		for(int t=0; t<counts.length; t++){
@@ -48,11 +48,11 @@ public class TestCDLL5Hist {
 				counts[t][0]/(double)tot, counts[t][1]/(double)tot,
 				counts[t][2]/(double)tot, counts[t][3]/(double)tot);
 		}
-		if(phantomCount>0){
-			System.err.printf("phantom(eff=%d) count=%d  P(0)=%.4f P(1)=%.4f P(2)=%.4f P(3)=%.4f%n",
-				minZeros-1, phantomCount,
-				phantomHist[0]/(double)phantomCount, phantomHist[1]/(double)phantomCount,
-				phantomHist[2]/(double)phantomCount, phantomHist[3]/(double)phantomCount);
+		if(floorCount>0){
+			System.err.printf("floor(nlz=%d) count=%d  P(0)=%.4f P(1)=%.4f P(2)=%.4f P(3)=%.4f%n",
+				globalNLZ, floorCount,
+				floorHist[0]/(double)floorCount, floorHist[1]/(double)floorCount,
+				floorHist[2]/(double)floorCount, floorHist[3]/(double)floorCount);
 		}
 	}
 }

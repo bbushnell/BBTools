@@ -1111,7 +1111,7 @@ public class DDLCalibrationDriver {
 //							+" relErr="+String.format("%.4f", relErr));
 //						if(ddl instanceof DynamicLogLog3v2){
 //							final DynamicLogLog3v2 d=(DynamicLogLog3v2)ddl;
-//							System.err.println("minZeros="+d.minZeros());
+//							System.err.println("globalNLZ="+d.minZeros());
 //							if(d.lastStats!=null){System.err.println(d.lastStats.toString());}
 //						}
 //						System.err.println("filledBuckets="+ddl.filledBuckets());

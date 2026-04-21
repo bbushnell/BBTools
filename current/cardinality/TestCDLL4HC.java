@@ -15,7 +15,7 @@ public class TestCDLL4HC {
         for(int i=0; i<trueCard; i++) c.add(r.nextLong());
 
         // Extract bucket data: absTier and hist for each bucket
-        // Force summarize to get minZeros
+        // Force summarize to get floor level (via getMinZeros compat accessor)
         c.rawEstimates();
         int minZeros=c.getMinZeros();
 
@@ -33,7 +33,7 @@ public class TestCDLL4HC {
             if(tp>0){
                 absTier=(tp-1)+minZeros;
             }else if(minZeros>0){
-                absTier=minZeros-1; // phantom
+                absTier=minZeros-1; // floor-level bucket
             }else{
                 continue; // empty
             }
@@ -72,7 +72,7 @@ public class TestCDLL4HC {
         System.err.println("DLC tiers for reference:");
         int vk=0;
         for(int k=0; k<64; k++){
-            vk+=nlzBucketCount[k]; // phantom + tier k buckets
+            vk+=nlzBucketCount[k]; // floor-level + tier k buckets
             if(vk>0 && vk<B){
                 double dlcEst=Math.pow(2.0, k*TIER_SCALE)*B*Math.log((double)B/vk);
                 System.err.printf("  DLC tier %d: vk=%d est=%.0f ratio=%.3f%n",

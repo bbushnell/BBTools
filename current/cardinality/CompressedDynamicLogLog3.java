@@ -7,7 +7,7 @@ import shared.Tools;
  * <p>
  * Encoding: globalNLZ starts at -1 (nothing seen). stored=0 means at floor
  * level (empty only when globalNLZ==-1). absoluteNlz = stored + globalNLZ.
- * No phantom concept.
+ * No floor-level special case; stored=0 is simply empty when globalNLZ==-1.
  * <p>
  * Packs 10 buckets per int at 3 bits each (7 usable levels).
  * Compresses the NLZ tail so that 3 storage bits cover a wider dynamic

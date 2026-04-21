@@ -267,8 +267,8 @@ public class CardinalityStats {
 	 * Passes minZeros=0 to the constructor so lcMin equals lcPure (no tier-dependent
 	 * scaling), making the output independent of internal tier promotion state.
 	 * <p>
-	 * The nlzCounts array must include phantom buckets (stored=0 with minZeros>0)
-	 * at nlzCounts[minZeros-1]. This is handled by the DLL summarize() methods.
+	 * The nlzCounts array must include floor-level buckets (stored=0 with globalNLZ>=0)
+	 * at nlzCounts[globalNLZ]. This is handled by the DLL summarize() methods.
 	 */
 	static CardinalityStats fromNlzCounts(int[] nlzCounts_, int buckets_,
 			long microIndex_, float[][] cfMatrix_, int cfBuckets_,
@@ -907,14 +907,14 @@ public class CardinalityStats {
 
 	/**
 	 * Tier-compensated LC: returns DLC at the lowest active tier.
-	 * After social promotion (minZeros > 0), tiers below minZeros are empty.
+	 * After floor promotion (globalNLZ > 0), tiers below globalNLZ are empty.
 	 * Standard LC (DLC0) ignores this, using V (empty buckets) at tier 0.
 	 * dlcLowest() finds the first tier with filled buckets and returns DLC(k) there.
 	 * Since nlzCounts[0..k-1] are all zero, V_k = V, so this equals LC * 2^k.
 	 * Before any promotion (k=0), equals LC exactly.
 	 */
 	public double dlcLowest(){
-		return lcMin; // tier-compensated LC at the actual minZeros floor; no scanning needed
+		return lcMin; // tier-compensated LC at the actual floor (globalNLZ); no scanning needed
 	}
 
 	/** DLC estimate from pre-computed V_k. */
