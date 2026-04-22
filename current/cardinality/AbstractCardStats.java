@@ -704,6 +704,12 @@ public abstract class AbstractCardStats {
 	/** Terminal HMean CF for history-corrected HLL. Default 1.0 = standard HLL. */
 	public static double HLL_HIST_TERMINAL_CF=1.0;
 
+	/** Per-class HC scale factor for collapsed-history models whose bit encoding
+	 *  creates systematic HC bias. Applied after hcCfFormula. 1.0 = no correction. */
+	public static float HC_SCALE=1.0f;
+	/** True when HC_SCALE was explicitly set via command-line (prevents class default override). */
+	public static boolean HC_SCALE_EXPLICIT=false;
+
 	/** When > 0, overrides every tracker's terminalMeanCF() at CardStats construction.
 	 *  Used during preliminary CF table generation: set to 1 so per-class bias corrections
 	 *  are disabled and the raw convergent ratios can be measured from the output CF file. */

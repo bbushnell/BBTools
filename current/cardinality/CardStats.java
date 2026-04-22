@@ -330,7 +330,7 @@ public final class CardStats extends AbstractCardStats {
 				}
 			}
 			final double hcRaw=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
-			hcF=(hcRaw>0 ? hcRaw*CorrectionFactor.hcCfFormula(hcRaw) : 0);
+			hcF=(hcRaw>0 ? hcRaw*CorrectionFactor.hcCfFormula(hcRaw)*HC_SCALE : 0);
 			historyCoverage=(filled>0 ? (double)bucketsWithHistory/filled : 0);
 		}else{
 			hcF=0;

@@ -427,6 +427,18 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog5.class){
 							accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog5)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==VariableCompressedDynamicLogLog4.class){
+							accumulateCardStatsLdlc(((VariableCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticCompressedDynamicLogLog4.class){
+							accumulateCardStatsLdlc(((ArithmeticCompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==HalfCappedDynamicLogLog4.class){
+							accumulateCardStatsLdlc(((HalfCappedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ExpandedDynamicLogLog8.class){
+							accumulateCardStatsLdlc(((ExpandedDynamicLogLog8)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog32.class){
+							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog33.class){
+							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog33)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedCompressedDynamicLogLog3.class){
