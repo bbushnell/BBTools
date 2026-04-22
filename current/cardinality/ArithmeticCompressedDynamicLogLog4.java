@@ -391,6 +391,6 @@ public final class ArithmeticCompressedDynamicLogLog4 extends CardinalityTracker
 	@Override public float terminalMeanPlusCF(){return 1.061534f;}
 
 	/** HLDLC weight — placeholder until tuned. */
-	@Override public float hldlcWeight(){return 0.325f;}
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
 
 }

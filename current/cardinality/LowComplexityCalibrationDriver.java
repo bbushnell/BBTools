@@ -86,7 +86,7 @@ public class LowComplexityCalibrationDriver {
 		final String[] LDLC_NAMES=DDLCalibrationDriver2.LDLC_NAMES;
 
 		// Initialize global cardinality state (CF tables, formula coefficients, etc.)
-		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, null, true);
+		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, null);
 
 		// totalAdds: 0 means "run until saturated" (handled via break in loop)
 		final long totalAdds=(iterations>0 ? (long)(cardinality*iterations) : Long.MAX_VALUE);

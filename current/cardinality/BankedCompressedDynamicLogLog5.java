@@ -564,4 +564,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.880151f;}
 	@Override public float terminalMeanPlusCF(){return 1.090756f;}
 
+	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.40;}
+
 }

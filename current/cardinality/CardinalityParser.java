@@ -113,7 +113,8 @@ public class CardinalityParser {
 		// FLL2 flags
 		else if(a.equals("fll2mult")){FutureLogLog2.TERMINAL_CORRECTION=Double.parseDouble(b);}
 		else if(a.equals("clampoverflow")){FutureLogLog2.CLAMP_OVERFLOW=Parse.parseBoolean(b);}
-		else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityTracker.LDLC_HC_WEIGHT=Double.parseDouble(b);}
+		else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityTracker.OVERRIDE_LDLC_HC_WEIGHT=Double.parseDouble(b);}
+		else if(a.equals("hybridweight") || a.equals("hw")){CardinalityTracker.OVERRIDE_HLDLC_WEIGHT=Float.parseFloat(b);}
 		else if(a.equals("hcscale")){AbstractCardStats.HC_SCALE=Float.parseFloat(b); AbstractCardStats.HC_SCALE_EXPLICIT=true;}
 
 		// BCLL flags
@@ -173,10 +174,9 @@ public class CardinalityParser {
 	 * @param k hash k-mer length
 	 * @param cffile correction factor file path, or null for default
 	 * @param pllmode PLL mode string, or null to skip
-	 * @param hcWeightExplicit true if hcweight was explicitly set (skip auto-defaults)
 	 */
 	public static void initializeAll(final String loglogtype, final int buckets, final int k,
-			String cffile, final String pllmode, final boolean hcWeightExplicit){
+			String cffile, final String pllmode){
 
 		// PLL mode application
 		if(pllmode!=null){
@@ -190,16 +190,12 @@ public class CardinalityParser {
 			else{throw new RuntimeException("Unknown pllmode: "+pllmode);}
 		}
 
-		// HC weight auto-defaults based on history bits
-		if(!hcWeightExplicit){
-			final int hb=ProtoLogLog16c.HISTORY_BITS;
-			if(hb==1){CardinalityTracker.LDLC_HC_WEIGHT=0.456;}
-			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.50;}
-			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
-
-			// Per-type HC weight overrides (Eru's calibration, 2026-04-22)
-			if(loglogtype.equals("cdll4")){CardinalityTracker.LDLC_HC_WEIGHT=0.30;}
-			else if(loglogtype.equals("cdll5") || loglogtype.equals("bcdll5") || loglogtype.equals("acdll5")){CardinalityTracker.LDLC_HC_WEIGHT=0.40;}
+		// Set LDLC_HC_WEIGHT from the tracker's instance method (or command-line override)
+		{
+			final CardinalityTracker probe=CardinalityTracker.makeTracker(loglogtype, 64, 31, 0, 0);
+			CardinalityTracker.LDLC_HC_WEIGHT=(CardinalityTracker.OVERRIDE_LDLC_HC_WEIGHT>=0
+				? CardinalityTracker.OVERRIDE_LDLC_HC_WEIGHT
+				: probe.ldlcHcWeight());
 		}
 
 		// Class init and column whitelist

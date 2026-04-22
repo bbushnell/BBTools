@@ -467,4 +467,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.883080f;}
 	@Override public float terminalMeanPlusCF(){return 1.094268f;}
 
+	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.40;}
+
 }

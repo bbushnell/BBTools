@@ -378,6 +378,6 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 
 	/** Terminal Mean+H CF. Measured same run. */
 	@Override public float terminalMeanPlusCF(){return 1.034382f;}
-	@Override public float hldlcWeight(){return 0.325f;}
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
 
 }

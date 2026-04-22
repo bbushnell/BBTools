@@ -415,8 +415,10 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 	 *  cf=f tmcf=1 tmpcf=1 ddls=512k maxmult=8192. */
 	@Override public float terminalMeanPlusCF(){return 1.067044f;}
 
+	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.30;}
 	/** Optimal LDLC weight for HLDLC blend. Measured 2026-04-16 via
 	 *  ddlcalibrate2 cf=t ddls=32k maxmult=8192, geo-mean(LogWt,WidthWt,Peak) sweep. */
-	@Override public float hldlcWeight(){return 0.325f;}
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
 
 }
