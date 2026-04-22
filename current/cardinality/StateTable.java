@@ -77,6 +77,35 @@ public final class StateTable {
 		{-4.43057341, -2.53750546, -3.10739120, -1.18796076, -3.29890601, -1.69584646, -2.37783659, +0.22051950},
 	};
 
+	/** Steady-state CFs for 3-bit history, ETLL expanded tiers (halfNlz/4, TIER_SCALE=2.0).
+	 *  Generated 2026-04-21 from MC2 mode=etll bits=3 outer=32k inner=32k, tier 5 LinCF. */
+	static final double[] CF_ETLL_3={-0.17376441, -0.08848045, -0.05907605, -0.01104290, -0.03955570, -0.01740046, -0.01647446, +0.22568811};
+	/** Per-tier CFs for 3-bit history, ETLL expanded tiers (tiers 0-3; tier 4+ uses steady-state).
+	 *  Generated 2026-04-22 from MC2 mode=etll bits=3 outer=2M inner=32k LinCF rows.
+	 *  Correct expanded mapping: tier=halfNlz, TIER_SCALE=0.5. */
+	static final double[][] CF_ETLL_3_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-0.93583304, +0.00000000, +0.00000000, +0.00000000, +0.46929410, +0.00000000, +0.00000000, +0.00000000},
+		{-1.70521485, +0.00000000, -0.30657758, +0.00000000, -0.46663286, +0.00000000, +0.63089713, +0.00000000},
+		{-2.38492006, -0.98691176, -1.13541950, -0.06980971, -1.23301141, -0.20153259, -0.37775370, +0.68859780},
+	};
+
+	/** AUDLL32: 3-state collapsed history (10+11→state 2), standard tiers.
+	 *  State 2 emitted as: binary 10 at tier 1 (only high bit valid),
+	 *  binary 11 at tier 2+ (both bits valid).
+	 *  Positions: [0]=00(no obs), [1]=01(obs -2), [2]=10(state 2 at tier 1),
+	 *  [3]=11(state 2 at tier 2+).
+	 *  Generated from MC2 mode=history bits=2 outer=64k inner=32k, collapsed via
+	 *  CF=log2((P(10)*2^CF(10)+P(11)*2^CF(11))/(P(10)+P(11))). April 2026. */
+	static final double[] CF_AUDLL32_2={-2.48357976, -1.15357362, +0.16555091, +0.16555091};
+	static final double[][] CF_AUDLL32_2_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-1.92572967, +0.00000000, +0.19631649, +0.00000000},
+		{-3.26384437, -1.34192589, +0.18142796, +0.18142796},
+	};
+	/** When true, historyOffset uses AUDLL32's collapsed 3-state tables instead of CF_HISTORY_2. */
+	static boolean USE_AUDLL32_HSB=false;
+
 	/**
 	 * Additive NLZ correction for a bucket with the given history state.
 	 * For nlzBin below the tier table depth, returns per-tier correction.
@@ -85,10 +114,14 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
+		if(USE_AUDLL32_HSB && hbits==2){
+			steadyState=CF_AUDLL32_2; tierTables=CF_AUDLL32_2_TIERS;
+		}else if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
 			steadyState=CF_CTLL_1; tierTables=CF_CTLL_1_TIERS;
 		}else if(hbits==2 && AbstractCardStats.TIER_SCALE>1.0){
 			steadyState=CF_CTLL_2; tierTables=CF_CTLL_2_TIERS;
+		}else if(hbits==3 && AbstractCardStats.TIER_SCALE<=0.5){
+			steadyState=CF_ETLL_3; tierTables=CF_ETLL_3_TIERS;
 		}else if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}

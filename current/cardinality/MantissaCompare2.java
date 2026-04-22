@@ -64,6 +64,7 @@ public class MantissaCompare2 {
 				else if(b.equals("median3") || b.equals("med3")){mode=MODE_MEDIAN3;}
 				else if(b.equals("minplus1") || b.equals("mp1")){mode=MODE_MINPLUS1;}
 				else if(b.equals("ctll") || b.equals("compressedtier") || b.equals("manttier")){mode=MODE_CTLL;}
+				else if(b.equals("etll") || b.equals("expandedtier")){mode=MODE_ETLL;}
 				else{throw new RuntimeException("Unknown mode '"+b+"'");}
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
@@ -168,6 +169,19 @@ public class MantissaCompare2 {
 							}
 							final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 							nlz=(2*rawNlz+mant)/3; // tier number
+						}else if(fMode==MODE_ETLL){
+							// ExpandedTierLogLog: mantissa threshold maps rawNlz to tier.
+							// halfNlz = 2*rawNlz + mantissa, tier = halfNlz.
+							// Tier ratio = sqrt(2). Each tier covers 0.5 NLZ.
+							final int rawNlz=nlz;
+							final int mBits;
+							if(rawNlz>=43){
+								mBits=(int)((key<<(rawNlz-42))&0xFFFFF);
+							}else{
+								mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);
+							}
+							final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
+							nlz=2*rawNlz+mant; // expanded tier number = halfNlz
 						}
 
 						if(fMode==MODE_HISTMANT){
@@ -213,7 +227,7 @@ public class MantissaCompare2 {
 							if(nlz>maxNlz){maxNlz=nlz; extra=val;}
 							else if(nlz==maxNlz && val>extra){extra=val;}
 
-						}else if(fMode==MODE_HISTORY || fMode==MODE_SUPER1BIT || fMode==MODE_AVGNLZ || fMode==MODE_MEDIAN3 || fMode==MODE_MINPLUS1 || fMode==MODE_CTLL){
+						}else if(fMode==MODE_HISTORY || fMode==MODE_SUPER1BIT || fMode==MODE_AVGNLZ || fMode==MODE_MEDIAN3 || fMode==MODE_MINPLUS1 || fMode==MODE_CTLL || fMode==MODE_ETLL){
 							// All history-based modes use the same update logic;
 							// the NLZ was already overridden above for multi-hash modes.
 							final int newNlzStored=Math.min(nlz+1, 63);
@@ -441,8 +455,8 @@ public class MantissaCompare2 {
 	/*----------------        Constants            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5, MODE_TWINTAIL=6, MODE_MASTERSLAVE=7, MODE_SUPER1BIT=8, MODE_AVGNLZ=9, MODE_MEDIAN3=10, MODE_MINPLUS1=11, MODE_CTLL=12;
-	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant", "TwinTail", "MasterSlave", "Super1Bit", "AvgNlz", "Median3", "MinPlus1", "CTLL"};
+	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5, MODE_TWINTAIL=6, MODE_MASTERSLAVE=7, MODE_SUPER1BIT=8, MODE_AVGNLZ=9, MODE_MEDIAN3=10, MODE_MINPLUS1=11, MODE_CTLL=12, MODE_ETLL=13;
+	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant", "TwinTail", "MasterSlave", "Super1Bit", "AvgNlz", "Median3", "MinPlus1", "CTLL", "ETLL"};
 	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	static final int SAMPLE_ALL=0, SAMPLE_ENTRY=1, SAMPLE_BOTH=2;
