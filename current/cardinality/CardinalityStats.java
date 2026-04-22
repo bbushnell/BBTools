@@ -568,10 +568,6 @@ public class CardinalityStats {
 
 	/**
 	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
-	 * Blends LC → Mean → HMeanM using log interpolation with smooth Mean/HMeanM crossover.
-	 */
-	/**
-	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
 	 * Blends LC → Mean(CF) → HMeanM(CF) using log interpolation with smooth crossover.
 	 * Zone detection uses uncorrected lcMin; the blended VALUE uses lcForHybrid
 	 * (sbs() when available) so the corrected estimate doesn't shift blend boundaries.
@@ -840,7 +836,6 @@ public class CardinalityStats {
 		return sumW>0 ? sumWE/sumW : lcMin;
 	}
 
-	/** Variant 4: Chloe — all-tier exponential, LOG-SPACE average, target=0.25, smooth transition */
 	/** Public accessor for DLC log-space 0.25 estimate (used by PLL16c LDLC). */
 	public double dlcLogSpace025Public(){return dlcLogSpace025();}
 

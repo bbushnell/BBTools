@@ -69,7 +69,7 @@ public final class InvertedLogLog extends CardinalityTracker {
 		final long key=Tools.hash64shift(number^hashXor);
 		final int nlz=Long.numberOfLeadingZeros(key);
 		final int bucket=(nlz<BUCKETS ? nlz : BUCKETS-1);
-		final int lowBits=(int)(key);  // lower 32 bits
+		final int lowBits=(int)(key); // lower 32 bits
 		if(Integer.compareUnsigned(lowBits, maxArray[bucket])>0){
 			maxArray[bucket]=lowBits;
 		}
@@ -106,8 +106,8 @@ public final class InvertedLogLog extends CardinalityTracker {
 //			? logEsts[count/2]
 //			: (logEsts[count/2-1]+logEsts[count/2])*0.5;
 
-//		 MWA: triangular weights peaking at median, for future comparison
-		 double mwaLogEst=medianWeightedAverage(logEsts, count);
+//		MWA: triangular weights peaking at median, for future comparison
+		double mwaLogEst=medianWeightedAverage(logEsts, count);
 
 		final long cardinality=(long)Math.exp(mwaLogEst);
 		lastCardinalityStatic=cardinality;

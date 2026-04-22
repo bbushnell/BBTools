@@ -5,13 +5,19 @@ import shared.Tools;
 /**
  * Single-bucket simulation to measure empirical correction factors.
  * Outputs per-tier, per-state average cardinality ratios and CFs.
- *
- * Usage: java cardinality.ULL8TierStats [inner=32768] [outer=65536] [maxtier=12]
- *
+ * <p>
  * Designed to be re-run with increasing iterations for more precision.
  * Ignore tiers above maxtier (where observation counts stop doubling).
+ * <p>
+ * Usage: {@code java cardinality.ULL8TierStats [inner=32768] [outer=65536] [maxtier=12]}
+ *
+ * @author Brian Bushnell
  */
 public class ULL8TierStats {
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Main              ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int inner=32768;
@@ -72,10 +78,10 @@ public class ULL8TierStats {
 		System.err.println(String.format("Elapsed: %.1fs", elapsed));
 
 		// Header
-		System.out.println("NLZ\tTotal\tAvgCard\t" +
-			"P(00)\tP(01)\tP(10)\tP(11)\t" +
-			"AvgC(00)\tAvgC(01)\tAvgC(10)\tAvgC(11)\t" +
-			"Ratio(00)\tRatio(01)\tRatio(10)\tRatio(11)\t" +
+		System.out.println("NLZ\tTotal\tAvgCard\t"+
+			"P(00)\tP(01)\tP(10)\tP(11)\t"+
+			"AvgC(00)\tAvgC(01)\tAvgC(10)\tAvgC(11)\t"+
+			"Ratio(00)\tRatio(01)\tRatio(10)\tRatio(11)\t"+
 			"CF(00)\tCF(01)\tCF(10)\tCF(11)");
 
 		for(int nlz=0; nlz<=maxTier; nlz++){
@@ -87,8 +93,8 @@ public class ULL8TierStats {
 			}
 			if(total<100){continue;}
 
-			double avgCard=totalSum/total;
-			StringBuilder sb=new StringBuilder();
+			final double avgCard=totalSum/total;
+			final StringBuilder sb=new StringBuilder();
 			sb.append(nlz).append('\t').append(total).append('\t');
 			sb.append(String.format("%.2f", avgCard));
 
@@ -107,7 +113,7 @@ public class ULL8TierStats {
 			}
 			for(int s=0; s<4; s++){
 				if(count[nlz][s]>10){
-					double ratio=(sum[nlz][s]/count[nlz][s])/avgCard;
+					final double ratio=(sum[nlz][s]/count[nlz][s])/avgCard;
 					sb.append('\t').append(String.format("%+.6f", Math.log(ratio)/Math.log(2)));
 				}else{sb.append("\tN/A");}
 			}

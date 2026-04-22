@@ -9,12 +9,16 @@ import shared.Tools;
  */
 public class LDLCCalibrate {
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		int buckets=512;
 		int numDDLs=4000;
 		float blendL2=0.18f;
 		for(String arg : args){
-			String[] ab=arg.split("=");
+			final String[] ab=arg.split("=");
 			if(ab[0].equals("buckets")){buckets=Integer.parseInt(ab[1]);}
 			else if(ab[0].equals("ddls")){numDDLs=Integer.parseInt(ab[1]);}
 			else if(ab[0].equals("blend")){blendL2=Float.parseFloat(ab[1]);}
@@ -23,10 +27,10 @@ public class LDLCCalibrate {
 
 		// Build checkpoint array (~1% spacing)
 		int nc=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) nc++;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){nc++;}
 		final int[] checks=new int[nc];
 		int ci=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) checks[ci++]=c;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){checks[ci++]=c;}
 
 		// Accumulators: per-checkpoint sums across instances
 		final double[] dlcSum=new double[nc], l2Sum=new double[nc];
@@ -40,7 +44,7 @@ public class LDLCCalibrate {
 		final float blendL1=1.0f-blendL2;
 
 		for(int inst=0; inst<numDDLs; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*999999937L+42;
 			int nextCheck=0;
 			for(int card=1; card<=maxCard && nextCheck<nc; card++){
@@ -55,15 +59,15 @@ public class LDLCCalibrate {
 					final int[] nlzCounts=new int[64];
 					int emptyCount=0;
 					for(int i=0; i<buckets; i++){
-						int reg=udll.getRegPublic(i);
+						final int reg=udll.getRegPublic(i);
 						if(reg==0){emptyCount++; continue;}
-						int nlzPart=reg>>>2;
-						int absNlz=nlzPart-UltraDynamicLogLog6.HISTORY_MARGIN+minZeros;
+						final int nlzPart=reg>>>2;
+						final int absNlz=nlzPart-UltraDynamicLogLog6.HISTORY_MARGIN+minZeros;
 						if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
 					}
 
 					// Build CardinalityStats for true DLC
-					CardinalityStats cs=CardinalityStats.fromNlzCounts(
+					final CardinalityStats cs=CardinalityStats.fromNlzCounts(
 						nlzCounts, buckets, 0L, null, 0, null, null);
 					final double trueDLC=cs.dlcEst;
 					final double lc=(emptyCount>0 && emptyCount<buckets) ?
@@ -73,7 +77,7 @@ public class LDLCCalibrate {
 					final double[] layers=udll.udlcEstimate();
 					final double l2=layers[1];
 					// Count how many buckets have history (for coverage)
-					int b2=countHistoryBuckets(udll, buckets);
+					final int b2=countHistoryBuckets(udll, buckets);
 
 					// Compute L2 scale factor (global constant from prior analysis)
 					// At 512 buckets: ~1.293, at 1024: ~1.290
@@ -83,14 +87,14 @@ public class LDLCCalibrate {
 					// LDLC blend: use true DLC as L1, blend with scaled L2
 					// Ramp: only blend L2 when coverage > 30%, full blend at > 60%
 					double ldlc;
-					double coverage=(double)b2/buckets;
+					final double coverage=(double)b2/buckets;
 					if(coverage<0.30 || l2<=0){
 						ldlc=trueDLC;
 					}else if(coverage<0.60){
-						double ramp=(coverage-0.30)/0.30;
-						ldlc=trueDLC*(1.0-ramp*blendL2) + l2Scaled*(ramp*blendL2);
+						final double ramp=(coverage-0.30)/0.30;
+						ldlc=trueDLC*(1.0-ramp*blendL2)+l2Scaled*(ramp*blendL2);
 					}else{
-						ldlc=trueDLC*blendL1 + l2Scaled*blendL2;
+						ldlc=trueDLC*blendL1+l2Scaled*blendL2;
 					}
 
 					dlcSum[nextCheck]+=trueDLC;
@@ -127,12 +131,16 @@ public class LDLCCalibrate {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods       ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Count buckets with at least one history bit set. */
 	private static int countHistoryBuckets(UltraDynamicLogLog6 udll, int buckets){
 		int count=0;
 		for(int i=0; i<buckets; i++){
-			int reg=udll.getRegPublic(i);
-			if(reg>0 && (reg&3)!=0) count++;
+			final int reg=udll.getRegPublic(i);
+			if(reg>0 && (reg&3)!=0){count++;}
 		}
 		return count;
 	}

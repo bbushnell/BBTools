@@ -26,11 +26,15 @@ import java.util.zip.GZIPInputStream;
  */
 public class TerminalCfAverager {
 
-	public static void main(String[] args) throws Exception {
+	/*--------------------------------------------------------------*/
+	/*----------------           Main              ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public static void main(String[] args) throws Exception{
 		String in=null;
 		for(String a : args){
 			final int eq=a.indexOf('=');
-			if(eq<0) continue;
+			if(eq<0){continue;}
 			final String k=a.substring(0, eq).toLowerCase();
 			final String v=a.substring(eq+1);
 			if(k.equals("in")){in=v;}
@@ -42,7 +46,12 @@ public class TerminalCfAverager {
 		run(in);
 	}
 
-	static void run(final String path) throws Exception {
+	/*--------------------------------------------------------------*/
+	/*----------------       Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Read the CF TSV and print per-column terminal averages. */
+	static void run(final String path) throws Exception{
 		final InputStream raw=new FileInputStream(path);
 		final InputStream is=path.endsWith(".gz") ? new GZIPInputStream(raw) : raw;
 		try(BufferedReader br=new BufferedReader(new InputStreamReader(is))){
@@ -50,7 +59,7 @@ public class TerminalCfAverager {
 			String[] header=null;
 			final ArrayList<double[]> rows=new ArrayList<>();
 			while((line=br.readLine())!=null){
-				if(line.isEmpty()) continue;
+				if(line.isEmpty()){continue;}
 				if(line.startsWith("#")){
 					// Header line begins with #TrueCard (or similar) followed by column names.
 					// Last #-line before data is the column header.
@@ -88,7 +97,7 @@ public class TerminalCfAverager {
 			final double[] sums=new double[ncols];
 			final int[] counts=new int[ncols];
 			for(double[] r : rows){
-				if(r[0]<threshold) continue;
+				if(r[0]<threshold){continue;}
 				final int k=Math.min(r.length, ncols);
 				for(int i=1; i<k; i++){
 					if(!Double.isNaN(r[i])){

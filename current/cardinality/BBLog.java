@@ -1,7 +1,5 @@
 package cardinality;
 
-import java.util.concurrent.atomic.AtomicLongArray;
-
 import parse.Parser;
 import shared.Tools;
 import structures.LongList;
@@ -20,15 +18,10 @@ public final class BBLog extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Creates a LogLog estimator with default parameters.
-	 * Uses 2048 buckets, k-mer length 31, random seed, and no minimum probability filter. */
+	/** Default constructor: 2048 buckets, k=31. */
 	BBLog(){this(2048, 31, -1, 0);}
 	
-	/**
-	 * Creates a LogLog estimator with parameters parsed from command-line arguments.
-	 * Initializes appropriate storage arrays based on atomic and count tracking settings.
-	 * @param p Parser containing configuration parameters
-	 */
+	/** Construct from parsed command-line arguments. */
 	BBLog(Parser p){
 		super(p);
 		maxArray=new long[buckets];
@@ -36,12 +29,11 @@ public final class BBLog extends CardinalityTracker {
 	}
 	
 	/**
-	 * Creates a LogLog estimator with explicitly specified parameters.
-	 *
+	 * Full constructor.
 	 * @param buckets_ Number of buckets for hash partitioning
-	 * @param k_ K-mer length for sequence processing
-	 * @param seed Random number generator seed; -1 for random seed
-	 * @param minProb_ Minimum probability threshold for k-mer inclusion
+	 * @param k_ K-mer length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
 	 */
 	BBLog(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
@@ -49,19 +41,18 @@ public final class BBLog extends CardinalityTracker {
 		counts=(trackCounts ? new int[buckets] : null);
 	}
 	
+	/** Create an independent copy with a fresh seed. */
 	@Override
-	public BBLog copy() {return new BBLog(buckets, k, -1, minProb);}
+	public BBLog copy(){return new BBLog(buckets, k, -1, minProb);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Estimates the total cardinality using LogLog algorithm.
-	 * Computes multiple estimates from bucket max values: arithmetic mean-based,
-	 * geometric mean-based, and median-based. Returns the arithmetic mean estimate
-	 * which typically provides the best variance characteristics.
-	 *
+	 * Estimates cardinality from bucket maxima using arithmetic-mean LogLog.
+	 * Also computes geometric-mean and median estimates (unused but retained
+	 * for comparison); returns the arithmetic-mean estimate.
 	 * @return Estimated number of unique elements
 	 */
 	@Override
@@ -69,60 +60,45 @@ public final class BBLog extends CardinalityTracker {
 		double difSum=0;
 		double estLogSum=0;
 		int count=0;
-		LongList list=new LongList(buckets);
-		{
-			for(int i=0; i<maxArray.length; i++){
-				long val=maxArray[i];
-				if(val>0){
-					long dif=Long.MAX_VALUE-val;
-					difSum+=dif;
-					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif);
-					estLogSum+=Math.log(est);
-					list.add(dif);
-				}
+		final LongList list=new LongList(buckets);
+		for(int i=0; i<maxArray.length; i++){
+			final long val=maxArray[i];
+			if(val>0){
+				final long dif=Long.MAX_VALUE-val;
+				difSum+=dif;
+				count++;
+				final double est=2*(Long.MAX_VALUE/(double)dif);
+				estLogSum+=Math.log(est);
+				list.add(dif);
 			}
 		}
-		int div=count;//Could also be count be that causes problems
+		final int div=count;
 		final double mean=difSum/Tools.max(div, 1);
 		final double estimatePerSet=2*(Long.MAX_VALUE/mean);
 		final double total=estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
 		list.sort();
-		long median=list.median();
-		double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
-		
-//		new Exception().printStackTrace();
-		
-//		System.err.println(maxArray);
-//		//Overall, it looks like "total" is the best, then "estSum", then "medianEst" is the worst, in terms of variance.
-//		System.err.println("difSum="+difSum+", count="+count+", mean="+mean+", est="+estimatePerSet+", total="+(long)total);
-//		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
-		
-		long cardinality=Math.min(added, (long)(total));
+		final long median=list.median();
+		final double medianEst=2*(Long.MAX_VALUE/(double)median)*div;
+
+		final long cardinality=Math.min(added, (long)(total));
 		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 
-	/** Returns the count array tracking occurrences of maximum values per bucket.
-	 * @return Array of counts, or null if count tracking is disabled */
+	/** Returns per-bucket count array, or null if count tracking is disabled. */
 	@Override
-	public int[] getCounts(){
-		return counts;
-	}
+	public int[] getCounts(){return counts;}
 	
-	/**
-	 * Merges another cardinality tracker into this one.
-	 * Casts to BBLog and delegates to the typed add method.
-	 * @param log The cardinality tracker to merge
-	 */
+	/** Merge another tracker into this one (must be BBLog). */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((BBLog)log);
 	}
-	
+
+	/** Merge another BBLog by taking per-bucket max hash values. */
 	public void add(BBLog log){
 		added+=log.added;
 		if(maxArray!=log.maxArray){
@@ -144,13 +120,10 @@ public final class BBLog extends CardinalityTracker {
 		}
 	}
 	
+	/** Hash a value and store the maximum hash per bucket. */
 	@Override
 	public void hashAndStore(final long number){
-//		if(number%SKIPMOD!=0){return;}
-//		final long key=hash(number, tables[((int)number)&numTablesMask]);
 		final long key=Tools.hash64shift(number);
-		
-//		if(key<minKey){return;}
 		final int bucket=(int)(key&bucketMask);
 		if(trackCounts){
 			if(key>maxArray[bucket]){
@@ -164,25 +137,18 @@ public final class BBLog extends CardinalityTracker {
 		}
 	}
 	
-	/**
-	 * Returns compensation factors for LogLog estimation accuracy.
-	 * This implementation returns null as compensation is not used.
-	 * @return null (no compensation factors)
-	 */
+	/** No compensation factors used by this estimator. */
 	@Override
-	public final float[] compensationFactorLogBucketsArray(){
-		return null;
-	}
+	public final float[] compensationFactorLogBucketsArray(){return null;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Non-atomic array storing maximum hash values per bucket */
+	/** Maximum hash value observed per bucket. */
 	private final long[] maxArray;
-	/** Array tracking occurrence counts of maximum values per bucket */
+	/** Per-bucket occurrence counts; null if count tracking is disabled. */
 	private final int[] counts;
-	
-//	private static long minKey=(long)(0.75f*Long.MAX_VALUE); //non-atomic 15% faster without this
-	
+
+
 }

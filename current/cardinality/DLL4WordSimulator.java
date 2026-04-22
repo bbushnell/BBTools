@@ -368,7 +368,7 @@ public class DLL4WordSimulator implements Accumulator<DLL4WordSimulator.SimThrea
 	 * as instance fields so that small methods can communicate without
 	 * passing many parameters.
 	 */
-	static class SimThread extends Thread {
+	static class SimThread extends Thread{
 
 		/*--------------------------------------------------------------*/
 		/*----------------        Thread Init           ----------------*/

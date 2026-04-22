@@ -26,18 +26,6 @@ public abstract class AbstractCardStats {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Derives difSum, hllSumFilled, gSum, and filled count from an NLZ histogram.
-	 * These are the fundamental bucket sums needed by Mean, HMean, GMean, and HLL.
-	 * <p>
-	 * difSum: sum of dif values.  dif(k) = 2^(63-k) for k>=1, Long.MAX_VALUE for k=0.
-	 * hllSumFilled: sum of 2^(-k) for filled buckets (HLL indicator sum).
-	 * gSum: sum of ln(dif) for filled buckets (geometric mean input).
-	 * filled: total non-empty buckets.
-	 *
-	 * @param counts  int[64] NLZ histogram: counts[k] = number of buckets with absNlz==k
-	 * @return double[4]: {difSum, hllSumFilled, gSum, filled}
-	 */
-	/**
 	 * Derive sums from NLZ histogram.  counts is int[66]: [0]=empties, [k+1]=buckets at absNlz=k.
 	 * Returns {difSum, hllSumFilled, gSum, filled}.
 	 */
@@ -270,35 +258,32 @@ public abstract class AbstractCardStats {
 	}
 
 	/**
-	 * Information-weighted DLC blend with selectable error model.
+	 * Pure info-power tier blend — no lcMin transition.
+	 * Returns the weighted log-space average of per-tier LC estimates,
+	 * or NaN if no tiers contribute.
 	 * <p>
 	 * Per-tier expected error was measured empirically (LL6, B=2048, 200K instances)
 	 * and fit with several models:
 	 * <ul>
 	 *   <li><b>Mode 0 — 2-param empirical (R²=0.999):</b>
-	 *       {@code E[err] = a/√n + b/√V} where n=tier occupancy, V=B−n</li>
+	 *       {@code E[err] = a/sqrt(n) + b/sqrt(V)} where n=tier occupancy, V=B-n</li>
 	 *   <li><b>Mode 1 — 1-param delta-method (R²=0.997):</b>
-	 *       {@code E[err] = 0.736·√(n/(B·V)) / ln(B/V)}</li>
+	 *       {@code E[err] = 0.736*sqrt(n/(B*V)) / ln(B/V)}</li>
 	 *   <li><b>Mode 2 — 0-param pure theory (R²=0.983, default):</b>
-	 *       {@code E[err] = √(2/π)·√(n/(B·V)) / ln(B/V)}
+	 *       {@code E[err] = sqrt(2/pi)*sqrt(n/(B*V)) / ln(B/V)}
 	 *       <br>Delta-method propagation of binomial V variance through LC.
-	 *       Coefficient √(2/π) = E[|Z|] for standard normal.</li>
+	 *       Coefficient sqrt(2/pi) = E[|Z|] for standard normal.</li>
 	 *   <li><b>Mode 3 — legacy Gaussian:</b>
-	 *       {@code w = exp(-α·|V_k - target|)}, the original dlcLogSpaceBlend weighting.</li>
+	 *       {@code w = exp(-alpha*|V_k - target|)}, the original dlcLogSpaceBlend weighting.</li>
 	 * </ul>
 	 * For modes 0-2: weight = (1/E[err])^power, blended in log-space.
-	 * At low occupancy (V > DLC_BLEND_HI·B), falls back to lcMin.
 	 *
 	 * @param counts  int[66] NLZ histogram
 	 * @param V       empty buckets
 	 * @param B       total buckets
-	 * @param lcMin   tier-compensated LC (fallback)
 	 * @param power   exponent applied to inverse expected error
-	 * @return information-weighted DLC estimate
+	 * @return information-weighted DLC estimate, or NaN if no tiers contribute
 	 */
-	/** Pure info-power tier blend — no lcMin transition.
-	 *  Returns the weighted log-space average of per-tier LC estimates,
-	 *  or NaN if no tiers contribute. */
 	static double dlcPure(final int[] counts, final int V, final int B, final float power){
 		final int minVK=Tools.max(1, DLC_MIN_VK, (int)(B*DLC_MIN_VK_FRACTION));
 		final int maxVK=B-minVK;
@@ -353,7 +338,6 @@ public abstract class AbstractCardStats {
 
 	/** Blend dlcPure with SBS in cardinality space using dlcRaw as zone detector.
 	 *  Below blendLo*B, pure SBS; above blendHi*B, pure dlcPure; log-interpolated between. */
-	/** Cardinality-based blend with log interpolation (for DlcSbs, Hybrid-like). */
 	static double dlcBlendWithSbs(final double dlcPure, final double sbs,
 			final double dlcRaw, final int B, final float blendLo, final float blendHi){
 		if(Double.isNaN(dlcPure) || dlcRaw<=blendLo*B){return sbs;}

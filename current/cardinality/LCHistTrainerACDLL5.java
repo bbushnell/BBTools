@@ -23,7 +23,11 @@ import java.util.zip.GZIPOutputStream;
  * @author UMP45
  * @date April 2026
  */
-public class LCHistTrainerACDLL5 {
+public class LCHistTrainerACDLL5{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods       ----------------*/
+	/*--------------------------------------------------------------*/
 
 	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
@@ -61,7 +65,7 @@ public class LCHistTrainerACDLL5 {
 	/*----------------         Worker Thread        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final class TrainerThread extends Thread {
+	static final class TrainerThread extends Thread{
 
 		TrainerThread(long seed, int numTrials, int buckets, int hbits){
 			this.seed=seed;
@@ -133,6 +137,10 @@ public class LCHistTrainerACDLL5 {
 			}
 		}
 
+		/*--------------------------------------------------------------*/
+		/*----------------           Fields            ----------------*/
+		/*--------------------------------------------------------------*/
+
 		final long seed;
 		final int numTrials;
 		final int buckets;
@@ -179,10 +187,10 @@ public class LCHistTrainerACDLL5 {
 			final int threadTrials=(int)(iters/numThreads+(t<iters%numThreads?1:0));
 			workers[t]=new TrainerThread(masterSeed+t, threadTrials, buckets, hbits);
 		}
-		for(TrainerThread w : workers) w.start();
+		for(TrainerThread w : workers){w.start();}
 		for(TrainerThread w : workers){
 			try{ w.join(); }catch(InterruptedException e){ Thread.currentThread().interrupt(); }
-			if(!w.success) System.err.println("Warning: a trainer thread did not complete successfully.");
+			if(!w.success){System.err.println("Warning: a trainer thread did not complete successfully.");}
 		}
 
 		final int nStates=(hbits+2)*(1<<hbits);

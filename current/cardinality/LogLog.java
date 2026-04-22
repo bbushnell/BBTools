@@ -1,7 +1,5 @@
 package cardinality;
 
-import java.util.concurrent.atomic.AtomicIntegerArray;
-
 import parse.Parser;
 import shared.Tools;
 import structures.LongList;
@@ -15,28 +13,24 @@ import structures.LongList;
  * @date Sep 30, 2015
  */
 public final class LogLog extends CardinalityTracker {
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/**
-	 * Creates a LogLog with default parameters: 2048 buckets, k=31, random seed, minProb=0
-	 */
+
+	/** Default constructor: 2048 buckets, k=31. */
 	LogLog(){
 		this(2048, 31, -1, 0);
 	}
-	
-	/** Creates a LogLog with parameters from command-line parser.
-	 * @param p Parser containing loglog configuration parameters */
+
+	/** Construct from parsed command-line arguments. */
 	LogLog(Parser p){
 		super(p);
 		maxArray=new int[buckets];
 	}
-	
+
 	/**
-	 * Creates a LogLog with specified parameters.
-	 *
+	 * Full constructor.
 	 * @param buckets_ Number of buckets (counters) for tracking
 	 * @param k_ K-mer length
 	 * @param seed Random number generator seed; -1 for a random seed
@@ -46,39 +40,39 @@ public final class LogLog extends CardinalityTracker {
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new int[buckets];
 	}
-	
+
 	@Override
-	public LogLog copy() {return new LogLog(buckets, k, -1, minProb);}
-	
+	public LogLog copy(){return new LogLog(buckets, k, -1, minProb);}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	//Restores floating point to integer
+
+	/** Restores a leading-zero score back to the original hash magnitude. */
 	private long restore(int score){
-		int leading=score;
-		long mantissa=1;
-		int shift=64-leading-1;
-		long original=mantissa<<shift;
+		final int leading=score;
+		final long mantissa=1;
+		final int shift=64-leading-1;
+		final long original=mantissa<<shift;
 		return original;
 	}
-	
+
 	@Override
 	public final long cardinality(){
 		double difSum=0;
 		double estLogSum=0;
 		int count=0;
-		LongList list=new LongList(buckets);
+		final LongList list=new LongList(buckets);
 		{
 			for(int i=0; i<maxArray.length; i++){
-				int max=maxArray[i];
-				long val=restore(max);
+				final int max=maxArray[i];
+				final long val=restore(max);
 				if(max>0 && val>0){
 //					long val=restore(max);
 					final long dif=val;
 					difSum+=dif;
 					count++;
-					double est=2*(Long.MAX_VALUE/(double)dif);
+					final double est=2*(Long.MAX_VALUE/(double)dif);
 					estLogSum+=Math.log(est);
 					list.add(dif);
 				}
@@ -89,31 +83,31 @@ public final class LogLog extends CardinalityTracker {
 		list.sort();
 		final long median=list.median();
 		final double mwa=list.medianWeightedAverage();
-		
-		//What to use as the value from the counters 
+
+		//What to use as the value from the counters
 		final double proxy=mean;
-		
+
 //		assert(false) : mean+", "+median+", "+difSum+", "+list;
-		
+
 		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		final double conversionFactor=0.7213428177;
 		final double total=conversionFactor*estimatePerSet*div*((count+buckets)/(float)(buckets+buckets));
 
 //		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
 //		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
-		
+
 //		new Exception().printStackTrace();
-		
+
 //		System.err.println(maxArray);
 ////		Overall, it looks like "total" is the best, then "estSum", then "medianEst" is the worst, in terms of variance.
 //		System.err.println("difSum="+difSum+", count="+count+", mean="+mean+", est="+estimatePerSet+", total="+(long)total);
 //		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
-		
-		long cardinality=Math.min(added, (long)(total));
+
+		final long cardinality=Math.min(added, (long)(total));
 		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
-	
+
 //	@Override
 //	public final long cardinality(){
 //		long sum=0;
@@ -132,20 +126,20 @@ public final class LogLog extends CardinalityTracker {
 //		lastCardinality=cardinality;
 //		return cardinality;
 //	}
-	
+
+	/** Harmonic-mean cardinality estimate (alternative estimator). */
 	public final long cardinalityH(){
 		double sum=0;
 		for(int i=0; i<maxArray.length; i++){
-			int x=Tools.max(1, maxArray[i]);
+			final int x=Tools.max(1, maxArray[i]);
 			sum+=1.0/x;
 		}
-		double mean=buckets/sum;
+		final double mean=buckets/sum;
 		return (long)((Math.pow(2, mean)*buckets));
 	}
-	
+
 	/**
-	 * Adds another CardinalityTracker to this LogLog by merging bucket values.
-	 * Takes the maximum leading zero count for each bucket position.
+	 * Merges another CardinalityTracker into this LogLog via per-bucket max.
 	 * @param log CardinalityTracker to merge (must be LogLog instance)
 	 */
 	@Override
@@ -153,7 +147,8 @@ public final class LogLog extends CardinalityTracker {
 		assert(log.getClass()==this.getClass());
 		add((LogLog)log);
 	}
-	
+
+	/** Merges another LogLog into this one via per-bucket max. */
 	public void add(LogLog log){
 		added+=log.added;
 		if(maxArray!=log.maxArray){
@@ -162,41 +157,43 @@ public final class LogLog extends CardinalityTracker {
 			}
 		}
 	}
-	
+
 	@Override
 	public void hashAndStore(final long number){
 //		if(number%SKIPMOD!=0){return;} //Slows down moderately
 		long key=number;
-		
+
 //		key=hash(key, tables[((int)number)&numTablesMask]);
-		
+
 		key=Tools.hash64shift(key);
 //		if(key<0 || key>maxHashedValue){return;}//Slows things down by 50% lot, mysteriously
-		int leading=Long.numberOfLeadingZeros(key);
-		
+		final int leading=Long.numberOfLeadingZeros(key);
+
 //		counts[leading]++;
-		
+
 //		if(leading<3){return;}//Slows things down slightly
 //		final int bucket=(int)((number&Integer.MAX_VALUE)%buckets);
 		final int bucket=(int)(key&bucketMask);
-		
-		{
-			maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
-		}
+
+		maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
 	}
-	
-	/** Returns the compensation factor array for LogLog bucket count adjustments */
+
+	/** Returns the compensation factor array for LogLog bucket count adjustments. */
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){
 		return compensationFactorLogBucketsArray;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	private final int[] maxArray;
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Statics            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	private static final float[] compensationFactorLogBucketsArray={
 			0.053699781f, 0.49556874f, 0.742263622f, 0.861204899f, 0.926038294f,
 			0.967001269f, 0.982949748f, 0.992495155f, 0.996185775f, 0.998077246f
