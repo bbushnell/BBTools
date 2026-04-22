@@ -131,6 +131,7 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardStats s=summarize();
+		lastSummarized=s;
 		long card=Math.max(0, Math.round(s.ldlc()));
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
@@ -342,8 +343,6 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 	private long eeMask=-1L;
 	/** Count of buckets with reg > 0. */
 	private int filledBuckets=0;
-	/** Lazy-allocated per-bucket LC history state indices for lcHist(). */
-	private byte[] sbsStates;
 	/** Cached CardStats from last rawEstimates() call. */
 	private CardStats lastSummarized;
 
