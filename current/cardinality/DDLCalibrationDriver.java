@@ -145,10 +145,10 @@ public class DDLCalibrationDriver {
 			else if(a.equals("cfdif") || a.equals("cfconvergence")){CardinalityStats.DEFAULT_CF_DIF=Double.parseDouble(b);}
 			else if(a.equals("tracecf")){CorrectionFactor.TRACE_CF=Parse.parseBoolean(b);}
 			else if(a.equals("minvfraction") || a.equals("minvk")){
-				float x=Float.parseFloat(b);
-				if(x<1) {
+				final float x=Float.parseFloat(b);
+				if(x<1){
 					CardinalityStats.DLC_MIN_VK_FRACTION=x;
-				}else {
+				}else{
 					CardinalityStats.DLC_MIN_VK=(int)x;
 				}
 			}else if(a.equals("promotethreshold") || a.equals("pt")){

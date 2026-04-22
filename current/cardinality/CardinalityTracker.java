@@ -23,32 +23,32 @@ import ukmer.Kmer;
  * @date Feb 20, 2020
  */
 public abstract class CardinalityTracker implements Drivable {
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	private static final String pickType(String type) {
+
+	private static final String pickType(final String type){
 		if(trackCounts){
-			if("BBLog".equalsIgnoreCase(type)) {return type;}
-			else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) || 
+			if("BBLog".equalsIgnoreCase(type)){return type;}
+			else if("DLL".equalsIgnoreCase(type) || "DynamicLogLog".equalsIgnoreCase(type) ||
 				"DDL".equalsIgnoreCase(type) || "DynamicDemiLog".equalsIgnoreCase(type)){
 				return type;
-			}else {return "LogLog16";}
+			}else{return "LogLog16";}
 		}
 		return type;
 	}
-	
+
 	/**
 	 * Factory method that creates a tracker using default settings.
 	 * Subclass is determined by static Parser.loglogType field.
 	 * BBLog is preferred when trackCounts is enabled for optimal accuracy and speed.
 	 * @return New CardinalityTracker instance of the configured type
 	 */
-	public static CardinalityTracker makeTracker(String type){
-		assert(type==null || type.equalsIgnoreCase(Parser.loglogType)) :
-			"Passed type '"+type+"' differs from configured Parser.loglogType '"+Parser.loglogType+"'";
-		type=pickType(type);
+	public static CardinalityTracker makeTracker(final String type0){
+		assert(type0==null || type0.equalsIgnoreCase(Parser.loglogType)) :
+			"Passed type '"+type0+"' differs from configured Parser.loglogType '"+Parser.loglogType+"'";
+		final String type=pickType(type0);
 		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog();//Fastest, most accurate
 		}else if("LogLog".equalsIgnoreCase(type)){
@@ -146,7 +146,7 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param p Parser containing configuration parameters
 	 * @return New CardinalityTracker instance configured from parser
 	 */
-	public static CardinalityTracker makeTracker(Parser p){
+	public static CardinalityTracker makeTracker(final Parser p){
 		final String type=pickType(Parser.loglogType);
 		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog(p);
@@ -240,12 +240,12 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param minProb_ Ignore k-mers with correctness probability below this threshold
 	 * @return New CardinalityTracker instance with specified configuration
 	 */
-	public static CardinalityTracker makeTracker(int buckets_, int k_, long seed, float minProb_){
+	public static CardinalityTracker makeTracker(final int buckets_, final int k_, final long seed, final float minProb_){
 		return makeTracker(Parser.loglogType, buckets_, k_, seed, minProb_);
 	}
 
 	/** Thread-safe factory: takes type explicitly instead of reading Parser.loglogType. */
-	public static CardinalityTracker makeTracker(String type0, int buckets_, int k_, long seed, float minProb_){
+	public static CardinalityTracker makeTracker(final String type0, final int buckets_, final int k_, final long seed, final float minProb_){
 		final String type=pickType(type0);
 		if("BBLog".equalsIgnoreCase(type)){
 			return new BBLog(buckets_, k_, seed, minProb_);
@@ -332,13 +332,13 @@ public abstract class CardinalityTracker implements Drivable {
 	/*--------------------------------------------------------------*/
 	/*----------------         Constructors         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Creates a tracker with parameters extracted from a Parser.
 	 * @param p Parser containing loglog configuration values */
-	public CardinalityTracker(Parser p){
+	public CardinalityTracker(final Parser p){
 		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 	}
-	
+
 	/**
 	 * Creates a tracker with specified parameters.
 	 * Buckets will be rounded up to the next power of 2 for efficient bit masking.
@@ -348,7 +348,7 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param seed Random number generator seed; -1 for a random seed
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
-	public CardinalityTracker(int buckets_, int k_, long seed, float minProb_){
+	public CardinalityTracker(final int buckets_, final int k_, final long seed, final float minProb_){
 		buckets=powerOf2AtLeast(buckets_);
 		assert(buckets>0 && Integer.bitCount(buckets)==1) : "Buckets must be a power of 2: "+buckets;
 		bucketMask=buckets-1;
@@ -360,84 +360,86 @@ public abstract class CardinalityTracker implements Drivable {
 		//Xor is not used anymore, but could be, as long as each copy gets the same one.
 	}
 
+	/** Create an independent copy of this tracker. */
 	public abstract CardinalityTracker copy();
-	
+
 	/**
 	 * Returns the lowest power of 2 that is greater than or equal to target.
 	 * Required because buckets must be a power of 2 for efficient bit masking.
 	 * @param target The minimum value needed
 	 * @return Smallest power of 2 >= target, capped at 0x40000000
 	 */
-	public static final int powerOf2AtLeast(int target){
+	public static final int powerOf2AtLeast(final int target){
 		if(target<1){return 1;}
-		int ret=1, limit=Tools.min(target, 0x40000000);
+		int ret=1;
+		final int limit=Tools.min(target, 0x40000000);
 		while(ret<limit){ret<<=1;}
 		return ret;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Program entry point (deprecated).
 	 * Redirects to LogLogWrapper for actual processing.
 	 * @param args Command-line arguments
 	 */
-	public static final void main(String[] args){
-		LogLogWrapper llw=new LogLogWrapper(args);
-		
+	public static final void main(final String[] args){
+		final LogLogWrapper llw=new LogLogWrapper(args);
+
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
-		
+
 		llw.process();
-		
+
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 	}
-	
+
 	/**
 	 * Hashes and adds a number to this tracker.
 	 * This is the ONLY correct way to add elements externally.
 	 * Handles added-count tracking for clampToAdded support.
 	 * @param number The value to hash and track
 	 */
-	public final void add(long number){
+	public final void add(final long number){
 		hashAndStore(number);
 		added++;
 	}
-	
+
 	/**
 	 * Hashes and tracks all k-mers from a Read and its mate.
 	 * Processes both forward and mate sequences if they meet minimum length requirements.
 	 * @param r The Read to process (may be null)
 	 */
-	public final void hash(Read r){
+	public final void hash(final Read r){
 		if(r==null){return;}
 		if(r.length()>=k){hash(r.bases, r.quality);}
 		if(r.mateLength()>=k){hash(r.mate.bases, r.mate.quality);}
 	}
-	
+
 	/**
-	 * Hashes and tracks all k-mers from a Read and its mate.
-	 * Processes both forward and mate sequences if they meet minimum length requirements.
-	 * @param r The Read to process (may be null)
+	 * Hashes and tracks all k-mers from a SamLine.
+	 * Processes the sequence if it meets minimum length requirements.
+	 * @param r The SamLine to process (may be null)
 	 */
-	public final void hash(SamLine r){
+	public final void hash(final SamLine r){
 		if(r==null || r.seq==null){return;}
 		if(r.length()>=k){hash(r.seq, r.qual);}
 	}
-	
+
 	/**
 	 * Hashes and tracks all k-mers from a sequence with quality scores.
 	 * Routes to appropriate method based on k-mer size (small vs big).
 	 * @param bases Sequence bases as byte array
 	 * @param quals Quality scores (may be null)
 	 */
-	public final void hash(byte[] bases, byte[] quals){
+	public final void hash(final byte[] bases, final byte[] quals){
 		if(k<32){hashSmall(bases, quals);}
 		else{hashBig(bases, quals);}
 	}
-	
+
 	/**
 	 * Hashes and tracks sequence using short k-mers (k < 32).
 	 * Uses bit-shifting operations for efficient k-mer rolling.
@@ -446,34 +448,34 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param bases Sequence bases as byte array
 	 * @param quals Quality scores for probability calculation (may be null)
 	 */
-	public final void hashSmall(byte[] bases, byte[] quals){
+	public final void hashSmall(final byte[] bases, final byte[] quals){
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
 		final int lenmask=(-1)>>>k;
-		
+
 		long kmer=0, rkmer=0;
-		
+
 		if(minProb>0 && quals!=null){//Debranched loop
 			assert(quals.length==bases.length) : quals.length+", "+bases.length;
 			float prob=1;
 			int len=0;
 			for(int i=0; i<bases.length; i++){
-				byte b=bases[i];
-				
+				final byte b=bases[i];
+
 //				long x=AminoAcid.baseToNumber[b];
 //				final long x2=x^3;
-				
+
 				final long x=((b>>1)&3)|((b&8)<<28);//Different encoding
 				final long x2=x^2;
-				
+
 				kmer=((kmer<<2)|x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
 
 				//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
 				if(len>=k){prob=prob*PROB_CORRECT_INVERSE[quals[i-k]];}
-				
+
 				if(x>=0){
 					len++;
 				}else{
@@ -481,7 +483,7 @@ public abstract class CardinalityTracker implements Drivable {
 					kmer=rkmer=0;
 					prob=1;
 				}
-				
+
 				if(len>=k && prob>=minProb){add(Math.max(kmer, rkmer));}
 			}
 		}else{
@@ -493,7 +495,7 @@ public abstract class CardinalityTracker implements Drivable {
 //				long x2=AminoAcid.baseToComplementNumber[b];
 //				kmer=((kmer<<2)|x)&mask;
 //				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-//				
+//
 //				if(x>=0){
 //					len++;
 //				}else{
@@ -504,7 +506,7 @@ public abstract class CardinalityTracker implements Drivable {
 //					add(Math.max(kmer, rkmer));
 //				}
 //			}
-			
+
 			//Does not handle IUPAC
 			int len=-1;
 			for(int i=0; i<bases.length; i++){
@@ -513,15 +515,15 @@ public abstract class CardinalityTracker implements Drivable {
 //				final long x2=x^3;
 				final long x=((b>>1)&3)|((b&8)<<28);//Alternate 2-bit encoding
 				final long x2=x^2;
-				
+
 				// shift register, tracks valid bases in upper zeros
 				len|=x;
 				len>>>=1;
-				
+
 				// Let the kmers roll. Garbage flushes out naturally after k shifts!
 				kmer=((kmer<<2)|x)&mask;
 				rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-				
+
 				// Countdown timer reached the threshold
 				if(len<=lenmask){
 					add(Math.max(kmer, rkmer));
@@ -529,7 +531,7 @@ public abstract class CardinalityTracker implements Drivable {
 			}
 		}
 	}
-	
+
 	/**
 	 * Hashes and tracks sequence using long k-mers (k >= 32).
 	 * Uses Kmer objects for handling k-mers longer than 31 bases.
@@ -537,20 +539,19 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param bases Sequence bases as byte array
 	 * @param quals Quality scores for probability calculation (may be null)
 	 */
-	public final void hashBig(byte[] bases, byte[] quals){
-		
-		Kmer kmer=getLocalKmer();
+	public final void hashBig(final byte[] bases, final byte[] quals){
+		final Kmer kmer=getLocalKmer();
 		int len=0;
 		float prob=1;
-		
+
 		for(int i=0; i<bases.length; i++){
-			byte b=bases[i];
-			long x=Dedupe.baseToNumber[b];
+			final byte b=bases[i];
+			final long x=Dedupe.baseToNumber[b];
 			kmer.addRightNumeric(x);
 			if(minProb>0 && quals!=null){//Update probability
 				prob=prob*PROB_CORRECT[quals[i]];
 				if(len>=k){
-					byte oldq=quals[i-k];
+					final byte oldq=quals[i-k];
 					prob=prob*PROB_CORRECT_INVERSE[oldq];
 				}
 			}
@@ -565,28 +566,31 @@ public abstract class CardinalityTracker implements Drivable {
 			}
 		}
 	}
-	
+
+	/** Returns the compensation factor for the current bucket count. */
 	public final float compensationFactorBuckets(){
 		assert(Integer.bitCount(buckets)==1) : buckets;
-		int zeros=Integer.numberOfTrailingZeros(buckets);
+		final int zeros=Integer.numberOfTrailingZeros(buckets);
 		return compensationFactorLogBuckets(zeros);
 	}
-	
-	public final float compensationFactorLogBuckets(int logBuckets){
-		float[] array=compensationFactorLogBucketsArray();
+
+	/** Returns the compensation factor for the given log2(buckets) value. */
+	public final float compensationFactorLogBuckets(final int logBuckets){
+		final float[] array=compensationFactorLogBucketsArray();
 		return (array!=null && logBuckets<array.length) ? array[logBuckets] : 1/(1+(1<<logBuckets));
 	}
-	
+
+	/** Builds a sorted frequency list from bucket counts for histogram output. */
 	public SuperLongList toFrequency(){
-		SuperLongList list=new SuperLongList(1000);
-		if(getClass()==LogLog16.class) {
-			char[] counts=counts16();
-			for(char x : counts){
+		final SuperLongList list=new SuperLongList(1000);
+		if(getClass()==LogLog16.class){
+			final char[] counts=counts16();
+			for(final char x : counts){
 				if(x>0){list.add(x);}
 			}
-		}else {
-			int[] counts=getCounts();
-			for(int x : counts){
+		}else{
+			final int[] counts=getCounts();
+			for(final int x : counts){
 				if(x>0){list.add(x);}
 			}
 		}
@@ -604,21 +608,31 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param supersample Adjust counts for the effect of subsampling
 	 * @param decimals Number of decimal places for supersampled counts
 	 */
-	public void printKhist(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
+	/**
+	 * Prints a k-mer frequency histogram to file.
+	 * Outputs depth-count pairs with optional supersampling adjustment.
+	 * @param path File path for output
+	 * @param overwrite Whether to overwrite existing file
+	 * @param append Whether to append to existing file
+	 * @param supersample Adjust counts for the effect of subsampling
+	 * @param decimals Number of decimal places for supersampled counts
+	 */
+	public void printKhist(final String path, final boolean overwrite, final boolean append, final boolean supersample, final int decimals){
 		printKhist32(path, overwrite, append, supersample, decimals);
 	}
-	
-	public void printKhist32(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
-		SuperLongList sll=toFrequency();
-		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
+
+	/** Prints a 32-bit k-mer frequency histogram to file. */
+	public void printKhist32(final String path, final boolean overwrite, final boolean append, final boolean supersample, final int decimals){
+		final SuperLongList sll=toFrequency();
+		final ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
 		bsw.start();
 		bsw.print("#Depth\tCount\n");
 		final double mult=Math.max(1.0, (supersample ? cardinality()/(double)buckets : 1));
 		final long[] array=sll.array();
 		final LongList list=sll.list();
-		
+
 		for(int depth=0; depth<array.length; depth++){
-			long count=array[depth];
+			final long count=array[depth];
 			if(count>0){
 				bsw.print(depth).tab();
 				if(supersample){
@@ -635,7 +649,7 @@ public abstract class CardinalityTracker implements Drivable {
 		int count=0;
 		long prevDepth=-1;
 		for(int i=0; i<list.size; i++){
-			long depth=list.get(i);
+			final long depth=list.get(i);
 			if(depth!=prevDepth && count>0){
 				assert(depth>prevDepth);
 				bsw.print(prevDepth).tab();
@@ -668,7 +682,7 @@ public abstract class CardinalityTracker implements Drivable {
 		}
 		bsw.poisonAndWait();
 	}
-	
+
 //	public void printKhist16(String path, boolean overwrite, boolean append, boolean supersample, int decimals){
 //		char[] array=counts16();
 //		ByteStreamWriter bsw=new ByteStreamWriter(path, overwrite, append, false);
@@ -693,16 +707,17 @@ public abstract class CardinalityTracker implements Drivable {
 //		}
 //		bsw.poisonAndWait();
 //	}
-	
+
+	/** Sum of all bucket counts. Returns 0 if counts are not tracked. */
 	public final long countSum(){
-		int[] counts=getCounts();
+		final int[] counts=getCounts();
 		return counts==null ? 0 : simd.Vector.sum(counts);
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Abstract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Calculates cardinality estimate from this tracker.
 	 * Implementation varies by subclass algorithm.
@@ -718,16 +733,17 @@ public abstract class CardinalityTracker implements Drivable {
 	public int[] getCounts(){
 		return null;
 	}
-	
+
+	/** Returns 16-bit counts array if present; null otherwise. */
 	public char[] counts16(){return null;}
-	
+
 	/**
 	 * Merges another tracker into this one.
 	 * Combines cardinality estimates from both trackers.
 	 * @param log The tracker to add to this one
 	 */
-	public abstract void add(CardinalityTracker log);
-	
+	public abstract void add(final CardinalityTracker log);
+
 	/**
 	 * Generates a 64-bit hashcode from a number and adds it to this tracker.
 	 * <p>
@@ -743,7 +759,7 @@ public abstract class CardinalityTracker implements Drivable {
 	 * @param number The value to hash and store
 	 */
 	public abstract void hashAndStore(final long number);
-	
+
 	/**
 	 * Returns array of compensation factors indexed by log2(buckets).
 	 * Designed to compensate for overestimate with small numbers of buckets.
@@ -795,33 +811,35 @@ public abstract class CardinalityTracker implements Drivable {
 	public long getLastCardinality(){return lastCardinality;}
 
 	@Override
-	public void setLastCardinality(long val){lastCardinality=val;}
-	
+	public void setLastCardinality(final long val){lastCardinality=val;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** K-mer length for sequence hashing */
+
+	/** K-mer length for sequence hashing. */
 	public final int k;
-	
-	/** Minimum probability threshold for k-mer correctness filtering */
+
+	/** Minimum probability threshold for k-mer correctness filtering. */
 	public final float minProb;
-	
-	/** Number of buckets for tracking; must be a power of 2 for efficiency */
+
+	/** Number of buckets for tracking; must be a power of 2 for efficiency. */
 	public final int buckets;
+	/** Returns the actual bucket count used by this tracker. */
 	public int actualBuckets(){return buckets;}
-	
+
+	/** Log2 of buckets, i.e. number of bits in bucketMask. */
 	public final int bucketBits;
-	
-	/** Bit mask for extracting bucket index from hashcode; equals buckets-1 */
+
+	/** Bit mask for extracting bucket index from hashcode; equals buckets-1. */
 	final int bucketMask;
-	
-	/** Thread-local storage for Kmer objects used in long k-mer hashing */
+
+	/** Thread-local storage for Kmer objects used in long k-mer hashing. */
 	private final ThreadLocal<Kmer> localKmer=new ThreadLocal<Kmer>();
-	
-	/** Value XORed with hash inputs to vary hash function behavior */
+
+	/** Value XORed with hash inputs to vary hash function behavior. */
 	protected final long hashXor;
-	
+
 	/**
 	 * Gets a thread-local Kmer object for long k-mer mode processing.
 	 * Creates new Kmer if none exists for current thread.
@@ -842,12 +860,10 @@ public abstract class CardinalityTracker implements Drivable {
 		kmer.clearFast();
 		return kmer;
 	}
-	
-	/*--------------------------------------------------------------*/
-	/*----------------            Fields            ----------------*/
-	/*--------------------------------------------------------------*/
-	
+
+	/** Number of hashes added to this tracker. */
 	long added=0;
+	/** 64-bit micro cardinality sketch for very-low-cardinality estimation. */
 	long microIndex=0;
 	/** Absolute NLZ histogram: nlzCounts[k] = number of buckets with absoluteNlz==k.
 	 * Lazy-allocated on first summarize() call; cleared and reused on subsequent calls.
@@ -859,15 +875,16 @@ public abstract class CardinalityTracker implements Drivable {
 	protected LongList sortBuf;
 	/** Cached cardinality estimate; -1 means stale. Shared by all calibratable subclasses. */
 	public long lastCardinality=-1;
-	
+
 	/*--------------------------------------------------------------*/
-	/*----------------            Statics           ----------------*/
+	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Array converting quality scores to probability of base correctness */
+
+	/** Array converting quality scores to probability of base correctness. */
 	public static final float[] PROB_CORRECT=Arrays.copyOf(align2.QualityTools.PROB_CORRECT, 128);
+	/** Inverse probability array: 1/PROB_CORRECT for sliding-window probability updates. */
 	public static final float[] PROB_CORRECT_INVERSE=Arrays.copyOf(align2.QualityTools.PROB_CORRECT_INVERSE, 128);
-	
+
 	// --- Global configuration ---
 	// These fields are set once by CardinalityParser.initializeAll() on the main thread
 	// before any worker threads are created. Thread.start() provides happens-before
@@ -906,5 +923,5 @@ public abstract class CardinalityTracker implements Drivable {
 	 * instead of lcMin as the low-cardinality component in the blend zone. */
 	public static boolean USE_SBS_IN_HYBRID=true;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
-	
+
 }

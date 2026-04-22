@@ -28,7 +28,7 @@ public class CorrectionFactor{
 	/*----------------            Main              ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static void main(String[] args) {
+	public static void main(String[] args){
 		String fname=args[0];
 		int buckets=(args.length>1 ? Parse.parseIntKMG(args[1]) : 2048);
 		initialize(fname, buckets);
@@ -38,7 +38,7 @@ public class CorrectionFactor{
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static synchronized void initialize(String fname, int buckets) {
+	public static synchronized void initialize(String fname, int buckets){
 		correctionFile=fname;
 		correctionBuckets=buckets=CardinalityTracker.powerOf2AtLeast(buckets);
 		CF_MATRIX=loadFile(fname, buckets);
@@ -217,11 +217,6 @@ public class CorrectionFactor{
 	 * @param buckets   Total bucket count in the DDL
 	 * @param type      Estimator type constant (MEAN, HLL, etc.)
 	 */
-	/**
-	 * Returns the correction factor for the given filled-bucket count and estimator type.
-	 * Returns 1 if USE_CORRECTION is false, CF_MATRIX is null, or type is LINEAR.
-	 * Uses quadratic interpolation (average of two parabolas) for any bucket count.
-	 */
 	public static float getCF(int occupancy, int buckets, int type){
 		if(!USE_CORRECTION || CF_MATRIX==null || type==LINEAR){return 1;}
 		final float[] array=CF_MATRIX[type];
@@ -328,7 +323,7 @@ public class CorrectionFactor{
 		if("HMeanM_cf".equals(name)){return HMEANM;}
 		if("GMean_cf".equals(name)){return GMEAN;}
 		if("DLC3B_cf".equals(name)){return DLC3B;}
-		if("HLL_cf".equals(name)) {return HLL;}
+		if("HLL_cf".equals(name)){return HLL;}
 		if("Hybrid_cf".equals(name)){return HYBRID;}
 		if("HybDLC_cf".equals(name)){return HYBDLC;}
 		if("DLC_cf".equals(name)){return DLC;}
@@ -539,16 +534,11 @@ public class CorrectionFactor{
 	}
 
 	/**
-	 * Fully generic iterative CF lookup.
-	 * <p>
+	 * Iterative CF lookup with key scaling.
 	 * Refines a cardinality estimate by iteratively looking up the CF for rawEst
-	 * using the current best estimate as the lookup key:
-	 * <pre>
-	 *   bestEst = seedEst           // initial guess (e.g. raw DLC)
-	 *   cf = cfCol[bestEst]         // look up CF at current best guess
-	 *   bestEst = cf * rawEst       // refine: corrected estimate = CF × raw
-	 *   repeat until converged or maxIters
-	 * </pre>
+	 * using the current best estimate as the lookup key, multiplied by keyScale
+	 * (use tableBuckets / currentBuckets when the CF table was built at a
+	 * different bucket count than the current instance).
 	 * Flat CF curves converge in 1 iteration; divergent curves (DLL3) need 2-3.
 	 *
 	 * @param seedEst   initial cardinality estimate (e.g. raw DLC, CF near 1)
@@ -557,12 +547,8 @@ public class CorrectionFactor{
 	 * @param keys      cardinality keys for binary search into cfCol
 	 * @param maxIters  maximum refinement iterations (1 = single lookup)
 	 * @param maxDif    convergence threshold: stop when |newCf - cf| &lt; maxDif
+	 * @param keyScale  multiplicative factor applied to lookup key before interpolation
 	 * @return correction factor to multiply rawEst by
-	 */
-	/**
-	 * Scaled variant: multiplies lookup key by keyScale before interpolating.
-	 * Use keyScale = tableBuckets / currentBuckets when the CF table was built
-	 * at a different bucket count than the current instance (v5+ tables).
 	 */
 	public static double getCF(double seedEst, double rawEst,
 			float[] cfCol, float[] keys, int maxIters, double maxDif, double keyScale){
@@ -583,6 +569,7 @@ public class CorrectionFactor{
 		return cf;
 	}
 
+	/** Iterative CF lookup without key scaling (keyScale=1). */
 	public static double getCF(double seedEst, double rawEst,
 			float[] cfCol, float[] keys, int maxIters, double maxDif){
 		if(cfCol==null || keys==null || keys.length==0){return 1.0;}

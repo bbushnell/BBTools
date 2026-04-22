@@ -5,8 +5,14 @@ import shared.Tools;
 /**
  * Dense UDLC test: 1% checkpoints from 8B to 16B (16384-32768 at 2048 buckets).
  * Prints per-checkpoint signed error for L1, L2, and blends to show sine wave phase.
+ *
+ * @author Brian Bushnell
  */
 public class UDLCDense {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		final int buckets=2048;
@@ -16,10 +22,10 @@ public class UDLCDense {
 
 		// Dense checkpoints: ~1% increments
 		int numChecks=0;
-		for(int card=startCard; card<=endCard; card=(int)(card*1.01)+1) numChecks++;
+		for(int card=startCard; card<=endCard; card=(int)(card*1.01)+1){numChecks++;}
 		final int[] checkpoints=new int[numChecks];
 		int ci=0;
-		for(int card=startCard; card<=endCard; card=(int)(card*1.01)+1) checkpoints[ci++]=card;
+		for(int card=startCard; card<=endCard; card=(int)(card*1.01)+1){checkpoints[ci++]=card;}
 
 		// Accumulators
 		final double[] fgraErr=new double[numChecks];
@@ -32,7 +38,7 @@ public class UDLCDense {
 		final double[] l3Abs=new double[numChecks];
 
 		for(int inst=0; inst<numInstances; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*999999937L+42;
 			int nextCheck=0;
 			for(int card=1; card<=endCard && nextCheck<numChecks; card++){
@@ -44,12 +50,12 @@ public class UDLCDense {
 					final double dlc1=udlc[0], dlc2=udlc[1], dlc3=udlc[2];
 					fgraErr[nextCheck]+=(fgra-card)/card;
 					l1Err[nextCheck]+=(dlc1-card)/card;
-					if(dlc2>0) l2Err[nextCheck]+=(dlc2-card)/card;
-					if(dlc3>0) l3Err[nextCheck]+=(dlc3-card)/card;
+					if(dlc2>0){l2Err[nextCheck]+=(dlc2-card)/card;}
+					if(dlc3>0){l3Err[nextCheck]+=(dlc3-card)/card;}
 					fgraAbs[nextCheck]+=Math.abs(fgra-card)/card;
 					l1Abs[nextCheck]+=Math.abs(dlc1-card)/card;
-					if(dlc2>0) l2Abs[nextCheck]+=Math.abs(dlc2-card)/card;
-					if(dlc3>0) l3Abs[nextCheck]+=Math.abs(dlc3-card)/card;
+					if(dlc2>0){l2Abs[nextCheck]+=Math.abs(dlc2-card)/card;}
+					if(dlc3>0){l3Abs[nextCheck]+=Math.abs(dlc3-card)/card;}
 					nextCheck++;
 				}
 			}

@@ -47,7 +47,7 @@ public final class LogLog8 extends CardinalityTracker {
 	}
 	
 	@Override
-	public LogLog8 copy() {return new LogLog8(buckets, k, -1, minProb);}
+	public LogLog8 copy(){return new LogLog8(buckets, k, -1, minProb);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
@@ -64,18 +64,16 @@ public final class LogLog8 extends CardinalityTracker {
 //	}
 	
 	/**
-	 * Restores the original hash value from a leading zero count.
-	 * Converts the stored leading zero score back to an approximate original value
-	 * using bit manipulation to reconstruct the mantissa and shift operations.
-	 *
-	 * @param score Number of leading zeros in the original hash
-	 * @return Reconstructed approximate original hash value
+	 * Restores an approximate original value from a leading-zero count.
+	 * Assumes mantissa=1 (no fractional bits stored).
+	 * @param score Number of leading zeros
+	 * @return Approximate original hash value
 	 */
-	private long restore(int score){
-		int leading=score;
-		long mantissa=1;
-		int shift=64-leading-1;
-		long original=mantissa<<shift;
+	private long restore(final int score){
+		final int leading=score;
+		final long mantissa=1;
+		final int shift=64-leading-1;
+		final long original=mantissa<<shift;
 		return original;
 	}
 	
@@ -87,46 +85,50 @@ public final class LogLog8 extends CardinalityTracker {
 	 *
 	 * @return Estimated cardinality of unique elements
 	 */
+	/**
+	 * Estimates cardinality from leading-zero statistics across all buckets.
+	 * Uses an empirically-derived conversion factor for mantissa correction.
+	 */
 	@Override
 	public final long cardinality(){
 		double difSum=0;
 		double estLogSum=0;
 		int count=0;
-		LongList list=new LongList(buckets);
-		
+		final LongList list=new LongList(buckets);
+
 		for(int i=0; i<maxArray.length; i++){
-			int max=maxArray[i];
-			long val=restore(max);
+			final int max=maxArray[i];
+			final long val=restore(max);
 			if(max>0 && val>0){
 				final long dif=val;
 				difSum+=dif;
 				count++;
-				double est=2*(Long.MAX_VALUE/(double)dif);
+				final double est=2*(Long.MAX_VALUE/(double)dif);
 				estLogSum+=Math.log(est);
 				list.add(dif);
 			}
 		}
-			
-		final int div=count;//Could also be count be that causes problems
+
+		final int div=count;//Could also be count but that causes problems
 		final double mean=difSum/Tools.max(div, 1);
 		list.sort();
 		final long median=list.median();
 		final double mwa=list.medianWeightedAverage();
-		
-		//What to use as the value from the counters 
+
+		//What to use as the value from the counters
 		final double proxy=mean;
-		
+
 //		assert(false) : mean+", "+median+", "+difSum+", "+list;
-		
+
 		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
-		
+
 		//12000000        16635460.58 //8k sims, 100k reads, 128k buckets
 		//16635789.16  //16k sims, 100k reads, 128k buckets
 		//16635901.26  //64k sims
 		//16635476.90  //128k
 		//16635631.18  //256k
 		//16635645.59  //512k
-		
+
 		//0.72134379048167576520498945661274
 		//0.72134281774212774758647730006006
 		final double conversionFactor=0.7213428177;
@@ -134,27 +136,28 @@ public final class LogLog8 extends CardinalityTracker {
 
 //		final double estSum=div*Math.exp(estLogSum/(Tools.max(div, 1)));
 //		double medianEst=2*(Long.MAX_VALUE/(double)median)*SKIPMOD*div;
-		
+
 //		new Exception().printStackTrace();
-		
+
 //		System.err.println(maxArray);
 ////		Overall, it looks like "total" is the best, then "estSum", then "medianEst" is the worst, in terms of variance.
 //		System.err.println("difSum="+difSum+", count="+count+", mean="+mean+", est="+estimatePerSet+", total="+(long)total);
 //		System.err.println("estSum="+(long)estSum+", median="+median+", medianEst="+(long)medianEst);
-		
-		long cardinality=Math.min(added, (long)(total));
+
+		final long cardinality=Math.min(added, (long)(total));
 		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
 	
-	/** Merges another cardinality tracker into this one by taking maximum values.
-	 * @param log The cardinality tracker to merge (must be LogLog8) */
+	/** Merges another tracker into this one by taking per-bucket maximums.
+	 * @param log Tracker to merge (must be LogLog8) */
 	@Override
 	public final void add(CardinalityTracker log){
 		assert(log.getClass()==this.getClass());
 		add((LogLog8)log);
 	}
-	
+
+	/** Merges another LogLog8 by element-wise maximum of bucket arrays. */
 	public void add(LogLog8 log){
 		added+=log.added;
 		if(maxArray!=log.maxArray){
@@ -164,36 +167,30 @@ public final class LogLog8 extends CardinalityTracker {
 		}
 	}
 	
+	/** {@inheritDoc} */
 	@Override
 	public void hashAndStore(final long number){
 //		if(number%SKIPMOD!=0){return;} //Slows down moderately
 		long key=number^hashXor;
-		
+
 //		key=hash(key, tables[((int)number)&numTablesMask]);
-		
+
 		key=Tools.hash64shift(key);
 //		if(key<0 || key>maxHashedValue){return;}//Slows things down by 50% lot, mysteriously
-		byte leading=(byte)(Long.numberOfLeadingZeros(key)&63);//mask is used to keep number in 6 bits 
-		
+		final byte leading=(byte)(Long.numberOfLeadingZeros(key)&63);//mask is used to keep number in 6 bits
+
 //		counts[leading]++;
-		
+
 //		if(leading<3){return;}//Slows things down slightly
 //		final int bucket=(int)((number&Integer.MAX_VALUE)%buckets);
 		final int bucket=(int)(key&bucketMask);
-		
+
 		maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
 	}
 	
-	/**
-	 * Returns null as LogLog8 does not use compensation factors.
-	 * This implementation relies on the conversion factor in cardinality()
-	 * rather than bucket-specific compensation.
-	 * @return null (no compensation factors used)
-	 */
+	/** Returns null; this tracker does not use per-bucket compensation factors. */
 	@Override
-	public final float[] compensationFactorLogBucketsArray(){
-		return null;
-	}
+	public final float[] compensationFactorLogBucketsArray(){return null;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

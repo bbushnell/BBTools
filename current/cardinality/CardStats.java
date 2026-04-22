@@ -24,7 +24,6 @@ import shared.Tools;
  */
 public final class CardStats extends AbstractCardStats {
 
-
 	/*--------------------------------------------------------------*/
 	/*----------------        Construction          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -273,7 +272,7 @@ public final class CardStats extends AbstractCardStats {
 				}
 				final int absNlz=(val>>>histBits_)-1;
 				final int histPattern=val&histMask;
-				if(histPattern!=0) bucketsWithHistory++;
+				if(histPattern!=0){bucketsWithHistory++;}
 				final int nlzBin=Math.min(absNlz, histBits_+1);
 
 				// Per-bucket dif: scaled by tierScale for compressed-tier variants
@@ -293,7 +292,7 @@ public final class CardStats extends AbstractCardStats {
 				if(absNlz>=0 && absNlz<64){
 					nlzBucketCount[absNlz]++;
 					for(int d=0; d<histBits_; d++){
-						if((histPattern&(1<<(histBits_-1-d)))!=0) nlzHbitSet[d][absNlz]++;
+						if((histPattern&(1<<(histBits_-1-d)))!=0){nlzHbitSet[d][absNlz]++;}
 					}
 				}
 			}

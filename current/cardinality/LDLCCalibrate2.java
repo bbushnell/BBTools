@@ -9,11 +9,15 @@ import shared.Tools;
  */
 public class LDLCCalibrate2 {
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		int buckets=512;
 		int numDDLs=4000;
 		for(String arg : args){
-			String[] ab=arg.split("=");
+			final String[] ab=arg.split("=");
 			if(ab[0].equals("buckets")){buckets=Integer.parseInt(ab[1]);}
 			else if(ab[0].equals("ddls")){numDDLs=Integer.parseInt(ab[1]);}
 		}
@@ -21,16 +25,16 @@ public class LDLCCalibrate2 {
 
 		// Build checkpoint array
 		int nc=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) nc++;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){nc++;}
 		final int[] checks=new int[nc];
 		int ci=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) checks[ci++]=c;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){checks[ci++]=c;}
 
 		// First pass: compute the average L2/DLC ratio for normalization
 		double ratioSum=0; int ratioCount=0;
 		{
 			for(int inst=0; inst<Math.min(numDDLs, 500); inst++){
-				UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+				final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 				long seed=inst*999999937L+42;
 				int nextCheck=0;
 				for(int card=1; card<=maxCard && nextCheck<nc; card++){
@@ -38,13 +42,13 @@ public class LDLCCalibrate2 {
 					udll.hashAndStore(seed);
 					if(card==checks[nextCheck]){
 						if(card>8*buckets){
-							int minZeros=udll.getMinZeros();
-							int[] nlzCounts=buildNlzCounts(udll, buckets, minZeros);
-							CardinalityStats cs=CardinalityStats.fromNlzCounts(
+							final int minZeros=udll.getMinZeros();
+							final int[] nlzCounts=buildNlzCounts(udll, buckets, minZeros);
+							final CardinalityStats cs=CardinalityStats.fromNlzCounts(
 								nlzCounts, buckets, 0L, null, 0, null, null);
-							double trueDLC=cs.dlcEst;
-							double[] layers=udll.udlcEstimate();
-							double l2=layers[1];
+							final double trueDLC=cs.dlcEst;
+							final double[] layers=udll.udlcEstimate();
+							final double l2=layers[1];
 							if(l2>0 && trueDLC>0){
 								ratioSum+=trueDLC/l2;
 								ratioCount++;
@@ -69,24 +73,24 @@ public class LDLCCalibrate2 {
 
 		// Second pass: full run
 		for(int inst=0; inst<numDDLs; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*999999937L+42;
 			int nextCheck=0;
 			for(int card=1; card<=maxCard && nextCheck<nc; card++){
 				seed=Tools.hash64shift(seed);
 				udll.hashAndStore(seed);
 				if(card==checks[nextCheck]){
-					int minZeros=udll.getMinZeros();
-					int[] nlzCounts=buildNlzCounts(udll, buckets, minZeros);
-					CardinalityStats cs=CardinalityStats.fromNlzCounts(
+					final int minZeros=udll.getMinZeros();
+					final int[] nlzCounts=buildNlzCounts(udll, buckets, minZeros);
+					final CardinalityStats cs=CardinalityStats.fromNlzCounts(
 						nlzCounts, buckets, 0L, null, 0, null, null);
-					double trueDLC=cs.dlcEst;
-					double fgra=udll.fgraEstimate();
+					final double trueDLC=cs.dlcEst;
+					final double fgra=udll.fgraEstimate();
 
-					double[] layers=udll.udlcEstimate();
-					double l2=layers[1];
-					int b2=countHistoryBuckets(udll, buckets);
-					double coverage=(double)b2/buckets;
+					final double[] layers=udll.udlcEstimate();
+					final double l2=layers[1];
+					final int b2=countHistoryBuckets(udll, buckets);
+					final double coverage=(double)b2/buckets;
 
 					// DLC and FGRA
 					dlcAbsSum[nextCheck]+=Math.abs(trueDLC-card)/(double)card;
@@ -101,7 +105,7 @@ public class LDLCCalibrate2 {
 						if(l2<=0 || coverage<0.30){
 							ldlc=trueDLC;
 						}else{
-							double l2Norm=l2*l2Scale;
+							final double l2Norm=l2*l2Scale;
 							double effectiveAlpha=alphas[ai];
 							if(coverage<0.60){
 								effectiveAlpha*=(coverage-0.30)/0.30;
@@ -117,12 +121,12 @@ public class LDLCCalibrate2 {
 		}
 
 		// Header
-		StringBuilder sb=new StringBuilder("TrueCard\tDLC_abs\tFGRA_abs\tDLC_err\tFGRA_err");
-		for(double a : alphas) sb.append(String.format("\ta%.2f_abs\ta%.2f_err", a, a));
+		final StringBuilder sb=new StringBuilder("TrueCard\tDLC_abs\tFGRA_abs\tDLC_err\tFGRA_err");
+		for(double a : alphas){sb.append(String.format("\ta%.2f_abs\ta%.2f_err", a, a));}
 		System.out.println(sb);
 
 		for(int i=0; i<nc; i++){
-			StringBuilder line=new StringBuilder();
+			final StringBuilder line=new StringBuilder();
 			line.append(String.format("%d\t%.6f\t%.6f\t%.6f\t%.6f",
 				checks[i],
 				dlcAbsSum[i]/numDDLs,
@@ -131,8 +135,8 @@ public class LDLCCalibrate2 {
 				fgraErrSum[i]/numDDLs));
 			for(int ai=0; ai<alphas.length; ai++){
 				line.append(String.format("\t%.6f\t%.6f",
-					absSum[ai][nextCheck(i, nc)]/numDDLs,
-					errSum[ai][nextCheck(i, nc)]/numDDLs));
+					absSum[ai][i]/numDDLs,
+					errSum[ai][i]/numDDLs));
 			}
 			System.out.println(line);
 		}
@@ -141,7 +145,7 @@ public class LDLCCalibrate2 {
 		System.err.println("\n=== Summary (card > "+4*buckets+") ===");
 		int hiStart=0;
 		for(int i=0; i<nc; i++){if(checks[i]>4*buckets){hiStart=i; break;}}
-		int hiCount=nc-hiStart;
+		final int hiCount=nc-hiStart;
 
 		double dlcMean=0, fgraMean=0;
 		for(int i=hiStart; i<nc; i++){
@@ -164,25 +168,29 @@ public class LDLCCalibrate2 {
 		}
 	}
 
-	private static int nextCheck(int i, int nc){return i;}
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods       ----------------*/
+	/*--------------------------------------------------------------*/
 
+	/** Build NLZ histogram from UDLL6 registers. */
 	private static int[] buildNlzCounts(UltraDynamicLogLog6 udll, int buckets, int minZeros){
-		int[] nlzCounts=new int[64];
+		final int[] nlzCounts=new int[64];
 		for(int i=0; i<buckets; i++){
-			int reg=udll.getRegPublic(i);
-			if(reg==0) continue;
-			int nlzPart=reg>>>2;
-			int absNlz=nlzPart-UltraDynamicLogLog6.HISTORY_MARGIN+minZeros;
-			if(absNlz>=0 && absNlz<64) nlzCounts[absNlz]++;
+			final int reg=udll.getRegPublic(i);
+			if(reg==0){continue;}
+			final int nlzPart=reg>>>2;
+			final int absNlz=nlzPart-UltraDynamicLogLog6.HISTORY_MARGIN+minZeros;
+			if(absNlz>=0 && absNlz<64){nlzCounts[absNlz]++;}
 		}
 		return nlzCounts;
 	}
 
+	/** Count buckets with at least one history bit set. */
 	private static int countHistoryBuckets(UltraDynamicLogLog6 udll, int buckets){
 		int count=0;
 		for(int i=0; i<buckets; i++){
-			int reg=udll.getRegPublic(i);
-			if(reg>0 && (reg&3)!=0) count++;
+			final int reg=udll.getRegPublic(i);
+			if(reg>0 && (reg&3)!=0){count++;}
 		}
 		return count;
 	}

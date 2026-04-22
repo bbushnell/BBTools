@@ -24,8 +24,9 @@ import shared.Tools;
  */
 public class MantissaCompare {
 
-	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4;
-	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck"};
+	/*--------------------------------------------------------------*/
+	/*----------------        Main Method          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int inner=32768;
@@ -197,7 +198,7 @@ public class MantissaCompare {
 				tierTotal+=count[t][s];
 				tierSum+=sum[t][s];
 			}
-			if(tierTotal<100) continue;
+			if(tierTotal<100){continue;}
 			double tierAvg=tierSum/tierTotal;
 			for(int s=0; s<numStates; s++){
 				if(count[t][s]>10){
@@ -214,12 +215,20 @@ public class MantissaCompare {
 		double minCF=Double.MAX_VALUE, maxCF=-Double.MAX_VALUE;
 		for(int s=0; s<numStates; s++){
 			double cf=grandCF[s]/(grandTotal>0?grandTotal:1);
-			if(s>0) cfLine.append(", ");
+			if(s>0){cfLine.append(", ");}
 			cfLine.append(String.format("%+.6f", cf));
-			if(cf<minCF) minCF=cf;
-			if(cf>maxCF) maxCF=cf;
+			if(cf<minCF){minCF=cf;}
+			if(cf>maxCF){maxCF=cf;}
 		}
 		cfLine.append(String.format("]  range=%.4f", maxCF-minCF));
 		System.out.println(cfLine);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Constants            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4;
+	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck"};
+
 }

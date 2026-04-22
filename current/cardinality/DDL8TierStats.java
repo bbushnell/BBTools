@@ -6,21 +6,31 @@ import shared.Tools;
  * Single-bucket simulation for DDL8 (mantissa mode).
  * Measures average cardinality per (tier, mantissa_state) to derive
  * empirical correction factors, analogous to ULL8TierStats.
- *
- * DDL8 encoding: stored = ((relNlz+1) << 2) | invMantissa
- * where invMantissa = (~(key >>> shift)) & 3, giving 4 states per tier.
- *
+ * <p>
+ * DDL8 encoding: stored = ((relNlz+1) &lt;&lt; 2) | invMantissa
+ * where invMantissa = (~(key &gt;&gt;&gt; shift)) &amp; 3, giving 4 states per tier.
+ * <p>
  * Unlike ULL8 (which has history carry on promotion), DDL8's mantissa
  * is purely local: it depends only on the current max hash, not on
  * previous tiers. So the mantissa resets on every promotion.
+ * <p>
+ * Usage: {@code java cardinality.DDL8TierStats [inner=32768] [outer=131072] [maxtier=12]}
  *
- * Usage: java cardinality.DDL8TierStats [inner=32768] [outer=131072] [maxtier=12]
+ * @author Brian Bushnell
  */
 public class DDL8TierStats {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Constants            ----------------*/
+	/*--------------------------------------------------------------*/
 
 	static final int mantissaBits=2;
 	static final int mantissaMask=(1<<mantissaBits)-1; // 3
 	static final int wordlen=64;
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Main              ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int inner=32768;
@@ -44,7 +54,7 @@ public class DDL8TierStats {
 		final double[][] sum=new double[64][4];
 
 		for(int trial=0; trial<outer; trial++){
-			long seed=Tools.hash64shift((long)trial*1234567891L+54321);
+			final long seed=Tools.hash64shift((long)trial*1234567891L+54321);
 
 			// Single bucket: track absNlz and invMantissa
 			// No shared exponent (single bucket, no promotion needed)
@@ -78,10 +88,10 @@ public class DDL8TierStats {
 		System.err.println(String.format("Elapsed: %.1fs", elapsed));
 
 		// Header
-		System.out.println("NLZ\tTotal\tAvgCard\t" +
-			"P(m0)\tP(m1)\tP(m2)\tP(m3)\t" +
-			"AvgC(m0)\tAvgC(m1)\tAvgC(m2)\tAvgC(m3)\t" +
-			"Ratio(m0)\tRatio(m1)\tRatio(m2)\tRatio(m3)\t" +
+		System.out.println("NLZ\tTotal\tAvgCard\t"+
+			"P(m0)\tP(m1)\tP(m2)\tP(m3)\t"+
+			"AvgC(m0)\tAvgC(m1)\tAvgC(m2)\tAvgC(m3)\t"+
+			"Ratio(m0)\tRatio(m1)\tRatio(m2)\tRatio(m3)\t"+
 			"CF(m0)\tCF(m1)\tCF(m2)\tCF(m3)");
 
 		for(int nlz=0; nlz<=maxTier; nlz++){
@@ -93,8 +103,8 @@ public class DDL8TierStats {
 			}
 			if(total<100){continue;}
 
-			double avgCard=totalSum/total;
-			StringBuilder sb=new StringBuilder();
+			final double avgCard=totalSum/total;
+			final StringBuilder sb=new StringBuilder();
 			sb.append(nlz).append('\t').append(total).append('\t');
 			sb.append(String.format("%.2f", avgCard));
 
@@ -111,15 +121,15 @@ public class DDL8TierStats {
 			// Ratios
 			for(int m=0; m<4; m++){
 				if(count[nlz][m]>10){
-					double stateAvg=sum[nlz][m]/count[nlz][m];
+					final double stateAvg=sum[nlz][m]/count[nlz][m];
 					sb.append('\t').append(String.format("%.6f", stateAvg/avgCard));
 				}else{sb.append("\tN/A");}
 			}
 			// CFs = log2(ratio)
 			for(int m=0; m<4; m++){
 				if(count[nlz][m]>10){
-					double stateAvg=sum[nlz][m]/count[nlz][m];
-					double ratio=stateAvg/avgCard;
+					final double stateAvg=sum[nlz][m]/count[nlz][m];
+					final double ratio=stateAvg/avgCard;
 					sb.append('\t').append(String.format("%+.6f", Math.log(ratio)/Math.log(2)));
 				}else{sb.append("\tN/A");}
 			}

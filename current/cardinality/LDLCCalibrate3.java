@@ -9,11 +9,15 @@ import shared.Tools;
  */
 public class LDLCCalibrate3 {
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		int buckets=512;
 		int numDDLs=4000;
 		for(String arg : args){
-			String[] ab=arg.split("=");
+			final String[] ab=arg.split("=");
 			if(ab[0].equals("buckets")){buckets=Integer.parseInt(ab[1]);}
 			else if(ab[0].equals("ddls")){numDDLs=Integer.parseInt(ab[1]);}
 		}
@@ -25,10 +29,10 @@ public class LDLCCalibrate3 {
 
 		// Build checkpoint array
 		int nc=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) nc++;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){nc++;}
 		final int[] checks=new int[nc];
 		int ci=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) checks[ci++]=c;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){checks[ci++]=c;}
 
 		// Accumulators
 		final double[] fgraAbsSum=new double[nc];
@@ -42,7 +46,7 @@ public class LDLCCalibrate3 {
 		final double[] histHybErrSum=new double[nc];
 
 		for(int inst=0; inst<numDDLs; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*999999937L+42;
 			int nextCheck=0;
 			for(int card=1; card<=maxCard && nextCheck<nc; card++){
@@ -60,21 +64,21 @@ public class LDLCCalibrate3 {
 					double hllSumCorr=0;    // state-CF corrected
 					int count=0;
 					for(int i=0; i<buckets; i++){
-						int reg=udll.getRegPublic(i);
-						if(reg==0) continue;
-						int nlzPart=reg>>>2;
-						int state=reg&3;
+						final int reg=udll.getRegPublic(i);
+						if(reg==0){continue;}
+						final int nlzPart=reg>>>2;
+						final int state=reg&3;
 						int absNlz=nlzPart-UltraDynamicLogLog6.HISTORY_MARGIN+minZeros;
-						if(absNlz<0) absNlz=0;
-						if(absNlz<64) nlzCounts[absNlz]++;
+						if(absNlz<0){absNlz=0;}
+						if(absNlz<64){nlzCounts[absNlz]++;}
 						count++;
 
 						// Uncorrected HLL contribution
 						hllSum+=Math.pow(2.0, -absNlz);
 
 						// State-corrected contribution
-						int tier=Math.min(absNlz, 63);
-						double m=tierMult[tier][state];
+						final int tier=Math.min(absNlz, 63);
+						final double m=tierMult[tier][state];
 						hllSumCorr+=Math.pow(2.0, -absNlz)*m;
 					}
 
@@ -84,29 +88,29 @@ public class LDLCCalibrate3 {
 
 					// State-corrected Mean: (count+B)/(2B) * 2*count^2/hllSumCorr
 					final double corrMean=(count>0 && hllSumCorr>0) ?
-						((double)(count+buckets)/(2.0*buckets)) * 2.0*count*(double)count/hllSumCorr : 0;
+						((double)(count+buckets)/(2.0*buckets))*2.0*count*(double)count/hllSumCorr : 0;
 
 					// True DLC from CardinalityStats
-					int emptyCount=buckets-count;
-					CardinalityStats cs=CardinalityStats.fromNlzCounts(
+					final int emptyCount=buckets-count;
+					final CardinalityStats cs=CardinalityStats.fromNlzCounts(
 						nlzCounts, buckets, udll.microIndex, null, 0, null, null);
 					final double trueDLC=cs.dlcEst;
 					final double lcMin=cs.lcMin;
 
-					// History-corrected Hybrid: blend LCmin → corrMean using DLC as switch
+					// History-corrected Hybrid: blend LCmin -> corrMean using DLC as switch
 					final double hb0=0.20*buckets, hb1=5.0*buckets;
 					double histHyb;
 					if(trueDLC<=hb0){
 						histHyb=lcMin;
 					}else if(trueDLC<hb1){
-						double t=Math.log(trueDLC/hb0)/Math.log(hb1/hb0);
+						final double t=Math.log(trueDLC/hb0)/Math.log(hb1/hb0);
 						histHyb=(1-t)*lcMin+t*corrMean;
 					}else{
 						histHyb=corrMean;
 					}
 
 					// Accumulate
-					double c=(double)card;
+					final double c=(double)card;
 					fgraAbsSum[nextCheck]+=Math.abs(fgra-c)/c;
 					hllAbsSum[nextCheck]+=Math.abs(hll-c)/c;
 					dlcAbsSum[nextCheck]+=Math.abs(trueDLC-c)/c;
@@ -135,6 +139,10 @@ public class LDLCCalibrate3 {
 				histHybErrSum[i]/numDDLs);
 		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods       ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Build per-tier, per-state multipliers matching UltraLogLog8. */
 	private static double[][] buildTierMult(){

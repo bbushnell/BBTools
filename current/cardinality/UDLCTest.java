@@ -5,8 +5,14 @@ import shared.Tools;
 /**
  * Quick test: UDLC layer-peeling estimates vs FGRA at various cardinalities.
  * Prints TrueCard, FGRA, DLC_L1, DLC_L2, DLC_L3, UDLC_avg for each checkpoint.
+ *
+ * @author Brian Bushnell
  */
 public class UDLCTest {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		final int buckets=2048;
@@ -16,7 +22,6 @@ public class UDLCTest {
 		System.out.println("TrueCard\tFGRA\tDLC_L1\tDLC_L2\tDLC_L3\tUDLC_avg\tFGRA_err\tL1_err\tUDLC_err");
 
 		// Checkpoints at ~10% intervals
-		int nextCheck=1;
 		final double[] fgraSum=new double[maxCard+1];
 		final double[] l1Sum=new double[maxCard+1];
 		final double[] l2Sum=new double[maxCard+1];
@@ -25,7 +30,7 @@ public class UDLCTest {
 		final int[] counts=new int[maxCard+1];
 
 		for(int inst=0; inst<numInstances; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*12345678901L+42;
 			for(int card=1; card<=maxCard; card++){
 				seed=Tools.hash64shift(seed);

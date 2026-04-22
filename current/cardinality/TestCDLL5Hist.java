@@ -1,7 +1,7 @@
 package cardinality;
 
 /**
- * Eru's quick validation: dump CDLL5 per-tier hist-pattern distribution
+ * Validation harness: dump CDLL5 per-tier hist-pattern distribution
  * and compare against MantissaCompare2 mode=ctll bits=2 expectations.
  *
  * Simulator steady-state (tier 7) for 2-bit hist:
@@ -11,28 +11,33 @@ package cardinality;
  * If CDLL5 produces wildly different shape, carry-shift is buggy.
  */
 public class TestCDLL5Hist {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
 		int buckets=2048;
 		long N=4_000_000L;
-		long seed=42L;
+		final long seed=42L;
 		if(args.length>=1){N=Long.parseLong(args[0]);}
 		if(args.length>=2){buckets=Integer.parseInt(args[1]);}
 
-		CompressedDynamicLogLog5 cdll=new CompressedDynamicLogLog5(buckets, 31, seed, 0);
-		java.util.Random r=new java.util.Random(seed);
+		final CompressedDynamicLogLog5 cdll=new CompressedDynamicLogLog5(buckets, 31, seed, 0);
+		final java.util.Random r=new java.util.Random(seed);
 		for(long i=0; i<N; i++){cdll.hashAndStore(r.nextLong());}
 
 		final int globalNLZ=cdll.getMinZeros()-1;
-		int[][] counts=new int[20][4];
+		final int[][] counts=new int[20][4];
 		int floorCount=0;
-		int[] floorHist=new int[4];
+		final int[] floorHist=new int[4];
 		for(int b=0; b<buckets; b++){
-			int reg=cdll.readBucket(b);
-			int tp=(reg>>>2)&0x7;
-			int h=reg&0x3;
+			final int reg=cdll.readBucket(b);
+			final int tp=(reg>>>2)&0x7;
+			final int h=reg&0x3;
 			if(tp==0){floorCount++; floorHist[h]++;}
 			else{
-				int absTier=tp+globalNLZ;
+				final int absTier=tp+globalNLZ;
 				if(absTier<counts.length){counts[absTier][h]++;}
 			}
 		}
@@ -42,7 +47,7 @@ public class TestCDLL5Hist {
 			+" occupancy="+String.format("%.4f", cdll.occupancy()));
 		System.err.println("tier  count  P(0)    P(1)    P(2)    P(3)");
 		for(int t=0; t<counts.length; t++){
-			int tot=counts[t][0]+counts[t][1]+counts[t][2]+counts[t][3];
+			final int tot=counts[t][0]+counts[t][1]+counts[t][2]+counts[t][3];
 			if(tot==0){continue;}
 			System.err.printf("%4d  %5d  %.4f  %.4f  %.4f  %.4f%n", t, tot,
 				counts[t][0]/(double)tot, counts[t][1]/(double)tot,

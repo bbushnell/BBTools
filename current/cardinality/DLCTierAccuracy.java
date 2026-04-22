@@ -20,7 +20,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * @author Eru, Chloe
  */
-public class DLCTierAccuracy {
+public class DLCTierAccuracy{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Main Method          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int buckets=2048;
@@ -33,8 +37,8 @@ public class DLCTierAccuracy {
 		String loglogtype="ll6";
 
 		for(String arg : args){
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase(), b=split.length>1 ? split[1] : "";
+			final String[] split=arg.split("=");
+			final String a=split[0].toLowerCase(), b=split.length>1 ? split[1] : "";
 			if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ddls")){ddls=Integer.parseInt(b);}
 			else if(a.equals("maxmult")){maxmult=Integer.parseInt(b);}

@@ -31,15 +31,24 @@ public final class LogLog6 extends CardinalityTracker {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
 	LogLog6(){
 		this(2048, 31, -1, 0);
 	}
 
+	/** Construct from parsed command-line arguments. */
 	LogLog6(Parser p){
 		super(p);
 		maxArray=new byte[buckets];
 	}
 
+	/**
+	 * Full constructor.
+	 * @param buckets_ Number of buckets
+	 * @param k_ K-mer length
+	 * @param seed Random seed (-1 for default)
+	 * @param minProb_ Minimum probability threshold
+	 */
 	LogLog6(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new byte[buckets];

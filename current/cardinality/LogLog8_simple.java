@@ -43,62 +43,57 @@ public final class LogLog8_simple extends CardinalityTracker {
 	}
 	
 	@Override
-	public LogLog8_simple copy() {return new LogLog8_simple(buckets, k, -1, minProb);}
+	public LogLog8_simple copy(){return new LogLog8_simple(buckets, k, -1, minProb);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Restores the approximate original value from the stored leading zeros count.
-	 * Since this implementation has no mantissa, assumes mantissa = 1.0000...
-	 * and reconstructs the original number by left-shifting 1 by (64-leadingZeros-1).
-	 *
+	 * Restores an approximate original value from a leading-zero count.
+	 * Assumes mantissa=1 (no fractional bits stored).
 	 * @param value Number of leading zeros stored in bucket
-	 * @return Approximate original value that produced this leading zeros count
+	 * @return Approximate original value
 	 */
-	private long restore(int value){
+	private long restore(final int value){
 		final int leading=value; //Number of leading zeros
-		long mantissa=1; //1.xxxx but in this case the X's are all zero
-		int shift=64-leading-1; //Amount to left shift the mantissa
-		long original=mantissa<<shift; //Restored original number
+		final long mantissa=1; //1.xxxx but in this case the X's are all zero
+		final int shift=64-leading-1; //Amount to left shift the mantissa
+		final long original=mantissa<<shift; //Restored original number
 		return original;
 	}
 	
 	/**
-	 * Calculates cardinality estimate using harmonic mean of restored bucket values.
-	 * Applies empirically-derived correction factors for mantissa approximation
-	 * and empty bucket compensation. Uses mean of non-zero buckets rather than
-	 * all buckets to reduce bias from uninitialized counters.
-	 *
-	 * @return Estimated number of unique elements added to this tracker
+	 * Estimates cardinality from leading-zero statistics across all buckets.
+	 * Uses arithmetic mean of non-zero buckets with empirically-derived
+	 * mantissa correction and empty-bucket compensation.
 	 */
 	@Override
 	public final long cardinality(){
 		double sum=0;
 		int count=0;
-		
+
 		for(int i=0; i<maxArray.length; i++){
-			int max=maxArray[i];
-			long val=restore(max);
+			final int max=maxArray[i];
+			final long val=restore(max);
 			if(max>0 && val>0){
 				sum+=val;
 				count++;
 			}
 		}
-			
+
 		final int subsets=count;//Could be set to count or buckets
 		final double mean=sum/Tools.max(subsets, 1);
-		
-		//What to use as the value from the counters 
+
+		//What to use as the value from the counters
 		final double proxy=mean;
-		
+
 		final double estimatePerSet=2*(Long.MAX_VALUE/proxy);
 		final double mantissaFactor=0.7213428177;//Empirically derived
 		final double emptyBucketModifier=((count+buckets)/(float)(buckets+buckets));//Approximate; overestimate
 		final double total=estimatePerSet*subsets*mantissaFactor*emptyBucketModifier;
-		
-		long cardinality=Math.min(added, (long)(total));
+
+		final long cardinality=Math.min(added, (long)(total));
 		lastCardinalityStatic=cardinality;
 		return cardinality;
 	}
@@ -111,12 +106,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 		add((LogLog8_simple)log);
 	}
 	
-	/**
-	 * Merges another LogLog8_simple tracker by taking element-wise maximum
-	 * of bucket arrays. This preserves the maximum leading zeros count
-	 * seen for each bucket across both trackers.
-	 * @param log LogLog8_simple tracker to merge
-	 */
+	/** Merges another LogLog8_simple by element-wise maximum of bucket arrays. */
 	public void add(LogLog8_simple log){
 		added+=log.added;
 		if(maxArray!=log.maxArray){
@@ -126,12 +116,7 @@ public final class LogLog8_simple extends CardinalityTracker {
 		}
 	}
 	
-	/**
-	 * Hashes a number and updates the corresponding bucket with leading zeros count.
-	 * Uses Tools.hash64shift for hashing, extracts bucket from low bits, and
-	 * stores the maximum leading zeros count seen for this bucket.
-	 * @param number Value to hash and track
-	 */
+	/** {@inheritDoc} */
 	@Override
 	public void hashAndStore(final long number){
 		final long key=Tools.hash64shift(number);
@@ -140,15 +125,9 @@ public final class LogLog8_simple extends CardinalityTracker {
 		maxArray[bucket]=Tools.max(leading, maxArray[bucket]);
 	}
 	
-	/**
-	 * Returns compensation factors for bucket count bias correction.
-	 * This implementation returns null, indicating no special compensation.
-	 * @return null (no compensation array)
-	 */
+	/** Returns null; this tracker does not use per-bucket compensation factors. */
 	@Override
-	public final float[] compensationFactorLogBucketsArray(){
-		return null;
-	}
+	public final float[] compensationFactorLogBucketsArray(){return null;}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/

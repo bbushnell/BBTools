@@ -40,8 +40,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int NUM_TIERS   =16;
-	static final int NUM_COMBINED=16;// combined_h: (h1<<2)|h0
+	static final int NUM_TIERS=16;
+	static final int NUM_COMBINED=16; // combined_h: (h1<<2)|h0
 	/** MSB mask for combined_h: bits 1 and 3. */
 	static final int CH_MSB_MASK =0xA;// 0b1010
 

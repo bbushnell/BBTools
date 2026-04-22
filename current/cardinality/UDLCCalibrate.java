@@ -5,14 +5,20 @@ import shared.Tools;
 /**
  * UDLC calibration: outputs raw L1, L2, L3 estimates at every checkpoint.
  * Blending and normalization done in Python.
+ *
+ * @author Brian Bushnell
  */
 public class UDLCCalibrate {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Main          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int buckets=2048;
 		int numDDLs=4000;
 		for(String arg : args){
-			String[] ab=arg.split("=");
+			final String[] ab=arg.split("=");
 			if(ab[0].equals("buckets")){buckets=Integer.parseInt(ab[1]);}
 			else if(ab[0].equals("ddls")){numDDLs=Integer.parseInt(ab[1]);}
 		}
@@ -20,10 +26,10 @@ public class UDLCCalibrate {
 
 		// Build checkpoint array
 		int nc=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) nc++;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){nc++;}
 		final int[] checks=new int[nc];
 		int ci=0;
-		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1) checks[ci++]=c;
+		for(int c=1; c<=maxCard; c=(int)(c*1.01)+1){checks[ci++]=c;}
 
 		// Accumulators
 		final double[] fgraSum=new double[nc];
@@ -32,7 +38,7 @@ public class UDLCCalibrate {
 		final double[] l1AbsSum=new double[nc];
 
 		for(int inst=0; inst<numDDLs; inst++){
-			UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
+			final UltraDynamicLogLog6 udll=new UltraDynamicLogLog6(buckets, 31, -1, 0);
 			long seed=inst*999999937L+42;
 			int nextCheck=0;
 			for(int card=1; card<=maxCard && nextCheck<nc; card++){

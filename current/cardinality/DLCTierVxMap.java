@@ -15,10 +15,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * Usage: java cardinality.DLCTierVxMap [buckets=2048] [ddls=100000] [maxmult=5000]
  *        [threads=4] [loglogtype=dll2]
+ *
+ * @author Eru, Chloe
  */
-public class DLCTierVxMap {
+public class DLCTierVxMap{
 
-	static final int NUM_TIERS=11; // tiers 0-10
+	/*--------------------------------------------------------------*/
+	/*----------------        Main Method          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static void main(String[] args){
 		int buckets=2048;
@@ -29,8 +33,8 @@ public class DLCTierVxMap {
 		String loglogtype="dll2";
 
 		for(String arg : args){
-			String[] split=arg.split("=");
-			String a=split[0].toLowerCase(), b=split.length>1 ? split[1] : "";
+			final String[] split=arg.split("=");
+			final String a=split[0].toLowerCase(), b=split.length>1 ? split[1] : "";
 			if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ddls")){ddls=Integer.parseInt(b);}
 			else if(a.equals("maxmult")){maxmult=Integer.parseInt(b);}
@@ -57,10 +61,10 @@ public class DLCTierVxMap {
 		final int numPoints=2000;
 		final long[] thresholds;
 		{
-			java.util.TreeSet<Long> set=new java.util.TreeSet<>();
+			final java.util.TreeSet<Long> set=new java.util.TreeSet<>();
 			for(int p=0; p<=numPoints; p++){
-				double frac=(double)p/numPoints;
-				long t=Math.max(1, (long)Math.pow(maxCard, frac));
+				final double frac=(double)p/numPoints;
+				final long t=Math.max(1, (long)Math.pow(maxCard, frac));
 				set.add(t);
 			}
 			thresholds=new long[set.size()];
@@ -124,7 +128,7 @@ public class DLCTierVxMap {
 						}
 
 						if((d+1)%1000==0){
-							long elapsed=System.currentTimeMillis()-t0;
+							final long elapsed=System.currentTimeMillis()-t0;
 							System.err.println("  DDL "+(d+1)+"/"+totalDdls+
 								" ("+String.format("%.1f", elapsed/1000.0)+"s)");
 						}
@@ -178,8 +182,14 @@ public class DLCTierVxMap {
 		for(int v=0; v<=B; v++){
 			for(int tier=0; tier<NUM_TIERS; tier++){total+=globalCounts[v][tier];}
 		}
-		long elapsed=System.currentTimeMillis()-t0;
+		final long elapsed=System.currentTimeMillis()-t0;
 		System.err.println("Done. Total samples: "+total+
 			" Elapsed: "+String.format("%.1f", elapsed/1000.0)+"s");
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Constants            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static final int NUM_TIERS=11; // tiers 0-10
 }
