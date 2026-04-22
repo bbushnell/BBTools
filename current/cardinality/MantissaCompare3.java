@@ -337,13 +337,13 @@ public class MantissaCompare3 {
 								? (oldTp==0 && bk==0)
 								: (oldTp==0);
 							if(shouldDecrement && --minZeroCount<1){
-								while(minZeroCount==0 && globalNLZ<63){
+								while(minZeroCount==0 && globalNLZ<64){
 									if(isHistory){
 										globalNLZ++;
 										eeMask>>>=1;
 									}else{
 										globalNLZ++;
-										final int relaxedTier=Math.max(0, globalNLZ+1-HISTORY_MARGIN);
+										final int relaxedTier=Math.max(0, globalNLZ-HISTORY_MARGIN);
 										final int minNlz=(3*relaxedTier)/2;
 										eeMask=(minNlz>=64) ? 0 : ~0L>>>minNlz;
 									}

@@ -218,8 +218,8 @@ public class LCHistTrainerBCDLL5 {
 					if(relTier>=0){
 						int newTp=Math.min(relTier+1, 7);
 
-						// Bank promotion on overflow
-						if(newTp>7 && bk<3){
+						// Bank promotion on overflow — check BEFORE clamping
+						if(relTier+1>7 && bk<3){
 							boolean canPromote=true;
 							final int base=wordIdx*REGS_PER_WORD;
 							for(int r=0; r<REGS_PER_WORD; r++){
