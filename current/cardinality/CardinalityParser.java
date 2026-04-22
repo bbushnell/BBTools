@@ -193,6 +193,10 @@ public class CardinalityParser {
 			if(hb==1){CardinalityTracker.LDLC_HC_WEIGHT=0.456;}
 			else if(hb==2){CardinalityTracker.LDLC_HC_WEIGHT=0.50;}
 			else if(hb==3){CardinalityTracker.LDLC_HC_WEIGHT=0.475;}
+
+			// Per-type HC weight overrides (Eru's calibration, 2026-04-22)
+			if(loglogtype.equals("cdll4")){CardinalityTracker.LDLC_HC_WEIGHT=0.30;}
+			else if(loglogtype.equals("cdll5") || loglogtype.equals("bcdll5") || loglogtype.equals("acdll5")){CardinalityTracker.LDLC_HC_WEIGHT=0.40;}
 		}
 
 		// Class init and column whitelist
