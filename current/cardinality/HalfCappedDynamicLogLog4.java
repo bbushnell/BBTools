@@ -311,6 +311,6 @@ public final class HalfCappedDynamicLogLog4 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.883441f;}
 	@Override public float terminalMeanPlusCF(){return 1.067044f;}
 
-	@Override public float hldlcWeight(){return 0.325f;}
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
 
 }

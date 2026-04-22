@@ -92,7 +92,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("out") || a.equals("out1")){out1=b;}
 			else if(a.equals("out3")){out3=b;}
 			else if(a.equals("out4")){out4=b;}
-			else if(a.equals("hcweight") || a.equals("ldlcweight")){hcWeightExplicit=true; CardinalityParser.parse(arg, a, b);}
+			else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityParser.parse(arg, a, b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.startsWith("hsbtable")){System.err.println("Note: hsbtable= is deprecated; HSB values are now hardcoded in StateTable.");}
 			else if(a.equals("termcf")){StateTable.terminalCFOverride=Double.parseDouble(b);}
@@ -110,7 +110,7 @@ public class DDLCalibrationDriver2 {
 	 *  Must be called inside synchronized(DDLCalibrationDriver2.class). */
 	private void initGlobalState(){
 		maxTrue=(maxCard>0) ? maxCard : Math.max(1, (long)(buckets*maxMult));
-		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, pllmode, hcWeightExplicit);
+		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, pllmode);
 		thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 	}
 
@@ -607,7 +607,6 @@ public class DDLCalibrationDriver2 {
 	String notes="";
 	String cffile=null;
 	String pllmode=null;
-	boolean hcWeightExplicit=false;
 	boolean lcMode=false;
 	long maxTrue;
 	long[] thresholds;

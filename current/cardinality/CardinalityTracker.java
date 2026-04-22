@@ -823,9 +823,14 @@ public abstract class CardinalityTracker implements Drivable {
 	 */
 	public float terminalMeanPlusCF(){return 1f;}
 
+	/** HC weight for LDLC blend: LDLC = w*HC + (1-w)*DLC.
+	 *  Default 0.50 = equal blend of HC and DLC.
+	 *  Override in subclasses with calibrated values. */
+	public double ldlcHcWeight(){return 0.50;}
+
 	/** LDLC weight in HLDLC blend: HLDLC = w*LDLC + (1-w)*Hybrid+2.
 	 *  Default 0.5; override per class based on empirical sweep. */
-	public float hldlcWeight(){return 0.5f;}
+	public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.5f;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Drivable Methods       ----------------*/
@@ -951,10 +956,13 @@ public abstract class CardinalityTracker implements Drivable {
 	 * Each non-empty bucket contributes 1 + popcount(history bits) to a
 	 * set-bit total, providing a tighter lower bound on cardinality. */
 	public static boolean USE_HISTORY_FOR_LC=false;
-	/** Maximum HC blend weight for LDLC estimator.
-	 * Default 0.50 is optimal for 2-bit history with info-power weighting. DDLCalibrationDriver2
-	 * auto-sets per history bits: 1-bit=0.456, 2-bit=0.50, 3-bit=0.475. */
+	/** HC blend weight for LDLC estimator.
+	 * Set from ldlcHcWeight() instance method in initializeAll(). */
 	public static double LDLC_HC_WEIGHT=0.50;
+	/** Command-line override for ldlcHcWeight(). Negative = use class default. */
+	public static double OVERRIDE_LDLC_HC_WEIGHT=-1;
+	/** Command-line override for hldlcWeight(). Negative = use class default. */
+	public static float OVERRIDE_HLDLC_WEIGHT=-1f;
 	/** When true AND SBS table is loaded, hybrid estimators use sbs()
 	 * instead of lcMin as the low-cardinality component in the blend zone. */
 	public static boolean USE_SBS_IN_HYBRID=true;
