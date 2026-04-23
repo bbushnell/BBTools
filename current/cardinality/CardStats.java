@@ -51,7 +51,7 @@ public final class CardStats extends AbstractCardStats {
 			final double mantissaOff_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			Integer.MAX_VALUE, null, 1f, 1f, 1.0);
+			Integer.MAX_VALUE, null, 1f, 1f, 1.0, -1);
 	}
 
 	/**
@@ -66,7 +66,7 @@ public final class CardStats extends AbstractCardStats {
 			final float terminalMeanCF_, final float terminalMeanPlusCF_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			Integer.MAX_VALUE, null, terminalMeanCF_, terminalMeanPlusCF_, 1.0);
+			Integer.MAX_VALUE, null, terminalMeanCF_, terminalMeanPlusCF_, 1.0, -1);
 	}
 
 	/**
@@ -82,7 +82,7 @@ public final class CardStats extends AbstractCardStats {
 			final int nativeRelTiers_, final double[] tierErrCoeffs_){
 		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
 			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
-			nativeRelTiers_, tierErrCoeffs_, 1f, 1f, 1.0);
+			nativeRelTiers_, tierErrCoeffs_, 1f, 1f, 1.0, -1);
 	}
 
 	/**
@@ -99,6 +99,23 @@ public final class CardStats extends AbstractCardStats {
 			final int nativeRelTiers_, final double[] tierErrCoeffs_,
 			final float terminalMeanCF_, final float terminalMeanPlusCF_,
 			final double tierScale_){
+		this(buckets_, counts_, nlzBits_, histBits_, luckBits_, mantissaBits_,
+			numBuckets_, microIndex_, added_, cfMatrix_, cfBuckets_, mantissaOff_,
+			nativeRelTiers_, tierErrCoeffs_, terminalMeanCF_, terminalMeanPlusCF_, tierScale_, -1);
+	}
+
+	/**
+	 * Full constructor with histFloorBits for non-standard history layouts.
+	 * @param histFloorBits_      number of low bits to count for historyFloor (-1 = use histBits_)
+	 */
+	CardStats(final char[] buckets_, final int[] counts_,
+			final int nlzBits_, final int histBits_, final int luckBits_, final int mantissaBits_,
+			final int numBuckets_, final long microIndex_, final long added_,
+			final float[][] cfMatrix_, final int cfBuckets_,
+			final double mantissaOff_,
+			final int nativeRelTiers_, final double[] tierErrCoeffs_,
+			final float terminalMeanCF_, final float terminalMeanPlusCF_,
+			final double tierScale_, final int histFloorBits_){
 
 		assert(counts_!=null && counts_.length==66);
 		assert((histBits_|luckBits_|mantissaBits_)==0 || buckets_!=null) :
@@ -166,8 +183,9 @@ public final class CardStats extends AbstractCardStats {
 		// Each filled bucket saw >=1 element; each set history bit saw >=1 additional.
 		{
 			int hbCount=0;
-			if(histBits_>0 && buckets_!=null){
-				final int hm=(1<<histBits_)-1;
+			final int hfBits=(histFloorBits_>=0 ? histFloorBits_ : histBits_);
+			if(hfBits>0 && buckets_!=null){
+				final int hm=(1<<hfBits)-1;
 				for(int i=0; i<numBuckets; i++){
 					if(buckets_[i]!=0){hbCount+=Integer.bitCount(buckets_[i]&hm);}
 				}
@@ -762,6 +780,159 @@ public final class CardStats extends AbstractCardStats {
 	public double historyCoverage(){return historyCoverage;}
 
 	/*--------------------------------------------------------------*/
+	/*----------------   TTLL HC (3-bit structure)  ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * HC estimate for TTLL's 3-bit history structure.
+	 *
+	 * TTLL has two 2-bit tails per bucket, giving 3 independent HC observations:
+	 *   1) otherMSB: both h0_MSB and h1_MSB set → "both populations saw tier E" (offset 0)
+	 *   2) h0_LSB: population 0 saw tier E-1 (offset 1)
+	 *   3) h1_LSB: population 1 saw tier E-1 (offset 1)
+	 *
+	 * For target tier t, pool:
+	 *   hcBeff = count[t] + 2*count[t+1]
+	 *   hcUnseen = (count[t]-bothMSB[t]) + (count[t+1]-h0lsb[t+1]) + (count[t+1]-h1lsb[t+1])
+	 *
+	 * Then standard HC formula: est = 2^((t+1)*tierScale)/(tierRatio-1) * B * ln(hcBeff/hcUnseen)
+	 * with info-power weighting across tiers.
+	 *
+	 * @param regs        raw 8-bit register array (4-bit exp + 4-bit combined_h)
+	 * @param globalExp   TTLL global exponent floor
+	 * @param numBuckets  total bucket count
+	 * @param tierScale   tier scale (1.0 for standard TTLL)
+	 * @return HC estimate, or 0 if insufficient data
+	 */
+	public static double hcTTLL(byte[] regs, int globalExp, int numBuckets, double tierScale){
+		final int[] nlzCount=new int[64];     // buckets per NLZ tier
+		final int[] bothMSB=new int[64];      // buckets with both h0_MSB and h1_MSB set
+		final int[] h0LSBset=new int[64];     // buckets with h0_LSB set
+		final int[] h1LSBset=new int[64];     // buckets with h1_LSB set
+
+		for(int i=0; i<numBuckets; i++){
+			final int b=regs[i]&0xFF;
+			if(b==0 && globalExp==0){continue;}
+			final int localExp=(b>>>4)&0xF;
+			final int absNlz=globalExp+localExp;
+			if(absNlz<0 || absNlz>=64){continue;}
+
+			final int ch=b&0xF;
+			// bit 3: h1_MSB, bit 2: h1_LSB, bit 1: h0_MSB, bit 0: h0_LSB
+			final int h0_msb=(ch>>>1)&1;
+			final int h1_msb=(ch>>>3)&1;
+			final int h0_lsb=ch&1;
+			final int h1_lsb=(ch>>>2)&1;
+
+			nlzCount[absNlz]++;
+			if((h0_msb&h1_msb)!=0){bothMSB[absNlz]++;}
+			if(h0_lsb!=0){h0LSBset[absNlz]++;}
+			if(h1_lsb!=0){h1LSBset[absNlz]++;}
+		}
+
+		// Find max occupied tier
+		int maxNlz=0;
+		for(int t=63; t>=0; t--){
+			if(nlzCount[t]>0){maxNlz=t; break;}
+		}
+		final int maxTierHC=Math.min(maxNlz+2, 63);
+		final double tierRatio=Math.pow(2.0, tierScale);
+
+		double hcSumW=0, hcSumWLogE=0;
+		for(int t=0; t<=maxTierHC; t++){
+			// Half-population scale: 2× because each tail sees ~half the elements
+			final double scale=2.0*Math.pow(2.0, (t+1)*tierScale)/(tierRatio-1.0)
+				*(double)numBuckets;
+
+			// --- LSB observations: pool h0_LSB and h1_LSB (same probability model) ---
+			// Both are unconditional half-population observations at sourceTier t+1
+			// telling about target tier t. Standard LC with 2× correction applies.
+			if(t+1<64 && nlzCount[t+1]>0){
+				final int lsbBeff=2*nlzCount[t+1];
+				final int lsbUnseen=(nlzCount[t+1]-h0LSBset[t+1])
+					+(nlzCount[t+1]-h1LSBset[t+1]);
+				if(lsbBeff>=8 && lsbUnseen>=1 && lsbUnseen<lsbBeff){
+					final double estLsb=scale*Math.log((double)lsbBeff/lsbUnseen);
+					if(estLsb>0 && !Double.isNaN(estLsb)){
+						final int lsbOcc=lsbBeff-lsbUnseen;
+						final double lsbErr=AbstractCardStats.SQRT_2_OVER_PI
+							*Math.sqrt((double)lsbOcc/((double)lsbBeff*lsbUnseen))
+							/Math.log((double)lsbBeff/lsbUnseen);
+						final double w=Math.pow(1.0/lsbErr, HC_INFO_POWER);
+						hcSumW+=w;
+						hcSumWLogE+=w*Math.log(estLsb);
+					}
+				}
+			}
+
+			// --- otherMSB observation: conditional probability model ---
+			// P(otherMSB unset | at least one MSB set) = 2q/(1+q)
+			// where q = (1-p/2)^n is the unconditional half-population unseen probability.
+			// Transform observed fraction f back to q: q = f/(2-f), then use -ln(q).
+			if(t<64 && nlzCount[t]>=8){
+				final int msbBeff=nlzCount[t];
+				final int msbUnseen=msbBeff-bothMSB[t];
+				if(msbUnseen>=1 && msbUnseen<msbBeff){
+					final double frac=(double)msbUnseen/msbBeff;
+					final double q=frac/(2.0-frac);
+					if(q>0 && q<1){
+						final double estMsb=scale*(-Math.log(q));
+						if(estMsb>0 && !Double.isNaN(estMsb)){
+							// Error model: delta method on q-transform
+							final double logInvQ=-Math.log(q);
+							final double msbErr=AbstractCardStats.SQRT_2_OVER_PI
+								*Math.sqrt((1.0-q)/((double)msbBeff*q))
+								/logInvQ;
+							final double w=Math.pow(1.0/msbErr, HC_INFO_POWER);
+							hcSumW+=w;
+							hcSumWLogE+=w*Math.log(estMsb);
+						}
+					}
+				}
+			}
+		}
+		final double hcRaw=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
+		return (hcRaw>0 ? hcRaw*CorrectionFactor.hcCfFormula(hcRaw)*HC_SCALE : 0);
+	}
+
+	/**
+	 * Replace the internally-computed HC with an externally-computed value
+	 * (e.g., TTLL's 3-bit HC) and recompute LDLC to use the new HC.
+	 * Call immediately after construction, before any getters.
+	 */
+	void overrideHC(double newHC){
+		hcF=newHC;
+		// Recompute LDLC blend with updated HC (same formula as constructor)
+		final double B=(double)numBuckets;
+		final double bLo=LDLC_B_LO*B, bHi=LDLC_B_HI*B;
+		final double maxHcWeight=CardinalityTracker.LDLC_HC_WEIGHT;
+		final boolean hcUsable=(hcF>0 && dlcSbsF>0);
+		if(dlcSbsF<=bLo || !hcUsable){
+			ldlcF=dlcSbsF;
+		}else if(dlcSbsF<=bHi){
+			final double t=(dlcSbsF-bLo)/(bHi-bLo);
+			final double hcW=t*maxHcWeight;
+			ldlcF=(1-hcW)*dlcSbsF+hcW*hcF;
+		}else{
+			ldlcF=(1-maxHcWeight)*dlcSbsF+maxHcWeight*hcF;
+		}
+	}
+
+	/**
+	 * Replace the internally-computed Mean+H with an externally-computed value
+	 * (e.g., TTLL's 16-state ttllMeanEstimate) and recompute Hybrid+2.
+	 * Call immediately after construction, before any getters.
+	 */
+	void overrideMeanH(double newMeanH){
+		meanCorrRawF=newMeanH;
+		meanCorrCF=newMeanH; // already CF-corrected by ttllMeanEstimate
+		// Recompute history-corrected hybrids with new Mean+H
+		hybridDLLHistF=hybridDLL(lcForHybridF, lcMinF, meanCorrCF, numBuckets);
+		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanCorrCF, numBuckets,
+				HYBRID2_BLEND_LO, HYBRID2_BLEND_HI);
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------         Fields               ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -825,15 +996,15 @@ public final class CardStats extends AbstractCardStats {
 	// --- Phase 2a: history estimates (defaults to counts-only equivalents) ---
 	final int historyFloor;     // lower bound: filledBuckets + totalSetHistoryBits (0 when no history)
 	final boolean hasHistoryCorrection; // true when per-state history corrections applied
-	final double meanCorrRawF;  // history-corrected Mean raw (before CF)
-	final double meanCorrCF;    // history-corrected Mean with CF
+	double meanCorrRawF;        // history-corrected Mean raw. Non-final: TTLL overrides via overrideMeanH().
+	double meanCorrCF;          // history-corrected Mean with CF. Non-final: TTLL overrides via overrideMeanH().
 	final double gmeanCorrRawF; // history-corrected GMean raw
 	final double gmeanCorrCF;   // history-corrected GMean with CF
 	final double sbsF;       // history-aware LC
 	final double sbsNoMicroF; // SBS without microIndex
 	final double sbsMultF;   // history-aware LC using multipliers
 	final double lcForHybridF;  // LC value used for hybrid blending (sbs or lcMin)
-	final double hcF;        // HC estimate (CF-corrected, 0 when no history)
+	double hcF;              // HC estimate (CF-corrected, 0 when no history). Non-final: TTLL overrides via overrideHC().
 	final double historyCoverage; // fraction of filled buckets with any history bit set
 
 	// --- Phase 2b: mantissa estimates (defaults to non-mantissa equivalents) ---
@@ -850,9 +1021,9 @@ public final class CardStats extends AbstractCardStats {
 	// --- Final phase: hybrid estimates ---
 	final double hybridDLLF;    // LC/Mean blend (for DLL types), plain (no history)
 	final double hybridDDLF;    // LC/Mean/HMeanM blend (for DDL types), plain
-	final double hybridDLLHistF; // History-corrected LC/Mean blend
+	double hybridDLLHistF;       // History-corrected LC/Mean blend. Non-final: recomputed by overrideMeanH().
 	final double hybridDDLHistF; // History-corrected LC/Mean/HMeanM blend
-	final double hybridPlus2F;  // SBS → Mean+H with DLC zone detection
-	final double ldlcF;         // DlcSbs blended with HC
+	double hybridPlus2F;        // SBS → Mean+H with DLC zone detection. Non-final: recomputed by overrideMeanH().
+	double ldlcF;               // DlcSbs blended with HC. Non-final: recomputed by overrideHC().
 
 }

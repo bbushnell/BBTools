@@ -977,8 +977,16 @@ public class CorrectionFactor{
 	 * Maps (nlzBin, histBits) to table column index for arbitrary history bit width.
 	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.
 	 * Returns -1 for structurally impossible states (nonzero invalid bits).
+	 *
+	 * For hbits&gt;=4 (e.g. TTLL), uses flat grid indexing: bin*(1&lt;&lt;hbits)+hist.
+	 * Standard tier-depth validation doesn't apply to non-standard bit layouts.
 	 */
 	public static int sbsStateIndex(int nlzBin, int histBits, int hbits){
+		if(hbits>=4){
+			// Flat grid: no invalid-state filtering (TTLL, etc.)
+			final int numHist=1<<hbits;
+			return Math.min(nlzBin, hbits+1)*numHist+(histBits&(numHist-1));
+		}
 		final int bin=Math.min(nlzBin, hbits+1);
 		final int validSlots=Math.min(bin, hbits);
 		final int invalidBits=hbits-validSlots;

@@ -95,6 +95,13 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("hcweight") || a.equals("ldlcweight")){CardinalityParser.parse(arg, a, b);}
 			else if(CardinalityParser.parse(arg, a, b)){}
 			else if(a.startsWith("hsbtable")){System.err.println("Note: hsbtable= is deprecated; HSB values are now hardcoded in StateTable.");}
+			else if(a.equals("hsbttll4")){
+				String[] parts=b.split(",");
+				double[] tbl=new double[parts.length];
+				for(int i=0; i<parts.length; i++){tbl[i]=Double.parseDouble(parts[i]);}
+				StateTable.CF_TTLL_4_OVERRIDE=tbl;
+				StateTable.USE_TTLL_HSB=true;
+			}
 			else if(a.equals("termcf")){StateTable.terminalCFOverride=Double.parseDouble(b);}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("out2")){System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");

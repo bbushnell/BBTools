@@ -147,7 +147,10 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(USE_AUDLL32_HSB && hbits==2){
+		if(USE_TTLL_HSB && hbits==4){
+			steadyState=(CF_TTLL_4_OVERRIDE!=null ? CF_TTLL_4_OVERRIDE : CF_TTLL_4);
+			tierTables=CF_TTLL_4_TIERS;
+		}else if(USE_AUDLL32_HSB && hbits==2){
 			steadyState=CF_AUDLL32_2; tierTables=CF_AUDLL32_2_TIERS;
 		}else if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){
 			steadyState=CF_CTLL_1; tierTables=CF_CTLL_1_TIERS;
@@ -307,6 +310,7 @@ public final class StateTable {
 		{0, 1},          // hbits=1: bin0=1state, bin1+=2states
 		{0, 1, 3, 7},   // hbits=2: bin0=1, bin1=2, bin2=4, bin3+=4
 		{0, 1, 3, 7, 15},// hbits=3: bin0=1, bin1=2, bin2=4, bin3=8, bin4+=8
+		{0, 1, 3, 7, 15, 31},// hbits=4: bin0=1, bin1=2, bin2=4, bin3=8, bin4=16, bin5+=16
 	};
 
 	/** Total reachable states for given sub-NLZ configuration. */
@@ -360,6 +364,37 @@ public final class StateTable {
 		 -1.74326858, -0.71696719, -0.88543067, -0.06957253,
 		 -0.71721475, +0.17468025, -0.06872554, +0.83884921},
 	};
+
+	/** HSB table for TTLL 4-bit combined_h, used by historyOffset() for Mean+H.
+	 *  16 states: (h1<<2)|h0.
+	 *  Regenerated 2026-04-23 from TTLLSimulator tier 8 LinCF (1M iters, 128 threads).
+	 *  LinCF beat GeoCF (6.70% vs 17.41% Mean+H WidthWt at 16 DDLs). */
+	static final double[] CF_TTLL_4={
+		-1.49192135, -0.64982726, -1.49483430, -0.65015221,
+		-0.65268397, +0.16042073, -0.65340451, +0.15885110,
+		-1.48904227, -0.64950669, -0.80067450, -0.07292658,
+		-0.65196680, +0.16198683, -0.07020482, +0.78354314,
+	};
+	/** Per-tier HSB for TTLL 4-bit combined_h (tiers 0-2).
+	 *  Regenerated 2026-04-23 from TTLLSimulator LinCF (1M iters, 128 threads). */
+	static final double[][] CF_TTLL_4_TIERS={
+		{-0.58451970, -0.99828173, -0.58371294, -0.58371294,
+		 -0.99828173, +0.00000000, -0.58371294, +0.00000000,
+		 -0.58530616, -0.58530616, +0.73738649, +0.73738649,
+		 -0.58530616, +0.00000000, +0.73738649, +0.00000000},
+		{-2.12722297, -0.81130651, -2.12715875, -0.81153296,
+		 -0.80889054, +0.19196520, -0.80881554, +0.19217468,
+		 -2.12728725, -0.81108105, -1.01257778, -0.07569150,
+		 -0.80896571, +0.19175376, -0.07561258, +0.90129211},
+		{-1.74574997, -0.71609843, -1.74623535, -0.72073856,
+		 -0.71981759, +0.17556117, -0.72047585, +0.17661725,
+		 -1.74526699, -0.71149179, -0.88063150, -0.05687208,
+		 -0.71916583, +0.17450372, -0.06881533, +0.83955537},
+	};
+	/** When true, historyOffset uses TTLL's 16-state HSB tables for hbits==4. */
+	static boolean USE_TTLL_HSB=false;
+	/** Command-line override for CF_TTLL_4 steady-state table (16 values). Null = use compiled table. */
+	static double[] CF_TTLL_4_OVERRIDE=null;
 
 	/** Steady-state per-state CFs for TTLL master/slave encoding (mode 1).
 	 *  h0=master (pure NLZ history), h1=slave (bit-filtered).
