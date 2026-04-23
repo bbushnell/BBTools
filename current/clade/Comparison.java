@@ -49,10 +49,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 
 		gcdif=lp.parseFloat(10);
 		strdif=lp.parseFloat(11);
-		k3dif=lp.parseFloat(12);
-		k4dif=lp.parseFloat(13);
-		k5dif=lp.parseFloat(14);
-		int col=15;
+		hhdif=lp.parseFloat(12);
+		cagadif=lp.parseFloat(13);
+		k3dif=lp.parseFloat(14);
+		k4dif=lp.parseFloat(15);
+		k5dif=lp.parseFloat(16);
+		int col=17;
 		if(Clade.callSSU && lp.terms()>col+1){ssudif=1-lp.parseFloat(col); col++;}
 		if(Clade.MAKE_DDLS && lp.terms()>col+3){
 			ani=lp.parseFloat(col); col++;
@@ -293,6 +295,30 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		completeness=DynamicDemiLog.completeness(lower, equal, higher);
 	}
 
+	public float confidence(int taxLevel){
+		if(query==null){return -1;}
+		return CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
+	}
+
+	public int confidentLevel(float threshold){
+		for(int level=TaxTree.SPECIES; level<=TaxTree.DOMAIN; level++){
+			float c=confidence(level);
+			if(c>=threshold){return level;}
+		}
+		return -1;
+	}
+
+	public void appendConfidenceString(ByteBuilder bb){
+		if(query==null){return;}
+		for(int level=TaxTree.DOMAIN; level>=TaxTree.SPECIES; level--){
+			float c=confidence(level);
+			if(c<0){continue;}
+			if(level<TaxTree.DOMAIN){bb.append(';');}
+			bb.append(TaxTree.levelToStringShort(level)).append(':');
+			bb.append(c*100, 1);
+		}
+	}
+
 	/**
 	 * Returns a string representation of this Comparison.
 	 *
@@ -364,6 +390,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt("R_Level");
 		bb.appendt("GCdif");
 		bb.appendt("STRdif");
+		bb.appendt("HHdif");
+		bb.appendt("CAGAdif");
 		if(calcCladeEntropy) {bb.appendt("ENTdif");}
 		bb.appendt("k3dif");
 		bb.appendt("k4dif");
@@ -371,8 +399,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(Clade.callSSU) {bb.tab().append("ssuID");}
 		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
-		
-		if(false) {bb.append("\tconfidence");}
+		bb.append("\tConfLevel\tConfidence");
 		return bb;
 	}
 	
@@ -404,6 +431,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt(TaxTree.levelToString(r.level));
 		bb.appendt(gcdif, 5);
 		bb.appendt(strdif, 5);
+		bb.appendt(hhdif, 5);
+		bb.appendt(cagadif, 5);
 		if(calcCladeEntropy) {bb.appendt(entdif, 5);}
 		bb.appendt(k3dif, 5);
 		bb.appendt(k4dif, 5);
@@ -416,8 +445,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 			bb.tab().append(kmerMatches);
 		}
 		bb.tab().append(lineage());
-		
-		if(false) {bb.append("\tNA");}
+
+		int cl=confidentLevel(confThreshold);
+		bb.tab().append(cl>=0 ? TaxTree.levelToString(cl) : "None");
+		bb.tab();
+		appendConfidenceString(bb);
 		return bb;
 	}
 	
@@ -560,6 +592,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	float completeness=-1;
 	/** Number of matching DDL buckets (excluding empty-empty). -1 when not computed. */
 	int kmerMatches=-1;
+
+	public static float confThreshold=0.95f;
 
 	/** Whether to use early exit optimization to avoid unnecessary calculations */
 	static boolean earlyExit=true;
