@@ -1,0 +1,306 @@
+package cardinality;
+
+import shared.Tools;
+
+/**
+ * UltraDynamicLogLog6m: modulo-bucket variant of UltraDynamicLogLog6.
+ * Identical algorithm (ErtlULL encoding, 6-bit registers, 2-bit history)
+ * but uses modulo bucket selection instead of power-of-2 masking,
+ * with bucket count rounded to a multiple of 5 (the int packing factor).
+ *
+ * @author Eru
+ * @date April 2026
+ */
+public final class UltraDynamicLogLog6m extends CardinalityTracker {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	UltraDynamicLogLog6m(){this(2048, 31, -1, 0);}
+
+	UltraDynamicLogLog6m(parse.Parser p){
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+	}
+
+	UltraDynamicLogLog6m(int buckets_, int k_, long seed, float minProb_){
+		super(roundToWords(buckets_)*5<=0 ? buckets_ :
+			Integer.highestOneBit(roundToWords(buckets_)*5-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*5;
+		modBuckets=rounded>0 ? rounded : buckets;
+		packedLen=(modBuckets+4)/5;
+		packed=new int[packedLen];
+		floorCount=modBuckets;
+	}
+
+	private static int roundToWords(int b){return Math.max(1, (b+4)/5);}
+
+	@Override public UltraDynamicLogLog6m copy(){return new UltraDynamicLogLog6m(modBuckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return modBuckets;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Packed Access         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	int getReg(int i){
+		return (packed[i/5]>>>((i%5)*6))&0x3F;
+	}
+
+	private void setReg(int i, int val){
+		final int idx=i/5;
+		final int shift=(i%5)*6;
+		packed[idx]=(packed[idx] & ~(0x3F<<shift)) | ((val&0x3F)<<shift);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
+		final char[] packedBuckets=new char[modBuckets];
+		int filledCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){
+				if(globalNLZ>=0 && globalNLZ<64){
+					nlzCounts[globalNLZ+1]++;
+					filledCount++;
+				}
+			}else{
+				final int nlzPart=reg>>>2;
+				final int histPattern=reg&3;
+				if(nlzPart>=HISTORY_MARGIN){
+					final int absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
+					if(absNlz<64){
+						nlzCounts[absNlz+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((absNlz+1)<<2)|histPattern);
+					}
+				}else{
+					if(globalNLZ>=0 && globalNLZ<64){
+						nlzCounts[globalNLZ+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((globalNLZ+1)<<2)|histPattern);
+					}
+				}
+			}
+		}
+		nlzCounts[0]=modBuckets-filledCount;
+		return new CardStats(packedBuckets, nlzCounts, 0, 2, 0, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
+	}
+
+	@Override
+	public final long cardinality(){
+		if(lastCardinality>=0){return lastCardinality;}
+		final CardStats s=summarize();
+		lastSummarized=s;
+		long card=Math.max(0, Math.round(s.ldlc()));
+		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
+		lastCardinality=card;
+		return card;
+	}
+
+	@Override
+	public final void add(CardinalityTracker log){
+		assert(log.getClass()==this.getClass());
+		add((UltraDynamicLogLog6m)log);
+	}
+
+	public void add(UltraDynamicLogLog6m log){
+		added+=log.added;
+		lastCardinality=-1;
+		microIndex|=log.microIndex;
+		final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
+		final int deltaA=newGlobalNLZ-globalNLZ;
+		final int deltaB=newGlobalNLZ-log.globalNLZ;
+		for(int i=0; i<modBuckets; i++){
+			final int rA=getReg(i);
+			final int rB=log.getReg(i);
+			long hpA=(rA==0) ? 0 : ErtlULL.unpack((byte)rA)>>>deltaA;
+			long hpB=(rB==0) ? 0 : ErtlULL.unpack((byte)rB)>>>deltaB;
+			long merged=hpA|hpB;
+			if(merged==0){
+				setReg(i, 0);
+			}else{
+				setReg(i, Math.min(ErtlULL.pack(merged)&0xFF, MAX_REGISTER));
+			}
+		}
+		globalNLZ=newGlobalNLZ;
+		filledBuckets=0;
+		floorCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg>0){filledBuckets++;}
+			if(reg==0 || (reg>>>2)<=HISTORY_MARGIN){floorCount++;}
+		}
+		while(floorCount==0 && globalNLZ<wordlen){
+			globalNLZ++;
+			floorCount=countAndDecrement();
+		}
+		int exitThreshold=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
+		eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
+	}
+
+	@Override
+	public final void hashAndStore(final long number){
+		final long key=Tools.hash64shift(number^hashXor);
+
+		final long micro=(key>>>58)&0x3FL;
+		microIndex|=(1L<<micro);
+
+		if(Long.compareUnsigned(key, eeMask)>0){return;}
+		branch1++;
+
+		final int idx=(int)(Long.remainderUnsigned(key, modBuckets));
+		final int nlz=Long.numberOfLeadingZeros(key);
+		final int relNlz=nlz-(globalNLZ+1);
+
+		final int bitPos=relNlz+HISTORY_MARGIN;
+		if(bitPos<0||bitPos>=64){return;}
+
+		final int oldReg=getReg(idx);
+		long hashPrefix=ErtlULL.unpack((byte)oldReg);
+		hashPrefix|=1L<<bitPos;
+		final int rawReg=ErtlULL.pack(hashPrefix)&0xFF;
+		final int newReg;
+		if(rawReg>MAX_REGISTER){
+			final int sub=(int)((hashPrefix>>>13)&3);
+			newReg=(15<<2)|sub;
+		}else{
+			newReg=rawReg;
+		}
+		if(newReg<=oldReg){return;}
+		branch2++;
+
+		setReg(idx, newReg);
+		lastCardinality=-1;
+
+		if(oldReg==0){filledBuckets++;}
+
+		final int oldNlzPart=(oldReg>>>2);
+		final int newNlzPart=(newReg>>>2);
+		if(oldNlzPart<=HISTORY_MARGIN && newNlzPart>HISTORY_MARGIN){
+			floorCount--;
+			if(floorCount<=0){
+				while(floorCount==0 && globalNLZ<wordlen){
+					globalNLZ++;
+					floorCount=countAndDecrement();
+				}
+				int exitThreshold=Math.max(0, (globalNLZ+1)-HISTORY_MARGIN);
+				eeMask=(exitThreshold==0) ? -1L : -1L>>>exitThreshold;
+			}
+		}
+	}
+
+	private int countAndDecrement(){
+		int newFloorCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){newFloorCount++; continue;}
+			final int newReg=reg-4;
+			setReg(i, newReg);
+			if((newReg>>>2)<=HISTORY_MARGIN){newFloorCount++;}
+		}
+		return newFloorCount;
+	}
+
+	public double fgraEstimate(){
+		if(!CALC_FGRA){return 0;}
+		final int p=bucketBits;
+		final int regOffset=4*((globalNLZ+1)+p-1-HISTORY_MARGIN);
+		final byte[] ertlRegs=new byte[modBuckets];
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){
+				ertlRegs[i]=0;
+			}else{
+				ertlRegs[i]=(byte)Math.min(reg+regOffset, 255);
+			}
+		}
+		return ErtlULL.fgraEstimateStatic(ertlRegs, p);
+	}
+
+	public int filledBuckets(){return filledBuckets;}
+	public double occupancy(){return (double)filledBuckets/modBuckets;}
+	public int getMinZeros(){return globalNLZ+1;}
+
+	@Override public final float[] compensationFactorLogBucketsArray(){return null;}
+
+	@Override
+	public double[] rawEstimates(){
+		lastSummarized=summarize();
+		final double hybridEst=lastSummarized.hybridDLL();
+		return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+	}
+
+	public int getRegPublic(int i){return getReg(i);}
+	public int getRegister(int i){return getReg(i);}
+
+	public double[] udlcEstimate(){
+		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
+		return new double[]{s.ldlc(), s.dlcSbs(), s.hc(), s.lcMin(),
+			fgraEstimate(), s.hllRaw(), s.meanHistCF(), s.hybridPlus2()};
+	}
+
+	public void printRegisters(){
+		for(int i=0; i<modBuckets; i++){System.err.print(getReg(i)+" ");}
+		System.err.println();
+	}
+
+	public int packedBytes(){return packedLen*4;}
+
+	public CardStats consumeLastSummarized(){
+		final CardStats s=lastSummarized;
+		lastSummarized=null;
+		return s;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	final int[] packed;
+	private final int packedLen;
+	private final int modBuckets;
+	private int globalNLZ=-1;
+	private int floorCount;
+	private long eeMask=-1L;
+	private int filledBuckets=0;
+	private CardStats lastSummarized;
+
+	public long branch1=0, branch2=0;
+	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
+	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Statics            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final int wordlen=64;
+	static final int HISTORY_MARGIN=2;
+	static final int MAX_REGISTER=63;
+
+	public static boolean SATURATE_ON_OVERFLOW=true;
+	public static boolean CALC_FGRA=false;
+
+	public static final String CF_FILE=UltraDynamicLogLog6.CF_FILE;
+	private static int CF_BUCKETS=2048;
+	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
+
+	public static float[][] initializeCF(int buckets){
+		CF_BUCKETS=buckets;
+		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	}
+
+	public static void setCFMatrix(float[][] matrix, int buckets){
+		CF_MATRIX=matrix; CF_BUCKETS=buckets;
+	}
+
+	@Override public float terminalMeanCF(){return 1.386726f;}
+	@Override public float terminalMeanPlusCF(){return 0.856020f;}
+
+}
