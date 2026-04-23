@@ -263,6 +263,7 @@ public final class CardStats extends AbstractCardStats {
 			// HC accumulators: per-NLZ bucket count and per-history-bit set counts
 			final int[] nlzBucketCount=new int[64];
 			final int[][] nlzHbitSet=new int[histBits_][64];
+			final int[][] nlzHbitMasked=new int[histBits_][64];
 			int bucketsWithHistory=0;
 			for(int i=0; i<numBuckets; i++){
 				final int val=buckets_[i];
@@ -291,7 +292,11 @@ public final class CardStats extends AbstractCardStats {
 				// HC: accumulate per-NLZ bucket counts and per-bit history set counts
 				if(absNlz>=0 && absNlz<64){
 					nlzBucketCount[absNlz]++;
+					// Collapsed 3-state: emitHist==3 at absNlz>=2 is "1x" (bit 0 unknown).
+					// Mark d=1 as masked so HC excludes these from depth-1 computation.
+					final boolean masked1x=(StateTable.USE_AUDLL32_HSB && histPattern==3 && absNlz>=2);
 					for(int d=0; d<histBits_; d++){
+						if(masked1x && d==1){nlzHbitMasked[d][absNlz]++; continue;}
 						if((histPattern&(1<<(histBits_-1-d)))!=0){nlzHbitSet[d][absNlz]++;}
 					}
 				}
@@ -311,8 +316,9 @@ public final class CardStats extends AbstractCardStats {
 				for(int d=0; d<histBits_; d++){
 					final int sourceTier=t+d+1;
 					if(sourceTier<64){
-						hcBeff+=nlzBucketCount[sourceTier];
-						hcUnseen+=(nlzBucketCount[sourceTier]-nlzHbitSet[d][sourceTier]);
+						final int masked=nlzHbitMasked[d][sourceTier];
+						hcBeff+=(nlzBucketCount[sourceTier]-masked);
+						hcUnseen+=(nlzBucketCount[sourceTier]-masked-nlzHbitSet[d][sourceTier]);
 					}
 				}
 				if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){
