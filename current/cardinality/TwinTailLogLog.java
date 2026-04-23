@@ -227,6 +227,7 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			r=java.util.Arrays.copyOf(r, MEAN16_RAW_IDX+1);
 		}
 		r[MEAN16_RAW_IDX]=ttllMeanEstimate();
+		// HC slot already has 3-bit TTLL HC from overrideHC() in summarize()
 		return r;
 	}
 
@@ -234,8 +235,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	public static final int MEAN16_RAW_IDX=AbstractCardStats.HC_IDX+1;
 
 	/**
-	 * LDLC estimate with 1-bit history support.
-	 * Reuses cached CardStats from rawEstimates() to avoid double-summarize.
+	 * LDLC estimate with TTLL 3-bit HC.
+	 * CardStats already has the correct HC and LDLC via overrideHC() in summarize().
 	 * Returns {ldlc, dlc, hc, lcMin, fgra, hll, meanH, hybridPlus2, mean16, dualLC}.
 	 */
 	public double[] ldlcEstimate(){
@@ -252,11 +253,10 @@ public final class TwinTailLogLog extends CardinalityTracker {
 
 	/**
 	 * Builds a CardStats from the current register state.
-	 * Extracts 1-bit effective history per bucket.
-	 * Mode 0 (symmetric): OR of both tails' LSBs — "saw NLZ-1 with either histBit".
-	 * Mode 1 (master/slave): h0 MSB — "saw NLZ-1" (unconditional, UDLL6-style).
+	 * Packs 4-bit combined_h so CardStats computes Mean+H via 16-state HSB tables.
+	 * HC is overridden with the TTLL-specific 3-bit formula via overrideHC().
 	 *
-	 * Packed bucket format: ((absNlz+1) &lt;&lt; 1) | histBit
+	 * Packed bucket format: ((absNlz+1) &lt;&lt; 4) | combinedH
 	 */
 	private CardStats summarize(){
 		final int[] nlzCounts=new int[66];
@@ -274,24 +274,21 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			if(absNlz>=0 && absNlz<64){
 				nlzCounts[absNlz+1]++;
 				filledCount++;
-				final int histBit;
-				if(ENCODING_MODE==0){
-					// Symmetric: OR of both LSBs
-					final int ch=b&0xF;
-					histBit=((ch&1)|((ch>>>2)&1));
-				}else{
-					// Master/slave: h0 MSB (bit 1)
-					histBit=(b>>>1)&1;
-				}
-				packedBuckets[i]=(char)(((absNlz+1)<<1)|histBit);
+				// 4-bit combined_h: (h1<<2)|h0, for 16-state HSB dispatch
+				final int combinedH=b&0xF;
+				packedBuckets[i]=(char)(((absNlz+1)<<4)|combinedH);
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
 		lastRawNlz=nlzCounts;
 
-		return new CardStats(packedBuckets, nlzCounts, 0, 1, 0, 0,
+		// histBits=4 for 16-state Mean+H; histFloorBits=1 to avoid inflating historyFloor
+		final CardStats cs=new CardStats(packedBuckets, nlzCounts, 0, 4, 0, 0,
 				buckets, microIndex, added, null, 0, 0.0,
-				terminalMeanCF(), terminalMeanPlusCF());
+				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), 1.0, 1);
+		// Override with TTLL-specific 3-bit HC (proper half-population + conditional model).
+		cs.overrideHC(CardStats.hcTTLL(regs, globalExp, buckets, 1.0));
+		return cs;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -534,6 +531,11 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	static {
 		loadCFTable();
 		loadCardCFTable();
+		StateTable.USE_TTLL_HSB=true;
+		// Load TTLL-specific SBS table (47 states, 4-bit history)
+		CorrectionFactor.sbsFile="?sbsTTLL_2048.tsv.gz";
+		CorrectionFactor.SBS_CF_TABLE=null;
+		CorrectionFactor.loadSbsTable();
 	}
 
 	/**
@@ -693,6 +695,9 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
 	@Override public float terminalMeanCF(){return 1.385416f;}
 
-	/** Asymptotic Mean+H ratio (1-bit history), measured 128k ddls maxmult=4096 (Apr 13 2026). */
-	@Override public float terminalMeanPlusCF(){return 0.844367f;}
+	/** Asymptotic Mean+H ratio (4-bit history, all/LinCF HSB), measured 8k ddls maxmult=8192 (Apr 23 2026). */
+	@Override public float terminalMeanPlusCF(){return 0.935848f;}
+
+	/** HLDLC blend: 0.76*LDLC + 0.24*Hybrid+2. Swept 0.70-0.80 in 0.02 steps, 32k DDLs (Apr 23 2026). */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.76f;}
 }
