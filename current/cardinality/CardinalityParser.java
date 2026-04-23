@@ -91,6 +91,14 @@ public class CardinalityParser {
 			BankedDynamicLogLog3.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 			DynamicLogLog3v4.USE_STORED_OVERFLOW=Parse.parseBoolean(b);
 		}
+		else if(a.equals("edllhbits") || a.equals("ehbits")){ExpandedDynamicLogLog8.EDLL_HBITS=Integer.parseInt(b);}
+		else if(a.equals("etllhsb") || a.equals("hsbmode")){StateTable.ETLL_HSB_MODE=Integer.parseInt(b);}
+		else if(a.equals("hsbetll3")){
+			final String[] parts=b.split(",");
+			final double[] tbl=new double[parts.length];
+			for(int i=0; i<parts.length; i++){tbl[i]=Double.parseDouble(parts[i]);}
+			StateTable.CF_ETLL_3_OVERRIDE=tbl;
+		}
 		else if(a.equals("calcfgra") || a.equals("fgra")){UltraDynamicLogLog6.CALC_FGRA=Parse.parseBoolean(b);}
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
@@ -227,7 +235,7 @@ public class CardinalityParser {
 			if(HalfCappedDynamicLogLog4.SBS_FILE!=null){CorrectionFactor.sbsFile=HalfCappedDynamicLogLog4.SBS_FILE;}
 		}else if(loglogtype.equals("edll8")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=0.5;
-			if(ExpandedDynamicLogLog8.SBS_FILE!=null){CorrectionFactor.sbsFile=ExpandedDynamicLogLog8.SBS_FILE;}
+			if(CorrectionFactor.sbsFile==null && ExpandedDynamicLogLog8.SBS_FILE!=null){CorrectionFactor.sbsFile=ExpandedDynamicLogLog8.SBS_FILE;}
 		}else if(loglogtype.equals("audll32")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.0;
 			StateTable.USE_AUDLL32_HSB=true;

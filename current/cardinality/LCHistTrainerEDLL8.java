@@ -58,6 +58,9 @@ public class LCHistTrainerEDLL8 {
 	/*----------------         Worker Thread        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	static int AVG_MODE=0; // 0=linear, 1=geometric, 2=harmonic
+	static int SAMPLE_MODE=0; // 0=all, 1=entry, 2=both
+
 	static final class TrainerThread extends Thread {
 
 		TrainerThread(long seed, int numTrials, int buckets, int hbits){
@@ -67,6 +70,8 @@ public class LCHistTrainerEDLL8 {
 			this.hbits=hbits;
 			this.nStates=(hbits+2)*(1<<hbits);
 			collisionSums=new long[buckets+1][nStates];
+			logSums=new double[buckets+1][nStates];
+			recipSums=new double[buckets+1][nStates];
 			observations=new long[buckets+1][nStates];
 		}
 
@@ -102,7 +107,9 @@ public class LCHistTrainerEDLL8 {
 						hist[bucket]=0;
 						filled[bucket]=true;
 						filledCount++;
-						snapshot(filledCount, tierArr, hist, distinct, filled);
+						if(SAMPLE_MODE==0){ snapshot(filledCount, tierArr, hist, distinct, filled); }
+						else if(SAMPLE_MODE==1){ snapshotEntry(filledCount, bucket, tier, 0, distinct[bucket]); }
+						else{ snapshot(filledCount, tierArr, hist, distinct, filled); snapshotEntry(filledCount, bucket, tier, 0, distinct[bucket]); }
 					}else{
 						final int oldTier=tierArr[bucket];
 						final int delta=tier-oldTier;
@@ -125,10 +132,21 @@ public class LCHistTrainerEDLL8 {
 			for(int b=0; b<buckets; b++){
 				if(filled[b]){
 					int si=stateIndex(tier[b], hist[b], hbits);
-					collisionSums[filledCount][si]+=distinct[b];
+					final int d=distinct[b];
+					collisionSums[filledCount][si]+=d;
+					logSums[filledCount][si]+=Math.log(d);
+					recipSums[filledCount][si]+=1.0/d;
 					observations[filledCount][si]++;
 				}
 			}
+		}
+
+		void snapshotEntry(int filledCount, int bucket, int tier, int hist, int distinct){
+			int si=stateIndex(tier, hist, hbits);
+			collisionSums[filledCount][si]+=distinct;
+			logSums[filledCount][si]+=Math.log(distinct);
+			recipSums[filledCount][si]+=1.0/distinct;
+			observations[filledCount][si]++;
 		}
 
 		final long seed;
@@ -137,6 +155,8 @@ public class LCHistTrainerEDLL8 {
 		final int hbits;
 		final int nStates;
 		final long[][] collisionSums;
+		final double[][] logSums;
+		final double[][] recipSums;
 		final long[][] observations;
 		boolean success=false;
 	}
@@ -166,6 +186,18 @@ public class LCHistTrainerEDLL8 {
 			else if(a.equals("threads")||a.equals("t")){threads=Integer.parseInt(b);}
 			else if(a.equals("seed")){masterSeed=Long.parseLong(b);}
 			else if(a.equals("out")){out=b;}
+			else if(a.equals("avgmode")||a.equals("avg")){
+				if(b.startsWith("lin")){AVG_MODE=0;}
+				else if(b.startsWith("geo")){AVG_MODE=1;}
+				else if(b.startsWith("harm")){AVG_MODE=2;}
+				else{AVG_MODE=Integer.parseInt(b);}
+			}
+			else if(a.equals("samplemode")||a.equals("sample")){
+				if(b.equals("all")){SAMPLE_MODE=0;}
+				else if(b.startsWith("entry")){SAMPLE_MODE=1;}
+				else if(b.startsWith("both")){SAMPLE_MODE=2;}
+				else{SAMPLE_MODE=Integer.parseInt(b);}
+			}
 		}
 
 		final int numThreads=Math.min(threads, (int)iters);
@@ -185,11 +217,15 @@ public class LCHistTrainerEDLL8 {
 
 		final int nStates=(hbits+2)*(1<<hbits);
 		final long[][] totalSums=new long[buckets+1][nStates];
+		final double[][] totalLogSums=new double[buckets+1][nStates];
+		final double[][] totalRecipSums=new double[buckets+1][nStates];
 		final long[][] totalObs=new long[buckets+1][nStates];
 		for(TrainerThread w : workers){
 			for(int f=1; f<=buckets; f++){
 				for(int s=0; s<nStates; s++){
 					totalSums[f][s]+=w.collisionSums[f][s];
+					totalLogSums[f][s]+=w.logSums[f][s];
+					totalRecipSums[f][s]+=w.recipSums[f][s];
 					totalObs[f][s]+=w.observations[f][s];
 				}
 			}
@@ -226,10 +262,18 @@ public class LCHistTrainerEDLL8 {
 		final int expectedZeros=nStates-numValid;
 		System.err.println("Zeros in final row: "+zeros+" (expected "+expectedZeros+")");
 
+		final String[] modeNames={"linear","geometric","harmonic"};
+		final String[] sampleNames={"all","entry","both"};
+		System.err.println("Averaging mode: "+modeNames[AVG_MODE]+"  Sampling mode: "+sampleNames[SAMPLE_MODE]);
 		double[][] avg=new double[buckets+1][nStates];
 		for(int f=1; f<=buckets; f++){
 			for(int s=0; s<nStates; s++){
-				if(totalObs[f][s]>0){ avg[f][s]=(double)totalSums[f][s]/totalObs[f][s]; }
+				final long obs=totalObs[f][s];
+				if(obs>0){
+					if(AVG_MODE==1){ avg[f][s]=Math.exp(totalLogSums[f][s]/obs); }
+					else if(AVG_MODE==2){ avg[f][s]=obs/totalRecipSums[f][s]; }
+					else{ avg[f][s]=(double)totalSums[f][s]/obs; }
+				}
 			}
 		}
 

@@ -79,15 +79,48 @@ public final class StateTable {
 
 	/** Steady-state CFs for 3-bit history, ETLL expanded tiers (halfNlz/4, TIER_SCALE=2.0).
 	 *  Generated 2026-04-21 from MC2 mode=etll bits=3 outer=32k inner=32k, tier 5 LinCF. */
-	static final double[] CF_ETLL_3={-0.17376441, -0.08848045, -0.05907605, -0.01104290, -0.03955570, -0.01740046, -0.01647446, +0.22568811};
+	static final double[] CF_ETLL_3_LIN={-0.17376441, -0.08848045, -0.05907605, -0.01104290, -0.03955570, -0.01740046, -0.01647446, +0.22568811};
+	static final double[] CF_ETLL_3_GEO={-1.70572680, -0.65826663, -0.77383387, +0.12971612, -0.83497522, +0.02286040, -0.11328315, +0.82508404};
+	static final double[] CF_ETLL_3_HARM={-1.67788945, -0.37901570, -0.48891880, +0.49768142, -0.54745193, +0.39651958, +0.26607104, +1.22967348};
+	static final double[] CF_ETLL_3_ENTRY_GEO={-1.83930155, -0.29355145, -0.35220248, +0.63639596, -0.37945578, +0.58750517, +0.50182279, +1.35479159};
+	static final double[] CF_ETLL_3_ENTRY_LIN={-1.74017876, -0.54315205, -0.60724981, +0.27158162, -0.63799416, +0.21883980, +0.12691903, +0.93748722};
+	static final double[] CF_ETLL_3_ENTRY_HARM={-1.66251479, +0.37036598, +0.32095537, +1.48341377, +0.29568706, +1.43707870, +1.35959655, +2.28083573};
+	static final double[] CF_ETLL_3_BOTH_GEO={-1.38437572, -0.10733116, -0.16778306, +0.69275752, -0.20328467, +0.65660996, +0.57945412, +1.20607043};
+	/** 0=all/lin, 1=all/geo, 2=all/harm, 3=entry/geo, 4=entry/lin, 5=entry/harm, 6=both/geo */
+	static int ETLL_HSB_MODE=1;
+	static double[] CF_ETLL_3_OVERRIDE=null;
+	static double[] etll3Table(){
+		if(CF_ETLL_3_OVERRIDE!=null){return CF_ETLL_3_OVERRIDE;}
+		switch(ETLL_HSB_MODE){
+			case 1: return CF_ETLL_3_GEO;
+			case 2: return CF_ETLL_3_HARM;
+			case 3: return CF_ETLL_3_ENTRY_GEO;
+			case 4: return CF_ETLL_3_ENTRY_LIN;
+			case 5: return CF_ETLL_3_ENTRY_HARM;
+			case 6: return CF_ETLL_3_BOTH_GEO;
+			default: return CF_ETLL_3_LIN;
+		}
+	}
 	/** Per-tier CFs for 3-bit history, ETLL expanded tiers (tiers 0-3; tier 4+ uses steady-state).
-	 *  Generated 2026-04-22 from MC2 mode=etll bits=3 outer=2M inner=32k LinCF rows.
-	 *  Correct expanded mapping: tier=halfNlz, TIER_SCALE=0.5. */
+	 *  Generated 2026-04-22 from MC2 mode=etll bits=3 outer=2M inner=32k GeoCF rows.
+	 *  Correct expanded mapping: tier=halfNlz, TIER_SCALE=0.5. all/geo model. */
 	static final double[][] CF_ETLL_3_TIERS={
 		{+0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
-		{-0.93583304, +0.00000000, +0.00000000, +0.00000000, +0.46929410, +0.00000000, +0.00000000, +0.00000000},
-		{-1.70521485, +0.00000000, -0.30657758, +0.00000000, -0.46663286, +0.00000000, +0.63089713, +0.00000000},
-		{-2.38492006, -0.98691176, -1.13541950, -0.06980971, -1.23301141, -0.20153259, -0.37775370, +0.68859780},
+		{-0.76128382, +0.00000000, +0.00000000, +0.00000000, +0.61321318, +0.00000000, +0.00000000, +0.00000000},
+		{-1.43993655, +0.00000000, -0.08369830, +0.00000000, -0.21651589, +0.00000000, +0.83980362, +0.00000000},
+		{-2.06795280, -0.72201024, -0.84480485, +0.18037009, -0.92528004, +0.06492381, -0.08881447, +0.92675886},
+	};
+
+	static final double[] CF_ETLL_2={-0.24650375, -0.05903061, -0.05085254, +0.22081960};
+	static final double[][] CF_ETLL_2_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-0.93583304, +0.00000000, +0.46929410, +0.00000000},
+		{-1.70521485, -0.30657758, -0.46663286, +0.63089713},
+	};
+	static final double[] CF_ETLL_1={-0.27190525, +0.19555480};
+	static final double[][] CF_ETLL_1_TIERS={
+		{+0.00000000, +0.00000000},
+		{-0.93989503, +0.46832201},
 	};
 
 	/** AUDLL32: 3-state collapsed history (10+11→state 2), standard tiers.
@@ -120,8 +153,12 @@ public final class StateTable {
 			steadyState=CF_CTLL_1; tierTables=CF_CTLL_1_TIERS;
 		}else if(hbits==2 && AbstractCardStats.TIER_SCALE>1.0){
 			steadyState=CF_CTLL_2; tierTables=CF_CTLL_2_TIERS;
+		}else if(hbits==1 && AbstractCardStats.TIER_SCALE<=0.5){
+			steadyState=CF_ETLL_1; tierTables=CF_ETLL_1_TIERS;
+		}else if(hbits==2 && AbstractCardStats.TIER_SCALE<=0.5){
+			steadyState=CF_ETLL_2; tierTables=CF_ETLL_2_TIERS;
 		}else if(hbits==3 && AbstractCardStats.TIER_SCALE<=0.5){
-			steadyState=CF_ETLL_3; tierTables=CF_ETLL_3_TIERS;
+			steadyState=etll3Table(); tierTables=CF_ETLL_3_TIERS;
 		}else if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}
