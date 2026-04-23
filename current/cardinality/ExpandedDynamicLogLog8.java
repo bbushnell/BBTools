@@ -91,6 +91,8 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 		if(packedBuckets==null){packedBuckets=new char[modBuckets];}
 		else{java.util.Arrays.fill(packedBuckets, (char)0);}
 
+		final int useHbits=EDLL_HBITS;
+		final int shift=HBITS-useHbits;
 		int filledCount=0;
 		for(int i=0; i<modBuckets; i++){
 			final int reg=readBucket(i);
@@ -100,13 +102,14 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 			if(absTier>=0 && absTier<64){
 				nlzCounts[absTier+1]++;
 				final int emitHist=emitHistMask(absTier, hist);
-				packedBuckets[i]=(char)(((absTier+1)<<3)|emitHist);
+				final int usedHist=(useHbits>=HBITS) ? emitHist : (emitHist>>shift);
+				packedBuckets[i]=(char)(((absTier+1)<<useHbits)|usedHist);
 				filledCount++;
 			}
 		}
 		nlzCounts[0]=modBuckets-filledCount;
 
-		return new CardStats(packedBuckets, nlzCounts, 0, HBITS, 0, 0,
+		return new CardStats(packedBuckets, nlzCounts, 0, useHbits, 0, 0,
 				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), TIER_SCALE);
 	}
@@ -355,6 +358,7 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 	/** Mantissa threshold for half-NLZ steps: same as CDLL5 (2-sqrt(2)) * 1048576 */
 	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
+	public static int EDLL_HBITS=3;
 	public static boolean EARLY_PROMOTE=true;
 	public static boolean DISABLE_EEMASK=false;
 
@@ -368,12 +372,12 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 	}
 
 	@Override public float terminalMeanCF(){return 0.597305f;}
-	@Override public float terminalMeanPlusCF(){return 0.582968f;}
+	@Override public float terminalMeanPlusCF(){return 0.717049f;}
 
 	/** HC weight for LDLC blend. Calibrated by Nowi, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.48;}
-	/** HLDLC weight. Calibrated by Nowi, 2026-04-22.
-	 *  Nearly flat 0.90-0.98 — Hybrid+2 barely helps EDLL8. */
-	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.94f;}
+	/** HLDLC weight. Calibrated by Nowi, 2026-04-23, all/geo HSB.
+	 *  32k DDLs fine sweep: minimum at 0.68, flat 0.66-0.70. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
 
 }
