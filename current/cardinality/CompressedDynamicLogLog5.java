@@ -469,5 +469,7 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 
 	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.40;}
+	/** HLDLC weight. Calibrated by Eru, 2026-04-22: 32k DDLs, 1536 buckets. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.64f;}
 
 }

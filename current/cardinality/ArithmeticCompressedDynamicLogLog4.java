@@ -390,7 +390,9 @@ public final class ArithmeticCompressedDynamicLogLog4 extends CardinalityTracker
 	/** Terminal Mean+H CF — measured via ddlcalibrate2 cf=f tmcf=1 tmpcf=1 ddls=128k maxmult=8192, with SBS. */
 	@Override public float terminalMeanPlusCF(){return 1.061534f;}
 
-	/** HLDLC weight — placeholder until tuned. */
-	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
+	/** HC weight for LDLC blend. Calibrated by Nahida, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.26;}
+	/** HLDLC weight. Calibrated by Nahida, 2026-04-22: 32k DDLs, 1856 buckets. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.58f;}
 
 }

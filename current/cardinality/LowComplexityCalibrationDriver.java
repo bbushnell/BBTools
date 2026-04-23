@@ -97,10 +97,16 @@ public class LowComplexityCalibrationDriver {
 		final int numThresholds=thresholds.length;
 		System.err.println("Thresholds: "+numThresholds+" points from 1 to "+cardinality);
 
-		// Generate fixed value array: cardinality unique random longs
+		// Generate two int arrays for Cartesian-product virtual value array.
+		// virtualArray[X] = (lower[X%lowerLen] & 0xFFFFFFFFL) | ((long)upper[X/lowerLen] << 32)
+		// This avoids materializing the full cardinality-length long[] which thrashes cache at high card.
 		final FastRandomXoshiro masterRng=new FastRandomXoshiro(masterSeed);
-		final long[] valueArray=new long[cardinality];
-		for(int i=0; i<cardinality; i++){valueArray[i]=masterRng.nextLong();}
+		final int lowerLen=(int)Math.ceil(Math.sqrt(cardinality));
+		final int upperLen=(cardinality+lowerLen-1)/lowerLen;
+		final int[] lowerArray=new int[lowerLen];
+		final int[] upperArray=new int[upperLen];
+		for(int i=0; i<lowerLen; i++){lowerArray[i]=masterRng.nextInt();}
+		for(int i=0; i<upperLen; i++){upperArray[i]=masterRng.nextInt();}
 
 		// Generate per-estimator seeds
 		final long[] seeds=new long[numDDLs];
@@ -129,6 +135,7 @@ public class LowComplexityCalibrationDriver {
 		final boolean finalMinRand=minRand;
 		final AtomicLong nextDDL=new AtomicLong(0);
 		final int finalNumDDLs=numDDLs;
+		final int finalLowerLen=lowerLen;
 
 		final long t0=System.nanoTime();
 		final Thread[] threadArray=new Thread[threads];
@@ -158,7 +165,8 @@ public class LowComplexityCalibrationDriver {
 
 					for(long add=0; add<finalTotalAdds; add++){
 						final int pos=finalMinRand ? Math.min(rng.nextInt(finalCardinality), rng.nextInt(finalCardinality)) : rng.nextInt(finalCardinality);
-						est.add(valueArray[pos]);
+						final long val=(lowerArray[pos%finalLowerLen]&0xFFFFFFFFL)|((long)(upperArray[pos/finalLowerLen])<<32);
+						est.add(val);
 						if(!seen.get(pos)){
 							seen.set(pos);
 							trueCard++;

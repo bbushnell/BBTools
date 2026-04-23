@@ -462,4 +462,9 @@ public final class ArithmeticUltraDynamicLogLog32 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.722158f;}
 	@Override public float terminalMeanPlusCF(){return 0.895883f;}
 
+	/** HC weight for LDLC blend. Calibrated by Neptune, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.38;}
+	/** HLDLC weight. Calibrated by Neptune, 2026-04-22. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.60f;}
+
 }
