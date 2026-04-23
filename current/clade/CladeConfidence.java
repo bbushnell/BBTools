@@ -1,104 +1,138 @@
 package clade;
 
+import ml.CellNet;
+import dna.Data;
+import shared.Tools;
+import structures.FloatList;
 import tax.TaxTree;
 
 /**
  * Estimates the probability that a QuickClade hit is taxonomically correct
- * at a given level, based on sequence length and k-mer frequency distances.
+ * at a given level, using neural networks with calibration via
+ * K*sigmoid(a*logit(x)+b)^c.
  *
- * Model: p = floor + (1-floor) * sigmoid(a0 + a1*log2(len/2500) + a2*k3dif + a3*kdif)
- * Uses K5 parameters when k5dif is available (< 1.0), K4 otherwise.
- *
- * Trained on 559M hit observations from 7062 prokaryotic genomes shredded at
- * both fixed and variable lengths, with top-20 to top-100 hits per query.
+ * Hybrid model: all-length NNs for order-domain (5 models),
+ * per-length-bin NNs for species-family (33 models, 3 levels × 11 bins).
+ * Falls back to 5-parameter sigmoid model if .bbnets file is missing.
  *
  * @author Brian Bushnell, Ady
  */
 public class CladeConfidence {
 
-	/**
-	 * Probability that a hit is correct at the given taxonomic level.
-	 *
-	 * @param length Query sequence length in bases
-	 * @param k3dif Sum of absolute 3-mer frequency differences (0-1)
-	 * @param k4dif Sum of absolute 4-mer frequency differences (0-1)
-	 * @param k5dif Sum of absolute 5-mer frequency differences (0-1); 1.0 = not computed
-	 * @param taxLevel TaxTree level constant (e.g. TaxTree.SPECIES, TaxTree.GENUS)
-	 * @return Estimated probability of correctness (0-1)
-	 */
+	public static float probCorrect(int length, float gcdif, float strdif,
+			float hhdif, float cagadif,
+			float k3dif, float k4dif, float k5dif, int taxLevel) {
+		int idx = levelToIndex(taxLevel);
+		if(idx<0){return -1;}
+		if(USE_NN && loaded!=null && k5dif<1.0f){
+			CellNet net;
+			float[] cal;
+			if(loaded.allLenNets[idx]!=null){
+				net=loaded.allLenNets[idx];
+				cal=loaded.allLenCal[idx];
+			}else{
+				int bin=binIndex(length);
+				net=loaded.binNets[idx][bin];
+				cal=loaded.binCal[idx][bin];
+			}
+			if(net!=null){
+				return predictNN(net, cal, idx, length, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif);
+			}
+		}
+		return predictSigmoid(idx, length, k3dif, k4dif, k5dif);
+	}
+
+	/** Backwards-compatible call without gcdif/strdif/hhdif/cagadif; always uses sigmoid. */
 	public static float probCorrect(int length, float k3dif, float k4dif, float k5dif, int taxLevel) {
 		int idx = levelToIndex(taxLevel);
-		if (idx < 0) { return -1; }
+		if(idx<0){return -1;}
+		return predictSigmoid(idx, length, k3dif, k4dif, k5dif);
+	}
+
+	/*---------- NN prediction ----------*/
+
+	private static float predictNN(CellNet master, float[] cal, int idx, int length,
+			float gcdif, float strdif, float hhdif, float cagadif,
+			float k3dif, float k4dif, float k5dif) {
+		CellNet net = getThreadNet(master, idx, length);
+		FloatList fl = getThreadInput();
+		fl.size=0;
+		fl.add((float)(Math.log(Math.max(length, 1)) * INV_LN2));
+		fl.add((float)(0.001 * Math.sqrt(Math.max(length, 1))));
+		fl.add(gcdif);
+		fl.add(strdif);
+		fl.add(hhdif);
+		fl.add(cagadif);
+		fl.add(k3dif);
+		fl.add(k4dif);
+		fl.add(k5dif);
+		fl.add((float)(k3dif / (k5dif + 0.01)));
+		net.applyInput(fl);
+		float raw = net.feedForward();
+		return calibrate(raw, cal);
+	}
+
+	/** p = K * sigmoid(a * logit(x) + b) ^ c */
+	private static float calibrate(float x, float[] p) {
+		x=Tools.mid(0.0001f, x, 0.9999f);
+		float K=p[0], a=p[1], b=p[2], c=p[3];
+		double lx=Math.log(x / (1.0 - x));
+		double s=1.0 / (1.0 + Math.exp(-(a * lx + b)));
+		return (float)Math.min(1.0, K * Math.pow(s, c));
+	}
+
+	/*---------- thread-local nets ----------*/
+
+	private static CellNet getThreadNet(CellNet master, int idx, int length) {
+		CellNet[][] local = threadNets.get();
+		if(local==null){
+			local = new CellNet[NUM_LEVELS][NUM_BINS+1];
+			threadNets.set(local);
+		}
+		int slot;
+		if(loaded.allLenNets[idx]!=null){
+			slot=NUM_BINS;
+		}else{
+			slot=binIndex(length);
+		}
+		if(local[idx][slot]==null){
+			local[idx][slot] = master.copy(false);
+		}
+		return local[idx][slot];
+	}
+
+	private static FloatList getThreadInput() {
+		FloatList fl = threadInput.get();
+		if(fl==null){
+			fl = new FloatList(NUM_FEATURES);
+			threadInput.set(fl);
+		}
+		return fl;
+	}
+
+	private static final ThreadLocal<CellNet[][]> threadNets = new ThreadLocal<>();
+	private static final ThreadLocal<FloatList> threadInput = new ThreadLocal<>();
+
+	/*---------- bin lookup ----------*/
+
+	static int binIndex(int length) {
+		int raw = 63 - Long.numberOfLeadingZeros(Math.max(1, (long)length / 2500));
+		return Tools.mid(0, raw, NUM_BINS-1);
+	}
+
+	/*---------- sigmoid fallback ----------*/
+
+	private static float predictSigmoid(int idx, int length, float k3dif, float k4dif, float k5dif) {
 		double[] params = (k5dif < 1.0f) ? PROB_K5[idx] : PROB_K4[idx];
 		float kdif = (k5dif < 1.0f) ? k5dif : k4dif;
-		return predict(params, length, k3dif, kdif);
-	}
-
-	/**
-	 * Probability that the hit organism is the same species as the query.
-	 */
-	public static float probSameSpecies(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.SPECIES);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same genus as the query.
-	 */
-	public static float probSameGenus(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.GENUS);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same family as the query.
-	 */
-	public static float probSameFamily(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.FAMILY);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same order as the query.
-	 */
-	public static float probSameOrder(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.ORDER);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same class as the query.
-	 */
-	public static float probSameClass(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.CLASS);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same phylum as the query.
-	 */
-	public static float probSamePhylum(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.PHYLUM);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same kingdom as the query.
-	 */
-	public static float probSameKingdom(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.KINGDOM);
-	}
-
-	/**
-	 * Probability that the hit organism is in the same domain as the query.
-	 */
-	public static float probSameDomain(int length, float k3dif, float k4dif, float k5dif) {
-		return probCorrect(length, k3dif, k4dif, k5dif, TaxTree.DOMAIN);
-	}
-
-	/*---------- internals ----------*/
-
-	private static float predict(double[] params, int length, float k3dif, float kdif) {
 		double floor = params[0];
 		double log2len = Math.log(Math.max(length, 1)) * INV_LN2 - LOG2_REF;
 		double z = params[1] + params[2] * log2len + params[3] * k3dif + params[4] * kdif;
 		double sigmoid = 1.0 / (1.0 + Math.exp(z));
-		return (float) (floor + (1.0 - floor) * sigmoid);
+		return (float)(floor + (1.0 - floor) * sigmoid);
 	}
+
+	/*---------- level mapping ----------*/
 
 	private static int levelToIndex(int taxLevel) {
 		switch (taxLevel) {
@@ -114,12 +148,26 @@ public class CladeConfidence {
 		}
 	}
 
+	/*---------- initialization ----------*/
+
+	private static SerialNNLoader.LoadedNets loadNets() {
+		String path = Data.findPath("?confidence.bbnets", true);
+		if(path==null){return null;}
+		return SerialNNLoader.load(path);
+	}
+
+	/*---------- constants ----------*/
+
+	static final boolean USE_NN = true;
+	private static final int NUM_LEVELS = 8;
+	private static final int NUM_BINS = 11;
+	private static final int NUM_FEATURES = 10;
 	private static final double INV_LN2 = 1.0 / Math.log(2);
 	private static final double LOG2_REF = Math.log(2500) * INV_LN2;
 
-	// K4 model: p = floor + (1-floor) * sigmoid(a0 + a1*log2(len/2500) + a2*k3dif + a3*k4dif)
-	// Rows: species, genus, family, order, class, phylum, kingdom, domain
-	// Cols: floor, a0, a1_log2len, a2_k3dif, a3_k4dif
+	private static final SerialNNLoader.LoadedNets loaded = loadNets();
+
+	// Sigmoid fallback parameters
 	static final double[][] PROB_K4 = {
 		{0.0113446, -3.5630508, 0.6403488, 51.9226674, 13.6112786},
 		{0.0795275, -5.0429731, 0.4555063, 59.6982223, 10.8967730},
@@ -131,7 +179,6 @@ public class CladeConfidence {
 		{0.8182326, -8.3517371, 0.1448564, 32.9901037, 21.5209495},
 	};
 
-	// K5 model: p = floor + (1-floor) * sigmoid(a0 + a1*log2(len/2500) + a2*k3dif + a3*k5dif)
 	static final double[][] PROB_K5 = {
 		{0.0058409, -2.5413033, 0.4705238, 70.8753575, -0.7640568},
 		{0.0556486, -3.6911274, 0.3030928, 71.3175058, -2.1744591},

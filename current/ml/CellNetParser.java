@@ -30,6 +30,10 @@ public class CellNetParser {
 		return cnp.net;
 	}
 
+	public static CellNet loadFromLines(ArrayList<byte[]> lines) {
+		return new CellNetParser(lines).net;
+	}
+
 	/**
 	 * Loads a CellNet from the specified file.
 	 * @param fname Path to the CellNet configuration file
