@@ -370,4 +370,10 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.597305f;}
 	@Override public float terminalMeanPlusCF(){return 0.582968f;}
 
+	/** HC weight for LDLC blend. Calibrated by Nowi, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.48;}
+	/** HLDLC weight. Calibrated by Nowi, 2026-04-22.
+	 *  Nearly flat 0.90-0.98 — Hybrid+2 barely helps EDLL8. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.94f;}
+
 }

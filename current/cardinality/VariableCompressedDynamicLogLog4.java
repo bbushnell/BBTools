@@ -364,7 +364,7 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 	public static boolean EARLY_PROMOTE=true;
 	public static boolean DISABLE_EEMASK=false;
 
-	public static final String CF_FILE=null; // placeholder until CF table exists
+	public static final String CF_FILE="?cardinalityCorrectionVCDLL4.tsv.gz";
 	public static final String SBS_FILE="?cardinalityCorrectionVCDLL4_LC1BitHistSBS.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=null;
@@ -378,6 +378,9 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 
 	/** Terminal Mean+H CF. Measured same run. */
 	@Override public float terminalMeanPlusCF(){return 1.034382f;}
-	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
+	/** HC weight for LDLC blend. Calibrated by Noire, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.30;}
+	/** HLDLC weight. Calibrated by Noire, 2026-04-22: 8k DDLs, 2048 buckets, dm=1. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.52f;}
 
 }

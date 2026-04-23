@@ -311,6 +311,10 @@ public final class HalfCappedDynamicLogLog4 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.883441f;}
 	@Override public float terminalMeanPlusCF(){return 1.067044f;}
 
-	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.325f;}
+	/** HC weight for LDLC blend. Calibrated by Nahida, 2026-04-22. */
+	@Override public double ldlcHcWeight(){return 0.30;}
+	/** HLDLC weight. Calibrated by Nahida, 2026-04-22: 32k DDLs, 2048 buckets.
+	 *  Low value — Hybrid+2 contributes heavily to HLDLC for this type. */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.26f;}
 
 }

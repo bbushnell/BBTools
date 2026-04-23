@@ -323,8 +323,8 @@ public class CardinalityParser {
 			return ArithmeticCompressedDynamicLogLog4.CF_FILE;
 		}else if(loglogtype.equals("hcdll4")){
 			return HalfCappedDynamicLogLog4.CF_FILE;
-		// }else if(loglogtype.equals("vcdll4")){
-		//	return VariableCompressedDynamicLogLog4.CF_FILE;
+		}else if(loglogtype.equals("vcdll4")){
+			return VariableCompressedDynamicLogLog4.CF_FILE;
 		// }else if(loglogtype.equals("edll8")){
 		//	return ExpandedDynamicLogLog8.CF_FILE;
 		}else if(loglogtype.equals("audll32")){
