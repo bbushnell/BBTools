@@ -415,6 +415,9 @@ public class DDLCalibrationDriver2 {
 						if(ddl.getClass()==UltraDynamicLogLog6.class){
 							final UltraDynamicLogLog6 u=(UltraDynamicLogLog6)ddl;
 							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==UltraDynamicLogLog6m.class){
+							final UltraDynamicLogLog6m u=(UltraDynamicLogLog6m)ddl;
+							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedDynamicLogLog4.class){

@@ -334,6 +334,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(buckets_, k_, seed, minProb_);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
+		}else if("UDLL6m".equalsIgnoreCase(type) || "UltraDynamicLogLog6m".equalsIgnoreCase(type)){
+			return new UltraDynamicLogLog6m(buckets_, k_, seed, minProb_);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){

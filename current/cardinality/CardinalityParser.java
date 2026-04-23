@@ -257,7 +257,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
 		else if(loglogtype.equals("bdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
 		else if(loglogtype.equals("bdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF; CorrectionFactor.sbsFile=BankedDynamicLogLog5.SBS_FILE;}
-		else if(loglogtype.equals("udll6")){
+		else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
 			classHasHcCf=true;
@@ -284,6 +284,7 @@ public class CardinalityParser {
 			CorrectionFactor.initialize(cffile, buckets);
 			if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+				else if("udll6m".equals(loglogtype)){UltraDynamicLogLog6m.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("bdll4".equals(loglogtype)){BankedDynamicLogLog4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("bdll5".equals(loglogtype)){BankedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("cdll5".equals(loglogtype)){CompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
@@ -360,7 +361,7 @@ public class CardinalityParser {
 			return BankedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("ll6")){
 			return LogLog6.CF_FILE;
-		}else if(loglogtype.equals("udll6")){
+		}else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m")){
 			return UltraDynamicLogLog6.CF_FILE;
 		}else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){
 			return DynamicDemiLog.CF_FILE;
