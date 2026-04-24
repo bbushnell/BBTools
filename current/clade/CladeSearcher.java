@@ -82,12 +82,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @param args Command line arguments
 	 */
 	public CladeSearcher(String[] args){
+		useTree=false;
+		parallelLoadTree=true;
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
-		
+
 		//Set shared static variables prior to parsing
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
@@ -343,11 +345,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		serverMode=(serverMode || ref==null || ref.isEmpty());
 		
 		if(!parallelSetup) {
-			if(useTree) {CladeObject.loadTree();}
+			if(useTree) {CladeObject.loadTree(true);}
 			loadIndex();
 			loadQueries(serverMode);
 		}else {
-			Thread tTree  = new Thread(() -> { if(useTree){CladeObject.loadTree();} });
+			Thread tTree  = new Thread(() -> { if(useTree){CladeObject.loadTree(true);} });
 			Thread tIndex = new Thread(() -> loadIndex());
 			Thread tQuery = new Thread(() -> loadQueries(serverMode));
 			tTree.start();
@@ -842,8 +844,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Whether to use taxonomy tree for evaluation */
-	static boolean useTree=false;
+	//useTree is inherited from CladeObject; CladeSearcher defaults it to false below
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

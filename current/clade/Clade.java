@@ -253,7 +253,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	 * For ABSCOMP, calls SimilarityMeasures.compensate to normalize within GC content groups; otherwise normalizes counts to sum to 1.
 	 * Assumes counts come from a canonical k-mer array for compensated mode.
 	 */
-	public static synchronized float[] toFrequencies(long[] counts, final int k) {
+	public static float[] toFrequencies(long[] counts, final int k) {
 		if(Comparison.method==Comparison.ABSCOMP) {return SimilarityMeasures.compensate(counts, k);}
 		long sum=Tools.sum(counts);
 		float inv=1f/sum;

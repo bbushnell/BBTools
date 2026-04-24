@@ -108,6 +108,8 @@ public class CladeIndex implements Cloneable {
 			Clade.DDL_K=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("ddlbuckets")){
 			Clade.DDL_BUCKETS=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("loadthreads")){
+			CladeLoaderMT.loadThreads=Integer.parseInt(b);
 		}else if(a.equals("banself")){
 			banSelf=Parse.parseBoolean(b);
 		}else if(a.equals("includeself")){

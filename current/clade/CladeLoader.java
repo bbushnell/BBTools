@@ -313,7 +313,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			ddlThread=new Thread("DDLLoader"){
 				@Override
 				public void run(){
-					ddlRecords.addAll(ddl.DDLLoader.loadFile(ddlFile, Clade.DDL_K));
+					ddlRecords.addAll(ddl.DDLLoaderMT.loadFile(ddlFile, Clade.DDL_K));
 				}
 			};
 			ddlThread.start();
@@ -415,7 +415,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		if(cladeMap==null) {cladeMap=new ConcurrentHashMap<Integer, Clade>(16000);}
 		
 		ByteFile bf=ByteFile.makeByteFile(ff);
-		loadClades(bf, cladeMap);
+		CladeLoaderMT.loadClades(bf, cladeMap);
 		bf.close();
 		
 		if(verbose){outstream.println("Finished; closing streams.");}

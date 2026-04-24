@@ -375,7 +375,10 @@ public class CladeObject {
 		return set.size();
 	}
 	
-	static TaxTree loadTree() {
+	static TaxTree loadTree(){return loadTree(false);}
+
+	static TaxTree loadTree(boolean force) {
+		if(!force && parallelLoadTree){return tree;}
 		if(!useTree || tree!=null) {return null;}
 		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
 		if(treePath!=null) {
@@ -438,6 +441,7 @@ public class CladeObject {
 	public static TaxTree tree=null;
 	static String treePath="auto";
 	static boolean useTree=true;
+	static boolean parallelLoadTree=false;
 	
 	/** Constants for different comparison methods */
 	static final int ABS=1, COS=2, HEL=3, EUC=4, ABSCOMP=5;
