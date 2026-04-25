@@ -103,6 +103,9 @@ public class DDLCalibrationDriver2 {
 				StateTable.USE_TTLL_HSB=true;
 			}
 			else if(a.equals("termcf")){StateTable.terminalCFOverride=Double.parseDouble(b);}
+			else if(a.equals("sbsfile")){
+				sbsFileOverride=b;
+			}
 			else if(a.equals("cffile")){cffile=b; CorrectionFactor.USE_CORRECTION=true;}
 			else if(a.equals("out2")){System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
@@ -118,6 +121,11 @@ public class DDLCalibrationDriver2 {
 	private void initGlobalState(){
 		maxTrue=(maxCard>0) ? maxCard : Math.max(1, (long)(buckets*maxMult));
 		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, pllmode);
+		if(sbsFileOverride!=null){
+			CorrectionFactor.sbsFile=sbsFileOverride;
+			CorrectionFactor.SBS_CF_TABLE=null;
+			CorrectionFactor.loadSbsTable();
+		}
 		thresholds=DDLCalibrationDriver.computeThresholds(maxTrue, reportFrac);
 	}
 
@@ -449,6 +457,10 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticUltraDynamicLogLog33.class){
 							accumulateCardStatsLdlc(((ArithmeticUltraDynamicLogLog33)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog32.class){
+							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog32)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
+							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedCompressedDynamicLogLog3.class){
@@ -458,6 +470,25 @@ public class DDLCalibrationDriver2 {
 							accumulateLdlcEstimate(p.ldlcEstimate(), trueCard, ti);
 						}else if(ddl.getClass()==TwinTailLogLog.class){
 							final TwinTailLogLog t=(TwinTailLogLog)ddl;
+							final double[] ldlcR=t.ldlcEstimate();
+							accumulateLdlcEstimate(ldlcR, trueCard, ti);
+							{
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double mean16=ldlcR[8];
+								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+							}
+							if(ldlcR.length>9){
+								final double dualLC=ldlcR[9];
+								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+							}
+						}else if(ddl.getClass()==TwinTailLogLog3.class){
+							final TwinTailLogLog3 t=(TwinTailLogLog3)ddl;
 							final double[] ldlcR=t.ldlcEstimate();
 							accumulateLdlcEstimate(ldlcR, trueCard, ti);
 							{
@@ -616,6 +647,7 @@ public class DDLCalibrationDriver2 {
 	String loglogtype="ddl";
 	String notes="";
 	String cffile=null;
+	String sbsFileOverride=null;
 	String pllmode=null;
 	boolean lcMode=false;
 	long maxTrue;

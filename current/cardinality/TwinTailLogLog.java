@@ -103,8 +103,7 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			// Symmetric: both tails selected by histBit
 			if(delta<-1){return;}
 			if(delta>0){
-				final int newLocalExp=localExp+delta;
-				if(newLocalExp>15){return;}
+				final int newLocalExp=Math.min(localExp+delta, 15);
 				final boolean wasZeroExp=(localExp==0);
 				final int shiftAmt=Math.min(delta, 2);
 				final int oldH=b&0xF;
@@ -137,8 +136,7 @@ public final class TwinTailLogLog extends CardinalityTracker {
 			// Master/slave: h0=unconditional NLZ history, h1=bit-filtered
 			if(delta<-2){return;}
 			if(delta>0){
-				final int newLocalExp=localExp+delta;
-				if(newLocalExp>15){return;}
+				final int newLocalExp=Math.min(localExp+delta, 15);
 				final boolean wasZeroExp=(localExp==0);
 				final int oldH0=b&0x3;
 				final int oldH1=(b>>>2)&0x3;
@@ -527,12 +525,17 @@ public final class TwinTailLogLog extends CardinalityTracker {
 	static final String STATE_TABLE_FILE="stateTableTTLL.tsv.gz";
 	static final String CF_FILE="cardinalityCorrectionTTLL.tsv.gz";
 
+	/** Default HC/DLC blend weight inside LDLC. To be swept after HC_SCALE set (Apr 25 2026). */
+	static final double DEFAULT_HC_WEIGHT=0.50; // TODO: sweep with HC_SCALE applied
+
 	/** MUST appear after all static field declarations. */
 	static {
 		loadCFTable();
 		loadCardCFTable();
 		StateTable.USE_TTLL_HSB=true;
-		// Load TTLL-specific SBS table (47 states, 4-bit history)
+		if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=0.995548f;}
+		if(OVERRIDE_LDLC_HC_WEIGHT<0){LDLC_HC_WEIGHT=DEFAULT_HC_WEIGHT;}
+		// Load TTLL-specific SBS table (27 valid states: 3 bins x filtered patterns)
 		CorrectionFactor.sbsFile="?sbsTTLL_2048.tsv.gz";
 		CorrectionFactor.SBS_CF_TABLE=null;
 		CorrectionFactor.loadSbsTable();
@@ -692,12 +695,12 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		CF_TABLE_TIERS=1;
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 1.385416f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=8192 tmcf=1, post-overflow-fix (Apr 24 2026). */
+	@Override public float terminalMeanCF(){return 1.386961f;}
 
-	/** Asymptotic Mean+H ratio (4-bit history, all/LinCF HSB), measured 8k ddls maxmult=8192 (Apr 23 2026). */
-	@Override public float terminalMeanPlusCF(){return 0.935848f;}
+	/** Asymptotic Mean+H ratio (4-bit history, 27-state SBS, entry/lin), measured 128k ddls maxmult=8192 tmpcf=1, post-overflow-fix (Apr 24 2026). */
+	@Override public float terminalMeanPlusCF(){return 0.937118f;}
 
-	/** HLDLC blend: 0.76*LDLC + 0.24*Hybrid+2. Swept 0.70-0.80 in 0.02 steps, 32k DDLs (Apr 23 2026). */
-	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.76f;}
+	/** HLDLC blend: 0.68*LDLC + 0.32*Hybrid+2. Swept 0.60-0.84, 32k DDLs, hcweight=0.50, HC_SCALE=0.9955 (Apr 25 2026). */
+	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
 }

@@ -305,7 +305,7 @@ public final class CardStats extends AbstractCardStats {
 				cGSum+=Math.log(Math.max(1, dif*tierMult));
 
 				// LC history state index for sbs computation
-				sbsStatesArr[i]=(byte)CorrectionFactor.sbsStateIndex(nlzBin, histPattern, histBits_);
+				sbsStatesArr[i]=(byte)CorrectionFactor.sbsStateIndex(absNlz, histPattern, histBits_);
 
 				// HC: accumulate per-NLZ bucket counts and per-bit history set counts
 				if(absNlz>=0 && absNlz<64){
