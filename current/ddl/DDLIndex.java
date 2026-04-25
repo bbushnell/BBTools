@@ -32,7 +32,7 @@ public class DDLIndex {
 	 * @param cladeID Numeric identifier for this clade
 	 * @param ddl The clade's DynamicDemiLog */
 	public void add(int cladeID, DynamicDemiLog ddl){
-		add(cladeID, ddl.maxArray(), ddl.filledBuckets());
+		add(cladeID, ddl.toAbsoluteArray(), ddl.filledBuckets());
 	}
 
 	/** Adds a clade's DDL values to the index.
@@ -58,7 +58,7 @@ public class DDLIndex {
 	 * @param query The query DynamicDemiLog
 	 * @return int[] of match counts indexed by cladeID */
 	public int[] query(DynamicDemiLog query){
-		return query(query.maxArray());
+		return query(query.toAbsoluteArray());
 	}
 
 	/** Counts matching buckets between query values and all indexed clades.

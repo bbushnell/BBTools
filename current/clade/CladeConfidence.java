@@ -151,7 +151,7 @@ public class CladeConfidence {
 	/*---------- initialization ----------*/
 
 	private static SerialNNLoader.LoadedNets loadNets() {
-		String path = Data.findPath("?confidence.bbnets", true);
+		String path = Data.findPath("?confidence.bbnets.gz", true);
 		if(path==null){return null;}
 		return SerialNNLoader.load(path);
 	}

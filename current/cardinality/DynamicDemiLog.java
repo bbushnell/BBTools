@@ -7,9 +7,13 @@ import structures.LongList;
 
 /**
  * DynamicDemiLog cardinality estimator extending DemiLogLog (LogLog16) with an adaptive
- * early-exit mechanism. Maintains two extra integers for metadata:
- * minZeros: The minimum number of leading zeros seen across all buckets
- * minZeroCount: Number of buckets with minZeros
+ * early-exit mechanism. Each bucket stores a 16-bit absolute value:
+ * (absNlz << 10) | invMantissa, where absNlz = number of leading zeros of the hash.
+ *
+ * globalNLZ tracks the minimum NLZ tier (floor) across all buckets, driving eeMask
+ * for early exit. File I/O uses relative encoding via toBytesRelative()/fromArray(offset)
+ * with an #offset header, but internal storage is always absolute.
+ *
  * This drives a dynamic threshold that starts at zero and rises with cardinality, achieving
  * 99.9%+ early exit for large datasets without any loss of accuracy—skipped elements can
  * never improve a bucket that already holds a higher score.
@@ -62,17 +66,42 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return new DynamicDemiLog(buckets, k, seed, minProb);
 	}
 
-	/** Creates a DDL from a pre-filled maxArray (e.g., loaded from file).
-	 * Reconstructs filledBuckets, minZeros, minZeroCount, and eeMask.
-	 * @param loaded Pre-filled bucket values (will be copied)
+	/** Creates a DDL from a pre-filled array of absolute-encoded values (legacy format).
+	 * Converts to relative encoding internally.
+	 * @param loaded Pre-filled absolute bucket values
 	 * @param id_ Taxonomy or file ID
 	 * @param name_ Optional name
 	 * @param k_ K-mer length */
 	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_){
+		return fromArray(loaded, id_, name_, k_, -1);
+	}
+
+	/** Creates a DDL from a pre-filled array.
+	 * @param loaded Pre-filled bucket values
+	 * @param id_ Taxonomy or file ID
+	 * @param name_ Optional name
+	 * @param k_ K-mer length
+	 * @param offset If >=0, loaded values are relative to this globalNLZ.
+	 *               If -1, loaded values are absolute (legacy format) and will be converted. */
+	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_, int offset){
 		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0);
-		System.arraycopy(loaded, 0, ddl.maxArray, 0, loaded.length);
 		ddl.id=id_;
 		ddl.name=name_;
+
+		if(offset>=0){
+			// New format: values are relative to offset. Convert to absolute.
+			for(int i=0; i<loaded.length; i++){
+				if(loaded[i]>0){
+					final int relNlz=loaded[i]>>mantissabits;
+					final int absNlz=relNlz+offset;
+					ddl.maxArray[i]=(char)((absNlz<<mantissabits)|(loaded[i]&mask));
+				}
+			}
+		}else{
+			// Legacy format: values are already absolute.
+			System.arraycopy(loaded, 0, ddl.maxArray, 0, loaded.length);
+		}
+
 		ddl.filledBuckets=0;
 		for(char c : ddl.maxArray){if(c>0){ddl.filledBuckets++;}}
 		ddl.scanFrom(0);
@@ -94,8 +123,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private CardStats summarize(){
 		if(nlzCounts==null){nlzCounts=new int[66];}
 		else{java.util.Arrays.fill(nlzCounts, 0);}
-		// DDL stores (absNlz << 10) | invMantissa directly — no tier promotion.
-		// Pack into char[] as ((absNlz+1) << 10) | invMant (+1 so val!=0 for filled).
 		final char[] packedBuckets=new char[maxArray.length];
 		int filledCount=0;
 		for(int i=0; i<maxArray.length; i++){
@@ -131,6 +158,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		add((DynamicDemiLog)log);
 	}
 
+	/** Merges another DDL into this one using absolute value max. */
 	public void add(DynamicDemiLog log){
 		added+=log.added;
 		branch1+=log.branch1;
@@ -144,8 +172,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
 				else{countArray[i]=(maxA>maxB ? countA : countB);}
 			}
-			scanFrom(Math.max(minZeros, log.minZeros));
-			//Recompute filledBuckets after merge; incremental tracking is not possible here
+			// Rescan for floor tier — matches old scanFrom(max(minZeros, log.minZeros))
+			final int scanStart=Math.max(Math.max(0, globalNLZ+1), Math.max(0, log.globalNLZ+1));
+			globalNLZ=scanStart-1;
+			minZeroCount=0;
+			eeMask=-1L;
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
+				eeMask>>>=1;
+				minZeroCount=countTermsInTier(globalNLZ, maxArray);
+			}
 			filledBuckets=0;
 			for(char c : maxArray){if(c>0){filledBuckets++;}}
 		}
@@ -154,6 +190,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Compares two DynamicLogLog instances bucket by bucket.
 	 * @return int[] {lower, equal, higher} bucket counts */
 	public int[] compareTo(DynamicDemiLog blog){return compare(maxArray, blog.maxArray);}
+
+	/** Instance version of compareDetailed.
+	 * @return int[] {lower, equal, higher, bothEmpty} */
+	public int[] compareToDetailed(DynamicDemiLog other){
+		return compareDetailed(maxArray, other.maxArray);
+	}
 
 	@Override
 	public void hashAndStore(final long number){
@@ -165,21 +207,18 @@ public final class DynamicDemiLog extends CardinalityTracker {
 //		branch1++;
 		final int nlz=Long.numberOfLeadingZeros(key);
 
-		// Global early exit if not using eeMask
-//		if(nlz<minZeros){return;}
-
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
 		final int shift=offset-nlz;
-		final int score=Math.max(1, (nlz<<mantissabits)+(int)((~(key>>>shift))&mask));//FP16; min 1 so score=0 means empty
+		final int score=Math.max(1, (nlz<<mantissabits)+(int)((~(key>>>shift))&mask));
 		final int oldValue=maxArray[bucket];//Required memory read
-		
+
 		if(LAZY_ALLOCATE){//Optional MicroIndex for low cardinality (causes speed decrease)
 			final long micro=(key>>bucketBits)&0x3FL;
 			microIndex|=(1L<<micro);
 			if(Long.bitCount(microIndex)<MICRO_CUTOFF_BITS) {return;}//Allows lazy array allocation
 		}
-		
+
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
@@ -201,34 +240,32 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
 
 		//Update the dynamic early exit threshold
-		if(nlz>nlzOld && nlzOld==minZeros && --minZeroCount<1) {//Promotion from bottom tier 
-			/* NOTE - Due to a major Eclipse JDK 24 -> Java 8 target bytecode generation bug,
-			 * enabling both of these assertions causes a 40% slowdown even with -da.
-			 * Do not enable them in production.
-			 */
-			//			assert(minZeroCount>=0 && minZeros<=64) : minZeroCount+", "+minZeros;
-			while(minZeroCount==0 && minZeros<wordlen) {//Scan for new tier
-				minZeros++;
+		if(nlz>nlzOld && nlzOld==globalNLZ && --minZeroCount<1){
+			while(minZeroCount==0 && globalNLZ<wordlen){
+				globalNLZ++;
 				eeMask>>>=1;
-				minZeroCount=countTermsInTier(minZeros, maxArray);
+				minZeroCount=countAndDecrement();
 			}
-			//			assert(minZeroCount>0 && minZeroCount<=buckets) : minZeroCount+", "+minZeros;
 		}
 
 	}
 
+	/** Counts buckets at the current tier (used by advancement loop). */
+	private int countAndDecrement(){
+		return countTermsInTier(globalNLZ, maxArray);
+	}
+
+	/** Scans from the given starting tier to find the first occupied tier and set globalNLZ. */
 	private int scanFrom(int nlz) {
-		minZeros=nlz-1;
+		globalNLZ=nlz-1;
 		minZeroCount=0;
 		eeMask=-1L;
-		//Technically this could be 2-pass: find the lowest, THEN count that tier
-		//But in practice that would be slower
-		while(minZeroCount==0 && minZeros<wordlen) {
-			minZeros++;
+		while(minZeroCount==0 && globalNLZ<wordlen) {
+			globalNLZ++;
 			eeMask>>>=1;
-			minZeroCount=countTermsInTier(minZeros, maxArray);
+			minZeroCount=countTermsInTier(globalNLZ, maxArray);
 		}
-		return minZeros;
+		return globalNLZ;
 	}
 
 	@Override
@@ -236,8 +273,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public char[] counts16(){return countArray;}
 
-	/** Returns the underlying maxArray for external comparison. */
+	/** Returns the underlying maxArray for internal comparison. */
 	public char[] maxArray(){return maxArray;}
+
+	/** Returns a copy of maxArray (absolute values). For DDLIndex and external consumers. */
+	public char[] toAbsoluteArray(){
+		return java.util.Arrays.copyOf(maxArray, maxArray.length);
+	}
 
 	/** Returns the number of buckets with any data (maxArray[i] > 0). O(1). */
 	public int filledBuckets(){return filledBuckets;}
@@ -245,12 +287,31 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Returns the fraction of buckets with any data (filled / total). O(1). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
-	/** Appends this DDL as tab-separated A48-encoded bucket values.
-	 * Each 16-bit value becomes 1-3 A48 characters. */
+	/** Returns the global NLZ floor (minimum absolute tier across all buckets). */
+	public int getGlobalNLZ(){return globalNLZ;}
+
+	/** Appends this DDL as tab-separated A48-encoded absolute bucket values. */
 	public ByteBuilder toBytes(ByteBuilder bb){
 		for(int i=0; i<maxArray.length; i++){
 			if(i>0){bb.tab();}
 			bb.appendA48((int)maxArray[i]);
+		}
+		return bb;
+	}
+
+	/** Appends relative-encoded bucket values as tab-separated A48.
+	 * Converts from absolute internal storage to relative using globalNLZ as offset.
+	 * Caller is responsible for writing the #offset header first. */
+	public ByteBuilder toBytesRelative(ByteBuilder bb){
+		for(int i=0; i<maxArray.length; i++){
+			if(i>0){bb.tab();}
+			final int abs=maxArray[i];
+			if(abs==0){bb.appendA48(0);}
+			else{
+				final int absNlz=abs>>mantissabits;
+				final int relNlz=absNlz-globalNLZ;
+				bb.appendA48((relNlz<<mantissabits)|(abs&mask));
+			}
 		}
 		return bb;
 	}
@@ -272,22 +333,20 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/** Restores floating-point compressed score to approximate original hash magnitude.
-	 * @param score Compressed 16-bit value from maxArray
+	 * @param stored Compressed 16-bit value from maxArray (relative encoding)
 	 * @return Approximate original hash value before compression */
-	private static long restore(int score){
-		int leading=(int)(score>>>mantissabits);
-		// nlz=0 case: true hash magnitude is in [2^63, 2^64-1] (unsigned), which
-		// overflows signed long (shift of 53 bits causes Long.MIN_VALUE). Approximate
-		// as Long.MAX_VALUE — this keeps the bucket contributing to value-based estimates
-		// (giving meanEst≈1 for a single nlz=0 bucket) rather than being silently excluded.
-		if(leading==0){return Long.MAX_VALUE;}
-		long lowbits=(~score)&mask;
+	private long restore(int stored){
+		final int absNlz=(stored>>mantissabits)+globalNLZ;
+		if(absNlz<=0){return Long.MAX_VALUE;}
+		long lowbits=(~stored)&mask;
 		long mantissa=(1L<<mantissabits)|lowbits;
-		int shift=wordlen-leading-mantissabits-1;
-		long original=mantissa<<shift;
-		return original;
+		int shift=wordlen-absNlz-mantissabits-1;
+		if(shift<0){return 1L;}
+		return mantissa<<shift;
 	}
 
+	/** Counts buckets whose absolute NLZ matches the given tier.
+	 * Used during add() to find the new floor tier from absolute-encoded merged values. */
 	private static int countTermsInTier(final int nlz, final char[] array) {
 		int sum=0;
 		for(final char c : array){
@@ -298,7 +357,49 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return sum;
 	}
 
-	/** Compares two maxArrays bucket by bucket using branchless bit arithmetic.
+	/** Converts a relative stored value to its absolute equivalent. */
+	private static int toAbsolute(int stored, int globalNLZ){
+		if(stored==0){return 0;}
+		return ((stored>>mantissabits)+globalNLZ)<<mantissabits | (stored&mask);
+	}
+
+	/** Compares two DDLs converting to absolute values.
+	 * @return int[]{lower, equal, higher} bucket counts */
+	private static int[] compareAbsolute(DynamicDemiLog a, DynamicDemiLog b){
+		int lower=0, equal=0, higher=0;
+		for(int i=0; i<a.maxArray.length; i++){
+			final int va=toAbsolute(a.maxArray[i], a.globalNLZ);
+			final int vb=toAbsolute(b.maxArray[i], b.globalNLZ);
+			int dif=va-vb;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			lower+=nbit;
+			higher+=hbit;
+			equal+=1-nbit-hbit;
+		}
+		return new int[]{lower, equal, higher};
+	}
+
+	/** Compares two DDLs with absolute conversion, excluding empty-empty pairs.
+	 * @return int[]{lower, equal, higher, bothEmpty} */
+	private static int[] compareDetailedAbsolute(DynamicDemiLog a, DynamicDemiLog b){
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<a.maxArray.length; i++){
+			final int va=toAbsolute(a.maxArray[i], a.globalNLZ);
+			final int vb=toAbsolute(b.maxArray[i], b.globalNLZ);
+			if(va==0 && vb==0){bothEmpty++; continue;}
+			int dif=va-vb;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			lower+=nbit;
+			higher+=hbit;
+			equal+=1-nbit-hbit;
+		}
+		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
+	/** Compares two absolute-encoded maxArrays bucket by bucket using branchless bit arithmetic.
+	 * Only valid when both arrays use the same absolute encoding (e.g., from toAbsoluteArray()).
 	 * @return int[]{lower, equal, higher} bucket counts */
 	public static int[] compare(char[] arrayA, char[] arrayB){
 		int lower=0, equal=0, higher=0;
@@ -315,7 +416,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return new int[]{lower, equal, higher};
 	}
 
-	/** Compares two DDLs excluding empty-empty bucket pairs.
+	/** Compares two absolute-encoded arrays excluding empty-empty bucket pairs.
 	 * @return int[]{lower, equal, higher, bothEmpty} */
 	public static int[] compareDetailed(char[] arrayA, char[] arrayB){
 		int lower=0, equal=0, higher=0, bothEmpty=0;
@@ -331,11 +432,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			equal+=ebit;
 		}
 		return new int[]{lower, equal, higher, bothEmpty};
-	}
-
-	/** Instance version of compareDetailed. */
-	public int[] compareToDetailed(DynamicDemiLog other){
-		return compareDetailed(maxArray, other.maxArray);
 	}
 
 	/** Minimum reliable divisor for WKID calculation.
@@ -412,14 +508,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Compressed 16-bit bucket maxima; 6-bit leading-zero count + 10-bit mantissa. */
+	/** Compressed 16-bit bucket maxima; (relNlzStored << 10) | invMantissa
+	 * where relNlzStored = nlz - globalNLZ. Stored value of 0 means empty. */
 	private final char[] maxArray;
 	/** Count of observations at the current maximum score for each bucket. */
 	private final char[] countArray;
-	/** Minimum leading-zero tier held by any bucket; dynamic early-exit threshold.
-	 * Rises monotonically from 0 toward 63 as cardinality grows. */
-	private int minZeros=0;
-	/** Number of buckets with minZeros */
+	/** Floor NLZ tier, matching old minZeros behavior. Starts at 0.
+	 * Rises monotonically as cardinality increases and buckets advance past lower tiers. */
+	private int globalNLZ=0;
+	/** Number of buckets below floor level (stored < minNonEmpty), including empty;
+	 * triggers globalNLZ floor advance when 0. */
 	private int minZeroCount;
 	/** Number of buckets with any data (maxArray[i] > 0). Maintained incrementally
 	 * in hashAndStore() for O(1) filledBuckets() and occupancy() calls. */
@@ -450,6 +548,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private static final int mantissabits=10;
 	private static final int mask=(1<<mantissabits)-1;
 	private static final int offset=wordlen-mantissabits-1;
+	/** Minimum stored value for a non-empty bucket above floor (relNlzStored >= 1). */
+	private static final int minNonEmpty=1<<mantissabits; // 1024
+	/** Maximum relNlzStored before overflow clamp: 6-bit exponent = 63 tiers. */
+	private static final int maxRelNlzStored=(1<<(16-mantissabits))-1; // 63
 
 	//	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
 	//	 * value-based estimates contribute equally in the sigmoid blend.  Below this point

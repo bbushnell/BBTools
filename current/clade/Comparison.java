@@ -287,7 +287,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 *  Only runs when both query and ref have DDL sketches. */
 	public final void compareDDL(){
 		if(query==null || ref==null || query.ddl==null || ref.ddl==null){return;}
-		int[] cmp=Vector.compareDDL(query.ddl.maxArray(), ref.ddl.maxArray());
+		int[] cmp=query.ddl.compareTo(ref.ddl);
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 		kmerMatches=equal;
 		containment=DynamicDemiLog.wkid(lower, equal, higher);

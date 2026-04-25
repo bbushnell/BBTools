@@ -36,19 +36,29 @@ public class DDLLoader {
 	/*----------------        Loading Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Parses a tab-delimited A48 data line into a DynamicDemiLog.
+	/** Parses a tab-delimited A48 data line into a DynamicDemiLog (legacy absolute format).
 	 * @param line Raw byte line (A48-encoded bucket values)
 	 * @param lp LineParser1 (caller should NOT have called lp.set yet)
 	 * @param k K-mer length
 	 * @return Populated DynamicDemiLog */
 	public static DynamicDemiLog parseDDL(byte[] line, LineParser1 lp, int k){
+		return parseDDL(line, lp, k, -1);
+	}
+
+	/** Parses a tab-delimited A48 data line into a DynamicDemiLog.
+	 * @param line Raw byte line (A48-encoded bucket values)
+	 * @param lp LineParser1 (caller should NOT have called lp.set yet)
+	 * @param k K-mer length
+	 * @param offset GlobalNLZ offset; -1 for legacy absolute format, >=0 for relative
+	 * @return Populated DynamicDemiLog */
+	public static DynamicDemiLog parseDDL(byte[] line, LineParser1 lp, int k, int offset){
 		lp.set(line);
 		final int terms=lp.terms();
 		final char[] loaded=new char[terms];
 		for(int i=0; i<terms; i++){
 			loaded[i]=(char)lp.parseLongA48(i);
 		}
-		return DynamicDemiLog.fromArray(loaded, -1, null, k);
+		return DynamicDemiLog.fromArray(loaded, -1, null, k, offset);
 	}
 
 	/** Loads all DDLRecords from a TSV file.
@@ -67,6 +77,7 @@ public class DDLLoader {
 		long currentBases=0;
 		int currentContigs=0;
 		float currentGC=-1;
+		int currentOffset=-1; // -1 = legacy absolute format
 
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length<1){continue;}
@@ -87,10 +98,11 @@ public class DDLLoader {
 				else if(lp.termEquals("#bases", 0)){currentBases=lp.parseLong(1);}
 				else if(lp.termEquals("#contigs", 0)){currentContigs=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#gc", 0)){currentGC=lp.parseFloat(1);}
+				else if(lp.termEquals("#offset", 0)){currentOffset=(int)lp.parseLong(1);}
 				continue;
 			}
 
-			DynamicDemiLog ddl=parseDDL(line, lp, k);
+			DynamicDemiLog ddl=parseDDL(line, lp, k, currentOffset);
 			DDLRecord rec=new DDLRecord(ddl, currentId, currentTid, currentName);
 			rec.filename=currentFile;
 			rec.bases=currentBases;
@@ -100,7 +112,7 @@ public class DDLLoader {
 			records.add(rec);
 
 			currentId=-1L; currentTid=-1; currentName=null; currentFile=null;
-			currentBases=0; currentContigs=0; currentGC=-1;
+			currentBases=0; currentContigs=0; currentGC=-1; currentOffset=-1;
 		}
 		bf.close();
 		return records;
@@ -149,7 +161,14 @@ public class DDLLoader {
 		if(rec.contigs>0){bb.append("#contigs").tab().append(rec.contigs).nl();}
 		if(rec.gc>=0){bb.append("#gc").tab().append(rec.gc, 4).nl();}
 		bb.append("#len").tab().append(rec.ddl.buckets).nl();
-		rec.ddl.toBytes(bb);
+		if(rec.ddl.getGlobalNLZ()>=0){
+			// All buckets filled: write relative encoding with #offset
+			bb.append("#offset").tab().append(rec.ddl.getGlobalNLZ()).nl();
+			rec.ddl.toBytesRelative(bb);
+		}else{
+			// Has empty buckets: write absolute encoding (legacy compatible)
+			rec.ddl.toBytes(bb);
+		}
 		bb.nl();
 	}
 
