@@ -8,59 +8,52 @@ import parse.PreParser;
 import rand.FastRandomXoshiro;
 
 /**
- * TTLLSimulator — TwinTailLogLog Simulator.
+ * TTLL3Simulator — TwinTailLogLog3 Simulator (3-bit tails).
  *
- * Simulates a single 8-bit TTLL word to build per-(tier, combined_h) correction
- * factor tables, and optionally evaluates estimation accuracy against a loaded table.
+ * Simulates a single 10-bit TTLL3 register to build per-(tier, combined_h)
+ * correction factor tables.
  *
- * Word layout:
- *   [7:4] = 4-bit exp   (local ceiling relative to globalExp in real estimator)
- *   [3:2] = history1    (MSB=hit at exp, LSB=hit at exp-1; for histBit==1 hashes)
- *   [1:0] = history0    (same semantics; for histBit==0 hashes)
+ * Register layout:
+ *   [9:6] = 4-bit exp
+ *   [5:3] = h1 (3-bit tail for histBit==1)
+ *   [2:0] = h0 (3-bit tail for histBit==0)
  *
- * Update rule (ceiling-style):
+ * Update rule (symmetric only):
  *   delta = hashNLZ - exp
- *   delta &lt; -1  : ignore
- *   delta == -1 : set LSB of history[histBit]
- *   delta == 0  : set MSB of history[histBit]
- *   delta &gt;  0  : advance exp; shift both histories right by min(delta,2);
- *                 set MSB of history[histBit]; update eeMask
- *   Overflow (newExp &gt; 15): ignore.
+ *   delta &lt; -2 : ignore
+ *   delta in [-2, 0]: set bit (2+delta) of history[histBit]
+ *   delta &gt; 0 : advance exp; shift both tails right by min(delta,3);
+ *                set MSB of history[histBit]
+ *   Overflow (newExp &gt; 15): cap at 15.
  *
- * State: tier=exp (0-15), combined_h=(h1&lt;&lt;2)|h0 (0-15).
+ * State: tier=exp (0-15), combined_h=(h1&lt;&lt;3)|h0 (0-63).
  *
- * Output (out=file): self-contained TSV.  Section header lines start with #,
- * column header lines start with #, data lines do not.  Each section header
- * ends with a tab and the number of data lines in that block.
- *
- * Error tracking (table=file): loads a #StateLinAvg (or avg=geo/harm/blend)
- * table from a previous run and reports estimation error at state transitions.
- *
- * Run: java -ea cardinality.TTLLSimulator [iters=N] [threads=N] [maxTier=N]
- *      [minObs=N] [out=file] [table=file] [avg=lin|geo|harm|blend]
- *
- * @author Brian, Ady
- * @date April 10, 2026
+ * @author Brian, Chloe
+ * @date April 25, 2026
  */
-public class TTLLSimulator {
+public class TTLL3Simulator {
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int NUM_TIERS    =16;
-	static final int NUM_COMBINED =16;// combined_h: [3:2]=h1, [1:0]=h0
+	static final int NUM_TIERS=16;
+	static final int TAIL_BITS=3;
+	static final int TAIL_MASK=0x7;
+	static final int EXP_SHIFT=2*TAIL_BITS; // 6
+	static final int TAILS_MASK=(1<<EXP_SHIFT)-1; // 0x3F
+	static final int NUM_COMBINED=1<<EXP_SHIFT; // 64
 
-	static final int AVG_LIN  =0;
-	static final int AVG_GEO  =1;
-	static final int AVG_HARM =2;
-	static final int AVG_BLEND=3;// (2*harm + 1*geo) / 3
+	static final int AVG_LIN=0;
+	static final int AVG_GEO=1;
+	static final int AVG_HARM=2;
+	static final int AVG_BLEND=3;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public TTLLSimulator(int iters_, int threads_, int maxTier_){
+	public TTLL3Simulator(int iters_, int threads_, int maxTier_){
 		iters=iters_;
 		threads=threads_;
 		maxTier=maxTier_;
@@ -81,7 +74,6 @@ public class TTLLSimulator {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Runs the simulation; optionally tracks error against loadedTable. */
 	void simulate() throws InterruptedException {
 		final boolean trackErrors=(loadedTable!=null);
 		final long[][][]   threadCounts  =new long[threads][NUM_TIERS][NUM_COMBINED];
@@ -93,7 +85,6 @@ public class TTLLSimulator {
 		final long[]   threadBelow  =new long[threads];
 		final long[]   threadTotal  =new long[threads];
 		final long[]   threadAdv    =new long[threads];
-		// Error accumulators per thread
 		final double[] tLogErr    =new double[threads];
 		final double[] tLogSigned =new double[threads];
 		final double[] tLinNum    =new double[threads];
@@ -135,44 +126,41 @@ public class TTLLSimulator {
 				for(int iter=0; iter<myIters; iter++){
 					int word=0;
 					long eeMask=-1L;
-					int prevTier=-1, prevCh=-1;// sentinel: force first transition
+					int prevTier=-1, prevCh=-1;
 
 					for(long trueCard=1; trueCard<=10_000_000L; trueCard++){
-						final long hash=hash64shift(rng.nextLong());
+						final long hash=TTLLSimulator.hash64shift(rng.nextLong());
 						lTotal++;
 
 						if(Long.compareUnsigned(hash, eeMask)>0){
 							lBelow++;
 						}else{
 							final int hashNLZ=Long.numberOfLeadingZeros(hash);
-							final int exp    =(word>>>4)&0xF;
+							final int exp    =(word>>>EXP_SHIFT)&0xF;
 							final int delta  =hashNLZ-exp;
 							final int histBit=(int)(hash&1);
 
-							if(delta<-1){
+							if(delta<-(TAIL_BITS-1)){
 								lBelow++;
-							}else if(delta==-1){
-								final int bitPos=(histBit==0) ? 0 : 2;
-								word|=(1<<bitPos);
-							}else if(delta==0){
-								final int bitPos=(histBit==0) ? 1 : 3;
-								word|=(1<<bitPos);
+							}else if(delta<=0){
+								final int bitPos=(TAIL_BITS-1)+delta;
+								final int regBitPos=(histBit==0) ? bitPos : (bitPos+TAIL_BITS);
+								word|=(1<<regBitPos);
 							}else{
 								final int newExp=Math.min(exp+delta, 15);
-								final int shiftAmt=Math.min(delta, 2);
-								final int oldH=word&0xF;
-								final int h0=(oldH&0x3)>>>shiftAmt;
-								final int h1=((oldH>>>2)&0x3)>>>shiftAmt;
-								word=(newExp<<4)|(h1<<2)|h0;
-								final int bitPos=(histBit==0) ? 1 : 3;
-								word|=(1<<bitPos);
-								eeMask=(newExp<=1) ? -1L : (-1L)>>>(newExp-1);
+								final int shiftAmt=Math.min(delta, TAIL_BITS);
+								int h0=(word&TAIL_MASK)>>>shiftAmt;
+								int h1=((word>>>TAIL_BITS)&TAIL_MASK)>>>shiftAmt;
+								if(histBit==0){h0|=(1<<(TAIL_BITS-1));}
+								else          {h1|=(1<<(TAIL_BITS-1));}
+								word=(newExp<<EXP_SHIFT)|(h1<<TAIL_BITS)|h0;
+								eeMask=(newExp<=(TAIL_BITS-1)) ? -1L : (-1L)>>>(newExp-(TAIL_BITS-1));
 								lAdv++;
 							}
 						}
 
-						final int tier=(word>>>4)&0xF;
-						final int ch  =word&0xF;
+						final int tier=(word>>>EXP_SHIFT)&0xF;
+						final int ch  =word&TAILS_MASK;
 						lCounts[tier][ch]++;
 						lSums[tier][ch]   +=trueCard;
 						lSumsLog[tier][ch]+=Math.log(trueCard);
@@ -181,7 +169,7 @@ public class TTLLSimulator {
 
 						if(trackErrors && (tier!=prevTier || ch!=prevCh)){
 							prevTier=tier; prevCh=ch;
-							if(trueCard>10){// skip noisy very-low-cardinality
+							if(trueCard>10){
 								final int t2=Math.min(tier, loadedTable.length-1);
 								final double est=loadedTable[t2][ch];
 								if(est>0){
@@ -256,11 +244,6 @@ public class TTLLSimulator {
 		}
 	}
 
-	/**
-	 * Loads a state table from a previous run for error-tracking mode.
-	 * Looks for a section named by sectionName (e.g. "#StateLinAvg").
-	 * Reads data rows (lines not starting with #) until the next # section.
-	 */
 	void loadTable(String fname, String sectionName){
 		ByteFile bf=ByteFile.makeByteFile(fname, false);
 		final int tableTiers=maxTier+2;
@@ -276,8 +259,8 @@ public class TTLLSimulator {
 			}
 			if(inSection){
 				if(line.startsWith("#")){
-					if(line.startsWith("#Tier")){continue;}// column header
-					break;// next section: done
+					if(line.startsWith("#Tier")){continue;}
+					break;
 				}
 				final String[] parts=line.split("\t");
 				if(parts.length<2){continue;}
@@ -297,7 +280,6 @@ public class TTLLSimulator {
 			+" tiers from "+fname);
 	}
 
-	/** Fills sparse states by borrowing from Hamming-1 neighbors. */
 	void smoothSparseStates(long minObs){
 		final long[][]   origCounts =new long[NUM_TIERS][NUM_COMBINED];
 		final double[][] origSums   =new double[NUM_TIERS][NUM_COMBINED];
@@ -314,7 +296,7 @@ public class TTLLSimulator {
 		for(int tier=0; tier<NUM_TIERS; tier++){
 			for(int ch=0; ch<NUM_COMBINED; ch++){
 				if(origCounts[tier][ch]>=minObs){continue;}
-				for(int bit=0; bit<4; bit++){
+				for(int bit=0; bit<EXP_SHIFT; bit++){
 					final int nb=ch^(1<<bit);
 					counts[tier][ch] +=origCounts[tier][nb];
 					sums[tier][ch]   +=origSums[tier][nb];
@@ -360,7 +342,14 @@ public class TTLLSimulator {
 		return a;
 	}
 
-	/** Absolute linear per-state average (after smoothing). */
+	double[] buildBlendTierAvg(double[] geoAvg, double[] harmAvg){
+		final double[] a=new double[NUM_TIERS];
+		for(int tier=0; tier<NUM_TIERS; tier++){
+			a[tier]=(2.0*harmAvg[tier]+geoAvg[tier])/3.0;
+		}
+		return a;
+	}
+
 	double[][] buildLinAvgTable(){
 		final double[][] t=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -371,7 +360,6 @@ public class TTLLSimulator {
 		return t;
 	}
 
-	/** Absolute geometric per-state average (after smoothing). */
 	double[][] buildGeoAvgTable(){
 		final double[][] t=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -383,7 +371,6 @@ public class TTLLSimulator {
 		return t;
 	}
 
-	/** Absolute harmonic per-state average (after smoothing). */
 	double[][] buildHarmAvgTable(){
 		final double[][] t=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -395,7 +382,6 @@ public class TTLLSimulator {
 		return t;
 	}
 
-	/** Blend: (2*harm + 1*geo) / 3. */
 	double[][] buildBlendAvgTable(double[][] geo, double[][] harm){
 		final double[][] t=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -406,7 +392,6 @@ public class TTLLSimulator {
 		return t;
 	}
 
-	/** Per-state multiplier relative to tier average. */
 	double[][] buildMult(double[][] avgTable, double[] tierAvg){
 		final double[][] m=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -418,7 +403,6 @@ public class TTLLSimulator {
 		return m;
 	}
 
-	/** Relative probability of each state within each tier (unsmoothed). */
 	double[][] buildProb(long[][] origCounts){
 		final double[][] p=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -432,7 +416,6 @@ public class TTLLSimulator {
 		return p;
 	}
 
-	/** Coefficient of variation (stddev/mean) per state, from linear sums. */
 	double[][] buildCV(){
 		final double[][] cv=new double[NUM_TIERS][NUM_COMBINED];
 		for(int tier=0; tier<NUM_TIERS; tier++){
@@ -454,7 +437,6 @@ public class TTLLSimulator {
 	/*----------------           Output             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Prints one table block: section header, column header, data rows. */
 	private static void printTable(PrintStream out, String name,
 			double[][] table, int maxTier){
 		out.printf("#%s\t%d%n", name, maxTier+1);
@@ -471,7 +453,6 @@ public class TTLLSimulator {
 		out.println("#");
 	}
 
-	/** Prints the raw counts block (long values). */
 	private static void printCountTable(PrintStream out, long[][] origCounts,
 			int maxTier){
 		out.printf("#StateCounts\t%d%n", maxTier+1);
@@ -494,11 +475,10 @@ public class TTLLSimulator {
 			String cmdLine, long simMs){
 		final int rows=maxTier+1;
 
-		// --- Metadata ---
-		out.println("#TTLLSimulator");
+		out.println("#TTLL3Simulator");
 		out.println("#"+cmdLine);
 		out.printf("#iters=%d\tthreads=%d\tmaxTier=%d%n", iters, threads, maxTier);
-		out.printf("#states=%d\ttiers=%d%n", NUM_COMBINED, rows);
+		out.printf("#states=%d\ttiers=%d\ttailBits=%d%n", NUM_COMBINED, rows, TAIL_BITS);
 		out.printf("#simulationTime=%dms%n", simMs);
 		out.printf("#totalAdds=%d%n", totalAdds);
 		out.printf("#overflowRate=%.6f\tbelowRate=%.6f\tadvanceCount=%d%n",
@@ -507,7 +487,6 @@ public class TTLLSimulator {
 			advanceCount);
 		out.println("#");
 
-		// --- Tier averages ---
 		out.printf("#TierAvg\t%d%n", rows);
 		out.println("#Tier\tlin\tgeo\tharm\tobs");
 		for(int tier=0; tier<=maxTier; tier++){
@@ -518,49 +497,17 @@ public class TTLLSimulator {
 		}
 		out.println("#");
 
-		// --- Absolute avg tables (for use by loader) ---
 		printTable(out, "StateLinAvg",   linAvgT,   maxTier);
 		printTable(out, "StateGeoAvg",   geoAvgT,   maxTier);
 		printTable(out, "StateHarmAvg",  harmAvgT,  maxTier);
 		printTable(out, "StateBlendAvg", blendAvgT, maxTier);
-
-		// --- Multiplier tables (deviation from tier average) ---
 		printTable(out, "StateLinMult",   linMult,   maxTier);
 		printTable(out, "StateGeoMult",   geoMult,   maxTier);
 		printTable(out, "StateHarmMult",  harmMult,  maxTier);
 		printTable(out, "StateBlendMult", blendMult, maxTier);
-
-		// --- Probability and CV tables ---
 		printTable(out, "StateProb", prob, maxTier);
 		printTable(out, "StateCV",   cv,   maxTier);
-
-		// --- Raw counts ---
 		printCountTable(out, origCounts, maxTier);
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------        Static Methods        ----------------*/
-	/*--------------------------------------------------------------*/
-
-	static long hash64shift(long key){
-		key=(~key)+(key<<21);
-		key^=(key>>>24);
-		key+=(key<<3)+(key<<8);
-		key^=(key>>>14);
-		key+=(key<<2)+(key<<4);
-		key^=(key>>>28);
-		key+=(key<<31);
-		return key;
-	}
-
-	static String avgName(int mode){
-		switch(mode){
-			case AVG_LIN:   return "StateLinAvg";
-			case AVG_GEO:   return "StateGeoAvg";
-			case AVG_HARM:  return "StateHarmAvg";
-			case AVG_BLEND: return "StateBlendAvg";
-			default: return "StateLinAvg";
-		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -603,28 +550,25 @@ public class TTLLSimulator {
 		final String cmdLine="iters="+iters+" threads="+threads
 			+" maxTier="+maxTier+" minObs="+minObs
 			+(outFile!=null ? " out="+outFile : " out=stdout")
-			+(tableFile!=null ? " table="+tableFile+" avg="+avgName(avgMode) : "");
-		System.err.println("TTLLSimulator: "+cmdLine);
+			+(tableFile!=null ? " table="+tableFile+" avg="+TTLLSimulator.avgName(avgMode) : "");
+		System.err.println("TTLL3Simulator: "+cmdLine);
 
 		final long t0=System.currentTimeMillis();
-		final TTLLSimulator sim=new TTLLSimulator(iters, threads, maxTier);
-		if(tableFile!=null){sim.loadTable(tableFile, "#"+avgName(avgMode));}
+		final TTLL3Simulator sim=new TTLL3Simulator(iters, threads, maxTier);
+		if(tableFile!=null){sim.loadTable(tableFile, "#"+TTLLSimulator.avgName(avgMode));}
 		sim.simulate();
 		final long simMs=System.currentTimeMillis()-t0;
 		System.err.println("Simulation time: "+simMs+" ms");
 
-		// Snapshot unsmoothed counts before smoothing
 		final long[][] origCounts=new long[NUM_TIERS][NUM_COMBINED];
 		for(int t=0; t<NUM_TIERS; t++){
 			System.arraycopy(sim.counts[t], 0, origCounts[t], 0, NUM_COMBINED);
 		}
 
-		// Tier averages (before smoothing)
 		final double[] linAvg =sim.buildLinTierAvg();
 		final double[] geoAvg =sim.buildGeoTierAvg();
 		final double[] harmAvg=sim.buildHarmTierAvg();
 
-		// Stderr summary
 		System.err.println();
 		System.err.printf("%-6s %-14s %-14s %-14s %-12s%n",
 			"Tier", "LinAvg", "GeoAvg", "HarmAvg", "Observations");
@@ -640,7 +584,7 @@ public class TTLLSimulator {
 		if(tableFile!=null && sim.transitionCount>0){
 			final long tc=sim.transitionCount;
 			System.err.println();
-			System.err.println("=== Error Tracking ("+avgName(avgMode)+") ===");
+			System.err.println("=== Error Tracking ("+TTLLSimulator.avgName(avgMode)+") ===");
 			System.err.printf("transitions   =%d%n", tc);
 			System.err.printf("logAvgErr     =%.4f%%  (mean |est-true|/true)%n",
 				100.0*sim.logErrSum/tc);
@@ -665,7 +609,6 @@ public class TTLLSimulator {
 			}
 		}
 
-		// Smooth and build all tables
 		sim.smoothSparseStates(minObs);
 		final double[][] linAvgT  =sim.buildLinAvgTable();
 		final double[][] geoAvgT  =sim.buildGeoAvgTable();
@@ -688,15 +631,6 @@ public class TTLLSimulator {
 		if(out!=System.out){out.close();}
 	}
 
-	/** Blend tier average: (2*harm + 1*geo) / 3. */
-	double[] buildBlendTierAvg(double[] geoAvg, double[] harmAvg){
-		final double[] a=new double[NUM_TIERS];
-		for(int tier=0; tier<NUM_TIERS; tier++){
-			a[tier]=(2.0*harmAvg[tier]+geoAvg[tier])/3.0;
-		}
-		return a;
-	}
-
 	/*--------------------------------------------------------------*/
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
@@ -705,16 +639,15 @@ public class TTLLSimulator {
 	final int threads;
 	final int maxTier;
 
-	long[][]   counts; // [NUM_TIERS][NUM_COMBINED] observation counts
-	double[][] sums;   // sum of trueCard (linear)
-	double[][] sumsLog;// sum of log(trueCard) (geometric)
-	double[][] sumsInv;// sum of 1/trueCard (harmonic)
-	double[][] sumSq;  // sum of trueCard^2 (CV)
+	long[][]   counts;
+	double[][] sums;
+	double[][] sumsLog;
+	double[][] sumsInv;
+	double[][] sumSq;
 
 	long overflowCount, belowCount, totalAdds, advanceCount;
 
-	// Error tracking (populated when loadedTable != null)
-	double[][] loadedTable;// [tier][combined_h] per-state absolute cardinality estimate
+	double[][] loadedTable;
 	double logErrSum, logSignedSum, linErrNum, linSignedNum, linErrDen;
 	long   transitionCount;
 	double[] tierLogErr, tierLogSigned, tierLinNum, tierLinSigned, tierLinDen;

@@ -978,14 +978,14 @@ public class CorrectionFactor{
 	 * At NLZ bin k, the top min(k, hbits) history bits are valid; bottom bits must be 0.
 	 * Returns -1 for structurally impossible states (nonzero invalid bits).
 	 *
-	 * For hbits&gt;=4 (e.g. TTLL), uses flat grid indexing: bin*(1&lt;&lt;hbits)+hist.
-	 * Standard tier-depth validation doesn't apply to non-standard bit layouts.
+	 * For hbits==4 (TTLL): 3 NLZ bins (0, 1, 2+) x 16 patterns, 27 valid states.
+	 * Bin 0: only MSB-only patterns (3 states). Bin 1+: any with MSB set (12 each).
 	 */
 	public static int sbsStateIndex(int nlzBin, int histBits, int hbits){
-		if(hbits>=4){
-			// Flat grid: no invalid-state filtering (TTLL, etc.)
-			final int numHist=1<<hbits;
-			return Math.min(nlzBin, hbits+1)*numHist+(histBits&(numHist-1));
+		if(hbits==6){
+			return TTLL3_SBS_MAP[Math.min(nlzBin, 2)*64+(histBits&0x3F)];
+		}else if(hbits>=4){
+			return TTLL_SBS_MAP[Math.min(nlzBin, 2)*16+(histBits&0xF)];
 		}
 		final int bin=Math.min(nlzBin, hbits+1);
 		final int validSlots=Math.min(bin, hbits);
@@ -996,6 +996,47 @@ public class CorrectionFactor{
 		final int offset=(1<<Math.min(bin, hbits+1))-1;
 		final int idx=(invalidBits>0) ? (histBits>>>invalidBits) : histBits;
 		return offset+idx;
+	}
+
+	/** Lookup table for TTLL SBS state index: [bin*16+ch] -> valid index or -1.
+	 *  3 bins x 16 patterns = 48 entries. 27 valid states total. */
+	private static final int[] TTLL_SBS_MAP=buildTTLLSbsMap();
+
+	private static int[] buildTTLLSbsMap(){
+		final int[] map=new int[3*16];
+		java.util.Arrays.fill(map, -1);
+		int idx=0;
+		for(int bin=0; bin<3; bin++){
+			for(int ch=0; ch<16; ch++){
+				if((ch&0xA)==0){continue;} // both MSBs zero: unreachable
+				if(bin==0 && (ch&0x5)!=0){continue;} // bin 0: no LSBs
+				map[bin*16+ch]=idx++;
+			}
+		}
+		return map;
+	}
+
+	/** Lookup table for TTLL3 SBS state index: [bin*64+ch] -> valid index or -1.
+	 *  3 bins x 64 patterns = 192 entries. 63 valid states total.
+	 *  Bin 0: 3 (MSB-only). Bin 1: 12 (MSB+mid, no LSB). Bin 2+: 48 (any MSB set). */
+	private static final int[] TTLL3_SBS_MAP=buildTTLL3SbsMap();
+
+	private static int[] buildTTLL3SbsMap(){
+		final int[] map=new int[3*64];
+		java.util.Arrays.fill(map, -1);
+		final int MSB_MASK=0x24; // h0 bit2 + h1 bit2
+		final int LSB_MASK=0x09; // h0 bit0 + h1 bit0
+		final int MID_LSB_MASK=0x1B; // h0 bits 0,1 + h1 bits 0,1
+		int idx=0;
+		for(int bin=0; bin<3; bin++){
+			for(int ch=0; ch<64; ch++){
+				if((ch&MSB_MASK)==0){continue;} // both MSBs zero: unreachable
+				if(bin==0 && (ch&MID_LSB_MASK)!=0){continue;} // bin 0: MSB-only
+				if(bin==1 && (ch&LSB_MASK)!=0){continue;} // bin 1: no LSBs
+				map[bin*64+ch]=idx++;
+			}
+		}
+		return map;
 	}
 
 	/** Convenience overload for 2-bit history (the common case). */

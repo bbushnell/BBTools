@@ -9,39 +9,34 @@ import java.util.Random;
 import java.util.zip.GZIPOutputStream;
 
 /**
- * SBS table trainer for TwinTailLogLog.
- * Simulates TTLL's symmetric encoding (two 2-bit tails selected by histBit)
+ * SBS table trainer for TwinTailLogLog3 (3-bit tails).
+ * Simulates TTLL3's symmetric encoding (two 3-bit tails selected by histBit)
  * to build per-state expected distinct counts at each occupancy level.
  *
- * State = (nlzBin, combined_h) where combined_h = (h1&lt;&lt;2)|h0.
- * 3 NLZ bins (0, 1, 2+) x 16 history patterns = 48 grid cells.
- * Bin 0: 3 reachable (MSB-only). Bin 1, 2+: 12 each. Total: 27 valid states.
- *
- * Supports 4 sampling modes x 3 averaging modes = 12 combinations:
- *   sample=entry|all|both|percentile
- *   avg=lin|geo|harm
- *
- * Usage: java -ea -cp current/ cardinality.LCHistTrainerTTLL
- *        buckets=2048 t=4 iters=1m sample=all avg=lin out=sbsTTLL.tsv.gz
+ * State = (nlzBin, combined_h) where combined_h = (h1&lt;&lt;3)|h0.
+ * 3 NLZ bins (0, 1, 2+) x 64 history patterns = 192 grid cells.
+ * Bin 0: 3 reachable (MSB-only). Bin 1: 12 (MSB+mid). Bin 2+: 48. Total: 63.
  *
  * @author Chloe
- * @date April 23, 2026
+ * @date April 25, 2026
  */
-public class LCHistTrainerTTLL {
+public class LCHistTrainerTTLL3 {
 
-	static final int HBITS=4;
+	static final int HBITS=6;
+	static final int TAIL_BITS=3;
+	static final int TAIL_MASK=0x7;
 	static final int NUM_BINS=3;
-	static final int CH_MSB_MASK=0xA;
-	static final int CH_LSB_MASK=0x5;
+	static final int NUM_CH=64;
+	static final int MSB_MASK=0x24;     // h0 bit2 + h1 bit2
+	static final int LSB_MASK=0x09;     // h0 bit0 + h1 bit0
+	static final int MID_LSB_MASK=0x1B; // h0 bits0,1 + h1 bits0,1
 
-	// Sampling modes
 	static final int SAMPLE_ENTRY=0;
 	static final int SAMPLE_ALL=1;
 	static final int SAMPLE_BOTH=2;
 	static final int SAMPLE_PCTILE=3;
 	static final String[] SAMPLE_NAMES={"entry","all","both","percentile"};
 
-	// Averaging modes
 	static final int AVG_LIN=0;
 	static final int AVG_GEO=1;
 	static final int AVG_HARM=2;
@@ -59,12 +54,13 @@ public class LCHistTrainerTTLL {
 	}
 
 	static int stateIndex(int rawNlz, int combinedH){
-		return Math.min(rawNlz, NUM_BINS-1)*16+(combinedH&0xF);
+		return Math.min(rawNlz, NUM_BINS-1)*NUM_CH+(combinedH&0x3F);
 	}
 
 	static boolean isReachable(int bin, int ch){
-		if((ch&CH_MSB_MASK)==0){return false;}
-		if(bin==0 && (ch&CH_LSB_MASK)!=0){return false;}
+		if((ch&MSB_MASK)==0){return false;}
+		if(bin==0 && (ch&MID_LSB_MASK)!=0){return false;}
+		if(bin==1 && (ch&LSB_MASK)!=0){return false;}
 		return true;
 	}
 
@@ -74,10 +70,9 @@ public class LCHistTrainerTTLL {
 			this.seed=seed;
 			this.numTrials=numTrials;
 			this.buckets=buckets;
-			this.bucketMask=buckets-1;
 			this.sampleMode=sampleMode;
 			this.avgMode=avgMode;
-			this.nStates=NUM_BINS*16;
+			this.nStates=NUM_BINS*NUM_CH;
 			accumSums=new double[buckets+1][nStates];
 			observations=new long[buckets+1][nStates];
 		}
@@ -106,8 +101,8 @@ public class LCHistTrainerTTLL {
 					final long number=rng.nextLong();
 					final long key=hash64shift(number);
 					final int nlz=Long.numberOfLeadingZeros(key);
-					final int bucket=(int)(key&bucketMask);
-					final int histBit=(int)((key>>>Integer.numberOfTrailingZeros(B))&1);
+					final int bucket=(int)(Long.remainderUnsigned(key, B));
+					final int histBit=(int)(Long.divideUnsigned(key, B)&1);
 
 					distinct[bucket]++;
 					totalAdds++;
@@ -115,7 +110,7 @@ public class LCHistTrainerTTLL {
 
 					if(!filled[bucket]){
 						rawNlzArr[bucket]=nlz;
-						final int bitPos=(histBit==0) ? 1 : 3;
+						final int bitPos=(histBit==0) ? (TAIL_BITS-1) : (TAIL_BITS-1+TAIL_BITS);
 						ch[bucket]=(1<<bitPos);
 						filled[bucket]=true;
 						filledCount++;
@@ -124,27 +119,23 @@ public class LCHistTrainerTTLL {
 						final int oldNlz=rawNlzArr[bucket];
 						final int delta=nlz-oldNlz;
 
-						if(delta<-1){
+						if(delta<-(TAIL_BITS-1)){
 							// ignore
-						}else if(delta==-1){
-							final int bitPos=(histBit==0) ? 0 : 2;
-							ch[bucket]|=(1<<bitPos);
-						}else if(delta==0){
-							final int bitPos=(histBit==0) ? 1 : 3;
-							ch[bucket]|=(1<<bitPos);
+						}else if(delta<=0){
+							final int bitPos=(TAIL_BITS-1)+delta;
+							final int regBitPos=(histBit==0) ? bitPos : (bitPos+TAIL_BITS);
+							ch[bucket]|=(1<<regBitPos);
 						}else{
-							final int shiftAmt=Math.min(delta, 2);
-							final int oldH=ch[bucket]&0xF;
-							final int h0=(oldH&0x3)>>>shiftAmt;
-							final int h1=((oldH>>>2)&0x3)>>>shiftAmt;
-							ch[bucket]=(h1<<2)|h0;
-							final int bitPos=(histBit==0) ? 1 : 3;
-							ch[bucket]|=(1<<bitPos);
+							final int shiftAmt=Math.min(delta, TAIL_BITS);
+							int h0=(ch[bucket]&TAIL_MASK)>>>shiftAmt;
+							int h1=((ch[bucket]>>>TAIL_BITS)&TAIL_MASK)>>>shiftAmt;
+							if(histBit==0){h0|=(1<<(TAIL_BITS-1));}
+							else          {h1|=(1<<(TAIL_BITS-1));}
+							ch[bucket]=(h1<<TAIL_BITS)|h0;
 							rawNlzArr[bucket]=nlz;
 						}
 					}
 
-					// Sampling dispatch
 					if(sm==SAMPLE_ENTRY){
 						if(wasFill){snapshot(filledCount, rawNlzArr, ch, distinct, filled);}
 					}else if(sm==SAMPLE_ALL){
@@ -152,7 +143,7 @@ public class LCHistTrainerTTLL {
 					}else if(sm==SAMPLE_BOTH){
 						if(wasFill){snapshot(filledCount, rawNlzArr, ch, distinct, filled);}
 						snapshot(filledCount, rawNlzArr, ch, distinct, filled);
-					}else{// SAMPLE_PCTILE
+					}else{
 						if(totalAdds>=nextPctile){
 							snapshot(filledCount, rawNlzArr, ch, distinct, filled);
 							nextPctile=Math.max(nextPctile+1, (long)Math.ceil(nextPctile*1.01));
@@ -173,7 +164,7 @@ public class LCHistTrainerTTLL {
 						accumSums[filledCount][si]+=d;
 					}else if(am==AVG_GEO){
 						accumSums[filledCount][si]+=Math.log(d);
-					}else{// AVG_HARM
+					}else{
 						accumSums[filledCount][si]+=1.0/d;
 					}
 					observations[filledCount][si]++;
@@ -184,7 +175,6 @@ public class LCHistTrainerTTLL {
 		final long seed;
 		final int numTrials;
 		final int buckets;
-		final int bucketMask;
 		final int sampleMode;
 		final int avgMode;
 		final int nStates;
@@ -196,7 +186,7 @@ public class LCHistTrainerTTLL {
 	public static void main(String[] args){
 		{ PreParser pp=new PreParser(args, null, false); args=pp.args; }
 		final long t0=System.nanoTime();
-		int buckets=2048;
+		int buckets=1536;
 		long iters=100000;
 		int threads=Shared.threads();
 		long masterSeed=42;
@@ -218,7 +208,7 @@ public class LCHistTrainerTTLL {
 			}else if(a.equals("seed")){
 				masterSeed=Long.parseLong(b);
 			}else if(a.equals("out")){
-				out=arg.substring(eq+1); // preserve case for filename
+				out=arg.substring(eq+1);
 			}else if(a.equals("sample") || a.equals("s")){
 				if(b.equals("entry")){sampleMode=SAMPLE_ENTRY;}
 				else if(b.equals("all")){sampleMode=SAMPLE_ALL;}
@@ -231,10 +221,8 @@ public class LCHistTrainerTTLL {
 			}
 		}
 
-		buckets=Integer.highestOneBit(buckets);
-
 		final int numThreads=Math.min(threads, (int)iters);
-		System.err.println("LCHistTrainerTTLL: buckets="+buckets+" bins="+NUM_BINS
+		System.err.println("LCHistTrainerTTLL3: buckets="+buckets+" bins="+NUM_BINS
 			+" iters="+iters+" threads="+numThreads
 			+" sample="+SAMPLE_NAMES[sampleMode]+" avg="+AVG_NAMES[avgMode]);
 
@@ -249,8 +237,7 @@ public class LCHistTrainerTTLL {
 			if(!w.success){System.err.println("Warning: trainer thread failed.");}
 		}
 
-		// Merge
-		final int nStates=NUM_BINS*16;
+		final int nStates=NUM_BINS*NUM_CH;
 		final double[][] totalSums=new double[buckets+1][nStates];
 		final long[][] totalObs=new long[buckets+1][nStates];
 		for(TrainerThread w : workers){
@@ -265,10 +252,9 @@ public class LCHistTrainerTTLL {
 		final double elapsed=(System.nanoTime()-t0)/1e9;
 		System.err.println("Training done: "+String.format("%.1f", elapsed)+"s");
 
-		// Build valid state list
 		int numValid=0;
 		for(int bin=0; bin<NUM_BINS; bin++){
-			for(int ch=0; ch<16; ch++){
+			for(int ch=0; ch<NUM_CH; ch++){
 				if(isReachable(bin, ch)){numValid++;}
 			}
 		}
@@ -277,12 +263,15 @@ public class LCHistTrainerTTLL {
 		int vi=0;
 		for(int bin=0; bin<NUM_BINS; bin++){
 			final String binLabel=(bin>=NUM_BINS-1) ? (bin+"+") : String.valueOf(bin);
-			for(int ch=0; ch<16; ch++){
+			for(int ch=0; ch<NUM_CH; ch++){
 				if(!isReachable(bin, ch)){continue;}
-				validStates[vi][0]=bin*16+ch;
+				validStates[vi][0]=bin*NUM_CH+ch;
 				validStates[vi][1]=1;
+				final int h1=(ch>>>3)&0x7;
+				final int h0=ch&0x7;
 				stateNames[vi]=binLabel+"."+
-					((ch>>>3)&1)+((ch>>>2)&1)+((ch>>>1)&1)+(ch&1);
+					((h1>>>2)&1)+((h1>>>1)&1)+(h1&1)+
+					((h0>>>2)&1)+((h0>>>1)&1)+(h0&1);
 				vi++;
 			}
 		}
@@ -294,7 +283,6 @@ public class LCHistTrainerTTLL {
 		System.err.println("Valid states: "+numValid+" (zeros in final row: "+zeros
 			+", expected "+(nStates-numValid)+")");
 
-		// Compute per-state averages
 		double[][] avg=new double[buckets+1][nStates];
 		for(int f=1; f<=buckets; f++){
 			for(int s=0; s<nStates; s++){
@@ -305,14 +293,13 @@ public class LCHistTrainerTTLL {
 						avg[f][s]=sum/cnt;
 					}else if(avgMode==AVG_GEO){
 						avg[f][s]=Math.exp(sum/cnt);
-					}else{// AVG_HARM
+					}else{
 						avg[f][s]=cnt/sum;
 					}
 				}
 			}
 		}
 
-		// Write output
 		try{
 			OutputStream os;
 			if(out.equals("stdout.txt")){
@@ -328,7 +315,7 @@ public class LCHistTrainerTTLL {
 			pw.println("#Buckets\t"+buckets);
 			pw.println("#HistBits\t"+HBITS);
 			pw.println("#Trials\t"+iters);
-			pw.println("#Type\tTTLL");
+			pw.println("#Type\tTTLL3");
 			pw.println("#Bins\t"+NUM_BINS);
 			pw.println("#Sample\t"+SAMPLE_NAMES[sampleMode]);
 			pw.println("#Averaging\t"+AVG_NAMES[avgMode]);

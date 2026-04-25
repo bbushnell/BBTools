@@ -80,7 +80,7 @@ public final class StateTable {
 	/** Steady-state CFs for 3-bit history, ETLL expanded tiers (halfNlz/4, TIER_SCALE=2.0).
 	 *  Generated 2026-04-21 from MC2 mode=etll bits=3 outer=32k inner=32k, tier 5 LinCF. */
 	static final double[] CF_ETLL_3_LIN={-0.17376441, -0.08848045, -0.05907605, -0.01104290, -0.03955570, -0.01740046, -0.01647446, +0.22568811};
-	static final double[] CF_ETLL_3_GEO={-1.70572680, -0.65826663, -0.77383387, +0.12971612, -0.83497522, +0.02286040, -0.11328315, +0.82508404};
+	static final double[] CF_ETLL_3_GEO={-1.68576576, -0.65970040, -0.76864868, +0.13077792, -0.82896470, +0.02413007, -0.11744520, +0.81931831};
 	static final double[] CF_ETLL_3_HARM={-1.67788945, -0.37901570, -0.48891880, +0.49768142, -0.54745193, +0.39651958, +0.26607104, +1.22967348};
 	static final double[] CF_ETLL_3_ENTRY_GEO={-1.83930155, -0.29355145, -0.35220248, +0.63639596, -0.37945578, +0.58750517, +0.50182279, +1.35479159};
 	static final double[] CF_ETLL_3_ENTRY_LIN={-1.74017876, -0.54315205, -0.60724981, +0.27158162, -0.63799416, +0.21883980, +0.12691903, +0.93748722};
@@ -101,15 +101,29 @@ public final class StateTable {
 			default: return CF_ETLL_3_LIN;
 		}
 	}
-	/** Per-tier CFs for 3-bit history, ETLL expanded tiers (tiers 0-3; tier 4+ uses steady-state).
-	 *  Generated 2026-04-22 from MC2 mode=etll bits=3 outer=2M inner=32k GeoCF rows.
-	 *  Correct expanded mapping: tier=halfNlz, TIER_SCALE=0.5. all/geo model. */
-	static final double[][] CF_ETLL_3_TIERS={
+	/** Per-tier CFs for 3-bit history, ETLL expanded tiers.
+	 *  Generated 2026-04-22 from mc2_etll3_expanded_2m.txt GeoCF rows.
+	 *  all/geo model. */
+	/** All per-tier rows GeoCF. T0-T7 from mc2_etll3_expanded_2m.txt,
+	 *  T8-T10 from mc2_etll3_deep.txt (innertier=28, 2M outer).
+	 *  CF_ETLL_3_TIERS is set to a slice of this based on etlltiers= flag. */
+	static final double[][] CF_ETLL_3_ALL_TIERS={
 		{+0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
 		{-0.76128382, +0.00000000, +0.00000000, +0.00000000, +0.61321318, +0.00000000, +0.00000000, +0.00000000},
 		{-1.43993655, +0.00000000, -0.08369830, +0.00000000, -0.21651589, +0.00000000, +0.83980362, +0.00000000},
 		{-2.06795280, -0.72201024, -0.84480485, +0.18037009, -0.92528004, +0.06492381, -0.08881447, +0.92675886},
+		{-1.96619602, -0.70442501, -0.82492522, +0.16583810, -0.89770783, +0.04966839, -0.09481429, +0.89722141},
+		{-1.88785313, -0.69008978, -0.80183686, +0.15818508, -0.87846667, +0.04465644, -0.09894087, +0.87628873},
+		{-1.83287503, -0.68210142, -0.80247448, +0.14712789, -0.86594605, +0.04308130, -0.10737019, +0.85955855},
+		{-1.79158430, -0.67576012, -0.79350303, +0.14140451, -0.85584770, +0.03626585, -0.10915477, +0.84876916},
+		{-1.76540640, -0.67077394, -0.78079648, +0.14138937, -0.84916723, +0.03226120, -0.10933155, +0.83890888},
+		{-1.74290293, -0.66970517, -0.78450130, +0.13406846, -0.84568828, +0.03137164, -0.11917300, +0.83464334},
+		{-1.72750317, -0.66689260, -0.77982874, +0.13402068, -0.84742017, +0.02632720, -0.11695508, +0.83222891},
 	};
+	static double[][] CF_ETLL_3_TIERS=java.util.Arrays.copyOf(CF_ETLL_3_ALL_TIERS, 4);
+	static void setEtllTiers(int n){
+		CF_ETLL_3_TIERS=java.util.Arrays.copyOf(CF_ETLL_3_ALL_TIERS, Math.min(n, CF_ETLL_3_ALL_TIERS.length));
+	}
 
 	static final double[] CF_ETLL_2={-0.24650375, -0.05903061, -0.05085254, +0.22081960};
 	static final double[][] CF_ETLL_2_TIERS={
@@ -121,6 +135,21 @@ public final class StateTable {
 	static final double[][] CF_ETLL_1_TIERS={
 		{+0.00000000, +0.00000000},
 		{-0.93989503, +0.46832201},
+	};
+
+	/** 4-bit history HSB for expanded tiers (EDLL9). all/geo from MC2 mode=etll bits=4.
+	 *  Steady-state averaged from T20-T24 of mc2_etll4_deep2.txt (innertier=28). */
+	static final double[] CF_ETLL_4_GEO={
+		-2.20784854, -1.19458364, -1.29696790, -0.41886418,
+		-1.36214429, -0.51996172, -0.65278444, +0.24977107,
+		-1.39784728, -0.57567080, -0.70363571, +0.14869395,
+		-0.77326046, +0.01623174, -0.14768607, +0.87230630};
+	static final double[][] CF_ETLL_4_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-0.76157165, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.61323551, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-1.44004706, +0.00000000, +0.00000000, +0.00000000, -0.08348561, +0.00000000, +0.00000000, +0.00000000, -0.21667631, +0.00000000, +0.00000000, +0.00000000, +0.83958779, +0.00000000, +0.00000000, +0.00000000},
+		{-2.06770219, +0.00000000, -0.72128075, +0.00000000, -0.84411947, +0.00000000, +0.18010990, +0.00000000, -0.92489468, +0.00000000, +0.06513298, +0.00000000, -0.08822541, +0.00000000, +0.92682730, +0.00000000},
+		{-2.65781038, -1.31887872, -1.44071808, -0.42687320, -1.51479431, -0.53392922, -0.68565457, +0.29532599, -1.56589899, -0.60118132, -0.74833000, +0.18756364, -0.82419108, +0.05264170, -0.13458357, +0.95328365},
 	};
 
 	/** AUDLL32: 3-state collapsed history (10+11→state 2), standard tiers.
@@ -139,6 +168,22 @@ public final class StateTable {
 	/** When true, historyOffset uses AUDLL32's collapsed 3-state tables instead of CF_HISTORY_2. */
 	static boolean USE_AUDLL32_HSB=false;
 
+	static int tierDepth(int hbits){
+		final double[][] t;
+		if(USE_AUDLL32_HSB && hbits==2){t=CF_AUDLL32_2_TIERS;}
+		else if(hbits==1 && AbstractCardStats.TIER_SCALE>1.0){t=CF_CTLL_1_TIERS;}
+		else if(hbits==2 && AbstractCardStats.TIER_SCALE>1.0){t=CF_CTLL_2_TIERS;}
+		else if(hbits==1 && AbstractCardStats.TIER_SCALE<=0.5){t=CF_ETLL_1_TIERS;}
+		else if(hbits==2 && AbstractCardStats.TIER_SCALE<=0.5){t=CF_ETLL_2_TIERS;}
+		else if(hbits==3 && AbstractCardStats.TIER_SCALE<=0.5){t=CF_ETLL_3_TIERS;}
+		else if(hbits==4 && AbstractCardStats.TIER_SCALE<=0.5){t=CF_ETLL_4_TIERS;}
+		else if(hbits==1){t=CF_HISTORY_1_TIERS;}
+		else if(hbits==2){t=CF_HISTORY_2_TIERS;}
+		else if(hbits==3){t=CF_HISTORY_3_TIERS;}
+		else{return hbits+2;}
+		return (t!=null) ? t.length : hbits+2;
+	}
+
 	/**
 	 * Additive NLZ correction for a bucket with the given history state.
 	 * For nlzBin below the tier table depth, returns per-tier correction.
@@ -147,7 +192,10 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(USE_TTLL_HSB && hbits==4){
+		if(USE_TTLL3_HSB && hbits==6){
+			steadyState=CF_TTLL3_6;
+			tierTables=CF_TTLL3_6_TIERS;
+		}else if(USE_TTLL_HSB && hbits==4){
 			steadyState=(CF_TTLL_4_OVERRIDE!=null ? CF_TTLL_4_OVERRIDE : CF_TTLL_4);
 			tierTables=CF_TTLL_4_TIERS;
 		}else if(USE_AUDLL32_HSB && hbits==2){
@@ -162,6 +210,8 @@ public final class StateTable {
 			steadyState=CF_ETLL_2; tierTables=CF_ETLL_2_TIERS;
 		}else if(hbits==3 && AbstractCardStats.TIER_SCALE<=0.5){
 			steadyState=etll3Table(); tierTables=CF_ETLL_3_TIERS;
+		}else if(hbits==4 && AbstractCardStats.TIER_SCALE<=0.5){
+			steadyState=CF_ETLL_4_GEO; tierTables=CF_ETLL_4_TIERS;
 		}else if(hbits==1){steadyState=CF_HISTORY_1; tierTables=CF_HISTORY_1_TIERS;}
 		else if(hbits==2){steadyState=CF_HISTORY_2; tierTables=CF_HISTORY_2_TIERS;}
 		else if(hbits==3){steadyState=CF_HISTORY_3; tierTables=CF_HISTORY_3_TIERS;}
@@ -395,6 +445,50 @@ public final class StateTable {
 	static boolean USE_TTLL_HSB=false;
 	/** Command-line override for CF_TTLL_4 steady-state table (16 values). Null = use compiled table. */
 	static double[] CF_TTLL_4_OVERRIDE=null;
+
+	/** HSB table for TTLL3 6-bit combined_h (3-bit tails), used by historyOffset() for Mean+H.
+	 *  64 states: (h1<<3)|h0.
+	 *  Generated 2026-04-25 from TTLL3Simulator tier 8 LinCF (1M iters, 128 threads). */
+	static final double[] CF_TTLL3_6={
+		-2.54937156, -1.71813376, -1.84793774, -1.15595867, -2.55002849, -1.72043785, -1.86325412, -1.15376397,
+		-1.71612771, -0.94535201, -1.15016854, -0.36486183, -1.72225648, -0.95156601, -1.15568972, -0.36335521,
+		-1.85493499, -1.15394296, -1.31069157, -0.63927810, -1.85129669, -1.15077348, -1.30845747, -0.64981507,
+		-1.14897207, -0.36776641, -0.64341328, +0.28675080, -1.14927549, -0.36654706, -0.64237343, +0.28401158,
+		-2.54870808, -1.71583092, -1.83301864, -1.15815949, -1.91553766, -1.22748374, -1.37681441, -0.73355532,
+		-1.71017063, -0.93919699, -1.14466338, -0.36637063, -1.21135955, -0.48913054, -0.73015060, +0.07687085,
+		-1.85855779, -1.15706029, -1.31293204, -0.62908571, -1.38348123, -0.73853035, -0.93872027, -0.25552410,
+		-1.14867034, -0.36898802, -0.64446272, +0.28948510, -0.73217431, +0.07768068, -0.26173266, +0.83735194,
+	};
+	/** Per-tier HSB for TTLL3 6-bit combined_h (tiers 0-2).
+	 *  Generated 2026-04-25 from TTLL3Simulator LinCF (1M iters, 128 threads). */
+	static final double[][] CF_TTLL3_6_TIERS={
+		{-0.58170000, +0.00000000, +0.00000000, +0.00000000, -0.58256463, -0.58256463, -0.58256463, +0.00000000,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, -0.58256463, +0.00000000, +0.00000000, +0.00000000,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, -0.58256463, +0.00000000, +0.00000000, +0.00000000,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000,
+		 -0.58084143, -0.58084143, -0.58084143, +0.00000000, +0.73595487, +0.73595487, +0.73595487, +0.00000000,
+		 -0.58084143, +0.00000000, +0.00000000, +0.00000000, +0.73595487, +0.00000000, +0.00000000, +0.00000000,
+		 -0.58084143, +0.00000000, +0.00000000, +0.00000000, +0.73595487, +0.00000000, +0.00000000, +0.00000000,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000, +0.00000000},
+		{-2.12654440, +0.00000000, -0.80872736, +0.00000000, -2.12575833, -2.12575833, -0.80915564, -0.80915564,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, -2.12575833, +0.00000000, -0.80915564, +0.00000000,
+		 -0.81238758, +0.00000000, +0.19161306, +0.00000000, -0.81208652, -0.81208652, +0.19337076, +0.19337076,
+		 +0.00000000, +0.00000000, +0.00000000, +0.00000000, -0.81208652, +0.00000000, +0.19337076, +0.00000000,
+		 -2.12733442, -2.12733442, -0.80830289, -0.80830289, -1.01462953, -1.01462953, -0.07136827, -0.07136827,
+		 -2.12733442, +0.00000000, -0.80830289, +0.00000000, -1.01462953, +0.00000000, -0.07136827, +0.00000000,
+		 -0.81268890, -0.81268890, +0.18983802, +0.18983802, -0.08266409, -0.08266409, +0.89899785, +0.89899785,
+		 -0.81268890, +0.00000000, +0.18983802, +0.00000000, -0.08266409, +0.00000000, +0.89899785, +0.00000000},
+		{-3.36445904, -2.03882554, -2.23480726, -1.30837050, -3.36599430, -2.04290456, -2.23617177, -1.30688215,
+		 -2.04166741, -1.06997101, -1.30863322, -0.40315958, -2.03913722, -1.07082456, -1.31624308, -0.40246410,
+		 -2.22915262, -1.30988811, -1.51479899, -0.71010837, -2.23004665, -1.31510143, -1.51771532, -0.70907943,
+		 -1.31315288, -0.40582188, -0.71368656, +0.30697482, -1.31152391, -0.40229077, -0.71512720, +0.31117927,
+		 -3.36293342, -2.03476612, -2.23341834, -1.30984405, -2.30086567, -1.40307989, -1.58997878, -0.81334235,
+		 -2.04422483, -1.06911485, -1.30094849, -0.40385604, -1.41189923, -0.54653955, -0.82952657, +0.09865520,
+		 -2.22827706, -1.30475427, -1.51192751, -0.71112907, -1.58296251, -0.81816882, -1.03669797, -0.28408636,
+		 -1.31478366, -0.40940587, -0.71224787, +0.30275884, -0.81460849, +0.07952021, -0.27624597, +0.89462766},
+	};
+	/** When true, historyOffset uses TTLL3's 64-state HSB tables for hbits==6. */
+	static boolean USE_TTLL3_HSB=false;
 
 	/** Steady-state per-state CFs for TTLL master/slave encoding (mode 1).
 	 *  h0=master (pure NLZ history), h1=slave (bit-filtered).
