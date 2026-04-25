@@ -18,9 +18,9 @@ import shared.Tools;
  * Three demotion sub-variants control what happens when a bucket at
  * tierPart 6 (no history) demotes to tierPart 5 (has history) during
  * countAndDecrement:
- *   - Variant A (DEMOTION_MODE=0): hist = 1 (assume recently seen)
- *   - Variant B (DEMOTION_MODE=1): hist = 0 (assume not recently seen)
- *   - Variant C (DEMOTION_MODE=2): hist = bucketID &amp; 1 (deterministic noise)
+ *   - dm=0 (default): hist = 0 (extend with 0, assume not recently seen)
+ *   - dm=1: hist = 1 (extend with 1, assume recently seen)
+ *   - dm=2: hist = bucketID &amp; 1 (deterministic noise)
  * <p>
  * Tier compression: single hash with 16-bit mantissa threshold at
  * (2-sqrt(2)) fraction for log-uniform half-NLZ steps.
@@ -109,15 +109,14 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 			if(absTier<64){
 				nlzCounts[absTier+1]++;
 				if(tp<6){
-					// Standard tiers: emit into packedBuckets for HC/Mean+H/SBS.
+					// Standard tiers: emit into packedBuckets with real history.
 					// Mask hist at absTier==0 (SBS validity).
 					final int emitHist=(absTier==0) ? 0 : (nib&1);
 					packedBuckets[i]=(char)(((absTier+1)<<1)|emitHist);
+				}else{
+					// Extended tiers: emit with hist=0 (no history stored).
+					packedBuckets[i]=(char)((absTier+1)<<1);
 				}
-				// Extended tiers (tp >= 6): contribute to nlzCounts (DLC/Mean)
-				// but NOT packedBuckets — they have no history info and applying
-				// HSB state-0 correction would corrupt HC/Mean+H/LDLC.
-				// packedBuckets[i] stays 0 (treated as empty by history path).
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
@@ -290,9 +289,9 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 						// Extended tier 6 → standard tier 5: assign history per variant
 						final int bucketIdx=w*8+b;
 						final int demotionHist;
-						if(DEMOTION_MODE==0){demotionHist=1;}         // A: set
-						else if(DEMOTION_MODE==1){demotionHist=0;}    // B: clear
-						else{demotionHist=bucketIdx&1;}               // C: bucket parity
+						if(DEMOTION_MODE==0){demotionHist=0;}         // extend with 0
+						else if(DEMOTION_MODE==1){demotionHist=1;}    // extend with 1
+						else{demotionHist=bucketIdx&1;}               // bucket parity
 						nib=10+demotionHist; // makeNibble(5, h) = (5<<1)|h
 					}else{
 						// Standard range (2-11): subtract 2 preserves history
@@ -358,7 +357,7 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 	private static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	/** Demotion mode for tier 6 → 5 transition in countAndDecrement.
-	 *  0=A (hist=1), 1=B (hist=0), 2=C (hist=bucketID&amp;1). */
+	 *  dm=N extends history with N. 0=hist0 (default), 1=hist1, 2=bucketID&amp;1. */
 	public static int DEMOTION_MODE=0;
 
 	public static boolean EARLY_PROMOTE=true;
@@ -372,12 +371,12 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Terminal Mean CF. Measured via ddlcalibrate cf=f tmcf=1 tmpcf=1 ddls=8k maxmult=8192
-	 *  on cluster with production SBS (1M iters). */
-	@Override public float terminalMeanCF(){return 0.878809f;}
+	/** Terminal Mean CF. Measured via ddlcalibrate cf=f tmcf=1 tmpcf=1 ddls=128k maxmult=8192
+	 *  t=128 on cluster, dm=0 (default). */
+	@Override public float terminalMeanCF(){return 0.879345f;}
 
-	/** Terminal Mean+H CF. Measured same run. */
-	@Override public float terminalMeanPlusCF(){return 1.034382f;}
+	/** Terminal Mean+H CF. Same run as terminalMeanCF. */
+	@Override public float terminalMeanPlusCF(){return 1.062983f;}
 	/** HC weight for LDLC blend. Calibrated by Noire, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.30;}
 	/** HLDLC weight. Calibrated by Noire, 2026-04-22: 8k DDLs, 2048 buckets, dm=1. */
