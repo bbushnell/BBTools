@@ -1,5 +1,7 @@
 package clade;
 
+import java.util.Arrays;
+
 import bin.SimilarityMeasures;
 import cardinality.DynamicDemiLog;
 import idaligner.IDAligner;
@@ -300,23 +302,49 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
 	}
 
+	/** Computes confidence for all 8 levels, sorted ascending to enforce
+	 * monotonicity (species lowest, domain highest). */
+	private float[] sortedConfidence(){
+		if(query==null){return null;}
+		float[] vals=new float[CONF_LEVELS.length];
+		for(int i=0; i<CONF_LEVELS.length; i++){
+			vals[i]=confidence(CONF_LEVELS[i]);
+		}
+		Arrays.sort(vals);
+		return vals;
+	}
+
 	public int confidentLevel(float threshold){
-		for(int level=TaxTree.SPECIES; level<=TaxTree.DOMAIN; level++){
-			float c=confidence(level);
-			if(c>=threshold){return level;}
+		float[] sc=sortedConfidence();
+		if(sc==null){return -1;}
+		for(int i=0; i<sc.length; i++){
+			if(sc[i]>=threshold){return CONF_LEVELS[i];}
 		}
 		return -1;
 	}
 
 	public void appendConfidenceString(ByteBuilder bb){
-		if(query==null){return;}
-		for(int level=TaxTree.DOMAIN; level>=TaxTree.SPECIES; level--){
-			float c=confidence(level);
-			if(c<0){continue;}
-			if(level<TaxTree.DOMAIN){bb.append(';');}
-			bb.append(TaxTree.levelToStringShort(level)).append(':');
-			bb.append(c*100, 1);
+		float[] sc=sortedConfidence();
+		if(sc==null){return;}
+		for(int i=sc.length-1; i>=0; i--){
+			if(sc[i]<0){continue;}
+			if(i<sc.length-1){bb.append(';');}
+			bb.append(TaxTree.levelToStringShort(CONF_LEVELS[i])).append(':');
+			bb.append(sc[i]*100, 1);
 		}
+	}
+
+	public void appendConfidentLevel(ByteBuilder bb, float threshold){
+		float[] sc=sortedConfidence();
+		if(sc==null){bb.append("None"); return;}
+		for(int i=0; i<sc.length; i++){
+			if(sc[i]>=threshold){
+				bb.append(TaxTree.levelToString(CONF_LEVELS[i]));
+				bb.append(':').append(sc[i]*100, 1);
+				return;
+			}
+		}
+		bb.append("None");
 	}
 
 	/**
@@ -340,7 +368,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	public synchronized ByteBuilder toBytes(ByteBuilder bb) {
 		if(ref==null) {return bb;}
 		if(bb==null) {bb=new ByteBuilder();}
-		bb.append("tid=").append(ref.taxID).append("\tname=").append(ref.name).nl();
+		bb.append("tid=").append(ref.taxID).append("\tname=").append(ref.name);
+		if(query!=null){bb.append("\tconfidence="); appendConfidentLevel(bb, confThreshold);}
+		bb.nl();
 		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5);
 		bb.append("\thhdif=").append(hhdif, 5).append("\tcagadif=").append(cagadif, 5);
 		if(calcCladeEntropy || entdif<0.5f) {bb.append("\tedif=").append(entdif, 5);}
@@ -352,6 +382,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(completeness>=0){bb.append("\tcomp=").append(completeness, 4);}
 		if(kmerMatches>=0){bb.append("\tmatches=").append(kmerMatches);}
 		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(ref.lineage());}
+		if(query!=null){bb.nl(); appendConfidenceString(bb);}
 		return bb;
 	}
 	
@@ -447,8 +478,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		}
 		bb.tab().append(lineage());
 
-		int cl=confidentLevel(confThreshold);
-		bb.tab().append(cl>=0 ? TaxTree.levelToString(cl) : "None");
+		bb.tab();
+		appendConfidentLevel(bb, confThreshold);
 		bb.tab();
 		appendConfidenceString(bb);
 		if(CladeIndex.USE_SKETCH_INDEX){
@@ -606,7 +637,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	int sketchLCA=-1;
 	boolean isSketchHit;
 
-	public static float confThreshold=0.95f;
+	public static float confThreshold=0.90f;
+
+	private static final int[] CONF_LEVELS={
+		TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
+		TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.DOMAIN
+	};
 
 	/** Whether to use early exit optimization to avoid unnecessary calculations */
 	static boolean earlyExit=true;

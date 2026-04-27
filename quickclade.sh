@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 12, 2025
+Last modified April 26, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -58,6 +58,30 @@ proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
                 to reach external servers.  Sets -Dhttps.proxyHost for Java.
 proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
 
+DDL Sketch Parameters:
+ddl=<file>      Path to a DDL (DynamicDemiLog) sketch file for cardinality-
+                based matching.  DDL sketches capture kmer cardinality
+                profiles and can discriminate closely-related organisms.
+                Setting this implies ddls=t.
+ddlk=31         K-mer length for DDL sketches.
+ddlbuckets=2048 Number of buckets in DDL sketches.
+sketch=f        Enable sketch-based searching using DDL files from the
+                resources directory.  Implies ddls=t.
+sketchindex=f   Build an inverted index from DDL sketches for fast lookup.
+                Implies sketch=t.
+sketchhits=5    Maximum number of top sketch hits to consider per query.
+minsketchhits=3 Minimum matching DDL buckets to report a sketch hit.
+
+Threading Parameters:
+loadthreads=auto  Number of threads for parsing reference spectra.
+                  By default uses all available threads.
+ddlloadthreads=auto  Number of threads for loading DDL sketch files.
+                  DDL files load in parallel when multiple are present;
+                  this controls the total thread budget across all files.
+comparethreads=auto  Number of threads for query comparisons.
+parallelsetup=t Load tree, reference index, and queries in parallel.
+                Disable with parallelsetup=f for lower memory usage.
+
 Advanced Parameters (mainly for benchmarking):
 printmetrics    Output accuracy statistics; mainly useful for labeled data.
                 Labeled data should have 'tid_1234' or similar in the header.
@@ -77,7 +101,9 @@ gcmult=0.5      Max GC difference as a fraction of best 5-mer difference.
 strdif=0.12     Initial maximum strandedness difference.
 strmult=1.2     Max strandedness difference as a fraction of best 5-mer diff.
 hhdif=0.025     Maximum HH metric difference.
-cagadif=0.017   Maximum CAGA metric differece.
+cagadif=0.017   Maximum CAGA metric difference.
+hhmult=0.5      Max HH difference as a fraction of best 5-mer difference.
+cagamult=0.8    Max CAGA difference as a fraction of best 5-mer difference.
 ee=t            Early exit; increases speed.
 entropy         Calculate entropy for queries.  Slow; negligible utility.
 heap=1          Number of intermediate comparisons to store.
