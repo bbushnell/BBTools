@@ -51,12 +51,6 @@ public class CladeIndex implements Cloneable {
 		CladeIndex index=new CladeIndex(map.values());
 		if(USE_SKETCHES){
 			index.cladeMap=map;
-			String resourceDir=dna.Data.RESOURCES();
-			index.loadSketches(resourceDir);
-			index.attachSketchesToClades(map);
-			if(USE_SKETCH_INDEX){
-				index.buildSketchIndex();
-			}
 		}
 		return index;
 	}
@@ -117,17 +111,21 @@ public class CladeIndex implements Cloneable {
 			CladeObject.calcCladeEntropy=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("makeddls") || a.equals("ddls")){
 			Clade.MAKE_DDLS=Parse.parseBoolean(b);
-		}else if(a.equals("ddl") || a.equals("ddlfile") || a.equals("ddlref")){
-			CladeLoader.ddlFile=b;
-			Clade.MAKE_DDLS=true;
 		}else if(a.equalsIgnoreCase("ddlk")){
 			Clade.DDL_K=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("ddlbuckets")){
 			Clade.DDL_BUCKETS=Integer.parseInt(b);
-		}else if(a.equalsIgnoreCase("sketch") || a.equalsIgnoreCase("usesketches")){
+		}else if(a.equalsIgnoreCase("sketch") || a.equalsIgnoreCase("usesketches")
+				|| a.equals("ddl")){
 			USE_SKETCHES=Parse.parseBoolean(b);
 			if(USE_SKETCHES){Clade.MAKE_DDLS=true;}
-		}else if(a.equalsIgnoreCase("sketchindex") || a.equalsIgnoreCase("sketchidx")){
+		}else if(a.equalsIgnoreCase("sketchfile") || a.equalsIgnoreCase("ddlfile")
+				|| a.equalsIgnoreCase("ddlref") || a.equalsIgnoreCase("sketchref")){
+			sketchFile=b;
+			USE_SKETCHES=true;
+			Clade.MAKE_DDLS=true;
+		}else if(a.equalsIgnoreCase("sketchindex") || a.equalsIgnoreCase("sketchidx")
+				|| a.equalsIgnoreCase("ddlindex") || a.equals("index")){
 			USE_SKETCH_INDEX=Parse.parseBoolean(b);
 			if(USE_SKETCH_INDEX){USE_SKETCHES=true; Clade.MAKE_DDLS=true;}
 		}else if(a.equalsIgnoreCase("sketchhits") || a.equalsIgnoreCase("maxsketchhits")){
@@ -363,6 +361,8 @@ public class CladeIndex implements Cloneable {
 	static int maxSketchHits=5;
 	static int minSketchMatches=3;
 	static int ddlLoadThreads=0;
+	static String sketchFile=null;
+	static final String DEFAULT_SKETCH_FILE="refseqSketchDDL.tsv.gz";
 
 	DDLIndex ddlIndex;
 	ArrayList<DDLRecord> sketchRecords;
@@ -418,12 +418,32 @@ public class CladeIndex implements Cloneable {
 		System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files in "+String.format("%.3f", elapsed/1e9)+" seconds.");
 	}
 
+	public void finishSketches(ArrayList<DDLRecord> externalRecords){
+		if(externalRecords!=null && !externalRecords.isEmpty()){
+			sketchRecords=externalRecords;
+			attachSketchesToClades(cladeMap);
+			if(USE_SKETCH_INDEX){
+				buildSketchIndex();
+			}
+		}
+	}
+
+	public void finishSketches(){
+		finishSketches(sketchRecords);
+	}
+
 	public void attachSketchesToClades(ConcurrentHashMap<Integer, Clade> cladeMap){
 		if(sketchRecords==null){return;}
 		int attached=0;
 		for(DDLRecord rec : sketchRecords){
 			Clade c=cladeMap.get(rec.taxID);
-			if(c!=null && c.ddl==null){c.ddl=rec.ddl; attached++;}
+			if(c!=null){
+				boolean fresh=(c.ddl==null || c.ddl.filledBuckets()<1);
+				if(fresh || rec.cardinality>=c.ddl.cardinality()){
+					if(fresh){attached++;}
+					c.ddl=rec.ddl;
+				}
+			}
 		}
 		System.err.println("Attached "+attached+" sketches to clades.");
 	}

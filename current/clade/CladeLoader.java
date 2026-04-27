@@ -163,7 +163,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
 			}else if(a.equals("maxk") || a.equals("kmax")){
 				Comparison.maxK=Clade.MAXK=Integer.parseInt(b);
-			}else if(a.equalsIgnoreCase("callSSU")){
+			}else if(a.equalsIgnoreCase("callSSU") || a.equals("ssu")){
 				Clade.callSSU=Parse.parseBoolean(b);
 			}else if(a.equals("aligner") || a.equals("idaligner")){
 				GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));

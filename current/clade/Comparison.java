@@ -370,6 +370,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(bb==null) {bb=new ByteBuilder();}
 		bb.append("tid=").append(ref.taxID).append("\tname=").append(ref.name);
 		if(query!=null){bb.append("\tconfidence="); appendConfidentLevel(bb, confThreshold);}
+		if(sketchLCA>=0){bb.append("\tSketchLCA=").append(TaxTree.levelToString(sketchLCA));}
 		bb.nl();
 		bb.append("gcdif=").append(gcdif, 5).append("\tsdif=").append(strdif, 5);
 		bb.append("\thhdif=").append(hhdif, 5).append("\tcagadif=").append(cagadif, 5);
@@ -431,7 +432,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
 		bb.append("\tConfLevel\tConfidence");
-		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketchRef\tSketchTID\tSketchMatches\tSketch_LCA");}
+		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketch_LCA");}
 		return bb;
 	}
 	
@@ -483,9 +484,6 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.tab();
 		appendConfidenceString(bb);
 		if(CladeIndex.USE_SKETCH_INDEX){
-			bb.tab().append(sketchName!=null ? sketchName : ".");
-			bb.tab().append(sketchTaxID);
-			bb.tab().append(sketchMatches);
 			bb.tab().append(sketchLCA>=0 ? TaxTree.levelToString(sketchLCA) : ".");
 		}
 		return bb;

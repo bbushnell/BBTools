@@ -60,4 +60,5 @@ public class DDLRecord implements Comparable<DDLRecord> {
 	public int contigs;
 	public long cardinality=-1;
 	public float gc=-1;
+	public String origin;
 }

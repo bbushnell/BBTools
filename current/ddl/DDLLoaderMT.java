@@ -112,10 +112,11 @@ public class DDLLoaderMT {
 	private static DDLRecord parseRecord(ArrayList<byte[]> lines, LineParser1 lp, int k){
 		long recId=-1;
 		int tid=-1;
-		String name=null, file=null;
+		String name=null, file=null, origin=null;
 		long bases=0;
 		int contigs=0;
 		float gc=-1;
+		int offset=-1;
 		byte[] dataLine=null;
 
 		for(byte[] line : lines){
@@ -130,6 +131,8 @@ public class DDLLoaderMT {
 				else if(lp.termEquals("#bases", 0)){bases=lp.parseLong(1);}
 				else if(lp.termEquals("#contigs", 0)){contigs=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#gc", 0)){gc=lp.parseFloat(1);}
+				else if(lp.termEquals("#origin", 0)){origin=lp.parseString(1);}
+				else if(lp.termEquals("#offset", 0)){offset=(int)lp.parseLong(1);}
 			}else{
 				dataLine=line;
 			}
@@ -137,12 +140,13 @@ public class DDLLoaderMT {
 
 		if(dataLine==null){return null;}
 
-		DynamicDemiLog ddl=DDLLoader.parseDDL(dataLine, lp, k);
+		DynamicDemiLog ddl=DDLLoader.parseDDL(dataLine, lp, k, offset);
 		DDLRecord rec=new DDLRecord(ddl, recId, tid, name);
 		rec.filename=file;
 		rec.bases=bases;
 		rec.contigs=contigs;
 		rec.gc=gc;
+		rec.origin=origin;
 		rec.cardinality=ddl.cardinality();
 		return rec;
 	}
