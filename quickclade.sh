@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 26, 2026
+Last modified April 27, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -34,7 +34,7 @@ in=<file,file>  Query files or directories.  Loose file or directory names are
                 also permitted.  Input can be fasta, fastq, or spectra files;
                 spectra files are made by cladeloader.sh.
 ref=<file,file> Reference files; the current default is:
-                /clusterfs/jgi/groups/gentech/homes/bbushnell/clade/refseq_main.spectra.gz
+                refseqA48_with_ribo.spectra.gz
                 It is plaintext, human-readable, and pretty small.
 out=stdout      Set to a file to redirect output.  Only the query results will
                 be written here; progress messages will still go to stderr.
@@ -44,12 +44,12 @@ server          Use this flag to send kmer spectra to a remote server if you do 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
 minlen=0        Ignore sequences shorter than this in percontig mode.
-hits=1          Print this many top hits per query.
+hits=7          Print this many top hits per query.
 steps=6         Only search up to this many GC intervals (of 0.01) away from
                 the query GC.
 oneline         Print results one line per query, tab-delimited.
-callssu=t       Call 16S and 18S for alignment to reference SSU.
-                This will affect the top hit ordering only if hits>1.
+callssu=t       Call 16S and 18S for alignment to reference SSU.  Slightly
+                slower.  Affects top hit ordering only if hits>1.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.
 
@@ -59,18 +59,17 @@ proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
 proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
 
 DDL Sketch Parameters:
-ddl=<file>      Path to a DDL (DynamicDemiLog) sketch file for cardinality-
-                based matching.  DDL sketches capture kmer cardinality
-                profiles and can discriminate closely-related organisms.
-                Setting this implies ddls=t.
+sketch=f        Enable sketch-based matching using DDL (DynamicDemiLog)
+                cardinality profiles.  Loads refseqSketchDDL.tsv.gz from
+                the resources directory by default.  Also builds a DDL
+                from each query for comparison.  ddl=t is an alias.
+sketchfile=     Path to a specific DDL sketch file.  Overrides the default.
+                ddlfile= and sketchref= are aliases.
+sketchindex=f   Build an inverted index from DDL sketches for fast lookup.
+                Implies sketch=t.  ddlindex= and index= are aliases.
+minsketchhits=3 Minimum matching DDL buckets to report a sketch hit.
 ddlk=31         K-mer length for DDL sketches.
 ddlbuckets=2048 Number of buckets in DDL sketches.
-sketch=f        Enable sketch-based searching using DDL files from the
-                resources directory.  Implies ddls=t.
-sketchindex=f   Build an inverted index from DDL sketches for fast lookup.
-                Implies sketch=t.
-sketchhits=5    Maximum number of top sketch hits to consider per query.
-minsketchhits=3 Minimum matching DDL buckets to report a sketch hit.
 
 Threading Parameters:
 loadthreads=auto  Number of threads for parsing reference spectra.

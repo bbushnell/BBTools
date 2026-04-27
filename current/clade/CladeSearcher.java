@@ -161,6 +161,60 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		t.stop("Indexed "+index.size()+" spectra in ");
 	}
 	
+	void checkSketchFile() {
+		if(!CladeIndex.USE_SKETCHES){return;}
+		if(CladeIndex.sketchFile!=null){
+			if(!new java.io.File(CladeIndex.sketchFile).exists()){
+				outstream.println("WARNING: Sketch file not found: "+CladeIndex.sketchFile+"; disabling sketches.");
+				CladeIndex.USE_SKETCHES=false;
+				CladeIndex.USE_SKETCH_INDEX=false;
+				Clade.MAKE_DDLS=false;
+			}
+			return;
+		}
+		String defaultPath=Data.findPath("?"+CladeIndex.DEFAULT_SKETCH_FILE, false);
+		if(defaultPath!=null && new java.io.File(defaultPath).exists()){
+			CladeIndex.sketchFile=defaultPath;
+			return;
+		}
+		String resourceDir=Data.RESOURCES();
+		java.io.File dir=new java.io.File(resourceDir);
+		if(!dir.isDirectory()){
+			CladeIndex.USE_SKETCHES=false; CladeIndex.USE_SKETCH_INDEX=false; Clade.MAKE_DDLS=false;
+			return;
+		}
+		java.io.File[] files=dir.listFiles((d,name)->(name.endsWith(".ddl.gz") || name.endsWith(".ddl")
+				|| (name.contains("_ddl") && name.endsWith(".tsv.gz"))));
+		if(files==null || files.length==0){
+			CladeIndex.USE_SKETCHES=false; CladeIndex.USE_SKETCH_INDEX=false; Clade.MAKE_DDLS=false;
+		}
+	}
+
+	void loadSketches() {
+		if(!CladeIndex.USE_SKETCHES){return;}
+		Timer t=new Timer(outstream, false);
+		sketchRecords=new ArrayList<ddl.DDLRecord>();
+		if(CladeIndex.sketchFile!=null){
+			ArrayList<ddl.DDLRecord> records=ddl.DDLLoaderMT.loadFile(CladeIndex.sketchFile, Clade.DDL_K);
+			sketchRecords.addAll(records);
+		}else{
+			String resourceDir=Data.RESOURCES();
+			java.io.File dir=new java.io.File(resourceDir);
+			if(!dir.isDirectory()){return;}
+			java.io.File[] files=dir.listFiles((d,name)->(name.endsWith(".ddl.gz") || name.endsWith(".ddl")
+					|| (name.contains("_ddl") && name.endsWith(".tsv.gz"))));
+			if(files==null || files.length==0){return;}
+			java.util.Arrays.sort(files, (a, b)->Long.compare(b.length(), a.length()));
+			for(java.io.File f : files){
+				ArrayList<ddl.DDLRecord> records=ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K);
+				sketchRecords.addAll(records);
+			}
+		}
+		t.stop("Loaded "+sketchRecords.size()+" sketches in ");
+	}
+
+	ArrayList<ddl.DDLRecord> sketchRecords;
+
 	/**
 	 * Loads query clades from input files.
 	 * Can process individual contigs separately if perContig is true.
@@ -341,29 +395,36 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		readsProcessed=basesProcessed=0;
 		readsLoaded=basesLoaded=0;
 		setup();
-		
+		checkSketchFile();
+
 		serverMode=(serverMode || ref==null || ref.isEmpty());
 		
 		if(!parallelSetup) {
 			if(useTree) {CladeObject.loadTree(true);}
 			loadIndex();
+			loadSketches();
 			loadQueries(serverMode);
+			if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
 		}else {
 			Thread tTree  = new Thread(() -> { if(useTree){CladeObject.loadTree(true);} });
 			Thread tIndex = new Thread(() -> loadIndex());
 			Thread tQuery = new Thread(() -> loadQueries(serverMode));
+			Thread tSketch = new Thread(() -> loadSketches());
 			tTree.start();
 			tIndex.start();
 			tQuery.start();
+			tSketch.start();
 			try{
 				tTree.join();
 				tIndex.join();
 				tQuery.join();
+				tSketch.join();
 			}catch(InterruptedException e){
 				KillSwitch.exceptionKill(e);
 				e.printStackTrace();
 			}
 		}
+		if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
 		
 		ArrayList<Object> results;
 		t.start();
@@ -823,7 +884,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private long maxReads=-1;
 	
 	/** Maximum number of hits to print per query */
-	private int maxHitsToPrint=1;
+	private int maxHitsToPrint=7;
 	
 	/** Whether to delete temporary files on completion */
 	private boolean deleteOnFinish=true;

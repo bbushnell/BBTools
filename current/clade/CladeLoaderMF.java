@@ -165,7 +165,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
 			}else if(a.equals("maxk") || a.equals("kmax")){
 				Comparison.maxK=Clade.MAXK=Integer.parseInt(b);
-			}else if(a.equalsIgnoreCase("callSSU")){
+			}else if(a.equalsIgnoreCase("callSSU") || a.equals("ssu")){
 				Clade.callSSU=Parse.parseBoolean(b);
 			}else if(a.equals("concise")){
 				Clade.CONCISE=Parse.parseBoolean(b);

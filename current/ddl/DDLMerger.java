@@ -58,8 +58,8 @@ public class DDLMerger {
 				mergePlastid=Parse.parseBoolean(b);
 			}else if(a.equals("mergeplasmid")){
 				mergePlasmid=Parse.parseBoolean(b);
-			}else if(a.equals("merge")){
-				mergeMito=mergePlastid=mergePlasmid=Parse.parseBoolean(b);
+			}else if(a.equals("merge") || a.equals("mergeall")){
+				mergeMain=mergeMito=mergePlastid=mergePlasmid=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -96,8 +96,10 @@ public class DDLMerger {
 		final ArrayList<TaggedRecord> all=new ArrayList<TaggedRecord>();
 		for(String path : inFiles){
 			int cat=categorize(path);
-			ArrayList<DDLRecord> records=DDLLoader.loadFile(path, k);
+			String origin=originFromFilename(path);
+			ArrayList<DDLRecord> records=DDLLoaderMT.loadFile(path, k);
 			for(DDLRecord rec : records){
+				if(rec.origin==null){rec.origin=origin;}
 				all.add(new TaggedRecord(rec, cat));
 			}
 			if(verbose){outstream.println("Loaded "+records.size()+" records from "+path+" ("+catName(cat)+")");}
@@ -178,6 +180,7 @@ public class DDLMerger {
 			fresh.contigs=old.contigs;
 			fresh.cardinality=old.cardinality;
 			fresh.gc=old.gc;
+			fresh.origin=old.origin;
 			numbered.add(fresh);
 		}
 
@@ -203,13 +206,22 @@ public class DDLMerger {
 		return CAT_MAIN;
 	}
 
+	static String originFromFilename(String path){
+		String name=new File(path).getName();
+		if(name.endsWith(".gz")){name=name.substring(0, name.length()-3);}
+		if(name.endsWith(".tsv")){name=name.substring(0, name.length()-4);}
+		if(name.endsWith("_ddl")){name=name.substring(0, name.length()-4);}
+		if(name.endsWith(".ddl")){name=name.substring(0, name.length()-4);}
+		return name;
+	}
+
 	/** Whether records of this category should be merge-eligible. */
 	boolean shouldMerge(int category){
 		switch(category){
 			case CAT_MITO: return mergeMito;
 			case CAT_PLASTID: return mergePlastid;
 			case CAT_PLASMID: return mergePlasmid;
-			default: return true; //Main genome always merge-eligible
+			default: return mergeMain;
 		}
 	}
 
@@ -258,6 +270,7 @@ public class DDLMerger {
 	private boolean overwrite=false;
 	private boolean verbose=false;
 
+	private boolean mergeMain=true;
 	private boolean mergeMito=true;
 	private boolean mergePlastid=true;
 	private boolean mergePlasmid=true;
