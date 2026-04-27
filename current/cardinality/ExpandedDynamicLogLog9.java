@@ -364,7 +364,8 @@ public final class ExpandedDynamicLogLog9 extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 0.596929f;}
 	@Override public float terminalMeanPlusCF(){return 0.751432f;}
 
-	@Override public double ldlcHcWeight(){return 0.48;}
+	@Override public double ldlcHcWeight(){return 0.68;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
+
 
 }

@@ -400,6 +400,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
 		bb.append("\tConfLevel\tConfidence");
+		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketchRef\tSketchTID\tSketchMatches\tSketch_LCA");}
 		return bb;
 	}
 	
@@ -450,6 +451,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.tab().append(cl>=0 ? TaxTree.levelToString(cl) : "None");
 		bb.tab();
 		appendConfidenceString(bb);
+		if(CladeIndex.USE_SKETCH_INDEX){
+			bb.tab().append(sketchName!=null ? sketchName : ".");
+			bb.tab().append(sketchTaxID);
+			bb.tab().append(sketchMatches);
+			bb.tab().append(sketchLCA>=0 ? TaxTree.levelToString(sketchLCA) : ".");
+		}
 		return bb;
 	}
 	
@@ -592,6 +599,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	float completeness=-1;
 	/** Number of matching DDL buckets (excluding empty-empty). -1 when not computed. */
 	int kmerMatches=-1;
+
+	int sketchTaxID=-1;
+	String sketchName;
+	int sketchMatches=-1;
+	int sketchLCA=-1;
+	boolean isSketchHit;
 
 	public static float confThreshold=0.95f;
 

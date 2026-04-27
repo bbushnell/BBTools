@@ -90,6 +90,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ExpandedDynamicLogLog8();
 		}else if("EDLL9".equalsIgnoreCase(type) || "ExpandedDynamicLogLog9".equalsIgnoreCase(type)){
 			return new ExpandedDynamicLogLog9();
+		}else if("EXA".equalsIgnoreCase(type) || "ExaLogLog".equalsIgnoreCase(type)){
+			return makeByReflection("ExaLogLogWrapper");
 		}else if("AUDLL32".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog32".equalsIgnoreCase(type)){
 			return new ArithmeticUltraDynamicLogLog32();
 		}else if("AUDLL33".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog33".equalsIgnoreCase(type)){
@@ -116,6 +118,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL();
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6();
+		}else if("UDLL36".equalsIgnoreCase(type) || "UltraDynamicLogLog36".equalsIgnoreCase(type)){
+			return new UltraDynamicLogLog36();
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3();
 		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
@@ -144,6 +148,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog();
 		}else if("TTLL3".equalsIgnoreCase(type) || "TwinTailLogLog3".equalsIgnoreCase(type)){
 			return new TwinTailLogLog3();
+		}else if("TTLL4".equalsIgnoreCase(type) || "TwinTailLogLog4".equalsIgnoreCase(type)){
+			return new TwinTailLogLog4();
+		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
+			return new CompressedTwinTailLogLog();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -207,6 +215,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ExpandedDynamicLogLog8(p);
 		}else if("EDLL9".equalsIgnoreCase(type) || "ExpandedDynamicLogLog9".equalsIgnoreCase(type)){
 			return new ExpandedDynamicLogLog9(p);
+		}else if("EXA".equalsIgnoreCase(type) || "ExaLogLog".equalsIgnoreCase(type)){
+			return makeByReflection("ExaLogLogWrapper", p);
 		}else if("AUDLL32".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog32".equalsIgnoreCase(type)){
 			return new ArithmeticUltraDynamicLogLog32(p);
 		}else if("AUDLL33".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog33".equalsIgnoreCase(type)){
@@ -233,6 +243,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ErtlULL(p);
 		}else if("UDLL6".equalsIgnoreCase(type) || "UltraDynamicLogLog6".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6(p);
+		}else if("UDLL36".equalsIgnoreCase(type) || "UltraDynamicLogLog36".equalsIgnoreCase(type)){
+			return new UltraDynamicLogLog36(p);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(p);
 		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
@@ -261,6 +273,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog(p);
 		}else if("TTLL3".equalsIgnoreCase(type) || "TwinTailLogLog3".equalsIgnoreCase(type)){
 			return new TwinTailLogLog3(p);
+		}else if("TTLL4".equalsIgnoreCase(type) || "TwinTailLogLog4".equalsIgnoreCase(type)){
+			return new TwinTailLogLog4(p);
+		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
+			return new CompressedTwinTailLogLog(p);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -324,6 +340,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ExpandedDynamicLogLog8(buckets_, k_, seed, minProb_);
 		}else if("EDLL9".equalsIgnoreCase(type) || "ExpandedDynamicLogLog9".equalsIgnoreCase(type)){
 			return new ExpandedDynamicLogLog9(buckets_, k_, seed, minProb_);
+		}else if("EXA".equalsIgnoreCase(type) || "ExaLogLog".equalsIgnoreCase(type)){
+			return makeByReflection("ExaLogLogWrapper", buckets_, k_, seed, minProb_);
 		}else if("AUDLL32".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog32".equalsIgnoreCase(type)){
 			return new ArithmeticUltraDynamicLogLog32(buckets_, k_, seed, minProb_);
 		}else if("AUDLL33".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog33".equalsIgnoreCase(type)){
@@ -352,6 +370,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new UltraDynamicLogLog6(buckets_, k_, seed, minProb_);
 		}else if("UDLL6m".equalsIgnoreCase(type) || "UltraDynamicLogLog6m".equalsIgnoreCase(type)){
 			return new UltraDynamicLogLog6m(buckets_, k_, seed, minProb_);
+		}else if("UDLL36".equalsIgnoreCase(type) || "UltraDynamicLogLog36".equalsIgnoreCase(type)){
+			return new UltraDynamicLogLog36(buckets_, k_, seed, minProb_);
 		}else if("BDLL3".equalsIgnoreCase(type) || "BankedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new BankedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("BCDLL3".equalsIgnoreCase(type) || "BankedCompressedDynamicLogLog3".equalsIgnoreCase(type)){
@@ -380,6 +400,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog(buckets_, k_, seed, minProb_);
 		}else if("TTLL3".equalsIgnoreCase(type) || "TwinTailLogLog3".equalsIgnoreCase(type)){
 			return new TwinTailLogLog3(buckets_, k_, seed, minProb_);
+		}else if("TTLL4".equalsIgnoreCase(type) || "TwinTailLogLog4".equalsIgnoreCase(type)){
+			return new TwinTailLogLog4(buckets_, k_, seed, minProb_);
+		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
+			return new CompressedTwinTailLogLog(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -987,5 +1011,24 @@ public abstract class CardinalityTracker implements Drivable {
 	 * instead of lcMin as the low-cardinality component in the blend zone. */
 	public static boolean USE_SBS_IN_HYBRID=true;
 	public static final int MICRO_CUTOFF_BITS=56;//Higher is less accurate, max is 64
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Reflective Factory         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static CardinalityTracker makeByReflection(String cls){
+		try{return (CardinalityTracker)Class.forName("cardinality."+cls).getDeclaredConstructor().newInstance();}
+		catch(Exception e){throw new RuntimeException(cls, e);}
+	}
+
+	private static CardinalityTracker makeByReflection(String cls, parse.Parser p){
+		try{return (CardinalityTracker)Class.forName("cardinality."+cls).getDeclaredConstructor(parse.Parser.class).newInstance(p);}
+		catch(Exception e){throw new RuntimeException(cls, e);}
+	}
+
+	private static CardinalityTracker makeByReflection(String cls, int buckets, int k, long seed, float minProb){
+		try{return (CardinalityTracker)Class.forName("cardinality."+cls).getDeclaredConstructor(int.class, int.class, long.class, float.class).newInstance(buckets, k, seed, minProb);}
+		catch(Exception e){throw new RuntimeException(cls, e);}
+	}
 
 }

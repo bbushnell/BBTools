@@ -355,9 +355,64 @@ public final class CardStats extends AbstractCardStats {
 			}
 			final double hcRaw=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
 			hcF=(hcRaw>0 ? hcRaw*CorrectionFactor.hcCfFormula(hcRaw)*HC_SCALE : 0);
+
+			// Per-tier LC: 4 variants — {H, HZ} × {observable, numBuckets} formula
+			// H = history bits only; HZ = history + zeros above exponent
+			// Observable formula: est = obs × ln(obs/zeros) × globalMult
+			// NumBuckets formula: est = numBuckets × ln(obs/zeros) × globalMult
+			{
+				final double ptlcTierRatio=Math.pow(2.0, tierScale);
+				// Prefix sum: prefixBuckets[t] = count of non-empty buckets with absNlz < t
+				final int[] prefixBuckets=new int[65];
+				for(int k=1; k<=64; k++){
+					prefixBuckets[k]=prefixBuckets[k-1]+(k-1<64 ? nlzBucketCount[k-1] : 0);
+				}
+				// Accumulators: [0]=H_obs, [1]=H_nb, [2]=HZ_obs, [3]=HZ_nb
+				final double[] ptSumW=new double[4], ptSumWLogE=new double[4];
+				for(int t=0; t<=maxTierHC; t++){
+					int hObs=0, hSeen=0;
+					for(int d=0; d<histBits_; d++){
+						final int src=t+d+1;
+						if(src<64){
+							final int masked=nlzHbitMasked[d][src];
+							hObs+=(nlzBucketCount[src]-masked);
+							hSeen+=nlzHbitSet[d][src];
+						}
+					}
+					final int hZeros=hObs-hSeen;
+					final int zaObs=(t<=64 ? prefixBuckets[t] : 0);
+					final int[][] modes={
+						{hObs, hZeros},                    // Mode H
+						{hObs+zaObs, hZeros+zaObs}         // Mode HZ
+					};
+					for(int m=0; m<2; m++){
+						final int obs=modes[m][0], zeros=modes[m][1];
+						if(obs>=8 && zeros>=1 && zeros<obs){
+							final double globalMult=Math.pow(2.0, (t+1)*tierScale)/(ptlcTierRatio-1.0);
+							final double lnRatio=Math.log((double)obs/zeros);
+							final double estObs=globalMult*(double)obs*lnRatio;
+							final double estNb=globalMult*(double)numBuckets*lnRatio;
+							if(estObs>0 && !Double.isNaN(estObs)){
+								final double p=(double)(obs-zeros)/obs;
+								final double ent=(-p*Math.log(p)-(1-p)*Math.log(1-p))/Math.log(2);
+								final double info=obs*ent;
+								ptSumW[m*2]+=info;   ptSumWLogE[m*2]+=info*Math.log(estObs);
+								ptSumW[m*2+1]+=info; ptSumWLogE[m*2+1]+=info*Math.log(estNb);
+							}
+						}
+					}
+				}
+				perTierLcHF=(ptSumW[0]>0 ? Math.exp(ptSumWLogE[0]/ptSumW[0]) : 0);
+				perTierLcHnF=(ptSumW[1]>0 ? Math.exp(ptSumWLogE[1]/ptSumW[1]) : 0);
+				perTierLcHzF=(ptSumW[2]>0 ? Math.exp(ptSumWLogE[2]/ptSumW[2]) : 0);
+				perTierLcHznF=(ptSumW[3]>0 ? Math.exp(ptSumWLogE[3]/ptSumW[3]) : 0);
+			}
+
 			historyCoverage=(filled>0 ? (double)bucketsWithHistory/filled : 0);
 		}else{
 			hcF=0;
+			perTierLcHF=0; perTierLcHnF=0;
+			perTierLcHzF=0; perTierLcHznF=0;
 			historyCoverage=0;
 		}
 		hasHistoryCorrection=hasHistCorr;
@@ -776,6 +831,14 @@ public final class CardStats extends AbstractCardStats {
 	public double sbsMult(){return sbsMultF;}
 	/** HC estimate (CF-corrected, history-only per-tier LC). 0 when no history. */
 	public double hc(){return hcF;}
+	/** Per-tier LC Mode H (history only), observable formula. */
+	public double perTierLcH(){return perTierLcHF;}
+	/** Per-tier LC Mode H (history only), numBuckets formula. */
+	public double perTierLcHn(){return perTierLcHnF;}
+	/** Per-tier LC Mode HZ (history + zeros above), observable formula. */
+	public double perTierLcHz(){return perTierLcHzF;}
+	/** Per-tier LC Mode HZ (history + zeros above), numBuckets formula. */
+	public double perTierLcHzn(){return perTierLcHznF;}
 	/** Fraction of filled buckets with any history bit set. 0 when no history. */
 	public double historyCoverage(){return historyCoverage;}
 
@@ -1005,6 +1068,10 @@ public final class CardStats extends AbstractCardStats {
 	final double sbsMultF;   // history-aware LC using multipliers
 	final double lcForHybridF;  // LC value used for hybrid blending (sbs or lcMin)
 	double hcF;              // HC estimate (CF-corrected, 0 when no history). Non-final: TTLL overrides via overrideHC().
+	final double perTierLcHF;    // Per-tier LC: Mode H (history only), observable formula
+	final double perTierLcHnF;   // Per-tier LC: Mode H (history only), numBuckets formula
+	final double perTierLcHzF;   // Per-tier LC: Mode HZ (history + zeros above), observable formula
+	final double perTierLcHznF;  // Per-tier LC: Mode HZ (history + zeros above), numBuckets formula
 	final double historyCoverage; // fraction of filled buckets with any history bit set
 
 	// --- Phase 2b: mantissa estimates (defaults to non-mantissa equivalents) ---

@@ -241,6 +241,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("edll9")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=0.5;
 			if(CorrectionFactor.sbsFile==null && ExpandedDynamicLogLog9.SBS_FILE!=null){CorrectionFactor.sbsFile=ExpandedDynamicLogLog9.SBS_FILE;}
+			if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=1.030880f;}
 		}else if(loglogtype.equals("audll32")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.0;
 			StateTable.USE_AUDLL32_HSB=true;
@@ -256,6 +257,7 @@ public class CardinalityParser {
 			CorrectionFactor.sbsFile=ArithmeticVariableDynamicLogLog32.SBS_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
+		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=1.5;}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
@@ -273,7 +275,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("bdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
 		else if(loglogtype.equals("bdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF;}
 		else if(loglogtype.equals("bdll5")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_BDLL3_COF; CorrectionFactor.sbsFile=BankedDynamicLogLog5.SBS_FILE;}
-		else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m")){
+		else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m") || loglogtype.equals("udll36")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
 			classHasHcCf=true;
@@ -293,6 +295,7 @@ public class CardinalityParser {
 		if("bcll".equals(loglogtype)){BankedCeilingLogLog.loadCFTable(); BankedCeilingLogLog.loadCardCFTable();}
 		if("ttll".equals(loglogtype)){TwinTailLogLog.loadCFTable(); TwinTailLogLog.loadCardCFTable();}
 		if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.loadWordTable();}
+		if("cttll".equals(loglogtype)){CompressedTwinTailLogLog.loadPerTierTable();}
 
 		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
 		if(cffile==null){cffile=defaultCFFile(loglogtype);}
@@ -301,6 +304,7 @@ public class CardinalityParser {
 			if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 				else if("udll6m".equals(loglogtype)){UltraDynamicLogLog6m.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+				else if("udll36".equals(loglogtype)){UltraDynamicLogLog36.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("bdll4".equals(loglogtype)){BankedDynamicLogLog4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("bdll5".equals(loglogtype)){BankedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("cdll5".equals(loglogtype)){CompressedDynamicLogLog5.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
@@ -383,7 +387,7 @@ public class CardinalityParser {
 			return BankedDynamicLogLog5.CF_FILE;
 		}else if(loglogtype.equals("ll6")){
 			return LogLog6.CF_FILE;
-		}else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m")){
+		}else if(loglogtype.equals("udll6") || loglogtype.equals("udll6m") || loglogtype.equals("udll36")){
 			return UltraDynamicLogLog6.CF_FILE;
 		}else if(loglogtype.equals("ddl") || loglogtype.equals("ddl10")){
 			return DynamicDemiLog.CF_FILE;
@@ -393,6 +397,10 @@ public class CardinalityParser {
 			return "?"+TwinTailLogLog.CF_FILE;
 		}else if(loglogtype.equals("ttll3")){
 			return "?cardinalityCorrectionTTLL3.tsv.gz";
+		}else if(loglogtype.equals("ttll4")){
+			return "?cardinalityCorrectionTTLL4.tsv.gz";
+		}else if(loglogtype.equals("cttll")){
+			return "?cardinalityCorrectionCTTLL.tsv.gz";
 		}
 		return null;
 	}
