@@ -1,13 +1,17 @@
 package clade;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
 
+import ddl.DDLIndex;
+import ddl.DDLRecord;
 import parse.Parse;
 import prok.GeneCaller;
 import shared.Shared;
+import tax.TaxTree;
 
 public class CladeIndex implements Cloneable {
 
@@ -42,6 +46,15 @@ public class CladeIndex implements Cloneable {
 		CladeLoader loader=new CladeLoader();
 		ConcurrentHashMap<Integer, Clade> map=loader.load(ref, null);
 		CladeIndex index=new CladeIndex(map.values());
+		if(USE_SKETCHES){
+			index.cladeMap=map;
+			String resourceDir=dna.Data.RESOURCES();
+			index.loadSketches(resourceDir);
+			index.attachSketchesToClades(map);
+			if(USE_SKETCH_INDEX){
+				index.buildSketchIndex();
+			}
+		}
 		return index;
 	}
 
@@ -108,6 +121,16 @@ public class CladeIndex implements Cloneable {
 			Clade.DDL_K=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("ddlbuckets")){
 			Clade.DDL_BUCKETS=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("sketch") || a.equalsIgnoreCase("usesketches")){
+			USE_SKETCHES=Parse.parseBoolean(b);
+			if(USE_SKETCHES){Clade.MAKE_DDLS=true;}
+		}else if(a.equalsIgnoreCase("sketchindex") || a.equalsIgnoreCase("sketchidx")){
+			USE_SKETCH_INDEX=Parse.parseBoolean(b);
+			if(USE_SKETCH_INDEX){USE_SKETCHES=true; Clade.MAKE_DDLS=true;}
+		}else if(a.equalsIgnoreCase("sketchhits") || a.equalsIgnoreCase("maxsketchhits")){
+			maxSketchHits=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("minsketchhits") || a.equalsIgnoreCase("minsketches")){
+			minSketchMatches=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("loadthreads")){
 			CladeLoaderMT.loadThreads=Integer.parseInt(b);
 		}else if(a.equals("banself")){
@@ -172,6 +195,9 @@ public class CladeIndex implements Cloneable {
 		ArrayList<Comparison> results=heap.toList();
 		if(Clade.MAKE_DDLS){
 			for(Comparison comp : results){comp.compareDDL();}
+		}
+		if(ddlIndex!=null){
+			addSketchInfo(results, c);
 		}
 		return results;
 	}
@@ -326,5 +352,97 @@ public class CladeIndex implements Cloneable {
 	static float cagaMult=0.8f;
 	
 	static boolean LINEAR_SEARCH=false;
+
+	static boolean USE_SKETCHES=false;
+	static boolean USE_SKETCH_INDEX=false;
+	static int maxSketchHits=5;
+	static int minSketchMatches=3;
+
+	DDLIndex ddlIndex;
+	ArrayList<DDLRecord> sketchRecords;
+	ConcurrentHashMap<Integer, Clade> cladeMap;
+
+	public void loadSketches(String resourceDir){
+		sketchRecords=new ArrayList<DDLRecord>();
+		File dir=new File(resourceDir);
+		if(!dir.isDirectory()){
+			System.err.println("WARNING: Sketch directory not found: "+resourceDir);
+			return;
+		}
+		File[] files=dir.listFiles((d,name)->(name.endsWith(".ddl.gz") || name.endsWith(".ddl")
+				|| (name.contains("_ddl") && name.endsWith(".tsv.gz"))));
+		if(files==null || files.length==0){
+			System.err.println("WARNING: No .ddl.gz files found in "+resourceDir);
+			return;
+		}
+		Arrays.sort(files);
+		for(File f : files){
+			ArrayList<DDLRecord> records=ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K);
+			sketchRecords.addAll(records);
+		}
+		System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files.");
+	}
+
+	public void attachSketchesToClades(ConcurrentHashMap<Integer, Clade> cladeMap){
+		if(sketchRecords==null){return;}
+		int attached=0;
+		for(DDLRecord rec : sketchRecords){
+			Clade c=cladeMap.get(rec.taxID);
+			if(c!=null && c.ddl==null){c.ddl=rec.ddl; attached++;}
+		}
+		System.err.println("Attached "+attached+" sketches to clades.");
+	}
+
+	public void buildSketchIndex(){
+		if(sketchRecords==null || sketchRecords.isEmpty()){return;}
+		ddlIndex=new DDLIndex();
+		for(int i=0; i<sketchRecords.size(); i++){
+			DDLRecord rec=sketchRecords.get(i);
+			ddlIndex.add(i, rec.ddl);
+		}
+		System.err.println("Built sketch index with "+sketchRecords.size()+" entries, "+
+				ddlIndex.populatedCells()+" populated cells.");
+	}
+
+	public void addSketchInfo(ArrayList<Comparison> results, Clade query){
+		if(ddlIndex==null || query.ddl==null){return;}
+		int[][] topSketch=ddlIndex.topHits(query.ddl, maxSketchHits);
+		if(topSketch==null || topSketch.length==0){return;}
+
+		int bestIdx=topSketch[0][0];
+		int bestMatches=topSketch[0][1];
+		if(bestMatches<minSketchMatches){return;}
+
+		DDLRecord bestRec=sketchRecords.get(bestIdx);
+		TaxTree tree=TaxTree.getTree();
+
+		boolean sketchInResults=false;
+		for(Comparison comp : results){
+			if(comp.ref==null){continue;}
+			if(comp.ref.taxID==bestRec.taxID){sketchInResults=true;}
+			comp.sketchTaxID=bestRec.taxID;
+			comp.sketchName=bestRec.name;
+			comp.sketchMatches=bestMatches;
+			if(tree!=null && bestRec.taxID>0 && comp.ref.taxID>0){
+				comp.sketchLCA=tree.commonAncestorLevel(comp.ref.taxID, bestRec.taxID);
+			}
+		}
+
+		if(!sketchInResults && cladeMap!=null && bestRec.taxID>0){
+			Clade refClade=cladeMap.get(bestRec.taxID);
+			if(refClade!=null){
+				Comparison sketchComp=new Comparison(query, refClade);
+				sketchComp.sketchTaxID=bestRec.taxID;
+				sketchComp.sketchName=bestRec.name;
+				sketchComp.sketchMatches=bestMatches;
+				if(tree!=null && bestRec.taxID>0){
+					sketchComp.sketchLCA=tree.commonAncestorLevel(refClade.taxID, bestRec.taxID);
+				}
+				if(Clade.MAKE_DDLS){sketchComp.compareDDL();}
+				sketchComp.isSketchHit=true;
+				results.add(sketchComp);
+			}
+		}
+	}
 
 }

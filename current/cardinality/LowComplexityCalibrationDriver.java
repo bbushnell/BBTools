@@ -220,6 +220,23 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
 								}
+							}else if(est.getClass()==UltraDynamicLogLog36.class){
+								final UltraDynamicLogLog36 u=(UltraDynamicLogLog36)est;
+								final CardStats cs=u.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
+								}
 							}else if(est.getClass()==BankedDynamicLogLog5.class){
 								final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)est;
 								final CardStats cs=c.consumeLastSummarized();

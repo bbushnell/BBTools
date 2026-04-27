@@ -36,11 +36,20 @@ public class DDLCalibrationDriver2 {
 	static boolean CLAMP_TO_ADDED=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-	static final int NUM_LDLC=14;
+	static final int NUM_LDLC=39;
 	static final int HLDLC_IDX=11, MEAN16_IDX=12, DUALLC_IDX=13;
+	static final int PTLC_H_IDX=14, PTLC_HN_IDX=15, PTLC_HZ_IDX=16, PTLC_HZN_IDX=17;
+	static final int M16_SWEEP_BASE=18;
+	static final int M16_SWEEP_COUNT=21;
+	static final double M16_SWEEP_START=0.30, M16_SWEEP_STEP=0.02;
 	static final int NUM_LDLC_BASE=7;
 	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV",
-		"HLDLC", "Mean16", "DualLC"};
+		"HLDLC", "Mean16", "DualLC", "PTLC_H", "PTLC_Hn", "PTLC_HZ", "PTLC_HZn",
+		"M16h_30", "M16h_32", "M16h_34", "M16h_36", "M16h_38",
+		"M16h_40", "M16h_42", "M16h_44", "M16h_46", "M16h_48",
+		"M16h_50", "M16h_52", "M16h_54", "M16h_56", "M16h_58",
+		"M16h_60", "M16h_62", "M16h_64", "M16h_66", "M16h_68",
+		"M16h_70"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -289,6 +298,7 @@ public class DDLCalibrationDriver2 {
 		final double[] ldlcTotAbs=new double[NUM_LDLC], ldlcWidthWt=new double[NUM_LDLC], ldlcCountWt=new double[NUM_LDLC];
 		final double[] ldlcPeak=new double[NUM_LDLC], ldlcTotSign=new double[NUM_LDLC];
 		final double[] ldlcTotCV=new double[NUM_LDLC];
+		final double[] ldlcWidthWtSign=new double[NUM_LDLC], ldlcWidthWtAbsSign=new double[NUM_LDLC];
 		double ldlcWidthSum=0; double ldlcCountSum=0; int ldlcCvRows=0;
 		for(int ti=0; ti<numThresholds; ti++){
 			if(m.n[ti]<1){continue;}
@@ -298,6 +308,8 @@ public class DDLCalibrationDriver2 {
 				final double absAtRow=m.ldlcAbsErr[ti][e]/m.n[ti];
 				ldlcTotAbs[e]+=absAtRow; ldlcWidthWt[e]+=absAtRow*w; ldlcCountWt[e]+=absAtRow*m.n[ti];
 				ldlcTotSign[e]+=meanErr;
+				ldlcWidthWtSign[e]+=meanErr*w;
+				ldlcWidthWtAbsSign[e]+=Math.abs(meanErr)*w;
 				if(absAtRow>ldlcPeak[e]){ldlcPeak[e]=absAtRow;}
 				final double var=m.ldlcSqErr[ti][e]/m.n[ti]-meanErr*meanErr;
 				final double sd=Math.sqrt(Math.max(0, var));
@@ -306,13 +318,17 @@ public class DDLCalibrationDriver2 {
 			}
 			ldlcCvRows++;
 		}
+		System.err.println(String.format("%-12s %-13s %-13s %-13s %-13s %-13s %-13s %-13s %s",
+			"", "LogWtAbsErr", "WidthWtAbsErr", "CountWtAbsErr", "PeakAbsErr", "AvgSignErr", "WtSignErr", "WtAbsSignErr", "AvgCV"));
 		for(int e=0; e<NUM_LDLC; e++){
-			System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
+			System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %+.8f   %.8f   %.8f",
 				LDLC_NAMES[e], ldlcTotAbs[e]/rows,
 				ldlcWidthSum>0 ? ldlcWidthWt[e]/ldlcWidthSum : 0,
 				ldlcCountSum>0 ? ldlcCountWt[e]/ldlcCountSum : 0,
 				ldlcPeak[e],
 				rows>0 ? ldlcTotSign[e]/rows : 0,
+				ldlcWidthSum>0 ? ldlcWidthWtSign[e]/ldlcWidthSum : 0,
+				ldlcWidthSum>0 ? ldlcWidthWtAbsSign[e]/ldlcWidthSum : 0,
 				ldlcCvRows>0 ? ldlcTotCV[e]/ldlcCvRows : 0));
 		}
 		System.err.println();
@@ -433,6 +449,8 @@ public class DDLCalibrationDriver2 {
 						}else if(ddl.getClass()==UltraDynamicLogLog6m.class){
 							final UltraDynamicLogLog6m u=(UltraDynamicLogLog6m)ddl;
 							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==UltraDynamicLogLog36.class){
+							accumulateCardStatsLdlc(((UltraDynamicLogLog36)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedDynamicLogLog4.class){
@@ -487,6 +505,21 @@ public class DDLCalibrationDriver2 {
 								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
 							}
+							{
+								final double m16=ldlcR[8];
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								if(m16>0 && hldlc>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*m16+(1-w)*hldlc;
+										final double lerr=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+									}
+								}
+							}
 						}else if(ddl.getClass()==TwinTailLogLog3.class){
 							final TwinTailLogLog3 t=(TwinTailLogLog3)ddl;
 							final double[] ldlcR=t.ldlcEstimate();
@@ -505,6 +538,89 @@ public class DDLCalibrationDriver2 {
 								final double dualLC=ldlcR[9];
 								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
 								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double m16=ldlcR[8];
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								if(m16>0 && hldlc>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*m16+(1-w)*hldlc;
+										final double lerr=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+									}
+								}
+							}
+						}else if(ddl.getClass()==TwinTailLogLog4.class){
+							final TwinTailLogLog4 t=(TwinTailLogLog4)ddl;
+							final double[] ldlcR=t.ldlcEstimate();
+							accumulateLdlcEstimate(ldlcR, trueCard, ti);
+							{
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double mean16=ldlcR[8];
+								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+							}
+							if(ldlcR.length>9){
+								final double dualLC=ldlcR[9];
+								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double m16=ldlcR[8];
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								if(m16>0 && hldlc>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*m16+(1-w)*hldlc;
+										final double lerr=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+									}
+								}
+							}
+						}else if(ddl.getClass()==CompressedTwinTailLogLog.class){
+							final CompressedTwinTailLogLog t=(CompressedTwinTailLogLog)ddl;
+							final double[] ldlcR=t.ldlcEstimate();
+							accumulateLdlcEstimate(ldlcR, trueCard, ti);
+							{
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double mean16=ldlcR[8];
+								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+							}
+							if(ldlcR.length>9){
+								final double dualLC=ldlcR[9];
+								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double m16=ldlcR[8];
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								if(m16>0 && hldlc>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*m16+(1-w)*hldlc;
+										final double lerr=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+									}
+								}
 							}
 						}else if(ddl.getClass()==ErtlULL.class){
 							final ErtlULL u=(ErtlULL)ddl;
@@ -566,6 +682,16 @@ public class DDLCalibrationDriver2 {
 			final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 			final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 			ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+			// Per-tier LC columns: {H_obs, H_nb, HZ_obs, HZ_nb}
+			final double[] ptlcVals={cs.perTierLcH(), cs.perTierLcHn(), cs.perTierLcHz(), cs.perTierLcHzn()};
+			final int[] ptlcIdx={PTLC_H_IDX, PTLC_HN_IDX, PTLC_HZ_IDX, PTLC_HZN_IDX};
+			for(int pi=0; pi<4; pi++){
+				final double v=ptlcVals[pi];
+				if(v>0){
+					final double pe=(v-trueCard)/(double)trueCard;
+					ldlcSumErr[ti][ptlcIdx[pi]]+=pe; ldlcSumAbsErr[ti][ptlcIdx[pi]]+=Math.abs(pe); ldlcSumSqErr[ti][ptlcIdx[pi]]+=pe*pe;
+				}else{ldlcSumErr[ti][ptlcIdx[pi]]+=-1.0; ldlcSumAbsErr[ti][ptlcIdx[pi]]+=1.0; ldlcSumSqErr[ti][ptlcIdx[pi]]+=1.0;}
+			}
 		}
 
 		/** LC mode: replay from same seed with increasing windows. */

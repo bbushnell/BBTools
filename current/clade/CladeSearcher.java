@@ -546,7 +546,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		Collection<Comparison> coll=(Collection<Comparison>)o;
 		int i=0;
 		for(Comparison c : coll) {
-			if(i>=maxHitsToPrint) {break;}
+			if(i>=maxHitsToPrint && !c.isSketchHit) {break;}
 			appendResult(c, bb, i);
 			i++;
 		}
