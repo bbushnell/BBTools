@@ -26,10 +26,14 @@ public class DDLLoaderMT {
 	}
 
 	public static ArrayList<DDLRecord> loadFile(String path, int k, int threads){
+		return loadFile(path, k, threads, 0);
+	}
+
+	public static ArrayList<DDLRecord> loadFile(String path, int k, int threads, int byteFileType){
 		if(threads<2){return DDLLoader.loadFile(path, k);}
 
 		final FileFormat ff=FileFormat.testInput(path, FileFormat.TEXT, null, false, true);
-		final ByteFile bf=ByteFile.makeByteFile(ff);
+		final ByteFile bf=ByteFile.makeByteFile(ff, byteFileType);
 
 		final JobQueue<ListNum<ArrayList<byte[]>>> queue=
 				new JobQueue<>(threads+4, true, true, 0);

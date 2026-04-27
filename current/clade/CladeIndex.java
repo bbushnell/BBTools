@@ -5,6 +5,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import ddl.DDLIndex;
 import ddl.DDLRecord;
@@ -133,6 +136,8 @@ public class CladeIndex implements Cloneable {
 			minSketchMatches=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("loadthreads")){
 			CladeLoaderMT.loadThreads=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("ddlloadthreads") || a.equalsIgnoreCase("sketchloadthreads")){
+			ddlLoadThreads=Integer.parseInt(b);
 		}else if(a.equals("banself")){
 			banSelf=Parse.parseBoolean(b);
 		}else if(a.equals("includeself")){
@@ -357,6 +362,7 @@ public class CladeIndex implements Cloneable {
 	static boolean USE_SKETCH_INDEX=false;
 	static int maxSketchHits=5;
 	static int minSketchMatches=3;
+	static int ddlLoadThreads=0;
 
 	DDLIndex ddlIndex;
 	ArrayList<DDLRecord> sketchRecords;
@@ -375,12 +381,41 @@ public class CladeIndex implements Cloneable {
 			System.err.println("WARNING: No .ddl.gz files found in "+resourceDir);
 			return;
 		}
-		Arrays.sort(files);
-		for(File f : files){
-			ArrayList<DDLRecord> records=ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K);
-			sketchRecords.addAll(records);
+		Arrays.sort(files, (a, b)->Long.compare(b.length(), a.length()));
+
+		final int totalThreads=ddlLoadThreads>0 ? ddlLoadThreads : Shared.threads();
+		long t0=System.nanoTime();
+
+		if(files.length<2 || totalThreads<4){
+			for(File f : files){
+				ArrayList<DDLRecord> records=ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K);
+				sketchRecords.addAll(records);
+			}
+		}else{
+			final int filesParallel=Math.min(files.length, Math.min(4, totalThreads/4));
+			final int parseThreadsPerFile=Math.min(16, totalThreads);
+			System.err.println("Loading "+files.length+" DDL files: "+filesParallel+" parallel, "+parseThreadsPerFile+" parse threads each.");
+			final ExecutorService pool=Executors.newFixedThreadPool(filesParallel);
+			@SuppressWarnings("unchecked")
+			final Future<ArrayList<DDLRecord>>[] futures=new Future[files.length];
+			for(int i=0; i<files.length; i++){
+				final File f=files[i];
+				futures[i]=pool.submit(()->{
+					return ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K, parseThreadsPerFile, 1);
+				});
+			}
+			pool.shutdown();
+			for(int i=0; i<futures.length; i++){
+				try{
+					sketchRecords.addAll(futures[i].get());
+				}catch(Exception e){
+					System.err.println("Error loading "+files[i].getName());
+					e.printStackTrace();
+				}
+			}
 		}
-		System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files.");
+		long elapsed=System.nanoTime()-t0;
+		System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files in "+String.format("%.3f", elapsed/1e9)+" seconds.");
 	}
 
 	public void attachSketchesToClades(ConcurrentHashMap<Integer, Clade> cladeMap){
