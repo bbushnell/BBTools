@@ -401,9 +401,48 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return toBytes(bb);
 	}
 	
+	public static ByteBuilder tabularHeader() {
+		ByteBuilder bb=new ByteBuilder();
+		bb.append("#k5dif\tk4dif\tGCdif");
+		if(Clade.callSSU){bb.append("\tSSU");}
+		bb.append("\tConfLevel");
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID");}
+		bb.append("\tTaxID\tBases\tName");
+		return bb;
+	}
+
+	synchronized ByteBuilder appendResultTabular(ByteBuilder bb, int hitNum) {
+		if(bb==null){bb=new ByteBuilder();}
+		if(hitNum==0 && query!=null){
+			bb.append("\nQuery:\t").append(query.name!=null ? query.name : "?");
+			bb.append("\tBases:\t").append(query.bases);
+			bb.append("\tContigs:\t").append(query.contigs);
+			bb.append("\tGC:\t").append(query.gc, 4);
+			bb.nl();
+			bb.append(tabularHeader());
+			bb.nl();
+		}
+		if(ref==null){return bb;}
+		bb.append(k5dif, 5);
+		bb.tab().append(k4dif, 5);
+		bb.tab().append(gcdif, 5);
+		if(Clade.callSSU){bb.tab().append(1-ssudif, 4);}
+		bb.tab();
+		appendConfidentLevel(bb, confThreshold);
+		if(Clade.MAKE_DDLS){
+			bb.tab().append(ani>=0 ? ani : -1, 4);
+			bb.tab().append(containment>=0 ? containment : -1, 4);
+		}
+		bb.tab().append(ref.taxID);
+		bb.tab().append(ref.bases);
+		bb.tab().append(ref.name!=null ? ref.name : "?");
+		bb.nl();
+		return bb;
+	}
+
 	/**
 	 * Creates a header line for machine-readable output format.
-	 * 
+	 *
 	 * @param printQTID Whether to include the query taxon ID column
 	 * @return ByteBuilder containing the header line
 	 */

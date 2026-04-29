@@ -65,7 +65,7 @@ public class CladeIndex implements Cloneable {
 		}else if(a.equals("aligner") || a.equals("idaligner")){
 			GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));
 			if(GeneCaller.useIDAligner) {idaligner.Factory.setType(b);}
-		}else if(a.equals("heapsize") || a.equals("heap")){
+		}else if(a.equals("heapsize") || a.equals("heap") || a.equals("buffer")){
 			heapSize=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("comparisonCutoffMult") || a.equals("ccm")){
 			Comparison.setComparisonCutoffMult(Float.parseFloat(b));
@@ -478,6 +478,8 @@ public class CladeIndex implements Cloneable {
 		DDLRecord bestRec=sketchRecords.get(bestIdx);
 		TaxTree tree=TaxTree.getTree();
 
+		Clade bestSketchClade=(cladeMap!=null && bestRec.taxID>0 ? cladeMap.get(bestRec.taxID) : null);
+
 		for(Comparison comp : results){
 			if(comp.ref==null){continue;}
 			comp.sketchTaxID=bestRec.taxID;
@@ -485,6 +487,8 @@ public class CladeIndex implements Cloneable {
 			comp.sketchMatches=bestMatches;
 			if(tree!=null && bestRec.taxID>0 && comp.ref.taxID>0){
 				comp.sketchLCA=tree.commonAncestorLevel(comp.ref.taxID, bestRec.taxID);
+			}else if(bestSketchClade!=null){
+				comp.sketchLCA=lineageLCA(comp.ref.lineage(), bestSketchClade.lineage());
 			}
 		}
 
@@ -518,6 +522,29 @@ public class CladeIndex implements Cloneable {
 				}
 			}
 		}
+	}
+
+	private static final String[] LCA_PREFIXES={"s__","g__","f__","o__","c__","p__","k__","sk__"};
+	private static final int[] LCA_LEVELS={
+		TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
+		TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.SUPERKINGDOM
+	};
+
+	static int lineageLCA(CharSequence lineageA, CharSequence lineageB){
+		if(lineageA==null || lineageB==null){return -1;}
+		String a=lineageA.toString(), b=lineageB.toString();
+		for(int i=0; i<LCA_PREFIXES.length; i++){
+			String prefix=LCA_PREFIXES[i];
+			int posA=a.indexOf(prefix);
+			int posB=b.indexOf(prefix);
+			if(posA<0 || posB<0){continue;}
+			int endA=a.indexOf(';', posA);
+			int endB=b.indexOf(';', posB);
+			String nameA=a.substring(posA+prefix.length(), endA<0 ? a.length() : endA);
+			String nameB=b.substring(posB+prefix.length(), endB<0 ? b.length() : endB);
+			if(nameA.equals(nameB)){return LCA_LEVELS[i];}
+		}
+		return -1;
 	}
 
 }

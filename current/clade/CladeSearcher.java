@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -22,6 +23,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prok.GeneCaller;
+import shared.Colors;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
@@ -115,6 +117,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			if(s!=null) {ref.add(s);}
 		}
 		CladeIndex.heapSize=Math.max(CladeIndex.heapSize, maxHitsToPrint);
+		if(filterLevel>=0){
+			CladeIndex.heapSize=Math.max(CladeIndex.heapSize, maxHitsToPrint*3);
+		}
+		if(!colorExplicit){
+			setColor=(format!=MACHINE);
+		}
 		validateParams();
 		checkFileExistence(); //Ensure files can be read and written
 		checkStatics(); //Adjust file-related static fields as needed for this program 
@@ -294,9 +302,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 					format=MACHINE;
 				}else if(b.equals("human")){
 					format=HUMAN;
+				}else if(b.equals("tabular") || b.equals("tab") || b.equals("table")){
+					format=TABULAR;
 				}else {
 					assert(false) : "Unknown format "+b;
 				}
+			}else if(a.equals("tabular") || a.equals("table")){
+				if(Parse.parseBoolean(b)) {format=TABULAR;}
 			}else if(a.equals("machine") || a.equals("machineout") || a.equals("oneline")){
 				if(Parse.parseBoolean(b)) {format=MACHINE;}
 			}else if(a.equals("qtid") || a.equals("printqtid")){
@@ -321,6 +333,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				topCount=Integer.parseInt(b);
 			}else if(a.equals("minfraction") || a.equals("minfrac")){
 				minFraction=Float.parseFloat(b);
+			}else if(a.equals("level") || a.equals("taxlevel")){
+				filterLevel=TaxTree.stringToLevel(b.toLowerCase());
+			}else if(a.equals("color") || a.equals("colors") || a.equals("usecolor")){
+				setColor=Parse.parseBoolean(b);
+				colorExplicit=true;
+			}else if(a.equals("colorlevel")){
+				colorLevel=TaxTree.stringToLevel(b.toLowerCase());
 			}else if(a.equals("showrecords") || a.equals("showresults") || a.equals("showhits")){
 				showRecords=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
@@ -674,6 +693,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			bb.tab().append("Seq%");
 			bb.nl();
 
+			boolean compColor=setColor && "stdout.txt".equals(compositionFile);
 			int printed=0;
 			for(Map.Entry<String, long[]> entry : entries){
 				if(topCount>0 && printed>=topCount){break;}
@@ -682,11 +702,16 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				float basePct=(totalBases>0 ? 100f*bases/totalBases : 0);
 				float seqPct=(totalSeqs>0 ? 100f*seqs/totalSeqs : 0);
 				if(minFraction>0 && basePct<minFraction*100 && seqPct<minFraction*100){continue;}
+				if(compColor){
+					int cidx=Math.abs(entry.getKey().hashCode())%QC_COLORS.length;
+					bb.append(QC_COLORS[cidx]);
+				}
 				bb.append(entry.getKey());
 				bb.tab().append(bases);
 				bb.tab().append(seqs);
 				bb.tab().append(basePct, 2);
 				bb.tab().append(seqPct, 2);
+				if(compColor){bb.append(Colors.RESET);}
 				bb.nl();
 				printed++;
 			}
@@ -708,14 +733,40 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 */
 	ByteBuilder appendResult(Object o, ByteBuilder bb) {
 		if(o.getClass()==Comparison.class) {
-			return appendResult((Comparison)o, bb, 0);
+			Comparison c=(Comparison)o;
+			if(setColor && c.ref!=null){
+				String name=nameAtLevel(c.ref.lineage(), colorLevel);
+				bb.append(QC_COLORS[name==null ? 0 : Math.abs(name.hashCode())%QC_COLORS.length]);
+			}
+			appendResult(c, bb, 0);
+			if(setColor){bb.append(Colors.RESET);}
+			return bb;
 		}
 		@SuppressWarnings("unchecked")
 		Collection<Comparison> coll=(Collection<Comparison>)o;
+		HashSet<String> seen=(filterLevel>=0 ? new HashSet<String>() : null);
 		int i=0;
+		int prevColorIdx=-1;
+		String prevColorName=null;
 		for(Comparison c : coll) {
 			if(i>=maxHitsToPrint && !c.isSketchHit) {continue;}
+			if(seen!=null && c.ref!=null){
+				String name=nameAtLevel(c.ref.lineage(), filterLevel);
+				if(name!=null && !seen.add(name)){continue;}
+			}
+			if(setColor && c.ref!=null){
+				String name=nameAtLevel(c.ref.lineage(), colorLevel);
+				int cidx=(name==null ? 0 : Math.abs(name.hashCode())%QC_COLORS.length);
+				bb.append(QC_COLORS[cidx]);
+				if(prevColorIdx>=0 && cidx==prevColorIdx &&
+						(name==null ? prevColorName!=null : !name.equals(prevColorName))){
+					bb.append(Colors.UNDERLINE);
+				}
+				prevColorIdx=cidx;
+				prevColorName=name;
+			}
 			appendResult(c, bb, i);
+			if(setColor){bb.append(Colors.RESET);}
 			i++;
 		}
 		return bb;
@@ -731,6 +782,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	ByteBuilder appendResult(Comparison c, ByteBuilder bb, int hitNum) {
 		if(format==MACHINE) {
 			return appendResultMachine(c, bb);
+		}else if(format==TABULAR) {
+			return appendResultTabular(c, bb, hitNum);
 		}else {return appendResultHuman(c, bb, hitNum);}
 	}
 	
@@ -757,6 +810,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @param bb ByteBuilder to append to
 	 * @return The ByteBuilder with appended result
 	 */
+	ByteBuilder appendResultTabular(Comparison c, ByteBuilder bb, int hitNum) {
+		if(bb==null) {bb=new ByteBuilder();}
+		c.appendResultTabular(bb, hitNum);
+		bytesOut+=bb.length;
+		linesOut++;
+		return bb;
+	}
+
 	ByteBuilder appendResultMachine(Comparison c, ByteBuilder bb) {
 		if(bb==null) {bb=new ByteBuilder();}
 		if(c==null || c.ref==null) {return bb;}//TODO:  Best to print "no hits"
@@ -767,10 +828,32 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		return bb;
 	}
 	
+	private static final String[] LEVEL_TO_PREFIX={
+		null, null, "s", "g", "f", "o", "c", "p", "k", "sk", "sk", null
+	};
+
+	private static final String[] QC_COLORS={
+		Colors.BRIGHT_RED, Colors.BRIGHT_GREEN, Colors.BRIGHT_YELLOW,
+		Colors.BRIGHT_PURPLE, Colors.BRIGHT_CYAN,
+		Colors.RED, Colors.GREEN, Colors.YELLOW, Colors.PURPLE, Colors.CYAN
+	};
+
+	static String nameAtLevel(CharSequence lineage, int level){
+		if(lineage==null || level<2 || level>=LEVEL_TO_PREFIX.length){return null;}
+		String prefix=LEVEL_TO_PREFIX[level];
+		if(prefix==null){return null;}
+		String target=prefix+"__";
+		String[] parts=lineage.toString().split(";");
+		for(String part : parts){
+			if(part.startsWith(target)){return part.substring(target.length());}
+		}
+		return null;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Spawns multiple threads to process queries in parallel.
 	 * 
@@ -968,12 +1051,16 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	/** Output format (HUMAN or MACHINE) */
 	int format=1;
 	/** Format constants */
-	public static final int HUMAN=1, MACHINE=2;
+	public static final int HUMAN=1, MACHINE=2, TABULAR=3;
 
 	private String compositionFile=null;
 	private int topCount=10;
 	private float minFraction=0;
 	private boolean showRecords=true;
+	private int filterLevel=-1;
+	private boolean setColor=false;
+	private boolean colorExplicit=false;
+	private int colorLevel=TaxTree.FAMILY;
 
 	/*--------------------------------------------------------------*/
 

@@ -1,2 +1,8 @@
 current/barcode/prob/
 current/barcode/prob/*.*
+resources/all_euk_18S_best_taxsorted.fa.gz
+resources/all_prok_16S_best_taxsorted.fa.gz
+resources/refseqA48_with_ribo.spectra.gz
+resources/refseqSketchDDL.tsv.gz
+resources/refseqSketchDDL_merged.tsv.gz
+resources/ribokmers.fa.gz
