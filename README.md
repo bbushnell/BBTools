@@ -7,6 +7,8 @@
 ## 👥 Authors
 
 - **Brian Bushnell** - Primary Developer
+- **Bryce Foster** - Container Maintainer
+- **Brandon Saint-John** - CI/CD
 - **Jon Rood** - Contributor
 - **Shijie Yao** - Contributor
 - **Isla** - Contributor
