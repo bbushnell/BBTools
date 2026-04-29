@@ -478,10 +478,8 @@ public class CladeIndex implements Cloneable {
 		DDLRecord bestRec=sketchRecords.get(bestIdx);
 		TaxTree tree=TaxTree.getTree();
 
-		boolean sketchInResults=false;
 		for(Comparison comp : results){
 			if(comp.ref==null){continue;}
-			if(comp.ref.taxID==bestRec.taxID){sketchInResults=true;}
 			comp.sketchTaxID=bestRec.taxID;
 			comp.sketchName=bestRec.name;
 			comp.sketchMatches=bestMatches;
@@ -490,19 +488,34 @@ public class CladeIndex implements Cloneable {
 			}
 		}
 
-		if(!sketchInResults && cladeMap!=null && bestRec.taxID>0){
-			Clade refClade=cladeMap.get(bestRec.taxID);
-			if(refClade!=null){
-				Comparison sketchComp=new Comparison(query, refClade);
-				sketchComp.sketchTaxID=bestRec.taxID;
-				sketchComp.sketchName=bestRec.name;
-				sketchComp.sketchMatches=bestMatches;
-				if(tree!=null && bestRec.taxID>0){
-					sketchComp.sketchLCA=tree.commonAncestorLevel(refClade.taxID, bestRec.taxID);
+		if(cladeMap!=null){
+			for(int s=0; s<topSketch.length; s++){
+				int idx=topSketch[s][0];
+				int matches=topSketch[s][1];
+				if(matches<minSketchMatches){break;}
+				DDLRecord rec=sketchRecords.get(idx);
+				if(rec.taxID<=0){continue;}
+
+				boolean found=false;
+				for(Comparison comp : results){
+					if(comp.ref!=null && comp.ref.taxID==rec.taxID){found=true; break;}
 				}
-				if(Clade.MAKE_DDLS){sketchComp.compareDDL();}
-				sketchComp.isSketchHit=true;
-				results.add(sketchComp);
+
+				if(!found){
+					Clade refClade=cladeMap.get(rec.taxID);
+					if(refClade!=null){
+						Comparison sketchComp=new Comparison(query, refClade);
+						sketchComp.sketchTaxID=rec.taxID;
+						sketchComp.sketchName=rec.name;
+						sketchComp.sketchMatches=matches;
+						if(tree!=null){
+							sketchComp.sketchLCA=tree.commonAncestorLevel(refClade.taxID, rec.taxID);
+						}
+						if(Clade.MAKE_DDLS){sketchComp.compareDDL();}
+						sketchComp.isSketchHit=true;
+						results.add(sketchComp);
+					}
+				}
 			}
 		}
 	}
