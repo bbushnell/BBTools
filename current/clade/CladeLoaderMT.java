@@ -29,7 +29,7 @@ public class CladeLoaderMT {
 	/*--------------------------------------------------------------*/
 
 	static void loadClades(ByteFile bf, ConcurrentHashMap<Integer, Clade> map){
-		loadClades(bf, map, loadThreads>0 ? loadThreads : Shared.threads());
+		loadClades(bf, map, loadThreads>0 ? loadThreads : Math.min(Shared.threads(), 8));
 	}
 
 	static void loadClades(ByteFile bf, ConcurrentHashMap<Integer, Clade> map, int threads){
@@ -220,6 +220,6 @@ public class CladeLoaderMT {
 
 	static int loadThreads=-1;
 
-	private static final int RECORDS_PER_BUNDLE=8;
+	private static final int RECORDS_PER_BUNDLE=32;
 
 }

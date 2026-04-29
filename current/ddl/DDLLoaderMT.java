@@ -68,6 +68,9 @@ public class DDLLoaderMT {
 		return merged;
 	}
 
+	private static final byte[] PREFIX_TID="#tid".getBytes();
+	private static final byte[] PREFIX_ID="#id".getBytes();
+
 	private static void produce(ByteFile bf,
 			JobQueue<ListNum<ArrayList<byte[]>>> queue){
 		long id=0;
@@ -75,7 +78,7 @@ public class DDLLoaderMT {
 		ArrayList<byte[]> currentRecord=new ArrayList<>(12);
 
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			if((Tools.startsWith(line, "#tid") || Tools.startsWith(line, "#id"))
+			if((Tools.startsWith(line, PREFIX_TID, 0) || Tools.startsWith(line, PREFIX_ID, 0))
 					&& !currentRecord.isEmpty()){
 				bundle.add(currentRecord);
 				currentRecord=new ArrayList<>(12);
@@ -151,6 +154,6 @@ public class DDLLoaderMT {
 		return rec;
 	}
 
-	private static final int RECORDS_PER_BUNDLE=8;
+	private static final int RECORDS_PER_BUNDLE=32;
 
 }

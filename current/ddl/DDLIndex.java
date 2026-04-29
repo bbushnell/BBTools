@@ -1,5 +1,10 @@
 package ddl;
 
+import java.util.ArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+
 import cardinality.DynamicDemiLog;
 import structures.IntList;
 
@@ -126,6 +131,56 @@ public class DDLIndex {
 		if(minDiv<=0){return 0;}
 		final double c=Math.min(1.0, (double)queryMatches/minDiv);
 		return (float)Math.exp(Math.log(c)/k);
+	}
+
+	public void addAll(ArrayList<DDLRecord> records, int threads){
+		if(records==null || records.isEmpty()){return;}
+		final int numRecords=records.size();
+
+		//Pre-fill metadata (serial)
+		numClades=numRecords;
+		if(numClades>filledBuckets.length){
+			filledBuckets=new int[numClades];
+		}
+		for(int i=0; i<numRecords; i++){
+			filledBuckets[i]=records.get(i).ddl.filledBuckets();
+		}
+
+		final int buckets=matrix.length;
+		final int actualThreads=Math.min(threads, buckets);
+		if(actualThreads<2){
+			for(int i=0; i<numRecords; i++){
+				add(i, records.get(i).ddl);
+			}
+			return;
+		}
+
+		//Parallel: partition buckets across threads
+		ExecutorService executor=Executors.newFixedThreadPool(actualThreads);
+		ArrayList<Future<?>> futures=new ArrayList<>(actualThreads);
+		final int bucketsPerThread=(buckets+actualThreads-1)/actualThreads;
+
+		for(int t=0; t<actualThreads; t++){
+			final int bStart=t*bucketsPerThread;
+			final int bEnd=Math.min(bStart+bucketsPerThread, buckets);
+			futures.add(executor.submit(()->{
+				for(int i=0; i<numRecords; i++){
+					final char[] maxArray=records.get(i).ddl.maxArray();
+					final int len=Math.min(maxArray.length, bEnd);
+					for(int b=bStart; b<len; b++){
+						final int v=maxArray[b];
+						if(v==0){continue;}
+						IntList list=matrix[b][v];
+						if(list==null){matrix[b][v]=list=new IntList(2);}
+						list.add(i);
+					}
+				}
+			}));
+		}
+		for(Future<?> f : futures){
+			try{f.get();}catch(Exception e){throw new RuntimeException(e);}
+		}
+		executor.shutdown();
 	}
 
 	/** Returns the number of indexed clades. */

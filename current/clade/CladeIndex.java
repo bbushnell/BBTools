@@ -136,6 +136,11 @@ public class CladeIndex implements Cloneable {
 			CladeLoaderMT.loadThreads=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("ddlloadthreads") || a.equalsIgnoreCase("sketchloadthreads")){
 			ddlLoadThreads=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("indexthreads")){
+			indexThreads=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("bundlesize")){
+			assert(false) : "recompile to change "+arg;
+			//DDLLoaderMT.RECORDS_PER_BUNDLE=Integer.parseInt(b);
 		}else if(a.equals("banself")){
 			banSelf=Parse.parseBoolean(b);
 		}else if(a.equals("includeself")){
@@ -361,6 +366,7 @@ public class CladeIndex implements Cloneable {
 	static int maxSketchHits=5;
 	static int minSketchMatches=3;
 	static int ddlLoadThreads=0;
+	static int indexThreads=0;
 	static String sketchFile=null;
 	static final String DEFAULT_SKETCH_FILE="refseqSketchDDL.tsv.gz";
 
@@ -383,7 +389,7 @@ public class CladeIndex implements Cloneable {
 		}
 		Arrays.sort(files, (a, b)->Long.compare(b.length(), a.length()));
 
-		final int totalThreads=ddlLoadThreads>0 ? ddlLoadThreads : Shared.threads();
+		final int totalThreads=ddlLoadThreads>0 ? ddlLoadThreads : Math.min(Shared.threads(), 16);
 		long t0=System.nanoTime();
 
 		if(files.length<2 || totalThreads<4){
@@ -450,13 +456,14 @@ public class CladeIndex implements Cloneable {
 
 	public void buildSketchIndex(){
 		if(sketchRecords==null || sketchRecords.isEmpty()){return;}
+		long t0=System.nanoTime();
 		ddlIndex=new DDLIndex();
-		for(int i=0; i<sketchRecords.size(); i++){
-			DDLRecord rec=sketchRecords.get(i);
-			ddlIndex.add(i, rec.ddl);
-		}
+		int it=indexThreads>0 ? indexThreads : Math.min(Shared.threads(), 32);
+		ddlIndex.addAll(sketchRecords, it);
+		long elapsed=System.nanoTime()-t0;
 		System.err.println("Built sketch index with "+sketchRecords.size()+" entries, "+
-				ddlIndex.populatedCells()+" populated cells.");
+				ddlIndex.populatedCells()+" populated cells in "+
+				String.format("%.3f", elapsed/1e9)+" seconds.");
 	}
 
 	public void addSketchInfo(ArrayList<Comparison> results, Clade query){
