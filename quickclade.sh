@@ -3,18 +3,16 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 27, 2026
+Last modified April 29, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
 assignment of metagenomic bins, but it can also run on a per-sequence basis.
 QuickClade is extremely fast and uses little memory.  However, the accuracy
-declines for incomplete genomes.  The recommended minimum sequence length
-is not yet known, but lower values of k5dif are more likely to be correct
-to a lower taxonomic level.  k5dif represents the sum of the absolute values
-of the differences between the 5-mer frequency spectra, so the range is 0-1.
-Because no marker genes are used, QuickClade should perform similarly for any
-clade in the reference dataset.
+declines for incomplete genomes.  k5dif represents the sum of the absolute 
+values of the differences between the 5-mer frequency spectra, so 
+the range is 0-1.  Because no marker genes are used, QuickClade should 
+perform similarly for any clade in the reference dataset.
 While the default reference is taxonomically labeled, you can use whatever
 you want as a reference, with or without taxonomic labels.
 
@@ -44,14 +42,43 @@ server          Use this flag to send kmer spectra to a remote server if you do 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
 minlen=0        Ignore sequences shorter than this in percontig mode.
-hits=7          Print this many top hits per query.
+records=7       Print this many top hits per query.  Sets both cladehits
+                and sketchhits.
+cladehits=7     Max clade-based hits to display (independent of sketchhits).
+sketchhits=5    Max sketch-based hits to display (only with sketch and index).
+buffer=20       Internal candidate buffer size for ranking.  A larger buffer
+                finds better top hits because SSU alignment is evaluated
+                lazily.  Only affects clade hits, not sketch hits.
 steps=6         Only search up to this many GC intervals (of 0.01) away from
                 the query GC.
-oneline         Print results one line per query, tab-delimited.
 callssu=t       Call 16S and 18S for alignment to reference SSU.  Slightly
-                slower.  Affects top hit ordering only if hits>1.
+                slower.  Affects top hit ordering.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.
+composition=    Output a taxonomy composition report to this file.  Shows
+                per-level tables with bases, sequences, and percentages.
+                Use composition=stdout to print to screen after results.
+                Best used with percontig or multiple input files.
+		
+Output Format:
+format=human    Output format.  Options: human (multi-line per hit),
+                machine (one line per hit, tab-delimited header),
+                tabular (compact one-line per hit with column headers).
+showrecords=t   Set to false to suppress per-record output.  Useful with
+                composition to display only the taxonomy summary.
+color=t         ANSI color coding of hits by taxonomic level.  Default on
+                for human and tabular formats, off for machine format.
+colorlevel=     Taxonomic level for color grouping (default family).
+                Hits in the same family get the same color; off-family
+                hits are visually distinct.
+
+Taxonomy Filtering:
+level=          Filter hits by taxonomic level (e.g. level=family).  Shows
+                only the best hit per taxon at that level, so instead of
+                7 E. coli strains you see the best hit from each family.
+		Constrained to hits within the buffer.
+topcount=10     Max entries per taxonomic level in the composition report.
+minfraction=0   Minimum fraction (0-1) to include in composition report.
 
 Proxy Parameters:
 proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
@@ -65,8 +92,9 @@ sketch=f        Enable sketch-based matching using DDL (DynamicDemiLog)
                 from each query for comparison.  ddl=t is an alias.
 sketchfile=     Path to a specific DDL sketch file.  Overrides the default.
                 ddlfile= and sketchref= are aliases.
-sketchindex=f   Build an inverted index from DDL sketches for fast lookup.
-                Implies sketch=t.  ddlindex= and index= are aliases.
+sketchindex=f   Build an index from DDL sketches; this allows hits by 31-mer
+                matching, orthogonal to the clade index, allowing LCA
+                (lowest common ancestor) calculation.  Implies sketch=t.
 minsketchhits=3 Minimum matching DDL buckets to report a sketch hit.
 ddlk=31         K-mer length for DDL sketches.
 ddlbuckets=2048 Number of buckets in DDL sketches.
@@ -105,7 +133,6 @@ hhmult=0.5      Max HH difference as a fraction of best 5-mer difference.
 cagamult=0.8    Max CAGA difference as a fraction of best 5-mer difference.
 ee=t            Early exit; increases speed.
 entropy         Calculate entropy for queries.  Slow; negligible utility.
-heap=1          Number of intermediate comparisons to store.
 usetree         Load a taxonomic tree for better grading for labeled data.
 aligner=quantum Options include ssa2, glocal, drifting, banded, crosscut.
 
