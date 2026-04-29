@@ -5,6 +5,8 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -277,8 +279,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				sfload=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("psetup") || a.equalsIgnoreCase("parallelsetup")){
 				parallelSetup=Parse.parseBoolean(b);
-			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("records")){
+			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("cladehits") || a.equals("maxcladehits")){
 				maxHitsToPrint=Integer.parseInt(b);
+			}else if(a.equals("records")){
+				maxHitsToPrint=Integer.parseInt(b);
+				CladeIndex.maxSketchHits=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equals("format")){
@@ -308,6 +313,16 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Clade.MAKE_FREQUENCIES=Boolean.parseBoolean(b);
 			}else if(a.equals("concise")){
 				Clade.CONCISE=Parse.parseBoolean(b);
+			}else if(a.equals("composition")){
+				if(b==null){compositionFile="stdout.txt";}
+				else if(b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false")){compositionFile=null;}
+				else{compositionFile=b;}
+			}else if(a.equals("topcount") || a.equals("top")){
+				topCount=Integer.parseInt(b);
+			}else if(a.equals("minfraction") || a.equals("minfrac")){
+				minFraction=Float.parseFloat(b);
+			}else if(a.equals("showrecords") || a.equals("showresults") || a.equals("showhits")){
+				showRecords=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
@@ -449,11 +464,15 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		outstream.println("Made "+index.comparisons+" fast and "+index.slowComparisons+" slow comparisons.");
 		t.stop("Searched "+queries.size()+" queries in ");
 		
-		if(ffout!=null) {
+		if(showRecords && ffout!=null) {
 //			outstream.println();
 			write(ffout, results);
 		}
-		
+
+		if(compositionFile!=null){
+			writeComposition(results);
+		}
+
 		//Report timing and results
 		t0.stop();
 		outstream.println();
@@ -592,7 +611,95 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}
 		bsw.poison();
 	}
-	
+
+	void writeComposition(Collection<Object> results){
+		final String[] prefixes={"sk", "k", "p", "c", "o", "f", "g", "s"};
+		final String[] levelNames={"Superkingdom", "Kingdom", "Phylum", "Class",
+				"Order", "Family", "Genus", "Species"};
+
+		@SuppressWarnings("unchecked")
+		final HashMap<String, long[]>[] counts=new HashMap[prefixes.length];
+		for(int i=0; i<counts.length; i++){counts[i]=new HashMap<String, long[]>();}
+
+		long totalBases=0, totalSeqs=0;
+
+		for(Object o : results){
+			final Comparison c;
+			if(o==null){c=null;}
+			else if(o.getClass()==Comparison.class){c=(Comparison)o;}
+			else{
+				@SuppressWarnings("unchecked")
+				ArrayList<Comparison> list=(ArrayList<Comparison>)o;
+				c=(list.isEmpty() ? null : list.get(0));
+			}
+			if(c==null || c.query==null){continue;}
+
+			totalBases+=c.query.bases;
+			totalSeqs++;
+
+			if(c.ref==null){continue;}
+			CharSequence lineage=c.ref.lineage();
+			if(lineage==null || "NA".contentEquals(lineage)){continue;}
+
+			String[] parts=lineage.toString().split(";");
+			for(String part : parts){
+				int sep=part.indexOf("__");
+				if(sep<0){continue;}
+				String prefix=part.substring(0, sep);
+				String name=part.substring(sep+2);
+				int levelIdx=-1;
+				for(int i=0; i<prefixes.length; i++){
+					if(prefixes[i].equals(prefix)){levelIdx=i; break;}
+				}
+				if(levelIdx<0){continue;}
+				long[] vals=counts[levelIdx].get(name);
+				if(vals==null){vals=new long[2]; counts[levelIdx].put(name, vals);}
+				vals[0]+=c.query.bases;
+				vals[1]++;
+			}
+		}
+
+		ByteBuilder bb=new ByteBuilder(4096);
+		for(int level=0; level<prefixes.length; level++){
+			HashMap<String, long[]> map=counts[level];
+			if(map.isEmpty()){continue;}
+
+			ArrayList<Map.Entry<String, long[]>> entries=new ArrayList<>(map.entrySet());
+			entries.sort((e1, e2)->Long.compare(e2.getValue()[0], e1.getValue()[0]));
+
+			bb.append('#').append(levelNames[level]);
+			bb.tab().append("Bases");
+			bb.tab().append("Sequences");
+			bb.tab().append("Base%");
+			bb.tab().append("Seq%");
+			bb.nl();
+
+			int printed=0;
+			for(Map.Entry<String, long[]> entry : entries){
+				if(topCount>0 && printed>=topCount){break;}
+				long bases=entry.getValue()[0];
+				long seqs=entry.getValue()[1];
+				float basePct=(totalBases>0 ? 100f*bases/totalBases : 0);
+				float seqPct=(totalSeqs>0 ? 100f*seqs/totalSeqs : 0);
+				if(minFraction>0 && basePct<minFraction*100 && seqPct<minFraction*100){continue;}
+				bb.append(entry.getKey());
+				bb.tab().append(bases);
+				bb.tab().append(seqs);
+				bb.tab().append(basePct, 2);
+				bb.tab().append(seqPct, 2);
+				bb.nl();
+				printed++;
+			}
+			bb.nl();
+		}
+
+		FileFormat ffcomp=FileFormat.testOutput(compositionFile, FileFormat.TEXT,
+				null, true, overwrite, append, false);
+		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffcomp);
+		bsw.print(bb);
+		bsw.poison();
+	}
+
 	/**
 	 * Appends comparison results to a ByteBuilder, handling both single and multiple results.
 	 * @param o Comparison or Collection of Comparisons to append
@@ -607,7 +714,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		Collection<Comparison> coll=(Collection<Comparison>)o;
 		int i=0;
 		for(Comparison c : coll) {
-			if(i>=maxHitsToPrint && !c.isSketchHit) {break;}
+			if(i>=maxHitsToPrint && !c.isSketchHit) {continue;}
 			appendResult(c, bb, i);
 			i++;
 		}
@@ -862,7 +969,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	int format=1;
 	/** Format constants */
 	public static final int HUMAN=1, MACHINE=2;
-	
+
+	private String compositionFile=null;
+	private int topCount=10;
+	private float minFraction=0;
+	private boolean showRecords=true;
+
 	/*--------------------------------------------------------------*/
 
 	/** Number of reads loaded */
