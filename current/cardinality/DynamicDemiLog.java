@@ -3,7 +3,6 @@ package cardinality;
 import parse.Parser;
 import shared.Tools;
 import structures.ByteBuilder;
-import structures.LongList;
 
 /**
  * DynamicDemiLog cardinality estimator extending DemiLogLog (LogLog16) with an adaptive
@@ -51,9 +50,20 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_){
+		this(buckets_, k_, seed, minProb_, true);
+	}
+
+	/**
+	 * Creates a DynamicLogLog with specified parameters.
+	 * @param buckets_ Number of buckets (counters) for the hash table
+	 * @param k_ K-mer length for sequence hashing
+	 * @param seed Random number generator seed; -1 for random seed
+	 * @param minProb_ Ignore k-mers with under this probability of being correct
+	 */
+	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_, boolean makeCounts){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
-		countArray=new char[buckets];
+		countArray=(makeCounts ? new char[buckets] : null);
 		minZeroCount=buckets;
 	}
 
@@ -62,8 +72,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param k K-mer length
 	 * @param seed Hash seed
 	 * @param minProb Minimum probability filter */
-	public static DynamicDemiLog create(int buckets, int k, long seed, float minProb){
-		return new DynamicDemiLog(buckets, k, seed, minProb);
+	public static DynamicDemiLog create(int buckets, int k, long seed, float minProb, boolean makeCounts){
+		return new DynamicDemiLog(buckets, k, seed, minProb, makeCounts);
 	}
 
 	/** Creates a DDL from a pre-filled array of absolute-encoded values (legacy format).
@@ -84,7 +94,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param offset If >=0, loaded values are relative to this globalNLZ.
 	 *               If -1, loaded values are absolute (legacy format) and will be converted. */
 	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_, int offset){
-		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0);
+		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0, false);
 		ddl.id=id_;
 		ddl.name=name_;
 
@@ -165,12 +175,14 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		branch2+=log.branch2;
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
-			for(int i=0; i<buckets; i++){
-				final char maxA=maxArray[i], maxB=log.maxArray[i];
-				final char countA=countArray[i], countB=log.countArray[i];
-				maxArray[i]=Tools.max(maxA, maxB);
-				if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
-				else{countArray[i]=(maxA>maxB ? countA : countB);}
+			if(countArray!=null && log.countArray!=null) {
+				for(int i=0; i<buckets; i++){
+					final char maxA=maxArray[i], maxB=log.maxArray[i];
+					final char countA=countArray[i], countB=log.countArray[i];
+					maxArray[i]=Tools.max(maxA, maxB);
+					if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
+					else{countArray[i]=(maxA>maxB ? countA : countB);}
+				}
 			}
 			// Rescan for floor tier — matches old scanFrom(max(minZeros, log.minZeros))
 			final int scanStart=Math.max(Math.max(0, globalNLZ+1), Math.max(0, log.globalNLZ+1));
@@ -235,10 +247,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 		//Update count - totally optional, only for histograms
 		//Can be debranched with clever math
-		final char count=countArray[bucket];
-		countArray[bucket]=(char)(oldValue>score ? count :
-			oldValue==score ? Math.max(count, (char)(count+1)) : 1);
-
+		if(countArray!=null) {
+			final char count=countArray[bucket];
+			countArray[bucket]=(char)(oldValue>score ? count :
+				oldValue==score ? Math.max(count, (char)(count+1)) : 1);
+		}
+		
 		//Update the dynamic early exit threshold
 		if(nlz>nlzOld && nlzOld==globalNLZ && --minZeroCount<1){
 			while(minZeroCount==0 && globalNLZ<wordlen){

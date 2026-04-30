@@ -43,7 +43,6 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		counts[3]=new long[arrayLength[3]];
 		counts[4]=new long[arrayLength[4]];
 		counts[5]=new long[arrayLength[5]];//Could be optionally allocated later
-		if(MAKE_DDLS){ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f);}
 	}
 
 	public static Clade makeClade(int tid) {
@@ -189,7 +188,14 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 		incrementBases(seq.length);
 		contigs++;
-		if(ddl!=null){ddl.hash(seq, null);}
+		addToSketch(seq);
+		if(MAKE_DDLS){ddl.hash(seq, null);}
+	}
+	
+	private synchronized void addToSketch(byte[] seq) {
+		if(!MAKE_DDLS) {return;}
+		if(ddl==null) {ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f, true);}
+		ddl.hash(seq, null);
 	}
 	
 	/**
@@ -217,6 +223,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			incrementBases(c.bases);
 			contigs+=c.contigs;
 			if(ddl!=null && c.ddl!=null){ddl.add(c.ddl);}
+			else if(ddl==null && c.ddl!=null) {ddl=c.ddl;}//TODO: Safer to deep-copy.
 		}
 	}
 	
@@ -274,8 +281,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		contigs=0;
 		gc=entropy=gcCompEntropy=strandedness=hh=caga=0;
 		Tools.fill(counts, 0);
-		if(MAKE_DDLS){ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f);}
-		else{ddl=null;}
+		ddl=null;
 	}
 	
 	@Override

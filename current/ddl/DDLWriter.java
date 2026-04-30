@@ -167,7 +167,7 @@ public class DDLWriter {
 		final String path=inFiles[f];
 		if(verbose){outstream.println("Processing "+path);}
 
-		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f);
+		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
 
 		final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
 		final Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
@@ -232,7 +232,7 @@ public class DDLWriter {
 			ArrayList<Read> list=(ln!=null ? ln.list : null);
 			while(ln!=null && list!=null && list.size()>0){
 				for(Read r : list){
-					DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f);
+					DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
 					ddl.hash(r);
 
 					int taxID=-1;
@@ -361,7 +361,7 @@ public class DDLWriter {
 						if(tid<1){continue;}
 						DDLRecord rec=tidMap.get(tid);
 						if(rec==null){
-							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f);
+							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
 							rec=new DDLRecord(ddl, r.numericID, tid, r.id);
 							tidMap.put(tid, rec);
 							gcMap.put(tid, new long[2]);
