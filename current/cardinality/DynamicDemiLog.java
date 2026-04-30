@@ -183,6 +183,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 					if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
 					else{countArray[i]=(maxA>maxB ? countA : countB);}
 				}
+			}else{
+				for(int i=0; i<buckets; i++){
+					maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);
+				}
 			}
 			// Rescan for floor tier — matches old scanFrom(max(minZeros, log.minZeros))
 			final int scanStart=Math.max(Math.max(0, globalNLZ+1), Math.max(0, log.globalNLZ+1));

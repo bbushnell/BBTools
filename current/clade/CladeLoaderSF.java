@@ -112,7 +112,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 				}
 				merged.incrementBases(partial.bases);
 				merged.contigs+=partial.contigs;
-				if(merged.ddl!=null && partial.ddl!=null){merged.ddl.add(partial.ddl);}
+				merged.addDDL(partial.ddl);
 				if(merged.r16S==null && partial.r16S!=null){merged.r16S=partial.r16S;}
 				if(merged.r18S==null && partial.r18S!=null){merged.r18S=partial.r18S;}
 			}

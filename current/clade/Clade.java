@@ -189,13 +189,18 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		incrementBases(seq.length);
 		contigs++;
 		addToSketch(seq);
-		if(MAKE_DDLS){ddl.hash(seq, null);}
 	}
 	
 	private synchronized void addToSketch(byte[] seq) {
 		if(!MAKE_DDLS) {return;}
 		if(ddl==null) {ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f, true);}
 		ddl.hash(seq, null);
+	}
+
+	public synchronized void addDDL(DynamicDemiLog other) {
+		if(other==null) {return;}
+		if(ddl==null) {ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f, true);}
+		ddl.add(other);
 	}
 	
 	/**
@@ -222,8 +227,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 
 			incrementBases(c.bases);
 			contigs+=c.contigs;
-			if(ddl!=null && c.ddl!=null){ddl.add(c.ddl);}
-			else if(ddl==null && c.ddl!=null) {ddl=c.ddl;}//TODO: Safer to deep-copy.
+			addDDL(c.ddl);
 		}
 	}
 	
