@@ -58,9 +58,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		k5dif=lp.parseFloat(16);
 		int col=17;
 		if(Clade.callSSU && lp.terms()>col+1){ssudif=1-lp.parseFloat(col); col++;}
-		if(Clade.MAKE_DDLS && lp.terms()>col+3){
+		if(Clade.MAKE_DDLS && lp.terms()>col+4){
 			ani=lp.parseFloat(col); col++;
-			containment=lp.parseFloat(col); col++;
+			wkid=lp.parseFloat(col); col++;
+			kid=lp.parseFloat(col); col++;
 			completeness=lp.parseFloat(col); col++;
 			kmerMatches=lp.parseInt(col); col++;
 		}
@@ -239,7 +240,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	void clearDif() {
 		gcdif=entdif=strdif=hhdif=cagadif=k3dif=k4dif=k5dif=ssudif=1;
-		ani=containment=completeness=-1;
+		ani=wkid=kid=completeness=-1;
 		kmerMatches=-1;
 	}
 	
@@ -261,7 +262,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		k5dif=b.k5dif;
 		ssudif=b.ssudif;
 		ani=b.ani;
-		containment=b.containment;
+		wkid=b.wkid;
+		kid=b.kid;
 		completeness=b.completeness;
 		kmerMatches=b.kmerMatches;
 	}
@@ -285,14 +287,16 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return id>0;
 	}
 	
-	/** Computes ANI, containment, and completeness from DDL bucket comparison.
+	/** Computes ANI, wkid, kid, and completeness from DDL bucket comparison.
 	 *  Only runs when both query and ref have DDL sketches. */
 	public final void compareDDL(){
 		if(query==null || ref==null || query.ddl==null || ref.ddl==null){return;}
 		int[] cmp=query.ddl.compareTo(ref.ddl);
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 		kmerMatches=equal;
-		containment=DynamicDemiLog.wkid(lower, equal, higher);
+		wkid=DynamicDemiLog.wkid(lower, equal, higher);
+		int maxDiv=Math.max(equal+lower, equal+higher);
+		kid=(maxDiv>0 && equal>0) ? Math.min(1f, (float)equal/maxDiv) : 0;
 		ani=DynamicDemiLog.ani(lower, equal, higher, Clade.DDL_K);
 		completeness=DynamicDemiLog.completeness(lower, equal, higher);
 	}
@@ -379,7 +383,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("\tk5dif=").append(k5dif, 6);
 		if(ssudif<1) {bb.append("\tssu=").append(1-ssudif, 4);}
 		if(ani>=0){bb.append("\tani=").append(ani, 4);}
-		if(containment>=0){bb.append("\twkid=").append(containment, 4);}
+		if(wkid>=0){bb.append("\twkid=").append(wkid, 4);}
+		if(kid>=0){bb.append("\tkid=").append(kid, 4);}
 		if(completeness>=0){bb.append("\tcomp=").append(completeness, 4);}
 		if(kmerMatches>=0){bb.append("\tmatches=").append(kmerMatches);}
 		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(ref.lineage());}
@@ -406,7 +411,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("#k5dif\tk4dif\tGCdif");
 		if(Clade.callSSU){bb.append("\tSSU");}
 		bb.append("\tConfLevel");
-		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID");}
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tKID");}
 		bb.append("\tTaxID\tBases\tName");
 		return bb;
 	}
@@ -431,7 +436,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		appendConfidentLevel(bb, confThreshold);
 		if(Clade.MAKE_DDLS){
 			bb.tab().append(ani>=0 ? ani : -1, 4);
-			bb.tab().append(containment>=0 ? containment : -1, 4);
+			bb.tab().append(wkid>=0 ? wkid : -1, 4);
+			bb.tab().append(kid>=0 ? kid : -1, 4);
 		}
 		bb.tab().append(ref.taxID);
 		bb.tab().append(ref.bases);
@@ -468,7 +474,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt("k4dif");
 		bb.append("k5dif");
 		if(Clade.callSSU) {bb.tab().append("ssuID");}
-		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tCompleteness\tKmerMatches");}
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tKID\tCompleteness\tKmerMatches");}
 		bb.append("\tlineage");
 		bb.append("\tConfLevel\tConfidence");
 		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketch_LCA");}
@@ -512,7 +518,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(Clade.callSSU) {bb.tab().append(1-ssudif, 4);}
 		if(Clade.MAKE_DDLS){
 			bb.tab().append(ani>=0 ? ani : -1, 4);
-			bb.tab().append(containment>=0 ? containment : -1, 4);
+			bb.tab().append(wkid>=0 ? wkid : -1, 4);
+			bb.tab().append(kid>=0 ? kid : -1, 4);
 			bb.tab().append(completeness>=0 ? completeness : -1, 4);
 			bb.tab().append(kmerMatches);
 		}
@@ -543,8 +550,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * 
 	 * @return The weighted comparison value (lower is more similar)
 	 */
-	float pivot() {//This could be a field, if it helped, which it doesn't.  A NN output might.
-		return (k5dif+k4dif*0.05f+k3dif*0.03f+strdif*0.02f+8*ssudif);
+	float pivot() {
+		return (k5dif+k4dif*0.05f+k3dif*0.03f+strdif*0.02f+8*ssudif
+				+(1-Math.max(0, kid))*0.01f);
 	}
 	
 	/**
@@ -659,10 +667,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 */
 	float ssudif=1;
 
-	/** ANI estimated from DDL 31-mer containment. -1 when not computed. */
+	/** ANI estimated from DDL 31-mer identity. -1 when not computed. */
 	float ani=-1;
-	/** Containment of smaller DDL in larger. -1 when not computed. */
-	float containment=-1;
+	/** Weighted kmer identity (matches / query sketch size). -1 when not computed. */
+	float wkid=-1;
+	/** Kmer identity (matches / max sketch size). -1 when not computed. */
+	float kid=-1;
 	/** Completeness estimate from DDL bucket asymmetry. -1 when not computed. */
 	float completeness=-1;
 	/** Number of matching DDL buckets (excluding empty-empty). -1 when not computed. */

@@ -492,6 +492,8 @@ public class CladeIndex implements Cloneable {
 			}
 		}
 
+		Clade bestCladeRef=(results.isEmpty() ? null : results.get(0).ref);
+
 		if(cladeMap!=null){
 			for(int s=0; s<topSketch.length; s++){
 				int idx=topSketch[s][0];
@@ -512,8 +514,12 @@ public class CladeIndex implements Cloneable {
 						sketchComp.sketchTaxID=rec.taxID;
 						sketchComp.sketchName=rec.name;
 						sketchComp.sketchMatches=matches;
-						if(tree!=null){
-							sketchComp.sketchLCA=tree.commonAncestorLevel(refClade.taxID, rec.taxID);
+						if(bestCladeRef!=null){
+							if(tree!=null && bestCladeRef.taxID>0 && refClade.taxID>0){
+								sketchComp.sketchLCA=tree.commonAncestorLevel(bestCladeRef.taxID, refClade.taxID);
+							}else{
+								sketchComp.sketchLCA=lineageLCA(bestCladeRef.lineage(), refClade.lineage());
+							}
 						}
 						if(Clade.MAKE_DDLS){sketchComp.compareDDL();}
 						sketchComp.isSketchHit=true;

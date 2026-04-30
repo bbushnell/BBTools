@@ -56,7 +56,8 @@ public class ComparisonFormatTest {
 			comp.ssudif=0.03f; //ssu identity = 0.97
 			if(Clade.MAKE_DDLS){
 				comp.ani=0.9876f;
-				comp.containment=0.95f;
+				comp.wkid=0.95f;
+				comp.kid=0.90f;
 				comp.completeness=1.0f;
 				comp.kmerMatches=1500;
 			}
