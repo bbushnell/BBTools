@@ -20,8 +20,8 @@ public class SIMDLogLogTest {
 
 		//Test 1: Random DDLs from actual hashing
 		{
-			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f);
-			DynamicDemiLog b=DynamicDemiLog.create(2048, 31, 12345L, 0f);
+			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
+			DynamicDemiLog b=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
 			//Hash some fake sequences
 			byte[] seqA=makeRandomBases(500000, 42);
 			byte[] seqB=makeRandomBases(500000, 99);
@@ -35,7 +35,7 @@ public class SIMDLogLogTest {
 
 		//Test 2: Identical DDLs
 		{
-			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f);
+			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
 			byte[] seq=makeRandomBases(200000, 7);
 			a.hash(seq, null);
 
@@ -54,7 +54,7 @@ public class SIMDLogLogTest {
 
 		//Test 4: One populated, one empty
 		{
-			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f);
+			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
 			byte[] seq=makeRandomBases(200000, 3);
 			a.hash(seq, null);
 			char[] z=new char[2048];
@@ -93,8 +93,8 @@ public class SIMDLogLogTest {
 
 		//Test 7: Performance benchmark
 		{
-			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f);
-			DynamicDemiLog b=DynamicDemiLog.create(2048, 31, 12345L, 0f);
+			DynamicDemiLog a=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
+			DynamicDemiLog b=DynamicDemiLog.create(2048, 31, 12345L, 0f, true);
 			byte[] seqA=makeRandomBases(2000000, 42);
 			byte[] seqB=makeRandomBases(2000000, 99);
 			a.hash(seqA, null);

@@ -60,8 +60,8 @@ public class DDLCompare {
 
 		Timer t=new Timer();
 
-		DynamicDemiLog ddlA=DynamicDemiLog.create(buckets, k, 12345L, 0f);
-		DynamicDemiLog ddlB=DynamicDemiLog.create(buckets, k, 12345L, 0f);
+		DynamicDemiLog ddlA=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+		DynamicDemiLog ddlB=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
 
 		long basesA=hashFile(file1, ddlA, k);
 		long basesB=hashFile(file2, ddlB, k);
@@ -113,7 +113,7 @@ public class DDLCompare {
 		ArrayList<DDLRecord> refs=DDLLoader.loadFile(refPath, k);
 		System.err.println("Loaded "+refs.size()+" reference DDLs.");
 
-		DynamicDemiLog query=DynamicDemiLog.create(buckets, k, 12345L, 0f);
+		DynamicDemiLog query=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
 		long bases=hashFile(queryPath, query, k);
 		long card=query.cardinality();
 		System.err.println("Query: "+queryPath+"  bases="+bases+"  cardinality="+card);
