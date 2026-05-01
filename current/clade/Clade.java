@@ -163,7 +163,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return c;
 	}
 	
-	public synchronized void add(Read r, EntropyTracker et, GeneCaller caller) {
+	public void add(Read r, EntropyTracker et, GeneCaller caller) {
 		add(r.bases, et);
 		if(caller==null || hasSSU() || r.length()<900) {return;}
 		assert(callSSU);
@@ -180,7 +180,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		}
 	}
 	
-	public synchronized void add(byte[] seq, EntropyTracker et) {
+	public void add(byte[] seq, EntropyTracker et) {
 		finished=false;
 		countKmersMulti(seq, counts, 5);
 		float seqEntropy=(calcCladeEntropy ? et.averageEntropy(seq, false) : 0);
@@ -191,7 +191,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		addToSketch(seq);
 	}
 	
-	private synchronized void addToSketch(byte[] seq) {
+	private void addToSketch(byte[] seq) {
 		if(!MAKE_DDLS) {return;}
 		if(ddl==null) {ddl=DynamicDemiLog.create(DDL_BUCKETS, DDL_K, DDL_SEED, 0f, true);}
 		ddl.hash(seq, null);

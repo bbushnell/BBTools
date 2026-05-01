@@ -64,11 +64,17 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 	 */
 	public ArrayList<Clade> loadFile(String fname, boolean perContig,
 			int minContig, long maxReads, boolean finish) {
+		return loadFile(fname, perContig, minContig, maxReads, finish, Shared.threads());
+	}
+
+	public ArrayList<Clade> loadFile(String fname, boolean perContig,
+			int minContig, long maxReads, boolean finish, int maxThreads) {
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, false);
 		if(ff.clade()) {
 			return CladeLoaderMF.loadCladesFromClade(ff, maxReads);
 		}
-		return spawnThreads(ff, perContig, minContig, maxReads, finish);
+		ArrayList<Clade> result=spawnThreads(ff, perContig, minContig, maxReads, finish, maxThreads);
+		return result;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -80,12 +86,12 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 	 * then merges results.
 	 */
 	private ArrayList<Clade> spawnThreads(FileFormat ff, boolean perContig,
-			int minContig, long maxReads, boolean finish) {
+			int minContig, long maxReads, boolean finish, int maxThreads) {
 
 		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, -1);
 		cris.start();
 
-		final int threads=Shared.threads();
+		final int threads=Tools.min(Shared.threads(), maxThreads);
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++) {
 			alpt.add(new ProcessThread(cris, i, perContig, minContig, finish));
@@ -177,9 +183,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 
 		@Override
 		public void run() {
-			synchronized(this) {
-				runInner();
-			}
+			runInner();
 		}
 		
 		public void runInner() {
