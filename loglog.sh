@@ -30,7 +30,11 @@ loglogtype=ddl  Estimator type:
                   bdll3     BankedDynamicLogLog3, banked 3-bit.
                   htb       HyperTwoBits, 2-bit threshold estimator.
                   (and others; see ddlcalibrate.sh for full list)
-
+khist=<file>    Write approximate kmer depth histogram to this file.
+                Automatically enables count tracking.
+peaks=<file>    Write peak-calling output (genome size estimation) to this
+                file.  Uses the depth histogram for peak detection.
+histmax=100000  Maximum histogram bin.
 
 Shortcuts:
 The # symbol will be substituted for 1 and 2.

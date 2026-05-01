@@ -8,8 +8,10 @@ import java.util.Arrays;
 import shared.Random;
 
 import dna.AminoAcid;
+import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import jgi.CallPeaks;
 import parse.Parse;
 import parse.Parser;
 import shared.Shared;
@@ -145,6 +147,14 @@ class LogLogWrapper {
 				printCounts=Parse.parseBoolean(b);
 			}else if(a.equals("printhist")){
 				printHist=Parse.parseBoolean(b);
+			}else if(a.equals("khist") || a.equals("hist")){
+				khistFile=b;
+			}else if(a.equals("peaks") || a.equals("peaksout")){
+				peaksFile=b;
+			}else if(a.equals("gchist")){
+				gcHist=Parse.parseBoolean(b);
+			}else if(a.equals("histmax") || a.equals("histlen")){
+				histMax=Parse.parseIntKMG(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("loglogcounts") || a.equals("loglogcount") ||
@@ -189,6 +199,8 @@ class LogLogWrapper {
 			out=parser.out1;
 			seed=parser.loglogseed;
 		}
+
+		if(khistFile!=null || peaksFile!=null){CardinalityTracker.trackCounts=true;}
 
 		assert(synth || (in1!=null && in1.length>0)) : "No primary input file specified.";
 		if(synth){
@@ -279,6 +291,10 @@ class LogLogWrapper {
 			ReadWrite.writeString(cardinality+"\n", out);
 		}
 
+		if(khistFile!=null || peaksFile!=null){
+			makeKhist(log);
+		}
+
 		if(!Parser.silent){
 //			Arrays.sort(copy);
 //			System.err.println("Median:        "+copy[Tools.median(copy)]);
@@ -331,6 +347,38 @@ class LogLogWrapper {
 		return cardinality;
 	}
 	
+	private void makeKhist(CardinalityTracker log){
+		final char[] counts=log.counts16();
+		if(counts==null){return;}
+
+		final long[] hist=new long[histMax+1];
+		for(char c : counts){
+			if(c>0 && c<=histMax){hist[c]++;}
+			else if(c>histMax){hist[histMax]++;}
+		}
+
+		if(khistFile!=null){
+			ByteStreamWriter bsw=new ByteStreamWriter(khistFile, overwrite, false, true);
+			bsw.start();
+			bsw.print("#Depth\tCount\n");
+			for(int i=1; i<hist.length; i++){
+				if(hist[i]>0){
+					bsw.print(i);
+					bsw.print('\t');
+					bsw.print(hist[i]);
+					bsw.print('\n');
+				}
+			}
+			bsw.poisonAndWait();
+		}
+
+		if(peaksFile!=null){
+			CallPeaks.printClass=false;
+			CallPeaks.printPeaks(hist, null, peaksFile, overwrite,
+					2, 2, 2, 2, histMax, 12, k, 0, false, 0, null);
+		}
+	}
+
 	/**
 	 * Generates a synthetic DNA read of specified length with random bases.
 	 * Reuses the provided Read object to minimize allocation.
@@ -478,6 +526,10 @@ class LogLogWrapper {
 	private boolean synth=false;
 	private boolean printCounts=false;
 	private boolean printHist=false;
+	private String khistFile=null;
+	private String peaksFile=null;
+	private boolean gcHist=false;
+	private int histMax=100000;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

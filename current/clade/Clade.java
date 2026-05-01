@@ -397,7 +397,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static boolean MAKE_FREQUENCIES=true;
 	public static boolean DELETE_COUNTS=false;//Only OK when searching local index. Which includes on server.
 	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
-	public static boolean MAKE_DDLS=false;
+	public static boolean MAKE_DDLS=true;
 	public static int DDL_K=31;
 	public static int DDL_BUCKETS=2048;
 	public static long DDL_SEED=12345L;
