@@ -232,17 +232,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	void loadQueries(boolean finish) {
 		if(index==null) {Clade.MAKE_FREQUENCIES=false;}
 		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
-		if(sfload && in.size()==1) {
-			CladeLoaderSF loaderSF=new CladeLoaderSF();
-			queries=loaderSF.loadFile(in.get(0), perContig, minContig, maxReads, true);
-			readsLoaded+=loaderSF.readsProcessed;
-			basesLoaded+=loaderSF.basesProcessed;
-		}else{
-			CladeLoaderMF loaderMF=new CladeLoaderMF();
-			queries=loaderMF.loadFiles(in, perContig, minContig, maxReads, finish);
-			readsLoaded+=loaderMF.readsProcessed;
-			basesLoaded+=loaderMF.basesProcessed;
-		}
+		CladeLoaderAuto loader=new CladeLoaderAuto();
+		queries=loader.loadFiles(in, perContig, minContig, maxReads, finish);
+		readsLoaded+=loader.readsProcessed;
+		basesLoaded+=loader.basesProcessed;
 		if(showLoading){t.stopAndStart("Loaded "+queries.size()+" queries in ");}
 	}
 	
@@ -462,27 +455,23 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			if(useTree) {CladeObject.loadTree(true);}
 			loadIndex();
 			loadSketches();
-			loadQueries(serverMode);
-			if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
 		}else {
 			Thread tTree  = new Thread(() -> { if(useTree){CladeObject.loadTree(true);} });
 			Thread tIndex = new Thread(() -> loadIndex());
-			Thread tQuery = new Thread(() -> loadQueries(serverMode));
 			Thread tSketch = new Thread(() -> loadSketches());
 			tTree.start();
 			tIndex.start();
-			tQuery.start();
 			tSketch.start();
 			try{
 				tTree.join();
 				tIndex.join();
-				tQuery.join();
 				tSketch.join();
 			}catch(InterruptedException e){
 				KillSwitch.exceptionKill(e);
 				e.printStackTrace();
 			}
 		}
+		loadQueries(serverMode);
 		if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
 		
 		ArrayList<Object> results;
