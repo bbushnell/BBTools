@@ -291,7 +291,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 *  Only runs when both query and ref have DDL sketches. */
 	public final void compareDDL(){
 		if(query==null || ref==null || query.ddl==null || ref.ddl==null){return;}
-		int[] cmp=query.ddl.compareTo(ref.ddl);
+		int[] cmp=Vector.compareDDL(query.ddl.maxArray(), ref.ddl.maxArray());
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 		kmerMatches=equal;
 		wkid=DynamicDemiLog.wkid(lower, equal, higher);
@@ -306,9 +306,14 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
 	}
 
+	public void cacheConfidence(){
+		cachedConfidence=sortedConfidence();
+	}
+
 	/** Computes confidence for all 8 levels, sorted ascending to enforce
 	 * monotonicity (species lowest, domain highest). */
 	private float[] sortedConfidence(){
+		if(cachedConfidence!=null){return cachedConfidence;}
 		if(query==null){return null;}
 		float[] vals=new float[CONF_LEVELS.length];
 		for(int i=0; i<CONF_LEVELS.length; i++){
@@ -683,6 +688,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	int sketchMatches=-1;
 	int sketchLCA=-1;
 	boolean isSketchHit;
+	float[] cachedConfidence;
 
 	public static float confThreshold=0.90f;
 

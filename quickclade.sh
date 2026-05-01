@@ -39,12 +39,19 @@ out=stdout      Set to a file to redirect output.  Only the query results will
 server          Use this flag to send kmer spectra to a remote server if you do not
                 have a local database.
 
+Presets (override individual settings; can be further overridden by later flags):
+fast            records=1, buffer=1, callssu=f, sketch=f.  Fastest mode.
+medium          records=5, buffer=20, callssu=t, sketch=t.  Default behavior.
+slow            records=10, buffer=50, callssu=t, sketch=t, index=t.
+                Automatically increases memory to 8g unless -Xmx is explicit.
+
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
+perfile         Opposite of percontig (default); one query per input file.
 minlen=0        Ignore sequences shorter than this in percontig mode.
-records=7       Print this many top hits per query.  Sets both cladehits
+records=5       Print this many top hits per query.  Sets both cladehits
                 and sketchhits.
-cladehits=7     Max clade-based hits to display (independent of sketchhits).
+cladehits=5     Max clade-based hits to display (independent of sketchhits).
 sketchhits=5    Max sketch-based hits to display (only with sketch and index).
 buffer=20       Internal candidate buffer size for ranking.  A larger buffer
                 finds better top hits because SSU alignment is evaluated
@@ -59,6 +66,7 @@ composition=    Output a taxonomy composition report to this file.  Shows
                 per-level tables with bases, sequences, and percentages.
                 Use composition=stdout to print to screen after results.
                 Best used with percontig or multiple input files.
+                summary= is an alias for composition=.
 		
 Output Format:
 format=human    Output format.  Options: human (multi-line per hit),
@@ -71,6 +79,9 @@ color=t         ANSI color coding of hits by taxonomic level.  Default on
 colorlevel=     Taxonomic level for color grouping (default family).
                 Hits in the same family get the same color; off-family
                 hits are visually distinct.
+
+showloading=t   Print loading progress messages to stderr.  Set to false
+                to suppress index/sketch/query loading messages.
 
 Taxonomy Filtering:
 level=          Filter hits by taxonomic level (e.g. level=family).  Shows
@@ -86,7 +97,7 @@ proxyhost=<addr>  HTTPS proxy hostname for environments requiring a proxy
 proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
 
 DDL Sketch Parameters:
-sketch=f        Enable sketch-based matching using DDL (DynamicDemiLog)
+sketch=t        Enable sketch-based matching using DDL (DynamicDemiLog)
                 cardinality profiles.  Loads refseqSketchDDL.tsv.gz from
                 the resources directory by default.  Also builds a DDL
                 from each query for comparison.  ddl=t is an alias.
@@ -174,7 +185,23 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	parseJavaArgs "--xmx=4g" "--xms=4g" "--mode=fixed" "$@"
+	# Detect slow/index mode for RAM sizing
+	local DEFAULTXMX="4g"
+	local DEFAULTXMS="4g"
+	local EXPLICIT_XMX=false
+	for arg in "$@"; do
+		case "$arg" in
+			slow|sensitive) DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
+			index|index=t|index=true|sketchindex|sketchindex=t|sketchindex=true)
+				DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
+			-Xmx*|--xmx=*) EXPLICIT_XMX=true ;;
+		esac
+	done
+	if [ "$EXPLICIT_XMX" = true ]; then
+		parseJavaArgs "--mode=fixed" "$@"
+	else
+		parseJavaArgs "--xmx=${DEFAULTXMX}" "--xms=${DEFAULTXMS}" "--mode=fixed" "$@"
+	fi
 	setEnvironment
 }
 

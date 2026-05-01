@@ -339,9 +339,10 @@ public class CladeIndex implements Cloneable {
 	long comparisons=0;
 	/** Number of detailed comparisons that passed the initial quick filter */
 	long slowComparisons=0;
+	long sketchComparisons=0;
 
 	/** Number of intermediate comparisons to retain in the result heap */
-	static int heapSize=1;
+	static int heapSize=20;
 	/** Whether to exclude Clades with the same taxonomic ID from match results */
 	static boolean banSelf=false;
 	/**
@@ -360,8 +361,9 @@ public class CladeIndex implements Cloneable {
 	static float cagaMult=0.8f;
 	
 	static boolean LINEAR_SEARCH=false;
+	static boolean showLoading=true;
 
-	static boolean USE_SKETCHES=false;
+	static boolean USE_SKETCHES=true;
 	static boolean USE_SKETCH_INDEX=false;
 	static int maxSketchHits=5;
 	static int minSketchMatches=3;
@@ -400,7 +402,7 @@ public class CladeIndex implements Cloneable {
 		}else{
 			final int filesParallel=Math.min(files.length, Math.min(4, totalThreads/4));
 			final int parseThreadsPerFile=Math.min(16, totalThreads);
-			System.err.println("Loading "+files.length+" DDL files: "+filesParallel+" parallel, "+parseThreadsPerFile+" parse threads each.");
+			if(showLoading){System.err.println("Loading "+files.length+" DDL files: "+filesParallel+" parallel, "+parseThreadsPerFile+" parse threads each.");}
 			final ExecutorService pool=Executors.newFixedThreadPool(filesParallel);
 			@SuppressWarnings("unchecked")
 			final Future<ArrayList<DDLRecord>>[] futures=new Future[files.length];
@@ -421,7 +423,7 @@ public class CladeIndex implements Cloneable {
 			}
 		}
 		long elapsed=System.nanoTime()-t0;
-		System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files in "+String.format("%.3f", elapsed/1e9)+" seconds.");
+		if(showLoading){System.err.println("Loaded "+sketchRecords.size()+" sketches from "+files.length+" files in "+String.format("%.3f", elapsed/1e9)+" seconds.");}
 	}
 
 	public void finishSketches(ArrayList<DDLRecord> externalRecords){
@@ -451,7 +453,7 @@ public class CladeIndex implements Cloneable {
 				}
 			}
 		}
-		System.err.println("Attached "+attached+" sketches to clades.");
+		if(showLoading){System.err.println("Attached "+attached+" sketches to clades.");}
 	}
 
 	public void buildSketchIndex(){
@@ -461,9 +463,9 @@ public class CladeIndex implements Cloneable {
 		int it=indexThreads>0 ? indexThreads : Math.min(Shared.threads(), 32);
 		ddlIndex.addAll(sketchRecords, it);
 		long elapsed=System.nanoTime()-t0;
-		System.err.println("Built sketch index with "+sketchRecords.size()+" entries, "+
+		if(showLoading){System.err.println("Built sketch index with "+sketchRecords.size()+" entries, "+
 				ddlIndex.populatedCells()+" populated cells in "+
-				String.format("%.3f", elapsed/1e9)+" seconds.");
+				String.format("%.3f", elapsed/1e9)+" seconds.");}
 	}
 
 	public void addSketchInfo(ArrayList<Comparison> results, Clade query){
@@ -510,6 +512,7 @@ public class CladeIndex implements Cloneable {
 				if(!found){
 					Clade refClade=cladeMap.get(rec.taxID);
 					if(refClade!=null){
+						sketchComparisons++;
 						Comparison sketchComp=new Comparison(query, refClade);
 						sketchComp.sketchTaxID=rec.taxID;
 						sketchComp.sketchName=rec.name;

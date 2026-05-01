@@ -166,9 +166,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 */
 	void loadIndex() {
 		if(serverMode) {return;}
-		Timer t=new Timer(outstream, false);
+		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
 		index=CladeIndex.loadIndex(ref);
-		t.stop("Indexed "+index.size()+" spectra in ");
+		if(showLoading){t.stop("Indexed "+index.size()+" spectra in ");}
 	}
 	
 	void checkSketchFile() {
@@ -202,7 +202,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 
 	void loadSketches() {
 		if(!CladeIndex.USE_SKETCHES){return;}
-		Timer t=new Timer(outstream, false);
+		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
 		sketchRecords=new ArrayList<ddl.DDLRecord>();
 		if(CladeIndex.sketchFile!=null){
 			ArrayList<ddl.DDLRecord> records=ddl.DDLLoaderMT.loadFile(CladeIndex.sketchFile, Clade.DDL_K);
@@ -220,7 +220,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				sketchRecords.addAll(records);
 			}
 		}
-		t.stop("Loaded "+sketchRecords.size()+" sketches in ");
+		if(showLoading){t.stop("Loaded "+sketchRecords.size()+" sketches in ");}
 	}
 
 	ArrayList<ddl.DDLRecord> sketchRecords;
@@ -231,7 +231,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 */
 	void loadQueries(boolean finish) {
 		if(index==null) {Clade.MAKE_FREQUENCIES=false;}
-		Timer t=new Timer(outstream, false);
+		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
 		if(sfload && in.size()==1) {
 			CladeLoaderSF loaderSF=new CladeLoaderSF();
 			queries=loaderSF.loadFile(in.get(0), perContig, minContig, maxReads, true);
@@ -243,7 +243,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			readsLoaded+=loaderMF.readsProcessed;
 			basesLoaded+=loaderMF.basesProcessed;
 		}
-		t.stopAndStart("Loaded "+queries.size()+" queries in ");
+		if(showLoading){t.stopAndStart("Loaded "+queries.size()+" queries in ");}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -325,8 +325,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Clade.MAKE_FREQUENCIES=Boolean.parseBoolean(b);
 			}else if(a.equals("concise")){
 				Clade.CONCISE=Parse.parseBoolean(b);
-			}else if(a.equals("composition")){
-				if(b==null){compositionFile="stdout.txt";}
+			}else if(a.equals("composition") || a.equals("summary")){
+				if(b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true")){compositionFile="stdout.txt";}
 				else if(b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false")){compositionFile=null;}
 				else{compositionFile=b;}
 			}else if(a.equals("topcount") || a.equals("top")){
@@ -342,6 +342,31 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				colorLevel=TaxTree.stringToLevel(b.toLowerCase());
 			}else if(a.equals("showrecords") || a.equals("showresults") || a.equals("showhits")){
 				showRecords=Parse.parseBoolean(b);
+			}else if(a.equals("showloading") || a.equals("showload")){
+				showLoading=Parse.parseBoolean(b);
+				CladeIndex.showLoading=showLoading;
+			}else if(a.equals("perfile")){
+				perContig=!Parse.parseBoolean(b);
+			}else if(a.equals("fast") || a.equals("quick")){
+				maxHitsToPrint=1;
+				CladeIndex.heapSize=1;
+				Clade.callSSU=false;
+				CladeIndex.USE_SKETCHES=false;
+				CladeIndex.USE_SKETCH_INDEX=false;
+				Clade.MAKE_DDLS=false;
+			}else if(a.equals("medium") || a.equals("normal")){
+				maxHitsToPrint=5;
+				CladeIndex.heapSize=20;
+				Clade.callSSU=true;
+				CladeIndex.USE_SKETCHES=true;
+				Clade.MAKE_DDLS=true;
+			}else if(a.equals("slow") || a.equals("sensitive")){
+				maxHitsToPrint=10;
+				CladeIndex.heapSize=50;
+				Clade.callSSU=true;
+				CladeIndex.USE_SKETCHES=true;
+				CladeIndex.USE_SKETCH_INDEX=true;
+				Clade.MAKE_DDLS=true;
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
@@ -480,8 +505,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}
 		
 		if(printMetrics) {evaluate(results);}
-		outstream.println("Made "+index.comparisons+" fast and "+index.slowComparisons+" slow comparisons.");
-		t.stop("Searched "+queries.size()+" queries in ");
+		if(showLoading){
+			outstream.println("Made "+index.comparisons+" fast and "+index.slowComparisons
+				+" slow and "+index.sketchComparisons+" sketch comparisons.");
+			t.stop("Searched "+queries.size()+" queries in ");
+		}
 		
 		if(showRecords && ffout!=null) {
 //			outstream.println();
@@ -635,10 +663,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		final String[] prefixes={"sk", "k", "p", "c", "o", "f", "g", "s"};
 		final String[] levelNames={"Superkingdom", "Kingdom", "Phylum", "Class",
 				"Order", "Family", "Genus", "Species"};
+		final int[] prefixToLevel={
+			TaxTree.DOMAIN, TaxTree.KINGDOM, TaxTree.PHYLUM, TaxTree.CLASS,
+			TaxTree.ORDER, TaxTree.FAMILY, TaxTree.GENUS, TaxTree.SPECIES
+		};
 
 		@SuppressWarnings("unchecked")
-		final HashMap<String, long[]>[] counts=new HashMap[prefixes.length];
-		for(int i=0; i<counts.length; i++){counts[i]=new HashMap<String, long[]>();}
+		final HashMap<String, double[]>[] counts=new HashMap[prefixes.length];
+		for(int i=0; i<counts.length; i++){counts[i]=new HashMap<String, double[]>();}
 
 		long totalBases=0, totalSeqs=0;
 
@@ -671,34 +703,37 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 					if(prefixes[i].equals(prefix)){levelIdx=i; break;}
 				}
 				if(levelIdx<0){continue;}
-				long[] vals=counts[levelIdx].get(name);
-				if(vals==null){vals=new long[2]; counts[levelIdx].put(name, vals);}
+				double[] vals=counts[levelIdx].get(name);
+				if(vals==null){vals=new double[3]; counts[levelIdx].put(name, vals);}
 				vals[0]+=c.query.bases;
 				vals[1]++;
+				float conf=c.confidence(prefixToLevel[levelIdx]);
+				if(conf>=0){vals[2]+=conf*c.query.bases;}
 			}
 		}
 
 		ByteBuilder bb=new ByteBuilder(4096);
 		for(int level=0; level<prefixes.length; level++){
-			HashMap<String, long[]> map=counts[level];
+			HashMap<String, double[]> map=counts[level];
 			if(map.isEmpty()){continue;}
 
-			ArrayList<Map.Entry<String, long[]>> entries=new ArrayList<>(map.entrySet());
-			entries.sort((e1, e2)->Long.compare(e2.getValue()[0], e1.getValue()[0]));
+			ArrayList<Map.Entry<String, double[]>> entries=new ArrayList<>(map.entrySet());
+			entries.sort((e1, e2)->Double.compare(e2.getValue()[0], e1.getValue()[0]));
 
 			bb.append('#').append(levelNames[level]);
 			bb.tab().append("Bases");
 			bb.tab().append("Sequences");
 			bb.tab().append("Base%");
 			bb.tab().append("Seq%");
+			bb.tab().append("AvgConf");
 			bb.nl();
 
 			boolean compColor=setColor && "stdout.txt".equals(compositionFile);
 			int printed=0;
-			for(Map.Entry<String, long[]> entry : entries){
+			for(Map.Entry<String, double[]> entry : entries){
 				if(topCount>0 && printed>=topCount){break;}
-				long bases=entry.getValue()[0];
-				long seqs=entry.getValue()[1];
+				long bases=(long)entry.getValue()[0];
+				long seqs=(long)entry.getValue()[1];
 				float basePct=(totalBases>0 ? 100f*bases/totalBases : 0);
 				float seqPct=(totalSeqs>0 ? 100f*seqs/totalSeqs : 0);
 				if(minFraction>0 && basePct<minFraction*100 && seqPct<minFraction*100){continue;}
@@ -711,6 +746,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				bb.tab().append(seqs);
 				bb.tab().append(basePct, 2);
 				bb.tab().append(seqPct, 2);
+				double confSum=entry.getValue()[2];
+				bb.tab().append((float)(bases>0 ? 100.0*confSum/bases : 0), 1);
 				if(compColor){bb.append(Colors.RESET);}
 				bb.nl();
 				printed++;
@@ -875,7 +912,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(queries, index, maxHits, i, threads));
+			alpt.add(new ProcessThread(queries, index, maxHits, showRecords, maxHitsToPrint, i, threads));
 		}
 		
 		//Start the threads and wait for them to finish
@@ -909,6 +946,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			basesProcessed+=pt.basesProcessedT;
 			index.comparisons+=pt.index.comparisons;
 			index.slowComparisons+=pt.index.slowComparisons;
+			index.sketchComparisons+=pt.index.sketchComparisons;
 			errorState|=(!pt.success);
 		}
 	}
@@ -944,11 +982,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		 * @param tid_ Thread ID
 		 * @param threads_ Total number of threads
 		 */
-		ProcessThread(ArrayList<Clade> queries_, CladeIndex index_, 
-			final int maxHits_, final int tid_, final int threads_){
+		ProcessThread(ArrayList<Clade> queries_, CladeIndex index_,
+			final int maxHits_, final boolean showRecords_, final int maxHitsToPrint_,
+			final int tid_, final int threads_){
 			queries=queries_;
 			index=index_.clone(); // Clone to avoid synchronization issues
 			maxHits=maxHits_;
+			showRecords=showRecords_;
+			maxHitsToPrint=maxHitsToPrint_;
 			tid=tid_;
 			threads=threads_;
 		}
@@ -969,13 +1010,31 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 					readsProcessedT+=clade.contigs;
 					basesProcessedT+=clade.bases;
 					ArrayList<Comparison> list=index.findBest(clade, maxHits);
-					results.add(list);
 					if(list!=null) {
 						if(Clade.callSSU) {
 							for(Comparison comp : list) {comp.align(ssa);}
 						}
 						Collections.sort(list);
+						if(list.size()>maxHitsToPrint){
+							ArrayList<Comparison> refined=new ArrayList<Comparison>();
+							int cladeCount=0, sketchCount=0;
+							for(Comparison c : list){
+								if(c.isSketchHit){
+									if(sketchCount<CladeIndex.maxSketchHits){refined.add(c); sketchCount++;}
+								}else if(cladeCount<maxHitsToPrint){
+									refined.add(c); cladeCount++;
+								}
+							}
+							list.clear();
+							list.addAll(refined);
+						}
+						if(showRecords){
+							for(Comparison c : list){c.cacheConfidence();}
+						}else if(!list.isEmpty()){
+							list.get(0).cacheConfidence();
+						}
 					}
+					results.add(list);
 				}
 			}
 			
@@ -1001,6 +1060,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		private final ArrayList<Object> results=new ArrayList<Object>();
 		/** Maximum number of hits to return per query */
 		private final int maxHits;
+		private final boolean showRecords;
+		private final int maxHitsToPrint;
 		/** Thread ID */
 		final int tid;
 		/** Total number of threads in the pool */
@@ -1039,6 +1100,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	boolean multithreaded=true;
 	boolean parallelSetup=true;
 	boolean sfload=true;
+	boolean showLoading=true;
 	/** Whether to process each contig separately */
 	boolean perContig=false;
 	/** Minimum contig length to process */
@@ -1083,7 +1145,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private long maxReads=-1;
 	
 	/** Maximum number of hits to print per query */
-	private int maxHitsToPrint=7;
+	private int maxHitsToPrint=5;
 	
 	/** Whether to delete temporary files on completion */
 	private boolean deleteOnFinish=true;
