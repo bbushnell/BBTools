@@ -36,20 +36,24 @@ public class DDLCalibrationDriver2 {
 	static boolean CLAMP_TO_ADDED=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 	static final String[] ESTIMATOR_NAMES=DDLCalibrationDriver.ESTIMATOR_NAMES;
-	static final int NUM_LDLC=39;
+	static final int NUM_LDLC=41;
 	static final int HLDLC_IDX=11, MEAN16_IDX=12, DUALLC_IDX=13;
 	static final int PTLC_H_IDX=14, PTLC_HN_IDX=15, PTLC_HZ_IDX=16, PTLC_HZN_IDX=17;
 	static final int M16_SWEEP_BASE=18;
 	static final int M16_SWEEP_COUNT=21;
 	static final double M16_SWEEP_START=0.30, M16_SWEEP_STEP=0.02;
+	static final int VLDLC_IDX=39, VWMEAN_IDX=40;
+	static final double VLDLC_HYB=0.16, VLDLC_LDLC=0.44, VLDLC_VW=0.40;
+	static final double VW_BLEND_LO=Double.parseDouble(System.getProperty("vw.blend.lo", "1.0"));
+	static final double VW_BLEND_HI=Double.parseDouble(System.getProperty("vw.blend.hi", "6.0"));
 	static final int NUM_LDLC_BASE=7;
 	static final String[] LDLC_NAMES={"LDLC", "DLC_L", "HC", "FGRA", "HLL+H", "Mean+H", "Hybrid+2", "LC_noMicro", "SBS_noMicro", "WordEst", "WordEstCV",
-		"HLDLC", "Mean16", "DualLC", "PTLC_H", "PTLC_Hn", "PTLC_HZ", "PTLC_HZn",
+		"HLDLC", "VWPure", "DualLC", "PTLC_H", "PTLC_Hn", "PTLC_HZ", "PTLC_HZn",
 		"M16h_30", "M16h_32", "M16h_34", "M16h_36", "M16h_38",
 		"M16h_40", "M16h_42", "M16h_44", "M16h_46", "M16h_48",
 		"M16h_50", "M16h_52", "M16h_54", "M16h_56", "M16h_58",
 		"M16h_60", "M16h_62", "M16h_64", "M16h_66", "M16h_68",
-		"M16h_70"};
+		"M16h_70", "VLDLC", "VWMean"};
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -190,6 +194,7 @@ public class DDLCalibrationDriver2 {
 		final double[][] ldlcErr, ldlcAbsErr, ldlcSqErr;
 		final double[] occSum;
 		final int[] n;
+		double[] ternWtAbsErr, ternWt;
 	}
 
 	private MergedResults accumulate(CalThread[] calThreads, int numThresholds){
@@ -209,6 +214,29 @@ public class DDLCalibrationDriver2 {
 						m.ldlcSqErr[ti][e]+=ct.ldlcSumSqErr[ti][e];
 					}
 				}
+				if(ct.ternSumWtAbsErr!=null && CalThread.ternSweep!=null){
+					if(m.ternWtAbsErr==null){m.ternWtAbsErr=new double[CalThread.ternSweep.length]; m.ternWt=new double[CalThread.ternSweep.length];}
+					for(int si=0; si<ct.ternSumWtAbsErr.length; si++){
+						m.ternWtAbsErr[si]+=ct.ternSumWtAbsErr[si];
+						m.ternWt[si]+=ct.ternSumWt[si];
+					}
+				}
+			}
+		}
+		if(m.ternWtAbsErr!=null){
+			System.err.println("\n--- Ternary Blend Sweep (Hyb+2 / LDLC / VWMean, step="+CalThread.TERN_STEP+") Top 20 ---");
+			System.err.printf("%-8s %-8s %-8s  %s%n", "Hyb+2", "LDLC", "VWMean", "WidthWt%");
+			final int len=m.ternWtAbsErr.length;
+			Integer[] idx=new Integer[len];
+			for(int i=0; i<len; i++){idx[i]=i;}
+			java.util.Arrays.sort(idx, (a,b)->Double.compare(
+				m.ternWt[a]>0?m.ternWtAbsErr[a]/m.ternWt[a]:999,
+				m.ternWt[b]>0?m.ternWtAbsErr[b]/m.ternWt[b]:999));
+			for(int i=0; i<Math.min(20, len); i++){
+				final int si=idx[i];
+				final double wt=m.ternWt[si]>0?100*m.ternWtAbsErr[si]/m.ternWt[si]:999;
+				System.err.printf("%.2f     %.2f     %.2f      %.4f%%%n",
+					CalThread.ternSweep[si][0], CalThread.ternSweep[si][1], CalThread.ternSweep[si][2], wt);
 			}
 		}
 		return m;
@@ -399,6 +427,8 @@ public class DDLCalibrationDriver2 {
 				n=new int[nt]; occSum=new double[nt];
 				sumErr=new double[nt][NUM_EST]; sumAbsErr=new double[nt][NUM_EST]; sumSqErr=new double[nt][NUM_EST];
 				ldlcSumErr=new double[nt][NUM_LDLC]; ldlcSumAbsErr=new double[nt][NUM_LDLC]; ldlcSumSqErr=new double[nt][NUM_LDLC];
+				if(UltraDynamicLogLog36.VW_STATE_TABLE!=null && ternSweep==null){initTernSweep();}
+				if(ternSweep!=null){ternSumWtAbsErr=new double[ternSweep.length]; ternSumWt=new double[ternSweep.length];}
 				try{runInner(); success=true;}
 				catch(Exception e){e.printStackTrace();}
 			}
@@ -450,7 +480,60 @@ public class DDLCalibrationDriver2 {
 							final UltraDynamicLogLog6m u=(UltraDynamicLogLog6m)ddl;
 							accumulateCardStatsLdlc(u.consumeLastSummarized(), u.fgraEstimate(), trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==UltraDynamicLogLog36.class){
-							accumulateCardStatsLdlc(((UltraDynamicLogLog36)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							final UltraDynamicLogLog36 u36=(UltraDynamicLogLog36)ddl;
+							final CardStats cs36=u36.consumeLastSummarized();
+							accumulateCardStatsLdlc(cs36, 0, trueCard, ti, ddl.hldlcWeight());
+							if(UltraDynamicLogLog36.VW_STATE_TABLE!=null && cs36!=null){
+								final double vwPure=u36.vwMeanEstimate();
+								final double hyb=cs36.hybridPlus2();
+								final double ldlc=cs36.ldlc();
+								final double lerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+								// Blended VWMean: SBS at low cardinality, VWPure at high, log interp in between
+								double vw=vwPure;
+								if(vwPure>0){
+									final double sbs=cs36.sbs();
+									final double zoneEst=cs36.dlcRaw();
+									final double hb0=VW_BLEND_LO*buckets;
+									final double hb1=VW_BLEND_HI*buckets;
+									if(zoneEst<=hb0){
+										vw=sbs;
+									}else if(zoneEst<hb1){
+										final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0);
+										vw=(1-t)*sbs+t*vwPure;
+									}
+								}
+								{
+									final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+									ldlcSumErr[ti][VWMEAN_IDX]+=vwErr; ldlcSumAbsErr[ti][VWMEAN_IDX]+=Math.abs(vwErr); ldlcSumSqErr[ti][VWMEAN_IDX]+=vwErr*vwErr;
+								}
+								final float hw=ddl.hldlcWeight();
+								final double hldlc36=hw*ldlc+(1-hw)*hyb;
+								if(vw>0 && hldlc36>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*vw+(1-w)*hldlc36;
+										final double lerr2=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr2;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr2);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr2*lerr2;
+									}
+								}
+								if(vw>0 && hyb>0 && ldlc>0){
+									final double vldlc=VLDLC_HYB*hyb+VLDLC_LDLC*ldlc+VLDLC_VW*vw;
+									final double vlerr=(vldlc-trueCard)/(double)trueCard;
+									ldlcSumErr[ti][VLDLC_IDX]+=vlerr; ldlcSumAbsErr[ti][VLDLC_IDX]+=Math.abs(vlerr); ldlcSumSqErr[ti][VLDLC_IDX]+=vlerr*vlerr;
+									if(ternSweep!=null){
+										final double width=(double)trueCard;
+										for(int si=0; si<ternSweep.length; si++){
+											final double v=ternSweep[si][0]*hyb+ternSweep[si][1]*ldlc+ternSweep[si][2]*vw;
+											final double e=(v-trueCard)/(double)trueCard;
+											ternSumWtAbsErr[si]+=Math.abs(e)*width;
+											ternSumWt[si]+=width;
+										}
+									}
+								}
+							}
 						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedDynamicLogLog4.class){
@@ -626,6 +709,40 @@ public class DDLCalibrationDriver2 {
 									}
 								}
 							}
+						}else if(ddl.getClass()==ExpandedTwinTailLogLog5.class){
+							final ExpandedTwinTailLogLog5 t=(ExpandedTwinTailLogLog5)ddl;
+							final double[] ldlcR=t.ldlcEstimate();
+							accumulateLdlcEstimate(ldlcR, trueCard, ti);
+							{
+								final float hw=ddl.hldlcWeight(); final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double mean16=ldlcR[8];
+								final double lerr=(mean16>0 ? (mean16-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+							}
+							if(ldlcR.length>9){
+								final double dualLC=ldlcR[9];
+								final double lerr=(dualLC>0 ? (dualLC-trueCard)/(double)trueCard : -1.0);
+								ldlcSumErr[ti][DUALLC_IDX]+=lerr; ldlcSumAbsErr[ti][DUALLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][DUALLC_IDX]+=lerr*lerr;
+							}
+							{
+								final double m16=ldlcR[8];
+								final float hw=ddl.hldlcWeight();
+								final double hldlc=hw*ldlcR[0]+(1-hw)*ldlcR[7];
+								if(m16>0 && hldlc>0){
+									for(int si=0; si<M16_SWEEP_COUNT; si++){
+										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+										final double v=w*m16+(1-w)*hldlc;
+										final double lerr=(v-trueCard)/(double)trueCard;
+										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr;
+										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr);
+										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr*lerr;
+									}
+								}
+							}
 						}else if(ddl.getClass()==ErtlULL.class){
 							final ErtlULL u=(ErtlULL)ddl;
 							// Only FGRA applies to ULL; other LDLC slots stay 0 → sentinel -1.0
@@ -755,7 +872,26 @@ public class DDLCalibrationDriver2 {
 		int[] n; double[] occSum;
 		double[][] sumErr, sumAbsErr, sumSqErr;
 		double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;
+		double[] ternSumWtAbsErr, ternSumWt;
 		volatile boolean success=false;
+
+		static double[][] ternSweep;
+		static final double TERN_STEP=Double.parseDouble(System.getProperty("tern.step", "0.02"));
+		static void initTernSweep(){
+			final double step=TERN_STEP;
+			final int n=(int)Math.round(1.0/step)+1;
+			int count=0;
+			for(int xi=0; xi<n; xi++) for(int yi=0; yi<n-xi; yi++) count++;
+			ternSweep=new double[count][3];
+			int idx=0;
+			for(int xi=0; xi<n; xi++){
+				for(int yi=0; yi<n-xi; yi++){
+					final double x=xi*step, y=yi*step, z=1.0-x-y;
+					ternSweep[idx][0]=x; ternSweep[idx][1]=y; ternSweep[idx][2]=z;
+					idx++;
+				}
+			}
+		}
 	}
 
 	/*--------------------------------------------------------------*/

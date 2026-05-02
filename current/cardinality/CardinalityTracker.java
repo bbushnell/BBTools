@@ -416,6 +416,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4(buckets_, k_, seed, minProb_);
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog(buckets_, k_, seed, minProb_);
+		}else if("ETTLL5".equalsIgnoreCase(type) || "ExpandedTwinTailLogLog5".equalsIgnoreCase(type)){
+			return new ExpandedTwinTailLogLog5(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);

@@ -192,7 +192,7 @@ public final class StateTable {
 	static double historyOffset(int nlzBin, int hbits, int histPattern){
 		final double[] steadyState;
 		final double[][] tierTables;
-		if(USE_CTTLL_HSB && hbits==4 && CF_CTTLL_4!=null){
+		if(USE_CTTLL_HSB && CF_CTTLL_4!=null && CF_CTTLL_4.length==(1<<hbits)){
 				steadyState=CF_CTTLL_4;
 				tierTables=CF_CTTLL_4_TIERS;
 			}else if(USE_TTLL4_HSB && hbits==8){
