@@ -441,6 +441,40 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
 								}
+							}else if(est.getClass()==ArithmeticVariableDynamicLogLog36.class){
+								final ArithmeticVariableDynamicLogLog36 c=(ArithmeticVariableDynamicLogLog36)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
+							}else if(est.getClass()==ArithmeticVariableDynamicLogLog34.class){
+								final ArithmeticVariableDynamicLogLog34 c=(ArithmeticVariableDynamicLogLog34)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
 							}else if(est.getClass()==ExpandedDynamicLogLog9.class){
 								final ExpandedDynamicLogLog9 c=(ExpandedDynamicLogLog9)est;
 								final CardStats cs=c.consumeLastSummarized();
