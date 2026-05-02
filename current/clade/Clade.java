@@ -69,6 +69,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 				for(int i=2; i<lp.terms(); i++) {
 					if(lp.termEquals("DEC", i)) {coding=Clade.DECIMAL;}
 					else if(lp.termEquals("A48", i)) {coding=Clade.A48;}
+					else if(lp.termEquals("DECo", i)) {coding=Clade.OFFSET_DEC;}
+					else if(lp.termEquals("A48o", i)) {coding=Clade.OFFSET_A48;}
 					else if(lp.termStartsWith("MAXK", i)) {maxk=lp.parseInt(i, 4);}
 				}
 			}
@@ -117,20 +119,23 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			assert(lp.startsWith("contigs")) : lp;
 			c.contigs=lp.parseLong(1);
 
+			final boolean offset=(coding==Clade.OFFSET_DEC || coding==Clade.OFFSET_A48);
 			for(int k=1; k<=maxk; k++) {
-				//TODO: Change to concise packing, skipping k4/k5 depending on #bases, leaving them empty.
 				pos++;
 				lp.set(list.get(pos));
 				assert(lp.startsWith((char)(k+'0')));
-				final int terms=lp.terms(), expected=arrayLength[k]+1;
-				assert(k<2 || terms==1 || terms==canonicalKmers[k]+1) : 
+				final int terms=lp.terms();
+				final int expected=arrayLength[k]+1+(offset ? 1 : 0);
+				assert(k<2 || terms==1 || terms==canonicalKmers[k]+1+(offset ? 1 : 0)) :
 					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
 				assert(terms==expected || (k>3 && terms==1)) :
 					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
-				
-				if(terms>=expected) {
+
+				if(offset ? terms>=expected : terms>=arrayLength[k]+1) {
 					if(coding==Clade.DECIMAL) {lp.parseLongArray(1, c.counts[k]);}
-					else{lp.parseLongArrayA48(1, c.counts[k]);}
+					else if(coding==Clade.A48) {lp.parseLongArrayA48(1, c.counts[k]);}
+					else if(coding==Clade.OFFSET_DEC) {lp.parseLongArrayOffsetDec(1, c.counts[k]);}
+					else {lp.parseLongArrayOffsetA48(1, c.counts[k]);}
 				}else{
 					c.counts[k]=null;
 				}
@@ -318,15 +323,14 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		if(bb==null) {bb=new ByteBuilder();}
 		assert(finished);
 		if(!finished) {finish();}
-		final boolean outDEC=(outputCoding==DECIMAL);
-//		final byte[] temp=(outDEC ? null : KillSwitch.allocByte1D(12));
 		{//header
 			int lines=10+counts.length-1;
 			if(ddl!=null){lines++;}
 			if(r16S!=null) {lines++;}
 			else if(r18S!=null) {lines++;}
 			bb.append('#').tab().append(lines);
-			bb.tab().append(outputCoding==DECIMAL ? "DEC" : "A48");
+			bb.tab().append(outputCoding==DECIMAL ? "DEC" : outputCoding==A48 ? "A48" :
+				outputCoding==OFFSET_DEC ? "DECo" : "A48o");
 			if(MAXK!=5) {bb.tab().append("MAXK").append(MAXK);}
 			bb.nl();
 		}
@@ -345,9 +349,10 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			bb.append(k).append("mers");
 			if(counts[k]!=null && (k<=maxK || !CONCISE)) {
 				bb.tab();
-				if(outDEC) {bb.append(counts[k], '\t');}
-//				else {bb.appendA48(counts[k], '\t', temp);}
-				else {bb.appendA48(counts[k], '\t');}
+				if(outputCoding==DECIMAL) {bb.append(counts[k], '\t');}
+				else if(outputCoding==A48) {bb.appendA48(counts[k], '\t');}
+				else if(outputCoding==OFFSET_DEC) {bb.appendOffsetDec(counts[k], '\t');}
+				else {bb.appendOffsetA48(counts[k], '\t');}
 			}
 			bb.nl();
 		}
@@ -389,8 +394,8 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public float caga;
 	private boolean finished=false;
 	
-	public static final int DECIMAL=0, A48=1;
-	public static int outputCoding=A48; //A48 breaks Cloudflare...  now bypassed
+	public static final int DECIMAL=0, A48=1, OFFSET_DEC=2, OFFSET_A48=3;
+	public static int outputCoding=A48;
 	public static int MAXK=5;
 	public static boolean callSSU=true;
 	public static boolean writeLineage=true;
