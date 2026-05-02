@@ -106,6 +106,12 @@ public class CardinalityParser {
 		else if(a.equals("demotionmode") || a.equals("dm")){VariableCompressedDynamicLogLog4.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.DEMOTION_MODE=Integer.parseInt(b);}
 		// else if(a.equals("vcdll4histlimit") || a.equals("vhl")){VariableCompressedDynamicLogLog4.HIST_LIMIT=Integer.parseInt(b);}
 		else if(a.equals("histtiers") || a.equals("htl")){ArithmeticVariableDynamicLogLog32.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.reconfigure(); ArithmeticVariableDynamicLogLog36.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.reconfigure(); ArithmeticVariableDynamicLogLog34.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.reconfigure();}
+		else if(a.equals("numtails")){CompressedTwinTailLogLog.NUM_TAILS=Integer.parseInt(b); CompressedTwinTailLogLog.reconfigure();}
+		else if(a.equals("histlen")){CompressedTwinTailLogLog.HIST_LEN=Integer.parseInt(b); CompressedTwinTailLogLog.reconfigure();}
+		else if(a.equals("expanded")){
+			CompressedTwinTailLogLog.TIER_NUMER=2; CompressedTwinTailLogLog.TIER_DENOM=1;
+			CompressedTwinTailLogLog.EXP_BITS=5; CompressedTwinTailLogLog.reconfigure();
+		}
 
 		// PLL family flags
 		else if(a.equals("plloffset") || a.equals("pco")){
@@ -266,7 +272,8 @@ public class CardinalityParser {
 			classHasHcCf=true;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
-		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=1.5;}
+		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=CompressedTwinTailLogLog.TIER_SCALE; CorrectionFactor.sbsFile=CompressedTwinTailLogLog.sbsFile();}
+		else if(loglogtype.equals("ettll5")){AbstractCardStats.TIER_SCALE=ExpandedTwinTailLogLog5.TIER_SCALE; CorrectionFactor.sbsFile=ExpandedTwinTailLogLog5.SBS_FILE;}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
 		else if(loglogtype.equals("ll6")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_LL6;}
@@ -303,8 +310,9 @@ public class CardinalityParser {
 		if("fll2".equals(loglogtype)){FutureLogLog2.loadCFTable(); FutureLogLog2.loadCardCFTable();}
 		if("bcll".equals(loglogtype)){BankedCeilingLogLog.loadCFTable(); BankedCeilingLogLog.loadCardCFTable();}
 		if("ttll".equals(loglogtype)){TwinTailLogLog.loadCFTable(); TwinTailLogLog.loadCardCFTable();}
+		if("cttll".equals(loglogtype)){CompressedTwinTailLogLog.loadPerTierTable(); CompressedTwinTailLogLog.computeHSB();}
+		if("ettll5".equals(loglogtype)){ExpandedTwinTailLogLog5.loadPerTierTable();}
 		if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.loadWordTable();}
-		if("cttll".equals(loglogtype)){CompressedTwinTailLogLog.loadPerTierTable();}
 
 		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
 		if(cffile==null){cffile=defaultCFFile(loglogtype);}
@@ -415,7 +423,11 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("ttll4")){
 			return "?cardinalityCorrectionTTLL4.tsv.gz";
 		}else if(loglogtype.equals("cttll")){
+			if(CompressedTwinTailLogLog.NUM_TAILS==4){return "?cardinalityCorrectionCTTLL_quad.tsv.gz";}
 			return "?cardinalityCorrectionCTTLL.tsv.gz";
+		}else if(loglogtype.equals("ettll5")){
+			if(!CorrectionFactor.USE_CORRECTION){return null;}
+			return "?cardinalityCorrectionETTLL5.tsv.gz";
 		}
 		return null;
 	}

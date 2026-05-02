@@ -3,75 +3,64 @@ package cardinality;
 import shared.Tools;
 
 /**
- * CTTLL: Compressed-Tier TwinTailLogLog.
- * Fork of TTLL3 with compressed tiers and variable tail geometry.
+ * ETTLL5: Expanded-Tier TwinTailLogLog with 5-bit tails.
  *
- * Register layout (variable width, packed in 64-bit longs):
- *   [REG_BITS-1 : TAIL_BITS] = 4-bit localExp (in compressed tier space)
- *   [TAIL_BITS-1 : 0] = NUM_TAILS tails, each HIST_LEN bits
+ * Register layout (15 bits, 4 per 64-bit long):
+ *   [14:10] = 5-bit localExp (expanded tier, sqrt(2) spacing)
+ *   [9:5]   = 5-bit tail 1 history
+ *   [4:0]   = 5-bit tail 0 history
  *
- * Tier compression: compressedTier = (2 * rawNLZ) / 3.
- * TIER_SCALE = 1.5 (average rawNLZ per compressed tier).
+ * Tier geometry: expanded (sqrt(2) ratio). expandedNLZ = 2*rawNLZ + mantissa.
+ * TIER_SCALE = 0.5 (each tier covers half an NLZ).
  *
- * Estimation: per-tier state table lookup + harmonic aggregation + CF correction.
+ * Condensed state space: 3^5 = 243 classes (per-depth symmetry across 2 tails).
+ * Estimation: VWMean (variance-weighted linear mean) with per-tier condensed
+ * state table, falling back to harmonic mean when variance data unavailable.
  *
- * @author Brian, Chloe
+ * @author Nowi, Chloe, Brian Bushnell
  * @date April 2026
  */
-public final class CompressedTwinTailLogLog extends CardinalityTracker {
+public final class ExpandedTwinTailLogLog5 extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
-	/*----------------      Variable Configuration     ----------------*/
+	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static int HIST_LEN=2;
-	static int NUM_TAILS=2;
+	static final int HIST_LEN=5;
+	static final int NUM_TAILS=2;
+	static final int EXP_BITS=5;
 
-	static int EXP_BITS=4;
-	static int TAIL_BITS=NUM_TAILS*HIST_LEN;
-	static int EXP_SHIFT=TAIL_BITS;
-	static int REG_BITS=EXP_BITS+TAIL_BITS;
-	static int REGS_PER_WORD=64/REG_BITS;
-	static long REG_MASK_L=(1L<<REG_BITS)-1;
-	static int EXP_MASK=(1<<EXP_BITS)-1;
-	static int TAIL_MASK=(1<<HIST_LEN)-1;
-	static int TAILS_MASK=(1<<TAIL_BITS)-1;
-	static int NUM_COMBINED=1<<TAIL_BITS;
+	static final int TAIL_BITS=NUM_TAILS*HIST_LEN; // 10
+	static final int EXP_SHIFT=TAIL_BITS; // 10
+	static final int REG_BITS=EXP_BITS+TAIL_BITS; // 15
+	static final int REGS_PER_WORD=64/REG_BITS; // 4
+	static final long REG_MASK_L=(1L<<REG_BITS)-1;
+	static final int EXP_MASK=(1<<EXP_BITS)-1; // 31
+	static final int TAIL_MASK=(1<<HIST_LEN)-1; // 31
+	static final int TAILS_MASK=(1<<TAIL_BITS)-1; // 1023
 
-	static int TIER_NUMER=2;
-	static int TIER_DENOM=3;
-	static double TIER_SCALE=(double)TIER_DENOM/TIER_NUMER;
+	static final int TIER_NUMER=2;
+	static final int TIER_DENOM=1;
+	static final double TIER_SCALE=(double)TIER_DENOM/TIER_NUMER; // 0.5
 
-	/** Mantissa threshold for log-uniform half-NLZ steps: (2-sqrt(2)) * 2^20. */
 	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
-	static void reconfigure(){
-		TAIL_BITS=NUM_TAILS*HIST_LEN;
-		EXP_SHIFT=TAIL_BITS;
-		REG_BITS=EXP_BITS+TAIL_BITS;
-		REGS_PER_WORD=64/REG_BITS;
-		REG_MASK_L=(1L<<REG_BITS)-1;
-		EXP_MASK=(1<<EXP_BITS)-1;
-		TAIL_MASK=(1<<HIST_LEN)-1;
-		TAILS_MASK=(1<<TAIL_BITS)-1;
-		NUM_COMBINED=1<<TAIL_BITS;
-		TIER_SCALE=(double)TIER_DENOM/TIER_NUMER;
-	}
+	static final int NUM_CONDENSED=243; // 3^5
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	CompressedTwinTailLogLog(){this(defaultBuckets(), 31, -1, 0);}
+	ExpandedTwinTailLogLog5(){this(defaultBuckets(), 31, -1, 0);}
 
-	CompressedTwinTailLogLog(parse.Parser p){
+	ExpandedTwinTailLogLog5(parse.Parser p){
 		super(p);
 		numBuckets=p.loglogbuckets;
 		regs=new long[(numBuckets+REGS_PER_WORD-1)/REGS_PER_WORD];
 		numFloorBuckets=numBuckets;
 	}
 
-	CompressedTwinTailLogLog(int buckets_, int k_, long seed, float minProb_){
+	ExpandedTwinTailLogLog5(int buckets_, int k_, long seed, float minProb_){
 		super(buckets_, k_, seed, minProb_);
 		numBuckets=buckets_;
 		regs=new long[(numBuckets+REGS_PER_WORD-1)/REGS_PER_WORD];
@@ -79,9 +68,9 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	}
 
 	@Override
-	public CompressedTwinTailLogLog copy(){return new CompressedTwinTailLogLog(numBuckets, k, -1, minProb);}
+	public ExpandedTwinTailLogLog5 copy(){return new ExpandedTwinTailLogLog5(numBuckets, k, -1, minProb);}
 
-	static int defaultBuckets(){return 256*REGS_PER_WORD;}
+	static int defaultBuckets(){return 256*REGS_PER_WORD;} // 1024
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Register Access        ----------------*/
@@ -118,7 +107,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			mBits=(int)((key>>>(42-rawNLZ))&0xFFFFF);
 		}
 		final int mantissa=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
-		final int compressedNLZ=(TIER_NUMER*rawNLZ+mantissa)/TIER_DENOM;
+		final int expandedNLZ=TIER_NUMER*rawNLZ+mantissa;
 		final int bucket=(int)(Long.remainderUnsigned(key, numBuckets));
 		final int tailIdx=(int)(Long.divideUnsigned(key, numBuckets)&(NUM_TAILS-1));
 
@@ -128,7 +117,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 		final int reg=getReg(bucket);
 		final int localExp=(reg>>>EXP_SHIFT)&EXP_MASK;
 		final int absCompTier=globalExp+localExp;
-		final int delta=compressedNLZ-absCompTier;
+		final int delta=expandedNLZ-absCompTier;
 
 		if(delta<-(HIST_LEN-1)){return;}
 
@@ -171,7 +160,6 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			for(int i=0; i<numBuckets; i++){
 				int reg=getReg(i);
 				int le=(reg>>>EXP_SHIFT)&EXP_MASK;
-				assert le>=1 : "localExp=0 but numFloorBuckets was 0, bucket "+i;
 				le--;
 				setReg(i, (le<<EXP_SHIFT)|(reg&TAILS_MASK));
 				if(le==0){numFloorBuckets++;}
@@ -214,7 +202,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 		if(r.length<=MEAN16_RAW_IDX){
 			r=java.util.Arrays.copyOf(r, MEAN16_RAW_IDX+1);
 		}
-		r[MEAN16_RAW_IDX]=ttllMeanEstimate();
+		r[MEAN16_RAW_IDX]=vwMeanEstimate();
 		return r;
 	}
 
@@ -223,10 +211,9 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	public double[] ldlcEstimate(){
 		final CardStats s=(lastSummarized!=null) ? lastSummarized : summarize();
 		lastSummarized=null;
-		final double blc=bloomLCEstimate();
 		return new double[]{s.ldlc(), s.dlcRaw(), s.hc(), s.lcMin(),
 				0, s.hllRaw(), s.meanHistCF(), s.hybridPlus2(),
-				ttllMeanEstimate(), (NUM_TAILS>=4 ? blc : dualBucketLC())};
+				vwMeanEstimate(), dualBucketLC()};
 	}
 
 	/*--------------------------------------------------------------*/
@@ -252,13 +239,29 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			}
 		}
 		nlzCounts[0]=numBuckets-filledCount;
-		lastRawNlz=nlzCounts;
 
 		final CardStats cs=new CardStats(packedBuckets, nlzCounts, 0, EXP_SHIFT, 0, 0,
 				numBuckets, microIndex, added, null, 0, 0.0,
 				Integer.MAX_VALUE, null, terminalMeanCF(), terminalMeanPlusCF(), TIER_SCALE, 1);
-		cs.overrideHC(hcCTTLL(regs, globalExp, numBuckets));
+		cs.overrideHC(hcETTLL(regs, globalExp, numBuckets));
 		return cs;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Condensed State Class     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Maps combined 10-bit (h1:h0) to 3^5 condensed class.
+	 *  Per-depth pair: h0_bit + h1_bit in {0,1,2}, encoded base-3. */
+	static int condensedClass(int combinedH){
+		int idx=0, pow3=1;
+		for(int d=0; d<HIST_LEN; d++){
+			final int b0=(combinedH>>>d)&1;
+			final int b1=(combinedH>>>(d+HIST_LEN))&1;
+			idx+=(b0+b1)*pow3;
+			pow3*=3;
+		}
+		return idx;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -266,9 +269,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	public double dualBucketLC(){
-		int virtualTotal=0;
-		int virtualEmpty=0;
-
+		int virtualTotal=0, virtualEmpty=0;
 		for(int i=0; i<numBuckets; i++){
 			final int reg=getReg(i);
 			if(reg==0 && globalExp==0){
@@ -278,7 +279,6 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			}
 			final int localExp=(reg>>>EXP_SHIFT)&EXP_MASK;
 			final int absNlz=globalExp+localExp;
-
 			for(int ti=0; ti<NUM_TAILS; ti++){
 				final int tail=(reg>>>(ti*HIST_LEN))&TAIL_MASK;
 				if(tail!=0){
@@ -289,16 +289,47 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 				}
 			}
 		}
-
 		if(virtualTotal==0 || virtualEmpty==0){return 0;}
 		return (double)virtualTotal*Math.log((double)virtualTotal/virtualEmpty);
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------   Per-Tier State Mean Estimate   ----------------*/
+	/*----------------       VWMean Estimate        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	double ttllMeanEstimateRaw(){
+	/** Variance-weighted linear mean using per-tier condensed state table. */
+	double vwMeanEstimateRaw(){
+		if(PER_TIER_STATE_TABLE==null){return 0;}
+		double sumWV=0, sumW=0;
+		int used=0;
+		for(int i=0; i<numBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){continue;}
+			used++;
+			final int localExp=(reg>>>EXP_SHIFT)&EXP_MASK;
+			final int absNlz=globalExp+localExp;
+			final int ch=reg&TAILS_MASK;
+			final int tier=Math.min(absNlz, PER_TIER_MAX_TIER);
+			final int idx=condensedClass(ch);
+			double v=PER_TIER_STATE_TABLE[tier][idx];
+			if(v<=0){continue;}
+			if(absNlz>PER_TIER_MAX_TIER){
+				v*=Math.pow(TIER_GROWTH_RATIO, absNlz-PER_TIER_MAX_TIER);
+			}
+			double w=1.0;
+			if(PER_TIER_VARIANCE_TABLE!=null && tier<PER_TIER_VARIANCE_TABLE.length){
+				final double variance=PER_TIER_VARIANCE_TABLE[tier][idx];
+				if(variance>0){w=1.0/Math.pow(variance, VW_POWER);}
+			}
+			sumWV+=w*v;
+			sumW+=w;
+		}
+		if(sumW==0){return 0;}
+		return used*sumWV/sumW;
+	}
+
+	/** Harmonic mean fallback when variance table unavailable. */
+	double harmonicMeanEstimateRaw(){
 		if(PER_TIER_STATE_TABLE==null){return 0;}
 		double sumInv=0;
 		int filled=0;
@@ -309,16 +340,20 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			final int absNlz=globalExp+localExp;
 			final int ch=reg&TAILS_MASK;
 			final int tier=Math.min(absNlz, PER_TIER_MAX_TIER);
-			final int idx=USE_CONDENSED ? condensedClass(ch) : ch;
-			final double v=PER_TIER_STATE_TABLE[tier][idx];
-			if(v>0){sumInv+=1.0/v; filled++;}
+			final int idx=condensedClass(ch);
+			double v=PER_TIER_STATE_TABLE[tier][idx];
+			if(v<=0){continue;}
+			if(absNlz>PER_TIER_MAX_TIER){
+				v*=Math.pow(TIER_GROWTH_RATIO, absNlz-PER_TIER_MAX_TIER);
+			}
+			sumInv+=1.0/v; filled++;
 		}
 		if(filled==0){return 0;}
 		return (double)filled*filled/sumInv;
 	}
 
-	public double ttllMeanEstimate(){
-		double est=ttllMeanEstimateRaw();
+	public double vwMeanEstimate(){
+		double est=(PER_TIER_VARIANCE_TABLE!=null) ? vwMeanEstimateRaw() : harmonicMeanEstimateRaw();
 		if(est<=0){return 0;}
 		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
 				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
@@ -334,67 +369,10 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------   Bloom Filter LC Estimate    ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Per-bucket Bloom filter LC: treat each depth row of NUM_TAILS bits
-	 *  as a tiny Bloom filter and do LC on each row independently. */
-	public double bloomLCEstimate(){
-		if(NUM_TAILS<4){return 0;}
-		final double tierRatio=Math.pow(2.0, TIER_SCALE);
-		double sumInv=0;
-		int filled=0;
-
-		for(int i=0; i<numBuckets; i++){
-			final int reg=getReg(i);
-			if(reg==0 && globalExp==0){continue;}
-			final int localExp=(reg>>>EXP_SHIFT)&EXP_MASK;
-			final int absNlz=globalExp+localExp;
-
-			double bucketEst=0;
-			double bucketW=0;
-
-			for(int d=0; d<HIST_LEN; d++){
-				int setCount=0;
-				for(int ti=0; ti<NUM_TAILS; ti++){
-					final int tail=(reg>>>(ti*HIST_LEN))&TAIL_MASK;
-					if(((tail>>>(HIST_LEN-1-d))&1)!=0){setCount++;}
-				}
-				final int srcTier=absNlz+d;
-				final double scale=2.0*Math.pow(2.0, (srcTier+1)*TIER_SCALE)
-					/(tierRatio-1.0)*(double)numBuckets;
-
-				// MSB row: one tail is forced set by the routing, so effective n=NUM_TAILS-1
-				final int n=(d==0) ? (NUM_TAILS-1) : NUM_TAILS;
-				final int effectiveSet=(d==0) ? Math.max(setCount-1, 0) : setCount;
-				final int unseen=n-effectiveSet;
-
-				if(n<=0 || effectiveSet<=0){continue;}
-				final double v=(unseen<=0) ? 0.5 : (double)unseen;
-				final double lc=Math.log((double)n/v);
-				final double est=scale*lc;
-				if(est>0){
-					final double occ=n-v;
-					final double w=(occ>0 && v>0) ? occ/((double)n*v) : 0.01;
-					bucketEst+=est*w;
-					bucketW+=w;
-				}
-			}
-
-			if(bucketW>0){
-				final double perBucket=bucketEst/bucketW;
-				if(perBucket>0){sumInv+=1.0/perBucket; filled++;}
-			}
-		}
-		if(filled==0){return 0;}
-		return (double)filled*filled/sumInv;
-	}
-
-	/*--------------------------------------------------------------*/
 	/*----------------     HC — Variable Depth       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static double hcCTTLL(long[] regs, int globalExp, int numBuckets){
+	static double hcETTLL(long[] regs, int globalExp, int numBuckets){
 		final int maxTier=64;
 		final int[] nlzCount=new int[maxTier];
 		final int[] allMSB=new int[maxTier];
@@ -434,64 +412,41 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			final double scale=2.0*Math.pow(2.0, (t+1)*TIER_SCALE)/(tierRatio-1.0)
 				*(double)numBuckets;
 
-			if(NUM_TAILS>2){
-				// Pool all depths (including MSB) across all tails as independent LC
-				for(int d=0; d<HIST_LEN; d++){
-					final int srcTier=t+d;
-					if(srcTier>=maxTier || nlzCount[srcTier]<=0){continue;}
-					final int beff=NUM_TAILS*nlzCount[srcTier];
-					final int unseen=beff-depthSet[d][srcTier];
-					if(beff>=8 && unseen>=1 && unseen<beff){
-						final double est=scale*Math.log((double)beff/unseen);
-						if(est>0 && !Double.isNaN(est)){
-							final int occ=beff-unseen;
-							final double err=AbstractCardStats.SQRT_2_OVER_PI
-								*Math.sqrt((double)occ/((double)beff*unseen))
-								/Math.log((double)beff/unseen);
-							final double w=Math.pow(1.0/err, AbstractCardStats.HC_INFO_POWER);
-							hcSumW+=w;
-							hcSumWLogE+=w*Math.log(est);
-						}
+			for(int d=1; d<HIST_LEN; d++){
+				final int srcTier=t+d;
+				if(srcTier>=maxTier || nlzCount[srcTier]<=0){continue;}
+				final int beff=NUM_TAILS*nlzCount[srcTier];
+				final int unseen=beff-depthSet[d][srcTier];
+				if(beff>=8 && unseen>=1 && unseen<beff){
+					final double est=scale*Math.log((double)beff/unseen);
+					if(est>0 && !Double.isNaN(est)){
+						final int occ=beff-unseen;
+						final double err=AbstractCardStats.SQRT_2_OVER_PI
+							*Math.sqrt((double)occ/((double)beff*unseen))
+							/Math.log((double)beff/unseen);
+						final double w=Math.pow(1.0/err, AbstractCardStats.HC_INFO_POWER);
+						hcSumW+=w;
+						hcSumWLogE+=w*Math.log(est);
 					}
 				}
-			}else{
-				// 2-tail: depth 1+ pooled LC, depth 0 conditional model
-				for(int d=1; d<HIST_LEN; d++){
-					final int srcTier=t+d;
-					if(srcTier>=maxTier || nlzCount[srcTier]<=0){continue;}
-					final int beff=NUM_TAILS*nlzCount[srcTier];
-					final int unseen=beff-depthSet[d][srcTier];
-					if(beff>=8 && unseen>=1 && unseen<beff){
-						final double est=scale*Math.log((double)beff/unseen);
-						if(est>0 && !Double.isNaN(est)){
-							final int occ=beff-unseen;
-							final double err=AbstractCardStats.SQRT_2_OVER_PI
-								*Math.sqrt((double)occ/((double)beff*unseen))
-								/Math.log((double)beff/unseen);
-							final double w=Math.pow(1.0/err, AbstractCardStats.HC_INFO_POWER);
-							hcSumW+=w;
-							hcSumWLogE+=w*Math.log(est);
-						}
-					}
-				}
+			}
 
-				if(t<maxTier && nlzCount[t]>=8){
-					final int beff=nlzCount[t];
-					final int unseen=beff-allMSB[t];
-					if(unseen>=1 && unseen<beff){
-						final double frac=(double)unseen/beff;
-						final double q=frac/(2.0-frac);
-						if(q>0 && q<1){
-							final double est=scale*(-Math.log(q));
-							if(est>0 && !Double.isNaN(est)){
-								final double logInvQ=-Math.log(q);
-								final double err=AbstractCardStats.SQRT_2_OVER_PI
-									*Math.sqrt((1.0-q)/((double)beff*q))
-									/logInvQ;
-								final double w=Math.pow(1.0/err, AbstractCardStats.HC_INFO_POWER);
-								hcSumW+=w;
-								hcSumWLogE+=w*Math.log(est);
-							}
+			if(t<maxTier && nlzCount[t]>=8){
+				final int beff=nlzCount[t];
+				final int unseen=beff-allMSB[t];
+				if(unseen>=1 && unseen<beff){
+					final double frac=(double)unseen/beff;
+					final double q=frac/(2.0-frac);
+					if(q>0 && q<1){
+						final double est=scale*(-Math.log(q));
+						if(est>0 && !Double.isNaN(est)){
+							final double logInvQ=-Math.log(q);
+							final double err=AbstractCardStats.SQRT_2_OVER_PI
+								*Math.sqrt((1.0-q)/((double)beff*q))
+								/logInvQ;
+							final double w=Math.pow(1.0/err, AbstractCardStats.HC_INFO_POWER);
+							hcSumW+=w;
+							hcSumWLogE+=w*Math.log(est);
 						}
 					}
 				}
@@ -507,7 +462,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 
 	@Override
 	public final void add(CardinalityTracker log){
-		throw new UnsupportedOperationException("CTTLL merge not yet implemented");
+		throw new UnsupportedOperationException("ETTLL5 merge not yet implemented");
 	}
 
 	@Override
@@ -536,21 +491,22 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	private int numFloorBuckets;
 	private long eeMask=-1L;
 	private CardStats lastSummarized;
-	int[] lastRawNlz;
+
+	public CardStats consumeLastSummarized(){
+		final CardStats cs=lastSummarized;
+		lastSummarized=null;
+		return cs;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------     Per-Tier State Table      ----------------*/
 	/*--------------------------------------------------------------*/
 
 	static double[][] PER_TIER_STATE_TABLE;
-	static double[][] PER_TIER_FULL_TABLE;
+	static double[][] PER_TIER_VARIANCE_TABLE;
 	static int PER_TIER_MAX_TIER;
-	static boolean USE_CONDENSED=false;
-	static final int NUM_CLASSES=25;
-
-	static int condensedClass(int combinedH){
-		return Integer.bitCount(combinedH&0xAA)*5+Integer.bitCount(combinedH&0x55);
-	}
+	static double VW_POWER=Double.parseDouble(System.getProperty("vw.power", "0.4"));
+	static double TIER_GROWTH_RATIO=Math.sqrt(2.0);
 
 	static String PTIER_SECTION=System.getProperty("ptier.section", "all_lin");
 
@@ -559,7 +515,7 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 		if(fname==null){return;}
 		fileIO.ByteFile bf=fileIO.ByteFile.makeByteFile(fname, false);
 		final int maxTiers=(1<<EXP_BITS)*2;
-		final double[][] table=new double[maxTiers][NUM_COMBINED];
+		final double[][] rawTable=new double[maxTiers][1<<TAIL_BITS];
 		int maxTier=0;
 		boolean inSection=false;
 		final String sectionHeader="#"+PTIER_SECTION;
@@ -577,96 +533,99 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 			final int tier;
 			try{tier=Integer.parseInt(parts[0]);}catch(NumberFormatException e){continue;}
 			if(tier>=maxTiers){continue;}
-			for(int s=1; s<parts.length && (s-1)<NUM_COMBINED; s++){
-				try{table[tier][s-1]=Double.parseDouble(parts[s]);}catch(NumberFormatException e){}
+			for(int s=1; s<parts.length && (s-1)<(1<<TAIL_BITS); s++){
+				try{rawTable[tier][s-1]=Double.parseDouble(parts[s]);}catch(NumberFormatException e){}
 			}
 			if(tier>maxTier){maxTier=tier;}
 		}
 		bf.close();
 
-		if(NUM_TAILS>=4){
-			final double[][] condensed=new double[maxTier+1][NUM_CLASSES];
-			final int[][] counts=new int[maxTier+1][NUM_CLASSES];
-			for(int tier=0; tier<=maxTier; tier++){
-				for(int s=0; s<NUM_COMBINED; s++){
-					if(table[tier][s]>0){
-						final int cls=condensedClass(s);
-						condensed[tier][cls]+=table[tier][s];
-						counts[tier][cls]++;
-					}
-				}
-				for(int c=0; c<NUM_CLASSES; c++){
-					if(counts[tier][c]>0){condensed[tier][c]/=counts[tier][c];}
+		final double[][] condensed=new double[maxTier+1][NUM_CONDENSED];
+		final int[][] counts=new int[maxTier+1][NUM_CONDENSED];
+		for(int tier=0; tier<=maxTier; tier++){
+			for(int s=0; s<(1<<TAIL_BITS); s++){
+				if(rawTable[tier][s]>0){
+					final int cls=condensedClass(s);
+					condensed[tier][cls]+=rawTable[tier][s];
+					counts[tier][cls]++;
 				}
 			}
-			PER_TIER_STATE_TABLE=condensed;
-			PER_TIER_FULL_TABLE=table;
-			USE_CONDENSED=true;
-		}else{
-			PER_TIER_STATE_TABLE=table;
-			PER_TIER_FULL_TABLE=table;
-			USE_CONDENSED=false;
+			for(int c=0; c<NUM_CONDENSED; c++){
+				if(counts[tier][c]>0){condensed[tier][c]/=counts[tier][c];}
+			}
 		}
+		PER_TIER_STATE_TABLE=condensed;
 		PER_TIER_MAX_TIER=maxTier;
+
+		if(maxTier>=2){
+			double sumA=0, sumB=0;
+			int n=0;
+			final int lo=Math.max(0, maxTier-6);
+			for(int tier=lo+1; tier<=maxTier; tier++){
+				for(int c=0; c<NUM_CONDENSED; c++){
+					if(condensed[tier][c]>0 && condensed[tier-1][c]>0){
+						sumB+=condensed[tier][c];
+						sumA+=condensed[tier-1][c];
+						n++;
+					}
+				}
+			}
+			TIER_GROWTH_RATIO=(n>0 && sumA>0) ? sumB/sumA : Math.sqrt(2.0);
+		}
+
+		loadVarianceTable(fname);
+	}
+
+	static void loadVarianceTable(String fname){
+		String varSection;
+		if(PTIER_SECTION.startsWith("all_")){varSection="var_all";}
+		else if(PTIER_SECTION.startsWith("entry_")){varSection="var_entry";}
+		else if(PTIER_SECTION.startsWith("entryexit_")){varSection="var_entryexit";}
+		else if(PTIER_SECTION.startsWith("pctile_")){varSection="var_pctile";}
+		else{varSection="var_all";}
+
+		fileIO.ByteFile bf=fileIO.ByteFile.makeByteFile(fname, false);
+		final int maxTiers=(1<<EXP_BITS)*2;
+		final double[][] varTable=new double[maxTiers][NUM_CONDENSED];
+		int maxTier=0;
+		boolean inSection=false;
+		final String sectionHeader="#"+varSection;
+		for(byte[] raw=bf.nextLine(); raw!=null; raw=bf.nextLine()){
+			if(raw.length==0){continue;}
+			final String line=new String(raw).trim();
+			if(line.startsWith(sectionHeader+"\t") || line.equals(sectionHeader)){
+				inSection=true; continue;
+			}
+			if(inSection && line.startsWith("#Tier")){continue;}
+			if(inSection && line.startsWith("#")){break;}
+			if(!inSection){continue;}
+			final String[] parts=line.split("\t");
+			if(parts.length<2){continue;}
+			final int tier;
+			try{tier=Integer.parseInt(parts[0]);}catch(NumberFormatException e){continue;}
+			if(tier>=maxTiers){continue;}
+			for(int s=1; s<parts.length && (s-1)<NUM_CONDENSED; s++){
+				try{varTable[tier][s-1]=Double.parseDouble(parts[s]);}catch(NumberFormatException e){}
+			}
+			if(tier>maxTier){maxTier=tier;}
+		}
+		bf.close();
+		if(maxTier>0){PER_TIER_VARIANCE_TABLE=varTable;}
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Correction Factors    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final double DEFAULT_HC_WEIGHT=0.50;
+	public static final String SBS_FILE="?sbsETTLL5.tsv.gz";
 
-	public static final String SBS_FILE="?sbsCTTLL_2048.tsv.gz";
+	static String perTierFile(){return "?perTierStateETTLL5.tsv.gz";}
 
-	static String sbsFile(){
-		if(NUM_TAILS==4){return "?sbsCTTLL_1280.tsv.gz";}
-		return SBS_FILE;
-	}
-
-	static String perTierFile(){
-		if(TIER_DENOM==1){return "?perTierStateCTTLL_expanded.tsv.gz";}
-		if(NUM_TAILS==4){return "?perTierStateCTTLL_quad.tsv.gz";}
-		return "?perTierStateCTTLL.tsv.gz";
-	}
-
-	@Override public float terminalMeanCF(){return (NUM_TAILS==4) ? 0.878151f : 0.997457f;}
-	@Override public float terminalMeanPlusCF(){return (NUM_TAILS==4) ? 0.936905f : 0.668333f;}
+	@Override public float terminalMeanCF(){return 1.0f;}
+	@Override public float terminalMeanPlusCF(){return 1.0f;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
 
-	/** Derive HSB tables from per-tier state table for Mean+H. */
-	static void computeHSB(){
-		if(PER_TIER_FULL_TABLE==null || PER_TIER_MAX_TIER<3){return;}
-
-		final int highTier=PER_TIER_MAX_TIER;
-		StateTable.CF_CTTLL_4=hsbRow(PER_TIER_FULL_TABLE[highTier]);
-		StateTable.CF_CTTLL_4_TIERS=new double[3][NUM_COMBINED];
-		for(int t=0; t<3 && t<=PER_TIER_MAX_TIER; t++){
-			StateTable.CF_CTTLL_4_TIERS[t]=hsbRow(PER_TIER_FULL_TABLE[t]);
-		}
-		StateTable.USE_CTTLL_HSB=true;
-	}
-
-	private static double[] hsbRow(double[] row){
-		final double[] out=new double[NUM_COMBINED];
-		double sum=0; int count=0;
-		for(int s=0; s<NUM_COMBINED; s++){
-			if(row[s]>0){sum+=row[s]; count++;}
-		}
-		if(count==0){return out;}
-		final double avg=sum/count;
-		final double LOG2=Math.log(2.0);
-		for(int s=0; s<NUM_COMBINED; s++){
-			if(row[s]>0 && avg>0){
-				out[s]=Math.log(row[s]/avg)/LOG2;
-			}
-		}
-		return out;
-	}
-
 	static {
-		reconfigure();
-		if(OVERRIDE_LDLC_HC_WEIGHT<0){LDLC_HC_WEIGHT=DEFAULT_HC_WEIGHT;}
 		loadPerTierTable();
-		computeHSB();
 	}
 }

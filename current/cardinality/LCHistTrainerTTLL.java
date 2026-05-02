@@ -29,10 +29,26 @@ import java.util.zip.GZIPOutputStream;
  */
 public class LCHistTrainerTTLL {
 
-	static final int HBITS=4;
+	static int NUM_TAILS=2;
+	static int HIST_LEN=2;
+	static int HBITS=NUM_TAILS*HIST_LEN;
 	static final int NUM_BINS=3;
-	static final int CH_MSB_MASK=0xA;
-	static final int CH_LSB_MASK=0x5;
+
+	static int computeMsbMask(){
+		int mask=0;
+		for(int ti=0; ti<NUM_TAILS; ti++){mask|=(1<<(ti*HIST_LEN+HIST_LEN-1));}
+		return mask;
+	}
+	static int computeLsbMask(){
+		int mask=0;
+		for(int ti=0; ti<NUM_TAILS; ti++){mask|=(1<<(ti*HIST_LEN));}
+		return mask;
+	}
+	static int CH_MSB_MASK=computeMsbMask();
+	static int CH_LSB_MASK=computeLsbMask();
+
+	static boolean COMPRESSED=false;
+	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	// Sampling modes
 	static final int SAMPLE_ENTRY=0;
@@ -59,7 +75,7 @@ public class LCHistTrainerTTLL {
 	}
 
 	static int stateIndex(int rawNlz, int combinedH){
-		return Math.min(rawNlz, NUM_BINS-1)*16+(combinedH&0xF);
+		return Math.min(rawNlz, NUM_BINS-1)*(1<<HBITS)+(combinedH&((1<<HBITS)-1));
 	}
 
 	static boolean isReachable(int bin, int ch){
@@ -77,7 +93,7 @@ public class LCHistTrainerTTLL {
 			this.bucketMask=buckets-1;
 			this.sampleMode=sampleMode;
 			this.avgMode=avgMode;
-			this.nStates=NUM_BINS*16;
+			this.nStates=NUM_BINS*(1<<HBITS);
 			accumSums=new double[buckets+1][nStates];
 			observations=new long[buckets+1][nStates];
 		}
@@ -105,9 +121,20 @@ public class LCHistTrainerTTLL {
 				while(filledCount<B){
 					final long number=rng.nextLong();
 					final long key=hash64shift(number);
-					final int nlz=Long.numberOfLeadingZeros(key);
+					final int nlz;
+					if(COMPRESSED){
+						final int rawNlz=Long.numberOfLeadingZeros(key);
+						final int mBits;
+						if(rawNlz>=43){mBits=(int)((key<<(rawNlz-42))&0xFFFFF);}
+						else{mBits=(int)((key>>>(42-rawNlz))&0xFFFFF);}
+						nlz=(2*rawNlz+((mBits>=MANTISSA_THRESHOLD)?1:0))/3;
+					}else{
+						nlz=Long.numberOfLeadingZeros(key);
+					}
 					final int bucket=(int)(key&bucketMask);
-					final int histBit=(int)((key>>>Integer.numberOfTrailingZeros(B))&1);
+					final int tailIdx=(int)((key>>>Integer.numberOfTrailingZeros(B))&(NUM_TAILS-1));
+					final int hl=HIST_LEN;
+					final int tailMask=(1<<hl)-1;
 
 					distinct[bucket]++;
 					totalAdds++;
@@ -115,8 +142,7 @@ public class LCHistTrainerTTLL {
 
 					if(!filled[bucket]){
 						rawNlzArr[bucket]=nlz;
-						final int bitPos=(histBit==0) ? 1 : 3;
-						ch[bucket]=(1<<bitPos);
+						ch[bucket]=(1<<(tailIdx*hl+hl-1));
 						filled[bucket]=true;
 						filledCount++;
 						wasFill=true;
@@ -124,22 +150,19 @@ public class LCHistTrainerTTLL {
 						final int oldNlz=rawNlzArr[bucket];
 						final int delta=nlz-oldNlz;
 
-						if(delta<-1){
+						if(delta<-(hl-1)){
 							// ignore
-						}else if(delta==-1){
-							final int bitPos=(histBit==0) ? 0 : 2;
-							ch[bucket]|=(1<<bitPos);
-						}else if(delta==0){
-							final int bitPos=(histBit==0) ? 1 : 3;
-							ch[bucket]|=(1<<bitPos);
+						}else if(delta<=0){
+							ch[bucket]|=(1<<(tailIdx*hl+(hl-1)+delta));
 						}else{
-							final int shiftAmt=Math.min(delta, 2);
-							final int oldH=ch[bucket]&0xF;
-							final int h0=(oldH&0x3)>>>shiftAmt;
-							final int h1=((oldH>>>2)&0x3)>>>shiftAmt;
-							ch[bucket]=(h1<<2)|h0;
-							final int bitPos=(histBit==0) ? 1 : 3;
-							ch[bucket]|=(1<<bitPos);
+							final int shiftAmt=Math.min(delta, hl);
+							int newH=0;
+							for(int ti=0; ti<NUM_TAILS; ti++){
+								int tail=((ch[bucket]>>>(ti*hl))&tailMask)>>>shiftAmt;
+								if(ti==tailIdx){tail|=(1<<(hl-1));}
+								newH|=(tail<<(ti*hl));
+							}
+							ch[bucket]=newH;
 							rawNlzArr[bucket]=nlz;
 						}
 					}
@@ -217,6 +240,18 @@ public class LCHistTrainerTTLL {
 				threads=Integer.parseInt(b);
 			}else if(a.equals("seed")){
 				masterSeed=Long.parseLong(b);
+			}else if(a.equals("compressed")){
+				COMPRESSED=Parse.parseBoolean(b);
+			}else if(a.equals("numtails") || a.equals("tails")){
+				NUM_TAILS=Integer.parseInt(b);
+				HBITS=NUM_TAILS*HIST_LEN;
+				CH_MSB_MASK=computeMsbMask();
+				CH_LSB_MASK=computeLsbMask();
+			}else if(a.equals("histlen")){
+				HIST_LEN=Integer.parseInt(b);
+				HBITS=NUM_TAILS*HIST_LEN;
+				CH_MSB_MASK=computeMsbMask();
+				CH_LSB_MASK=computeLsbMask();
 			}else if(a.equals("out")){
 				out=arg.substring(eq+1); // preserve case for filename
 			}else if(a.equals("sample") || a.equals("s")){
@@ -250,7 +285,8 @@ public class LCHistTrainerTTLL {
 		}
 
 		// Merge
-		final int nStates=NUM_BINS*16;
+		final int numCH=1<<HBITS;
+		final int nStates=NUM_BINS*numCH;
 		final double[][] totalSums=new double[buckets+1][nStates];
 		final long[][] totalObs=new long[buckets+1][nStates];
 		for(TrainerThread w : workers){
@@ -268,7 +304,7 @@ public class LCHistTrainerTTLL {
 		// Build valid state list
 		int numValid=0;
 		for(int bin=0; bin<NUM_BINS; bin++){
-			for(int ch=0; ch<16; ch++){
+			for(int ch=0; ch<numCH; ch++){
 				if(isReachable(bin, ch)){numValid++;}
 			}
 		}
@@ -277,12 +313,13 @@ public class LCHistTrainerTTLL {
 		int vi=0;
 		for(int bin=0; bin<NUM_BINS; bin++){
 			final String binLabel=(bin>=NUM_BINS-1) ? (bin+"+") : String.valueOf(bin);
-			for(int ch=0; ch<16; ch++){
+			for(int ch=0; ch<numCH; ch++){
 				if(!isReachable(bin, ch)){continue;}
-				validStates[vi][0]=bin*16+ch;
+				validStates[vi][0]=bin*numCH+ch;
 				validStates[vi][1]=1;
-				stateNames[vi]=binLabel+"."+
-					((ch>>>3)&1)+((ch>>>2)&1)+((ch>>>1)&1)+(ch&1);
+				StringBuilder bits=new StringBuilder();
+				for(int b=HBITS-1; b>=0; b--){bits.append((ch>>>b)&1);}
+				stateNames[vi]=binLabel+"."+bits;
 				vi++;
 			}
 		}

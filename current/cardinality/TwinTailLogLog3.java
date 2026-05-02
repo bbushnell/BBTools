@@ -281,9 +281,33 @@ public final class TwinTailLogLog3 extends CardinalityTracker {
 	/*----------------    64-State Mean Estimate    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Placeholder: Phase 3 will implement with 64-state HSB tables. */
 	public double ttllMeanEstimate(){
-		return 0;
+		if(PER_TIER_STATE_TABLE==null){return 0;}
+		double sumInv=0;
+		int filled=0;
+		for(int i=0; i<numBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){continue;}
+			final int localExp=(reg>>>EXP_SHIFT)&0xF;
+			final int absNlz=globalExp+localExp;
+			final int ch=reg&TAILS_MASK;
+			final int tier=Math.min(absNlz, PER_TIER_MAX_TIER);
+			final double v=PER_TIER_STATE_TABLE[tier][ch];
+			if(v>0){sumInv+=1.0/v; filled++;}
+		}
+		if(filled==0){return 0;}
+		double est=(double)filled*filled/sumInv;
+		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
+				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
+			final double keyScale=(CorrectionFactor.v1Buckets>0 && numBuckets!=CorrectionFactor.v1Buckets)
+				? (double)CorrectionFactor.v1Buckets/numBuckets : 1.0;
+			final double cf=CorrectionFactor.getCF(est, est,
+				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
+				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+			est*=cf;
+		}
+		return est;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -451,6 +475,47 @@ public final class TwinTailLogLog3 extends CardinalityTracker {
 	/** Default HC/DLC blend weight inside LDLC. Swept 0.30-0.80, optimized for LDLC (Apr 25 2026). */
 	static final double DEFAULT_HC_WEIGHT=0.65;
 
+	/*--------------------------------------------------------------*/
+	/*----------------   Per-Tier State Table Est.   ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static double[][] PER_TIER_STATE_TABLE;
+	static int PER_TIER_MAX_TIER;
+
+	static String PTIER_SECTION=System.getProperty("ptier.section", "pctile_harm");
+
+	static void loadPerTierTable(){
+		final String fname=dna.Data.findPath("?perTierStateTTLL3.tsv.gz");
+		if(fname==null){return;}
+		fileIO.ByteFile bf=fileIO.ByteFile.makeByteFile(fname, false);
+		final double[][] table=new double[16][NUM_COMBINED];
+		int maxTier=0;
+		boolean inSection=false;
+		final String sectionHeader="#"+PTIER_SECTION;
+		for(byte[] raw=bf.nextLine(); raw!=null; raw=bf.nextLine()){
+			if(raw.length==0){continue;}
+			final String line=new String(raw).trim();
+			if(line.startsWith(sectionHeader+"\t") || line.equals(sectionHeader)){
+				inSection=true; continue;
+			}
+			if(inSection && line.startsWith("#Tier")){continue;}
+			if(inSection && line.startsWith("#")){break;}
+			if(!inSection){continue;}
+			final String[] parts=line.split("\t");
+			if(parts.length<2){continue;}
+			final int tier;
+			try{tier=Integer.parseInt(parts[0]);}catch(NumberFormatException e){continue;}
+			if(tier>=16){continue;}
+			for(int s=1; s<parts.length && (s-1)<NUM_COMBINED; s++){
+				try{table[tier][s-1]=Double.parseDouble(parts[s]);}catch(NumberFormatException e){}
+			}
+			if(tier>maxTier){maxTier=tier;}
+		}
+		bf.close();
+		PER_TIER_STATE_TABLE=table;
+		PER_TIER_MAX_TIER=maxTier;
+	}
+
 	/** MUST appear after all static field declarations. */
 	static {
 		StateTable.USE_TTLL3_HSB=true;
@@ -459,5 +524,6 @@ public final class TwinTailLogLog3 extends CardinalityTracker {
 		CorrectionFactor.sbsFile="?sbsTTLL3_1536.tsv.gz";
 		CorrectionFactor.SBS_CF_TABLE=null;
 		CorrectionFactor.loadSbsTable();
+		loadPerTierTable();
 	}
 }
