@@ -103,9 +103,9 @@ public class CardinalityParser {
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
 		else if(a.equals("capdenom") || a.equals("cd")){HalfCappedDynamicLogLog4.CAP_DENOM=Integer.parseInt(b);}
-		else if(a.equals("demotionmode") || a.equals("dm")){VariableCompressedDynamicLogLog4.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.DEMOTION_MODE=Integer.parseInt(b);}
+		else if(a.equals("demotionmode") || a.equals("dm")){VariableCompressedDynamicLogLog4.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.DEMOTION_MODE=Integer.parseInt(b);}
 		// else if(a.equals("vcdll4histlimit") || a.equals("vhl")){VariableCompressedDynamicLogLog4.HIST_LIMIT=Integer.parseInt(b);}
-		else if(a.equals("histtiers") || a.equals("htl")){ArithmeticVariableDynamicLogLog32.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.reconfigure();}
+		else if(a.equals("histtiers") || a.equals("htl")){ArithmeticVariableDynamicLogLog32.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.reconfigure(); ArithmeticVariableDynamicLogLog36.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.reconfigure(); ArithmeticVariableDynamicLogLog34.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.reconfigure();}
 
 		// PLL family flags
 		else if(a.equals("plloffset") || a.equals("pco")){
@@ -253,8 +253,17 @@ public class CardinalityParser {
 			CorrectionFactor.sbsFile=ArithmeticUltraDynamicLogLog32.SBS_FILE;
 			if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=1.008f;}
 		}else if(loglogtype.equals("avdll32")){
-			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.0;
-			CorrectionFactor.sbsFile=ArithmeticVariableDynamicLogLog32.SBS_FILE;
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
+			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
+			classHasHcCf=true;
+		}else if(loglogtype.equals("avdll36")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
+			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
+			classHasHcCf=true;
+		}else if(loglogtype.equals("avdll34")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
+			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
+			classHasHcCf=true;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
 		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=1.5;}
@@ -318,6 +327,8 @@ public class CardinalityParser {
 			else if("audll32".equals(loglogtype)){ArithmeticUltraDynamicLogLog32.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("audll33".equals(loglogtype)){ArithmeticUltraDynamicLogLog33.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avdll32".equals(loglogtype)){ArithmeticVariableDynamicLogLog32.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("avdll36".equals(loglogtype)){ArithmeticVariableDynamicLogLog36.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("avdll34".equals(loglogtype)){ArithmeticVariableDynamicLogLog34.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 
@@ -358,6 +369,10 @@ public class CardinalityParser {
 			return ArithmeticUltraDynamicLogLog33.CF_FILE;
 		}else if(loglogtype.equals("avdll32")){
 			return ArithmeticVariableDynamicLogLog32.CF_FILE;
+		}else if(loglogtype.equals("avdll36")){
+			return ArithmeticVariableDynamicLogLog36.CF_FILE;
+		}else if(loglogtype.equals("avdll34")){
+			return ArithmeticVariableDynamicLogLog34.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return CompressedDynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bcdll3")){
