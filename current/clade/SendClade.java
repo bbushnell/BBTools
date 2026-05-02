@@ -154,6 +154,10 @@ public class SendClade extends CladeObject {
 				Clade.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("a48")){
 				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
+			}else if(a.equalsIgnoreCase("a48o") || a.equalsIgnoreCase("offseta48")){
+				Clade.outputCoding=Clade.OFFSET_A48;
+			}else if(a.equalsIgnoreCase("deco") || a.equalsIgnoreCase("offsetdec")){
+				Clade.outputCoding=Clade.OFFSET_DEC;
 			}else if(a.equals("mtload")){
 				mtload=Parse.parseBoolean(b);
 			}else if(a.equals("sfload")){

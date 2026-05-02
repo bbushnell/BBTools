@@ -830,6 +830,34 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		length--;
 		return this;
 	}
+
+	public ByteBuilder appendOffsetDec(long[] array, char delimiter){
+		if(array==null || array.length<1){return this;}
+		long min=array[0];
+		for(int i=1; i<array.length; i++){min=Math.min(min, array[i]);}
+		append(min);
+		append(delimiter);
+		for(int i=0; i<array.length; i++){
+			append(array[i]-min);
+			append(delimiter);
+		}
+		length--;
+		return this;
+	}
+
+	public ByteBuilder appendOffsetA48(long[] array, char delimiter){
+		if(array==null || array.length<1){return this;}
+		long min=array[0];
+		for(int i=1; i<array.length; i++){min=Math.min(min, array[i]);}
+		appendA48(min);
+		append(delimiter);
+		for(int i=0; i<array.length; i++){
+			appendA48(array[i]-min);
+			append(delimiter);
+		}
+		length--;
+		return this;
+	}
 	
 	private ByteBuilder appendA48_old(long value, byte[] temp){
 		int i=0;

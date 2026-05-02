@@ -370,6 +370,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				in.add(arg);
 			}else if(b==null && new File(arg).isDirectory()){
 				Tools.getFileOrFiles(arg, in, true, true, true, false);
+			}else if(a.equalsIgnoreCase("a48")){
+				Clade.outputCoding=Parse.parseBoolean(b) ? Clade.A48 : Clade.DECIMAL;
+			}else if(a.equalsIgnoreCase("a48o") || a.equalsIgnoreCase("offseta48")){
+				Clade.outputCoding=Clade.OFFSET_A48;
+			}else if(a.equalsIgnoreCase("deco") || a.equalsIgnoreCase("offsetdec")){
+				Clade.outputCoding=Clade.OFFSET_DEC;
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here

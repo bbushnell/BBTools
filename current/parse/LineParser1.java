@@ -169,6 +169,22 @@ public final class LineParser1 implements LineParser {
 		}
 		return array;
 	}
+
+	public long[] parseLongArrayOffsetDec(int term, long[] array) {
+		long min=parseLong(term);
+		for(int i=0; i<array.length; i++) {
+			array[i]=min+parseLong(term+1+i);
+		}
+		return array;
+	}
+
+	public long[] parseLongArrayOffsetA48(int term, long[] array) {
+		long min=parseLongA48(term);
+		for(int i=0; i<array.length; i++) {
+			array[i]=min+parseLongA48(term+1+i);
+		}
+		return array;
+	}
 	
 	/**
 	 * Parses the specified term as a float.
