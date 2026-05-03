@@ -82,8 +82,8 @@ public class LowComplexityCalibrationDriver {
 		// Reuse constants from DDLCalibrationDriver/Driver2
 		final int NUM_EST=DDLCalibrationDriver.NUM_EST;
 		final int NUM_OUT1=DDLCalibrationDriver.NUM_OUT1;
-		final int NUM_LDLC=DDLCalibrationDriver2.NUM_LDLC;
-		final String[] LDLC_NAMES=DDLCalibrationDriver2.LDLC_NAMES;
+		final int NUM_EXTENDED_TYPES=DDLCalibrationDriver2.NUM_EXTENDED_TYPES;
+		final String[] EXTENDED_NAMES=DDLCalibrationDriver2.EXTENDED_NAMES;
 
 		// Initialize global cardinality state (CF tables, formula coefficients, etc.)
 		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, null);
@@ -116,9 +116,9 @@ public class LowComplexityCalibrationDriver {
 		final double[][] sumErr=new double[numThresholds][NUM_OUT1];
 		final double[][] sumAbsErr=new double[numThresholds][NUM_OUT1];
 		final double[][] sumSqErr=new double[numThresholds][NUM_OUT1];
-		final double[][] ldlcSumErr=new double[numThresholds][NUM_LDLC];
-		final double[][] ldlcSumAbsErr=new double[numThresholds][NUM_LDLC];
-		final double[][] ldlcSumSqErr=new double[numThresholds][NUM_LDLC];
+		final double[][] ldlcSumErr=new double[numThresholds][NUM_EXTENDED_TYPES];
+		final double[][] ldlcSumAbsErr=new double[numThresholds][NUM_EXTENDED_TYPES];
+		final double[][] ldlcSumSqErr=new double[numThresholds][NUM_EXTENDED_TYPES];
 		final double[] occSum=new double[numThresholds];
 		final int[] nArr=new int[numThresholds];
 		final Object lock=new Object();
@@ -146,9 +146,9 @@ public class LowComplexityCalibrationDriver {
 				final double[][] lSumErr=new double[finalNumThresholds][NUM_OUT1];
 				final double[][] lSumAbsErr=new double[finalNumThresholds][NUM_OUT1];
 				final double[][] lSumSqErr=new double[finalNumThresholds][NUM_OUT1];
-				final double[][] lLdlcErr=new double[finalNumThresholds][NUM_LDLC];
-				final double[][] lLdlcAbsErr=new double[finalNumThresholds][NUM_LDLC];
-				final double[][] lLdlcSqErr=new double[finalNumThresholds][NUM_LDLC];
+				final double[][] lLdlcErr=new double[finalNumThresholds][NUM_EXTENDED_TYPES];
+				final double[][] lLdlcAbsErr=new double[finalNumThresholds][NUM_EXTENDED_TYPES];
+				final double[][] lLdlcSqErr=new double[finalNumThresholds][NUM_EXTENDED_TYPES];
 				final double[] lOccSum=new double[finalNumThresholds];
 				final int[] lN=new int[finalNumThresholds];
 				final FastRandomXoshiro rng=new FastRandomXoshiro(0);
@@ -191,7 +191,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=u.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									u.fgraEstimate(), cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -208,7 +208,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=u.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									u.fgraEstimate(), cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -225,7 +225,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=u.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -242,7 +242,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -259,7 +259,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -497,7 +497,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -514,7 +514,7 @@ public class LowComplexityCalibrationDriver {
 								final CardStats cs=c.consumeLastSummarized();
 								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
 									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcVals[e];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -528,7 +528,7 @@ public class LowComplexityCalibrationDriver {
 								}
 							}else if(est.getClass()==ProtoLogLog16c.class){
 								final double[] ldlcR=((ProtoLogLog16c)est).ldlcEstimate();
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcR[ldlcIdx[e]];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -538,7 +538,7 @@ public class LowComplexityCalibrationDriver {
 							}else if(est.getClass()==TwinTailLogLog.class){
 								final TwinTailLogLog ttll=(TwinTailLogLog)est;
 								final double[] ldlcR=ttll.ldlcEstimate();
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcR[ldlcIdx[e]];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -563,7 +563,7 @@ public class LowComplexityCalibrationDriver {
 							}else if(est.getClass()==TwinTailLogLog3.class){
 								final TwinTailLogLog3 ttll3=(TwinTailLogLog3)est;
 								final double[] ldlcR=ttll3.ldlcEstimate();
-								for(int e=0; e<DDLCalibrationDriver2.NUM_LDLC_BASE; e++){
+								for(int e=0; e<DDLCalibrationDriver2.NUM_EXTENDED_BASE; e++){
 									final double v=ldlcR[ldlcIdx[e]];
 									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][e]+=lerr;
@@ -613,7 +613,7 @@ public class LowComplexityCalibrationDriver {
 							sumAbsErr[ti2][e]+=lSumAbsErr[ti2][e];
 							sumSqErr[ti2][e]+=lSumSqErr[ti2][e];
 						}
-						for(int e=0; e<NUM_LDLC; e++){
+						for(int e=0; e<NUM_EXTENDED_TYPES; e++){
 							ldlcSumErr[ti2][e]+=lLdlcErr[ti2][e];
 							ldlcSumAbsErr[ti2][e]+=lLdlcAbsErr[ti2][e];
 							ldlcSumSqErr[ti2][e]+=lLdlcSqErr[ti2][e];
@@ -708,11 +708,11 @@ public class LowComplexityCalibrationDriver {
 				}
 			}
 
-			final double[] ldlcTotalAbsErr=new double[NUM_LDLC];
-			final double[] ldlcWidthWtAbsErr=new double[NUM_LDLC];
-			final double[] ldlcCountWtAbsErr=new double[NUM_LDLC];
-			final double[] ldlcPeakAbsErr=new double[NUM_LDLC];
-			final double[] ldlcTotalSignedErr=new double[NUM_LDLC];
+			final double[] ldlcTotalAbsErr=new double[NUM_EXTENDED_TYPES];
+			final double[] ldlcWidthWtAbsErr=new double[NUM_EXTENDED_TYPES];
+			final double[] ldlcCountWtAbsErr=new double[NUM_EXTENDED_TYPES];
+			final double[] ldlcPeakAbsErr=new double[NUM_EXTENDED_TYPES];
+			final double[] ldlcTotalSignedErr=new double[NUM_EXTENDED_TYPES];
 			double ldlcWidthWeightSum=0;
 			double ldlcCountWeightSum=0;
 			for(int ti=0; ti<numThresholds; ti++){
@@ -720,7 +720,7 @@ public class LowComplexityCalibrationDriver {
 				final double w=tWidths[ti];
 				ldlcWidthWeightSum+=w;
 				ldlcCountWeightSum+=nArr[ti];
-				for(int e=0; e<NUM_LDLC; e++){
+				for(int e=0; e<NUM_EXTENDED_TYPES; e++){
 					final double meanAbsAtRow=ldlcSumAbsErr[ti][e]/nArr[ti];
 					ldlcTotalAbsErr[e]+=meanAbsAtRow;
 					ldlcWidthWtAbsErr[e]+=meanAbsAtRow*w;
@@ -729,9 +729,9 @@ public class LowComplexityCalibrationDriver {
 					if(meanAbsAtRow>ldlcPeakAbsErr[e]){ldlcPeakAbsErr[e]=meanAbsAtRow;}
 				}
 			}
-			for(int e=0; e<NUM_LDLC; e++){
+			for(int e=0; e<NUM_EXTENDED_TYPES; e++){
 				System.err.println(String.format("%-12s %.8f   %.8f   %.8f   %.8f   %+.8f   %.8f",
-					LDLC_NAMES[e], ldlcTotalAbsErr[e]/rows,
+					EXTENDED_NAMES[e], ldlcTotalAbsErr[e]/rows,
 					ldlcWidthWeightSum>0 ? ldlcWidthWtAbsErr[e]/ldlcWidthWeightSum : 0,
 					ldlcCountWeightSum>0 ? ldlcCountWtAbsErr[e]/ldlcCountWeightSum : 0,
 					ldlcPeakAbsErr[e],
@@ -743,9 +743,9 @@ public class LowComplexityCalibrationDriver {
 		// Print stdout: File 1 format with LDLC columns appended
 		{
 			final StringBuilder hdr=new StringBuilder(DDLCalibrationDriver.header1());
-			for(int e=0; e<NUM_LDLC; e++){
-				hdr.append('\t').append(LDLC_NAMES[e]).append("_err");
-				hdr.append('\t').append(LDLC_NAMES[e]).append("_abs");
+			for(int e=0; e<NUM_EXTENDED_TYPES; e++){
+				hdr.append('\t').append(EXTENDED_NAMES[e]).append("_err");
+				hdr.append('\t').append(EXTENDED_NAMES[e]).append("_abs");
 			}
 			System.out.println(hdr);
 		}
@@ -754,7 +754,7 @@ public class LowComplexityCalibrationDriver {
 			final StringBuilder sb=new StringBuilder(DDLCalibrationDriver.formatRow1(row));
 			final int ti=finalTi;
 			final int ni=row.n;
-			for(int e=0; e<NUM_LDLC; e++){
+			for(int e=0; e<NUM_EXTENDED_TYPES; e++){
 				sb.append('\t').append(String.format("%.6f", ldlcSumErr[ti][e]/ni));
 				sb.append('\t').append(String.format("%.6f", ldlcSumAbsErr[ti][e]/ni));
 			}

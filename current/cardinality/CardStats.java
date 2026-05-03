@@ -228,6 +228,15 @@ public final class CardStats extends AbstractCardStats {
 		gmeanRawF=gmeanEstimate(gSum, filled, numBuckets);
 		hmeanRawF=hmeanEstimate(hllSumFilled, filled, alpha_m);
 
+		// 7b. MeanTC — per-tier corrected mean (no terminal CF needed)
+		{
+			final double[] tierCorr=meanTierCorr();
+			if(tierCorr!=null){
+				final double tcDifSum=tcDifSumFromCounts(counts, tierCorr);
+				meanTCRawF=meanEstimate(tcDifSum, filled, numBuckets);
+			}
+		}
+
 		// 8. CF-corrected estimates — use DLC raw as cardinality seed for table lookup
 		//    Grab immutable CF snapshot once; all lookups use this local reference
 		cfd=CorrectionFactor.cfData;
@@ -239,6 +248,7 @@ public final class CardStats extends AbstractCardStats {
 		// because the mantissa-corrected harmonic mean has different bias characteristics.
 		gmeanCF=gmeanRawF*cardCF(gmeanRawF, CorrectionFactor.GMEAN, keyScale);
 		hllCF=hllRawF*cardCF(hllRawF, CorrectionFactor.HLL, keyScale);
+		meanTCCF=(meanTCRawF>0 ? meanTCRawF*cardCF(meanTCRawF, CorrectionFactor.MEANTC, keyScale) : 0);
 
 		// DLC CF-corrected (DLC is already CF-free but gets table correction for residual bias)
 		dlcCF=dlcRawF*cardCF(dlcRawF, CorrectionFactor.DLC, keyScale);
@@ -321,6 +331,29 @@ public final class CardStats extends AbstractCardStats {
 			}
 			corrDifSum=cDif;
 			corrGSum=cGSum;
+
+			// MeanTCH: per-tier correction replacing constant tmPlusCF
+			{
+				final double[] tchCorr=meanTCHTierCorr();
+				if(tchCorr!=null){
+					double tchDif=0;
+					for(int i=0; i<numBuckets; i++){
+						final int val=buckets_[i];
+						if(val==0){continue;}
+						final int absNlz=(val>>>histBits_)-1;
+						final int histPattern=val&((1<<histBits_)-1);
+						final int nlzBin=Math.min(absNlz, histBits_+1);
+						final double dif=(absNlz==0 ? (double)Long.MAX_VALUE
+							: Math.pow(2.0, 63-absNlz*tierScale));
+						final double stateMult=tierMultTable[nlzBin][histPattern];
+						final double tchCorrVal=tchCorr[Math.min(absNlz, tchCorr.length-1)];
+						tchDif+=dif*stateMult*tmPlusCF/tchCorrVal;
+					}
+					final int divH=Math.max(filled, 1);
+					final double meanH=tchDif/divH;
+					meanTCHRawF=2*(Long.MAX_VALUE/Tools.max(1.0, meanH))*divH*correction;
+				}
+			}
 
 			// HC: history-only per-tier exact LC with info-power weighting
 			int maxNlzHC=0;
@@ -426,6 +459,7 @@ public final class CardStats extends AbstractCardStats {
 			final double gmeanH=Math.exp(corrGSum/divH);
 			gmeanCorrRawF=2*(Long.MAX_VALUE/gmeanH)*divH*correction;
 			gmeanCorrCF=gmeanCorrRawF*cardCF(gmeanCorrRawF, CorrectionFactor.GMEAN, keyScale);
+			meanTCHCF=(meanTCHRawF>0 ? meanTCHRawF*cardCF(meanTCHRawF, CorrectionFactor.MEANTCH, keyScale) : 0);
 		}else{
 			meanCorrRawF=meanRawF;
 			meanCorrCF=meanCF;
@@ -702,6 +736,8 @@ public final class CardStats extends AbstractCardStats {
 	public double meanHistCF(){return hasHistoryCorrection ? meanCorrCF : meanCF;}
 	/** History-corrected geometric mean. Falls back to plain when no history. */
 	public double gmeanHistCF(){return hasHistoryCorrection ? gmeanCorrCF : gmeanCF;}
+	public double meanTC(){return meanTCCF;}
+	public double meanTCH(){return meanTCHCF;}
 	/** Hybrid DLL estimate (LC/Mean blend for mantissa-free classes). Plain, no history. */
 	public double hybridDLL(){return hybridDLLF;}
 	/** Hybrid DDL estimate (LC/Mean/HMeanM blend for mantissa classes). Plain. */
@@ -1084,6 +1120,11 @@ public final class CardStats extends AbstractCardStats {
 	final double meanMCF_;      // mantissa-corrected mean with CF
 	final double gmeanMRawF;    // mantissa-corrected geometric mean raw
 	final double gmeanMCF_;     // mantissa-corrected geometric mean with CF
+
+	double meanTCRawF;
+	double meanTCCF;
+	double meanTCHRawF;
+	double meanTCHCF;
 
 	// --- Final phase: hybrid estimates ---
 	final double hybridDLLF;    // LC/Mean blend (for DLL types), plain (no history)
