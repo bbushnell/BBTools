@@ -44,6 +44,14 @@ public class CardinalityParser {
 		else if(a.equals("hllhistcf") || a.equals("histcf")){CardinalityStats.HLL_HIST_TERMINAL_CF=Double.parseDouble(b);}
 		else if(a.equals("tmcf") || a.equals("terminalmeancf")){AbstractCardStats.OVERRIDE_TERMINAL_MEAN_CF=Float.parseFloat(b);}
 		else if(a.equals("tmpcf") || a.equals("terminalmeanpluscf")){AbstractCardStats.OVERRIDE_TERMINAL_MEAN_PLUS_CF=Float.parseFloat(b);}
+		else if(a.equals("meantc")){
+			if(b.equals("lin") || b.equals("linear")){AbstractCardStats.MEAN_TC_MODE=1;}
+			else if(b.equals("geo") || b.equals("geometric")){AbstractCardStats.MEAN_TC_MODE=2;}
+			else if(b.equals("harm") || b.equals("harmonic")){AbstractCardStats.MEAN_TC_MODE=3;}
+			else if(b.equals("off") || b.equals("0") || b.equals("f") || b.equals("false")){AbstractCardStats.MEAN_TC_MODE=0;}
+			else{AbstractCardStats.MEAN_TC_MODE=Integer.parseInt(b);}
+		}
+		else if(a.equals("meantch")){AbstractCardStats.MEAN_TCH_ENABLED=Parse.parseBoolean(b);}
 		else if(a.equals("microlc")){CardinalityStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b); AbstractCardStats.USE_MICRO_FOR_LC=Parse.parseBoolean(b);}
 		else if(a.equals("usemicro") || a.equals("usemicroindex")){AbstractCardStats.USE_MICRO_INDEX=Parse.parseBoolean(b);}
 

@@ -487,7 +487,9 @@ public class DDLCalibrationDriver {
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");
 		final boolean hasMean16=type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("ettll5") || type.equals("udll36");
-		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0)+(hasMean16 ? 1 : 0);
+		final boolean hasMeanTC=(AbstractCardStats.MEAN_TC_MODE>0);
+		final boolean hasMeanTCH=AbstractCardStats.MEAN_TCH_ENABLED;
+		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0)+(hasMean16 ? 1 : 0)+(hasMeanTC ? 1 : 0)+(hasMeanTCH ? 1 : 0);
 		if(extra==0){
 			V3_EST_INDICES=V3_BASE_INDICES;
 			V3_COL_NAMES=V3_BASE_NAMES;
@@ -504,6 +506,8 @@ public class DDLCalibrationDriver {
 		if(hasMantissa){V3_EST_INDICES[idx]=AbstractCardStats.MEANM_IDX; V3_COL_NAMES[idx]="MeanM_cf"; idx++;}
 		if(hasWordEst){V3_EST_INDICES[idx]=WORDEST_RAW_IDX; V3_COL_NAMES[idx]="WordEst_cf"; idx++;}
 		if(hasMean16){V3_EST_INDICES[idx]=TwinTailLogLog.MEAN16_RAW_IDX; V3_COL_NAMES[idx]="Mean16_cf"; idx++;}
+		if(hasMeanTC){V3_EST_INDICES[idx]=AbstractCardStats.MEANTC_IDX; V3_COL_NAMES[idx]="MeanTC_cf"; idx++;}
+		if(hasMeanTCH){V3_EST_INDICES[idx]=AbstractCardStats.MEANTCH_IDX; V3_COL_NAMES[idx]="MeanTCH_cf"; idx++;}
 	}
 
 	/** Number of v3 histogram slots: integer slots 1..100, then 1% log-spaced above. */

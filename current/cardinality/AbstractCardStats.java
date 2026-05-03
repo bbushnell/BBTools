@@ -47,6 +47,21 @@ public abstract class AbstractCardStats {
 		return new double[]{difSum, hllSumFilled, gSum, filled};
 	}
 
+	static double tcDifSumFromCounts(final int[] counts, final double[] tierCorr){
+		if(tierCorr==null){return 0;}
+		double tcDifSum=0;
+		for(int i=1; i<counts.length; i++){
+			final int n=counts[i];
+			if(n==0){continue;}
+			final int absNlz=i-1;
+			final double scaledNlz=absNlz*TIER_SCALE;
+			final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : Math.pow(2.0, WORDLEN-scaledNlz-1));
+			final double tc=tierCorr[Math.min(absNlz, tierCorr.length-1)];
+			tcDifSum+=n*dif/tc;
+		}
+		return tcDifSum;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       LC Estimators          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -610,6 +625,8 @@ public abstract class AbstractCardStats {
 		r[LC_NOMICRO_IDX]=s.lcNoMicroF;  // pure LC without microIndex
 		r[SBS_NOMICRO_IDX]=s.sbsNoMicroF; // SBS without microIndex
 		r[HC_IDX]=s.hcF;                  // HC (formula-corrected, before table CF)
+		r[MEANTC_IDX]=s.meanTCRawF;
+		r[MEANTCH_IDX]=s.meanTCHRawF;
 		return r;
 	}
 
@@ -623,8 +640,8 @@ public abstract class AbstractCardStats {
 	/** Number of DLC tiers in output. */
 	public static final int NUM_DLC_TIERS=64;
 
-	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw, LC_noMicro, SBS_noMicro, HC_raw. */
-	public static final int NUM_EXTRA=5;
+	/** Number of extra columns appended after DLC tiers: MeanH_raw, MeanM_raw, LC_noMicro, SBS_noMicro, HC_raw, MeanTC_raw, MeanTCH_raw. */
+	public static final int NUM_EXTRA=7;
 	/** rawEstimates() index for MeanH (history-corrected Mean, raw before CF). */
 	public static final int MEANH_IDX=17+NUM_DLC_TIERS;
 	/** rawEstimates() index for MeanM (mantissa-corrected Mean, raw before CF). */
@@ -635,6 +652,10 @@ public abstract class AbstractCardStats {
 	public static final int SBS_NOMICRO_IDX=17+NUM_DLC_TIERS+3;
 	/** rawEstimates() index for HC raw (before table CF, after formula CF). */
 	public static final int HC_IDX=17+NUM_DLC_TIERS+4;
+	/** rawEstimates() index for MeanTC (per-tier-corrected Mean, raw before CF). */
+	public static final int MEANTC_IDX=17+NUM_DLC_TIERS+5;
+	/** rawEstimates() index for MeanTCH (per-tier-corrected Mean+H, raw before CF). */
+	public static final int MEANTCH_IDX=17+NUM_DLC_TIERS+6;
 
 	/** Exponential decay constant for DLC log-space blending. alpha = DLC_ALPHA / B. */
 	public static float DLC_ALPHA=9.0f;
@@ -725,5 +746,47 @@ public abstract class AbstractCardStats {
 	public static double DEFAULT_CF_DIF=1e-6;
 	/** Minimum DLC seed as multiple of B for iterative CF (below this, single lookup). */
 	public static float MIN_SEED_CF_MULT=10.0f;
+
+	/*--------------------------------------------------------------*/
+	/*----------------   Per-Tier Correction Arrays ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public static int MEAN_TC_MODE=0;
+
+	static final double[] MEAN_TC_ALL_LIN={
+		0.998353, 1.247654, 1.371378, 1.439793, 1.473231, 1.488568, 1.491243, 1.494897,
+		1.501013, 1.498529, 1.499174, 1.498770, 1.498252, 1.501357, 1.497663, 1.501036,
+		1.499700, 1.500611, 1.494930, 1.500, 1.500, 1.500, 1.500};
+
+	static final double[] MEAN_TC_ALL_GEO={
+		0.829833, 0.957732, 1.033603, 1.079005, 1.102109, 1.113780, 1.116537, 1.119009,
+		1.123429, 1.122073, 1.122336, 1.122622, 1.122075, 1.123430, 1.121769, 1.123172,
+		1.123513, 1.122791, 1.121057, 1.122, 1.122, 1.122, 1.122};
+
+	static final double[] MEAN_TC_ALL_HARM={
+		0.720729, 0.720463, 0.720778, 0.722666, 0.722623, 0.722800, 0.721433, 0.720655,
+		0.722786, 0.721516, 0.721005, 0.722384, 0.721261, 0.721251, 0.721684, 0.721732,
+		0.721504, 0.720757, 0.720540, 0.721, 0.721, 0.721, 0.721};
+
+	static double[] meanTierCorr(){
+		switch(MEAN_TC_MODE){
+			case 1: return MEAN_TC_ALL_LIN;
+			case 2: return MEAN_TC_ALL_GEO;
+			case 3: return MEAN_TC_ALL_HARM;
+			default: return null;
+		}
+	}
+
+	public static boolean MEAN_TCH_ENABLED=false;
+
+	static final double[] MEAN_TCH_ALL={
+		0.99835314, 1.13468454, 1.22959438, 1.31522774, 1.34619699, 1.35987507,
+		1.36318352, 1.36727568, 1.37128270, 1.36984971, 1.37051138, 1.37004211,
+		1.36956524, 1.37244874, 1.36865048, 1.37211104, 1.37013559, 1.37191145,
+		1.37155495, 1.37231793, 1.36962604, 1.36935202, 1.37169821};
+
+	static double[] meanTCHTierCorr(){
+		return MEAN_TCH_ENABLED ? MEAN_TCH_ALL : null;
+	}
 
 }
