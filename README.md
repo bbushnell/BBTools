@@ -16,7 +16,7 @@
 
 ## 📊 Version
 
-Current Version: **39.83**
+Current Version: **39.84**
 
 ## 🚀 Features
 

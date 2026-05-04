@@ -916,7 +916,7 @@ public class PerTierHistorySimulator {
 
 		int tailBits=4, stopTier=16, runs=1000, threads=4;
 		long masterSeed=0; // 0=deterministic (seeds 0..runs-1), -1=random, >0=offset
-		boolean variance=false, rawOutput=false, perStateCorrection=false;
+		boolean variance=false, rawOutput=false, perStateCorrection=false, allowNullOut=false;
 		int smFilter=-1; // -1=all, 0=entry, 1=all, 2=entryexit, 3=pctile
 		String outFile=null;
 
@@ -937,6 +937,7 @@ public class PerTierHistorySimulator {
 				case "variance": case "var": variance=Parse.parseBoolean(kv[1]); break;
 				case "raw": rawOutput=Parse.parseBoolean(kv[1]); break;
 				case "perstate": perStateCorrection=Parse.parseBoolean(kv[1]); break;
+				case "allownullout": allowNullOut=Parse.parseBoolean(kv[1]); break;
 				case "sm": case "sample":
 					switch(kv[1].toLowerCase()){
 						case "0": case "entry": smFilter=0; break;
@@ -958,6 +959,7 @@ public class PerTierHistorySimulator {
 		else if(EXPANDED){TIER_NUMER=2; TIER_DENOM=1;}
 		else{TIER_NUMER=1; TIER_DENOM=1;}
 		if(tailBits%NUM_TAILS!=0) throw new RuntimeException("tailBits must be divisible by numTails");
+		if(outFile==null && !allowNullOut) throw new RuntimeException("out= parameter required (use allownullout=t for benchmark-only mode)");
 
 		final long seedOffset;
 		if(masterSeed==-1){seedOffset=System.nanoTime();}
