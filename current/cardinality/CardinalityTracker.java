@@ -830,6 +830,7 @@ public abstract class CardinalityTracker implements Drivable {
 
 	/** Returns 16-bit counts array if present; null otherwise. */
 	public char[] counts16(){return null;}
+	public byte[] gcArray(){return null;}
 
 	/**
 	 * Merges another tracker into this one.

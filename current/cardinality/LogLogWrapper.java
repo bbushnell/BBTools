@@ -350,22 +350,34 @@ class LogLogWrapper {
 	private void makeKhist(CardinalityTracker log){
 		final char[] counts=log.counts16();
 		if(counts==null){return;}
+		final byte[] gc=log.gcArray();
 
 		final long[] hist=new long[histMax+1];
-		for(char c : counts){
-			if(c>0 && c<=histMax){hist[c]++;}
-			else if(c>histMax){hist[histMax]++;}
+		final long[] gcSum=(gc!=null ? new long[histMax+1] : null);
+		for(int i=0; i<counts.length; i++){
+			final int c=counts[i];
+			if(c>0 && c<=histMax){
+				hist[c]++;
+				if(gcSum!=null){gcSum[c]+=(gc[i]&0xFF);}
+			}else if(c>histMax){
+				hist[histMax]++;
+				if(gcSum!=null){gcSum[histMax]+=(gc[i]&0xFF);}
+			}
 		}
 
 		if(khistFile!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(khistFile, overwrite, false, true);
 			bsw.start();
-			bsw.print("#Depth\tCount\n");
+			bsw.print(gcSum!=null ? "#Depth\tCount\tAvgGC\n" : "#Depth\tCount\n");
 			for(int i=1; i<hist.length; i++){
 				if(hist[i]>0){
 					bsw.print(i);
 					bsw.print('\t');
 					bsw.print(hist[i]);
+					if(gcSum!=null){
+						bsw.print('\t');
+						bsw.print(String.format("%.4f", gcSum[i]/(double)(hist[i]*k)));
+					}
 					bsw.print('\n');
 				}
 			}
