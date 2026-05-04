@@ -292,7 +292,7 @@ class LogLogWrapper {
 		}
 
 		if(khistFile!=null || peaksFile!=null){
-			makeKhist(log);
+			makeKhist(log, cardinality);
 		}
 
 		if(!Parser.silent){
@@ -347,10 +347,11 @@ class LogLogWrapper {
 		return cardinality;
 	}
 	
-	private void makeKhist(CardinalityTracker log){
+	private void makeKhist(CardinalityTracker log, long cardinality){
 		final char[] counts=log.counts16();
 		if(counts==null){return;}
 		final byte[] gc=log.gcArray();
+		final double scale=cardinality/(double)log.buckets;
 
 		final long[] hist=new long[histMax+1];
 		final long[] gcSum=(gc!=null ? new long[histMax+1] : null);
@@ -365,18 +366,25 @@ class LogLogWrapper {
 			}
 		}
 
+		final long[] scaled=new long[hist.length];
+		for(int i=0; i<hist.length; i++){
+			scaled[i]=Math.round(hist[i]*scale);
+		}
+
 		if(khistFile!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(khistFile, overwrite, false, true);
 			bsw.start();
-			bsw.print(gcSum!=null ? "#Depth\tCount\tAvgGC\n" : "#Depth\tCount\n");
+			bsw.print(gcSum!=null ? "#Depth\tCount\tScaled\tGC%\n" : "#Depth\tCount\tScaled\n");
 			for(int i=1; i<hist.length; i++){
 				if(hist[i]>0){
 					bsw.print(i);
 					bsw.print('\t');
 					bsw.print(hist[i]);
+					bsw.print('\t');
+					bsw.print(scaled[i]);
 					if(gcSum!=null){
 						bsw.print('\t');
-						bsw.print(String.format("%.4f", gcSum[i]/(double)(hist[i]*k)));
+						bsw.print(String.format("%.2f", 100.0*gcSum[i]/(hist[i]*k)));
 					}
 					bsw.print('\n');
 				}
@@ -386,7 +394,7 @@ class LogLogWrapper {
 
 		if(peaksFile!=null){
 			CallPeaks.printClass=false;
-			CallPeaks.printPeaks(hist, null, peaksFile, overwrite,
+			CallPeaks.printPeaks(scaled, null, peaksFile, overwrite,
 					2, 2, 2, 2, histMax, 12, k, 0, false, 0, null);
 		}
 	}
