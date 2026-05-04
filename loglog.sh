@@ -3,12 +3,14 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 6, 2026
+Last modified May 4, 2026
 
 Description:  Estimates cardinality of unique kmers in sequence data.
 See also kmercountmulti.sh.
 
 Usage:  loglog.sh in=<file> k=<31>
+For histograms:
+loglog.sh in=<file> buckets=256k khist=khist.txt peaks=peaks.txt
 
 Parameters:
 in=<file>       (in1) Input file, or comma-delimited list of files.
@@ -84,7 +86,7 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	parseJavaArgs "--xmx=200m" "--xms=200m" "--mode=fixed" "$@"
+	parseJavaArgs "--xmx=1000m" "--xms=200m" "--mode=fixed" "$@"
 	setEnvironment
 }
 
