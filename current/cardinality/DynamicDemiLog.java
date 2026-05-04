@@ -39,6 +39,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		super(p);
 		maxArray=new char[buckets];
 		countArray=new char[buckets];
+		gcArray=new byte[buckets];
 		minZeroCount=buckets;
 	}
 
@@ -64,6 +65,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
 		countArray=(makeCounts ? new char[buckets] : null);
+		gcArray=(makeCounts ? new byte[buckets] : null);
 		minZeroCount=buckets;
 	}
 
@@ -176,12 +178,16 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		lastCardinality=-1;
 		if(maxArray!=log.maxArray){
 			if(countArray!=null && log.countArray!=null) {
+				final boolean mergeGC=(gcArray!=null && log.gcArray!=null);
 				for(int i=0; i<buckets; i++){
 					final char maxA=maxArray[i], maxB=log.maxArray[i];
 					final char countA=countArray[i], countB=log.countArray[i];
 					maxArray[i]=Tools.max(maxA, maxB);
 					if(maxA==maxB){countArray[i]=(char)Tools.min(countA+(int)countB, Character.MAX_VALUE);}
-					else{countArray[i]=(maxA>maxB ? countA : countB);}
+					else{
+						countArray[i]=(maxA>maxB ? countA : countB);
+						if(mergeGC){gcArray[i]=(maxA>maxB ? gcArray[i] : log.gcArray[i]);}
+					}
 				}
 			}else{
 				for(int i=0; i<buckets; i++){
@@ -255,6 +261,9 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			final char count=countArray[bucket];
 			countArray[bucket]=(char)(oldValue>score ? count :
 				oldValue==score ? Math.max(count, (char)(count+1)) : 1);
+			if(gcArray!=null && score>oldValue){
+				gcArray[bucket]=(byte)Long.bitCount(number&0x5555555555555555L);
+			}
 		}
 		
 		//Update the dynamic early exit threshold
@@ -290,6 +299,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	public char[] counts16(){return countArray;}
+	public byte[] gcArray(){return gcArray;}
 
 	/** Returns the underlying maxArray for internal comparison. */
 	public char[] maxArray(){return maxArray;}
@@ -531,6 +541,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private final char[] maxArray;
 	/** Count of observations at the current maximum score for each bucket. */
 	private final char[] countArray;
+	/** GC base count of the kmer that set the current max for each bucket. */
+	private final byte[] gcArray;
 	/** Floor NLZ tier, matching old minZeros behavior. Starts at 0.
 	 * Rises monotonically as cardinality increases and buckets advance past lower tiers. */
 	private int globalNLZ=0;
