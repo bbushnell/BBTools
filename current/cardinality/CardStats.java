@@ -1147,11 +1147,25 @@ public final class CardStats extends AbstractCardStats {
 	static double VW_POWER=Double.parseDouble(System.getProperty("vw.power", "0.4"));
 	static double VW_TIER_GROWTH=2.0;
 	static final int VW_TAIL_BITS=3;
-	static boolean VW_HARMONIC=Boolean.parseBoolean(System.getProperty("vw.harmonic", "false"));
+	static boolean VW_HARMONIC=Boolean.parseBoolean(System.getProperty("vw.harmonic", "true"));
 	static boolean VW_GEOMETRIC=Boolean.parseBoolean(System.getProperty("vw.geometric", "false"));
 	static String VW_SECTION=System.getProperty("ptier.section", "entry_lin");
 	static final double VW_GROWTH_L=2.0, VW_GROWTH_A=0, VW_GROWTH_B=0, VW_GROWTH_C=0;
 	static double[] VW_EXTRAP;
+
+	static float[] VW_CF_COL;
+	static float[] VW_CF_KEYS;
+	static int VW_CF_BUCKETS;
+
+	static void captureVWCF(){
+		if(CorrectionFactor.v1Matrix!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
+				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
+			VW_CF_COL=CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16].clone();
+			VW_CF_KEYS=(CorrectionFactor.v1Keys!=null) ? CorrectionFactor.v1Keys.clone() : null;
+			VW_CF_BUCKETS=CorrectionFactor.v1Buckets;
+		}
+	}
 
 	public double vwMean(){return vwMeanF;}
 
@@ -1191,14 +1205,11 @@ public final class CardStats extends AbstractCardStats {
 		if(VW_HARMONIC){est=used*sumW/sumWV;}
 		else if(VW_GEOMETRIC){est=used*Math.exp(sumWV/sumW);}
 		else{est=used*sumWV/sumW;}
-		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
-				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
-				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
-			final double keyScale=(CorrectionFactor.v1Buckets>0 && numBuckets!=CorrectionFactor.v1Buckets)
-				? (double)CorrectionFactor.v1Buckets/numBuckets : 1.0;
+		if(VW_CF_COL!=null && VW_CF_KEYS!=null){
+			final double keyScale=(VW_CF_BUCKETS>0 && numBuckets!=VW_CF_BUCKETS)
+				? (double)VW_CF_BUCKETS/numBuckets : 1.0;
 			final double cf=CorrectionFactor.getCF(est, est,
-				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
-				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+				VW_CF_COL, VW_CF_KEYS, 5, 0.0001, keyScale);
 			est*=cf;
 		}
 		return est;

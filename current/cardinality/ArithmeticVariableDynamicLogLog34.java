@@ -314,7 +314,9 @@ public final class ArithmeticVariableDynamicLogLog34 extends CardinalityTracker 
 	public double[] rawEstimates(){
 		lastSummarized=summarize();
 		final double hybridEst=lastSummarized.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		final double[] r=AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		r[AbstractCardStats.HC_IDX+1]=lastSummarized.vwMean();
+		return r;
 	}
 
 	public int getRegPublic(int i){return getReg(i);}

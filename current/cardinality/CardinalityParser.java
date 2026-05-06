@@ -331,6 +331,7 @@ public class CardinalityParser {
 		if(cffile==null){cffile=defaultCFFile(loglogtype);}
 		if(cffile!=null){
 			CorrectionFactor.initialize(cffile, buckets);
+			CardStats.captureVWCF();
 			if("pll16c".equals(loglogtype)){ProtoLogLog16c.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("udll6".equals(loglogtype)){UltraDynamicLogLog6.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 				else if("udll6m".equals(loglogtype)){UltraDynamicLogLog6m.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
