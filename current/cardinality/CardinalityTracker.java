@@ -102,6 +102,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ArithmeticVariableDynamicLogLog36();
 		}else if("AVDLL34".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog34".equalsIgnoreCase(type)){
 			return new ArithmeticVariableDynamicLogLog34();
+		}else if("AVDLL64".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog64".equalsIgnoreCase(type)){
+			return new ArithmeticVariableDynamicLogLog64();
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3();
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
@@ -231,6 +233,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ArithmeticVariableDynamicLogLog36(p);
 		}else if("AVDLL34".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog34".equalsIgnoreCase(type)){
 			return new ArithmeticVariableDynamicLogLog34(p);
+		}else if("AVDLL64".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog64".equalsIgnoreCase(type)){
+			return new ArithmeticVariableDynamicLogLog64(p);
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3(p);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
@@ -360,6 +364,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ArithmeticVariableDynamicLogLog36(buckets_, k_, seed, minProb_);
 		}else if("AVDLL34".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog34".equalsIgnoreCase(type)){
 			return new ArithmeticVariableDynamicLogLog34(buckets_, k_, seed, minProb_);
+		}else if("AVDLL64".equalsIgnoreCase(type) || "ArithmeticVariableDynamicLogLog64".equalsIgnoreCase(type)){
+			return new ArithmeticVariableDynamicLogLog64(buckets_, k_, seed, minProb_);
 		}else if("DHDLL3".equalsIgnoreCase(type) || "DualHashDynamicLogLog3".equalsIgnoreCase(type) || "cdll3".equalsIgnoreCase(type) || "CompressedDynamicLogLog3".equalsIgnoreCase(type)){
 			return new CompressedDynamicLogLog3(buckets_, k_, seed, minProb_);
 		}else if("DHDLL4".equalsIgnoreCase(type) || "DualHashDynamicLogLog4".equalsIgnoreCase(type)){
