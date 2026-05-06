@@ -352,67 +352,14 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 	/*----------------       VWMean Estimate        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static double[][] VW_STATE_TABLE;
-	static double[][] VW_VARIANCE_TABLE;
-	static int VW_MAX_TIER;
-	static double VW_POWER=Double.parseDouble(System.getProperty("vw.power", "0.4"));
-	static double VW_TIER_GROWTH=2.0;
-	static final int VW_TAIL_BITS=3;
-	static boolean VW_HARMONIC=Boolean.parseBoolean(System.getProperty("vw.harmonic", "false"));
-	static String VW_SECTION=System.getProperty("ptier.section", "entry_lin");
-	static final double VW_GROWTH_L=1.9325, VW_GROWTH_A=0.1684, VW_GROWTH_B=0.1386, VW_GROWTH_C=7.24;
-	static double[] VW_EXTRAP;
+	static double[][] VW_STATE_TABLE;  // alias for CardStats.VW_STATE_TABLE
+	static int VW_MAX_TIER;  // alias for CardStats.VW_MAX_TIER
 
 	public double vwMeanEstimate(){
+		if(lastSummarized!=null){return lastSummarized.vwMean();}
 		if(VW_STATE_TABLE==null){return 0;}
-		double sumWV=0, sumW=0;
-		int used=0;
-		for(int i=0; i<modBuckets; i++){
-			final int reg=getReg(i);
-			if(reg==0){continue;}
-			final int nlzPart=reg>>>2;
-			final int histPattern=reg&3;
-			final int absNlz;
-			if(nlzPart>=HISTORY_MARGIN){
-				absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
-			}else{
-				absNlz=globalNLZ+1;
-			}
-			used++;
-			final int tier=Math.min(absNlz, VW_MAX_TIER);
-			final int stateIdx=4+histPattern;
-			if(stateIdx>=VW_STATE_TABLE[tier].length){continue;}
-			double v=VW_STATE_TABLE[tier][stateIdx];
-			if(v<=0){continue;}
-			if(absNlz>VW_MAX_TIER){
-				final int beyond=absNlz-VW_MAX_TIER;
-				v*=(VW_EXTRAP!=null && beyond<VW_EXTRAP.length) ? VW_EXTRAP[beyond] : Math.pow(VW_TIER_GROWTH, beyond);
-			}
-			double w=1.0;
-			if(VW_VARIANCE_TABLE!=null && tier<VW_VARIANCE_TABLE.length){
-				final double variance=VW_VARIANCE_TABLE[tier][stateIdx];
-				if(variance>0){w=1.0/Math.pow(variance, VW_POWER);}
-			}
-			if(VW_HARMONIC){
-				sumWV+=w/v;
-			}else{
-				sumWV+=w*v;
-			}
-			sumW+=w;
-		}
-		if(sumW==0 || (VW_HARMONIC && sumWV==0)){return 0;}
-		double est=VW_HARMONIC ? used*sumW/sumWV : used*sumWV/sumW;
-		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
-				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
-				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
-			final double keyScale=(CorrectionFactor.v1Buckets>0 && modBuckets!=CorrectionFactor.v1Buckets)
-				? (double)CorrectionFactor.v1Buckets/modBuckets : 1.0;
-			final double cf=CorrectionFactor.getCF(est, est,
-				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
-				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
-			est*=cf;
-		}
-		return est;
+		final CardStats cs=summarize();
+		return cs.vwMean();
 	}
 
 	static void loadVWTable(){
@@ -426,7 +373,7 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 		int maxTier=0;
 		int stopTier=-1;
 		boolean inSection=false;
-		final String sectionHeader="#"+VW_SECTION;
+		final String sectionHeader="#"+CardStats.VW_SECTION;
 		for(byte[] raw=bf.nextLine(); raw!=null; raw=bf.nextLine()){
 			if(raw.length==0){continue;}
 			final String line=new String(raw).trim();
@@ -452,13 +399,15 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 			if(tier>maxTier){maxTier=tier;}
 		}
 		bf.close();
-		final int safeTier=(stopTier>0 ? stopTier-VW_TAIL_BITS : maxTier);
-		VW_MAX_TIER=Math.min(maxTier, safeTier);
+		final int safeTier=(stopTier>0 ? stopTier-CardStats.VW_TAIL_BITS : maxTier);
+		CardStats.VW_MAX_TIER=Math.min(maxTier, safeTier);
+		CardStats.VW_STATE_TABLE=table;
 		VW_STATE_TABLE=table;
+		VW_MAX_TIER=CardStats.VW_MAX_TIER;
 
-		if(VW_MAX_TIER>=2){
+		if(CardStats.VW_MAX_TIER>=2){
 			double sumA=0, sumB=0;
-			for(int tier=Math.max(0, VW_MAX_TIER-4)+1; tier<=VW_MAX_TIER; tier++){
+			for(int tier=Math.max(0, CardStats.VW_MAX_TIER-4)+1; tier<=CardStats.VW_MAX_TIER; tier++){
 				for(int s=0; s<numStates; s++){
 					if(table[tier][s]>0 && table[tier-1][s]>0){
 						sumB+=table[tier][s];
@@ -466,15 +415,15 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 					}
 				}
 			}
-			if(sumA>0){VW_TIER_GROWTH=sumB/sumA;}
+			if(sumA>0){CardStats.VW_TIER_GROWTH=sumB/sumA;}
 		}
 
-		VW_EXTRAP=new double[64];
-		VW_EXTRAP[0]=1.0;
+		CardStats.VW_EXTRAP=new double[64];
+		CardStats.VW_EXTRAP[0]=1.0;
 		for(int n=1; n<64; n++){
-			int t=VW_MAX_TIER+n;
-			double g=VW_GROWTH_L-VW_GROWTH_A*Math.exp(-VW_GROWTH_B*(t-VW_GROWTH_C));
-			VW_EXTRAP[n]=VW_EXTRAP[n-1]*g;
+			int t=CardStats.VW_MAX_TIER+n;
+			double g=CardStats.VW_GROWTH_L-CardStats.VW_GROWTH_A*Math.exp(-CardStats.VW_GROWTH_B*(t-CardStats.VW_GROWTH_C));
+			CardStats.VW_EXTRAP[n]=CardStats.VW_EXTRAP[n-1]*g;
 		}
 
 		loadVWVarianceTable(fname);
@@ -482,10 +431,10 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 
 	static void loadVWVarianceTable(String fname){
 		String varSection;
-		if(VW_SECTION.startsWith("all_")){varSection="var_all";}
-		else if(VW_SECTION.startsWith("entry_")){varSection="var_entry";}
-		else if(VW_SECTION.startsWith("entryexit_")){varSection="var_entryexit";}
-		else if(VW_SECTION.startsWith("pctile_")){varSection="var_pctile";}
+		if(CardStats.VW_SECTION.startsWith("all_")){varSection="var_all";}
+		else if(CardStats.VW_SECTION.startsWith("entry_")){varSection="var_entry";}
+		else if(CardStats.VW_SECTION.startsWith("entryexit_")){varSection="var_entryexit";}
+		else if(CardStats.VW_SECTION.startsWith("pctile_")){varSection="var_pctile";}
 		else{varSection="var_all";}
 
 		fileIO.ByteFile bf=fileIO.ByteFile.makeByteFile(fname, false);
@@ -515,7 +464,7 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 			if(tier>maxTier){maxTier=tier;}
 		}
 		bf.close();
-		if(maxTier>0){VW_VARIANCE_TABLE=varTable;}
+		if(maxTier>0){CardStats.VW_VARIANCE_TABLE=varTable;}
 	}
 
 	static {
