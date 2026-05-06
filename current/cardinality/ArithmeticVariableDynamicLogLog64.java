@@ -298,7 +298,9 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 	public double[] rawEstimates(){
 		lastSummarized=summarize();
 		final double hybridEst=lastSummarized.hybridDLL();
-		return AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		final double[] r=AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		r[AbstractCardStats.HC_IDX+1]=lastSummarized.vwMean();
+		return r;
 	}
 
 	public int getRegPublic(int i){return getReg(i);}
@@ -378,7 +380,7 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	@Override public float terminalMeanCF(){return 0.721298f;}
+	@Override public float terminalMeanCF(){return 1.386726f;}
 	@Override public float terminalMeanPlusCF(){return 0.856139f;}
 
 	private static long[] POW=computePow(RADIX);

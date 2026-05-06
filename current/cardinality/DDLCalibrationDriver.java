@@ -486,7 +486,7 @@ public class DDLCalibrationDriver {
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");
-		final boolean hasMean16=type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("ettll5") || type.equals("udll36");
+		final boolean hasMean16=type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("ettll5") || type.equals("udll36") || type.equals("avdll34") || type.equals("avdll64");
 		final boolean hasMeanTC=(AbstractCardStats.MEAN_TC_MODE>0);
 		final boolean hasMeanTCH=AbstractCardStats.MEAN_TCH_ENABLED;
 		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0)+(hasMean16 ? 1 : 0)+(hasMeanTC ? 1 : 0)+(hasMeanTCH ? 1 : 0);
