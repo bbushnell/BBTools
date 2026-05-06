@@ -595,6 +595,8 @@ public final class CardStats extends AbstractCardStats {
 				ldlcF=(1-maxHcWeight)*dlcSbsF+maxHcWeight*hcF;
 			}
 		}
+
+		vwMeanF=computeVWMean(buckets_, histBits_, numBuckets_);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -1133,5 +1135,73 @@ public final class CardStats extends AbstractCardStats {
 	final double hybridDDLHistF; // History-corrected LC/Mean/HMeanM blend
 	double hybridPlus2F;        // SBS → Mean+H with DLC zone detection. Non-final: recomputed by overrideMeanH().
 	double ldlcF;               // DlcSbs blended with HC. Non-final: recomputed by overrideHC().
+	final double vwMeanF;       // VWMean estimate (harmonic/geometric/arithmetic of per-tier-state table lookups).
+
+	/*--------------------------------------------------------------*/
+	/*----------------       VWMean Statics         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	static double[][] VW_STATE_TABLE;
+	static double[][] VW_VARIANCE_TABLE;
+	static int VW_MAX_TIER;
+	static double VW_POWER=Double.parseDouble(System.getProperty("vw.power", "0.4"));
+	static double VW_TIER_GROWTH=2.0;
+	static final int VW_TAIL_BITS=3;
+	static boolean VW_HARMONIC=Boolean.parseBoolean(System.getProperty("vw.harmonic", "false"));
+	static boolean VW_GEOMETRIC=Boolean.parseBoolean(System.getProperty("vw.geometric", "false"));
+	static String VW_SECTION=System.getProperty("ptier.section", "entry_lin");
+	static final double VW_GROWTH_L=2.0, VW_GROWTH_A=0, VW_GROWTH_B=0, VW_GROWTH_C=0;
+	static double[] VW_EXTRAP;
+
+	public double vwMean(){return vwMeanF;}
+
+	static double computeVWMean(final char[] buckets, final int histBits, final int numBuckets){
+		if(VW_STATE_TABLE==null || buckets==null || histBits<2){return 0;}
+		final int histMask=(1<<histBits)-1;
+		double sumWV=0, sumW=0;
+		int used=0;
+		for(int i=0; i<numBuckets; i++){
+			final int packed=buckets[i];
+			if(packed==0){continue;}
+			final int histPattern=packed&histMask;
+			final int absNlz=(packed>>>histBits)-1;
+			if(absNlz<0){continue;}
+			used++;
+			final int tier=Math.min(absNlz, VW_MAX_TIER);
+			final int stateIdx=4+histPattern;
+			if(tier>=VW_STATE_TABLE.length || stateIdx>=VW_STATE_TABLE[tier].length){continue;}
+			double v=VW_STATE_TABLE[tier][stateIdx];
+			if(v<=0){continue;}
+			if(absNlz>VW_MAX_TIER){
+				final int beyond=absNlz-VW_MAX_TIER;
+				v*=(VW_EXTRAP!=null && beyond<VW_EXTRAP.length) ? VW_EXTRAP[beyond] : Math.pow(VW_TIER_GROWTH, beyond);
+			}
+			double w=1.0;
+			if(VW_VARIANCE_TABLE!=null && tier<VW_VARIANCE_TABLE.length){
+				final double variance=VW_VARIANCE_TABLE[tier][stateIdx];
+				if(variance>0){w=1.0/Math.pow(variance, VW_POWER);}
+			}
+			if(VW_HARMONIC){sumWV+=w/v;}
+			else if(VW_GEOMETRIC){sumWV+=w*Math.log(v);}
+			else{sumWV+=w*v;}
+			sumW+=w;
+		}
+		if(sumW==0 || (VW_HARMONIC && sumWV==0)){return 0;}
+		double est;
+		if(VW_HARMONIC){est=used*sumW/sumWV;}
+		else if(VW_GEOMETRIC){est=used*Math.exp(sumWV/sumW);}
+		else{est=used*sumWV/sumW;}
+		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
+				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
+			final double keyScale=(CorrectionFactor.v1Buckets>0 && numBuckets!=CorrectionFactor.v1Buckets)
+				? (double)CorrectionFactor.v1Buckets/numBuckets : 1.0;
+			final double cf=CorrectionFactor.getCF(est, est,
+				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
+				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+			est*=cf;
+		}
+		return est;
+	}
 
 }

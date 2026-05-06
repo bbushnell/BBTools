@@ -248,8 +248,10 @@ public class DDLCalibrationDriver2 {
 			}
 		}
 		if(m.ternWtAbsErr!=null){
-			System.err.println("\n--- Ternary Blend Sweep (Hyb+2 / LDLC / VWMean, step="+CalThread.TERN_STEP+") Top 20 ---");
-			System.err.printf("%-8s %-8s %-8s  %s%n", "Hyb+2", "LDLC", "VWMean", "WidthWt%");
+			final int dims=CalThread.ternSweep[0].length;
+			System.err.println("\n--- "+(dims==4?"4":"3")+"-Way Blend Sweep ("+(dims==4?"Hyb+2 / DlcSbs / HC / VWMean":"Hyb+2 / LDLC / VWMean")+", step="+CalThread.TERN_STEP+") Top 20 ---");
+			if(dims==4){System.err.printf("%-8s %-8s %-8s %-8s  %s%n", "Hyb+2", "DlcSbs", "HC", "VWMean", "WidthWt%");}
+			else{System.err.printf("%-8s %-8s %-8s  %s%n", "Hyb+2", "LDLC", "VWMean", "WidthWt%");}
 			final int len=m.ternWtAbsErr.length;
 			Integer[] idx=new Integer[len];
 			for(int i=0; i<len; i++){idx[i]=i;}
@@ -259,8 +261,10 @@ public class DDLCalibrationDriver2 {
 			for(int i=0; i<Math.min(20, len); i++){
 				final int si=idx[i];
 				final double wt=m.ternWt[si]>0?100*m.ternWtAbsErr[si]/m.ternWt[si]:999;
-				System.err.printf("%.2f     %.2f     %.2f      %.4f%%%n",
-					CalThread.ternSweep[si][0], CalThread.ternSweep[si][1], CalThread.ternSweep[si][2], wt);
+				if(dims==4){System.err.printf("%.2f     %.2f     %.2f     %.2f      %.4f%%%n",
+					CalThread.ternSweep[si][0], CalThread.ternSweep[si][1], CalThread.ternSweep[si][2], CalThread.ternSweep[si][3], wt);}
+				else{System.err.printf("%.2f     %.2f     %.2f      %.4f%%%n",
+					CalThread.ternSweep[si][0], CalThread.ternSweep[si][1], CalThread.ternSweep[si][2], wt);}
 			}
 		}
 		return m;
@@ -508,57 +512,7 @@ public class DDLCalibrationDriver2 {
 							final UltraDynamicLogLog36 u36=(UltraDynamicLogLog36)ddl;
 							final CardStats cs36=u36.consumeLastSummarized();
 							accumulateCardStatsLdlc(cs36, 0, trueCard, ti, ddl.hldlcWeight());
-							if(UltraDynamicLogLog36.VW_STATE_TABLE!=null && cs36!=null){
-								final double vwPure=u36.vwMeanEstimate();
-								final double hyb=cs36.hybridPlus2();
-								final double ldlc=cs36.ldlc();
-								final double lerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
-								ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
-								// Blended VWMean: SBS at low cardinality, VWPure at high, log interp in between
-								double vw=vwPure;
-								if(vwPure>0){
-									final double sbs=cs36.sbs();
-									final double zoneEst=cs36.dlcRaw();
-									final double hb0=VW_BLEND_LO*buckets;
-									final double hb1=VW_BLEND_HI*buckets;
-									if(zoneEst<=hb0){
-										vw=sbs;
-									}else if(zoneEst<hb1){
-										final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0);
-										vw=(1-t)*sbs+t*vwPure;
-									}
-								}
-								{
-									final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
-									ldlcSumErr[ti][VWMEAN_IDX]+=vwErr; ldlcSumAbsErr[ti][VWMEAN_IDX]+=Math.abs(vwErr); ldlcSumSqErr[ti][VWMEAN_IDX]+=vwErr*vwErr;
-								}
-								final float hw=ddl.hldlcWeight();
-								final double hldlc36=hw*ldlc+(1-hw)*hyb;
-								if(vw>0 && hldlc36>0){
-									if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
-										final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
-										final double v=w*vw+(1-w)*hldlc36;
-										final double lerr2=(v-trueCard)/(double)trueCard;
-										ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr2;
-										ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr2);
-										ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr2*lerr2;
-									}
-								}
-								if(vw>0 && hyb>0 && ldlc>0){
-									final double vldlc=VLDLC_HYB*hyb+VLDLC_LDLC*ldlc+VLDLC_VW*vw;
-									final double vlerr=(vldlc-trueCard)/(double)trueCard;
-									ldlcSumErr[ti][VLDLC_IDX]+=vlerr; ldlcSumAbsErr[ti][VLDLC_IDX]+=Math.abs(vlerr); ldlcSumSqErr[ti][VLDLC_IDX]+=vlerr*vlerr;
-									if(ternSweep!=null){
-										final double width=(double)trueCard;
-										for(int si=0; si<ternSweep.length; si++){
-											final double v=ternSweep[si][0]*hyb+ternSweep[si][1]*ldlc+ternSweep[si][2]*vw;
-											final double e=(v-trueCard)/(double)trueCard;
-											ternSumWtAbsErr[si]+=Math.abs(e)*width;
-											ternSumWt[si]+=width;
-										}
-									}
-								}
-							}
+							accumulateVWMean(cs36, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog4.class){
 							accumulateCardStatsLdlc(((CompressedDynamicLogLog4)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==BankedDynamicLogLog4.class){
@@ -588,9 +542,13 @@ public class DDLCalibrationDriver2 {
 						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog36.class){
 							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog36)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog34.class){
-							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog34)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							final CardStats csA34=((ArithmeticVariableDynamicLogLog34)ddl).consumeLastSummarized();
+							accumulateCardStatsLdlc(csA34, 0, trueCard, ti, ddl.hldlcWeight());
+							accumulateVWMean(csA34, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticVariableDynamicLogLog64.class){
-							accumulateCardStatsLdlc(((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
+							final CardStats csA64=((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized();
+							accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
+							accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
 							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
@@ -856,6 +814,63 @@ public class DDLCalibrationDriver2 {
 			}
 		}
 
+		private void accumulateVWMean(CardStats cs, long trueCard, int ti, float hw){
+			if(CardStats.VW_STATE_TABLE==null || cs==null){return;}
+			final double vwPure=cs.vwMean();
+			final double hyb=cs.hybridPlus2();
+			final double ldlc=cs.ldlc();
+			final double lerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+			ldlcSumErr[ti][MEAN16_IDX]+=lerr; ldlcSumAbsErr[ti][MEAN16_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][MEAN16_IDX]+=lerr*lerr;
+			double vw=vwPure;
+			if(vwPure>0){
+				final double sbs=cs.sbs();
+				final double zoneEst=cs.dlcRaw();
+				final double hb0=VW_BLEND_LO*buckets;
+				final double hb1=VW_BLEND_HI*buckets;
+				if(zoneEst<=hb0){vw=sbs;}
+				else if(zoneEst<hb1){
+					final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0);
+					vw=(1-t)*sbs+t*vwPure;
+				}
+			}
+			{
+				final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+				ldlcSumErr[ti][VWMEAN_IDX]+=vwErr; ldlcSumAbsErr[ti][VWMEAN_IDX]+=Math.abs(vwErr); ldlcSumSqErr[ti][VWMEAN_IDX]+=vwErr*vwErr;
+			}
+			final double hldlc36=hw*ldlc+(1-hw)*hyb;
+			if(vw>0 && hldlc36>0){
+				if(M16_SWEEP) for(int si=0; si<M16_SWEEP_COUNT; si++){
+					final double w=M16_SWEEP_START+si*M16_SWEEP_STEP;
+					final double v=w*vw+(1-w)*hldlc36;
+					final double lerr2=(v-trueCard)/(double)trueCard;
+					ldlcSumErr[ti][M16_SWEEP_BASE+si]+=lerr2;
+					ldlcSumAbsErr[ti][M16_SWEEP_BASE+si]+=Math.abs(lerr2);
+					ldlcSumSqErr[ti][M16_SWEEP_BASE+si]+=lerr2*lerr2;
+				}
+			}
+			if(vw>0 && hyb>0 && ldlc>0){
+				final double vldlc=VLDLC_HYB*hyb+VLDLC_LDLC*ldlc+VLDLC_VW*vw;
+				final double vlerr=(vldlc-trueCard)/(double)trueCard;
+				ldlcSumErr[ti][VLDLC_IDX]+=vlerr; ldlcSumAbsErr[ti][VLDLC_IDX]+=Math.abs(vlerr); ldlcSumSqErr[ti][VLDLC_IDX]+=vlerr*vlerr;
+				if(ternSweep!=null){
+					final double width=(double)trueCard;
+					final double dlcSbs=cs.dlcSbs();
+					final double hcVal=cs.hc();
+					for(int si=0; si<ternSweep.length; si++){
+						final double v;
+						if(ternSweep[si].length>=4){
+							v=ternSweep[si][0]*hyb+ternSweep[si][1]*dlcSbs+ternSweep[si][2]*hcVal+ternSweep[si][3]*vw;
+						}else{
+							v=ternSweep[si][0]*hyb+ternSweep[si][1]*ldlc+ternSweep[si][2]*vw;
+						}
+						final double e=(v-trueCard)/(double)trueCard;
+						ternSumWtAbsErr[si]+=Math.abs(e)*width;
+						ternSumWt[si]+=width;
+					}
+				}
+			}
+		}
+
 		/** LC mode: replay from same seed with increasing windows. */
 		void runLC(CardinalityTracker ddl, long ddlSeed, int ti, int di, java.io.PrintWriter out4Pw){
 			final long valSeed=ddlSeed*3+1; // Must differ from ddlSeed to avoid hash correlation
@@ -918,18 +933,35 @@ public class DDLCalibrationDriver2 {
 
 		static double[][] ternSweep;
 		static final double TERN_STEP=Double.parseDouble(System.getProperty("tern.step", "0.02"));
+		static final int TERN_DIMS=Integer.parseInt(System.getProperty("tern.dims", "3"));
 		static void initTernSweep(){
 			final double step=TERN_STEP;
 			final int n=(int)Math.round(1.0/step)+1;
-			int count=0;
-			for(int xi=0; xi<n; xi++) for(int yi=0; yi<n-xi; yi++) count++;
-			ternSweep=new double[count][3];
-			int idx=0;
-			for(int xi=0; xi<n; xi++){
-				for(int yi=0; yi<n-xi; yi++){
-					final double x=xi*step, y=yi*step, z=1.0-x-y;
-					ternSweep[idx][0]=x; ternSweep[idx][1]=y; ternSweep[idx][2]=z;
-					idx++;
+			if(TERN_DIMS==4){
+				int count=0;
+				for(int xi=0; xi<n; xi++) for(int yi=0; yi<n-xi; yi++) for(int zi=0; zi<n-xi-yi; zi++) count++;
+				ternSweep=new double[count][4];
+				int idx=0;
+				for(int xi=0; xi<n; xi++){
+					for(int yi=0; yi<n-xi; yi++){
+						for(int zi=0; zi<n-xi-yi; zi++){
+							final double x=xi*step, y=yi*step, z=zi*step, w=1.0-x-y-z;
+							ternSweep[idx][0]=x; ternSweep[idx][1]=y; ternSweep[idx][2]=z; ternSweep[idx][3]=w;
+							idx++;
+						}
+					}
+				}
+			}else{
+				int count=0;
+				for(int xi=0; xi<n; xi++) for(int yi=0; yi<n-xi; yi++) count++;
+				ternSweep=new double[count][3];
+				int idx=0;
+				for(int xi=0; xi<n; xi++){
+					for(int yi=0; yi<n-xi; yi++){
+						final double x=xi*step, y=yi*step, z=1.0-x-y;
+						ternSweep[idx][0]=x; ternSweep[idx][1]=y; ternSweep[idx][2]=z;
+						idx++;
+					}
 				}
 			}
 		}

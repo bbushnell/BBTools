@@ -31,6 +31,7 @@ public class PerTierHistorySimulator {
 	static boolean COMPRESSED=false;
 	static boolean EXPANDED=false;
 	static boolean USE_SIMD=true;
+	static boolean USE_32BIT=true;
 	static int TIER_NUMER=1, TIER_DENOM=1;
 	static int NUM_TAILS=2;
 	static int PS_TARGET=0; // 0=harmonic(default), 1=arithmetic, 2=geometric
@@ -218,26 +219,122 @@ public class PerTierHistorySimulator {
 		}
 	}
 
-	private static final VectorSpecies<Long> SPECIES=LongVector.SPECIES_256;
-	private static final LongVector FLIP_BIT=LongVector.broadcast(SPECIES, Long.MIN_VALUE);
+	private static final VectorSpecies<Long> LSPECIES=LongVector.SPECIES_512;
+	private static final VectorSpecies<Integer> ISPECIES=IntVector.SPECIES_512;
+	private static final int LANES=ISPECIES.length(); // 16 ints per 512-bit register
+	private static final int RNG_LANES=LSPECIES.length(); // 8 longs per 512-bit register
+	private static final IntVector INT_FLIP=IntVector.broadcast(ISPECIES, Integer.MIN_VALUE);
+	private static final LongVector LONG_FLIP=LongVector.broadcast(LSPECIES, Long.MIN_VALUE);
 
-	/** Single-bucket SIMD: 4 RNG streams feed one bucket. 4× hash throughput, zero tail waste. */
+	/** Single-bucket SIMD: 4 RNG streams → 8 int hashes per step. 8× hash throughput vs scalar. */
 	void simulateOneBucketEntrySIMD(long seed,
 			long[][] lc, double[][] ls, double[][] lsl, double[][] lsi, double[][] lss){
 
-		// 4 independent xoshiro256+ streams for one bucket
-		long[] ss0=new long[4], ss1=new long[4], ss2=new long[4], ss3=new long[4];
-		for(int i=0; i<4; i++){
-			long x=seed*4+i;
+		final int rngLanes=LSPECIES.length();
+		long[] ss0=new long[rngLanes], ss1=new long[rngLanes], ss2=new long[rngLanes], ss3=new long[rngLanes];
+		for(int i=0; i<rngLanes; i++){
+			long x=seed*rngLanes+i;
 			x=splitmix(x); ss0[i]=x;
 			x=splitmix(x); ss1[i]=x;
 			x=splitmix(x); ss2[i]=x;
 			x=splitmix(x); ss3[i]=x;
 		}
-		LongVector vs0=LongVector.fromArray(SPECIES, ss0, 0);
-		LongVector vs1=LongVector.fromArray(SPECIES, ss1, 0);
-		LongVector vs2=LongVector.fromArray(SPECIES, ss2, 0);
-		LongVector vs3=LongVector.fromArray(SPECIES, ss3, 0);
+		LongVector vs0=LongVector.fromArray(LSPECIES, ss0, 0);
+		LongVector vs1=LongVector.fromArray(LSPECIES, ss1, 0);
+		LongVector vs2=LongVector.fromArray(LSPECIES, ss2, 0);
+		LongVector vs3=LongVector.fromArray(LSPECIES, ss3, 0);
+
+		for(int w=0; w<4; w++){
+			LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
+			vs2=vs2.lanewise(VectorOperators.XOR, vs0);
+			vs3=vs3.lanewise(VectorOperators.XOR, vs1);
+			vs1=vs1.lanewise(VectorOperators.XOR, vs2);
+			vs0=vs0.lanewise(VectorOperators.XOR, vs3);
+			vs2=vs2.lanewise(VectorOperators.XOR, t);
+			vs3=vs3.lanewise(VectorOperators.ROL, 45);
+		}
+
+		int exp=0, tail=0;
+		int eeMask=-1;
+		long tc=0;
+		IntVector mFlip=IntVector.broadcast(ISPECIES, eeMask^Integer.MIN_VALUE);
+
+		for(;;){
+			IntVector result;
+			long inner=0;
+			do{
+				LongVector longResult=vs0.add(vs3);
+				LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
+				vs2=vs2.lanewise(VectorOperators.XOR, vs0);
+				vs3=vs3.lanewise(VectorOperators.XOR, vs1);
+				vs1=vs1.lanewise(VectorOperators.XOR, vs2);
+				vs0=vs0.lanewise(VectorOperators.XOR, vs3);
+				vs2=vs2.lanewise(VectorOperators.XOR, t);
+				vs3=vs3.lanewise(VectorOperators.ROL, 45);
+				result=(IntVector)longResult.reinterpretAsInts();
+				inner++;
+			}while(result.lanewise(VectorOperators.XOR, INT_FLIP)
+				.compare(VectorOperators.GT, mFlip).allTrue());
+
+			tc+=(inner-1)*LANES;
+
+			for(int i=0; i<LANES; i++){
+				tc++;
+				final int hash=result.lane(i);
+				if(Integer.compareUnsigned(hash, eeMask)>0){continue;}
+
+				final int rawNLZ=Integer.numberOfLeadingZeros(hash);
+				final int hashNLZ=(TIER_NUMER!=1)?(TIER_NUMER*rawNLZ)/TIER_DENOM:rawNLZ;
+				final int delta=hashNLZ-exp;
+				if(delta<-margin){continue;}
+
+				final int tailIdx=(hash>>>1)&(numTails-1);
+				final int oldTail=tail;
+				if(delta<=0){
+					tail|=(1<<(tailIdx*tailWidth+(tailWidth-1)+delta));
+				}else{
+					if(exp+delta>=stopTier){return;}
+					final int shiftAmt=Math.min(delta, tailWidth);
+					int newTail=0;
+					for(int ti=0; ti<numTails; ti++){
+						int t2=((tail>>>(ti*tailWidth))&tailMask)>>>shiftAmt;
+						if(ti==tailIdx){t2|=(1<<(tailWidth-1));}
+						newTail|=(t2<<(ti*tailWidth));
+					}
+					tail=newTail; exp+=delta;
+					final int target=exp-margin;
+					if(target<=0){eeMask=-1;}
+					else{
+						final int minRaw=(TIER_DENOM*target)/TIER_NUMER;
+						eeMask=(minRaw>=32)?0:(-1)>>>minRaw;
+					}
+					mFlip=IntVector.broadcast(ISPECIES, eeMask^Integer.MIN_VALUE);
+				}
+				if(tail!=oldTail || delta>0){
+					lc[exp][tail]++; ls[exp][tail]+=tc;
+					lsl[exp][tail]+=Math.log(tc); lsi[exp][tail]+=1.0/tc;
+					lss[exp][tail]+=(double)tc*tc;
+				}
+			}
+		}
+	}
+
+	/** 64-bit SIMD: RNG_LANES long hashes per step. */
+	void simulateOneBucketEntrySIMD64(long seed,
+			long[][] lc, double[][] ls, double[][] lsl, double[][] lsi, double[][] lss){
+
+		long[] ss0=new long[RNG_LANES], ss1=new long[RNG_LANES], ss2=new long[RNG_LANES], ss3=new long[RNG_LANES];
+		for(int i=0; i<RNG_LANES; i++){
+			long x=seed*RNG_LANES+i;
+			x=splitmix(x); ss0[i]=x;
+			x=splitmix(x); ss1[i]=x;
+			x=splitmix(x); ss2[i]=x;
+			x=splitmix(x); ss3[i]=x;
+		}
+		LongVector vs0=LongVector.fromArray(LSPECIES, ss0, 0);
+		LongVector vs1=LongVector.fromArray(LSPECIES, ss1, 0);
+		LongVector vs2=LongVector.fromArray(LSPECIES, ss2, 0);
+		LongVector vs3=LongVector.fromArray(LSPECIES, ss3, 0);
 
 		for(int w=0; w<4; w++){
 			LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
@@ -252,10 +349,9 @@ public class PerTierHistorySimulator {
 		int exp=0, tail=0;
 		long eeMask=-1L;
 		long tc=0;
-		LongVector mFlip=LongVector.broadcast(SPECIES, eeMask^Long.MIN_VALUE);
+		LongVector mFlip=LongVector.broadcast(LSPECIES, eeMask^Long.MIN_VALUE);
 
 		for(;;){
-			// SIMD INNER LOOP: generate 4 hashes, test all against single eeMask
 			LongVector result;
 			long inner=0;
 			do{
@@ -268,18 +364,14 @@ public class PerTierHistorySimulator {
 				vs2=vs2.lanewise(VectorOperators.XOR, t);
 				vs3=vs3.lanewise(VectorOperators.ROL, 45);
 				inner++;
-			}while(result.lanewise(VectorOperators.XOR, FLIP_BIT)
+			}while(result.lanewise(VectorOperators.XOR, LONG_FLIP)
 				.compare(VectorOperators.GT, mFlip).allTrue());
 
-			// Account for (inner-1) full-skip iterations × 4 hashes each
-			tc+=(inner-1)*4;
+			tc+=(inner-1)*RNG_LANES;
 
-			// Process 4 hashes from the last iteration sequentially into one bucket
-			final long h0=result.lane(0), h1=result.lane(1), h2=result.lane(2), h3=result.lane(3);
-			final long[] hh={h0, h1, h2, h3};
-			for(int i=0; i<4; i++){
+			for(int i=0; i<RNG_LANES; i++){
 				tc++;
-				final long hash=hh[i];
+				final long hash=result.lane(i);
 				if(Long.compareUnsigned(hash, eeMask)>0){continue;}
 
 				final int rawNLZ=Long.numberOfLeadingZeros(hash);
@@ -307,7 +399,7 @@ public class PerTierHistorySimulator {
 						final int minRaw=(TIER_DENOM*target)/TIER_NUMER;
 						eeMask=(minRaw>=64)?0:(-1L)>>>minRaw;
 					}
-					mFlip=LongVector.broadcast(SPECIES, eeMask^Long.MIN_VALUE);
+					mFlip=LongVector.broadcast(LSPECIES, eeMask^Long.MIN_VALUE);
 				}
 				if(tail!=oldTail || delta>0){
 					lc[exp][tail]++; ls[exp][tail]+=tc;
@@ -329,11 +421,11 @@ public class PerTierHistorySimulator {
 	/*----------------           Training            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	void train(int totalRuns, long seedOffset) throws InterruptedException {
+	void train(long totalRuns, long seedOffset) throws InterruptedException {
 		train(totalRuns, seedOffset, -1);
 	}
 
-	void train(int totalRuns, long seedOffset, int smFilter) throws InterruptedException {
+	void train(long totalRuns, long seedOffset, int smFilter) throws InterruptedException {
 		if(smFilter==S_ENTRY){
 			trainEntry(totalRuns, seedOffset);
 			return;
@@ -373,7 +465,7 @@ public class PerTierHistorySimulator {
 		}
 	}
 
-	void trainEntry(int totalRuns, long seedOffset) throws InterruptedException {
+	void trainEntry(long totalRuns, long seedOffset) throws InterruptedException {
 		final AtomicLong counter=new AtomicLong(0);
 		final long[][][] tC=new long[threads][stopTier][numStates];
 		final double[][][] tS=new double[threads][stopTier][numStates];
@@ -382,14 +474,19 @@ public class PerTierHistorySimulator {
 		final double[][][] tSS=new double[threads][stopTier][numStates];
 
 		final boolean useSIMD=USE_SIMD && totalRuns>=4;
+		final boolean use32=USE_32BIT;
 		final Thread[] arr=new Thread[threads];
 		for(int t=0; t<threads; t++){
 			final int tid=t;
 			arr[t]=new Thread(()->{
 				long runId;
-				if(useSIMD){
+				if(useSIMD && use32){
 					while((runId=counter.getAndIncrement())<totalRuns){
 						simulateOneBucketEntrySIMD(seedOffset+runId, tC[tid], tS[tid], tSL[tid], tSI[tid], tSS[tid]);
+					}
+				}else if(useSIMD){
+					while((runId=counter.getAndIncrement())<totalRuns){
+						simulateOneBucketEntrySIMD64(seedOffset+runId, tC[tid], tS[tid], tSL[tid], tSI[tid], tSS[tid]);
 					}
 				}else{
 					while((runId=counter.getAndIncrement())<totalRuns){
@@ -477,7 +574,7 @@ public class PerTierHistorySimulator {
 	/*--------------------------------------------------------------*/
 
 	/** Returns [tier][0=signedSum, 1=absSum, 2=count] */
-	double[][] selfTest(double[][] table, int totalRuns, long seedOffset){
+	double[][] selfTest(double[][] table, long totalRuns, long seedOffset){
 		final double[][] result=new double[stopTier][3];
 		final AtomicLong counter=new AtomicLong(0);
 		final double[][][] tResult=new double[threads][stopTier][3];
@@ -567,13 +664,14 @@ public class PerTierHistorySimulator {
 	}
 
 	/** Tests multiple tables in a single simulation pass. Returns [tableIdx][tier][0=signed,1=abs,2=count] */
-	double[][][] selfTestMulti(double[][][] tables, int totalRuns, long seedOffset){
+	double[][][] selfTestMulti(double[][][] tables, long totalRuns, long seedOffset){
 		final int nt=tables.length;
 		final double[][][] result=new double[nt][stopTier][3];
 		final AtomicLong counter=new AtomicLong(0);
 		final double[][][][] tResult=new double[threads][nt][stopTier][3];
 
 		final boolean useSIMD=USE_SIMD;
+		final boolean use32=USE_32BIT;
 		final Thread[] arr=new Thread[threads];
 		for(int t=0; t<threads; t++){
 			final int tid=t;
@@ -581,7 +679,8 @@ public class PerTierHistorySimulator {
 				final double[][][] lr=tResult[tid];
 				long runId;
 				while((runId=counter.getAndIncrement())<totalRuns){
-					if(useSIMD){testOneBucketMultiSIMD(seedOffset+runId, tables, lr);}
+					if(useSIMD && use32){testOneBucketMultiSIMD(seedOffset+runId, tables, lr);}
+					else if(useSIMD){testOneBucketMultiSIMD64(seedOffset+runId, tables, lr);}
 					else{testOneBucketMulti(seedOffset+runId, tables, lr);}
 				}
 			});
@@ -660,20 +759,122 @@ public class PerTierHistorySimulator {
 		}
 	}
 
-	/** SIMD version of testOneBucketMulti: 4 RNG streams, one bucket, checkpoint-aware. */
+	/** SIMD version of testOneBucketMulti: 32-bit hashes, checkpoint-aware. */
 	void testOneBucketMultiSIMD(long seed, double[][][] tables, double[][][] result){
-		long[] ss0=new long[4], ss1=new long[4], ss2=new long[4], ss3=new long[4];
-		for(int i=0; i<4; i++){
-			long x=seed*4+i;
+		final int rngLanes=LSPECIES.length();
+		long[] ss0=new long[rngLanes], ss1=new long[rngLanes], ss2=new long[rngLanes], ss3=new long[rngLanes];
+		for(int i=0; i<rngLanes; i++){
+			long x=seed*rngLanes+i;
 			x=splitmix(x); ss0[i]=x;
 			x=splitmix(x); ss1[i]=x;
 			x=splitmix(x); ss2[i]=x;
 			x=splitmix(x); ss3[i]=x;
 		}
-		LongVector vs0=LongVector.fromArray(SPECIES, ss0, 0);
-		LongVector vs1=LongVector.fromArray(SPECIES, ss1, 0);
-		LongVector vs2=LongVector.fromArray(SPECIES, ss2, 0);
-		LongVector vs3=LongVector.fromArray(SPECIES, ss3, 0);
+		LongVector vs0=LongVector.fromArray(LSPECIES, ss0, 0);
+		LongVector vs1=LongVector.fromArray(LSPECIES, ss1, 0);
+		LongVector vs2=LongVector.fromArray(LSPECIES, ss2, 0);
+		LongVector vs3=LongVector.fromArray(LSPECIES, ss3, 0);
+		for(int w=0; w<4; w++){
+			LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
+			vs2=vs2.lanewise(VectorOperators.XOR, vs0);
+			vs3=vs3.lanewise(VectorOperators.XOR, vs1);
+			vs1=vs1.lanewise(VectorOperators.XOR, vs2);
+			vs0=vs0.lanewise(VectorOperators.XOR, vs3);
+			vs2=vs2.lanewise(VectorOperators.XOR, t);
+			vs3=vs3.lanewise(VectorOperators.ROL, 45);
+		}
+
+		int exp=0, tail=0;
+		int eeMask=-1;
+		long tc=0;
+		double nextCheck=1.0;
+		IntVector mFlip=IntVector.broadcast(ISPECIES, eeMask^Integer.MIN_VALUE);
+
+		for(;;){
+			final long maxIter=Math.max(1, ((long)nextCheck-tc+LANES-1)/LANES);
+
+			IntVector result_vec;
+			long inner=0;
+			do{
+				LongVector longResult=vs0.add(vs3);
+				LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
+				vs2=vs2.lanewise(VectorOperators.XOR, vs0);
+				vs3=vs3.lanewise(VectorOperators.XOR, vs1);
+				vs1=vs1.lanewise(VectorOperators.XOR, vs2);
+				vs0=vs0.lanewise(VectorOperators.XOR, vs3);
+				vs2=vs2.lanewise(VectorOperators.XOR, t);
+				vs3=vs3.lanewise(VectorOperators.ROL, 45);
+				result_vec=(IntVector)longResult.reinterpretAsInts();
+				inner++;
+			}while(result_vec.lanewise(VectorOperators.XOR, INT_FLIP)
+				.compare(VectorOperators.GT, mFlip).allTrue() && inner<maxIter);
+
+			tc+=(inner-1)*LANES;
+
+			for(int i=0; i<LANES; i++){
+				tc++;
+				final int hash=result_vec.lane(i);
+				if(Integer.compareUnsigned(hash, eeMask)<=0){
+					final int rawNLZ=Integer.numberOfLeadingZeros(hash);
+					final int hashNLZ=(TIER_NUMER!=1)?(TIER_NUMER*rawNLZ)/TIER_DENOM:rawNLZ;
+					final int delta=hashNLZ-exp;
+					if(delta>=-margin){
+						final int tailIdx=(hash>>>1)&(numTails-1);
+						if(delta<=0){
+							tail|=(1<<(tailIdx*tailWidth+(tailWidth-1)+delta));
+						}else{
+							if(exp+delta>=stopTier){return;}
+							final int shiftAmt=Math.min(delta, tailWidth);
+							int newTail=0;
+							for(int ti=0; ti<numTails; ti++){
+								int t2=((tail>>>(ti*tailWidth))&tailMask)>>>shiftAmt;
+								if(ti==tailIdx){t2|=(1<<(tailWidth-1));}
+								newTail|=(t2<<(ti*tailWidth));
+							}
+							tail=newTail; exp+=delta;
+							final int target=exp-margin;
+							if(target<=0){eeMask=-1;}
+							else{
+								final int minRaw=(TIER_DENOM*target)/TIER_NUMER;
+								eeMask=(minRaw>=32)?0:(-1)>>>minRaw;
+							}
+							mFlip=IntVector.broadcast(ISPECIES, eeMask^Integer.MIN_VALUE);
+						}
+					}
+				}
+				if(tc>=nextCheck){
+					if(exp<stopTier){
+						final double invTc=1.0/tc;
+						for(int ti=0; ti<tables.length; ti++){
+							final double est=tables[ti][exp][tail];
+							if(est>0){
+								final double err=(est-tc)*invTc;
+								result[ti][exp][0]+=err;
+								result[ti][exp][1]+=Math.abs(err);
+								result[ti][exp][2]++;
+							}
+						}
+					}
+					nextCheck=Math.max(tc+1, nextCheck*1.01);
+				}
+			}
+		}
+	}
+
+	/** 64-bit SIMD version of testOneBucketMulti. */
+	void testOneBucketMultiSIMD64(long seed, double[][][] tables, double[][][] result){
+		long[] ss0=new long[RNG_LANES], ss1=new long[RNG_LANES], ss2=new long[RNG_LANES], ss3=new long[RNG_LANES];
+		for(int i=0; i<RNG_LANES; i++){
+			long x=seed*RNG_LANES+i;
+			x=splitmix(x); ss0[i]=x;
+			x=splitmix(x); ss1[i]=x;
+			x=splitmix(x); ss2[i]=x;
+			x=splitmix(x); ss3[i]=x;
+		}
+		LongVector vs0=LongVector.fromArray(LSPECIES, ss0, 0);
+		LongVector vs1=LongVector.fromArray(LSPECIES, ss1, 0);
+		LongVector vs2=LongVector.fromArray(LSPECIES, ss2, 0);
+		LongVector vs3=LongVector.fromArray(LSPECIES, ss3, 0);
 		for(int w=0; w<4; w++){
 			LongVector t=vs1.lanewise(VectorOperators.LSHL, 17);
 			vs2=vs2.lanewise(VectorOperators.XOR, vs0);
@@ -688,13 +889,11 @@ public class PerTierHistorySimulator {
 		long eeMask=-1L;
 		long tc=0;
 		double nextCheck=1.0;
-		LongVector mFlip=LongVector.broadcast(SPECIES, eeMask^Long.MIN_VALUE);
+		LongVector mFlip=LongVector.broadcast(LSPECIES, eeMask^Long.MIN_VALUE);
 
 		for(;;){
-			// How many SIMD iterations until next checkpoint?
-			final long maxIter=Math.max(1, ((long)nextCheck-tc+3)/4);
+			final long maxIter=Math.max(1, ((long)nextCheck-tc+RNG_LANES-1)/RNG_LANES);
 
-			// SIMD INNER LOOP: generate 4 hashes, check eeMask, cap at checkpoint
 			LongVector result_vec;
 			long inner=0;
 			do{
@@ -707,18 +906,14 @@ public class PerTierHistorySimulator {
 				vs2=vs2.lanewise(VectorOperators.XOR, t);
 				vs3=vs3.lanewise(VectorOperators.ROL, 45);
 				inner++;
-			}while(result_vec.lanewise(VectorOperators.XOR, FLIP_BIT)
+			}while(result_vec.lanewise(VectorOperators.XOR, LONG_FLIP)
 				.compare(VectorOperators.GT, mFlip).allTrue() && inner<maxIter);
 
-			// Account for (inner-1) full-skip iterations
-			tc+=(inner-1)*4;
+			tc+=(inner-1)*RNG_LANES;
 
-			// Process 4 hashes from last iteration
-			final long h0=result_vec.lane(0), h1=result_vec.lane(1), h2=result_vec.lane(2), h3=result_vec.lane(3);
-			final long[] hh={h0, h1, h2, h3};
-			for(int i=0; i<4; i++){
+			for(int i=0; i<RNG_LANES; i++){
 				tc++;
-				final long hash=hh[i];
+				final long hash=result_vec.lane(i);
 				if(Long.compareUnsigned(hash, eeMask)<=0){
 					final int rawNLZ=Long.numberOfLeadingZeros(hash);
 					final int hashNLZ=(TIER_NUMER!=1)?(TIER_NUMER*rawNLZ+((((rawNLZ>=43)?(int)((hash<<(rawNLZ-42))&0xFFFFF):(int)((hash>>>(42-rawNLZ))&0xFFFFF))>=MANTISSA_THRESHOLD)?1:0))/TIER_DENOM:rawNLZ;
@@ -743,7 +938,7 @@ public class PerTierHistorySimulator {
 								final int minRaw=(TIER_DENOM*target)/TIER_NUMER;
 								eeMask=(minRaw>=64)?0:(-1L)>>>minRaw;
 							}
-							mFlip=LongVector.broadcast(SPECIES, eeMask^Long.MIN_VALUE);
+							mFlip=LongVector.broadcast(LSPECIES, eeMask^Long.MIN_VALUE);
 						}
 					}
 				}
@@ -778,7 +973,7 @@ public class PerTierHistorySimulator {
 		return out;
 	}
 
-	double[][][] selfTestPerState(double[][] table, int totalRuns, long seedOffset){
+	double[][][] selfTestPerState(double[][] table, long totalRuns, long seedOffset){
 		final double[][][] result=new double[stopTier][numStates][3];
 		final AtomicLong counter=new AtomicLong(0);
 		final double[][][][] tResult=new double[threads][stopTier][numStates][3];
@@ -914,7 +1109,8 @@ public class PerTierHistorySimulator {
 	public static void main(String[] args) throws Exception {
 		{PreParser pp=new PreParser(args, null, false); args=pp.args;}
 
-		int tailBits=4, stopTier=16, runs=1000, threads=4;
+		int tailBits=4, stopTier=16, threads=4, reps=1;
+		long runs=1000;
 		long masterSeed=0; // 0=deterministic (seeds 0..runs-1), -1=random, >0=offset
 		boolean variance=false, rawOutput=false, perStateCorrection=false, allowNullOut=false;
 		int smFilter=-1; // -1=all, 0=entry, 1=all, 2=entryexit, 3=pctile
@@ -927,13 +1123,15 @@ public class PerTierHistorySimulator {
 				case "tailBits": case "tail": tailBits=Integer.parseInt(kv[1]); break;
 				case "numTails": case "tails": NUM_TAILS=Integer.parseInt(kv[1]); break;
 				case "stopTier": case "stoptier": case "tiers": stopTier=Integer.parseInt(kv[1]); break;
-				case "runs": runs=Parse.parseIntKMG(kv[1]); break;
+				case "runs": runs=Parse.parseKMG(kv[1]); break;
 				case "threads": case "t": threads=Integer.parseInt(kv[1]); break;
 				case "seed": masterSeed=Long.parseLong(kv[1]); break;
 				case "out": outFile=kv[1]; break;
 				case "compressed": COMPRESSED=Parse.parseBoolean(kv[1]); break;
 				case "expanded": EXPANDED=Parse.parseBoolean(kv[1]); break;
 				case "simd": USE_SIMD=Parse.parseBoolean(kv[1]); break;
+				case "bits32": case "32bit": USE_32BIT=Parse.parseBoolean(kv[1]); break;
+				case "reps": reps=Parse.parseIntKMG(kv[1]); break;
 				case "variance": case "var": variance=Parse.parseBoolean(kv[1]); break;
 				case "raw": rawOutput=Parse.parseBoolean(kv[1]); break;
 				case "perstate": perStateCorrection=Parse.parseBoolean(kv[1]); break;
@@ -959,60 +1157,63 @@ public class PerTierHistorySimulator {
 		else if(EXPANDED){TIER_NUMER=2; TIER_DENOM=1;}
 		else{TIER_NUMER=1; TIER_DENOM=1;}
 		if(tailBits%NUM_TAILS!=0) throw new RuntimeException("tailBits must be divisible by numTails");
+		if(USE_SIMD && USE_32BIT && stopTier>31) throw new RuntimeException("32-bit SIMD requires stopTier <= 31");
+		if(USE_SIMD && USE_32BIT && TIER_NUMER!=1) throw new RuntimeException("32-bit SIMD requires standard (non-compressed/expanded) tiers");
 		if(outFile==null && !allowNullOut) throw new RuntimeException("out= parameter required (use allownullout=t for benchmark-only mode)");
 
 		final long seedOffset;
 		if(masterSeed==-1){seedOffset=System.nanoTime();}
 		else{seedOffset=masterSeed;}
 
-		System.err.printf("PerTierHistorySimulator: tailBits=%d numTails=%d stopTier=%d runs=%d threads=%d tierNumer=%d tierDenom=%d seed=%d%n",
-			tailBits, NUM_TAILS, stopTier, runs, threads, TIER_NUMER, TIER_DENOM, seedOffset);
+		String mode=USE_SIMD ? (USE_32BIT ? "SIMD-32bit" : "SIMD-64bit") : "scalar";
+		System.err.printf("PerTierHistorySimulator: tailBits=%d numTails=%d stopTier=%d runs=%d threads=%d mode=%s lanes=%d seed=%d%n",
+			tailBits, NUM_TAILS, stopTier, runs, threads, mode, USE_SIMD?(USE_32BIT?LANES:RNG_LANES):1, seedOffset);
 		System.err.printf("  %d runs for training (seeds %d..%d), %d runs for testing (seeds %d..%d)%n",
 			runs, seedOffset, seedOffset+runs-1, runs, seedOffset+runs, seedOffset+2*runs-1);
 
 		PerTierHistorySimulator sim=new PerTierHistorySimulator(tailBits, NUM_TAILS, stopTier, threads);
 
-		// Phase 1: Train
+		// Phase 1: Train (progressive mode if reps>1)
 		long t0=System.currentTimeMillis();
+		final int summSm=(smFilter>=0 ? smFilter : S_ENTRY);
+
+		if(reps>1){
+			// Progressive mode: run in batches, print convergence data to stdout
+			PrintStream progOut=(outFile!=null) ? new PrintStream(outFile) : System.out;
+			StringBuilder hdr=new StringBuilder("#rep\ttotalRuns");
+			for(int tier=0; tier<stopTier; tier++) hdr.append("\tT").append(tier);
+			progOut.println(hdr);
+
+			for(int rep=0; rep<reps; rep++){
+				sim.train(runs, seedOffset+rep*runs, smFilter);
+				long totalRuns=(long)(rep+1)*runs;
+				StringBuilder row=new StringBuilder();
+				row.append(rep+1).append('\t').append(totalRuns);
+				for(int tier=0; tier<stopTier; tier++){
+					long obs=0; double s=0;
+					for(int st=0; st<sim.numStates; st++){
+						obs+=sim.counts[summSm][tier][st];
+						s+=sim.sums[summSm][tier][st];
+					}
+					row.append('\t').append(obs>0 ? String.format("%.6f", s/obs) : "0");
+				}
+				progOut.println(row);
+			}
+			if(outFile!=null) progOut.close();
+			System.err.printf("Progressive training: %d reps × %d runs = %d total, %d ms%n",
+				reps, runs, (long)reps*runs, System.currentTimeMillis()-t0);
+			return;
+		}
+
 		sim.train(runs, seedOffset, smFilter);
 		System.err.printf("Training: %d ms%n", System.currentTimeMillis()-t0);
 		System.err.println();
 
-		final int summSm=(smFilter>=0 ? smFilter : S_ALL);
 		System.err.printf("%-6s %-14s %-12s%n", "Tier", "LinAvg("+SNAME[summSm]+")", "Obs");
 		for(int tier=0; tier<stopTier; tier++){
 			long obs=0; double s=0;
 			for(int st=0; st<sim.numStates; st++){obs+=sim.counts[summSm][tier][st]; s+=sim.sums[summSm][tier][st];}
 			System.err.printf("%-6d %-14.2f %-12d%n", tier, (obs>0?s/obs:0), obs);
-		}
-
-		// Per-tier bit occupancy
-		System.err.println();
-		{
-			final int tw=tailBits/NUM_TAILS;
-			StringBuilder hdr=new StringBuilder(String.format("%-6s %10s", "Tier", "Obs"));
-			for(int b=0; b<tailBits; b++){
-				int tailNum=b/tw; int depth=tw-1-(b%tw);
-				hdr.append(String.format(" %8s", "t"+tailNum+"d"+depth));
-			}
-			System.err.println(hdr);
-			for(int tier=0; tier<stopTier; tier++){
-				long total=0;
-				long[] bitSet=new long[tailBits];
-				for(int s=0; s<sim.numStates; s++){
-					long n=sim.counts[S_ALL][tier][s];
-					total+=n;
-					for(int b=0; b<tailBits; b++){
-						if((s&(1<<b))!=0){bitSet[b]+=n;}
-					}
-				}
-				if(total==0) continue;
-				StringBuilder row=new StringBuilder(String.format("%-6d %10d", tier, total));
-				for(int b=0; b<tailBits; b++){
-					row.append(String.format(" %8.4f", (double)bitSet[b]/total));
-				}
-				System.err.println(row);
-			}
 		}
 		System.err.println();
 
@@ -1021,6 +1222,27 @@ public class PerTierHistorySimulator {
 		for(int sm=0; sm<NS; sm++)
 			for(int am=0; am<NA; am++)
 				rawTables[sm][am]=sim.buildTable(sm, am);
+
+		// Raw output: skip testing, just write tables
+		if(rawOutput){
+			if(outFile!=null){
+				PrintStream out=new PrintStream(outFile);
+				final int smStart=(smFilter>=0 ? smFilter : 0);
+				final int smEnd=(smFilter>=0 ? smFilter+1 : NS);
+				for(int sm=smStart; sm<smEnd; sm++)
+					for(int am=0; am<NA; am++)
+						sim.writeTable(rawTables[sm][am], SNAME[sm]+"_"+ANAME[am], out);
+				if(variance){
+					for(int sm=smStart; sm<smEnd; sm++)
+						sim.writeTable(sim.buildVarianceTable(sm), "var_"+SNAME[sm], out, sim.numCondensed);
+				}
+				out.close();
+				System.err.printf("Raw tables written to %s (no testing)%n", outFile);
+			}else{
+				System.err.println("Raw mode, no output file (training-only benchmark).");
+			}
+			return;
+		}
 
 		// Phase 2: Test raw, measure per-tier bias, apply half+full correction, report
 		System.err.printf("%nTesting (runs=%d, 1%%-spaced checkpoints, raw → half-corrected → full-corrected):%n", runs);
