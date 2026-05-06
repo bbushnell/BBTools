@@ -111,9 +111,9 @@ public class CardinalityParser {
 		else if(a.equals("saturate") || a.equals("sat")){UltraDynamicLogLog6.SATURATE_ON_OVERFLOW=Parse.parseBoolean(b);}
 		else if(a.equals("printdlctiers")){DDLCalibrationDriver.PRINT_DLC_TIERS=Parse.parseBoolean(b);}
 		else if(a.equals("capdenom") || a.equals("cd")){HalfCappedDynamicLogLog4.CAP_DENOM=Integer.parseInt(b);}
-		else if(a.equals("demotionmode") || a.equals("dm")){VariableCompressedDynamicLogLog4.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.DEMOTION_MODE=Integer.parseInt(b);}
+		else if(a.equals("demotionmode") || a.equals("dm")){VariableCompressedDynamicLogLog4.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.DEMOTION_MODE=Integer.parseInt(b); ArithmeticVariableDynamicLogLog64.DEMOTION_MODE=Integer.parseInt(b);}
 		// else if(a.equals("vcdll4histlimit") || a.equals("vhl")){VariableCompressedDynamicLogLog4.HIST_LIMIT=Integer.parseInt(b);}
-		else if(a.equals("histtiers") || a.equals("htl")){ArithmeticVariableDynamicLogLog32.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.reconfigure(); ArithmeticVariableDynamicLogLog36.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.reconfigure(); ArithmeticVariableDynamicLogLog34.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.reconfigure();}
+		else if(a.equals("histtiers") || a.equals("htl")){ArithmeticVariableDynamicLogLog32.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog32.reconfigure(); ArithmeticVariableDynamicLogLog36.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog36.reconfigure(); ArithmeticVariableDynamicLogLog34.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog34.reconfigure(); ArithmeticVariableDynamicLogLog64.HIST_TIER_LIMIT=Integer.parseInt(b); ArithmeticVariableDynamicLogLog64.reconfigure();}
 		else if(a.equals("numtails")){CompressedTwinTailLogLog.NUM_TAILS=Integer.parseInt(b); CompressedTwinTailLogLog.reconfigure();}
 		else if(a.equals("histlen")){CompressedTwinTailLogLog.HIST_LEN=Integer.parseInt(b); CompressedTwinTailLogLog.reconfigure();}
 		else if(a.equals("expanded")){
@@ -278,6 +278,11 @@ public class CardinalityParser {
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
 			classHasHcCf=true;
+		}else if(loglogtype.equals("avdll64")){
+			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
+			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
+			classHasHcCf=true;
+			CorrectionFactor.sbsFile=ArithmeticVariableDynamicLogLog64.SBS_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
 		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=CompressedTwinTailLogLog.TIER_SCALE; CorrectionFactor.sbsFile=CompressedTwinTailLogLog.sbsFile();}
@@ -345,6 +350,7 @@ public class CardinalityParser {
 			else if("avdll32".equals(loglogtype)){ArithmeticVariableDynamicLogLog32.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avdll36".equals(loglogtype)){ArithmeticVariableDynamicLogLog36.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avdll34".equals(loglogtype)){ArithmeticVariableDynamicLogLog34.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("avdll64".equals(loglogtype)){ArithmeticVariableDynamicLogLog64.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 
@@ -389,6 +395,8 @@ public class CardinalityParser {
 			return ArithmeticVariableDynamicLogLog36.CF_FILE;
 		}else if(loglogtype.equals("avdll34")){
 			return ArithmeticVariableDynamicLogLog34.CF_FILE;
+		}else if(loglogtype.equals("avdll64")){
+			return ArithmeticVariableDynamicLogLog64.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){
 			return CompressedDynamicLogLog3.CF_FILE;
 		}else if(loglogtype.equals("bcdll3")){

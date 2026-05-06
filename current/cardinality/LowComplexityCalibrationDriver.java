@@ -475,6 +475,28 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
 								}
+							}else if(est.getClass()==ArithmeticVariableDynamicLogLog64.class){
+								final ArithmeticVariableDynamicLogLog64 c=(ArithmeticVariableDynamicLogLog64)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
+							}else if(est.getClass()==ErtlULL.class){
+								final ErtlULL u=(ErtlULL)est;
+								final double fgra=u.fgraEstimatePublic();
+								final double lerr=(fgra>0 ? (fgra-trueCard)/(double)trueCard : -1.0);
+								lLdlcErr[ti][3]+=lerr; lLdlcAbsErr[ti][3]+=Math.abs(lerr); lLdlcSqErr[ti][3]+=lerr*lerr;
 							}else if(est.getClass()==ExpandedDynamicLogLog9.class){
 								final ExpandedDynamicLogLog9 c=(ExpandedDynamicLogLog9)est;
 								final CardStats cs=c.consumeLastSummarized();
