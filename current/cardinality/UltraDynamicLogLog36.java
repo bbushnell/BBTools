@@ -39,6 +39,8 @@ public final class UltraDynamicLogLog36 extends CardinalityTracker {
 
 	@Override public UltraDynamicLogLog36 copy(){return new UltraDynamicLogLog36(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 36;}
+	@Override public int bucketsPerWord(){return 6;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Extra Array Access       ----------------*/

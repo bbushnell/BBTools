@@ -38,6 +38,8 @@ public final class UltraDynamicLogLog6m extends CardinalityTracker {
 
 	@Override public UltraDynamicLogLog6m copy(){return new UltraDynamicLogLog6m(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 5;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/

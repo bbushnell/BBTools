@@ -934,6 +934,19 @@ public abstract class CardinalityTracker implements Drivable {
 	/** Returns the actual bucket count used by this tracker. */
 	public int actualBuckets(){return buckets;}
 
+	/** Bits per logical storage word (including any bit-stealing). Override in packed types. */
+	public int bitsPerWord(){return 8;}
+	/** Buckets packed per logical storage word. Override in packed types. */
+	public int bucketsPerWord(){return 1;}
+
+	/** Given a memory budget in bytes, return the maximum number of buckets for this type. */
+	public static int memToBuckets(String type, int memBytes){
+		CardinalityTracker tmp=makeTracker(type, 64, 31, 0, 0);
+		int bpw=tmp.bitsPerWord();
+		int bkpw=tmp.bucketsPerWord();
+		return (memBytes*8/bpw)*bkpw;
+	}
+
 	/** Log2 of buckets, i.e. number of bits in bucketMask. */
 	public final int bucketBits;
 

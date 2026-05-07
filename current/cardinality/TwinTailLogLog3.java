@@ -68,6 +68,8 @@ public final class TwinTailLogLog3 extends CardinalityTracker {
 
 	@Override
 	public TwinTailLogLog3 copy(){return new TwinTailLogLog3(numBuckets, k, -1, minProb);}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 3;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Register Access        ----------------*/

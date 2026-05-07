@@ -74,6 +74,8 @@ public final class TwinTailLogLog extends CardinalityTracker {
 
 	@Override
 	public TwinTailLogLog copy(){return new TwinTailLogLog(buckets, k, -1, minProb);}
+	@Override public int bitsPerWord(){return 8;}
+	@Override public int bucketsPerWord(){return 1;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Core Methods         ----------------*/

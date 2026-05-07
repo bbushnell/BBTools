@@ -62,6 +62,8 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 	@Override
 	public ExpandedDynamicLogLog8 copy(){return new ExpandedDynamicLogLog8(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 4;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/

@@ -62,6 +62,8 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 
 	/** Create an independent copy with a fresh seed. */
 	@Override public UltraDynamicLogLog6 copy(){return new UltraDynamicLogLog6(buckets, k, -1, minProb);}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 5;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/
