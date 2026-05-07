@@ -318,7 +318,7 @@ public class DriftingAlignerM implements IDAligner{
 		refStart=Math.max(refStart, 0);
 		refEnd=Math.min(refEnd, ref.length-1);
 		final int rlen=refEnd-refStart+1;
-		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd));
+		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd+1));
 		final float id=alignStatic(query, region, posVector);
 		if(posVector!=null) {
 			posVector[0]+=refStart;
