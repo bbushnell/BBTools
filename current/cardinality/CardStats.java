@@ -473,9 +473,9 @@ public final class CardStats extends AbstractCardStats {
 		sbsNoMicroF=sbsRaw;
 		sbsMultF=computeSbsMult(sbsStatesArr, filled, numBuckets, lcNoMicroF);
 
-		// If sbs table is available and enabled, use sbs for hybrid blending
+		// If sbs table or formula is available and enabled, use sbs for hybrid blending
 		if(CardinalityTracker.USE_SBS_IN_HYBRID
-				&& CorrectionFactor.SBS_CF_TABLE!=null
+				&& (CorrectionFactor.SBS_CF_TABLE!=null || CorrectionFactor.USE_SBS_FORMULA)
 				&& histBits_>0 && sbsStatesArr!=null){
 			lcForHybridTmp=sbsF;
 		}
