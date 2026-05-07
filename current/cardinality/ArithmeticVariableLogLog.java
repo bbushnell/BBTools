@@ -1,0 +1,838 @@
+package cardinality;
+
+/**
+ * Arithmetic Variable LogLog (AVLL) — standalone cardinality estimator.
+ * Paper companion class: self-contained, zero external dependencies.
+ * <p>
+ * Packs 11 variable-history registers into each 64-bit word using
+ * arithmetic encoding with RADIX=56.  Supports 2-bit history tracking
+ * for state-based sampling (SBS).
+ * <p>
+ * Primary estimator: VLDLC = 0.64 × LDLC + 0.36 × VWMean.
+ * Secondary estimator: HLDLC = 0.5 × LDLC + 0.5 × Hybrid+2.
+ * <p>
+ * LDLC blends DLC-SBS (dynamic linear counting with state-based
+ * sampling fallback) and HC (history counting) across the
+ * cardinality range.  VWMean uses per-tier-state expected distinct
+ * counts from a precomputed table with harmonic-mean aggregation.
+ *
+ * @author Brian Bushnell
+ * @contributor Noire
+ * @date May 2026
+ */
+public class ArithmeticVariableLogLog {
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Creates an AVLL sketch with the specified number of buckets.
+	 * Buckets are rounded up to a multiple of 11 (buckets per word),
+	 * then to the next power of two for hash distribution.
+	 * @param buckets requested number of registers (typical: 2048)
+	 */
+	public ArithmeticVariableLogLog(int buckets){
+		final int words=Math.max(1, (buckets+10)/11);        // ceil(buckets/11)
+		final int rounded=words*11;                          // exact multiple of 11
+		final int pow2=Integer.highestOneBit(rounded-1)<<1;  // next power of 2
+		numBuckets=(rounded<=0 ? buckets : pow2);
+		modBuckets=(rounded>0 ? rounded : buckets);          // actual register count
+		packedLen=(modBuckets+10)/11;                         // number of 64-bit words
+		packed=new long[packedLen];
+		floorCount=modBuckets;                               // all registers start at floor
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Register Constants      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final int RADIX=56;             // base for arithmetic encoding
+	private static final int BPW=11;               // buckets per 64-bit word (56^11 < 2^64)
+	private static final int HTL=14;               // history tier limit: tiers 2..HTL have 4 states
+	private static final int HIST_STATES=4*HTL-1;  // =55: total states with history (T0:1+T1:2+T2-14:52)
+	private static final int MAX_EXP=HTL+(RADIX-HIST_STATES); // =15: maximum exponent
+	private static final int MAX_REGISTER=RADIX-1; // =55: maximum register value
+	private static final int HISTORY_MARGIN=2;     // NLZ margin below globalNLZ for floor detection
+	private static final int WORDLEN=64;           // hash word length in bits
+	private static final int HIST_BITS=2;          // number of history bits per register
+
+	/** Powers of RADIX: POW[k] = 56^k. Used for arithmetic encode/decode. */
+	private static final long[] POW=computePow();
+	private static long[] computePow(){
+		long[] p=new long[BPW];
+		p[0]=1;
+		for(int i=1; i<BPW; i++){p[i]=p[i-1]*RADIX;}
+		return p;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      State ↔ Exp/Hist Maps    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Maps register state (0-55) to exponent (leading-zero count).
+	 *  T0: state 0 → exp 0.  T1: states 1-2 → exp 1.
+	 *  T2+: states 3-54 → exp (s-3)/4+2.  Non-hist: state 55 → exp 15. */
+	static int stateToExp(int state){
+		if(state==0){return 0;}                         // empty above floor
+		if(state<=2){return 1;}                         // tier 1: 2 states
+		if(state<HIST_STATES){return (state-3)/4+2;}    // tiers 2-14: 4 states each
+		return HTL+1+(state-HIST_STATES);               // above history: no hist bits
+	}
+
+	/** Maps register state (0-55) to 2-bit history pattern.
+	 *  T0: 0.  T1: (s-1)<<1 (bit 1 valid, bit 0 unknown).
+	 *  T2+: (s-3)&3 (both bits valid).  Non-hist: 0. */
+	static int stateToHist(int state){
+		if(state==0){return 0;}
+		if(state<=2){return (state-1)<<1;}              // tier 1: MSB only
+		if(state<HIST_STATES){return (state-3)&3;}      // tiers 2+: both bits
+		return 0;                                        // above history tier limit
+	}
+
+	/** Encodes (exponent, history) pair into a register state value. */
+	static int toState(int exp, int hist){
+		if(exp==0){return 0;}
+		if(exp==1){return 1+(hist>>1);}                 // only MSB of hist matters at T1
+		if(exp<=HTL){return 4*exp-5+hist;}              // tiers 2-14
+		return HIST_STATES+(exp-HTL-1);                 // above history: no hist
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Register Bitmap Helpers    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Unpacks register state into a bitmap where bit k represents NLZ=k.
+	 *  History bits are placed at positions (highest-2) and (highest-1). */
+	private static long unpackReg(int reg){
+		if(reg==0){return 0;}
+		final int nlzPart=stateToExp(reg);
+		final int hist=stateToHist(reg);
+		long bitmap=1L<<nlzPart;                         // leading-zero marker bit
+		if(nlzPart>=2){bitmap|=(long)(hist&1)<<(nlzPart-2);}   // history bit 0
+		if(nlzPart>=1){bitmap|=(long)((hist>>>1)&1)<<(nlzPart-1);} // history bit 1
+		return bitmap;
+	}
+
+	/** Packs a bitmap back into a register state.
+	 *  Extracts the highest set bit (exponent) and the two bits below it (history). */
+	private static int packReg(long bitmap){
+		if(bitmap==0){return 0;}
+		final int highest=63-Long.numberOfLeadingZeros(bitmap);
+		int hist;
+		if(highest>=2){
+			hist=(int)((bitmap>>>(highest-2))&3);        // both history bits below top
+		}else if(highest==1){
+			hist=((int)(bitmap&1))<<1;                   // only MSB available
+		}else{
+			hist=0;                                      // tier 0: no history
+		}
+		if(highest>MAX_EXP){                             // clamp to maximum exponent
+			if(MAX_EXP<=HTL){
+				hist=(MAX_EXP>=2) ? (int)((bitmap>>>(MAX_EXP-2))&3) : 0;
+				return toState(MAX_EXP, hist);
+			}
+			return toState(MAX_EXP, 0);
+		}
+		if(highest>HTL){hist=0;}                         // above HTL: no history stored
+		return toState(highest, hist);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Packed Access         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Reads register i from the packed array using unsigned arithmetic.
+	 *  Position within word: i%11.  Decode: (word / 56^pos) % 56. */
+	int getReg(int i){
+		final int wordIdx=i/BPW;
+		final int pos=i%BPW;
+		final long word=packed[wordIdx];
+		return (int)(Long.remainderUnsigned(Long.divideUnsigned(word, POW[pos]), RADIX));
+	}
+
+	/** Writes register i.  Uses modular arithmetic: word += (val-old)*56^pos.
+	 *  Works because Java's long multiplication is modular (mod 2^64). */
+	private void setReg(int i, int val){
+		final int wordIdx=i/BPW;
+		final int pos=i%BPW;
+		long word=packed[wordIdx];
+		final int oldVal=(int)(Long.remainderUnsigned(Long.divideUnsigned(word, POW[pos]), RADIX));
+		word=word+(long)(val-oldVal)*POW[pos];           // modular update
+		packed[wordIdx]=word;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Hash Function        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Thomas Wang's 64-bit integer hash (shift-multiply variant).
+	 *  Fast, good avalanche properties, invertible. */
+	private static long hash64shift(long key){
+		key=(~key)+(key<<21);    // key = (key<<21) - key - 1
+		key=key^(key>>>24);
+		key=(key+(key<<3))+(key<<8); // key * 265
+		key=key^(key>>>14);
+		key=(key+(key<<2))+(key<<4); // key * 21
+		key=key^(key>>>28);
+		key=key+(key<<31);
+		return key;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Add Element          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Adds an element to the sketch.  The input is hashed internally.
+	 * @param element the element to add (any 64-bit value)
+	 */
+	public void add(long element){
+		final long key=hash64shift(element);             // hash to uniform distribution
+
+		final int idx=(int)(Long.remainderUnsigned(key, modBuckets)); // bucket selection
+		final int nlz=Long.numberOfLeadingZeros(key);    // count leading zeros
+		final int relNlz=nlz-(globalNLZ+1);              // NLZ relative to current floor
+
+		final int bitPos=relNlz+HISTORY_MARGIN;          // position in register bitmap
+		if(bitPos<0 || bitPos>=WORDLEN){return;}         // out of range
+
+		final int oldReg=getReg(idx);
+		int newReg;
+		if(bitPos>HTL && bitPos<=MAX_EXP){
+			newReg=toState(bitPos, 0);                   // above HTL: no history tracking
+		}else{
+			long hashPrefix=unpackReg(oldReg);           // decode current bitmap
+			hashPrefix|=1L<<bitPos;                      // set the new bit
+			newReg=packReg(hashPrefix);                  // re-encode
+		}
+
+		if(newReg<=oldReg){return;}                      // register only increases
+
+		setReg(idx, newReg);
+		lastCardinality=-1;                              // invalidate cached result
+		added++;
+
+		if(oldReg==0){filledBuckets++;}                  // track fill count
+
+		final int oldNlzPart=stateToExp(oldReg);
+		final int newNlzPart=stateToExp(newReg);
+		if(oldNlzPart<=HISTORY_MARGIN && newNlzPart>HISTORY_MARGIN){
+			floorCount--;                                // register left the floor zone
+			if(floorCount<=0){                           // floor is saturated
+				while(floorCount==0 && globalNLZ<WORDLEN){
+					globalNLZ++;                         // advance the global NLZ
+					floorCount=countAndDecrement();      // demote all registers
+				}
+			}
+		}
+	}
+
+	/** Demotes all registers by one tier (called when globalNLZ advances).
+	 *  Returns the new floor count (registers at or below HISTORY_MARGIN). */
+	private int countAndDecrement(){
+		int newFloorCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){newFloorCount++; continue;}       // already at zero
+			final int exp=stateToExp(reg);
+			int newReg;
+			if(exp>HTL+1){newReg=reg-1;}                 // above history: simple decrement
+			else if(exp==HTL+1){newReg=toState(exp-1, 0);} // entering history zone: clear hist
+			else if(exp>=3){newReg=reg-4;}               // tiers 2+: shift down one tier (4 states)
+			else if(exp==2){newReg=toState(1, stateToHist(reg));} // T2→T1: keep MSB of hist
+			else if(exp==1){newReg=0;}                   // T1→T0: becomes empty
+			else{newReg=0;}                              // already empty
+			setReg(i, newReg);
+			if(stateToExp(newReg)<=HISTORY_MARGIN){newFloorCount++;}
+		}
+		return newFloorCount;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     SBS Constants & Formula   ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final int SBS_STATES=11; // for 2-bit history: 1+2+4+4 states
+
+	/** Base values per SBS state: minimum distinct count for this history pattern. */
+	private static final int[] SBS_BASE={1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3};
+
+	/** Cubic polynomial coefficients: y = base + a*L + b*L² + c*L³ where L = ln(B/V).
+	 *  B-independent (verified on B=2048 and B=256).  @author Brian Bushnell, Ady */
+	private static final double[] SBS_A={
+		0.22105100, 0.12252876, 0.36952900, 0.06133797, 0.30751800,
+		0.18526204, 0.43143072, 0.67720200, 0.70123350, 0.64688227, 0.73638900};
+	private static final double[] SBS_B={
+		0.03969600, 0.00756061, 0.03269600, 0.00236917, 0.02818300,
+		0.00912048, 0.03450029, 0.03911000, 0.01746612, 0.01820189, 0.01219500};
+	private static final double[] SBS_C={
+		-0.00321100, -0.00065621, -0.00192200, -0.00029760, -0.00176600,
+		-0.00068916, -0.00183925, -0.00248900, -0.00112447, -0.00079415, -0.00085800};
+
+	/** Expected distinct elements for one bucket with this SBS state and occupancy.
+	 *  @param si   SBS state index (0-10)
+	 *  @param filled  number of non-empty buckets
+	 *  @param B    total bucket count */
+	private static double sbsFormula(int si, int filled, int B){
+		final double V=Math.max(0.5, B-filled);          // clamp to avoid singularity
+		final double L=Math.log((double)B/V);            // occupancy parameter
+		return SBS_BASE[si]+SBS_A[si]*L+SBS_B[si]*L*L+SBS_C[si]*L*L*L;
+	}
+
+	/** Maps (absNlz, histPattern) to an SBS state index (0-10) for 2-bit history.
+	 *  NLZ bins: 0 → 1 state, 1 → 2 states, 2 → 4 states, 3+ → 4 states.
+	 *  Returns -1 for structurally impossible states (nonzero invalid bits). */
+	private static int sbsStateIndex(int nlzBin, int histPattern){
+		final int bin=Math.min(nlzBin, HIST_BITS+1);     // clamp to 3
+		final int validSlots=Math.min(bin, HIST_BITS);   // how many hist bits are valid
+		final int invalidBits=HIST_BITS-validSlots;      // how many bits MUST be zero
+		if(invalidBits>0 && (histPattern&((1<<invalidBits)-1))!=0){return -1;} // invalid state
+		final int offset=(1<<Math.min(bin, HIST_BITS+1))-1; // cumulative state count below this bin
+		final int idx=(invalidBits>0) ? (histPattern>>>invalidBits) : histPattern;
+		return offset+idx;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Mean CF Formula         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** 3-Sigmoid + 2-Gaussian CF formula.
+	 *  CF = a0 + a1*S(lc,c1,w1) + a2*S(lc,c2,w2) + a3*S(lc,c3,w3)
+	 *       + g1*G(lc,gc1,gw1) + g2*G(lc,gc2,gw2)
+	 *  where lc = log2(card), S(x,c,w) = (1+tanh((x-c)/w))/2,
+	 *  G(x,c,w) = exp(-((x-c)/w)²).
+	 *  Terminal (card→∞) = p[0]+p[1]+p[4]+p[7].  @author Eru */
+	private static double meanCfFormula(double card, double[] p){
+		if(card<=0){return p[0]+p[1]+p[4]+p[7];}        // high-card terminal value
+		final double lc=Math.log(card)*INV_LOG2;         // log2(card)
+		final double s1=(1+Math.tanh((lc-p[2])/p[3]))*0.5;  // sigmoid 1
+		final double s2=(1+Math.tanh((lc-p[5])/p[6]))*0.5;  // sigmoid 2
+		final double s3=(1+Math.tanh((lc-p[8])/p[9]))*0.5;  // sigmoid 3
+		final double d1=(lc-p[11])/p[12]; final double g1=Math.exp(-d1*d1); // gaussian 1
+		final double d2=(lc-p[14])/p[15]; final double g2=Math.exp(-d2*d2); // gaussian 2
+		return p[0]+p[1]*s1+p[4]*s2+p[7]*s3+p[10]*g1+p[13]*g2;
+	}
+
+	private static final double INV_LOG2=1.0/Math.log(2.0);
+
+	/** Mean CF coefficients for UDLL6-family (includes AVDLL64).
+	 *  R²=0.9999738, maxErr=0.00072, terminal=0.72090. */
+	private static final double[] MCF_MEAN={
+		-0.694133951267462,  1.351750409333637, -0.296564734487830,  1.252668089120711,
+		-0.151004930474945,  9.316335208139263,  2.204071489729471,
+		 0.214291194283158, 11.403990343737162,  0.877476926306513,
+		-0.018782203798227,  1.864982585975987,  1.713509076250874,
+		-0.097460356643253, 12.001750243729946,  1.105281431778667};
+
+	/** Mean+H (history-blended) CF coefficients for UDLL6-family.
+	 *  R²=0.9999752, maxErr=0.00973, terminal=1.00140. */
+	private static final double[] MCF_MEANH={
+		 1.065900204736075,  0.303794955674164,  1.000000000000000,  1.325328307581027,
+		-0.113947495584558,  7.730446428942304,  1.799630144779069,
+		-0.254347664825681, 13.574546246392662,  0.974396659684511,
+		-0.500000000000000,  0.000000000000000,  0.300000000000000,
+		-0.196716746935215, 11.405848639590578,  2.248874329245637};
+
+	/** Terminal Mean CF for AVDLL64 (asymptotic correction at very high card). */
+	private static final float TERMINAL_MEAN_CF=1.386726f;
+	/** Terminal Mean+H CF for AVDLL64 (history-blended asymptotic correction). */
+	private static final float TERMINAL_MEANH_CF=0.856139f;
+
+	/*--------------------------------------------------------------*/
+	/*----------------        HC CF Formula          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** HC CF: exp+sin model.  CF(card) = T + 1/(A + B·exp) + S0·sin(S1·exp) + C0·cos(C1·exp)
+	 *  where exp = log2(card).  Generic UDLL6-family coefficients. */
+	private static final double HC_CF_T =   0.998484777537405;
+	private static final double HC_CF_A = 562.709161557896778;
+	private static final double HC_CF_B =   1.011821147415617;
+	private static final double HC_CF_S0=   0.000344111534286;
+	private static final double HC_CF_S1=  -0.000037079356918;
+	private static final double HC_CF_C0=   0.000424944596363;
+	private static final double HC_CF_C1=  -0.000035494763272;
+
+	private static double hcCfFormula(double card){
+		if(card<=0){return HC_CF_T;}                     // terminal
+		final double lc=Math.log(card)*INV_LOG2;         // log2(card)
+		final double base=HC_CF_T-HC_CF_A*Math.exp(-HC_CF_B*lc);
+		final double angle=TWO_PI*lc;
+		return base+(HC_CF_S0+HC_CF_S1*lc)*Math.sin(angle)
+		           +(HC_CF_C0+HC_CF_C1*lc)*Math.cos(angle);
+	}
+
+	private static final double TWO_PI=2.0*Math.PI;
+	private static final double SQRT_2_OVER_PI=Math.sqrt(2.0/Math.PI);
+
+	/*--------------------------------------------------------------*/
+	/*----------------     VWMean State Table        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Per-tier-state expected distinct counts for VWMean.
+	 *  Indexed as VW_TABLE[tier][histPattern], where histPattern is 0-3.
+	 *  Beyond VW_MAX_TIER, values scale geometrically by 2× per tier.
+	 *  Source: perTierStateUDLL6.tsv.gz, entry_lin section, columns 4-7. */
+	private static final int VW_MAX_TIER=25;
+
+	private static final double[][] VW_TABLE={
+		{1.000000,   0.000000,   0.000000,   0.000000},  // tier 0
+		{1.000000,   0.000000,   2.733337,   0.000000},  // tier 1
+		{1.000000,   2.688307,   2.245420,   5.837820},  // tier 2
+		{2.000006,   5.376626,   4.490847,  11.675610},  // tier 3
+		{4.000001,  10.753230,   8.981696,  23.351283},  // tier 4
+		{8.000026,  21.506533,  17.963213,  46.702361},  // tier 5
+		{16.000110,  43.013140,  35.926836,  93.405079},  // tier 6
+		{32.000014,  86.025645,  71.853033, 186.810838},  // tier 7
+		{63.999723, 172.051425, 143.706361, 373.620993},  // tier 8
+		{127.999230, 344.104643, 287.412741, 747.242991}, // tier 9
+		{255.999538, 688.207607, 574.827393, 1494.485694},       // tier 10
+		{511.999823, 1376.415678, 1149.657596, 2988.952954},     // tier 11
+		{1024.000640, 2752.834978, 2299.331771, 5977.953287},    // tier 12
+		{2048.002830, 5505.673445, 4598.622909, 11955.823205},   // tier 13
+		{4095.900655, 11011.104245, 9197.245357, 23911.467859},  // tier 14
+		{8191.943332, 22022.756019, 18394.115601, 47823.334338}, // tier 15
+		{16383.987771, 44044.565078, 36787.497320, 95646.240744},       // tier 16
+		{32767.210882, 88092.323007, 73577.576252, 191293.672890},      // tier 17
+		{65536.355679, 176181.869908, 147157.373464, 382594.434700},    // tier 18
+		{131073.117138, 352359.111569, 294302.920915, 765166.637863},   // tier 19
+		{262153.397996, 704709.577548, 588632.115590, 1530360.007895},  // tier 20
+		{524295.300777, 1409379.166184, 1177214.138830, 3060710.769540}, // tier 21
+		{1048550.869689, 2818876.707027, 2354269.720082, 6121457.430249}, // tier 22
+		{2096877.072976, 5637270.776168, 4708958.516548, 12242060.443481}, // tier 23
+		{4194383.270289, 11273906.940892, 9419839.089686, 24485914.267100}, // tier 24
+		{8389905.763235, 22553195.264638, 18837247.207710, 48975103.625117}, // tier 25
+	};
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Blend Constants         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final float DLC_BLEND_LO=0.088f;   // below this V/B: pure DLC
+	private static final float DLC_BLEND_HI=0.952f;   // above this V/B: pure lcMin
+	private static final float DLC_INFO_POWER=4.5f;    // info-power exponent for DLC tiers
+	private static final float HC_INFO_POWER=2.0f;     // info-power exponent for HC tiers
+
+	private static final float DLCSBS_BLEND_LO=2.0f;  // below 2B: pure SBS
+	private static final float DLCSBS_BLEND_HI=6.0f;  // above 6B: pure DLC
+	private static final float HYBRID2_BLEND_LO=1.0f;  // Hybrid+2 blend lower bound
+	private static final float HYBRID2_BLEND_HI=6.0f;  // Hybrid+2 blend upper bound
+	private static final float LDLC_B_LO=0.5f;        // LDLC HC blend lower (×B)
+	private static final float LDLC_B_HI=4.5f;        // LDLC HC blend upper (×B)
+	private static final float LDLC_HC_WEIGHT=0.50f;   // maximum HC weight in LDLC
+	private static final float HLDLC_WEIGHT=0.5f;      // LDLC weight in HLDLC blend
+
+	private static final double VLDLC_LDLC=0.64;      // LDLC weight in VLDLC
+	private static final double VLDLC_VW=0.36;        // VWMean weight in VLDLC
+
+	private static final float VW_BLEND_LO=1.0f;      // below 1B: pure SBS for VW
+	private static final float VW_BLEND_HI=6.0f;      // above 6B: pure VWMean
+
+	/** VWMean CF: 3S2G formula with coefficients fitted for AVDLL64.
+	 *  R²=0.9999997, maxErr=0.00017, terminal=1.36014.
+	 *  Independent variable: raw VWMean estimate (before CF).
+	 *  @author Nowi */
+	private static final double[] VWCF={
+		 0.874814169834235,  0.022177223713893, -4.659452845551766, 11.322172818476822,
+		-0.556011039023200, 13.037710656132552,  1.067940352319787,
+		 1.019162627475072, 11.973095817737965,  1.883525718425085,
+		 0.020265798654589,  6.606181193667696,  2.047483846507509,
+		 0.115382706227443, 11.153187787661151,  3.201005728090497};
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Estimation Pipeline      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Returns the VLDLC cardinality estimate (primary estimator).
+	 * VLDLC = 0.64 × LDLC + 0.36 × VWMean.
+	 * @return estimated number of distinct elements added
+	 */
+	public long cardinality(){
+		if(lastCardinality>=0){return lastCardinality;}
+		lastCardinality=Math.max(0, Math.round(estimate()[0]));
+		return lastCardinality;
+	}
+
+	/**
+	 * Returns the HLDLC cardinality estimate (secondary estimator).
+	 * HLDLC = 0.5 × LDLC + 0.5 × Hybrid+2.
+	 * @return estimated number of distinct elements added
+	 */
+	public long cardinalityHLDLC(){
+		return Math.max(0, Math.round(estimate()[1]));
+	}
+
+	/** Fraction of non-empty registers. */
+	public double occupancy(){
+		return (double)filledBuckets/modBuckets;
+	}
+
+	/** Number of buckets (registers) in the sketch. */
+	public int numBuckets(){return modBuckets;}
+
+	/** Number of elements added so far. */
+	public long elementsAdded(){return added;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      Internal Estimation      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Computes both estimators.  Returns {VLDLC, HLDLC}. */
+	private double[] estimate(){
+		/* Step 1: Summarize registers into NLZ histogram and packed buckets */
+		final int[] counts=new int[66];                  // counts[k+1] = # regs with absNlz=k
+		final char[] packedBuckets=new char[modBuckets];
+		int filledCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){                                  // empty register
+				if(globalNLZ>=0 && globalNLZ<64){
+					counts[globalNLZ+1]++;               // contributes to floor tier
+					filledCount++;
+				}
+			}else{
+				final int nlzPart=stateToExp(reg);
+				final int histPattern=stateToHist(reg);
+				if(nlzPart>=HISTORY_MARGIN){              // above floor zone
+					final int absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
+					if(absNlz<64){
+						counts[absNlz+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((absNlz+1)<<HIST_BITS)|histPattern);
+					}
+				}else{                                    // at or below floor zone
+					if(globalNLZ>=0 && globalNLZ<64){
+						counts[globalNLZ+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((globalNLZ+1)<<HIST_BITS)|histPattern);
+					}
+				}
+			}
+		}
+		counts[0]=modBuckets-filledCount;                // empty bucket count
+
+		/* Step 2: Compute fundamental sums from NLZ histogram */
+		double difSum=0, hllSumFilled=0;
+		int filled=0;
+		for(int ci=1; ci<counts.length; ci++){
+			final int n=counts[ci];
+			if(n==0){continue;}
+			filled+=n;
+			final int absNlz=ci-1;
+			final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : Math.pow(2.0, 63-absNlz));
+			difSum+=n*dif;                               // sum of dif values for Mean
+			hllSumFilled+=n*Math.pow(2.0, -absNlz);     // sum for HLL/HMean
+		}
+		final int V=modBuckets-filled;                   // empty buckets
+		final double alpha_m=0.7213/(1.0+1.079/modBuckets); // HLL bias correction
+		final float correction=(filled+modBuckets)/(float)(modBuckets+modBuckets); // empty-bias correction
+
+		/* Step 3: LC — basic linear counting */
+		final double lcRaw=(double)modBuckets*Math.log((double)modBuckets/Math.max(V, 0.5));
+
+		/* Step 4: SBS — state-based sampling from per-bucket history states */
+		final int histMask=(1<<HIST_BITS)-1;             // =3 for 2-bit history
+		final byte[] sbsStates=new byte[modBuckets];
+		int sbsContributing=0;
+		for(int i=0; i<modBuckets; i++){
+			final int val=packedBuckets[i];
+			if(val==0){sbsStates[i]=-1; continue;}      // empty bucket
+			final int absNlz=(val>>>HIST_BITS)-1;
+			final int histPattern=val&histMask;
+			final int si=sbsStateIndex(absNlz, histPattern);
+			sbsStates[i]=(byte)si;
+			if(si>=0){sbsContributing++;}
+		}
+		double sbsEst=0;
+		if(sbsContributing>0){
+			for(int i=0; i<modBuckets; i++){
+				final int si=sbsStates[i];
+				if(si>=0 && si<SBS_STATES){
+					sbsEst+=sbsFormula(si, sbsContributing, modBuckets);
+				}
+			}
+		}else{
+			sbsEst=lcRaw;                               // fallback to plain LC
+		}
+		sbsEst=Math.max(sbsEst, filled);                // floor at filled count
+
+		/* Step 5: DLC — dynamic linear counting (info-power weighted tier blend) */
+		final double dlcPure=dlcPure(counts, V, modBuckets);
+		final double lcMin=lcMin(counts, V, modBuckets);
+		final double dlcRaw=dlcBlendWithLcMin(dlcPure, lcMin, V, modBuckets);
+
+		/* Step 6: Mean estimate + CF correction */
+		final int div=Math.max(filled, 1);
+		final double meanVal=difSum/div;                 // average dif
+		final double meanRaw=2*(Long.MAX_VALUE/Math.max(1.0, meanVal))*div*correction*TERMINAL_MEAN_CF;
+		final double meanCF=meanRaw*meanCfFormula(dlcRaw, MCF_MEAN);
+
+		/* Step 7: History-corrected Mean estimate + MeanH CF */
+		double corrDifSum=0;
+		if(filled>0){
+			final double invTermCF=1.0/TERMINAL_MEANH_CF;
+			for(int i=0; i<modBuckets; i++){
+				final int val=packedBuckets[i];
+				if(val==0){continue;}
+				final int absNlz=(val>>>HIST_BITS)-1;
+				final int histPattern=val&histMask;
+				final int nlzBin=Math.min(absNlz, HIST_BITS+1);
+				final double dif=(absNlz==0 ? (double)Long.MAX_VALUE : Math.pow(2.0, 63-absNlz));
+				final double hcf=historyOffset(nlzBin, histPattern);
+				final double tierMult=Math.pow(2.0, -(hcf+CF_OFFSET))*invTermCF;
+				corrDifSum+=dif*tierMult;
+			}
+		}
+		final double corrMeanVal=corrDifSum/div;
+		final double meanCorrRaw=2*(Long.MAX_VALUE/Math.max(1.0, corrMeanVal))*div*correction;
+		final double meanCorrCF=meanCorrRaw*meanCfFormula(dlcRaw, MCF_MEANH);
+
+		/* Step 8: dlcSbs — DLC blended with SBS */
+		final double dlcSbs=dlcBlendWithSbs(dlcPure, sbsEst, dlcRaw, modBuckets);
+
+		/* Step 9: HC — history counting (per-tier exact LC with info-power weighting) */
+		double hcF=0;
+		{
+			final int[] nlzBucketCount=new int[64];      // per-NLZ bucket counts
+			final int[][] nlzHbitSet=new int[HIST_BITS][64]; // per-bit history set counts
+			for(int i=0; i<modBuckets; i++){
+				final int val=packedBuckets[i];
+				if(val==0){continue;}
+				final int absNlz=(val>>>HIST_BITS)-1;
+				final int histPattern=val&histMask;
+				if(absNlz>=0 && absNlz<64){
+					nlzBucketCount[absNlz]++;
+					for(int d=0; d<HIST_BITS; d++){
+						if((histPattern&(1<<(HIST_BITS-1-d)))!=0){
+							nlzHbitSet[d][absNlz]++;     // count of set bits at depth d
+						}
+					}
+				}
+			}
+			int maxNlzHC=0;
+			for(int t=63; t>=0; t--){
+				if(nlzBucketCount[t]>0){maxNlzHC=t; break;}
+			}
+			final int maxTierHC=Math.min(maxNlzHC+2, 63);
+			double hcSumW=0, hcSumWLogE=0;
+			for(int t=0; t<=maxTierHC; t++){
+				int hcBeff=0, hcUnseen=0;                // effective buckets, unseen at this tier
+				for(int d=0; d<HIST_BITS; d++){
+					final int sourceTier=t+d+1;
+					if(sourceTier<64){
+						hcBeff+=nlzBucketCount[sourceTier];
+						hcUnseen+=(nlzBucketCount[sourceTier]-nlzHbitSet[d][sourceTier]);
+					}
+				}
+				if(hcBeff>=8 && hcUnseen>=1 && hcUnseen<hcBeff){ // enough data for estimation
+					final double est=Math.pow(2.0, t+1)/(2.0-1.0) // tierRatio=2 when TIER_SCALE=1
+						*(double)modBuckets*Math.log((double)hcBeff/hcUnseen);
+					if(est>0 && !Double.isNaN(est)){
+						final int hcOcc=hcBeff-hcUnseen;
+						final double hcErr=SQRT_2_OVER_PI
+							*Math.sqrt((double)hcOcc/((double)hcBeff*hcUnseen))
+							/Math.log((double)hcBeff/hcUnseen);
+						final double w=Math.pow(1.0/hcErr, HC_INFO_POWER);
+						hcSumW+=w;
+						hcSumWLogE+=w*Math.log(est);     // log-space weighted sum
+					}
+				}
+			}
+			final double hcRaw=(hcSumW>0 ? Math.exp(hcSumWLogE/hcSumW) : 0);
+			hcF=(hcRaw>0 ? hcRaw*hcCfFormula(hcRaw) : 0); // HC_SCALE=1.0 for AVDLL64
+		}
+
+		/* Step 10: LDLC — DlcSbs blended with HC across [0.5B, 4.5B] */
+		double ldlc;
+		{
+			final double B=(double)modBuckets;
+			final double bLo=LDLC_B_LO*B, bHi=LDLC_B_HI*B;
+			final boolean hcUsable=(hcF>0 && dlcSbs>0);
+			if(dlcSbs<=bLo || !hcUsable){
+				ldlc=dlcSbs;                             // low card: pure DLC-SBS
+			}else if(dlcSbs<=bHi){
+				final double t=(dlcSbs-bLo)/(bHi-bLo);  // linear ramp
+				final double hcW=t*LDLC_HC_WEIGHT;       // HC weight grows from 0 to max
+				ldlc=(1-hcW)*dlcSbs+hcW*hcF;
+			}else{
+				ldlc=(1-LDLC_HC_WEIGHT)*dlcSbs+LDLC_HC_WEIGHT*hcF; // max HC weight
+			}
+		}
+
+		/* Step 11: Hybrid+2 — SBS → Mean+H blend using DLC as zone detector */
+		double hybridPlus2;
+		{
+			final double hb0=HYBRID2_BLEND_LO*modBuckets; // =1×B
+			final double hb1=HYBRID2_BLEND_HI*modBuckets; // =6×B
+			if(dlcRaw<=hb0){
+				hybridPlus2=sbsEst;                      // low card: pure SBS
+			}else if(dlcRaw<hb1){
+				final double t=Math.log(dlcRaw/hb0)/Math.log(hb1/hb0); // log interpolation
+				hybridPlus2=(1-t)*sbsEst+t*meanCorrCF;   // SBS → Mean+H
+			}else{
+				hybridPlus2=meanCorrCF;                  // high card: pure Mean+H
+			}
+		}
+
+		/* Step 12: VWMean — per-tier-state weighted harmonic mean */
+		double vwMean=0;
+		{
+			double sumInvV=0;
+			int used=0;
+			for(int i=0; i<modBuckets; i++){
+				final int val=packedBuckets[i];
+				if(val==0){continue;}
+				final int absNlz=(val>>>HIST_BITS)-1;
+				final int histPattern=val&histMask;
+				if(absNlz<0){continue;}
+				final int tier=Math.min(absNlz, VW_MAX_TIER);
+				if(tier>=VW_TABLE.length || histPattern>=VW_TABLE[tier].length){continue;}
+				double v=VW_TABLE[tier][histPattern];    // expected distinct count
+				if(v<=0){continue;}
+				if(absNlz>VW_MAX_TIER){                  // geometric extrapolation beyond table
+					v*=Math.pow(2.0, absNlz-VW_MAX_TIER);
+				}
+				used++;
+				sumInvV+=1.0/v;                          // harmonic mean accumulator (w=1.0)
+			}
+			if(used>0 && sumInvV>0){
+				vwMean=(double)used*used/sumInvV;         // used × harmonic_mean
+				vwMean*=meanCfFormula(vwMean, VWCF);      // CF correction keyed on raw VWMean
+			}
+		}
+
+		/* Step 13: VW blend — SBS fallback at low cardinality */
+		double vw=vwMean;
+		if(vwMean>0){
+			final double hb0=VW_BLEND_LO*modBuckets;    // =1×B
+			final double hb1=VW_BLEND_HI*modBuckets;    // =6×B
+			if(dlcRaw<=hb0){
+				vw=sbsEst;                               // low card: pure SBS
+			}else if(dlcRaw<hb1){
+				final double t=Math.log(dlcRaw/hb0)/Math.log(hb1/hb0);
+				vw=(1-t)*sbsEst+t*vwMean;               // blend SBS → VWMean
+			}
+		}
+
+		/* Step 14: Compose final estimators */
+		final double hldlc=HLDLC_WEIGHT*ldlc+(1-HLDLC_WEIGHT)*hybridPlus2;
+		final double vldlc=VLDLC_LDLC*ldlc+VLDLC_VW*vw;
+
+		return new double[]{vldlc, hldlc};
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     DLC Helper Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Tier-compensated LC: walks the NLZ histogram upward from V (empty buckets).
+	 *  V_k = V + sum(counts[1..k]).  First k where V_k > 0 gives lcMin. */
+	private static double lcMin(int[] counts, int V, int B){
+		if(V>0){return (double)B*Math.log((double)B/Math.max(V, 0.5));} // tier 0 has empties
+		int vk=V;                                        // starts at 0 when all filled
+		for(int k=0; k<counts.length-1; k++){
+			vk+=counts[k+1];                             // accumulate tier k buckets
+			if(vk>0){                                     // first tier with "empties"
+				return Math.pow(2.0, k+1)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+			}
+		}
+		return 0;                                        // all tiers full (shouldn't happen)
+	}
+
+	/** DLC estimate at a single tier: 2^tier × B × ln(B / max(V_k, 0.5)). */
+	private static double dlcFromVk(int tier, int vk, int B){
+		return Math.pow(2.0, tier)*(double)B*Math.log((double)B/Math.max(vk, 0.5));
+	}
+
+	/** Info-power weighted DLC (all tiers blended in log-space).
+	 *  Uses theoretical error model: err = √(2/π) × √(occ/(B×V)) / ln(B/V). */
+	private static double dlcPure(int[] counts, int V, int B){
+		final int minVK=Math.max(Math.max(1, 2), (int)(B*0.002)); // min V_k for participation
+		final int maxVK=B-minVK;
+		final double Bd=(double)B;
+		int startTier=0;
+		for(int k=0; k<counts.length-1; k++){if(counts[k+1]>0){startTier=k; break;}}
+		int vk=V;
+		double sumW=0, sumWLogE=0;
+		for(int tier=startTier; tier<64; tier++){
+			if(vk>=minVK && vk<=maxVK){
+				final double est=dlcFromVk(tier, vk, B);
+				final int occ=B-vk;
+				final double err=SQRT_2_OVER_PI*Math.sqrt((double)occ/(Bd*vk))/Math.log(Bd/vk);
+				final double w=Math.pow(1.0/err, DLC_INFO_POWER);
+				sumW+=w; sumWLogE+=w*Math.log(est);      // log-space weighted sum
+			}
+			if(tier+1<counts.length && tier<63){vk+=counts[tier+1];}
+			if(vk>=B){break;}                            // all buckets accounted for
+		}
+		if(sumW<=0){return Double.NaN;}
+		return Math.exp(sumWLogE/sumW);                  // geometric weighted mean
+	}
+
+	/** Blend DLC with lcMin at low occupancy (V/B space). */
+	private static double dlcBlendWithLcMin(double dlcPure, double lcMin, int V, int B){
+		if(Double.isNaN(dlcPure) || V>=DLC_BLEND_HI*B){return lcMin;}
+		if(V>DLC_BLEND_LO*B){
+			final double t=(V-DLC_BLEND_LO*B)/((DLC_BLEND_HI-DLC_BLEND_LO)*B);
+			return t*lcMin+(1-t)*dlcPure;                // linear blend in V/B space
+		}
+		return dlcPure;
+	}
+
+	/** Blend DLC with SBS in cardinality space (log interpolation). */
+	private static double dlcBlendWithSbs(double dlcPure, double sbs,
+			double dlcRaw, int B){
+		if(Double.isNaN(dlcPure) || dlcRaw<=DLCSBS_BLEND_LO*B){return sbs;}
+		if(dlcRaw>=DLCSBS_BLEND_HI*B){return dlcPure;}
+		final double t=Math.log(dlcRaw/(DLCSBS_BLEND_LO*B))
+			/Math.log((double)DLCSBS_BLEND_HI/DLCSBS_BLEND_LO);
+		return (1-t)*sbs+t*dlcPure;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------   History Offset Table         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Per-history-state correction offset for Mean+H computation.
+	 *  historyOffset(nlzBin, histPattern) returns the log2 adjustment
+	 *  that accounts for the information content of the history pattern.
+	 *  Geometric mean averaging (all/geo model).
+	 *  Source: StateTable.CF_HISTORY_2 and CF_HISTORY_2_TIERS.
+	 *  Pre-trained values embedded to avoid external StateTable dependency. */
+	private static final double CF_OFFSET=0.0;
+
+	/** Per-tier history offset tables.  Tier 0-2 are per-tier; tier 3+ uses steady state.
+	 *  Regenerated 2026-04-12 from mc2_hist2 GeoCF rows. */
+	private static final double[][] HIST_TIERS={
+		{+0.00000000, +0.00000000, +0.00000000, +0.00000000},  // tier 0: no history
+		{-1.64516934, +0.00000000, +0.32902894, +0.00000000},  // tier 1: only MSB valid
+		{-2.91470444, -1.11691781, -1.63200820, +0.37491432},  // tier 2: both bits valid
+	};
+
+	/** Steady-state per-state CFs for nlzBin >= 3 (2-bit history, 4 states).
+	 *  Regenerated 2026-04-12 from mc2_hist2_128m_32k.txt tier 11 GeoCF. */
+	private static final double[] HIST_STEADY={-2.45693840, -1.03241245, -1.48290584, +0.33548548};
+
+	private static double historyOffset(int nlzBin, int histPattern){
+		if(nlzBin<HIST_TIERS.length){
+			return HIST_TIERS[nlzBin][histPattern];       // per-tier correction
+		}
+		return HIST_STEADY[histPattern];                  // steady-state for deep tiers
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private final long[] packed;           // arithmetic-encoded register array
+	private final int packedLen;           // number of 64-bit words
+	private final int modBuckets;          // actual register count (multiple of 11)
+	private final int numBuckets;          // power-of-2 bucket count (for hash distribution)
+	private int globalNLZ=-1;              // global NLZ floor (advances as registers fill)
+	private int floorCount;                // registers at or below HISTORY_MARGIN
+	private int filledBuckets=0;           // non-empty register count
+	private long added=0;                  // total elements added
+	private long lastCardinality=-1;       // cached cardinality (invalidated on add)
+
+}
