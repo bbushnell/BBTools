@@ -71,11 +71,13 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	private static final int RADIX=56;
 	/** Buckets per 64-bit word (56^11 < 2^64). */
 	private static final int BPW=11;
-	/** History tier limit: tiers 2..HTL have 4 states. */
-	private static final int HTL=14;
-	/** Total states with history (T0:1 + T1:2 + T2-14:52 = 55). */
+	/** History tier limit: tiers 2..HTL have 4 states.
+	 *  HTL=13 (vs AVDLL64's 14) trades one rare history tier for 4 extra
+	 *  non-history exponent levels, improving idempotency (MAX_EXP 18 vs 15). */
+	private static final int HTL=13;
+	/** Total states with history (T0:1 + T1:2 + T2-13:48 = 51). */
 	private static final int HIST_STATES=4*HTL-1;
-	/** Maximum exponent (=15). */
+	/** Maximum exponent (=18, vs AVDLL64's 15). */
 	private static final int MAX_EXP=HTL+(RADIX-HIST_STATES);
 	/** Maximum register value (=55). */
 	private static final int MAX_REGISTER=RADIX-1;
