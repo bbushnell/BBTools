@@ -37,6 +37,8 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 
 	@Override public ArithmeticVariableDynamicLogLog64 copy(){return new ArithmeticVariableDynamicLogLog64(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 64;}
+	@Override public int bucketsPerWord(){return 11;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/

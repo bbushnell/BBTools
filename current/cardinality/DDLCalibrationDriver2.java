@@ -111,6 +111,7 @@ public class DDLCalibrationDriver2 {
 			final String b=split[1];
 			if(a.equals("ddls") || a.equals("dlls")){numDDLs=Parse.parseIntKMG(b);}
 			else if(a.equals("buckets")){buckets=Parse.parseIntKMG(b);}
+			else if(a.equals("mem")){memBytes=(int)Parse.parseKMGBinary(b);}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("maxmult") || a.equals("mult")){maxMult=Double.parseDouble(b);}
 			else if(a.equals("card") || a.equals("maxcard") || a.equals("cardinality")){maxCard=Parse.parseKMG(b);}
@@ -156,6 +157,10 @@ public class DDLCalibrationDriver2 {
 	/** Configure global state: class init, CF loading, formula coefficients.
 	 *  Must be called inside synchronized(DDLCalibrationDriver2.class). */
 	private void initGlobalState(){
+		if(memBytes>0){
+			buckets=CardinalityTracker.memToBuckets(loglogtype, memBytes);
+			System.err.println("mem="+memBytes+" -> buckets="+buckets+" for type="+loglogtype);
+		}
 		maxTrue=(maxCard>0) ? maxCard : Math.max(1, (long)(buckets*maxMult));
 		CardinalityParser.initializeAll(loglogtype, buckets, k, cffile, pllmode);
 		if(sbsFileOverride!=null){
@@ -973,6 +978,7 @@ public class DDLCalibrationDriver2 {
 
 	int numDDLs=128;
 	int buckets=2048;
+	int memBytes=0;
 	int k=31;
 	double maxMult=10;
 	long maxCard=-1;

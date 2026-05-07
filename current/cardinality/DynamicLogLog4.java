@@ -64,6 +64,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	@Override
 	public DynamicLogLog4 copy(){return new DynamicLogLog4(buckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return buckets;}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 8;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/

@@ -38,6 +38,8 @@ public final class ArithmeticVariableDynamicLogLog34 extends CardinalityTracker 
 
 	@Override public ArithmeticVariableDynamicLogLog34 copy(){return new ArithmeticVariableDynamicLogLog34(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 34;}
+	@Override public int bucketsPerWord(){return 6;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Extra Array Access       ----------------*/

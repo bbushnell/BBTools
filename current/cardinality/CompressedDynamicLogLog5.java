@@ -69,6 +69,8 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 	@Override
 	public CompressedDynamicLogLog5 copy(){return new CompressedDynamicLogLog5(modBuckets, k, -1, minProb);}
 	@Override public int actualBuckets(){return modBuckets;}
+	@Override public int bitsPerWord(){return 32;}
+	@Override public int bucketsPerWord(){return 6;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Packed Access         ----------------*/
