@@ -367,7 +367,7 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 
 	public static final String SBS_FILE="?cardinalityCorrectionAVDLL34_LC2BitHistSBS.tsv.gz";
 
-	public static final String CF_FILE="?cardinalityCorrectionUDLL6.tsv.gz";
+	public static final String CF_FILE="?cardinalityCorrectionAVDLL64.tsv.gz";
 	private static int CF_BUCKETS=2048;
 	private static float[][] CF_MATRIX=initializeCF(CF_BUCKETS);
 

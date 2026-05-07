@@ -46,7 +46,7 @@ public class DDLCalibrationDriver2 {
 	static final double M16_SWEEP_START=0.30, M16_SWEEP_STEP=0.02;
 	static final int VLDLC_IDX=39, VWMEAN_IDX=40, MEANTC_IDX=41, MEANTCH_IDX=42;
 	static final int VW_SWEEP_BASE=43;
-	static final double VLDLC_HYB=0.16, VLDLC_LDLC=0.44, VLDLC_VW=0.40;
+	static final double VLDLC_HYB=0.00, VLDLC_LDLC=0.64, VLDLC_VW=0.36;
 	static final double VW_BLEND_LO=Double.parseDouble(System.getProperty("vw.blend.lo", "1.0"));
 	static final double VW_BLEND_HI=Double.parseDouble(System.getProperty("vw.blend.hi", "6.0"));
 	static final int TRI_MAX=50;
