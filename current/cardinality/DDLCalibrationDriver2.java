@@ -554,6 +554,10 @@ public class DDLCalibrationDriver2 {
 							final CardStats csA64=((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized();
 							accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
 							accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticVariableLogLog.class){
+							final CardStats csAVLL=((ArithmeticVariableLogLog)ddl).consumeLastSummarized();
+							accumulateCardStatsLdlc(csAVLL, 0, trueCard, ti, ddl.hldlcWeight());
+							accumulateVWMean(csAVLL, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
 							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){

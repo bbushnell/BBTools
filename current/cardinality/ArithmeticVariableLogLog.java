@@ -1,8 +1,8 @@
 package cardinality;
 
 /**
- * Arithmetic Variable LogLog (AVLL) — standalone cardinality estimator.
- * Paper companion class: self-contained, zero external dependencies.
+ * Arithmetic Variable LogLog (AVLL) — self-contained cardinality estimator.
+ * Paper companion class with all estimation logic embedded.
  * <p>
  * Packs 11 variable-history registers into each 64-bit word using
  * arithmetic encoding with RADIX=56.  Supports 2-bit history tracking
@@ -20,42 +20,71 @@ package cardinality;
  * @contributor Noire
  * @date May 2026
  */
-public class ArithmeticVariableLogLog {
+public class ArithmeticVariableLogLog extends CardinalityTracker {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Default constructor: 2048 buckets, k=31. */
+	ArithmeticVariableLogLog(){this(2048, 31, -1, 0);}
+
+	/** Parser constructor for DDLCalibrationDriver2 integration. */
+	ArithmeticVariableLogLog(parse.Parser p){
+		this(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
+	}
+
 	/**
-	 * Creates an AVLL sketch with the specified number of buckets.
+	 * Creates an AVLL sketch with the specified parameters.
 	 * Buckets are rounded up to a multiple of 11 (buckets per word),
 	 * then to the next power of two for hash distribution.
-	 * @param buckets requested number of registers (typical: 2048)
+	 * @param buckets_ requested number of registers (typical: 2048)
+	 * @param k_ k-mer length for sequence hashing
+	 * @param seed hash seed (-1 for default)
+	 * @param minProb_ minimum base quality probability
 	 */
-	public ArithmeticVariableLogLog(int buckets){
-		final int words=Math.max(1, (buckets+10)/11);        // ceil(buckets/11)
-		final int rounded=words*11;                          // exact multiple of 11
-		final int pow2=Integer.highestOneBit(rounded-1)<<1;  // next power of 2
-		numBuckets=(rounded<=0 ? buckets : pow2);
-		modBuckets=(rounded>0 ? rounded : buckets);          // actual register count
+	ArithmeticVariableLogLog(int buckets_, int k_, long seed, float minProb_){
+		super(roundToWords(buckets_)*11<=0 ? buckets_ :       // parent gets power-of-2 bucket count
+			Integer.highestOneBit(roundToWords(buckets_)*11-1)<<1,
+			k_, seed, minProb_);
+		final int rounded=roundToWords(buckets_)*11;
+		modBuckets=rounded>0 ? rounded : buckets;            // actual register count
 		packedLen=(modBuckets+10)/11;                         // number of 64-bit words
 		packed=new long[packedLen];
 		floorCount=modBuckets;                               // all registers start at floor
 	}
 
+	private static int roundToWords(int b){return Math.max(1, (b+10)/11);}
+
+	@Override public ArithmeticVariableLogLog copy(){return new ArithmeticVariableLogLog(modBuckets, k, -1, minProb);}
+	@Override public int actualBuckets(){return modBuckets;}
+	@Override public float terminalMeanCF(){return TERMINAL_MEAN_CF;}
+	@Override public float terminalMeanPlusCF(){return TERMINAL_MEANH_CF;}
+	@Override public float hldlcWeight(){return HLDLC_WEIGHT;}
+	@Override public float[] compensationFactorLogBucketsArray(){return null;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Register Constants      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final int RADIX=56;             // base for arithmetic encoding
-	private static final int BPW=11;               // buckets per 64-bit word (56^11 < 2^64)
-	private static final int HTL=14;               // history tier limit: tiers 2..HTL have 4 states
-	private static final int HIST_STATES=4*HTL-1;  // =55: total states with history (T0:1+T1:2+T2-14:52)
-	private static final int MAX_EXP=HTL+(RADIX-HIST_STATES); // =15: maximum exponent
-	private static final int MAX_REGISTER=RADIX-1; // =55: maximum register value
-	private static final int HISTORY_MARGIN=2;     // NLZ margin below globalNLZ for floor detection
-	private static final int WORDLEN=64;           // hash word length in bits
-	private static final int HIST_BITS=2;          // number of history bits per register
+	/** Base for arithmetic encoding. */
+	private static final int RADIX=56;
+	/** Buckets per 64-bit word (56^11 < 2^64). */
+	private static final int BPW=11;
+	/** History tier limit: tiers 2..HTL have 4 states. */
+	private static final int HTL=14;
+	/** Total states with history (T0:1 + T1:2 + T2-14:52 = 55). */
+	private static final int HIST_STATES=4*HTL-1;
+	/** Maximum exponent (=15). */
+	private static final int MAX_EXP=HTL+(RADIX-HIST_STATES);
+	/** Maximum register value (=55). */
+	private static final int MAX_REGISTER=RADIX-1;
+	/** NLZ margin below globalNLZ for floor detection. */
+	private static final int HISTORY_MARGIN=2;
+	/** Hash word length in bits. */
+	private static final int WORDLEN=64;
+	/** Number of history bits per register. */
+	private static final int HIST_BITS=2;
 
 	/** Powers of RADIX: POW[k] = 56^k. Used for arithmetic encode/decode. */
 	private static final long[] POW=computePow();
@@ -184,11 +213,13 @@ public class ArithmeticVariableLogLog {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Adds an element to the sketch.  The input is hashed internally.
-	 * @param element the element to add (any 64-bit value)
+	 * Hashes and stores a number into the sketch.
+	 * Called by CardinalityTracker.add(long) which also increments the added counter.
+	 * @param number the value to hash and store
 	 */
-	public void add(long element){
-		final long key=hash64shift(element);             // hash to uniform distribution
+	@Override
+	public void hashAndStore(long number){
+		final long key=hash64shift(number^hashXor);      // hash with parent's XOR seed
 
 		final int idx=(int)(Long.remainderUnsigned(key, modBuckets)); // bucket selection
 		final int nlz=Long.numberOfLeadingZeros(key);    // count leading zeros
@@ -211,7 +242,6 @@ public class ArithmeticVariableLogLog {
 
 		setReg(idx, newReg);
 		lastCardinality=-1;                              // invalidate cached result
-		added++;
 
 		if(oldReg==0){filledBuckets++;}                  // track fill count
 
@@ -225,6 +255,41 @@ public class ArithmeticVariableLogLog {
 					floorCount=countAndDecrement();      // demote all registers
 				}
 			}
+		}
+	}
+
+	/** Merges another AVLL sketch into this one (register-wise OR). */
+	@Override
+	public void add(CardinalityTracker log){
+		assert(log.getClass()==this.getClass());
+		add((ArithmeticVariableLogLog)log);
+	}
+
+	public void add(ArithmeticVariableLogLog log){
+		added+=log.added;
+		lastCardinality=-1;
+		final int newGlobalNLZ=Math.max(globalNLZ, log.globalNLZ);
+		final int deltaA=newGlobalNLZ-globalNLZ;
+		final int deltaB=newGlobalNLZ-log.globalNLZ;
+		for(int i=0; i<modBuckets; i++){
+			final int rA=getReg(i);
+			final int rB=log.getReg(i);
+			final long hpA=(rA==0) ? 0 : unpackReg(rA)>>>deltaA;
+			final long hpB=(rB==0) ? 0 : unpackReg(rB)>>>deltaB;
+			final long merged=hpA|hpB;
+			if(merged==0){setReg(i, 0);}
+			else{setReg(i, Math.min(packReg(merged), MAX_REGISTER));}
+		}
+		globalNLZ=newGlobalNLZ;
+		filledBuckets=0; floorCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg>0){filledBuckets++;}
+			if(reg==0 || stateToExp(reg)<=HISTORY_MARGIN){floorCount++;}
+		}
+		while(floorCount==0 && globalNLZ<WORDLEN){
+			globalNLZ++;
+			floorCount=countAndDecrement();
 		}
 	}
 
@@ -253,7 +318,8 @@ public class ArithmeticVariableLogLog {
 	/*----------------     SBS Constants & Formula   ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final int SBS_STATES=11; // for 2-bit history: 1+2+4+4 states
+	/** SBS state count for 2-bit history: 1+2+4+4 = 11 states. */
+	private static final int SBS_STATES=11;
 
 	/** Base values per SBS state: minimum distinct count for this history pattern. */
 	private static final int[] SBS_BASE={1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3};
@@ -314,6 +380,7 @@ public class ArithmeticVariableLogLog {
 		return p[0]+p[1]*s1+p[4]*s2+p[7]*s3+p[10]*g1+p[13]*g2;
 	}
 
+	/** 1/ln(2), for converting ln to log2. */
 	private static final double INV_LOG2=1.0/Math.log(2.0);
 
 	/** Mean CF coefficients for UDLL6-family (includes AVDLL64).
@@ -362,7 +429,9 @@ public class ArithmeticVariableLogLog {
 		           +(HC_CF_C0+HC_CF_C1*lc)*Math.cos(angle);
 	}
 
+	/** 2π, cached for HC CF formula. */
 	private static final double TWO_PI=2.0*Math.PI;
+	/** √(2/π), theoretical DLC tier error constant. */
 	private static final double SQRT_2_OVER_PI=Math.sqrt(2.0/Math.PI);
 
 	/*--------------------------------------------------------------*/
@@ -372,8 +441,10 @@ public class ArithmeticVariableLogLog {
 	/** Per-tier-state expected distinct counts for VWMean.
 	 *  Indexed as VW_TABLE[tier][histPattern], where histPattern is 0-3.
 	 *  Beyond VW_MAX_TIER, values scale geometrically by 2× per tier.
+	 *  Only tiers 0-4 are needed; higher tiers are exactly 2× the previous
+	 *  (verified: T25/T4 cluster comparison shows zero difference).
 	 *  Source: perTierStateUDLL6.tsv.gz, entry_lin section, columns 4-7. */
-	private static final int VW_MAX_TIER=25;
+	private static final int VW_MAX_TIER=4;
 
 	private static final double[][] VW_TABLE={
 		{1.000000,   0.000000,   0.000000,   0.000000},  // tier 0
@@ -381,52 +452,47 @@ public class ArithmeticVariableLogLog {
 		{1.000000,   2.688307,   2.245420,   5.837820},  // tier 2
 		{2.000006,   5.376626,   4.490847,  11.675610},  // tier 3
 		{4.000001,  10.753230,   8.981696,  23.351283},  // tier 4
-		{8.000026,  21.506533,  17.963213,  46.702361},  // tier 5
-		{16.000110,  43.013140,  35.926836,  93.405079},  // tier 6
-		{32.000014,  86.025645,  71.853033, 186.810838},  // tier 7
-		{63.999723, 172.051425, 143.706361, 373.620993},  // tier 8
-		{127.999230, 344.104643, 287.412741, 747.242991}, // tier 9
-		{255.999538, 688.207607, 574.827393, 1494.485694},       // tier 10
-		{511.999823, 1376.415678, 1149.657596, 2988.952954},     // tier 11
-		{1024.000640, 2752.834978, 2299.331771, 5977.953287},    // tier 12
-		{2048.002830, 5505.673445, 4598.622909, 11955.823205},   // tier 13
-		{4095.900655, 11011.104245, 9197.245357, 23911.467859},  // tier 14
-		{8191.943332, 22022.756019, 18394.115601, 47823.334338}, // tier 15
-		{16383.987771, 44044.565078, 36787.497320, 95646.240744},       // tier 16
-		{32767.210882, 88092.323007, 73577.576252, 191293.672890},      // tier 17
-		{65536.355679, 176181.869908, 147157.373464, 382594.434700},    // tier 18
-		{131073.117138, 352359.111569, 294302.920915, 765166.637863},   // tier 19
-		{262153.397996, 704709.577548, 588632.115590, 1530360.007895},  // tier 20
-		{524295.300777, 1409379.166184, 1177214.138830, 3060710.769540}, // tier 21
-		{1048550.869689, 2818876.707027, 2354269.720082, 6121457.430249}, // tier 22
-		{2096877.072976, 5637270.776168, 4708958.516548, 12242060.443481}, // tier 23
-		{4194383.270289, 11273906.940892, 9419839.089686, 24485914.267100}, // tier 24
-		{8389905.763235, 22553195.264638, 18837247.207710, 48975103.625117}, // tier 25
 	};
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Blend Constants         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final float DLC_BLEND_LO=0.088f;   // below this V/B: pure DLC
-	private static final float DLC_BLEND_HI=0.952f;   // above this V/B: pure lcMin
-	private static final float DLC_INFO_POWER=4.5f;    // info-power exponent for DLC tiers
-	private static final float HC_INFO_POWER=2.0f;     // info-power exponent for HC tiers
+	/** DLC blend lower bound: below this V/B fraction, pure DLC. */
+	private static final float DLC_BLEND_LO=0.088f;
+	/** DLC blend upper bound: above this V/B fraction, pure lcMin. */
+	private static final float DLC_BLEND_HI=0.952f;
+	/** Info-power exponent for DLC tier weighting. */
+	private static final float DLC_INFO_POWER=4.5f;
+	/** Info-power exponent for HC tier weighting. */
+	private static final float HC_INFO_POWER=2.0f;
 
-	private static final float DLCSBS_BLEND_LO=2.0f;  // below 2B: pure SBS
-	private static final float DLCSBS_BLEND_HI=6.0f;  // above 6B: pure DLC
-	private static final float HYBRID2_BLEND_LO=1.0f;  // Hybrid+2 blend lower bound
-	private static final float HYBRID2_BLEND_HI=6.0f;  // Hybrid+2 blend upper bound
-	private static final float LDLC_B_LO=0.5f;        // LDLC HC blend lower (×B)
-	private static final float LDLC_B_HI=4.5f;        // LDLC HC blend upper (×B)
-	private static final float LDLC_HC_WEIGHT=0.50f;   // maximum HC weight in LDLC
-	private static final float HLDLC_WEIGHT=0.5f;      // LDLC weight in HLDLC blend
+	/** DLC-SBS blend: below 2×B, pure SBS. */
+	private static final float DLCSBS_BLEND_LO=2.0f;
+	/** DLC-SBS blend: above 6×B, pure DLC. */
+	private static final float DLCSBS_BLEND_HI=6.0f;
+	/** Hybrid+2 blend lower bound (×B). */
+	private static final float HYBRID2_BLEND_LO=1.0f;
+	/** Hybrid+2 blend upper bound (×B). */
+	private static final float HYBRID2_BLEND_HI=6.0f;
+	/** LDLC HC blend lower bound (×B). */
+	private static final float LDLC_B_LO=0.5f;
+	/** LDLC HC blend upper bound (×B). */
+	private static final float LDLC_B_HI=4.5f;
+	/** Maximum HC weight in LDLC blend. */
+	private static final float LDLC_HC_WEIGHT=0.50f;
+	/** LDLC weight in HLDLC blend (remainder goes to Hybrid+2). */
+	private static final float HLDLC_WEIGHT=0.5f;
 
-	private static final double VLDLC_LDLC=0.64;      // LDLC weight in VLDLC
-	private static final double VLDLC_VW=0.36;        // VWMean weight in VLDLC
+	/** LDLC weight in VLDLC blend. */
+	private static final double VLDLC_LDLC=0.64;
+	/** VWMean weight in VLDLC blend. */
+	private static final double VLDLC_VW=0.36;
 
-	private static final float VW_BLEND_LO=1.0f;      // below 1B: pure SBS for VW
-	private static final float VW_BLEND_HI=6.0f;      // above 6B: pure VWMean
+	/** VW blend: below 1×B, pure SBS for VWMean. */
+	private static final float VW_BLEND_LO=1.0f;
+	/** VW blend: above 6×B, pure VWMean. */
+	private static final float VW_BLEND_HI=6.0f;
 
 	/** VWMean CF: 3S2G formula with coefficients fitted for AVDLL64.
 	 *  R²=0.9999997, maxErr=0.00017, terminal=1.36014.
@@ -448,10 +514,14 @@ public class ArithmeticVariableLogLog {
 	 * VLDLC = 0.64 × LDLC + 0.36 × VWMean.
 	 * @return estimated number of distinct elements added
 	 */
+	@Override
 	public long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
-		lastCardinality=Math.max(0, Math.round(estimate()[0]));
-		return lastCardinality;
+		lastSummarized=summarize();                      // populate for consumeLastSummarized()
+		long card=Math.max(0, Math.round(estimate()[0]));
+		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
+		lastCardinality=card;
+		return card;
 	}
 
 	/**
@@ -468,11 +538,80 @@ public class ArithmeticVariableLogLog {
 		return (double)filledBuckets/modBuckets;
 	}
 
-	/** Number of buckets (registers) in the sketch. */
-	public int numBuckets(){return modBuckets;}
+	/*--------------------------------------------------------------*/
+	/*----------------   CardStats Integration      ----------------*/
+	/*--------------------------------------------------------------*/
 
-	/** Number of elements added so far. */
-	public long elementsAdded(){return added;}
+	/** Summarizes registers into a CardStats for calibration pipeline compatibility.
+	 *  Uses the same register→NLZ mapping as AVDLL64. */
+	private CardStats summarize(){
+		final int[] nlzCounts=new int[66];
+		final char[] packedBuckets=new char[modBuckets];
+		int filledCount=0;
+		for(int i=0; i<modBuckets; i++){
+			final int reg=getReg(i);
+			if(reg==0){
+				if(globalNLZ>=0 && globalNLZ<64){
+					nlzCounts[globalNLZ+1]++;
+					filledCount++;
+				}
+			}else{
+				final int nlzPart=stateToExp(reg);
+				final int histPattern=stateToHist(reg);
+				if(nlzPart>=HISTORY_MARGIN){
+					final int absNlz=nlzPart-HISTORY_MARGIN+(globalNLZ+1);
+					if(absNlz<64){
+						nlzCounts[absNlz+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((absNlz+1)<<HIST_BITS)|histPattern);
+					}
+				}else{
+					if(globalNLZ>=0 && globalNLZ<64){
+						nlzCounts[globalNLZ+1]++;
+						filledCount++;
+						packedBuckets[i]=(char)(((globalNLZ+1)<<HIST_BITS)|histPattern);
+					}
+				}
+			}
+		}
+		nlzCounts[0]=modBuckets-filledCount;
+		return new CardStats(packedBuckets, nlzCounts, 0, HIST_BITS, 0, 0,
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
+	}
+
+	@Override
+	public double[] rawEstimates(){
+		lastSummarized=summarize();
+		final double hybridEst=lastSummarized.hybridDLL();
+		final double[] r=AbstractCardStats.buildLegacyArray(lastSummarized, hybridEst);
+		r[AbstractCardStats.HC_IDX+1]=lastSummarized.vwMean();
+		return r;
+	}
+
+	/** Returns and clears the last summarized CardStats (for DDLCalibrationDriver2). */
+	public CardStats consumeLastSummarized(){
+		final CardStats s=lastSummarized;
+		lastSummarized=null;
+		return s;
+	}
+
+	/** CF table file (shared with AVDLL64 — same estimator family).
+	 *  Loaded lazily via CardinalityParser (cf=t), not at class init. */
+	public static final String CF_FILE="?cardinalityCorrectionAVDLL64.tsv.gz";
+	private static int CF_BUCKETS=2048;
+	private static float[][] CF_MATRIX;
+
+	public static float[][] initializeCF(int buckets){
+		CF_BUCKETS=buckets;
+		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
+	}
+
+	public static void setCFMatrix(float[][] matrix, int buckets){
+		CF_MATRIX=matrix; CF_BUCKETS=buckets;
+	}
+
+	private CardStats lastSummarized;
 
 	/*--------------------------------------------------------------*/
 	/*----------------      Internal Estimation      ----------------*/
@@ -825,14 +964,17 @@ public class ArithmeticVariableLogLog {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private final long[] packed;           // arithmetic-encoded register array
-	private final int packedLen;           // number of 64-bit words
-	private final int modBuckets;          // actual register count (multiple of 11)
-	private final int numBuckets;          // power-of-2 bucket count (for hash distribution)
-	private int globalNLZ=-1;              // global NLZ floor (advances as registers fill)
-	private int floorCount;                // registers at or below HISTORY_MARGIN
-	private int filledBuckets=0;           // non-empty register count
-	private long added=0;                  // total elements added
-	private long lastCardinality=-1;       // cached cardinality (invalidated on add)
+	/** Arithmetic-encoded register array. */
+	private final long[] packed;
+	/** Number of 64-bit words in packed array. */
+	private final int packedLen;
+	/** Actual register count (multiple of 11). */
+	private final int modBuckets;
+	/** Global NLZ floor (advances as registers fill). */
+	private int globalNLZ=-1;
+	/** Registers at or below HISTORY_MARGIN. */
+	private int floorCount;
+	/** Non-empty register count. */
+	private int filledBuckets=0;
 
 }
