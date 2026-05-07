@@ -365,7 +365,7 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 	public static int MAX_EXP=HIST_TIER_LIMIT+(RADIX-HIST_STATES);
 	static int MAX_REGISTER=RADIX-1;
 
-	public static final String SBS_FILE="?cardinalityCorrectionAVDLL34_LC2BitHistSBS.tsv.gz";
+	public static final String SBS_FILE="?cardinalityCorrectionLC2BitHist.tsv.gz";
 
 	public static final String CF_FILE="?cardinalityCorrectionAVDLL64.tsv.gz";
 	private static int CF_BUCKETS=2048;
