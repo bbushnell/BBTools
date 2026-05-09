@@ -237,6 +237,25 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=Math.abs(lerr); lLdlcSqErr[ti][DDLCalibrationDriver2.HLDLC_IDX]+=lerr*lerr;
 								}
+								if(CardStats.VW_STATE_TABLE!=null){
+									final double vwPure=cs.vwMean();
+									{final double vlerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=Math.abs(vlerr); lLdlcSqErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr*vlerr;}
+									double vw=vwPure;
+									if(vwPure>0){
+										final double sbs=cs.sbs(); final double zoneEst=cs.dlcRaw();
+										final double hb0=DDLCalibrationDriver2.VW_BLEND_LO*finalBuckets, hb1=DDLCalibrationDriver2.VW_BLEND_HI*finalBuckets;
+										if(zoneEst<=hb0){vw=sbs;}
+										else if(zoneEst<hb1){final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0); vw=(1-t)*sbs+t*vwPure;}
+									}
+									{final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr; lLdlcAbsErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=Math.abs(vwErr); lLdlcSqErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr*vwErr;}
+									if(vw>0 && ldlcVals[0]>0){
+										final double vldlc=DDLCalibrationDriver2.VLDLC_LDLC*ldlcVals[0]+DDLCalibrationDriver2.VLDLC_VW*vw;
+										final double vlerr2=(vldlc-trueCard)/(double)trueCard;
+										lLdlcErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2; lLdlcAbsErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=Math.abs(vlerr2); lLdlcSqErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2*vlerr2;
+									}
+								}
 							}else if(est.getClass()==BankedDynamicLogLog5.class){
 								final BankedDynamicLogLog5 c=(BankedDynamicLogLog5)est;
 								final CardStats cs=c.consumeLastSummarized();
@@ -475,6 +494,25 @@ public class LowComplexityCalibrationDriver {
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
 								}
+								if(CardStats.VW_STATE_TABLE!=null){
+									final double vwPure=cs.vwMean();
+									{final double vlerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=Math.abs(vlerr); lLdlcSqErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr*vlerr;}
+									double vw=vwPure;
+									if(vwPure>0){
+										final double sbs=cs.sbs(); final double zoneEst=cs.dlcRaw();
+										final double hb0=DDLCalibrationDriver2.VW_BLEND_LO*finalBuckets, hb1=DDLCalibrationDriver2.VW_BLEND_HI*finalBuckets;
+										if(zoneEst<=hb0){vw=sbs;}
+										else if(zoneEst<hb1){final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0); vw=(1-t)*sbs+t*vwPure;}
+									}
+									{final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr; lLdlcAbsErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=Math.abs(vwErr); lLdlcSqErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr*vwErr;}
+									if(vw>0 && ldlcVals[0]>0){
+										final double vldlc=DDLCalibrationDriver2.VLDLC_LDLC*ldlcVals[0]+DDLCalibrationDriver2.VLDLC_VW*vw;
+										final double vlerr2=(vldlc-trueCard)/(double)trueCard;
+										lLdlcErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2; lLdlcAbsErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=Math.abs(vlerr2); lLdlcSqErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2*vlerr2;
+									}
+								}
 							}else if(est.getClass()==ArithmeticVariableDynamicLogLog64.class){
 								final ArithmeticVariableDynamicLogLog64 c=(ArithmeticVariableDynamicLogLog64)est;
 								final CardStats cs=c.consumeLastSummarized();
@@ -491,6 +529,61 @@ public class LowComplexityCalibrationDriver {
 									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
 									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
 									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
+								if(CardStats.VW_STATE_TABLE!=null){
+									final double vwPure=cs.vwMean();
+									{final double vlerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=Math.abs(vlerr); lLdlcSqErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr*vlerr;}
+									double vw=vwPure;
+									if(vwPure>0){
+										final double sbs=cs.sbs(); final double zoneEst=cs.dlcRaw();
+										final double hb0=DDLCalibrationDriver2.VW_BLEND_LO*finalBuckets, hb1=DDLCalibrationDriver2.VW_BLEND_HI*finalBuckets;
+										if(zoneEst<=hb0){vw=sbs;}
+										else if(zoneEst<hb1){final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0); vw=(1-t)*sbs+t*vwPure;}
+									}
+									{final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr; lLdlcAbsErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=Math.abs(vwErr); lLdlcSqErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr*vwErr;}
+									if(vw>0 && ldlcVals[0]>0){
+										final double vldlc=DDLCalibrationDriver2.VLDLC_LDLC*ldlcVals[0]+DDLCalibrationDriver2.VLDLC_VW*vw;
+										final double vlerr2=(vldlc-trueCard)/(double)trueCard;
+										lLdlcErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2; lLdlcAbsErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=Math.abs(vlerr2); lLdlcSqErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2*vlerr2;
+									}
+								}
+							}else if(est.getClass()==ArithmeticVariableLogLog.class){
+								final ArithmeticVariableLogLog c=(ArithmeticVariableLogLog)est;
+								final CardStats cs=c.consumeLastSummarized();
+								final double[] ldlcVals={cs.ldlc(), cs.dlcSbs(), cs.hc(),
+									0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2()};
+								for(int e=0; e<7; e++){
+									final double v=ldlcVals[e];
+									final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][e]+=lerr;
+									lLdlcAbsErr[ti][e]+=Math.abs(lerr);
+									lLdlcSqErr[ti][e]+=lerr*lerr;
+								}
+								{
+									final float hw=est.hldlcWeight(); final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+									final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][11]+=lerr; lLdlcAbsErr[ti][11]+=Math.abs(lerr); lLdlcSqErr[ti][11]+=lerr*lerr;
+								}
+								if(CardStats.VW_STATE_TABLE!=null){
+									final double vwPure=cs.vwMean();
+									{final double vlerr=(vwPure>0 ? (vwPure-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr; lLdlcAbsErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=Math.abs(vlerr); lLdlcSqErr[ti][DDLCalibrationDriver2.MEAN16_IDX]+=vlerr*vlerr;}
+									double vw=vwPure;
+									if(vwPure>0){
+										final double sbs=cs.sbs(); final double zoneEst=cs.dlcRaw();
+										final double hb0=DDLCalibrationDriver2.VW_BLEND_LO*finalBuckets, hb1=DDLCalibrationDriver2.VW_BLEND_HI*finalBuckets;
+										if(zoneEst<=hb0){vw=sbs;}
+										else if(zoneEst<hb1){final double t=Math.log(zoneEst/hb0)/Math.log(hb1/hb0); vw=(1-t)*sbs+t*vwPure;}
+									}
+									{final double vwErr=(vw>0 ? (vw-trueCard)/(double)trueCard : -1.0);
+									lLdlcErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr; lLdlcAbsErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=Math.abs(vwErr); lLdlcSqErr[ti][DDLCalibrationDriver2.VWMEAN_IDX]+=vwErr*vwErr;}
+									if(vw>0 && ldlcVals[0]>0){
+										final double vldlc=DDLCalibrationDriver2.VLDLC_LDLC*ldlcVals[0]+DDLCalibrationDriver2.VLDLC_VW*vw;
+										final double vlerr2=(vldlc-trueCard)/(double)trueCard;
+										lLdlcErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2; lLdlcAbsErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=Math.abs(vlerr2); lLdlcSqErr[ti][DDLCalibrationDriver2.VLDLC_IDX]+=vlerr2*vlerr2;
+									}
 								}
 							}else if(est.getClass()==ErtlULL.class){
 								final ErtlULL u=(ErtlULL)est;
