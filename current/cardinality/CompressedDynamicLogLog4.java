@@ -407,12 +407,8 @@ public final class CompressedDynamicLogLog4 extends CardinalityTracker {
 		}
 	}
 
-	/** Terminal Mean CF (multiply by raw Mean to correct asymptotic bias).
-	 *  Measured 2026-04-16 via ddlcalibrate2 cf=f tmcf=1 tmpcf=1 ddls=512k maxmult=8192. */
-	@Override public float terminalMeanCF(){return 0.883441f;}
-
-	/** Asymptotic Mean+H ratio. Measured 2026-04-16 via ddlcalibrate2
-	 *  cf=f tmcf=1 tmpcf=1 ddls=512k maxmult=8192. */
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.883437f;}
 	@Override public float terminalMeanPlusCF(){return 1.067044f;}
 
 	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */

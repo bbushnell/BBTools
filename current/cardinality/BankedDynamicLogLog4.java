@@ -477,8 +477,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 	/** When true, apply overflow correction to the NLZ histogram in summarize(). */
 	public static boolean CORRECT_OVERFLOW=false;
 
-	/** BDLL4-specific CF table (uses DLL4 table as proxy). */
-	public static final String CF_FILE="?cardinalityCorrectionDLL4.tsv.gz";
+	/** BDLL4-specific CF table. */
+	public static final String CF_FILE="?cardinalityCorrectionBDLL4.tsv.gz";
 	/** Bucket count the CF_MATRIX was generated for. */
 	private static int CF_BUCKETS=2048;
 	/** Per-cardinality correction factor table, set by initializeCF or setCFMatrix. */
@@ -495,8 +495,8 @@ public final class BankedDynamicLogLog4 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Measured: raw Mean at saturation ≈ 1.4415 × trueCard (16k ddls, maxmult=4000, co=f). */
-	@Override public float terminalMeanCF(){return 0.693722f;}
-	@Override public float terminalMeanPlusCF(){return 0.86f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.701367f;}
+	@Override public float terminalMeanPlusCF(){return 0.828839f;}
 
 }

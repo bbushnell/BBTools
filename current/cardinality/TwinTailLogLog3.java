@@ -466,10 +466,10 @@ public final class TwinTailLogLog3 extends CardinalityTracker {
 	/*----------------        Correction Factors    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 128k DDLs maxmult=8192 tmcf=1 (Apr 25 2026). */
-	@Override public float terminalMeanCF(){return 1.387272f;}
-	/** Asymptotic Mean+H ratio (6-bit history, 63-state SBS, entry/lin), measured 128k DDLs maxmult=8192 tmpcf=1 (Apr 25 2026). */
-	@Override public float terminalMeanPlusCF(){return 1.051190f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.720990f;}
+	/** Asymptotic Mean+H ratio (6-bit history, 63-state SBS), measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanPlusCF(){return 1.051265f;}
 
 	/** HLDLC blend: 0.70*LDLC + 0.30*Hybrid+2. Swept 0.36-0.80, 32k DDLs, hcweight=0.65 (Apr 25 2026). */
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.70f;}

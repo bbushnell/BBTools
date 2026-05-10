@@ -105,7 +105,8 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
 				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
 				IGNORE_OVERFLOW ? 3 : Integer.MAX_VALUE,
-				IGNORE_OVERFLOW ? CorrectionFactor.DLC_TIER_ERR_DLL2 : null);
+				IGNORE_OVERFLOW ? CorrectionFactor.DLC_TIER_ERR_DLL2 : null,
+				terminalMeanCF(), terminalMeanPlusCF(), 1.0);
 	}
 
 	@Override
@@ -280,6 +281,9 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	/** Rate of hashes reaching branch2 relative to branch1. */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 2.669464f;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

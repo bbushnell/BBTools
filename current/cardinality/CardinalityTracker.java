@@ -358,6 +358,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new ExpandedDynamicLogLog9(buckets_, k_, seed, minProb_);
 		}else if("EXA".equalsIgnoreCase(type) || "ExaLogLog".equalsIgnoreCase(type)){
 			return makeByReflection("ExaLogLogWrapper", buckets_, k_, seed, minProb_);
+		}else if("HLL4".equalsIgnoreCase(type) || "ApacheHLL4".equalsIgnoreCase(type)){
+			return new ApacheHLL4Wrapper(buckets_, k_, seed, minProb_);
+		}else if("HLLL".equalsIgnoreCase(type) || "HyperLogLogLog".equalsIgnoreCase(type)){
+			return new HLLLWrapper(buckets_, k_, seed, minProb_);
 		}else if("AUDLL32".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog32".equalsIgnoreCase(type)){
 			return new ArithmeticUltraDynamicLogLog32(buckets_, k_, seed, minProb_);
 		}else if("AUDLL33".equalsIgnoreCase(type) || "ArithmeticUltraDynamicLogLog33".equalsIgnoreCase(type)){

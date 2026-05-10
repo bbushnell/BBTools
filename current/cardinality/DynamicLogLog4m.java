@@ -117,15 +117,16 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 		nlzCounts[0]=modBuckets-filledCount;
 		// DLL4m is counts-only: no history, luck, or mantissa bits. buckets=null.
 		return new CardStats(null, nlzCounts, 0, 0, 0, 0,
-				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				modBuckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	@Override
 	public final long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		final CardStats s=summarize();
-		final double rawHyb=s.hybridDLL();
-		long card=(long)(rawHyb*s.cf(rawHyb, CorrectionFactor.HYBRID));
+		final double rawHyb=s.hybridDLL(); // CF already inside blend (on meanEstCF)
+		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
@@ -172,6 +173,9 @@ public final class DynamicLogLog4m extends CardinalityTracker {
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+
+	/** Asymptotic meanRaw/trueCard ratio — same as DLL4 (measured 128k ddls 128t May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.721009f;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

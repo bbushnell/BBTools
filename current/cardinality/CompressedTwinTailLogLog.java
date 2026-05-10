@@ -629,8 +629,9 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 		return "?perTierStateCTTLL.tsv.gz";
 	}
 
-	@Override public float terminalMeanCF(){return (NUM_TAILS==4) ? 0.878151f : 0.997457f;}
-	@Override public float terminalMeanPlusCF(){return (NUM_TAILS==4) ? 0.936905f : 0.668333f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return (NUM_TAILS==4) ? 0.878464f : 0.997457f;}
+	@Override public float terminalMeanPlusCF(){return (NUM_TAILS==4) ? 0.668333f : 0.668333f;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
 
 	/** Derive HSB tables from per-tier state table for Mean+H. */

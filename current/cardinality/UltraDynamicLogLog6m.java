@@ -302,7 +302,7 @@ public final class UltraDynamicLogLog6m extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	@Override public float terminalMeanCF(){return 1.386726f;}
-	@Override public float terminalMeanPlusCF(){return 0.856020f;}
+	@Override public float terminalMeanCF(){return 0.721255f;}
+	@Override public float terminalMeanPlusCF(){return 0.856115f;}
 
 }

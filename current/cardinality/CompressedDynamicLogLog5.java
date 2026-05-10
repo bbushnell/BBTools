@@ -465,9 +465,9 @@ public final class CompressedDynamicLogLog5 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Measured 2026-04-20: 128k DDLs, 1536 modulo buckets, maxmult=8192, tmcf=1 tmpcf=1. */
-	@Override public float terminalMeanCF(){return 0.883080f;}
-	@Override public float terminalMeanPlusCF(){return 1.094268f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.883491f;}
+	@Override public float terminalMeanPlusCF(){return 1.094691f;}
 
 	/** HC weight for LDLC blend. Calibrated by Eru, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.40;}

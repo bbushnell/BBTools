@@ -363,8 +363,9 @@ public final class ExpandedDynamicLogLog9 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	@Override public float terminalMeanCF(){return 0.596929f;}
-	@Override public float terminalMeanPlusCF(){return 0.751432f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.597338f;}
+	@Override public float terminalMeanPlusCF(){return 0.746751f;}
 
 	@Override public double ldlcHcWeight(){return 0.68;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}

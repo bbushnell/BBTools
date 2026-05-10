@@ -33,7 +33,6 @@ public class DDLCalibrationDriver2 {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static boolean CLAMP_TO_ADDED=false;
 	static boolean TRI_SWEEP=false;
 	static final boolean M16_SWEEP=false;
 	static final int NUM_EST=DDLCalibrationDriver.NUM_EST;
@@ -92,6 +91,7 @@ public class DDLCalibrationDriver2 {
 				args=pp.args;
 			}
 			Parser.printSetThreads=false;
+			CardinalityTracker.clampToAdded=false;
 			parse(args);
 			loglogtype=Parser.loglogType.toLowerCase();
 			threads=Shared.threads();
@@ -140,7 +140,7 @@ public class DDLCalibrationDriver2 {
 			else if(a.equals("out2")){System.err.println("Note: out2= is not supported by DDLCalibrationDriver2; ignoring.");
 			}else if(a.equals("notes")){notes=b.replace('_',' ');
 			}else if(a.equals("pllmode") || a.equals("pmode")){pllmode=b;
-			}else if(a.equals("clamp") || a.equals("clamptoadded")){CLAMP_TO_ADDED=Parse.parseBoolean(b);
+			}else if(a.equals("clamp") || a.equals("clamptoadded")){CardinalityTracker.clampToAdded=Parse.parseBoolean(b);
 			}else if(a.equals("trisweep") || a.equals("tri")){
 				TRI_SWEEP=Parse.parseBoolean(b);
 				if(TRI_SWEEP){
@@ -448,7 +448,6 @@ public class DDLCalibrationDriver2 {
 			this.thresholds=thresholds;
 			this.buckets=buckets; this.k=k; this.maxTrue=maxTrue;
 			this.loglogtype=loglogtype; this.out4=out4; this.dupFactor=dupFactor; this.lcMode=lcMode;
-			this.clampToAdded=CLAMP_TO_ADDED;
 		}
 
 		@Override
@@ -503,7 +502,7 @@ public class DDLCalibrationDriver2 {
 							}
 						}
 						for(int e=0; e<Math.min(NUM_EST, est.length); e++){
-							final double v=clampToAdded ? Math.min(est[e], trueCard) : est[e];
+							final double v=CardinalityTracker.clampToAdded ? Math.min(est[e], trueCard) : est[e];
 							final double err=(v-trueCard)/(double)trueCard;
 							sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
 						}
@@ -902,7 +901,7 @@ public class DDLCalibrationDriver2 {
 							final double[] est=ddl.rawEstimates();
 							occSum[ti]+=occ; n[ti]++;
 							for(int e=0; e<Math.min(NUM_EST, est.length); e++){
-								final double v=clampToAdded ? Math.min(est[e], trueCard) : est[e];
+								final double v=CardinalityTracker.clampToAdded ? Math.min(est[e], trueCard) : est[e];
 								final double err=(v-trueCard)/(double)trueCard;
 								sumErr[ti][e]+=err; sumAbsErr[ti][e]+=Math.abs(err); sumSqErr[ti][e]+=err*err;
 							}
@@ -933,7 +932,6 @@ public class DDLCalibrationDriver2 {
 		final long[] thresholds;
 		final int buckets; final int k; final long maxTrue;
 		final String loglogtype; final String out4; final int dupFactor; final boolean lcMode;
-		final boolean clampToAdded;
 		int[] n; double[] occSum;
 		double[][] sumErr, sumAbsErr, sumSqErr;
 		double[][] ldlcSumErr, ldlcSumAbsErr, ldlcSumSqErr;

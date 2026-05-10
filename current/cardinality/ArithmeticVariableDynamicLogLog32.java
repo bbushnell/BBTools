@@ -491,9 +491,9 @@ public final class ArithmeticVariableDynamicLogLog32 extends CardinalityTracker 
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Terminal CFs. Placeholder — recalibrate after config changes. */
-	@Override public float terminalMeanCF(){return 0.720985f;}
-	@Override public float terminalMeanPlusCF(){return 1.000266f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.720967f;}
+	@Override public float terminalMeanPlusCF(){return 0.980520f;}
 
 	@Override public double ldlcHcWeight(){return 0.30;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.50f;}

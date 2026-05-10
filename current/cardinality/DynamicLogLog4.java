@@ -529,6 +529,9 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
+	public static void setCFMatrix(float[][] matrix, int buckets){
+		CF_MATRIX=matrix; CF_BUCKETS=buckets;
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------   Word State Table Statics   ----------------*/
@@ -630,7 +633,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 			+loaded+" entries, "+WORD_NUM_CANONICAL+" canonical states");
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 1.386934f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.721009f;}
 
 }

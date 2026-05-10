@@ -371,12 +371,9 @@ public final class VariableCompressedDynamicLogLog4 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Terminal Mean CF. Measured via ddlcalibrate cf=f tmcf=1 tmpcf=1 ddls=128k maxmult=8192
-	 *  t=128 on cluster, dm=0 (default). */
-	@Override public float terminalMeanCF(){return 0.879345f;}
-
-	/** Terminal Mean+H CF. Same run as terminalMeanCF. */
-	@Override public float terminalMeanPlusCF(){return 1.062983f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.878820f;}
+	@Override public float terminalMeanPlusCF(){return 1.063931f;}
 	/** HC weight for LDLC blend. Calibrated by Noire, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.30;}
 	/** HLDLC weight. Calibrated by Noire, 2026-04-22: 8k DDLs, 2048 buckets, dm=1. */
