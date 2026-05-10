@@ -389,10 +389,10 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls maxmult=4096 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 1.386726f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.721255f;}
 
-	/** Asymptotic Mean+H ratio (2-bit history), measured 128k ddls maxmult=4096 (Apr 13 2026). */
-	@Override public float terminalMeanPlusCF(){return 0.856020f;}
+	/** Asymptotic Mean+H ratio (2-bit history), measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanPlusCF(){return 0.856115f;}
 
 }

@@ -273,6 +273,9 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
 
+	/** Asymptotic meanRaw/trueCard ratio — same as DLL4 (measured 128k ddls 128t May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.721009f;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/

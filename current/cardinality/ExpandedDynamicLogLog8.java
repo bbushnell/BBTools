@@ -373,8 +373,9 @@ public final class ExpandedDynamicLogLog8 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
 	@Override public float terminalMeanCF(){return 0.597305f;}
-	@Override public float terminalMeanPlusCF(){return 0.717049f;}
+	@Override public float terminalMeanPlusCF(){return 0.714545f;}
 
 	/** HC weight for LDLC blend. Calibrated by Nowi, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.48;}

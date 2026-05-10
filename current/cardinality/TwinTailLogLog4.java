@@ -480,10 +480,10 @@ public final class TwinTailLogLog4 extends CardinalityTracker {
 	/*----------------        Correction Factors    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Placeholder — needs measurement with 128k DDLs maxmult=8192 tmcf=1. */
-	@Override public float terminalMeanCF(){return 1.387f;}
-	/** Placeholder — needs measurement with 128k DDLs maxmult=8192 tmpcf=1. */
-	@Override public float terminalMeanPlusCF(){return 1.05f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.720990f;}
+	/** Asymptotic Mean+H ratio (8-bit history), measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanPlusCF(){return 1.129269f;}
 
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.70f;}
 

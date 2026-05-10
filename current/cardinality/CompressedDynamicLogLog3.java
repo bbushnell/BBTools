@@ -438,7 +438,8 @@ public final class CompressedDynamicLogLog3 extends CardinalityTracker {
 		}
 	}
 
-	@Override public float terminalMeanCF(){return 0.883441f;}
-	@Override public float terminalMeanPlusCF(){return 1.0f;}
+	/** Terminal CFs — shares cdll4 terminal (measured 128k ddls 128t May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.883437f;}
+	@Override public float terminalMeanPlusCF(){return 1.067044f;}
 
 }

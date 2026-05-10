@@ -6,3 +6,4 @@ resources/refseqA48_with_ribo.spectra.gz
 resources/refseqSketchDDL.tsv.gz
 resources/refseqSketchDDL_merged.tsv.gz
 resources/ribokmers.fa.gz
+current/cardinality/*ExaLog*

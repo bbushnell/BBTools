@@ -382,8 +382,8 @@ public final class ArithmeticVariableDynamicLogLog64 extends CardinalityTracker 
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	@Override public float terminalMeanCF(){return 1.386726f;}
-	@Override public float terminalMeanPlusCF(){return 0.856139f;}
+	@Override public float terminalMeanCF(){return 0.721124f;}
+	@Override public float terminalMeanPlusCF(){return 0.855976f;}
 
 	private static long[] POW=computePow(RADIX);
 

@@ -307,9 +307,9 @@ public final class HalfCappedDynamicLogLog4 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	// Placeholder terminal CFs — must be measured with cf=f tmcf=1 tmpcf=1
-	@Override public float terminalMeanCF(){return 0.883441f;}
-	@Override public float terminalMeanPlusCF(){return 1.067044f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.890518f;}
+	@Override public float terminalMeanPlusCF(){return 1.074273f;}
 
 	/** HC weight for LDLC blend. Calibrated by Nahida, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.30;}

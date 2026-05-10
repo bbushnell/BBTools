@@ -621,8 +621,9 @@ public final class ExpandedTwinTailLogLog5 extends CardinalityTracker {
 
 	static String perTierFile(){return "?perTierStateETTLL5.tsv.gz";}
 
-	@Override public float terminalMeanCF(){return 1.0f;}
-	@Override public float terminalMeanPlusCF(){return 1.0f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). MeanH=Mean (no history effect). */
+	@Override public float terminalMeanCF(){return 0.597301f;}
+	@Override public float terminalMeanPlusCF(){return 0.597301f;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
 
 	static {

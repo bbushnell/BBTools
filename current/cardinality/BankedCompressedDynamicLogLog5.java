@@ -560,7 +560,7 @@ public final class BankedCompressedDynamicLogLog5 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Measured 2026-04-20: 128k DDLs, 1536 modulo buckets, maxmult=8192, tmcf=1 tmpcf=1. */
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). Exact match to prior measurement. */
 	@Override public float terminalMeanCF(){return 0.880151f;}
 	@Override public float terminalMeanPlusCF(){return 1.090756f;}
 

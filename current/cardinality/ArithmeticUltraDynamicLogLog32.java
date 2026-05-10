@@ -457,10 +457,9 @@ public final class ArithmeticUltraDynamicLogLog32 extends CardinalityTracker {
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Terminal CFs: 8k DDLs, 1536 buckets, maxmult=8192, tmcf=1 (Apr 21 2026).
-	 *  Measured on cluster with production SBS (1M iters), HSB, collapsed-as-11 encoding. */
-	@Override public float terminalMeanCF(){return 0.722158f;}
-	@Override public float terminalMeanPlusCF(){return 0.895883f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.722242f;}
+	@Override public float terminalMeanPlusCF(){return 0.895135f;}
 
 	/** HC weight for LDLC blend. Calibrated by Neptune, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.38;}

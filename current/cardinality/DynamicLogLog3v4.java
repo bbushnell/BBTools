@@ -362,7 +362,8 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		lastCorrNlz=(counts==nlzCounts) ? lastRawNlz : counts;
 		// DLL3 is counts-only: no history, luck, or mantissa bits. buckets=null.
 		return new CardStats(null, counts, 0, 0, 0, 0,
-				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0);
+				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0,
+				terminalMeanCF(), terminalMeanPlusCF());
 	}
 
 	/** Compute all estimator values and return as a legacy-format array. */
@@ -538,7 +539,7 @@ public final class DynamicLogLog3v4 extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
-	/** Asymptotic meanRaw/trueCard ratio, measured 512k ddls maxmult=8192 (Apr 13 2026). */
-	@Override public float terminalMeanCF(){return 1.519147f;}
+	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.658018f;}
 
 }

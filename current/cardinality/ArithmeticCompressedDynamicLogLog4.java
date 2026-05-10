@@ -384,11 +384,9 @@ public final class ArithmeticCompressedDynamicLogLog4 extends CardinalityTracker
 		CF_MATRIX=matrix; CF_BUCKETS=buckets;
 	}
 
-	/** Terminal Mean CF — measured via ddlcalibrate2 cf=f tmcf=1 tmpcf=1 ddls=128k maxmult=8192, with SBS. */
-	@Override public float terminalMeanCF(){return 0.878866f;}
-
-	/** Terminal Mean+H CF — measured via ddlcalibrate2 cf=f tmcf=1 tmpcf=1 ddls=128k maxmult=8192, with SBS. */
-	@Override public float terminalMeanPlusCF(){return 1.061534f;}
+	/** Terminal CFs, measured 128k ddls 128t (May 9 2026). */
+	@Override public float terminalMeanCF(){return 0.878820f;}
+	@Override public float terminalMeanPlusCF(){return 1.061577f;}
 
 	/** HC weight for LDLC blend. Calibrated by Nahida, 2026-04-22. */
 	@Override public double ldlcHcWeight(){return 0.26;}

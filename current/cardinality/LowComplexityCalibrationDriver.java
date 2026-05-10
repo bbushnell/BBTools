@@ -57,6 +57,7 @@ public class LowComplexityCalibrationDriver {
 		String cffile=null;
 		Shared.capThreads(4);
 		Parser.printSetThreads=false;
+		CardinalityTracker.clampToAdded=false;
 
 		for(String arg : args){
 			final String[] split=arg.split("=");
