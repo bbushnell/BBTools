@@ -1,6 +1,7 @@
 package idaligner;
 
 import java.util.Arrays;
+import shared.Tools;
 
 /**
  * Interface for aligners that can calculate pairwise sequence identity.
@@ -53,7 +54,8 @@ public interface IDAligner {
 		rStart=Math.max(rStart, 0);
 		rStop=Math.min(rStop, ref.length-1);
 		final int rlen=rStop-rStart+1;
-		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, rStart, rStop));
+		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, rStart, rStop+1));
+		if(region!=ref){Tools.toUpperCase(region);}
 		final float id=align(query, region, pos);
 		if(pos!=null){
 			assert(pos[1]>0) : id+", "+Arrays.toString(pos)+", "+rStart;
@@ -107,7 +109,8 @@ public interface IDAligner {
 		rStart=Math.max(rStart, 0);
 		rStop=Math.min(rStop, ref.length-1);
 		final int rlen=rStop-rStart+1;
-		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, rStart, rStop));
+		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, rStart, rStop+1));
+		if(region!=ref){Tools.toUpperCase(region);}
 		final float id=align(query, region, stats);
 		if(stats!=null){
 			assert(stats.rStop>0) : id+", "+stats.toString()+", "+rStart;
