@@ -29,6 +29,7 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import stream.FastaReadInputStream;
+import stream.Read;
 import structures.ByteBuilder;
 import tax.TaxTree;
 import template.Accumulator;
@@ -95,6 +96,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}
 
 		//Set shared static variables prior to parsing
+		Read.TO_UPPER_CASE=true;
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		

@@ -260,6 +260,7 @@ public class DriftingPlusAligner implements IDAligner{
 		refEnd=Math.min(refEnd, ref.length-1);
 		final int rlen=refEnd-refStart+1;
 		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd+1));
+		if(region!=ref){Tools.toUpperCase(region);}
 		final float id=alignStatic(query, region, posVector);
 		if(posVector!=null) {
 			posVector[0]+=refStart;
