@@ -565,7 +565,8 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(((BankedCompressedDynamicLogLog3)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ProtoLogLog16c.class){
 							final ProtoLogLog16c p=(ProtoLogLog16c)ddl;
-							accumulateLdlcEstimate(p.ldlcEstimate(), trueCard, ti);
+							final double[] ldlcR=p.ldlcEstimate();
+							if(ldlcR!=null){accumulateLdlcEstimate(ldlcR, trueCard, ti);}
 						}else if(ddl.getClass()==TwinTailLogLog.class){
 							final TwinTailLogLog t=(TwinTailLogLog)ddl;
 							final double[] ldlcR=t.ldlcEstimate();

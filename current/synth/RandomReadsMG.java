@@ -654,7 +654,7 @@ public class RandomReadsMG{
 		Float custom=null;
 		String fname=ReadWrite.stripPath(path);
 		if(depthMap.size()>0){
-			custom=depthMap.get(path);
+			custom=depthMap.get(fname);
 			if(taxID>0 && custom==null){custom=depthMap.get(Integer.toString(taxID));}
 		}
 		final float depth;
@@ -1149,7 +1149,7 @@ public class RandomReadsMG{
 			ListNum<Read> ln=cris.nextList();
 
 			final int fileTaxID=TaxTree.parseHeaderStatic2(path, tree);
-			final float fileDepth=(readsPerContig>0 ? 0 : chooseDepthForFile(fname, fileTaxID, fnum, randy));
+			final float fileDepth=(readsPerContig>0 ? 0 : chooseDepthForFile(path, fileTaxID, fnum, randy));
 			//			assert(taxID>0) : "Can't parse taxID from "+fname;
 
 			if(waveCoverage){
