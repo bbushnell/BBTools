@@ -297,6 +297,8 @@ public final class ApacheHLL4Wrapper extends CardinalityTracker {
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
+	@Override public int bitsPerWord(){return 8;}
+	@Override public int bucketsPerWord(){return 2;}
 
 	@Override
 	public double[] rawEstimates(){

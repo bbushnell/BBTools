@@ -553,13 +553,24 @@ public class DDLCalibrationDriver2 {
 							final CardStats csA64=((ArithmeticVariableDynamicLogLog64)ddl).consumeLastSummarized();
 							accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
 							accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
+						}else if(ddl.getClass()==ArithmeticVariableLogLog2.class){
+							final CardStats csAVLL2=((ArithmeticVariableLogLog2)ddl).consumeLastSummarized();
+							accumulateCardStatsLdlc(csAVLL2, 0, trueCard, ti, ddl.hldlcWeight());
+							accumulateVWMean(csAVLL2, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticVariableLogLog.class){
 							final ArithmeticVariableLogLog avll=(ArithmeticVariableLogLog)ddl;
-							final CardStats csAVLL=avll.consumeLastSummarized();
-							accumulateCardStatsLdlc(csAVLL, 0, trueCard, ti, -1);
+							avll.consumeLastSummarized();
 							final double[] avllEst=avll.estimate();
+							accumulateInternalEstimate(avllEst[5], trueCard, ti, 0);           // LDLC
+							accumulateInternalEstimate(avllEst[3], trueCard, ti, 5);           // Mean+H
+							accumulateInternalEstimate(avllEst[4], trueCard, ti, 6);           // Hybrid+2
+							accumulateInternalEstimate(avllEst[2], trueCard, ti, MEANTC_IDX);  // Mean → MeanTC slot
 							accumulateInternalEstimate(avllEst[0], trueCard, ti, VLDLC_IDX);
 							accumulateInternalEstimate(avllEst[1], trueCard, ti, HLDLC_IDX);
+							accumulateInternalEstimate(avllEst[6], trueCard, ti, VWMEAN_IDX);
+							accumulateInternalEstimate(avllEst[7], trueCard, ti, DUALLC_IDX); // dlcRaw → DualLC slot
+						accumulateInternalEstimate(avllEst[8], trueCard, ti, 2);           // HC
+						accumulateInternalEstimate(avllEst[9], trueCard, ti, 3);           // SBS → FGRA slot
 						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
 							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){

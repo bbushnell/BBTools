@@ -358,8 +358,9 @@ public class LowComplexityCalibrationDriver {
 				final ArithmeticVariableLogLog c=(ArithmeticVariableLogLog)est;
 				final CardStats cs=c.consumeLastSummarized();
 				accLdlcBase7(cs.ldlc(), cs.dlcSbs(), cs.hc(), 0, cs.hllRaw(), cs.meanHistCF(), cs.hybridPlus2(), trueCard, ti);
-				accHldlc7(est, cs.ldlc(), cs.hybridPlus2(), trueCard, ti);
-				accVwMean(cs, est, cs.ldlc(), trueCard, ti);
+				final double[] avllEst=c.estimate();
+				accSingle(avllEst[0], trueCard, ti, DDLCalibrationDriver2.VLDLC_IDX);
+				accSingle(avllEst[1], trueCard, ti, DDLCalibrationDriver2.HLDLC_IDX);
 			}else if(cls==ErtlULL.class){
 				final double fgra=((ErtlULL)est).fgraEstimatePublic();
 				final double lerr=(fgra>0 ? (fgra-trueCard)/(double)trueCard : -1.0);
