@@ -619,8 +619,10 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	/*----------------      Internal Estimation      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Computes both estimators.  Returns {VLDLC, HLDLC}. */
-	private double[] estimate(){
+	/** Computes both estimators.  Returns {VLDLC, HLDLC}.
+	 *  Package-private so DDLCalibrationDriver2 can read the calibrated
+	 *  internal estimates (the CardStats pipeline lacks AVLL's VWMean CF). */
+	double[] estimate(){
 		/* Step 1: Summarize registers into NLZ histogram and packed buckets */
 		final int[] counts=new int[66];                  // counts[k+1] = # regs with absNlz=k
 		final char[] packedBuckets=new char[modBuckets];

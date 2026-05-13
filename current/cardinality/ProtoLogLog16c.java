@@ -411,11 +411,12 @@ public final class ProtoLogLog16c extends CardinalityTracker {
 
 	/** Stub: measure from preliminary CF table, then replace 1f with actual ratio. */
 	@Override
-	public float terminalMeanCF(){return 1f;}
+	public float terminalMeanCF(){return 0.721255f;}
 
-	/** Stub: PLL16c has history bits when configured. */
+	/** PLL16c's StateTable corrections were calibrated with tmPlusCF=1.0.
+	 *  Using UDLL6's 0.856115f here double-corrects and breaks Mean+H. */
 	@Override
-	public float terminalMeanPlusCF(){return 1f;}
+	public float terminalMeanPlusCF(){return 1.0f;}
 
 	// Per-state CFs from MantissaCompare2 tier 8 (131072 trials)
 	// These are additive NLZ corrections: multiplier = 2^(-CF)
