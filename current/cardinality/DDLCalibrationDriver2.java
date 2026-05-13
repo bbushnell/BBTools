@@ -554,9 +554,12 @@ public class DDLCalibrationDriver2 {
 							accumulateCardStatsLdlc(csA64, 0, trueCard, ti, ddl.hldlcWeight());
 							accumulateVWMean(csA64, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==ArithmeticVariableLogLog.class){
-							final CardStats csAVLL=((ArithmeticVariableLogLog)ddl).consumeLastSummarized();
-							accumulateCardStatsLdlc(csAVLL, 0, trueCard, ti, ddl.hldlcWeight());
-							accumulateVWMean(csAVLL, trueCard, ti, ddl.hldlcWeight());
+							final ArithmeticVariableLogLog avll=(ArithmeticVariableLogLog)ddl;
+							final CardStats csAVLL=avll.consumeLastSummarized();
+							accumulateCardStatsLdlc(csAVLL, 0, trueCard, ti, -1);
+							final double[] avllEst=avll.estimate();
+							accumulateInternalEstimate(avllEst[0], trueCard, ti, VLDLC_IDX);
+							accumulateInternalEstimate(avllEst[1], trueCard, ti, HLDLC_IDX);
 						}else if(ddl.getClass()==ExpandedDynamicLogLog9.class){
 							accumulateCardStatsLdlc(((ExpandedDynamicLogLog9)ddl).consumeLastSummarized(), 0, trueCard, ti, ddl.hldlcWeight());
 						}else if(ddl.getClass()==CompressedDynamicLogLog3.class){
@@ -794,9 +797,11 @@ public class DDLCalibrationDriver2 {
 				final double lerr=(v>0 ? (v-trueCard)/(double)trueCard : -1.0);
 				ldlcSumErr[ti][e]+=lerr; ldlcSumAbsErr[ti][e]+=Math.abs(lerr); ldlcSumSqErr[ti][e]+=lerr*lerr;
 			}
-			final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
-			final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
-			ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+			if(hw>=0){
+				final double hldlc=hw*ldlcVals[0]+(1-hw)*ldlcVals[6];
+				final double lerr=(hldlc>0 ? (hldlc-trueCard)/(double)trueCard : -1.0);
+				ldlcSumErr[ti][HLDLC_IDX]+=lerr; ldlcSumAbsErr[ti][HLDLC_IDX]+=Math.abs(lerr); ldlcSumSqErr[ti][HLDLC_IDX]+=lerr*lerr;
+			}
 			// Per-tier LC columns: {H_obs, H_nb, HZ_obs, HZ_nb}
 			final double[] ptlcVals={cs.perTierLcH(), cs.perTierLcHn(), cs.perTierLcHz(), cs.perTierLcHzn()};
 			final int[] ptlcIdx={PTLC_H_IDX, PTLC_HN_IDX, PTLC_HZ_IDX, PTLC_HZN_IDX};
@@ -820,6 +825,15 @@ public class DDLCalibrationDriver2 {
 					final double me=(v-trueCard)/(double)trueCard;
 					ldlcSumErr[ti][MEANTCH_IDX]+=me; ldlcSumAbsErr[ti][MEANTCH_IDX]+=Math.abs(me); ldlcSumSqErr[ti][MEANTCH_IDX]+=me*me;
 				}else{ldlcSumErr[ti][MEANTCH_IDX]+=-1.0; ldlcSumAbsErr[ti][MEANTCH_IDX]+=1.0; ldlcSumSqErr[ti][MEANTCH_IDX]+=1.0;}
+			}
+		}
+
+		private void accumulateInternalEstimate(double est, long trueCard, int ti, int idx){
+			if(est>0){
+				final double err=(est-trueCard)/(double)trueCard;
+				ldlcSumErr[ti][idx]+=err; ldlcSumAbsErr[ti][idx]+=Math.abs(err); ldlcSumSqErr[ti][idx]+=err*err;
+			}else{
+				ldlcSumErr[ti][idx]+=-1.0; ldlcSumAbsErr[ti][idx]+=1.0; ldlcSumSqErr[ti][idx]+=1.0;
 			}
 		}
 
