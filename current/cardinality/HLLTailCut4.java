@@ -190,6 +190,8 @@ public final class HLLTailCut4 extends CardinalityTracker {
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
+	@Override public int bitsPerWord(){return REGISTER_BITS;}
+	@Override public int bucketsPerWord(){return 1;}
 
 	@Override
 	public double[] rawEstimates(){

@@ -610,21 +610,28 @@ public final class CardStats extends AbstractCardStats {
 	 */
 	private double cardCF(final double rawEst, final int type, final double keyScale){
 		if(!CorrectionFactor.USE_CORRECTION){return 1;}
-		// Formula mode for Mean CF: bypasses table entirely
+		// Formula mode for Mean CF: use card/B input (bucket-independent), iterate
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS) && type==CorrectionFactor.MEAN){
-			return CorrectionFactor.meanCfFormula(dlcRawF, cfd!=null ? cfd.meanCoeffs : CorrectionFactor.meanCfCoeffs);
+			final double[] coeffs=(cfd!=null ? cfd.meanCoeffs : CorrectionFactor.meanCfCoeffs);
+			final double formulaCF=iterativeFormulaCF(dlcRawF, rawEst, coeffs);
+			assert !ASSERT_CF || assertFormulaCF(rawEst, type, keyScale, formulaCF, "Mean");
+			return formulaCF;
 		}
-		// Formula mode for MeanH CF (history-blended mean): bypasses table entirely
+		// Formula mode for MeanH CF (history-blended mean)
 		if((CorrectionFactor.USE_MEAN_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
 				&& type==CorrectionFactor.MEANH){
 			final double[] mc=(cfd!=null ? cfd.meanhCoeffs : CorrectionFactor.meanhCfCoeffs);
-			if(mc!=null){return CorrectionFactor.meanCfFormula(dlcRawF, mc);}
+			if(mc!=null){
+				final double formulaCF=iterativeFormulaCF(dlcRawF, rawEst, mc);
+				assert !ASSERT_CF || assertFormulaCF(rawEst, type, keyScale, formulaCF, "MeanH");
+				return formulaCF;
+			}
 		}
-		// Formula mode for HMeanM CF: bypasses table entirely
+		// Formula mode for HMeanM CF
 		if((CorrectionFactor.USE_HMEANM_CF_FORMULA || CorrectionFactor.USE_FORMULAS)
 				&& type==CorrectionFactor.HMEANM){
 			final double[] hmc=(cfd!=null ? cfd.hmeanmCoeffs : CorrectionFactor.hmeanmCfCoeffs);
-			if(hmc!=null){return CorrectionFactor.meanCfFormula(dlcRawF, hmc);}
+			if(hmc!=null){return iterativeFormulaCF(dlcRawF, rawEst, hmc);}
 		}
 		// v5 table: use dlcRawF as seed (the primary DLC estimator)
 		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.v1Matrix);
@@ -635,6 +642,40 @@ public final class CardStats extends AbstractCardStats {
 		return CorrectionFactor.getCF(dlcRawF, rawEst, mat[type], keys,
 				iters, DEFAULT_CF_DIF, keyScale);
 	}
+
+	private double iterativeFormulaCF(double seedEst, double rawEst, double[] coeffs){
+		final double invB=1.0/numBuckets;
+		double cf=CorrectionFactor.meanCfFormula(seedEst*invB, coeffs);
+		final int iters=(seedEst>MIN_SEED_CF_MULT*numBuckets ? DEFAULT_CF_ITERS : 1);
+		for(int i=1; i<iters; i++){
+			final double bestEst=cf*rawEst;
+			if(bestEst<=0){break;}
+			final double newCf=CorrectionFactor.meanCfFormula(bestEst*invB, coeffs);
+			if(Math.abs(newCf-cf)<DEFAULT_CF_DIF){break;}
+			cf=newCf;
+		}
+		return cf;
+	}
+
+	private boolean assertFormulaCF(double rawEst, int type, double keyScale, double formulaCF, String label){
+		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.v1Matrix);
+		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.v1Keys);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		if(mat!=null && type<mat.length && mat[type]!=null){
+			final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*cfBkt ? DEFAULT_CF_ITERS : 1);
+			final double tableCF=CorrectionFactor.getCF(dlcRawF, rawEst, mat[type], keys, iters, DEFAULT_CF_DIF, keyScale);
+			final double diff=Math.abs(formulaCF-tableCF);
+			if(diff>0.01){
+				System.err.println("CF MISMATCH "+label+": dlcRaw="+String.format("%.1f",dlcRawF)
+					+" keyScale="+String.format("%.3f",keyScale)
+					+" formula="+String.format("%.6f",formulaCF)
+					+" table="+String.format("%.6f",tableCF)
+					+" diff="+String.format("%.6f",diff));
+			}
+		}
+		return true;
+	}
+	static boolean ASSERT_CF=false;
 
 	/**
 	 * HybDLC50: like hybridDLC but blends to 50/50 DLC+Mean at high cardinality.

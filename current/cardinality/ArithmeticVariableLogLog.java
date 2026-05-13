@@ -62,6 +62,8 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	@Override public float terminalMeanPlusCF(){return TERMINAL_MEANH_CF;}
 	@Override public float hldlcWeight(){return HLDLC_WEIGHT;}
 	@Override public float[] compensationFactorLogBucketsArray(){return null;}
+	@Override public int bitsPerWord(){return 64;}
+	@Override public int bucketsPerWord(){return BPW;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Register Constants      ----------------*/
@@ -385,28 +387,42 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	/** 1/ln(2), for converting ln to log2. */
 	private static final double INV_LOG2=1.0/Math.log(2.0);
 
-	/** Mean CF coefficients for UDLL6-family (includes AVDLL64).
-	 *  R²=0.9999738, maxErr=0.00072, terminal=0.72090. */
+	/** Iterative CF evaluation using card/B as formula input.
+	 *  Mirrors the fixed-point iteration in CorrectionFactor.getCF():
+	 *  seed at dlcRaw/B, then refine with corrected estimate/B. */
+	private double iterativeCF(double seedEst, double rawEst, double[] coeffs){
+		final double invB=1.0/modBuckets;
+		double cf=meanCfFormula(seedEst*invB, coeffs);
+		if(seedEst>10.0*modBuckets){
+			final double bestEst=cf*rawEst;
+			if(bestEst>0){
+				final double newCf=meanCfFormula(bestEst*invB, coeffs);
+				if(Math.abs(newCf-cf)>1e-6){cf=newCf;}
+			}
+		}
+		return cf;
+	}
+
+	/** Mean CF residual, x=log2(card/B). Bucket-independent.
+	 *  Fitted from resource CF table (B=1408). R²=0.9999969, terminal=0.99991. */
 	private static final double[] MCF_MEAN={
-		-0.694133951267462,  1.351750409333637, -0.296564734487830,  1.252668089120711,
-		-0.151004930474945,  9.316335208139263,  2.204071489729471,
-		 0.214291194283158, 11.403990343737162,  0.877476926306513,
-		-0.018782203798227,  1.864982585975987,  1.713509076250874,
-		-0.097460356643253, 12.001750243729946,  1.105281431778667};
+		-4.134681757262724,  4.999999992726675,-11.794568553347373,  1.166556972002922,
+		 0.328887715628532,  1.845414705069709,  1.071814615231428,
+		-0.194293984917707, -5.783510608691229,  2.244741892627562,
+		 0.185448568786388, -3.798664343259118,  3.684574870998338,
+		 0.070445731787030,  1.581614638086199,  1.391853026540059};
 
-	/** Mean+H (history-blended) CF coefficients for UDLL6-family.
-	 *  R²=0.9999752, maxErr=0.00973, terminal=1.00140. */
+	/** MeanH CF residual, x=log2(card/B). Bucket-independent.
+	 *  Fitted from resource CF table (B=1408). R²=0.9999969, terminal=0.99963. */
 	private static final double[] MCF_MEANH={
-		 1.065900204736075,  0.303794955674164,  1.000000000000000,  1.325328307581027,
-		-0.113947495584558,  7.730446428942304,  1.799630144779069,
-		-0.254347664825681, 13.574546246392662,  0.974396659684511,
-		-0.500000000000000,  0.000000000000000,  0.300000000000000,
-		-0.196716746935215, 11.405848639590578,  2.248874329245637};
+		-3.691071292933851, -0.363637261057505,  2.567263769729832,  1.066355956682916,
+		 4.999999754294653,-11.189952323115953,  0.785742127708774,
+		 0.054343414450697, -8.335873985296551,  1.101742014940036,
+		-0.143358513726359, -0.794735788647950,  2.755625941876753,
+		-0.187952399977993,  0.812771424938221,  2.145566972133455};
 
-	/** Terminal Mean CF for AVDLL64 (asymptotic correction at very high card). */
-	private static final float TERMINAL_MEAN_CF=1.386726f;
-	/** Terminal Mean+H CF for AVDLL64 (history-blended asymptotic correction). */
-	private static final float TERMINAL_MEANH_CF=0.856139f;
+	private static final float TERMINAL_MEAN_CF=0.720952f;
+	private static final float TERMINAL_MEANH_CF=0.855563f;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        HC CF Formula          ----------------*/
@@ -500,12 +516,14 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	 *  R²=0.9999997, maxErr=0.00017, terminal=1.36014.
 	 *  Independent variable: raw VWMean estimate (before CF).
 	 *  @author Nowi */
+	/** VWMean CF, x=log2(card/B). Bucket-independent.
+	 *  Fitted from resource CF table (B=1408). R²=0.9999983, terminal=1.00004. */
 	private static final double[] VWCF={
-		 0.874814169834235,  0.022177223713893, -4.659452845551766, 11.322172818476822,
-		-0.556011039023200, 13.037710656132552,  1.067940352319787,
-		 1.019162627475072, 11.973095817737965,  1.883525718425085,
-		 0.020265798654589,  6.606181193667696,  2.047483846507509,
-		 0.115382706227443, 11.153187787661151,  3.201005728090497};
+		 0.523022169365246, -1.580388109567368, -9.550748054346389,  0.165245313710792,
+		-0.753249924328123,-10.057664860210931,  0.461936297367938,
+		 2.810654431769284,-10.281395080571443,  0.116736516458500,
+		-0.000898922132070,  0.603776533689649,  3.876667688716435,
+		 0.000937826217617,  0.799259479034718,  3.338171497444599};
 
 	/*--------------------------------------------------------------*/
 	/*----------------     Estimation Pipeline      ----------------*/
@@ -709,7 +727,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 		final int div=Math.max(filled, 1);
 		final double meanVal=difSum/div;                 // average dif
 		final double meanRaw=2*(Long.MAX_VALUE/Math.max(1.0, meanVal))*div*correction*TERMINAL_MEAN_CF;
-		final double meanCF=meanRaw*meanCfFormula(dlcRaw, MCF_MEAN);
+		final double meanCF=meanRaw*iterativeCF(dlcRaw, meanRaw, MCF_MEAN);
 
 		/* Step 7: History-corrected Mean estimate + MeanH CF */
 		double corrDifSum=0;
@@ -729,7 +747,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 		}
 		final double corrMeanVal=corrDifSum/div;
 		final double meanCorrRaw=2*(Long.MAX_VALUE/Math.max(1.0, corrMeanVal))*div*correction;
-		final double meanCorrCF=meanCorrRaw*meanCfFormula(dlcRaw, MCF_MEANH);
+		final double meanCorrCF=meanCorrRaw*iterativeCF(dlcRaw, meanCorrRaw, MCF_MEANH);
 
 		/* Step 8: dlcSbs — DLC blended with SBS */
 		final double dlcSbs=dlcBlendWithSbs(dlcPure, sbsEst, dlcRaw, modBuckets);
@@ -841,7 +859,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 			}
 			if(used>0 && sumInvV>0){
 				vwMean=(double)used*used/sumInvV;         // used × harmonic_mean
-				vwMean*=meanCfFormula(vwMean, VWCF);      // CF correction keyed on raw VWMean
+				vwMean*=iterativeCF(dlcRaw, vwMean, VWCF); // CF correction keyed on dlcRaw/B
 			}
 		}
 
@@ -862,7 +880,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 		final double hldlc=HLDLC_WEIGHT*ldlc+(1-HLDLC_WEIGHT)*hybridPlus2;
 		final double vldlc=VLDLC_LDLC*ldlc+VLDLC_VW*vw;
 
-		return new double[]{vldlc, hldlc};
+		return new double[]{vldlc, hldlc, meanCF, meanCorrCF, hybridPlus2, ldlc, vw, dlcRaw, hcF, sbsEst};
 	}
 
 	/*--------------------------------------------------------------*/

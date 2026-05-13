@@ -283,6 +283,11 @@ public class CardinalityParser {
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
 			classHasHcCf=true;
 			CorrectionFactor.sbsFile=ArithmeticVariableDynamicLogLog64.SBS_FILE;
+		}else if(loglogtype.equals("avll2")){
+			CorrectionFactor.meanCfCoeffs=ArithmeticVariableLogLog2.MCF_MEAN_RESIDUAL;
+			CorrectionFactor.meanhCfCoeffs=ArithmeticVariableLogLog2.MCF_MEANH_RESIDUAL;
+			classHasHcCf=true;
+			CorrectionFactor.sbsFile=ArithmeticVariableDynamicLogLog64.SBS_FILE;
 		}else if(loglogtype.equals("avll")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;
 			CorrectionFactor.meanhCfCoeffs=CorrectionFactor.MCF_UDLL6_MEANH;
@@ -330,7 +335,7 @@ public class CardinalityParser {
 		if("ttll".equals(loglogtype)){TwinTailLogLog.loadCFTable(); TwinTailLogLog.loadCardCFTable();}
 		if("cttll".equals(loglogtype)){CompressedTwinTailLogLog.loadPerTierTable(); CompressedTwinTailLogLog.computeHSB();}
 		if("ettll5".equals(loglogtype)){ExpandedTwinTailLogLog5.loadPerTierTable();}
-		if("avll".equals(loglogtype) || "avdll64".equals(loglogtype)){UltraDynamicLogLog36.loadVWTable();}
+		if("avll".equals(loglogtype) || "avll2".equals(loglogtype) || "avdll64".equals(loglogtype)){UltraDynamicLogLog36.loadVWTable();}
 		if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.loadWordTable();}
 
 		// Load CF table: explicit cffile overrides, otherwise auto-select per type+mode
@@ -358,6 +363,7 @@ public class CardinalityParser {
 			else if("avdll36".equals(loglogtype)){ArithmeticVariableDynamicLogLog36.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avdll34".equals(loglogtype)){ArithmeticVariableDynamicLogLog34.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avdll64".equals(loglogtype)){ArithmeticVariableDynamicLogLog64.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("avll2".equals(loglogtype)){ArithmeticVariableLogLog2.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avll".equals(loglogtype)){ArithmeticVariableLogLog.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
@@ -406,6 +412,8 @@ public class CardinalityParser {
 			return ArithmeticVariableDynamicLogLog34.CF_FILE;
 		}else if(loglogtype.equals("avdll64")){
 			return ArithmeticVariableDynamicLogLog64.CF_FILE;
+		}else if(loglogtype.equals("avll2")){
+			return ArithmeticVariableLogLog2.CF_FILE;
 		}else if(loglogtype.equals("avll")){
 			return ArithmeticVariableLogLog.CF_FILE;
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3") || loglogtype.equals("dhdll4")){

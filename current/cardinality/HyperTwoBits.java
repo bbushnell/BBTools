@@ -297,6 +297,8 @@ public final class HyperTwoBits extends CardinalityTracker {
 
 	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
+	@Override public int bitsPerWord(){return 2;}
+	@Override public int bucketsPerWord(){return 1;}
 
 	@Override
 	public double[] rawEstimates(){
