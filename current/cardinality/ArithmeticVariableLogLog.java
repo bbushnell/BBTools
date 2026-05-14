@@ -8,8 +8,8 @@ package cardinality;
  * arithmetic encoding with RADIX=56.  Supports 2-bit history tracking
  * for state-based sampling (SBS).
  * <p>
- * Primary estimator: VLDLC = 0.64 × LDLC + 0.36 × VWMean.
- * Secondary estimator: HLDLC = 0.5 × LDLC + 0.5 × Hybrid+2.
+ * Primary estimator: HLDLC = 0.5 × LDLC + 0.5 × Hybrid+2.
+ * Secondary estimator: VLDLC = 0.64 × LDLC + 0.36 × VWMean (disabled).
  * <p>
  * LDLC blends DLC-SBS (dynamic linear counting with state-based
  * sampling fallback) and HC (history counting) across the
@@ -530,15 +530,15 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the VLDLC cardinality estimate (primary estimator).
-	 * VLDLC = 0.64 × LDLC + 0.36 × VWMean.
+	 * Returns the HLDLC cardinality estimate (primary estimator).
+	 * HLDLC = 0.5 × LDLC + 0.5 × Hybrid+2.
 	 * @return estimated number of distinct elements added
 	 */
 	@Override
 	public long cardinality(){
 		if(lastCardinality>=0){return lastCardinality;}
 		lastSummarized=summarize();                      // populate for consumeLastSummarized()
-		long card=Math.max(0, Math.round(estimate()[0]));
+		long card=Math.max(0, Math.round(estimate()[1]));
 		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
 		lastCardinality=card;
 		return card;
