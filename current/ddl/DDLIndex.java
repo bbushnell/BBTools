@@ -1,12 +1,12 @@
 package ddl;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import cardinality.DynamicDemiLog;
-import structures.IntList;
 
 /**
  * Inverted index from DynamicDemiLog bucket values to clade IDs.
@@ -26,7 +26,7 @@ public class DDLIndex {
 	public DDLIndex(){this(BUCKETS, VALUES);}
 
 	public DDLIndex(int buckets, int values){
-		matrix=new IntList[buckets][values];
+		matrix=new int[buckets][values][];
 	}
 
 	/*--------------------------------------------------------------*/
@@ -46,15 +46,20 @@ public class DDLIndex {
 	 * @param filled Number of non-empty buckets in this DDL */
 	public void add(int cladeID, char[] maxArray, int filled){
 		if(cladeID>=filledBuckets.length){
-			filledBuckets=java.util.Arrays.copyOf(filledBuckets, Math.max(cladeID+1, filledBuckets.length*2));
+			filledBuckets=Arrays.copyOf(filledBuckets, Math.max(cladeID+1, filledBuckets.length*2));
 		}
 		filledBuckets[cladeID]=filled;
 		for(int b=0; b<maxArray.length; b++){
 			final int v=maxArray[b];
 			if(v==0){continue;}
-			IntList list=matrix[b][v];
-			if(list==null){matrix[b][v]=list=new IntList(2);}
-			list.add(cladeID);
+			int[] arr=matrix[b][v];
+			if(arr==null){
+				matrix[b][v]=new int[]{cladeID};
+			}else{
+				int[] grown=Arrays.copyOf(arr, arr.length+1);
+				grown[arr.length]=cladeID;
+				matrix[b][v]=grown;
+			}
 		}
 		numClades=Math.max(numClades, cladeID+1);
 	}
@@ -74,10 +79,10 @@ public class DDLIndex {
 		for(int b=0; b<maxArray.length; b++){
 			final int v=maxArray[b];
 			if(v==0){continue;}
-			final IntList list=matrix[b][v];
-			if(list==null){continue;}
-			for(int i=0; i<list.size; i++){
-				counts[list.get(i)]++;
+			final int[] arr=matrix[b][v];
+			if(arr==null){continue;}
+			for(int i=0; i<arr.length; i++){
+				counts[arr[i]]++;
 			}
 		}
 		return counts;
@@ -137,7 +142,6 @@ public class DDLIndex {
 		if(records==null || records.isEmpty()){return;}
 		final int numRecords=records.size();
 
-		//Pre-fill metadata (serial)
 		numClades=numRecords;
 		if(numClades>filledBuckets.length){
 			filledBuckets=new int[numClades];
@@ -149,13 +153,10 @@ public class DDLIndex {
 		final int buckets=matrix.length;
 		final int actualThreads=Math.min(threads, buckets);
 		if(actualThreads<2){
-			for(int i=0; i<numRecords; i++){
-				add(i, records.get(i).ddl);
-			}
+			addAllPresized(records, 0, buckets);
 			return;
 		}
 
-		//Parallel: partition buckets across threads
 		ExecutorService executor=Executors.newFixedThreadPool(actualThreads);
 		ArrayList<Future<?>> futures=new ArrayList<>(actualThreads);
 		final int bucketsPerThread=(buckets+actualThreads-1)/actualThreads;
@@ -164,23 +165,40 @@ public class DDLIndex {
 			final int bStart=t*bucketsPerThread;
 			final int bEnd=Math.min(bStart+bucketsPerThread, buckets);
 			futures.add(executor.submit(()->{
-				for(int i=0; i<numRecords; i++){
-					final char[] maxArray=records.get(i).ddl.maxArray();
-					final int len=Math.min(maxArray.length, bEnd);
-					for(int b=bStart; b<len; b++){
-						final int v=maxArray[b];
-						if(v==0){continue;}
-						IntList list=matrix[b][v];
-						if(list==null){matrix[b][v]=list=new IntList(2);}
-						list.add(i);
-					}
-				}
+				addAllPresized(records, bStart, bEnd);
 			}));
 		}
 		for(Future<?> f : futures){
 			try{f.get();}catch(Exception e){throw new RuntimeException(e);}
 		}
 		executor.shutdown();
+	}
+
+	private void addAllPresized(ArrayList<DDLRecord> records, int bStart, int bEnd){
+		final int numRecords=records.size();
+		final int[] counts=new int[VALUES];
+		final int[] pos=new int[VALUES];
+
+		for(int b=bStart; b<bEnd; b++){
+			Arrays.fill(counts, 0);
+
+			for(int i=0; i<numRecords; i++){
+				final int v=records.get(i).ddl.maxArray()[b];
+				if(v!=0){counts[v]++;}
+			}
+
+			for(int v=0; v<VALUES; v++){
+				if(counts[v]>0){matrix[b][v]=new int[counts[v]];}
+			}
+			Arrays.fill(pos, 0);
+
+			for(int i=0; i<numRecords; i++){
+				final int v=records.get(i).ddl.maxArray()[b];
+				if(v!=0){
+					matrix[b][v][pos[v]++]=i;
+				}
+			}
+		}
 	}
 
 	/** Returns the number of indexed clades. */
@@ -201,7 +219,7 @@ public class DDLIndex {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private final IntList[][] matrix;
+	private final int[][][] matrix;
 	private int[] filledBuckets=new int[1024];
 	private int numClades=0;
 

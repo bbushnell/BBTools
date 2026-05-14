@@ -122,7 +122,7 @@ public class DDLCompare {
 
 		System.err.println("Loading references from "+refPath+"...");
 		long t0=System.nanoTime();
-		ArrayList<DDLRecord> refs=DDLLoader.loadFile(refPath, k);
+		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
 		long t1=System.nanoTime();
 		System.err.println("Loaded "+refs.size()+" reference DDLs in "+String.format("%.3f", (t1-t0)*1e-9)+" seconds.");
 
@@ -212,13 +212,13 @@ public class DDLCompare {
 
 		System.err.println("Loading references from "+refPath+"...");
 		long t0=System.nanoTime();
-		ArrayList<DDLRecord> refs=DDLLoader.loadFile(refPath, k);
+		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
 		long t1=System.nanoTime();
 		System.err.println("Loaded "+refs.size()+" reference DDLs in "+String.format("%.3f", (t1-t0)*1e-9)+" seconds.");
 
 		System.err.println("Loading queries from "+queryPath+"...");
 		long tq0=System.nanoTime();
-		ArrayList<DDLRecord> queries=DDLLoader.loadFile(queryPath, k);
+		ArrayList<DDLRecord> queries=DDLLoaderMT.loadFile(queryPath, k, threads);
 		long tq1=System.nanoTime();
 		System.err.println("Loaded "+queries.size()+" query DDLs in "+String.format("%.3f", (tq1-tq0)*1e-9)+" seconds.");
 
