@@ -35,8 +35,8 @@ public class SpeedTest2 {
 		}
 
 		final int totalSim=threads*sim;
-		final String[] allTypes={"udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
-		final String[] allLabels={"UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
+		final String[] allTypes={"avll", "exa", "udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
+		final String[] allLabels={"AVLL", "EXA", "UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
 
 		System.err.println("SpeedTest2: buckets="+buckets+" sim/thread="+sim+
 			" totalSim="+totalSim+" maxCard="+maxCard+" threads="+threads+
