@@ -21,14 +21,14 @@ public class DiagnosticRun {
 		final double reportFrac=0.01;
 		final String cfFile="/mnt/c/playground/Chloe/dll4_cf_v5b.tsv";
 
-		// Force class init of DLL4 FIRST (triggers its default v4 CF load, resets v1Buckets=0),
+		// Force class init of DLL4 FIRST (triggers its default v4 CF load, resets cfTableBuckets=0),
 		// then load the v5 CF table so it correctly overwrites the default.
 		final CardinalityTracker ddl=DDLCalibrationDriver.makeInstance("dll4", buckets, 31, 42L, 0);
 		CorrectionFactor.initialize(cfFile, buckets);
 		CorrectionFactor.USE_CORRECTION=true;
-		System.err.println("v1Buckets="+CorrectionFactor.v1Buckets
+		System.err.println("cfTableBuckets="+CorrectionFactor.cfTableBuckets
 			+"  tableVersion="+CorrectionFactor.tableVersion
-			+"  keyScale="+((double)CorrectionFactor.v1Buckets/buckets));
+			+"  keyScale="+((double)CorrectionFactor.cfTableBuckets/buckets));
 		final FastRandomXoshiro rng=new FastRandomXoshiro(99999L);
 
 		// Compute thresholds
@@ -56,7 +56,7 @@ public class DiagnosticRun {
 				final double rawDLC=raw[11];    // r[11] = dlcLogSpace025() (no CF)
 				final double corrDLC=corr[11];  // r[11] = dlcLogSpace025() * cf
 				final double cfFactor=(rawMean>0) ? corrMean/rawMean : 0;
-				final double keyUsed=rawDLC*((double)CorrectionFactor.v1Buckets/buckets);
+				final double keyUsed=rawDLC*((double)CorrectionFactor.cfTableBuckets/buckets);
 				final double relErr=(corrMean-trueCard)/(double)trueCard;
 
 				if(trueCard>1000){

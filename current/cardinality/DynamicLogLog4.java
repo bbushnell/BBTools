@@ -356,8 +356,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 *  Returns 1.0 if CF is disabled or no table is loaded. */
 	private static double wordEstCF(double dlcSeed, double rawWordEst){
 		if(!CorrectionFactor.USE_CORRECTION){return 1;}
-		final float[][] mat=CorrectionFactor.v1Matrix;
-		final float[] keys=CorrectionFactor.v1Keys;
+		final float[][] mat=CorrectionFactor.cfTable;
+		final float[] keys=CorrectionFactor.cfKeys;
 		if(mat==null || CorrectionFactor.WORDEST>=mat.length){return 1;}
 		return CorrectionFactor.getCF(dlcSeed, rawWordEst, mat[CorrectionFactor.WORDEST], keys,
 			AbstractCardStats.DEFAULT_CF_ITERS, AbstractCardStats.DEFAULT_CF_DIF);

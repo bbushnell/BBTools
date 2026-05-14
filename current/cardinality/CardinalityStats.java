@@ -959,14 +959,14 @@ public class CardinalityStats {
 	 * @return correction factor to multiply rawEst by
 	 */
 	double cf(double rawEst, int type){
-		if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.v1Matrix==null
-				|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.v1Matrix.length){return 1;}
+		if(!CorrectionFactor.USE_CORRECTION || CorrectionFactor.cfTable==null
+				|| type==CorrectionFactor.LINEAR || type>=CorrectionFactor.cfTable.length){return 1;}
 		if(CorrectionFactor.TRACE_CF){System.err.println("cf(rawEst="+String.format("%.2f",rawEst)+", type="+type+", dlcEst="+String.format("%.2f",dlcEst)+")");}
-		final double keyScale=(CorrectionFactor.v1Buckets>0 ?
-				(double)CorrectionFactor.v1Buckets/buckets : 1.0);
-		final int iters=(dlcEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.v1Buckets ? DEFAULT_CF_ITERS : 1);
+		final double keyScale=(CorrectionFactor.cfTableBuckets>0 ?
+				(double)CorrectionFactor.cfTableBuckets/buckets : 1.0);
+		final int iters=(dlcEst*keyScale>MIN_SEED_CF_MULT*CorrectionFactor.cfTableBuckets ? DEFAULT_CF_ITERS : 1);
 		return CorrectionFactor.getCF(dlcEst, rawEst,
-				CorrectionFactor.v1Matrix[type], CorrectionFactor.v1Keys,
+				CorrectionFactor.cfTable[type], CorrectionFactor.cfKeys,
 				iters, DEFAULT_CF_DIF, keyScale);
 	}
 

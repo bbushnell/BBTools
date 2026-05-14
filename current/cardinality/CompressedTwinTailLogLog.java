@@ -320,14 +320,14 @@ public final class CompressedTwinTailLogLog extends CardinalityTracker {
 	public double ttllMeanEstimate(){
 		double est=ttllMeanEstimateRaw();
 		if(est<=0){return 0;}
-		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
-				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
-				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
-			final double keyScale=(CorrectionFactor.v1Buckets>0 && numBuckets!=CorrectionFactor.v1Buckets)
-				? (double)CorrectionFactor.v1Buckets/numBuckets : 1.0;
+		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.cfTable!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.cfTable.length
+				&& CorrectionFactor.cfTable[CorrectionFactor.MEAN16]!=null){
+			final double keyScale=(CorrectionFactor.cfTableBuckets>0 && numBuckets!=CorrectionFactor.cfTableBuckets)
+				? (double)CorrectionFactor.cfTableBuckets/numBuckets : 1.0;
 			final double cf=CorrectionFactor.getCF(est, est,
-				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
-				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+				CorrectionFactor.cfTable[CorrectionFactor.MEAN16],
+				CorrectionFactor.cfKeys, 5, 0.0001, keyScale);
 			est*=cf;
 		}
 		return est;

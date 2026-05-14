@@ -402,14 +402,14 @@ public final class TwinTailLogLog extends CardinalityTracker {
 		double est=2*(Long.MAX_VALUE/Tools.max(1.0, mean))*filled*correction;
 
 		// Apply v5 CF table correction (Mean16_cf column)
-		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.v1Matrix!=null
-				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
-				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
-			final double keyScale=(CorrectionFactor.v1Buckets>0 && buckets!=CorrectionFactor.v1Buckets)
-				? (double)CorrectionFactor.v1Buckets/buckets : 1.0;
+		if(CorrectionFactor.USE_CORRECTION && CorrectionFactor.cfTable!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.cfTable.length
+				&& CorrectionFactor.cfTable[CorrectionFactor.MEAN16]!=null){
+			final double keyScale=(CorrectionFactor.cfTableBuckets>0 && buckets!=CorrectionFactor.cfTableBuckets)
+				? (double)CorrectionFactor.cfTableBuckets/buckets : 1.0;
 			final double cf=CorrectionFactor.getCF(est, est,
-				CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16],
-				CorrectionFactor.v1Keys, 5, 0.0001, keyScale);
+				CorrectionFactor.cfTable[CorrectionFactor.MEAN16],
+				CorrectionFactor.cfKeys, 5, 0.0001, keyScale);
 			est*=cf;
 		}
 		return est;
