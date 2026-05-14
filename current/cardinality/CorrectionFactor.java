@@ -42,6 +42,7 @@ public class CorrectionFactor{
 		correctionFile=fname;
 		correctionBuckets=buckets=CardinalityTracker.powerOf2AtLeast(buckets);
 		CF_MATRIX=loadFile(fname, buckets);
+		publishSnapshot();
 	}
 
 	public static synchronized float[][] loadFile(String fname, int buckets){
@@ -426,7 +427,6 @@ public class CorrectionFactor{
 		// v1 has no occupancy-indexed table
 		lastCardMatrix=null;
 		lastCardKeys=null;
-		publishSnapshot();
 		return null;
 	}
 
