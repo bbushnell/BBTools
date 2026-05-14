@@ -169,6 +169,6 @@ public final class LogLog30 extends CardinalityTracker {
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
 
-	@Override public float terminalMeanCF(){return 1.387011f;}
+	@Override public float terminalMeanCF(){return 0.720969f;}
 
 }
