@@ -525,10 +525,11 @@ public abstract class AbstractCardStats {
 	}
 
 	/**
-	 * Hybrid estimator for mantissa-having classes (DDL, DDL2, DDL8).
+	 * 5-zone hybrid estimator for mantissa classes (DDL, DDL2, DDL8).
 	 * Blends lcForHybrid → meanCF → hmeanMCF using log interpolation with smooth crossover.
+	 * Retained for experimentation; production DDL hybrid uses hybridDLL with MeanM.
 	 */
-	static double hybridDDL(final double lcForHybrid, final double lcMin,
+	static double hybridDDL_5zone(final double lcForHybrid, final double lcMin,
 			final double meanCF, final double hmeanMCF, final int B){
 		final double hb0=0.20*B, hbMid1=1.0*B, hbMid2=2.5*B, hb1=5.0*B;
 		if(lcMin<=hb0){return lcForHybrid;}

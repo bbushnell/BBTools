@@ -568,12 +568,12 @@ public final class CardStats extends AbstractCardStats {
 
 		/*--- Final phase: standard hybrids (plain Mean, no history correction) ---*/
 		hybridDLLF=hybridDLL(lcMinF, lcMinF, meanForHybrid, numBuckets);
-		hybridDDLF=hybridDDL(lcMinF, lcMinF, meanForHybrid, hmeanMCF, numBuckets);
+		hybridDDLF=hybridDLL(lcMinF, lcMinF, meanForHybrid, numBuckets);
 
 		/*--- History-corrected hybrids (use sbs and history-corrected Mean) ---*/
 		final double meanForHybridH=(hasMantissa ? meanMCF_ : meanCorrCF);
 		hybridDLLHistF=hybridDLL(lcForHybridF, lcMinF, meanForHybridH, numBuckets);
-		hybridDDLHistF=hybridDDL(lcForHybridF, lcMinF, meanForHybridH, hmeanMCF, numBuckets);
+		hybridDDLHistF=hybridDLL(lcForHybridF, lcMinF, meanForHybridH, numBuckets);
 
 		/*--- Hybrid+2: SBS → Mean+H blend, DLC as zone detector ---*/
 		hybridPlus2F=hybridDLL(lcForHybridF, dlcRawF, meanForHybridH, numBuckets,
@@ -634,9 +634,9 @@ public final class CardStats extends AbstractCardStats {
 			if(hmc!=null){return iterativeFormulaCF(dlcRawF, rawEst, hmc);}
 		}
 		// v5 table: use dlcRawF as seed (the primary DLC estimator)
-		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.v1Matrix);
-		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.v1Keys);
-		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.cfTable);
+		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.cfKeys);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.cfTableBuckets);
 		if(mat==null || type==CorrectionFactor.LINEAR || type>=mat.length){return 1;}
 		final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*cfBkt ? DEFAULT_CF_ITERS : 1);
 		return CorrectionFactor.getCF(dlcRawF, rawEst, mat[type], keys,
@@ -658,9 +658,9 @@ public final class CardStats extends AbstractCardStats {
 	}
 
 	private boolean assertFormulaCF(double rawEst, int type, double keyScale, double formulaCF, String label){
-		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.v1Matrix);
-		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.v1Keys);
-		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		final float[][] mat=(cfd!=null ? cfd.matrix : CorrectionFactor.cfTable);
+		final float[] keys=(cfd!=null ? cfd.keys : CorrectionFactor.cfKeys);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.cfTableBuckets);
 		if(mat!=null && type<mat.length && mat[type]!=null){
 			final int iters=(dlcRawF*keyScale>MIN_SEED_CF_MULT*cfBkt ? DEFAULT_CF_ITERS : 1);
 			final double tableCF=CorrectionFactor.getCF(dlcRawF, rawEst, mat[type], keys, iters, DEFAULT_CF_DIF, keyScale);
@@ -733,7 +733,7 @@ public final class CardStats extends AbstractCardStats {
 	 * Package-private; only for migration. Callers should eventually use pre-corrected getters.
 	 */
 	double cf(final double rawEst, final int type){
-		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.v1Buckets);
+		final int cfBkt=(cfd!=null ? cfd.buckets : CorrectionFactor.cfTableBuckets);
 		final double ks=(cfBkt>0 ? (double)cfBkt/numBuckets : 1.0);
 		return cardCF(rawEst, type, ks);
 	}
@@ -783,11 +783,11 @@ public final class CardStats extends AbstractCardStats {
 	public double meanTCH(){return meanTCHCF;}
 	/** Hybrid DLL estimate (LC/Mean blend for mantissa-free classes). Plain, no history. */
 	public double hybridDLL(){return hybridDLLF;}
-	/** Hybrid DDL estimate (LC/Mean/HMeanM blend for mantissa classes). Plain. */
+	/** Hybrid DDL estimate (LC/MeanM blend for mantissa classes). Plain. */
 	public double hybridDDL(){return hybridDDLF;}
 	/** History-corrected Hybrid DLL. Falls back to plain when no history. */
 	public double hybridDLLHist(){return hybridDLLHistF;}
-	/** History-corrected Hybrid DDL. Falls back to plain when no history. */
+	/** History-corrected Hybrid DDL (LC/MeanM blend). Falls back to plain when no history. */
 	public double hybridDDLHist(){return hybridDDLHistF;}
 	/** Hybrid+2: SBS → Mean+H with DLC zone detection. */
 	public double hybridPlus2(){return hybridPlus2F;}
@@ -1171,9 +1171,9 @@ public final class CardStats extends AbstractCardStats {
 
 	// --- Final phase: hybrid estimates ---
 	final double hybridDLLF;    // LC/Mean blend (for DLL types), plain (no history)
-	final double hybridDDLF;    // LC/Mean/HMeanM blend (for DDL types), plain
+	final double hybridDDLF;    // LC/MeanM blend (for DDL types), plain
 	double hybridDLLHistF;       // History-corrected LC/Mean blend. Non-final: recomputed by overrideMeanH().
-	final double hybridDDLHistF; // History-corrected LC/Mean/HMeanM blend
+	final double hybridDDLHistF; // History-corrected LC/MeanM blend
 	double hybridPlus2F;        // SBS → Mean+H with DLC zone detection. Non-final: recomputed by overrideMeanH().
 	double ldlcF;               // DlcSbs blended with HC. Non-final: recomputed by overrideHC().
 	final double vwMeanF;       // VWMean estimate (harmonic/geometric/arithmetic of per-tier-state table lookups).
@@ -1199,12 +1199,12 @@ public final class CardStats extends AbstractCardStats {
 	static int VW_CF_BUCKETS;
 
 	static void captureVWCF(){
-		if(CorrectionFactor.v1Matrix!=null
-				&& CorrectionFactor.MEAN16<CorrectionFactor.v1Matrix.length
-				&& CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16]!=null){
-			VW_CF_COL=CorrectionFactor.v1Matrix[CorrectionFactor.MEAN16].clone();
-			VW_CF_KEYS=(CorrectionFactor.v1Keys!=null) ? CorrectionFactor.v1Keys.clone() : null;
-			VW_CF_BUCKETS=CorrectionFactor.v1Buckets;
+		if(CorrectionFactor.cfTable!=null
+				&& CorrectionFactor.MEAN16<CorrectionFactor.cfTable.length
+				&& CorrectionFactor.cfTable[CorrectionFactor.MEAN16]!=null){
+			VW_CF_COL=CorrectionFactor.cfTable[CorrectionFactor.MEAN16].clone();
+			VW_CF_KEYS=(CorrectionFactor.cfKeys!=null) ? CorrectionFactor.cfKeys.clone() : null;
+			VW_CF_BUCKETS=CorrectionFactor.cfTableBuckets;
 		}
 	}
 

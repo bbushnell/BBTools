@@ -60,10 +60,10 @@ public class CorrectionFactor{
 			final String firstStr=new String(firstLine).trim();
 			if(firstStr.startsWith("#VERSION=")){
 				final int ver=Integer.parseInt(firstStr.substring(9));
-				if(ver>=1){return loadFileV1(path, buckets, ver);}
+				if(ver>=1){return loadCardinalityCFTable(path, buckets, ver);}
 			}else if(firstStr.startsWith("#Version\t")){
 				final int ver=Integer.parseInt(firstStr.substring(9).trim());
-				if(ver>=5){return loadFileV1(path, buckets, ver);}
+				if(ver>=5){return loadCardinalityCFTable(path, buckets, ver);}
 			}
 		}
 		FloatList[] lists=null;
@@ -316,7 +316,7 @@ public class CorrectionFactor{
 	/*----------------          v1 Loading          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Column name → type constant mapping for v1 header parsing. */
+	/** Column name → type constant mapping for cardinality CF table header parsing. */
 	private static int colNameToType(String name){
 		if("Mean_cf".equals(name)){return MEAN;}
 		if("HMean_cf".equals(name)){return HMEAN;}
@@ -347,9 +347,9 @@ public class CorrectionFactor{
 	 * Col 0 = DLC3B_est (key), remaining cols = CF values per estimator.
 	 * Returns null for CF_MATRIX (v1 has no occupancy-indexed table).
 	 */
-	private static float[][] loadFileV1(String path, int buckets, int ver){
+	private static float[][] loadCardinalityCFTable(String path, int buckets, int ver){
 		tableVersion=ver;
-		v1Buckets=0; // reset; will be set from #Buckets header for v5+
+		cfTableBuckets=0; // reset; will be set from #Buckets header for v5+
 		FileFormat ff=FileFormat.testInput(path, null, false);
 		ByteFile bf=ByteFile.makeByteFile(ff, 1);
 		LineParser1 lp=new LineParser1('\t');
@@ -371,7 +371,7 @@ public class CorrectionFactor{
 					if(tab>0){
 						final String key=s.substring(0,tab);
 						final String val=s.substring(tab+1).trim();
-						if("#Buckets".equals(key)){v1Buckets=Integer.parseInt(val);}
+						if("#Buckets".equals(key)){cfTableBuckets=Integer.parseInt(val);}
 					}
 					continue;
 				}
@@ -402,12 +402,12 @@ public class CorrectionFactor{
 			throw new RuntimeException("v1 CF table has no data rows: "+path);
 		}
 
-		// Build v1Matrix: v1Matrix[type][row] = CF value; v1Keys[row] = DLC3B key
+		// Build cfTable: cfTable[type][row] = CF value; cfKeys[row] = cardinality key
 		final int n=keyList.size();
 		final int maxType=MEANTCH+1;
 		final float[][] mat=new float[maxType][n];
-		v1Keys=new float[n];
-		for(int i=0; i<n; i++){v1Keys[i]=keyList.get(i);}
+		cfKeys=new float[n];
+		for(int i=0; i<n; i++){cfKeys[i]=keyList.get(i);}
 		// Fill all types with 1.0 default
 		for(int t=0; t<maxType; t++){Arrays.fill(mat[t], 1.0f);}
 		// Populate from file columns
@@ -416,12 +416,12 @@ public class CorrectionFactor{
 			final float[] dest=mat[colTypes[col]];
 			for(int i=0; i<n; i++){dest[i]=cfLists[col].get(i);}
 		}
-		v1Matrix=mat;
+		cfTable=mat;
 
 		// Extend the table to Long.MAX_VALUE by tiling the self-similar upper half.
 		// DLL's tier structure repeats every cardinality doubling: CF(2C) ≈ CF(C).
 		// Copy CF values from [maxKey/2, maxKey] into [maxKey, 2*maxKey], etc.
-		extendV1Table();
+		extendCFTable();
 
 		// v1 has no occupancy-indexed table
 		lastCardMatrix=null;
@@ -431,7 +431,7 @@ public class CorrectionFactor{
 	}
 
 	/**
-	 * Extends v1Keys/v1Matrix to cover arbitrarily high cardinalities by tiling
+	 * Extends cfKeys/cfTable to cover arbitrarily high cardinalities by tiling
 	 * the self-similar upper half of the CF table. DLL's tier structure is self-similar
 	 * across cardinality doublings: after a tier advance, the bucket distribution resets
 	 * to the same shape as the previous era. So CF(2C) ≈ CF(C) at corresponding points.
@@ -441,16 +441,16 @@ public class CorrectionFactor{
 	 * At 1% spacing, each half-period has ~70 entries; ~40 doublings to reach Long.MAX_VALUE
 	 * adds ~2800 entries. Negligible memory.
 	 */
-	private static void extendV1Table(){
-		if(v1Keys==null || v1Keys.length<2 || v1Matrix==null){return;}
-		final int origN=v1Keys.length;
-		final float maxKey=v1Keys[origN-1];
+	private static void extendCFTable(){
+		if(cfKeys==null || cfKeys.length<2 || cfTable==null){return;}
+		final int origN=cfKeys.length;
+		final float maxKey=cfKeys[origN-1];
 		final float halfKey=maxKey*0.5f;
 
 		// Find start of upper half: first key >= maxKey/2
 		int halfIdx=origN-1;
 		for(int i=0; i<origN; i++){
-			if(v1Keys[i]>=halfKey){halfIdx=i; break;}
+			if(cfKeys[i]>=halfKey){halfIdx=i; break;}
 		}
 		final int halfLen=origN-halfIdx; // number of entries in upper half
 		if(halfLen<2){return;} // not enough data to tile
@@ -464,10 +464,10 @@ public class CorrectionFactor{
 		// Build extended arrays
 		final int extN=origN+numDoublings*halfLen;
 		final float[] extKeys=new float[extN];
-		System.arraycopy(v1Keys, 0, extKeys, 0, origN);
-		final float[][] extMat=new float[v1Matrix.length][extN];
-		for(int t=0; t<v1Matrix.length; t++){
-			System.arraycopy(v1Matrix[t], 0, extMat[t], 0, origN);
+		System.arraycopy(cfKeys, 0, extKeys, 0, origN);
+		final float[][] extMat=new float[cfTable.length][extN];
+		for(int t=0; t<cfTable.length; t++){
+			System.arraycopy(cfTable[t], 0, extMat[t], 0, origN);
 		}
 
 		// Tile: for each doubling, copy upper-half CF values with doubled keys
@@ -475,37 +475,37 @@ public class CorrectionFactor{
 		double scale=2.0;
 		for(int d=0; d<numDoublings; d++){
 			for(int i=0; i<halfLen; i++){
-				extKeys[writeIdx]=(float)(v1Keys[halfIdx+i]*scale);
-				for(int t=0; t<v1Matrix.length; t++){
-					extMat[t][writeIdx]=v1Matrix[t][halfIdx+i];
+				extKeys[writeIdx]=(float)(cfKeys[halfIdx+i]*scale);
+				for(int t=0; t<cfTable.length; t++){
+					extMat[t][writeIdx]=cfTable[t][halfIdx+i];
 				}
 				writeIdx++;
 			}
 			scale*=2.0;
 		}
 
-		v1Keys=extKeys;
-		v1Matrix=extMat;
+		cfKeys=extKeys;
+		cfTable=extMat;
 	}
 
 	/**
-	 * v1 correction factor lookup: binary search on raw DLC3B estimate with linear interpolation.
-	 * Returns 1 if v1Matrix is null, USE_CORRECTION is false, or type is LINEAR.
+	 * Cardinality-indexed CF lookup: binary search on estimated cardinality with linear interpolation.
+	 * Returns 1 if cfTable is null, USE_CORRECTION is false, or type is LINEAR.
 	 */
-	public static float getV1CF(double dlc3bEst, int type){
-		if(!USE_CORRECTION || v1Matrix==null || type==LINEAR || type>=v1Matrix.length){return 1;}
-		final float[] cfCol=v1Matrix[type];
-		final int n=v1Keys.length;
+	public static float getCardinalityCF(double dlc3bEst, int type){
+		if(!USE_CORRECTION || cfTable==null || type==LINEAR || type>=cfTable.length){return 1;}
+		final float[] cfCol=cfTable[type];
+		final int n=cfKeys.length;
 		if(n==0){return 1;}
 		final float key=(float)dlc3bEst;
-		if(key<=v1Keys[0]){return cfCol[0];}
-		if(key>=v1Keys[n-1]){return cfCol[n-1];}
+		if(key<=cfKeys[0]){return cfCol[0];}
+		if(key>=cfKeys[n-1]){return cfCol[n-1];}
 		int lo=0, hi=n-1;
 		while(lo<hi-1){
 			final int mid=(lo+hi)>>>1;
-			if(v1Keys[mid]<=key){lo=mid;}else{hi=mid;}
+			if(cfKeys[mid]<=key){lo=mid;}else{hi=mid;}
 		}
-		final float k0=v1Keys[lo], k1=v1Keys[hi];
+		final float k0=cfKeys[lo], k1=cfKeys[hi];
 		if(k1==k0){return cfCol[lo];}
 		final float frac=(key-k0)/(k1-k0);
 		return cfCol[lo]+frac*(cfCol[hi]-cfCol[lo]);
@@ -651,14 +651,17 @@ public class CorrectionFactor{
 	/** MeanEst key array for binary-search into lastCardMatrix; same reference as lastCardMatrix[0]. */
 	public static float[] lastCardKeys=null;
 
-	/** v1 table: cardinality-indexed CF keyed by raw DLC3B estimate. */
-	public static float[][] v1Matrix=null;
-	/** v1 table: DLC3B estimate keys for binary-search into v1Matrix. */
-	public static float[] v1Keys=null;
-	/** Table version: 0 = legacy bipartite, 1+ = unified DLC3B-indexed. */
+	/** Cardinality-indexed CF table: cfTable[type][row] = correction factor.
+	 *  Keyed by cfKeys[] (cardinality estimates) for binary-search lookup.
+	 *  Loaded by loadCardinalityCFTable(); null until first load. */
+	public static float[][] cfTable=null;
+	/** Cardinality keys for binary-search into cfTable. */
+	public static float[] cfKeys=null;
+	/** Table version: 0 = legacy bipartite, 1+ = unified cardinality-indexed. */
 	public static int tableVersion=0;
-	/** Bucket count used when building v1Matrix; 0 = unknown (no scaling). Set from #Buckets header in v5+. */
-	public static int v1Buckets=0;
+	/** Bucket count the cfTable was trained at; 0 = unknown. Used to scale lookup keys
+	 *  when the current instance has a different bucket count. */
+	public static int cfTableBuckets=0;
 
 	/*--------------------------------------------------------------*/
 	/*----------------    Immutable CF Snapshot     ----------------*/
@@ -666,7 +669,7 @@ public class CorrectionFactor{
 
 	/**
 	 * Immutable snapshot of CF table state for thread-safe access.
-	 * Bundles v1Matrix, v1Keys, v1Buckets, and formula coefficients into
+	 * Bundles cfTable, cfKeys, cfTableBuckets, and formula coefficients into
 	 * a single object published atomically via volatile write.
 	 * Readers grab a local final reference once and use it for all lookups,
 	 * eliminating races on the individual static fields.
@@ -694,9 +697,12 @@ public class CorrectionFactor{
 	public static volatile CFTableData cfData;
 
 	/** Creates and publishes an immutable snapshot from current statics.
-	 *  Call after loadFileV1 completes or after formula coefficients change. */
+	 *  WARNING: this overwrites the global cfData. Any class that calls loadFile()
+	 *  (which calls loadCardinalityCFTable → publishSnapshot) will clobber the
+	 *  snapshot for ALL other classes. This is the root cause of the CF-not-applied bug.
+	 *  Call after loadCardinalityCFTable completes or after formula coefficients change. */
 	public static void publishSnapshot(){
-		cfData=new CFTableData(v1Matrix, v1Keys, v1Buckets,
+		cfData=new CFTableData(cfTable, cfKeys, cfTableBuckets,
 			meanCfCoeffs, meanhCfCoeffs, hmeanmCfCoeffs);
 	}
 
