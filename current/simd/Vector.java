@@ -227,6 +227,41 @@ public final class Vector {
 		return compareDDLScalar(a, b);
 	}
 
+	/**
+	 * Hybrid SIMD-accelerated DDL comparison: pre-converted short[] query vs char[] ref.
+	 * Pre-convert the query once via toShortArray(), then compare against many char[] refs.
+	 * @param queryShort Pre-converted query maxArray (from toShortArray)
+	 * @param refArray Reference DDL maxArray (native char[])
+	 * @return int[]{lower, equal, higher, bothEmpty}
+	 */
+	public static int[] compareDDL(short[] queryShort, char[] refArray){
+		if(Shared.SIMD){return SIMDLogLog.compareDetailedShort(queryShort, refArray, queryShort.length);}
+		return compareDDLScalarHybrid(queryShort, refArray);
+	}
+
+	/** Converts char[] DDL maxArray to short[] for hybrid comparison.
+	 *  Call once per query, then reuse across many comparisons. */
+	public static short[] toShortArray(char[] arr){
+		return SIMDLogLog.toShortArray(arr);
+	}
+
+	/** Scalar fallback for hybrid short[]/char[] DDL comparison. */
+	private static int[] compareDDLScalarHybrid(short[] a, char[] b){
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<a.length; i++){
+			final int ai=a[i]&0xFFFF, bi=b[i];
+			if(ai==0 && bi==0){bothEmpty++; continue;}
+			int dif=ai-bi;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
 	/** Scalar fallback for DDL bucket comparison. */
 	private static int[] compareDDLScalar(char[] a, char[] b){
 		int lower=0, equal=0, higher=0, bothEmpty=0;
