@@ -421,10 +421,9 @@ public abstract class AbstractCardStats {
 	 */
 	static double hllEstimate(final double hllSumFilled, final int V, final int B,
 			final double alpha_m){
-		final double hllSum=hllSumFilled+V; // empty buckets contribute 2^0 = 1
+		final double hllSum=hllSumFilled+2*V;
 		final double raw=2*alpha_m*(double)B*(double)B/hllSum;
 		if(raw<2.5*B){
-			// Small-range correction: plain LC (V=0 means no empties, use 0.5 to avoid log(inf))
 			return (double)B*Math.log((double)B/Math.max(V, 0.5));
 		}
 		return raw;
@@ -438,7 +437,7 @@ public abstract class AbstractCardStats {
 	static double hllHistory(final double hllSumFilled, final int V, final int B,
 			final double alpha_m){
 		final double alpha_hist=alpha_m*HLL_HIST_TERMINAL_CF;
-		final double hllSum=hllSumFilled+V;
+		final double hllSum=hllSumFilled+2*V;
 		final double raw=2*alpha_hist*(double)B*(double)B/hllSum;
 		if(raw<2.5*B){
 			return (double)B*Math.log((double)B/Math.max(V, 0.5));

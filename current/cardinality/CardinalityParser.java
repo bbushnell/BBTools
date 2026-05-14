@@ -366,6 +366,9 @@ public class CardinalityParser {
 			else if("avll2".equals(loglogtype)){ArithmeticVariableLogLog2.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("avll".equals(loglogtype)){ArithmeticVariableLogLog.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("dll4".equals(loglogtype) || "dll4m".equals(loglogtype)){DynamicLogLog4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("dll3".equals(loglogtype)){DynamicLogLog3.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("dll3v4".equals(loglogtype)){DynamicLogLog3v4.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
+			else if("bdll3".equals(loglogtype)){BankedDynamicLogLog3.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 			else if("ertl".equals(loglogtype)){ErtlULL.setCFMatrix(CorrectionFactor.CF_MATRIX, buckets);}
 		}
 

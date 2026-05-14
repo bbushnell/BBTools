@@ -549,6 +549,9 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
+	public static void setCFMatrix(float[][] matrix, int buckets){
+		CF_MATRIX=matrix; CF_BUCKETS=buckets;
+	}
 
 	/** Asymptotic meanRaw/trueCard ratio, measured 128k ddls 128t (May 9 2026). */
 	@Override public float terminalMeanCF(){return 0.729667f;}
