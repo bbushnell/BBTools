@@ -808,6 +808,7 @@ public class CallVariants {
 		final double properPairRate=properlyPairedReadsProcessed/(double)Tools.max(1, readsProcessed-readsDiscarded);
 		final double pairedInSequencingRate=pairedInSequencingReadsProcessed/(double)Tools.max(1, readsProcessed-readsDiscarded);
 		final double totalQualityAvg=totalQualitySum/(double)Tools.max(1, trimmedBasesProcessed);
+//		System.err.println(totalQualitySum+", "+trimmedBasesProcessed+", "+readsProcessed);
 		final double totalMapqAvg=totalMapqSum/(double)Tools.max(1, readsProcessed-readsDiscarded);
 		
 		// Store calculated statistics in variant map for output generation
@@ -1309,7 +1310,9 @@ public class CallVariants {
 				}
 			}else{
 				trimmedBasesProcessedT+=r.length();
-				totalQualitySumT+=simd.Vector.sum(r.quality);
+				long qsum=simd.Vector.sum(r.quality);
+				assert(qsum>=0) : qsum+", "+Arrays.toString(r.quality);
+				totalQualitySumT+=qsum;
 				totalMapqSumT+=sl.mapq;
 				if(calcCoverage){scaf.add(sl);}
 				if(vars==null){return true;}

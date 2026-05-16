@@ -4,6 +4,7 @@ import java.util.Arrays;
 
 import dna.AminoAcid;
 import jdk.incubator.vector.ByteVector;
+import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
@@ -27,6 +28,8 @@ final class SIMDByte256{
 
 	private static final VectorSpecies<Byte> BSPECIES64=ByteVector.SPECIES_64;
 	private static final int BWIDTH64=BSPECIES64.length(); //8
+
+	private static final VectorSpecies<Integer> ISPECIES256=IntVector.SPECIES_256;
 
 	private static final VectorSpecies<Long> LSPECIES64=LongVector.SPECIES_64;
 	private static final int LWIDTH64=LSPECIES64.length(); //8
@@ -119,29 +122,35 @@ final class SIMDByte256{
 
 	/**
 	 * Sums the array.
-	 * @param a A vector.
+	 * Widens bytes to int before reducing to avoid signed byte overflow.
+	 * ByteVector.reduceLanesToLong(ADD) uses byte-precision arithmetic which
+	 * wraps at +/-127, producing incorrect results for quality sums.
+	 * @param a A byte array.
 	 * @return The sum.
 	 */
 	static final long sum(final byte[] a, final int from, final int to){
 		int i=from;
 		long c=0;
 
-		{//256-bit loop
+		{//256-bit loop: widen 32 bytes to 4 IntVectors of 8 ints each.
 			for(; i<=to-BWIDTH256+1; i+=BWIDTH256){
 				ByteVector va=ByteVector.fromArray(BSPECIES256, a, i);
-				c+=va.reduceLanesToLong(VectorOperators.ADD);
+				c+=((IntVector)va.convertShape(VectorOperators.B2I, ISPECIES256, 0)).reduceLanesToLong(VectorOperators.ADD);
+				c+=((IntVector)va.convertShape(VectorOperators.B2I, ISPECIES256, 1)).reduceLanesToLong(VectorOperators.ADD);
+				c+=((IntVector)va.convertShape(VectorOperators.B2I, ISPECIES256, 2)).reduceLanesToLong(VectorOperators.ADD);
+				c+=((IntVector)va.convertShape(VectorOperators.B2I, ISPECIES256, 3)).reduceLanesToLong(VectorOperators.ADD);
 			}
 		}
 
-		{//64-bit loop
+		{//64-bit loop: widen 8 bytes to 1 IntVector of 8 ints.
 			for(; i<=to-BWIDTH64+1; i+=BWIDTH64){
 				ByteVector va=ByteVector.fromArray(BSPECIES64, a, i);
-				c+=va.reduceLanesToLong(VectorOperators.ADD);
+				c+=((IntVector)va.convertShape(VectorOperators.B2I, ISPECIES256, 0)).reduceLanesToLong(VectorOperators.ADD);
 			}
 		}
 
 		//Scalar tail
-		for(; i<=to; i++){ c+=a[i]; }
+		for(; i<=to; i++){c+=a[i];}
 		return c;
 	}
 
