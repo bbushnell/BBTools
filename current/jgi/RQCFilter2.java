@@ -208,7 +208,7 @@ public class RQCFilter2 {
 				catFlag=Parse.parseBoolean(b);
 			}else if(a.equals("removemouse") || a.equals("mouse")){
 				mouseFlag=Parse.parseBoolean(b);
-			}else if(a.equals("catdoghumanmouse") || a.equals("mousecatdoghuman") || a.equals("")){
+			}else if(a.equals("catdoghumanmouse") || a.equals("mousecatdoghuman") || a.equals("catdogmousehuman")){
 				mouseCatDogHumanFlag=Parse.parseBoolean(b);
 			}else if(a.equals("keephumanreads") || a.equals("keephuman")){
 				keepHumanReads=Parse.parseBoolean(b);
@@ -530,6 +530,8 @@ public class RQCFilter2 {
 			
 			else if(a.equals("dryrun")){
 				dryrun=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("reproducename")){
+				reproduceName=b;
 			}
 			
 			else if(a.equals("skipfilter")){
