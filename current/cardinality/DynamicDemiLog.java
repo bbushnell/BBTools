@@ -312,6 +312,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/** Returns the number of buckets with any data (maxArray[i] > 0). O(1). */
 	public int filledBuckets(){return filledBuckets;}
 
+	@Override
+	public int[] bucketValues(){
+		int[] out=new int[buckets];
+		for(int i=0; i<buckets; i++){out[i]=maxArray[i];}
+		return out;
+	}
+
 	/** Returns the fraction of buckets with any data (filled / total). O(1). */
 	public double occupancy(){return (double)filledBuckets/buckets;}
 

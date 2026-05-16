@@ -69,11 +69,20 @@ public class DDLCompare {
 
 		Timer t=new Timer();
 
-		DynamicDemiLog ddlA=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
-		DynamicDemiLog ddlB=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
-
-		long basesA=hashFile(file1, ddlA, k);
-		long basesB=hashFile(file2, ddlB, k);
+		DynamicDemiLog ddlA, ddlB;
+		long basesA, basesB;
+		if(threads>1){
+			ddlA=(DynamicDemiLog)MultithreadedSketchLoader.loadTrackerFromSequence(
+				file1, "DDL", buckets, k, 12345L, 0f, false, threads);
+			ddlB=(DynamicDemiLog)MultithreadedSketchLoader.loadTrackerFromSequence(
+				file2, "DDL", buckets, k, 12345L, 0f, false, threads);
+			basesA=-1; basesB=-1;
+		}else{
+			ddlA=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+			ddlB=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+			basesA=hashFile(file1, ddlA, k);
+			basesB=hashFile(file2, ddlB, k);
+		}
 
 		long cardA=ddlA.cardinality();
 		long cardB=ddlB.cardinality();
@@ -87,6 +96,11 @@ public class DDLCompare {
 		float ani=DynamicDemiLog.ani(lower, equal, higher, k);
 		float compAB=DynamicDemiLog.completeness(lower, equal, higher);
 		float compBA=DynamicDemiLog.completenessBA(lower, equal, higher);
+
+		int[] ll6cmp=compareExponentOnly(ddlA.maxArray(), ddlB.maxArray());
+		int ll6lower=ll6cmp[0], ll6equal=ll6cmp[1], ll6higher=ll6cmp[2];
+		float ll6wkid=DynamicDemiLog.wkid(ll6lower, ll6equal, ll6higher);
+		float ll6ani=DynamicDemiLog.ani(ll6lower, ll6equal, ll6higher, k);
 
 		t.stop();
 
@@ -108,6 +122,9 @@ public class DDLCompare {
 		System.out.println("ANI:\t"+String.format("%.6f", ani));
 		System.out.println("Completeness(1->2):\t"+String.format("%.6f", compAB));
 		System.out.println("Completeness(2->1):\t"+String.format("%.6f", compBA));
+		System.out.println("LL6_Equal:\t"+ll6equal);
+		System.out.println("LL6_WKID:\t"+String.format("%.6f", ll6wkid));
+		System.out.println("LL6_ANI:\t"+String.format("%.6f", ll6ani));
 		System.out.println("Time:\t"+t);
 
 		System.err.println(String.format("ANI: %.2f%%  WKID: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
@@ -135,11 +152,19 @@ public class DDLCompare {
 			System.err.println("Built inverted index in "+String.format("%.3f", (ti1-ti0)*1e-9)+" seconds.");
 		}
 
-		DynamicDemiLog query=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
-		long bases=hashFile(queryPath, query, k);
+		DynamicDemiLog query;
+		long bases;
+		if(threads>1){
+			query=(DynamicDemiLog)MultithreadedSketchLoader.loadTrackerFromSequence(
+				queryPath, "DDL", buckets, k, 12345L, 0f, false, threads);
+			bases=-1;
+		}else{
+			query=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+			bases=hashFile(queryPath, query, k);
+		}
 		long t2=System.nanoTime();
 		long card=query.cardinality();
-		System.err.println("Query: "+queryPath+"  bases="+bases+"  cardinality="+card+"  sketch time: "+String.format("%.3f", (t2-t1)*1e-9)+"s");
+		System.err.println("Query: "+queryPath+(bases>=0 ? "  bases="+bases : "")+"  cardinality="+card+"  sketch time: "+String.format("%.3f", (t2-t1)*1e-9)+"s  threads="+threads);
 
 		final int n=refs.size();
 
@@ -346,6 +371,20 @@ public class DDLCompare {
 		System.err.println("Avg matches/pair: "+String.format("%.4f", (double)totalMatches/totalPairs));
 		System.err.println("Max matches in any pair: "+maxMatches);
 		System.err.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
+	}
+
+	/** Compares two DDL register arrays using only the exponent (top 6 bits),
+	 *  simulating LL6-equivalent comparison from DDL sketches. */
+	private static int[] compareExponentOnly(char[] a, char[] b){
+		int lower=0, equal=0, higher=0;
+		for(int i=0; i<a.length; i++){
+			int ea=a[i]>>10, eb=b[i]>>10;
+			if(ea==0 && eb==0){/* both empty */}
+			else if(ea<eb){lower++;}
+			else if(ea==eb){equal++;}
+			else{higher++;}
+		}
+		return new int[]{lower, equal, higher};
 	}
 
 	private static long hashFile(String path, DynamicDemiLog ddl, int k){
