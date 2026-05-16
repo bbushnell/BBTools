@@ -162,6 +162,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4();
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog();
+		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
+			return new SetSketch16();
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -297,6 +299,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4(p);
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog(p);
+		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
+			return new SetSketch16(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -440,6 +444,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new CompressedTwinTailLogLog(buckets_, k_, seed, minProb_);
 		}else if("ETTLL5".equalsIgnoreCase(type) || "ExpandedTwinTailLogLog5".equalsIgnoreCase(type)){
 			return new ExpandedTwinTailLogLog5(buckets_, k_, seed, minProb_);
+		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
+			return new SetSketch16(buckets_, k_, seed, minProb_);
 		}
 		assert(false) : "TODO: "+type;
 		throw new RuntimeException(type);
@@ -852,6 +858,8 @@ public abstract class CardinalityTracker implements Drivable {
 
 	/** Returns 16-bit counts array if present; null otherwise. */
 	public char[] counts16(){return null;}
+	/** Returns per-bucket stored values as int[]; null if not supported. */
+	public int[] bucketValues(){return null;}
 	public byte[] gcArray(){return null;}
 
 	/**

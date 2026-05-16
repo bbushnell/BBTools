@@ -148,6 +148,13 @@ public final class LogLog6 extends CardinalityTracker {
 	public double occupancy(){return (double)filledBuckets/buckets;}
 
 	@Override
+	public int[] bucketValues(){
+		int[] out=new int[buckets];
+		for(int i=0; i<buckets; i++){out[i]=maxArray[i]&0xFF;}
+		return out;
+	}
+
+	@Override
 	public final float[] compensationFactorLogBucketsArray(){return null;}
 
 	@Override
