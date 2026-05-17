@@ -15,6 +15,7 @@ import jgi.CallPeaks;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.FASTQ;
 import stream.Read;
 import structures.IntList;
 import ukmer.Kmer;
@@ -315,6 +316,8 @@ public abstract class AbstractKmerTableSet {
 			}
 			kmersLoaded+=loadKmers(a, b);
 		}
+		final boolean oldForceInterleaved=FASTQ.FORCE_INTERLEAVED;
+		FASTQ.FORCE_INTERLEAVED=false;
 		for(int i=0; i<extra.size(); i++){
 			String a=extra.get(i);
 			String b=null;
@@ -325,6 +328,7 @@ public abstract class AbstractKmerTableSet {
 			}
 			kmersLoaded+=loadKmers(a, b);
 		}
+		FASTQ.FORCE_INTERLEAVED=oldForceInterleaved;
 //		t.stop("loadKmers:");
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
 		return kmersLoaded;
