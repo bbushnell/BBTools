@@ -40,6 +40,7 @@ public class DDLCompare {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			if(a.equals("k")){k=Integer.parseInt(b);}
+			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ref")){refFile=b;}
 			else if(a.equals("queryfile") || a.equals("qf")){queryFile=b;}
@@ -373,12 +374,13 @@ public class DDLCompare {
 		System.err.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
 	}
 
-	/** Compares two DDL register arrays using only the exponent (top 6 bits),
-	 *  simulating LL6-equivalent comparison from DDL sketches. */
+	/** Compares two DDL register arrays using only the exponent bits,
+	 *  simulating LL-equivalent comparison from DDL sketches. */
 	private static int[] compareExponentOnly(char[] a, char[] b){
+		final int mbits=16-DynamicDemiLog.exponentBits();
 		int lower=0, equal=0, higher=0;
 		for(int i=0; i<a.length; i++){
-			int ea=a[i]>>10, eb=b[i]>>10;
+			int ea=a[i]>>mbits, eb=b[i]>>mbits;
 			if(ea==0 && eb==0){/* both empty */}
 			else if(ea<eb){lower++;}
 			else if(ea==eb){equal++;}

@@ -147,8 +147,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			}
 		}
 		nlzCounts[0]=buckets-filledCount;
-		// DDL: nlzBits=6, mantissaBits=10, mantissaOffset=0.0 (no +0.5 bias)
-		return new CardStats(packedBuckets, nlzCounts, 6, 0, 0, mantissabits,
+		return new CardStats(packedBuckets, nlzCounts, exponentBits, 0, 0, mantissabits,
 				buckets, microIndex, added, CF_MATRIX, CF_BUCKETS, 0.0);
 	}
 
@@ -227,7 +226,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Earliest possible exit, fastest
 		if(Long.compareUnsigned(key, eeMask)>0) {return;}
 //		branch1++;
-		final int nlz=Long.numberOfLeadingZeros(key);
+		final int nlz=Long.numberOfLeadingZeros(key)&nlzMask;
 
 		//Precalculate everything necessary
 		final int bucket=(int)(key&bucketMask);
@@ -581,14 +580,35 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/*--------------------------------------------------------------*/
 
 	private static final int wordlen=64;
-	/** Number of mantissa bits for floating-point compression; 10 is maximum. */
-	private static final int mantissabits=10;
-	private static final int mask=(1<<mantissabits)-1;
-	private static final int offset=wordlen-mantissabits-1;
+	/** Number of exponent bits; default 6 gives NLZ range 0-63. */
+	private static int exponentBits=6;
+	/** Mask applied to NLZ to enforce exponent width; (1<<exponentBits)-1. */
+	private static int nlzMask=(1<<exponentBits)-1;
+	/** Number of mantissa bits; 16 - exponentBits. */
+	private static int mantissabits=16-exponentBits;
+	private static int mask=(1<<mantissabits)-1;
+	private static int offset=wordlen-mantissabits-1;
 	/** Minimum stored value for a non-empty bucket above floor (relNlzStored >= 1). */
-	private static final int minNonEmpty=1<<mantissabits; // 1024
-	/** Maximum relNlzStored before overflow clamp: 6-bit exponent = 63 tiers. */
-	private static final int maxRelNlzStored=(1<<(16-mantissabits))-1; // 63
+	private static int minNonEmpty=1<<mantissabits;
+	/** Maximum relNlzStored before overflow clamp. */
+	private static int maxRelNlzStored=(1<<exponentBits)-1;
+
+	/** Sets the exponent width and recalculates all derived fields.
+	 *  Must be called before creating any DDL instances.
+	 *  @param bits Exponent bits (5 or 6; default 6) */
+	public static synchronized void setExponent(int bits){
+		assert(bits>=1 && bits<=8) : "Exponent bits must be 1-8, got "+bits;
+		exponentBits=bits;
+		nlzMask=(1<<exponentBits)-1;
+		mantissabits=16-exponentBits;
+		mask=(1<<mantissabits)-1;
+		offset=wordlen-mantissabits-1;
+		minNonEmpty=1<<mantissabits;
+		maxRelNlzStored=(1<<exponentBits)-1;
+	}
+
+	/** Returns the current exponent width. */
+	public static int exponentBits(){return exponentBits;}
 
 	//	/** Occupancy fraction (filled buckets / total buckets) at which LinearCounting and
 	//	 * value-based estimates contribute equally in the sigmoid blend.  Below this point

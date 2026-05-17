@@ -29,13 +29,17 @@ public class CollisionBenchmark {
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("seed")){seed=Long.parseLong(b);}
+			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 		}
 
-		System.err.println("CollisionBenchmark: n="+n+" len="+len+" k="+k+" buckets="+buckets);
+		System.err.println("CollisionBenchmark: n="+n+" len="+len+" k="+k+" buckets="+buckets
+			+" exponent="+DynamicDemiLog.exponentBits()+"e+"+(16-DynamicDemiLog.exponentBits())+"m");
 
 		// Build sketches from random genomes
 		int[][] ddlVals=new int[n][];
 		int[][] ll6Vals=new int[n][];
+		long[] ddlCards=new long[n];
+		long[] ll6Cards=new long[n];
 		long rng=seed;
 		for(int i=0; i<n; i++){
 			rng=mix(rng+i*99991L);
@@ -45,14 +49,25 @@ public class CollisionBenchmark {
 			CardinalityTracker ddl=CardinalityTracker.makeTracker("ddl", buckets, k, 12345L, 0f);
 			ddl.hash(r);
 			ddlVals[i]=ddl.bucketValues();
+			ddlCards[i]=ddl.cardinality();
 
 			CardinalityTracker ll6=CardinalityTracker.makeTracker("ll6", buckets, k, 12345L, 0f);
 			ll6.hash(r);
 			ll6Vals[i]=ll6.bucketValues();
+			ll6Cards[i]=ll6.cardinality();
 
-			if((i+1)%10==0){System.err.println("  Built "+i+1+" sketches...");}
+			if((i+1)%10==0){System.err.println("  Built "+(i+1)+" sketches...");}
 		}
-		System.err.println("Built "+n+" sketches. Comparing all pairs...");
+
+		long ddlCardSum=0, ll6CardSum=0;
+		for(int i=0; i<n; i++){ddlCardSum+=ddlCards[i]; ll6CardSum+=ll6Cards[i];}
+		double ddlCardAvg=(double)ddlCardSum/n;
+		double ll6CardAvg=(double)ll6CardSum/n;
+		System.err.println("DDL avg cardinality: "+String.format("%.0f", ddlCardAvg));
+		System.err.println("LL6 avg cardinality: "+String.format("%.0f", ll6CardAvg));
+		System.err.println("True unique k-mers (approx): ~"+(len-k+1));
+
+		System.err.println("Comparing all pairs...");
 
 		// All-pairs comparison
 		long pairs=0, ddlTotal=0, ll6Total=0;

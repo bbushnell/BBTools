@@ -1,6 +1,7 @@
 package ddl;
 
 import cardinality.CardinalityTracker;
+import cardinality.DynamicDemiLog;
 import rand.FastRandomXoshiro;
 import shared.Tools;
 
@@ -49,6 +50,7 @@ public class DDLBenchmark {
 			else if(a.equals("maxrate")){maxrate=Double.parseDouble(b);}
 			else if(a.equals("ratestep")){ratestep=Double.parseDouble(b);}
 			else if(a.equals("trials")){trials=Integer.parseInt(b);}
+			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 		}
 
 		if(mode.equals("collision")){collisionTest(type, n, size, buckets, k, seed);}
