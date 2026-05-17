@@ -70,6 +70,7 @@ public class DDLLoaderMT {
 
 	private static final byte[] PREFIX_TID="#tid".getBytes();
 	private static final byte[] PREFIX_ID="#id".getBytes();
+	private static final byte[] PREFIX_EXPONENT="#exponent".getBytes();
 
 	private static void produce(ByteFile bf,
 			JobQueue<ListNum<ArrayList<byte[]>>> queue){
@@ -78,6 +79,12 @@ public class DDLLoaderMT {
 		ArrayList<byte[]> currentRecord=new ArrayList<>(12);
 
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(Tools.startsWith(line, PREFIX_EXPONENT, 0)){
+				LineParser1 hlp=new LineParser1('\t');
+				hlp.set(line);
+				if(hlp.terms()>=2){DynamicDemiLog.setExponent((int)hlp.parseLong(1));}
+				continue;
+			}
 			if((Tools.startsWith(line, PREFIX_TID, 0) || Tools.startsWith(line, PREFIX_ID, 0))
 					&& !currentRecord.isEmpty()){
 				bundle.add(currentRecord);

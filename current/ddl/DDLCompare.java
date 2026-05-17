@@ -33,7 +33,7 @@ public class DDLCompare {
 		}
 
 		String file1=null, file2=null, refFile=null, queryFile=null;
-		int k=31, buckets=2048, maxRecords=Integer.MAX_VALUE, minHits=3, threads=1;
+		int k=31, buckets=2048, maxRecords=20, minHits=5, threads=1;
 		boolean collisionTest=false, useIndex=false;
 		for(int i=0; i<args.length; i++){
 			String[] split=args[i].split("=");
@@ -269,17 +269,20 @@ public class DDLCompare {
 		final DDLIndex idx=index;
 		long tc0=System.nanoTime();
 
+		final AtomicLong totalComparisonsPerformed=new AtomicLong(0);
 		CompareThread[] workers=new CompareThread[threads];
 		for(int wi=0; wi<threads; wi++){
 			workers[wi]=new CompareThread(queries, refs, nextQuery,
-				bestMatch, bestAni, bestHits, nQueries, nRefs, buckets, k, useIndex, idx);
+				bestMatch, bestAni, bestHits, nQueries, nRefs, buckets, k, useIndex, idx, minHits, totalComparisonsPerformed);
 			workers[wi].start();
 		}
 		for(CompareThread w : workers){try{w.join();}catch(InterruptedException e){}}
 
 		long tc1=System.nanoTime();
-		long totalComparisons=(long)nQueries*nRefs;
-		System.err.println("Compared "+nQueries+" queries × "+nRefs+" refs ("+totalComparisons+" comparisons) in "+String.format("%.3f", (tc1-tc0)*1e-9)+" seconds.");
+		long bruteForce=(long)nQueries*nRefs;
+		long performed=totalComparisonsPerformed.get();
+		System.err.println("Compared "+nQueries+" queries × "+nRefs+" refs in "+String.format("%.3f", (tc1-tc0)*1e-9)+" seconds.");
+		System.err.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
 
 		System.out.println("ANI\tWKID\tMatches\tBases\tTID\tQueryName\tRefName");
 		int shown=0;
@@ -301,33 +304,44 @@ public class DDLCompare {
 		final AtomicLong nextQuery;
 		final int[] bestMatch, bestHits;
 		final float[] bestAni;
-		final int nQueries, nRefs, buckets, k;
+		final int nQueries, nRefs, buckets, k, minHits;
 		final boolean useIndex;
 		final DDLIndex idx;
+		final AtomicLong totalComparisonsPerformed;
 
 		CompareThread(ArrayList<DDLRecord> queries, ArrayList<DDLRecord> refs,
 				AtomicLong nextQuery, int[] bestMatch, float[] bestAni, int[] bestHits,
-				int nQueries, int nRefs, int buckets, int k, boolean useIndex, DDLIndex idx){
+				int nQueries, int nRefs, int buckets, int k, boolean useIndex, DDLIndex idx,
+				int minHits, AtomicLong totalComparisonsPerformed){
 			this.queries=queries; this.refs=refs;
 			this.nextQuery=nextQuery;
 			this.bestMatch=bestMatch; this.bestAni=bestAni; this.bestHits=bestHits;
 			this.nQueries=nQueries; this.nRefs=nRefs; this.buckets=buckets;
 			this.k=k; this.useIndex=useIndex; this.idx=idx;
+			this.minHits=minHits; this.totalComparisonsPerformed=totalComparisonsPerformed;
 		}
 
 		@Override
 		public void run(){
+			long localComparisons=0;
 			while(true){
 				int qi=(int)nextQuery.getAndIncrement();
 				if(qi>=nQueries) break;
 				if(useIndex){
-					DynamicDemiLog q=queries.get(qi).ddl;
-					int[][] hits=idx.topHits(q, 1);
-					if(hits.length>0){
-						bestMatch[qi]=hits[0][0];
-						bestHits[qi]=hits[0][1];
-						bestAni[qi]=idx.ani(hits[0][1], q.filledBuckets(), hits[0][0], k);
+					char[] qa=queries.get(qi).ddl.maxArray();
+					int[] counts=idx.query(queries.get(qi).ddl);
+					float topAni=0;
+					int topIdx=0, topHits=0;
+					for(int ri=0; ri<nRefs; ri++){
+						if(counts[ri]<minHits){continue;}
+						int[] cmp=Vector.compareDDL(qa, refs.get(ri).ddl.maxArray());
+						float ani=DynamicDemiLog.ani(cmp[0], cmp[1], cmp[2], k);
+						if(ani>topAni){topAni=ani; topIdx=ri; topHits=cmp[1];}
+						localComparisons++;
 					}
+					bestMatch[qi]=topIdx;
+					bestAni[qi]=topAni;
+					bestHits[qi]=topHits;
 				}else{
 					char[] qa=queries.get(qi).ddl.maxArray();
 					float topAni=0;
@@ -336,12 +350,14 @@ public class DDLCompare {
 						int[] cmp=Vector.compareDDL(qa, refs.get(ri).ddl.maxArray());
 						float ani=DynamicDemiLog.ani(cmp[0], cmp[1], cmp[2], k);
 						if(ani>topAni){topAni=ani; topIdx=ri; topHits=cmp[1];}
+						localComparisons++;
 					}
 					bestMatch[qi]=topIdx;
 					bestAni[qi]=topAni;
 					bestHits[qi]=topHits;
 				}
 			}
+			totalComparisonsPerformed.addAndGet(localComparisons);
 		}
 	}
 
