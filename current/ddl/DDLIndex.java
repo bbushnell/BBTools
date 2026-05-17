@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 
 import cardinality.DynamicDemiLog;
 
@@ -76,15 +77,23 @@ public class DDLIndex {
 	 * @return int[] of match counts indexed by cladeID */
 	public int[] query(char[] maxArray){
 		final int[] counts=new int[numClades];
+		long work=0;
 		for(int b=0; b<maxArray.length; b++){
 			final int v=maxArray[b];
 			if(v==0){continue;}
 			final int[] arr=matrix[b][v];
 			if(arr==null){continue;}
+			work+=arr.length;
 			for(int i=0; i<arr.length; i++){
 				counts[arr[i]]++;
 			}
 		}
+		totalIndexWork.addAndGet(work);
+		long candidates=0;
+		for(int i=0; i<numClades; i++){
+			if(counts[i]>0){candidates++;}
+		}
+		totalCandidates.addAndGet(candidates);
 		return counts;
 	}
 
@@ -222,6 +231,11 @@ public class DDLIndex {
 	private final int[][][] matrix;
 	private int[] filledBuckets=new int[1024];
 	private int numClades=0;
+	private final AtomicLong totalIndexWork=new AtomicLong(0);
+	private final AtomicLong totalCandidates=new AtomicLong(0);
+
+	public long totalIndexWork(){return totalIndexWork.get();}
+	public long totalCandidates(){return totalCandidates.get();}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/

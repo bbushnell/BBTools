@@ -77,6 +77,8 @@ public class DDLWriter {
 				mode=PER_TID;
 			}else if(a.equals("parsetaxid") || a.equals("parsetid")){
 				parseTaxid=Parse.parseBoolean(b);
+			}else if(a.equals("exponent") || a.equals("ebits")){
+				DynamicDemiLog.setExponent(Integer.parseInt(b));
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){

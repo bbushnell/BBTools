@@ -91,6 +91,7 @@ public class DDLLoader {
 					}
 				}
 				else if(lp.termEquals("#seed", 0)){/*file-level, informational*/}
+				else if(lp.termEquals("#exponent", 0)){DynamicDemiLog.setExponent((int)lp.parseLong(1));}
 				else if(lp.termEquals("#id", 0)){currentId=lp.parseLong(1);}
 				else if(lp.termEquals("#tid", 0)){currentTid=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#name", 0)){currentName=lp.parseString(1);}
@@ -141,6 +142,7 @@ public class DDLLoader {
 		//Write file-level header
 		if(k>0){bb.append("#k").tab().append(k).nl();}
 		if(seed!=0){bb.append("#seed").tab().append(seed).nl();}
+		bb.append("#exponent").tab().append(DynamicDemiLog.exponentBits()).nl();
 		if(bb.length()>0){
 			bsw.print(bb);
 			bb.clear();
