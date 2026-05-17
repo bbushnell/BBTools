@@ -239,10 +239,29 @@ public final class Vector {
 		return compareDDLScalarHybrid(queryShort, refArray);
 	}
 
-	/** Converts char[] DDL maxArray to short[] for hybrid comparison.
-	 *  Call once per query, then reuse across many comparisons. */
+	/**
+	 * Fully pre-converted SIMD DDL comparison: both arrays pre-converted to short[].
+	 * ~50% faster than char[]/char[] because both loads use fromArray (native)
+	 * instead of fromCharArray (internal conversion).
+	 * Pre-convert both query and refs once, then compare many times.
+	 * @param queryShort Pre-converted query maxArray
+	 * @param refShort Pre-converted reference maxArray
+	 * @return int[]{lower, equal, higher, bothEmpty}
+	 */
+	public static int[] compareDDL(short[] queryShort, short[] refShort){
+		if(Shared.SIMD){return SIMDLogLog.compareDetailedShort(queryShort, refShort, queryShort.length);}
+		return compareDDLScalarShort(queryShort, refShort);
+	}
+
+	/** Converts char[] DDL maxArray to short[] for SIMD comparison.
+	 *  Same bit pattern; only signedness interpretation changes.
+	 *  Call once per query/ref, then reuse across many comparisons. */
 	public static short[] toShortArray(char[] arr){
-		return SIMDLogLog.toShortArray(arr);
+		final short[] out=new short[arr.length];
+		for(int i=0; i<arr.length; i++){
+			out[i]=(short)arr[i];
+		}
+		return out;
 	}
 
 	/** Scalar fallback for hybrid short[]/char[] DDL comparison. */
@@ -250,6 +269,23 @@ public final class Vector {
 		int lower=0, equal=0, higher=0, bothEmpty=0;
 		for(int i=0; i<a.length; i++){
 			final int ai=a[i]&0xFFFF, bi=b[i];
+			if(ai==0 && bi==0){bothEmpty++; continue;}
+			int dif=ai-bi;
+			int nbit=(dif>>>31);
+			int hbit=((-dif)>>>31);
+			int ebit=1-nbit-hbit;
+			lower+=nbit;
+			higher+=hbit;
+			equal+=ebit;
+		}
+		return new int[]{lower, equal, higher, bothEmpty};
+	}
+
+	/** Scalar fallback for fully pre-converted short[]/short[] DDL comparison. */
+	private static int[] compareDDLScalarShort(short[] a, short[] b){
+		int lower=0, equal=0, higher=0, bothEmpty=0;
+		for(int i=0; i<a.length; i++){
+			final int ai=a[i]&0xFFFF, bi=b[i]&0xFFFF;
 			if(ai==0 && bi==0){bothEmpty++; continue;}
 			int dif=ai-bi;
 			int nbit=(dif>>>31);

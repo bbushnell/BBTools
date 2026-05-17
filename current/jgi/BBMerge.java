@@ -833,12 +833,15 @@ public class BBMerge {
 			{
 				StringBuilder sb=new StringBuilder("in=");
 				sb.append(in1);
-				if(extra.size()>0){
-					for(String s : extra){
-						sb.append(',').append(s);
-					}
-				}
 				list.add(sb.toString());
+				if(extra.size()>0){
+					StringBuilder eb=new StringBuilder("extra=");
+					for(int i=0; i<extra.size(); i++){
+						if(i>0){eb.append(',');}
+						eb.append(extra.get(i));
+					}
+					list.add(eb.toString());
+				}
 			}
 			if(in2!=null){list.add("in2="+in2);}
 			list.add("branchlower="+branchLowerConst);
