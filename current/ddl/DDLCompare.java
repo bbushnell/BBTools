@@ -4,15 +4,14 @@ import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
 import cardinality.DynamicDemiLog;
-import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
-import shared.Shared;
 import shared.Timer;
 import simd.Vector;
 import stream.Read;
 import stream.Streamer;
 import stream.StreamerFactory;
+import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
@@ -20,7 +19,7 @@ import structures.ListNum;
  * Creates a DDL for each input genome, compares them, and reports
  * WKID, ANI, cardinality, and bucket-level statistics.
  *
- * @author Brian Bushnell, Ady
+ * @author Brian Bushnell, Ady, Noire
  * @date April 17, 2026
  */
 public class DDLCompare {
@@ -28,18 +27,22 @@ public class DDLCompare {
 	public static void main(String[] args){
 		if(args.length<1){
 			System.err.println("Usage: DDLCompare <genome1.fa> <genome2.fa> [k=31] [buckets=2048]");
-			System.err.println("   or: DDLCompare <query.fa> ref=<ddls.tsv> [k=31]");
+			System.err.println("   or: DDLCompare <query.fa> ref=<ddls.tsv> [records=20]");
+			System.err.println("   or: DDLCompare qf=queries.tsv ref=ddls.tsv t=32 [format=json]");
 			System.exit(1);
 		}
 
 		String file1=null, file2=null, refFile=null, queryFile=null;
 		int k=31, buckets=2048, maxRecords=20, minHits=5, threads=1;
 		boolean collisionTest=false, useIndex=false;
+		DDLFormatter formatter=new DDLFormatter();
+
 		for(int i=0; i<args.length; i++){
 			String[] split=args[i].split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(a.equals("k")){k=Integer.parseInt(b);}
+			if(formatter.parse(args[i], a, b)){/* handled by formatter */}
+			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ref")){refFile=b;}
@@ -55,19 +58,32 @@ public class DDLCompare {
 			else if(file2==null){file2=args[i];}
 		}
 
+		if(queryFile!=null){
+			formatter.printQueryName=true;
+		}
+
 		if(collisionTest && refFile!=null){
 			collisionTest(refFile, k);
 			return;
 		}
 		if(queryFile!=null && refFile!=null){
-			compareMultiQuery(queryFile, refFile, k, maxRecords, minHits, useIndex, threads);
+			compareMultiQuery(queryFile, refFile, k, maxRecords, minHits, useIndex, threads, formatter);
 			return;
 		}
 		if(refFile!=null){
-			compareToRefs(file1, refFile, k, buckets, maxRecords, minHits, useIndex, threads);
+			compareToRefs(file1, refFile, k, buckets, maxRecords, minHits, useIndex, threads, formatter);
 			return;
 		}
 
+		comparePairwise(file1, file2, k, buckets, threads);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Pairwise Mode          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Detailed pairwise comparison of two genome files. */
+	private static void comparePairwise(String file1, String file2, int k, int buckets, int threads){
 		Timer t=new Timer();
 
 		DynamicDemiLog ddlA, ddlB;
@@ -132,9 +148,13 @@ public class DDLCompare {
 			ani*100, c, compAB, compBA, equal, lower+equal+higher));
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------     Single-Query Mode        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Compares a query FASTA against pre-built reference DDLs. */
 	private static void compareToRefs(String queryPath, String refPath, int k, int buckets,
-			int maxRecords, int minHits, boolean useIndex, int threads){
+			int maxRecords, int minHits, boolean useIndex, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
 		System.err.println("Mode: "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads);
 
@@ -167,72 +187,60 @@ public class DDLCompare {
 		long card=query.cardinality();
 		System.err.println("Query: "+queryPath+(bases>=0 ? "  bases="+bases : "")+"  cardinality="+card+"  sketch time: "+String.format("%.3f", (t2-t1)*1e-9)+"s  threads="+threads);
 
+		DDLRecord qRec=new DDLRecord(query, -1, -1, queryPath);
+		qRec.bases=bases>=0 ? bases : 0;
+		qRec.cardinality=card;
+
 		final int n=refs.size();
+		DDLComparisonHeap heap=new DDLComparisonHeap(maxRecords);
+		DDLComparison working=new DDLComparison();
 
+		long t3=System.nanoTime();
 		if(useIndex){
-			long t3=System.nanoTime();
-			int[][] topHits=index.topHits(query, Math.min(maxRecords*2, n));
-			long t4=System.nanoTime();
-			System.err.println("Index query returned "+topHits.length+" hits in "+String.format("%.6f", (t4-t3)*1e-9)+" seconds.");
-
-			System.out.println("ANI\tWKID\tComplt\tMatches\tBases\tTID\tName");
-			int shown=0;
-			for(int[] hit : topHits){
-				if(shown>=maxRecords){break;}
-				int cladeID=hit[0], matchCount=hit[1];
-				if(matchCount<minHits){continue;}
-				DDLRecord ref=refs.get(cladeID);
-				float ani=index.ani(matchCount, query.filledBuckets(), cladeID, k);
-				System.out.println(String.format("%.4f\t-\t-\t%d\t%d\t%d\t%s",
-					ani, matchCount, ref.bases, ref.taxID, ref.name));
-				shown++;
+			int[] counts=index.query(query);
+			for(int ri=0; ri<n; ri++){
+				if(counts[ri]<minHits){continue;}
+				working.compare(qRec, refs.get(ri), k);
+				heap.offer(working);
 			}
 		}else{
-			long t3=System.nanoTime();
-			final float[] anis=new float[n];
-			final int[] matches=new int[n];
-			final int[] indices=new int[n];
-			for(int i=0; i<n; i++){
-				DDLRecord ref=refs.get(i);
-				int[] cmp=query.compareToDetailed(ref.ddl);
-				matches[i]=cmp[1];
-				anis[i]=DynamicDemiLog.ani(cmp[0], cmp[1], cmp[2], k);
-				indices[i]=i;
-			}
-			long t4=System.nanoTime();
-			System.err.println("Compared against "+n+" references in "+String.format("%.3f", (t4-t3)*1e-9)+" seconds.");
-
-			for(int i=1; i<n; i++){
-				for(int j=i; j>0 && anis[indices[j]]>anis[indices[j-1]]; j--){
-					int tmp=indices[j]; indices[j]=indices[j-1]; indices[j-1]=tmp;
-				}
-			}
-
-			System.out.println("ANI\tWKID\tComplt\tMatches\tBases\tTID\tName");
-			int shown=0;
-			final int toShow=Math.min(maxRecords, n);
-			for(int r=0; r<n && shown<toShow; r++){
-				final int i=indices[r];
-				DDLRecord ref=refs.get(i);
-				int[] cmp=query.compareToDetailed(ref.ddl);
-				int lower=cmp[0], equal=cmp[1], higher=cmp[2];
-				if(equal<minHits){continue;}
-				float ani=DynamicDemiLog.ani(lower, equal, higher, k);
-				float c=DynamicDemiLog.wkid(lower, equal, higher);
-				float comp=DynamicDemiLog.completeness(lower, equal, higher);
-				System.out.println(String.format("%.4f\t%.4f\t%.4f\t%d\t%d\t%d\t%s",
-					ani, c, comp, equal, ref.bases, ref.taxID, ref.name));
-				shown++;
+			for(int ri=0; ri<n; ri++){
+				working.compare(qRec, refs.get(ri), k);
+				heap.offer(working);
 			}
 		}
+		long t4=System.nanoTime();
+		System.err.println("Compared against "+n+" references in "+String.format("%.3f", (t4-t3)*1e-9)+" seconds.");
+
+		ArrayList<DDLComparison> results=heap.toList();
+		ByteBuilder bb=new ByteBuilder();
+		if(formatter.format==DDLFormatter.FORMAT_JSON){
+			formatter.jsonStart(bb);
+			for(DDLComparison c : results){
+				if(c.equal<minHits){continue;}
+				formatter.format(c, bb);
+			}
+			formatter.jsonEnd(bb);
+		}else{
+			formatter.header(bb);
+			for(DDLComparison c : results){
+				if(c.equal<minHits){continue;}
+				formatter.format(c, bb);
+			}
+		}
+		System.out.print(bb);
 
 		t.stop();
 		System.err.println("Total time: \t"+t);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------     Multi-Query Mode         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/** Compares multiple pre-built DDL queries against pre-built DDL references. */
 	private static void compareMultiQuery(String queryPath, String refPath, int k,
-			int maxRecords, int minHits, boolean useIndex, int threads){
+			int maxRecords, int minHits, boolean useIndex, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
 		System.err.println("Mode: multi-query "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads);
 
@@ -250,11 +258,6 @@ public class DDLCompare {
 
 		final int nRefs=refs.size();
 		final int nQueries=queries.size();
-		final int[] bestMatch=new int[nQueries];
-		final float[] bestAni=new float[nQueries];
-		final int[] bestHits=new int[nQueries];
-
-		final int buckets=refs.get(0).ddl.maxArray().length;
 
 		DDLIndex index=null;
 		if(useIndex){
@@ -266,14 +269,14 @@ public class DDLCompare {
 		}
 
 		final AtomicLong nextQuery=new AtomicLong(0);
-		final DDLIndex idx=index;
-		long tc0=System.nanoTime();
-
 		final AtomicLong totalComparisonsPerformed=new AtomicLong(0);
+		final DDLComparisonHeap[] heaps=new DDLComparisonHeap[nQueries];
+
+		long tc0=System.nanoTime();
 		CompareThread[] workers=new CompareThread[threads];
 		for(int wi=0; wi<threads; wi++){
-			workers[wi]=new CompareThread(queries, refs, nextQuery,
-				bestMatch, bestAni, bestHits, nQueries, nRefs, buckets, k, useIndex, idx, minHits, totalComparisonsPerformed);
+			workers[wi]=new CompareThread(queries, refs, nextQuery, heaps,
+				nQueries, nRefs, k, maxRecords, minHits, useIndex, index, totalComparisonsPerformed);
 			workers[wi].start();
 		}
 		for(CompareThread w : workers){try{w.join();}catch(InterruptedException e){}}
@@ -281,85 +284,97 @@ public class DDLCompare {
 		long tc1=System.nanoTime();
 		long bruteForce=(long)nQueries*nRefs;
 		long performed=totalComparisonsPerformed.get();
-		System.err.println("Compared "+nQueries+" queries × "+nRefs+" refs in "+String.format("%.3f", (tc1-tc0)*1e-9)+" seconds.");
-		System.err.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
+		System.err.println("Compared "+nQueries+" queries x "+nRefs+" refs in "+String.format("%.3f", (tc1-tc0)*1e-9)+" seconds.");
+		System.err.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+
+			(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
 
-		System.out.println("ANI\tWKID\tMatches\tBases\tTID\tQueryName\tRefName");
-		int shown=0;
-		for(int qi=0; qi<nQueries && shown<maxRecords; qi++){
-			if(bestHits[qi]<minHits) continue;
-			DDLRecord ref=refs.get(bestMatch[qi]);
-			DDLRecord q=queries.get(qi);
-			System.out.println(String.format("%.4f\t-\t%d\t%d\t%d\t%s\t%s",
-				bestAni[qi], bestHits[qi], ref.bases, ref.taxID, q.name, ref.name));
-			shown++;
+		ByteBuilder bb=new ByteBuilder();
+		if(formatter.format==DDLFormatter.FORMAT_JSON){
+			formatter.jsonStart(bb);
+			for(int qi=0; qi<nQueries; qi++){
+				if(heaps[qi]==null){continue;}
+				ArrayList<DDLComparison> results=heaps[qi].toList();
+				for(DDLComparison c : results){
+					if(c.equal<minHits){continue;}
+					formatter.format(c, bb);
+				}
+			}
+			formatter.jsonEnd(bb);
+		}else{
+			formatter.header(bb);
+			for(int qi=0; qi<nQueries; qi++){
+				if(heaps[qi]==null){continue;}
+				ArrayList<DDLComparison> results=heaps[qi].toList();
+				for(DDLComparison c : results){
+					if(c.equal<minHits){continue;}
+					formatter.format(c, bb);
+				}
+			}
 		}
+		System.out.print(bb);
 
 		t.stop();
 		System.err.println("Total time: \t"+t);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Compare Thread         ----------------*/
+	/*--------------------------------------------------------------*/
+
 	static class CompareThread extends Thread {
 		final ArrayList<DDLRecord> queries, refs;
 		final AtomicLong nextQuery;
-		final int[] bestMatch, bestHits;
-		final float[] bestAni;
-		final int nQueries, nRefs, buckets, k, minHits;
+		final DDLComparisonHeap[] heaps;
+		final int nQueries, nRefs, k, maxRecords, minHits;
 		final boolean useIndex;
 		final DDLIndex idx;
 		final AtomicLong totalComparisonsPerformed;
 
 		CompareThread(ArrayList<DDLRecord> queries, ArrayList<DDLRecord> refs,
-				AtomicLong nextQuery, int[] bestMatch, float[] bestAni, int[] bestHits,
-				int nQueries, int nRefs, int buckets, int k, boolean useIndex, DDLIndex idx,
-				int minHits, AtomicLong totalComparisonsPerformed){
+				AtomicLong nextQuery, DDLComparisonHeap[] heaps,
+				int nQueries, int nRefs, int k, int maxRecords, int minHits,
+				boolean useIndex, DDLIndex idx, AtomicLong totalComparisonsPerformed){
 			this.queries=queries; this.refs=refs;
-			this.nextQuery=nextQuery;
-			this.bestMatch=bestMatch; this.bestAni=bestAni; this.bestHits=bestHits;
-			this.nQueries=nQueries; this.nRefs=nRefs; this.buckets=buckets;
-			this.k=k; this.useIndex=useIndex; this.idx=idx;
-			this.minHits=minHits; this.totalComparisonsPerformed=totalComparisonsPerformed;
+			this.nextQuery=nextQuery; this.heaps=heaps;
+			this.nQueries=nQueries; this.nRefs=nRefs;
+			this.k=k; this.maxRecords=maxRecords; this.minHits=minHits;
+			this.useIndex=useIndex; this.idx=idx;
+			this.totalComparisonsPerformed=totalComparisonsPerformed;
 		}
 
 		@Override
 		public void run(){
 			long localComparisons=0;
+			DDLComparison working=new DDLComparison();
 			while(true){
 				int qi=(int)nextQuery.getAndIncrement();
-				if(qi>=nQueries) break;
+				if(qi>=nQueries){break;}
+				DDLComparisonHeap heap=new DDLComparisonHeap(maxRecords);
+				DDLRecord qRec=queries.get(qi);
 				if(useIndex){
-					char[] qa=queries.get(qi).ddl.maxArray();
-					int[] counts=idx.query(queries.get(qi).ddl);
-					float topAni=0;
-					int topIdx=0, topHits=0;
+					int[] counts=idx.query(qRec.ddl);
 					for(int ri=0; ri<nRefs; ri++){
 						if(counts[ri]<minHits){continue;}
-						int[] cmp=Vector.compareDDL(qa, refs.get(ri).ddl.maxArray());
-						float ani=DynamicDemiLog.ani(cmp[0], cmp[1], cmp[2], k);
-						if(ani>topAni){topAni=ani; topIdx=ri; topHits=cmp[1];}
+						working.compare(qRec, refs.get(ri), k);
+						heap.offer(working);
 						localComparisons++;
 					}
-					bestMatch[qi]=topIdx;
-					bestAni[qi]=topAni;
-					bestHits[qi]=topHits;
 				}else{
-					char[] qa=queries.get(qi).ddl.maxArray();
-					float topAni=0;
-					int topIdx=0, topHits=0;
 					for(int ri=0; ri<nRefs; ri++){
-						int[] cmp=Vector.compareDDL(qa, refs.get(ri).ddl.maxArray());
-						float ani=DynamicDemiLog.ani(cmp[0], cmp[1], cmp[2], k);
-						if(ani>topAni){topAni=ani; topIdx=ri; topHits=cmp[1];}
+						working.compare(qRec, refs.get(ri), k);
+						heap.offer(working);
 						localComparisons++;
 					}
-					bestMatch[qi]=topIdx;
-					bestAni[qi]=topAni;
-					bestHits[qi]=topHits;
 				}
+				heaps[qi]=heap;
 			}
 			totalComparisonsPerformed.addAndGet(localComparisons);
 		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------       Collision Test          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/** Measures collision rates across all pairs in a DDL file. */
 	private static void collisionTest(String refPath, int k){
@@ -390,8 +405,11 @@ public class DDLCompare {
 		System.err.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
 	}
 
-	/** Compares two DDL register arrays using only the exponent bits,
-	 *  simulating LL-equivalent comparison from DDL sketches. */
+	/*--------------------------------------------------------------*/
+	/*----------------          Helpers             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Compares two DDL register arrays using only the exponent bits. */
 	private static int[] compareExponentOnly(char[] a, char[] b){
 		final int mbits=16-DynamicDemiLog.exponentBits();
 		int lower=0, equal=0, higher=0;
