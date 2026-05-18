@@ -1428,9 +1428,10 @@ public class BBDukProcessorS {
 				sl.setSeq(r1.bases);
 				sl.setQual(r1.quality);
 				sl.qname=r1.id;
-				if(sl.mapped() && sl.strand()==Shared.MINUS) {
-					r1.reverseComplementFast();
-				}
+				//Orientation is already handled by FLIP_ON_LOAD and SamLine.toBytes()
+//				if(sl.mapped() && sl.strand()==Shared.MINUS) {
+//					r1.reverseComplementFast();
+//				}
 			}
 		}
 		return removed;
