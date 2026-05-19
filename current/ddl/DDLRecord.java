@@ -61,4 +61,9 @@ public class DDLRecord implements Comparable<DDLRecord> {
 	public long cardinality=-1;
 	public float gc=-1;
 	public String origin;
+
+	public byte[] r16S;
+	public byte[] r18S;
+
+	public boolean hasSSU(){return r16S!=null | r18S!=null;}
 }

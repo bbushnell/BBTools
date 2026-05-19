@@ -85,7 +85,7 @@ public class DDLComparison implements Comparable<DDLComparison> {
 	}
 
 	/** Deep copy from another DDLComparison. */
-	public synchronized void setFrom(DDLComparison other){
+	public void setFrom(DDLComparison other){
 		lower=other.lower;
 		equal=other.equal;
 		higher=other.higher;
@@ -100,6 +100,7 @@ public class DDLComparison implements Comparable<DDLComparison> {
 
 		queryRecord=other.queryRecord;
 		refRecord=other.refRecord;
+		ssuIdentity=other.ssuIdentity;
 		cachedScore=other.cachedScore;
 	}
 
@@ -109,6 +110,7 @@ public class DDLComparison implements Comparable<DDLComparison> {
 		ani=-1; wkid=-1;
 		containmentAB=-1; containmentBA=-1;
 		completenessAB=-1; completenessBA=-1;
+		ssuIdentity=-1;
 		queryRecord=null; refRecord=null;
 		cachedScore=0;
 	}
@@ -161,6 +163,9 @@ public class DDLComparison implements Comparable<DDLComparison> {
 	public float containmentBA=-1;
 	public float completenessAB=-1;
 	public float completenessBA=-1;
+
+	/* SSU alignment */
+	public float ssuIdentity=-1;
 
 	/* Source records — access metadata through these, don't duplicate */
 	public DDLRecord queryRecord;

@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import cardinality.DynamicDemiLog;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import idaligner.QuantumAligner;
 import shared.Timer;
 import simd.Vector;
 import stream.Read;
@@ -34,7 +35,7 @@ public class DDLCompare {
 
 		String file1=null, file2=null, refFile=null, queryFile=null;
 		int k=31, buckets=2048, maxRecords=20, minHits=5, threads=1;
-		boolean collisionTest=false, useIndex=false;
+		boolean collisionTest=false, useIndex=false, useSSU=false;
 		DDLFormatter formatter=new DDLFormatter();
 
 		for(int i=0; i<args.length; i++){
@@ -51,6 +52,7 @@ public class DDLCompare {
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("collisiontest")){collisionTest=true;}
 			else if(a.equals("index")){useIndex=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("ssu")){useSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("in") || a.equals("in1") || a.equals("query")){file1=b;}
 			else if(a.equals("in2")){file2=b;}
@@ -61,17 +63,20 @@ public class DDLCompare {
 		if(queryFile!=null){
 			formatter.printQueryName=true;
 		}
+		if(useSSU){
+			formatter.printSSU=true;
+		}
 
 		if(collisionTest && refFile!=null){
 			collisionTest(refFile, k);
 			return;
 		}
 		if(queryFile!=null && refFile!=null){
-			compareMultiQuery(queryFile, refFile, k, maxRecords, minHits, useIndex, threads, formatter);
+			compareMultiQuery(queryFile, refFile, k, maxRecords, minHits, useIndex, useSSU, threads, formatter);
 			return;
 		}
 		if(refFile!=null){
-			compareToRefs(file1, refFile, k, buckets, maxRecords, minHits, useIndex, threads, formatter);
+			compareToRefs(file1, refFile, k, buckets, maxRecords, minHits, useIndex, useSSU, threads, formatter);
 			return;
 		}
 
@@ -154,15 +159,17 @@ public class DDLCompare {
 
 	/** Compares a query FASTA against pre-built reference DDLs. */
 	private static void compareToRefs(String queryPath, String refPath, int k, int buckets,
-			int maxRecords, int minHits, boolean useIndex, int threads, DDLFormatter formatter){
+			int maxRecords, int minHits, boolean useIndex, boolean useSSU, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
-		System.err.println("Mode: "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads);
+		System.err.println("Mode: "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads+(useSSU ? "  ssu=t" : ""));
 
 		System.err.println("Loading references from "+refPath+"...");
 		long t0=System.nanoTime();
 		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
 		long t1=System.nanoTime();
 		System.err.println("Loaded "+refs.size()+" reference DDLs in "+String.format("%.3f", (t1-t0)*1e-9)+" seconds.");
+
+		if(useSSU){DDLSSULoader.loadAndAttachDefaults(refs);}
 
 		DDLIndex index=null;
 		if(useIndex){
@@ -213,22 +220,9 @@ public class DDLCompare {
 		System.err.println("Compared against "+n+" references in "+String.format("%.3f", (t4-t3)*1e-9)+" seconds.");
 
 		ArrayList<DDLComparison> results=heap.toList();
-		ByteBuilder bb=new ByteBuilder();
-		if(formatter.format==DDLFormatter.FORMAT_JSON){
-			formatter.jsonStart(bb);
-			for(DDLComparison c : results){
-				if(c.equal<minHits){continue;}
-				formatter.format(c, bb);
-			}
-			formatter.jsonEnd(bb);
-		}else{
-			formatter.header(bb);
-			for(DDLComparison c : results){
-				if(c.equal<minHits){continue;}
-				formatter.format(c, bb);
-			}
-		}
-		System.out.print(bb);
+		if(useSSU){alignSSU(results);}
+
+		printResults(results, minHits, formatter);
 
 		t.stop();
 		System.err.println("Total time: \t"+t);
@@ -240,9 +234,9 @@ public class DDLCompare {
 
 	/** Compares multiple pre-built DDL queries against pre-built DDL references. */
 	private static void compareMultiQuery(String queryPath, String refPath, int k,
-			int maxRecords, int minHits, boolean useIndex, int threads, DDLFormatter formatter){
+			int maxRecords, int minHits, boolean useIndex, boolean useSSU, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
-		System.err.println("Mode: multi-query "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads);
+		System.err.println("Mode: multi-query "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads+(useSSU ? "  ssu=t" : ""));
 
 		System.err.println("Loading references from "+refPath+"...");
 		long t0=System.nanoTime();
@@ -250,11 +244,15 @@ public class DDLCompare {
 		long t1=System.nanoTime();
 		System.err.println("Loaded "+refs.size()+" reference DDLs in "+String.format("%.3f", (t1-t0)*1e-9)+" seconds.");
 
+		if(useSSU){DDLSSULoader.loadAndAttachDefaults(refs);}
+
 		System.err.println("Loading queries from "+queryPath+"...");
 		long tq0=System.nanoTime();
 		ArrayList<DDLRecord> queries=DDLLoaderMT.loadFile(queryPath, k, threads);
 		long tq1=System.nanoTime();
 		System.err.println("Loaded "+queries.size()+" query DDLs in "+String.format("%.3f", (tq1-tq0)*1e-9)+" seconds.");
+
+		if(useSSU){DDLSSULoader.loadAndAttachDefaults(queries);}
 
 		final int nRefs=refs.size();
 		final int nQueries=queries.size();
@@ -289,28 +287,18 @@ public class DDLCompare {
 			(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
 
 		ByteBuilder bb=new ByteBuilder();
-		if(formatter.format==DDLFormatter.FORMAT_JSON){
-			formatter.jsonStart(bb);
-			for(int qi=0; qi<nQueries; qi++){
-				if(heaps[qi]==null){continue;}
-				ArrayList<DDLComparison> results=heaps[qi].toList();
-				for(DDLComparison c : results){
-					if(c.equal<minHits){continue;}
-					formatter.format(c, bb);
-				}
-			}
-			formatter.jsonEnd(bb);
-		}else{
-			formatter.header(bb);
-			for(int qi=0; qi<nQueries; qi++){
-				if(heaps[qi]==null){continue;}
-				ArrayList<DDLComparison> results=heaps[qi].toList();
-				for(DDLComparison c : results){
-					if(c.equal<minHits){continue;}
-					formatter.format(c, bb);
-				}
+		boolean json=formatter.format==DDLFormatter.FORMAT_JSON;
+		if(json){formatter.jsonStart(bb);}else{formatter.header(bb);}
+		for(int qi=0; qi<nQueries; qi++){
+			if(heaps[qi]==null){continue;}
+			ArrayList<DDLComparison> results=heaps[qi].toList();
+			if(useSSU){alignSSU(results);}
+			for(DDLComparison c : results){
+				if(c.equal<minHits){continue;}
+				formatter.format(c, bb);
 			}
 		}
+		if(json){formatter.jsonEnd(bb);}
 		System.out.print(bb);
 
 		t.stop();
@@ -373,6 +361,26 @@ public class DDLCompare {
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------        SSU Alignment         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Aligns SSU sequences for finalized comparison results.
+	 * Only aligns when both query and ref have matching SSU type (16S or 18S). */
+	private static void alignSSU(ArrayList<DDLComparison> results){
+		QuantumAligner aligner=new QuantumAligner();
+		for(DDLComparison c : results){
+			if(c.queryRecord==null || c.refRecord==null){continue;}
+			byte[] q=null, r=null;
+			if(c.queryRecord.r16S!=null && c.refRecord.r16S!=null){
+				q=c.queryRecord.r16S; r=c.refRecord.r16S;
+			}else if(c.queryRecord.r18S!=null && c.refRecord.r18S!=null){
+				q=c.queryRecord.r18S; r=c.refRecord.r18S;
+			}
+			if(q!=null){c.ssuIdentity=aligner.align(q, r);}
+		}
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------       Collision Test          ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -403,6 +411,29 @@ public class DDLCompare {
 		System.err.println("Avg matches/pair: "+String.format("%.4f", (double)totalMatches/totalPairs));
 		System.err.println("Max matches in any pair: "+maxMatches);
 		System.err.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------         Output Helper        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static void printResults(ArrayList<DDLComparison> results, int minHits, DDLFormatter formatter){
+		ByteBuilder bb=new ByteBuilder();
+		if(formatter.format==DDLFormatter.FORMAT_JSON){
+			formatter.jsonStart(bb);
+			for(DDLComparison c : results){
+				if(c.equal<minHits){continue;}
+				formatter.format(c, bb);
+			}
+			formatter.jsonEnd(bb);
+		}else{
+			formatter.header(bb);
+			for(DDLComparison c : results){
+				if(c.equal<minHits){continue;}
+				formatter.format(c, bb);
+			}
+		}
+		System.out.print(bb);
 	}
 
 	/*--------------------------------------------------------------*/

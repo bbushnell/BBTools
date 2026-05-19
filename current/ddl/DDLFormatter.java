@@ -69,11 +69,12 @@ public class DDLFormatter implements Cloneable {
 		else if(a.equals("printname") || a.equals("name")){printName=parseBool(b);}
 		else if(a.equals("printcardinality") || a.equals("cardinality") || a.equals("card")){printCardinality=parseBool(b);}
 		else if(a.equals("printqueryname") || a.equals("queryname") || a.equals("qname")){printQueryName=parseBool(b);}
+		else if(a.equals("printssu") || a.equals("ssuani")){printSSU=parseBool(b);}
 		else if(a.equals("printall")){
 			boolean x=parseBool(b);
 			printANI=x; printWKID=x; printCompleteness=x; printContainment=x;
 			printMatches=x; printBases=x; printTaxID=x; printName=x;
-			printCardinality=x; printQueryName=x;
+			printCardinality=x; printQueryName=x; printSSU=x;
 		}
 		else if(a.equals("noheader")){noHeader=parseBool(b);}
 		else{return false;}
@@ -125,6 +126,7 @@ public class DDLFormatter implements Cloneable {
 		if(printMatches){if(!first){bb.tab();} bb.append("Matches"); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append("Bases"); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append("Card"); first=false;}
+		if(printSSU){if(!first){bb.tab();} bb.append("SSU"); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append("TID"); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append("Query"); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append("Name"); first=false;}
@@ -140,6 +142,7 @@ public class DDLFormatter implements Cloneable {
 		if(printMatches){if(!first){bb.tab();} bb.append(c.equal); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.bases : 0); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.cardinality : -1); first=false;}
+		if(printSSU){if(!first){bb.tab();} appendMetric(bb, c.ssuIdentity, 4); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.taxID : -1); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append(qname(c)); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append(rname(c)); first=false;}
@@ -173,6 +176,7 @@ public class DDLFormatter implements Cloneable {
 		if(printMatches){if(!f){bb.append(',');} bb.append("\"Matches\":").append(c.equal); f=false;}
 		if(printBases && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"Bases\":").append(c.refRecord.bases); f=false;}
 		if(printCardinality && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"Cardinality\":").append(c.refRecord.cardinality); f=false;}
+		if(printSSU && c.ssuIdentity>=0){if(!f){bb.append(',');} bb.append("\"SSU\":"); appendJsonFloat(bb, c.ssuIdentity, 4); f=false;}
 		if(printTaxID && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"TaxID\":").append(c.refRecord.taxID); f=false;}
 		String qn=qname(c); if(printQueryName && !qn.equals("-")){if(!f){bb.append(',');} bb.append("\"Query\":\""); escapeJson(bb, qn); bb.append('"'); f=false;}
 		String rn=rname(c); if(printName && !rn.equals("-")){if(!f){bb.append(',');} bb.append("\"Name\":\""); escapeJson(bb, rn); bb.append('"'); f=false;}
@@ -199,6 +203,7 @@ public class DDLFormatter implements Cloneable {
 		if(printWKID){bb.append("\tWKID");}
 		if(printCompleteness){bb.append("\tComplt");}
 		if(printMatches){bb.append("\tMatches");}
+		if(printSSU){bb.append("\tSSU");}
 		if(printTaxID){bb.append("\tTID");}
 		bb.nl();
 	}
@@ -212,6 +217,7 @@ public class DDLFormatter implements Cloneable {
 		if(printWKID){bb.tab(); appendMetric(bb, c.wkid, 4);}
 		if(printCompleteness){bb.tab(); appendMetric(bb, c.completenessAB, 4);}
 		if(printMatches){bb.tab(); bb.append(c.equal);}
+		if(printSSU){bb.tab(); appendMetric(bb, c.ssuIdentity, 4);}
 		if(printTaxID){bb.tab(); bb.append(c.refRecord!=null ? c.refRecord.taxID : -1);}
 		bb.nl();
 	}
@@ -264,6 +270,7 @@ public class DDLFormatter implements Cloneable {
 	public boolean printName=true;
 	public boolean printQueryName=false;
 	public boolean printCardinality=false;
+	public boolean printSSU=false;
 
 	/* Header control */
 	public boolean noHeader=false;
