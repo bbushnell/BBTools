@@ -70,6 +70,14 @@ public class DDLFormatter implements Cloneable {
 		else if(a.equals("printcardinality") || a.equals("cardinality") || a.equals("card")){printCardinality=parseBool(b);}
 		else if(a.equals("printqueryname") || a.equals("queryname") || a.equals("qname")){printQueryName=parseBool(b);}
 		else if(a.equals("printssu") || a.equals("ssuani")){printSSU=parseBool(b);}
+		else if(a.equals("printtype") || a.equals("type")){printType=parseBool(b);}
+		else if(a.equals("printqlen") || a.equals("qlen")){printQLen=parseBool(b);}
+		else if(a.equals("printrlen") || a.equals("rlen")){printRLen=parseBool(b);}
+		else if(a.equals("printfile")){printFile=parseBool(b);}
+		else if(a.equals("printcontig")){printContig=parseBool(b);}
+		else if(a.equals("printstart")){printStart=parseBool(b);}
+		else if(a.equals("printstrand")){printStrand=parseBool(b);}
+		else if(a.equals("alignani") || a.equals("usealignmentani")){useAlignmentANI=parseBool(b);}
 		else if(a.equals("printall")){
 			boolean x=parseBool(b);
 			printANI=x; printWKID=x; printCompleteness=x; printContainment=x;
@@ -124,28 +132,47 @@ public class DDLFormatter implements Cloneable {
 		if(printCompleteness){if(!first){bb.tab();} bb.append("Complt"); first=false;}
 		if(printContainment){if(!first){bb.tab();} bb.append("Cont"); first=false;}
 		if(printMatches){if(!first){bb.tab();} bb.append("Matches"); first=false;}
+		if(printType){if(!first){bb.tab();} bb.append("Type"); first=false;}
+		if(printQLen){if(!first){bb.tab();} bb.append("qLen"); first=false;}
+		if(printRLen){if(!first){bb.tab();} bb.append("rLen"); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append("Bases"); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append("Card"); first=false;}
 		if(printSSU){if(!first){bb.tab();} bb.append("SSU"); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append("TID"); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append("Query"); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append("Name"); first=false;}
+		if(printFile){if(!first){bb.tab();} bb.append("File"); first=false;}
+		if(printContig){if(!first){bb.tab();} bb.append("Contig"); first=false;}
+		if(printStart){if(!first){bb.tab();} bb.append("Start"); first=false;}
+		if(printStrand){if(!first){bb.tab();} bb.append("Strand"); first=false;}
 		bb.nl();
 	}
 
 	private void formatTab(DDLComparison c, ByteBuilder bb){
 		boolean first=true;
-		if(printANI){if(!first){bb.tab();} appendFloat(bb, c.ani, 4); first=false;}
+		if(printANI){
+			if(!first){bb.tab();}
+			float aniVal=(useAlignmentANI ? c.ssuIdentity : c.ani);
+			appendMetric(bb, aniVal, 4);
+			first=false;
+		}
 		if(printWKID){if(!first){bb.tab();} appendMetric(bb, c.wkid, 4); first=false;}
 		if(printCompleteness){if(!first){bb.tab();} appendMetric(bb, c.completenessAB, 4); first=false;}
 		if(printContainment){if(!first){bb.tab();} appendMetric(bb, c.containmentAB, 4); first=false;}
 		if(printMatches){if(!first){bb.tab();} bb.append(c.equal); first=false;}
+		if(printType){if(!first){bb.tab();} bb.append(ssuType(c.queryRecord)); first=false;}
+		if(printQLen){if(!first){bb.tab();} bb.append(ssuLen(c.queryRecord)); first=false;}
+		if(printRLen){if(!first){bb.tab();} bb.append(ssuLen(c.refRecord)); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.bases : 0); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.cardinality : -1); first=false;}
 		if(printSSU){if(!first){bb.tab();} appendMetric(bb, c.ssuIdentity, 4); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.taxID : -1); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append(qname(c)); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append(rname(c)); first=false;}
+		if(printFile){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.filename!=null ? c.queryRecord.filename : "-"); first=false;}
+		if(printContig){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.contigName!=null ? c.queryRecord.contigName : "-"); first=false;}
+		if(printStart){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStart>=0 ? c.queryRecord.ssuStart : -1); first=false;}
+		if(printStrand){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStrand!=0 ? (char)c.queryRecord.ssuStrand : '-'); first=false;}
 		bb.nl();
 	}
 
@@ -180,6 +207,12 @@ public class DDLFormatter implements Cloneable {
 		if(printTaxID && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"TaxID\":").append(c.refRecord.taxID); f=false;}
 		String qn=qname(c); if(printQueryName && !qn.equals("-")){if(!f){bb.append(',');} bb.append("\"Query\":\""); escapeJson(bb, qn); bb.append('"'); f=false;}
 		String rn=rname(c); if(printName && !rn.equals("-")){if(!f){bb.append(',');} bb.append("\"Name\":\""); escapeJson(bb, rn); bb.append('"'); f=false;}
+		if(c.queryRecord!=null){
+			if(printFile && c.queryRecord.filename!=null){if(!f){bb.append(',');} bb.append("\"File\":\""); escapeJson(bb, c.queryRecord.filename); bb.append('"'); f=false;}
+			if(printContig && c.queryRecord.contigName!=null){if(!f){bb.append(',');} bb.append("\"Contig\":\""); escapeJson(bb, c.queryRecord.contigName); bb.append('"'); f=false;}
+			if(printStart && c.queryRecord.ssuStart>=0){if(!f){bb.append(',');} bb.append("\"Start\":").append(c.queryRecord.ssuStart); f=false;}
+			if(printStrand && c.queryRecord.ssuStrand!=0){if(!f){bb.append(',');} bb.append("\"Strand\":\"").append((char)c.queryRecord.ssuStrand).append('"'); f=false;}
+		}
 		bb.append('}');
 	}
 
@@ -236,6 +269,16 @@ public class DDLFormatter implements Cloneable {
 		return c.refRecord!=null && c.refRecord.name!=null ? c.refRecord.name : "-";
 	}
 
+	private static String ssuType(DDLRecord rec){
+		return rec!=null ? DDLRecord.riboName(rec.riboType()) : "-";
+	}
+
+	private static int ssuLen(DDLRecord rec){
+		if(rec==null){return 0;}
+		byte[] b=rec.riboBytes();
+		return b!=null ? b.length : 0;
+	}
+
 	/** Appends a float with fixed decimal places. */
 	private static void appendFloat(ByteBuilder bb, float v, int decimals){
 		bb.appendSlow(v, decimals);
@@ -271,6 +314,14 @@ public class DDLFormatter implements Cloneable {
 	public boolean printQueryName=false;
 	public boolean printCardinality=false;
 	public boolean printSSU=false;
+	public boolean printType=false;
+	public boolean printQLen=false;
+	public boolean printRLen=false;
+	public boolean printFile=false;
+	public boolean printContig=false;
+	public boolean printStart=false;
+	public boolean printStrand=false;
+	public boolean useAlignmentANI=false;
 
 	/* Header control */
 	public boolean noHeader=false;

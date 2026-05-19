@@ -125,9 +125,95 @@ public class DDLQueryLoaderSF {
 		return results;
 	}
 
+	/**
+	 * Gene-calls a file and returns ALL SSU sequences found.
+	 * No DDL hashing — just gene-calling.  Each SSU found becomes an SSURecord
+	 * with provenance metadata (contig name, start, strand, source file).
+	 * @param fname Path to the input sequence file
+	 * @param maxThreads Maximum worker threads
+	 * @param minGeneCallLen Minimum contig length for gene-calling
+	 * @return ArrayList of SSURecords in input order
+	 */
+	public static ArrayList<SSURecord> findAllSSU(String fname, int maxThreads, int minGeneCallLen){
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
+		Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
+		cris.start();
+
+		final int threads=Math.max(1, maxThreads);
+		SSUFindThread[] workers=new SSUFindThread[threads];
+		for(int i=0; i<threads; i++){
+			workers[i]=new SSUFindThread(cris, minGeneCallLen, fname);
+			workers[i].start();
+		}
+		for(SSUFindThread w : workers){
+			while(w.getState()!=Thread.State.TERMINATED){
+				try{w.join();}catch(InterruptedException e){e.printStackTrace();}
+			}
+		}
+		ReadWrite.closeStreams(cris);
+
+		ArrayList<long[]> entries=new ArrayList<>();
+		for(int t=0; t<workers.length; t++){
+			SSUFindThread w=workers[t];
+			for(int j=0; j<w.ssuRecords.size(); j++){
+				entries.add(new long[]{w.ssuRecords.get(j).numericID, t, j});
+			}
+		}
+		entries.sort((a, b)->Long.compare(a[0], b[0]));
+
+		ArrayList<SSURecord> results=new ArrayList<>(entries.size());
+		for(long[] entry : entries){
+			results.add(workers[(int)entry[1]].ssuRecords.get((int)entry[2]));
+		}
+		return results;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Thread for finding all SSU sequences via gene-calling.  No DDL hashing. */
+	static class SSUFindThread extends Thread {
+
+		SSUFindThread(Streamer cris_, int minGeneCallLen_, String fileName_){
+			cris=cris_;
+			minGeneCallLen=minGeneCallLen_;
+			fileName=fileName_;
+		}
+
+		@Override
+		public void run(){
+			final GeneCaller caller=GeneTools.makeGeneCaller();
+			ListNum<Read> ln=cris.nextList();
+			while(ln!=null && ln.size()>0){
+				for(Read r : ln){
+					if(r.bases==null || r.length()<minGeneCallLen){continue;}
+					ArrayList<Orf> genes=caller.callGenes(r);
+					if(genes==null){continue;}
+					for(Orf orf : genes){
+						if(!orf.is16S() && !orf.is18S()){continue;}
+						SSURecord rec=new SSURecord();
+						rec.bases=CallGenes.fetch(orf, r).bases;
+						rec.riboType=(orf.is16S() ? DDLRecord.RIBO_16S : DDLRecord.RIBO_18S);
+						rec.contigName=r.id;
+						rec.start=orf.start;
+						rec.strand=(byte)(orf.strand==0 ? '+' : '-');
+						rec.numericID=r.numericID;
+						rec.fileName=fileName;
+						ssuRecords.add(rec);
+					}
+				}
+				cris.returnList(ln);
+				ln=cris.nextList();
+			}
+			cris.returnList(ln);
+		}
+
+		final ArrayList<SSURecord> ssuRecords=new ArrayList<>();
+		private final Streamer cris;
+		private final int minGeneCallLen;
+		private final String fileName;
+	}
 
 	static class ProcessThread extends Thread {
 

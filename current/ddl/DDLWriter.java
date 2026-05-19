@@ -244,6 +244,7 @@ public class DDLWriter {
 					}
 
 					DDLRecord rec=new DDLRecord(ddl, nextId++, taxID, r.id);
+					rec.filename=new File(path).getName();
 					rec.bases=r.length();
 					rec.contigs=1;
 					rec.cardinality=ddl.cardinality();
@@ -283,9 +284,10 @@ public class DDLWriter {
 			cris.start();
 
 			final int threads=Shared.threads();
+			final String fileName=new File(path).getName();
 			TidWorker[] workers=new TidWorker[threads];
 			for(int i=0; i<threads; i++){
-				workers[i]=new TidWorker(cris, i);
+				workers[i]=new TidWorker(cris, i, fileName);
 				workers[i].start();
 			}
 
@@ -348,9 +350,10 @@ public class DDLWriter {
 	/** Worker thread for multithreaded pertid mode.
 	 * Each thread has its own tidMap/gcMap — no contention. */
 	class TidWorker extends Thread {
-		TidWorker(Streamer cris_, int tid_){
+		TidWorker(Streamer cris_, int tid_, String fileName_){
 			cris=cris_;
 			threadId=tid_;
+			fileName=fileName_;
 		}
 
 		@Override
@@ -365,6 +368,7 @@ public class DDLWriter {
 						if(rec==null){
 							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
 							rec=new DDLRecord(ddl, r.numericID, tid, r.id);
+							rec.filename=fileName;
 							tidMap.put(tid, rec);
 							gcMap.put(tid, new long[2]);
 						}
@@ -389,6 +393,7 @@ public class DDLWriter {
 		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
 		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>();
 		private final Streamer cris;
+		private final String fileName;
 		final int threadId;
 	}
 
