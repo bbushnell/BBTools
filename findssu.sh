@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Noire
-Last modified May 19, 2026
+Last modified May 20, 2026
 
 Description:  Identifies and classifies ribosomal SSU (16S/18S) sequences
 using DynamicDemiLog (DDL) sketching against a pre-built SSU reference
@@ -14,9 +14,18 @@ database.  Two modes:
   Call mode: input is genomic sequence.  Gene-calling finds all SSUs
     (potentially multiple per contig), then classifies and compares each.
 
-Usage:  findssu.sh ssu1.fa [ssu2.fa ...] ref=<ssu_ddls.tsv> [records=5]
-    or: findssu.sh genome.fa call ref=<ssu_ddls.tsv>
+Usage:  findssu.sh ssu1.fa [ssu2.fa ...] [records=5]
+    or: findssu.sh genome.fa call
     or: findssu.sh ssu.fa ref16s=<16S.tsv> ref18s=<18S.tsv>
+
+Required resource files are loaded automatically from BBTools/resources/:
+  ssuSketchDDL.tsv.gz          SSU DDL reference sketches (276k organisms)
+  all_prok_16S_best_taxsorted.fa.gz   16S rRNA sequences (for alignment ANI)
+  all_euk_18S_best_taxsorted.fa.gz    18S rRNA sequences (for alignment ANI)
+  16S_consensus_sequence.fa    16S consensus (for type classification)
+  18S_consensus_sequence.fa    18S consensus (for type classification)
+If missing, download from:
+  https://sourceforge.net/projects/bbmap/files/Resources/
 
 SSU Mode (default):
 Each input sequence is aligned to 16S and 18S consensus sequences to
@@ -28,20 +37,30 @@ Each SSU found is individually sketched and classified.
 
 Parameters:
 ref=<file>      Pre-built SSU DDL reference file (TSV format).
+                Default: resources/ssuSketchDDL.tsv.gz
 ref16s=<file>   Separate 16S reference file.
 ref18s=<file>   Separate 18S reference file.
+qf=<file>       Pre-built DDL query file for batch comparison.
 call            Enable gene-calling mode for genomic input.
 records=5       Max hits to display per query.
-minhits=1       Minimum matching DDL buckets to report a hit.
-index=f         Use inverted index for query acceleration.
-k=13            K-mer length for hashing.
+minhits=8       Minimum shared index keys to compare a ref.
+buffer=0        Alignment buffer size.  After index filtering, the top
+                max(buffer, 20+2*records) candidates are aligned, then
+                re-sorted by alignment ANI.  Bounds alignment cost while
+                ensuring the best match is captured.
+index=t         Use inverted index for query acceleration.
+align=t         Perform SSU alignment for ANI calculation.
+banself=f       Skip self-comparisons (when query and ref share a TaxID).
+rank=f          Print rank column in output.
+lineage=f       Print lineage column in output.
+k=19            K-mer length for hashing.
 buckets=128     Number of DDL buckets.
-exponent=5      Exponent bits.
+exponent=4      Exponent bits.
 t=1             Number of threads.
 
 Output columns:
-ANI, WKID, Complt, Matches, Type, qLen, rLen, TID, Query, Name,
-File, Contig, Start, Strand
+ANI, WKID, Rank, Matches, Type, qLen, rLen, TID, Query, Name,
+File, Contig, Start, Strand, Lineage
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

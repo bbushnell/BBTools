@@ -36,12 +36,12 @@ public class SSUCompare {
 			System.exit(1);
 		}
 
-		int k=13, buckets=128, maxRecords=5, minHits=1, threads=1;
-		boolean useIndex=true, callMode=false;
-		String refFile=null, ref16sFile=null, ref18sFile=null;
+		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0, threads=1;
+		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
+		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		ArrayList<String> inFiles=new ArrayList<>();
 		DDLFormatter formatter=new DDLFormatter();
-		DynamicDemiLog.setExponent(5);
+		DynamicDemiLog.setExponent(4);
 
 		for(int i=0; i<args.length; i++){
 			String[] split=args[i].split("=");
@@ -54,10 +54,14 @@ public class SSUCompare {
 			else if(a.equals("ref")){refFile=b;}
 			else if(a.equals("ref16s") || a.equals("ref16")){ref16sFile=b;}
 			else if(a.equals("ref18s") || a.equals("ref18")){ref18sFile=b;}
+			else if(a.equals("qf") || a.equals("queryfile")){queryFile=b;}
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
+			else if(a.equals("buffer")){buffer=Integer.parseInt(b);}
 			else if(a.equals("index")){useIndex=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("call") || a.equals("callssu")){callMode=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("align") || a.equals("alignssu")){alignSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("banself")){banSelf=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("in")){inFiles.add(b);}
 			else if(b==null && !a.startsWith("-")){inFiles.add(args[i]);}
@@ -66,8 +70,8 @@ public class SSUCompare {
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
 			refFile=Resources.find("?ssuSketchDDL.tsv.gz");
 		}
-		if(inFiles.isEmpty()){
-			System.err.println("ERROR: no input files specified.");
+		if(queryFile==null && inFiles.isEmpty()){
+			System.err.println("ERROR: no input files or queryfile specified.");
 			System.exit(1);
 		}
 
@@ -83,12 +87,12 @@ public class SSUCompare {
 		formatter.printStart=true;
 		formatter.printStrand=true;
 
-		run(inFiles, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, minHits, useIndex, callMode, threads, formatter);
+		run(inFiles, queryFile, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, buffer, minHits, useIndex, callMode, alignSSU, banSelf, threads, formatter);
 	}
 
-	private static void run(ArrayList<String> inFiles, String refPath, String ref16sPath, String ref18sPath,
-			int k, int buckets, int maxRecords, int minHits, boolean useIndex, boolean callMode,
-			int threads, DDLFormatter formatter){
+	private static void run(ArrayList<String> inFiles, String queryFile, String refPath, String ref16sPath, String ref18sPath,
+			int k, int buckets, int maxRecords, int buffer, int minHits, boolean useIndex, boolean callMode,
+			boolean alignSSU, boolean banSelf, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
 		System.err.println("SSUCompare: "+(callMode ? "call" : "ssu")+" mode  threads="+threads
 			+"  k="+k+"  exponent="+DynamicDemiLog.exponentBits()+"  buckets="+buckets);
@@ -157,7 +161,7 @@ public class SSUCompare {
 		DDLIndex index=null;
 		if(useIndex){
 			ts=System.nanoTime();
-			index=new DDLIndex();
+			index=new DDLIndex(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			long tIndex=System.nanoTime()-ts;
 			System.err.println("Built index in "+fmt(tIndex)+" seconds.");
@@ -167,7 +171,33 @@ public class SSUCompare {
 
 		ts=System.nanoTime();
 		ArrayList<DDLRecord> queries;
-		if(callMode){
+		if(queryFile!=null){
+			System.err.println("Loading pre-built queries from "+queryFile+"...");
+			queries=DDLLoaderMT.loadFile(queryFile, k, threads);
+			if(alignSSU){
+				int qa16=0, qa18=0;
+				for(DDLRecord rec : queries){
+					if(rec.taxID<=0){continue;}
+					boolean is16S=(rec.filename!=null && rec.filename.contains("16S"));
+					boolean is18S=(rec.filename!=null && rec.filename.contains("18S"));
+					if(is16S && map16!=null){
+						byte[] seq=map16.get(rec.taxID);
+						if(seq!=null){rec.r16S=seq; qa16++;}
+					}else if(is18S && map18!=null){
+						byte[] seq=map18.get(rec.taxID);
+						if(seq!=null){rec.r18S=seq; qa18++;}
+					}else if(map16!=null){
+						byte[] seq=map16.get(rec.taxID);
+						if(seq!=null){rec.r16S=seq; qa16++;}
+						else if(map18!=null){
+							seq=map18.get(rec.taxID);
+							if(seq!=null){rec.r18S=seq; qa18++;}
+						}
+					}
+				}
+				System.err.println("Attached "+qa16+" 16S and "+qa18+" 18S to "+queries.size()+" queries.");
+			}
+		}else if(callMode){
 			queries=loadCallMode(inFiles, k, buckets, threads);
 		}else{
 			queries=loadSSUMode(inFiles, k, buckets);
@@ -196,8 +226,8 @@ public class SSUCompare {
 		CompareThread[] workers=new CompareThread[threads];
 		for(int wi=0; wi<threads; wi++){
 			workers[wi]=new CompareThread(queries, refs, nextQuery, allResults,
-				nQueries, nRefs, k, maxRecords, minHits, useIndex, index,
-				totalComparisons, true);
+				nQueries, nRefs, k, maxRecords, buffer, minHits, useIndex, index,
+				totalComparisons, alignSSU, banSelf);
 			workers[wi].start();
 		}
 		for(CompareThread w : workers){try{w.join();}catch(InterruptedException e){}}
@@ -216,8 +246,10 @@ public class SSUCompare {
 		if(json){formatter.jsonStart(bb);}else{formatter.header(bb);}
 		for(int qi=0; qi<nQueries; qi++){
 			if(allResults[qi]==null){continue;}
+			int rank=0;
 			for(DDLComparison c : allResults[qi]){
 				if(c.equal<minHits){continue;}
+				c.rank=++rank;
 				formatter.format(c, bb);
 			}
 		}

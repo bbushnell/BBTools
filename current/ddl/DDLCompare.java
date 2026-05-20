@@ -224,7 +224,7 @@ public class DDLCompare {
 		DDLIndex index=null;
 		if(useIndex){
 			ts=System.nanoTime();
-			index=new DDLIndex();
+			index=new DDLIndex(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			tIndex=System.nanoTime()-ts;
 			System.err.println("Built inverted index in "+fmt(tIndex)+" seconds.");
@@ -395,7 +395,7 @@ public class DDLCompare {
 		DDLIndex index=null;
 		if(useIndex){
 			ts=System.nanoTime();
-			index=new DDLIndex();
+			index=new DDLIndex(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			tIndex=System.nanoTime()-ts;
 			System.err.println("Built inverted index in "+fmt(tIndex)+" seconds.");

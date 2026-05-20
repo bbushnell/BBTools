@@ -73,7 +73,7 @@ public class DDLLoader {
 
 		long currentId=-1;
 		int currentTid=-1;
-		String currentName=null, currentFile=null, currentOrigin=null;
+		String currentName=null, currentFile=null, currentOrigin=null, currentLineage=null;
 		long currentBases=0;
 		int currentContigs=0;
 		float currentGC=-1;
@@ -100,6 +100,7 @@ public class DDLLoader {
 				else if(lp.termEquals("#contigs", 0)){currentContigs=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#gc", 0)){currentGC=lp.parseFloat(1);}
 				else if(lp.termEquals("#origin", 0)){currentOrigin=lp.parseString(1);}
+				else if(lp.termEquals("#lineage", 0)){currentLineage=lp.parseString(1);}
 				else if(lp.termEquals("#offset", 0)){currentOffset=(int)lp.parseLong(1);}
 				continue;
 			}
@@ -111,10 +112,11 @@ public class DDLLoader {
 			rec.contigs=currentContigs;
 			rec.gc=currentGC;
 			rec.origin=currentOrigin;
+			rec.lineage=currentLineage;
 			rec.cardinality=ddl.cardinality();
 			records.add(rec);
 
-			currentId=-1L; currentTid=-1; currentName=null; currentFile=null; currentOrigin=null;
+			currentId=-1L; currentTid=-1; currentName=null; currentFile=null; currentOrigin=null; currentLineage=null;
 			currentBases=0; currentContigs=0; currentGC=-1; currentOffset=-1;
 		}
 		bf.close();
@@ -165,6 +167,7 @@ public class DDLLoader {
 		if(rec.contigs>0){bb.append("#contigs").tab().append(rec.contigs).nl();}
 		if(rec.gc>=0){bb.append("#gc").tab().append(rec.gc, 4).nl();}
 		if(rec.origin!=null){bb.append("#origin").tab().append(rec.origin).nl();}
+		if(rec.lineage!=null){bb.append("#lineage").tab().append(rec.lineage).nl();}
 		bb.append("#len").tab().append(rec.ddl.buckets).nl();
 		if(rec.ddl.getGlobalNLZ()>=0){
 			// All buckets filled: write relative encoding with #offset

@@ -23,6 +23,9 @@ import stream.Streamer;
 import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.ListNum;
+import tax.PrintTaxonomy;
+import tax.TaxNode;
+import tax.TaxTree;
 
 /**
  * Builds DynamicDemiLog sketches from FASTA/FASTQ files and writes them
@@ -79,6 +82,8 @@ public class DDLWriter {
 				parseTaxid=Parse.parseBoolean(b);
 			}else if(a.equals("exponent") || a.equals("ebits")){
 				DynamicDemiLog.setExponent(Integer.parseInt(b));
+			}else if(a.equals("lineage") || a.equals("writelineage")){
+				writeLineage=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -124,6 +129,7 @@ public class DDLWriter {
 			DDLRecord rec=processOneFile(f);
 			if(rec!=null){records.add(rec);}
 		}
+		if(writeLineage){attachLineage(records);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed);
 
 		t.stop();
@@ -157,6 +163,7 @@ public class DDLWriter {
 		//Sort by id (load order) for deterministic output
 		ArrayList<DDLRecord> records=new ArrayList<>(allRecords);
 		records.sort((a, b) -> Long.compare(a.id, b.id));
+		if(writeLineage){attachLineage(records);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed);
 
 		t.stop();
@@ -267,6 +274,7 @@ public class DDLWriter {
 			ReadWrite.closeStreams(cris);
 		}
 
+		if(writeLineage){attachLineage(records);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed);
 
 		t.stop();
@@ -339,6 +347,7 @@ public class DDLWriter {
 				records.add(rec);
 			}
 			Collections.sort(records);
+			if(writeLineage){attachLineage(records);}
 			DDLLoader.writeFile(records, out, overwrite, k, seed);
 
 			t.stop();
@@ -401,6 +410,26 @@ public class DDLWriter {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	static void attachLineage(ArrayList<DDLRecord> records){
+		TaxTree tree=TaxTree.sharedTree();
+		if(tree==null){
+			outstream.println("WARNING: Could not load TaxTree; lineage will not be written.");
+			return;
+		}
+		int attached=0;
+		for(DDLRecord rec : records){
+			if(rec.taxID>0){
+				TaxNode tn=tree.getNode(rec.taxID);
+				if(tn!=null){
+					rec.lineage=PrintTaxonomy.makeTaxLine(tree, tn, 0, TaxTree.SUPERKINGDOM_E, true, true).toString();
+					rec.name=tn.name;
+					attached++;
+				}
+			}
+		}
+		outstream.println("Attached lineage to "+attached+"/"+records.size()+" records.");
+	}
+
 	/** Extracts base filename without path or extensions. */
 	static String baseName(String path){
 		String name=new File(path).getName();
@@ -438,6 +467,7 @@ public class DDLWriter {
 	private boolean overwrite=false;
 	private boolean verbose=false;
 	private boolean parseTaxid=true;
+	private boolean writeLineage=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/

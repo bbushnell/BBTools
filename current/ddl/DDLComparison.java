@@ -167,6 +167,9 @@ public class DDLComparison implements Comparable<DDLComparison> {
 	/* SSU alignment */
 	public float ssuIdentity=-1;
 
+	/* Output rank (1-indexed, set by caller during formatting) */
+	public int rank;
+
 	/* Source records — access metadata through these, don't duplicate */
 	public DDLRecord queryRecord;
 	public DDLRecord refRecord;
