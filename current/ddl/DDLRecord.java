@@ -54,13 +54,14 @@ public class DDLRecord implements Comparable<DDLRecord> {
 	public final long id;
 	/** Real taxonomy ID from tid_NNNN or tid|NNNN; -1 when unknown */
 	public int taxID=-1;
-	public final String name;
+	public String name;
 	public String filename;
 	public long bases;
 	public int contigs;
 	public long cardinality=-1;
 	public float gc=-1;
 	public String origin;
+	public String lineage;
 
 	public byte[] r16S;
 	public byte[] r18S;

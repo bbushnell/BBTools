@@ -77,6 +77,8 @@ public class DDLFormatter implements Cloneable {
 		else if(a.equals("printcontig")){printContig=parseBool(b);}
 		else if(a.equals("printstart")){printStart=parseBool(b);}
 		else if(a.equals("printstrand")){printStrand=parseBool(b);}
+		else if(a.equals("printrank") || a.equals("rank")){printRank=parseBool(b);}
+		else if(a.equals("printlineage") || a.equals("lineage")){printLineage=parseBool(b);}
 		else if(a.equals("alignani") || a.equals("usealignmentani")){useAlignmentANI=parseBool(b);}
 		else if(a.equals("printall")){
 			boolean x=parseBool(b);
@@ -129,15 +131,16 @@ public class DDLFormatter implements Cloneable {
 		boolean first=true;
 		if(printANI){if(!first){bb.tab();} bb.append("ANI"); first=false;}
 		if(printWKID){if(!first){bb.tab();} bb.append("WKID"); first=false;}
+		if(printRank){if(!first){bb.tab();} bb.append("Rank"); first=false;}
 		if(printCompleteness){if(!first){bb.tab();} bb.append("Complt"); first=false;}
 		if(printContainment){if(!first){bb.tab();} bb.append("Cont"); first=false;}
 		if(printMatches){if(!first){bb.tab();} bb.append("Matches"); first=false;}
+		if(printSSU){if(!first){bb.tab();} bb.append("SSU"); first=false;}
 		if(printType){if(!first){bb.tab();} bb.append("Type"); first=false;}
 		if(printQLen){if(!first){bb.tab();} bb.append("qLen"); first=false;}
 		if(printRLen){if(!first){bb.tab();} bb.append("rLen"); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append("Bases"); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append("Card"); first=false;}
-		if(printSSU){if(!first){bb.tab();} bb.append("SSU"); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append("TID"); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append("Query"); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append("Name"); first=false;}
@@ -145,6 +148,7 @@ public class DDLFormatter implements Cloneable {
 		if(printContig){if(!first){bb.tab();} bb.append("Contig"); first=false;}
 		if(printStart){if(!first){bb.tab();} bb.append("Start"); first=false;}
 		if(printStrand){if(!first){bb.tab();} bb.append("Strand"); first=false;}
+		if(printLineage){if(!first){bb.tab();} bb.append("Lineage"); first=false;}
 		bb.nl();
 	}
 
@@ -157,15 +161,16 @@ public class DDLFormatter implements Cloneable {
 			first=false;
 		}
 		if(printWKID){if(!first){bb.tab();} appendMetric(bb, c.wkid, 4); first=false;}
+		if(printRank){if(!first){bb.tab();} bb.append(c.rank); first=false;}
 		if(printCompleteness){if(!first){bb.tab();} appendMetric(bb, c.completenessAB, 4); first=false;}
 		if(printContainment){if(!first){bb.tab();} appendMetric(bb, c.containmentAB, 4); first=false;}
 		if(printMatches){if(!first){bb.tab();} bb.append(c.equal); first=false;}
+		if(printSSU){if(!first){bb.tab();} appendMetric(bb, c.ssuIdentity, 4); first=false;}
 		if(printType){if(!first){bb.tab();} bb.append(ssuType(c.queryRecord)); first=false;}
 		if(printQLen){if(!first){bb.tab();} bb.append(ssuLen(c.queryRecord)); first=false;}
 		if(printRLen){if(!first){bb.tab();} bb.append(ssuLen(c.refRecord)); first=false;}
 		if(printBases){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.bases : 0); first=false;}
 		if(printCardinality){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.cardinality : -1); first=false;}
-		if(printSSU){if(!first){bb.tab();} appendMetric(bb, c.ssuIdentity, 4); first=false;}
 		if(printTaxID){if(!first){bb.tab();} bb.append(c.refRecord!=null ? c.refRecord.taxID : -1); first=false;}
 		if(printQueryName){if(!first){bb.tab();} bb.append(qname(c)); first=false;}
 		if(printName){if(!first){bb.tab();} bb.append(rname(c)); first=false;}
@@ -173,6 +178,7 @@ public class DDLFormatter implements Cloneable {
 		if(printContig){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.contigName!=null ? c.queryRecord.contigName : "-"); first=false;}
 		if(printStart){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStart>=0 ? c.queryRecord.ssuStart : -1); first=false;}
 		if(printStrand){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStrand!=0 ? (char)c.queryRecord.ssuStrand : '-'); first=false;}
+		if(printLineage){if(!first){bb.tab();} bb.append(c.refRecord!=null && c.refRecord.lineage!=null ? c.refRecord.lineage : "-"); first=false;}
 		bb.nl();
 	}
 
@@ -321,6 +327,8 @@ public class DDLFormatter implements Cloneable {
 	public boolean printContig=false;
 	public boolean printStart=false;
 	public boolean printStrand=false;
+	public boolean printRank=false;
+	public boolean printLineage=false;
 	public boolean useAlignmentANI=false;
 
 	/* Header control */

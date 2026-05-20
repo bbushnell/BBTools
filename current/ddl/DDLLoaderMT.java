@@ -122,7 +122,7 @@ public class DDLLoaderMT {
 	private static DDLRecord parseRecord(ArrayList<byte[]> lines, LineParser1 lp, int k){
 		long recId=-1;
 		int tid=-1;
-		String name=null, file=null, origin=null;
+		String name=null, file=null, origin=null, lineage=null;
 		long bases=0;
 		int contigs=0;
 		float gc=-1;
@@ -142,6 +142,7 @@ public class DDLLoaderMT {
 				else if(lp.termEquals("#contigs", 0)){contigs=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#gc", 0)){gc=lp.parseFloat(1);}
 				else if(lp.termEquals("#origin", 0)){origin=lp.parseString(1);}
+				else if(lp.termEquals("#lineage", 0)){lineage=lp.parseString(1);}
 				else if(lp.termEquals("#offset", 0)){offset=(int)lp.parseLong(1);}
 			}else{
 				dataLine=line;
@@ -157,6 +158,7 @@ public class DDLLoaderMT {
 		rec.contigs=contigs;
 		rec.gc=gc;
 		rec.origin=origin;
+		rec.lineage=lineage;
 		rec.cardinality=ddl.cardinality();
 		return rec;
 	}

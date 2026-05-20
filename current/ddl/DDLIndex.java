@@ -26,6 +26,8 @@ public class DDLIndex {
 
 	public DDLIndex(){this(BUCKETS, VALUES);}
 
+	public DDLIndex(int buckets){this(buckets, VALUES);}
+
 	public DDLIndex(int buckets, int values){
 		matrix=new int[buckets][values][];
 	}
