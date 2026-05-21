@@ -60,6 +60,7 @@ public class SSUServer {
 	/*--------------------------------------------------------------*/
 
 	public SSUServer(String[] args){
+		Read.U_TO_T=true;
 		for(int i=0; i<args.length; i++){
 			String[] split=args[i].split("=");
 			String a=split[0].toLowerCase();
@@ -404,39 +405,27 @@ public class SSUServer {
 	}
 
 	private ArrayList<DDLRecord> processCallMode(String fastaBody){
-		java.io.File tmpFile=null;
-		try{
-			tmpFile=java.io.File.createTempFile("ssuserver_call_", ".fa");
-			java.io.FileWriter fw=new java.io.FileWriter(tmpFile);
-			fw.write(fastaBody);
-			fw.close();
-
-			ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(tmpFile.getAbsolutePath(), threads, MIN_GENE_CALL_LENGTH);
-			ArrayList<DDLRecord> queries=new ArrayList<>();
-			for(SSURecord ssu : ssus){
-				String cname=ssu.contigName;
-				if(cname!=null && cname.indexOf(' ')>0){cname=cname.substring(0, cname.indexOf(' '));}
-				Read r=new Read(ssu.bases, null, cname+":"+ssu.start+(char)ssu.strand, 0);
-				DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
-				ddl.hash(r);
-				DDLRecord rec=new DDLRecord(ddl, -1, -1, r.id);
-				rec.bases=ssu.bases.length;
-				rec.contigs=1;
-				rec.cardinality=ddl.cardinality();
-				rec.filename=ssu.fileName!=null ? new java.io.File(ssu.fileName).getName() : "http_query";
-				rec.contigName=cname;
-				rec.ssuStart=ssu.start;
-				rec.ssuStrand=ssu.strand;
-				if(ssu.is16S()){rec.r16S=ssu.bases;}else{rec.r18S=ssu.bases;}
-				queries.add(rec);
-			}
-			return queries;
-		}catch(IOException e){
-			e.printStackTrace();
-			return new ArrayList<>();
-		}finally{
-			if(tmpFile!=null){tmpFile.delete();}
+		ArrayList<Read> reads=ServerTools.parseFastaBody(fastaBody);
+		ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(reads, "http_query", MIN_GENE_CALL_LENGTH);
+		ArrayList<DDLRecord> queries=new ArrayList<>();
+		for(SSURecord ssu : ssus){
+			String cname=ssu.contigName;
+			if(cname!=null && cname.indexOf(' ')>0){cname=cname.substring(0, cname.indexOf(' '));}
+			Read r=new Read(ssu.bases, null, cname+":"+ssu.start+(char)ssu.strand, 0);
+			DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+			ddl.hash(r);
+			DDLRecord rec=new DDLRecord(ddl, -1, -1, r.id);
+			rec.bases=ssu.bases.length;
+			rec.contigs=1;
+			rec.cardinality=ddl.cardinality();
+			rec.filename="http_query";
+			rec.contigName=cname;
+			rec.ssuStart=ssu.start;
+			rec.ssuStrand=ssu.strand;
+			if(ssu.is16S()){rec.r16S=ssu.bases;}else{rec.r18S=ssu.bases;}
+			queries.add(rec);
 		}
+		return queries;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -488,9 +477,9 @@ public class SSUServer {
 				if(i>0){bb.append(',');}
 				bb.append('\n').append("  {");
 				bb.append("\"TaxID\":").append(rec.taxID);
-				bb.append(",\"Name\":\""); escapeJson(bb, rec.name!=null ? rec.name : "-"); bb.append('"');
+				bb.append(",\"Name\":\""); ServerTools.escapeJson(bb, rec.name!=null ? rec.name : "-"); bb.append('"');
 				if(formatter.printLineage){
-					bb.append(",\"Lineage\":\""); escapeJson(bb, rec.lineage!=null ? rec.lineage : "-"); bb.append('"');
+					bb.append(",\"Lineage\":\""); ServerTools.escapeJson(bb, rec.lineage!=null ? rec.lineage : "-"); bb.append('"');
 				}
 				String seq=DDLFormatter.seqString(rec);
 				bb.append(",\"Sequence\":\"").append(seq).append('"');
@@ -517,17 +506,6 @@ public class SSUServer {
 		String[] parts=name.toLowerCase().split("\\s+");
 		if(parts.length<2){return null;}
 		return parts[0].charAt(0)+"."+parts[1];
-	}
-
-	private static void escapeJson(ByteBuilder bb, String s){
-		for(int i=0; i<s.length(); i++){
-			char c=s.charAt(i);
-			if(c=='"'){bb.append('\\').append('"');}
-			else if(c=='\\'){bb.append('\\').append('\\');}
-			else if(c=='\n'){bb.append('\\').append('n');}
-			else if(c=='\t'){bb.append('\\').append('t');}
-			else{bb.append(c);}
-		}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -615,10 +593,7 @@ public class SSUServer {
 	}
 
 	private void addCorsHeaders(HttpExchange t){
-		Headers h=t.getResponseHeaders();
-		h.add("Access-Control-Allow-Origin", domain!=null ? domain : "*");
-		h.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-		h.add("Access-Control-Allow-Headers", "Content-Type");
+		ServerTools.addCorsHeaders(t, domain);
 	}
 
 	private boolean hasPermission(HttpExchange t) throws IOException {

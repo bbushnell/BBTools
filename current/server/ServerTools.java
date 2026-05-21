@@ -31,6 +31,7 @@ import fileIO.ReadWrite;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import stream.Read;
 import structures.ByteBuilder;
 import structures.StringNum;
 
@@ -720,6 +721,58 @@ public class ServerTools {
 		return list;
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------    Server-Side Utilities     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Parse a FASTA-formatted string into Read objects in memory.
+	 * Sequences without a header are silently skipped. */
+	public static ArrayList<Read> parseFastaBody(String fastaBody){
+		ArrayList<Read> reads=new ArrayList<>();
+		String[] lines=fastaBody.split("\n");
+		StringBuilder seqBuilder=new StringBuilder();
+		String currentName=null;
+		int id=0;
+		for(String line : lines){
+			line=line.trim();
+			if(line.startsWith(">")){
+				if(currentName!=null && seqBuilder.length()>0){
+					reads.add(new Read(seqBuilder.toString().getBytes(), null, currentName, id++));
+				}
+				currentName=line.substring(1).trim();
+				seqBuilder.setLength(0);
+			}else if(!line.isEmpty()){
+				seqBuilder.append(line);
+			}
+		}
+		if(currentName!=null && seqBuilder.length()>0){
+			reads.add(new Read(seqBuilder.toString().getBytes(), null, currentName, id++));
+		}
+		return reads;
+	}
+
+	/** Escape a string for safe inclusion in a JSON value.
+	 * Handles quotes, backslashes, newlines, and tabs. */
+	public static void escapeJson(ByteBuilder bb, String s){
+		for(int i=0; i<s.length(); i++){
+			char c=s.charAt(i);
+			if(c=='"'){bb.append('\\').append('"');}
+			else if(c=='\\'){bb.append('\\').append('\\');}
+			else if(c=='\n'){bb.append('\\').append('n');}
+			else if(c=='\t'){bb.append('\\').append('t');}
+			else{bb.append(c);}
+		}
+	}
+
+	/** Add CORS headers to an HTTP response.
+	 * @param domain Allowed origin, or null for wildcard (*) */
+	public static void addCorsHeaders(HttpExchange t, String domain){
+		Headers h=t.getResponseHeaders();
+		h.add("Access-Control-Allow-Origin", domain!=null ? domain : "*");
+		h.add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+		h.add("Access-Control-Allow-Headers", "Content-Type");
+	}
+
 	/** Don't print caught exceptions */
 	public static boolean suppressErrors=false;
 	
