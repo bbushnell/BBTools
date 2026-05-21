@@ -405,17 +405,37 @@ public class SSUCompare {
 
 	private static void sendToServer(ArrayList<String> inFiles, String address, boolean callMode){
 		ByteBuilder bb=new ByteBuilder();
-		if(callMode){bb.append("//Call\n");}
-		for(String fname : inFiles){
-			try{
-				byte[] raw=ReadWrite.readRaw(fname);
-				if(raw!=null){bb.append(raw);}
-			}catch(java.io.IOException e){
-				System.err.println("ERROR reading "+fname+": "+e.getMessage());
-				System.exit(1);
+		if(callMode){
+			ProkObject.callCDS=false;
+			ProkObject.calltRNA=false;
+			ProkObject.call23S=false;
+			ProkObject.call5S=false;
+			GeneTools.loadPGM();
+			int totalSSU=0;
+			for(String fname : inFiles){
+				ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(fname, 1, MIN_GENE_CALL_LENGTH);
+				System.err.println("Found "+ssus.size()+" SSU sequences in "+fname);
+				for(SSURecord ssu : ssus){
+					String cname=ssu.contigName;
+					if(cname!=null && cname.indexOf(' ')>0){cname=cname.substring(0, cname.indexOf(' '));}
+					bb.append('>').append(cname).append(':').append(ssu.start).append((char)ssu.strand).append('\n');
+					bb.append(ssu.bases).append('\n');
+				}
+				totalSSU+=ssus.size();
+			}
+			System.err.println("Gene-called "+totalSSU+" SSUs locally, sending to server.");
+		}else{
+			for(String fname : inFiles){
+				try{
+					byte[] raw=ReadWrite.readRaw(fname);
+					if(raw!=null){bb.append(raw);}
+				}catch(java.io.IOException e){
+					System.err.println("ERROR reading "+fname+": "+e.getMessage());
+					System.exit(1);
+				}
 			}
 		}
-		if(bb.length()==0 || (callMode && bb.length()<=7)){
+		if(bb.length()==0){
 			System.err.println("ERROR: no input data to send.");
 			System.exit(1);
 		}
