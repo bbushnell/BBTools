@@ -168,6 +168,39 @@ public class DDLQueryLoaderSF {
 		return results;
 	}
 
+	/**
+	 * Gene-calls pre-parsed Read objects in memory and returns all SSU sequences found.
+	 * No file I/O — accepts Read objects directly.
+	 * @param reads Pre-parsed Read objects (from HTTP body or other in-memory source)
+	 * @param sourceName Label for provenance (e.g. "http_query")
+	 * @param minGeneCallLen Minimum contig length for gene-calling
+	 * @return ArrayList of SSURecords
+	 */
+	public static ArrayList<SSURecord> findAllSSU(ArrayList<Read> reads,
+			String sourceName, int minGeneCallLen){
+		final GeneCaller caller=GeneTools.makeGeneCaller();
+		ArrayList<SSURecord> results=new ArrayList<>();
+		for(int i=0; i<reads.size(); i++){
+			Read r=reads.get(i);
+			if(r.bases==null || r.length()<minGeneCallLen){continue;}
+			ArrayList<Orf> genes=caller.callGenes(r);
+			if(genes==null){continue;}
+			for(Orf orf : genes){
+				if(!orf.is16S() && !orf.is18S()){continue;}
+				SSURecord rec=new SSURecord();
+				rec.bases=CallGenes.fetch(orf, r).bases;
+				rec.riboType=(orf.is16S() ? DDLRecord.RIBO_16S : DDLRecord.RIBO_18S);
+				rec.contigName=r.id;
+				rec.start=orf.start;
+				rec.strand=(byte)(orf.strand==0 ? '+' : '-');
+				rec.numericID=i;
+				rec.fileName=sourceName;
+				results.add(rec);
+			}
+		}
+		return results;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/

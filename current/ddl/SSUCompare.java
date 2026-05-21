@@ -46,6 +46,7 @@ public class SSUCompare {
 		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0;
 		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
 		boolean local=false, loud=false;
+		Read.U_TO_T=true;
 		String address=null;
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		String lookupName=null;
