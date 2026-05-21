@@ -14,6 +14,8 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
+import java.util.HashMap;
+
 import bin.GeneTools;
 import cardinality.DynamicDemiLog;
 import fileIO.FileFormat;
@@ -175,6 +177,7 @@ public class SSUServer {
 		System.err.println("PGM model loaded.");
 
 		nRefs=refs.size();
+		buildLookupMaps();
 		startTime=System.currentTimeMillis();
 	}
 
@@ -269,6 +272,8 @@ public class SSUServer {
 			int reqRecords=maxRecords;
 			int reqMinHits=minHits;
 			int reqBuffer=buffer;
+			String lookupName=null;
+			int lookupTid=-1;
 
 			String body=request.toString();
 			if(body.startsWith("//JSON\n")){
@@ -298,6 +303,12 @@ public class SSUServer {
 				else if(a.equals("records") || a.equals("maxrecords")){reqRecords=Integer.parseInt(b);}
 				else if(a.equals("minhits")){reqMinHits=Integer.parseInt(b);}
 				else if(a.equals("buffer")){reqBuffer=Integer.parseInt(b);}
+				else if(a.equals("name") || a.equals("organism")){lookupName=b;}
+				else if(a.equals("tid") || a.equals("taxid")){lookupTid=Integer.parseInt(b);}
+			}
+
+			if(lookupName!=null || lookupTid>=0){
+				return processLookup(lookupName, lookupTid, formatter, jsonOutput);
 			}
 
 			ArrayList<DDLRecord> queries;
@@ -425,6 +436,97 @@ public class SSUServer {
 			return new ArrayList<>();
 		}finally{
 			if(tmpFile!=null){tmpFile.delete();}
+		}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Lookup Mode           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private void buildLookupMaps(){
+		fullNameMap=new HashMap<>();
+		abbrNameMap=new HashMap<>();
+		tidMap=new HashMap<>();
+		for(DDLRecord rec : refs){
+			if(rec.taxID>0){tidMap.putIfAbsent(rec.taxID, rec);}
+			if(rec.name==null){continue;}
+			String full=rec.name.toLowerCase().replace(' ', '_');
+			fullNameMap.putIfAbsent(full, rec);
+			String abbr=abbreviate(rec.name);
+			if(abbr!=null){abbrNameMap.putIfAbsent(abbr, rec);}
+		}
+		System.err.println("Built lookup maps: "+fullNameMap.size()+" names, "
+			+abbrNameMap.size()+" abbreviated, "+tidMap.size()+" TIDs.");
+	}
+
+	private byte[] processLookup(String lookupName, int lookupTid,
+			DDLFormatter formatter, boolean jsonOutput){
+		ArrayList<DDLRecord> results=new ArrayList<>();
+		if(lookupTid>=0){
+			DDLRecord match=tidMap.get(lookupTid);
+			if(match!=null){results.add(match);}
+		}else{
+			String key=lookupName.toLowerCase().replace(' ', '_');
+			DDLRecord match=fullNameMap.get(key);
+			if(match==null){match=abbrNameMap.get(key);}
+			if(match!=null){
+				results.add(match);
+			}else{
+				for(java.util.Map.Entry<String, DDLRecord> e : fullNameMap.entrySet()){
+					if(e.getKey().startsWith(key)){results.add(e.getValue());}
+				}
+			}
+		}
+
+		ByteBuilder bb=new ByteBuilder();
+		if(jsonOutput){
+			bb.append("{\"lookup\":true,\"ref_count\":").append(nRefs);
+			bb.append(",\"match_count\":").append(results.size());
+			bb.append(",\"results\":[");
+			for(int i=0; i<results.size(); i++){
+				DDLRecord rec=results.get(i);
+				if(i>0){bb.append(',');}
+				bb.append('\n').append("  {");
+				bb.append("\"TaxID\":").append(rec.taxID);
+				bb.append(",\"Name\":\""); escapeJson(bb, rec.name!=null ? rec.name : "-"); bb.append('"');
+				if(formatter.printLineage){
+					bb.append(",\"Lineage\":\""); escapeJson(bb, rec.lineage!=null ? rec.lineage : "-"); bb.append('"');
+				}
+				String seq=DDLFormatter.seqString(rec);
+				bb.append(",\"Sequence\":\"").append(seq).append('"');
+				bb.append('}');
+			}
+			bb.append("\n]}");
+		}else{
+			bb.append("TID\tName");
+			if(formatter.printLineage){bb.append("\tLineage");}
+			bb.append("\tSequence").nl();
+			for(DDLRecord rec : results){
+				bb.append(rec.taxID).tab();
+				bb.append(rec.name!=null ? rec.name : "-");
+				if(formatter.printLineage){bb.tab().append(rec.lineage!=null ? rec.lineage : "-");}
+				bb.tab().append(DDLFormatter.seqString(rec));
+				bb.nl();
+			}
+		}
+		return bb.toBytes();
+	}
+
+	private static String abbreviate(String name){
+		if(name==null || name.length()<3){return null;}
+		String[] parts=name.toLowerCase().split("\\s+");
+		if(parts.length<2){return null;}
+		return parts[0].charAt(0)+"."+parts[1];
+	}
+
+	private static void escapeJson(ByteBuilder bb, String s){
+		for(int i=0; i<s.length(); i++){
+			char c=s.charAt(i);
+			if(c=='"'){bb.append('\\').append('"');}
+			else if(c=='\\'){bb.append('\\').append('\\');}
+			else if(c=='\n'){bb.append('\\').append('n');}
+			else if(c=='\t'){bb.append('\\').append('t');}
+			else{bb.append(c);}
 		}
 	}
 
@@ -569,6 +671,7 @@ public class SSUServer {
 			+"POST raw FASTA to classify SSU sequences.\n"
 			+"Prefix body with //JSON\\n for JSON output.\n"
 			+"Prefix body with //Call\\n for gene-calling mode.\n"
+			+"Lookup mode: //name=Escherichia_coli\\n or //tid=562\\n\n"
 			+"Per-request parameters as //key=value\\n prefixes:\n"
 			+"  //records=10\\n  //minhits=4\\n  //lineage=t\\n  //rank=t\\n\n"
 			+"  All DDLFormatter flags supported (printANI, printWKID, etc.)\n"
@@ -619,6 +722,9 @@ public class SSUServer {
 	private byte[] consensus16S;
 	private byte[] consensus18S;
 	private int nRefs;
+	private HashMap<String, DDLRecord> fullNameMap;
+	private HashMap<String, DDLRecord> abbrNameMap;
+	private HashMap<Integer, DDLRecord> tidMap;
 
 	/* Server state */
 	private HttpServer httpServer;
