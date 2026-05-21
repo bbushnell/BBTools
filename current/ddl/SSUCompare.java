@@ -1,5 +1,6 @@
 package ddl;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -78,7 +79,9 @@ public class SSUCompare {
 		formatter.useAlignmentANI=true;
 		formatter.printSSU=false;
 		formatter.printBases=false;
-		formatter.printQueryName=true;
+		formatter.printCompleteness=false;
+		formatter.printQueryName=false;
+		formatter.printRank=true;
 		formatter.printType=true;
 		formatter.printQLen=true;
 		formatter.printRLen=true;
@@ -296,7 +299,7 @@ public class SSUCompare {
 				rec.bases=r.length();
 				rec.contigs=1;
 				rec.cardinality=ddl.cardinality();
-				rec.filename=fname;
+				rec.filename=new File(fname).getName();
 				rec.contigName=r.id;
 				rec.ssuStart=0;
 				rec.ssuStrand=(byte)'+';
@@ -323,15 +326,17 @@ public class SSUCompare {
 			ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(fname, threads, MIN_GENE_CALL_LENGTH);
 			System.err.println("Found "+ssus.size()+" SSU sequences in "+fname);
 			for(SSURecord ssu : ssus){
-				Read r=new Read(ssu.bases, null, ssu.contigName+":"+ssu.start+(char)ssu.strand, 0);
+				String cname=ssu.contigName;
+				if(cname!=null && cname.indexOf(' ')>0){cname=cname.substring(0, cname.indexOf(' '));}
+				Read r=new Read(ssu.bases, null, cname+":"+ssu.start+(char)ssu.strand, 0);
 				DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
 				ddl.hash(r);
 				DDLRecord rec=new DDLRecord(ddl, -1, -1, r.id);
 				rec.bases=ssu.bases.length;
 				rec.contigs=1;
 				rec.cardinality=ddl.cardinality();
-				rec.filename=ssu.fileName;
-				rec.contigName=ssu.contigName;
+				rec.filename=new File(ssu.fileName).getName();
+				rec.contigName=cname;
 				rec.ssuStart=ssu.start;
 				rec.ssuStrand=ssu.strand;
 				if(ssu.is16S()){rec.r16S=ssu.bases;}else{rec.r18S=ssu.bases;}

@@ -467,7 +467,7 @@ public class DDLWriter {
 	private boolean overwrite=false;
 	private boolean verbose=false;
 	private boolean parseTaxid=true;
-	private boolean writeLineage=false;
+	private boolean writeLineage=true;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
