@@ -6,14 +6,12 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import bin.GeneTools;
 import cardinality.DynamicDemiLog;
-import parse.Parser;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import idaligner.QuantumAligner;
 import prok.ProkObject;
 import server.ServerTools;
 import shared.Resources;
-import shared.Shared;
 import structures.StringNum;
 import shared.Timer;
 import stream.Read;
@@ -42,14 +40,13 @@ public class SSUCompare {
 			System.exit(1);
 		}
 
-		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0;
+		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0, threads=1;
 		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
-		boolean local=false, loud=false;
+		boolean local=false;
 		String address=null;
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		ArrayList<String> inFiles=new ArrayList<>();
 		DDLFormatter formatter=new DDLFormatter();
-		Parser parser=new Parser();
 		DynamicDemiLog.setExponent(4);
 
 		for(int i=0; i<args.length; i++){
@@ -71,20 +68,18 @@ public class SSUCompare {
 			else if(a.equals("call") || a.equals("callssu")){callMode=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("align") || a.equals("alignssu")){alignSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("banself")){banSelf=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("loud")){loud=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("address")){address=b;}
 			else if(a.equals("local")){local=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("in")){inFiles.add(b);}
-			else if(parser.parse(args[i], a, b)){/* handled */}
 			else if(b==null && !a.startsWith("-")){inFiles.add(args[i]);}
 		}
 
-		int threads=Shared.threads();
 		if(!local && address==null && refFile==null && ref16sFile==null && ref18sFile==null){
 			address=DEFAULT_ADDRESS;
 		}
 		if(address!=null && !local){
-			sendToServer(inFiles, address, callMode);
+			sendToServer(inFiles, address, callMode, maxRecords, minHits, buffer, formatter);
 			return;
 		}
 
@@ -110,15 +105,15 @@ public class SSUCompare {
 		formatter.printStart=true;
 		formatter.printStrand=true;
 
-		run(inFiles, queryFile, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, buffer, minHits, useIndex, callMode, alignSSU, banSelf, threads, loud, formatter);
+		run(inFiles, queryFile, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, buffer, minHits, useIndex, callMode, alignSSU, banSelf, threads, formatter);
 	}
 
 	private static void run(ArrayList<String> inFiles, String queryFile, String refPath, String ref16sPath, String ref18sPath,
 			int k, int buckets, int maxRecords, int buffer, int minHits, boolean useIndex, boolean callMode,
-			boolean alignSSU, boolean banSelf, int threads, boolean loud, DDLFormatter formatter){
+			boolean alignSSU, boolean banSelf, int threads, DDLFormatter formatter){
 		Timer t=new Timer();
-		if(loud){System.err.println("SSUCompare: "+(callMode ? "call" : "ssu")+" mode  threads="+threads
-			+"  k="+k+"  exponent="+DynamicDemiLog.exponentBits()+"  buckets="+buckets);}
+		System.err.println("SSUCompare: "+(callMode ? "call" : "ssu")+" mode  threads="+threads
+			+"  k="+k+"  exponent="+DynamicDemiLog.exponentBits()+"  buckets="+buckets);
 
 		/* --- Load refs --- */
 
@@ -281,14 +276,12 @@ public class SSUCompare {
 		long tFormat=System.nanoTime()-ts;
 
 		t.stop();
-		if(loud){
-			System.err.println("\nSubphase timing:");
-			System.err.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
-			System.err.println("  SSU attach:    \t"+fmt(tSSULoad)+"s");
-			System.err.println("  Query load:    \t"+fmt(tQueryLoad)+"s  ("+nQueries+" queries)");
-			System.err.println("  Compare+align: \t"+fmt(tCompare)+"s  ("+totalAlignments+" alignments)");
-			System.err.println("  Format:        \t"+fmt(tFormat)+"s");
-		}
+		System.err.println("\nSubphase timing:");
+		System.err.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
+		System.err.println("  SSU attach:    \t"+fmt(tSSULoad)+"s");
+		System.err.println("  Query load:    \t"+fmt(tQueryLoad)+"s  ("+nQueries+" queries)");
+		System.err.println("  Compare+align: \t"+fmt(tCompare)+"s  ("+totalAlignments+" alignments)");
+		System.err.println("  Format:        \t"+fmt(tFormat)+"s");
 		System.err.println("Total time: \t"+t);
 	}
 
@@ -410,8 +403,15 @@ public class SSUCompare {
 	/*----------------       Client Mode            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void sendToServer(ArrayList<String> inFiles, String address, boolean callMode){
+	private static void sendToServer(ArrayList<String> inFiles, String address, boolean callMode,
+			int maxRecords, int minHits, int buffer, DDLFormatter formatter){
 		ByteBuilder bb=new ByteBuilder();
+		bb.append("//records=").append(maxRecords).append('\n');
+		bb.append("//minhits=").append(minHits).append('\n');
+		if(buffer>0){bb.append("//buffer=").append(buffer).append('\n');}
+		if(formatter.printLineage){bb.append("//lineage=t\n");}
+		if(formatter.printRank){bb.append("//rank=t\n");}
+		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
 		if(callMode){
 			ProkObject.callCDS=false;
 			ProkObject.calltRNA=false;
