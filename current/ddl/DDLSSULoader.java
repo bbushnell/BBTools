@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import dna.Data;
 import fileIO.FileFormat;
+import shared.Resources;
 import map.IntObjectMap;
 import stream.Read;
 import stream.StreamerFactory;
@@ -35,10 +36,8 @@ public class DDLSSULoader {
 	 * @return {map16S, map18S} — either may be null if resource not found */
 	@SuppressWarnings("unchecked")
 	public static IntObjectMap<byte[]>[] loadSSUMapsDefaults(){
-		String r16s=Data.findPath(DEFAULT_16S);
-		String r18s=Data.findPath(DEFAULT_18S);
-		if(r16s==null){System.err.println("Warning: 16S file not found: "+DEFAULT_16S);}
-		if(r18s==null){System.err.println("Warning: 18S file not found: "+DEFAULT_18S);}
+		String r16s=Resources.find(DEFAULT_16S, false);
+		String r18s=Resources.find(DEFAULT_18S, false);
 		IntObjectMap<byte[]> map16=(r16s!=null ? loadSSUMap(r16s) : null);
 		IntObjectMap<byte[]> map18=(r18s!=null ? loadSSUMap(r18s) : null);
 		return new IntObjectMap[]{map16, map18};
