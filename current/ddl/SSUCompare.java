@@ -7,6 +7,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import bin.GeneTools;
 import cardinality.DynamicDemiLog;
+import parse.Parse;
 import parse.Parser;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
@@ -45,8 +46,7 @@ public class SSUCompare {
 
 		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0;
 		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
-		boolean local=false, loud=false;
-		Read.U_TO_T=true;
+		boolean local=false, loud=false, callSetByUser=false;
 		String address=null;
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		String lookupName=null;
@@ -73,19 +73,29 @@ public class SSUCompare {
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("buffer")){buffer=Integer.parseInt(b);}
-			else if(a.equals("index")){useIndex=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("call") || a.equals("callssu")){callMode=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("align") || a.equals("alignssu")){alignSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("banself")){banSelf=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("loud")){loud=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
+			else if(a.equals("call") || a.equals("callssu")){callMode=Parse.parseBoolean(b); callSetByUser=true;}
+			else if(a.equals("align") || a.equals("alignssu")){alignSSU=Parse.parseBoolean(b);}
+			else if(a.equals("banself")){banSelf=Parse.parseBoolean(b);}
+			else if(a.equals("loud")){loud=Parse.parseBoolean(b);}
 			else if(a.equals("address")){address=b;}
-			else if(a.equals("local")){local=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
+			else if(a.equals("local")){local=Parse.parseBoolean(b);}
+			else if(a.equals("server")){local=!Parse.parseBoolean(b);}
 			else if(a.equals("in")){inFiles.add(b);}
 			else if(parser.parse(args[i], a, b)){/* handled */}
 			else if(b==null && !a.startsWith("-")){inFiles.add(args[i]);}
 		}
 
 		int threads=Shared.threads();
+
+		if(!callMode && !callSetByUser && queryFile==null && !inFiles.isEmpty()){
+			if(hasLongSequence(inFiles)){
+				System.err.println("WARNING: Input contains sequences longer than "+MAX_SSU_LEN+"bp.");
+				System.err.println("Switching to gene-calling mode. Use call=f to force SSU mode.");
+				callMode=true;
+			}
+		}
+
 		if(!local && address==null && refFile==null && ref16sFile==null && ref18sFile==null){
 			address=DEFAULT_ADDRESS;
 		}
@@ -493,6 +503,15 @@ public class SSUCompare {
 
 	private static String fmt(long nanos){return String.format("%.3f", nanos*1e-9);}
 
+	private static boolean hasLongSequence(ArrayList<String> inFiles){
+		for(String fname : inFiles){
+			FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
+			ArrayList<Read> reads=StreamerFactory.getReads(1, false, ff, null, null, null);
+			if(reads!=null && !reads.isEmpty() && reads.get(0).length()>MAX_SSU_LEN){return true;}
+		}
+		return false;
+	}
+
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Client Mode            ----------------*/
@@ -552,5 +571,6 @@ public class SSUCompare {
 	}
 
 	private static final int MIN_GENE_CALL_LENGTH=800;
+	private static final int MAX_SSU_LEN=4000;
 	private static final String DEFAULT_ADDRESS="https://bbmapservers.jgi.doe.gov/sendclade/findssu/";
 }

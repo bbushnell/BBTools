@@ -205,14 +205,22 @@ public class DDLFormatter implements Cloneable {
 		jsonFirst=false;
 		bb.append("  {");
 		boolean f=true;
-		if(printANI){if(!f){bb.append(',');} bb.append("\"ANI\":"); appendJsonFloat(bb, c.ani, 6); f=false;}
+		if(printANI){
+			if(!f){bb.append(',');}
+			float aniVal=(useAlignmentANI && c.ssuIdentity>=0) ? c.ssuIdentity : c.ani;
+			bb.append("\"ANI\":"); appendJsonFloat(bb, aniVal, 6); f=false;
+		}
 		if(printWKID && c.wkid>=0){if(!f){bb.append(',');} bb.append("\"WKID\":"); appendJsonFloat(bb, c.wkid, 6); f=false;}
+		if(printRank){if(!f){bb.append(',');} bb.append("\"Rank\":").append(c.rank); f=false;}
 		if(printCompleteness && c.completenessAB>=0){if(!f){bb.append(',');} bb.append("\"Completeness\":"); appendJsonFloat(bb, c.completenessAB, 6); f=false;}
 		if(printContainment && c.containmentAB>=0){if(!f){bb.append(',');} bb.append("\"Containment\":"); appendJsonFloat(bb, c.containmentAB, 6); f=false;}
 		if(printMatches){if(!f){bb.append(',');} bb.append("\"Matches\":").append(c.equal); f=false;}
+		if(printSSU && c.ssuIdentity>=0){if(!f){bb.append(',');} bb.append("\"SSU\":"); appendJsonFloat(bb, c.ssuIdentity, 6); f=false;}
+		if(printType){if(!f){bb.append(',');} bb.append("\"Type\":\"").append(ssuType(c.queryRecord)).append('"'); f=false;}
+		if(printQLen){if(!f){bb.append(',');} bb.append("\"qLen\":").append(ssuLen(c.queryRecord)); f=false;}
+		if(printRLen){if(!f){bb.append(',');} bb.append("\"rLen\":").append(ssuLen(c.refRecord)); f=false;}
 		if(printBases && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"Bases\":").append(c.refRecord.bases); f=false;}
 		if(printCardinality && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"Cardinality\":").append(c.refRecord.cardinality); f=false;}
-		if(printSSU && c.ssuIdentity>=0){if(!f){bb.append(',');} bb.append("\"SSU\":"); appendJsonFloat(bb, c.ssuIdentity, 4); f=false;}
 		if(printTaxID && c.refRecord!=null){if(!f){bb.append(',');} bb.append("\"TaxID\":").append(c.refRecord.taxID); f=false;}
 		String qn=qname(c); if(printQueryName && !qn.equals("-")){if(!f){bb.append(',');} bb.append("\"Query\":\""); escapeJson(bb, qn); bb.append('"'); f=false;}
 		String rn=rname(c); if(printName && !rn.equals("-")){if(!f){bb.append(',');} bb.append("\"Name\":\""); escapeJson(bb, rn); bb.append('"'); f=false;}
@@ -221,6 +229,9 @@ public class DDLFormatter implements Cloneable {
 			if(printContig && c.queryRecord.contigName!=null){if(!f){bb.append(',');} bb.append("\"Contig\":\""); escapeJson(bb, c.queryRecord.contigName); bb.append('"'); f=false;}
 			if(printStart && c.queryRecord.ssuStart>=0){if(!f){bb.append(',');} bb.append("\"Start\":").append(c.queryRecord.ssuStart); f=false;}
 			if(printStrand && c.queryRecord.ssuStrand!=0){if(!f){bb.append(',');} bb.append("\"Strand\":\"").append((char)c.queryRecord.ssuStrand).append('"'); f=false;}
+		}
+		if(printLineage && c.refRecord!=null && c.refRecord.lineage!=null){
+			if(!f){bb.append(',');} bb.append("\"Lineage\":\""); escapeJson(bb, c.refRecord.lineage); bb.append('"'); f=false;
 		}
 		bb.append('}');
 	}

@@ -66,8 +66,7 @@ printname=t     Show Name column in output.
 printtid=t      Show TID column in output.
 loud=f          Print detailed timing and configuration info.
 local=f         Force local processing (skip server, load refs locally).
-                By default, queries are sent to the JGI SSU server.
-                Use local=t to run entirely on your machine.
+server=t        Use the JGI SSU server (default).  Equivalent to local=f.
 k=19            K-mer length for hashing.
 buckets=128     Number of DDL buckets.
 exponent=4      Exponent bits.
