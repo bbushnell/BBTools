@@ -266,6 +266,9 @@ public class SSUServer {
 		private byte[] getResponse(ByteBuilder request){
 			boolean jsonOutput=false;
 			boolean callMode=false;
+			int reqRecords=maxRecords;
+			int reqMinHits=minHits;
+			int reqBuffer=buffer;
 
 			String body=request.toString();
 			if(body.startsWith("//JSON\n")){
@@ -281,6 +284,22 @@ public class SSUServer {
 			}
 
 			DDLFormatter formatter=makeFormatter(jsonOutput);
+
+			while(body.startsWith("//")){
+				int nl=body.indexOf('\n');
+				if(nl<0){break;}
+				String line=body.substring(2, nl);
+				body=body.substring(nl+1);
+				String[] split=line.split("=");
+				if(split.length!=2){continue;}
+				String a=split[0].toLowerCase();
+				String b=split[1];
+				if(formatter.parse(line, a, b)){/* handled */}
+				else if(a.equals("records") || a.equals("maxrecords")){reqRecords=Integer.parseInt(b);}
+				else if(a.equals("minhits")){reqMinHits=Integer.parseInt(b);}
+				else if(a.equals("buffer")){reqBuffer=Integer.parseInt(b);}
+			}
+
 			ArrayList<DDLRecord> queries;
 			if(callMode){
 				queries=processCallMode(body);
@@ -295,7 +314,7 @@ public class SSUServer {
 				return "# No valid SSU sequences found in input\n".getBytes();
 			}
 
-			return compareAndFormat(queries, formatter, jsonOutput);
+			return compareAndFormat(queries, formatter, jsonOutput, reqRecords, reqMinHits, reqBuffer);
 		}
 	}
 
@@ -413,7 +432,8 @@ public class SSUServer {
 	/*----------------    Compare and Format        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private byte[] compareAndFormat(ArrayList<DDLRecord> queries, DDLFormatter formatter, boolean jsonOutput){
+	private byte[] compareAndFormat(ArrayList<DDLRecord> queries, DDLFormatter formatter, boolean jsonOutput,
+			int reqRecords, int reqMinHits, int reqBuffer){
 		final int nQueries=queries.size();
 		@SuppressWarnings("unchecked")
 		final ArrayList<DDLComparison>[] allResults=new ArrayList[nQueries];
@@ -425,7 +445,7 @@ public class SSUServer {
 		CompareThread[] workers=new CompareThread[compareThreads];
 		for(int wi=0; wi<compareThreads; wi++){
 			workers[wi]=new CompareThread(queries, refs, nextQuery, allResults,
-				nQueries, nRefs, k, maxRecords, buffer, minHits, true, index,
+				nQueries, nRefs, k, reqRecords, reqBuffer, reqMinHits, true, index,
 				totalComparisons, true, false);
 			workers[wi].start();
 		}
@@ -446,7 +466,7 @@ public class SSUServer {
 			if(allResults[qi]==null){continue;}
 			int rank=0;
 			for(DDLComparison c : allResults[qi]){
-				if(c.equal<minHits){continue;}
+				if(c.equal<reqMinHits){continue;}
 				c.rank=++rank;
 				formatter.format(c, bb);
 			}
@@ -547,8 +567,11 @@ public class SSUServer {
 	private String usageString(){
 		return "SSUServer — SSU (16S/18S) classification server\n"
 			+"POST raw FASTA to classify SSU sequences.\n"
-			+"Prefix body with //Call\\n for gene-calling mode.\n"
 			+"Prefix body with //JSON\\n for JSON output.\n"
+			+"Prefix body with //Call\\n for gene-calling mode.\n"
+			+"Per-request parameters as //key=value\\n prefixes:\n"
+			+"  //records=10\\n  //minhits=4\\n  //lineage=t\\n  //rank=t\\n\n"
+			+"  All DDLFormatter flags supported (printANI, printWKID, etc.)\n"
 			+"Port: "+port+"  References: "+nRefs+"\n";
 	}
 
