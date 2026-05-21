@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Noire
-Last modified May 20, 2026
+Last modified May 21, 2026
 
 Description:  Identifies and classifies ribosomal SSU (16S/18S) sequences
 using DynamicDemiLog (DDL) sketching against a pre-built SSU reference
@@ -16,6 +16,8 @@ database.  Two modes:
 
 Usage:  findssu.sh ssu1.fa [ssu2.fa ...] [records=5]
     or: findssu.sh genome.fa call
+    or: findssu.sh name=Escherichia_coli local
+    or: findssu.sh tid=562 local
     or: findssu.sh ssu.fa ref16s=<16S.tsv> ref18s=<18S.tsv>
 
 Required resource files are loaded automatically from BBTools/resources/:
@@ -42,6 +44,12 @@ ref16s=<file>   Separate 16S reference file.
 ref18s=<file>   Separate 18S reference file.
 qf=<file>       Pre-built DDL query file for batch comparison.
 call            Enable gene-calling mode for genomic input.
+name=<name>     Look up a reference by organism name.  Accepts full names
+                (name=Escherichia_coli), abbreviated (name=E.coli), or
+                partial prefix matches.  Outputs TID, Name, and Sequence.
+                Requires local mode.
+tid=<int>       Look up a reference by NCBI TaxID (e.g. tid=562).
+                Outputs TID, Name, and Sequence.  Requires local mode.
 records=5       Max hits to display per query.
 minhits=8       Minimum shared index keys to compare a ref.
 buffer=0        Alignment buffer size.  After index filtering, the top
@@ -51,8 +59,11 @@ buffer=0        Alignment buffer size.  After index filtering, the top
 index=t         Use inverted index for query acceleration.
 align=t         Perform SSU alignment for ANI calculation.
 banself=f       Skip self-comparisons (when query and ref share a TaxID).
+sequence=f      Print SSU sequence as last output column.
 rank=f          Print rank column in output.
 lineage=f       Print lineage column in output.
+printname=t     Show Name column in output.
+printtid=t      Show TID column in output.
 loud=f          Print detailed timing and configuration info.
 local=f         Force local processing (skip server, load refs locally).
                 By default, queries are sent to the JGI SSU server.
