@@ -7,9 +7,12 @@ import java.util.concurrent.atomic.AtomicLong;
 import bin.GeneTools;
 import cardinality.DynamicDemiLog;
 import fileIO.FileFormat;
+import fileIO.ReadWrite;
 import idaligner.QuantumAligner;
 import prok.ProkObject;
+import server.ServerTools;
 import shared.Resources;
+import structures.StringNum;
 import shared.Timer;
 import stream.Read;
 import stream.StreamerFactory;
@@ -39,6 +42,8 @@ public class SSUCompare {
 
 		int k=19, buckets=128, maxRecords=5, minHits=8, buffer=0, threads=1;
 		boolean useIndex=true, callMode=false, alignSSU=true, banSelf=false;
+		boolean local=false;
+		String address=null;
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		ArrayList<String> inFiles=new ArrayList<>();
 		DDLFormatter formatter=new DDLFormatter();
@@ -64,8 +69,18 @@ public class SSUCompare {
 			else if(a.equals("align") || a.equals("alignssu")){alignSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("banself")){banSelf=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
+			else if(a.equals("address")){address=b;}
+			else if(a.equals("local")){local=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
 			else if(a.equals("in")){inFiles.add(b);}
 			else if(b==null && !a.startsWith("-")){inFiles.add(args[i]);}
+		}
+
+		if(!local && address==null && refFile==null && ref16sFile==null && ref18sFile==null){
+			address=DEFAULT_ADDRESS;
+		}
+		if(address!=null && !local){
+			sendToServer(inFiles, address, callMode);
+			return;
 		}
 
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
@@ -384,5 +399,36 @@ public class SSUCompare {
 
 	private static String fmt(long nanos){return String.format("%.3f", nanos*1e-9);}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       Client Mode            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static void sendToServer(ArrayList<String> inFiles, String address, boolean callMode){
+		ByteBuilder bb=new ByteBuilder();
+		if(callMode){bb.append("//Call\n");}
+		for(String fname : inFiles){
+			try{
+				byte[] raw=ReadWrite.readRaw(fname);
+				if(raw!=null){bb.append(raw);}
+			}catch(java.io.IOException e){
+				System.err.println("ERROR reading "+fname+": "+e.getMessage());
+				System.exit(1);
+			}
+		}
+		if(bb.length()==0 || (callMode && bb.length()<=7)){
+			System.err.println("ERROR: no input data to send.");
+			System.exit(1);
+		}
+		System.err.println("Sending "+bb.length()+" bytes to "+address);
+		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
+		if(result!=null && result.s!=null){
+			System.out.print(result.s);
+		}else{
+			System.err.println("ERROR: No response from server at "+address);
+			System.exit(1);
+		}
+	}
+
 	private static final int MIN_GENE_CALL_LENGTH=800;
+	private static final String DEFAULT_ADDRESS="https://bbmapservers.jgi.doe.gov/sendclade/findssu/";
 }
