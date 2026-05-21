@@ -2,6 +2,7 @@ package ddl;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import bin.GeneTools;
@@ -47,6 +48,8 @@ public class SSUCompare {
 		boolean local=false, loud=false;
 		String address=null;
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
+		String lookupName=null;
+		int lookupTid=-1;
 		ArrayList<String> inFiles=new ArrayList<>();
 		DDLFormatter formatter=new DDLFormatter();
 		Parser parser=new Parser();
@@ -56,7 +59,9 @@ public class SSUCompare {
 			String[] split=args[i].split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(formatter.parse(args[i], a, b)){/* handled */}
+			if(a.equals("name") || a.equals("organism")){lookupName=b;}
+			else if((a.equals("tid") || a.equals("taxid")) && b!=null){lookupTid=Integer.parseInt(b);}
+			else if(formatter.parse(args[i], a, b)){/* handled */}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
@@ -91,6 +96,12 @@ public class SSUCompare {
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
 			refFile=Resources.find("?ssuSketchDDL.tsv.gz");
 		}
+
+		if(lookupName!=null || lookupTid>=0){
+			lookupMode(refFile, lookupName, lookupTid, k, threads, formatter);
+			return;
+		}
+
 		if(queryFile==null && inFiles.isEmpty()){
 			System.err.println("ERROR: no input files or queryfile specified.");
 			System.exit(1);
@@ -293,6 +304,81 @@ public class SSUCompare {
 	}
 
 	/*--------------------------------------------------------------*/
+	/*----------------     Lookup Mode              ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static void lookupMode(String refPath, String lookupName, int lookupTid,
+			int k, int threads, DDLFormatter formatter){
+		System.err.println("Loading SSU references from "+refPath+"...");
+		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
+		System.err.println("Loaded "+refs.size()+" refs.");
+
+		map.IntObjectMap<byte[]>[] maps=DDLSSULoader.loadSSUMapsDefaults();
+		map.IntObjectMap<byte[]> map16=maps[0], map18=maps[1];
+		for(DDLRecord rec : refs){
+			if(rec.taxID<=0){continue;}
+			if(map16!=null){byte[] seq=map16.get(rec.taxID); if(seq!=null){rec.r16S=seq;}}
+			if(rec.r16S==null && map18!=null){byte[] seq=map18.get(rec.taxID); if(seq!=null){rec.r18S=seq;}}
+		}
+
+		ArrayList<DDLRecord> results=new ArrayList<>();
+		if(lookupTid>=0){
+			for(DDLRecord rec : refs){
+				if(rec.taxID==lookupTid){results.add(rec);}
+			}
+		}else{
+			String key=lookupName.toLowerCase().replace(' ', '_');
+			boolean abbreviated=(key.length()>1 && key.charAt(1)=='.');
+
+			HashMap<String, DDLRecord> fullNameMap=new HashMap<>();
+			HashMap<String, DDLRecord> abbrNameMap=new HashMap<>();
+			for(DDLRecord rec : refs){
+				if(rec.name==null){continue;}
+				String full=rec.name.toLowerCase().replace(' ', '_');
+				fullNameMap.putIfAbsent(full, rec);
+				String abbr=abbreviate(rec.name);
+				if(abbr!=null){abbrNameMap.putIfAbsent(abbr, rec);}
+			}
+
+			DDLRecord match=fullNameMap.get(key);
+			if(match==null){match=abbrNameMap.get(key);}
+			if(match==null){
+				for(java.util.Map.Entry<String, DDLRecord> e : fullNameMap.entrySet()){
+					if(e.getKey().startsWith(key)){results.add(e.getValue());}
+				}
+			}else{
+				results.add(match);
+			}
+		}
+
+		if(results.isEmpty()){
+			System.err.println("No matching records found.");
+			return;
+		}
+
+		ByteBuilder bb=new ByteBuilder();
+		bb.append("TID\tName");
+		if(formatter.printLineage){bb.append("\tLineage");}
+		bb.append("\tSequence").nl();
+		for(DDLRecord rec : results){
+			bb.append(rec.taxID).tab();
+			bb.append(rec.name!=null ? rec.name : "-");
+			if(formatter.printLineage){bb.tab().append(rec.lineage!=null ? rec.lineage : "-");}
+			bb.tab().append(DDLFormatter.seqString(rec));
+			bb.nl();
+		}
+		System.out.print(bb);
+		System.err.println("Found "+results.size()+" matching record(s).");
+	}
+
+	private static String abbreviate(String name){
+		if(name==null || name.length()<3){return null;}
+		String[] parts=name.toLowerCase().split("\\s+");
+		if(parts.length<2){return null;}
+		return parts[0].charAt(0)+"."+parts[1];
+	}
+
+	/*--------------------------------------------------------------*/
 	/*----------------     Mode 1: SSU Input        ----------------*/
 	/*--------------------------------------------------------------*/
 
@@ -405,6 +491,7 @@ public class SSUCompare {
 	}
 
 	private static String fmt(long nanos){return String.format("%.3f", nanos*1e-9);}
+
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Client Mode            ----------------*/

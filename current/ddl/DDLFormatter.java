@@ -65,8 +65,8 @@ public class DDLFormatter implements Cloneable {
 		else if(a.equals("printcontainment") || a.equals("containment")){printContainment=parseBool(b);}
 		else if(a.equals("printmatches") || a.equals("matches")){printMatches=parseBool(b);}
 		else if(a.equals("printbases") || a.equals("bases")){printBases=parseBool(b);}
-		else if(a.equals("printtaxid") || a.equals("taxid") || a.equals("tid")){printTaxID=parseBool(b);}
-		else if(a.equals("printname") || a.equals("name")){printName=parseBool(b);}
+		else if(a.equals("printtaxid") || a.equals("showtaxid") || a.equals("printtid") || a.equals("showtid")){printTaxID=parseBool(b);}
+		else if(a.equals("printname") || a.equals("showname")){printName=parseBool(b);}
 		else if(a.equals("printcardinality") || a.equals("cardinality") || a.equals("card")){printCardinality=parseBool(b);}
 		else if(a.equals("printqueryname") || a.equals("queryname") || a.equals("qname")){printQueryName=parseBool(b);}
 		else if(a.equals("printssu") || a.equals("ssuani")){printSSU=parseBool(b);}
@@ -79,6 +79,7 @@ public class DDLFormatter implements Cloneable {
 		else if(a.equals("printstrand")){printStrand=parseBool(b);}
 		else if(a.equals("printrank") || a.equals("rank")){printRank=parseBool(b);}
 		else if(a.equals("printlineage") || a.equals("lineage")){printLineage=parseBool(b);}
+		else if(a.equals("printsequence") || a.equals("sequence") || a.equals("seq")){printSequence=parseBool(b);}
 		else if(a.equals("alignani") || a.equals("usealignmentani")){useAlignmentANI=parseBool(b);}
 		else if(a.equals("printall")){
 			boolean x=parseBool(b);
@@ -149,6 +150,7 @@ public class DDLFormatter implements Cloneable {
 		if(printStart){if(!first){bb.tab();} bb.append("Start"); first=false;}
 		if(printStrand){if(!first){bb.tab();} bb.append("Strand"); first=false;}
 		if(printLineage){if(!first){bb.tab();} bb.append("Lineage"); first=false;}
+		if(printSequence){if(!first){bb.tab();} bb.append("Sequence"); first=false;}
 		bb.nl();
 	}
 
@@ -179,6 +181,7 @@ public class DDLFormatter implements Cloneable {
 		if(printStart){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStart>=0 ? c.queryRecord.ssuStart : -1); first=false;}
 		if(printStrand){if(!first){bb.tab();} bb.append(c.queryRecord!=null && c.queryRecord.ssuStrand!=0 ? (char)c.queryRecord.ssuStrand : '-'); first=false;}
 		if(printLineage){if(!first){bb.tab();} bb.append(c.refRecord!=null && c.refRecord.lineage!=null ? c.refRecord.lineage : "-"); first=false;}
+		if(printSequence){if(!first){bb.tab();} bb.append(seqString(c.refRecord)); first=false;}
 		bb.nl();
 	}
 
@@ -285,6 +288,12 @@ public class DDLFormatter implements Cloneable {
 		return b!=null ? b.length : 0;
 	}
 
+	static String seqString(DDLRecord rec){
+		if(rec==null){return "-";}
+		byte[] b=rec.riboBytes();
+		return b!=null ? new String(b) : "-";
+	}
+
 	/** Appends a float with fixed decimal places. */
 	private static void appendFloat(ByteBuilder bb, float v, int decimals){
 		bb.appendSlow(v, decimals);
@@ -329,6 +338,7 @@ public class DDLFormatter implements Cloneable {
 	public boolean printStrand=false;
 	public boolean printRank=false;
 	public boolean printLineage=false;
+	public boolean printSequence=false;
 	public boolean useAlignmentANI=false;
 
 	/* Header control */
