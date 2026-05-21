@@ -53,10 +53,14 @@ align=t         Perform SSU alignment for ANI calculation.
 banself=f       Skip self-comparisons (when query and ref share a TaxID).
 rank=f          Print rank column in output.
 lineage=f       Print lineage column in output.
+loud=f          Print detailed timing and configuration info.
+local=f         Force local processing (skip server, load refs locally).
+                By default, queries are sent to the JGI SSU server.
+                Use local=t to run entirely on your machine.
 k=19            K-mer length for hashing.
 buckets=128     Number of DDL buckets.
 exponent=4      Exponent bits.
-t=1             Number of threads.
+t=auto          Number of threads (default: all available cores).
 
 Output columns:
 ANI, WKID, Rank, Matches, Type, qLen, rLen, TID, Query, Name,
