@@ -526,6 +526,7 @@ public class SSUCompare {
 		if(formatter.printLineage){bb.append("//lineage=t\n");}
 		if(formatter.printRank){bb.append("//rank=t\n");}
 		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
+		if(!inFiles.isEmpty()){bb.append("//filename=").append(new File(inFiles.get(0)).getName()).append('\n');}
 		if(callMode){
 			ProkObject.callCDS=false;
 			ProkObject.calltRNA=false;
