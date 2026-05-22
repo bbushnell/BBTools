@@ -294,10 +294,19 @@ public class SSUServer {
 
 			while(body.startsWith("//")){
 				int nl=body.indexOf('\n');
-				if(nl<0){break;}
-				String line=body.substring(2, nl);
-				body=body.substring(nl+1);
-				String[] split=line.split("=");
+				String line;
+				if(nl<0){
+					line=body.substring(2);
+					body="";
+				}else{
+					line=body.substring(2, nl);
+					body=body.substring(nl+1);
+				}
+				String lc=line.toLowerCase();
+				if(lc.equals("json")){jsonOutput=true; formatter.format=DDLFormatter.FORMAT_JSON; continue;}
+				if(lc.equals("call")){callMode=true; continue;}
+				if(lc.startsWith("status")){return statusResponse().getBytes();}
+				String[] split=line.split("=", 2);
 				if(split.length!=2){continue;}
 				String a=split[0].toLowerCase();
 				String b=split[1];
@@ -436,7 +445,7 @@ public class SSUServer {
 			rec.bases=ssu.bases.length;
 			rec.contigs=1;
 			rec.cardinality=ddl.cardinality();
-			rec.filename="http_query";
+			rec.filename=filename;
 			rec.contigName=cname;
 			rec.ssuStart=ssu.start;
 			rec.ssuStrand=ssu.strand;
