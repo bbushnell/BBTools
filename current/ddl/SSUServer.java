@@ -275,6 +275,7 @@ public class SSUServer {
 			int reqBuffer=buffer;
 			String lookupName=null;
 			int lookupTid=-1;
+			String filename="http_query";
 
 			String body=request.toString();
 			if(body.startsWith("//JSON\n")){
@@ -306,6 +307,7 @@ public class SSUServer {
 				else if(a.equals("buffer")){reqBuffer=Integer.parseInt(b);}
 				else if(a.equals("name") || a.equals("organism")){lookupName=b;}
 				else if(a.equals("tid") || a.equals("taxid")){lookupTid=Integer.parseInt(b);}
+				else if(a.equals("filename") || a.equals("file")){filename=b;}
 			}
 
 			if(lookupName!=null || lookupTid>=0){
@@ -314,9 +316,9 @@ public class SSUServer {
 
 			ArrayList<DDLRecord> queries;
 			if(callMode){
-				queries=processCallMode(body);
+				queries=processCallMode(body, filename);
 			}else{
-				queries=processSSUMode(body);
+				queries=processSSUMode(body, filename);
 			}
 
 			if(queries.isEmpty()){
@@ -354,7 +356,7 @@ public class SSUServer {
 	/*----------------       Query Processing       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private ArrayList<DDLRecord> processSSUMode(String fastaBody){
+	private ArrayList<DDLRecord> processSSUMode(String fastaBody, String filename){
 		QuantumAligner aligner=new QuantumAligner();
 		ArrayList<DDLRecord> queries=new ArrayList<>();
 
@@ -366,7 +368,7 @@ public class SSUServer {
 			line=line.trim();
 			if(line.startsWith(">")){
 				if(currentName!=null && seqBuilder.length()>0){
-					DDLRecord rec=makeSSURecord(currentName, seqBuilder.toString(), aligner, "http_query");
+					DDLRecord rec=makeSSURecord(currentName, seqBuilder.toString(), aligner, filename);
 					if(rec!=null){queries.add(rec);}
 				}
 				currentName=line.substring(1).trim();
@@ -376,7 +378,7 @@ public class SSUServer {
 			}
 		}
 		if(currentName!=null && seqBuilder.length()>0){
-			DDLRecord rec=makeSSURecord(currentName, seqBuilder.toString(), aligner, "http_query");
+			DDLRecord rec=makeSSURecord(currentName, seqBuilder.toString(), aligner, filename);
 			if(rec!=null){queries.add(rec);}
 		}
 		return queries;
@@ -389,6 +391,22 @@ public class SSUServer {
 		float id18=(consensus18S!=null ? aligner.align(bases, consensus18S) : 0);
 		boolean is16S=(id16>=id18);
 
+		String contigName=name;
+		int ssuStart=0;
+		byte ssuStrand=(byte)'+';
+		int colonIdx=name.lastIndexOf(':');
+		if(colonIdx>0 && colonIdx<name.length()-1){
+			String suffix=name.substring(colonIdx+1);
+			char lastChar=suffix.charAt(suffix.length()-1);
+			if(lastChar=='+' || lastChar=='-'){
+				try{
+					ssuStart=Integer.parseInt(suffix.substring(0, suffix.length()-1));
+					ssuStrand=(byte)lastChar;
+					contigName=name.substring(0, colonIdx);
+				}catch(NumberFormatException e){}
+			}
+		}
+
 		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
 		Read r=new Read(bases, null, name, 0);
 		ddl.hash(r);
@@ -397,16 +415,16 @@ public class SSUServer {
 		rec.contigs=1;
 		rec.cardinality=ddl.cardinality();
 		rec.filename=filename;
-		rec.contigName=name;
-		rec.ssuStart=0;
-		rec.ssuStrand=(byte)'+';
+		rec.contigName=contigName;
+		rec.ssuStart=ssuStart;
+		rec.ssuStrand=ssuStrand;
 		if(is16S){rec.r16S=bases;}else{rec.r18S=bases;}
 		return rec;
 	}
 
-	private ArrayList<DDLRecord> processCallMode(String fastaBody){
+	private ArrayList<DDLRecord> processCallMode(String fastaBody, String filename){
 		ArrayList<Read> reads=ServerTools.parseFastaBody(fastaBody);
-		ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(reads, "http_query", MIN_GENE_CALL_LENGTH);
+		ArrayList<SSURecord> ssus=DDLQueryLoaderSF.findAllSSU(reads, filename, MIN_GENE_CALL_LENGTH);
 		ArrayList<DDLRecord> queries=new ArrayList<>();
 		for(SSURecord ssu : ssus){
 			String cname=ssu.contigName;
