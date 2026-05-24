@@ -108,7 +108,13 @@ public class SSUCompare {
 			address=DEFAULT_ADDRESS;
 		}
 		if(address!=null && !local){
-			sendToServer(inFiles, address, callMode, maxRecords, minHits, buffer, formatter);
+			if(lookupName!=null || lookupTid>=0){
+				sendLookupToServer(address, lookupName, lookupTid, filterType, formatter);
+			}else if(literal!=null){
+				sendLiteralToServer(address, literal, maxRecords, minHits, buffer, formatter);
+			}else{
+				sendToServer(inFiles, address, callMode, maxRecords, minHits, buffer, formatter);
+			}
 			return;
 		}
 
@@ -648,6 +654,47 @@ public class SSUCompare {
 			System.exit(1);
 		}
 		System.err.println("Sending "+bb.length()+" bytes to "+address);
+		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
+		if(result!=null && result.s!=null){
+			System.out.print(result.s);
+		}else{
+			System.err.println("ERROR: No response from server at "+address);
+			System.exit(1);
+		}
+	}
+
+	private static void sendLookupToServer(String address, String lookupName, int lookupTid,
+			int filterType, DDLFormatter formatter){
+		ByteBuilder bb=new ByteBuilder();
+		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
+		if(formatter.printLineage){bb.append("//lineage=t\n");}
+		if(filterType>=0){bb.append("//type=").append(DDLRecord.riboName(filterType)).append('\n');}
+		if(lookupTid>=0){
+			bb.append("//tid=").append(lookupTid).append('\n');
+		}else{
+			bb.append("//name=").append(lookupName).append('\n');
+		}
+		System.err.println("Sending lookup to "+address);
+		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
+		if(result!=null && result.s!=null){
+			System.out.print(result.s);
+		}else{
+			System.err.println("ERROR: No response from server at "+address);
+			System.exit(1);
+		}
+	}
+
+	private static void sendLiteralToServer(String address, String literal,
+			int maxRecords, int minHits, int buffer, DDLFormatter formatter){
+		ByteBuilder bb=new ByteBuilder();
+		bb.append("//records=").append(maxRecords).append('\n');
+		bb.append("//minhits=").append(minHits).append('\n');
+		if(buffer>0){bb.append("//buffer=").append(buffer).append('\n');}
+		if(formatter.printLineage){bb.append("//lineage=t\n");}
+		if(formatter.printRank){bb.append("//rank=t\n");}
+		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
+		bb.append("//literal=").append(literal).append('\n');
+		System.err.println("Sending "+literal.length()+" bases to "+address);
 		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
 		if(result!=null && result.s!=null){
 			System.out.print(result.s);
