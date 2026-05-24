@@ -279,6 +279,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		}
 		if(!r18sFile.isEmpty()) {
 			for(String fname : r18sFile) {
+				//TODO: Probable bug: passes true (is16S) for 18S files; should be false
 				r18sAdded+=addRibo(map, fname, true);
 			}
 			System.err.println("Added "+r18sAdded+" 18S.");

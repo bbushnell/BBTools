@@ -185,10 +185,13 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 				if(taxLevelE>0) {useTree=true;}
 			}else if(a.equalsIgnoreCase("process16S") || a.equalsIgnoreCase("16S")){
 				process16S=Parse.parseBoolean(b);
-				process18S=!process16S;
+				if(process16S){process18S=false; processITS=false;}
 			}else if(a.equalsIgnoreCase("process18S") || a.equalsIgnoreCase("18S")){
 				process18S=Parse.parseBoolean(b);
-				process16S=!process18S;
+				if(process18S){process16S=false; processITS=false;}
+			}else if(a.equalsIgnoreCase("processITS") || a.equalsIgnoreCase("ITS")){
+				processITS=Parse.parseBoolean(b);
+				if(processITS){process16S=false; process18S=false;}
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -243,8 +246,9 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
-		assert(process16S || process18S) : "16S or 18S must be selected.";
-		assert(!process16S || !process18S) : "16S or 18S are both selected; only one may be active.";
+		assert(process16S || process18S || processITS) : "16S, 18S, or ITS must be selected.";
+		int modeCount=(process16S?1:0)+(process18S?1:0)+(processITS?1:0);
+		assert(modeCount==1) : "Exactly one of 16S, 18S, or ITS must be selected.";
 		return true;
 	}
 	
@@ -264,6 +268,18 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			Read[] data=ProkObject.loadConsensusSequenceType("18S", true, true);
 			consensus18S=data[0].bases;
 			if(verbose){System.err.println("process18S: Loaded 18S consensus, length "+consensus18S.length+": "+new String(consensus18S));}
+		}
+		if(processITS){
+			String[] itsTypes={"ITS_fungi", "ITS_plant", "ITS_animal", "ITS_other"};
+			ArrayList<byte[]> itsList=new ArrayList<byte[]>();
+			for(String type : itsTypes){
+				Read[] data=ProkObject.loadConsensusSequenceType(type, false, false);
+				if(data!=null && data.length>0){
+					itsList.add(data[0].bases);
+					if(verbose){System.err.println("processITS: Loaded "+type+" consensus, length "+data[0].length());}
+				}
+			}
+			consensusITS=itsList.toArray(new byte[0][]);
 		}
 		
 		//Turn off read validation in the input threads to increase speed
@@ -585,7 +601,7 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			if(list.size()<3 || fast){return list.get(0);}
 			
 			Ribo base=list.get(0);
-			int pad=Tools.max(10, (1600-base.r.length()));
+			int pad=Tools.max(10, ((processITS ? 900 : 1600)-base.r.length()));
 			BaseGraph bg=new BaseGraph(base.r.name(), base.r.bases, base.r.quality, base.r.numericID, pad);
 			for(Ribo r : list){
 				bg.alignAndGenerateMatch(r.r, ssa);
@@ -649,8 +665,14 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		float align(Read r){
 			float a=(process16S ? ssa.align(r.bases, consensus16S) : 0);
 			float b=(process18S ? ssa.align(r.bases, consensus18S) : 0);
-			if(verbose && threadID==0){System.err.println("Aligned; a="+a+", b="+b);}
-			return Tools.max(a, b);
+			float c=0;
+			if(processITS){
+				for(byte[] con : consensusITS){
+					c=Tools.max(c, ssa.align(r.bases, con));
+				}
+			}
+			if(verbose && threadID==0){System.err.println("Aligned; a="+a+", b="+b+", c="+c);}
+			return Tools.max(a, b, c);
 		}
 		
 		/**
@@ -807,6 +829,8 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	byte[] consensus16S;
 	/** Consensus 18S rRNA sequence for alignment reference */
 	byte[] consensus18S;
+	/** Consensus ITS sequences for alignment reference (fungi, plant, animal, other) */
+	byte[][] consensusITS;
 	
 	/**
 	 * Gets the ideal sequence length based on the selected ribosomal RNA type.
@@ -815,7 +839,8 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	 */
 	int idealLength(){
 		if(process16S){return consensus16S.length;}
-		return consensus18S.length;
+		if(process18S){return consensus18S.length;}
+		return consensusITS[0].length;
 	}
 	
 	/** Whether to generate consensus sequences instead of selecting single best */
@@ -851,6 +876,8 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	private boolean process16S=true;
 	/** Whether to process 18S ribosomal RNA sequences */
 	private boolean process18S=false;
+	/** Whether to process ITS sequences */
+	private boolean processITS=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

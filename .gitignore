@@ -7,4 +7,5 @@ resources/refseqSketchDDL.tsv.gz
 resources/refseqSketchDDL_merged.tsv.gz
 resources/ribokmers.fa.gz
 current/cardinality/*ExaLog*
-resources/ssuSketchDDL.tsv.gz
+resources/*SketchDDL.tsv.gz
+resources/all_*_best_taxsorted.fa.gz
