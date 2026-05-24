@@ -31,8 +31,8 @@ import stream.StreamerFactory;
 import structures.ByteBuilder;
 
 /**
- * Persistent HTTP server for SSU (16S/18S) classification.
- * Preloads 276k DDL reference sketches and inverted index at startup,
+ * Persistent HTTP server for SSU (16S/18S) and ITS classification.
+ * Preloads 312k DDL reference sketches and inverted index at startup,
  * then serves classification queries over HTTP.
  *
  * Modeled after CladeServer. Body-prefix routing:
@@ -112,6 +112,7 @@ public class SSUServer {
 
 		maps=DDLSSULoader.loadSSUMapsDefaults();
 		map.IntObjectMap<byte[]> map16=maps[0], map18=maps[1];
+		mapITS=DDLSSULoader.loadITSMapDefault();
 
 		Thread pgmThread=new Thread(()->{GeneTools.loadPGM();});
 		pgmThread.setDaemon(true);
@@ -140,14 +141,18 @@ public class SSUServer {
 				refs.addAll(r18);
 			}
 		}else{
-			System.err.println("Loading SSU references from "+refFile+"...");
+			System.err.println("Loading references from "+refFile+"...");
 			refs=DDLLoaderMT.loadFile(refFile, k, threads);
-			int a16=0, a18=0;
+			int a16=0, a18=0, aITS=0;
 			for(DDLRecord rec : refs){
 				if(rec.taxID<=0){continue;}
+				boolean isITS=(rec.filename!=null && (rec.filename.contains("its") || rec.filename.contains("ITS")));
 				boolean is16S=(rec.filename!=null && rec.filename.contains("16S"));
 				boolean is18S=(rec.filename!=null && rec.filename.contains("18S"));
-				if(is16S && map16!=null){
+				if(isITS && mapITS!=null){
+					byte[] seq=mapITS.get(rec.taxID);
+					if(seq!=null){rec.rITS=seq; aITS++;}
+				}else if(is16S && map16!=null){
 					byte[] seq=map16.get(rec.taxID);
 					if(seq!=null){rec.r16S=seq; a16++;}
 				}else if(is18S && map18!=null){
@@ -162,7 +167,7 @@ public class SSUServer {
 					}
 				}
 			}
-			System.err.println("Attached "+a16+" 16S and "+a18+" 18S sequences to "+refs.size()+" refs.");
+			System.err.println("Attached "+a16+" 16S, "+a18+" 18S, "+aITS+" ITS sequences to "+refs.size()+" refs.");
 		}
 
 		System.err.println("Total: "+refs.size()+" reference SSU DDLs.");
@@ -275,6 +280,8 @@ public class SSUServer {
 			int reqBuffer=buffer;
 			String lookupName=null;
 			int lookupTid=-1;
+			int filterType=-1;
+			String literal=null;
 			String filename="http_query";
 
 			String body=request.toString();
@@ -316,15 +323,24 @@ public class SSUServer {
 				else if(a.equals("buffer")){reqBuffer=Integer.parseInt(b);}
 				else if(a.equals("name") || a.equals("organism")){lookupName=b;}
 				else if(a.equals("tid") || a.equals("taxid")){lookupTid=Integer.parseInt(b);}
+				else if(a.equals("literal") || a.equals("seq")){literal=b;}
+				else if(a.equals("type")){
+					String t=b.toLowerCase();
+					if(t.equals("its")){filterType=DDLRecord.RIBO_ITS;}
+					else if(t.equals("16s")){filterType=DDLRecord.RIBO_16S;}
+					else if(t.equals("18s")){filterType=DDLRecord.RIBO_18S;}
+				}
 				else if(a.equals("filename") || a.equals("file")){filename=b;}
 			}
 
 			if(lookupName!=null || lookupTid>=0){
-				return processLookup(lookupName, lookupTid, formatter, jsonOutput);
+				return processLookup(lookupName, lookupTid, filterType, formatter, jsonOutput);
 			}
 
 			ArrayList<DDLRecord> queries;
-			if(callMode){
+			if(literal!=null){
+				queries=processLiteral(literal, filename);
+			}else if(callMode){
 				queries=processCallMode(body, filename);
 			}else{
 				queries=processSSUMode(body, filename);
@@ -393,12 +409,20 @@ public class SSUServer {
 		return queries;
 	}
 
+	private ArrayList<DDLRecord> processLiteral(String seq, String filename){
+		QuantumAligner aligner=new QuantumAligner();
+		ArrayList<DDLRecord> queries=new ArrayList<>();
+		DDLRecord rec=makeSSURecord("literal", seq, aligner, filename);
+		if(rec!=null){queries.add(rec);}
+		return queries;
+	}
+
 	private DDLRecord makeSSURecord(String name, String seqStr, QuantumAligner aligner, String filename){
 		byte[] bases=seqStr.getBytes();
 		if(bases.length<50){return null;}
 		float id16=(consensus16S!=null ? aligner.align(bases, consensus16S) : 0);
 		float id18=(consensus18S!=null ? aligner.align(bases, consensus18S) : 0);
-		boolean is16S=(id16>=id18);
+		float uBest=Tools.max(id16, id18);
 
 		String contigName=name;
 		int ssuStart=0;
@@ -427,7 +451,13 @@ public class SSUServer {
 		rec.contigName=contigName;
 		rec.ssuStart=ssuStart;
 		rec.ssuStrand=ssuStrand;
-		if(is16S){rec.r16S=bases;}else{rec.r18S=bases;}
+		if(uBest>=SSU_CONFIDENT){
+			if(id16>=id18){rec.r16S=bases;}else{rec.r18S=bases;}
+		}else if(uBest<ITS_CEILING){
+			rec.rITS=bases;
+		}else{
+			rec.r16S=bases; rec.r18S=bases; rec.rITS=bases;
+		}
 		return rec;
 	}
 
@@ -464,34 +494,41 @@ public class SSUServer {
 		abbrNameMap=new HashMap<>();
 		tidMap=new HashMap<>();
 		for(DDLRecord rec : refs){
-			if(rec.taxID>0){tidMap.putIfAbsent(rec.taxID, rec);}
+			if(rec.taxID>0){tidMap.computeIfAbsent(rec.taxID, x -> new ArrayList<>()).add(rec);}
 			if(rec.name==null){continue;}
 			String full=rec.name.toLowerCase().replace(' ', '_');
-			fullNameMap.putIfAbsent(full, rec);
+			fullNameMap.computeIfAbsent(full, x -> new ArrayList<>()).add(rec);
 			String abbr=abbreviate(rec.name);
-			if(abbr!=null){abbrNameMap.putIfAbsent(abbr, rec);}
+			if(abbr!=null){abbrNameMap.computeIfAbsent(abbr, x -> new ArrayList<>()).add(rec);}
 		}
 		System.err.println("Built lookup maps: "+fullNameMap.size()+" names, "
 			+abbrNameMap.size()+" abbreviated, "+tidMap.size()+" TIDs.");
 	}
 
 	private byte[] processLookup(String lookupName, int lookupTid,
-			DDLFormatter formatter, boolean jsonOutput){
+			int filterType, DDLFormatter formatter, boolean jsonOutput){
 		ArrayList<DDLRecord> results=new ArrayList<>();
 		if(lookupTid>=0){
-			DDLRecord match=tidMap.get(lookupTid);
-			if(match!=null){results.add(match);}
+			ArrayList<DDLRecord> matches=tidMap.get(lookupTid);
+			if(matches!=null){results.addAll(matches);}
 		}else{
 			String key=lookupName.toLowerCase().replace(' ', '_');
-			DDLRecord match=fullNameMap.get(key);
-			if(match==null){match=abbrNameMap.get(key);}
-			if(match!=null){
-				results.add(match);
+			ArrayList<DDLRecord> matches=fullNameMap.get(key);
+			if(matches==null){matches=abbrNameMap.get(key);}
+			if(matches!=null){
+				results.addAll(matches);
 			}else{
-				for(java.util.Map.Entry<String, DDLRecord> e : fullNameMap.entrySet()){
-					if(e.getKey().startsWith(key)){results.add(e.getValue());}
+				for(java.util.Map.Entry<String, ArrayList<DDLRecord>> e : fullNameMap.entrySet()){
+					if(e.getKey().startsWith(key)){results.addAll(e.getValue());}
 				}
 			}
+		}
+		if(filterType>=0){
+			ArrayList<DDLRecord> filtered=new ArrayList<>();
+			for(DDLRecord rec : results){
+				if(rec.riboType()==filterType){filtered.add(rec);}
+			}
+			results=filtered;
 		}
 
 		ByteBuilder bb=new ByteBuilder();
@@ -504,6 +541,7 @@ public class SSUServer {
 				if(i>0){bb.append(',');}
 				bb.append('\n').append("  {");
 				bb.append("\"TaxID\":").append(rec.taxID);
+				bb.append(",\"Type\":\"").append(DDLRecord.riboName(rec.riboType())).append('"');
 				bb.append(",\"Name\":\""); ServerTools.escapeJson(bb, rec.name!=null ? rec.name : "-"); bb.append('"');
 				if(formatter.printLineage){
 					bb.append(",\"Lineage\":\""); ServerTools.escapeJson(bb, rec.lineage!=null ? rec.lineage : "-"); bb.append('"');
@@ -514,11 +552,12 @@ public class SSUServer {
 			}
 			bb.append("\n]}");
 		}else{
-			bb.append("TID\tName");
+			bb.append("TID\tType\tName");
 			if(formatter.printLineage){bb.append("\tLineage");}
 			bb.append("\tSequence").nl();
 			for(DDLRecord rec : results){
 				bb.append(rec.taxID).tab();
+				bb.append(DDLRecord.riboName(rec.riboType())).tab();
 				bb.append(rec.name!=null ? rec.name : "-");
 				if(formatter.printLineage){bb.tab().append(rec.lineage!=null ? rec.lineage : "-");}
 				bb.tab().append(DDLFormatter.seqString(rec));
@@ -669,11 +708,13 @@ public class SSUServer {
 	}
 
 	private String usageString(){
-		return "SSUServer — SSU (16S/18S) classification server\n"
-			+"POST raw FASTA to classify SSU sequences.\n"
+		return "SSUServer — SSU (16S/18S) and ITS classification server\n"
+			+"POST raw FASTA to classify SSU/ITS sequences.\n"
 			+"Prefix body with //JSON\\n for JSON output.\n"
 			+"Prefix body with //Call\\n for gene-calling mode.\n"
+			+"Literal mode: //literal=ACGTACGT...\\n\n"
 			+"Lookup mode: //name=Escherichia_coli\\n or //tid=562\\n\n"
+			+"  Type filter: //type=its\\n or //type=16s\\n or //type=18s\\n\n"
 			+"Per-request parameters as //key=value\\n prefixes:\n"
 			+"  //records=10\\n  //minhits=4\\n  //lineage=t\\n  //rank=t\\n\n"
 			+"  All DDLFormatter flags supported (printANI, printWKID, etc.)\n"
@@ -721,12 +762,13 @@ public class SSUServer {
 	private ArrayList<DDLRecord> refs;
 	private DDLIndex index;
 	private map.IntObjectMap<byte[]>[] maps;
+	private map.IntObjectMap<byte[]> mapITS;
 	private byte[] consensus16S;
 	private byte[] consensus18S;
 	private int nRefs;
-	private HashMap<String, DDLRecord> fullNameMap;
-	private HashMap<String, DDLRecord> abbrNameMap;
-	private HashMap<Integer, DDLRecord> tidMap;
+	private HashMap<String, ArrayList<DDLRecord>> fullNameMap;
+	private HashMap<String, ArrayList<DDLRecord>> abbrNameMap;
+	private HashMap<Integer, ArrayList<DDLRecord>> tidMap;
 
 	/* Server state */
 	private HttpServer httpServer;
@@ -734,4 +776,6 @@ public class SSUServer {
 	private final AtomicLong queryCount=new AtomicLong(0);
 
 	private static final int MIN_GENE_CALL_LENGTH=800;
+	private static final float SSU_CONFIDENT=0.64f;
+	private static final float ITS_CEILING=0.56f;
 }
