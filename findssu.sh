@@ -14,10 +14,10 @@ databases.  Query type is determined automatically:
 
 Usage:  findssu.sh ssu1.fa [ssu2.fa ...] [records=5]
     or: findssu.sh genome.fa call
-    or: findssu.sh literal=ACGTACGT... local
-    or: findssu.sh name=Escherichia_coli local
-    or: findssu.sh name=Saccharomyces_cerevisiae its local
-    or: findssu.sh tid=562 local
+    or: findssu.sh literal=ACGTACGT...
+    or: findssu.sh name=Escherichia_coli
+    or: findssu.sh name=Saccharomyces_cerevisiae its
+    or: findssu.sh tid=562
     or: findssu.sh ssu.fa ref16s=<16S.tsv> ref18s=<18S.tsv>
 
 Required resource files are loaded automatically from BBTools/resources/:
@@ -54,9 +54,10 @@ literal=<seq>   Provide a query sequence directly on the command line
 name=<name>     Look up a reference by organism name.  Accepts full names
                 (name=Escherichia_coli), abbreviated (name=E.coli), or
                 partial prefix matches.  Outputs TID, Type, Name, Sequence.
-                Requires local mode.
+                Works via server (default) or locally.
 tid=<int>       Look up a reference by NCBI TaxID (e.g. tid=562).
-                Outputs TID, Type, Name, and Sequence.  Requires local mode.
+                Outputs TID, Type, Name, and Sequence.
+                Works via server (default) or locally.
 its             In lookup mode, return only ITS records.
 16s             In lookup mode, return only 16S records.
 18s             In lookup mode, return only 18S records.
