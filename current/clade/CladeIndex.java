@@ -60,7 +60,7 @@ public class CladeIndex implements Cloneable {
 			maxSteps=Integer.parseInt(b);
 		}else if(a.equals("maxk") || a.equals("kmax")){
 			Comparison.maxK=Clade.MAXK=Integer.parseInt(b);
-		}else if(a.equalsIgnoreCase("callSSU")){
+		}else if(a.equalsIgnoreCase("callSSU") || a.equalsIgnoreCase("ssu")){
 			Clade.callSSU=Parse.parseBoolean(b);
 		}else if(a.equals("aligner") || a.equals("idaligner")){
 			GeneCaller.useIDAligner=(b==null || !("f".equals(b) || "false".equals(b)));

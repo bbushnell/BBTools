@@ -18,6 +18,7 @@ import shared.Resources;
 import shared.Shared;
 import structures.StringNum;
 import shared.Timer;
+import shared.Tools;
 import stream.Read;
 import stream.StreamerFactory;
 import structures.ByteBuilder;
@@ -51,6 +52,8 @@ public class SSUCompare {
 		String refFile=null, ref16sFile=null, ref18sFile=null, queryFile=null;
 		String lookupName=null;
 		int lookupTid=-1;
+		int filterType=-1;
+		String literal=null;
 		ArrayList<String> inFiles=new ArrayList<>();
 		DDLFormatter formatter=new DDLFormatter();
 		Parser parser=new Parser();
@@ -69,6 +72,11 @@ public class SSUCompare {
 			else if(a.equals("ref")){refFile=b;}
 			else if(a.equals("ref16s") || a.equals("ref16")){ref16sFile=b;}
 			else if(a.equals("ref18s") || a.equals("ref18")){ref18sFile=b;}
+			else if(a.equals("refits") || a.equals("itsref")){refFile=b;}
+			else if(a.equals("literal")){literal=b;}
+			else if(a.equals("its")){filterType=DDLRecord.RIBO_ITS;}
+			else if(a.equals("16s")){filterType=DDLRecord.RIBO_16S;}
+			else if(a.equals("18s")){filterType=DDLRecord.RIBO_18S;}
 			else if(a.equals("qf") || a.equals("queryfile")){queryFile=b;}
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
@@ -109,12 +117,12 @@ public class SSUCompare {
 		}
 
 		if(lookupName!=null || lookupTid>=0){
-			lookupMode(refFile, lookupName, lookupTid, k, threads, formatter);
+			lookupMode(refFile, lookupName, lookupTid, filterType, k, threads, formatter);
 			return;
 		}
 
-		if(queryFile==null && inFiles.isEmpty()){
-			System.err.println("ERROR: no input files or queryfile specified.");
+		if(queryFile==null && inFiles.isEmpty() && literal==null){
+			System.err.println("ERROR: no input files, queryfile, or literal specified.");
 			System.exit(1);
 		}
 
@@ -132,10 +140,10 @@ public class SSUCompare {
 		formatter.printStart=true;
 		formatter.printStrand=true;
 
-		run(inFiles, queryFile, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, buffer, minHits, useIndex, callMode, alignSSU, banSelf, threads, loud, formatter);
+		run(inFiles, queryFile, literal, refFile, ref16sFile, ref18sFile, k, buckets, maxRecords, buffer, minHits, useIndex, callMode, alignSSU, banSelf, threads, loud, formatter);
 	}
 
-	private static void run(ArrayList<String> inFiles, String queryFile, String refPath, String ref16sPath, String ref18sPath,
+	private static void run(ArrayList<String> inFiles, String queryFile, String literal, String refPath, String ref16sPath, String ref18sPath,
 			int k, int buckets, int maxRecords, int buffer, int minHits, boolean useIndex, boolean callMode,
 			boolean alignSSU, boolean banSelf, int threads, boolean loud, DDLFormatter formatter){
 		Timer t=new Timer();
@@ -148,6 +156,7 @@ public class SSUCompare {
 		ArrayList<DDLRecord> refs=new ArrayList<>();
 		map.IntObjectMap<byte[]>[] maps=DDLSSULoader.loadSSUMapsDefaults();
 		map.IntObjectMap<byte[]> map16=maps[0], map18=maps[1];
+		map.IntObjectMap<byte[]> mapITS=DDLSSULoader.loadITSMapDefault();
 
 		if(ref16sPath!=null || ref18sPath!=null){
 			if(ref16sPath!=null){
@@ -175,14 +184,18 @@ public class SSUCompare {
 				refs.addAll(r18);
 			}
 		}else{
-			System.err.println("Loading SSU references from "+refPath+"...");
+			System.err.println("Loading references from "+refPath+"...");
 			refs=DDLLoaderMT.loadFile(refPath, k, threads);
-			int a16=0, a18=0;
+			int a16=0, a18=0, aITS=0;
 			for(DDLRecord rec : refs){
 				if(rec.taxID<=0){continue;}
+				boolean isITS=(rec.filename!=null && (rec.filename.contains("its") || rec.filename.contains("ITS")));
 				boolean is16S=(rec.filename!=null && rec.filename.contains("16S"));
 				boolean is18S=(rec.filename!=null && rec.filename.contains("18S"));
-				if(is16S && map16!=null){
+				if(isITS && mapITS!=null){
+					byte[] seq=mapITS.get(rec.taxID);
+					if(seq!=null){rec.rITS=seq; aITS++;}
+				}else if(is16S && map16!=null){
 					byte[] seq=map16.get(rec.taxID);
 					if(seq!=null){rec.r16S=seq; a16++;}
 				}else if(is18S && map18!=null){
@@ -197,10 +210,11 @@ public class SSUCompare {
 					}
 				}
 			}
-			System.err.println("Attached "+a16+" 16S and "+a18+" 18S sequences to "+refs.size()+" refs.");
+			System.err.println("Attached "+a16+" 16S, "+a18+" 18S, "+aITS+" ITS sequences to "+refs.size()+" refs.");
 		}
+
 		long tRefLoad=System.nanoTime()-ts;
-		System.err.println("Total: "+refs.size()+" reference SSU DDLs in "+fmt(tRefLoad)+" seconds.");
+		System.err.println("Total: "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
 		long tSSULoad=0;
 
 		DDLIndex index=null;
@@ -242,6 +256,8 @@ public class SSUCompare {
 				}
 				System.err.println("Attached "+qa16+" 16S and "+qa18+" 18S to "+queries.size()+" queries.");
 			}
+		}else if(literal!=null){
+			queries=loadLiteral(literal, k, buckets);
 		}else if(callMode){
 			queries=loadCallMode(inFiles, k, buckets, threads);
 		}else{
@@ -319,46 +335,54 @@ public class SSUCompare {
 	/*--------------------------------------------------------------*/
 
 	private static void lookupMode(String refPath, String lookupName, int lookupTid,
-			int k, int threads, DDLFormatter formatter){
-		System.err.println("Loading SSU references from "+refPath+"...");
+			int filterType, int k, int threads, DDLFormatter formatter){
+		System.err.println("Loading references from "+refPath+"...");
 		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
 		System.err.println("Loaded "+refs.size()+" refs.");
 
 		map.IntObjectMap<byte[]>[] maps=DDLSSULoader.loadSSUMapsDefaults();
 		map.IntObjectMap<byte[]> map16=maps[0], map18=maps[1];
+		map.IntObjectMap<byte[]> mapITS=DDLSSULoader.loadITSMapDefault();
 		for(DDLRecord rec : refs){
 			if(rec.taxID<=0){continue;}
-			if(map16!=null){byte[] seq=map16.get(rec.taxID); if(seq!=null){rec.r16S=seq;}}
-			if(rec.r16S==null && map18!=null){byte[] seq=map18.get(rec.taxID); if(seq!=null){rec.r18S=seq;}}
+			boolean isITS=(rec.filename!=null && (rec.filename.contains("its") || rec.filename.contains("ITS")));
+			if(isITS && mapITS!=null){
+				byte[] seq=mapITS.get(rec.taxID); if(seq!=null){rec.rITS=seq;}
+			}else{
+				if(map16!=null){byte[] seq=map16.get(rec.taxID); if(seq!=null){rec.r16S=seq;}}
+				if(rec.r16S==null && map18!=null){byte[] seq=map18.get(rec.taxID); if(seq!=null){rec.r18S=seq;}}
+			}
 		}
 
 		ArrayList<DDLRecord> results=new ArrayList<>();
 		if(lookupTid>=0){
 			for(DDLRecord rec : refs){
-				if(rec.taxID==lookupTid){results.add(rec);}
+				if(rec.taxID==lookupTid){
+					if(filterType<0 || rec.riboType()==filterType){results.add(rec);}
+				}
 			}
 		}else{
 			String key=lookupName.toLowerCase().replace(' ', '_');
-			boolean abbreviated=(key.length()>1 && key.charAt(1)=='.');
 
-			HashMap<String, DDLRecord> fullNameMap=new HashMap<>();
-			HashMap<String, DDLRecord> abbrNameMap=new HashMap<>();
+			HashMap<String, ArrayList<DDLRecord>> fullNameMap=new HashMap<>();
+			HashMap<String, ArrayList<DDLRecord>> abbrNameMap=new HashMap<>();
 			for(DDLRecord rec : refs){
 				if(rec.name==null){continue;}
+				if(filterType>=0 && rec.riboType()!=filterType){continue;}
 				String full=rec.name.toLowerCase().replace(' ', '_');
-				fullNameMap.putIfAbsent(full, rec);
+				fullNameMap.computeIfAbsent(full, x -> new ArrayList<>()).add(rec);
 				String abbr=abbreviate(rec.name);
-				if(abbr!=null){abbrNameMap.putIfAbsent(abbr, rec);}
+				if(abbr!=null){abbrNameMap.computeIfAbsent(abbr, x -> new ArrayList<>()).add(rec);}
 			}
 
-			DDLRecord match=fullNameMap.get(key);
-			if(match==null){match=abbrNameMap.get(key);}
-			if(match==null){
-				for(java.util.Map.Entry<String, DDLRecord> e : fullNameMap.entrySet()){
-					if(e.getKey().startsWith(key)){results.add(e.getValue());}
-				}
+			ArrayList<DDLRecord> matches=fullNameMap.get(key);
+			if(matches==null){matches=abbrNameMap.get(key);}
+			if(matches!=null){
+				results.addAll(matches);
 			}else{
-				results.add(match);
+				for(java.util.Map.Entry<String, ArrayList<DDLRecord>> e : fullNameMap.entrySet()){
+					if(e.getKey().startsWith(key)){results.addAll(e.getValue());}
+				}
 			}
 		}
 
@@ -368,11 +392,12 @@ public class SSUCompare {
 		}
 
 		ByteBuilder bb=new ByteBuilder();
-		bb.append("TID\tName");
+		bb.append("TID\tType\tName");
 		if(formatter.printLineage){bb.append("\tLineage");}
 		bb.append("\tSequence").nl();
 		for(DDLRecord rec : results){
 			bb.append(rec.taxID).tab();
+			bb.append(DDLRecord.riboName(rec.riboType())).tab();
 			bb.append(rec.name!=null ? rec.name : "-");
 			if(formatter.printLineage){bb.tab().append(rec.lineage!=null ? rec.lineage : "-");}
 			bb.tab().append(DDLFormatter.seqString(rec));
@@ -404,28 +429,90 @@ public class SSUCompare {
 			ArrayList<Read> reads=StreamerFactory.getReads(-1, false, ff, null, null, null);
 			for(Read r : reads){
 				if(r.bases==null || r.length()<50){continue;}
-				float id16=(consensus16S!=null ? aligner.align(r.bases, consensus16S) : 0);
-				float id18=(consensus18S!=null ? aligner.align(r.bases, consensus18S) : 0);
-				boolean is16S=(id16>=id18);
-				if(id16<0.3f && id18<0.3f){
-					System.err.println("Warning: low consensus identity for "+r.id
-						+" (16S="+String.format("%.3f", id16)+", 18S="+String.format("%.3f", id18)+")");
-				}
-
-				DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
-				ddl.hash(r);
-				DDLRecord rec=new DDLRecord(ddl, -1, -1, r.id);
-				rec.bases=r.length();
-				rec.contigs=1;
-				rec.cardinality=ddl.cardinality();
+				DDLRecord rec=classifyAndSketch(r.bases, r.id, k, buckets, consensus16S, consensus18S, aligner);
 				rec.filename=new File(fname).getName();
-				rec.contigName=r.id;
-				rec.ssuStart=0;
-				rec.ssuStrand=(byte)'+';
-				if(is16S){rec.r16S=r.bases;}else{rec.r18S=r.bases;}
 				queries.add(rec);
 			}
 		}
+		return queries;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Sequence Classification    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final float SSU_CONFIDENT=0.64f;
+	private static final float ITS_CEILING=0.56f;
+
+	private static byte[][] all16SConsensus;
+	private static byte[][] all18SConsensus;
+
+	private static void loadAllConsensus(){
+		if(all16SConsensus!=null){return;}
+		Read[] c16=ProkObject.loadConsensusSequenceType("16S", true, true);
+		Read[] c18=ProkObject.loadConsensusSequenceType("18S", true, false);
+		all16SConsensus=new byte[c16.length][];
+		for(int i=0; i<c16.length; i++){all16SConsensus[i]=c16[i].bases;}
+		all18SConsensus=new byte[c18.length][];
+		for(int i=0; i<c18.length; i++){all18SConsensus[i]=c18[i].bases;}
+	}
+
+	private static DDLRecord classifyAndSketch(byte[] bases, String name, int k, int buckets,
+			byte[] consensus16S, byte[] consensus18S, QuantumAligner aligner){
+
+		// Step 1: universal consensus
+		float u16=(consensus16S!=null ? aligner.align(bases, consensus16S) : 0);
+		float u18=(consensus18S!=null ? aligner.align(bases, consensus18S) : 0);
+		float uBest=Tools.max(u16, u18);
+
+		int type=-1; // -1=undecided
+		if(uBest>=SSU_CONFIDENT){
+			type=(u16>=u18 ? 0 : 1); // 0=16S, 1=18S
+		}else{
+			// Step 2: all subtypes
+			loadAllConsensus();
+			float best16=u16;
+			for(byte[] con : all16SConsensus){best16=Tools.max(best16, aligner.align(bases, con));}
+			float best18=u18;
+			for(byte[] con : all18SConsensus){best18=Tools.max(best18, aligner.align(bases, con));}
+			float bestAll=Tools.max(best16, best18);
+			if(bestAll>=SSU_CONFIDENT){
+				type=(best16>=best18 ? 0 : 1);
+			}else if(bestAll<ITS_CEILING){
+				type=2; // ITS
+			}
+			// else type=-1 → unknown, set all types
+		}
+
+		Read r=new Read(bases, null, name, 0);
+		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, 12345L, 0f, true);
+		ddl.hash(r);
+		DDLRecord rec=new DDLRecord(ddl, -1, -1, name);
+		rec.bases=r.length();
+		rec.contigs=1;
+		rec.cardinality=ddl.cardinality();
+		rec.contigName=name;
+		rec.ssuStart=0;
+		rec.ssuStrand=(byte)'+';
+		if(type==0){rec.r16S=bases;}
+		else if(type==1){rec.r18S=bases;}
+		else if(type==2){rec.rITS=bases;}
+		else{rec.r16S=bases; rec.r18S=bases; rec.rITS=bases;} // unknown: align to everything
+		return rec;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------     Literal Mode              ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static ArrayList<DDLRecord> loadLiteral(String seq, int k, int buckets){
+		byte[] consensus16S=loadFirstSequence("?16S_consensus_sequence.fa");
+		byte[] consensus18S=loadFirstSequence("?18S_consensus_sequence.fa");
+		QuantumAligner aligner=new QuantumAligner();
+		DDLRecord rec=classifyAndSketch(seq.getBytes(), "literal", k, buckets, consensus16S, consensus18S, aligner);
+		rec.filename="literal";
+		ArrayList<DDLRecord> queries=new ArrayList<>();
+		queries.add(rec);
 		return queries;
 	}
 
@@ -526,7 +613,6 @@ public class SSUCompare {
 		if(formatter.printLineage){bb.append("//lineage=t\n");}
 		if(formatter.printRank){bb.append("//rank=t\n");}
 		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
-		if(!inFiles.isEmpty()){bb.append("//filename=").append(new File(inFiles.get(0)).getName()).append('\n');}
 		if(callMode){
 			ProkObject.callCDS=false;
 			ProkObject.calltRNA=false;

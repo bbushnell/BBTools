@@ -239,6 +239,9 @@ public class KmerNormalize {
 			}else if(a.equals("passes") || a.equals("p")){
 				passes=Integer.parseInt(b);
 				assert(passes>=1 && passes<=4) : "Passes should be in range 1~4.";
+			}else if(a.equalsIgnoreCase("leelu") || a.equalsIgnoreCase("leeludallas")
+				|| a.equalsIgnoreCase("multipass")){
+				passes=3;
 			}else if(a.equals("1pass") || a.equals("1p")){
 				passes=1;
 			}else if(a.equals("2pass") || a.equals("2p")){

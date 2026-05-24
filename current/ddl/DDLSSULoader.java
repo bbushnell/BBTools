@@ -77,4 +77,11 @@ public class DDLSSULoader {
 
 	public static final String DEFAULT_16S="?all_prok_16S_best_taxsorted.fa.gz";
 	public static final String DEFAULT_18S="?all_euk_18S_best_taxsorted.fa.gz";
+	public static final String DEFAULT_ITS="?all_ITS_best_taxsorted.fa.gz";
+
+	/** Loads ITS map from default resource path. Null if not found. */
+	public static IntObjectMap<byte[]> loadITSMapDefault(){
+		String rITS=Resources.find(DEFAULT_ITS, false);
+		return (rITS!=null ? loadSSUMap(rITS) : null);
+	}
 }

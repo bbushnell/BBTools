@@ -3,35 +3,38 @@
 usage(){
 echo "
 Written by Brian Bushnell and Noire
-Last modified May 21, 2026
+Last modified May 24, 2026
 
-Description:  Identifies and classifies ribosomal SSU (16S/18S) sequences
-using DynamicDemiLog (DDL) sketching against a pre-built SSU reference
-database.  Two modes:
-  Default: input sequences are assumed to be SSUs.  Each is classified as
-    16S or 18S by alignment against consensus sequences, sketched, and
-    compared to the reference database.
-  Call mode: input is genomic sequence.  Gene-calling finds all SSUs
-    (potentially multiple per contig), then classifies and compares each.
+Description:  Identifies and classifies ribosomal SSU (16S/18S) and ITS
+sequences using DynamicDemiLog (DDL) sketching against pre-built reference
+databases.  Query type is determined automatically:
+  Sequences aligning >64% to 16S or 18S consensus are classified as SSU.
+  Sequences aligning <56% to all SSU consensuses are classified as ITS.
+  Others are classified as unknown and compared to all reference types.
 
 Usage:  findssu.sh ssu1.fa [ssu2.fa ...] [records=5]
     or: findssu.sh genome.fa call
+    or: findssu.sh literal=ACGTACGT... local
     or: findssu.sh name=Escherichia_coli local
+    or: findssu.sh name=Saccharomyces_cerevisiae its local
     or: findssu.sh tid=562 local
     or: findssu.sh ssu.fa ref16s=<16S.tsv> ref18s=<18S.tsv>
 
 Required resource files are loaded automatically from BBTools/resources/:
   ssuSketchDDL.tsv.gz          SSU DDL reference sketches (276k organisms)
+  itsSketchDDL.tsv.gz          ITS DDL reference sketches (35k organisms)
   all_prok_16S_best_taxsorted.fa.gz   16S rRNA sequences (for alignment ANI)
   all_euk_18S_best_taxsorted.fa.gz    18S rRNA sequences (for alignment ANI)
+  all_ITS_best_taxsorted.fa.gz        ITS sequences (for alignment ANI)
   16S_consensus_sequence.fa    16S consensus (for type classification)
   18S_consensus_sequence.fa    18S consensus (for type classification)
+  ITS_*_consensus_sequence.fq  ITS consensuses (fungi, plant, animal, other)
 If missing, download from:
   https://sourceforge.net/projects/bbmap/files/Resources/
 
 SSU Mode (default):
-Each input sequence is aligned to 16S and 18S consensus sequences to
-determine type, then sketched with DDL and compared to the reference.
+Each input sequence is classified by alignment to consensus sequences
+(16S, 18S, or ITS), then sketched with DDL and compared to the reference.
 
 Call Mode:
 Gene-calling identifies all SSU sequences in the input genome(s).
@@ -42,14 +45,21 @@ ref=<file>      Pre-built SSU DDL reference file (TSV format).
                 Default: resources/ssuSketchDDL.tsv.gz
 ref16s=<file>   Separate 16S reference file.
 ref18s=<file>   Separate 18S reference file.
+refits=<file>   Separate ITS reference file.
+                Default: resources/itsSketchDDL.tsv.gz (if present)
 qf=<file>       Pre-built DDL query file for batch comparison.
 call            Enable gene-calling mode for genomic input.
+literal=<seq>   Provide a query sequence directly on the command line
+                instead of from a file.
 name=<name>     Look up a reference by organism name.  Accepts full names
                 (name=Escherichia_coli), abbreviated (name=E.coli), or
-                partial prefix matches.  Outputs TID, Name, and Sequence.
+                partial prefix matches.  Outputs TID, Type, Name, Sequence.
                 Requires local mode.
 tid=<int>       Look up a reference by NCBI TaxID (e.g. tid=562).
-                Outputs TID, Name, and Sequence.  Requires local mode.
+                Outputs TID, Type, Name, and Sequence.  Requires local mode.
+its             In lookup mode, return only ITS records.
+16s             In lookup mode, return only 16S records.
+18s             In lookup mode, return only 18S records.
 records=5       Max hits to display per query.
 minhits=8       Minimum shared index keys to compare a ref.
 buffer=0        Alignment buffer size.  After index filtering, the top
@@ -59,7 +69,7 @@ buffer=0        Alignment buffer size.  After index filtering, the top
 index=t         Use inverted index for query acceleration.
 align=t         Perform SSU alignment for ANI calculation.
 banself=f       Skip self-comparisons (when query and ref share a TaxID).
-sequence=f      Print SSU sequence as last output column.
+sequence=f      Print SSU/ITS sequence as last output column.
 rank=f          Print rank column in output.
 lineage=f       Print lineage column in output.
 printname=t     Show Name column in output.
