@@ -668,7 +668,7 @@ public class SSUCompare {
 		ByteBuilder bb=new ByteBuilder();
 		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
 		if(formatter.printLineage){bb.append("//lineage=t\n");}
-		if(filterType>=0){bb.append("//type=").append(DDLRecord.riboName(filterType)).append('\n');}
+		if(filterType>=0){bb.append("//rtype=").append(DDLRecord.riboName(filterType)).append('\n');}
 		if(lookupTid>=0){
 			bb.append("//tid=").append(lookupTid).append('\n');
 		}else{
