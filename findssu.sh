@@ -61,6 +61,8 @@ tid=<int>       Look up a reference by NCBI TaxID (e.g. tid=562).
 its             In lookup mode, return only ITS records.
 16s             In lookup mode, return only 16S records.
 18s             In lookup mode, return only 18S records.
+ssu             In lookup mode, return only SSU records (16S + 18S).
+                Flags are combinable: 'its 16s' returns both ITS and 16S.
 records=5       Max hits to display per query.
 minhits=8       Minimum shared index keys to compare a ref.
 buffer=0        Alignment buffer size.  After index filtering, the top

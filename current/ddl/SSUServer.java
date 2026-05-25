@@ -279,7 +279,7 @@ public class SSUServer {
 			int reqBuffer=buffer;
 			String lookupName=null;
 			int lookupTid=-1;
-			int filterType=-1;
+			int typeMask=0;
 			String literal=null;
 			String filename="http_query";
 
@@ -312,6 +312,10 @@ public class SSUServer {
 				if(lc.equals("json")){jsonOutput=true; formatter.format=DDLFormatter.FORMAT_JSON; continue;}
 				if(lc.equals("call")){callMode=true; continue;}
 				if(lc.startsWith("status")){return statusResponse().getBytes();}
+				if(lc.equals("its")){typeMask|=FLAG_ITS; continue;}
+				if(lc.equals("16s")){typeMask|=FLAG_16S; continue;}
+				if(lc.equals("18s")){typeMask|=FLAG_18S; continue;}
+				if(lc.equals("ssu")){typeMask|=FLAG_SSU; continue;}
 				String[] split=line.split("=", 2);
 				if(split.length!=2){continue;}
 				String a=split[0].toLowerCase();
@@ -323,17 +327,18 @@ public class SSUServer {
 				else if(a.equals("name") || a.equals("organism")){lookupName=b;}
 				else if(a.equals("tid") || a.equals("taxid")){lookupTid=Integer.parseInt(b);}
 				else if(a.equals("literal") || a.equals("seq")){literal=b;}
-				else if(a.equals("type")){
+				else if(a.equals("rtype") || a.equals("ribotype") || a.equals("filtertype")){
 					String t=b.toLowerCase();
-					if(t.equals("its")){filterType=DDLRecord.RIBO_ITS;}
-					else if(t.equals("16s")){filterType=DDLRecord.RIBO_16S;}
-					else if(t.equals("18s")){filterType=DDLRecord.RIBO_18S;}
+					if(t.equals("its")){typeMask|=FLAG_ITS;}
+					else if(t.equals("16s")){typeMask|=FLAG_16S;}
+					else if(t.equals("18s")){typeMask|=FLAG_18S;}
+					else if(t.equals("ssu")){typeMask|=FLAG_SSU;}
 				}
 				else if(a.equals("filename") || a.equals("file")){filename=b;}
 			}
 
 			if(lookupName!=null || lookupTid>=0){
-				return processLookup(lookupName, lookupTid, filterType, formatter, jsonOutput);
+				return processLookup(lookupName, lookupTid, typeMask, formatter, jsonOutput);
 			}
 
 			ArrayList<DDLRecord> queries;
@@ -505,7 +510,7 @@ public class SSUServer {
 	}
 
 	private byte[] processLookup(String lookupName, int lookupTid,
-			int filterType, DDLFormatter formatter, boolean jsonOutput){
+			int typeMask, DDLFormatter formatter, boolean jsonOutput){
 		ArrayList<DDLRecord> results=new ArrayList<>();
 		if(lookupTid>=0){
 			ArrayList<DDLRecord> matches=tidMap.get(lookupTid);
@@ -522,10 +527,10 @@ public class SSUServer {
 				}
 			}
 		}
-		if(filterType>=0){
+		if(typeMask!=0){
 			ArrayList<DDLRecord> filtered=new ArrayList<>();
 			for(DDLRecord rec : results){
-				if(rec.riboType()==filterType){filtered.add(rec);}
+				if((typeMask&riboFlag(rec.riboType()))!=0){filtered.add(rec);}
 			}
 			results=filtered;
 		}
@@ -713,7 +718,7 @@ public class SSUServer {
 			+"Prefix body with //Call\\n for gene-calling mode.\n"
 			+"Literal mode: //literal=ACGTACGT...\\n\n"
 			+"Lookup mode: //name=Escherichia_coli\\n or //tid=562\\n\n"
-			+"  Type filter: //type=its\\n or //type=16s\\n or //type=18s\\n\n"
+			+"  Type filter: //rtype=its\\n or //rtype=16s\\n or //rtype=18s\\n\n"
 			+"Per-request parameters as //key=value\\n prefixes:\n"
 			+"  //records=10\\n  //minhits=4\\n  //lineage=t\\n  //rank=t\\n\n"
 			+"  All DDLFormatter flags supported (printANI, printWKID, etc.)\n"
@@ -777,4 +782,16 @@ public class SSUServer {
 	private static final int MIN_GENE_CALL_LENGTH=800;
 	private static final float SSU_CONFIDENT=0.64f;
 	private static final float ITS_CEILING=0.56f;
+
+	private static final int FLAG_16S=1, FLAG_18S=2, FLAG_ITS=4;
+	private static final int FLAG_SSU=FLAG_16S|FLAG_18S;
+
+	private static int riboFlag(int riboType){
+		switch(riboType){
+			case DDLRecord.RIBO_16S: return FLAG_16S;
+			case DDLRecord.RIBO_18S: return FLAG_18S;
+			case DDLRecord.RIBO_ITS: return FLAG_ITS;
+			default: return 0;
+		}
+	}
 }
