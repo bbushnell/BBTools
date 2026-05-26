@@ -71,6 +71,11 @@ public class DDLCompare {
 			else if(file2==null){file2=args[i];}
 		}
 
+		if(!DynamicDemiLog.blacklistExists()){
+			String blPath=dna.Data.findPath("?genomeDDLBlacklist.fa.gz", false);
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+		}
+
 		if(queryFile!=null){
 			formatter.printQueryName=true;
 		}

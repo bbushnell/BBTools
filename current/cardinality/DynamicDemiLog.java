@@ -1,5 +1,8 @@
 package cardinality;
 
+import fileIO.ByteFile;
+import fileIO.FileFormat;
+import map.LongHashSet;
 import parse.Parser;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -40,6 +43,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		maxArray=new char[buckets];
 		countArray=new char[buckets];
 		gcArray=new byte[buckets];
+		kmerArray=null;
 		minZeroCount=buckets;
 	}
 
@@ -51,7 +55,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_){
-		this(buckets_, k_, seed, minProb_, true);
+		this(buckets_, k_, seed, minProb_, true, false);
 	}
 
 	/**
@@ -62,10 +66,15 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param minProb_ Ignore k-mers with under this probability of being correct
 	 */
 	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_, boolean makeCounts){
+		this(buckets_, k_, seed, minProb_, makeCounts, false);
+	}
+
+	DynamicDemiLog(int buckets_, int k_, long seed, float minProb_, boolean makeCounts, boolean makeKmers){
 		super(buckets_, k_, seed, minProb_);
 		maxArray=new char[buckets];
 		countArray=(makeCounts ? new char[buckets] : null);
 		gcArray=(makeCounts ? new byte[buckets] : null);
+		kmerArray=(makeKmers ? new long[buckets] : null);
 		minZeroCount=buckets;
 	}
 
@@ -75,7 +84,11 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param seed Hash seed
 	 * @param minProb Minimum probability filter */
 	public static DynamicDemiLog create(int buckets, int k, long seed, float minProb, boolean makeCounts){
-		return new DynamicDemiLog(buckets, k, seed, minProb, makeCounts);
+		return new DynamicDemiLog(buckets, k, seed, minProb, makeCounts, false);
+	}
+
+	public static DynamicDemiLog create(int buckets, int k, long seed, float minProb, boolean makeCounts, boolean makeKmers){
+		return new DynamicDemiLog(buckets, k, seed, minProb, makeCounts, makeKmers);
 	}
 
 	/** Creates a DDL from a pre-filled array of absolute-encoded values (legacy format).
@@ -96,12 +109,15 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * @param offset If >=0, loaded values are relative to this globalNLZ.
 	 *               If -1, loaded values are absolute (legacy format) and will be converted. */
 	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_, int offset){
-		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0, false);
+		return fromArray(loaded, id_, name_, k_, offset, null);
+	}
+
+	public static DynamicDemiLog fromArray(char[] loaded, int id_, String name_, int k_, int offset, long[] kmers){
+		DynamicDemiLog ddl=new DynamicDemiLog(loaded.length, k_, defaultSeed, 0, false, kmers!=null);
 		ddl.id=id_;
 		ddl.name=name_;
 
 		if(offset>=0){
-			// New format: values are relative to offset. Convert to absolute.
 			for(int i=0; i<loaded.length; i++){
 				if(loaded[i]>0){
 					final int relNlz=loaded[i]>>mantissabits;
@@ -110,8 +126,11 @@ public final class DynamicDemiLog extends CardinalityTracker {
 				}
 			}
 		}else{
-			// Legacy format: values are already absolute.
 			System.arraycopy(loaded, 0, ddl.maxArray, 0, loaded.length);
+		}
+
+		if(kmers!=null && ddl.kmerArray!=null){
+			System.arraycopy(kmers, 0, ddl.kmerArray, 0, kmers.length);
 		}
 
 		ddl.filledBuckets=0;
@@ -178,6 +197,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		if(maxArray!=log.maxArray){
 			if(countArray!=null && log.countArray!=null) {
 				final boolean mergeGC=(gcArray!=null && log.gcArray!=null);
+				final boolean mergeKmers=(kmerArray!=null && log.kmerArray!=null);
 				for(int i=0; i<buckets; i++){
 					final char maxA=maxArray[i], maxB=log.maxArray[i];
 					final char countA=countArray[i], countB=log.countArray[i];
@@ -186,23 +206,27 @@ public final class DynamicDemiLog extends CardinalityTracker {
 					else{
 						countArray[i]=(maxA>maxB ? countA : countB);
 						if(mergeGC){gcArray[i]=(maxA>maxB ? gcArray[i] : log.gcArray[i]);}
+						if(mergeKmers){kmerArray[i]=(maxA>maxB ? kmerArray[i] : log.kmerArray[i]);}
 					}
 				}
 			}else{
+				final boolean mergeKmers=(kmerArray!=null && log.kmerArray!=null);
 				for(int i=0; i<buckets; i++){
-					maxArray[i]=Tools.max(maxArray[i], log.maxArray[i]);
+					final char maxA=maxArray[i], maxB=log.maxArray[i];
+					maxArray[i]=Tools.max(maxA, maxB);
+					if(mergeKmers && maxB>maxA){kmerArray[i]=log.kmerArray[i];}
 				}
 			}
-			// Rescan for floor tier — matches old scanFrom(max(minZeros, log.minZeros))
-			final int scanStart=Math.max(Math.max(0, globalNLZ+1), Math.max(0, log.globalNLZ+1));
+			final int scanStart=Math.max(0, Math.max(globalNLZ, log.globalNLZ));
 			globalNLZ=scanStart-1;
 			minZeroCount=0;
-			eeMask=-1L;
-			while(minZeroCount==0 && globalNLZ<wordlen){
+			eeMask=(scanStart>0 ? (-1L)>>>scanStart : -1L);
+			while(minZeroCount==0 && globalNLZ<maxNLZ){
 				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countTermsInTier(globalNLZ, maxArray);
 			}
+			assert(globalNLZ<57) : "globalNLZ="+globalNLZ;
 			filledBuckets=0;
 			for(char c : maxArray){if(c>0){filledBuckets++;}}
 		}
@@ -243,6 +267,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		//Optional early exit reduces writes, countArray access, and branches.
 		//Expected to be usually taken, particularly when buckets is large.
 		if(score<oldValue) {return;}
+		if(blacklist!=null && blacklist.contains(number)){return;}
 //		branch2++;
 		lastCardinality=-1;
 		final int newValue=Math.max(score, oldValue);
@@ -253,6 +278,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		maxArray[bucket]=(char)newValue;
 		//Track filled bucket count: increment when bucket transitions from empty to non-empty
 		if(oldValue==0 && newValue>0){filledBuckets++;}
+
+		if(kmerArray!=null && score>oldValue){
+			kmerArray[bucket]=number;
+		}
 
 		//Update count - totally optional, only for histograms
 		//Can be debranched with clever math
@@ -267,11 +296,12 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		
 		//Update the dynamic early exit threshold
 		if(nlz>nlzOld && nlzOld==globalNLZ && --minZeroCount<1){
-			while(minZeroCount==0 && globalNLZ<wordlen){
+			while(minZeroCount==0 && globalNLZ<maxNLZ){
 				globalNLZ++;
 				eeMask>>>=1;
 				minZeroCount=countAndDecrement();
 			}
+			assert(globalNLZ<57) : "globalNLZ="+globalNLZ;
 		}
 
 	}
@@ -285,12 +315,13 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private int scanFrom(int nlz) {
 		globalNLZ=nlz-1;
 		minZeroCount=0;
-		eeMask=-1L;
-		while(minZeroCount==0 && globalNLZ<wordlen) {
+		eeMask=(nlz>0 ? (-1L)>>>nlz : -1L);
+		while(minZeroCount==0 && globalNLZ<maxNLZ) {
 			globalNLZ++;
 			eeMask>>>=1;
 			minZeroCount=countTermsInTier(globalNLZ, maxArray);
 		}
+		assert(globalNLZ<57) : "globalNLZ="+globalNLZ;
 		return globalNLZ;
 	}
 
@@ -299,6 +330,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public char[] counts16(){return countArray;}
 	public byte[] gcArray(){return gcArray;}
+	public long[] kmerArray(){return kmerArray;}
 
 	/** Returns the underlying maxArray for internal comparison. */
 	public char[] maxArray(){return maxArray;}
@@ -333,10 +365,23 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return bb;
 	}
 
+	/** Appends literal kmer values as tab-separated A48. */
+	public ByteBuilder toBytesKmers(ByteBuilder bb){
+		if(kmerArray==null){return bb;}
+		for(int i=0; i<kmerArray.length; i++){
+			if(i>0){bb.tab();}
+			bb.appendA48(kmerArray[i]);
+		}
+		return bb;
+	}
+
+	public boolean hasKmers(){return kmerArray!=null;}
+
 	/** Appends relative-encoded bucket values as tab-separated A48.
 	 * Converts from absolute internal storage to relative using globalNLZ as offset.
 	 * Caller is responsible for writing the #offset header first. */
 	public ByteBuilder toBytesRelative(ByteBuilder bb){
+		assert(globalNLZ<57) : "Corrupt globalNLZ in toBytesRelative: "+globalNLZ;
 		for(int i=0; i<maxArray.length; i++){
 			if(i>0){bb.tab();}
 			final int abs=maxArray[i];
@@ -549,6 +594,8 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private final char[] countArray;
 	/** GC base count of the kmer that set the current max for each bucket. */
 	private final byte[] gcArray;
+	/** Literal kmer that set the current max for each bucket; null if disabled. */
+	private final long[] kmerArray;
 	/** Floor NLZ tier, matching old minZeros behavior. Starts at 0.
 	 * Rises monotonically as cardinality increases and buckets advance past lower tiers. */
 	private int globalNLZ=0;
@@ -592,6 +639,10 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	private static int minNonEmpty=1<<mantissabits;
 	/** Maximum relNlzStored before overflow clamp. */
 	private static int maxRelNlzStored=(1<<exponentBits)-1;
+	/** Upper bound for globalNLZ scan loops; equals 1<<exponentBits.
+	 * With exponent=6 this equals wordlen (64); with exponent=5 this is 32,
+	 * preventing scan loops from running into the unrepresentable NLZ range. */
+	private static int maxNLZ=1<<exponentBits;
 
 	/** Sets the exponent width and recalculates all derived fields.
 	 *  Must be called before creating any DDL instances.
@@ -605,6 +656,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		offset=wordlen-mantissabits-1;
 		minNonEmpty=1<<mantissabits;
 		maxRelNlzStored=(1<<exponentBits)-1;
+		maxNLZ=1<<exponentBits;
 	}
 
 	/** Returns the current exponent width. */
@@ -625,6 +677,73 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		CF_BUCKETS=buckets;
 		return CF_MATRIX=CorrectionFactor.loadFile(CF_FILE, buckets);
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Blacklist           ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Global blacklist of literal kmers to reject when they win a bucket. */
+	private static LongHashSet blacklist;
+
+	public static boolean blacklistExists(){return blacklist!=null;}
+
+	/** Loads a blacklist from a FASTA file of kmer sequences.
+	 * Each sequence is converted to a canonical packed 2-bit long
+	 * using the same encoding as CardinalityTracker.hashSmall(). */
+	public static synchronized void loadBlacklist(String path){
+		if(path==null){return;}
+		final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, false, true);
+		final ByteFile bf=ByteFile.makeByteFile(ff);
+		final LongHashSet set=new LongHashSet(256);
+		StringBuilder sb=new StringBuilder();
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length<1){continue;}
+			if(line[0]=='>'){
+				if(sb.length()>0){
+					set.add(packKmer(sb.toString().getBytes()));
+					sb.setLength(0);
+				}
+			}else{
+				for(byte b : line){sb.append((char)b);}
+			}
+		}
+		if(sb.length()>0){set.add(packKmer(sb.toString().getBytes()));}
+		bf.close();
+		blacklist=set;
+		System.err.println("Loaded "+set.size()+" blacklisted kmers from "+path);
+	}
+
+	/** Packs a nucleotide sequence into a canonical 2-bit long.
+	 * Uses the same encoding as CardinalityTracker.hashSmall(). */
+	public static long packKmer(byte[] bases){
+		final int k=bases.length;
+		final int shift=2*k;
+		final int shift2=shift-2;
+		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
+		long kmer=0, rkmer=0;
+		for(int i=0; i<k; i++){
+			final byte b=bases[i];
+			final long x=((b>>1)&3)|((b&8)<<28);
+			final long x2=x^2;
+			kmer=((kmer<<2)|x)&mask;
+			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+		}
+		return Math.max(kmer, rkmer);
+	}
+
+	/** Unpacks a canonical 2-bit kmer into a nucleotide string.
+	 * Uses alternate encoding: 0=A, 1=C, 2=T, 3=G (matching hashSmall). */
+	public static String unpackKmer(long kmer, int k){
+		final byte[] bases=new byte[k];
+		for(int i=k-1; i>=0; i--){
+			int x=(int)(kmer&3);
+			bases[i]=ALT_NUMBER_TO_BASE[x];
+			kmer>>>=2;
+		}
+		return new String(bases);
+	}
+
+	private static final byte[] ALT_NUMBER_TO_BASE={'A','C','T','G'};
 
 
 }
