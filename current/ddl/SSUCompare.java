@@ -662,6 +662,47 @@ public class SSUCompare {
 		}
 	}
 
+	private static void sendLookupToServer(String address, String lookupName, int lookupTid,
+			int filterType, DDLFormatter formatter){
+		ByteBuilder bb=new ByteBuilder();
+		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
+		if(formatter.printLineage){bb.append("//lineage=t\n");}
+		if(filterType>=0){bb.append("//rtype=").append(DDLRecord.riboName(filterType)).append('\n');}
+		if(lookupTid>=0){
+			bb.append("//tid=").append(lookupTid).append('\n');
+		}else{
+			bb.append("//name=").append(lookupName).append('\n');
+		}
+		System.err.println("Sending lookup to "+address);
+		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
+		if(result!=null && result.s!=null){
+			System.out.print(result.s);
+		}else{
+			System.err.println("ERROR: No response from server at "+address);
+			System.exit(1);
+		}
+	}
+
+	private static void sendLiteralToServer(String address, String literal,
+			int maxRecords, int minHits, int buffer, DDLFormatter formatter){
+		ByteBuilder bb=new ByteBuilder();
+		bb.append("//records=").append(maxRecords).append('\n');
+		bb.append("//minhits=").append(minHits).append('\n');
+		if(buffer>0){bb.append("//buffer=").append(buffer).append('\n');}
+		if(formatter.printLineage){bb.append("//lineage=t\n");}
+		if(formatter.printRank){bb.append("//rank=t\n");}
+		if(formatter.format==DDLFormatter.FORMAT_JSON){bb.append("//json=t\n");}
+		bb.append("//literal=").append(literal).append('\n');
+		System.err.println("Sending "+literal.length()+" bases to "+address);
+		StringNum result=ServerTools.sendAndReceive(bb.toBytes(), address);
+		if(result!=null && result.s!=null){
+			System.out.print(result.s);
+		}else{
+			System.err.println("ERROR: No response from server at "+address);
+			System.exit(1);
+		}
+	}
+
 	private static final int MIN_GENE_CALL_LENGTH=800;
 	private static final int MAX_SSU_LEN=4000;
 	private static final String DEFAULT_ADDRESS="https://bbmapservers.jgi.doe.gov/sendclade/findssu/";
