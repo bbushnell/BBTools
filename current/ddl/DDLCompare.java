@@ -54,6 +54,7 @@ public class DDLCompare {
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ref")){refFile=b;}
+		else if(a.equals("refseq")){refFile="refseq";}
 			else if(a.equals("queryfile") || a.equals("qf")){queryFile=b;}
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
@@ -70,6 +71,8 @@ public class DDLCompare {
 			else if(file1==null){file1=args[i];}
 			else if(file2==null){file2=args[i];}
 		}
+
+		if("refseq".equals(refFile)){refFile=shared.Resources.find("?refseqSketchDDL.tsv.gz");}
 
 		if(!DynamicDemiLog.blacklistExists()){
 			String blPath=dna.Data.findPath("?genomeDDLBlacklist.fa.gz", false);

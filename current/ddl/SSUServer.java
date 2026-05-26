@@ -93,11 +93,16 @@ public class SSUServer {
 		System.err.println("SSUServer starting on port "+port+"  k="+k
 			+"  exponent="+DynamicDemiLog.exponentBits()+"  buckets="+buckets);
 
+		if(!DynamicDemiLog.blacklistExists()){
+			String blPath=dna.Data.findPath("?riboDDLBlacklist.fa.gz", false);
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+		}
+
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
-			refFile=Resources.find("?ssuSketchDDL.tsv.gz");
+			refFile=Resources.find("?riboSketchDDL.tsv.gz");
 		}
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
-			System.err.println("ERROR: Required resource not found: ssuSketchDDL.tsv.gz");
+			System.err.println("ERROR: Required resource not found: riboSketchDDL.tsv.gz");
 			System.err.println("Download it from:");
 			System.err.println("  https://sourceforge.net/projects/bbmap/files/Resources/");
 			System.err.println("Place it in BBTools/resources/ and try again.");

@@ -13,6 +13,7 @@ or run collision tests on a DDL file.
 
 Usage:  ddlcompare.sh genome1.fa genome2.fa
     or: ddlcompare.sh query.fa ref=ddls.tsv records=10
+    or: ddlcompare.sh query.fa refseq records=10
     or: ddlcompare.sh qf=queries.tsv ref=ddls.tsv t=32
     or: ddlcompare.sh ref=ddls.tsv collisiontest
 
@@ -22,6 +23,8 @@ in2=<file>      Second input file (reference).
 
 Reference Mode Parameters:
 ref=<file>      Pre-built DDL reference file (TSV format from DDLLoader).
+refseq          Shorthand for ref=resources/refseqSketchDDL.tsv.gz.
+                Also accepts ref=refseq.
 queryfile=<file> Pre-built DDL query file (TSV format).  Compares all queries
 qf=<file>       against all references (multi-query batch mode).
 records=20      Max hits to display.
@@ -32,6 +35,12 @@ t=1             Number of threads.
 Collision Test:
 collisiontest   Measure all-pairs collision rate in a DDL reference file.
                 Requires ref= to be set.
+
+Blacklist:
+                Autoloads genomeDDLBlacklist.fa.gz from resources/ if present.
+                The blacklist filters taxonomically uninformative kmers during
+                query sketch construction.  Pre-built reference sketches already
+                have blacklisting baked in.
 
 Sketch Parameters:
 k=31            K-mer length for hashing.

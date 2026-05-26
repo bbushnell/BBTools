@@ -118,7 +118,7 @@ public class SSUCompare {
 		}
 
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
-			refFile=Resources.find("?ssuSketchDDL.tsv.gz");
+			refFile=Resources.find("?riboSketchDDL.tsv.gz");
 		}
 
 		if(lookupName!=null || lookupTid>=0){
