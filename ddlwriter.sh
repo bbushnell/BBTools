@@ -23,6 +23,7 @@ mode=perfile    One DDL per input file (default).  Multithreaded.
 parsetaxid=t    Extract taxonomy IDs from filenames (tid_NNNN) or
                 headers (tid|NNNN).  Set false for anonymous mode.
 threads=auto    Number of threads for perfile mode (auto = all cores).
+                Peaks at ~32 cores for bgzipped RefSeq input.
 overwrite=f     Overwrite existing output.
 "
 }
