@@ -13,6 +13,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import bin.AdjustEntropy;
 import bin.GeneTools;
+import cardinality.DynamicDemiLog;
 import dna.Data;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -455,6 +456,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		readsProcessed=basesProcessed=0;
 		readsLoaded=basesLoaded=0;
 		setup();
+
+		if(!DynamicDemiLog.blacklistExists()){
+			String blPath=Data.findPath("?genomeDDLBlacklist.fa.gz", false);
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+		}
+
 		checkSketchFile();
 
 		serverMode=(serverMode || ref==null || ref.isEmpty());
