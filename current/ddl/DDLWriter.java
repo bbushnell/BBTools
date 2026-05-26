@@ -84,6 +84,10 @@ public class DDLWriter {
 				DynamicDemiLog.setExponent(Integer.parseInt(b));
 			}else if(a.equals("lineage") || a.equals("writelineage")){
 				writeLineage=Parse.parseBoolean(b);
+			}else if(a.equals("kmers") || a.equals("storekmers")){
+				storeKmers=Parse.parseBoolean(b);
+			}else if(a.equals("blacklist")){
+				blacklistFile=b;
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -114,6 +118,7 @@ public class DDLWriter {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
+		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile);}
 		if(mode==PER_FILE){processPerFile(t);}
 		else if(mode==PER_SEQUENCE){processPerSequence(t);}
 		else if(mode==PER_TID){processPerTid(t);}
@@ -130,7 +135,7 @@ public class DDLWriter {
 			if(rec!=null){records.add(rec);}
 		}
 		if(writeLineage){attachLineage(records);}
-		DDLLoader.writeFile(records, out, overwrite, k, seed);
+		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
 		outstream.println("Wrote "+records.size()+" DDL sketches to "+out);
@@ -164,7 +169,7 @@ public class DDLWriter {
 		ArrayList<DDLRecord> records=new ArrayList<>(allRecords);
 		records.sort((a, b) -> Long.compare(a.id, b.id));
 		if(writeLineage){attachLineage(records);}
-		DDLLoader.writeFile(records, out, overwrite, k, seed);
+		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
 		outstream.println("Wrote "+records.size()+" DDL sketches to "+out+" using "+threads+" threads");
@@ -176,7 +181,7 @@ public class DDLWriter {
 		final String path=inFiles[f];
 		if(verbose){outstream.println("Processing "+path);}
 
-		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
+		DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false, storeKmers);
 
 		final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
 		final Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
@@ -241,7 +246,7 @@ public class DDLWriter {
 			ArrayList<Read> list=(ln!=null ? ln.list : null);
 			while(ln!=null && list!=null && list.size()>0){
 				for(Read r : list){
-					DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
+					DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false, storeKmers);
 					ddl.hash(r);
 
 					int taxID=-1;
@@ -275,7 +280,7 @@ public class DDLWriter {
 		}
 
 		if(writeLineage){attachLineage(records);}
-		DDLLoader.writeFile(records, out, overwrite, k, seed);
+		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
 		outstream.println("Wrote "+records.size()+" DDL sketches to "+out);
@@ -348,7 +353,7 @@ public class DDLWriter {
 			}
 			Collections.sort(records);
 			if(writeLineage){attachLineage(records);}
-			DDLLoader.writeFile(records, out, overwrite, k, seed);
+			DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 			t.stop();
 			outstream.println("Wrote "+records.size()+" DDL sketches to "+out+" using "+threads+" threads");
@@ -375,7 +380,7 @@ public class DDLWriter {
 						if(tid<1){continue;}
 						DDLRecord rec=tidMap.get(tid);
 						if(rec==null){
-							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false);
+							DynamicDemiLog ddl=DynamicDemiLog.create(buckets, k, seed, 0f, false, storeKmers);
 							rec=new DDLRecord(ddl, r.numericID, tid, r.id);
 							rec.filename=fileName;
 							tidMap.put(tid, rec);
@@ -468,6 +473,8 @@ public class DDLWriter {
 	private boolean verbose=false;
 	private boolean parseTaxid=true;
 	private boolean writeLineage=true;
+	private boolean storeKmers=false;
+	private String blacklistFile=null;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/

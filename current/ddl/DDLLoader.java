@@ -52,13 +52,28 @@ public class DDLLoader {
 	 * @param offset GlobalNLZ offset; -1 for legacy absolute format, >=0 for relative
 	 * @return Populated DynamicDemiLog */
 	public static DynamicDemiLog parseDDL(byte[] line, LineParser1 lp, int k, int offset){
+		return parseDDL(line, lp, k, offset, null);
+	}
+
+	public static DynamicDemiLog parseDDL(byte[] line, LineParser1 lp, int k, int offset, long[] kmers){
 		lp.set(line);
 		final int terms=lp.terms();
 		final char[] loaded=new char[terms];
 		for(int i=0; i<terms; i++){
 			loaded[i]=(char)lp.parseLongA48(i);
 		}
-		return DynamicDemiLog.fromArray(loaded, -1, null, k, offset);
+		return DynamicDemiLog.fromArray(loaded, -1, null, k, offset, kmers);
+	}
+
+	/** Parses a tab-delimited A48 kmer data line into a long array. */
+	public static long[] parseKmers(byte[] line, LineParser1 lp){
+		lp.set(line);
+		final int terms=lp.terms();
+		final long[] kmers=new long[terms];
+		for(int i=0; i<terms; i++){
+			kmers[i]=lp.parseLongA48(i);
+		}
+		return kmers;
 	}
 
 	/** Loads all DDLRecords from a TSV file.
@@ -78,6 +93,7 @@ public class DDLLoader {
 		int currentContigs=0;
 		float currentGC=-1;
 		int currentOffset=-1; // -1 = legacy absolute format
+		boolean currentHasKmers=false;
 
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length<1){continue;}
@@ -102,10 +118,21 @@ public class DDLLoader {
 				else if(lp.termEquals("#origin", 0)){currentOrigin=lp.parseString(1);}
 				else if(lp.termEquals("#lineage", 0)){currentLineage=lp.parseString(1);}
 				else if(lp.termEquals("#offset", 0)){currentOffset=(int)lp.parseLong(1);}
+				else if(lp.termEquals("#haskmers", 0)){currentHasKmers=lp.parseLong(1)>0;}
+				else if(lp.termEquals("#blacklist", 0)){lastBlacklistHeader=lp.parseString(1);}
+				else if(lp.termEquals("#date", 0)){/*file-level, informational*/}
 				continue;
 			}
 
-			DynamicDemiLog ddl=parseDDL(line, lp, k, currentOffset);
+			long[] kmers=null;
+			if(currentHasKmers){
+				byte[] kmerLine=bf.nextLine();
+				if(kmerLine!=null && kmerLine.length>0){
+					kmers=parseKmers(kmerLine, lp);
+				}
+			}
+
+			DynamicDemiLog ddl=parseDDL(line, lp, k, currentOffset, kmers);
 			DDLRecord rec=new DDLRecord(ddl, currentId, currentTid, currentName);
 			rec.filename=currentFile;
 			rec.bases=currentBases;
@@ -117,7 +144,7 @@ public class DDLLoader {
 			records.add(rec);
 
 			currentId=-1L; currentTid=-1; currentName=null; currentFile=null; currentOrigin=null; currentLineage=null;
-			currentBases=0; currentContigs=0; currentGC=-1; currentOffset=-1;
+			currentBases=0; currentContigs=0; currentGC=-1; currentOffset=-1; currentHasKmers=false;
 		}
 		bf.close();
 		return records;
@@ -132,11 +159,16 @@ public class DDLLoader {
 	 * @param path Output file path (may end in .gz)
 	 * @param overwrite Overwrite existing files */
 	public static void writeFile(ArrayList<DDLRecord> records, String path, boolean overwrite){
-		writeFile(records, path, overwrite, -1, -1);
+		writeFile(records, path, overwrite, -1, -1, null);
 	}
 
 	public static void writeFile(ArrayList<DDLRecord> records, String path,
 			boolean overwrite, int k, long seed){
+		writeFile(records, path, overwrite, k, seed, null);
+	}
+
+	public static void writeFile(ArrayList<DDLRecord> records, String path,
+			boolean overwrite, int k, long seed, String blacklistFile){
 		final FileFormat ff=FileFormat.testOutput(path, FileFormat.TEXT, null, false, overwrite, false, false);
 		final ByteStreamWriter bsw=new ByteStreamWriter(ff);
 		bsw.start();
@@ -145,6 +177,8 @@ public class DDLLoader {
 		if(k>0){bb.append("#k").tab().append(k).nl();}
 		if(seed!=0){bb.append("#seed").tab().append(seed).nl();}
 		bb.append("#exponent").tab().append(DynamicDemiLog.exponentBits()).nl();
+		if(blacklistFile!=null){bb.append("#blacklist").tab().append(blacklistFile).nl();}
+		bb.append("#date").tab().append(new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.util.Date())).nl();
 		if(bb.length()>0){
 			bsw.print(bb);
 			bb.clear();
@@ -169,16 +203,28 @@ public class DDLLoader {
 		if(rec.origin!=null){bb.append("#origin").tab().append(rec.origin).nl();}
 		if(rec.lineage!=null){bb.append("#lineage").tab().append(rec.lineage).nl();}
 		bb.append("#len").tab().append(rec.ddl.buckets).nl();
+		if(rec.ddl.hasKmers()){bb.append("#haskmers").tab().append(1).nl();}
+		assert(rec.ddl.getGlobalNLZ()<57) : "Bad offset in appendRecord: "+rec.ddl.getGlobalNLZ();
 		if(rec.ddl.getGlobalNLZ()>=0){
-			// All buckets filled: write relative encoding with #offset
 			bb.append("#offset").tab().append(rec.ddl.getGlobalNLZ()).nl();
 			rec.ddl.toBytesRelative(bb);
 		}else{
-			// Has empty buckets: write absolute encoding (legacy compatible)
 			rec.ddl.toBytes(bb);
 		}
 		bb.nl();
+		if(rec.ddl.hasKmers()){
+			rec.ddl.toBytesKmers(bb);
+			bb.nl();
+		}
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Last #blacklist header value seen during loadFile(). Set during parsing,
+	 * readable by callers (e.g., DDLMerger) to propagate to output. */
+	public static String lastBlacklistHeader;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/

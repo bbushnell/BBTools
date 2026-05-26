@@ -60,6 +60,8 @@ public class DDLMerger {
 				mergePlasmid=Parse.parseBoolean(b);
 			}else if(a.equals("merge") || a.equals("mergeall")){
 				mergeMain=mergeMito=mergePlastid=mergePlasmid=Parse.parseBoolean(b);
+			}else if(a.equals("blacklist")){
+				blacklistFile=b;
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -184,7 +186,8 @@ public class DDLMerger {
 			numbered.add(fresh);
 		}
 
-		DDLLoader.writeFile(numbered, out, overwrite, k, 12345L);
+		final String bl=(blacklistFile!=null ? blacklistFile : DDLLoader.lastBlacklistHeader);
+		DDLLoader.writeFile(numbered, out, overwrite, k, 12345L, bl);
 
 		t.stop();
 		int merged=all.size()-numbered.size();
@@ -269,6 +272,7 @@ public class DDLMerger {
 	private int k=31;
 	private boolean overwrite=false;
 	private boolean verbose=false;
+	private String blacklistFile=null;
 
 	private boolean mergeMain=true;
 	private boolean mergeMito=true;
