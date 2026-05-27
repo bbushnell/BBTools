@@ -129,6 +129,14 @@ public class CladeServer {
 		outstream.println("Loading reference database...");
 		Timer refTimer=new Timer();
 
+		//Load DDL blacklist
+		if(!cardinality.DynamicDemiLog.blacklistExists()){
+			String blPath=dna.Data.findPath("?genomeDDLBlacklist.fa.gz", false);
+			if(blPath!=null){
+				cardinality.DynamicDemiLog.loadBlacklist(blPath);
+			}
+		}
+
 		//Initialize CladeIndex with reference files
 		if(verbose){System.err.println("[" + new Date() + "] Loading reference database from: " + ref_);}
 		index=CladeIndex.loadIndex(ref_);
@@ -136,6 +144,16 @@ public class CladeServer {
 
 		refTimer.stop();
 		outstream.println("Loaded "+index.size()+" reference clades in "+refTimer);
+
+		//Load DDL sketch index for supplementary hits (matches CladeSearcher's local-mode chain)
+		if(CladeIndex.USE_SKETCHES && CladeIndex.sketchFile!=null){
+			Timer sketchTimer=new Timer();
+			outstream.println("Loading sketch file: "+CladeIndex.sketchFile);
+			java.util.ArrayList<ddl.DDLRecord> sketchRecords=ddl.DDLLoaderMT.loadFile(CladeIndex.sketchFile, Clade.DDL_K);
+			index.finishSketches(sketchRecords);
+			sketchTimer.stop();
+			outstream.println("Loaded "+sketchRecords.size()+" sketches and built index in "+sketchTimer);
+		}
 
 		//Initialize the server
 		initializeServer();
