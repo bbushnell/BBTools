@@ -157,7 +157,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		if(calcCladeEntropy && (AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150)) {
 			AdjustEntropy.load(4, 150);
 		}
-		
+		DynamicDemiLog.setExponent(5);
 		if(Clade.callSSU) {
 			GeneTools.loadPGM();
 			GeneCaller.call23S=GeneCaller.call5S=GeneCaller.calltRNA=GeneCaller.callCDS=false;

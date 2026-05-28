@@ -403,8 +403,10 @@ public class CladeServer {
 
 				int queryNumber=1;
 				for(Clade clade : clades){
-					//Use thread-safe findBest method with context-specific hits parameter
-					ArrayList<Comparison> results=index.findBest(clade, context.hits);
+					//Debug DDL state
+					//Use heap for search depth (larger window finds better candidates), hits for output limit
+					int searchDepth=Math.max(context.hits, context.heap);
+					ArrayList<Comparison> results=index.findBest(clade, searchDepth);
 					if(ssa!=null){
 						for(Comparison comp : results){comp.align(ssa);}
 						Collections.sort(results);
