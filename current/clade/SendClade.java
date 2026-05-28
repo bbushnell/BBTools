@@ -88,6 +88,7 @@ public class SendClade extends CladeObject {
 		//Set shared static variables
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
+		cardinality.DynamicDemiLog.setExponent(5);
 
 		//Initialize entropy model for clade calculations
 		if(AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150){
@@ -120,6 +121,21 @@ public class SendClade extends CladeObject {
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
+			}else if(a.equals("fast") || a.equals("quick")){
+				hits=1;
+				heapSize=1;
+				Clade.callSSU=false;
+				Clade.MAKE_DDLS=false;
+			}else if(a.equals("medium") || a.equals("normal")){
+				hits=5;
+				heapSize=20;
+				Clade.callSSU=true;
+				Clade.MAKE_DDLS=true;
+			}else if(a.equals("slow") || a.equals("sensitive")){
+				hits=10;
+				heapSize=50;
+				Clade.callSSU=true;
+				Clade.MAKE_DDLS=true;
 			}else if(a.equals("local")){
 				local=Parse.parseBoolean(b);
 				if(local){address=localAddress;}
