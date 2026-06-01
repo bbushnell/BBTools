@@ -139,6 +139,31 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return ddl;
 	}
 
+	/** Creates a new DDL with fewer buckets by folding.
+	 * For each new bucket i, takes the max of all old buckets that map to i.
+	 * @param src Source DDL
+	 * @param newBuckets Target bucket count (must be power of 2, <= src.buckets)
+	 * @return New condensed DDL */
+	public static DynamicDemiLog condense(DynamicDemiLog src, int newBuckets){
+		if(newBuckets==src.buckets){return src;}
+		assert(newBuckets>0 && (newBuckets&(newBuckets-1))==0) : "newBuckets must be power of 2: "+newBuckets;
+		assert(newBuckets<src.buckets) : "Cannot expand "+src.buckets+" to "+newBuckets;
+
+		final char[] newMax=new char[newBuckets];
+		final long[] newKmers=(src.kmerArray!=null ? new long[newBuckets] : null);
+		final int newMask=newBuckets-1;
+
+		for(int i=0; i<src.buckets; i++){
+			final int ni=i&newMask;
+			if(src.maxArray[i]>newMax[ni]){
+				newMax[ni]=src.maxArray[i];
+				if(newKmers!=null){newKmers[ni]=src.kmerArray[i];}
+			}
+		}
+
+		return fromArray(newMax, src.id, src.name, src.k, -1, newKmers);
+	}
+
 	@Override
 	public DynamicDemiLog copy(){return new DynamicDemiLog(buckets, k, -1, minProb);}
 

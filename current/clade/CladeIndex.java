@@ -370,7 +370,7 @@ public class CladeIndex implements Cloneable {
 	static int ddlLoadThreads=0;
 	static int indexThreads=0;
 	static String sketchFile=null;
-	static final String DEFAULT_SKETCH_FILE="refseqSketchDDL.tsv.gz";
+	static final String DEFAULT_SKETCH_FILE="refseqSketchDDL_k25e5b4096.tsv.gz";
 
 	DDLIndex ddlIndex;
 	ArrayList<DDLRecord> sketchRecords;

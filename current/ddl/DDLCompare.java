@@ -1,5 +1,6 @@
 package ddl;
 
+import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -9,10 +10,14 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import idaligner.QuantumAligner;
 import map.IntObjectMap;
+import parse.Parse;
+import parse.Parser;
+import parse.PreParser;
 import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
 import prok.ProkObject;
+import shared.Shared;
 import shared.Timer;
 import stream.Read;
 import stream.Streamer;
@@ -30,84 +35,109 @@ import structures.ListNum;
  */
 public class DDLCompare {
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	public static void main(String[] args){
-		if(args.length<1){
-			System.err.println("Usage: DDLCompare <genome1.fa> <genome2.fa> [k=31] [buckets=2048]");
-			System.err.println("   or: DDLCompare <query.fa> ref=<ddls.tsv> [records=20]");
-			System.err.println("   or: DDLCompare qf=queries.tsv ref=ddls.tsv t=32 [format=json]");
-			System.exit(1);
+		Timer t=new Timer();
+		DDLCompare x=new DDLCompare(args);
+		x.process(t);
+		Shared.closeStream(x.outstream);
+	}
+
+	public DDLCompare(String[] args){
+
+		{
+			PreParser pp=new PreParser(args, getClass(), false);
+			args=pp.args;
+			outstream=pp.outstream;
 		}
 
-		String file1=null, file2=null, refFile=null, queryFile=null;
-		int k=31, buckets=2048, maxRecords=20, minHits=5, threads=1;
-		boolean collisionTest=false, useIndex=false, useSSU=false;
-		boolean perContig=false, parallelLoad=true;
-		int minSketchLen=400;
-		DDLFormatter formatter=new DDLFormatter();
+		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 
+		{
+			final Parser parser=parse(args);
+			Parser.processQuality();
+			overwrite=parser.overwrite;
+			if(parser.in1!=null){file1=parser.in1;}
+			if(parser.in2!=null){file2=parser.in2;}
+		}
+
+		if("refseq".equals(refFile)){refFile=shared.Resources.find("?refseqSketchDDL_k25e5b4096.tsv.gz");}
+
+		if(blacklistSet){
+			if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile);}
+		}else if(!DynamicDemiLog.blacklistExists()){
+			String blPath=dna.Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+		}
+
+		if(queryFile!=null){formatter.printQueryName=true;}
+		if(useSSU){formatter.printSSU=true;}
+	}
+
+	private Parser parse(String[] args){
+		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
-			String[] split=args[i].split("=");
+			String arg=args[i];
+			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			if(formatter.parse(args[i], a, b)){/* handled by formatter */}
+			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+
+			if(formatter.parse(arg, a, b)){/* handled by formatter */}
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
 			else if(a.equals("ref")){refFile=b;}
-		else if(a.equals("refseq")){refFile="refseq";}
+			else if(a.equals("refseq")){refFile="refseq";}
+			else if(a.equals("query")){file1=b;}
 			else if(a.equals("queryfile") || a.equals("qf")){queryFile=b;}
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("collisiontest")){collisionTest=true;}
-			else if(a.equals("index")){useIndex=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("ssu")){useSSU=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("percontig") || a.equals("persequence")){perContig=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("perfile")){perContig=!(b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true"));}
+			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
+			else if(a.equals("ssu")){useSSU=Parse.parseBoolean(b);}
+			else if(a.equals("percontig") || a.equals("persequence")){perContig=Parse.parseBoolean(b);}
+			else if(a.equals("perfile")){perContig=!Parse.parseBoolean(b);}
 			else if(a.equals("minsketch") || a.equals("minsketchlen")){minSketchLen=Integer.parseInt(b);}
-			else if(a.equals("parallelload") || a.equals("pload")){parallelLoad=b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true");}
-			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
-			else if(a.equals("in") || a.equals("in1") || a.equals("query")){file1=b;}
-			else if(a.equals("in2")){file2=b;}
-			else if(file1==null){file1=args[i];}
-			else if(file2==null){file2=args[i];}
+			else if(a.equals("parallelload") || a.equals("pload")){parallelLoad=Parse.parseBoolean(b);}
+			else if(a.equals("blacklist")){blacklistFile=b; blacklistSet=true;}
+			else if(parser.parse(arg, a, b)){/* handled by parser */}
+			else if(file1==null){file1=arg;}
+			else if(file2==null){file2=arg;}
+			else{
+				outstream.println("Unknown parameter "+args[i]);
+				assert(false) : "Unknown parameter "+args[i];
+			}
 		}
+		return parser;
+	}
 
-		if("refseq".equals(refFile)){refFile=shared.Resources.find("?refseqSketchDDL.tsv.gz");}
+	/*--------------------------------------------------------------*/
+	/*----------------         Outer Methods        ----------------*/
+	/*--------------------------------------------------------------*/
 
-		if(!DynamicDemiLog.blacklistExists()){
-			String blPath=dna.Data.findPath("?genomeDDLBlacklist.fa.gz", false);
-			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
-		}
-
-		if(queryFile!=null){
-			formatter.printQueryName=true;
-		}
-		if(useSSU){
-			formatter.printSSU=true;
-		}
+	void process(Timer t){
+		final int threads=Shared.threads();
 
 		if(collisionTest && refFile!=null){
-			collisionTest(refFile, k);
-			return;
+			collisionTest(refFile, threads);
+		}else if(queryFile!=null && refFile!=null){
+			compareMultiQuery(threads);
+		}else if(refFile!=null){
+			compareToRefs(threads);
+		}else{
+			comparePairwise(threads);
 		}
-		if(queryFile!=null && refFile!=null){
-			compareMultiQuery(queryFile, refFile, k, maxRecords, minHits, useIndex, useSSU, threads, formatter);
-			return;
-		}
-		if(refFile!=null){
-			compareToRefs(file1, refFile, k, buckets, maxRecords, minHits, useIndex,
-				useSSU, perContig, minSketchLen, parallelLoad, threads, formatter);
-			return;
-		}
-
-		comparePairwise(file1, file2, k, buckets, threads);
 	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Pairwise Mode          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void comparePairwise(String file1, String file2, int k, int buckets, int threads){
+	private void comparePairwise(int threads){
 		Timer t=new Timer();
 
 		DynamicDemiLog ddlA, ddlB;
@@ -168,7 +198,7 @@ public class DDLCompare {
 		System.out.println("LL6_ANI:\t"+String.format("%.6f", ll6ani));
 		System.out.println("Time:\t"+t);
 
-		System.err.println(String.format("ANI: %.2f%%  WKID: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
+		outstream.println(String.format("ANI: %.2f%%  WKID: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
 			ani*100, c, compAB, compBA, equal, lower+equal+higher));
 	}
 
@@ -176,11 +206,9 @@ public class DDLCompare {
 	/*----------------     Single-Query Mode        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void compareToRefs(String queryPath, String refPath, int k, int buckets,
-			int maxRecords, int minHits, boolean useIndex, boolean useSSU,
-			boolean perContig, int minSketchLen, boolean parallelLoad, int threads, DDLFormatter formatter){
+	private void compareToRefs(int threads){
 		Timer t=new Timer();
-		System.err.println("Mode: "+(perContig ? "percontig " : "perfile ")
+		outstream.println("Mode: "+(perContig ? "percontig " : "perfile ")
 			+(useIndex ? "indexed" : "pairwise")+"  threads="+threads+(useSSU ? "  ssu=t" : "")
 			+(parallelLoad && useSSU ? "  parallelLoad" : ""));
 
@@ -200,10 +228,18 @@ public class DDLCompare {
 		}
 
 		long ts=System.nanoTime();
-		System.err.println("Loading references from "+refPath+"...");
-		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
+		outstream.println("Loading references from "+refFile+"...");
+		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refFile, k, threads);
 		long tRefLoad=System.nanoTime()-ts;
-		System.err.println("Loaded "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
+		outstream.println("Loaded "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
+
+		if(!refs.isEmpty()){
+			final int refBuckets=refs.get(0).ddl.buckets;
+			if(refBuckets!=buckets){
+				outstream.println("Auto-setting query buckets="+refBuckets+" to match reference database.");
+				buckets=refBuckets;
+			}
+		}
 
 		long tSSULoad=0;
 		if(useSSU){
@@ -222,7 +258,7 @@ public class DDLCompare {
 			}
 			DDLSSULoader.attachSSU(refs, map16, map18);
 			tSSULoad=System.nanoTime()-ts;
-			System.err.println("SSU load"+(ssuThread!=null ? " (parallel)" : "")+": "+fmt(tSSULoad)+"s"
+			outstream.println("SSU load"+(ssuThread!=null ? " (parallel)" : "")+": "+fmt(tSSULoad)+"s"
 				+(ssuThread!=null ? " (attach only; maps loaded in parallel with refs)" : ""));
 		}
 
@@ -235,7 +271,7 @@ public class DDLCompare {
 			index=new DDLIndex(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			tIndex=System.nanoTime()-ts;
-			System.err.println("Built inverted index in "+fmt(tIndex)+" seconds.");
+			outstream.println("Built inverted index in "+fmt(tIndex)+" seconds.");
 		}
 
 		/* --- Phase 3: Load query --- */
@@ -243,14 +279,14 @@ public class DDLCompare {
 		ts=System.nanoTime();
 		final ArrayList<DDLRecord> queries;
 		if(perContig){
-			queries=DDLQueryLoaderSF.loadPerContig(queryPath, buckets, k, useSSU, threads, minSketchLen);
-			System.err.println("Loaded "+queries.size()+" contigs from "+queryPath
+			queries=DDLQueryLoaderSF.loadPerContig(file1, buckets, k, useSSU, threads, minSketchLen);
+			outstream.println("Loaded "+queries.size()+" contigs from "+file1
 				+" (minsketch="+minSketchLen+") in "+fmt(System.nanoTime()-ts)+"s  threads="+threads);
 		}else{
-			DDLRecord qRec=DDLQueryLoaderSF.loadPerFile(queryPath, buckets, k, useSSU, threads);
+			DDLRecord qRec=DDLQueryLoaderSF.loadPerFile(file1, buckets, k, useSSU, threads);
 			queries=new ArrayList<>(1);
 			queries.add(qRec);
-			System.err.println("Query: "+queryPath+"  bases="+qRec.bases+"  cardinality="+qRec.cardinality
+			outstream.println("Query: "+file1+"  bases="+qRec.bases+"  cardinality="+qRec.cardinality
 				+"  sketch: "+fmt(System.nanoTime()-ts)+"s  threads="+threads
 				+(useSSU ? "  ssu="+(qRec.hasRibo() ? DDLRecord.riboName(qRec.riboType())+"("+qRec.riboBytes().length+"bp)" : "none") : ""));
 		}
@@ -281,7 +317,7 @@ public class DDLCompare {
 				}
 			}
 			long tCompare=System.nanoTime()-ts;
-			System.err.println("Compared against "+nRefs+" references in "+fmt(tCompare)+" seconds.");
+			outstream.println("Compared against "+nRefs+" references in "+fmt(tCompare)+" seconds.");
 
 			ArrayList<DDLComparison> results=heap.toList();
 			long tAlign=0;
@@ -290,20 +326,20 @@ public class DDLCompare {
 				ts=System.nanoTime();
 				alignCount=alignSSU(results);
 				tAlign=System.nanoTime()-ts;
-				System.err.println("SSU alignments: "+alignCount+" in "+fmt(tAlign)+" seconds.");
+				outstream.println("SSU alignments: "+alignCount+" in "+fmt(tAlign)+" seconds.");
 			}
 
-			printResults(results, minHits, formatter);
+			printResults(results);
 
 			t.stop();
-			System.err.println("\nSubphase timing:");
-			System.err.println("  Ref load:    \t"+fmt(tRefLoad)+"s");
-			if(useSSU){System.err.println("  SSU load:    \t"+fmt(tSSULoad)+"s");}
-			if(useIndex){System.err.println("  Index build: \t"+fmt(tIndex)+"s");}
-			System.err.println("  Query load:  \t"+fmt(tQueryLoad)+"s");
-			System.err.println("  Compare:     \t"+fmt(tCompare)+"s");
-			if(useSSU){System.err.println("  SSU align:   \t"+fmt(tAlign)+"s  ("+alignCount+" alignments)");}
-			System.err.println("Total time: \t"+t);
+			outstream.println("\nSubphase timing:");
+			outstream.println("  Ref load:    \t"+fmt(tRefLoad)+"s");
+			if(useSSU){outstream.println("  SSU load:    \t"+fmt(tSSULoad)+"s");}
+			if(useIndex){outstream.println("  Index build: \t"+fmt(tIndex)+"s");}
+			outstream.println("  Query load:  \t"+fmt(tQueryLoad)+"s");
+			outstream.println("  Compare:     \t"+fmt(tCompare)+"s");
+			if(useSSU){outstream.println("  SSU align:   \t"+fmt(tAlign)+"s  ("+alignCount+" alignments)");}
+			outstream.println("Total time: \t"+t);
 		}else{
 			/* Multi-query compare (perContig or single query dispatched here) */
 			if(perContig){formatter.printQueryName=true;}
@@ -327,9 +363,9 @@ public class DDLCompare {
 			long performed=totalComparisonsPerformed.get();
 			long totalAlignments=0;
 			for(CompareThread w : workers){totalAlignments+=w.alignCountT;}
-			System.err.println("Compared "+nQueries+" queries x "+nRefs+" refs in "+fmt(tCompare)+" seconds."
+			outstream.println("Compared "+nQueries+" queries x "+nRefs+" refs in "+fmt(tCompare)+" seconds."
 				+(useSSU ? "  ("+totalAlignments+" SSU alignments inline)" : ""));
-			System.err.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+
+			outstream.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+
 				(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
 
 			ts=System.nanoTime();
@@ -338,9 +374,9 @@ public class DDLCompare {
 			if(json){formatter.jsonStart(bb);}else{formatter.header(bb);}
 			for(int qi=0; qi<nQueries; qi++){
 				if(allResults[qi]==null){continue;}
-				for(DDLComparison c : allResults[qi]){
-					if(c.equal<minHits){continue;}
-					formatter.format(c, bb);
+				for(DDLComparison dc : allResults[qi]){
+					if(dc.equal<minHits){continue;}
+					formatter.format(dc, bb);
 				}
 			}
 			if(json){formatter.jsonEnd(bb);}
@@ -348,14 +384,14 @@ public class DDLCompare {
 			long tFormat=System.nanoTime()-ts;
 
 			t.stop();
-			System.err.println("\nSubphase timing:");
-			System.err.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
-			if(useSSU){System.err.println("  SSU load:      \t"+fmt(tSSULoad)+"s");}
-			if(useIndex){System.err.println("  Index build:   \t"+fmt(tIndex)+"s");}
-			System.err.println("  Query load:    \t"+fmt(tQueryLoad)+"s  ("+nQueries+" queries)");
-			System.err.println("  Compare+align: \t"+fmt(tCompare)+"s"+(useSSU ? "  ("+totalAlignments+" alignments)" : ""));
-			System.err.println("  Format:        \t"+fmt(tFormat)+"s");
-			System.err.println("Total time: \t"+t);
+			outstream.println("\nSubphase timing:");
+			outstream.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
+			if(useSSU){outstream.println("  SSU load:      \t"+fmt(tSSULoad)+"s");}
+			if(useIndex){outstream.println("  Index build:   \t"+fmt(tIndex)+"s");}
+			outstream.println("  Query load:    \t"+fmt(tQueryLoad)+"s  ("+nQueries+" queries)");
+			outstream.println("  Compare+align: \t"+fmt(tCompare)+"s"+(useSSU ? "  ("+totalAlignments+" alignments)" : ""));
+			outstream.println("  Format:        \t"+fmt(tFormat)+"s");
+			outstream.println("Total time: \t"+t);
 		}
 	}
 
@@ -363,37 +399,36 @@ public class DDLCompare {
 	/*----------------     Multi-Query Mode         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void compareMultiQuery(String queryPath, String refPath, int k,
-			int maxRecords, int minHits, boolean useIndex, boolean useSSU, int threads, DDLFormatter formatter){
+	private void compareMultiQuery(int threads){
 		Timer t=new Timer();
-		System.err.println("Mode: multi-query "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads+(useSSU ? "  ssu=t" : ""));
+		outstream.println("Mode: multi-query "+(useIndex ? "indexed" : "pairwise")+"  threads="+threads+(useSSU ? "  ssu=t" : ""));
 
 		long ts=System.nanoTime();
-		System.err.println("Loading references from "+refPath+"...");
-		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refPath, k, threads);
+		outstream.println("Loading references from "+refFile+"...");
+		ArrayList<DDLRecord> refs=DDLLoaderMT.loadFile(refFile, k, threads);
 		long tRefLoad=System.nanoTime()-ts;
-		System.err.println("Loaded "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
+		outstream.println("Loaded "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
 
 		long tSSULoad=0;
 		if(useSSU){
 			ts=System.nanoTime();
 			DDLSSULoader.loadAndAttachDefaults(refs);
 			tSSULoad=System.nanoTime()-ts;
-			System.err.println("SSU ref load+attach: "+fmt(tSSULoad)+" seconds.");
+			outstream.println("SSU ref load+attach: "+fmt(tSSULoad)+" seconds.");
 		}
 
 		ts=System.nanoTime();
-		System.err.println("Loading queries from "+queryPath+"...");
-		ArrayList<DDLRecord> queries=DDLLoaderMT.loadFile(queryPath, k, threads);
+		outstream.println("Loading queries from "+queryFile+"...");
+		ArrayList<DDLRecord> queries=DDLLoaderMT.loadFile(queryFile, k, threads);
 		long tQueryLoad=System.nanoTime()-ts;
-		System.err.println("Loaded "+queries.size()+" query DDLs in "+fmt(tQueryLoad)+" seconds.");
+		outstream.println("Loaded "+queries.size()+" query DDLs in "+fmt(tQueryLoad)+" seconds.");
 
 		long tSSUQueryLoad=0;
 		if(useSSU){
 			ts=System.nanoTime();
 			DDLSSULoader.loadAndAttachDefaults(queries);
 			tSSUQueryLoad=System.nanoTime()-ts;
-			System.err.println("SSU query load+attach: "+fmt(tSSUQueryLoad)+" seconds.");
+			outstream.println("SSU query load+attach: "+fmt(tSSUQueryLoad)+" seconds.");
 		}
 
 		final int nRefs=refs.size();
@@ -406,7 +441,7 @@ public class DDLCompare {
 			index=new DDLIndex(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			tIndex=System.nanoTime()-ts;
-			System.err.println("Built inverted index in "+fmt(tIndex)+" seconds.");
+			outstream.println("Built inverted index in "+fmt(tIndex)+" seconds.");
 		}
 
 		@SuppressWarnings("unchecked")
@@ -429,9 +464,9 @@ public class DDLCompare {
 		long performed=totalComparisonsPerformed.get();
 		long totalAlignments=0;
 		for(CompareThread w : workers){totalAlignments+=w.alignCountT;}
-		System.err.println("Compared "+nQueries+" queries x "+nRefs+" refs in "+fmt(tCompare)+" seconds."
+		outstream.println("Compared "+nQueries+" queries x "+nRefs+" refs in "+fmt(tCompare)+" seconds."
 			+(useSSU ? "  ("+totalAlignments+" SSU alignments inline)" : ""));
-		System.err.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+
+		outstream.println("Comparisons performed: "+performed+" / "+bruteForce+" brute-force"+
 			(useIndex ? " (index efficiency: "+String.format("%.4f%%", (1.0-(double)performed/bruteForce)*100)+")" : ""));
 
 		ts=System.nanoTime();
@@ -440,9 +475,9 @@ public class DDLCompare {
 		if(json){formatter.jsonStart(bb);}else{formatter.header(bb);}
 		for(int qi=0; qi<nQueries; qi++){
 			if(allResults[qi]==null){continue;}
-			for(DDLComparison c : allResults[qi]){
-				if(c.equal<minHits){continue;}
-				formatter.format(c, bb);
+			for(DDLComparison dc : allResults[qi]){
+				if(dc.equal<minHits){continue;}
+				formatter.format(dc, bb);
 			}
 		}
 		if(json){formatter.jsonEnd(bb);}
@@ -450,15 +485,15 @@ public class DDLCompare {
 		long tFormat=System.nanoTime()-ts;
 
 		t.stop();
-		System.err.println("\nSubphase timing:");
-		System.err.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
-		if(useSSU){System.err.println("  SSU ref load:  \t"+fmt(tSSULoad)+"s");}
-		System.err.println("  Query load:    \t"+fmt(tQueryLoad)+"s");
-		if(useSSU){System.err.println("  SSU query load:\t"+fmt(tSSUQueryLoad)+"s");}
-		if(useIndex){System.err.println("  Index build:   \t"+fmt(tIndex)+"s");}
-		System.err.println("  Compare+align: \t"+fmt(tCompare)+"s"+(useSSU ? "  ("+totalAlignments+" alignments)" : ""));
-		System.err.println("  Format:        \t"+fmt(tFormat)+"s");
-		System.err.println("Total time: \t"+t);
+		outstream.println("\nSubphase timing:");
+		outstream.println("  Ref load:      \t"+fmt(tRefLoad)+"s");
+		if(useSSU){outstream.println("  SSU ref load:  \t"+fmt(tSSULoad)+"s");}
+		outstream.println("  Query load:    \t"+fmt(tQueryLoad)+"s");
+		if(useSSU){outstream.println("  SSU query load:\t"+fmt(tSSUQueryLoad)+"s");}
+		if(useIndex){outstream.println("  Index build:   \t"+fmt(tIndex)+"s");}
+		outstream.println("  Compare+align: \t"+fmt(tCompare)+"s"+(useSSU ? "  ("+totalAlignments+" alignments)" : ""));
+		outstream.println("  Format:        \t"+fmt(tFormat)+"s");
+		outstream.println("Total time: \t"+t);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -483,16 +518,14 @@ public class DDLCompare {
 	/*----------------        SSU Alignment         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Single-threaded SSU alignment for small result sets (single-query path). */
 	private static int alignSSU(ArrayList<DDLComparison> results){
 		QuantumAligner aligner=new QuantumAligner();
 		int count=0;
-		for(DDLComparison c : results){
-			if(c.queryRecord==null || c.refRecord==null){continue;}
-			byte[] q=null, r=null;
-			int qt=c.queryRecord.riboType(), rt=c.refRecord.riboType();
+		for(DDLComparison dc : results){
+			if(dc.queryRecord==null || dc.refRecord==null){continue;}
+			int qt=dc.queryRecord.riboType(), rt=dc.refRecord.riboType();
 			if(qt!=DDLRecord.RIBO_NONE && qt==rt){
-				c.ssuIdentity=aligner.align(c.queryRecord.riboBytes(), c.refRecord.riboBytes());
+				dc.ssuIdentity=aligner.align(dc.queryRecord.riboBytes(), dc.refRecord.riboBytes());
 				count++;
 			}
 		}
@@ -503,11 +536,11 @@ public class DDLCompare {
 	/*----------------       Collision Test          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void collisionTest(String refPath, int k){
-		System.err.println("Loading references from "+refPath+"...");
+	private void collisionTest(String refPath, int threads){
+		outstream.println("Loading references from "+refPath+"...");
 		ArrayList<DDLRecord> refs=DDLLoader.loadFile(refPath, k);
 		final int n=refs.size();
-		System.err.println("Loaded "+n+" DDLs. Testing "+n*(n-1)/2+" pairs...");
+		outstream.println("Loaded "+n+" DDLs. Testing "+n*(n-1)/2+" pairs...");
 
 		long totalPairs=0, totalMatches=0;
 		int maxMatches=0;
@@ -524,39 +557,35 @@ public class DDLCompare {
 				}
 			}
 		}
-		System.err.println("Pairs: "+totalPairs);
-		System.err.println("Total matches: "+totalMatches);
-		System.err.println("Avg matches/pair: "+String.format("%.4f", (double)totalMatches/totalPairs));
-		System.err.println("Max matches in any pair: "+maxMatches);
-		System.err.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
+		outstream.println("Pairs: "+totalPairs);
+		outstream.println("Total matches: "+totalMatches);
+		outstream.println("Avg matches/pair: "+String.format("%.4f", (double)totalMatches/totalPairs));
+		outstream.println("Max matches in any pair: "+maxMatches);
+		outstream.println("Avg collision rate/bucket: "+String.format("%.6f", (double)totalMatches/(totalPairs*2048)));
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----------------         Output Helper        ----------------*/
+	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static void printResults(ArrayList<DDLComparison> results, int minHits, DDLFormatter formatter){
+	private void printResults(ArrayList<DDLComparison> results){
 		ByteBuilder bb=new ByteBuilder();
 		if(formatter.format==DDLFormatter.FORMAT_JSON){
 			formatter.jsonStart(bb);
-			for(DDLComparison c : results){
-				if(c.equal<minHits){continue;}
-				formatter.format(c, bb);
+			for(DDLComparison dc : results){
+				if(dc.equal<minHits){continue;}
+				formatter.format(dc, bb);
 			}
 			formatter.jsonEnd(bb);
 		}else{
 			formatter.header(bb);
-			for(DDLComparison c : results){
-				if(c.equal<minHits){continue;}
-				formatter.format(c, bb);
+			for(DDLComparison dc : results){
+				if(dc.equal<minHits){continue;}
+				formatter.format(dc, bb);
 			}
 		}
 		System.out.print(bb);
 	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------          Helpers             ----------------*/
-	/*--------------------------------------------------------------*/
 
 	private static String fmt(long nanos){return String.format("%.3f", nanos*1e-9);}
 
@@ -573,9 +602,7 @@ public class DDLCompare {
 		return new int[]{lower, equal, higher};
 	}
 
-	/** Hashes a FASTA file into a DDL, optionally gene-calling for SSU inline.
-	 * @param caller GeneCaller for SSU detection (null to skip gene-calling)
-	 * @param rec DDLRecord to attach found SSU to (null to skip) */
+	/** Hashes a FASTA file into a DDL, optionally gene-calling for SSU inline. */
 	private static long hashFile(String path, DynamicDemiLog ddl, int k,
 			GeneCaller caller, DDLRecord rec){
 		FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
@@ -609,6 +636,37 @@ public class DDLCompare {
 		ReadWrite.closeStreams(cris);
 		return bases;
 	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private String file1=null;
+	private String file2=null;
+	private String refFile=null;
+	private String queryFile=null;
+
+	private int k=25;
+	private int buckets=2048;
+	private int maxRecords=20;
+	private int minHits=5;
+
+	private boolean collisionTest=false;
+	private boolean useIndex=false;
+	private boolean useSSU=false;
+	private boolean perContig=false;
+	private boolean parallelLoad=true;
+	private int minSketchLen=400;
+	private boolean overwrite=false;
+	private String blacklistFile=null;
+	private boolean blacklistSet=false;
+
+	private final DDLFormatter formatter=new DDLFormatter();
+	private PrintStream outstream=System.err;
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	private static final int MIN_GENE_CALL_LENGTH=800;
 }

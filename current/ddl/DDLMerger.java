@@ -52,6 +52,8 @@ public class DDLMerger {
 
 			if(a.equals("k")){
 				k=Integer.parseInt(b);
+			}else if(a.equals("buckets")){
+				targetBuckets=Integer.parseInt(b);
 			}else if(a.equals("mergemito") || a.equals("mergemitochondrion")){
 				mergeMito=Parse.parseBoolean(b);
 			}else if(a.equals("mergeplastid")){
@@ -96,17 +98,32 @@ public class DDLMerger {
 	void process(Timer t){
 		//Load all records from all files, tagged with source category
 		final ArrayList<TaggedRecord> all=new ArrayList<TaggedRecord>();
+		int condensed=0;
 		for(String path : inFiles){
 			int cat=categorize(path);
 			String origin=originFromFilename(path);
 			ArrayList<DDLRecord> records=DDLLoaderMT.loadFile(path, k);
 			for(DDLRecord rec : records){
 				if(rec.origin==null){rec.origin=origin;}
+				if(targetBuckets>0 && rec.ddl.buckets>targetBuckets){
+					DynamicDemiLog cddl=DynamicDemiLog.condense(rec.ddl, targetBuckets);
+					DDLRecord crec=new DDLRecord(cddl, rec.id, rec.taxID, rec.name);
+					crec.filename=rec.filename;
+					crec.bases=rec.bases;
+					crec.contigs=rec.contigs;
+					crec.gc=rec.gc;
+					crec.origin=rec.origin;
+					crec.lineage=rec.lineage;
+					crec.cardinality=cddl.cardinality();
+					rec=crec;
+					condensed++;
+				}
 				all.add(new TaggedRecord(rec, cat));
 			}
 			if(verbose){outstream.println("Loaded "+records.size()+" records from "+path+" ("+catName(cat)+")");}
 		}
-		outstream.println("Loaded "+all.size()+" total records from "+inFiles.length+" files.");
+		outstream.println("Loaded "+all.size()+" total records from "+inFiles.length+" files."
+			+(condensed>0 ? " Condensed "+condensed+" records to "+targetBuckets+" buckets." : ""));
 
 		//Merge by TID where appropriate
 		final IntObjectMap<TaggedRecord> tidMap=new IntObjectMap<TaggedRecord>();
@@ -270,6 +287,7 @@ public class DDLMerger {
 	private String[] inFiles;
 	private String out;
 	private int k=31;
+	private int targetBuckets=-1;
 	private boolean overwrite=false;
 	private boolean verbose=false;
 	private String blacklistFile=null;
