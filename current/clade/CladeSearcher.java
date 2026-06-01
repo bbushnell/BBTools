@@ -458,7 +458,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		setup();
 
 		if(!DynamicDemiLog.blacklistExists()){
-			String blPath=Data.findPath("?genomeDDLBlacklist.fa.gz", false);
+			String blPath=Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
 			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
 		}
 

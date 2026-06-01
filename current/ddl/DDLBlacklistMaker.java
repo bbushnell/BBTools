@@ -325,12 +325,16 @@ public class DDLBlacklistMaker {
 
 		final int[] levels={TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY,
 			TaxTree.ORDER, TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.SUPERKINGDOM};
-		final String[] levelNames={"species", "genus", "family", "order", "class", "phylum", "kingdom", "superkingdom"};
+		final int LIFE_BUCKET=levels.length;
+		final int NUM_BUCKETS=levels.length+1;
+		final String[] levelNames={"species", "genus", "family", "order", "class", "phylum", "kingdom", "superkingdom", "life"};
 
 		final shared.Random rand=Shared.threadLocalRandom(42);
 		final int n=records.size();
-		final long[] pairCounts=new long[levels.length];
-		final double[] sharedSums=new double[levels.length];
+		final long[] pairCounts=new long[NUM_BUCKETS];
+		final double[] sharedSums=new double[NUM_BUCKETS];
+		final double[] wkidSums=new double[NUM_BUCKETS];
+		final double[] aniSums=new double[NUM_BUCKETS];
 		long skippedNoRank=0;
 
 		outstream.println("\nValidating shared keys across taxonomic distances ("+validateSamples+" random pairs)...");
@@ -346,27 +350,40 @@ public class DDLBlacklistMaker {
 			if(an.id==bn.id){continue;}
 			TaxNode ca=tree.commonAncestor(an, bn);
 			if(ca==null){continue;}
-			final int caLevel=ca.level;
 
 			int bucket=-1;
-			for(int lev=0; lev<levels.length; lev++){
-				if(caLevel==levels[lev]){bucket=lev; break;}
+			TaxNode node=ca;
+			while(node!=null && bucket<0){
+				for(int lev=0; lev<levels.length; lev++){
+					if(node.level==levels[lev]){bucket=lev; break;}
+				}
+				if(bucket>=0){break;}
+				if(node.pid<0 || node.pid==node.id){break;}
+				node=tree.getNode(node.pid);
 			}
-			if(bucket<0){skippedNoRank++; continue;}
-			if(bucket==0){continue;}
+			if(bucket<0){bucket=LIFE_BUCKET;}
 
 			int[] comp=a.ddl.compareToDetailed(b.ddl);
-			int shared=comp[1];
+			int lower=comp[0], shared=comp[1], higher=comp[2];
 			pairCounts[bucket]++;
 			sharedSums[bucket]+=shared;
+
+			int div=Math.min(shared+lower, shared+higher);
+			if(div<6){div=6;}
+			float wkid=(shared>0 ? Math.min(1f, (float)shared/div) : 0);
+			float ani=(wkid>0 ? (float)Math.exp(Math.log(wkid)/k) : 0);
+			wkidSums[bucket]+=wkid;
+			aniSums[bucket]+=ani;
 		}
 
 		outstream.println("\nShared keys by common ancestor level:");
-		outstream.println("Ancestor_level\tPairs\tAvg_shared_keys");
-		for(int lev=0; lev<levels.length; lev++){
+		outstream.println("Ancestor_level\tPairs\tAvg_shared_keys\tAvg_WKID\tAvg_ANI");
+		for(int lev=0; lev<NUM_BUCKETS; lev++){
 			if(pairCounts[lev]>0){
 				outstream.println(levelNames[lev]+"\t"+pairCounts[lev]+"\t"+
-					String.format("%.2f", sharedSums[lev]/pairCounts[lev]));
+					String.format("%.2f", sharedSums[lev]/pairCounts[lev])+"\t"+
+					String.format("%.6f", wkidSums[lev]/pairCounts[lev])+"\t"+
+					String.format("%.4f", aniSums[lev]/pairCounts[lev]));
 			}
 		}
 		if(skippedNoRank>0){
@@ -374,7 +391,7 @@ public class DDLBlacklistMaker {
 		}
 		long unrelatedPairs=0;
 		double unrelatedShared=0;
-		for(int lev=levels.length/2; lev<levels.length; lev++){
+		for(int lev=4; lev<NUM_BUCKETS; lev++){
 			unrelatedPairs+=pairCounts[lev];
 			unrelatedShared+=sharedSums[lev];
 		}

@@ -3,22 +3,26 @@
 usage(){
 echo "
 Written by Ady
-Last modified April 18, 2026
+Last modified June 1, 2026
 
-Description:  Loads multiple DDL files, merges records sharing a TID
-(e.g., combining mitochondrial/plastid/plasmid with host genomes),
-sorts, renumbers, and writes a single combined DDL file.
+Description:  Loads multiple DDL files, optionally condenses to fewer buckets,
+merges records sharing a TID (e.g., combining mitochondrial/plastid/plasmid
+with host genomes), sorts, renumbers, and writes a single combined DDL file.
 
 Source categories are detected from filenames:
   *mito* = mitochondrial, *plastid* = plastid, *plasmid* = plasmid
 
 Usage:  ddlmerger.sh in=a.ddl.gz,b.ddl.gz out=combined.ddl.gz
+    or: ddlmerger.sh in=big.tsv.gz out=small.tsv.gz buckets=2048 merge=f
 
 Parameters:
 in=<file>           Input DDL file(s), comma-delimited.
                     Can also be given as bare arguments.
 out=<file>          Output combined DDL file.
 k=31                K-mer length (for validation).
+buckets=-1          Target bucket count.  Input DDLs with more buckets
+                    will be condensed by folding (taking max per bucket).
+                    -1 disables condensing.
 merge=t             Merge all categories with matching TIDs.
 mergemito=t         Merge mitochondrial records into host genome.
 mergeplastid=t      Merge plastid records into host genome.

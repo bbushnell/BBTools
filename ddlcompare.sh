@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Ady
-Last modified May 14, 2026
+Last modified June 1, 2026
 
 Description:  Pairwise genome comparison using DynamicDemiLog (DDL) bucket
 matching.  Creates a DDL sketch for each input, compares them, and reports
@@ -23,35 +23,35 @@ in2=<file>      Second input file (reference).
 
 Reference Mode Parameters:
 ref=<file>      Pre-built DDL reference file (TSV format from DDLLoader).
-refseq          Shorthand for ref=resources/refseqSketchDDL.tsv.gz.
+refseq          Shorthand for ref=resources/refseqSketchDDL_k25e5b4096.tsv.gz.
                 Also accepts ref=refseq.
 queryfile=<file> Pre-built DDL query file (TSV format).  Compares all queries
 qf=<file>       against all references (multi-query batch mode).
 records=20      Max hits to display.
 minhits=5       Minimum matching DDL buckets to report a hit.
 index=f         Use inverted index for query acceleration.
-t=1             Number of threads.
+t=auto          Number of threads (default: all available cores).
 
 Collision Test:
 collisiontest   Measure all-pairs collision rate in a DDL reference file.
                 Requires ref= to be set.
 
 Blacklist:
-                Autoloads genomeDDLBlacklist.fa.gz from resources/ if present.
-                The blacklist filters taxonomically uninformative kmers during
-                query sketch construction.  Pre-built reference sketches already
-                have blacklisting baked in.
+                Autoloads genomeDDLBlacklist_k25e5b4096.fa.gz from resources/
+                if present.  The blacklist filters taxonomically uninformative
+                kmers during query sketch construction.  Pre-built reference
+                sketches already have blacklisting baked in.
 
 Sketch Parameters:
-k=31            K-mer length for hashing.
+k=25            K-mer length for hashing.
 buckets=2048    Number of DDL buckets.
 exponent=6      Exponent bits (1-8).  Default 6.
 
 Examples:
 ddlcompare.sh ecoli.fa mruber.fa
-ddlcompare.sh ref.fa mutant.fa k=31 buckets=2048
-ddlcompare.sh query.fq.gz ref=refseqSketchDDL.tsv records=5
-ddlcompare.sh qf=top1k.tsv.gz ref=refseqSketchDDL.tsv t=32
+ddlcompare.sh ref.fa mutant.fa k=25 buckets=2048
+ddlcompare.sh query.fq.gz ref=refseqSketchDDL_k25e5b2048.tsv.gz records=5
+ddlcompare.sh qf=top1k.tsv.gz ref=refseqSketchDDL_k25e5b2048.tsv.gz t=32
 
 Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems.
 "

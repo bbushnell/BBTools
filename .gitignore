@@ -10,3 +10,4 @@ current/cardinality/*ExaLog*
 resources/*SketchDDL.tsv.gz
 resources/all_*_best_taxsorted.fa.gz
 resources/riboKmers20fused.fa.gz
+resources/refseqSketchDDL_*

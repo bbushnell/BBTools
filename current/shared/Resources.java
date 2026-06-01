@@ -47,6 +47,7 @@ public class Resources {
 		return null;
 	}
 
+	private static final String GITHUB_RELEASES="https://github.com/bbushnell/BBTools/releases/";
 	private static final String GITHUB_V3982="https://github.com/bbushnell/BBTools/releases/tag/v39.82/";
 	private static final String GITHUB_V3984="https://github.com/bbushnell/BBTools/releases/tag/v39.84/";
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
@@ -56,8 +57,8 @@ public class Resources {
 	static{
 		RESOURCE_URLS.put("all_euk_18S_best_taxsorted.fa.gz", GITHUB_V3982);
 		RESOURCE_URLS.put("all_prok_16S_best_taxsorted.fa.gz", GITHUB_V3982);
-		RESOURCE_URLS.put("refseqSketchDDL.tsv.gz", GITHUB_V3982);
-		RESOURCE_URLS.put("refseqSketchDDL_merged.tsv.gz", GITHUB_V3982);
+		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096.tsv.gz", GITHUB_RELEASES);
+		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096_merged.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("ribokmers.fa.gz", GITHUB_V3982);
 
 		RESOURCE_URLS.put("refseqA48_with_ribo.spectra.gz", GITHUB_V3984);
