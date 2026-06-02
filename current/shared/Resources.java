@@ -1,6 +1,6 @@
 package shared;
 
-import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 
 import dna.Data;
@@ -16,15 +16,52 @@ import dna.Data;
  */
 public class Resources {
 
+	/** Locates a resource file.  If fname contains commas, tries each
+	 * candidate in order and returns the first one found. */
 	public static String find(String fname){
 		return find(fname, true);
 	}
 
-	/**
-	 * Locates a resource file via Data.findPath().
-	 * If missing, prints download instructions and returns null.
-	 */
 	public static String find(String fname, boolean exit){
+		if(fname.indexOf(',')>=0){
+			String[] parts=fname.split(",");
+			ArrayList<String> list=new ArrayList<>(parts.length);
+			for(String s : parts){s=s.trim(); if(!s.isEmpty()){list.add(s);}}
+			return find(list, exit);
+		}
+		return findSingle(fname, exit);
+	}
+
+	/** Tries each candidate in order, returns the first one found.
+	 * Only complains if ALL are missing. */
+	public static String find(ArrayList<String> fnames){
+		return find(fnames, true);
+	}
+
+	public static String find(ArrayList<String> fnames, boolean exit){
+		for(String f : fnames){
+			String path=Data.findPath(f, false);
+			if(path!=null){return path;}
+		}
+		if(fnames.isEmpty()){return null;}
+		StringBuilder sb=new StringBuilder();
+		sb.append("\nERROR: No resource found from candidates:\n");
+		for(String f : fnames){
+			String bare=f.startsWith("?") ? f.substring(1) : f;
+			String url=RESOURCE_URLS.get(bare);
+			sb.append("  ").append(bare);
+			if(url!=null){sb.append("  (").append(url).append(')');}
+			sb.append('\n');
+		}
+		sb.append("Download one and place it in BBTools/resources/\n");
+		System.err.print(sb);
+		if(exit){System.exit(1);}
+		return null;
+	}
+
+	/** Locates a single resource file.  If missing, prints download
+	 * instructions and optionally exits. */
+	private static String findSingle(String fname, boolean exit){
 		String path=Data.findPath(fname, false);
 		if(path!=null){return path;}
 
@@ -59,6 +96,8 @@ public class Resources {
 		RESOURCE_URLS.put("all_prok_16S_best_taxsorted.fa.gz", GITHUB_V3982);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096_merged.tsv.gz", GITHUB_RELEASES);
+		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048.tsv.gz", GITHUB_RELEASES);
+		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048_merged.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("ribokmers.fa.gz", GITHUB_V3982);
 
 		RESOURCE_URLS.put("refseqA48_with_ribo.spectra.gz", GITHUB_V3984);

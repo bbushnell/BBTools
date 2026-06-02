@@ -40,6 +40,8 @@ public class DDLBenchmark {
 		double minrate=-1, maxrate=-1, ratestep=-1;
 		int trials=20, refn=10000;
 		String sizesStr=null;
+		String in1=null, in2=null;
+		int threads=1;
 
 		for(String arg : args){
 			String[] ab=arg.split("=");
@@ -60,9 +62,15 @@ public class DDLBenchmark {
 			else if(a.equals("trials")){trials=Integer.parseInt(b);}
 			else if(a.equals("refn")){refn=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
+			else if(a.equals("in") || a.equals("in1")){in1=b;}
+			else if(a.equals("in2")){in2=b;}
+			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
+			else if(in1==null && b.isEmpty()){in1=arg;}
+			else if(in2==null && b.isEmpty()){in2=arg;}
 		}
 
-		if(mode.equals("collision")){collisionTest(type, n, size, buckets, k, seed);}
+		if(mode.equals("pairwise")){pairwiseTest(in1, in2, k, buckets, threads, System.err);}
+		else if(mode.equals("collision")){collisionTest(type, n, size, buckets, k, seed);}
 		else if(mode.equals("ani")){aniTest(type, size, buckets, k, seed, minrate, maxrate, ratestep, trials);}
 		else if(mode.equals("speed")){speedTest(type, size, buckets, k, reps, seed);}
 		else if(mode.equals("scaling")){scalingTest(type, refsize, buckets, k, seed, trials);}
@@ -412,6 +420,67 @@ public class DDLBenchmark {
 					String.format("%.4f",avgLogR));
 			}
 		}
+	}
+
+	/** Mode: pairwise — compare two genome files and print detailed statistics. */
+	public static void pairwiseTest(String file1, String file2, int k, int buckets,
+			int threads, java.io.PrintStream outstream){
+		shared.Timer t=new shared.Timer();
+
+		DynamicDemiLog ddlA=(DynamicDemiLog)MultithreadedSketchLoader.loadTrackerFromSequence(
+			file1, "DDL", buckets, k, 12345L, 0f, false, Math.max(1, threads));
+		DynamicDemiLog ddlB=(DynamicDemiLog)MultithreadedSketchLoader.loadTrackerFromSequence(
+			file2, "DDL", buckets, k, 12345L, 0f, false, Math.max(1, threads));
+
+		long cardA=ddlA.cardinality(), cardB=ddlB.cardinality();
+		int[] cmp=ddlA.compareToDetailed(ddlB);
+		int lower=cmp[0], equal=cmp[1], higher=cmp[2], bothEmpty=cmp[3];
+
+		float w=DynamicDemiLog.wkid(lower, equal, higher);
+		float cAB=DynamicDemiLog.containmentAB(lower, equal, higher);
+		float cBA=DynamicDemiLog.containmentBA(lower, equal, higher);
+		float an=DynamicDemiLog.ani(lower, equal, higher, k);
+		float compAB=DynamicDemiLog.completeness(lower, equal, higher);
+		float compBA=DynamicDemiLog.completenessBA(lower, equal, higher);
+
+		final int mbits=16-DynamicDemiLog.exponentBits();
+		int ll6lower=0, ll6equal=0, ll6higher=0;
+		char[] arrA=ddlA.maxArray(), arrB=ddlB.maxArray();
+		for(int i=0; i<arrA.length; i++){
+			int ea=arrA[i]>>mbits, eb=arrB[i]>>mbits;
+			if(ea==0 && eb==0){}
+			else if(ea<eb){ll6lower++;}
+			else if(ea==eb){ll6equal++;}
+			else{ll6higher++;}
+		}
+		float ll6wkid=DynamicDemiLog.wkid(ll6lower, ll6equal, ll6higher);
+		float ll6ani=DynamicDemiLog.ani(ll6lower, ll6equal, ll6higher, k);
+
+		t.stop();
+
+		System.out.println("File1:\t"+file1);
+		System.out.println("File2:\t"+file2);
+		System.out.println("Cardinality1:\t"+cardA);
+		System.out.println("Cardinality2:\t"+cardB);
+		System.out.println("K:\t"+k);
+		System.out.println("Buckets:\t"+buckets);
+		System.out.println("Lower:\t"+lower);
+		System.out.println("Equal:\t"+equal);
+		System.out.println("Higher:\t"+higher);
+		System.out.println("BothEmpty:\t"+bothEmpty);
+		System.out.println("WKID:\t"+String.format("%.6f", w));
+		System.out.println("WKID(1in2):\t"+String.format("%.6f", cAB));
+		System.out.println("WKID(2in1):\t"+String.format("%.6f", cBA));
+		System.out.println("ANI:\t"+String.format("%.6f", an));
+		System.out.println("Completeness(1->2):\t"+String.format("%.6f", compAB));
+		System.out.println("Completeness(2->1):\t"+String.format("%.6f", compBA));
+		System.out.println("LL6_Equal:\t"+ll6equal);
+		System.out.println("LL6_WKID:\t"+String.format("%.6f", ll6wkid));
+		System.out.println("LL6_ANI:\t"+String.format("%.6f", ll6ani));
+		System.out.println("Time:\t"+t);
+
+		outstream.println(String.format("ANI: %.2f%%  WKID: %.4f  Comp(1->2): %.4f  Comp(2->1): %.4f  (%d/%d buckets match)",
+			an*100, w, compAB, compBA, equal, lower+equal+higher));
 	}
 
 	/** MeanM cardinality estimate from raw bucket values (CF-free). */
