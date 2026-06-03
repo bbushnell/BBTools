@@ -630,7 +630,7 @@ public class CladeServer {
 		 * Supports both HUMAN and MACHINE formats.
 		 */
 		void formatResults(Clade query, ArrayList<Comparison> results, ByteBuilder bb, CladeContext ctx, int queryNumber){
-			//Filter out null comparisons before calculating maxHits
+			//Filter out null comparisons
 			ArrayList<Comparison> validResults=new ArrayList<>();
 			for(Comparison comp : results) {
 				if(comp!=null && comp.ref!=null) {
@@ -638,29 +638,30 @@ public class CladeServer {
 				}
 			}
 
-			//Limit results to requested hits
-			int maxHits=Math.min(ctx.hits, validResults.size());
-
 			if(ctx.format==CladeSearcher.MACHINE){
-				//One-line format with #Query markers
 				bb.append("#Query").append(queryNumber).append('\n');
-				for(int i=0; i<maxHits; i++){
-					Comparison comp=validResults.get(i);
-					comp.appendResultMachine(false, bb);
-					bb.nl();
+				int cladeCount=0, sketchCount=0;
+				for(Comparison comp : validResults){
+					if(comp.isSketchHit){
+						if(sketchCount<ctx.hits){sketchCount++; comp.appendResultMachine(false, bb); bb.nl();}
+					}else if(cladeCount<ctx.hits){
+						cladeCount++; comp.appendResultMachine(false, bb); bb.nl();
+					}
 				}
 			}else{
-				//Human-readable format
 				bb.append("Query: ").append(query.name).nl();
 				bb.append("GC: ").append(String.format("%.3f", query.gc)).nl();
 				bb.append("Bases: ").append(query.monomerSum()).nl();
 				bb.append("Contigs: ").append(query.contigs).nl();
 				bb.nl();
 
-				for(int i=0; i<maxHits; i++){
-					Comparison comp=validResults.get(i);
-					comp.appendResultHuman(bb, i);
-					bb.nl().nl();
+				int cladeCount=0, sketchCount=0, hitNum=0;
+				for(Comparison comp : validResults){
+					if(comp.isSketchHit){
+						if(sketchCount<ctx.hits){sketchCount++; comp.appendResultHuman(bb, hitNum); bb.nl().nl(); hitNum++;}
+					}else if(cladeCount<ctx.hits){
+						cladeCount++; comp.appendResultHuman(bb, hitNum); bb.nl().nl(); hitNum++;
+					}
 				}
 			}
 		}

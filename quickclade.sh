@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified April 29, 2026
+Last modified June 3, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -43,7 +43,7 @@ Presets (override individual settings; can be further overridden by later flags)
 fast            records=1, buffer=1, callssu=f, sketch=f.  Fastest mode.
 medium          records=5, buffer=20, callssu=t, sketch=t.  Default behavior.
 slow            records=10, buffer=50, callssu=t, sketch=t, index=t.
-                Automatically increases memory to 8g unless -Xmx is explicit.
+                Automatically increases memory to 12g unless -Xmx is explicit.
 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
@@ -98,17 +98,18 @@ proxyport=<num>   HTTPS proxy port number.  Sets -Dhttps.proxyPort for Java.
 
 DDL Sketch Parameters:
 sketch=t        Enable sketch-based matching using DDL (DynamicDemiLog)
-                cardinality profiles.  Loads refseqSketchDDL.tsv.gz from
-                the resources directory by default.  Also builds a DDL
+                cardinality profiles.  Auto-discovers the best available
+                DDL sketch file from the resources directory (e.g.
+                refseqSketchDDL_k25e5b4096.tsv.gz).  Also builds a DDL
                 from each query for comparison.  ddl=t is an alias.
 sketchfile=     Path to a specific DDL sketch file.  Overrides the default.
                 ddlfile= and sketchref= are aliases.
-sketchindex=f   Build an index from DDL sketches; this allows hits by 31-mer
+sketchindex=f   Build an index from DDL sketches; this allows hits by 25-mer
                 matching, orthogonal to the clade index, allowing LCA
                 (lowest common ancestor) calculation.  Implies sketch=t.
-minsketchhits=3 Minimum matching DDL buckets to report a sketch hit.
-ddlk=31         K-mer length for DDL sketches.
-ddlbuckets=2048 Number of buckets in DDL sketches.
+minsketchhits=5 Minimum matching DDL buckets to report a sketch hit.
+ddlk=25         K-mer length for DDL sketches.
+ddlbuckets=4096 Number of buckets in DDL sketches.
 
 Threading Parameters:
 loadthreads=auto  Number of threads for parsing reference spectra.
@@ -191,9 +192,9 @@ setEnv(){
 	local EXPLICIT_XMX=false
 	for arg in "$@"; do
 		case "$arg" in
-			slow|sensitive) DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
+			slow|sensitive) DEFAULTXMX="12g"; DEFAULTXMS="12g" ;;
 			index|index=t|index=true|sketchindex|sketchindex=t|sketchindex=true)
-				DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
+				DEFAULTXMX="12g"; DEFAULTXMS="12g" ;;
 			-Xmx*|--xmx=*) EXPLICIT_XMX=true ;;
 		esac
 	done

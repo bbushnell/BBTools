@@ -366,7 +366,7 @@ public class CladeIndex implements Cloneable {
 	static boolean USE_SKETCHES=true;
 	static boolean USE_SKETCH_INDEX=false;
 	static int maxSketchHits=5;
-	static int minSketchMatches=3;
+	static int minSketchMatches=5;
 	static int ddlLoadThreads=0;
 	static int indexThreads=0;
 	static String sketchFile=null;

@@ -204,7 +204,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	}
 
 	void loadSketches() {
-		if(!CladeIndex.USE_SKETCHES){return;}
+		if(serverMode || !CladeIndex.USE_SKETCHES){return;}
 		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
 		sketchRecords=new ArrayList<ddl.DDLRecord>();
 		if(CladeIndex.sketchFile!=null){
@@ -462,9 +462,19 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
 		}
 
+		boolean sketchesWanted=CladeIndex.USE_SKETCHES;
 		checkSketchFile();
 
 		serverMode=(serverMode || ref==null || ref.isEmpty());
+		if(serverMode){
+			Clade.MAKE_DDLS=true;
+			Clade.DDL_K=25;
+			Clade.DDL_BUCKETS=4096;
+			DynamicDemiLog.setExponent(5);
+		}else if(sketchesWanted && !CladeIndex.USE_SKETCHES){
+			outstream.println("\nNo DDL sketch files found.  For improved accuracy, download one from");
+			outstream.println("https://github.com/bbushnell/BBTools/releases/ and place in BBTools/resources/\n");
+		}
 		
 		if(!parallelSetup) {
 			if(useTree) {CladeObject.loadTree(true);}
@@ -494,8 +504,12 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		final int maxHits=CladeIndex.heapSize;
 		if(serverMode) {
-			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE, 
+			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE,
 				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
+			if(format==MACHINE){
+				String header=Comparison.machineHeader(printQTID)+"\n";
+				s=(s!=null ? header+s : header);
+			}
 //			outstream.print(s);
 			if(ffout!=null) {
 				ReadWrite.writeStringInThread(s, out);
