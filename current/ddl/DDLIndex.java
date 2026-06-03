@@ -243,6 +243,6 @@ public class DDLIndex {
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final int BUCKETS=2048;
+	private static final int BUCKETS=4096;
 	private static final int VALUES=65536;
 }

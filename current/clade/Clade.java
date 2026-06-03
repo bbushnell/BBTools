@@ -404,7 +404,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static boolean CONCISE=true;//TODO: Set to true once tested and running on server
 	public static boolean MAKE_DDLS=true;
 	public static int DDL_K=31;
-	public static int DDL_BUCKETS=2048;
+	public static int DDL_BUCKETS=4096;
 	public static long DDL_SEED=12345L;
 	
 }

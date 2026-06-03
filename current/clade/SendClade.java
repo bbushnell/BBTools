@@ -101,13 +101,13 @@ public class SendClade extends CladeObject {
 		Parser parser=new Parser();
 		parser.out1="stdout.txt";
 
-		//Set defaults
+		//Set defaults - match CladeSearcher local-mode defaults
 		banSelf=false;
 		printQTID=false;
-		heapSize=1;
+		heapSize=20;
 		perContig=false;
 		oneline=false;
-		hits=1;
+		hits=5;
 
 		//Parse each argument
 		for(int i=0; i<args.length; i++){

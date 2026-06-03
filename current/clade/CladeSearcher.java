@@ -185,8 +185,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}
 			return;
 		}
-		String defaultPath=Data.findPath("?"+CladeIndex.DEFAULT_SKETCH_FILE, false);
-		if(defaultPath!=null && new java.io.File(defaultPath).exists()){
+		String defaultPath=shared.Resources.find(CladeIndex.DEFAULT_SKETCH_FILES, false);
+		if(defaultPath!=null){
 			CladeIndex.sketchFile=defaultPath;
 			return;
 		}
