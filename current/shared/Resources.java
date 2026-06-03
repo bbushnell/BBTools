@@ -44,6 +44,7 @@ public class Resources {
 			if(path!=null){return path;}
 		}
 		if(fnames.isEmpty()){return null;}
+		if(!exit){return null;}
 		StringBuilder sb=new StringBuilder();
 		sb.append("\nERROR: No resource found from candidates:\n");
 		for(String f : fnames){
@@ -55,7 +56,7 @@ public class Resources {
 		}
 		sb.append("Download one and place it in BBTools/resources/\n");
 		System.err.print(sb);
-		if(exit){System.exit(1);}
+		System.exit(1);
 		return null;
 	}
 
