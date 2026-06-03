@@ -78,6 +78,11 @@ public class CladeServer {
 		String addressPrefix_=null;
 		ArrayList<String> ref_=new ArrayList<String>();
 
+		//Server should use sketch index by default (no startup cost concern)
+		CladeIndex.USE_SKETCH_INDEX=true;
+		CladeIndex.USE_SKETCHES=true;
+		Clade.MAKE_DDLS=true;
+
 		//Create a parser object
 		Parser parser=new Parser();
 
@@ -135,6 +140,11 @@ public class CladeServer {
 			if(blPath!=null){
 				cardinality.DynamicDemiLog.loadBlacklist(blPath);
 			}
+		}
+
+		//Auto-discover sketch file if not specified on command line
+		if(CladeIndex.USE_SKETCHES && CladeIndex.sketchFile==null){
+			CladeIndex.sketchFile=shared.Resources.find(CladeIndex.DEFAULT_SKETCH_FILES, false);
 		}
 
 		//Initialize CladeIndex with reference files
