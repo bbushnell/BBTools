@@ -431,6 +431,7 @@ public class CladeIndex implements Cloneable {
 	public void finishSketches(ArrayList<DDLRecord> externalRecords){
 		if(externalRecords!=null && !externalRecords.isEmpty()){
 			sketchRecords=externalRecords;
+			java.util.Collections.sort(sketchRecords);
 			attachSketchesToClades(cladeMap);
 			if(USE_SKETCH_INDEX){
 				buildSketchIndex();
@@ -446,11 +447,14 @@ public class CladeIndex implements Cloneable {
 		if(sketchRecords==null){return;}
 		int attached=0;
 		for(DDLRecord rec : sketchRecords){
+			if(rec.taxID<=0){continue;}
 			Clade c=cladeMap.get(rec.taxID);
-			if(c!=null){
-				boolean fresh=(c.ddl==null || c.ddl.filledBuckets()<1);
-				if(fresh || rec.cardinality>=c.ddl.cardinality()){
-					if(fresh){attached++;}
+			if(c==null){continue;}
+			synchronized(c){
+				if(c.ddl==null || c.ddl.filledBuckets()<1){
+					c.ddl=rec.ddl;
+					attached++;
+				}else if(rec.ddl.cardinality()>=c.ddl.cardinality()){
 					c.ddl=rec.ddl;
 				}
 			}

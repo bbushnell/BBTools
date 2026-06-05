@@ -44,6 +44,9 @@ public final class ReadComparatorPosition extends ReadComparator {
 	public static int compareInner(SamLine a, SamLine b) {
 		if(a.scafnum<0){a.setScafnum(scafMap);}
 		if(b.scafnum<0){b.setScafnum(scafMap);}
+		boolean aUnmapped=(a.scafnum<0);
+		boolean bUnmapped=(b.scafnum<0);
+		if(aUnmapped!=bUnmapped){return aUnmapped ? 1 : -1;}
 		if(a.scafnum!=b.scafnum){return a.scafnum-b.scafnum;}
 		if(a.pos!=b.pos){return a.pos-b.pos;}
 		if(a.strand()!=b.strand()){return a.strand()-b.strand();}

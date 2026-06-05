@@ -158,6 +158,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			AdjustEntropy.load(4, 150);
 		}
 		DynamicDemiLog.setExponent(5);
+		prok.ProkObject.call18S=true;
 		if(Clade.callSSU) {
 			GeneTools.loadPGM();
 			GeneCaller.call23S=GeneCaller.call5S=GeneCaller.calltRNA=GeneCaller.callCDS=false;

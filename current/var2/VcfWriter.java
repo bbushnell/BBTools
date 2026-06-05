@@ -179,7 +179,9 @@ public class VcfWriter {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(i, bsw, inq, mode));
+			ProcessThread pt=new ProcessThread(i, bsw, inq, mode);
+			pt.net=(net0==null ? null : net0.copy(false));
+			alpt.add(pt);
 		}
 		if(verbose){outstream.println("Spawned threads.");}
 		
@@ -342,6 +344,8 @@ public class VcfWriter {
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	CellNet net0;
+	public void setNet(CellNet n){net0=n;}
 	final Var[] array;
 	final int ploidy;
 	final double properPairRate;

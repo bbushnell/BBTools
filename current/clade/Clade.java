@@ -327,7 +327,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 			int lines=10+counts.length-1;
 			if(ddl!=null){lines++;}
 			if(r16S!=null) {lines++;}
-			else if(r18S!=null) {lines++;}
+			if(r18S!=null) {lines++;}
 			bb.append('#').tab().append(lines);
 			bb.tab().append(outputCoding==DECIMAL ? "DEC" : outputCoding==A48 ? "A48" :
 				outputCoding==OFFSET_DEC ? "DECo" : "A48o");
@@ -358,7 +358,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		}
 		if(ddl!=null){bb.append("ddl\t"); ddl.toBytes(bb); bb.nl();}
 		if(r16S!=null) {bb.append("16S\t").append(r16S).nl();}
-		else if(r18S!=null) {bb.append("18S\t").append(r18S).nl();}
+		if(r18S!=null) {bb.append("18S\t").append(r18S).nl();}
 		return bb;
 	}
 	

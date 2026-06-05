@@ -82,6 +82,7 @@ public class CladeServer {
 		CladeIndex.USE_SKETCH_INDEX=true;
 		CladeIndex.USE_SKETCHES=true;
 		Clade.MAKE_DDLS=true;
+		prok.ProkObject.call18S=true;
 
 		//Create a parser object
 		Parser parser=new Parser();

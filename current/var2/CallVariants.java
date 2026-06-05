@@ -191,6 +191,13 @@ public class CallVariants {
 			}else if(a.equals("netmode")){
 				useNet=(b!=null);
 				if(b!=null) {FeatureVectorMaker.setMode(b);}
+			}else if(a.equals("includescore")){
+				VectorUMP45.includeScore=Parse.parseBoolean(b);
+			}else if(a.equals("platform")){
+				if(b.equalsIgnoreCase("illumina")){VectorUMP45.platform=VectorUMP45.PLATFORM_ILLUMINA;}
+				else if(b.equalsIgnoreCase("pacbio")){VectorUMP45.platform=VectorUMP45.PLATFORM_PACBIO;}
+				else if(b.equalsIgnoreCase("nanopore") || b.equalsIgnoreCase("ont")){VectorUMP45.platform=VectorUMP45.PLATFORM_NANOPORE;}
+				else{VectorUMP45.platform=Integer.parseInt(b);}
 			}
 			
 			// Streaming and threading parameters
@@ -741,7 +748,7 @@ public class CallVariants {
 		// Write output files (Var, VCF, GFF)
 		CVOutputWriter.writeOutput(varMap, varFilter, ffout, vcf, gffout,
 				readsProcessed, pairedInSequencingReadsProcessed, properlyPairedReadsProcessed,
-				trimmedBasesProcessed, ref, trimWhitespace, sampleName);
+				trimmedBasesProcessed, ref, trimWhitespace, sampleName, net0);
 		
 		// Write histogram files
 		CVOutputWriter.writeHistograms(scoreHistFile, zygosityHistFile, qualityHistFile,

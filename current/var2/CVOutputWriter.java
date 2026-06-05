@@ -32,12 +32,21 @@ public class CVOutputWriter {
 	public static void writeOutput(VarMap varMap, VarFilter varFilter, FileFormat ffout, String vcf, String gffout,
 			long readsProcessed, long pairedInSequencingReadsProcessed, long properlyPairedReadsProcessed,
 			long trimmedBasesProcessed, String ref, boolean trimWhitespace, String sampleName) {
-		
+		writeOutput(varMap, varFilter, ffout, vcf, gffout, readsProcessed,
+				pairedInSequencingReadsProcessed, properlyPairedReadsProcessed,
+				trimmedBasesProcessed, ref, trimWhitespace, sampleName, null);
+	}
+
+	public static void writeOutput(VarMap varMap, VarFilter varFilter, FileFormat ffout, String vcf, String gffout,
+			long readsProcessed, long pairedInSequencingReadsProcessed, long properlyPairedReadsProcessed,
+			long trimmedBasesProcessed, String ref, boolean trimWhitespace, String sampleName, ml.CellNet net) {
+
 		if(ffout!=null || vcf!=null || gffout!=null){
 			Timer t3=new Timer("Sorting variants.");
-			VcfWriter vw=new VcfWriter(varMap, varFilter, readsProcessed, 
+			VcfWriter vw=new VcfWriter(varMap, varFilter, readsProcessed,
 					pairedInSequencingReadsProcessed, properlyPairedReadsProcessed,
 						trimmedBasesProcessed, ref, trimWhitespace, sampleName);
+			vw.setNet(net);
 			t3.stop("Time: ");
 			
 			if(ffout!=null){
