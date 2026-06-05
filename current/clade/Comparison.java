@@ -550,9 +550,31 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	}
 	
 	/**
+	 * Composite score combining kmer distance, sketch similarity, SSU identity, and LCA depth.
+	 * Higher is better. Formula from quickclade_composite_ranking.md.
+	 * @param lcaLevel TaxTree level of the LCA between this hit and the top hit from the other list
+	 */
+	float compositeScore(int lcaLevel) {
+		float kd=(k5dif<1f) ? k5dif : (k4dif<1f ? 2f*k4dif : 1f);
+		float ssu=(ssudif<1f) ? (1f-ssudif) : 0.5f;
+		float wk=Math.max(wkid, 0f);
+		int m=Math.max(kmerMatches, 0);
+		int lca=(lcaLevel>=1 && lcaLevel<=19) ? lcaLevel : TaxTree.LIFE;
+
+		double kmerFactor=1.005-Math.sqrt(kd+0.005);
+		double sketchFactor=Math.sqrt((wk+1.0)*(m+5.0));
+		double ssuFactor=Math.max(ssu, 0.5);
+		double lcaFactor=20.0-lca;
+
+		double product=kmerFactor*sketchFactor*ssuFactor*lcaFactor;
+		if(product<=0) return 0;
+		return (float)Math.sqrt(Math.sqrt(product));
+	}
+
+	/**
 	 * Calculates a weighted composite measure for comparison ranking.
 	 * Gives highest weight to 5-mer differences, with smaller weights for other measures.
-	 * 
+	 *
 	 * @return The weighted comparison value (lower is more similar)
 	 */
 	float pivot() {

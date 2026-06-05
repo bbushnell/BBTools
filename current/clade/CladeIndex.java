@@ -176,7 +176,7 @@ public class CladeIndex implements Cloneable {
 		return list==null || list.isEmpty() ? null : list.get(0);
 	}
 	
-	public ArrayList<Comparison> findBest(final Clade c, final int maxHits) {
+	public ArrayList<Comparison> findBestCladesOnly(final Clade c, final int maxHits) {
 		assert(c.finished());
 		final int center=Math.round(c.gc*100);
 		final Comparison temp=new Comparison();
@@ -196,14 +196,15 @@ public class CladeIndex implements Cloneable {
 				}
 			}
 		}
-//		if(heap.worst().ref==null) {//Nothing was found
-//			assert(heap.size()==1) : heap;
-//			return new ArrayList<Comparison>(1);//Could return null but this can be used as a placeholder
-//		}
 		ArrayList<Comparison> results=heap.toList();
 		if(Clade.MAKE_DDLS){
 			for(Comparison comp : results){comp.compareDDL();}
 		}
+		return results;
+	}
+
+	public ArrayList<Comparison> findBest(final Clade c, final int maxHits) {
+		ArrayList<Comparison> results=findBestCladesOnly(c, maxHits);
 		if(ddlIndex!=null){
 			addSketchInfo(results, c);
 		}
