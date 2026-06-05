@@ -105,7 +105,7 @@ public class VcfToVar {
 		// Determine variant type
 		int type=-1;
 		if(parseExtended){
-			type=Tools.max(type, parseVcfIntDelimited(line, "TYP=", infoStart));
+			type=parseVcfType(line, infoStart);
 			if(type<0){type=Var.typeStartStop(start, stop, alt);}
 		}else{
 			type=Var.typeStartStop(start, stop, alt);
@@ -252,6 +252,24 @@ public class VcfToVar {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Parses TYP= field as either integer type code or string type name. */
+	private static int parseVcfType(byte[] line, int start){
+		int idx=Tools.indexOfDelimited(line, "TYP=", start, (byte)';');
+		if(idx<0){return -1;}
+		idx+=4; // skip "TYP="
+		if(idx>=line.length){return -1;}
+		byte b=line[idx];
+		if(b>='0' && b<='9'){
+			return parseVcfIntDelimited(line, "TYP=", start);
+		}
+		// String type name — use typeInitialArray
+		if(b<Var.typeInitialArray.length){
+			int t=Var.typeInitialArray[b];
+			if(t>=0){return t;}
+		}
+		return -1;
+	}
+
 	/** Tab character for field separation */
 	private static final byte tab='\t';
 	/** Semicolon character for INFO field separation */

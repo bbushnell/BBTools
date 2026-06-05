@@ -148,6 +148,13 @@ public class CallVariants2 {
 			}else if(a.equals("netmode")){
 				useNet=(b!=null);
 				if(b!=null){FeatureVectorMaker.setMode(b);}
+			}else if(a.equals("includescore")){
+				VectorUMP45.includeScore=Parse.parseBoolean(b);
+			}else if(a.equals("platform")){
+				if(b.equalsIgnoreCase("illumina")){VectorUMP45.platform=VectorUMP45.PLATFORM_ILLUMINA;}
+				else if(b.equalsIgnoreCase("pacbio")){VectorUMP45.platform=VectorUMP45.PLATFORM_PACBIO;}
+				else if(b.equalsIgnoreCase("nanopore") || b.equalsIgnoreCase("ont")){VectorUMP45.platform=VectorUMP45.PLATFORM_NANOPORE;}
+				else{VectorUMP45.platform=Integer.parseInt(b);}
 			}
 			
 			else if(a.equals("ss") || a.equals("samstreamer")){

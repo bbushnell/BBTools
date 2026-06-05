@@ -1319,10 +1319,20 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	 * @param net Optional CellNet for prediction
 	 * @return Phred-scaled quality score (higher = more confident)
 	 */
-	public double phredScore(double properPairRate, double totalQualityAvg, double totalMapqAvg, 
+	public double phredScore(double properPairRate, double totalQualityAvg, double totalMapqAvg,
 			double readLengthAvg, double rarity, int ploidy, ScafMap map, CellNet net){
-		double score=score(properPairRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, net);
-		return VarHelper.toPhredScore(score);
+		double score=score(properPairRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, null);
+		double phred=VarHelper.toPhredScore(score);
+		if(net!=null){
+			float[] vec=FeatureVectorMaker.toVector(this, properPairRate, totalQualityAvg,
+					totalMapqAvg, readLengthAvg, ploidy, map);
+			float output=net.applyInput(vec).feedForward();
+			output=Tools.mid(0, output, 1);
+			phred=(output<=net.cutoff) ?
+				20.0*output/net.cutoff :
+				20.0+20.0*(output-net.cutoff)/(1.0-net.cutoff);
+		}
+		return phred;
 	}
 
 	/**

@@ -262,22 +262,10 @@ public class VarFilter {
 		}
 		
 		//TIER 7: INTEGRATED SCORING
-		//This is the most expensive calculation - a composite phred score that integrates
-		//multiple lines of evidence using sophisticated statistical models
+		//phredScore handles both non-NN and NN scoring (when net is provided,
+		//it uses the NN output directly: 0->0, cutoff->20, 1.0->40)
 		if(minScore>0 || maxScore<Integer.MAX_VALUE){
-			double phredScore=v.phredScore(pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, null);
-			if(net!=null){
-				if(phredScore<minScore*0.5f){return false;}
-				float[] vec=FeatureVectorMaker.toVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
-				float output=net.applyInput(vec).feedForward();
-				output=Tools.mid(0, output, 1);
-				//Convert NN output to phred score multiplier: cutoff->1.0, 0.0->0.1, 1.0->1.9
-				float multiplier=(output<=net.cutoff) ?
-					0.1f+(0.9f*output/net.cutoff) :
-					1.0f+(0.9f*(output-net.cutoff)/(1.0f-net.cutoff));
-				
-				phredScore*=multiplier;
-			}
+			double phredScore=v.phredScore(pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, net);
 			if(phredScore<minScore || phredScore>maxScore){return false;}
 		}
 		

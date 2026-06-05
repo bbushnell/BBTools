@@ -202,7 +202,7 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		final double rawHyb=s.hybridDDL(); // CF already inside blend
 		long card=(long)(rawHyb);
 		card=Math.max(card, s.microCardinality());
-		card=Math.min(clampToAdded ? added : Long.MAX_VALUE, card);
+		card=Math.min(clampToAdded && added>0 ? added : Long.MAX_VALUE, card);
 		lastCardinalityStatic=lastCardinality=card;
 		return card;
 	}

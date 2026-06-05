@@ -27,11 +27,11 @@ public class FeatureVectorMaker {
 	/*----------------        Mode Constants        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	public static final int ELBA=0, LAWRENCE=1, DONOVAN=2;
-	
+	public static final int ELBA=0, LAWRENCE=1, DONOVAN=2, UMP45=3;
+
 	private static int MODE=ELBA;
-	
-	private static final String[] MODE_NAMES={"ELBA", "LAWRENCE", "DONOVAN"};
+
+	private static final String[] MODE_NAMES={"ELBA", "LAWRENCE", "DONOVAN", "UMP45"};
 	
 	/*--------------------------------------------------------------*/
 	/*----------------      Main Entry Point       ----------------*/
@@ -61,6 +61,8 @@ public class FeatureVectorMaker {
 			return makeLawrenceVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
 		}else if(MODE==DONOVAN){
 			return makeDonovanVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
+		}else if(MODE==UMP45){
+			return VectorUMP45.makeVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
 		}else{
 			throw new RuntimeException("Unknown feature vector mode: "+MODE);
 		}
@@ -273,7 +275,7 @@ public class FeatureVectorMaker {
 	 * @param mode Feature extraction mode constant (ELBA=0, LAWRENCE=1, DONOVAN=2)
 	 */
 	public static void setMode(int mode){
-		assert(mode>=0 && mode<=2) : "Invalid mode: "+mode;
+		assert(mode>=0 && mode<=3) : "Invalid mode: "+mode;
 		MODE=mode;
 	}
 	
@@ -300,8 +302,9 @@ public class FeatureVectorMaker {
 	 */
 	public static int getVectorLength(){
 		if(MODE==ELBA){return 32;}
-		else if(MODE==LAWRENCE){return 8;} //Possible bug: was 24, but makeLawrenceVector returns 8 elements
+		else if(MODE==LAWRENCE){return 8;}
 		else if(MODE==DONOVAN){return 16;}
+		else if(MODE==UMP45){return VectorUMP45.DIMS;}
 		else{throw new RuntimeException("Unknown mode: "+MODE);}
 	}
 	
