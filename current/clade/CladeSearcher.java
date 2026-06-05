@@ -1023,37 +1023,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
 			//Run queries
 			for(int i=tid; i<queries.size(); i+=threads) {
-				Clade clade=queries.get(i);//TODO: Better to finish them here.
+				Clade clade=queries.get(i);
 				synchronized(clade) {
 					clade.finish();
 					readsProcessedT+=clade.contigs;
 					basesProcessedT+=clade.bases;
-					ArrayList<Comparison> list=index.findBest(clade, maxHits);
-					if(list!=null) {
-						if(Clade.callSSU) {
-							for(Comparison comp : list) {comp.align(ssa);}
-						}
-						Collections.sort(list);
-						if(list.size()>maxHitsToPrint){
-							ArrayList<Comparison> refined=new ArrayList<Comparison>();
-							int cladeCount=0, sketchCount=0;
-							for(Comparison c : list){
-								if(c.isSketchHit){
-									if(sketchCount<CladeIndex.maxSketchHits){refined.add(c); sketchCount++;}
-								}else if(cladeCount<maxHitsToPrint){
-									refined.add(c); cladeCount++;
-								}
-							}
-							list.clear();
-							list.addAll(refined);
-						}
-						if(showRecords){
-							for(Comparison c : list){c.cacheConfidence();}
-						}else if(!list.isEmpty()){
-							list.get(0).cacheConfidence();
-						}
-					}
-					results.add(list);
+					QueryResult qr=QueryResult.build(clade, index, maxHits,
+						maxHitsToPrint, showRecords, ssa);
+					results.add(qr.displayList);
 				}
 			}
 			

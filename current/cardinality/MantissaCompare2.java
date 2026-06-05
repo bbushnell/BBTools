@@ -65,6 +65,7 @@ public class MantissaCompare2 {
 				else if(b.equals("minplus1") || b.equals("mp1")){mode=MODE_MINPLUS1;}
 				else if(b.equals("ctll") || b.equals("compressedtier") || b.equals("manttier")){mode=MODE_CTLL;}
 				else if(b.equals("etll") || b.equals("expandedtier")){mode=MODE_ETLL;}
+				else if(b.equals("cqtll") || b.equals("quadtier")){mode=MODE_CQTLL;}
 				else{throw new RuntimeException("Unknown mode '"+b+"'");}
 			}
 			else{throw new RuntimeException("Unknown parameter '"+arg+"'");}
@@ -75,10 +76,13 @@ public class MantissaCompare2 {
 		}
 
 		// TwinTail and MasterSlave always have 16 states: (h1:2)(h0:2) = 4 bits
-		final int numStates=(mode==MODE_TWINTAIL || mode==MODE_MASTERSLAVE) ? 16 :
+		final int numStates=(mode==MODE_CQTLL) ? 256 :
+			(mode==MODE_TWINTAIL || mode==MODE_MASTERSLAVE) ? 16 :
 			(mode==MODE_HISTMANT) ? (1<<(hbits+mbits)) : (1<<bits);
 		final int cap=numStates-1;
-		final String modeDesc=(mode==MODE_TWINTAIL || mode==MODE_MASTERSLAVE) ?
+		final String modeDesc=(mode==MODE_CQTLL) ?
+			MODE_NAMES[mode]+" 4x2-bit tails = 256 states" :
+			(mode==MODE_TWINTAIL || mode==MODE_MASTERSLAVE) ?
 			MODE_NAMES[mode]+" (h1:2)(h0:2)=16 states" :
 			(mode==MODE_HISTMANT) ?
 			MODE_NAMES[mode]+" hbits="+hbits+" mbits="+mbits :
@@ -182,6 +186,8 @@ public class MantissaCompare2 {
 							}
 							final int mant=(mBits>=MANTISSA_THRESHOLD) ? 1 : 0;
 							nlz=2*rawNlz+mant; // expanded tier number = halfNlz
+						}else if(fMode==MODE_CQTLL){
+							nlz=nlz/2;
 						}
 
 						if(fMode==MODE_HISTMANT){
@@ -331,6 +337,34 @@ public class MantissaCompare2 {
 							}
 							extra=(h1<<2)|h0;
 							if(stored>0 && newNlzStored-1<=maxNlz){ /* maxNlz unchanged */ }
+						}else if(fMode==MODE_CQTLL){
+							final int tailIdx=(int)((key>>>10)&3);
+							final int oldNlzStored=(stored>0) ? (stored>>>10) : 0;
+							final int newNlzStored=Math.min(nlz+1, 63);
+							final int delta=newNlzStored-oldNlzStored;
+
+							if(stored==0 && nlz>=0){
+								maxNlz=nlz;
+								extra=(1<<(tailIdx*2+1));
+							}else if(delta>0){
+								maxNlz=newNlzStored-1;
+								final int oldH=(stored&0xFF);
+								final int shiftAmt=Math.min(delta, 2);
+								int combinedTails=0;
+								for(int tt=0; tt<4; tt++){
+									int tail=((oldH>>>(tt*2))&0x3)>>>shiftAmt;
+									if(tt==tailIdx){tail|=0x2;}
+									combinedTails|=(tail<<(tt*2));
+								}
+								extra=combinedTails;
+							}else if(delta==0 && stored>0){
+								extra=(stored&0xFF)|(1<<(tailIdx*2+1));
+							}else if(delta==-1){
+								extra=(stored&0xFF)|(1<<(tailIdx*2));
+							}else{
+								extra=(stored&0xFF);
+							}
+							if(stored>0 && newNlzStored-1<=maxNlz){ /* maxNlz unchanged */ }
 						}
 
 						if(maxNlz>=0){
@@ -455,8 +489,8 @@ public class MantissaCompare2 {
 	/*----------------        Constants            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5, MODE_TWINTAIL=6, MODE_MASTERSLAVE=7, MODE_SUPER1BIT=8, MODE_AVGNLZ=9, MODE_MEDIAN3=10, MODE_MINPLUS1=11, MODE_CTLL=12, MODE_ETLL=13;
-	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant", "TwinTail", "MasterSlave", "Super1Bit", "AvgNlz", "Median3", "MinPlus1", "CTLL", "ETLL"};
+	static final int MODE_MANTISSA=0, MODE_ANDTISSA=1, MODE_NLZ2=2, MODE_HISTORY=3, MODE_LUCK=4, MODE_HISTMANT=5, MODE_TWINTAIL=6, MODE_MASTERSLAVE=7, MODE_SUPER1BIT=8, MODE_AVGNLZ=9, MODE_MEDIAN3=10, MODE_MINPLUS1=11, MODE_CTLL=12, MODE_ETLL=13, MODE_CQTLL=14;
+	static final String[] MODE_NAMES={"Mantissa", "Andtissa", "NLZ2", "History", "Luck", "HistMant", "TwinTail", "MasterSlave", "Super1Bit", "AvgNlz", "Median3", "MinPlus1", "CTLL", "ETLL", "CQuadTLL"};
 	static final int MANTISSA_THRESHOLD=(int)Math.round((2.0-Math.sqrt(2.0))*1048576);
 
 	static final int SAMPLE_ALL=0, SAMPLE_ENTRY=1, SAMPLE_BOTH=2;

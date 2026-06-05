@@ -162,6 +162,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4();
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog();
+		}else if("CQuadTLL".equalsIgnoreCase(type) || "CompressedQuadTailLogLog".equalsIgnoreCase(type) || "cqtll".equalsIgnoreCase(type)){
+			return new CompressedQuadTailLogLog();
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
 			return new SetSketch16();
 		}
@@ -299,6 +301,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4(p);
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog(p);
+		}else if("CQuadTLL".equalsIgnoreCase(type) || "CompressedQuadTailLogLog".equalsIgnoreCase(type) || "cqtll".equalsIgnoreCase(type)){
+			return new CompressedQuadTailLogLog(p);
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
 			return new SetSketch16(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}
@@ -442,6 +446,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new TwinTailLogLog4(buckets_, k_, seed, minProb_);
 		}else if("CTTLL".equalsIgnoreCase(type) || "CompressedTwinTailLogLog".equalsIgnoreCase(type)){
 			return new CompressedTwinTailLogLog(buckets_, k_, seed, minProb_);
+		}else if("CQuadTLL".equalsIgnoreCase(type) || "CompressedQuadTailLogLog".equalsIgnoreCase(type) || "cqtll".equalsIgnoreCase(type)){
+			return new CompressedQuadTailLogLog(buckets_, k_, seed, minProb_);
 		}else if("ETTLL5".equalsIgnoreCase(type) || "ExpandedTwinTailLogLog5".equalsIgnoreCase(type)){
 			return new ExpandedTwinTailLogLog5(buckets_, k_, seed, minProb_);
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
