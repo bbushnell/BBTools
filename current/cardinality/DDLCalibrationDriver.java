@@ -482,11 +482,11 @@ public class DDLCalibrationDriver {
 	static final int WORDEST_RAW_IDX=17+AbstractCardStats.NUM_DLC_TIERS+AbstractCardStats.NUM_EXTRA;
 
 	static void v3ColsForType(String type){
-		final boolean hasHistory=type.equals("udll6") || type.equals("udll6m") || type.equals("pll16c") || type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("bdll4") || type.equals("bdll5") || type.equals("cdll4") || type.equals("cdll5") || type.equals("bcdll5") || type.equals("bcdll3") || type.equals("acdll5") || type.equals("vcdll4") || type.equals("acdll4") || type.equals("hcdll4") || type.equals("edll8") || type.equals("edll9") || type.equals("audll32") || type.equals("audll33") || type.equals("avdll32") || type.equals("avdll36") || type.equals("avdll34") || type.equals("avdll64") || type.equals("udll36") || type.equals("ettll5") || type.equals("avll") || type.equals("avll2");
+		final boolean hasHistory=type.equals("udll6") || type.equals("udll6m") || type.equals("pll16c") || type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("cqtll") || type.equals("cquadtll") || type.equals("bdll4") || type.equals("bdll5") || type.equals("cdll4") || type.equals("cdll5") || type.equals("bcdll5") || type.equals("bcdll3") || type.equals("acdll5") || type.equals("vcdll4") || type.equals("acdll4") || type.equals("hcdll4") || type.equals("edll8") || type.equals("edll9") || type.equals("audll32") || type.equals("audll33") || type.equals("avdll32") || type.equals("avdll36") || type.equals("avdll34") || type.equals("avdll64") || type.equals("udll36") || type.equals("ettll5") || type.equals("avll") || type.equals("avll2");
 		final boolean hasMantissa=type.equals("ddl") || type.equals("ddl10") || type.equals("ddl8")
 			|| type.equals("ddl8v2") || type.equals("ddl2");
 		final boolean hasWordEst=type.equals("dll4") || type.equals("dll4m");
-		final boolean hasMean16=type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("ettll5") || type.equals("udll36") || type.equals("avdll34") || type.equals("avdll64") || type.equals("avll2");
+		final boolean hasMean16=type.equals("ttll") || type.equals("ttll3") || type.equals("ttll4") || type.equals("cttll") || type.equals("cqtll") || type.equals("cquadtll") || type.equals("ettll5") || type.equals("udll36") || type.equals("avdll34") || type.equals("avdll64") || type.equals("avll2");
 		final boolean hasMeanTC=(AbstractCardStats.MEAN_TC_MODE>0);
 		final boolean hasMeanTCH=AbstractCardStats.MEAN_TCH_ENABLED;
 		final int extra=(hasHistory ? 2 : 0)+(hasMantissa ? 1 : 0)+(hasWordEst ? 1 : 0)+(hasMean16 ? 1 : 0)+(hasMeanTC ? 1 : 0)+(hasMeanTCH ? 1 : 0);

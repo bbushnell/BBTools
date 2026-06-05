@@ -134,6 +134,17 @@ public class CladeRegressionTest {
 					System.out.println("WARN: "+shortName+" self WKID="+wkid+" (expected > 0.5)"); warn++;
 				}
 			}
+
+			// Check SSU ANI for self-match (should be high when present)
+			if(colSSU>=0){
+				float ssu=parseFloat(selfMatch, colSSU);
+				if(ssu>0.8f){
+					System.out.println("PASS: "+shortName+" self ssuID="+ssu); pass++;
+				}else if(ssu>0f){
+					System.out.println("WARN: "+shortName+" self ssuID="+ssu+" (expected > 0.8)"); warn++;
+				}
+				// ssu==0 means no SSU data for this pair, not a failure
+			}
 		}
 
 		if(checked>0){
@@ -141,6 +152,23 @@ public class CladeRegressionTest {
 		}
 		if(checked>0 && selfFound==0){
 			System.out.println("FAIL: No self-matches found for any query"); fail++;
+		}
+
+		// Global SSU check: count how many results have SSU data at all
+		if(colSSU>=0){
+			int ssuPresent=0, ssuTotal=0;
+			for(Entry<String,ArrayList<String[]>> entry : byQuery.entrySet()){
+				for(String[] fields : entry.getValue()){
+					ssuTotal++;
+					float ssu=parseFloat(fields, colSSU);
+					if(ssu>0f) ssuPresent++;
+				}
+			}
+			if(ssuPresent>0){
+				System.out.println("PASS: SSU data present in "+ssuPresent+"/"+ssuTotal+" result lines"); pass++;
+			}else{
+				System.out.println("FAIL: No SSU data in any result line (SSU alignment broken?)"); fail++;
+			}
 		}
 
 		// Baseline diff
