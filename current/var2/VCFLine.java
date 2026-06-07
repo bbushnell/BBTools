@@ -919,14 +919,27 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 	 */
 	public int type_old(){
 		if(alt!=null && Tools.indexOf(alt, ',')>=0){return Var.MULTI;}
-		final int reflen=reflen(), readlen=readlen();
-		if(readlen!=reflen && readlen!=0 && reflen!=0){return Var.COMPLEX;}
-		if(reflen<readlen){return Var.INS;}
-		if(reflen>readlen){return Var.DEL;}
-		for(byte b : alt){
-			if(b!='N'){return Var.SUB;}
+		final int rl=ref.length, al=alt.length;
+		//VCF forces an anchor base onto indels (e.g. ATG->A), so unlike Var format the raw
+		//allele lengths differ even for simple indels.  Trim the shared prefix and the
+		//(non-overlapping) shared suffix, then classify by the remaining cores:
+		//empty ref core = INS, empty alt core = DEL, equal nonzero cores = SUB,
+		//unequal nonzero cores = COMPLEX (not any single type, but decomposable into them).
+		final int min=Tools.min(rl, al);
+		int p=0;
+		while(p<min && ref[p]==alt[p]){p++;}
+		int s=0;
+		while(s<min-p && ref[rl-1-s]==alt[al-1-s]){s++;}
+		final int rcore=rl-p-s, acore=al-p-s;
+		if(rcore==acore){//Length-neutral core: substitution, or no-call if entirely N
+			for(byte b : alt){
+				if(b!='N'){return Var.SUB;}
+			}
+			return Var.NOCALL;
 		}
-		return Var.NOCALL;
+		if(rcore==0){return Var.INS;}//Pure insertion (reference core empty)
+		if(acore==0){return Var.DEL;}//Pure deletion (alternate core empty)
+		return Var.COMPLEX;//Both cores nonempty and unequal length
 	}
 	
 	/** Gets the variant type constant */
