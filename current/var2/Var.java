@@ -1327,7 +1327,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 			float[] vec=FeatureVectorMaker.toVector(this, properPairRate, totalQualityAvg,
 					totalMapqAvg, readLengthAvg, ploidy, map);
 			float output=net.applyInput(vec).feedForward();
-			output=Tools.mid(0, output, 1);
+			output=Tools.max(0, output);
 			phred=(output<=net.cutoff) ?
 				20.0*output/net.cutoff :
 				20.0+20.0*(output-net.cutoff)/(1.0-net.cutoff);
