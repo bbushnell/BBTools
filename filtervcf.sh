@@ -21,6 +21,10 @@ bgzip=f         Use bgzip for gzip compression.
 splitalleles=f  Split multi-allelic lines into multiple lines.
 splitsubs=f     Split multi-base substitutions into SNPs.
 canonize=t      Trim variations down to a canonical representation.
+normalize=f     (leftalign) Left-align indels using the reference (requires
+                ref=).  Combined with splitalleles, this produces a clean,
+                canonical VCF equivalent to 'bcftools norm -m -both'.
+mt=f            Multithreaded processing (faster for large files).
 
 Position-filtering parameters:
 minpos=         Ignore variants not overlapping this range.
@@ -28,6 +32,9 @@ maxpos=         Ignore variants not overlapping this range.
 contigs=        Comma-delimited list of contig names to include. These
                 should have no spaces, or underscores instead of spaces.
 invert=f        Invert position filters.
+bed=<file>      Keep only variants whose position falls inside an interval
+                in this BED file (e.g. a high-confidence benchmark region set).
+invertbed=f     Invert the BED filter: keep only variants OUTSIDE the intervals.
 
 Type-filtering parameters:
 sub=t           Keep substitutions.

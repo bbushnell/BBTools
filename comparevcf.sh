@@ -28,6 +28,11 @@ addsamples=t    Include all samples in the output lines. (TODO)
 splitalleles=f  Split multi-allelic lines into multiple lines.
 splitsubs=f     Split multi-base substitutions into SNPs.
 canonize=t      Trim variations down to a canonical representation.
+normalize=f     (leftalign) Left-align indels using the reference (requires
+                ref=).  The standard normalization for cross-caller concordance.
+bed=<file>      Restrict the comparison to variants inside this BED file's
+                intervals (e.g. a high-confidence benchmark region set).
+invertbed=f     Invert the BED filter: compare only variants OUTSIDE the intervals.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

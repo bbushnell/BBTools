@@ -24,10 +24,12 @@ import structures.ByteBuilder;
 /**
  * Performs set operations on multiple VCF (Variant Call Format) files.
  * Supports difference, union, and intersection operations to compare genetic
- * variants across multiple samples. Can filter variants by quality score and
- * optionally split complex variants into components.
+ * variants across multiple samples. Can filter variants by quality score, restrict
+ * to the intervals of a BED file, left-align indels (normalize), and optionally
+ * split complex variants into components.
  *
  * @author Brian Bushnell
+ * @contributor UMP45
  * @date January 14, 2017
  */
 public class CompareVCF {
@@ -104,6 +106,10 @@ public class CompareVCF {
 				normalize=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				ref=b;
+			}else if(a.equals("bed") || a.equals("bedfile")){
+				bedFile=b;
+			}else if(a.equals("invertbed") || a.equals("excludebed") || a.equals("bedexclude") || a.equals("bedinvert")){
+				invertBed=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -140,6 +146,10 @@ public class CompareVCF {
 			throw new RuntimeException("Error - normalize/leftalign requires ref= (the reference fasta) for left-alignment.");
 		}
 		if(ref!=null){ScafMap.loadReference(ref, null, null, true);}
+		if(bedFile!=null){
+			bedMask=new BedMask(bedFile);
+			outstream.println("Loaded "+bedMask.intervalsLoaded()+" BED intervals across "+bedMask.scaffolds()+" scaffolds.");
+		}
 	}
 	
 	/**
@@ -167,11 +177,11 @@ public class CompareVCF {
 			if(splitAlleles || splitComplex || splitSubs){list=v.split(splitAlleles, splitComplex, splitSubs);}
 			if(list==null || list.isEmpty()){
 				if(normalize){v.leftAlign(refBases(v.scaf));}
-				if(!set.contains(v) && v.qual>=minScore){set.add(v);}
+				if(inRegion(v) && !set.contains(v) && v.qual>=minScore){set.add(v);}
 			}else{
 				for(VCFLine line : list){
 					if(normalize){line.leftAlign(refBases(line.scaf));}
-					if(!set.contains(line) && v.qual>=minScore){set.add(line);}
+					if(inRegion(line) && !set.contains(line) && v.qual>=minScore){set.add(line);}
 				}
 			}
 		}
@@ -194,7 +204,14 @@ public class CompareVCF {
 		}
 		return lastBases;
 	}
-	
+
+	/** Whether a variant passes the BED region filter (always true when no bed= was given).
+	 * @param v Variant to test
+	 * @return true if the variant should be included in the comparison */
+	private boolean inRegion(VCFLine v){
+		return bedMask==null || (bedMask.contains(v.scaf, v.pos)^invertBed);
+	}
+
 	/**
 	 * Creates the union of all variants from input VCF files.
 	 * Combines all unique variants from all input files into a single set.
@@ -354,6 +371,13 @@ public class CompareVCF {
 	boolean splitComplex=false;
 	boolean normalize=false;
 	double minScore=-99999;
+
+	/** BED file restricting which variants are compared; null disables region filtering */
+	private String bedFile=null;
+	/** When true, keep variants OUTSIDE the BED intervals instead of inside */
+	private boolean invertBed=false;
+	/** Loaded region mask, or null when no bed= was given */
+	private BedMask bedMask=null;
 
 	/** Cached scaffold name and reference bases for the most recent leftAlign lookup */
 	private String lastScaf=null;

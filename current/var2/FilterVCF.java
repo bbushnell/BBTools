@@ -30,13 +30,16 @@ import structures.ListNum;
 * Key features:
 * - Statistical filtering using VarFilter criteria (coverage, quality, strand bias, etc.)
 * - Position-based filtering using SamFilter criteria (coordinates, contigs)
+* - Region restriction using a BED file of intervals (bed=, optionally invertbed)
 * - Variant type filtering (enable/disable SNPs, indels, junctions)
-* - Allele splitting for multi-allelic variants
+* - Allele splitting for multi-allelic variants, and multi-base substitution splitting
+* - Indel left-alignment / normalization against the reference (normalize, requires ref=)
 * - Quality score histograms for analysis
 * - Header preservation and metadata extraction
-* 
+*
 * @author Brian Bushnell
 * @contributor Isla
+* @contributor UMP45
 * @date January 14, 2017
 */
 public class FilterVCF {
@@ -129,11 +132,17 @@ public class FilterVCF {
 				splitAlleles=splitSubs=Parse.parseBoolean(b);
 			}else if(a.equals("splitall") || a.equals("sascsss")){
 				splitAlleles=splitComplex=splitSubs=Parse.parseBoolean(b);
+			}else if(a.equals("normalize") || a.equals("leftalign") || a.equals("norm")){
+				normalize=Parse.parseBoolean(b);
 			}else if(a.equals("clearfilters")){
 				if(Parse.parseBoolean(b)){
 					varFilter.clear();
 					samFilter.clear();
 				}
+			}else if(a.equals("bed") || a.equals("bedfile")){
+				bedFile=b;
+			}else if(a.equals("invertbed") || a.equals("excludebed") || a.equals("bedexclude") || a.equals("bedinvert")){
+				invertBed=Parse.parseBoolean(b);
 			}else if(samFilter.parse(arg, a, b)){
 				setSamFilter=true;
 			}else if(varFilter.parse(a, b, arg)){
@@ -210,20 +219,42 @@ public class FilterVCF {
 		}
 		
 		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1, ref)){
-			throw new RuntimeException("\nCan't read some input files.\n");  
+		if(!Tools.testInputFiles(false, true, in1, ref, bedFile)){
+			throw new RuntimeException("\nCan't read some input files.\n");
 		}
-		
+
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
-		
+
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, overwrite, append, multithreaded);
-		
+
+		if(normalize && ref==null){
+			throw new RuntimeException("Error - normalize/leftalign requires ref= (the reference fasta) for left-alignment.");
+		}
 		if(ref!=null){ScafMap.loadReference(ref, scafMap, samFilter, true);}
+
+		//Load region mask, if a BED file was specified
+		if(bedFile!=null){
+			bedMask=new BedMask(bedFile);
+			outstream.println("Loaded "+bedMask.intervalsLoaded()+" BED intervals across "+bedMask.scaffolds()+" scaffolds.");
+		}
 		
 		//Determine how many threads may be used
 		threads=Tools.min(8, Shared.threads());
 	}
 	
+	/**
+	 * Returns the reference bases (0-based) for a scaffold, for left-alignment, or null if
+	 * the reference was not loaded for this scaffold.  Reads from the reference ScafMap, which
+	 * is immutable after loading, so concurrent reads from worker threads are safe.
+	 *
+	 * @param scaf Scaffold/chromosome name
+	 * @return Reference base array, or null when unavailable
+	 */
+	private byte[] refBasesFor(String scaf){
+		Scaffold sc=scafMap.getScaffold(scaf);
+		return sc==null ? null : sc.bases;
+	}
+
 	/**
 	 * Loads scaffold information from VCF contig header lines into the ScafMap.
 	 * Processes ##contig=<ID=...> lines to build coordinate reference system.
@@ -413,7 +444,13 @@ public class FilterVCF {
 					
 					//Position-based filtering
 					if(pass && samFilter!=null){pass&=samFilter.passesFilter(vline);}
-					
+
+					//Region-based (BED) filtering
+					if(pass && bedMask!=null){
+						boolean in=bedMask.contains(vline.scaf, vline.pos);
+						pass&=(invertBed ? !in : in);
+					}
+
 					//Statistical filtering
 					if(pass && varFilter!=null){
 						Var v=null;
@@ -440,12 +477,17 @@ public class FilterVCF {
 						ArrayList<VCFLine> split=(splitAlleles || splitComplex || splitSubs) ? vline.split(splitAlleles, splitComplex, splitSubs) : null;
 						
 						if(split==null){
-							if(bsw!=null){bsw.println(line);}
+							if(normalize){vline.leftAlign(refBasesFor(vline.scaf));}
+							if(bsw!=null){
+								if(normalize){bsw.print(vline.toText(new ByteBuilder(line.length+16)).nl());}
+								else{bsw.println(line);}
+							}
 							variantLinesOut++;
 							int q=(int)(vline.qual);
 							scoreHist[Tools.min(scoreHist.length-1, q)]++;
 						}else{
 							for(VCFLine vline2 : split){
+								if(normalize){vline2.leftAlign(refBasesFor(vline2.scaf));}
 								if(bsw!=null){bsw.print(vline2.toText(new ByteBuilder(64)).nl());}
 								variantLinesOut++;
 								int q=(int)(vline2.qual);
@@ -563,6 +605,13 @@ public class FilterVCF {
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 8));
 		outstream.println();
 		outstream.println("Header Lines In:   \t"+headerLinesProcessed);
+		//TODO: Probable bug - "Variant Lines In" (variantLinesProcessed) and "Variant Lines Out"
+		//(variantLinesOut) both undercount by exactly 1, in BOTH the single- and multi-threaded
+		//paths (verified on chr21: reported 79954 vs 79955 actual output variants).  The output
+		//file itself is correct; only these two counters are short.  Most likely the first variant
+		//line after the header - pushed back in processVcfHeader() - is written but not tallied.
+		//Pre-existing (reproduces with no bed=), not introduced by the bed= region filter.
+		//Repro needs a VCF with ##contig header lines (FilterVCF asserts on an empty ScafMap).
 		outstream.println("Variant Lines In:  \t"+variantLinesProcessed);
 		outstream.println("Header Lines Out:  \t"+headerLinesOut);
 		outstream.println("Variant Lines Out: \t"+variantLinesOut);
@@ -635,7 +684,7 @@ public class FilterVCF {
 		*/
 		public void run(){
 			net=(net0==null ? null : net0.copy(false));
-			ListNum<byte[]> ln=bf.nextList();
+			ListNum<byte[]> ln=nextListSync();
 			while(ln!=null && ln!=POISON_BYTES){
 				ByteBuilder bb=new ByteBuilder(4096);
 				for(byte[] line : ln){
@@ -643,10 +692,25 @@ public class FilterVCF {
 					processLine(line, bb);
 				}
 				if(bsw!=null){bsw.add(bb, ln.id+offset);}
-				ln=bf.nextList();
+				ln=nextListSync();
 			}
 			success=true;
 			synchronized(this){notify();}
+		}
+
+		/**
+		 * Reads the next batch from the shared input ByteFile under a lock.
+		 * ByteFile1.nextList() is NOT thread-safe (it mutates shared buffer offsets), so
+		 * multiple worker threads calling it concurrently corrupt the buffer and drop lines.
+		 * Serializing only the read is cheap (decompression runs in parallel via pigz) while
+		 * the expensive per-line work (split, left-align, filtering, NN scoring) stays parallel.
+		 *
+		 * @return Next batch of lines, or null at end of input
+		 */
+		private ListNum<byte[]> nextListSync(){
+			synchronized(bf){
+				return bf.nextList();
+			}
 		}
 
 		/**
@@ -694,6 +758,12 @@ public class FilterVCF {
 					//Position-based filtering
 					if(pass && samFilter!=null){pass&=samFilter.passesFilter(vline);}
 
+					//Region-based (BED) filtering
+					if(pass && bedMask!=null){
+						boolean in=bedMask.contains(vline.scaf, vline.pos);
+						pass&=(invertBed ? !in : in);
+					}
+
 					//Statistical filtering
 					if(pass && varFilter!=null){
 						if(varFormatOK){
@@ -720,24 +790,26 @@ public class FilterVCF {
 				}
 				
 				if(pass){
-					//Handle allele splitting for multi-allelic variants
-					if(splitAlleles && vline.alt!=null && Tools.indexOf(vline.alt, ',')>0){
-						//Note: This simple splitting may not handle auxiliary data correctly
-						//The VCFLine.split() method would be more comprehensive
-						String alleles=new String(vline.alt);
-						String[] split=alleles.split(",");
-						for(String allele : split){
-							vline.alt=allele.getBytes();
-							vline.toText(bb).nl();
-							variantLinesOutT++;
-							int q=(int)(vline.qual);
-							scoreHistT[Tools.min(scoreHistT.length-1, q)]++;
-						}
-					}else{
-						bb.append(line).append('\n');
+					//Handle variant splitting and/or normalization if requested.
+					//Uses the same VCFLine.split() path as the single-threaded code, which
+					//correctly handles per-allele INFO; the old comma-split here did not.
+					ArrayList<VCFLine> split=(splitAlleles || splitComplex || splitSubs) ? vline.split(splitAlleles, splitComplex, splitSubs) : null;
+
+					if(split==null){
+						if(normalize){vline.leftAlign(refBasesFor(vline.scaf));}
+						if(normalize){vline.toText(bb).nl();}
+						else{bb.append(line).append('\n');}
 						variantLinesOutT++;
 						int q=(int)(vline.qual);
 						scoreHistT[Tools.min(scoreHistT.length-1, q)]++;
+					}else{
+						for(VCFLine vline2 : split){
+							if(normalize){vline2.leftAlign(refBasesFor(vline2.scaf));}
+							vline2.toText(bb).nl();
+							variantLinesOutT++;
+							int q=(int)(vline2.qual);
+							scoreHistT[Tools.min(scoreHistT.length-1, q)]++;
+						}
 					}
 				}
 			}
@@ -844,7 +916,9 @@ public class FilterVCF {
 	boolean splitSubs=false;
 	/** Whether to split complex variants */
 	boolean splitComplex=false;
-	
+	/** Whether to left-align (normalize) indels using the reference; requires ref= */
+	boolean normalize=false;
+
 	/** Whether to count nearby variants for filtering (TODO: implement counting) */
 	boolean countNearby=false;
 	
@@ -860,6 +934,13 @@ public class FilterVCF {
 	private String ref=null;
 	/** Score histogram output filename */
 	private String scoreHistFile=null;
+
+	/** BED file of regions; if set, variants are restricted to (or excluded from) these intervals */
+	private String bedFile=null;
+	/** When true, keep variants OUTSIDE the BED intervals instead of inside */
+	private boolean invertBed=false;
+	/** Loaded region mask, or null when no bed= was given */
+	private BedMask bedMask=null;
 
 	/** Input file format */
 	private final FileFormat ffin1;
