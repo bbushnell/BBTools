@@ -100,6 +100,8 @@ public class CompareVCF {
 				minScore=Double.parseDouble(b);
 			}else if(a.equals("trimtocanonical") || a.equals("canonicalize") || a.equals("canonicize") || a.equals("canonize")){
 				VCFLine.TRIM_TO_CANONICAL=Parse.parseBoolean(b);
+			}else if(a.equals("normalize") || a.equals("leftalign") || a.equals("norm")){
+				normalize=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				ref=b;
 			}else if(parser.parse(arg, a, b)){
@@ -134,6 +136,9 @@ public class CompareVCF {
 		
 		ffout1=FileFormat.testOutput(out1, FileFormat.VCF, null, true, overwrite, append, false);
 		if(ffout1!=null && ffout1.type()==FileFormat.VAR){outputVar=true;}
+		if(normalize && ref==null){
+			throw new RuntimeException("Error - normalize/leftalign requires ref= (the reference fasta) for left-alignment.");
+		}
 		if(ref!=null){ScafMap.loadReference(ref, null, null, true);}
 	}
 	
@@ -161,9 +166,11 @@ public class CompareVCF {
 			ArrayList<VCFLine> list=null;
 			if(splitAlleles || splitComplex || splitSubs){list=v.split(splitAlleles, splitComplex, splitSubs);}
 			if(list==null || list.isEmpty()){
+				if(normalize){v.leftAlign(refBases(v.scaf));}
 				if(!set.contains(v) && v.qual>=minScore){set.add(v);}
 			}else{
 				for(VCFLine line : list){
+					if(normalize){line.leftAlign(refBases(line.scaf));}
 					if(!set.contains(line) && v.qual>=minScore){set.add(line);}
 				}
 			}
@@ -176,6 +183,16 @@ public class CompareVCF {
 		
 		errorState|=vfile.errorState;
 		return set;
+	}
+
+	/** Returns reference bases for a scaffold (for left-alignment), cached by name. */
+	private byte[] refBases(String scaf){
+		if(scaf!=lastScaf && !scaf.equals(lastScaf)){
+			Scaffold sc=ScafMap.defaultScafMap().getScaffold(scaf);
+			lastBases=(sc==null ? null : sc.bases);
+			lastScaf=scaf;
+		}
+		return lastBases;
 	}
 	
 	/**
@@ -335,7 +352,12 @@ public class CompareVCF {
 	boolean splitAlleles=false;
 	boolean splitSubs=false;
 	boolean splitComplex=false;
+	boolean normalize=false;
 	double minScore=-99999;
+
+	/** Cached scaffold name and reference bases for the most recent leftAlign lookup */
+	private String lastScaf=null;
+	private byte[] lastBases=null;
 	
 	/*--------------------------------------------------------------*/
 	
