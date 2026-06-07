@@ -562,9 +562,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		int lca=(lcaLevel>=1 && lcaLevel<=19) ? lcaLevel : TaxTree.LIFE;
 
 		double kmerFactor=1.005-Math.sqrt(kd+0.005);
-		double sketchFactor=Math.sqrt((wk+1.0)*(m+5.0));
-		double ssuFactor=Math.max(ssu, 0.5);
-		double lcaFactor=20.0-lca;
+		double sketchFactor=Math.sqrt(Math.log((wk+1.0)*(m+10.0))*invLog2);
+		double ssuFactor=Math.sqrt(Math.max(ssu, 0.6));
+		lca=Math.min(lca, 9);
+		double lcaFactor=(18.0-lca)*(18.0-lca);
 
 		double product=kmerFactor*sketchFactor*ssuFactor*lcaFactor;
 		if(product<=0) return 0;
@@ -726,6 +727,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	/** Multiplier for 3-mer cutoff in early exit tests; 1.0 is better for ABS, 1.5 for ABSCOMP */
 	private static float comparisonCutoffMult2=1.6f;
 	
+	static final double invLog2=1.0/Math.log(2);
+
 	static long minK5Bases=3000;
 	static long minK4Bases=600;
 	static float k4Mult=2f;

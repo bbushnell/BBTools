@@ -1227,9 +1227,11 @@ public class CorrectionFactor{
 	private static final double HC_CF_AVDLL64_C1=   0.000066505471286;
 
 	/** Returns the HC correction factor for a given cardinality estimate.
-	 *  When USE_HC_CF_FORMULA is false, returns 1.0 (no correction). */
+	 *  When USE_HC_CF_FORMULA is false, returns 1.0 (no correction).
+	 *  Dispatches to sigmoid model when hcCfMode==HC_CF_SIGMOID. */
 	public static double hcCfFormula(double card){
-		if(!USE_CORRECTION || (!USE_HC_CF_FORMULA && !USE_FORMULAS)){return 1.0;}
+		if(!USE_HC_CF_FORMULA && !USE_FORMULAS){return 1.0;}
+		if(hcCfMode==HC_CF_SIGMOID){return hcCfFormulaSigmoid(card);}
 		if(card<=0){return HC_CF_T;} // terminal value
 		final double lc=Math.log(card)*INV_LOG2;
 		final double base=HC_CF_T-HC_CF_A*Math.exp(-HC_CF_B*lc);
@@ -1237,6 +1239,33 @@ public class CorrectionFactor{
 		final double s=Math.sin(angle), c=Math.cos(angle);
 		return base+(HC_CF_S0+HC_CF_S1*lc)*s+(HC_CF_C0+HC_CF_C1*lc)*c;
 	}
+
+	// CQuadTLL HC CF: sigmoid base + 2-octave sinusoidal correction.
+	// CF(lc) = t*(1+tanh((lc-c)/w))/2 + (s0+s1*lc)*sin(PI*lc) + (c0+c1*lc)*cos(PI*lc)
+	// Period = 2 octaves (PI*lc) because TIER_SCALE=2.0 doubles the tier width.
+	// Fitted on cf_cqtll_v2.tsv (128k DDLs, HC_SCALE=1.454, B=1280).
+	private static final double HC_CF_SIG_T  =  1.003882210100106;
+	private static final double HC_CF_SIG_C  = 10.765912921886100;
+	private static final double HC_CF_SIG_W  =  1.237301977511411;
+	private static final double HC_CF_SIG_S0 = -0.009579421572202;
+	private static final double HC_CF_SIG_S1 =  0.000321689505826;
+	private static final double HC_CF_SIG_C0 = -0.008583941549921;
+	private static final double HC_CF_SIG_C1 =  0.000634425789851;
+
+	/** Sigmoid-based HC CF for compressed-tier variants (CQuadTLL).
+	 *  Uses tanh transition centered at lc=10.5, with 2-octave sinusoidal ripple. */
+	public static double hcCfFormulaSigmoid(double card){
+		if(card<=0){return HC_CF_SIG_T;}
+		final double lc=Math.log(card)*INV_LOG2;
+		final double base=HC_CF_SIG_T*(1+Math.tanh((lc-HC_CF_SIG_C)/HC_CF_SIG_W))/2;
+		final double angle=Math.PI*lc;
+		final double s=Math.sin(angle), c=Math.cos(angle);
+		return base+(HC_CF_SIG_S0+HC_CF_SIG_S1*lc)*s+(HC_CF_SIG_C0+HC_CF_SIG_C1*lc)*c;
+	}
+
+	/** HC CF formula mode. 0=exponential (UDLL6), 1=sigmoid (CQuadTLL). */
+	public static final int HC_CF_EXPONENTIAL=0, HC_CF_SIGMOID=1;
+	public static int hcCfMode=HC_CF_EXPONENTIAL;
 
 	private static final double TWO_PI=2.0*Math.PI;
 

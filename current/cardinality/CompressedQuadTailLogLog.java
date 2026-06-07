@@ -434,7 +434,10 @@ public final class CompressedQuadTailLogLog extends CardinalityTracker {
 				*(double)numBuckets;
 
 			if(NUM_TAILS>2){
-				// Pool all depths (including MSB) across all tails as independent LC
+				// Pool all depths across all tails as independent LC observations.
+				// One MSB per bucket is forced (routing tail), causing ~1/NUM_TAILS
+				// systematic bias — absorbed by HC_SCALE. Cardinality-dependent
+				// residual corrected by hcCfFormula.
 				for(int d=0; d<HIST_LEN; d++){
 					final int srcTier=t+d;
 					if(srcTier>=maxTier || nlzCount[srcTier]<=0){continue;}
@@ -613,7 +616,8 @@ public final class CompressedQuadTailLogLog extends CardinalityTracker {
 	/*----------------        Correction Factors    ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static final double DEFAULT_HC_WEIGHT=0.50;
+	static boolean DEBUG_HC_CF=false;
+	static final double DEFAULT_HC_WEIGHT=0.80;
 
 	public static final String SBS_FILE="?sbsCQuadTLL_1280.tsv.gz";
 
@@ -629,6 +633,7 @@ public final class CompressedQuadTailLogLog extends CardinalityTracker {
 	@Override public float terminalMeanCF(){return 1.0f;}
 	@Override public float terminalMeanPlusCF(){return 1.0f;}
 	@Override public float hldlcWeight(){return OVERRIDE_HLDLC_WEIGHT>=0 ? OVERRIDE_HLDLC_WEIGHT : 0.68f;}
+	@Override public double ldlcHcWeight(){return DEFAULT_HC_WEIGHT;}
 
 	/** Derive HSB tables from per-tier state table for Mean+H. */
 	static void computeHSB(){
