@@ -296,7 +296,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("dhdll3") || loglogtype.equals("cdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=(CompressedDynamicLogLog3.DUAL ? 2 : 1.5);}
 		else if(loglogtype.equals("bcdll3")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.5;}
 		else if(loglogtype.equals("cttll")){AbstractCardStats.TIER_SCALE=CompressedTwinTailLogLog.TIER_SCALE; CorrectionFactor.sbsFile=CompressedTwinTailLogLog.sbsFile();}
-		else if(loglogtype.equals("cqtll") || loglogtype.equals("cquadtll")){AbstractCardStats.TIER_SCALE=CompressedQuadTailLogLog.TIER_SCALE; CorrectionFactor.sbsFile=CompressedQuadTailLogLog.sbsFile(); if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=1.454f;}}
+		else if(loglogtype.equals("cqtll") || loglogtype.equals("cquadtll")){AbstractCardStats.TIER_SCALE=CompressedQuadTailLogLog.TIER_SCALE; CorrectionFactor.sbsFile=CompressedQuadTailLogLog.sbsFile(); if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=1.454f;} classHasMeanCf=false; classHasHcCf=true; CorrectionFactor.hcCfMode=CorrectionFactor.HC_CF_SIGMOID;}
 		else if(loglogtype.equals("ettll5")){AbstractCardStats.TIER_SCALE=ExpandedTwinTailLogLog5.TIER_SCALE; CorrectionFactor.sbsFile=ExpandedTwinTailLogLog5.SBS_FILE;}
 		else if(loglogtype.equals("dhdll4")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=2;}
 		else if(loglogtype.equals("dll4") || loglogtype.equals("dll4m")){CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4;}
