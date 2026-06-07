@@ -742,7 +742,67 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		byte[] suffix=(len==1 ? Var.AL_MAP[array[array.length-1]] : len==array.length ? array : Arrays.copyOfRange(array, array.length-len, array.length));
 		return suffix;
 	}
-	
+
+	/**
+	 * Left-aligns an indel by rolling it as far left as possible through the reference,
+	 * the standard normalization for cross-caller concordance against an external truth.
+	 * Only affects insertions and deletions; SNPs and complex variants are returned
+	 * unchanged (they have no left-alignment ambiguity). The indel alleles are also
+	 * uppercased so that soft-masked (lowercase) reference regions compare equal.
+	 * Handles tandem repeats of arbitrary unit length, not just homopolymers, because
+	 * the single-base roll (borrow-left / drop-right) walks through any periodicity.
+	 *
+	 * @param R Reference bases (0-based) for this variant's scaffold, or null to skip
+	 * @return Number of bases the indel was shifted left (0 if unchanged) */
+	public int leftAlign(byte[] R){
+		if(type!=Var.DEL && type!=Var.INS){return 0;}//Only indels can left-align
+		if(R==null){return 0;}
+		final boolean del=(type==Var.DEL);
+		final byte[] longer=del ? ref : alt;//Multi-base allele (anchor + indel sequence)
+		final byte[] shorter=del ? alt : ref;//Single-base anchor allele
+		if(longer.length<2 || shorter.length!=1){return 0;}//Not a canonical anchored indel
+		if(pos-1<0 || pos-1>=R.length){return 0;}//Anchor outside loaded reference
+
+		//Uppercased working copy of the movable allele
+		byte[] cur=new byte[longer.length];
+		for(int i=0; i<cur.length; i++){cur[i]=toUpper(longer[i]);}
+
+		//Sanity: reference base at the anchor must equal the allele's anchor base.
+		//If this fails, the coordinates or reference are wrong; do not corrupt, just skip.
+		if(toUpper(R[pos-1])!=cur[0]){
+			assert(false) : "Reference mismatch at "+scaf+":"+pos+" refbase="+(char)R[pos-1]+" allele="+new String(longer);
+			return 0;
+		}
+
+		int p=pos, shifts=0;
+		while(p>1){
+			final int L=cur.length;
+			if(cur[0]!=cur[L-1]){break;}//Anchor != last movable base: cannot roll further
+			final byte x=toUpper(R[p-2]);//Reference base just left of the anchor
+			if(x!='A' && x!='C' && x!='G' && x!='T'){break;}//Stop at N or undefined base
+			final byte[] nc=new byte[L];//Roll left one base: new = x + cur[0..L-2]
+			nc[0]=x;
+			for(int i=1; i<L; i++){nc[i]=cur[i-1];}
+			cur=nc;
+			p--;
+			shifts++;
+		}
+
+		//Rebuild alleles (uppercased) even with 0 shifts, so masked-region case matches.
+		final byte[] anchorArr=Var.AL_MAP[cur[0]];
+		if(del){ref=cur; alt=anchorArr;}
+		else{alt=cur; ref=anchorArr;}
+		pos=p;
+		reflen=ref.length;
+		recalc();//Refresh type (still INS/DEL) and hashcode (pos/alleles changed)
+		return shifts;
+	}
+
+	/** Uppercases a single ASCII base byte; non-lowercase bytes are returned unchanged. */
+	private static byte toUpper(byte b){
+		return (b>='a' && b<='z') ? (byte)(b-32) : b;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------       Contract Methods       ----------------*/
 	/*--------------------------------------------------------------*/
