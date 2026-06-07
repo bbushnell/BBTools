@@ -767,10 +767,11 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		byte[] cur=new byte[longer.length];
 		for(int i=0; i<cur.length; i++){cur[i]=toUpper(longer[i]);}
 
-		//Sanity: reference base at the anchor must equal the allele's anchor base.
-		//If this fails, the coordinates or reference are wrong; do not corrupt, just skip.
+		//A left-anchored indel's first allele base equals the reference base at this position.
+		//But multiallelic splits can yield right-anchored or complex alleles (e.g. ref=C,
+		//alt=TGCGC, where the shared C is the suffix rather than the anchor); those are not
+		//safely left-alignable, so leave them unchanged rather than crashing or corrupting them.
 		if(toUpper(R[pos-1])!=cur[0]){
-			assert(false) : "Reference mismatch at "+scaf+":"+pos+" refbase="+(char)R[pos-1]+" allele="+new String(longer);
 			return 0;
 		}
 
