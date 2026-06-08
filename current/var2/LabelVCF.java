@@ -1,12 +1,13 @@
 package var2;
 
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.HashSet;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
-import fileIO.TextFile;
+import parse.Parse;
 import shared.Tools;
 import structures.ByteBuilder;
 
@@ -29,20 +30,19 @@ import structures.ByteBuilder;
  * The phred score is clamped to phredCap (default 60) before the formula is applied; this
  * matches the empirical CallVariants ceiling (~Q60) and bounds the non-GIAB tail.  Targets
  * are intentionally NOT clamped to 1.0 — the NN output function is unbounded, so a strong
- * GIAB variant may legitimately target >1.0.
+ * GIAB variant may legitimately target >1.0.  When phredCap=0, all phred modulation is
+ * suppressed and the labels become binary (GIAB offset vs 0).
  *
  * The deadzone / blacklist decision (a label too close to 0.5) is deliberately left to the
  * downstream vector generator, so the deadzone width stays tunable without re-running this
  * program; here we only count how many labels fall in 0.4-0.6 for diagnostics.
  *
- * GIAB membership and high-confidence membership are computed with the SAME canonical key
- * logic that {@link VcfToTrainingVectors} uses (POS/REF/ALT with indel leading-base stripping),
- * so the GIAB VCF and the candidate VCF must be normalized the same way (e.g. both run through
- * filtervcf normalize splitalleles).  The GIAB VCF passed here must NOT be bed-restricted —
- * the BED is supplied separately and membership in it is what separates cat 1/3 from cat 2/4.
+ * GIAB membership uses VCFLine equals/hashCode — the same identity contract as CompareVCF —
+ * so concordance with comparevcf intersection is exact.  When ref= is given, indels are
+ * left-aligned for normalization; this matches the split=t normalize pipeline.
  *
  * Usage: java var2.LabelVCF in=allvariants.vcf.gz giab=giab_norm.vcf.gz bed=highconf.bed \
- *        out=labeled.vcf.gz [ref=ref.fa.gz] [divisor=55] [phredcap=60]
+ *        out=labeled.vcf.gz [ref=ref.fa.gz] [divisor=55] [phredcap=60] [normalize=t]
  *
  * @author UMP45
  * @date June 7, 2026
@@ -51,10 +51,11 @@ public class LabelVCF {
 
 	public static void main(String[] args){
 		String inFile=null, giabFile=null, bedFile=null, refFile=null, outFile=null;
-		double giabHC=0.85, giabLC=0.75;     // GIAB offsets (in-bed, off-bed)
-		double divisor=55;                   // non-GIAB phred divisor
-		double hcPenalty=0.10, lcPenalty=0.05; // non-GIAB penalties (in-bed, off-bed)
-		double phredCap=60;                  // clamp phred before applying formulas
+		double giabHC=0.85, giabLC=0.75;
+		double divisor=55;
+		double hcPenalty=0.10, lcPenalty=0.05;
+		double phredCap=60;
+		boolean normalize=false;
 
 		for(String arg : args){
 			String[] split=arg.split("=", 2);
@@ -72,6 +73,8 @@ public class LabelVCF {
 			else if(a.equals("hcpenalty")){hcPenalty=Double.parseDouble(b);}
 			else if(a.equals("lcpenalty")){lcPenalty=Double.parseDouble(b);}
 			else if(a.equals("phredcap")){phredCap=Double.parseDouble(b);}
+			else if(a.equals("normalize") || a.equals("leftalign") || a.equals("norm")){normalize=Parse.parseBoolean(b);}
+			else if(a.equals("split") || a.equals("splitalleles")){/* always split truth */}
 		}
 
 		assert(inFile!=null) : "Missing in= (candidate VCF)";
@@ -79,33 +82,36 @@ public class LabelVCF {
 		assert(bedFile!=null) : "Missing bed= (GIAB high-confidence BED)";
 		assert(outFile!=null) : "Missing out= (labeled VCF)";
 		assert(divisor>0) : "divisor must be positive: "+divisor;
-		assert(phredCap>0) : "phredcap must be positive: "+phredCap;
+		assert(phredCap>=0) : "phredcap must be non-negative: "+phredCap;
 		assert(giabLC<=giabHC) : "giablc ("+giabLC+") should not exceed giabhc ("+giabHC+")";
+
+		if(normalize && refFile==null){
+			throw new RuntimeException("normalize requires ref=");
+		}
 
 		PrintStream out=System.err;
 
-		// Scaffold map: from the reference if given, else from the candidate VCF header (lighter,
-		// avoids loading the whole reference just to map contig names to numbers).
-		ScafMap scafMap;
 		if(refFile!=null){
 			out.println("Loading reference: "+refFile);
-			scafMap=ScafMap.loadReference(refFile, true);
+			ScafMap.loadReference(refFile, null, null, true);
+		}
+		ScafMap scafMap;
+		if(ScafMap.defaultScafMap()!=null){
+			scafMap=ScafMap.defaultScafMap();
 		}else{
 			out.println("Loading scaffold map from VCF header: "+inFile);
 			scafMap=ScafMap.loadVcfHeader(inFile);
+			ScafMap.setDefaultScafMap(scafMap, inFile);
 		}
 
-		// GIAB truth keys (NOT bed-restricted): membership separates cat 1/2 from cat 3/4.
-		out.println("Loading GIAB truth keys: "+giabFile);
-		HashSet<String> giab=loadKeys(giabFile, scafMap);
-		out.println("GIAB variant keys: "+giab.size());
+		out.println("Loading GIAB truth: "+giabFile);
+		HashSet<VCFLine> giab=loadTruthSet(giabFile, scafMap, normalize);
+		out.println("GIAB variants: "+giab.size());
 
-		// High-confidence BED: in-bed => cat 1 or 3, off-bed => cat 2 or 4.
 		out.println("Loading high-confidence BED: "+bedFile);
 		BedMask bed=new BedMask(bedFile);
 		out.println("BED intervals: "+bed.intervalsLoaded()+" across "+bed.scaffolds()+" scaffolds");
 
-		// Stream candidate VCF, splice NNL/NNC into INFO, emit.
 		out.println("Labeling candidates: "+inFile);
 		ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(inFile, FileFormat.TXT, null, true, false));
 		ByteStreamWriter bsw=new ByteStreamWriter(outFile, true, false, false);
@@ -117,7 +123,6 @@ public class LabelVCF {
 
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length>0 && line[0]=='#'){
-				// Inject NNL/NNC INFO definitions just before the #CHROM column header.
 				if(!headerInjected && Tools.startsWith(line, "#CHROM")){
 					bb.clear();
 					bb.append("##INFO=<ID=NNL,Number=1,Type=Float,Description=\"UMP45 NN training target label\">").nl();
@@ -131,24 +136,23 @@ public class LabelVCF {
 				continue;
 			}
 
-			// Data line: split into VCF columns. CHROM POS ID REF ALT QUAL FILTER INFO [FORMAT SAMPLE...]
-			String[] f=new String(line).split("\t");
-			if(f.length<8){ // malformed; pass through unchanged
+			VCFLine vline;
+			try{
+				vline=new VCFLine(line);
+			}catch(Throwable e){
 				bb.clear(); bb.append(line).nl(); bsw.print(bb);
 				continue;
 			}
-			String chrom=f[0];
-			int pos=Integer.parseInt(f[1]);
-			String ref=f[3];
-			String alt=f[4];
-			double phred=(f[5].length()==1 && f[5].charAt(0)=='.') ? 0 : Double.parseDouble(f[5]);
+
+			if(scafMap.getScaffold(vline.scaf)==null){unkScaf++;}
+			if(normalize){vline.leftAlign(refBasesFor(vline.scaf, scafMap));}
+
+			boolean inGiab=giab.contains(vline);
+			boolean inBed=bed.contains(vline.scaf, vline.pos);
+
+			double phred=vline.qual;
 			if(phred>phredCap){phred=phredCap;}
 			if(phred<0){phred=0;}
-
-			String key=makeKeyFromVcfFields(chrom, pos, ref, alt, scafMap);
-			if(key==null){unkScaf++;}
-			boolean inGiab=(key!=null && giab.contains(key));
-			boolean inBed=bed.contains(chrom, pos);
 
 			double label;
 			int cat;
@@ -159,7 +163,7 @@ public class LabelVCF {
 
 			if(label>0.4 && label<0.6){blacklist++;}
 
-			// Rebuild the line, appending ;NNL=...;NNC=... to the INFO column (index 7).
+			String[] f=new String(line).split("\t");
 			bb.clear();
 			for(int i=0; i<f.length; i++){
 				if(i>0){bb.tab();}
@@ -184,63 +188,41 @@ public class LabelVCF {
 	}
 
 	/**
-	 * Loads a VCF as a set of canonical variant keys (CHROM/POS/REF/ALT with indel leading-base
-	 * stripping).  Identical key construction to {@link VcfToTrainingVectors} so the GIAB key set
-	 * matches candidate keys built from the same scaffold map.  Works with any VCF format.
+	 * Loads a truth VCF into a HashSet of VCFLine objects, using the same identity
+	 * contract (equals/hashCode) as CompareVCF. Always splits multi-allelic variants.
+	 * Optionally left-aligns indels for normalization.
 	 */
-	private static HashSet<String> loadKeys(String fname, ScafMap scafMap){
-		HashSet<String> set=new HashSet<String>();
-		TextFile tf=new TextFile(fname);
-		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
-			if(line.startsWith("#")){continue;}
-			String[] fields=line.split("\t", 6);
-			if(fields.length<5){continue;}
-
-			String chrom=fields[0];
-			int pos=Integer.parseInt(fields[1]);
-			String ref=fields[3];
-			String alt=fields[4];
-
-			// Handle multi-allelic (comma-separated ALT)
-			String[] alts=alt.split(",");
-			for(String a : alts){
-				String key=makeKeyFromVcfFields(chrom, pos, ref, a.trim(), scafMap);
-				if(key!=null){set.add(key);}
+	private static HashSet<VCFLine> loadTruthSet(String fname, ScafMap scafMap,
+			boolean normalize){
+		HashSet<VCFLine> set=new HashSet<VCFLine>();
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.TXT, null, true, false);
+		ByteFile bf=ByteFile.makeByteFile(ff);
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0 || line[0]=='#'){continue;}
+			VCFLine vline;
+			try{
+				vline=new VCFLine(line);
+			}catch(Throwable e){continue;}
+			if(scafMap.getScaffold(vline.scaf)==null){continue;}
+			ArrayList<VCFLine> variants=vline.split(true, false, true);
+			if(variants==null){
+				if(normalize){vline.leftAlign(refBasesFor(vline.scaf, scafMap));}
+				set.add(vline);
+			}else{
+				for(VCFLine v : variants){
+					if(normalize){v.leftAlign(refBasesFor(v.scaf, scafMap));}
+					set.add(v);
+				}
 			}
 		}
-		tf.close();
+		bf.close();
 		return set;
 	}
 
-	/**
-	 * Creates a canonical variant key from VCF fields for matching, converting VCF coordinates
-	 * to the internal 0-based representation used by VcfToVar.  Returns null if the scaffold is
-	 * not in the map (e.g. an off-target contig absent from GIAB's reference).
-	 */
-	private static String makeKeyFromVcfFields(String chrom, int pos, String ref, String alt, ScafMap scafMap){
-		int scafNum=scafMap.getNumber(chrom);
-		if(scafNum<0){return null;}
-
-		int refLen=ref.length();
-		int altLen=alt.length();
-
-		int start, stop;
-		String normalizedAlt;
-
-		if(refLen!=altLen && altLen>0 && refLen>0){
-			// Indel: strip leading base
-			normalizedAlt=alt.substring(1);
-			start=pos; // stays 1-based here, converted via refLen below
-			refLen--;
-			if(refLen==0 && normalizedAlt.isEmpty()){
-				return null; // degenerate single-base insertion that got stripped
-			}
-		}else{
-			normalizedAlt=alt;
-			start=pos-1; // convert to 0-based
-		}
-		stop=start+refLen;
-
-		return scafNum+":"+start+":"+stop+":"+normalizedAlt.toUpperCase();
+	private static byte[] refBasesFor(String scaf, ScafMap scafMap){
+		ScafMap dm=ScafMap.defaultScafMap();
+		ScafMap map=(dm!=null ? dm : scafMap);
+		Scaffold sc=map.getScaffold(scaf);
+		return sc==null ? null : sc.bases;
 	}
 }
