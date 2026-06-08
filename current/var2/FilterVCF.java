@@ -122,6 +122,8 @@ public class FilterVCF {
 				Var.CALL_JUNCTION=Parse.parseBoolean(b);
 			}else if(a.equals("minscore")){
 				minScore=Double.parseDouble(b);
+			}else if(a.equals("minqual") || a.equals("minphred")){
+				minQual=Double.parseDouble(b);
 			}else if(a.equals("splitalleles")){
 				splitAlleles=Parse.parseBoolean(b);
 			}else if(a.equals("splitsubs") || a.equals("splitsnps")){
@@ -435,7 +437,9 @@ public class FilterVCF {
 					variantLinesProcessed++;
 					VCFLine vline=new VCFLine(line);
 					boolean pass=true;
-					
+
+					if(vline.qual<minQual){pass=false;}
+
 					//Type-based filtering
 					if(!Var.CALL_DEL && vline.type()==Var.DEL){pass=false;}
 					else if(!Var.CALL_INS && vline.type()==Var.INS){pass=false;}
@@ -745,8 +749,9 @@ public class FilterVCF {
 				
 				VCFLine vline=new VCFLine(line);
 				pass&=vline.qual>=minScore;
-				
-				{	
+				if(pass){pass&=vline.qual>=minQual;}
+
+				{
 					if(pass){
 						//Type-based filtering
 						if(!Var.CALL_DEL && vline.type()==Var.DEL){pass=false;}
@@ -892,6 +897,8 @@ public class FilterVCF {
 	
 	/** Minimum quality score threshold for simple filtering */
 	double minScore=0;
+	/** Minimum VCF QUAL column threshold (filters directly on QUAL, not recomputed score) */
+	double minQual=0;
 	
 	/** Sample ploidy for variant evaluation */
 	public int ploidy=1;
