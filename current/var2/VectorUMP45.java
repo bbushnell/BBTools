@@ -114,7 +114,42 @@ public class VectorUMP45 {
 		// 32: Reserved
 		vec[32]=0;
 
+		assert(validateVector(vec, v, count, af, pairingRate, totalQualityAvg,
+				totalMapqAvg, readLengthAvg, ploidy, map));
+
 		return vec;
+	}
+
+	private static boolean validateVector(float[] vec, Var v, int count, double af,
+			double pairingRate, double totalQualityAvg, double totalMapqAvg,
+			double readLengthAvg, int ploidy, ScafMap map){
+		for(int i=0; i<vec.length; i++){
+			if(Float.isNaN(vec[i]) || Float.isInfinite(vec[i])){
+				StringBuilder sb=new StringBuilder();
+				sb.append("VectorUMP45: vec[").append(i).append("]=").append(vec[i]);
+				sb.append("\n  variant: ").append(v);
+				sb.append("\n  type=").append(v.type()).append(" count=").append(count);
+				sb.append(" af=").append(af).append(" coverage=").append(v.coverage());
+				sb.append("\n  mapQAvg=").append(v.mapQAvg()).append(" baseQAvg=").append(v.baseQAvg());
+				sb.append(" idAvg=").append(v.identityAvg()).append(" idMax=").append(v.idMax);
+				sb.append("\n  edistAvg=").append(v.edistAvg()).append(" edistMax=").append(v.endDistMax);
+				sb.append(" lengthAvg=").append(count>0 ? v.lengthAvg() : 0);
+				sb.append("\n  strandRatio=").append(v.strandRatio());
+				sb.append(" plusCount=").append(v.allelePlusCount()).append(" minusCount=").append(v.alleleMinusCount());
+				sb.append("\n  r1=").append(v.r1AlleleCount()).append(" r2=").append(v.r2AlleleCount());
+				sb.append(" properPairRate=").append(count==0 ? "N/A" : ""+v.properPairRate());
+				sb.append(" nearbyVarCount=").append(v.nearbyVarCount);
+				sb.append("\n  hpc=").append(v.homopolymerCount(map));
+				sb.append(" contigEndDist=").append(map==null ? v.start : v.contigEndDist(map));
+				sb.append("\n  revisedAF=").append(v.revisedAlleleFraction(af, readLengthAvg));
+				sb.append("\n  ploidy=").append(ploidy).append(" pairingRate=").append(pairingRate);
+				sb.append(" totalQAvg=").append(totalQualityAvg).append(" totalMQAvg=").append(totalMapqAvg);
+				sb.append(" readLenAvg=").append(readLengthAvg);
+				System.err.println(sb);
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private static float log2p1(double x){

@@ -170,12 +170,12 @@ public class BalanceVectors {
 			"; quota existing="+baseQuota+(newCats ? ", artifact="+newQuota : "")+
 			"; enriched negatives="+enrichedCount);
 
-		//REPRESENTATIVE: fill the remainder with random nontrivial (score>0.01) negatives
+		//REPRESENTATIVE: fill the remainder with random negatives not already chosen by enrichment
 		long fill=targetNeg-enrichedCount;
 		if(fill>0){
 			final IntList pool=new IntList();
 			for(int i=0; i<neg.size(); i++){
-				if(!chosen[i] && fieldAt(neg.get(i), IDX_SCORE)>0.01f){pool.add(i);}
+				if(!chosen[i]){pool.add(i);}
 			}
 			final int take=(int)Math.min(fill, pool.size());
 			final int[] arr=pool.toArray();

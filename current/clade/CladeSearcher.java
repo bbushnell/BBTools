@@ -289,6 +289,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}else if(a.equals("records")){
 				maxHitsToPrint=Integer.parseInt(b);
 				CladeIndex.maxSketchHits=Integer.parseInt(b);
+			}else if(a.equals("caprecords") || a.equals("maxrecords")){
+				caprecords=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equals("format")){
@@ -506,7 +508,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		final int maxHits=CladeIndex.heapSize;
 		if(serverMode) {
 			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE,
-				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false);
+				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false, caprecords);
 			if(format==MACHINE){
 				String header=Comparison.machineHeader(printQTID)+"\n";
 				s=(s!=null ? header+s : header);
@@ -805,6 +807,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		int prevColorIdx=-1;
 		String prevColorName=null;
 		for(Comparison c : coll) {
+			if(i>=caprecords){break;}
 			if(i>=maxHitsToPrint && !c.isSketchHit) {continue;}
 			if(seen!=null && c.ref!=null){
 				String name=nameAtLevel(c.ref.lineage(), filterLevel);
@@ -1142,6 +1145,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/** Maximum number of hits to print per query */
 	private int maxHitsToPrint=5;
+
+	/** Hard cap on total results per query after sorting */
+	private int caprecords=Integer.MAX_VALUE;
 	
 	/** Whether to delete temporary files on completion */
 	private boolean deleteOnFinish=true;

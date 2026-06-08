@@ -641,12 +641,13 @@ public class CladeServer {
 
 			if(ctx.format==CladeSearcher.MACHINE){
 				bb.append("#Query").append(queryNumber).append('\n');
-				int cladeCount=0, sketchCount=0;
+				int cladeCount=0, sketchCount=0, totalCount=0;
 				for(Comparison comp : validResults){
+					if(totalCount>=ctx.caprecords){break;}
 					if(comp.isSketchHit){
-						if(sketchCount<ctx.hits){sketchCount++; comp.appendResultMachine(false, bb); bb.nl();}
+						if(sketchCount<ctx.hits){sketchCount++; totalCount++; comp.appendResultMachine(false, bb); bb.nl();}
 					}else if(cladeCount<ctx.hits){
-						cladeCount++; comp.appendResultMachine(false, bb); bb.nl();
+						cladeCount++; totalCount++; comp.appendResultMachine(false, bb); bb.nl();
 					}
 				}
 			}else{
@@ -658,6 +659,7 @@ public class CladeServer {
 
 				int cladeCount=0, sketchCount=0, hitNum=0;
 				for(Comparison comp : validResults){
+					if(hitNum>=ctx.caprecords){break;}
 					if(comp.isSketchHit){
 						if(sketchCount<ctx.hits){sketchCount++; comp.appendResultHuman(bb, hitNum); bb.nl().nl(); hitNum++;}
 					}else if(cladeCount<ctx.hits){

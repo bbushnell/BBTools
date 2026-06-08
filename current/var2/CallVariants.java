@@ -831,28 +831,59 @@ public class CallVariants {
 		
 		long initialCount=varMap.size(); // Store count before filtering
 		
-		t2.start("Processing variants.");
-		final long[] types=processVariants(); // Apply scoring and filtering
-		t2.stop("Time: ");
-		outstream.println();
-		
-		// Optional nearby variant analysis for filtering artifact clusters
-		if(countNearbyVars){
-			t2.start("Counting nearby variants.");
-			int x=varMap.countNearbyVars(varFilter);
-			if(x>0 && varFilter.failNearby){
-				Arrays.fill(types, 0); // Reset counts since we're removing variants
-				for(Var v : varMap.toArray(false)){
-					if(!v.forced() && v.nearbyVarCount>varFilter.maxNearbyCount){
-						varMap.removeUnsynchronized(v); // Remove likely artifacts
-					}else{
-						//TODO: Recalculate passing statistics
-						//Only relevant in failNearby mode... not really important.
-					}
-				}
-			}
+		final long[] types;
+		if(net0!=null && useNet){
+			// Two-pass scoring: composite first, then NN after nearbyVarCount is populated.
+			// Pass 1: composite scoring without NN (establishes initial filter + insertion correction)
+			t2.start("Processing variants (composite scoring).");
+			varMap.processVariantsMT(varFilter, null, null, null, null, null, null, null);
 			t2.stop("Time: ");
 			outstream.println();
+
+			if(countNearbyVars){
+				t2.start("Counting nearby variants.");
+				int x=varMap.countNearbyVars(varFilter);
+				if(x>0 && varFilter.failNearby){
+					for(Var v : varMap.toArray(false)){
+						if(!v.forced() && v.nearbyVarCount>varFilter.maxNearbyCount){
+							varMap.removeUnsynchronized(v);
+						}
+					}
+				}
+				t2.stop("Time: ");
+				outstream.println();
+			}
+
+			// Pass 2: NN rescoring with full feature data and statistics collection
+			t2.start("Rescoring with neural network.");
+			types=varMap.rescoreWithNetMT(varFilter, net0, scoreArray, ploidyArray,
+					avgQualityArray, maxQualityArray, ADArray, AFArray);
+			t2.stop("Time: ");
+			outstream.println();
+		}else{
+			// Original single-pass: composite scoring with statistics
+			t2.start("Processing variants.");
+			types=processVariants();
+			t2.stop("Time: ");
+			outstream.println();
+
+			if(countNearbyVars){
+				t2.start("Counting nearby variants.");
+				int x=varMap.countNearbyVars(varFilter);
+				if(x>0 && varFilter.failNearby){
+					Arrays.fill(types, 0);
+					for(Var v : varMap.toArray(false)){
+						if(!v.forced() && v.nearbyVarCount>varFilter.maxNearbyCount){
+							varMap.removeUnsynchronized(v);
+						}else{
+							//TODO: Recalculate passing statistics
+							//Only relevant in failNearby mode... not really important.
+						}
+					}
+				}
+				t2.stop("Time: ");
+				outstream.println();
+			}
 		}
 		return types;
 	}

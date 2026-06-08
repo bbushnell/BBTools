@@ -541,6 +541,19 @@ public class VarMap implements Iterable<Var> {
 	}
 
 	/**
+	 * Rescores surviving variants with a neural network in a single pass.
+	 * Used as the second pass in two-pass scoring: after composite scoring and
+	 * nearby variant counting have established the full feature set, this pass
+	 * feeds the NN vectors (now with nearbyVarCount populated) through the net
+	 * for final scoring, filtering, and statistics collection.
+	 */
+	public long[] rescoreWithNetMT(VarFilter filter, CellNet net, long[][] scoreArray, long[] ploidyArray,
+			long[][] avgQualityArray, long[] maxQualityArray, long[][] ADArray, double[] AFArray){
+		return processVariantsMT_inner(filter, net, scoreArray, ploidyArray, avgQualityArray, maxQualityArray,
+				ADArray, AFArray, false);
+	}
+
+	/**
 	* Core variant processing logic for filtering and statistics collection.
 	* Handles both insertion bias correction and comprehensive quality assessment.
 	* 
