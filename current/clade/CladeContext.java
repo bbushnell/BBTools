@@ -71,6 +71,8 @@ public class CladeContext {
 				printQTID=Parse.parseBoolean(value);
 			}else if(key.equals("banself")){
 				banSelf=Parse.parseBoolean(value);
+			}else if(key.equals("caprecords")){
+				caprecords=Integer.parseInt(value);
 			}
 		}
 	}
@@ -93,4 +95,7 @@ public class CladeContext {
 
 	/** Ban self-matches */
 	public boolean banSelf = false;
+
+	/** Hard cap on total results per query after sorting */
+	public int caprecords = Integer.MAX_VALUE;
 }

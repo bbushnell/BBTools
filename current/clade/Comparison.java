@@ -6,6 +6,7 @@ import bin.SimilarityMeasures;
 import cardinality.DynamicDemiLog;
 import idaligner.IDAligner;
 import parse.LineParserS1;
+import shared.Tools;
 import simd.Vector;
 import structures.ByteBuilder;
 import tax.TaxTree;
@@ -40,14 +41,16 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(lp==null) {lp=new LineParserS1('\t');}
 		lp.set(s);
 		query=new Clade(-1, 0, lp.parseString(0));
-		ref=new Clade(lp.parseInt(5), lp.parseInt(9), lp.parseString(4));
+		String levelStr=lp.parseString(9);
+		int level=Tools.isNumeric(levelStr) ? Integer.parseInt(levelStr) : TaxTree.stringToLevel(levelStr.toLowerCase());
+		ref=new Clade(lp.parseInt(5), level, lp.parseString(4));
 		query.gc=lp.parseFloat(1);
 		query.setBases(lp.parseLong(2));
 		query.contigs=lp.parseLong(3);
 		ref.gc=lp.parseFloat(6);
 		ref.setBases(lp.parseLong(7));
 		ref.contigs=lp.parseLong(8);
-		ref.level=lp.parseInt(9);
+		ref.level=level;
 
 		gcdif=lp.parseFloat(10);
 		strdif=lp.parseFloat(11);

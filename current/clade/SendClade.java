@@ -481,7 +481,7 @@ public class SendClade extends CladeObject {
 	}
 	
 	public static boolean sendAndLabel(List<Clade> clades) {
-		String response=sendClades(clades, null, true, 1, false, false, 1, false);
+		String response=sendClades(clades, null, true, 1, false, false, 1, false, 1);
 		ArrayList<Comparison> comps=null;
 		try{
 			comps=SendClade.responseToComparisons(response);
@@ -503,24 +503,17 @@ public class SendClade extends CladeObject {
 	}
 	
 	public static ArrayList<Comparison> responseToComparisons(String s) {
-
-		
-//		#Query1
-//		f_0_c_0_s_0_p_6294_i_40_tid_1002367 1:	0.475	40	1	Cortinarius geophilus var. subauroreus	2764306	0.416	609	1	1	0.059	0.167	0.579	1.000	1.000	sk__Eukaryota;k__Fungi;p__Basidiomycota;c__Agaricomycetes;o__Agaricales;f__Cortinariaceae;g__Cortinarius;s__Cortinarius geophilus
-//		#Query2
-//		f_0_c_0_s_0_p_11130_i_40_tid_1002367 1:	0.475	40	1	Passion fruit yellow mosaic virus	185692	0.540	1115	1	1	0.065	0.013	0.423	1.000	1.000	sk__Viruses;k__Orthornavirae;p__Kitrinoviricota;c__Alsuviricetes;o__Tymovirales;f__Tymoviridae;g__Tymovirus;s__Tymovirus passiflorae;ss__Passion fruit yellow mosaic virus
-//		#Query3
 		String[] lines=s.split("\n");
 		ArrayList<Comparison> list=new ArrayList<Comparison>(lines.length/2+1);
 		LineParserS1 lp=new LineParserS1('\t');
 		for(int i=0; i<lines.length; i++) {
-			String a=lines[i], b=null;
+			String a=lines[i];
+			if(!a.startsWith("#Query")){continue;}
 			Comparison c=null;
-			assert(a.startsWith("#Query")) : "\n"+a+"\n"+b+"\n";
-			if(i+1<lines.length) {b=lines[i+1];}
-			if(b!=null && !b.startsWith("#Query")) {
-				c=new Comparison(b, lp);
+			if(i+1<lines.length && !lines[i+1].startsWith("#Query")) {
+				c=new Comparison(lines[i+1], lp);
 				i++;
+				while(i+1<lines.length && !lines[i+1].startsWith("#Query")){i++;}
 			}
 			list.add(c);
 		}
@@ -528,8 +521,8 @@ public class SendClade extends CladeObject {
 	}
 	
 	private String sendClades(Collection<Clade> clades) {
-		return sendClades(clades, null, oneline, hits, 
-			printQTID, banSelf, heapSize, verbose);
+		return sendClades(clades, null, oneline, hits,
+			printQTID, banSelf, heapSize, verbose, Integer.MAX_VALUE);
 	}
 
 	/**
@@ -540,26 +533,26 @@ public class SendClade extends CladeObject {
 	 * @param clades List of clades to transmit
 	 * @param tsw Unified output writer for server response
 	 */
-	public static String sendClades(Collection<Clade> clades, String address, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
+	public static String sendClades(Collection<Clade> clades, String address, boolean oneline, int hits,
+			boolean printQTID, boolean banSelf, int heapSize, boolean verbose, int caprecords){
 			if(clades.size()<=MAX_CLADES_PER_BATCH) {
-				return sendBatch(clades, address, oneline, hits, 
-					printQTID, banSelf, heapSize, verbose);
+				return sendBatch(clades, address, oneline, hits,
+					printQTID, banSelf, heapSize, verbose, caprecords);
 			}
 			StringBuilder sb=new StringBuilder();
 			ArrayList<Clade> temp=new ArrayList<Clade>(MAX_CLADES_PER_BATCH);
 			for(Clade c : clades) {
 				temp.add(c);
 				if(temp.size()>=MAX_CLADES_PER_BATCH) {
-					String s=sendBatch(temp, address, oneline, hits, 
-						printQTID, banSelf, heapSize, verbose);
+					String s=sendBatch(temp, address, oneline, hits,
+						printQTID, banSelf, heapSize, verbose, caprecords);
 					sb.append(s);
 					temp.clear();
 				}
 			}
 			if(temp.size()>0) {
-				String s=sendBatch(temp, address, oneline, hits, 
-					printQTID, banSelf, heapSize, verbose);
+				String s=sendBatch(temp, address, oneline, hits,
+					printQTID, banSelf, heapSize, verbose, caprecords);
 				sb.append(s);
 				temp.clear();
 			}
@@ -567,8 +560,8 @@ public class SendClade extends CladeObject {
 	}
 	
 	private String sendBatch(Collection<Clade> clades) {
-		return sendBatch(clades, null, oneline, hits, 
-			printQTID, banSelf, heapSize, verbose);
+		return sendBatch(clades, null, oneline, hits,
+			printQTID, banSelf, heapSize, verbose, Integer.MAX_VALUE);
 	}
 
 	/**
@@ -579,16 +572,16 @@ public class SendClade extends CladeObject {
 	 * @param clades List of clades to transmit
 	 * @param tsw Unified output writer for server response
 	 */
-	private static String sendBatch(Collection<Clade> clades, String address, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize, boolean verbose){
+	private static String sendBatch(Collection<Clade> clades, String address, boolean oneline, int hits,
+			boolean printQTID, boolean banSelf, int heapSize, boolean verbose, int caprecords){
 		if(clades==null || clades.isEmpty()){return null;}
 		assert(clades.size()<=MAX_CLADES_PER_BATCH) : clades.size()+">"+MAX_CLADES_PER_BATCH;
 		if(verbose){System.err.println("[" + new java.util.Date() + "] sendClades() called with " + clades.size() + " clades");}
 		if(address==null) {address=defaultAddress;}
-		
+
 		//Send to server
 		Timer t=new Timer();
-		byte[] message=toMessage(clades, oneline, hits, banSelf, printQTID, heapSize);
+		byte[] message=toMessage(clades, oneline, hits, banSelf, printQTID, heapSize, caprecords);
 		if(verbose){
 			t.stopAndStart("toMessage bytes: "+message.length+", time:");
 			System.err.println("[" + new java.util.Date() + "] Sending " + clades.size() + " clades (" + message.length + " bytes) to " + address);
@@ -610,8 +603,8 @@ public class SendClade extends CladeObject {
 	 * @param clades List of clades to transmit
 	 * @param tsw Unified output writer for server response
 	 */
-	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits, 
-			boolean printQTID, boolean banSelf, int heapSize){
+	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits,
+			boolean printQTID, boolean banSelf, int heapSize, int caprecords){
 		if(clades==null || clades.isEmpty()){return null;}
 		//Build message
 		ByteBuilder bb=new ByteBuilder();
@@ -622,6 +615,7 @@ public class SendClade extends CladeObject {
 		if(printQTID){bb.append("printqtid=t/");}
 		if(banSelf){bb.append("banself=t/");}
 		bb.append("heap=").append(heapSize).append('/');
+		if(caprecords<Integer.MAX_VALUE){bb.append("caprecords=").append(caprecords).append('/');}
 		bb.append('\n');
 
 		//Add clades
