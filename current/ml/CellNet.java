@@ -1269,6 +1269,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		copy.tpRate=tpRate;
 		copy.tnRate=tnRate;
 		copy.cutoff=cutoff; //Copy configuration
+		copy.fname=fname; //Preserve source-file metadata
 		copy.alpha=alpha;
 		copy.annealStrength=annealStrength;
 //		copy.annealSeed=annealSeed;
@@ -1310,6 +1311,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		tpRate=cn.tpRate;
 		tnRate=cn.tnRate;
 		cutoff=cn.cutoff; //Copy classification threshold
+		fname=cn.fname; //Copy source-file metadata
 		alpha=cn.alpha; //Copy learning parameters
 		annealStrength=cn.annealStrength;
 //		annealSeed=cn.annealSeed;
@@ -1560,6 +1562,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	long samplesTrained=0;
 	/** Last recorded training statistics string */
 	String lastStats=null;
+	/** Source file this network was loaded from (null if built in memory).
+	 *  Transient metadata only; never written to the bbnet file by header()/toBytes(). */
+	public String fname=null;
 	
 	/*--------------------------------------------------------------*/
 	

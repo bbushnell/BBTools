@@ -55,6 +55,7 @@ public class CellNetParser {
 	private CellNetParser(String fname_){
 		this(ByteFile.toLines(fname_));
 		fname=fname_;
+		net.fname=fname_; //Tag the loaded net with its source path (in-memory only)
 	}
 	
 	/**

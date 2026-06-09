@@ -2,7 +2,7 @@ package var2;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.Map.Entry;
 
 import fileIO.ByteFile;
@@ -28,12 +28,17 @@ import structures.ListNum;
  * Grades a VCF against a truth set and produces concordance metrics and histograms.
  * Replaces a multi-step pipeline (filtervcf + comparevcf) with a single fast tool.
  *
- * Computes TP, FP, FN, TN counts with optional BED region restriction, VarFilter
+ * Computes TP, FP, FN counts with optional BED region restriction, VarFilter
  * pre-filtering, and neural network scoring. Writes cumulative QUAL and NN score
  * histograms suitable for precision/recall curve plotting.
  *
+ * Counting follows the "marking" contract: the truth set is normalized and split
+ * into simple vars, then each truth var is marked at most once when a call matches
+ * it (recording the maximum matching-call score). TP = distinct marked truth vars,
+ * FN = unmarked truth vars, FP = call vars that matched no truth. This avoids
+ * double-counting when a compound site splits into redundant identical components.
  * Variant matching uses VCFLine equals/hashCode — the same identity contract as
- * CompareVCF — so results agree exactly with comparevcf intersection counts.
+ * CompareVCF.
  *
  * @author UMP45
  * @date June 8, 2026
@@ -154,6 +159,13 @@ public class GradeVCF {
 
 		if(in1==null){throw new RuntimeException("Error - in= is required.");}
 		if(truthFile==null){throw new RuntimeException("Error - truth= is required.");}
+		// Quick fix for the baseless-map corruption: a net recomputes reference-derived features
+		// (contigEndDist/homopolymer) from scaffold bases, so ref= is mandatory in NN mode. See the
+		// PROPER FIX note in gradeVariant — once CED/HMP are read from INFO this can be removed.
+		if(net0!=null && ref==null){
+			throw new RuntimeException("Error - ref= is required when net= is used "
+					+"(the network recomputes contigEndDist/homopolymer features from reference bases).");
+		}
 
 		if(!ByteFile.FORCE_MODE_BF2){
 			ByteFile.FORCE_MODE_BF2=false;
@@ -198,12 +210,14 @@ public class GradeVCF {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads a truth VCF into a HashSet of VCFLine objects, using the same identity
-	 * contract (equals/hashCode) as CompareVCF. Optionally splits multi-allelic
-	 * variants, left-aligns indels, and restricts to BED regions.
+	 * Loads a truth VCF into a HashMap of VCFLine objects (key==value), using the same
+	 * identity contract (equals/hashCode) as CompareVCF. A HashMap (not a HashSet) is
+	 * used so that get(callVline) returns the canonical truth object, which can then be
+	 * marked exactly once. Optionally splits multi-allelic variants, left-aligns indels,
+	 * and restricts to BED regions.
 	 */
-	private HashSet<VCFLine> loadTruthSet(String fname){
-		HashSet<VCFLine> set=new HashSet<VCFLine>();
+	private HashMap<VCFLine,VCFLine> loadTruthSet(String fname){
+		HashMap<VCFLine,VCFLine> map=new HashMap<VCFLine,VCFLine>();
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.TXT, null, true, false);
 		VCFFile vfile=new VCFFile(ff);
 		for(Entry<VCFLine, VCFLine> e : vfile.map.entrySet()){
@@ -212,15 +226,15 @@ public class GradeVCF {
 			if(splitAlleles || splitSubs){list=v.split(splitAlleles, false, splitSubs);}
 			if(list==null || list.isEmpty()){
 				if(normalize){v.leftAlign(refBasesFor(v.scaf));}
-				if(inRegion(v)){set.add(v);}
+				if(inRegion(v)){map.put(v, v);}
 			}else{
 				for(VCFLine line : list){
 					if(normalize){line.leftAlign(refBasesFor(line.scaf));}
-					if(inRegion(line)){set.add(line);}
+					if(inRegion(line)){map.put(line, line);}
 				}
 			}
 		}
-		return set;
+		return map;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -288,17 +302,20 @@ public class GradeVCF {
 			linesProcessed+=pt.linesProcessedT;
 			bytesProcessed+=pt.bytesProcessedT;
 			variantLinesProcessed+=pt.variantLinesProcessedT;
-			tp+=pt.tpT;
-			fp+=pt.fpT;
-			fn+=pt.fnT;
-			tn+=pt.tnT;
-			synchronized(seenTruth){
-				seenTruth.addAll(pt.seenTruthT);
+			// Merge each thread's marked-truth map into the global map, keeping the
+			// maximum matching-call score per truth (each truth counted once).
+			for(Entry<VCFLine, float[]> e : pt.matchedT.entrySet()){
+				float[] inc=e.getValue();
+				float[] cur=matched.get(e.getKey());
+				if(cur==null){
+					matched.put(e.getKey(), new float[]{inc[0], inc[1]});
+				}else{
+					if(inc[0]>cur[0]){cur[0]=inc[0];}
+					if(inc[1]>cur[1]){cur[1]=inc[1];}
+				}
 			}
-			Tools.add(histNN, pt.histNNT);
-			Tools.add(histNNTruth, pt.histNNTruthT);
-			Tools.add(histQual, pt.histQualT);
-			Tools.add(histQualTruth, pt.histQualTruthT);
+			Tools.add(histNNFalse, pt.histNNFalseT);
+			Tools.add(histQualFalse, pt.histQualFalseT);
 			allSuccess&=pt.success;
 		}
 		if(!allSuccess){errorState=true;}
@@ -361,58 +378,76 @@ public class GradeVCF {
 		void gradeVariant(VCFLine vline, byte[] origLine, ByteBuilder bb){
 			if(!inRegion(vline)){return;}
 
-			boolean isTruth=truthSet.contains(vline);
-			if(isTruth){seenTruthT.add(vline);}
-
-			float qualScore=(float)vline.qual;
-
-			boolean passFilter=true;
+			// Optional hard pre-filter: a variant failing the VarFilter is not considered
+			// at all (neither marks truth nor counts as FP). With clearfilters varFilter is null.
 			if(varFilter!=null){
+				boolean ok;
 				try{
-					Var v=VcfToVar.fromVCF(origLine, scafMap, true, true);
-					passFilter=varFilter.passesFilter(v, properPairRate, totalQualityAvg,
-							totalMapqAvg, readLengthAvg, ploidy, scafMap, net, false);
+					// Same reference-feature concern as the scoring block below: in NN mode the
+					// vector recompute needs the bases-loaded map, so use defaultScafMap (ref is
+					// required when net!=null). Without a net, the composite path uses the instance
+					// map (no ref required).
+					ScafMap vmap=(net!=null ? ScafMap.defaultScafMap() : scafMap);
+					Var v=VcfToVar.fromVCF(origLine, vmap, true, true);
+					ok=varFilter.passesFilter(v, properPairRate, totalQualityAvg,
+							totalMapqAvg, readLengthAvg, ploidy, vmap, net, false);
 				}catch(Throwable e){
-					passFilter=(qualScore>=varFilter.minScore);
+					ok=(vline.qual>=varFilter.minScore);
 				}
+				if(!ok){return;}
 			}
 
-			if(passFilter && qualScore<minScore){passFilter=false;}
+			final float qualScore=(float)vline.qual;
 
+			// NN score for the histogram axis (computed for every variant, not gated).
 			float nnScore=-1;
-			if(passFilter && net!=null){
+			if(net!=null){
 				try{
-					Var v=VcfToVar.fromVCF(origLine, scafMap, true, true);
+					// makeVector recomputes two reference-derived features from scaffold BASES:
+					// contigEndDist (vec[30], capped at nScan) and homopolymerCount (vec[28]). So
+					// we must pass the ref-loaded defaultScafMap, NOT the ##contig-derived instance
+					// scafMap (which carries lengths but no bases). The danger is not that a baseless
+					// map is unusable — it's that it silently returns a DIFFERENT value rather than
+					// failing: contigEndDist skips its cap and returns the raw distance (Var.java:1927),
+					// homopolymerCount returns 0, and the net then scores a corrupted vector. That is
+					// why ref= is mandatory in NN mode (enforced in the constructor).
+					//
+					// PROPER FIX (would remove the ref requirement entirely): CED= and HMP= are ALREADY
+					// written to the VCF INFO by Var.toVCF. fromVCF should parse them into cached Var
+					// fields, and makeVector should prefer the cached value when present, recomputing
+					// from the map only on the live calling path (where no INFO yet exists). Then
+					// post-hoc scoring would need no reference at all and could never silently corrupt.
+					ScafMap vmap=ScafMap.defaultScafMap();
+					Var v=VcfToVar.fromVCF(origLine, vmap, true, true);
 					float[] vec=VectorUMP45.makeVector(v, properPairRate, totalQualityAvg,
-							totalMapqAvg, readLengthAvg, ploidy, scafMap);
+							totalMapqAvg, readLengthAvg, ploidy, vmap);
 					net.applyInput(vec);
 					nnScore=net.feedForward();
-					if(nnScore<netCutoff){passFilter=false;}
 				}catch(Throwable e){
-					passFilter=false;
+					nnScore=-1;
 				}
 			}
 
-			if(passFilter){
-				if(isTruth){tpT++;}
-				else{fpT++;}
+			final VCFLine truth=truthMap.get(vline);
+			if(truth!=null){
+				// Mark the truth var, keeping the max matching-call score (NN and QUAL).
+				float[] cur=matchedT.get(truth);
+				if(cur==null){
+					matchedT.put(truth, new float[]{nnScore, qualScore});
+				}else{
+					if(nnScore>cur[0]){cur[0]=nnScore;}
+					if(qualScore>cur[1]){cur[1]=qualScore;}
+				}
 			}else{
-				if(isTruth){fnT++;}
-				else{tnT++;}
+				// FP: a call that matches no truth. Counted directly, per call, at its score.
+				if(net!=null && nnScore>=0){histNNFalseT[Tools.mid(0, (int)(nnScore*100), NN_BINS-1)]++;}
+				histQualFalseT[Tools.mid(0, (int)(qualScore*4), QUAL_BINS-1)]++;
 			}
 
-			if(nnScore>=0){
-				int nnBin=Tools.mid(0, (int)(nnScore*100), NN_BINS-1);
-				histNNT[nnBin]++;
-				if(isTruth){histNNTruthT[nnBin]++;}
-			}
-			{
-				int qBin=Tools.mid(0, (int)(qualScore*4), QUAL_BINS-1);
-				histQualT[qBin]++;
-				if(isTruth){histQualTruthT[qBin]++;}
-			}
-
-			if(passFilter && bsw!=null && bb!=null){
+			// Optional passing-call output VCF, gated by the configured operating point.
+			final double opScore=(net!=null ? nnScore : qualScore);
+			final double opThresh=(net!=null ? netCutoff : minScore);
+			if(opScore>=opThresh && bsw!=null && bb!=null){
 				bb.append(origLine).append('\n');
 			}
 		}
@@ -425,12 +460,10 @@ public class GradeVCF {
 		long linesProcessedT=0;
 		long bytesProcessedT=0;
 		long variantLinesProcessedT=0;
-		long tpT=0, fpT=0, fnT=0, tnT=0;
-		HashSet<VCFLine> seenTruthT=new HashSet<VCFLine>();
-		long[] histNNT=new long[NN_BINS];
-		long[] histNNTruthT=new long[NN_BINS];
-		long[] histQualT=new long[QUAL_BINS];
-		long[] histQualTruthT=new long[QUAL_BINS];
+		// Distinct truth vars this thread matched, mapped to {maxNN, maxQual} matching scores.
+		HashMap<VCFLine, float[]> matchedT=new HashMap<VCFLine, float[]>();
+		long[] histNNFalseT=new long[NN_BINS];
+		long[] histQualFalseT=new long[QUAL_BINS];
 		boolean success=false;
 	}
 
@@ -458,8 +491,9 @@ public class GradeVCF {
 		}
 
 		outstream.println("Loading truth set: "+truthFile);
-		truthSet=loadTruthSet(truthFile);
-		outstream.println("Truth variants: "+truthSet.size());
+		truthMap=loadTruthSet(truthFile);
+		final long truthSize=truthMap.size();
+		outstream.println("Truth variants: "+truthSize);
 
 		ArrayList<ProcessThread> alpt=spawnThreads(bf, bsw);
 		waitForFinish(alpt);
@@ -467,28 +501,54 @@ public class GradeVCF {
 		errorState|=bf.close();
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 
-		long uniqueTP=seenTruth.size();
-		long callerMissed=truthSet.size()-uniqueTP;
-		fn+=callerMissed;
-		tp=uniqueTP;
+		// Build the truth (true-positive) histograms by binning each distinct marked
+		// truth var ONCE, at the maximum score of any call that matched it.
+		for(float[] sc : matched.values()){
+			float maxNN=sc[0], maxQual=sc[1];
+			if(net0!=null && maxNN>=0){histNNTruth[Tools.mid(0, (int)(maxNN*100), NN_BINS-1)]++;}
+			histQualTruth[Tools.mid(0, (int)(maxQual*4), QUAL_BINS-1)]++;
+		}
 
-		double precision=(tp+fp>0 ? (double)tp/(tp+fp) : 0);
-		double recall=(tp+fn>0 ? (double)tp/(tp+fn) : 0);
+		// Direct counts (marking contract): TP = marked truth, FN = unmarked truth.
+		final long markedTruth=matched.size();
+		final long callerMissed=truthSize-markedTruth;
+
+		// Operating-point summary at the configured threshold (NN cutoff, or minScore on QUAL).
+		final boolean nnMode=(net0!=null);
+		final double opThresh=(nnMode ? netCutoff : minScore);
+		long tpOp=0;
+		for(float[] sc : matched.values()){
+			double s=(nnMode ? sc[0] : sc[1]);
+			if(s>=opThresh){tpOp++;}
+		}
+		long fpOp=0;
+		{
+			long[] falseHist=(nnMode ? histNNFalse : histQualFalse);
+			double binScale=(nnMode ? 100.0 : 4.0);
+			int bins=(nnMode ? NN_BINS : QUAL_BINS);
+			for(int bin=0; bin<bins; bin++){
+				if(bin/binScale>=opThresh){fpOp+=falseHist[bin];}
+			}
+		}
+		final long fnOp=truthSize-tpOp;
+
+		double precision=(tpOp+fpOp>0 ? (double)tpOp/(tpOp+fpOp) : 0);
+		double recall=(truthSize>0 ? (double)tpOp/truthSize : 0);
 		double f1=(precision+recall>0 ? 2*precision*recall/(precision+recall) : 0);
-		double fpr=(tp+fp>0 ? (double)fp/(tp+fp) : 0);
-		double fnr=(tp+fn>0 ? (double)fn/(tp+fn) : 0);
+		double fpr=(tpOp+fpOp>0 ? (double)fpOp/(tpOp+fpOp) : 0);
+		double fnr=(truthSize>0 ? (double)fnOp/truthSize : 0);
 
 		t.stop();
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 8));
 		outstream.println();
 		outstream.println("Variant Lines In:   \t"+variantLinesProcessed);
-		outstream.println("Truth Variants:     \t"+truthSet.size());
+		outstream.println("Truth Variants:     \t"+truthSize);
 		outstream.println("Caller Missed (FN): \t"+callerMissed);
+		outstream.println("Operating point:    \t"+(nnMode ? "NN>=" : "QUAL>=")+opThresh);
 		outstream.println();
-		outstream.println("TP:        \t"+tp);
-		outstream.println("FP:        \t"+fp);
-		outstream.println("FN:        \t"+fn);
-		outstream.println("TN:        \t"+tn);
+		outstream.println("TP:        \t"+tpOp);
+		outstream.println("FP:        \t"+fpOp);
+		outstream.println("FN:        \t"+fnOp);
 		outstream.println();
 		outstream.printf("Precision: \t%.6f%n", precision);
 		outstream.printf("Recall:    \t%.6f%n", recall);
@@ -496,8 +556,8 @@ public class GradeVCF {
 		outstream.printf("FPR:       \t%.6f%n", fpr);
 		outstream.printf("FNR:       \t%.6f%n", fnr);
 
-		if(histNNFile!=null){writeHistNN(histNNFile);}
-		if(histQualFile!=null){writeHistQual(histQualFile);}
+		if(histNNFile!=null){writeHist(histNNFile, histNNTruth, histNNFalse, NN_BINS, 100.0, "NN_score", callerMissed);}
+		if(histQualFile!=null){writeHist(histQualFile, histQualTruth, histQualFalse, QUAL_BINS, 4.0, "QUAL", callerMissed);}
 
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
@@ -508,42 +568,45 @@ public class GradeVCF {
 	/*----------------      Histogram Writers       ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private void writeHistNN(String fname){
+	/**
+	 * Writes a two-section histogram: raw per-bin true/false counts, then the cumulative
+	 * TP/FP/FN curve. trueCounts holds each distinct truth var counted ONCE at the bin of
+	 * its maximum matching-call score; falseCounts holds unmatched calls per bin.
+	 *
+	 * Cumulative FP sums high->low (FP = false calls scoring >= threshold). Cumulative FN
+	 * sums low->high starting at callerMissed, which is identical to (truthSize - cumTP):
+	 * every truth var is either matched at score >= threshold (TP) or not (FN).
+	 */
+	private void writeHist(String fname, long[] trueCounts, long[] falseCounts,
+			int bins, double binScale, String scoreLabel, long callerMissed){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
 		bsw.start();
 		ByteBuilder bb=new ByteBuilder();
-		bb.append("#threshold\tTP\tFP\tFN\n");
-		long cumTP=0, cumFP=0, cumFN=fn;
-		for(int bin=NN_BINS-1; bin>=0; bin--){
-			long binTotal=histNN[bin];
-			long binTruth=histNNTruth[bin];
-			long binNonTruth=binTotal-binTruth;
-			cumTP+=binTruth;
-			cumFP+=binNonTruth;
-			cumFN=Tools.max(0, cumFN-binTruth);
-			double threshold=bin*0.01;
-			bb.append(threshold, 2).tab().append(cumTP).tab().append(cumFP).tab().append(cumFN).nl();
-		}
-		bsw.print(bb);
-		errorState|=bsw.poisonAndWait();
-	}
 
-	private void writeHistQual(String fname){
-		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
-		bsw.start();
-		ByteBuilder bb=new ByteBuilder();
-		bb.append("#threshold\tTP\tFP\tFN\n");
-		long cumTP=0, cumFP=0, cumFN=fn;
-		for(int bin=QUAL_BINS-1; bin>=0; bin--){
-			long binTotal=histQual[bin];
-			long binTruth=histQualTruth[bin];
-			long binNonTruth=binTotal-binTruth;
-			cumTP+=binTruth;
-			cumFP+=binNonTruth;
-			cumFN=Tools.max(0, cumFN-binTruth);
-			double threshold=bin*0.25;
-			bb.append(threshold, 2).tab().append(cumTP).tab().append(cumFP).tab().append(cumFN).nl();
+		// Raw per-bin counts
+		bb.append("#").append(scoreLabel).append("\ttrueCounts\tfalseCounts\n");
+		for(int bin=0; bin<bins; bin++){
+			double score=bin/binScale;
+			bb.append(score, 2).tab().append(trueCounts[bin]).tab().append(falseCounts[bin]).nl();
 		}
+		bb.nl();
+
+		// Cumulative: FP sums high->low, FN sums low->high (starting at callerMissed)
+		bb.append("#threshold\tTP\tFP\tFN\n");
+		long[] cumFNArr=new long[bins];
+		long cumFN=callerMissed;
+		for(int bin=0; bin<bins; bin++){
+			cumFNArr[bin]=cumFN;
+			cumFN+=trueCounts[bin];
+		}
+		long cumTP=0, cumFP=0;
+		for(int bin=bins-1; bin>=0; bin--){
+			cumTP+=trueCounts[bin];
+			cumFP+=falseCounts[bin];
+			double threshold=bin/binScale;
+			bb.append(threshold, 2).tab().append(cumTP).tab().append(cumFP).tab().append(cumFNArr[bin]).nl();
+		}
+
 		bsw.print(bb);
 		errorState|=bsw.poisonAndWait();
 	}
@@ -559,15 +622,16 @@ public class GradeVCF {
 	private long bytesProcessed=0;
 	private long variantLinesProcessed=0;
 
-	private long tp=0, fp=0, fn=0, tn=0;
+	private HashMap<VCFLine,VCFLine> truthMap=null;
+	// Distinct truth vars matched by any call, mapped to {maxNN, maxQual} matching scores.
+	private final HashMap<VCFLine, float[]> matched=new HashMap<VCFLine, float[]>();
 
-	private HashSet<VCFLine> truthSet=null;
-	private final HashSet<VCFLine> seenTruth=new HashSet<VCFLine>();
-
-	private long[] histNN=new long[NN_BINS];
+	// trueCounts: distinct truth binned once at max matching score (built after merge).
 	private long[] histNNTruth=new long[NN_BINS];
-	private long[] histQual=new long[QUAL_BINS];
 	private long[] histQualTruth=new long[QUAL_BINS];
+	// falseCounts: unmatched calls binned per call (summed across threads).
+	private long[] histNNFalse=new long[NN_BINS];
+	private long[] histQualFalse=new long[QUAL_BINS];
 
 	public ArrayList<byte[]> header=new ArrayList<byte[]>();
 	private long jobIDOffset=0;

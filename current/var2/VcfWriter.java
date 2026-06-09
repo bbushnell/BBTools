@@ -152,10 +152,10 @@ public class VcfWriter {
 		ByteBuilder bb=new ByteBuilder(1000);
 		if(mode==VCFMODE){
 			bb.append(VarHelper.toVcfHeader(properPairRate, totalQualityAvg, totalMapqAvg, filter.rarity, filter.minAlleleFraction,
-					ploidy, reads, pairs, properPairs, bases, ref, scafMap, sampleName, trimWhitespace)).append('\n');
+					filter.minAlleleDepth, ploidy, reads, pairs, properPairs, bases, ref, scafMap, sampleName, trimWhitespace, net0)).append('\n');
 		}else if(mode==VARMODE){
 			bb.append(VarHelper.toVarHeader(properPairRate, totalQualityAvg, totalMapqAvg, filter.rarity, filter.minAlleleFraction,
-					ploidy, reads, pairs, properPairs, bases, ref)).append('\n');
+					filter.minAlleleDepth, ploidy, reads, pairs, properPairs, bases, ref)).append('\n');
 		}else if(mode==GFFMODE){
 			bb.append(GffLine.toHeader(properPairRate, totalQualityAvg, totalMapqAvg, filter.rarity, filter.minAlleleFraction,
 					ploidy, reads, pairs, properPairs, bases, ref)).append('\n');

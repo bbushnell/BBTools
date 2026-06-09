@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import align2.QualityTools;
 import dna.AminoAcid;
+import ml.CellNet;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
@@ -40,7 +41,7 @@ public class VarHelper {
 	 * @param ref Reference genome file path
 	 * @return Complete VAR format header string
 	 */
-	public static String toVarHeader(double properPairRate, double totalQualityAvg, double mapqAvg, double rarity, double minAlleleFraction, int ploidy, 
+	public static String toVarHeader(double properPairRate, double totalQualityAvg, double mapqAvg, double rarity, double minAlleleFraction, int minAlleleDepth, int ploidy,
 			long reads, long pairs, long properPairs, long bases, String ref){
 		StringBuilder sb=new StringBuilder();
 		
@@ -50,6 +51,7 @@ public class VarHelper {
 		sb.append("#ploidy\t"+ploidy+"\n");
 		sb.append(Tools.format("#rarity\t%.5f\n", rarity));
 		sb.append(Tools.format("#minAlleleFraction\t%.4f\n", minAlleleFraction));
+		sb.append("#mincount\t"+Tools.max(1, minAlleleDepth)+"\n");
 		sb.append("#reads\t"+reads+"\n");
 		sb.append("#pairedReads\t"+pairs+"\n");
 		sb.append("#properlyPairedReads\t"+properPairs+"\n");
@@ -107,17 +109,18 @@ public class VarHelper {
 	 * @return Complete VCF format header
 	 */
 	public static String toVcfHeader(double properPairRate, double totalQualityAvg, double mapqAvg,
-			double rarity, double minAlleleFraction, int ploidy, long reads, long pairs,
+			double rarity, double minAlleleFraction, int minAlleleDepth, int ploidy, long reads, long pairs,
 			long properPairs, long bases, String ref, ScafMap map, String sampleName,
-			boolean trimWhitespace) {
+			boolean trimWhitespace, CellNet net) {
 		StringBuilder sb=new StringBuilder();
-		
+
 		// VCF format and version information
 		sb.append("##fileformat=VCFv4.2\n");
 		sb.append("##BBMapVersion="+Shared.BBTOOLS_VERSION_STRING+"\n");
 		sb.append("##ploidy="+ploidy+"\n");
 		sb.append(Tools.format("##rarity=%.5f\n", rarity));
 		sb.append(Tools.format("##minallelefraction=%.5f\n", minAlleleFraction));
+		sb.append("##mincount="+Tools.max(1, minAlleleDepth)+"\n");
 		sb.append("##reads="+reads+"\n");
 		sb.append("##pairedReads="+pairs+"\n");
 		sb.append("##properlyPairedReads="+properPairs+"\n");
@@ -126,6 +129,11 @@ public class VarHelper {
 		sb.append(Tools.format("##totalQualityAvg=%.3f\n", totalQualityAvg));
 		sb.append(Tools.format("##mapqAvg=%.3f\n", mapqAvg));
 		if(ref!=null){sb.append("##reference="+ref+"\n");}
+		// Neural network provenance (only when a net was used for scoring)
+		if(net!=null){
+			if(net.fname!=null){sb.append("##NNnetwork="+net.fname+"\n");}
+			sb.append(Tools.format("##NNcutoff=%.6f\n", net.cutoff));
+		}
 		
 		// Contig definitions for each scaffold
 		for(Scaffold scaf : map.list){
@@ -174,6 +182,8 @@ public class VarHelper {
 			sb.append("##INFO=<ID=CED,Number=1,Type=Integer,Description=\"Contig End Distance\">\n");
 			sb.append("##INFO=<ID=HMP,Number=1,Type=Integer,Description=\"Homopolymer Count\">\n");
 			sb.append("##INFO=<ID=SB,Number=1,Type=Float,Description=\"Strand Bias\">\n");
+			sb.append("##INFO=<ID=SCR,Number=1,Type=Float,Description=\"Composite (non-NN) variant score, phred-scaled\">\n");
+			sb.append("##INFO=<ID=NNS,Number=1,Type=Float,Description=\"Raw neural-network score (0=worst, cutoff-centered, may exceed 1); present only when a network was used\">\n");
 			sb.append("##INFO=<ID=DP4,Number=4,Type=Integer,Description=\"Ref+, Ref-, Alt+, Alt-\">\n");
 			
 			// FORMAT field definitions

@@ -1032,8 +1032,12 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		final Scaffold scaf=map.getScaffold(scafnum);
 		final byte[] bases=scaf.bases;
 		final int reflen=reflen(), readlen=readlen(), type=type();
-		//TODO: Scoring is done twice here
-		final double score=phredScore(properPairRate, totalQualityAvg, mapqAvg, readLengthAvg, filter.rarity, ploidy, map, net);
+		// Composite (non-NN) score, always computed. QUAL = composite when no net is used,
+		// or the cutoff-scaled NN score when a net is present. Both are exposed in INFO (SCR/NNS).
+		final double composite=score(properPairRate, totalQualityAvg, mapqAvg, readLengthAvg, filter.rarity, ploidy, map, null);
+		final double scrPhred=VarHelper.toPhredScore(composite);
+		final float nnRaw=(net==null ? -1f : netScore(properPairRate, totalQualityAvg, mapqAvg, readLengthAvg, ploidy, map, net));
+		final double score=(net==null ? scrPhred : scaleNetScore(nnRaw, net.cutoff));
 		final boolean pass=(filter==null ? true :
 			filter.passesFilter(this, properPairRate, totalQualityAvg, mapqAvg, readLengthAvg, ploidy, map, net, true));
 		
@@ -1140,7 +1144,12 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 			bb.append("CED=").append(scafEndDist).append(';');
 			bb.append("HMP=").append(homopolymerCount(map)).append(';');
 			bb.append("SB=").append(strandBias,4).append(';');
-			
+
+			// Separated scores: SCR = composite (non-NN) phred, always present;
+			// NNS = raw NN output (0..>1), present only when a network was used.
+			bb.append("SCR=").append(scrPhred,2).append(';');
+			if(net!=null){bb.append("NNS=").append(nnRaw,4).append(';');}
+
 			if(Scaffold.trackStrand()){
 				bb.append("DP4=").append(refPlus).append(',').append(refMinus).append(',');
 				bb.append(allelePlusCount()).append(',').append(alleleMinusCount()).append(';');
@@ -1321,18 +1330,43 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 	 */
 	public double phredScore(double properPairRate, double totalQualityAvg, double totalMapqAvg,
 			double readLengthAvg, double rarity, int ploidy, ScafMap map, CellNet net){
-		double score=score(properPairRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, null);
-		double phred=VarHelper.toPhredScore(score);
-		if(net!=null){
-			float[] vec=FeatureVectorMaker.toVector(this, properPairRate, totalQualityAvg,
-					totalMapqAvg, readLengthAvg, ploidy, map);
-			float output=net.applyInput(vec).feedForward();
-			output=Tools.max(0, output);
-			phred=(output<=net.cutoff) ?
-				20.0*output/net.cutoff :
-				20.0+20.0*(output-net.cutoff)/(1.0-net.cutoff);
+		if(net==null){
+			double score=score(properPairRate, totalQualityAvg, totalMapqAvg, readLengthAvg, rarity, ploidy, map, null);
+			return VarHelper.toPhredScore(score);
 		}
-		return phred;
+		float output=netScore(properPairRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map, net);
+		return scaleNetScore(output, net.cutoff);
+	}
+
+	/**
+	 * Computes the raw neural-network score for this variant.
+	 * Uses the {@link VectorUMP45} feature vector (the same one used for training and
+	 * post-hoc scoring), so the integrated and offline NN paths agree exactly.
+	 * Output is clamped at 0 (never negative) but may exceed 1.0.
+	 *
+	 * @param net Trained network (must be non-null)
+	 * @return Raw NN output (>=0)
+	 */
+	public float netScore(double properPairRate, double totalQualityAvg, double totalMapqAvg,
+			double readLengthAvg, int ploidy, ScafMap map, CellNet net){
+		float[] vec=VectorUMP45.makeVector(this, properPairRate, totalQualityAvg,
+				totalMapqAvg, readLengthAvg, ploidy, map);
+		float output=net.applyInput(vec).feedForward();
+		return Tools.max(0, output);
+	}
+
+	/**
+	 * Scales a raw NN output to a phred-like QUAL value centered on 20 at the cutoff.
+	 * Below the cutoff the score ramps linearly from 0 to 20; above it, from 20 upward.
+	 *
+	 * @param output Raw NN score (>=0)
+	 * @param cutoff Network classification threshold
+	 * @return Scaled phred-like score
+	 */
+	public static double scaleNetScore(double output, double cutoff){
+		return (output<=cutoff) ?
+			20.0*output/cutoff :
+			20.0+20.0*(output-cutoff)/(1.0-cutoff);
 	}
 
 	/**
@@ -1365,13 +1399,8 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		
 		// Geometric mean of all components (power 0.2 = 5th root)
 		double gMean=Math.pow(es*qs*ps*bs*cs*is*hs, 0.2);
+		// score() returns the composite (non-NN) score only; NN scoring lives in netScore()/phredScore().
 		double score=gMean;
-		if(net!=null) {
-			float[] vec=FeatureVectorMaker.toVector(this, properPairRate, totalQualityAvg, 
-					totalMapqAvg, readLengthAvg, ploidy, map);
-			float output=net.applyInput(vec).feedForward();
-			
-		}
 		return score;
 	}
 
