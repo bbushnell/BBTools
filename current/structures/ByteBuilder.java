@@ -881,10 +881,10 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		if(value==0){
 			return append((byte)'0');
 		}
-		
+
 		int highBit=63-Long.numberOfLeadingZeros(value);
 		int symbols=(highBit/6)+1;
-		
+
 		expand(symbols);
 		for(int shift=(symbols-1)*6; shift>=0; shift-=6){
 			byte b=(byte)((value>>shift)&0x3F);
@@ -892,6 +892,8 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		}
 		return this;
 	}
+
+	public ByteBuilder appendFloatA48(float f){ return appendA48(((long)Float.floatToRawIntBits(f)) & 0xFFFFFFFFL); }
 	
 	public ByteBuilder appendA48(int value){
 		if(value==0){
