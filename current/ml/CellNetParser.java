@@ -132,6 +132,9 @@ public class CellNetParser {
 					commands.add(new String(line));
 				}else if(Tools.startsWith(line, "#edges")){
 					if(line.length>7) {edges=parseInt(line);}
+				}else if(Tools.startsWith(line, "#coding")){
+					String coding=parseString(line).trim();
+					a48=coding.equalsIgnoreCase("A48");
 				}else if(Tools.startsWith(line, "#")){
 					assert(false) : "\nUnexpected header line: '"+new String(line)+"'"
 							+ "\nComments should start with ##\n";
@@ -175,10 +178,10 @@ public class CellNetParser {
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
 				
-				c.setBias(lp.parseFloat(), true);
+				c.setBias(a48 ? lp.parseFloatA48() : lp.parseFloat(), true);
 				weights.clear();
 				while(lp.hasMore()) {
-					weights.add(lp.parseFloat());
+					weights.add(a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
 				c.deltas=new float[c.weights.length];
@@ -226,14 +229,14 @@ public class CellNetParser {
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
 				
-				c.setBias(lp.parseFloat(), true);
+				c.setBias(a48 ? lp.parseFloatA48() : lp.parseFloat(), true);
 				weights.clear();
 				while(lp.hasMore()) {
-					weights.add(lp.parseFloat());
+					weights.add(a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
 				c.deltas=new float[c.weights.length];
-				assert(c.inputs==null || c.inputs.length==c.weights.length) : 
+				assert(c.inputs==null || c.inputs.length==c.weights.length) :
 					c.layer+", "+c.lpos+", "+c.inputs.length+", "+c.weights.length+"\n"+Arrays.toString(c.inputs);
 			}else if(Tools.startsWith(line, 'I')){
 				
@@ -312,6 +315,8 @@ public class CellNetParser {
 	boolean concise=false;
 	/** Whether to use dense weight storage (true) or sparse (false) */
 	boolean dense=true;
+	/** Whether weights/biases are encoded in A48 format (false = decimal) */
+	boolean a48=false;
 	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
 	/** Current parsing position in the line list */

@@ -115,6 +115,13 @@ public final class LineParser2 implements LineParser {
 		advance();
 		return Parse.parseFloat(line, a, b);
 	}
+
+	/** Advances to the next field and parses it as a float using A48 encoding.
+	 * @return The float value of the next field decoded from A48 */
+	public float parseFloatA48() {
+		advance();
+		return Float.intBitsToFloat((int)Parse.parseLongA48(line, a, b));
+	}
 	
 	/** Advances to the next field and parses it as a double.
 	 * @return The double value of the next field */
@@ -160,6 +167,14 @@ public final class LineParser2 implements LineParser {
 	public float parseFloat(int term) {
 		advanceTo(term);
 		return Parse.parseFloat(line, a, b);
+	}
+
+	/** Advances to the specified term and parses it as a float using A48 encoding.
+	 * @param term The term index to advance to
+	 * @return The float value of the specified term decoded from A48 */
+	public float parseFloatA48(int term) {
+		advanceTo(term);
+		return Float.intBitsToFloat((int)Parse.parseLongA48(line, a, b));
 	}
 
 	@Override
