@@ -111,8 +111,8 @@ public class VectorUMP45 {
 		// 31: Reserved (AF probability — needs copy-count-aware binomial model)
 		vec[31]=0;
 
-		// 32: Reserved
-		vec[32]=0;
+		// 32: Ploidy>1 flag (0 if haploid, 1 if ploidy>1) — pairs with dim 0 (1/ploidy)
+		vec[32]=(ploidy>1)?1f:0f;
 
 		assert(validateVector(vec, v, count, af, pairingRate, totalQualityAvg,
 				totalMapqAvg, readLengthAvg, ploidy, map));

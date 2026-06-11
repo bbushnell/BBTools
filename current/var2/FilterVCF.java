@@ -32,6 +32,7 @@ import structures.ListNum;
 * - Position-based filtering using SamFilter criteria (coordinates, contigs)
 * - Region restriction using a BED file of intervals (bed=, optionally invertbed)
 * - Variant type filtering (enable/disable SNPs, indels, junctions)
+* - Genotype filtering by GT from the first sample column (gt=, homozygous=, heterozygous=)
 * - Allele splitting for multi-allelic variants, and multi-base substitution splitting
 * - Indel left-alignment / normalization against the reference (normalize, requires ref=)
 * - Quality score histograms for analysis
@@ -145,6 +146,17 @@ public class FilterVCF {
 				bedFile=b;
 			}else if(a.equals("invertbed") || a.equals("excludebed") || a.equals("bedexclude") || a.equals("bedinvert")){
 				invertBed=Parse.parseBoolean(b);
+			}else if(a.equals("gt") || a.equals("genotype")){
+				if(b==null || b.length()==0 || b.equalsIgnoreCase("all") || b.equalsIgnoreCase("any")){
+					gtWhitelist=null;
+				}else{
+					gtWhitelist=b.split(",");
+					for(int j=0; j<gtWhitelist.length; j++){gtWhitelist[j]=gtWhitelist[j].replace('|', '/');}
+				}
+			}else if(a.equals("homozygous") || a.equals("hom")){
+				homFilter=Parse.parseBoolean(b) ? 1 : -1;
+			}else if(a.equals("heterozygous") || a.equals("het")){
+				homFilter=Parse.parseBoolean(b) ? -1 : 1;
 			}else if(samFilter.parse(arg, a, b)){
 				setSamFilter=true;
 			}else if(varFilter.parse(a, b, arg)){
@@ -255,6 +267,72 @@ public class FilterVCF {
 	private byte[] refBasesFor(String scaf){
 		Scaffold sc=scafMap.getScaffold(scaf);
 		return sc==null ? null : sc.bases;
+	}
+
+	/**
+	 * Genotype-based pass test for the gt=/homozygous=/heterozygous= filters.  Returns true when
+	 * the variant's genotype (GT, the first ':'-subfield of the first sample column) satisfies BOTH
+	 * the gt= whitelist (if set) and the zygosity constraint (if set).  A record lacking a sample/GT
+	 * column is rejected whenever a genotype filter is active (it cannot be evaluated).
+	 *
+	 * @param vline The parsed VCF line
+	 * @return true if the variant passes the active genotype filter(s)
+	 */
+	private boolean passesGenotype(VCFLine vline){
+		final String gt=genotypeOf(vline);
+		if(gt==null){return false;}
+		if(gtWhitelist!=null){
+			boolean match=false;
+			for(String g : gtWhitelist){if(g.equals(gt)){match=true; break;}}
+			if(!match){return false;}
+		}
+		if(homFilter!=0){
+			final boolean hom=isHomozygous(gt);
+			if(homFilter>0 && !hom){return false;}
+			if(homFilter<0 && hom){return false;}
+		}
+		return true;
+	}
+
+	/**
+	 * Extracts the GT (genotype) string from the first sample column of a VCF line, with '|' phasing
+	 * normalized to '/'.  By VCF convention GT is the first ':'-delimited subfield of the first
+	 * sample.  Returns null when no sample column is present or the genotype is empty.
+	 *
+	 * @param vline The parsed VCF line
+	 * @return The normalized GT string (e.g. "1/1"), or null if unavailable
+	 */
+	private static String genotypeOf(VCFLine vline){
+		if(vline.samples==null || vline.samples.isEmpty()){return null;}
+		final byte[] s=vline.samples.get(0);
+		if(s==null || s.length==0){return null;}
+		int end=0;
+		while(end<s.length && s[end]!=':'){end++;}
+		if(end==0){return null;}
+		final StringBuilder sb=new StringBuilder(end);
+		for(int i=0; i<end; i++){
+			final char c=(char)s[i];
+			sb.append(c=='|' ? '/' : c);
+		}
+		return sb.toString();
+	}
+
+	/**
+	 * Tests whether a normalized genotype string is homozygous (all alleles identical and present).
+	 * Single-allele (haploid) genotypes are homozygous by definition; any missing allele ('.') is
+	 * treated as non-homozygous.
+	 *
+	 * @param gt Normalized genotype string (e.g. "1/1", "0/1", "1")
+	 * @return true if homozygous
+	 */
+	private static boolean isHomozygous(String gt){
+		if(gt==null || gt.length()==0){return false;}
+		final String[] alleles=gt.split("/");
+		if(alleles.length==0 || alleles[0].equals(".")){return false;}
+		for(int i=1; i<alleles.length; i++){
+			if(!alleles[i].equals(alleles[0])){return false;}
+		}
+		return true;
 	}
 
 	/**
@@ -454,6 +532,9 @@ public class FilterVCF {
 						boolean in=bedMask.contains(vline.scaf, vline.pos);
 						pass&=(invertBed ? !in : in);
 					}
+
+					//Genotype-based (GT) filtering
+					if(pass && (gtWhitelist!=null || homFilter!=0)){pass&=passesGenotype(vline);}
 
 					//Statistical filtering
 					if(pass && varFilter!=null){
@@ -769,6 +850,9 @@ public class FilterVCF {
 						pass&=(invertBed ? !in : in);
 					}
 
+					//Genotype-based (GT) filtering
+					if(pass && (gtWhitelist!=null || homFilter!=0)){pass&=passesGenotype(vline);}
+
 					//Statistical filtering
 					if(pass && varFilter!=null){
 						if(varFormatOK){
@@ -928,6 +1012,11 @@ public class FilterVCF {
 
 	/** Whether to count nearby variants for filtering (TODO: implement counting) */
 	boolean countNearby=false;
+
+	/** Acceptable genotypes for the gt= filter (each normalized '|'->'/'); null = no GT-list filter */
+	private String[] gtWhitelist=null;
+	/** Zygosity filter: 0=off, 1=keep homozygous only (homozygous=t), -1=keep heterozygous only */
+	private int homFilter=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         File Fields          ----------------*/
