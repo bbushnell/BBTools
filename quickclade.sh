@@ -34,6 +34,10 @@ in=<file,file>  Query files or directories.  Loose file or directory names are
 ref=<file,file> Reference files; the current default is:
                 refseqA48_with_ribo.spectra.gz
                 It is plaintext, human-readable, and pretty small.
+                This file must be in the resources/ subdirectory of
+                the BBTools installation.  The DDL sketch file (e.g.
+                refseqSketchDDL_k25e5b4096.tsv.gz) is also auto-discovered
+                from the same directory.
 out=stdout      Set to a file to redirect output.  Only the query results will
                 be written here; progress messages will still go to stderr.
 server          Use this flag to send kmer spectra to a remote server if you do not
