@@ -88,6 +88,10 @@ public class GradeVCF {
 				truthFile=b;
 			}else if(a.equals("bed") || a.equals("bedfile")){
 				bedFile=b;
+			}else if(a.equals("bedweight") || a.equals("bw")){
+				bedWeight=Double.parseDouble(b);
+			}else if(a.equals("invertbed") || a.equals("bedinvert") || a.equals("invbed")){
+				invertBed=Parse.parseBoolean(b);
 			}else if(a.equals("ref")){
 				ref=b;
 			}else if(a.equals("ploidy")){
@@ -192,6 +196,8 @@ public class GradeVCF {
 			bedMask=new BedMask(bedFile);
 			outstream.println("Loaded "+bedMask.intervalsLoaded()+" BED intervals across "+bedMask.scaffolds()+" scaffolds.");
 		}
+		assert(bedWeight>=0) : "bedweight must be >=0 (got "+bedWeight+").";
+		assert(!invertBed || bedFile!=null) : "invertbed requires a bed= file.";
 
 		threads=Tools.min(8, Shared.threads());
 	}
@@ -201,8 +207,18 @@ public class GradeVCF {
 		return sc==null ? null : sc.bases;
 	}
 
-	private boolean inRegion(VCFLine v){
-		return bedMask==null || bedMask.contains(v.scaf, v.pos);
+	/** True if v is in the high-confidence region: inside the bed, or OUTSIDE it when invertBed is set.
+	 *  With no bed loaded, everything is high-confidence (invert is ignored). */
+	private boolean inHighConf(VCFLine v){
+		if(bedMask==null){return true;}
+		boolean inBed=bedMask.contains(v.scaf, v.pos);
+		return inBed!=invertBed;
+	}
+
+	/** Concordance weight for v: 1.0 in the high-confidence region, bedWeight outside it. bedWeight=0
+	 *  (default) reproduces the old hard bed restriction (off-region truth/calls contribute nothing). */
+	private double weightFor(VCFLine v){
+		return inHighConf(v) ? 1.0 : bedWeight;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -226,11 +242,11 @@ public class GradeVCF {
 			if(splitAlleles || splitSubs){list=v.split(splitAlleles, false, splitSubs);}
 			if(list==null || list.isEmpty()){
 				if(normalize){v.leftAlign(refBasesFor(v.scaf));}
-				if(inRegion(v)){map.put(v, v);}
+				if(weightFor(v)>0){map.put(v, v);}
 			}else{
 				for(VCFLine line : list){
 					if(normalize){line.leftAlign(refBasesFor(line.scaf));}
-					if(inRegion(line)){map.put(line, line);}
+					if(weightFor(line)>0){map.put(line, line);}
 				}
 			}
 		}
@@ -314,8 +330,8 @@ public class GradeVCF {
 					if(inc[1]>cur[1]){cur[1]=inc[1];}
 				}
 			}
-			Tools.add(histNNFalse, pt.histNNFalseT);
-			Tools.add(histQualFalse, pt.histQualFalseT);
+			for(int i=0; i<histNNFalse.length; i++){histNNFalse[i]+=pt.histNNFalseT[i];}
+			for(int i=0; i<histQualFalse.length; i++){histQualFalse[i]+=pt.histQualFalseT[i];}
 			allSuccess&=pt.success;
 		}
 		if(!allSuccess){errorState=true;}
@@ -376,7 +392,8 @@ public class GradeVCF {
 		}
 
 		void gradeVariant(VCFLine vline, byte[] origLine, ByteBuilder bb){
-			if(!inRegion(vline)){return;}
+			final double weight=weightFor(vline);
+			if(weight<=0){return;}
 
 			// Optional hard pre-filter: a variant failing the VarFilter is not considered
 			// at all (neither marks truth nor counts as FP). With clearfilters varFilter is null.
@@ -440,8 +457,8 @@ public class GradeVCF {
 				}
 			}else{
 				// FP: a call that matches no truth. Counted directly, per call, at its score.
-				if(net!=null && nnScore>=0){histNNFalseT[Tools.mid(0, (int)(nnScore*100), NN_BINS-1)]++;}
-				histQualFalseT[Tools.mid(0, (int)(qualScore*4), QUAL_BINS-1)]++;
+				if(net!=null && nnScore>=0){histNNFalseT[Tools.mid(0, (int)(nnScore*100), NN_BINS-1)]+=weight;}
+				histQualFalseT[Tools.mid(0, (int)(qualScore*4), QUAL_BINS-1)]+=weight;
 			}
 
 			// Optional passing-call output VCF, gated by the configured operating point.
@@ -462,8 +479,8 @@ public class GradeVCF {
 		long variantLinesProcessedT=0;
 		// Distinct truth vars this thread matched, mapped to {maxNN, maxQual} matching scores.
 		HashMap<VCFLine, float[]> matchedT=new HashMap<VCFLine, float[]>();
-		long[] histNNFalseT=new long[NN_BINS];
-		long[] histQualFalseT=new long[QUAL_BINS];
+		double[] histNNFalseT=new double[NN_BINS];
+		double[] histQualFalseT=new double[QUAL_BINS];
 		boolean success=false;
 	}
 
@@ -501,54 +518,62 @@ public class GradeVCF {
 		errorState|=bf.close();
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 
-		// Build the truth (true-positive) histograms by binning each distinct marked
-		// truth var ONCE, at the maximum score of any call that matched it.
-		for(float[] sc : matched.values()){
+		// Build the truth (true-positive) histograms by binning each distinct marked truth var ONCE,
+		// at the maximum score of any call that matched it, weighted by its bed weight.
+		double weightedMarked=0;
+		for(Entry<VCFLine, float[]> e : matched.entrySet()){
+			final double w=weightFor(e.getKey());
+			float[] sc=e.getValue();
 			float maxNN=sc[0], maxQual=sc[1];
-			if(net0!=null && maxNN>=0){histNNTruth[Tools.mid(0, (int)(maxNN*100), NN_BINS-1)]++;}
-			histQualTruth[Tools.mid(0, (int)(maxQual*4), QUAL_BINS-1)]++;
+			if(net0!=null && maxNN>=0){histNNTruth[Tools.mid(0, (int)(maxNN*100), NN_BINS-1)]+=w;}
+			histQualTruth[Tools.mid(0, (int)(maxQual*4), QUAL_BINS-1)]+=w;
+			weightedMarked+=w;
 		}
 
-		// Direct counts (marking contract): TP = marked truth, FN = unmarked truth.
-		final long markedTruth=matched.size();
-		final long callerMissed=truthSize-markedTruth;
+		// Weighted counts (marking contract): TP = weighted marked truth, FN = weighted unmarked truth.
+		// bedWeight=0 (default) makes every truth weight 1.0 (off-region truth was never added to the map),
+		// so these reduce exactly to the old integer counts.
+		double weightedTruthSize=0;
+		for(VCFLine tline : truthMap.keySet()){weightedTruthSize+=weightFor(tline);}
+		final double callerMissed=weightedTruthSize-weightedMarked;
 
 		// Operating-point summary at the configured threshold (NN cutoff, or minScore on QUAL).
 		final boolean nnMode=(net0!=null);
 		final double opThresh=(nnMode ? netCutoff : minScore);
-		long tpOp=0;
-		for(float[] sc : matched.values()){
+		double tpOp=0;
+		for(Entry<VCFLine, float[]> e : matched.entrySet()){
+			float[] sc=e.getValue();
 			double s=(nnMode ? sc[0] : sc[1]);
-			if(s>=opThresh){tpOp++;}
+			if(s>=opThresh){tpOp+=weightFor(e.getKey());}
 		}
-		long fpOp=0;
+		double fpOp=0;
 		{
-			long[] falseHist=(nnMode ? histNNFalse : histQualFalse);
+			double[] falseHist=(nnMode ? histNNFalse : histQualFalse);
 			double binScale=(nnMode ? 100.0 : 4.0);
 			int bins=(nnMode ? NN_BINS : QUAL_BINS);
 			for(int bin=0; bin<bins; bin++){
 				if(bin/binScale>=opThresh){fpOp+=falseHist[bin];}
 			}
 		}
-		final long fnOp=truthSize-tpOp;
+		final double fnOp=weightedTruthSize-tpOp;
 
-		double precision=(tpOp+fpOp>0 ? (double)tpOp/(tpOp+fpOp) : 0);
-		double recall=(truthSize>0 ? (double)tpOp/truthSize : 0);
+		double precision=(tpOp+fpOp>0 ? tpOp/(tpOp+fpOp) : 0);
+		double recall=(weightedTruthSize>0 ? tpOp/weightedTruthSize : 0);
 		double f1=(precision+recall>0 ? 2*precision*recall/(precision+recall) : 0);
-		double fpr=(tpOp+fpOp>0 ? (double)fpOp/(tpOp+fpOp) : 0);
-		double fnr=(truthSize>0 ? (double)fnOp/truthSize : 0);
+		double fpr=(tpOp+fpOp>0 ? fpOp/(tpOp+fpOp) : 0);
+		double fnr=(weightedTruthSize>0 ? fnOp/weightedTruthSize : 0);
 
 		t.stop();
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 8));
 		outstream.println();
 		outstream.println("Variant Lines In:   \t"+variantLinesProcessed);
 		outstream.println("Truth Variants:     \t"+truthSize);
-		outstream.println("Caller Missed (FN): \t"+callerMissed);
+		outstream.printf("Caller Missed (FN): \t%.2f%n", callerMissed);
 		outstream.println("Operating point:    \t"+(nnMode ? "NN>=" : "QUAL>=")+opThresh);
 		outstream.println();
-		outstream.println("TP:        \t"+tpOp);
-		outstream.println("FP:        \t"+fpOp);
-		outstream.println("FN:        \t"+fnOp);
+		outstream.printf("TP:        \t%.2f%n", tpOp);
+		outstream.printf("FP:        \t%.2f%n", fpOp);
+		outstream.printf("FN:        \t%.2f%n", fnOp);
 		outstream.println();
 		outstream.printf("Precision: \t%.6f%n", precision);
 		outstream.printf("Recall:    \t%.6f%n", recall);
@@ -577,8 +602,8 @@ public class GradeVCF {
 	 * sums low->high starting at callerMissed, which is identical to (truthSize - cumTP):
 	 * every truth var is either matched at score >= threshold (TP) or not (FN).
 	 */
-	private void writeHist(String fname, long[] trueCounts, long[] falseCounts,
-			int bins, double binScale, String scoreLabel, long callerMissed){
+	private void writeHist(String fname, double[] trueCounts, double[] falseCounts,
+			int bins, double binScale, String scoreLabel, double callerMissed){
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, true, false, false);
 		bsw.start();
 		ByteBuilder bb=new ByteBuilder();
@@ -587,24 +612,24 @@ public class GradeVCF {
 		bb.append("#").append(scoreLabel).append("\ttrueCounts\tfalseCounts\n");
 		for(int bin=0; bin<bins; bin++){
 			double score=bin/binScale;
-			bb.append(score, 2).tab().append(trueCounts[bin]).tab().append(falseCounts[bin]).nl();
+			bb.append(score, 2).tab().append(trueCounts[bin], 2).tab().append(falseCounts[bin], 2).nl();
 		}
 		bb.nl();
 
 		// Cumulative: FP sums high->low, FN sums low->high (starting at callerMissed)
 		bb.append("#threshold\tTP\tFP\tFN\n");
-		long[] cumFNArr=new long[bins];
-		long cumFN=callerMissed;
+		double[] cumFNArr=new double[bins];
+		double cumFN=callerMissed;
 		for(int bin=0; bin<bins; bin++){
 			cumFNArr[bin]=cumFN;
 			cumFN+=trueCounts[bin];
 		}
-		long cumTP=0, cumFP=0;
+		double cumTP=0, cumFP=0;
 		for(int bin=bins-1; bin>=0; bin--){
 			cumTP+=trueCounts[bin];
 			cumFP+=falseCounts[bin];
 			double threshold=bin/binScale;
-			bb.append(threshold, 2).tab().append(cumTP).tab().append(cumFP).tab().append(cumFNArr[bin]).nl();
+			bb.append(threshold, 2).tab().append(cumTP, 2).tab().append(cumFP, 2).tab().append(cumFNArr[bin], 2).nl();
 		}
 
 		bsw.print(bb);
@@ -627,11 +652,11 @@ public class GradeVCF {
 	private final HashMap<VCFLine, float[]> matched=new HashMap<VCFLine, float[]>();
 
 	// trueCounts: distinct truth binned once at max matching score (built after merge).
-	private long[] histNNTruth=new long[NN_BINS];
-	private long[] histQualTruth=new long[QUAL_BINS];
-	// falseCounts: unmatched calls binned per call (summed across threads).
-	private long[] histNNFalse=new long[NN_BINS];
-	private long[] histQualFalse=new long[QUAL_BINS];
+	private double[] histNNTruth=new double[NN_BINS];
+	private double[] histQualTruth=new double[QUAL_BINS];
+	// falseCounts: unmatched calls binned per call (summed across threads). Weighted by bedWeight.
+	private double[] histNNFalse=new double[NN_BINS];
+	private double[] histQualFalse=new double[QUAL_BINS];
 
 	public ArrayList<byte[]> header=new ArrayList<byte[]>();
 	private long jobIDOffset=0;
@@ -649,6 +674,11 @@ public class GradeVCF {
 
 	VarFilter varFilter=new VarFilter();
 	BedMask bedMask=null;
+	// Concordance weight for calls/truth OUTSIDE the high-conf region (in-region weight is always 1.0).
+	// 0 (default) = old hard bed restriction; 0.5 = off-region counts half; 1.0 = no restriction.
+	double bedWeight=0.0;
+	// When true, the high-conf region is the COMPLEMENT of the bed (grade ONLY low-confidence regions).
+	boolean invertBed=false;
 	boolean normalize=false;
 	boolean splitAlleles=false;
 	boolean splitSubs=false;
