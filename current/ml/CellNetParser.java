@@ -315,8 +315,8 @@ public class CellNetParser {
 	boolean concise=false;
 	/** Whether to use dense weight storage (true) or sparse (false) */
 	boolean dense=true;
-	/** Whether weights/biases are encoded in A48 format (false = decimal) */
-	boolean a48=false;
+	/** Read coding: initialized from CellNet.codingA48In (the default when a .bbnet has no #coding header); a #coding header overrides this */
+	boolean a48=CellNet.codingA48In;
 	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
 	/** Current parsing position in the line list */

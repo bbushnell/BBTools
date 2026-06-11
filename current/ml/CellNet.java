@@ -1072,7 +1072,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("##err ").append(errorRate, 6).nl();
 		bb.append("##wer ").append(weightedErrorRate, 6).nl();
 		bb.append("##ctf ").append(cutoff, 6).nl();
-		bb.append(codingA48 ? "#coding A48" : "#coding decimal").nl();
+		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
 		return bb;
 	}
 	
@@ -1119,10 +1119,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.nl();
 
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
-						if(codingA48){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias value
+						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias value
 						for(int i=0; i<c.weights.length; i++){
 							if(c.weights[i]!=0){
-								if(codingA48){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); } //Weight values
+								if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); } //Weight values
 								edgeCount++;
 							}
 						}
@@ -1130,9 +1130,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 					}else{ //Dense output format
 						lastLinesWritten++;
 						bb.append('C').append(c.id()).space().append(c.typeString()); //Complete line
-						if(codingA48){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
+						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
 						for(int i=0; i<c.weights.length; i++){
-							if(codingA48){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
+							if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
 						} //All weights
 						bb.nl();
 						edgeCount+=c.weights.length;
@@ -1141,7 +1141,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 					if(OUT_DENSE){ //Force dense output
 						lastLinesWritten++;
 						bb.append('C').append(c.id()).space().append(c.typeString());
-						if(codingA48){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); }
+						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); }
 //						for(int idx=0, nextInput=0; idx<c.inputs.length; idx++) {
 //							for(int inum=c.inputs[idx]; nextInput<inum; nextInput++) {
 //								bb.space().append(0);
@@ -1152,7 +1152,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						int inum=0;
 						for(int idx=0; idx<c.inputs.length; inum++){ //Expand sparse to dense
 							if(inum==c.inputs[idx]){
-								if(codingA48){ bb.space().appendFloatA48(c.weights[idx]); } else { bb.space().append(c.weights[idx], 6, true); } //Weight value
+								if(codingA48Out){ bb.space().appendFloatA48(c.weights[idx]); } else { bb.space().append(c.weights[idx], 6, true); } //Weight value
 								idx++;
 							}else{
 								bb.space().append(0); //Zero for missing connection
@@ -1173,9 +1173,9 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.nl();
 
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
-						if(codingA48){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
+						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
 						for(int i=0; i<c.weights.length; i++){
-							if(codingA48){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
+							if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
 						} //Weights
 						bb.nl();
 						edgeCount+=c.weights.length;
@@ -1633,8 +1633,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public static float normalization_shrink_rate=0.999f;
 	/** Use compact serialization format */
 	public static boolean CONCISE=true;
-	/** Use A48 encoding for weights/biases instead of decimal text */
-	public static boolean codingA48=false;
+	/** Read coding default when a .bbnet has no #coding header (false=decimal); the #coding header overrides this */
+	public static boolean codingA48In=false;
+	/** Write weights/biases in A48 by default (smaller + lossless); the #coding header records it for the reader */
+	public static boolean codingA48Out=true;
 	/** Network type: true=dense connectivity, false=sparse */
 	public static boolean DENSE=true;
 	/** Output format: use hexadecimal encoding */
