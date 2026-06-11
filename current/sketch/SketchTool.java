@@ -1144,7 +1144,7 @@ public final class SketchTool extends SketchObject {
 										k_sketch=Tools.max(x, y);
 										k2_sketch=Tools.min(x, y);
 									}else{
-										k_sketch=Integer.parseInt(s);
+										k_sketch=Integer.parseInt(sub);
 										k2_sketch=0;
 									}
 								}else if(s.startsWith("H:")){//Hash version
