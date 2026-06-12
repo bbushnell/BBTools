@@ -309,6 +309,9 @@ public class CallVariants2 {
 		
 		ploidyArray=new long[ploidy+1];
 
+		//If NN scoring is requested but no explicit net= was given, choose the default network for this platform+ploidy.
+		if(useNet && netFile==null){netFile=NNChooser.choose(VectorUMP45.platform, ploidy);}
+
 		//Load neural network if specified
 		if(netFile!=null && useNet){
 			net0=CellNetParser.load(netFile);

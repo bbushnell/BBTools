@@ -74,6 +74,7 @@ public class CellNetParser {
 		net.samplesTrained=samples;
 //		net.annealSeed=annealSeed;
 		net.setCutoff(cutoff);
+		net.fpRate=fpr; net.fnRate=fnr; net.errorRate=err; net.weightedErrorRate=wer; net.lastStats=stats; //Round-trip the stored stats
 		assert(layers==net.layers);
 		posFirstEdge=pos;
 		if(dense) {
@@ -97,6 +98,16 @@ public class CellNetParser {
 			}else if(Tools.startsWith(line, "#")){//header
 				if(Tools.startsWith(line, "##ctf") || Tools.startsWith(line, "#ctf")){
 					cutoff=parseFloat(line);
+				}else if(Tools.startsWith(line, "##stats")){
+					stats=parseString(line);
+				}else if(Tools.startsWith(line, "##fpr")){
+					fpr=parseFloat(line);
+				}else if(Tools.startsWith(line, "##fnr")){
+					fnr=parseFloat(line);
+				}else if(Tools.startsWith(line, "##err")){
+					err=parseFloat(line);
+				}else if(Tools.startsWith(line, "##wer")){
+					wer=parseFloat(line);
 				}else if(Tools.startsWith(line, "##")){
 					//Comment; ignore
 				}else if(Tools.startsWith(line, "#version")){
@@ -323,6 +334,10 @@ public class CellNetParser {
 	int pos=0;
 	/** Classification threshold cutoff value */
 	float cutoff=0.5f;
+	/** Stored performance metrics read from the header (defaults match CellNet's, so an absent line is a no-op). */
+	float fpr=999, fnr=999, err=999, wer=999;
+	/** Stored training-stats line (##stats content), or null if absent. */
+	String stats=null;
 	/** Position of the first edge/weight line in the file */
 	final int posFirstEdge;
 	/** Command lines used to generate this network */
