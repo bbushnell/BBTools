@@ -115,6 +115,11 @@ public class GradeVCF {
 				if(b!=null){FeatureVectorMaker.setMode(b);}
 			}else if(a.equals("includescore")){
 				VectorUMP45.includeScore=Parse.parseBoolean(b);
+			}else if(a.equals("platform")){
+				if(b.equalsIgnoreCase("illumina")){VectorUMP45.platform=VectorUMP45.PLATFORM_ILLUMINA;}
+				else if(b.equalsIgnoreCase("pacbio")){VectorUMP45.platform=VectorUMP45.PLATFORM_PACBIO;}
+				else if(b.equalsIgnoreCase("nanopore") || b.equalsIgnoreCase("ont")){VectorUMP45.platform=VectorUMP45.PLATFORM_NANOPORE;}
+				else{VectorUMP45.platform=Integer.parseInt(b);}
 			}else if(a.equals("normalize") || a.equals("leftalign") || a.equals("norm")){
 				normalize=Parse.parseBoolean(b);
 			}else if(a.equals("splitalleles")){
@@ -149,6 +154,11 @@ public class GradeVCF {
 		}
 
 		if(!setVarFilter){varFilter=null;}
+
+		// If NN scoring is requested but no explicit net= was given, choose the default network for this platform+ploidy.
+		// (ploidy here is the arg/default value; ##ploidy from the VCF header is applied later and does not affect the
+		//  current single-net choice, which covers ploidy 1-2.)
+		if(useNet && netFile==null){netFile=NNChooser.choose(VectorUMP45.platform, ploidy);}
 
 		if(netFile!=null && useNet){
 			net0=CellNetParser.load(netFile);

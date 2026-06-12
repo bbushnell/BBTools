@@ -145,6 +145,17 @@ clearfilters            Clear all filters.  Filter flags placed after
 There are additionally max filters for score, quality, mapq, allelefraction,
 and identity.
 
+Neural Network Scoring:
+nn=f            (usenn) Score variants with a trained neural network rather
+                than the composite heuristic.  With nn set but no net= given,
+                a default network is chosen automatically from platform+ploidy.
+net=<file>      Use this specific network (.bbnet), overriding the chooser.
+platform=illumina  Platform for automatic network selection: illumina
+                (default), pacbio, or nanopore (ont).  Only illumina networks
+                exist currently; others assert under -ea, or use the default
+                under -da.
+netcutoff=auto  NN score threshold; 'auto' uses the network's embedded cutoff.
+
 Other Parameters:
 minvarcopies=0          If set to 0, a genotype (vcf GT field) of 0 or 0/0
                         will be called if observed allele frequency suggests
