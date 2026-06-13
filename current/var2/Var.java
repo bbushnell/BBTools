@@ -272,7 +272,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		final int oldReads=alleleCount();
 		
 		// Validate current state before merging
-		assert(oldReads==0 || baseQSum/oldReads<=60) : this;
+		assert(oldReads==0 || baseQSum/oldReads<=Read.MAX_CALLED_QUALITY) : this;
 		assert(this.equals(b)); // Must be same variant
 		
 		// Merge read count statistics by strand and pair
@@ -302,7 +302,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		// Validate merged state
 		assert(alleleCount()>=oldReads) : "\n"+this+"\n"+b;
 		assert(alleleCount()==oldReads+b.alleleCount()) : "\n"+this+"\n"+b;
-		assert(alleleCount()==0 || baseQSum/alleleCount()<=60) : "\n"+this+"\n"+b;
+		assert(alleleCount()==0 || baseQSum/alleleCount()<=Read.MAX_CALLED_QUALITY) : "\n"+this+"\n"+b;
 	}
 
 	/**
@@ -372,7 +372,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		// Validate updated state
 		assert(alleleCount()>0) : this;
 		assert(alleleCount()==oldReads+1) : this;
-		assert(baseQSum/alleleCount()<=60) : this;
+		assert(baseQSum/alleleCount()<=Read.MAX_CALLED_QUALITY) : this;
 	}
 
 	/*--------------------------------------------------------------*/

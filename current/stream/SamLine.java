@@ -1412,7 +1412,7 @@ public class SamLine implements Serializable {
 //		System.err.println("processMD="+processMD+", mdSubs="+mdSubs+", mdTag="+mdTag);//123
 		
 		final byte[] bases;
-		if(refBases!=null){
+		if(refBases!=null && seq!=null){
 //			bases=(strand()==1) ? AminoAcid.reverseComplementBases(seq) : seq;//Why not reverse in place?
 			if(strand()==1){Vector.reverseComplementInPlaceFast(seq);}
 			bases=seq;
@@ -1425,7 +1425,7 @@ public class SamLine implements Serializable {
 		
 //		System.err.println("Block 6");//123
 		
-		if(mdTag!=null && (refBases==null || PREFER_MDTAG)){
+		if(mdTag!=null && (refBases==null || PREFER_MDTAG || bases==null)){
 //			System.err.println("match="+new String(longmatch));//123
 
 			final int noCalls=seq==null ? -1 : Read.countNocalls(seq);
@@ -1452,7 +1452,7 @@ public class SamLine implements Serializable {
 			
 			walker.fixMatch(bases);
 		}else
-		if(refBases!=null){
+		if(refBases!=null && bases!=null){
 			final int refStart=start(true, false);
 			fixMatch(bases, refBases, longmatch, refStart, false);
 		}
@@ -1462,7 +1462,7 @@ public class SamLine implements Serializable {
 //			fixMatch(bases, refBases, longmatch, refStart, false);
 //		}
 		else{
-			assert(false) : "Fallthorugh.";
+			//Null bases (e.g. SEQ=* secondary/supplementary) with no usable MD tag: can't compute =/X; leave longmatch as-is.
 		}
 		
 		final byte[] match=Read.toShortMatchString(longmatch);

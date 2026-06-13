@@ -957,14 +957,15 @@ public final class Vector {
 
 	public static void capQuality(final byte[] quals, final byte[] bases){
 		if(quals==null){return;}
+		final byte max=Read.MAX_CALLED_QUALITY;
 		if(Shared.SIMD && quals.length>=MINLEN8) {
-			SIMDByte256.capQuality(quals, bases);
+			SIMDByte256.capQuality(quals, bases, max);
 			return;
 		}
 		for(int i=0; i<quals.length; i++) {
 			byte b=bases[i];
 			int q=quals[i];
-			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
+			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.min(Math.max(2, q), max));
 			quals[i]=(byte)q;
 		}
 	}
