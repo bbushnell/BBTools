@@ -23,11 +23,18 @@ in=<file>       Input sam or bam file (with secondary/supplementary alignments).
 out=<file>      Output sam or bam file.
 ways=31         Number of temporary subfiles.  Increase for very large inputs to
                 reduce the memory needed to hold one subfile at a time.
-mode=fix        fix: write the bases/quals into SEQ/QUAL (supplementary hard-clips
-                     are converted H->S so the full read is a valid SEQ).
+                ways=1 skips partitioning and writes no temp files (loads the whole
+                input into memory); best for bacterial-sized BAMs.
+mode=fix        fix: write the bases/quals into SEQ/QUAL.
                 tag: attach OS:Z: (bases) and OQ:Z: (quals) tags in original
                      sequencing orientation, leaving SEQ=*.
+                'fix' and 'tag' may also be given as bare flags (no 'mode=').
+hardclip=convert  How to handle supplementary hard-clips in fix mode:
+                convert: change H->S and copy the full read (default).
+                truncate: keep the H cigar and copy only the supplementary's own
+                     segment.  Smaller output; gives identical variant calls.
 tmpdir=<dir>    Directory for the temporary subfiles (default: out + '_rbtmp').
+                Temp files and the directory are always deleted on completion.
 reads=-1        Process only this many input alignments (-1 = all); for testing.
 ow=t            (overwrite) Overwrite existing output files.
 

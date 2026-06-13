@@ -3,6 +3,7 @@ package var2;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 
@@ -38,10 +39,15 @@ import tracker.ReadStats;
  * qname.hashCode()%WAYS so that all alignments of a read land in the same subfile.
  * Each subfile is then processed alone, single-threaded: load, name-sort, group by
  * (qname, pairnum), and for each group copy the primary's seq/qual onto its
- * secondaries/supplementaries.  Two modes: <b>fix</b> (write seq/qual directly;
- * supplementary hard-clips are converted H&rarr;S so the full read is valid) and
- * <b>tag</b> (attach OS:Z:/OQ:Z: tags in original sequencing orientation, leaving
- * SEQ=*).  The output header is rewritten with SO:unsorted.
+ * secondaries/supplementaries.  With ways=1 the partition step is skipped entirely
+ * (no temp files) — best for bacterial-sized inputs that fit in memory.
+ *
+ * <p>Two modes: <b>fix</b> (write seq/qual directly) and <b>tag</b> (attach OS:Z:/OQ:Z:
+ * tags in original sequencing orientation, leaving SEQ=*).  In fix mode, supplementary
+ * hard-clips are handled by <b>hardclip=convert</b> (default: H&rarr;S, copy the full
+ * read) or <b>hardclip=truncate</b> (keep the H cigar, copy only the supplementary's own
+ * segment — avoids quadratic seq blowup; gives identical variant calls).  The output
+ * header is rewritten with SO:unsorted.
  *
  * @author Brian Bushnell, UMP45
  * @date June 13, 2026
@@ -93,9 +99,13 @@ public class RestoreBases {
 			}else if(a.equals("ways")){
 				ways=Integer.parseInt(b);
 			}else if(a.equals("mode")){
-				if(b.equalsIgnoreCase("fix")){mode=FIX;}
-				else if(b.equalsIgnoreCase("tag")){mode=TAG;}
-				else{throw new RuntimeException("Unknown mode "+b+"; valid modes are fix and tag.");}
+				mode=parseMode(b);
+			}else if(a.equals("fix")){//standalone mode flag
+				mode=FIX;
+			}else if(a.equals("tag")){//standalone mode flag
+				mode=TAG;
+			}else if(a.equals("hardclip") || a.equals("hardclips")){
+				hardclipMode=parseHardclip(b);
 			}else if(a.equals("tmp") || a.equals("tmpdir")){
 				tmpDir=b;
 			}else if(a.equals("in") || a.equals("in1")){
@@ -140,15 +150,81 @@ public class RestoreBases {
 		}
 	}
 
+	/** Parses the processing mode flag.
+	 * @param b Flag value
+	 * @return FIX or TAG */
+	private static int parseMode(String b){
+		if(b.equalsIgnoreCase("fix")){return FIX;}
+		if(b.equalsIgnoreCase("tag")){return TAG;}
+		throw new RuntimeException("Unknown mode "+b+"; valid modes are fix and tag.");
+	}
+
+	/** Parses the hardclip-handling flag.
+	 * @param b Flag value
+	 * @return CONVERT or TRUNCATE */
+	private static int parseHardclip(String b){
+		if(b.equalsIgnoreCase("convert") || b.equalsIgnoreCase("soft") || b.equalsIgnoreCase("s")){return CONVERT;}
+		if(b.equalsIgnoreCase("truncate") || b.equalsIgnoreCase("trunc")){return TRUNCATE;}
+		throw new RuntimeException("Unknown hardclip mode "+b+"; valid modes are convert and truncate.");
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main processing method: partition by name-hash, then restore each subfile.
+	 * Main processing method.  Uses the no-temp fast path for ways=1, otherwise
+	 * partitions by name-hash and restores each subfile.
 	 * @param t Timer for measuring execution time
 	 */
 	void process(Timer t){
+		if(ways==1){
+			processSingleWay();
+		}else{
+			processMultiWay();
+		}
+
+		t.stop();
+		printStats(t);
+
+		if(errorState){
+			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+		}
+	}
+
+	/**
+	 * No-temp-file path (ways=1): load the whole input into memory, name-sort, restore,
+	 * and write.  Best for inputs that fit in RAM (e.g. bacterial BAMs).
+	 */
+	private void processSingleWay(){
+		final Streamer cris=StreamerFactory.makeStreamer(ffin, 0, true, maxReads, true, false, -1);
+		cris.start();
+		final ArrayList<SamLine> all=new ArrayList<SamLine>();
+		for(ListNum<SamLine> ln=cris.nextLines(); ln!=null; ln=cris.nextLines()){
+			if(ln.list==null){continue;}
+			for(SamLine sl : ln.list){
+				if(sl==null){continue;}
+				readsIn++;
+				basesIn+=(sl.seq==null ? 0 : sl.seq.length);
+				all.add(sl);
+			}
+		}
+		errorState|=ReadWrite.closeStream(cris);
+
+		final ArrayList<byte[]> header=patchHeaderSO(SamReadInputStream.getSharedHeader(true));
+		final FileFormat ffout=FileFormat.testOutput(out1, FileFormat.SAM, null, true, overwrite, false, false);
+		final SamWriterST2 out=new SamWriterST2(ffout, header, false);
+		out.start();
+
+		restoreAndWrite(all, out, 0);
+		errorState|=out.poisonAndWait();
+	}
+
+	/**
+	 * Multi-way path: split input into WAYS headerless sam.gz subfiles by qname hash,
+	 * then restore each subfile alone.  Temp files are always cleaned up (try/finally).
+	 */
+	private void processMultiWay(){
 		final File tdir=new File(tmpDir);
 		tdir.mkdirs();
 		assert(tdir.isDirectory()) : "Could not create temp directory "+tmpDir;
@@ -156,31 +232,26 @@ public class RestoreBases {
 		final String[] subPaths=new String[ways];
 		for(int i=0; i<ways; i++){subPaths[i]=tmpDir+"/part_"+i+".sam.gz";}
 
-		//Phase 1: split input into WAYS headerless sam.gz subfiles by qname hash.
-		partition(subPaths);
+		try{
+			//Phase 1: split input into WAYS headerless sam.gz subfiles by qname hash.
+			partition(subPaths);
 
-		//Phase 2: capture the input header and force SO:unsorted.
-		final ArrayList<byte[]> header=patchHeaderSO(SamReadInputStream.getSharedHeader(true));
+			//Phase 2: capture the input header and force SO:unsorted.
+			final ArrayList<byte[]> header=patchHeaderSO(SamReadInputStream.getSharedHeader(true));
 
-		//Phase 3: open the final output writer (header restored) and restore each subfile.
-		final FileFormat ffout=FileFormat.testOutput(out1, FileFormat.SAM, null, true, overwrite, false, false);
-		final SamWriterST2 out=new SamWriterST2(ffout, header, false);
-		out.start();
+			//Phase 3: open the final output writer (header restored) and restore each subfile.
+			final FileFormat ffout=FileFormat.testOutput(out1, FileFormat.SAM, null, true, overwrite, false, false);
+			final SamWriterST2 out=new SamWriterST2(ffout, header, false);
+			out.start();
 
-		long outId=0;
-		for(int i=0; i<ways; i++){
-			outId=processSubfile(subPaths[i], out, outId);
-		}
-		errorState|=out.poisonAndWait();
-
-		//Phase 4: clean up temp files.
-		cleanup(subPaths, tdir);
-
-		t.stop();
-		printStats(t);
-
-		if(errorState){
-			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
+			long outId=0;
+			for(int i=0; i<ways; i++){
+				outId=processSubfile(subPaths[i], out, outId);
+			}
+			errorState|=out.poisonAndWait();
+		}finally{
+			//Phase 4: clean up temp files even if a stage threw.
+			cleanup(subPaths, tdir);
 		}
 	}
 
@@ -234,8 +305,7 @@ public class RestoreBases {
 	}
 
 	/**
-	 * Loads one subfile, name-sorts it, restores bases on non-primary records, and writes
-	 * the name-sorted records to the output stream in chunks of {@link #CHUNK}.
+	 * Loads one subfile and restores+writes it via {@link #restoreAndWrite}.
 	 * @param path Subfile path
 	 * @param out Final output writer
 	 * @param outId Next list id to use for the output stream
@@ -250,7 +320,18 @@ public class RestoreBases {
 			if(ln.list!=null){all.addAll(ln.list);}
 		}
 		errorState|=ReadWrite.closeStream(cris);
+		return restoreAndWrite(all, out, outId);
+	}
 
+	/**
+	 * Name-sorts a list, restores bases on its non-primary records, and writes the
+	 * name-sorted records to the output stream in chunks of {@link #CHUNK}.
+	 * @param all SamLines to process (mutated: sorted in place)
+	 * @param out Final output writer
+	 * @param outId Next list id to use for the output stream
+	 * @return Updated output list id
+	 */
+	private long restoreAndWrite(ArrayList<SamLine> all, SamWriterST2 out, long outId){
 		if(all.isEmpty()){return outId;}
 
 		Collections.sort(all, NAME_SORT);
@@ -313,17 +394,54 @@ public class RestoreBases {
 			return;
 		}
 
-		//FIX mode: supplementary hard-clips become soft-clips so the full read is a valid SEQ.
-		if(np.supplementary() && hasHardClip(np.cigar)){
-			np.cigar=convertHardToSoft(np.cigar);
-			hardConverted++;
+		//FIX mode.
+		final boolean hard=hasHardClip(np.cigar);
+		if(hard && hardclipMode==TRUNCATE){
+			//Keep the H cigar; copy only this supplementary's own segment (no quadratic blowup).
+			truncateRestore(primary, np);
+		}else{
+			//Convert mode (or no hard clip): supplementary hard-clips become soft-clips so the
+			//full read is a valid SEQ, then copy the full read.
+			if(hard){
+				np.cigar=convertHardToSoft(np.cigar);
+				hardConverted++;
+			}
+			assert(SamLine.calcCigarBases(np.cigar, true, false)==primary.seq.length) :
+				"cigar query length "+SamLine.calcCigarBases(np.cigar, true, false)+
+				" != read length "+primary.seq.length+" for cigar "+np.cigar;
+			np.seq=primary.seq.clone();
+			np.qual=(primary.qual==null ? null : primary.qual.clone());
 		}
-		assert(SamLine.calcCigarBases(np.cigar, true, false)==primary.seq.length) :
-			"cigar query length "+SamLine.calcCigarBases(np.cigar, true, false)+
-			" != read length "+primary.seq.length+" for cigar "+np.cigar;
-		np.seq=primary.seq.clone();
-		np.qual=(primary.qual==null ? null : primary.qual.clone());
 		restored++;
+	}
+
+	/**
+	 * Truncate-mode restore: copies only the sub-range of the read that this hard-clipped
+	 * supplementary's own segment covers, leaving its H cigar unchanged.  The aligned bases
+	 * are identical to convert mode, so variant calls are identical — just smaller files.
+	 *
+	 * <p>SamLine stores seq in read orientation (FLIP_ON_LOAD); the cigar's clips are in the
+	 * record's reference-forward orientation.  For a plus-strand record the segment begins at
+	 * the leading hard-clip; for a minus-strand record the cigar is reverse-complemented
+	 * relative to the read, so the segment begins at the trailing hard-clip.
+	 * @param primary The primary record carrying the full read
+	 * @param np A hard-clipped supplementary record
+	 */
+	private void truncateRestore(SamLine primary, SamLine np){
+		final int leadingH=SamLine.countLeadingClip(np.cigar, false, true);
+		final int q=SamLine.calcCigarBases(np.cigar, true, false);//non-hardclip query length
+		final int len=primary.seq.length;
+		//Total hard clip = full read (soft+hard, already verified == len) minus the query length;
+		//the trailing hard clip is the remainder after the leading one (exact, no cigar re-parse).
+		final int trailingH=len-q-leadingH;
+		//Read-orientation start of this segment (minus-strand cigars are revcomp of the read).
+		final int start=(np.strand()==Shared.MINUS) ? trailingH : leadingH;
+		assert(trailingH>=0 && start>=0 && start+q<=len) : "truncate range: lead="+leadingH+
+			" q="+q+" trail="+trailingH+" len="+len+" cigar="+np.cigar;
+		np.seq=Arrays.copyOfRange(primary.seq, start, start+q);
+		np.qual=(primary.qual==null ? null : Arrays.copyOfRange(primary.qual, start, start+q));
+		truncated++;
+		//cigar unchanged (H preserved)
 	}
 
 	/** True if both records share qname and pairnum.
@@ -430,11 +548,13 @@ public class RestoreBases {
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsIn, basesIn, 8));
 		outstream.println();
 		outstream.println("Mode:                  \t"+(mode==FIX ? "fix" : "tag"));
+		outstream.println("Hardclip:              \t"+(hardclipMode==CONVERT ? "convert" : "truncate"));
 		outstream.println("Ways:                  \t"+ways);
 		outstream.println("Alignments in:         \t"+readsIn);
 		outstream.println("Restore attempts:      \t"+restoreAttempts);
 		outstream.println("Records restored:      \t"+restored);
 		outstream.println("Hardclips converted:   \t"+hardConverted);
+		outstream.println("Hardclips truncated:   \t"+truncated);
 		outstream.println("Skipped (hardclipped primary):\t"+skippedHardPrimary);
 		outstream.println("Skipped (length mismatch):    \t"+skippedLenMismatch);
 		outstream.println("Skipped (no cigar/unmapped):  \t"+skippedNoCigar);
@@ -484,10 +604,13 @@ public class RestoreBases {
 	private String out1=null;
 	private String tmpDir=null;
 
-	/** Number of subfiles to partition into; larger values reduce per-subfile memory. */
+	/** Number of subfiles to partition into; larger values reduce per-subfile memory.
+	 * ways=1 uses the no-temp-file fast path. */
 	private int ways=31;
 	/** Processing mode: FIX (write seq/qual) or TAG (attach OS:/OQ: tags). */
 	private int mode=FIX;
+	/** Supplementary hard-clip handling: CONVERT (H&rarr;S, full read) or TRUNCATE (keep H, segment only). */
+	private int hardclipMode=CONVERT;
 	/** Maximum input alignments to process, or -1 for all. */
 	private long maxReads=-1;
 	private boolean overwrite=true;
@@ -503,6 +626,7 @@ public class RestoreBases {
 	private long restoreAttempts=0;
 	private long restored=0;
 	private long hardConverted=0;
+	private long truncated=0;
 	private long skippedHardPrimary=0;
 	private long skippedLenMismatch=0;
 	private long skippedNoCigar=0;
@@ -518,6 +642,7 @@ public class RestoreBases {
 	/** Output/buffer chunk size for ListNum batches. */
 	private static final int CHUNK=200;
 	static final int FIX=0, TAG=1;
+	static final int CONVERT=0, TRUNCATE=1;
 
 	/** Output stream for status messages. */
 	private PrintStream outstream=System.err;
