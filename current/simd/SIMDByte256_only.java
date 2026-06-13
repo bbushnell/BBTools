@@ -282,11 +282,11 @@ final class SIMDByte256_only{
 
 	
 	/**
-	 * Zeros quality for N bases, caps others at 2.
+	 * Zeros quality for N bases, caps others between 2 and max.
 	 * @param quals Quality array to modify in-place.
 	 * @param bases Sequence bases array.
 	 */
-	static final void capQuality(final byte[] quals, final byte[] bases){
+	static final void capQuality(final byte[] quals, final byte[] bases, final byte max){
 		if(quals==null){return;}
 
 		final int length=quals.length;
@@ -301,8 +301,8 @@ final class SIMDByte256_only{
 			ByteVector vquals=ByteVector.fromArray(BSPECIES, quals, i);
 			ByteVector vbases=ByteVector.fromArray(BSPECIES, bases, i);
 
-			// Cap at 2 for non-N bases
-			ByteVector vresult=vquals.max(vcap2);
+			// Cap between 2 and max for non-N bases
+			ByteVector vresult=vquals.max(vcap2).min(ByteVector.broadcast(BSPECIES, max));
 
 			// Create mask: where bases == 'N'
 			VectorMask<Byte> maskN=vbases.eq(vn);
@@ -316,7 +316,7 @@ final class SIMDByte256_only{
 		for(; i<length; i++){// Residual scalar loop
 			byte b=bases[i];
 			int q=quals[i];
-			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.max(2, q));
+			q=(AminoAcid.baseToNumber[b]<0 ? 0 : Math.min(Math.max(2, q), max));
 			quals[i]=(byte)q;
 		}
 	}

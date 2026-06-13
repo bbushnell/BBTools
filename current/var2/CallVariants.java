@@ -1308,6 +1308,9 @@ public class CallVariants {
 			final SamLine sl=r.samline;
 			
 			if(samFilter!=null && !samFilter.passesFilter(sl)){return false;}
+
+			//Cap base qualities (e.g. PacBio HiFi Q93) at MAX_CALLED_QUALITY; otherwise Q>cap trips the Var asserts and hangs the worker
+			simd.Vector.capQuality(r.quality, r.bases);
 			
 			if(sl.properPair()){properlyPairedReadsProcessedT++;}
 			if(sl.hasMate()){pairedInSequencingReadsProcessedT++;}

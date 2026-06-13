@@ -4465,7 +4465,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	private static byte MIN_CALLED_QUALITY=2;
 
 	/** Maximum allowed quality score for called (ACGT) bases */
-	private static byte MAX_CALLED_QUALITY=50; //TODO: Find, replace, and test all instances of 41 (old value).
+	public static byte MAX_CALLED_QUALITY=50; //TODO: Find, replace, and test all instances of 41 (old value).
 
 	/** Maximum allowed quality score for merged reads, which otherwise would normally be very high */
 	public static byte MAX_MERGE_QUALITY=50;
