@@ -957,13 +957,15 @@ public class SamLine implements Serializable {
 			if(Tools.isLetter(c) || c=='='){
 				break;
 			}
-			len+=(len+(c-'0')*mult);
+			len+=(c-'0')*mult;
 			mult*=10;
 		}
+		//TODO: Possible bug - returns 0 for an all-clip cigar (loop ran past the start),
+		//discarding the accumulated trailing-clip length; same pattern in countTrailingHardClip.
 		if(i<0){return 0;}
 		return len;
 	}
-	
+
 	/** Length of clipped final bases.  Used to calculate correct stop location of clipped reads. */
 	public static int countTrailingHardClip(String cigar){
 		if(cigar==null){return 0;}
@@ -976,7 +978,7 @@ public class SamLine implements Serializable {
 			if(Tools.isLetter(c) || c=='='){
 				break;
 			}
-			len+=(len+(c-'0')*mult);
+			len+=(c-'0')*mult;
 			mult*=10;
 		}
 		if(i<0){return 0;}
