@@ -12,10 +12,13 @@ active sketches (e.g., per-reference or per-kmer-group tracking).
 
 Reports million adds/second for each estimator type.
 
-Usage:  speedtest2.sh buckets=2048 sim=128 card=40000000 t=8
+Usage:  speedtest2.sh mem=2k sim=128 card=40000000 t=8
 
 Parameters:
-buckets=2048    Bucket count for all estimator types.
+mem=2k          Memory budget per estimator (e.g. 2k, 1024).  Each type
+                gets the maximum bucket count that fits in this budget.
+                Overrides 'buckets' when set.
+buckets=2048    Bucket count for all estimator types (ignored when mem is set).
 sim=128         Simultaneous estimators per thread.
 card=40000000   Elements to add per estimator instance.
 t=N             Threads (default: all available cores).

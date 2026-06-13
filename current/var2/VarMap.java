@@ -142,7 +142,24 @@ public class VarMap implements Iterable<Var> {
 		}
 		return pass;
 	}
-	
+
+	/**
+	 * Tests whether a variant is solid enough to COUNT toward a neighbor's nearbyVarCount.
+	 * Independent of emission filtering: lets clearfilters emit everything while NVC still ignores
+	 * low-depth / low-AF noise. Gated by nvcmincount/nvcmaf; permissive defaults mean no effect.
+	 * @param v Variant to test
+	 * @param varFilter Filter holding the nvc thresholds
+	 * @return True if v should increment a neighbor's nearbyVarCount
+	 */
+	private static boolean countsTowardNVC(Var v, VarFilter varFilter){
+		if(v.alleleCount()<varFilter.nvcMinCount){return false;}
+		if(varFilter.nvcMaf>0){
+			final double af=v.revisedAlleleFraction==-1 ? v.alleleFraction() : v.revisedAlleleFraction;
+			if(af<varFilter.nvcMaf){return false;}
+		}
+		return true;
+	}
+
 	/**
 	 * Counts nearby variants for a specific variant position.
 	 * Scans left and right from target position to identify clustering.
@@ -171,7 +188,7 @@ public class VarMap implements Iterable<Var> {
 				//Stop if gap too large or distance too far
 				if(prev.start-v.stop>maxGap || v0.start-v.stop>maxDist){break;}
 				
-				if(!v.forced() || passesSolo(v, varFilter)){
+				if((!v.forced() || passesSolo(v, varFilter)) && countsTowardNVC(v, varFilter)){
 					nearby++;
 					prev=v; // Update for gap calculation
 				}
@@ -186,7 +203,7 @@ public class VarMap implements Iterable<Var> {
 				//Stop if gap too large or distance too far
 				if(v.start-prev.stop>maxGap || v.start-v0.stop>maxDist){break;}
 				
-				if(!v.forced() || passesSolo(v, varFilter)){
+				if((!v.forced() || passesSolo(v, varFilter)) && countsTowardNVC(v, varFilter)){
 					nearby++;
 					prev=v; // Update for gap calculation
 				}

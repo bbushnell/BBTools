@@ -1,5 +1,6 @@
 package cardinality;
 
+import parse.Parse;
 import rand.FastRandomXoshiro;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -16,6 +17,7 @@ public class SpeedTest2 {
 		CardinalityTracker.clampToAdded=false;
 
 		int buckets=2048;
+		int memBytes=0;
 		int sim=128;
 		long maxCard=40_000_000L;
 		int threads=Runtime.getRuntime().availableProcessors();
@@ -28,6 +30,7 @@ public class SpeedTest2 {
 			final String key=arg.substring(0, eq);
 			final String val=arg.substring(eq+1);
 			if(key.equals("buckets") || key.equals("b")){buckets=Integer.parseInt(val);}
+			else if(key.equals("mem")){memBytes=(int)Parse.parseKMGBinary(val);}
 			else if(key.equals("sim") || key.equals("simultaneous")){sim=Integer.parseInt(val);}
 			else if(key.equals("maxcard") || key.equals("card")){maxCard=Long.parseLong(val);}
 			else if(key.equals("threads") || key.equals("t")){threads=Integer.parseInt(val);}
@@ -38,14 +41,15 @@ public class SpeedTest2 {
 		final String[] allTypes={"avll", "exa", "udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
 		final String[] allLabels={"AVLL", "EXA", "UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
 
-		System.err.println("SpeedTest2: buckets="+buckets+" sim/thread="+sim+
-			" totalSim="+totalSim+" maxCard="+maxCard+" threads="+threads+
+		System.err.println("SpeedTest2: "+(memBytes>0 ? "mem="+memBytes : "buckets="+buckets)+
+			" sim/thread="+sim+" totalSim="+totalSim+" maxCard="+maxCard+" threads="+threads+
 			(typeFilter!=null ? " type="+typeFilter : " type=ALL"));
-		System.out.println("Type\tM_adds/s\tAvgCard\tExpectedCard\tSimultaneous");
+		System.out.println("Type\tBuckets\tM_adds/s\tAvgCard\tExpectedCard\tSimultaneous");
 
 		for(int i=0; i<allTypes.length; i++){
 			if(typeFilter!=null && !allTypes[i].equals(typeFilter)){continue;}
-			runTest(allLabels[i], allTypes[i], buckets, sim, maxCard, threads);
+			final int b=(memBytes>0 ? CardinalityTracker.memToBuckets(allTypes[i], memBytes) : buckets);
+			runTest(allLabels[i], allTypes[i], b, sim, maxCard, threads);
 		}
 	}
 
@@ -96,9 +100,9 @@ public class SpeedTest2 {
 		final double mAddsPerSec=totalAdds/elapsedSec/1e6;
 		final double avgCard=(double)cardSum.get()/totalSim;
 
-		System.out.printf("%s\t%.1f\t%.0f\t%d\t%d%n", label, mAddsPerSec, avgCard, maxCard, totalSim);
-		System.err.printf("  %s: %.1f M adds/s (%.1f s, avg card=%.0f, %d simultaneous)%n",
-			label, mAddsPerSec, elapsedSec, avgCard, totalSim);
+		System.out.printf("%s\t%d\t%.1f\t%.0f\t%d\t%d%n", label, buckets, mAddsPerSec, avgCard, maxCard, totalSim);
+		System.err.printf("  %s: %d buckets, %.1f M adds/s (%.1f s, avg card=%.0f, %d simultaneous)%n",
+			label, buckets, mAddsPerSec, elapsedSec, avgCard, totalSim);
 	}
 
 }

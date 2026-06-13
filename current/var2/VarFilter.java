@@ -95,7 +95,14 @@ public class VarFilter {
 			nearbyGap=Parse.parseIntKMG(b);
 			assert(nearbyGap>=0); //0 means on top of each other
 		}
-		
+
+		//Bootstrapping: gate which variants COUNT toward a neighbor's NVC, independent of emission filters
+		else if(a.equals("nvcmincount") || a.equals("nvcminreads") || a.equals("nvcminad")){
+			nvcMinCount=Parse.parseIntKMG(b);
+		}else if(a.equals("nvcmaf") || a.equals("nvcminallelefraction")){
+			nvcMaf=Double.parseDouble(b);
+		}
+
 		else if(a.equals("rarity")){
 			rarity=Double.parseDouble(b);
 			assert(rarity>=0 && rarity<=1);
@@ -140,6 +147,8 @@ public class VarFilter {
 		
 		maxNearbyCount=-1;
 		failNearby=false;
+		nvcMinCount=-1;
+		nvcMaf=0;
 	}
 	
 	/**
@@ -342,7 +351,12 @@ public class VarFilter {
 	public int maxNearbyCount=1;
 	public int nearbyDist=20;
 	public int nearbyGap=2;
-	
+
+	//NVC counting thresholds (bootstrapping): a variant counts toward a neighbor's nearbyVarCount only
+	//if it clears these, independent of emission filters. Permissive defaults => controlled solely by normal filters.
+	public int nvcMinCount=-1;
+	public double nvcMaf=0;
+
 	public boolean flagNearby=false;
 	public boolean failNearby=false;
 	public boolean penalizeNearby=false;
