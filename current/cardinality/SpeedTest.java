@@ -1,5 +1,6 @@
 package cardinality;
 
+import parse.Parse;
 import rand.FastRandomXoshiro;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,6 +17,7 @@ public class SpeedTest {
 		CardinalityTracker.clampToAdded=false;
 
 		int buckets=2048;
+		int memBytes=0;
 		int numEstimators=16384;
 		long maxCard=40_000_000L;
 		int threads=Runtime.getRuntime().availableProcessors();
@@ -28,6 +30,7 @@ public class SpeedTest {
 			final String key=arg.substring(0, eq);
 			final String val=arg.substring(eq+1);
 			if(key.equals("buckets") || key.equals("b")){buckets=Integer.parseInt(val);}
+			else if(key.equals("mem")){memBytes=(int)Parse.parseKMGBinary(val);}
 			else if(key.equals("estimators") || key.equals("e")){numEstimators=Integer.parseInt(val);}
 			else if(key.equals("maxcard") || key.equals("card")){maxCard=Long.parseLong(val);}
 			else if(key.equals("threads") || key.equals("t")){threads=Integer.parseInt(val);}
@@ -37,13 +40,14 @@ public class SpeedTest {
 		final String[] types={"avll", "exa", "udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
 		final String[] labels={"AVLL", "EXA", "UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
 
-		System.err.println("SpeedTest: buckets="+buckets+" estimators="+numEstimators+
-			" maxCard="+maxCard+" threads="+threads);
-		System.out.println("Type\tM_adds/s\tAvgCard\tExpectedCard");
+		System.err.println("SpeedTest: "+(memBytes>0 ? "mem="+memBytes : "buckets="+buckets)+
+			" estimators="+numEstimators+" maxCard="+maxCard+" threads="+threads);
+		System.out.println("Type\tBuckets\tM_adds/s\tAvgCard\tExpectedCard");
 
 		for(int i=0; i<types.length; i++){
 			if(typeFilter!=null && !types[i].equals(typeFilter)){continue;}
-			runTest(labels[i], types[i], buckets, numEstimators, maxCard, threads);
+			final int b=(memBytes>0 ? CardinalityTracker.memToBuckets(types[i], memBytes) : buckets);
+			runTest(labels[i], types[i], b, numEstimators, maxCard, threads);
 		}
 	}
 
@@ -85,9 +89,9 @@ public class SpeedTest {
 		final double mAddsPerSec=totalAdds/elapsedSec/1e6;
 		final double avgCard=(double)cardSum.get()/numEstimators;
 
-		System.out.printf("%s\t%.1f\t%.0f\t%d%n", label, mAddsPerSec, avgCard, maxCard);
-		System.err.printf("  %s: %.1f M adds/s (%.1f s, avg card=%.0f)%n",
-			label, mAddsPerSec, elapsedSec, avgCard);
+		System.out.printf("%s\t%d\t%.1f\t%.0f\t%d%n", label, buckets, mAddsPerSec, avgCard, maxCard);
+		System.err.printf("  %s: %d buckets, %.1f M adds/s (%.1f s, avg card=%.0f)%n",
+			label, buckets, mAddsPerSec, elapsedSec, avgCard);
 	}
 
 }

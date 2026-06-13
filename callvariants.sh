@@ -141,6 +141,14 @@ minid=0                 Ignore variants with lower average read identity.
 minscore=20.0           Ignore variants with lower Phred-scaled score.
 clearfilters            Clear all filters.  Filter flags placed after
                         the clearfilters flag will still be applied.
+nvcmincount=-1          Only nearby variants with at least this many reads
+                        count toward NVC (the nearby-variant-count NN feature),
+                        independent of emission filters.  Lets clearfilters
+                        emit everything while NVC ignores low-depth noise.
+                        -1 disables (count all); useful for bootstrapping vectors.
+nvcmaf=0                Only nearby variants with at least this allele fraction
+                        count toward NVC.  0 disables.  Set higher for
+                        haploid-called sets.
 
 There are additionally max filters for score, quality, mapq, allelefraction,
 and identity.
