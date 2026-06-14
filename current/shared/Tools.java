@@ -126,7 +126,7 @@ public final class Tools {
 		final int minIndex, maxIndex;
 		minIndex=(int)Math.round(lowFraction*n0);
 		maxIndex=(int)Math.round(highFraction*n0);
-		int n=maxIndex-minIndex+1;
+		int n=maxIndex-minIndex;//FIXED [shared/Tools#001]: was +1, but the loop sums [minIndex,maxIndex) = (maxIndex-minIndex) points; n must equal that count for the least-squares formula.
 		
 		for(int i=minIndex; i<maxIndex; i++) {
 			final Point p=list.get(i);
@@ -1354,7 +1354,7 @@ public final class Tools {
 	 * @param s Byte array to convert (modified in-place)
 	 */
 	public static void toUpperCase(byte[] s) {
-		for(int i=0; i<s.length; i++) {s[i]=toUpperCase(s[i]);}
+		Vector.toUpperCase(s);//Delegates to SIMD-accelerated Vector.toUpperCase (same AminoAcid.toUpperCase table; null-safe).
 	}
 
 	/**
@@ -1384,15 +1384,15 @@ public final class Tools {
 	}
 	
 	/** Tests if character is digit or sign using lookup table */
-	public static boolean isDigitOrSign(int c) {return c<0 ? false : signOrDigitMap[c];}
+	public static boolean isDigitOrSign(int c) {return (c<0 || c>127) ? false : signOrDigitMap[c];}//[shared/Tools#002]
 	/** Tests if character is numeric using lookup table */
-	public static boolean isNumeric(int c) {return c<0 ? false : numericMap[c];}
+	public static boolean isNumeric(int c) {return (c<0 || c>127) ? false : numericMap[c];}//[shared/Tools#002]
 	/** Tests if character is digit (0-9) */
 	public static boolean isDigit(int c) {return c>='0' && c<='9';}
 	/** Tests if character is letter using lookup table */
-	public static boolean isLetter(int c) {return c<0 ? false : letterMap[c];}
+	public static boolean isLetter(int c) {return (c<0 || c>127) ? false : letterMap[c];}//[shared/Tools#002]
 	/** Tests if character is letter or digit */
-	public static boolean isLetterOrDigit(int c) {return c<0 ? false : isDigit(c) || letterMap[c];}
+	public static boolean isLetterOrDigit(int c) {return (c<0 || c>127) ? false : isDigit(c) || letterMap[c];}//[shared/Tools#002]
 	/** Tests if character is uppercase (A-Z) */
 	public static boolean isUpperCase(int c) {return c>='A' && c<='Z';}
 	/** Tests if character is lowercase (a-z) */
@@ -1430,7 +1430,7 @@ public final class Tools {
 	/** Tests if char is letter using lookup table */
 	public static boolean isLetter(char c) {return c>127 ? false : letterMap[c];}
 	/** Tests if char is letter or digit */
-	public static boolean isLetterOrDigit(char c) {return c<0 ? false : isDigit(c) || letterMap[c];}
+	public static boolean isLetterOrDigit(char c) {return c>127 ? false : isDigit(c) || letterMap[c];}//FIXED [shared/Tools#002]: was c<0 (never true for char) - inconsistent with sibling char overloads; maps are size 128 so c>=128 would AIOOBE.
 	/** Tests if char is uppercase (A-Z) */
 	public static boolean isUpperCase(char c) {return c>='A' && c<='Z';}
 	/** Tests if char is lowercase (a-z) */
@@ -1521,8 +1521,9 @@ public final class Tools {
 
 		double mult=1;
 		if(ff.compressed()){
+			//FIXED [shared/Tools#003]: was a standalone "if(ff.bam()){mult=6;}" followed by "if(ff.fasta()){mult=5;}else{mult=4;}" - for BAM the 6 was overwritten to 4 by the else (BAM is not FASTA).  Chained to else-if so BAM keeps 6.
 			if(ff.bam()){mult=6;}
-			if(ff.fasta()){mult=5;}
+			else if(ff.fasta()){mult=5;}
 			else{mult=4;}
 		}
 
@@ -1936,6 +1937,7 @@ public final class Tools {
 		int trailingNs=0;
 		for(int i=array.length-1; i>=0; i--){
 			if(array[i]=='N'){trailingNs++;}
+			else{break;}//FIXED [shared/Tools#004]: without this break the loop counted ALL Ns (including internal ones, e.g. from degenerate bases converted to N above), not just trailing ones, so Arrays.copyOf truncated real bases off the end.
 		}
 		if(trailingNs>0){
 			array=Arrays.copyOf(array, array.length-trailingNs);
@@ -3624,13 +3626,7 @@ public final class Tools {
 	/** Reverses byte array elements in-place.
 	 * @param array Byte array to reverse */
 	public static void reverseInPlace(final byte[] array){
-		if(array==null){return;}
-		final int max=array.length/2, last=array.length-1;
-		for(int i=0; i<max; i++){
-			byte temp=array[i];
-			array[i]=array[last-i];
-			array[last-i]=temp;
-		}
+		Vector.reverseInPlace(array);//Delegates to SIMD-accelerated Vector.reverseInPlace (identical reverse; null-safe).
 	}
 	
 	/** Reverses char array elements in-place.
@@ -4224,7 +4220,7 @@ public final class Tools {
 		if(total<=0){
 			total=0;
 			for(int i=1; i<counts.length; i++){
-				total+=(i*counts[i]);
+				total+=((long)i*counts[i]);//FIXED [shared/Tools#005]: i*counts[i] was computed as int and could overflow before widening to long total.
 			}
 		}
 		
@@ -4243,7 +4239,7 @@ public final class Tools {
 		for(int i=0; i<buckets; i++){
 			long nextLimit=((total*i)+buckets/2)/buckets;
 			while(ptr<counts.length && sum<nextLimit){
-				sum+=counts[ptr]*ptr;
+				sum+=(long)counts[ptr]*ptr;//FIXED [shared/Tools#005]: counts[ptr]*ptr was int*int and overflowed (e.g. ~15M reads at length 150) before widening to long sum, corrupting the percentile-bucket boundaries.
 				ptr++;
 			}
 			
@@ -4663,7 +4659,7 @@ public final class Tools {
 	 */
 	public static final int stringLength(long x){
 		if(x<0){
-			if(x==Integer.MIN_VALUE){return 11;}
+			if(x==Long.MIN_VALUE){return 20;}//FIXED [shared/Tools#006]: was Integer.MIN_VALUE/11; the long version must special-case Long.MIN_VALUE (where -x overflows), which stringifies to 20 chars.
 			return lengthOf(-x)+1;
 		}
 		return lengthOf(x);
@@ -4676,7 +4672,7 @@ public final class Tools {
 	 */
 	public static final int stringLength(int x){
 		if(x<0){
-			if(x==Long.MIN_VALUE){return 20;}
+			if(x==Integer.MIN_VALUE){return 11;}//FIXED [shared/Tools#006]: was Long.MIN_VALUE/20 (impossible for an int, so the guard never fired and -x overflowed); must special-case Integer.MIN_VALUE, which stringifies to 11 chars.
 			return lengthOf(-x)+1;
 		}
 		return lengthOf(x);
@@ -4709,7 +4705,7 @@ public final class Tools {
 	/** Returns the maximum value in a byte array */
 	public static final byte max(byte[] array){return array[maxIndex(array)];}
 	/** Returns the maximum value in a float array */
-	public static final float max(float[] array){return array[maxIndex(array)];}
+	public static final float max(float[] array){return Vector.max(array);}//Delegates to SIMD-accelerated Vector.max.
 	
 	/**
 	 * Finds the index of the maximum value in a byte array.
@@ -4757,7 +4753,7 @@ public final class Tools {
 	}
 
 	/** Returns the maximum value in an int array */
-	public static final int max(int[] array){return array[maxIndex(array)];}
+	public static final int max(int[] array){return Vector.max(array);}//Delegates to SIMD-accelerated Vector.max (was array[maxIndex(array)]; Vector.max(null) returns 0 rather than NPE).
 	
 	/**
 	 * Finds the index of the maximum value in an int array.
@@ -4773,7 +4769,7 @@ public final class Tools {
 	}
 
 	/** Returns the maximum value in a long array */
-	public static final long max(long[] array){return array[maxIndex(array)];}
+	public static final long max(long[] array){return Vector.max(array);}//Delegates to SIMD-accelerated Vector.max.
 	
 	/**
 	 * Finds the index of the maximum value in a long array.
@@ -5323,7 +5319,7 @@ public final class Tools {
 	 */
 	public static int minIndex(int[] array) {
 		if(array==null || array.length<1){return -1;}
-		float min=array[0];
+		int min=array[0];//FIXED [shared/Tools#007]: was 'float min' - int values above 2^24 lose precision as float, yielding the wrong min index; sibling maxIndex(int[]) correctly uses int.
 		int index=0;
 		for(int i=1; i<array.length; i++){
 			if(array[i]<min){
@@ -5729,6 +5725,7 @@ public final class Tools {
 		specialChars[166]='a';
 		specialChars[167]='o';
 		specialChars[168]='?';
+		//TODO: Possible bug [shared/Tools#008] - specialChars[224] is assigned twice; the 'a' is immediately overwritten by 'B'.  Likely the second assignment was meant for a different index (e.g. 225, sharp-s -> 'B').  Cosmetic (extended-ASCII header sanitization); left unfixed - intended index uncertain.
 		specialChars[224]='a';
 		specialChars[224]='B';
 		specialChars[230]='u';

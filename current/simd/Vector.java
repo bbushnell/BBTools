@@ -662,7 +662,7 @@ public final class Vector {
 	 */
 	public static long sum(int[] array, int from, int to){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN32) {return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(int[],from,to) honors arbitrary ranges.
 		long x=0;
 		for(int i=from; i<=to; i++){x+=array[i];}
 		return x;
@@ -678,7 +678,7 @@ public final class Vector {
 	 */
 	public static long sum(long[] array, int from, int to){
 		if(array==null){return 0;}
-		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, 0, array.length-1);}
+		if(Shared.SIMD && array.length>=MINLEN64) {return SIMD.sum(array, from, to);}//FIXED [simd/Vector#001]: SIMD path passed (0, array.length-1), ignoring from/to, so it silently summed the WHOLE array.  SIMD.sum(long[],from,to) honors arbitrary ranges.
 		long x=0;
 		for(int i=from; i<=to; i++){x+=array[i];}
 		return x;

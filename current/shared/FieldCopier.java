@@ -3,6 +3,7 @@ package shared;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 
 /**
@@ -40,13 +41,18 @@ public class FieldCopier {
 		Map<String, Field> destFields=getAllFields(dest.getClass(), includeSuperclass);
 		Class<?> sourceClass=source.getClass();
 		int matches=0;
-		
+		final HashSet<String> seenSourceNames=new HashSet<String>();//[FieldCopier#001] names already claimed by a more-derived declaration
+
 		while(sourceClass!=null && sourceClass!=Object.class) {
 			Field[] fields=sourceClass.getDeclaredFields();
 			
 			for(Field srcField : fields) {
 				try {
 					String name=srcField.getName();
+					//FIXED [shared/FieldCopier#001]: use only the most-derived (subclass) declaration of each name, so a SHADOWED field resolves "subclass wins" (consistent with getAllFields' dest-side dedup) and is counted once - previously the source walk re-set the dest field at every level, so the superclass value won and 'matches' double-counted.  NOTE: a shadowed SUPERCLASS field is therefore NOT copied; if BOTH shadowed fields genuinely need copying, this is insufficient.  Shadowed fields are a caller bug, so we also assert none exist (cheap - reuses the set).
+					final boolean fresh=seenSourceNames.add(name);
+					assert(fresh) : "FieldCopier: shadowed field '"+name+"' in "+source.getClass()+" (same name declared at multiple hierarchy levels).";
+					if(!fresh){continue;}
 					int srcMods=srcField.getModifiers();
 					
 					// 1. Source Filter: Skip Statics unless requested
