@@ -284,7 +284,8 @@ public class Shared {
 		Map<String, String> map=System.getenv();
 		String v=map.get(key);
 		if(value==null || v==null){return v==value;}
-		return loose ? v.contains(value.toLowerCase()) : value.equalsIgnoreCase(v);
+		//FIXED [shared/Shared#001]: loose match previously lowercased only the needle (value), not the haystack (v), making it case-SENSITIVE on the env value despite the "case-insensitive" javadoc - so "Windows_NT".contains("win")==false caused WINDOWS to mis-detect as false on native Windows.  Now folds both sides.
+		return loose ? v.toLowerCase().contains(value.toLowerCase()) : value.equalsIgnoreCase(v);
 	}
 
 	/**

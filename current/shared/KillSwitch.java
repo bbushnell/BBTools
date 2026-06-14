@@ -62,6 +62,7 @@ public final class KillSwitch extends Thread {
 	 */
 	public static synchronized boolean launch(double seconds, double load){
 		if(count>0){return false;}
+		count++;//FIXED [shared/KillSwitch#001]: 'count' was never incremented anywhere, so this guard was dead - launch() could never return false and never enforced the documented single-instance contract.  Increment on successful launch.
 		ks=new KillSwitch(seconds, load);
 		ks.setDaemon(true);//Crucial!  Allows termination when this is running.
 		ks.start();
