@@ -327,7 +327,7 @@ public final class DedupeProtein {
 			}
 		}
 		
-		comparator.setAscending(ascending);
+		comparator=comparator.getComparator(ascending);
 		
 		{//Process parser fields
 			Parser.processQuality();

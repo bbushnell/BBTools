@@ -387,8 +387,7 @@ public class KmerCompressor {
 			bsw.start();
 			if(allContigs!=null){
 //				Shared.sort(allContigs, ReadComparatorID.comparator);
-				ReadLengthComparator.comparator.setAscending(false);
-				Shared.sort(allContigs, ContigLengthComparator.comparator);
+				Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
 				fuse(allContigs, fuse);
 				for(int i=0; i<allContigs.size(); i++){
 					Contig r=allContigs.get(i);

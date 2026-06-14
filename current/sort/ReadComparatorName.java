@@ -11,8 +11,8 @@ import stream.Read;
  */
 public final class ReadComparatorName extends ReadComparator {
 	
-	/** Private constructor; use the static comparator instance. */
-	private ReadComparatorName(){}
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorName(int mult_){mult=mult_;}
 	
 	/**
 	 * Compares two reads for sorting by name/ID.
@@ -25,7 +25,7 @@ public final class ReadComparatorName extends ReadComparator {
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
-		return ascending*x;
+		return mult*x;
 	}
 	
 	/**
@@ -45,22 +45,22 @@ public final class ReadComparatorName extends ReadComparator {
 		return x;
 	}
 	
-	/** Sort direction multiplier: 1 for ascending, -1 for descending. */
-	private int ascending=1;
-	
-	/** Sets the sort order direction.
-	 * @param asc true for ascending order, false for descending */
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Name";}
 
-	/** Singleton instance for name-based read comparison. */
-	public static final ReadComparatorName comparator=new ReadComparatorName();
+	/** Ascending-order singleton. */
+	public static final ReadComparatorName ascending=new ReadComparatorName(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorName descending=new ReadComparatorName(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorName comparator=ascending;
 	
 }

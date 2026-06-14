@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by UMP45
-Last modified June 8, 2026
+Last modified June 13, 2026
 
 Description:  Grades a VCF against a truth set and produces concordance metrics
 and cumulative histograms.  Replaces a multi-step filtervcf+comparevcf pipeline
@@ -35,8 +35,16 @@ cutoff=         Alias for netcutoff=.
 includescore=f  Include composite score in NN input vector.
 
 Histogram output:
-histnn=<file>   Write cumulative NN score histogram (threshold, TP, FP, FN).
-histqual=<file> Write cumulative QUAL histogram (threshold, TP, FP, FN).
+histnn=<file>   Write the NN score histogram (raw per-bin counts, then cumulative
+                threshold/TP/FP/FN) at 0.002 resolution over 0-2.0.
+histqual=<file> Write the QUAL histogram (raw per-bin counts, then cumulative
+                threshold/TP/FP/FN) at 0.1 resolution over 0-60.
+
+Operating-point parameters:
+crossover=0     If >0, also report the cutoff at the FN=crossover*FP operating
+                point (e.g. crossover=4 -> the FN=4*FP point) for BOTH the QUAL and
+                NN score axes, plus FP, FN, and FP+FN there.  Emitted as
+                CROSSOVER_QUAL / CROSSOVER_NN lines.  0 (default) disables.
 
 Variant-quality pre-filtering parameters:
 minreads=0              Ignore variants seen in fewer reads.

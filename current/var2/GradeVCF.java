@@ -132,6 +132,8 @@ public class GradeVCF {
 				histNNFile=b;
 			}else if(a.equals("histqual") || a.equals("qualhist")){
 				histQualFile=b;
+			}else if(a.equals("crossover") || a.equals("xover")){
+				crossover=Double.parseDouble(b);
 			}else if(a.equals("clearfilters")){
 				if(Parse.parseBoolean(b)){
 					varFilter.clear();
@@ -467,8 +469,8 @@ public class GradeVCF {
 				}
 			}else{
 				// FP: a call that matches no truth. Counted directly, per call, at its score.
-				if(net!=null && nnScore>=0){histNNFalseT[Tools.mid(0, (int)(nnScore*100), NN_BINS-1)]+=weight;}
-				histQualFalseT[Tools.mid(0, (int)(qualScore*4), QUAL_BINS-1)]+=weight;
+				if(net!=null && nnScore>=0){histNNFalseT[Tools.mid(0, (int)(nnScore*NN_SCALE), NN_BINS-1)]+=weight;}
+				histQualFalseT[Tools.mid(0, (int)(qualScore*QUAL_SCALE), QUAL_BINS-1)]+=weight;
 			}
 
 			// Optional passing-call output VCF, gated by the configured operating point.
@@ -535,8 +537,8 @@ public class GradeVCF {
 			final double w=weightFor(e.getKey());
 			float[] sc=e.getValue();
 			float maxNN=sc[0], maxQual=sc[1];
-			if(net0!=null && maxNN>=0){histNNTruth[Tools.mid(0, (int)(maxNN*100), NN_BINS-1)]+=w;}
-			histQualTruth[Tools.mid(0, (int)(maxQual*4), QUAL_BINS-1)]+=w;
+			if(net0!=null && maxNN>=0){histNNTruth[Tools.mid(0, (int)(maxNN*NN_SCALE), NN_BINS-1)]+=w;}
+			histQualTruth[Tools.mid(0, (int)(maxQual*QUAL_SCALE), QUAL_BINS-1)]+=w;
 			weightedMarked+=w;
 		}
 
@@ -559,7 +561,7 @@ public class GradeVCF {
 		double fpOp=0;
 		{
 			double[] falseHist=(nnMode ? histNNFalse : histQualFalse);
-			double binScale=(nnMode ? 100.0 : 4.0);
+			double binScale=(nnMode ? NN_SCALE : QUAL_SCALE);
 			int bins=(nnMode ? NN_BINS : QUAL_BINS);
 			for(int bin=0; bin<bins; bin++){
 				if(bin/binScale>=opThresh){fpOp+=falseHist[bin];}
@@ -591,8 +593,22 @@ public class GradeVCF {
 		outstream.printf("FPR:       \t%.6f%n", fpr);
 		outstream.printf("FNR:       \t%.6f%n", fnr);
 
-		if(histNNFile!=null){writeHist(histNNFile, histNNTruth, histNNFalse, NN_BINS, 100.0, "NN_score", callerMissed);}
-		if(histQualFile!=null){writeHist(histQualFile, histQualTruth, histQualFalse, QUAL_BINS, 4.0, "QUAL", callerMissed);}
+		// FN=crossover*FP operating-point report (e.g. crossover=4 -> the FN=4*FP cutoff). Lets each eval job
+		// read the optimal cutoff + FP+FN straight from GradeVCF instead of post-processing the histogram.
+		if(crossover>0){
+			outstream.println();
+			double[] qx=findCrossover(histQualTruth, histQualFalse, QUAL_BINS, QUAL_SCALE, crossover, weightedTruthSize);
+			outstream.printf("CROSSOVER_QUAL\tFN=%.1fxFP\tcutoff=%.4f\tFP=%.2f\tFN=%.2f\tFP+FN=%.2f%n",
+					crossover, qx[0], qx[1], qx[2], qx[1]+qx[2]);
+			if(nnMode){
+				double[] nx=findCrossover(histNNTruth, histNNFalse, NN_BINS, NN_SCALE, crossover, weightedTruthSize);
+				outstream.printf("CROSSOVER_NN\tFN=%.1fxFP\tcutoff=%.4f\tFP=%.2f\tFN=%.2f\tFP+FN=%.2f%n",
+						crossover, nx[0], nx[1], nx[2], nx[1]+nx[2]);
+			}
+		}
+
+		if(histNNFile!=null){writeHist(histNNFile, histNNTruth, histNNFalse, NN_BINS, NN_SCALE, "NN_score", callerMissed);}
+		if(histQualFile!=null){writeHist(histQualFile, histQualTruth, histQualFalse, QUAL_BINS, QUAL_SCALE, "QUAL", callerMissed);}
 
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
@@ -646,12 +662,38 @@ public class GradeVCF {
 		errorState|=bsw.poisonAndWait();
 	}
 
+	/**
+	 * Finds the operating point on one score axis where FN ~= crossover*FP, scanning the cumulative
+	 * histogram high->low. Returns {cutoff, FP, FN} at the bin minimizing |FN - crossover*FP|.
+	 * (crossover=4 -> the FN=4*FP point: four false-negatives tolerated per false-positive.)
+	 */
+	private static double[] findCrossover(double[] trueCounts, double[] falseCounts, int bins,
+			double binScale, double crossover, double weightedTruthSize){
+		double cumTP=0, cumFP=0;
+		double bestCutoff=0, bestFP=0, bestFN=weightedTruthSize, bestDiff=Double.MAX_VALUE;
+		for(int bin=bins-1; bin>=0; bin--){
+			cumTP+=trueCounts[bin];
+			cumFP+=falseCounts[bin];
+			final double fp=cumFP;
+			final double fn=weightedTruthSize-cumTP;
+			final double diff=Math.abs(fn-crossover*fp);
+			if(diff<bestDiff){bestDiff=diff; bestCutoff=bin/binScale; bestFP=fp; bestFN=fn;}
+		}
+		return new double[]{bestCutoff, bestFP, bestFN};
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Fields             ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final int NN_BINS=101;
-	private static final int QUAL_BINS=241;
+	// Histogram resolution. NN axis: bin=(int)(nn*NN_SCALE), step 1/NN_SCALE=0.002, range 0..2.0 -> 1001 bins
+	// (the net output exceeds 1.0 -- graded labels reach 1.45 -- so the FN=k*FP cutoff can lie above 1.0; the
+	// extra headroom keeps high-scoring FPs separable from even-higher TPs).
+	// QUAL axis: bin=(int)(qual*QUAL_SCALE), step 1/QUAL_SCALE=0.1, range 0..60 -> 601 bins.
+	private static final double NN_SCALE=500.0;
+	private static final double QUAL_SCALE=10.0;
+	private static final int NN_BINS=1001;
+	private static final int QUAL_BINS=601;
 
 	private long linesProcessed=0;
 	private long bytesProcessed=0;
@@ -676,6 +718,9 @@ public class GradeVCF {
 	private float netCutoff=0.5f;
 
 	double minScore=0;
+	// FN=crossover*FP operating point. 0 (default) = off. When >0, GradeVCF reports the QUAL and NN
+	// cutoffs at that point and the FP+FN there, so each eval reads the answer instead of post-processing.
+	double crossover=0;
 	public int ploidy=1;
 	public float properPairRate=0;
 	public float totalQualityAvg=30;

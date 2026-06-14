@@ -14,12 +14,16 @@ import stream.Read;
  */
 public abstract class ReadComparator implements Comparator<Read> {
 	
-	public abstract void setAscending(boolean asc);
-	
+	/** @return the directional singleton for the requested order (ascending if true, else descending). */
+	public abstract ReadComparator getComparator(boolean ascending);
+
+	/** @return true if this comparator currently sorts in ascending order. */
 	public final boolean ascending() {return ascendingMult()>0;}
-	
+
+	/** @return the direction multiplier: +1 for ascending, -1 for descending. */
 	public abstract int ascendingMult();
-	
+
+	/** @return a short human-readable name for this sort order. */
 	public abstract String name();
 	
 }

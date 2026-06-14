@@ -27,8 +27,8 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	 */
 	public CrisContainer(String fname, Comparator<Read> comparator_, boolean allowSubprocess){
 		comparator=comparator_;
-		genKmer=(comparator==ReadComparatorTopological5Bit.comparator);
-		clump=(comparator==ReadComparatorClump.comparator);
+		genKmer=(comparator.getClass()==ReadComparatorTopological5Bit.class);
+		clump=(comparator.getClass()==ReadComparatorClump.class);
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, allowSubprocess, true);
 		cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null, null, null);
 //		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
@@ -44,8 +44,8 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	 */
 	public CrisContainer(ConcurrentReadInputStream cris_, Comparator<Read> comparator_){
 		comparator=comparator_;
-		genKmer=(comparator==ReadComparatorTopological5Bit.comparator);
-		clump=(comparator==ReadComparatorClump.comparator);
+		genKmer=(comparator.getClass()==ReadComparatorTopological5Bit.class);
+		clump=(comparator.getClass()==ReadComparatorClump.class);
 		cris=cris_;
 //		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
 		fetch();

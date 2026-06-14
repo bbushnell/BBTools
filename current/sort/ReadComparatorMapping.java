@@ -85,6 +85,8 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		}
 	}
 	
+	/** Position-level comparison: mapped before unmapped, then chromosome, strand, and coordinate
+	 * (start on the plus strand, stop on the minus), then paired before unpaired. */
 	public int compare2(Read a, Read b) {//TODO: This could all be packed in a long (the ID).
 		if(a.mapped() && !b.mapped()){return -1;}
 		if(b.mapped() && !a.mapped()){return 1;}
@@ -102,6 +104,8 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
+	/** Position-level comparison between a read and its mate's counterpart, used when only one
+	 * end of a pair is mapped. */
 	public int compareCross(Read a, Read b) {
 		if(a.mapped() && !b.mapped()){return -1;}
 		if(b.mapped() && !a.mapped()){return 1;}
@@ -120,6 +124,8 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
+	/** Secondary comparison for reads at the same position: longer first, then perfect-match,
+	 * then match string, then coordinate, then quality (higher first), numericID, and string id. */
 	public int compare3(Read a, Read b){
 		if(a.length()!=b.length()){
 			return b.length()-a.length(); //Preferentially puts longer reads first
@@ -148,6 +154,7 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return a.id.compareTo(b.id);
 	}
 	
+	/** Lexicographically compares two byte arrays to the shorter length; null sorts after non-null. */
 	public int compareVectors(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -162,6 +169,8 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 	
+	/** Compares two alignment match strings, ordering by the first position whose insertion/deletion
+	 * status differs (insertions, then deletions, sort later). */
 	public int compareMatchStrings(final byte[] a, final byte[] b){
 		if(a==null || b==null){
 			if(a==null && b!=null){return 1;}
@@ -182,6 +191,8 @@ public class ReadComparatorMapping implements Comparator<Read> {
 		return 0;
 	}
 
+	/** When true, paired reads are expected on the same strand (alters strand handling in the position
+	 * comparisons); currently unsupported and guarded by asserts. */
 	public static boolean SAME_STRAND_PAIRS=false;
 	
 }

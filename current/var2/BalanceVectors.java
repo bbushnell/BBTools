@@ -45,6 +45,14 @@ import structures.IntList;
  * <p>With {@code noscore} (default true) the composite-score column (29) is zeroed on output,
  * forcing the network to learn its own scoring rather than copy the existing score.
  *
+ * <p>With {@code depth1count}&gt;0, depth-1 variants (allelic depth AD==1, recovered from vector
+ * column 9) are handled as a SEPARATE category: they are pulled out of the standard pos/neg pools
+ * (so the stratified balancing above applies only to AD&ge;2), then sampled at their natural
+ * true/false frequency up to {@code depth1count} rows -- enriched to a {@code depth1floor} positive
+ * fraction (default 1%) only when the natural positive rate is below it -- and appended to the
+ * balanced AD&ge;2 set before the train/val split.  {@code depth1count=0} (default) restores the
+ * original behavior (AD==1 balanced together with everything else).
+ *
  * <p>This is the Java, reproducible counterpart of the Python prototype balancer; the column
  * indices below are bound to {@link VectorUMP45}'s 33-feature layout.
  *
@@ -92,6 +100,8 @@ public class BalanceVectors {
 			else if(a.equals("noscore")){noScore=Parse.parseBoolean(b);}
 			else if(a.equals("seed")){seed=Long.parseLong(b);}
 			else if(a.equals("quota")){quotaOverride=Integer.parseInt(b);}
+			else if(a.equals("depth1count") || a.equals("d1count")){depth1Count=Integer.parseInt(b);}
+			else if(a.equals("depth1floor") || a.equals("d1floor")){depth1Floor=Double.parseDouble(b);}
 			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -127,6 +137,10 @@ public class BalanceVectors {
 		final ArrayList<byte[]> pos=new ArrayList<byte[]>();
 		final ArrayList<byte[]> neg=new ArrayList<byte[]>();
 
+		//Depth-1 (AD==1) variants, gathered separately when depth1Count>0 (sampled, not balanced)
+		final ArrayList<byte[]> d1pos=new ArrayList<byte[]>();
+		final ArrayList<byte[]> d1neg=new ArrayList<byte[]>();
+
 		//Category buckets: key -> list of negative indices
 		final HashMap<String, IntList> existing=new HashMap<String, IntList>();
 		final HashMap<String, IntList> newc=new HashMap<String, IntList>();
@@ -140,6 +154,10 @@ public class BalanceVectors {
 			linesIn++;
 			parseFields(line, f);
 			final float label=f[f.length-1];
+			if(depth1Count>0 && recoverAD(f)==1){//Route depth-1 aside; not run through standard balancing
+				if(label>0.5f){d1pos.add(line);}else{d1neg.add(line);}
+				continue;
+			}
 			if(label>0.5f){
 				pos.add(line);
 			}else{
@@ -184,22 +202,47 @@ public class BalanceVectors {
 			outstream.println("Representative fill: "+take+" (of "+fill+" requested, pool="+pool.size()+").");
 		}
 
-		//Combine kept positives + chosen negatives, then shuffle
-		final ArrayList<byte[]> combined=new ArrayList<byte[]>(pos.size()+(int)targetNeg);
+		//Combine kept positives + chosen negatives (the depth-2+ balanced portion)
+		final ArrayList<byte[]> combined=new ArrayList<byte[]>(pos.size()+(int)targetNeg+depth1Count);
 		combined.addAll(pos);
 		long negKept=0;
 		for(int i=0; i<neg.size(); i++){
 			if(chosen[i]){combined.add(neg.get(i)); negKept++;}
 		}
+		outstream.println("Depth-2+ balanced: "+pos.size()+" pos + "+negKept+" neg = "+combined.size()+
+			" ("+String.format("%.3f", pos.size()/(double)Math.max(1, combined.size()))+" positive)"+
+			(noScore ? "  [score col zeroed]" : ""));
+
+		//Depth-1 (AD==1): sampled independently at natural pos/neg frequency, enriched to the depth1Floor
+		//positive fraction ONLY if the natural positive rate is below it; NOT run through standard balancing.
+		if(depth1Count>0){
+			final long avail=d1pos.size()+d1neg.size();
+			final double natFrac=(avail>0 ? d1pos.size()/(double)avail : 0);
+			long npos=Math.round(depth1Count*natFrac);
+			if(natFrac<depth1Floor){npos=Math.round(depth1Floor*depth1Count);}//enrich only when natural < floor
+			npos=Math.min(npos, d1pos.size());
+			final long baseNneg=depth1Count-npos;//baseline depth-1 negatives for this dataset (the floor)
+			//Backfill: when the AD>=2 negative pool fell short of the 30/70 target (low depth), make up the
+			//shortfall with EXTRA depth-1 negatives so positivity stays constant across depths.  Only negatives
+			//backfill -- never positives -- so the net does not learn that low depth is more likely positive.
+			final long deficit=Math.max(0, targetNeg-negKept);
+			long nneg=Math.min(baseNneg+deficit, d1neg.size());
+			sampleInto(combined, d1pos, (int)npos, randy);
+			sampleInto(combined, d1neg, (int)nneg, randy);
+			outstream.println("Depth-1 (AD==1): "+d1pos.size()+" pos + "+d1neg.size()+" neg avail; sampled "+
+				npos+" pos + "+nneg+" neg (floor "+baseNneg+" + AD>=2 deficit "+deficit+
+				"; natFrac="+String.format("%.4f", natFrac)+
+				(natFrac<depth1Floor ? " -> pos enriched to "+String.format("%.0f%%", depth1Floor*100)+" floor" : "")+").");
+		}
+
+		//Shuffle the combined set (depth-2+ balanced + depth-1 sampled) and split off validation
 		final byte[][] arr=combined.toArray(new byte[0][]);
 		fullShuffle(arr, randy);
 
 		final long total=arr.length;
 		final long valN=Math.round(total*valFraction);
 		final long trainN=total-valN;
-		outstream.println("Final: "+pos.size()+" pos + "+negKept+" neg = "+total+
-			" ("+String.format("%.3f", pos.size()/(double)total)+" positive); train="+trainN+", val="+valN+
-			(noScore ? "  [score col zeroed]" : ""));
+		outstream.println("Total training set: "+total+" rows; train="+trainN+", val="+valN+".");
 
 		//Write train then val
 		writeSplit(ffoutTrain, header, arr, 0, (int)trainN);
@@ -325,6 +368,21 @@ public class BalanceVectors {
 		}
 	}
 
+	/** Recovers integer allelic depth (AD) from the encoded VectorUMP45 column 9 (= log2(AD+1)/8). */
+	private static int recoverAD(float[] f){
+		return (int)Math.round(Math.pow(2, f[IDX_AD]*8.0)-1);
+	}
+
+	/** Randomly draws k distinct rows from src and appends them to dest (all of src when k>=src.size()). */
+	private static void sampleInto(ArrayList<byte[]> dest, ArrayList<byte[]> src, int k, Random randy){
+		final int n=src.size();
+		if(k>=n){dest.addAll(src); return;}
+		final int[] idx=new int[n];
+		for(int i=0; i<n; i++){idx[i]=i;}
+		partialShuffle(idx, k, randy);
+		for(int i=0; i<k; i++){dest.add(src.get(idx[i]));}
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Output             ----------------*/
 	/*--------------------------------------------------------------*/
@@ -391,7 +449,7 @@ public class BalanceVectors {
 
 	/** VectorUMP45 column indices used for stratification (see VectorUMP45.makeVector). */
 	private static final int IDX_TYPE_SUB=1, IDX_TYPE_INS=2, IDX_TYPE_DEL=3;
-	private static final int IDX_DEPTH=8, IDX_AF=10, IDX_MAPQ=12, IDX_EVENT_LEN=21;
+	private static final int IDX_DEPTH=8, IDX_AD=9, IDX_AF=10, IDX_MAPQ=12, IDX_EVENT_LEN=21;
 	private static final int IDX_STRAND=22, IDX_HP=28, IDX_SCORE=29;
 
 	/*--------------------------------------------------------------*/
@@ -409,6 +467,8 @@ public class BalanceVectors {
 	private boolean noScore=true;  //Zero the composite-score column on output
 	private long seed=42;
 	private int quotaOverride=-1;  //If >0, overrides the computed per-existing-category quota
+	private int depth1Count=0;     //If >0, gather AD==1 variants separately and sample this many (NOT balanced)
+	private double depth1Floor=0.01;//Enrich depth-1 positives to this fraction only if the natural rate is below it
 
 	private long linesIn=0;
 	private PrintStream outstream=System.err;

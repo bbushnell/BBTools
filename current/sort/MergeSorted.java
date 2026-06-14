@@ -38,6 +38,7 @@ public class MergeSorted {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Command-line entry point: parses args, runs the merge, and restores interleaved settings. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		final boolean oldFI=FASTQ.FORCE_INTERLEAVED, oldTI=FASTQ.TEST_INTERLEAVED;
@@ -162,16 +163,17 @@ public class MergeSorted {
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		
-		if(comparator==ReadComparatorTopological.comparator && genKmer){
+		if(comparator.getClass()==ReadComparatorTopological.class && genKmer){
 			comparator=ReadComparatorTopological5Bit.comparator;
 		}else{
 			genKmer=false;
 		}
 		
-		comparator.setAscending(ascending);
+		comparator=comparator.getComparator(ascending);
+		SortByName.setComparator(comparator);//Propagate the selected sort mode to SortByName's static merge methods (fix for sort/MergeSorted#001)
 		SamLine.SET_FROM_OK=true;
 		
-		if(comparator==ReadComparatorRandom.comparator){
+		if(comparator.getClass()==ReadComparatorRandom.class){
 			ListNum.setDeterministicRandomSeed(-1);
 			ListNum.setDeterministicRandom(true);
 		}
@@ -234,13 +236,13 @@ public class MergeSorted {
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, false);
 		
-		if(comparator==ReadComparatorPosition.comparator){
+		if(comparator.getClass()==ReadComparatorPosition.class){
 			if(ReadComparatorPosition.scafMap==null){
 				ReadComparatorPosition.scafMap=ScafMap.loadSamHeader(in1.get(0));
 			}
 		}
 		
-		if((comparator==ReadComparatorTaxa.comparator)){
+		if((comparator.getClass()==ReadComparatorTaxa.class)){
 			if(giTableFile!=null){
 				outstream.println("Loading gi table.");
 				GiToTaxid.initialize(giTableFile);
@@ -296,6 +298,8 @@ public class MergeSorted {
 		}
 	}
 	
+	/** Repeatedly merges groups of files until the count drops to {@code maxFiles}, returning the
+	 * reduced list of intermediate temp files. */
 	private ArrayList<String> mergeRecursive(final ArrayList<String> inList){
 		assert(maxFiles>1);
 		ArrayList<String> currentList=inList;
@@ -325,6 +329,7 @@ public class MergeSorted {
 		return currentList;
 	}
 	
+	/** Creates a uniquely-named temporary file in the current directory for intermediate merge output. */
 	public String getTempFile(){
 		String temp;
 		File dir=new File(".");//(Shared.tmpdir()==null ? null : new File(Shared.tmpdir()));
@@ -340,7 +345,9 @@ public class MergeSorted {
 		return temp;
 	}
 	
+	/** Merges one group of sorted files into the given output via {@link SortByName#mergeAndDump}. */
 	public void merge(ArrayList<String> inList, FileFormat ff1, FileFormat ff2){
+		//Sort mode is propagated to SortByName via setComparator in the constructor (fix for sort/MergeSorted#001).
 		errorState|=SortByName.mergeAndDump(inList, /*null, */ff1, ff2, delete, useSharedHeader, allowInputSubprocess, outstream, SortByName.maxSizeObservedStatic());
 	}
 	
@@ -367,16 +374,22 @@ public class MergeSorted {
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
 	
+	/** Maximum number of files merged in a single pass before recursive merging kicks in. */
 	private int maxFiles=16;
-	
+
+	/** Whether to delete temporary files after merging. */
 	private boolean delete=true;
-	
+
+	/** Whether to preserve a shared SAM/BAM header in the output. */
 	private boolean useSharedHeader=false;
-	
+
+	/** Whether input decompression may be offloaded to a subprocess (e.g. pigz). */
 	private boolean allowInputSubprocess=true;
-	
+
+	/** Extension used for intermediate temporary files. */
 	private String tempExt=null;
-	
+
+	/** Whether to generate topological 5-bit k-mer keys (only used for topological sorting). */
 	private boolean genKmer=true;
 	
 	/*--------------------------------------------------------------*/
@@ -386,6 +399,7 @@ public class MergeSorted {
 	private final FileFormat ffout1;
 	private final FileFormat ffout2;
 	
+	/** The selected sort order; propagated to SortByName before merging. Defaults to name order. */
 	private static ReadComparator comparator=ReadComparatorName.comparator;
 	
 	/*--------------------------------------------------------------*/
