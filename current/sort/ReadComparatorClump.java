@@ -14,9 +14,10 @@ import stream.Read;
  * @date Oct 5, 2022
  */
 public final class ReadComparatorClump extends ReadComparator {
-	
-	private ReadComparatorClump(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorClump(int mult_){mult=mult_;}
+
 	/**
 	 * Compares two reads using k-mer signature, strand, start, and mates (if present), then ID.
 	 * @param a First read
@@ -28,9 +29,11 @@ public final class ReadComparatorClump extends ReadComparator {
 		int x=compareInner(a, b);
 		if(x==0){x=compareInner(a.mate, b.mate);}
 		if(x==0){x=a.id.compareTo(b.id);}
-		return ascending*x;
+		return mult*x;
 	}
 
+	/** Compares two reads by their k-mer signature (stored in numericID by {@link #set}), then strand,
+	 * then start position; null sorts after non-null. */
 	private static int compareInner(Read a, Read b) {
 		if(a==b){return 0;}
 		if(a==null){return 1;}
@@ -40,7 +43,7 @@ public final class ReadComparatorClump extends ReadComparator {
 		if(a.start!=b.start){return a.start-b.start;}
 		return 0;
 	}
-	
+
 	/**
 	 * Computes and sets the k-mer signature for a read of length >= k.
 	 * Finds the maximum k-mer (forward or reverse) across the entire sequence,
@@ -51,34 +54,34 @@ public final class ReadComparatorClump extends ReadComparator {
 	 */
 	public static final long set(Read r){
 		if(r.length()<k){return setShort(r);}
-		
+
 		final byte[] bases=r.bases;
 		long kmer=0;
 		long rkmer=0;
 		int len=0;
-		
+
 //		if(bases==null || bases.length<k){return -1;}
-		
+
 		long topCode=Long.MIN_VALUE;
 		long topKmer=Long.MIN_VALUE;
 		int topStrand=0;
 		int topStop=0;
-		
+
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber[b];
 			long x2=AminoAcid.baseToComplementNumber[b];
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-			
+
 			if(x<0){
 				len=0;
 			}else{len++;}
-			
+
 			if(len>=k){
 				final long kmax=Tools.max(kmer, rkmer);
 				final long code=Tools.hash64shift(kmax);
-				
+
 				if(code>topCode){
 					topKmer=kmax;
 					topCode=code;
@@ -95,7 +98,7 @@ public final class ReadComparatorClump extends ReadComparator {
 		r.start=topStop;
 		return topKmer;
 	}
-	
+
 	/**
 	 * Generates a signature for reads shorter than k by hashing the available bases and reverse complement.
 	 * Sets numericID, strand, and start accordingly.
@@ -107,7 +110,7 @@ public final class ReadComparatorClump extends ReadComparator {
 		final int max=Tools.min(bases.length, k);
 		long kmer=0;
 		long rkmer=0;
-		
+
 		for(int i=0; i<max; i++){
 			byte b=bases[i];
 			long x=AminoAcid.baseToNumber0[b];
@@ -122,35 +125,41 @@ public final class ReadComparatorClump extends ReadComparator {
 		r.start=max-1;
 		return kmax;
 	}
-	
-	/** Sets the sort order direction.
-	 * @param asc true for ascending order, false for descending */
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Clump";}
-	
+
 //	public void setK(int k_){
 //		k=k_;
 //		assert(k>0 && k<=32) : k;
-//		
+//
 //		shift=2*k;
 //		shift2=shift-2;
 //		mask=(shift>63 ? -1L : ~((-1L)<<shift));
 //	}
-	
-	public static final ReadComparatorClump comparator=new ReadComparatorClump();
-	
-	private int ascending=-1;
-	
+
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorClump ascending=new ReadComparatorClump(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorClump descending=new ReadComparatorClump(-1);
+	/** Default singleton; descending by historical default. Alias for selection/identity call sites. */
+	public static final ReadComparatorClump comparator=descending;
+
+	/** K-mer length used for the clump signature. */
 	private static final int k=31;
+	/** Number of bits in a k-mer (2 per base). */
 	private static final int shift=2*k;
+	/** Bit offset for inserting a base into the reverse-complement k-mer. */
 	private static final int shift2=shift-2;
+	/** Mask retaining the low {@code 2*k} bits of a k-mer. */
 	private static final long mask=(shift>63 ? -1L : ~((-1L)<<shift));;
-	
+
 }

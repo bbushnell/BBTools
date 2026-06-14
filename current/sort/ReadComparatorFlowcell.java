@@ -13,9 +13,10 @@ import stream.Read;
  * @date Oct 27, 2014
  */
 public final class ReadComparatorFlowcell extends ReadComparator {
-	
-	private ReadComparatorFlowcell(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorFlowcell(int mult_){mult=mult_;}
+
 	/**
 	 * Compares two reads based on flowcell coordinates with ascending/descending control.
 	 * @param r1 First read to compare
@@ -25,14 +26,16 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
-		return ascending*x;
+		return mult*x;
 	}
-	
+
+	/** Compares two reads by flowcell coordinates parsed from their ids (lane, tile, x, y),
+	 * with pair number as a tiebreaker. Uses thread-local parse buffers. */
 	public int compareInner(Read r1, Read r2) {
 		if(r1.id==null && r2.id==null){return r1.pairnum()-r2.pairnum();}
 		if(r1.id==null){return -1;}
 		if(r2.id==null){return 1;}
-		
+
 		FlowcellCoordinate fc1=tlc1.get(), fc2=tlc2.get();
 		if(fc1==null){
 			fc1=new FlowcellCoordinate();
@@ -42,29 +45,33 @@ public final class ReadComparatorFlowcell extends ReadComparator {
 		}
 		fc1.setFrom(r1.id);
 		fc2.setFrom(r2.id);
-		
+
 		int x=fc1.compareTo(fc2);
 		if(x==0){return r1.pairnum()-r2.pairnum();}
 		return x;
 	}
-	
-	private int ascending=1;
-	
-	/** Sets the sort direction for comparisons.
-	 * @param asc true for ascending order, false for descending */
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Flowcell Coordinate";}
 
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Thread-local scratch buffer for parsing the first read's flowcell coordinate. */
 	public ThreadLocal<FlowcellCoordinate> tlc1=new ThreadLocal<FlowcellCoordinate>();
+	/** Thread-local scratch buffer for parsing the second read's flowcell coordinate. */
 	public ThreadLocal<FlowcellCoordinate> tlc2=new ThreadLocal<FlowcellCoordinate>();
-	
-	public static final ReadComparatorFlowcell comparator=new ReadComparatorFlowcell();
-	
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorFlowcell ascending=new ReadComparatorFlowcell(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorFlowcell descending=new ReadComparatorFlowcell(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorFlowcell comparator=ascending;
+
 }

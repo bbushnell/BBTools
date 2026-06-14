@@ -360,7 +360,7 @@ public final class Dedupe {
 			}
 		}
 		
-		comparator.setAscending(ascending);
+		comparator=comparator.getComparator(ascending);
 		
 		{//Process parser fields
 			Parser.processQuality();

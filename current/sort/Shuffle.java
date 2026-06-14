@@ -41,6 +41,7 @@ public class Shuffle {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Command-line entry point: parses args, loads all reads, shuffles or sorts them, and writes output. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		Shuffle x=new Shuffle(args);
@@ -50,8 +51,9 @@ public class Shuffle {
 		Shared.closeStream(x.outstream);
 	}
 	
+	/** Parses command-line arguments and configures input/output files, mode, and interleaving. */
 	public Shuffle(String[] args){
-		
+
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, outstream, printClass ? getClass() : null, false);
 			args=pp.args;
@@ -200,15 +202,16 @@ public class Shuffle {
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
 		
-		useSharedHeader=(ffout1.samOrBam() && ffout1!=null && ffout1.samOrBam());
+		useSharedHeader=(ffout1!=null && ffout1.samOrBam());
 	}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reads all input into memory, applies the selected shuffle/sort mode, and writes the result. */
 	void process(Timer t){
-		
+
 		ArrayList<Read> bigList=new ArrayList<Read>(65530);
 		final ConcurrentReadInputStream cris;
 		{
@@ -290,7 +293,7 @@ public class Shuffle {
 			if(ffout2!=null){
 				bsw2=new ByteStreamWriter(ffout2);
 				bsw2.start();
-				if(useSharedHeader){writeHeader(bsw1);}
+				if(useSharedHeader){writeHeader(bsw2);}
 			}else{bsw2=null;}
 			final boolean b=(bsw2==null);
 			for(int i=0, lim=bigList.size(); i<lim; i++){
@@ -318,6 +321,7 @@ public class Shuffle {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Writes the shared SAM/BAM header lines to the given output stream. */
 	private void writeHeader(ByteStreamWriter bsw){
 		ArrayList<byte[]> list=SamReadInputStream.getSharedHeader(true);
 		if(list==null){
@@ -358,10 +362,10 @@ public class Shuffle {
 		public void run(){
 			ArrayList<String> list=new ArrayList<String>();
 			if(in1!=null){list.add("in1="+in1);}
-			if(in2!=null){list.add("in1="+in2);} //Possible bug: should be "in2="+in2
+			if(in2!=null){list.add("in2="+in2);}
 			if(out1!=null){list.add("out1="+out1);}
 			if(out2!=null){list.add("out2="+out2);}
-			list.add("mode="+MODES[mode]);
+			list.add("mode="+MODES[mode-1]);//mode constants are 1-based; MODES is 0-based
 			list.add("ow="+ow);
 			try{
 				Shuffle.main(list.toArray(new String[0]));
@@ -420,9 +424,12 @@ public class Shuffle {
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Maximum number of concurrent shuffle threads permitted. */
 	private static int maxShuffleThreads=1;
+	/** Number of shuffle threads currently active. */
 	private static int currentShuffleThreads=0;
 	
+	/** Sets the maximum number of concurrent shuffle threads (thread-safe). */
 	public static void setMaxThreads(final int x){
 		assert(x>0);
 		synchronized(SHUFFLE_LOCK){
@@ -430,6 +437,8 @@ public class Shuffle {
 		}
 	}
 	
+	/** Adjusts the active shuffle-thread count by {@code x}, blocking while at the maximum when adding;
+	 * returns the new count. */
 	public static int addThread(final int x){
 		synchronized(SHUFFLE_LOCK){
 			while(x>0 && currentShuffleThreads>=maxShuffleThreads){
@@ -445,6 +454,7 @@ public class Shuffle {
 		}
 	}
 	
+	/** Blocks until the number of active shuffle threads drops below the maximum. */
 	public static void waitForFinish(){
 		synchronized(SHUFFLE_LOCK){
 			while(currentShuffleThreads>=maxShuffleThreads){
@@ -457,6 +467,7 @@ public class Shuffle {
 		}
 	}
 	
+	/** Monitor object guarding the shuffle-thread counters. */
 	private static String SHUFFLE_LOCK=new String("SHUFFLE_LOCK");
 	
 	/*--------------------------------------------------------------*/
@@ -471,11 +482,9 @@ public class Shuffle {
 	public static boolean showSpeed=true;
 	public static boolean printClass=true;
 
-	/** Mode constant for sorting reads by numeric ID */
-	/** Mode constant for sorting reads by mapping coordinates */
-	/** Mode constant for sorting reads by sequence content */
-	/** Mode constant for sorting reads by name */
+	/** Mode constants: SHUFFLE=randomize order, then sort by name, sequence, coordinate, or numeric id. */
 	public static final int SHUFFLE=1, SORT_NAME=2, SORT_SEQ=3, SORT_COORD=4, SORT_ID=5;
+	/** Mode display names, 0-based (note the off-by-one vs the 1-based constants above; see sort/Shuffle#001). */
 	public static final String[] MODES={"shuffle", "name", "sequence", "coordinate", "id"};
 	
 	

@@ -200,20 +200,20 @@ public class SortByName {
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		
-		if(comparator==ReadComparatorTopological.comparator && genKmer){
+		if(comparator.getClass()==ReadComparatorTopological.class && genKmer){
 			comparator=ReadComparatorTopological5Bit.comparator;
 		}else{
 			genKmer=false;
 		}
 		
-		clump=(comparator==ReadComparatorClump.comparator);
+		clump=(comparator.getClass()==ReadComparatorClump.class);
 		
-		if(setAscending || comparator!=ReadLengthComparator.comparator) {
-			comparator.setAscending(ascending);
+		if(setAscending || comparator.getClass()!=ReadLengthComparator.class) {
+			comparator=comparator.getComparator(ascending);
 		}
 		SamLine.SET_FROM_OK=true;
 		
-		if(comparator==ReadComparatorRandom.comparator){
+		if(comparator.getClass()==ReadComparatorRandom.class){
 			ListNum.setDeterministicRandomSeed(-1);
 			ListNum.setDeterministicRandom(true);
 		}
@@ -313,7 +313,7 @@ public class SortByName {
 		
 		tempExt=Tools.getTempExt(ffin1, ffout1, extout);
 		
-		if((comparator==ReadComparatorTaxa.comparator)){
+		if((comparator.getClass()==ReadComparatorTaxa.class)){
 			if(giTableFile!=null){
 				outstream.println("Loading gi table.");
 				GiToTaxid.initialize(giTableFile);
@@ -413,7 +413,7 @@ public class SortByName {
 		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
 				", currentMem="+currentMem+", currentLimit="+currentLimit);}
 		
-		if(comparator==ReadComparatorPosition.comparator){
+		if(comparator.getClass()==ReadComparatorPosition.class){
 			if(ReadComparatorPosition.scafMap==null){
 				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
 			}
@@ -425,9 +425,9 @@ public class SortByName {
 
 			if(header!=null) {
 				byte[] hd;
-				if(comparator==ReadComparatorPosition.comparator) {
+				if(comparator.getClass()==ReadComparatorPosition.class) {
 					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator==ReadComparatorName.comparator) {
+				}else if(comparator.getClass()==ReadComparatorName.class) {
 					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
 				}else {
 					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
@@ -548,7 +548,7 @@ public class SortByName {
 		if(verbose){outstream.println("maxMem="+maxMem+", memLimit="+memLimit+
 				", currentMem="+currentMem+", currentLimit="+currentLimit);}
 		
-		if(comparator==ReadComparatorPosition.comparator){
+		if(comparator.getClass()==ReadComparatorPosition.class){
 			if(ReadComparatorPosition.scafMap==null){
 				ReadComparatorPosition.scafMap=ScafMap.waitForSamHeader(null);
 			}
@@ -558,9 +558,9 @@ public class SortByName {
 
 			if(header!=null) {
 				byte[] hd;
-				if(comparator==ReadComparatorPosition.comparator) {
+				if(comparator.getClass()==ReadComparatorPosition.class) {
 					hd="@HD\tVN:1.4\tSO:coordinate".getBytes();
-				}else if(comparator==ReadComparatorName.comparator) {
+				}else if(comparator.getClass()==ReadComparatorName.class) {
 					hd="@HD\tVN:1.4\tSO:queryname".getBytes();
 				}else {
 					hd="@HD\tVN:1.4\tSO:unsorted".getBytes();
@@ -929,10 +929,14 @@ public class SortByName {
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
-		
+
 		return errorState;
 	}
-	
+
+	/** Sets the static comparator used by the static merge methods, so external drivers
+	 * (e.g. MergeSorted) can choose the sort order that mergeAndDump applies. */
+	public static void setComparator(ReadComparator c){comparator=c;}
+
 	/**
 	 * Core k-way merge algorithm using priority queue of read containers.
 	 * Continuously polls lowest reads from queue, sorts batches, and outputs

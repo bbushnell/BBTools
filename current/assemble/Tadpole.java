@@ -1047,8 +1047,7 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		
 		if(allContigs!=null){
-			ContigLengthComparator.comparator.setAscending(false);
-			Shared.sort(allContigs, ContigLengthComparator.comparator);
+			Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
 			if(processContigs){
 				processContigs();
 			}

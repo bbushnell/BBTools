@@ -9,12 +9,10 @@ import stream.Read;
  * @date Jul 19, 2013
  */
 public final class ReadLengthComparator extends ReadComparator {
-	
-	/**
-	 * Private constructor to enforce singleton usage via the static comparator instance.
-	 */
-	private ReadLengthComparator(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons (or the default longest-first comparator). */
+	private ReadLengthComparator(int mult_){mult=mult_;}
+
 	/**
 	 * Compares two reads for sorting by length.
 	 * Uses hierarchical comparison: primary read length, mate read length,
@@ -30,7 +28,7 @@ public final class ReadLengthComparator extends ReadComparator {
 		if(x==0){x=compareInner(a.mate, b.mate);}
 		if(x==0){x=a.id.compareTo(b.id);}
 		if(x==0){x=a.numericID>b.numericID ? 1 : a.numericID<b.numericID ? -1 : 0;}
-		return ascending*x;
+		return mult*x;
 	}
 
 	/**
@@ -46,25 +44,23 @@ public final class ReadLengthComparator extends ReadComparator {
 		int x=a.length()-b.length();
 		return x;
 	}
-	
-	/** Singleton instance for length-based read comparison. */
-	public static final ReadLengthComparator comparator=new ReadLengthComparator();
-	
-	/**
-	 * Sort direction multiplier: -1 for descending (default longest first), 1 for ascending.
-	 */
-	private int ascending=-1;
-	
-	/** Sets the sort order for length comparison.
-	 * @param asc true for ascending (shortest first), false for descending (longest first) */
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Length";}
-	
+
+	/** Sort direction multiplier: +1 for ascending (shortest first), -1 for descending (longest first). */
+	private final int mult;
+
+	/** Ascending (shortest-first) singleton. */
+	public static final ReadLengthComparator ascending=new ReadLengthComparator(1);
+	/** Descending (longest-first) singleton. */
+	public static final ReadLengthComparator descending=new ReadLengthComparator(-1);
+	/** Default singleton; longest-first (descending) by historical default. Alias for selection/identity call sites. */
+	public static final ReadLengthComparator comparator=descending;
+
 }

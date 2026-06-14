@@ -12,7 +12,10 @@ import stream.Read;
  * @date May 30, 2013
  */
 public final class ReadErrorComparator extends ReadComparator{
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadErrorComparator(int mult_){mult=mult_;}
+
 	/**
 	 * Compares two reads using hierarchical sorting criteria.
 	 * Primary sort: total error count (read + mate) ascending
@@ -27,40 +30,48 @@ public final class ReadErrorComparator extends ReadComparator{
 	 */
 	@Override
 	public int compare(Read r1, Read r2) {
-		return compareInner(r1, r2)*ascending;
+		return compareInner(r1, r2)*mult;
 	}
-	
+
+	/** Compares two reads (including mates) by total error count ascending, then total length
+	 * descending, then total expected errors ascending, then numericID, then string id. */
 	public int compareInner(Read r1, Read r2) {
 
 		int a=(r1.errors+(r1.mate==null ? 0 : r1.mate.errors));
 		int b=(r2.errors+(r2.mate==null ? 0 : r2.mate.errors));
 		if(a!=b){return a-b;}
-		
+
 		a=(r1.length()+(r1.mate==null ? 0 : r1.mateLength()));
 		b=(r2.length()+(r2.mate==null ? 0 : r2.mateLength()));
 		if(a!=b){return b-a;}
-		
+
 		float a2=(r1.expectedErrors(true, 0)+(r1.mate==null ? 0 : r1.mate.expectedErrors(true, 0)));
 		float b2=(r2.expectedErrors(true, 0)+(r2.mate==null ? 0 : r2.mate.expectedErrors(true, 0)));
 		if(a2!=b2){return a2>b2 ? 1 : -1;}
-		
+
 		if(r1.numericID<r2.numericID){return -1;}
 		else if(r1.numericID>r2.numericID){return 1;}
-		
+
 		if(!r1.id.equals(r2.id)){return r1.id.compareTo(r2.id);}
 		return 0;
 	}
-	
-	public static final ReadErrorComparator comparator=new ReadErrorComparator();
 
 	@Override
-	public void setAscending(boolean asc){ascending=asc ? 1 : -1;}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Error";}
-	
-	int ascending=1;
-	
+
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Ascending-order singleton. */
+	public static final ReadErrorComparator ascending=new ReadErrorComparator(1);
+	/** Descending-order singleton. */
+	public static final ReadErrorComparator descending=new ReadErrorComparator(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadErrorComparator comparator=ascending;
+
 }

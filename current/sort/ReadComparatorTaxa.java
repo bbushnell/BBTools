@@ -14,9 +14,10 @@ import tax.TaxTree;
  * @date Oct 27, 2014
  */
 public final class ReadComparatorTaxa extends ReadComparator {
-	
-	private ReadComparatorTaxa(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorTaxa(int mult_){mult=mult_;}
+
 	/**
 	 * Compares two reads based on their taxonomic classification.
 	 * Delegates to internal comparison method and applies sort direction.
@@ -28,9 +29,11 @@ public final class ReadComparatorTaxa extends ReadComparator {
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
-		return ascending*x;
+		return mult*x;
 	}
-	
+
+	/** Compares two reads by taxonomy parsed from their headers, climbing to the family (then genus,
+	 * then species) level to find a distinguishing rank; falls back to name order for equal/unknown taxa. */
 	private static int compareInner(Read r1, Read r2) {
 		final TaxNode a0=tree.parseNodeFromHeader(r1.id, true);
 		final TaxNode b0=tree.parseNodeFromHeader(r2.id, true);
@@ -38,17 +41,17 @@ public final class ReadComparatorTaxa extends ReadComparator {
 
 //		if(a==null){a=tree.getNode(1);}
 //		if(b==null){b=tree.getNode(1);}
-		
+
 		if(a==null || b==null){
 //			System.err.println("null for "+r1.id+", "+r2.id);
-			if(a==null && b==null){return ReadComparatorName.comparator.compare(r1, r2);}
+			if(a==null && b==null){return ReadComparatorName.compareInner(r1, r2);}
 			return (a==null ? 1 : -1);
 		}
-		
+
 		if(a==b){
-			return ReadComparatorName.comparator.compare(r1, r2);
+			return ReadComparatorName.compareInner(r1, r2);
 		}
-		
+
 //		final TaxNode c=tree.commonAncestor(a, b);
 //		if(c==null){
 //			assert(false) : r1.id+", "+r2.id+", "+a;
@@ -57,7 +60,7 @@ public final class ReadComparatorTaxa extends ReadComparator {
 //
 //		while(a.id!=c.id && a.pid!=c.id){a=tree.getNode(a.pid);}
 //		while(b.id!=c.id && c.pid!=c.id){b=tree.getNode(b.pid);}
-		
+
 		while(a.id!=a.pid && a.levelExtended<TaxTree.FAMILY_E){
 			TaxNode x=tree.getNode(a.pid);
 			if(x.levelExtended>TaxTree.FAMILY_E){break;}
@@ -100,31 +103,35 @@ public final class ReadComparatorTaxa extends ReadComparator {
 				}
 			}
 		}
-		
+
 		return compareSimple(a, b);
 	}
-	
+
+	/** Orders two taxonomic nodes by extended level, then by taxonomic id. */
 	private static int compareSimple(final TaxNode a, final TaxNode b){
 		if(a.levelExtended!=b.levelExtended){return a.levelExtended-b.levelExtended;}
 		return a.id-b.id;
 	}
-		
-	private int ascending=1;
-	
-	/** Sets the sorting direction for taxonomic comparison.
-	 * @param asc true for ascending order, false for descending order */
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Taxa";}
 
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Taxonomy tree used to resolve and climb taxonomic nodes; must be loaded before sorting. */
 	public static TaxTree tree;
-	
-	public static final ReadComparatorTaxa comparator=new ReadComparatorTaxa();
-	
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorTaxa ascending=new ReadComparatorTaxa(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorTaxa descending=new ReadComparatorTaxa(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorTaxa comparator=ascending;
+
 }

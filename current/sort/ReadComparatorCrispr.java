@@ -19,14 +19,18 @@ import structures.SeqCountM;
  * @date Oct 27, 2014
  */
 public class ReadComparatorCrispr extends ReadComparator{
-	
-	private ReadComparatorCrispr(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorCrispr(int mult_){mult=mult_;}
+
 	@Override
 	public int compare(Read r1, Read r2) {
-		return ascending*compare(r1, r2, true);
+		return mult*compare(r1, r2, true);
 	}
-	
+
+	/** Returns the read's {@link SeqCountM} score record, building it on first use: parses count= and
+	 * score= from the header, falling back to neural-network scoring when score is absent and a net is
+	 * loaded. The result is cached on the read's obj field. */
 	private SeqCountM getSCM(Read r) {
 		if(r.obj!=null) {return (SeqCountM)r.obj;}
 		String id=r.id;
@@ -45,7 +49,7 @@ public class ReadComparatorCrispr extends ReadComparator{
 		r.obj=scm;
 		return scm;
 	}
-	
+
 	/**
 	 * Compares two reads using SeqCountM metadata (count/score) and falls back to ID tie-breakers.
 	 * @param r1 First read
@@ -62,18 +66,14 @@ public class ReadComparatorCrispr extends ReadComparator{
 		return r1.id.compareTo(r2.id);
 	}
 
-	/** Sets the sorting direction for read comparison.
-	 * @param asc true for ascending order, false for descending */
 	@Override
-	public void setAscending(boolean asc) {
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Crispr";}
-	
+
 	/**
 	 * Loads the default CRISPR neural network if not already loaded; thread-safe.
 	 */
@@ -81,7 +81,7 @@ public class ReadComparatorCrispr extends ReadComparator{
 		if(net!=null) {return;}
 		setNet(CellNetParser.load(netFile));
 	}
-	
+
 	/** Sets or clears the neural network used for sequence scoring; initializes input vector.
 	 * @param net_ Network to use, or null to clear */
 	public static synchronized void setNet(CellNet net_) {
@@ -93,12 +93,21 @@ public class ReadComparatorCrispr extends ReadComparator{
 		net=net_.copy(false);
 		vec=new float[net.numInputs()];
 	}
-	
+
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Resource path to the default CRISPR scoring neural network. */
 	private static String netFile=Data.findPath("?crispr.bbnet.gz", false);
-	
-	public static final ReadComparatorCrispr comparator=new ReadComparatorCrispr();
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorCrispr ascending=new ReadComparatorCrispr(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorCrispr descending=new ReadComparatorCrispr(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorCrispr comparator=ascending;
+	/** Loaded neural network used to score sequences when a header score is missing; null if unloaded. */
 	private static CellNet net=null;
+	/** Reusable input-vector buffer sized to the network's input count. */
 	private static float[] vec=null;
-	
-	int ascending=1;
 }

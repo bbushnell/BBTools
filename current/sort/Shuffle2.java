@@ -29,8 +29,10 @@ import structures.ListNum;
 import tracker.ReadStats;
 
 /**
- * Sorts reads by name, potentially from multiple input files.
- * 
+ * Randomizes (shuffles) the order of reads, using external temp files when the
+ * dataset exceeds memory: reads are spilled in shuffled blocks and recombined by
+ * randomly selecting among the temp files.
+ *
  * @author Brian Bushnell
  * @date September 21, 2016
  *
@@ -697,7 +699,7 @@ public class Shuffle2 {
 		
 		@Override
 		public void run(){
-			
+			try {
 			if(verbose){outstream.println("Started a WriteThread.");}
 			final FileFormat ffout=FileFormat.testOutput(fname, FileFormat.FASTQ, null, true, false, false, false);
 			final ConcurrentReadOutputStream ros;
@@ -727,11 +729,19 @@ public class Shuffle2 {
 			errorState|=ReadWrite.closeStream(ros);
 			if(verbose){outstream.println("Closed ros.");}
 			
-			synchronized(outstandingMem){
-				outstandingMem.addAndGet(-currentMem);
-				if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
-				outstandingMem.notify();
-				if(verbose){outstream.println("Notified outstandingMem.");}
+			}catch(Throwable e){
+				//Catching Throwable ensures we catch Assertions and RuntimeExceptions
+				System.err.println("Error in WriteThread:");
+				e.printStackTrace();
+				errorState=true;
+			}finally{
+				//ALWAYS decrement memory and notify, even if we crashed
+				synchronized(outstandingMem){
+					outstandingMem.addAndGet(-currentMem);
+					if(verbose){outstream.println("Decremented outstandingMem: "+outstandingMem);}
+					outstandingMem.notify();
+					if(verbose){outstream.println("Notified outstandingMem.");}
+				}
 			}
 		}
 		

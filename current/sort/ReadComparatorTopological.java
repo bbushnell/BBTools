@@ -14,9 +14,10 @@ import stream.Read;
  * @date Oct 27, 2014
  */
 public class ReadComparatorTopological extends ReadComparator{
-	
-	private ReadComparatorTopological(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorTopological(int mult_){mult=mult_;}
+
 	/**
 	 * Overrides the base comparator to apply the current ascending/descending
 	 * direction while comparing two reads.
@@ -27,9 +28,9 @@ public class ReadComparatorTopological extends ReadComparator{
 	 */
 	@Override
 	public int compare(Read r1, Read r2) {
-		return ascending*compare(r1, r2, true);
+		return mult*compare(r1, r2, true);
 	}
-	
+
 	/**
 	 * Performs the full hierarchical comparison: primary bases, mate bases (optional),
 	 * lengths, mate lengths, quality scores (inverted), numeric ID, then string ID.
@@ -40,10 +41,10 @@ public class ReadComparatorTopological extends ReadComparator{
 	 * @return Negative if r1 < r2, zero if equal, positive if r1 > r2
 	 */
 	public int compare(Read r1, Read r2, boolean compareMates) {
-		
+
 		int x=compareVectors(r1.bases, r2.bases);
 		if(x!=0){return x;}
-		
+
 		if(r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.bases, r2.mate.bases);
 		}
@@ -52,20 +53,20 @@ public class ReadComparatorTopological extends ReadComparator{
 		if(r1.bases!=null && r2.bases!=null && r1.length()!=r2.length()){return r1.length()-r2.length();}
 		if(r1.mate!=null && r2.mate!=null && r1.mate.bases!=null && r2.mate.bases!=null
 				&& r1.mateLength()!=r2.mateLength()){return r1.mateLength()-r2.mateLength();}
-		
+
 		x=compareVectors(r1.quality, r2.quality);
 		if(x!=0){return 0-x;}
-		
+
 		if(r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.quality, r2.mate.quality);
 		}
 		if(x!=0){return 0-x;}
-		
+
 		if(r1.numericID!=r2.numericID){return r1.numericID>r2.numericID ? 1 : -1;}
-		
+
 		return r1.id.compareTo(r2.id);
 	}
-	
+
 	/**
 	 * Lexicographically compares two byte arrays representing read bases or qualities.
 	 * Handles null arrays by treating null as greater than non-null.
@@ -87,7 +88,7 @@ public class ReadComparatorTopological extends ReadComparator{
 		}
 		return 0;
 	}
-	
+
 	/**
 	 * Lexicographically compares two byte arrays, treating 'N' as greater than other
 	 * bases before falling back to standard comparison.
@@ -112,19 +113,21 @@ public class ReadComparatorTopological extends ReadComparator{
 		return 0;
 	}
 
-	/** Sets the sort direction multiplier.
-	 * @param asc true for ascending order, false for descending order */
 	@Override
-	public void setAscending(boolean asc) {
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Topology";}
-	
-	public static final ReadComparatorTopological comparator=new ReadComparatorTopological();
-	
-	int ascending=1;
+
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorTopological ascending=new ReadComparatorTopological(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorTopological descending=new ReadComparatorTopological(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorTopological comparator=ascending;
 }

@@ -14,15 +14,18 @@ import var2.ScafMap;
  * @date November 20, 2016
  */
 public final class ReadComparatorPosition extends ReadComparator {
-	
-	private ReadComparatorPosition(){}
-	
+
+	/** Private constructor; use the ascending/descending singletons. */
+	private ReadComparatorPosition(int mult_){mult=mult_;}
+
 	@Override
 	public int compare(Read r1, Read r2) {
 		int x=compareInner(r1, r2);
-		return ascending*x;
+		return mult*x;
 	}
-	
+
+	/** Compares two reads by SAM alignment position when both have SamLines (a read with a
+	 * SamLine sorts before one without); falls back to string id. Caller applies sort direction. */
 	public static int compareInner(Read r1, Read r2) {
 		final SamLine sl1=r1.samline, sl2=r2.samline;
 		if(sl1!=null && sl2!=null) {
@@ -40,7 +43,9 @@ public final class ReadComparatorPosition extends ReadComparator {
 		if(r2.id==null){return 1;}
 		return r1.id.compareTo(r2.id);
 	}
-	
+
+	/** Compares two SAM lines by scaffold, then position, strand, mate position, and pair number.
+	 * Unmapped reads (negative scaffold number) sort after all mapped reads. */
 	public static int compareInner(SamLine a, SamLine b) {
 		if(a.scafnum<0){a.setScafnum(scafMap);}
 		if(b.scafnum<0){b.setScafnum(scafMap);}
@@ -54,22 +59,25 @@ public final class ReadComparatorPosition extends ReadComparator {
 		if(a.pairnum()!=b.pairnum()){return a.pairnum()-b.pairnum();}
 		return 0;
 	}
-	
-	private int ascending=1;
-	
-	/** Sets the sort direction for read comparison.
-	 * @param asc true for ascending order, false for descending order */
+
 	@Override
-	public void setAscending(boolean asc){
-		ascending=(asc ? 1 : -1);
-	}
-	
+	public ReadComparator getComparator(boolean asc){return asc ? ascending : descending;}
+
 	@Override
-	public final int ascendingMult() {return ascending;}
+	public final int ascendingMult() {return mult;}
 	@Override
 	public final String name() {return "Position";}
 
-	public static final ReadComparatorPosition comparator=new ReadComparatorPosition();
+	/** Sort direction multiplier: +1 for ascending, -1 for descending (immutable). */
+	private final int mult;
+
+	/** Ascending-order singleton. */
+	public static final ReadComparatorPosition ascending=new ReadComparatorPosition(1);
+	/** Descending-order singleton. */
+	public static final ReadComparatorPosition descending=new ReadComparatorPosition(-1);
+	/** Default (ascending) singleton; alias retained for selection/identity call sites. */
+	public static final ReadComparatorPosition comparator=ascending;
+	/** Maps scaffold names to numeric indices so SamLines can be ordered by scaffold; set before sorting. */
 	public static ScafMap scafMap=null;
-	
+
 }
