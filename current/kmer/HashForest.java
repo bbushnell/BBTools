@@ -445,9 +445,7 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 //		tsw.print("HashForest:\n");
 		for(int i=0; i<array.length; i++){
 			KmerNode node=array[i];
-			if(node!=null && node.value()>=mincount){
-//				StringBuilder sb=new StringBuilder();
-//				tsw.print(node.dumpKmersAsText(sb, k, mincount, maxcount));
+			if(node!=null){
 				node.dumpKmersAsText(tsw, k, mincount, maxcount);
 			}
 		}
@@ -467,8 +465,7 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		for(int i=0; i<array.length; i++){
 			KmerNode node=array[i];
-			if(node!=null && node.value()>=mincount){
-				if(remaining!=null && remaining.decrementAndGet()<0){return true;}
+			if(node!=null){
 				node.dumpKmersAsBytes(bsw, k, mincount, maxcount, remaining);
 			}
 		}
@@ -489,8 +486,7 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	public boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		for(int i=0; i<array.length; i++){
 			KmerNode node=array[i];
-			if(node!=null && node.value()>=mincount){
-				if(remaining!=null && remaining.decrementAndGet()<0){return true;}
+			if(node!=null){
 				node.dumpKmersAsBytes_MT(bsw, bb, k, mincount, maxcount, remaining);
 			}
 		}

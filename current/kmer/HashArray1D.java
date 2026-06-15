@@ -78,7 +78,9 @@ public final class HashArray1D extends HashArray {
 				return 1;
 			}
 		}
-		return victims.incrementAndReturnNumCreated(kmer, incr);
+		int x=victims.incrementAndReturnNumCreated(kmer, incr);
+		if(autoResize && size+victims.size>sizeLimit){resize();}
+		return x;
 	}
 	
 	/**
