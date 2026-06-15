@@ -164,7 +164,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		for(int i=0; i<map.keys.length; i++) {
 			final int key=map.keys[i];
 			if(key!=map.invalid) {
-				put(key, Tools.max(map.values[i], get(i)));
+				put(key, Tools.max(map.values[i], get(key)));
 			}
 		}
 	}

@@ -1051,6 +1051,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("##bbnet").nl(); //File format identifier
 		bb.append("#version ").append(version).nl();
+		bb.append("##java ").append(System.getProperty("java.version")).nl(); //Numeric-regime provenance (WRITE-time: == training regime for a net trained+saved in one run; re-saving an OLD net stamps the CURRENT regime, not its original)
+		bb.append("##simd ").append(Shared.SIMD).nl();
+		bb.append("##simd_ff ").append(Shared.SIMD && Shared.SIMD_FEED_FORWARD).nl();
+		bb.append("##simd_bp ").append(Shared.SIMD && Shared.SIMD_BACKPROP).nl();
 		if(CONCISE){bb.append("#concise").nl();} //Format options
 		bb.append(OUT_DENSE ? "#dense" : OUT_SPARSE ? "#sparse" : DENSE ? "#dense" : "#sparse").nl();
 		bb.append("#density ").append(density, 8, true).nl(); //Network parameters

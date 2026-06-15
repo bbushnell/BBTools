@@ -1213,13 +1213,13 @@ public final class FileFormat {
 	}
 	
 	public String formatString() {
-		int x=(format<0 || format>FORMAT_ARRAY.length) ? UNKNOWN : format;
+		int x=(format<0 || format>=FORMAT_ARRAY.length) ? UNKNOWN : format;//FIXED [fileIO/FileFormat#002]: was '>' (off-by-one; format==length would AIOOBE — unreachable today, defensive)
 		return FORMAT_ARRAY[x];
 	}
 	
 	public String compressionString() {
 		if(bam() || bgzip()) {return "bgzip";}
-		int x=(compression<0 || compression>COMPRESSION_ARRAY.length) ? UNKNOWN : compression;
+		int x=(compression<0 || compression>=COMPRESSION_ARRAY.length) ? UNKNOWN : compression;//FIXED [fileIO/FileFormat#002]: was '>' (off-by-one, defensive)
 		return COMPRESSION_ARRAY[x];
 	}
 	
@@ -1366,14 +1366,18 @@ public final class FileFormat {
 	public static final int GFA=37;
 	public static final int FASTG=38;
 	
-	/** Array mapping format constants to string names */
+	/** Array mapping format constants to string names.
+	 * Indexed by the integer format code, so its order MUST match the format constants
+	 * (UNKNOWN=0 .. FASTG=38). Do not insert extension-aliases (e.g. "vec","spectra") as
+	 * standalone slots — those are aliases of bbvec/clade, not codes, and would shift the
+	 * alignment. [fileIO/FileFormat#001 FIXED 2026-06-15: removed the two stray aliases.] */
 	public static final String[] FORMAT_ARRAY=new String[] {
 		"unknown", "fasta", "fastq", "bread", "sam", "csfasta",
 		"qual", "sequential", "random", "sites", "attachment",
 		"bam", "scarf", "text", "phylip", "header", "int1d",
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
-		"alm", "bbnet", "bbvec", "vec", "clade", "spectra", "png",
+		"alm", "bbnet", "bbvec", "clade", "png",
 		"bai", "sai", "gfa", "fastg", "foosta"
 	};
 	

@@ -85,7 +85,14 @@ public final class FastqScanStreamer implements Streamer{
 	/*--------------------------------------------------------------*/
 
 	void readFastq() throws IOException {
-		is=ReadWrite.getInputStream(ff.name(), false, false);
+		//FIXED [stream/FastqScanStreamer bbnorm-race]: open the stream, then publish 'is' under the same monitor close()
+		//uses. If close() already ran early (it saw is==null), we own cleanup of the just-opened stream and bail;
+		//otherwise publish it so the synchronized close() closes it exactly once. No NPE, no leak, no double-close.
+		final InputStream localIs=ReadWrite.getInputStream(ff.name(), false, false);
+		synchronized(this){
+			if(closed){ReadWrite.finishReading(localIs, ff.name(), ff.allowSubprocess()); return;}
+			is=localIs;
+		}
 		IntList newlines=new IntList(8192);
 		for(int r=is.read(buffer); r>0 || bstop>0; r=is.read(buffer, bstop, buffer.length-bstop)) {
 			assert(bstart==0);
@@ -310,9 +317,13 @@ public final class FastqScanStreamer implements Streamer{
 	@Override
 	public synchronized void close(){
 		if(closed) {return;}
-		readerThread.interrupt();
-		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
+		//FIXED [stream/FastqScanStreamer bbnorm-race]: set 'closed' FIRST so an interrupted reader's add() sees it and
+		//returns cleanly (instead of rethrowing InterruptedException as a RuntimeException), and so a reader still
+		//starting up cleans up its own stream. finishReading is now null-safe (ReadWrite#006); if 'is' isn't published
+		//yet (early close races ahead of readFastq), readFastq's synchronized publish closes it instead — exactly once.
 		closed=true;
+		if(readerThread!=null) {readerThread.interrupt();}
+		ReadWrite.finishReading(is, ff.name(), ff.allowSubprocess());
 	}
 	
 	public synchronized void poisonAndClose(){
@@ -407,7 +418,7 @@ public final class FastqScanStreamer implements Streamer{
 	private boolean errorState=false;
 	private int bufferLen=262144;
 	private byte[] buffer=new byte[bufferLen];
-	private InputStream is;
+	private volatile InputStream is;//FIXED [stream/FastqScanStreamer bbnorm-race]: was non-volatile; close() could read a stale null mid-shutdown
 	private Thread readerThread;
 	
 	private int bstart=0, bstop=0;

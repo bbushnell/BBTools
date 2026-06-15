@@ -343,7 +343,7 @@ public abstract class AbstractIntHashMap{
 				if(values[i]!=0){return false;}
 			}else{
 				numValues++;
-				final int cell=findCell(i);
+				final int cell=findCell(key);
 				if(i==cell){
 					numFound++;
 				}else{

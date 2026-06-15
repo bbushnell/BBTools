@@ -269,7 +269,7 @@ public abstract class CoverageArray implements Serializable {
 		long sum=sum();
 		double avg=sum/(double)length;
 		double sumdev2=0;
-		for(int i=minIndex; i<length; i++){
+		for(int i=0; i<length; i++){
 			int x=get(i);
 			double dev=avg-x;
 			sumdev2+=(dev*dev);
@@ -284,7 +284,7 @@ public abstract class CoverageArray implements Serializable {
 		if(usedDif<0) {return devSum=globalMean*globalMean*length;}
 		devSum=0;
 		if(length<1){return 0;}
-		for(int i=minIndex; i<length; i++){
+		for(int i=0; i<length; i++){
 			int x=get(i);
 			double dev=globalMean-x;
 			devSum+=(dev*dev);

@@ -78,7 +78,7 @@ public class AtomicStringNum implements Comparable<AtomicStringNum> {
 	 */
 	public boolean equals(AtomicStringNum other){
 		if(other==null){return false;}
-		if(n!=other.n){return false;}
+		if(n.get()!=other.n.get()){return false;}
 		if(s==other.s){return true;}
 		if(s==null || other.s==null){return false;}
 		return s.equals(other.s);

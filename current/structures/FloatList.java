@@ -183,7 +183,7 @@ public final class FloatList{
 	}
 	
 	public final void setSize(final int size2) {
-		if(size2<array.length){resize(size2);}
+		if(size2>array.length){resize(size2);}
 		size=size2;
 	}
 	
@@ -216,7 +216,7 @@ public final class FloatList{
 	
 	public float min() {
 		float min=Float.MAX_VALUE;
-		for(int i=1; i<size; i++) {min=min(min, array[i]);}
+		for(int i=0; i<size; i++) {min=min(min, array[i]);}
 		return min;
 	}
 	

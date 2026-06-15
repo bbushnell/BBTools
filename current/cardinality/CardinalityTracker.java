@@ -711,9 +711,14 @@ public abstract class CardinalityTracker implements Drivable {
 	/** Builds a sorted frequency list from bucket counts for histogram output. */
 	public SuperLongList toFrequency(){
 		final SuperLongList list=new SuperLongList(1000);
-		if(getClass()==LogLog16.class){
-			final char[] counts=counts16();
-			for(final char x : counts){
+		//FIXED [cardinality/CardinalityTracker khist-dispatch]: route by whether the tracker exposes 16-bit counts,
+		//not by getClass()==LogLog16. ALL char[]-countArray trackers override counts16() (LogLog16, DynamicLogLog,
+		//DynamicDemiLog/2/8v2); the old LogLog16-only check sent DDL (the DEFAULT khist type) into the else ->
+		//getCounts() (32-bit, unimplemented for DDL -> null) -> NPE in printKhist. counts16() covers all 16-bit
+		//trackers; the else covers 32-bit count trackers (BBLog/BBLog_simple via getCounts()).
+		final char[] counts16=counts16();
+		if(counts16!=null){
+			for(final char x : counts16){
 				if(x>0){list.add(x);}
 			}
 		}else{

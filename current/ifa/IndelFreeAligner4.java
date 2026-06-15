@@ -845,6 +845,8 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 				// >= 0     = List Head Pointer
 				final int val=map.get(kmer);
 
+				if(val==-1){continue;}//FIXED [ifa/IndelFreeAligner4#001]: -1 = Missing (kmer absent from reference); skip. Same fix as getSeedHitsList.
+
 				if(val<-1){
 					// Singleton Case
 					seedHitsT++;
@@ -897,7 +899,12 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 				// < -1     = Singleton (RefPos | MIN_VALUE)
 				// >= 0     = List Head (Index in positions array)
 				final int val=map.get(kmer);
-				
+
+				//FIXED [ifa/IndelFreeAligner4#001]: -1 = Missing (kmer absent from the reference index); skip it.
+				//It was falling into the else branch below and tripping assert(val>=0) on any real read with a
+				//reference-absent kmer -> universal crash. Matches IndelFreeAligner3:882 / IndelFreeAligner2:923.
+				if(val==-1){continue;}
+
 				if(val<-1){
 					// Singleton Case:
 					// Decode RefPos from high bit (Mask off sign bit)
@@ -909,7 +916,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 					// Multi-Hit Case:
 					// 'val' is the direct pointer to the positions array head.
 					int ptr=val;
-					
+
 					while(true){
 						int entry=positions[ptr];
 
@@ -924,21 +931,9 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 						if(entry<0){break;}
 						ptr++;
 					}
-					
-					while(true){
-						int entry=positions[ptr];
-
-						// Mask off the Stop Bit (sign bit) to get the real RefPos
-						int refPos=entry&Integer.MAX_VALUE;
-						int alignStart=refPos-i;
-
-						// Add hit. Note: use add(), not addUnchecked(), as capacity is unknown.
-						seedHits.add(alignStart);
-
-						// Check Stop Bit: If entry is negative, this is the last item.
-						if(entry<0){break;}
-						ptr++;
-					}
+					//FIXED [ifa/IndelFreeAligner4#002]: deleted a duplicated byte-identical while-loop that was here.
+					//After the loop above breaks (entry<0, before ptr++), ptr still points at the stop entry, so the
+					//duplicate re-read positions[ptr] and re-added the last hit. Copy-paste error; absent from getSeedHitsMap.
 				}
 			}
 			

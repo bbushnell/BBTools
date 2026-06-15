@@ -130,6 +130,17 @@ public class Shared {
 	public static boolean parallelSort=testParallelSort();
 	/** True if SIMD optimizations are enabled */
 	public static boolean SIMD=(Vector.simd256);
+	/** SIMD for NN feed-forward (inference + training). Shipped OFF: the SIMD reduction (true-FMA + tree-reduce)
+	 * is more accurate but cannot bit-match the scalar dot product, so it perturbs reproducibility of already-trained
+	 * nets — a net scores differently across regimes (validated 2026-06-15). Flip + recompile only to experiment.
+	 * Gated together with the live SIMD flag at each call site; recorded in the bbnet header. */
+	public static final boolean SIMD_FEED_FORWARD=false;
+	/** SIMD for NN backprop (training only — never runs at inference, so no cross-mode scoring hazard). ON by default:
+	 * ~1.6x faster training -> more random starts -> better best-of-sweep net. Gated with the live SIMD flag at each
+	 * call site, so simd=f disables it too. NOTE: do NOT initialize this from SIMD — SIMD is mutated by a runtime
+	 * simd=f after class-load, which a static capture would miss; keep this an independent default and AND it with
+	 * live Shared.SIMD at the site. Recorded (effective value = SIMD && SIMD_BACKPROP) in the bbnet header. */
+	public static boolean SIMD_BACKPROP=true;
 
 	// Memory management
 	/** True if running in low memory mode */

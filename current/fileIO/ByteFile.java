@@ -154,10 +154,12 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Reads the next batch of lines (up to 200) as a numbered list.
+	 * Reads the next batch of lines as a numbered list, capped at
+	 * TARGET_LIST_SIZE lines (default 800) or TARGET_LIST_BYTES bytes
+	 * (default 262144), whichever is reached first.
 	 * Provides efficient batch processing for large files.
-	 * Each ListNum contains up to 200 lines with a unique sequential ID.
-	 * @return ListNum containing up to 200 byte array lines, or null if EOF
+	 * Each ListNum carries a unique sequential ID.
+	 * @return ListNum of byte-array lines (up to the size/byte cap), or null if EOF
 	 */
 	public synchronized ListNum<byte[]> nextList(){
 		byte[] line=nextLine();

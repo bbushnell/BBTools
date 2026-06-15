@@ -393,7 +393,7 @@ public final class IntList{
 	
 	public int min() {
 		int min=Integer.MAX_VALUE;
-		for(int i=1; i<size; i++) {min=min(min, array[i]);}
+		for(int i=0; i<size; i++) {min=min(min, array[i]);}
 		return min;
 	}
 	

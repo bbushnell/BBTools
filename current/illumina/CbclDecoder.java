@@ -7,8 +7,16 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * Decodes gzip-compressed, bit-packed base call data from CBCL files.
- * Handles 2-bit base encoding (A=00, C=01, G=10, T=11) and
- * 2-bit quality score encoding.
+ *
+ * CBCL format packs 2 clusters per byte in interleaved layout:
+ *   bits 0-1: base for cluster A (00=A, 01=C, 10=G, 11=T)
+ *   bits 2-3: quality bin index for cluster A
+ *   bits 4-5: base for cluster B
+ *   bits 6-7: quality bin index for cluster B
+ *
+ * Quality bin indices (0-3) are remapped to Phred scores via the
+ * header's qscoreRemap table (e.g., NovaSeq RTA3 maps to 0, 12, 23, 37).
+ * A byte value of 0x00 indicates no-call (base=N, quality=0).
  *
  * @author Chloe
  * @date October 15, 2025
@@ -20,7 +28,6 @@ public class CbclDecoder {
 	/*--------------------------------------------------------------*/
 
 	private static final byte[] BASE_CHARS={'A', 'C', 'G', 'T'};
-	private static final byte[] QUAL_CHARS={'0', '1', '2', '3'};
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Public Methods         ----------------*/
@@ -32,10 +39,12 @@ public class CbclDecoder {
 	 * @param numClusters Number of clusters in this tile
 	 * @param bitsPerBase Bits per base (typically 2)
 	 * @param bitsPerQual Bits per quality (typically 2)
+	 * @param qscoreRemap Quality bin remap table from header; may be null
 	 * @return Array of [bases, quals] where both are byte arrays
 	 */
 	public static byte[][] decodeBlock(byte[] compressedData, int numClusters,
-	                                    int bitsPerBase, int bitsPerQual) throws IOException {
+	                                    int bitsPerBase, int bitsPerQual,
+	                                    int[] qscoreRemap) throws IOException {
 		//Decompress gzip data
 		ByteArrayInputStream bais=new ByteArrayInputStream(compressedData);
 		GZIPInputStream gis=new GZIPInputStream(bais);
@@ -48,7 +57,7 @@ public class CbclDecoder {
 
 		//Unpack bit-packed data
 		if(bitsPerBase==2 && bitsPerQual==2){
-			decode2bit(decompressed, bases, quals, numClusters);
+			decode2bit(decompressed, bases, quals, numClusters, qscoreRemap);
 		} else {
 			throw new UnsupportedOperationException("Only 2-bit encoding supported currently");
 		}
@@ -57,34 +66,43 @@ public class CbclDecoder {
 	}
 
 	/**
-	 * Decode 2-bit packed bases and qualities.
-	 * Format: 4 bases per byte, 4 qualities per byte
+	 * Decode interleaved 2-bit packed bases and qualities.
+	 * Each byte holds 2 clusters: bits[0:1]=baseA, bits[2:3]=qualA,
+	 * bits[4:5]=baseB, bits[6:7]=qualB. LSB-first ordering.
+	 * A nibble of 0x0 (base=0, qual=0) is a no-call: emit N with quality 0.
 	 */
-	private static void decode2bit(byte[] data, byte[] bases, byte[] quals, int numClusters) {
-		int numBytes=(numClusters+3)/4; //Round up for partial bytes
-
-		//Decode bases
+	private static void decode2bit(byte[] data, byte[] bases, byte[] quals,
+	                                int numClusters, int[] qscoreRemap) {
 		int clusterIdx=0;
-		for(int byteIdx=0; byteIdx<numBytes && clusterIdx<numClusters; byteIdx++){
-			byte b=data[byteIdx];
-			//Extract 4 2-bit values from this byte
-			for(int shift=0; shift<8 && clusterIdx<numClusters; shift+=2){
-				int baseValue=(b>>shift)&0x03;
-				bases[clusterIdx]=BASE_CHARS[baseValue];
-				clusterIdx++;
-			}
-		}
+		for(int byteIdx=0; byteIdx<data.length && clusterIdx<numClusters; byteIdx++){
+			int b=data[byteIdx]&0xFF;
 
-		//Decode qualities (start after base bytes)
-		clusterIdx=0;
-		for(int byteIdx=numBytes; byteIdx<numBytes*2 && clusterIdx<numClusters; byteIdx++){
-			byte b=data[byteIdx];
-			//Extract 4 2-bit values from this byte
-			for(int shift=0; shift<8 && clusterIdx<numClusters; shift+=2){
-				int qualValue=(b>>shift)&0x03;
-				quals[clusterIdx]=QUAL_CHARS[qualValue];
-				clusterIdx++;
+			//Cluster A: bits 0-3
+			int baseA=b&0x03;
+			int qualA=(b>>2)&0x03;
+			if((b&0x0F)==0){
+				bases[clusterIdx]='N';
+				quals[clusterIdx]=(byte)(0+33);
+			}else{
+				bases[clusterIdx]=BASE_CHARS[baseA];
+				int phred=(qscoreRemap!=null && qualA<qscoreRemap.length) ? qscoreRemap[qualA] : qualA;
+				quals[clusterIdx]=(byte)(phred+33);
 			}
+			clusterIdx++;
+			if(clusterIdx>=numClusters){break;}
+
+			//Cluster B: bits 4-7
+			int baseB=(b>>4)&0x03;
+			int qualB=(b>>6)&0x03;
+			if((b&0xF0)==0){
+				bases[clusterIdx]='N';
+				quals[clusterIdx]=(byte)(0+33);
+			}else{
+				bases[clusterIdx]=BASE_CHARS[baseB];
+				int phred=(qscoreRemap!=null && qualB<qscoreRemap.length) ? qscoreRemap[qualB] : qualB;
+				quals[clusterIdx]=(byte)(phred+33);
+			}
+			clusterIdx++;
 		}
 	}
 
@@ -113,7 +131,8 @@ public class CbclDecoder {
 		//For files with multiple tiles, need to split the compressed blocks
 		//For now, assume single tile per file (which matches test data structure)
 		return decodeBlock(compressedData, numClusters,
-		                   header.bitsPerBasecall, header.bitsPerQscore);
+		                   header.bitsPerBasecall, header.bitsPerQscore,
+		                   header.qscoreRemap);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -136,7 +155,8 @@ public class CbclDecoder {
 		System.out.println("Decoded " + bases.length + " clusters for tile " + tileNum);
 		System.out.println("First 5 clusters:");
 		for(int i=0; i<Math.min(5, bases.length); i++){
-			System.out.printf("Cluster %d: base=%c qual=%c\n", i, bases[i], quals[i]);
+			System.out.printf("Cluster %d: base=%c qual=%c (Q%d)\n",
+				i, bases[i], quals[i], (quals[i]-33));
 		}
 	}
 }

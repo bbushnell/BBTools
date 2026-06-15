@@ -125,6 +125,7 @@ public final class RingBuffer {
 	/** Clears buffer state (resets position; contents left as-is). */
 	public void clear() {
 		pos=0;
+		count=0;
 		//fill(0); //Not needed
 	}
 

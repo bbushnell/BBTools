@@ -191,7 +191,7 @@ public final class LineParser4 implements LineParser {
 	public byte[] parseByteArray(int term) {
 		final int len=setBounds(term);
 		byte[] ret=new byte[len];
-		for(int i=0; i<len; i++) {ret[i]=(byte)line[a+1];}
+		for(int i=0; i<len; i++) {ret[i]=(byte)line[a+i];}
 		return ret;
 	}
 	
@@ -200,7 +200,7 @@ public final class LineParser4 implements LineParser {
 	public byte[] parseByteArrayFromCurrentField() {
 		int len=b-a;
 		byte[] ret=new byte[len];
-		for(int i=0; i<len; i++) {ret[i]=(byte)line[a+1];}
+		for(int i=0; i<len; i++) {ret[i]=(byte)line[a+i];}
 		return ret;
 	}
 	
@@ -353,7 +353,7 @@ public final class LineParser4 implements LineParser {
 	 */
 	@Override
 	public int incrementB(int amt) {
-		a+=amt;
+		b+=amt;
 		return b-a;
 	}
 

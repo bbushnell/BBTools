@@ -126,7 +126,7 @@ public final class Vector {
 	 */
 	public static final void feedForward(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
-		if(Shared.SIMD && valuesIn.length>=MINLEN32) {
+		if(Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}
@@ -150,7 +150,7 @@ public final class Vector {
 	 */
 	public static final void feedForwardDense(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
-		if(Shared.SIMD && valuesIn.length>=MINLEN32) {//SIMD enabled: the prior anomaly was SIMD.feedForward's tail-drop, fixed (SIMD#002)
+		if(Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {//Gated OFF for NN by default (Shared.SIMD_FEED_FORWARD=false): SIMD reductions can't bit-match scalar, perturbing already-trained nets (validated 2026-06-15)
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}
@@ -176,7 +176,7 @@ public final class Vector {
 	 * @param weightsOutLnum Weight matrix connecting this layer to next layer
 	 */
 	public static void backPropFma(Cell[] layer, float[] eOverNetNext, float[][] weightsOutLnum) {
-		if(Shared.SIMD && eOverNetNext.length>=MINLEN32) {
+		if(Shared.SIMD && Shared.SIMD_BACKPROP && eOverNetNext.length>=MINLEN32) {
 			SIMD.backPropFma(layer, eOverNetNext, weightsOutLnum);
 			return;
 		}

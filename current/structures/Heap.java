@@ -94,7 +94,7 @@ public final class Heap<T extends Comparable<? super T>> implements Iterable<T> 
 
 	public int jiggleUp(T t, int loc){
 		assert(array[loc]==t);
-		return percDown(loc); //Possible bug: Should be percUp(loc)
+		return percUp(loc);
 	}
 
 	private int percDown(int loc){

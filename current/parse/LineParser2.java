@@ -370,7 +370,7 @@ public final class LineParser2 implements LineParser {
 	
 	@Override
 	public int incrementB(int amt) {
-		a+=amt;
+		b+=amt;
 		return b-a;
 	}
 	

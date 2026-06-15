@@ -337,7 +337,7 @@ public final class LineParserS1 implements LineParserS {
 	 */
 	@Override
 	public int incrementB(int amt) {
-		a+=amt;
+		b+=amt;
 		return b-a;
 	}
 

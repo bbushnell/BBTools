@@ -35,7 +35,12 @@ public class AlignRandom {
 	 */
 	public static void main(String[] args) {
 		args=new PreParser(args, System.err, null, false, true, false).args;
-		Shared.SIMD=true;
+		//FIXED [aligner/AlignRandom Java8-SIMD]: was an unconditional 'Shared.SIMD=true', which forces loading
+		//jdk.incubator.vector classes (via simd.SIMDAlign) on JVMs that lack them (Java 8) or CPUs without AVX2/SVE
+		//-> NoClassDefFoundError at first use. Gate by Vector.simd256 (the reflective availability probe every other
+		//tool relies on) so SIMD-unavailable environments fall through to the scalar aligner path instead of crashing.
+		//(simd.Vector itself is Java-8-safe: no top-level jdk.incubator.vector import.)
+		if(simd.Vector.simd256){Shared.SIMD=true;}
 		int min=args.length<1 ? 10 : Integer.parseInt(args[0]);
 		int step=args.length<2 ? 10 : Integer.parseInt(args[1]);
 		int intervals=args.length<3 ? 4 : Integer.parseInt(args[2]);

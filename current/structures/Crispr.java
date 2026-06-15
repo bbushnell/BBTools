@@ -190,13 +190,8 @@ public class Crispr implements Comparable<Crispr> {
 		return a.a<=0 && b.b>=seqLen-1;
 	}
 	
+	//Orders by first range, then second range; not a strict total order over all fields but adequate for sorting.
 	@Override
-	/** 
-	 * So this sort of compares them but it's not really optimal.
-	 * Not clear how to improve it though.
-	 * @param o
-	 * @return
-	 */
 	public int compareTo(Crispr o) {
 		int x=a.compareTo(o.a);
 		if(x!=0) {return x;}

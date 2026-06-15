@@ -21,6 +21,12 @@ public class SeqCount implements Comparable<SeqCount>, Cloneable {
 		}
 	}
 	
+	/**
+	 * Creates a SeqCount that takes ownership of the given array (no copy).
+	 * The array is canonized in place, so the caller's array is modified.
+	 * Use the (byte[], start, stop) constructor to copy a subrange instead.
+	 * @param bases_ Sequence bytes (retained and canonized in place)
+	 */
 	public SeqCount(byte[] bases_) {
 		synchronized(this) {
 			bases=bases_;

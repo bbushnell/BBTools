@@ -152,7 +152,7 @@ public class CRange implements Comparable<CRange>{
 	
 	public static boolean adjacent(int a1, int b1, int a2, int b2){
 		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
-		return a2==b1+1 && b2==a1-1;
+		return a2==b1+1 || a1==b2+1;
 	}
 	
 	private static final int min(int x, int y){return x<y ? x : y;}

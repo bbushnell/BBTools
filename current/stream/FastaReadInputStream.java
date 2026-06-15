@@ -323,7 +323,12 @@ public class FastaReadInputStream extends ReadInputStream {
 			}
 		}
 		
-		String s=stop>start ? new String(buffer, start, stop-start, StandardCharsets.US_ASCII) : "";
+		//FIXED [stream/FastaReadInputStream UTF8]: was US_ASCII, which maps every byte>127 to U+FFFD and destroys
+		//UTF-8 (or any 8-bit) header bytes at READ time, irrecoverably. ISO-8859-1 is a bijective byte<->char map
+		//(0-255), so raw header bytes survive read->store->write losslessly through the existing (byte)charAt writer
+		//and the file reproduces byte-for-byte. Do NOT switch to UTF-8 decode here: that yields multibyte chars the
+		//(byte)charAt writer would re-truncate. (Faithful passthrough; display-correct UTF-8 would be a design change.)
+		String s=stop>start ? new String(buffer, start, stop-start, StandardCharsets.ISO_8859_1) : "";
 //		String s=new String(buffer, bstart+1, x-(bstart+1));
 		if(verbose){System.err.println("Fetched header: '"+s+"'");}
 		bstart=x+1;
