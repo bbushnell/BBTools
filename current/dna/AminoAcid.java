@@ -225,8 +225,8 @@ public final class AminoAcid {
 
 	/** Extended complement mapping including IUPAC ambiguity codes */
 	public static final byte[] numberToComplementaryBaseExtended={
-		' ','T','G','K','C','Y','W','B', //0-7
-		'A','S','R','D','M','H','V','N', //8-15
+		' ','T','G','K','C','Y','S','B', //0-7
+		'A','W','R','D','M','H','V','N', //8-15
 		'X',' ',' ',' ',' ',' ',' ',' ', //16-23
 	};
 

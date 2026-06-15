@@ -795,7 +795,7 @@ public abstract class CardinalityTracker implements Drivable {
 				}else{
 					bsw.print(count).nl();
 				}
-				count=0;
+				count=1;
 			}else{
 				count++;
 			}

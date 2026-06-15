@@ -488,7 +488,7 @@ public abstract class HashArray extends AbstractKmerTable {
 		}else{
 			for(int i=0; i<array.length; i++){
 				long kmer=array[i];
-				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount)){
+				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount) && readCellValue(i)<=maxcount){
 					tsw.print(toText(kmer, readCellValue(i), k).append('\n'));
 				}
 			}
@@ -513,7 +513,7 @@ public abstract class HashArray extends AbstractKmerTable {
 		}else{
 			for(int i=0; i<array.length; i++){
 				long kmer=array[i];
-				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount)){
+				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount) && readCellValue(i)<=maxcount){
 					if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 					bsw.printlnKmer(kmer, readCellValue(i), k);
 				}
@@ -545,7 +545,7 @@ public abstract class HashArray extends AbstractKmerTable {
 		}else{
 			for(int i=0; i<array.length; i++){
 				long kmer=array[i];
-				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount)){
+				if(kmer!=NOT_PRESENT && (mincount<2 || readCellValue(i)>=mincount) && readCellValue(i)<=maxcount){
 					if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 					toBytes(kmer, readCellValue(i), k, bb);
 					bb.nl();

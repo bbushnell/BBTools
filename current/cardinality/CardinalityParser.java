@@ -264,7 +264,7 @@ public class CardinalityParser {
 		}else if(loglogtype.equals("audll33")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_DLL4; AbstractCardStats.TIER_SCALE=1.0;
 			StateTable.USE_AUDLL32_HSB=true;
-			CorrectionFactor.sbsFile=ArithmeticUltraDynamicLogLog32.SBS_FILE;
+			CorrectionFactor.sbsFile=ArithmeticUltraDynamicLogLog33.SBS_FILE;
 			if(!AbstractCardStats.HC_SCALE_EXPLICIT){AbstractCardStats.HC_SCALE=1.008f;}
 		}else if(loglogtype.equals("avdll32")){
 			CorrectionFactor.meanCfCoeffs=CorrectionFactor.MCF_UDLL6;

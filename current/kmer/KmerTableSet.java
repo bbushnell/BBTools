@@ -756,6 +756,7 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				}else{len++;}
 
 				if(verbose){System.err.println("Scanning i="+i+", len="+len+", kmer="+kmer+", rkmer="+rkmer+"\t"+new String(bases, Tools.max(0, i-k2), Tools.min(i+1, k)));}
+				//TODO: Possible bug [kmer/KmerTableSet#002] - onePass computes prob (above) but does NOT gate on prob>=minProb here, unlike addKmersToTable (len>=k && prob>=minProb2). minprob silently ignored in onePass, or prob computation is vestigial. QUESTION - verify intent.
 				if(len>=k){
 					final long key=toValue(kmer, rkmer);
 					int count=prefilterArray.incrementAndReturnUnincremented(key, 1);
@@ -2017,11 +2018,12 @@ public class KmerTableSet extends AbstractKmerTableSet {
 		 * @return True if successful.
 		 */
 		public boolean next(){
-			if(w==null){return false;}
-			if(w.next()){return true;}
-			if(tnum<tables.length){tnum++;}
-			w=(tnum<tables.length ? tables[tnum].walk() : null);
-			return w==null ? false : w.next();
+			while(w!=null){
+				if(w.next()){return true;}
+				tnum++;
+				w=(tnum<tables.length ? tables[tnum].walk() : null);
+			}
+			return false;
 		}
 		
 		/** Returns the current k-mer from the active table walker */
