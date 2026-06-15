@@ -1033,6 +1033,7 @@ public class SIMDAlign {
 	 * Pure vector implementation of deletion tail loop based on exact pseudocode
 	 * TODO: Slow
 	 */
+	//TODO: Possible bug [simd/SIMDAlign#001] - SIMD region propagates only power-of-2 distances over LWIDTH and does not reproduce the exact max-plus deletion scan (only the scalar tail is exact); empirically proven to diverge (Pure 2991/3000, Unrolled 2829/3000 random bands).  Benchmark-only (GlocalPlusAligner3/DriftingPlus* -> AlignRandom).  See bug_reports/simd/SIMDAlign.md.
 	public static void processDeletionsTailVectorPure(
 			long[] curr, int bandStart, int bandEnd) {
 		//	    print(curr, "Initial");

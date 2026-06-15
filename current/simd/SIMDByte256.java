@@ -1338,6 +1338,7 @@ final class SIMDByte256{
 		int left=0;
 		int right=len;
 		final byte caseMask=32; // 0x20 - difference between upper and lowercase
+		boolean clean=true;//FIXED [simd/SIMDByte256#001]: per-block non-ACGTN detection; on the first impure block, bail to the proper-complement scalar tail instead of coercing IUPAC to N (which diverged from the scalar/SIMD-off path).
 
 		{//256-bit loop
 			final ByteVector vCaseMask256=ByteVector.broadcast(BSPECIES256, caseMask);
@@ -1373,13 +1374,19 @@ final class SIMDByte256{
 				compRight=compRight.or(casesRight);
 				ByteVector vRightRevComp=compRight.rearrange(B_REVERSE_SHUFFLE_256);
 
+				//FIXED [simd/SIMDByte256#001]: bail to the scalar tail (proper IUPAC complement) if either block holds a non-ACGTN.
+				//isA/isC/isG/isT are already computed for the blend above; only isN is extra, so detection is near-free for the common all-ACGTN case.
+				VectorMask<Byte> validL=isA_L.or(isC_L).or(isG_L).or(isT_L).or(upperLeft.eq(vN256));
+				VectorMask<Byte> validR=isA_R.or(isC_R).or(isG_R).or(isT_R).or(upperRight.eq(vN256));
+				if(!validL.allTrue() || !validR.allTrue()){clean=false; break;}
+
 				//Write to opposite ends
 				vRightRevComp.intoArray(array, left);
 				vLeftRevComp.intoArray(array, right-BWIDTH256);
 			}
 		}
 
-		{//64-bit loop
+		if(clean){//64-bit loop (skipped once a non-ACGTN block has sent us to the scalar tail)
 			final ByteVector vCaseMask64=ByteVector.broadcast(BSPECIES64, caseMask);
 			final ByteVector vA64=ByteVector.broadcast(BSPECIES64, (byte)'A');
 			final ByteVector vC64=ByteVector.broadcast(BSPECIES64, (byte)'C');
@@ -1413,11 +1420,17 @@ final class SIMDByte256{
 				compRight=compRight.or(casesRight);
 				ByteVector vRightRevComp=compRight.rearrange(B_REVERSE_SHUFFLE_64);
 
+				//FIXED [simd/SIMDByte256#001]: same per-block non-ACGTN bail as the 256-bit loop.
+				VectorMask<Byte> validL=isA_L.or(isC_L).or(isG_L).or(isT_L).or(upperLeft.eq(vN64));
+				VectorMask<Byte> validR=isA_R.or(isC_R).or(isG_R).or(isT_R).or(upperRight.eq(vN64));
+				if(!validL.allTrue() || !validR.allTrue()){clean=false; break;}
+
 				vRightRevComp.intoArray(array, left);
 				vLeftRevComp.intoArray(array, right-BWIDTH64);
 			}
 		}
 
+		//FIXED [simd/SIMDByte256#001]: this scalar tail (proper IUPAC complement via baseToComplementExtended) now also serves as the fallback for any block the SIMD loops flagged as non-ACGTN (clean==false).  Previously the SIMD loops coerced IUPAC->N while this tail complemented them, so the result was position-dependent and diverged from the SIMD-off path; now the whole array is proper-complemented (SIMD for the ACGTN prefix/suffix, scalar from the first impure block inward).
 		//Scalar tail
 		right--;
 		while(left<right){

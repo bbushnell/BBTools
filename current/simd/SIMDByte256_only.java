@@ -145,6 +145,7 @@ final class SIMDByte256_only{
 	 * @param limit Scan backwards from this position (exclusive)
 	 * @return Position of last newline, or -1 if none found
 	 */
+	//TODO: Possible bug [simd/SIMDByte256_only#001] - top aligned chunk is loaded full-width with no tail mask, so when 'limit' is not a multiple of BWIDTH it reads positions >= limit (and possibly past buffer.length -> AIOOBE) and may return a match beyond the intended range.  Latent: this whole class is currently unreferenced (dead code).  See bug_reports/simd/SIMDByte256_only.md.
 	static int findLastSymbol(byte[] buffer, int limit, final byte symbol){
 		final ByteVector newlineVec=ByteVector.broadcast(BSPECIES, symbol);
 		

@@ -172,6 +172,7 @@ public class HMMSearchReport {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reads all lines, builds the per-protein summary map, prints timing, and closes the stream. */
 	void process(Timer t){
 		
 		ByteFile bf=ByteFile.makeByteFile(ffin);
@@ -204,6 +205,7 @@ public class HMMSearchReport {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Adds every parsed line to the summary map and echoes it to stderr. */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw){
 		ArrayList<HMMSearchLine> lines=load(bf);
 		for(HMMSearchLine line : lines){
@@ -212,6 +214,7 @@ public class HMMSearchReport {
 		}
 	}
 	
+	/** Adds a parsed line to the ProteinSummary for its target name, creating one if absent. */
 	private void addToMap(HMMSearchLine line){
 		ProteinSummary ps=map.get(line.name);
 		if(ps==null){
@@ -221,6 +224,7 @@ public class HMMSearchReport {
 		ps.add(line);
 	}
 	
+	/** Reads the input into HMMSearchLine objects, skipping blank and '#' comment lines. */
 	private ArrayList<HMMSearchLine> load(ByteFile bf){
 		byte[] line=bf.nextLine();
 		
@@ -240,6 +244,7 @@ public class HMMSearchReport {
 		return lines;
 	}
 	
+	/** Creates and starts a ByteStreamWriter for ff, or returns null if ff is null. */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);

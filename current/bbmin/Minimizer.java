@@ -107,6 +107,7 @@ public class Minimizer {
 			long x=baseToNumber[b];
 			long x2=baseToComplementNumber[b];
 			
+			//TODO: Possible bug [bbmin/Minimizer#002] - rolling shifts hardcode 2 bits (<<2, >>>2) but constructor accepts bitsPerSymbol (advertised 5 for amino acids) and derives shift/shift2/mask from it; should be <<bitsPerSymbol / >>>bitsPerSymbol. Latent: no caller uses bits!=2, and baseToNumber is nucleotide-only.
 			kmer=((kmer<<2)|x)&mask;
 			rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
 			if(x<0){
@@ -121,9 +122,11 @@ public class Minimizer {
 				currentWindow++;
 
 				final long hashcode=hash(kmer, rkmer);
+				//TODO: Possible bug [bbmin/Minimizer#003] - leftover per-kmer debug print floods stderr and destroys throughput; remove before any real use.
 				System.err.println("i="+i+", code="+hashcode);
 
 				//Track the best code in the window and its state
+				//TODO: Possible bug [bbmin/Minimizer#001] - hash() returns signed longs; minCode=0 filter excludes ~half (negative) hashes, so a window of all-negative hashes yields NO minimizer, breaking the "minimal hash code for every window" contract. Either mask hash into [0,MAX] or set minCode=Long.MIN_VALUE.
 				if(hashcode>=minCode && hashcode<=bestCode){
 					bestCode=hashcode;
 					bestPosition=i;

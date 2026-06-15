@@ -135,14 +135,18 @@ public class JsonParser {
 	
 	public JsonObject parseJsonObject(){
 		if(text==null || text.length<1){return null;}
-		assert(text[0]=='{') : text[0]+"\n"+new String(text);
+		// [json/JsonParser#001] FIXED: skip leading whitespace; fail gracefully (errorState) on non-object input instead of asserting under -ea
+		while(pos<text.length && isWhitespace(text[pos])){pos++;}
+		if(pos>=text.length || text[pos]!='{'){errorState=true; return null;}
 		JsonObject o=makeObject();
 		return o;
 	}
 	
 	public Object[] parseJsonArray(){
 		if(text==null || text.length<1){return null;}
-		assert(text[0]=='[') : text[0]+"\n"+new String(text);
+		// [json/JsonParser#001] FIXED: skip leading whitespace; fail gracefully (errorState) on non-array input
+		while(pos<text.length && isWhitespace(text[pos])){pos++;}
+		if(pos>=text.length || text[pos]!='['){errorState=true; return null;}
 		Object[] array=makeArray();
 		return array;
 	}
@@ -165,6 +169,13 @@ public class JsonParser {
 	/*----------------       Private Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/**
+	 * Converts an accumulated token buffer into a typed value: null, Boolean (via
+	 * parseBoolean, accepting t/f/true/false), Double (if it contains '.'/'e'/'E'),
+	 * else Long. On a parse failure sets errorState and returns the raw string.
+	 * @param bb The token buffer (cleared by this call)
+	 * @return The parsed value (Long/Double/Boolean/null), or the raw String on error
+	 */
 	private Object bufferToObject(ByteBuilder bb){
 		String s=bb.toString();
 		bb.clear();
@@ -201,7 +212,69 @@ public class JsonParser {
 		if(s.equalsIgnoreCase("false") || s.equalsIgnoreCase("f")){return false;}
 		throw INVALID_JSON;
 	}
+
+	/** True for the four JSON whitespace bytes (space, tab, newline, carriage return). */
+	private static boolean isWhitespace(byte b){return b==' ' || b=='\t' || b=='\n' || b=='\r';}
+
+	/**
+	 * Decodes a single-character JSON escape (the byte after a backslash) to its literal
+	 * byte. Recognizes " \\ / n r t b f; an unrecognized escape is returned as-is (lenient).
+	 * \\uXXXX is handled separately by appendUnicodeEscape.
+	 * @param b The byte following the backslash
+	 * @return The decoded byte
+	 */
+	private static byte unescape(byte b){
+		switch(b){
+			case '"': return '"';
+			case '\\': return '\\';
+			case '/': return '/';
+			case 'n': return '\n';
+			case 'r': return '\r';
+			case 't': return '\t';
+			case 'b': return '\b';
+			case 'f': return '\f';
+			default: return b;
+		}
+	}
+
+	/**
+	 * Decodes a \\uXXXX escape. On entry pos is at 'u'; reads the four hex digits at
+	 * pos+1..pos+4, appends the decoded character, and returns the index of the last hex
+	 * digit (so the caller's pos++ advances past it). On malformed hex, sets errorState,
+	 * appends 'u', and returns pos unchanged.
+	 * @param bb Buffer to append the decoded character to
+	 * @param pos Index of the 'u'
+	 * @return New pos (index of the last consumed hex digit), or pos on error
+	 */
+	private int appendUnicodeEscape(ByteBuilder bb, int pos){
+		if(pos+4<text.length){
+			final int d1=hexDigit(text[pos+1]), d2=hexDigit(text[pos+2]);
+			final int d3=hexDigit(text[pos+3]), d4=hexDigit(text[pos+4]);
+			if((d1|d2|d3|d4)>=0){
+				bb.append((char)((d1<<12)|(d2<<8)|(d3<<4)|d4));
+				return pos+4;
+			}
+		}
+		errorState=true;
+		bb.append('u');
+		return pos;
+	}
+
+	/** Returns the value 0-15 of a hex-digit byte, or -1 if not a hex digit. */
+	private static int hexDigit(byte b){
+		if(b>='0' && b<='9'){return b-'0';}
+		if(b>='a' && b<='f'){return b-'a'+10;}
+		if(b>='A' && b<='F'){return b-'A'+10;}
+		return -1;
+	}
 	
+	/**
+	 * Parses one JSON object beginning at the current '{' and advances pos past the
+	 * matching '}'. Recurses into nested objects (makeObject) and arrays (makeArray).
+	 * Both value and structural parse errors are graceful: errorState is set (see #001).
+	 * @return The parsed JsonObject. The outermost object is returned directly; nested
+	 *         objects are attached under their key in the enclosing object.
+	 */
 	private JsonObject makeObject(){
 		assert(text[pos]=='{');
 		pos++;
@@ -219,10 +292,13 @@ public class JsonParser {
 //			if(verbose){outstream.println(pos+"=\t"+(char)b);
 			
 			if(quoteMode){
+				// [json/JsonParser#002] FIXED: decode escapes (inverse of JsonObject.appendQuoted)
 				if(slashMode){
-					if(verbose){outstream.println(">SlashModeEnd, buffer="+bb);}
-					bb.append(b);
 					slashMode=false;
+					if(b=='u'){pos=appendUnicodeEscape(bb, pos);}
+					else{bb.append(unescape(b));}
+				}else if(b=='\\'){
+					slashMode=true;//consume backslash, do not append
 				}else if(b=='"'){
 					if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", key="+key+", buffer="+bb);}
 					String s=bb.toString();
@@ -237,11 +313,6 @@ public class JsonParser {
 					}
 					quoteMode=!quoteMode;
 				}else{
-					if(verbose){outstream.println(">QuoteMode, buffer="+bb);}
-					if(b=='\\'){
-						if(verbose){outstream.println(">SlashMode, buffer="+bb);}
-						slashMode=true;
-					}
 					bb.append(b);
 				}
 			}else if(b=='"'){
@@ -257,7 +328,7 @@ public class JsonParser {
 				}
 			}else if(b==':'){
 				if(verbose){outstream.println(">Colon");}
-				assert(key!=null);
+				if(key==null){errorState=true;}// [json/JsonParser#001] FIXED: was assert(key!=null)
 			}else if(b=='{'){
 				if(verbose){outstream.println(">{, key="+key+", A) current object is:\n"+current+"\n");}
 				JsonObject j=makeObject();
@@ -277,18 +348,17 @@ public class JsonParser {
 					key=null;
 					if(verbose){outstream.println("Added "+value+"; current=\n"+current+"\n");}
 				}
-				pos++;
-				return current; 
+				// [json/JsonParser#004] FIXED: removed pos++ so makeObject leaves pos AT '}', symmetric with makeArray's ']' case (which has no pos++); the caller's loop pos++ then advances uniformly. The old double-advance skipped the char after a nested object, crashing (assert(false)) when an object was the last element of an array, and mis-exiting object-last-in-object via the fallthrough.
+				return current;
 			}else if(b=='['){
 				if(verbose){outstream.println(">[, C) current object is:\n"+current+"\n");}
 				Object[] array=makeArray();
-				assert(key!=null) : "Should be in makeArray.";
+				if(key==null || bb.length()!=0){errorState=true;}// [json/JsonParser#001] FIXED: was asserts
 				current.add(key, array);
 				key=null;
-				assert(bb.length()==0);
 			}else if(b==']'){
 				if(verbose){outstream.println(">], D) current object is:\n"+current+"\n");}
-				assert(false);
+				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) (']' inside object = malformed)
 			}else if(b==' ' || b=='\t' || b=='\n' || b=='\r'){
 				if(verbose){outstream.println(">Other");}
 				//ignore
@@ -297,9 +367,16 @@ public class JsonParser {
 				bb.append(b);
 			}
 		}
+		errorState=true;// [json/JsonParser#003] FIXED: reached only on unterminated input (no closing '}')
 		return current;
 	}
-	
+
+	/**
+	 * Parses one JSON array beginning at the current '[' and advances pos past the
+	 * matching ']'. Recurses into nested objects/arrays.
+	 * @return The array elements as an Object[] (String, Long, Double, Boolean, null,
+	 *         JsonObject, or nested Object[]).
+	 */
 	private Object[] makeArray(){
 		assert(text[pos]=='[');
 		pos++;
@@ -315,10 +392,13 @@ public class JsonParser {
 			final byte b=text[pos];
 			
 			if(quoteMode){
+				// [json/JsonParser#002] FIXED: decode escapes (inverse of JsonObject.appendQuoted)
 				if(slashMode){
-					if(verbose){outstream.println(">SlashModeEnd, buffer="+bb);}
-					bb.append(b);
 					slashMode=false;
+					if(b=='u'){pos=appendUnicodeEscape(bb, pos);}
+					else{bb.append(unescape(b));}
+				}else if(b=='\\'){
+					slashMode=true;//consume backslash, do not append
 				}else if(b=='"'){
 					if(verbose){outstream.println(">Quote; quote mode="+quoteMode+", buffer="+bb);}
 					String s=bb.toString();
@@ -326,11 +406,6 @@ public class JsonParser {
 					current.add(s);
 					quoteMode=!quoteMode;
 				}else{
-					if(verbose){outstream.println(">QuoteMode, buffer="+bb);}
-					if(b=='\\'){
-						if(verbose){outstream.println(">SlashMode, buffer="+bb);}
-						slashMode=true;
-					}
 					bb.append(b);
 				}
 			}else if(b=='"'){
@@ -345,7 +420,7 @@ public class JsonParser {
 				}
 			}else if(b==':'){
 				if(verbose){outstream.println(">Colon");}
-				assert(false);
+				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) (':' inside array = malformed)
 			}else if(b=='{'){
 				if(verbose){outstream.println(">{, E) current object is:\n"+current+"\n");}
 				JsonObject j=makeObject();
@@ -353,7 +428,7 @@ public class JsonParser {
 				if(verbose){outstream.println("Added new object:\n"+j+"\n");}
 			}else if(b=='}'){
 				if(verbose){outstream.println(">}, current array is:\n"+current+"\n");}
-				assert(false);
+				errorState=true;// [json/JsonParser#001] FIXED: was assert(false) ('}' inside array = malformed)
 			}else if(b=='['){
 				if(verbose){outstream.println(">[, F) current object is:\n"+current+"\n");}
 				Object[] array=makeArray();
@@ -375,9 +450,10 @@ public class JsonParser {
 				bb.append(b);
 			}
 		}
+		errorState=true;// [json/JsonParser#003] FIXED: reached only on unterminated input (no closing ']')
 		return current.toArray();
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/

@@ -176,8 +176,9 @@ public class SummarizeCoverage {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Reads each input basecov file, builds the coverage histogram, and writes summary stats. */
 	void process(Timer t){
-		
+
 		ByteStreamWriter bsw=makeBSW(ffout1);
 		
 		if(bsw!=null){
@@ -218,6 +219,7 @@ public class SummarizeCoverage {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Builds a depth histogram for one file, converts it to cumulative %>=Nx, and writes one summary row. */
 	private void processInner(ByteFile bf, ByteStreamWriter bsw, String name){
 		byte[] line=bf.nextLine();
 		final int max=20;
@@ -269,6 +271,7 @@ public class SummarizeCoverage {
 		if(bsw!=null){bsw.print(bb);}
 	}
 	
+	/** Creates and starts a ByteStreamWriter for ff, or returns null if ff is null. */
 	private static ByteStreamWriter makeBSW(FileFormat ff){
 		if(ff==null){return null;}
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);

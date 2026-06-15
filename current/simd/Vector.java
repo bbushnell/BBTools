@@ -144,14 +144,13 @@ public final class Vector {
 	}
 
 	/**
-	 * Dense forward propagation with SIMD disabled due to discovered anomaly.
-	 * Identical to feedForward but forces scalar implementation for consistent results.
+	 * Dense forward propagation.
 	 * @param layer Array of neural network cells to update
 	 * @param valuesIn Input values from previous layer
 	 */
 	public static final void feedForwardDense(Cell[] layer, float[] valuesIn){
 		//		assert(layer.length==valuesIn.length);
-		if(false && Shared.SIMD && valuesIn.length>=MINLEN32) {//Discovered anomaly here; very different results
+		if(Shared.SIMD && valuesIn.length>=MINLEN32) {//SIMD enabled: the prior anomaly was SIMD.feedForward's tail-drop, fixed (SIMD#002)
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}
@@ -1170,6 +1169,7 @@ public final class Vector {
 	}
 
 	public static void reverseComplementInPlace(final byte[] bases, final int length) {
+		if(true){reverseComplementInPlaceFast(bases, length); return;}//Superseded by reverseComplementInPlaceFast, which now self-detects non-ACGTN per block and falls back to scalar - yielding an identical proper complement without this method's separate up-front isACGTN scan.  Old body kept below for trivial revert.
 		if(bases==null){return;}
 		if(Shared.SIMD && bases.length>=MINLEN8 && SIMDByte256.isACGTN(bases, length)) {
 			SIMDByte256.reverseComplementInPlace(bases, length);
@@ -1188,12 +1188,12 @@ public final class Vector {
 		}
 	}
 
-	/** Converts IUPAC to N */
+	/** Proper reverse-complement (IUPAC included). Faster than reverseComplementInPlace: skips the up-front isACGTN scan and instead lets the SIMD kernel detect non-ACGTN per block, falling back to scalar from the first impure base. */
 	public static void reverseComplementInPlaceFast(final byte[] bases) {
 		reverseComplementInPlaceFast(bases, bases.length);
 	}
 
-	/** Converts IUPAC to N */
+	/** Proper reverse-complement (IUPAC included); see no-arg overload. */
 	public static void reverseComplementInPlaceFast(final byte[] bases, final int length) {
 		if(bases==null){return;}
 		if(Shared.SIMD && bases.length>=MINLEN8) {

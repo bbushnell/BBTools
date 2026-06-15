@@ -126,10 +126,12 @@ public class JsonObject {
 	}
 	
 	/**
-	 * Converts a list of JsonObjects to a JSON array string representation.
-	 * Objects are separated by commas and newlines for readability.
+	 * Converts a list of JsonObjects to a comma-and-newline-separated sequence of objects.
+	 * NOTE: this does NOT wrap the output in '[' ']', so the result is not itself a valid
+	 * JSON array. Callers that need an array must add the brackets (no current caller does;
+	 * used only by main()). Contrast toString(Object[]), which does wrap in brackets.
 	 * @param list The list of JsonObjects to convert
-	 * @return JSON array string representation
+	 * @return Comma+newline-separated JsonObjects with no enclosing brackets
 	 */
 	public static String toString(ArrayList<JsonObject> list) {
 		ByteBuilder sb=new ByteBuilder();
@@ -164,7 +166,8 @@ public class JsonObject {
 		ByteBuilder sb=new ByteBuilder();
 		sb.append('{').append('\n');
 		for(int i=0; i<padmult; i++){sb.append(' ');}
-		sb.append('"').append(name).append('"').append(':').append(' ');
+		appendQuoted(sb, name);
+		sb.append(':').append(' ');
 		toText(sb, 1, false);
 		sb.append('\n').append('}');
 		return sb.toString();
@@ -256,7 +259,46 @@ public class JsonObject {
 	 * @param key The key string to format and append
 	 */
 	private static void appendKey(ByteBuilder sb, String key){
-		sb.append('"').append(key).append("\": ");
+		appendQuoted(sb, key);
+		sb.append(':').append(' ');
+	}
+
+	/** Hex digits for \\uXXXX control-character escapes. */
+	private static final char[] HEX="0123456789abcdef".toCharArray();
+
+	/**
+	 * Appends a string as a quoted JSON string, escaping per RFC 8259: '"' and '\\'
+	 * are backslash-escaped, common control chars use short escapes (\\n \\r \\t \\b \\f),
+	 * and any other char below 0x20 uses \\u00XX. Clean runs are appended in bulk via
+	 * append(String,int,int) so non-ASCII bytes are produced exactly as before. Paired
+	 * with JsonParser's un-escaper (the two must remain inverses for round-trips).
+	 * @param sb ByteBuilder to append to
+	 * @param s String to quote and escape (null is rendered as the literal characters "null")
+	 */
+	private static void appendQuoted(ByteBuilder sb, String s){
+		if(s==null){s="null";}
+		sb.append('"');
+		final int len=s.length();
+		int start=0;
+		for(int i=0; i<len; i++){
+			final char c=s.charAt(i);
+			if(c=='"' || c=='\\' || c<0x20){
+				if(i>start){sb.append(s, start, i);}//flush clean run (guarded: empty region appends "null")
+				switch(c){
+					case '"': sb.append('\\', '"'); break;
+					case '\\': sb.append('\\', '\\'); break;
+					case '\n': sb.append('\\', 'n'); break;
+					case '\r': sb.append('\\', 'r'); break;
+					case '\t': sb.append('\\', 't'); break;
+					case '\b': sb.append('\\', 'b'); break;
+					case '\f': sb.append('\\', 'f'); break;
+					default: sb.append('\\', 'u').append('0', '0').append(HEX[(c>>4)&0xF], HEX[c&0xF]);
+				}
+				start=i+1;
+			}
+		}
+		if(start<len){sb.append(s, start, len);}//flush trailing clean run
+		sb.append('"');
 	}
 	
 	/**
@@ -274,23 +316,26 @@ public class JsonObject {
 		if(c==null || value==null){
 			sb.append("null");
 		}else if(c==String.class){
-			sb.append("\"").append(value.toString()).append('"');
+			// [json/JsonObject#001] FIXED: escape string values (paired with JsonParser#002 un-escaper)
+			appendQuoted(sb, value.toString());
 		}else if(c==JsonLiteral.class){
 			sb.append(((JsonLiteral)value).toString());
-		}else if(c==Double.class && restictDecimals>=0){
-			sb.append(((Double)value).doubleValue(), restictDecimals);
-		}else if(c==Float.class && restictDecimals>=0){
-			sb.append(((Float)value).floatValue(), restictDecimals);
+		}else if(c==Double.class && restrictDecimals>=0){
+			sb.append(((Double)value).doubleValue(), restrictDecimals);
+		}else if(c==Float.class && restrictDecimals>=0){
+			sb.append(((Float)value).floatValue(), restrictDecimals);
 		}else if(c==JsonObject.class){
 			((JsonObject)value).append(level+(inArray ? 0 : 1), sb, inArray);
-		}else if(c.isArray()){
+		}else if(value instanceof Object[]){
 			appendArray(sb, (Object[])value, level);
+		}else if(c.isArray()){// [json/JsonObject#003] FIXED: primitive array via reflection (was ClassCastException)
+			appendPrimitiveArray(sb, value, level);
 		}else if(c==Boolean.class || value instanceof Number){ //long, int, boolean
 			sb.append(value.toString());
 		}else if(value instanceof Collection){
 			appendCollection(sb, (Collection<?>)value, level);
 		}else{ //Default behavior for unhandled classes
-			sb.append("\"").append(value.toString()).append('"');
+			appendQuoted(sb, value.toString());
 		}
 	}
 	
@@ -314,7 +359,24 @@ public class JsonObject {
 		}
 		sb.append(']');
 	}
-	
+
+	/**
+	 * Appends a primitive array (int[], long[], double[], etc.) in JSON array format,
+	 * using reflection so each element is boxed and routed through appendValue.
+	 * @param sb ByteBuilder to append to
+	 * @param array A non-null primitive array
+	 * @param level Current indentation level for nested elements
+	 */
+	private static void appendPrimitiveArray(ByteBuilder sb, Object array, int level){
+		final int n=java.lang.reflect.Array.getLength(array);
+		sb.append('[');
+		for(int i=0; i<n; i++){
+			appendValue(sb, java.lang.reflect.Array.get(array, i), level, noNewlinesInArrays);
+			if(i<n-1){sb.append(',').append(' ');}
+		}
+		sb.append(']');
+	}
+
 	/**
 	 * Appends a Collection to the ByteBuilder in JSON array format.
 	 * Similar to appendArray but works with any Collection type.
@@ -353,13 +415,16 @@ public class JsonObject {
 	}
 
 	public Integer getInt(String key){
-		assert(omap!=null);
+		// [json/JsonObject#002] FIXED: null-map guard + Long->int coercion (mirrors getDouble/getLong)
+		if(omap==null){return null;}
 		Object o=omap.get(key);
-//		assert(o!=null);
-		assert(o==null || o.getClass()==Integer.class) : "Wrong class: "+o.getClass()+"\n"+o;
-//		long x=((Long)o).longValue();
-//		assert(x>=Integer.MIN_VALUE && x<=Integer.MAX_VALUE);
-//		return (int)x;
+		if(o==null){return null;}
+		if(o.getClass()==Long.class){//JsonParser stores ints as Long; coerce
+			long x=((Long)o).longValue();
+			assert(x>=Integer.MIN_VALUE && x<=Integer.MAX_VALUE) : "Value out of int range: "+x;
+			return (int)x;
+		}
+		assert(o.getClass()==Integer.class) : "Wrong class: "+o.getClass()+"\n"+o;
 		return (Integer)o;
 	}
 	
@@ -468,19 +533,16 @@ public class JsonObject {
 	public int omapSize(){return omap==null ? 0 : omap.size();}
 	
 //	public String name;
+	/** Key -> non-JsonObject value (String, Number, Boolean, JsonLiteral, array, Collection, or null). Insertion-ordered; lazily allocated; null when empty. */
 	public LinkedHashMap<String, Object> omap;
-	
+
+	/** Key -> nested JsonObject child. Insertion-ordered; lazily allocated; null when empty. Kept separate from omap so nested objects render with structural indentation. */
 	public LinkedHashMap<String, JsonObject> jmap;
 
-	private static int restictDecimals=-1;
-	
-	private static String decimalFormat="%."+restictDecimals+"f";
-	
+	private static int restrictDecimals=-1;
+
 	public static synchronized void setDecimals(int d){
-		if(d!=restictDecimals){
-			restictDecimals=d;
-			decimalFormat="%."+restictDecimals+"f";
-		}
+		restrictDecimals=d;
 	}
 	
 	public static final int padmult=3;

@@ -192,6 +192,7 @@ public class HMMSearchLine {
 	
 	/** Returns string representation of the search result using compact text format.
 	 * @return String containing tab-delimited summary of key search fields */
+	@Override
 	public String toString(){
 		return toText().toString();
 	}
