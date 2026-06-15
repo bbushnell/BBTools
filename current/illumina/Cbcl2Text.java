@@ -179,9 +179,10 @@ public class Cbcl2Text {
 		//Look for s_1_TTTT.filter files
 		for(File f : files){
 			String name=f.getName();
-			if(name.startsWith("s_1_") && name.endsWith(".filter")){
-				//Extract tile number
-				String tileStr=name.substring(4, name.length()-7);
+			final String prefix="s_"+lane+"_";// [illumina/Cbcl2Text#001] FIXED: filter file is s_<lane>_<tile>.filter (was hardcoded s_1_; broke lane!=1) — Picard convention
+			if(name.startsWith(prefix) && name.endsWith(".filter")){
+				//Extract tile number (prefix-aware so lane>=10 works)
+				String tileStr=name.substring(prefix.length(), name.length()-7);
 				int tileNum=Integer.parseInt(tileStr);
 				tilesToProcess.add(tileNum);
 			}
@@ -197,7 +198,7 @@ public class Cbcl2Text {
 	private List<ClusterData> processTile(int lane, int tileNum, float[][] positions) throws IOException {
 		//Read pass-filter flags
 		String filterFile=baseCallsDir+"/L"+String.format("%03d", lane)+
-		                  "/s_1_"+tileNum+".filter";
+		                  "/s_"+lane+"_"+tileNum+".filter";// [illumina/Cbcl2Text#001] FIXED: was hardcoded s_1_
 		boolean[] passFilter=FilterReader.readFilters(filterFile);
 		int numClusters=passFilter.length;
 

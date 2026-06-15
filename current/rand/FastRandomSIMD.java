@@ -228,6 +228,7 @@ public final class FastRandomSIMD implements shared.Random {
 	@Override
 	public void setSeed(long seed) {
 		if(seedState==null) {return;}
+		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] FIXED: honor shared.Random.setSeed contract "negative for a random seed"
 		// Use SplitMix64 to generate distinct seeds
 		long currentSeed = seed;
 

@@ -53,6 +53,11 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			if(loglog!=null) {
 				rp.loglog=loglog.copy();
 			}
+			//Independent per-thread mutable state (else worker clones race on the shared instances)
+			rp.rhp=new IlluminaHeaderParser2();
+			if(readstats!=null){
+				rp.readstats=new ReadStats();
+			}
 
 			return rp;
 		}catch(CloneNotSupportedException e){
@@ -602,7 +607,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 				final int len=r2.length();
 				final int a=forceTrimLeft>0 ? forceTrimLeft : 0;
 				final int b0=forceTrimModulo>0 ? len-1-len%forceTrimModulo : len;
-				final int b1=forceTrimRight>0 ? forceTrimRight : len;
+				final int b1=forceTrimRight>=0 ? forceTrimRight : len;
 				final int b2=forceTrimRight2>0 ? len-1-forceTrimRight2 : len;
 				final int b=Tools.min(b0, b1, b2);
 				final int x=TrimRead.trimToPosition(r2, a, b, 1);
@@ -680,7 +685,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			}
 			if(r2!=null && !r2.discarded()){
 				int rlen=r2.length();
-				if(rlen<minlen1 || (maxReadLength>0 && rlen>maxReadLength)){
+				if(rlen<minlen2 || (maxReadLength>0 && rlen>maxReadLength)){
 					r2.setDiscarded(true);
 					readShortDiscardsT++;
 					baseShortDiscardsT+=rlen;

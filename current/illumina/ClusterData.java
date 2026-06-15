@@ -145,13 +145,13 @@ public class ClusterData {
 		
 		header(bb.append('@'), 1).nl();
 		bb.append(basesR1).nl();
-		bb.append('+');
+		bb.append('+').nl();
 		bb.append(qualsR1).nl();
 		if(basesR2==null) {return bb;}
 		
 		header(bb.append('@'), 2).nl();
 		bb.append(basesR2).nl();
-		bb.append('+');
+		bb.append('+').nl();
 		bb.append(qualsR2).nl();
 		return bb;
 	}

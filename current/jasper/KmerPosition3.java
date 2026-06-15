@@ -118,6 +118,8 @@ public class KmerPosition3 {
 		
 		assert(in1!=null) : "Please specify an input file.";
 		assert(ref!=null) : "Please specify a reference file.";
+		// [jasper/KmerPosition3#001] FIXED: 2-bit packing fits only k in [1,32] (64-bit long); k>=33 silently aliases kmers.
+		assert(k>=1 && k<=32) : "k must be 1-32 for 2-bit (64-bit long) encoding; got k="+k;
 		
 		//File format handling for each file.
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);

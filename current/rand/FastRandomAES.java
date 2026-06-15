@@ -238,6 +238,7 @@ public final class FastRandomAES implements Random {
 	@Override
 	public void setSeed(long seed) {
 		if(cipher==null) {return;}
+		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] FIXED: honor shared.Random.setSeed contract "negative for a random seed"
 		try {
 			// Use seed to derive key
 			byte[] keyBytes = new byte[16];

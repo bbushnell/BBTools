@@ -227,6 +227,7 @@ public final class FastRandom implements shared.Random {
 	 * @param seed New seed (negative uses system time) */
 	@Override
 	public void setSeed(long seed) {
+		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] FIXED: honor shared.Random.setSeed contract "negative for a random seed"
 		seed0=seed;
 		seed1=mixSeed(seed0);
 

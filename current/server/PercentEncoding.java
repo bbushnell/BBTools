@@ -112,8 +112,12 @@ public class PercentEncoding {
 			final char c=s.charAt(i);
 			if(c>='0' && c<='9'){
 				sum=sum+(c-'0');
-			}else if(c>='A' && c<'F'){
+			//FIXED [server/PercentEncoding#001]: was 'c<'F'' which excluded hex digit F, so %2F (/) and %3F (?) failed to decode (parseCode returned -1), breaking the encode/decode round-trip on the TaxClient->TaxServer path and dna/Data URL decode.  Now 'c<='F''.
+			}else if(c>='A' && c<='F'){
 				sum=sum+(10+c-'A');
+			//FIXED [server/PercentEncoding#002]: also accept lowercase a-f (RFC 3986: decoders should accept both cases).  BBTools encodes uppercase, but external clients may send lowercase.
+			}else if(c>='a' && c<='f'){
+				sum=sum+(10+c-'a');
 			}else{
 				return -1;
 			}

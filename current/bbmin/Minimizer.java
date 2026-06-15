@@ -6,11 +6,14 @@ import map.LongHashSet;
 import structures.LongList;
 
 /**
- * Generates an array of minimal hash codes (as positive 64-bit longs) for an input sequence.<br>
- * The resulting array is guaranteed to contain the minimal hash code<br>
- * for every window, with no duplicates.
- * On average this is expected to yield 2*(L-K)/W hash codes for sequence length L and window size W.
- * 
+ * Generates a deduplicated array of minimizer hash codes for an input sequence.<br>
+ * For each sliding window of W consecutive k-mers, selects the smallest canonical-k-mer hash that
+ * is at least minCode (default 0, so negative hashes are skipped), then backtracks to that k-mer's
+ * position to begin the next window. Because sub-minCode k-mers are skipped, a window in which every
+ * k-mer hashes below minCode contributes no minimizer; output codes are therefore all >= minCode,
+ * with no duplicates. On average this yields about 2*(L-K)/W codes for sequence length L and window
+ * size W when most k-mers qualify.
+ *
  * @author Brian Bushnell
  * @date October 8, 2021
  *
@@ -126,7 +129,6 @@ public class Minimizer {
 				System.err.println("i="+i+", code="+hashcode);
 
 				//Track the best code in the window and its state
-				//TODO: Possible bug [bbmin/Minimizer#001] - hash() returns signed longs; minCode=0 filter excludes ~half (negative) hashes, so a window of all-negative hashes yields NO minimizer, breaking the "minimal hash code for every window" contract. Either mask hash into [0,MAX] or set minCode=Long.MIN_VALUE.
 				if(hashcode>=minCode && hashcode<=bestCode){
 					bestCode=hashcode;
 					bestPosition=i;

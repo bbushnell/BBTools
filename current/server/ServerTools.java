@@ -244,12 +244,11 @@ public class ServerTools {
 	 * @return GZIP-compressed byte array
 	 */
 	public static byte[] gzipCompress(byte[] data) {
+		//FIXED [server/ServerTools#001]: GZIPOutputStream is now closed (try-with-resources) before toByteArray(), flushing the deflater's buffered body + gzip trailer.  Was never finish()/close()d -> truncated/invalid gzip.
 		ByteArrayOutputStream bos = new ByteArrayOutputStream();
-		try {
-			 GZIPOutputStream gzip = new GZIPOutputStream(bos);
+		try(GZIPOutputStream gzip = new GZIPOutputStream(bos)) {
 			gzip.write(data);
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
         return bos.toByteArray();
@@ -642,8 +641,8 @@ public class ServerTools {
 		}
 		
 		//Makes sure they match up to the first delimiter
-		//TODO: This needs to be reviewed
-		for(int i=0, max=Tools.max(clientAddress.length(), serverAddress.length()); i<max; i++){
+		//FIXED [server/ServerTools#004]: was Tools.max -> charAt(i) on the shorter address could throw StringIndexOutOfBounds when the two differ in length and share a prefix with no './:' in it; now Tools.min (compare only the overlapping region).
+		for(int i=0, min=Tools.min(clientAddress.length(), serverAddress.length()); i<min; i++){
 			char cc=clientAddress.charAt(i), sc=serverAddress.charAt(i);
 			if(cc!=sc){break;}
 			if(cc=='.'){//IPv4
@@ -708,15 +707,16 @@ public class ServerTools {
 	}
 	
 	public static ArrayList<String> readFTPFile(String address) throws Exception{
+		//FIXED [server/ServerTools#002]: reader now closed via try-with-resources (was leaked on every call, even on success; cf. the sibling listDirectory which closes).
     	address=PercentEncoding.commonSymbolToCode(address);
 		URL url = new URL(address);
 		URLConnection conn = url.openConnection();
 
-		BufferedReader reader = new BufferedReader(new InputStreamReader(
-		                conn.getInputStream()));
 		ArrayList<String> list=new ArrayList<String>();
-		for(String s=reader.readLine(); s!=null; s=reader.readLine()){
-			list.add(s);
+		try(BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()))){
+			for(String s=reader.readLine(); s!=null; s=reader.readLine()){
+				list.add(s);
+			}
 		}
 		return list;
 	}
@@ -753,6 +753,7 @@ public class ServerTools {
 
 	/** Escape a string for safe inclusion in a JSON value.
 	 * Handles quotes, backslashes, newlines, and tabs. */
+	//FIXED [server/ServerTools#003]: now escapes carriage-return/backspace/form-feed and all other control chars below 0x20 as backslash-u hex escapes (was only quote/backslash/newline/tab -> could emit malformed JSON via ddl/SSUServer).  Matches json/JsonObject completeness.
 	public static void escapeJson(ByteBuilder bb, String s){
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
@@ -760,6 +761,15 @@ public class ServerTools {
 			else if(c=='\\'){bb.append('\\').append('\\');}
 			else if(c=='\n'){bb.append('\\').append('n');}
 			else if(c=='\t'){bb.append('\\').append('t');}
+			else if(c=='\r'){bb.append('\\').append('r');}
+			else if(c=='\b'){bb.append('\\').append('b');}
+			else if(c=='\f'){bb.append('\\').append('f');}
+			else if(c<0x20){//Remaining C0 control chars -> \\u00XX
+				bb.append('\\').append('u').append('0').append('0');
+				final int hi=(c>>4)&0xF, lo=c&0xF;
+				bb.append((char)(hi<10 ? '0'+hi : 'A'+hi-10));
+				bb.append((char)(lo<10 ? '0'+lo : 'A'+lo-10));
+			}
 			else{bb.append(c);}
 		}
 	}
