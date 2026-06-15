@@ -282,8 +282,7 @@ final class SIMD{
 	 * ScoreSequence.
 	 */
 	static void feedForward(final Cell[] layer, final float[] b){
-		assert (false)
-		:"This was giving incorrect results for nets made made with simd=f and vice versa.  Needs validation.";
+		//FIXED [simd/SIMD#002]: removed the 'assert(false)' that disabled this method.  The "incorrect results for nets made with simd=f and vice versa" was the SAME tail-drop as backPropFma (SIMD#001): the residual loop below started at limit+FWIDTH, silently dropping the last (b.length % FWIDTH) terms of each dot product.  Residual now starts at limit, matching the scalar Vector.fma reference (verified: 0/25 layer widths diverge after fix vs 21/25 before).
 		final int limit=FSPECIES.loopBound(b.length);
 
 		for(int cnum=0; cnum<layer.length; cnum++){
@@ -302,7 +301,7 @@ final class SIMD{
 			final Cell cell=layer[cnum];
 			final float[] a=cell.weights;
 			float residual=cell.bias;
-			for(int i=limit+FWIDTH; i<a.length; i++){// Residual scalar loop
+			for(int i=limit; i<a.length; i++){// Residual scalar loop (FIXED [simd/SIMD#002]: was limit+FWIDTH, which dropped the tail)
 				residual+=a[i]*b[i];
 			}
 			cell.sum+=residual;
@@ -329,13 +328,14 @@ final class SIMD{
 			cell.eTotalOverOut=sum.reduceLanes(VectorOperators.ADD);
 		}
 
-		if(limit+FWIDTH>=a.length){ return; }// Shortcut when length is divisible by 8.
+		//FIXED [simd/SIMD#001]: was 'if(limit+FWIDTH>=a.length)' which ALWAYS fired (a.length-limit is in [0,FWIDTH-1] < FWIDTH), paired with a residual loop starting at limit+FWIDTH - so the last (a.length % FWIDTH) fma terms were silently dropped from cell.eTotalOverOut, diverging from the scalar Vector.fma fallback whenever a.length was not a multiple of 8.  Now returns only when there is genuinely no tail; residual starts at limit (matching the add/addProduct/sum kernels).
+		if(limit>=a.length){ return; }// No tail when length is an exact multiple of the vector width.
 
 		for(int cnum=0; cnum<layer.length; cnum++){
 			Cell cell=layer[cnum];
 			float[] b=bb[cnum];
 			float residual=0;
-			for(int i=limit+FWIDTH; i<a.length; i++){// Residual scalar loop
+			for(int i=limit; i<a.length; i++){// Residual scalar loop
 				residual+=a[i]*b[i];
 			}
 			cell.eTotalOverOut+=residual;

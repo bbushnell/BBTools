@@ -18,6 +18,7 @@ public class ProteinSummary {
 	
 	/** Returns true if anything changed */
 	public boolean add(HMMSearchLine line){
+		//TODO: Possible bug [hmm/ProteinSummary#001] - map keyed by line.name (target/field0), but class+field javadoc and README say "reference model name" (line.hmmName/field3); also redundant with outer map's key. Latent: map is never output in current WIP state.
 		Integer old=map.get(line.name);
 		if(old==null || old<line.length){
 			map.put(line.name, line.length);

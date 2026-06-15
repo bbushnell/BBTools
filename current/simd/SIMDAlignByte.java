@@ -671,6 +671,7 @@ public class SIMDAlignByte {
 	 * @param bandStart Starting position of the alignment band
 	 * @param bandEnd Ending position of the alignment band
 	 */
+	//TODO: Possible bug [simd/SIMDAlignByte#001] - SIMD shell-propagation (power-of-2 distances, non-progressive reads) diverges from the exact max-plus deletion scan used by BandedByteAligner's non-SIMD branch; empirically proven to under-propagate on realistic bands.  Benchmark-only reachability (BandedByteAligner -> AlignRandom; not used by production Factory aligners).  See bug_reports/simd/SIMDAlignByte.md.
 	public static void processDeletionsTailVector(byte[] curr, int bandStart, int bandEnd) {
 		final int maxDist = BWIDTH/2;
 
