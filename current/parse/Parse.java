@@ -742,28 +742,23 @@ public final class Parse {
 	public static long[] parseLongArray(String sub) {
 		if(sub==null || sub.length()<1){return null;}
 		long current=0;
-//		int clen=0;
+		int sign=1;
+		boolean inNumber=false;
 		LongList list=new LongList(min(8, 1+sub.length()/2));
 		for(int i=0, len=sub.length(); i<len; i++){
-//			System.err.println();
-			int c=sub.charAt(i)-'0';
-			if(c<0 || c>9){
-//				System.err.println('A');
-				//assert(clen>0);
-				list.add(current);
-				current=0;
-//				clen=0;
-			}else{
-//				System.err.println('B');
+			final char ch=sub.charAt(i);
+			final int c=ch-'0';
+			if(c>=0 && c<=9){
 				current=(current*10)+c;
-//				clen++;
+				inNumber=true;
+			}else if(ch=='-' && !inNumber){//Leading minus is a sign, not a delimiter
+				sign=-1;
+			}else{//Delimiter
+				list.add(current*sign);
+				current=0; sign=1; inNumber=false;
 			}
-//			System.err.println("i="+i+", c="+c+", current="+current+", list="+list);
 		}
-//		if(clen>0){
-			list.add(current);
-//		}
-//		assert(false) : "\n'"+sub+"'\n"+Arrays.toString(list.toArray());
+		list.add(current*sign);
 		return list.toArray();
 	}
 	

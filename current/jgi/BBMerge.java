@@ -1160,10 +1160,14 @@ public class BBMerge {
 				else{outstream.println("Writing mergable reads unmerged in two files.");}
 			}
 			
-			final FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, ordered);
-			final FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, ordered);
+			//FIXED [jgi/BBMerge two-file-ordered]: two-file paired output requires ordered=true so the new
+			//WriterFactory/PairedWriter keeps R1/R2 mates synced across the two files (and to satisfy its assert).
+			//Single-file (interleaved/merged) output keeps the user's 'ordered' preference.
+			final boolean orderedG=(out2!=null) || ordered;
+			final FileFormat ff1=FileFormat.testOutput(out1, FileFormat.FASTQ, null, true, overwrite, append, orderedG);
+			final FileFormat ff2=FileFormat.testOutput(out2, FileFormat.FASTQ, null, true, overwrite, append, orderedG);
 			assert(!ff1.samOrBam()) : "Sam files need reference info for the header.";
-			
+
 			final int buff=Tools.max(16, 2*THREADS);
 			rosgood=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, 1);
 			rosgood.start();
@@ -1171,10 +1175,13 @@ public class BBMerge {
 		
 		if(outb1!=null){
 
-			final FileFormat ff1=FileFormat.testOutput(outb1, FileFormat.FASTQ, null, true, overwrite, append, ordered);
-			final FileFormat ff2=FileFormat.testOutput(outb2, FileFormat.FASTQ, null, true, overwrite, append, ordered);
+			//FIXED [jgi/BBMerge two-file-ordered]: same as the out1/out2 block above — outu1/outu2 (unmerged pairs in
+			//two files) need ordered=true for the new PairedWriter. This is the path in the user's AssertionError report.
+			final boolean orderedB=(outb2!=null) || ordered;
+			final FileFormat ff1=FileFormat.testOutput(outb1, FileFormat.FASTQ, null, true, overwrite, append, orderedB);
+			final FileFormat ff2=FileFormat.testOutput(outb2, FileFormat.FASTQ, null, true, overwrite, append, orderedB);
 			assert(!ff1.samOrBam()) : "Sam files need reference info for the header.";
-			
+
 			final int buff=Tools.max(16, 2*THREADS);
 			rosbad=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, 1);
 			rosbad.start();

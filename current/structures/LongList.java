@@ -31,17 +31,31 @@ public final class LongList{
 	}
 	
 	public LongList(){this(256);}
-	
+
+	/**
+	 * Creates LongList with specified initial capacity.
+	 * Minimum capacity is enforced to be at least 1.
+	 * @param initial Initial array size (will be at least 1)
+	 */
 	public LongList(int initial){
 		array=KillSwitch.allocLong1D(Math.max(1, initial));
 	}
 
+	/** Clears the list by setting size to 0; array contents are left intact */
 	public void clear(){size=0;}
+	/** Clears list and zeros all array elements for security.
+	 * More thorough than clear() but slower. */
 	public void clearFull(){
 		Arrays.fill(array, 0);
 		size=0;
 	}
 	
+	/**
+	 * Sets value at specified index, expanding array if necessary.
+	 * Updates list size to include the set position.
+	 * @param loc Index to set (will expand array if needed)
+	 * @param value Value to store at location
+	 */
 	public final void set(int loc, long value){
 		if(loc>=array.length){
 			resize(loc*2L+1);
@@ -49,12 +63,23 @@ public final class LongList{
 		array[loc]=value;
 		size=max(size, loc+1);
 	}
-	
+
+	/**
+	 * Sets the last element to specified value.
+	 * Requires list to be non-empty.
+	 * @param value New value for the last element
+	 */
 	public final void setLast(long value){
 		assert(size>0);
 		array[size-1]=value;
 	}
-	
+
+	/**
+	 * Increments value at location by specified amount.
+	 * Expands array and updates size as needed.
+	 * @param loc Index to increment
+	 * @param value Amount to add to existing value
+	 */
 	public final void increment(int loc, long value){
 		if(loc>=array.length){
 			resize(loc*2L+1);
@@ -62,39 +87,60 @@ public final class LongList{
 		array[loc]+=value;
 		size=max(size, loc+1);
 	}
-	
+
+	/** Increments value at location by 1, expanding array if necessary.
+	 * @param loc Index to increment */
 	public final void increment(int loc){
 		increment(loc, 1);
 	}
-	
+
+	/** Adds each element of b to this list at the same index, expanding as needed.
+	 * @param b Source list whose values are added position-by-position */
 	public final void incrementBy(LongList b){
 		for(int i=b.size-1; i>=0; i--){
 			increment(i, b.get(i));
 		}
 	}
-	
+
+	/** Adds each element of b to this list at the same index, expanding as needed.
+	 * @param b Source array whose values are added position-by-position */
 	public final void incrementBy(long[] b){
 		for(int i=b.length-1; i>=0; i--){
 			increment(i, b[i]);
 		}
 	}
-	
+
+	/** Appends all elements of b to the end of this list in order.
+	 * @param b Source list to copy elements from */
 	public final void append(LongList b){
 		for(int i=0; i<b.size; i++){
 			add(b.get(i));
 		}
 	}
-	
+
+	/** Appends all elements of b to the end of this list in order.
+	 * @param b Source array to copy elements from */
 	public final void append(long[] b){
 		for(int i=0; i<b.length; i++){
 			add(b[i]);
 		}
 	}
-	
+
+	/**
+	 * Gets value at specified index with bounds checking.
+	 * Returns 0 for out-of-bounds access instead of throwing exception.
+	 * @param loc Index to retrieve
+	 * @return Value at index, or 0 if index >= size
+	 */
 	public final long get(int loc){
 		return(loc>=size ? 0 : array[loc]);
 	}
-	
+
+	/**
+	 * Appends element to end of list, expanding capacity if needed.
+	 * Doubles array size when expansion is required.
+	 * @param x Value to add to the list
+	 */
 	public final void add(long x){
 		if(size>=array.length){
 			resize(size*2L+1);
@@ -102,33 +148,56 @@ public final class LongList{
 		array[size]=x;
 		size++;
 	}
-	
+
+	/**
+	 * Checks if list contains specified value using linear search.
+	 * @param x Value to search for
+	 * @return true if value is found, false otherwise
+	 */
 	public boolean contains(long x) {
 		for(int i=0; i<size; i++) {
 			if(array[i]==x) {return true;}
 		}
 		return false;
 	}
-	
+
+	/**
+	 * Appends all elements from another LongList to this list.
+	 * Elements are added in order from the source list.
+	 * @param list2 Source LongList to copy elements from
+	 */
 	public void addAll(LongList list2) {
 		final long[] array2=list2.array;
 		final int size2=list2.size;
 		for(int i=0; i<size2; i++){add(array2[i]);}
 	}
-	
+
+	/**
+	 * Appends a range of elements from a source array via System.arraycopy.
+	 * @param array2 Source array to copy from
+	 * @param from Inclusive start index in source
+	 * @param to Exclusive end index in source
+	 */
 	public void add(long[] array2, int from, int to) {
 		int len=to-from;
 		expand(len);
 		System.arraycopy(array2, from, array, size, len);
 		size+=len;
 	}
-	
+
+	/** Resizes if appending extra elements would exceed capacity.
+	 * @param extra Number of additional elements to make room for */
 	private final void expand(final long extra) {
 		if(size+extra>=array.length){
 			resize(size*2L+1);
 		}
 	}
-	
+
+	/**
+	 * Expands internal array to accommodate at least size2 elements.
+	 * Ensures new capacity is within maximum array length limits.
+	 * @param size2 New minimum capacity required
+	 */
 	private final void resize(final long size2){
 		assert(size2>size) : size+", "+size2;
 		final int size3=(int)Tools.min(Shared.MAX_ARRAY_LEN, size2);
@@ -136,12 +205,19 @@ public final class LongList{
 		array=KillSwitch.copyOf(array, size3);
 	}
 	
+	/**
+	 * Shrinks internal array to match current size exactly.
+	 * Reduces memory usage by eliminating unused capacity.
+	 * @return This LongList for method chaining
+	 */
 	public final LongList shrink(){
 		if(size==array.length){return this;}
 		array=KillSwitch.copyOf(array, size);
 		return this;
 	}
-	
+
+	/** Computes population standard deviation of the elements.
+	 * @return Standard deviation, or 0 if fewer than 2 elements */
 	public final double stdev(){
 		if(size<2){return 0;}
 		double sum=sum();
@@ -155,6 +231,9 @@ public final class LongList{
 		return Math.sqrt(sumdev2/size);
 	}
 	
+	/** Mean absolute difference between x and each element.
+	 * @param x Reference value
+	 * @return Average of |x - element| over all elements (0 if empty) */
 	public final double avgDif(final double x){
 		double sum=0;
 		for(int i=0; i<size; i++){
@@ -162,7 +241,10 @@ public final class LongList{
 		}
 		return sum/(Tools.max(1, size));
 	}
-	
+
+	/** Root-mean-square difference between x and each element.
+	 * @param x Reference value
+	 * @return sqrt(mean of (x - element)^2) over all elements (0 if empty) */
 	public final double rmsDif(final double x){
 		double sum=0;
 		for(int i=0; i<size; i++){
@@ -171,7 +253,11 @@ public final class LongList{
 		}
 		return Math.sqrt(sum/(Tools.max(1, size)));
 	}
-	
+
+	/**
+	 * Calculates sum of all elements as long.
+	 * @return Sum of all elements as long
+	 */
 	public final long sumLong(){
 		long sum=0;
 		for(int i=0; i<size; i++){
@@ -179,7 +265,9 @@ public final class LongList{
 		}
 		return sum;
 	}
-	
+
+	/** Histogram-weighted sum: each element is multiplied by its index.
+	 * @return Sum of array[i]*i over all elements */
 	public final long sumHist(){
 		long sum=0;
 		for(int i=0; i<size; i++){
@@ -187,7 +275,11 @@ public final class LongList{
 		}
 		return sum;
 	}
-	
+
+	/**
+	 * Calculates sum of all elements as double.
+	 * @return Sum of all elements as double
+	 */
 	public final double sum(){
 		double sum=0;
 		for(int i=0; i<size; i++){
@@ -195,15 +287,22 @@ public final class LongList{
 		}
 		return sum;
 	}
-	
+
+	/** Arithmetic mean of all elements.
+	 * @return sum/size, or 0 if empty */
 	public final double mean(){
 		return size<1 ? 0 : sum()/size;
 	}
-	
+
+	/** Histogram mean: index-weighted sum divided by element sum.
+	 * Treats the list as a histogram of counts indexed by position.
+	 * @return sumHist()/sum(), or 0 if empty */
 	public final double meanHist(){
 		return size<1 ? 0 : sumHist()/sum();
 	}
-	
+
+	/** Harmonic mean of elements, ignoring any element less than 1.
+	 * @return Harmonic mean of positive elements */
 	//Ignores elements below 1
 	public final double harmonicMean(){
 		double sum=0;
@@ -218,6 +317,8 @@ public final class LongList{
 		return 1.0/avg;
 	}
 	
+	/** Geometric mean of elements, ignoring any element less than 1.
+	 * @return Geometric mean of positive elements */
 	//Ignores elements below 1
 	public final double geometricMean(){
 		double sum=0;
@@ -326,12 +427,24 @@ public final class LongList{
 		return best;
 	}
 	
+	/**
+	 * Finds the value where the cumulative sum reaches the given fraction.
+	 * Assumes the list is sorted; uses value-weighted (not position) percentile.
+	 * @param fraction Percentile as fraction (0.0 to 1.0)
+	 * @return Value at specified percentile, or 0 if empty
+	 */
 	public long percentile(double fraction){
 		if(size<1){return 0;}
 		int idx=percentileIndex(fraction);
 		return array[idx];
 	}
-	
+
+	/**
+	 * Finds index where cumulative sum reaches the target percentile.
+	 * Assumes sorted data and uses value-weighted percentile calculation.
+	 * @param fraction Percentile as fraction (0.0 to 1.0)
+	 * @return Index where percentile threshold is reached
+	 */
 	public int percentileIndex(double fraction){
 		if(size<2){return size-1;}
 		assert(sorted());
@@ -375,11 +488,17 @@ public final class LongList{
 //		size=alt.length;
 //	}
 	
+	/** Removes duplicate elements and shrinks array to fit exactly */
 	public final void shrinkToUnique(){
 		condense();
 		shrink();
 	}
-	
+
+	/**
+	 * Removes duplicate elements in-place from a sorted list.
+	 * Maintains sorted order while keeping only unique values.
+	 * Skips the initial strictly-ascending run before collapsing duplicates.
+	 */
 	//In-place.
 	//Assumes sorted.
 	public final void condense(){
@@ -406,6 +525,8 @@ public final class LongList{
 		size=i+1;
 	}
 	
+	/** Removes the element at index i by shifting later elements left.
+	 * @param i Index of the element to remove */
 	public void removeElementAt(int i) {
 		for(int j=i+1; j<size; i++, j++) {
 			array[i]=array[j];
@@ -420,6 +541,11 @@ public final class LongList{
 		return toStringListView();
 	}
 	
+	/**
+	 * Returns string showing non-zero elements as (index, value) pairs.
+	 * Useful for sparse data visualization.
+	 * @return String representation as set view with index-value pairs
+	 */
 	public String toStringSetView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -433,7 +559,12 @@ public final class LongList{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Returns string showing all elements in sequential order.
+	 * Standard list representation format: [elem1, elem2, elem3].
+	 * @return String representation as ordered list
+	 */
 	public String toStringListView(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
@@ -445,7 +576,12 @@ public final class LongList{
 		sb.append(']');
 		return sb.toString();
 	}
-	
+
+	/**
+	 * Creates new array containing a copy of all list elements.
+	 * Returned array length equals list size, not capacity.
+	 * @return New long array with copies of all elements
+	 */
 	public long[] toArray(){
 		long[] x=KillSwitch.allocLong1D(size);
 		for(int i=0; i<x.length; i++){
@@ -453,19 +589,24 @@ public final class LongList{
 		}
 		return x;
 	}
-	
+
+	/** Sorts elements in ascending order using Shared.sort (parallel-capable) */
 	public void sort() {
 		if(size>1){Shared.sort(array, 0, size);}
 	}
-	
+
+	/** Sorts elements in ascending order using single-threaded Arrays.sort */
 	public void sortSerial() {
 		if(size>1){Arrays.sort(array, 0, size);}
 	}
-	
+
+	/** Reverses the order of all elements in-place */
 	public void reverse() {
 		if(size>1){Tools.reverseInPlace(array, 0, size);}
 	}
-	
+
+	/** Checks if list is sorted in ascending order using O(n) scan.
+	 * @return true if elements are in non-decreasing order, false otherwise */
 	public boolean sorted(){
 		for(int i=1; i<size; i++){
 			if(array[i]<array[i-1]){return false;}
@@ -489,6 +630,9 @@ public final class LongList{
 		return size==0;
 	}
 	
+	/** Finds the first index containing the specified value via linear search.
+	 * @param x Value to search for
+	 * @return Index of first match, or -1 if not found */
 	public int findIndex(long x) {
 		for(int i=0; i<size; i++) {
 			if(array[i]==x) {return i;}
@@ -509,6 +653,9 @@ public final class LongList{
 		return size;
 	}
 	
+	/** Collapses the tail [max, size) into index max by summing those elements,
+	 * then truncates size to max+1. Treats the list as a histogram with a cap.
+	 * @param max Index of the final retained bin holding the accumulated tail */
 	public void capHist(final int max) {
 		if(size<=max+1) {return;}
 		//size=2, max=0 are the lowest values to enter
@@ -519,14 +666,20 @@ public final class LongList{
 		array[max]=sum;
 		size=max+1;
 	}
-	
+
+	/** Returns smaller of two longs */
 	private static final long min(long x, long y){return x<y ? x : y;}
+	/** Returns larger of two longs */
 	private static final long max(long x, long y){return x>y ? x : y;}
-	
+
+	/** Returns smaller of two integers */
 	private static final int min(int x, int y){return x<y ? x : y;}
+	/** Returns larger of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
-	
+
+	/** Backing array for element storage, may have unused capacity */
 	public long[] array;
+	/** Current number of elements in the list (logical size) */
 	public int size=0;
 	
 }

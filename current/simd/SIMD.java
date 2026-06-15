@@ -282,7 +282,7 @@ final class SIMD{
 	 * ScoreSequence.
 	 */
 	static void feedForward(final Cell[] layer, final float[] b){
-		//FIXED [simd/SIMD#002]: removed the 'assert(false)' that disabled this method.  The "incorrect results for nets made with simd=f and vice versa" was the SAME tail-drop as backPropFma (SIMD#001): the residual loop below started at limit+FWIDTH, silently dropping the last (b.length % FWIDTH) terms of each dot product.  Residual now starts at limit, matching the scalar Vector.fma reference (verified: 0/25 layer widths diverge after fix vs 21/25 before).
+		//[simd/SIMD#002] TWO SEPARATE issues — do not conflate: (1) a real tail-drop, fixed: the residual loop started at limit+FWIDTH, silently dropping the last (b.length % FWIDTH) dot-product terms; it now starts at limit, matching scalar Vector.fma.  (2) the original 'assert(false): incorrect results for nets made with simd=f and vice versa' was NOT the tail-drop — it is the fundamental cross-mode mismatch: this reduction (true-FMA + tree-reduce) cannot bit-match scalar c+=a[i]*b[i], and that ~1e-7 difference perturbs already-tuned NN training (validated 2026-06-15; bugfix-project reports/simd_feedforward_nn_validation).  That concern is REAL, so NN forward is gated OFF by default via Shared.SIMD_FEED_FORWARD — the fence is preserved as a flag, not removed.
 		final int limit=FSPECIES.loopBound(b.length);
 
 		for(int cnum=0; cnum<layer.length; cnum++){

@@ -370,7 +370,7 @@ public final class LineParserS4Reverse implements LineParserS {
 	 */
 	@Override
 	public int incrementB(int amt) {
-		a+=amt;
+		b+=amt;
 		return b-a;
 	}
 

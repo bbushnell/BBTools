@@ -447,7 +447,7 @@ public class Parser {
 		
 		if(parseQTrim(arg, a, b)){
 			//do nothing
-		}else if(a.equals("forcetrimmod") || a.equals("forcemrimmodulo") || a.equals("ftm")){
+		}else if(a.equals("forcetrimmod") || a.equals("forcetrimmodulo") || a.equals("ftm")){
 			forceTrimModulo=Integer.parseInt(b);
 		}else if(a.equals("ftl") || a.equals("forcetrimleft")){
 			forceTrimLeft=Integer.parseInt(b);
@@ -496,7 +496,7 @@ public class Parser {
 		}else if(a.equals("maxgc")){
 			maxGC=Float.parseFloat(b);
 //			if(maxGC<1){filterGC=true;}
-			assert(minGC>=0 && minGC<=1) : "maxgc should be a decimal number between 0 and 1, inclusive.";
+			assert(maxGC>=0 && maxGC<=1) : "maxgc should be a decimal number between 0 and 1, inclusive.";
 		}else if(a.equals("usepairgc") || a.equals("pairgc")){
 			usePairGC=Parse.parseBoolean(b);
 			ReadStats.usePairGC=usePairGC;
@@ -1066,7 +1066,7 @@ public class Parser {
 	 * @return true if all quality histogram output files are null
 	 */
 	private static boolean qhistsNull(){
-		return ReadStats.BQUAL_HIST_FILE==null && ReadStats.QUAL_HIST_FILE!=null && ReadStats.AVG_QUAL_HIST_FILE!=null && ReadStats.BQUAL_HIST_OVERALL_FILE!=null
+		return ReadStats.BQUAL_HIST_FILE==null && ReadStats.QUAL_HIST_FILE==null && ReadStats.AVG_QUAL_HIST_FILE==null && ReadStats.BQUAL_HIST_OVERALL_FILE==null
 				&& ReadStats.QUAL_COUNT_HIST_FILE==null;
 	}
 	

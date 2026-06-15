@@ -142,7 +142,7 @@ public class SuperLongList {
 		for(int i=0; i<array.length; i++){
 			long x=array[i];
 			currentSum+=(x*i);
-			currentCount+=i;
+			currentCount+=x;
 			if(currentCount>=thresh){return i;}
 		}
 		long prev=-1;
@@ -202,10 +202,10 @@ public class SuperLongList {
 		for(int i=0; i<array.length; i++){
 			long x=array[i];
 			currentSum+=(x*i);
-			currentCount+=i;
+			currentCount+=x;
 			if(currentCount>=thresh){
 				currentSum-=(x*i);
-				currentCount-=i;
+				currentCount-=x;
 				while(currentCount<thresh){
 					currentSum+=i;
 					currentCount++;
@@ -240,10 +240,10 @@ public class SuperLongList {
 		for(int i=0; i<array.length; i++){
 			long x=array[i];
 			currentSum+=(x*i);
-			currentCount+=i;
+			currentCount+=x;
 			if(currentSum>=thresh){
 				currentSum-=(x*i);
-				currentCount-=i;
+				currentCount-=x;
 				while(currentSum<thresh){
 					currentSum+=i;
 					currentCount++;

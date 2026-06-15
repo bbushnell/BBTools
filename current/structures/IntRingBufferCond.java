@@ -143,5 +143,5 @@ public final class IntRingBufferCond {
 	private final int limit;
 	
 	private int pos=0;
-	private int count=0;//Optional
+	private long count=0;//Optional
 }

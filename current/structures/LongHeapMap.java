@@ -46,7 +46,7 @@ public class LongHeapMap implements LongHeapSetInterface {
 		final long bottom=heap.peek();
 		if(key>bottom){
 			int value=map.increment(key, incr);
-			if(value==incr){
+			if(value==incr){//New key above the floor: evict the current minimum to make room
 				map.remove(bottom);
 				assert(map.size()<=limit);
 				heap.add(key);
@@ -54,9 +54,15 @@ public class LongHeapMap implements LongHeapSetInterface {
 				assert(heap.size()==map.size());
 				return value;
 			}
+			assert(heap.size()==map.size());
+			return value;//Existing member above the floor: count already bumped; return it (was incorrectly 0)
+		}else if(key==bottom){//The minimum member must still accrue count when full (was silently dropped)
+			int value=map.increment(key, incr);
+			assert(heap.size()==map.size());
+			return value;
 		}
 		assert(heap.size()==map.size());
-		return 0;
+		return 0;//key<bottom: a genuinely new, too-small key; reject with no map op (preserves the hot reject path)
 	}
 	
 	/** Removes all elements from both the heap and map structures.

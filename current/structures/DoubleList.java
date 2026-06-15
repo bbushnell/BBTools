@@ -176,7 +176,7 @@ public final class DoubleList{
 	}
 	
 	public final void setSize(final int size2) {
-		if(size2<array.length){resize(size2);}
+		if(size2>array.length){resize(size2);}
 		size=size2;
 	}
 	

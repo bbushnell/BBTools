@@ -72,7 +72,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 
 	@Override
 	public CharSequence subSequence(int start, int end) throws IndexOutOfBoundsException{
-		if(start<0 || end>=length()){throw new IndexOutOfBoundsException();}
+		if(start<0 || end>length() || start>end){throw new IndexOutOfBoundsException();}
 		return new ByteBuilder(KillSwitch.copyOfRange(array, start, end));
 	}
 	
@@ -604,7 +604,7 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		final int len=s.length();
 		expand(len);
 		for(int i=0; i<len; i++, length++){
-			array[length]=(byte)s.charAt(i);
+			array[length]=(byte)s.charAt(i);//TODO: Possible bug [structures/ByteBuilder#002] - (byte)charAt truncates non-ASCII chars (>255) lossily; write-side contributor to Furina's confirmed UTF-8-FASTA-header HIGH (read-side US_ASCII decode is primary). By-design for ASCII; fix is design-level (UTF8-aware path), NOT a blind cast change. Same cast in append(char[])/(CharSequence)/(StringBuilder) + toString US_ASCII.
 		}
 		return this;
 	}

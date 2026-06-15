@@ -44,7 +44,19 @@ class BBDukParser {
 	BBDukParser(String[] args, Class<?> c){
 		args=preParse(args, c);
 		runParseLoop(args);
-		
+
+		//FIXED [bbduk/BBDukParser khist]: set parser.loglog/loglogOut from khistIn/khistOut BEFORE the field-copy
+		//block below assigns the FINAL instance fields loglog/loglogOut (L63-64). Previously this block lived after
+		//the copy (after adjustFiles), so khist=/khistout= flipped parser.* too late -> the final fields stayed
+		//false -> no cardinality tracker built -> khist/khistout silently produced no file. khistIn/khistOut are
+		//parsed in runParseLoop above; nothing here depends on the field-copy block or adjustFiles.
+		if(khistIn!=null || khistOut!=null){
+			if(khistIn!=null){parser.loglog=true;}
+			if(khistOut!=null){parser.loglogOut=true;}
+			parser.loglogbuckets=Tools.max(parser.loglogbuckets, 32000);
+			CardinalityTracker.trackCounts=true;
+		}
+
 		{//Process parser fields
 			Parser.processQuality();
 			
@@ -102,14 +114,9 @@ class BBDukParser {
 		}
 		
 		adjustFiles();
-		
-		if(khistIn!=null || khistOut!=null){
-			if(khistIn!=null){parser.loglog=true;}
-			if(khistOut!=null){parser.loglogOut=true;}
-			parser.loglogbuckets=Tools.max(parser.loglogbuckets, 32000);
-			CardinalityTracker.trackCounts=true;
-		}
-		
+
+		//[bbduk/BBDukParser khist] the khist loglog-enable block was moved up to before the field-copy block (see FIXED note).
+
 		if(!ordered && !silent){
 			outstream.println("Set ORDERED to "+ordered);
 			if(jsonStats!=null){jsonStats.add("ordered", ordered);}

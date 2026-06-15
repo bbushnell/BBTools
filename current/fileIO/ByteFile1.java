@@ -260,7 +260,10 @@ public final class ByteFile1 extends ByteFile {
 				break;
 			}
 			list.add(line);
-			lineNum++;
+			//FIXED [fileIO/ByteFile1#001]: removed a redundant 'lineNum++' here. nextLine() (called above) already
+			//increments lineNum once per line (L171), so this second increment made lineNum() report 2x the real
+			//line count on the scalar nextList path (Shared.SIMD off). The SIMD nextList and nextLineList paths
+			//correctly increment once; this was the lone outlier.
 		}
 		return list.isEmpty() ? null : new ListNum<byte[]>(list, nextID++);
 	}

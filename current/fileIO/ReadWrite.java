@@ -52,7 +52,7 @@ import structures.ByteBuilder;
  * Comprehensive utility class for reading, writing, and managing file input/output
  * operations with advanced compression and multi-threading support.
  * Provides flexible, high-performance file reading and writing methods with support
- * for multiple compression formats (gzip, zip, bzip2, xz, dsrc) and concurrent
+ * for multiple compression formats (gzip, zip, bzip2, dsrc) and concurrent
  * file operations. Handles various file sources including local files, JAR resources,
  * and standard input/output streams.
  *
@@ -379,7 +379,10 @@ public class ReadWrite {
 		if(verbose){System.err.println("finishReading("+is+", "+fname+", "+killProcess+")");}
 //		assert(!killProcess);
 		boolean error=false;
-		if(is!=System.in){
+		//FIXED [fileIO/ReadWrite#006]: null-guard 'is'. A streamer interrupted mid-shutdown (e.g. bbnorm ecc's
+		//FastqScanStreamer, whose non-volatile 'is' may not yet be published when close() races in) can pass null
+		//here; without the guard is.close() NPEs. A null stream simply means "nothing to close."
+		if(is!=null && is!=System.in){
 			try {
 				is.close();
 			} catch (IOException e) {
@@ -388,7 +391,7 @@ public class ReadWrite {
 				e.printStackTrace();
 			}
 		}
-		if(killProcess && fname!=null && is!=System.in){error|=ReadWrite.killProcess(fname);}
+		if(killProcess && fname!=null && is!=null && is!=System.in){error|=ReadWrite.killProcess(fname);}
 		if(verbose){System.err.println("finishReading("+is+", "+fname+", "+killProcess+") returned "+error);}
 		return error;
 	}
@@ -494,7 +497,7 @@ public class ReadWrite {
 
 	/**
 	 * Creates appropriate output stream based on file extension and compression type.
-	 * Handles gzip, zip, bzip2, xz, dsrc, fqz, alapy, and zstd formats.
+	 * Handles gzip, zip, bzip2, dsrc, fqz, alapy, and zstd formats.
 	 * Creates directories as needed and manages subprocess compression.
 	 *
 	 * @param fname Output filename with extension indicating compression type
@@ -531,7 +534,7 @@ public class ReadWrite {
 		boolean dsrced=fname.endsWith(".dsrc");
 		boolean fqz=USE_FQZ && fname.endsWith(".fqz");
 		boolean alapy=USE_ALAPY && fname.endsWith(".ac");
-		boolean zst=USE_ALAPY && fname.endsWith(".zst");
+		boolean zst=USE_ZSTD && fname.endsWith(".zst");//FIXED [fileIO/ReadWrite#002]: was USE_ALAPY (conflated zstd with Alapy) — now its own flag
 		
 //		assert(false) : fname;
 		
@@ -1030,6 +1033,9 @@ public class ReadWrite {
 		}else{
 			params="-d3 -q2 -b64";
 		}
+		//TODO [fileIO/ReadWrite#005] DSRC is abandoned (not installed, interface forgotten, effectively unused) ->
+		//safe_to_delete candidate. KNOWN ISSUE, intentionally NOT fixed (dsrc CLI unverifiable, dsrc dead): fname is
+		//appended to 'command' here AND again at the call below (command+" "+fname), so the command carries fname twice.
 		String command="dsrc c -t"+threads+" "+params+" -s";
 		if(fname.equals("stdout") || fname.startsWith("stdout.")){
 			//???
@@ -1037,7 +1043,7 @@ public class ReadWrite {
 		}else{
 			command+=" "+fname;
 		}
-		System.err.println(command);//123
+		//[fileIO/ReadWrite#005a FIXED]: removed a leftover 'System.err.println(command);//123' debug print here.
 //		OutputStream out=getOutputStreamFromProcess(fname, command, true, append, true);
 		OutputStream out=getOutputStreamFromProcess(fname, command+" "+fname, true, append, true, false);
 		return out;
@@ -1221,7 +1227,8 @@ public class ReadWrite {
 	public static InputStream getInputStream(String fname, boolean buffer, boolean allowSubprocess, 
 			boolean ordered){
 		if(verbose){System.err.println("getInputStream("+fname+", "+buffer+", "+allowSubprocess+")");}
-		boolean xz=fname.endsWith(".xz");
+		//[fileIO/ReadWrite#003 FIXED]: removed a dead 'boolean xz' local here — XZ input is unsupported (PROCESS_XZ=false,
+		//getXZInputStream returns null) and the local was never referenced below. No order-sensitive change (it was inert).
 		boolean gzipped=fname.endsWith(".gz") || fname.endsWith(".gzip");
 		boolean zipped=fname.endsWith(".zip");
 		boolean bzipped=PROCESS_BZ2 && fname.endsWith(".bz2");
@@ -1229,7 +1236,7 @@ public class ReadWrite {
 		boolean bam=fname.endsWith(".bam") && Data.BAM_SUPPORT_IN();
 		boolean fqz=fname.endsWith(".fqz");
 		boolean alapy=fname.endsWith(".ac");
-		boolean zst=fname.endsWith(".zst");
+		boolean zst=USE_ZSTD && fname.endsWith(".zst");//[fileIO/ReadWrite#002 FIXED]: gate on USE_ZSTD (was ungated; output was on USE_ALAPY) — now symmetric
 		
 		allowSubprocess=(allowSubprocess && Shared.threads()>1);
 		
@@ -2125,6 +2132,10 @@ public class ReadWrite {
 			}
 		}
 		
+		//TODO [fileIO/ReadWrite#004] copyFile toggles the GLOBAL static RAWMODE during a synchronized copy; a concurrent
+		//compressed-I/O thread would transiently see it flipped. DEFERRED per Brian (never bitten; a clean fix is a small
+		//refactor — thread-local rawmode or an explicit raw param — that needs its own testing). Used only for byte-copying
+		//already-compressed files (same extension in+out).
 		final boolean oldRawmode=RAWMODE;
 		if((source.endsWith(".zip") && dest.endsWith(".zip"))
 				 || (source.endsWith(".gz") && dest.endsWith(".gz")
@@ -2526,16 +2537,21 @@ public class ReadWrite {
 	 * 
 	 * od --format=x1 --read-bytes=16 names.txt_gzip.gz
 	 */
+	//[fileIO/ReadWrite#001 FIXED 2026-06-15]: 'is' was opened but never closed -> file-descriptor leak on
+	//every call, on the common gzip-read path (getUnbgzipStream->isBGZip->getMagicNumber) and FileFormat.bgzip().
+	//Now closes 'is' after reading and guards the null case (missing file) instead of NPEing at is.read().
+	//Mirrors getFirstNBytes() above, which already closes its fis.
 	public static int getMagicNumber(String fname) {
 		InputStream is=null;
 		try {
 			FileInputStream fis=new FileInputStream(fname);
-			is=new BufferedInputStream(fis); 
+			is=new BufferedInputStream(fis);
 		} catch (FileNotFoundException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		
+		if(is==null){return 0;}
+
 		int x=0;
 		for(int i=0; i<4; i++){
 			try {
@@ -2545,6 +2561,7 @@ public class ReadWrite {
 				e.printStackTrace();
 			}
 		}
+		try {is.close();} catch (IOException e) {e.printStackTrace();}
 //		System.err.println("Returning "+x);
 //		new Exception().printStackTrace();
 		return x;
@@ -2630,6 +2647,9 @@ public class ReadWrite {
 	public static boolean USE_FQZ=true;
 	/** Whether to use Alapy compression */
 	public static boolean USE_ALAPY=true;
+	/** Whether to use zstd compression for .zst files. [fileIO/ReadWrite#002]: deconflated from USE_ALAPY (they were
+	 * accidentally sharing a flag). Gates both .zst input (getInputStream) and output (getOutputStream). */
+	public static boolean USE_ZSTD=true;
 	/** Whether to use sambamba for BAM file processing */
 	public static boolean USE_SAMBAMBA=true;
 	/** Returns true if both USE_SAMBAMBA is enabled and sambamba is available */

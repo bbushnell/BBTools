@@ -126,7 +126,7 @@ public final class HeapLoc<T extends SetLoc<? super T>> implements Iterable<T> {
 	public int jiggleUp(T t){
 		final int loc=t.loc();
 		assert(array[loc]==t);
-		return percDown(loc); //Possible bug: should this call percUp() instead?
+		return percUp(loc);
 	}
 
 	private int percDown(int loc){
