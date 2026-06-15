@@ -48,6 +48,7 @@ public final class FastRandomXoshiro implements Random {
 
 	@Override
 	public void setSeed(long seed) {
+		if(seed<0){seed=System.nanoTime();}// [rand negative-seed] FIXED: honor shared.Random.setSeed contract "negative for a random seed"
 		// Use SplitMix64 to initialize the state (as recommended by the authors)
 		s0=seed;
 		s1=mixSeed(s0);
@@ -109,7 +110,7 @@ public final class FastRandomXoshiro implements Random {
 
 	@Override
 	public int nextInt(int bound) {
-		assert(bound>=0) : "bound must be positive: "+bound;
+		assert(bound>0) : "bound must be positive: "+bound;// [rand/FastRandomXoshiro#001] FIXED: was >=0 (allowed bound=0 -> garbage via &(bound-1))
 		//if(bound <= 0) {throw new IllegalArgumentException("bound must be positive");}//Slow
 
 		// Fast path for powers of 2

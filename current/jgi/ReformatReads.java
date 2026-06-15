@@ -696,11 +696,11 @@ public class ReformatReads {
 			rhp.parse(r1);
 			if(!bottom && rhp.surface()==1) {
 				r1.setDiscarded(true);
-				r2.setDiscarded(true);
+				if(r2!=null){r2.setDiscarded(true);}
 			}
 			if(!top && rhp.surface()==2) {
 				r1.setDiscarded(true);
-				r2.setDiscarded(true);
+				if(r2!=null){r2.setDiscarded(true);}
 			}
 		}
 
@@ -954,7 +954,7 @@ public class ReformatReads {
 				final int len=r2.length();
 				final int a=forceTrimLeft>0 ? forceTrimLeft : 0;
 				final int b0=forceTrimModulo>0 ? len-1-len%forceTrimModulo : len;
-				final int b1=forceTrimRight>0 ? forceTrimRight : len;
+				final int b1=forceTrimRight>=0 ? forceTrimRight : len;
 				final int b2=forceTrimRight2>0 ? len-1-forceTrimRight2 : len;
 				final int b=Tools.min(b0, b1, b2);
 				final int x=TrimRead.trimToPosition(r2, a, b, 1);
@@ -1028,7 +1028,7 @@ public class ReformatReads {
 			}
 			if(r2!=null && !r2.discarded()){
 				int rlen=r2.length();
-				if(rlen<minlen1 || (maxReadLength>0 && rlen>maxReadLength)){
+				if(rlen<minlen2 || (maxReadLength>0 && rlen>maxReadLength)){
 					r2.setDiscarded(true);
 					readShortDiscardsT++;
 					baseShortDiscardsT+=rlen;

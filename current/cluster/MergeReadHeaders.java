@@ -198,7 +198,7 @@ public class MergeReadHeaders {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";// [cluster/MergeReadHeaders#002] FIXED: 2nd clause was a duplicate of in1
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, false);
@@ -262,12 +262,12 @@ public class MergeReadHeaders {
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		
 		if(errorState){
-			throw new RuntimeException("ReformatReads terminated in an error state; the output may be corrupt.");
+			throw new RuntimeException("MergeReadHeaders terminated in an error state; the output may be corrupt.");// [cluster/MergeReadHeaders#003] FIXED: was "ReformatReads" (wrong tool name)
 		}
 	}
 	
 	public static String processHeader(String s){
-		assert(s!=null);
+		if(s==null){throw new RuntimeException("Header file has fewer lines than reads in the input.");}// [cluster/MergeReadHeaders#001] FIXED: was assert(s!=null)
 		return s;
 	}
 	
