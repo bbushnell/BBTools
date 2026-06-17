@@ -27,7 +27,6 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.Range;
-import var.Variation;
 
 /**
  * Central data manager for genome reference data, genes, and chromosomes.
@@ -127,8 +126,8 @@ public class Data {
 	 * @return Index of first occurrence, or -1 if not found
 	 */
 	public static byte find(int x, byte[] array){
-		for(byte i=0; i<array.length; i++){
-			if(array[i]==x){return i;}
+		for(int i=0; i<array.length; i++){ //int counter: byte i overflowed (AIOOBE) for arrays >=128
+			if(array[i]==x){return (byte)i;}
 		}
 		return -1;
 	}
@@ -766,23 +765,6 @@ public class Data {
 		return sb.toString();
 	}
 	
-	public static final <X> String toStringRecursive(Iterable<X> a){
-		if(a==null){return "null";}
-		StringBuilder sb=new StringBuilder(256);
-		String prefix="";
-		sb.append("[");
-		for(X x : a){
-			sb.append(toStringRecursive(a));
-			if(x!=null && x instanceof Iterable<?>){
-				sb.append("\n");
-			}else{
-				sb.append(", ");
-			}
-		}
-		sb.append("]");
-		return sb.toString();
-	}
-	
 	public static final HashMap<String, Integer> geneNameToIdTable(){
 		if(geneNameToIdTable==null){
 			geneIdToNameTable();
@@ -854,61 +836,6 @@ public class Data {
 	
 	public static final String toStringRecursive(Object a){
 		return a==null ? "null" : a.toString();
-	}
-	
-	public static boolean isBaited(Variation v){
-		return isBaited(v, 0);
-	}
-	
-	public static boolean isBaited(Variation v, int thresh){
-		int mid=(v.beginLoc+v.endLoc)/2;
-		int len=v.endLoc-v.beginLoc+1;
-		return isBaited(v.chromosome, mid, len/2+thresh);
-	}
-	
-	public static boolean isBaited(int chrom, int point, int thresh){
-		if(BAITS==null){
-			BAITS=(int[][][]) ReadWrite.readObject("UNDEFINED_ROOT"+"baits_"+"BAIT_FILE"+"_build"+GENOME_BUILD+".int3d", false);
-		}
-		return isBaited(point, BAITS[chrom], thresh);
-	}
-	
-	/** Is this point within "thresh" of a bait */
-	private static boolean isBaited(int point, int[][] baits, int thresh){
-
-		if(baits==null || baits[0].length==0){return false;}
-		
-		int[] starts=baits[0];
-		int[] stops=baits[1];
-		int index=Arrays.binarySearch(stops, point);
-		
-		if(index>=0){return true;} //Hit inside a bait
-		index=(-index)-1;
-		
-		if(index>=stops.length){return point<=(stops[stops.length-1]+thresh);}
-		
-//		if(index<0 || index>=stops.length){
-//			System.err.println(point+" in "+starts[0]+", "+stops[stops.length-1]+" -> "+index+"/"+(stops.length-1));
-//		}
-
-		final int a=point-thresh;
-		final int b=point+thresh;
-		
-		if(overlap(a, b, starts[index], stops[index])){return true;}
-		for(int i=index+1; i<starts.length && b>=starts[i]; i++){
-			if(overlap(a, b, starts[i], stops[i])){return true;}
-		}
-		for(int i=index-1; i>=0 && a<=stops[i]; i++){
-			if(overlap(a, b, starts[i], stops[i])){return true;}
-		}
-		return false;
-//
-//		return point>=(starts[index]-thresh) && point<=(stops[index]+thresh);
-	}
-	
-	private static boolean overlap(int a1, int b1, int a2, int b2){
-		assert(a1<=b1 && a2<=b2) : a1+", "+b1+", "+a2+", "+b2;
-		return a2<=b1 && b2>=a1;
 	}
 	
 	
@@ -1496,6 +1423,10 @@ public class Data {
 	/** Ranges within genes and exons or within NEAR their ends */
 	public static final Range[][] geneNearbyRangeMatrix=new Range[63][];
 
+	/** Lazily-loaded chromosome arrays, indexed by chromosome number. The double-checked-locking
+	 * accessors (getChromosome) read this on the fast path without volatile/sync; safe because
+	 * chromosomes are loaded during single-threaded setup before worker threads fork (happens-before).
+	 * Not safe to FIRST-load a chromosome concurrently from multiple already-running threads. */
 	public static ChromosomeArray[] chromosomePlusMatrix;
 
 	private static HashMap<Integer, String> geneIdToNameTable;
@@ -1506,8 +1437,6 @@ public class Data {
 	
 	public static ChainLine[][] chains36to37;
 	public static ChainLine[][] chains37to36;
-
-	public static int[][][] BAITS;
 
 	private static final int TX_RANGE=0;
 	private static final int CODE_RANGE=1;

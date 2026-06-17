@@ -453,7 +453,7 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 				matches++;
 				ll.add(ka);
 				if(il!=null){
-					il.add(aCounts[i]+bCounts[i]);
+					il.add(aCounts[i]+bCounts[j]);
 				}
 				i++;
 				j++;
@@ -466,7 +466,7 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 			}else{
 				ll.add(kb);
 				if(il!=null){
-					il.add(bCounts[i]);
+					il.add(bCounts[j]);
 				}
 				j++;
 			}

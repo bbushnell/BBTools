@@ -189,7 +189,7 @@ public class SketchIndex extends SketchObject {
 					list.add(ref);
 				}
 				last=id;
-				hits=0;
+				hits=1;
 			}
 		}
 		if(last>-1 && (hits>=minHits)){
