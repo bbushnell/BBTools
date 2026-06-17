@@ -417,7 +417,7 @@ public class SketchHeap {
 	 */
 	public void set18S(byte[] b){
 		if(b==null || b.length<SketchObject.min_SSU_len){return;}
-		if(r18S==null || score18S(b)>score16S(r18S)){
+		if(r18S==null || score18S(b)>score18S(r18S)){
 			r18S=b;
 		}
 	}

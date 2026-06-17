@@ -145,7 +145,7 @@ public final class Comparison extends SketchObject implements Comparable<Compari
 	/** Calculates identity using query divisor as denominator.
 	 * @return Ratio of hits to reference divisor */
 	public float idQueryDivisor(){
-		return hits/(float)(Tools.max(1, refDivisor));
+		return hits/(float)(Tools.max(1, queryDivisor));
 	}
 	
 	/** Calculates identity using reference divisor as denominator.

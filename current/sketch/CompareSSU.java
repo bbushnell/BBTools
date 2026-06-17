@@ -163,7 +163,7 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 				allToAll=Parse.parseBoolean(b);
 			}else if(a.equals("store") || a.equals("storeresults")){
 				storeResults=Parse.parseBoolean(b);
-			}else if(a.equals("minlen") || a.equals("maxlength")){
+			}else if(a.equals("minlen") || a.equals("minlength")){
 				minlen=Parse.parseIntKMG(b);
 			}else if(a.equals("maxlen") || a.equals("maxlength")){
 				maxlen=Parse.parseIntKMG(b);

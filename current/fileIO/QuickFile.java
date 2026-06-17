@@ -212,6 +212,7 @@ public class QuickFile {
 //					}
 //				}
 			} catch (IOException e) {
+				errorState=true;
 				e.printStackTrace();
 				System.err.println("open="+open);
 			}

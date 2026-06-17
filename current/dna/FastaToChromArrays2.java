@@ -497,20 +497,21 @@ public class FastaToChromArrays2 {
 		
 		int scaffolds=0;
 		if(currentScaffold!=null && currentScaffold.length()>0){
-			assert(currentScaffold.length()>0) : currentScaffold.length();
 			assert(lastHeader!=null);
-			assert(currentScaffold.length()+END_PADDING+ca.maxIndex<MAX_LENGTH) : currentScaffold.length()+", "+END_PADDING+", "+ca.maxIndex+", "+MAX_LENGTH;
-			
-//			System.err.println("A: Writing a scaffold because currentScaffold = "+currentScaffold);
-			scaffoldSum++;
-			if(scafWriter!=null){scafWriter.print(chrom+"\t"+scaffoldSum+"\t"+(ca.maxIndex+1)+"\t"+currentScaffold.length()+"\t"+lastHeader+"\n");}
-			if(scaflist!=null && lastHeader!=null){
-				scaflist.add(chrom+"\t"+scaffoldSum+"\t"+(ca.maxIndex+1)+"\t"+currentScaffold.length()+"\t"+lastHeader);
-				if(verbose){System.err.println("A: Added to scaflist: "+scaflist.get(scaflist.size()-1));}
+			if(currentScaffold.length()>=MIN_SCAFFOLD){ //#002: honor minscaf for carried-over scaffolds too (was unconditional)
+				assert(currentScaffold.length()+END_PADDING+ca.maxIndex<MAX_LENGTH) : currentScaffold.length()+", "+END_PADDING+", "+ca.maxIndex+", "+MAX_LENGTH;
+
+//				System.err.println("A: Writing a scaffold because currentScaffold = "+currentScaffold);
+				scaffoldSum++;
+				if(scafWriter!=null){scafWriter.print(chrom+"\t"+scaffoldSum+"\t"+(ca.maxIndex+1)+"\t"+currentScaffold.length()+"\t"+lastHeader+"\n");}
+				if(scaflist!=null && lastHeader!=null){
+					scaflist.add(chrom+"\t"+scaffoldSum+"\t"+(ca.maxIndex+1)+"\t"+currentScaffold.length()+"\t"+lastHeader);
+					if(verbose){System.err.println("A: Added to scaflist: "+scaflist.get(scaflist.size()-1));}
+				}
+				ca.set(ca.maxIndex+1, currentScaffold);
+				scaffolds++;
 			}
-			ca.set(ca.maxIndex+1, currentScaffold);
-			scaffolds++;
-			
+
 			currentScaffold.setLength(0);
 			lastHeader=nextHeader;
 		}
@@ -518,6 +519,13 @@ public class FastaToChromArrays2 {
 //		if()
 		
 		while((currentScaffold=nextScaffold(currentScaffold, tf))!=null){
+			//#001: a single scaffold too large to fit even an empty chromosome — fail loudly instead of
+			//silently building 0 chroms (first scaffold) or an over-MAX_LENGTH array (carried scaffold).
+			if((long)currentScaffold.length()+START_PADDING+END_PADDING>MAX_LENGTH){
+				throw new RuntimeException("Scaffold '"+lastHeader+"' length "+currentScaffold.length()+
+					" exceeds the maximum indexable single-chromosome length ~"+(MAX_LENGTH-START_PADDING-END_PADDING)+
+					" (2^31 int-array limit); cannot index this reference. Split the scaffold or use a smaller-genome workflow.");
+			}
 			if(currentScaffold.length()+MID_PADDING+END_PADDING+ca.maxIndex>MAX_LENGTH){break;}
 			if(scaffolds>0 && !MERGE_SCAFFOLDS){break;}
 			

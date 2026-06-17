@@ -388,8 +388,11 @@ public class CompareSketch extends SketchObject {
 				}
 			}
 			alct=null;
+			if(tsw!=null && defaultParams.json() && !ordered && resultsPrinted>0){
+				tsw.print(']');
+			}
 		}
-		
+
 		//Track whether any threads failed
 		if(!success){errorState=true;}
 		if(tsw!=null){errorState|=tsw.poisonAndWait();}

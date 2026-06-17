@@ -126,9 +126,23 @@ public final class ByteFile1Fc extends ByteFile {
 		return errorState;
 	}
 
+	/**
+	 * @deprecated Returns a length-correct (copied) record block but discards the per-record
+	 * newline boundaries. Production code must use {@link #nextLine(IntList)} — the zero-copy
+	 * fast path that also returns the boundary IntList needed to split records. This no-arg form
+	 * exists only to satisfy the ByteFile interface and dev harnesses; it is unused on the live
+	 * FASTA path (both FastaStreamer2 variants call nextLine(IntList)).
+	 */
 	@Override
+	@Deprecated
 	public final byte[] nextLine(){
-		return nextLine(new IntList());
+		final IntList newlines=new IntList();
+		final byte[] block=nextLine(newlines);
+		if(block==null){return null;}
+		//nextLine(IntList) returns the oversized ByteBuilder backing array; the final newline
+		//marks the true end of content, so trim the trailing NUL padding for a correct length.
+		final int len=newlines.size>0 ? newlines.get(newlines.size-1)+1 : 0;
+		return len==block.length ? block : KillSwitch.copyOf(block, len);
 	}
 	
 	public final byte[] nextLine(IntList newlines){
@@ -241,6 +255,7 @@ public final class ByteFile1Fc extends ByteFile {
 			try{
 				r=is.read(buffer, bstop, buffer.length-bstop);
 			}catch(IOException e){
+				errorState=true;
 				if(!Shared.anomaly){e.printStackTrace();}
 			}catch(NullPointerException e){
 				if(!Shared.anomaly){e.printStackTrace();}
