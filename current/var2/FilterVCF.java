@@ -516,6 +516,10 @@ public class FilterVCF {
 					VCFLine vline=new VCFLine(line);
 					boolean pass=true;
 
+					//Quality-score filtering on the VCF QUAL column.  Apply BOTH minScore and minQual, mirroring
+					//the multithreaded path (processLine, lines ~832-833).  minScore was previously applied ONLY in
+					//the multithreaded path, so the default single-threaded path silently ignored minscore=.
+					if(vline.qual<minScore){pass=false;}
 					if(vline.qual<minQual){pass=false;}
 
 					//Type-based filtering
@@ -875,6 +879,10 @@ public class FilterVCF {
 								varFormatOK=false;
 							}
 						}
+						//Mirror the single-threaded fallback (processVcfVarsST): once Var conversion is known to fail,
+						//filter on the QUAL column via varFilter.minScore.  The multithreaded path previously applied
+						//no statistical filter at all in that case.
+						if(!varFormatOK){pass&=vline.qual>=varFilter.minScore;}
 					}
 				}
 				
