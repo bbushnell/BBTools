@@ -15,6 +15,7 @@ import shared.Tools;
  */
 public class LoadThread<X> extends Thread{
 	
+	/** Creates, starts, and returns a LoadThread that asynchronously reads an object of type Y from a file. */
 	public static <Y> LoadThread<Y> load(String fname, Class<Y> c){
 		LoadThread<Y> lt=new LoadThread<Y>(fname, c);
 		lt.start();
@@ -88,6 +89,7 @@ public class LoadThread<X> extends Thread{
 		}
 	}
 	
+	/** @return The number of active load threads (waiting plus running). */
 	public static final int countActiveThreads(){
 		final int lim=(Shared.LOW_MEMORY ? 1 : LIMIT);
 		synchronized(activeThreads){
@@ -97,6 +99,7 @@ public class LoadThread<X> extends Thread{
 		}
 	}
 	
+	/** Blocks the calling thread until all active load threads have finished. */
 	public static final void waitForReadingToFinish(){
 		final int lim=(Shared.LOW_MEMORY ? 1 : LIMIT);
 		synchronized(activeThreads){
@@ -114,6 +117,7 @@ public class LoadThread<X> extends Thread{
 		}
 	}
 	
+	/** Blocks until this thread's load completes and {@link #output} is populated. */
 	public final void waitForThisToFinish(){
 		if(output==null){
 			while(this.getState()!=State.TERMINATED){
@@ -127,13 +131,16 @@ public class LoadThread<X> extends Thread{
 		}
 	}
 	
+	/** Shared load-thread counters indexed as [total, waiting, running]; invariant: total==waiting+running. Synchronized on to throttle concurrent reads to LIMIT. */
+	//TODO: Possible bug [fileIO/LoadThread#002] - could not verify single activeThreads.notify() (in addRunningThread + waitForReadingToFinish) is sufficient vs notifyAll() when multiple threads wait on this monitor; no failing schedule found, so left unchanged. -Furina 2026-06-16
 	public static int[] activeThreads={0, 0, 0};
-	
+
 	private final String fname;
 	private final Class<X> c;
+	/** The loaded object; null until this thread finishes reading. */
 	public X output=null;
 	
-	private static final int[] RUNNING=new int[1];
+	/** Maximum number of load threads permitted to run simultaneously. */
 	public static int LIMIT=Tools.min(12, Tools.max(Shared.threads(), 1));
 	
 }

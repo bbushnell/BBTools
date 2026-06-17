@@ -145,7 +145,7 @@ public class ByteStreamWriter extends Thread {
 		if(verbose){System.err.println("null/poison job");}
 //		assert(false);
 		open=false;
-		ReadWrite.finishWriting(null, outstream, fname, allowSubprocess);
+		errorState=ReadWrite.finishWriting(null, outstream, fname, allowSubprocess)|errorState;
 		if(verbose){System.err.println("finish writing");}
 		synchronized(this){notifyAll();}
 		if(verbose){System.err.println("done");}
@@ -154,8 +154,8 @@ public class ByteStreamWriter extends Thread {
 	/**
 	 * Core job processing loop that dequeues ByteBuilder jobs and writes them
 	 * to the output stream. Continues until POISON2 sentinel is received.
-	 * Includes retry logic for IOException handling with program termination
-	 * on persistent write failures to prevent corrupt output files.
+	 * On a write IOException the program is terminated (KillSwitch) to avoid a
+	 * corrupt output file - there is no retry.
 	 */
 	public void processJobs() {
 		
@@ -173,20 +173,12 @@ public class ByteStreamWriter extends Thread {
 		if(verbose){System.err.println("processing jobs");}
 		while(job!=null && job!=POISON2){
 			if(job.length()>0){
-				for(int i=0; job!=null && i<100; i++) {
-					try {
-						outstream.write(job.array, 0, job.length());
-						job=null;
-					} catch (IOException e) {
-						//Safest option is to exit here to avoid corrupt files.
-						if(true) {
-							System.err.println("Program is exiting due to a failed write.");
-							KillSwitch.exceptionKill(e);
-						}
-						e.printStackTrace();
-						
-						System.err.println("Retrying...");
-					}
+				try {
+					outstream.write(job.array, 0, job.length());
+				} catch (IOException e) {
+					//Safest option is to exit here to avoid a corrupt file; there is no retry.
+					System.err.println("Program is exiting due to a failed write.");
+					KillSwitch.exceptionKill(e);
 				}
 			}
 			
@@ -244,6 +236,13 @@ public class ByteStreamWriter extends Thread {
 		
 		if(ordered){
 			addOrdered(POISON2, maxJobID+1);
+			//Fail loud rather than silently drop: a non-empty map here means a producer skipped a jobID.
+			if(!map.isEmpty()){
+				throw new RuntimeException("ByteStreamWriter: ordered output incomplete - jobID "+nextJobID+
+					" was never supplied (a producer failed or emitted nothing); "+map.size()+
+					" buffered job(s) would be lost. Every jobID in [0,maxJobID] must be add()ed exactly once; "+
+					"a producer that yields no bytes must still add an empty ByteBuilder for its id.");
+			}
 		}else{
 			if(buffer!=null){addJob(buffer);}
 		}
@@ -280,7 +279,7 @@ public class ByteStreamWriter extends Thread {
 		return errorState;
 	}
 	
-	//TODO Why is this synchronized?
+	//Synchronized to share this monitor with add()/addOrdered()/poison() and to gate on the started handshake; queue.put() is itself thread-safe, so the lock is belt-and-suspenders.
 	/**
 	 * Adds a ByteBuilder job to the processing queue.
 	 * Blocks until queue space is available and ensures job is successfully queued.
@@ -336,6 +335,11 @@ public class ByteStreamWriter extends Thread {
 	 * Adds a job with ordering support for maintaining output sequence.
 	 * Uses ordered or unordered processing depending on configuration.
 	 * Implements flow control to prevent excessive memory usage in ordered mode.
+	 *
+	 * <p><b>Ordered-mode contract:</b> jobIDs must be supplied contiguously over 0..maxJobID,
+	 * each exactly once. A producer that yields no bytes for its id must STILL add an empty
+	 * ByteBuilder for that id; a skipped jobID stalls the stream, and {@link #poison()} then
+	 * fails loudly rather than silently dropping the buffered remainder.
 	 *
 	 * @param job ByteBuilder containing data to write
 	 * @param jobID Sequence number for ordered processing
@@ -1064,7 +1068,7 @@ public class ByteStreamWriter extends Thread {
 	/** Whether the worker thread has started */
 	private volatile boolean started=false;
 	
-	/** TODO */
+	/** True if a write failed or an output (de)compression subprocess closed with an error; surfaced to callers via {@link #poisonAndWait()}. */
 	public boolean errorState=false;
 	
 	/*--------------------------------------------------------------*/

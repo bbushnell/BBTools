@@ -85,6 +85,7 @@ public class CopyFiles2 {
 			}
 			
 			File[] array=in.listFiles();
+			if(array==null){throw new RuntimeException("Failed to list directory contents (I/O error): "+in.getAbsolutePath());}
 			for(File f : array){
 //				String outname=f.getAbsolutePath().replace(inRoot, outRoot);
 				

@@ -22,10 +22,8 @@ public class CompressFiles {
 		for(String s : args){
 			if(s.equalsIgnoreCase("zip")){
 				zip=true;
-				gzip=false;
 			}else if(s.equalsIgnoreCase("gzip") || s.equalsIgnoreCase("gz")){
 				zip=false;
-				gzip=true;
 			}else{
 				compressFiles(s);
 			}
@@ -53,6 +51,7 @@ public class CompressFiles {
 		
 		if(path.isDirectory()){
 			File[] array=path.listFiles();
+			if(array==null){throw new RuntimeException("Failed to list directory contents (I/O error): "+path.getAbsolutePath());}
 			for(File f : array){compressFiles(f);}
 		}else{
 			compress(path);
@@ -96,8 +95,6 @@ public class CompressFiles {
 	
 	/** Flag indicating whether to use ZIP compression format */
 	public static boolean zip=true;
-	/** Flag indicating whether to use GZIP compression format */
-	public static boolean gzip=!zip;
 	
 	/**
 	 * Flag controlling whether to print 7-Zip batch commands instead of compressing

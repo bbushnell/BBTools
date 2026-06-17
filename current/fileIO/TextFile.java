@@ -355,6 +355,7 @@ public class TextFile {
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name);}
 			return null;
 		}
+		while(true){
 		try{
 			lineNum++;
 			currentLine=br.readLine();
@@ -381,10 +382,11 @@ public class TextFile {
 				(Character.isWhitespace(currentLine.charAt(0)) &&
 						(Character.isWhitespace(currentLine.charAt(currentLine.length()-1)))) &&
 						currentLine.trim().length()==0)){
-			return readLine(skipBlank); //Skips blank lines
+			continue; //Skips blank lines
 		}
 		
 		return currentLine;
+		}
 	}
 	
 	/**

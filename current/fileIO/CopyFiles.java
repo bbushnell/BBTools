@@ -41,6 +41,7 @@ public class CopyFiles {
 		
 		if(path.isDirectory()){
 			File[] array=path.listFiles();
+			if(array==null){throw new RuntimeException("Failed to list directory contents (I/O error): "+path.getAbsolutePath());}
 			for(File f : array){renameFiles(f);}
 		}else{
 			rename(path);

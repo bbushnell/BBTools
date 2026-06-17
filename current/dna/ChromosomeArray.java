@@ -154,7 +154,7 @@ public class ChromosomeArray implements Serializable {
 		
 		loc--;
 		assert(loc==loc2-1) : "loc="+loc+", loc2="+loc2+", s.len="+s.length();
-		minIndex=min(loc, minIndex);
+		minIndex=min(loc2-s.length(), minIndex); //first written index, not last
 		maxIndex=max(loc, maxIndex);
 	}
 	
@@ -193,7 +193,7 @@ public class ChromosomeArray implements Serializable {
 		}
 		loc--;
 		assert(loc==loc2-1) : "loc="+loc+", loc2="+loc2+", s.len="+slen;
-		minIndex=min(loc, minIndex);
+		minIndex=min(loc2-slen, minIndex); //first written index, not last
 		maxIndex=max(loc, maxIndex);
 	}
 
@@ -235,12 +235,12 @@ public class ChromosomeArray implements Serializable {
 	
 	/**
 	 * Gets the base at the specified genomic location.
-	 * Returns 'N' if loc is before minIndex or at/after maxIndex.
+	 * Returns 'N' if loc is before minIndex or after maxIndex.
 	 * @param loc Genomic coordinate
 	 * @return Base as byte value, or 'N' if outside valid range
 	 */
 	public byte get(int loc){
-		return loc<minIndex || loc>=maxIndex ? (byte)'N' : array[loc];
+		return loc<minIndex || loc>maxIndex ? (byte)'N' : array[loc]; //maxIndex is inclusive
 	}
 	
 	public String getString(int a, int b){

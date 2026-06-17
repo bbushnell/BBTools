@@ -92,9 +92,11 @@ public class CopyFile {
 			}
 		}
 
+		InputStream in=null;
+		OutputStream out=null;
 		try{
-			InputStream in=ReadWrite.getInputStream(source, false, true, true);
-			OutputStream out=ReadWrite.getOutputStream(dest, false, false, true);
+			in=ReadWrite.getInputStream(source, false, true, true);
+			out=ReadWrite.getOutputStream(dest, false, false, true);
 
 			final byte[] buffer=new byte[16384];
 			int len;
@@ -103,7 +105,6 @@ public class CopyFile {
 				out.write(buffer, 0, len);
 			}
 
-			in.close();
 			out.flush();
 			if(out.getClass()==ZipOutputStream.class){
 				ZipOutputStream zos=(ZipOutputStream)out;
@@ -114,12 +115,13 @@ public class CopyFile {
 			//				org.tukaani.xz.XZOutputStream zos=(org.tukaani.xz.XZOutputStream)out;
 			//				zos.finish();
 			//			}
-			out.close();
-
 		}catch(FileNotFoundException e){
 			throw new RuntimeException(e);
 		}catch(IOException e){
 			throw new RuntimeException(e);
+		}finally{
+			if(in!=null){try{in.close();}catch(IOException e){}}
+			if(out!=null){try{out.close();}catch(IOException e){}}
 		}
 	}
 	

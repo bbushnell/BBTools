@@ -253,7 +253,7 @@ public class Gene implements Comparable<Gene>, Serializable{
 		
 		//TODO Note that the readCorrectly field gets lost here
 		Gene out=new Gene(chromosome, strand, XtxStart, XtxStop, XcodeStart, XcodeStop, Xid,
-				symbol, XmrnaAcc, XproteinAcc,
+				Xsymbol, XmrnaAcc, XproteinAcc,
 				Xstatus< 0 ? null : statusCodes[Xstatus], Xcompleteness<0 ? null : completenessCodes[Xcompleteness],
 				exons, Xuntranslated, Xpseudo, Xvalid, sourceCodes[primarySource], Xdescription, XfullDescription);
 		
@@ -276,8 +276,11 @@ public class Gene implements Comparable<Gene>, Serializable{
 	
 	/**
 	 * Converts chromosome string to numeric chromosome ID.
-	 * Strips "chr" prefix if present and parses as integer.
-	 * @param s chromosome string (e.g. "chr1", "1", "chrX")
+	 * Strips a "chr" prefix if present and parses the remainder as an integer.
+	 * Requires a numeric chromosome token (e.g. "chr1" or "1"); purely non-numeric
+	 * names ("chrX"/"chrY"/"chrM"/"U") are unsupported and throw NumberFormatException.
+	 * BBTools is chromosome-number-centric; the human-era X/Y/M/U name map (commented below) was retired.
+	 * @param s chromosome string (e.g. "chr1", "1")
 	 * @return chromosome number
 	 */
 	public static int toChromosome(final String s){
@@ -306,7 +309,7 @@ public class Gene implements Comparable<Gene>, Serializable{
 		
 		String s2=s;
 		if(s2.startsWith("chr")){s2=s2.substring(3);}
-		int loc=Integer.parseInt(s2);
+		int loc=Integer.parseInt(s2); //numeric chromosome token required; see javadoc
 		
 		assert(loc>=0) : s;
 		return loc;
@@ -966,8 +969,9 @@ public class Gene implements Comparable<Gene>, Serializable{
 		if(id<other.id){return -1;}
 		if(id>other.id){return 1;}
 		
-		if(!symbol.equals(other.symbol)){return symbol.compareTo(other.symbol);}
-		return mrnaAcc.compareTo(other.mrnaAcc);
+		int s=compareNullsLast(symbol, other.symbol);
+		if(s!=0){return s;}
+		return compareNullsLast(mrnaAcc, other.mrnaAcc);
 	}
 	
 	/**
@@ -1146,6 +1150,12 @@ public class Gene implements Comparable<Gene>, Serializable{
 	private static final int min(int x, int y){return x<y ? x : y;}
 	/** Returns maximum of two integers */
 	private static final int max(int x, int y){return x>y ? x : y;}
+	/** Null-safe String comparison with nulls ordered last. */
+	private static final int compareNullsLast(String x, String y){
+		if(x==null){return y==null ? 0 : 1;}
+		if(y==null){return -1;}
+		return x.compareTo(y);
+	}
 	
 	/** Transcription start position */
 	public final int txStart;
