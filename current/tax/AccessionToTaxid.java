@@ -47,14 +47,14 @@ public class AccessionToTaxid {
 		final boolean oldBf2=ByteFile.FORCE_MODE_BF2;
 		final boolean oldBf1=ByteFile.FORCE_MODE_BF1;
 		final boolean oldUnpigz=ReadWrite.USE_UNPIGZ;
-		final boolean oldGunzip=ReadWrite.USE_UNPIGZ;
+		final boolean oldGunzip=ReadWrite.USE_GUNZIP;
 		
 		main(new String[] {"in="+files, "unpigz="+ReadWrite.USE_UNPIGZ, "gunzip="+ReadWrite.USE_GUNZIP});
 
 		ByteFile.FORCE_MODE_BF2=oldBf2;
 		ByteFile.FORCE_MODE_BF1=oldBf1;
 		ReadWrite.USE_UNPIGZ=oldUnpigz;
-		ReadWrite.USE_UNPIGZ=oldGunzip;
+		ReadWrite.USE_GUNZIP=oldGunzip;
 	}
 	
 	/** Program entry point for loading accession-to-taxid mappings.

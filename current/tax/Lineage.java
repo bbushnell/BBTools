@@ -69,7 +69,7 @@ public class Lineage {
 		for(int i=0; i<lp.terms(); i++) {
 			String field=lp.parseString(i);
 			lp_.set(field);
-			String ss=lp.parseString(0);
+			String ss=lp_.parseString(0);
 			int shortlevel=TaxTree.stringToLevel(ss);
 			String name=field.substring(ss.length()+2);
 			if(name!=null && name.length()>0) {

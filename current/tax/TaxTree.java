@@ -2351,6 +2351,7 @@ public class TaxTree implements Serializable{
 		TaxNode tn=getNode(tid);
 		while(tn!=null && tn.id!=tn.pid){
 			levels=levels|(1L<<tn.level);
+			tn=getNode(tn.pid);
 		}
 		return levels;
 	}
@@ -2365,6 +2366,7 @@ public class TaxTree implements Serializable{
 		TaxNode tn=getNode(tid);
 		while(tn!=null && tn.id!=tn.pid){
 			levels=levels|(1L<<tn.levelExtended);
+			tn=getNode(tn.pid);
 		}
 		return levels;
 	}

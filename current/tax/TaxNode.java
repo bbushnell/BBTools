@@ -180,7 +180,7 @@ public class TaxNode implements Serializable{
 		char last='?';
 		for(int i=0; i<name.length(); i++){
 			char c=name.charAt(i);
-			if((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='1' && c<='0')){
+			if((c>='a' && c<='z') || (c>='A' && c<='Z') || (c>='0' && c<='9')){
 				sb.append(c);
 				last=c;
 			}else{
