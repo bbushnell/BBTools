@@ -123,7 +123,7 @@ public class TextStreamWriter extends Thread {
 //		assert(false);
 		open=false;
 		if(verbose){System.err.println("call finish writing");}
-		ReadWrite.finishWriting(myWriter, myOutstream, fname, allowSubprocess);
+		errorState=ReadWrite.finishWriting(myWriter, myOutstream, fname, allowSubprocess)|errorState;
 		if(verbose){System.err.println("finished writing");}
 		synchronized(this){notifyAll();}
 		if(verbose){System.err.println("done");}
@@ -165,6 +165,12 @@ public class TextStreamWriter extends Thread {
 		
 		if(verbose){System.err.println("testing if open.");}
 		if(!open){return;}
+		//Fail loud rather than silently drop: a non-empty ordered map means a writeOrdered key was skipped.
+		if(!map.isEmpty()){
+			throw new RuntimeException("TextStreamWriter: ordered output incomplete - key "+nextKey+
+				" was never supplied; "+map.size()+" buffered entr(ies) would be lost. "+
+				"Every key passed to writeOrdered() must be contiguous from 0 and supplied exactly once.");
+		}
 //		if(verbose){System.err.println("adding buffer: "+buffer.size());}
 		addJob(buffer);
 		buffer=null;
@@ -195,7 +201,7 @@ public class TextStreamWriter extends Thread {
 		return errorState;
 	}
 	
-	//TODO Why is this synchronized?
+	//Synchronized to share this monitor with writeOrdered()/poison() and to gate on the started handshake; queue.put() is itself thread-safe, so the lock is belt-and-suspenders.
 	public synchronized void addJob(ArrayList<CharSequence> j){
 		if(verbose){System.err.println("Got job "+(j==null ? "null" : j.size()));}
 		
@@ -269,6 +275,14 @@ public class TextStreamWriter extends Thread {
 		print(sb);
 	}
 	
+	/**
+	 * Writes in ordered mode: buffers out-of-order entries and emits them once their turn arrives.
+	 * <p><b>Contract:</b> keys must be contiguous from 0, each supplied exactly once; a producer with
+	 * no output for a key must still writeOrdered an (empty) CharSequence for it. A skipped key stalls
+	 * the stream, and {@link #poison()} then fails loudly rather than silently dropping the remainder.
+	 * @param cs Text to write when this key's turn arrives
+	 * @param key Sequence number for ordered output
+	 */
 	public synchronized void writeOrdered(CharSequence cs, long key){
 		assert(cs!=null) : key;
 		assert(key>=nextKey) : key+", "+nextKey;
@@ -329,7 +343,7 @@ public class TextStreamWriter extends Thread {
 	private boolean open=true;
 	private volatile boolean started=false;
 	
-	/** Error state flag (TODO: implementation incomplete) */
+	/** True if a write failed or an output (de)compression subprocess closed with an error; surfaced to callers via {@link #poisonAndWait()}. */
 	public boolean errorState=false;
 	
 	private HashMap<Long, CharSequence> map=new HashMap<Long, CharSequence>();

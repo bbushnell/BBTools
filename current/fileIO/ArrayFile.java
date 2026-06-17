@@ -41,11 +41,8 @@ public class ArrayFile extends TextFile{
 	@Override
 	public String nextLine(){
 		String line=readLine();
-		char c=line.charAt(0);
-		
-		while(line!=null && c!='{' && c!='/'){
+		while(line!=null && line.charAt(0)!='{' && line.charAt(0)!='/'){
 			line=readLine();
-			c=line.charAt(0);
 		}
 		return line;
 	}

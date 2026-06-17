@@ -69,6 +69,7 @@ public class SummaryFile {
 		}
 	}
 	
+	/** @return true if the given reference FASTA matches this summary by canonical path, byte size, and last-modified time. */
 	public boolean compare(final String refName){
 		try {
 			File ref=new File(refName);
@@ -106,6 +107,7 @@ public class SummaryFile {
 		return true;
 	}
 	
+	/** Loads the summary file and compares it against the reference. @return true if they match (false if the summary file is missing). */
 	public static boolean compare(final String summaryName, final String refName){
 		assert(refName!=null) : "Null reference file name.";
 		if(!new File(summaryName).exists()){
@@ -116,14 +118,17 @@ public class SummaryFile {
 		return sf.compare(refName);
 	}
 	
+	/** @return Path to the current genome build's summary.txt. */
 	public static String getName(){
 		return getName(Data.GENOME_BUILD);
 	}
 	
+	/** @return Path to the given genome build's summary.txt. */
 	public static String getName(int build){
 		return Data.ROOT_GENOME+build+"/summary.txt";
 	}
 	
+	/** Parses the summary file at the given path, populating the metadata fields. */
 	public SummaryFile(String path){
 		summaryFname=path;
 		String s;
@@ -157,20 +162,34 @@ public class SummaryFile {
 		tf.close();
 	}
 
+	/** Path to the parsed summary.txt file. */
 	public final String summaryFname;
 
+	/** Number of chromosomes in the genome build. */
 	public int chroms;
+	/** Number of contigs. */
 	public long contigs;
+	/** Number of scaffolds. */
 	public long scaffolds;
+	/** Padding length (N runs) inserted between scaffolds. */
 	public int interpad;
+	/** Total base count (defined + undefined). */
 	public long bases;
+	/** Count of defined (non-N) bases. */
 	public long definedBases;
+	/** Count of undefined (N) bases. */
 	public long undefinedBases;
+	/** Genome name. */
 	public String name;
+	/** Path to the source reference FASTA this summary was built from. */
 	public String source;
+	/** Summary-file format version. */
 	public int version;
+	/** Size in bytes of the source reference file (used to detect staleness). */
 	public long bytes;
+	/** Last-modified timestamp of the source reference file (used to detect staleness). */
 	public long modified;
+	/** True if scaffold names carry build-specific prefixes. */
 	public boolean scafprefixes;
 	
 }

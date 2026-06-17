@@ -238,7 +238,7 @@ public class MotifProbsN extends Motif {
 	public float matchStrength(byte[] source, int a){
 		
 		a=a-center;
-		if(a<0 || a+length+1>source.length){return minProb;}
+		if(a<0 || a+length+N-1>source.length){return minProb;} //inner loop reads up to source[a+length+N-2]
 		
 		float r=1;
 		

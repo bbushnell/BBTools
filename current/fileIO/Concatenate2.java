@@ -28,7 +28,7 @@ public class Concatenate2 {
 
 	/**
 	 * Program entry point for file concatenation.
-	 * Creates a timer, instantiates Concatenate, processes files, and closes streams.
+	 * Creates a timer, instantiates Concatenate2, processes files, and closes streams.
 	 * @param args Command-line arguments
 	 */
 	public static void main(String[] args){
@@ -46,7 +46,7 @@ public class Concatenate2 {
 	}
 	
 	/**
-	 * Constructs a Concatenate instance and parses command-line arguments.
+	 * Constructs a Concatenate2 instance and parses command-line arguments.
 	 * Handles input file specification, output file configuration, and parser setup.
 	 * Supports multiple input files via 'in' parameter or direct file arguments.
 	 * @param args Command-line arguments including input/output file specifications
@@ -92,8 +92,6 @@ public class Concatenate2 {
 			maxReads=parser.maxReads;
 			out1=parser.out1;
 		}
-		
-		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, true, false, false);
 	}
 	
 	/**
@@ -141,7 +139,7 @@ public class Concatenate2 {
 			for(int r=is.read(buffer); r>0; r=is.read(buffer)) {
 				os.write(buffer, 0, r);
 				bytesProcessed+=r;
-				linesProcessed=Vector.countSymbols(buffer, 0, r, (byte)'\n');
+				linesProcessed+=Vector.countSymbols(buffer, 0, r, (byte)'\n');
 			}
 		}catch(Exception e) {
 			KillSwitch.exceptionKill(e);
@@ -157,10 +155,7 @@ public class Concatenate2 {
 	private ArrayList<String> in=new ArrayList<String>();
 	/** Output filename for concatenated result (default: stdout.txt) */
 	private String out1="stdout.txt";
-	
-	/** FileFormat object for output file format detection and handling */
-	private final FileFormat ffout1;
-	
+
 	/*--------------------------------------------------------------*/
 
 	/** Maximum number of reads to process (-1 for unlimited) */

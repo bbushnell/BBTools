@@ -85,8 +85,8 @@ public abstract class Motif {
 	 * @return Number of exact motif matches found in the range
 	 */
 	public final int countExact(byte[] source, int a, int b){
-		
-		int max=min(b, source.length-1)-length+1;
+
+		int max=min(b, source.length-1)-length+1+center; //+center: matchesExactly treats i as the center (start=i-center)
 		
 		int count=0;
 		
@@ -111,8 +111,8 @@ public abstract class Motif {
 	 * @return Number of extended motif matches found in the range
 	 */
 	public final int countExtended(byte[] source, int a, int b){
-		
-		int max=min(b, source.length-1)-length+1;
+
+		int max=min(b, source.length-1)-length+1+center; //+center: matchesExtended treats i as the center (start=i-center)
 		
 		int count=0;
 		
@@ -380,7 +380,7 @@ public abstract class Motif {
 			b=array[index+1];
 		}
 		
-		float ratio=strength-(index/((float)array.length));
+		float ratio=strength*array.length-index; //fractional part of strength*array.length, in [0,1)
 		
 		return ratio*b+(1-ratio)*a;
 		

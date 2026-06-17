@@ -52,7 +52,7 @@ public class Exon implements Comparable<Exon>, Serializable{
 	
 	public static Exon merge(Exon exon1, Exon exon2){
 		assert(canMerge(exon1, exon2));
-		return new Exon(min(exon1.a, exon2.a), max(exon1.b, exon2.b), exon1.chromosome, exon1.strand, exon1.cds||exon2.cds, exon1.utr||exon2.utr);
+		return new Exon(min(exon1.a, exon2.a), max(exon1.b, exon2.b), exon1.chromosome, exon1.strand, exon1.utr||exon2.utr, exon1.cds||exon2.cds);
 	}
 	
 	public static boolean canMerge(Exon exon1, Exon exon2){
@@ -105,6 +105,9 @@ public class Exon implements Comparable<Exon>, Serializable{
 		return r;
 	}
 	
+	/** Parses a numeric chromosome id from a string, skipping any leading non-digit prefix (e.g. "chr7" -> 7).
+	 * Requires at least one digit; a purely non-numeric name ("chrX"/"chrY"/"chrM") has no numeric id and is
+	 * unsupported (BBTools is chromosome-number-centric; the human-era X/Y/M name map was retired). */
 	public static byte toChromosome(String s){
 		int i=0;
 //		System.out.println(s);
@@ -134,8 +137,8 @@ public class Exon implements Comparable<Exon>, Serializable{
 		if(a<other.a){return -1;}
 		if(a>other.a){return 1;}
 
-		if(b<other.a){return -1;}
-		if(b>other.a){return 1;}
+		if(b<other.b){return -1;}
+		if(b>other.b){return 1;}
 
 		if(strand<other.strand){return -1;}
 		if(strand>other.strand){return 1;}
