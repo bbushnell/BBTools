@@ -213,6 +213,7 @@ public abstract class KmerNodeU extends AbstractKmerTableU {
 		}
 	}
 	
+	//TODO: Possible bug [ukmer/KmerNodeU#001] - misleading names: traversePrefix does L-self-R (INORDER), traverseInfix (below) does self-L-R (PREORDER) - swapped vs standard BST terms. Usage currently correct (rebalance needs sorted->uses this inorder one; resize/toList order-agnostic), so LOW/latent, but a trap for future callers. Likely twin in kmer/KmerNode.
 	final void traversePrefix(ArrayList<KmerNodeU> list){
 		if(left!=null){left.traversePrefix(list);}
 		list.add(this);

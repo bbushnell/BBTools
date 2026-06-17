@@ -178,7 +178,7 @@ public class KmerNodeU1D extends KmerNodeU {
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
-		if(value>=mincount){
+		if(value>=mincount && value<=maxcount){
 			if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 			bsw.printlnKmer(pivot, value, k);
 		}
@@ -203,7 +203,7 @@ public class KmerNodeU1D extends KmerNodeU {
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
-		if(value>=mincount){
+		if(value>=mincount && value<=maxcount){
 			if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 			toBytes(pivot, value, k, bb);
 			bb.nl();
@@ -232,7 +232,7 @@ public class KmerNodeU1D extends KmerNodeU {
 	protected final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(value<1){return sb;}
 		if(sb==null){sb=new StringBuilder(32);}
-		if(value>=mincount){sb.append(AbstractKmerTableU.toText(pivot, value, k)).append('\n');}
+		if(value>=mincount && value<=maxcount){sb.append(AbstractKmerTableU.toText(pivot, value, k)).append('\n');}
 		if(left!=null){left.dumpKmersAsText(sb, k, mincount, maxcount);}
 		if(right!=null){right.dumpKmersAsText(sb, k, mincount, maxcount);}
 		return sb;
@@ -252,7 +252,7 @@ public class KmerNodeU1D extends KmerNodeU {
 	protected final ByteBuilder dumpKmersAsText(ByteBuilder bb, int k, int mincount, int maxcount){
 		if(value<1){return bb;}
 		if(bb==null){bb=new ByteBuilder(32);}
-		if(value>=mincount){bb.append(AbstractKmerTableU.toBytes(pivot, value, k)).append('\n');}
+		if(value>=mincount && value<=maxcount){bb.append(AbstractKmerTableU.toBytes(pivot, value, k)).append('\n');}
 		if(left!=null){left.dumpKmersAsText(bb, k, mincount, maxcount);}
 		if(right!=null){right.dumpKmersAsText(bb, k, mincount, maxcount);}
 		return bb;

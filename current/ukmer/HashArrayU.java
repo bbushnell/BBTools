@@ -680,7 +680,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		}else{
 			for(int i=0; i<alen; i++){
 				long[] temp=fillKey(i, key);
-				if(temp!=null && readCellValue(i)>=mincount){
+				if(temp!=null && readCellValue(i)>=mincount && readCellValue(i)<=maxcount){
 					tsw.print(toText(temp, readCellValue(i), k).append('\n'));
 				}
 			}
@@ -707,7 +707,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		}else{
 			for(int i=0; i<alen; i++){
 				long[] temp=fillKey(i, key);
-				if(temp!=null && readCellValue(i)>=mincount){
+				if(temp!=null && readCellValue(i)>=mincount && readCellValue(i)<=maxcount){
 					if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 					bsw.printlnKmer(temp, readCellValue(i), k);
 				}
@@ -741,7 +741,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		}else{
 			for(int i=0; i<alen; i++){
 				long[] temp=fillKey(i, key);
-				if(temp!=null && readCellValue(i)>=mincount){
+				if(temp!=null && readCellValue(i)>=mincount && readCellValue(i)<=maxcount){
 					if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 					toBytes(temp, readCellValue(i), k, bb);
 					bb.nl();
