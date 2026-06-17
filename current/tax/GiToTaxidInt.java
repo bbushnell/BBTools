@@ -282,7 +282,7 @@ public class GiToTaxidInt {
 			String comma="";
 			for(File f : array){
 				String s=f.getName();
-				if(s.startsWith(prefix) && s.startsWith(suffix)){
+				if(s.startsWith(prefix) && s.endsWith(suffix)){
 					sb.append(comma);
 					sb.append(s);
 					comma=",";

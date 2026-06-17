@@ -657,7 +657,7 @@ public class BloomFilterCorrector {
 		for(int i=0, prev=-window; i<len; i++, prev++){
 			byte b=array[i];
 			
-			if(b!=0 && (quals==null || quals[prev]>0)){
+			if(b!=0 && (quals==null || quals[i]>0)){
 				count++;
 				if(quals!=null){
 					qsum+=quals[i];

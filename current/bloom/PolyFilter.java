@@ -185,7 +185,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 			}else if(a.equals("trimleft")){
 				trimLeft=parseIntOrBool(b, 6, 0);
 			}else if(a.equals("trimright")){
-				trimLeft=parseIntOrBool(b, 6, 0);
+				trimRight=parseIntOrBool(b, 6, 0);
 			}else if(a.equals("minlen") || a.equals("minlength")){
 				minLength=Integer.parseInt(b);
 			}else if(a.equals("maxnonpoly")){
