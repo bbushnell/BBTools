@@ -267,7 +267,7 @@ public class Kmer implements Cloneable {
 	
 	public boolean sameOrientation(Kmer x){
 		if(xor()!=x.xor()){return false;}
-		return Tools.equals(array1, array2); //Possible bug: should be Tools.equals(array1, x.array1)
+		return Tools.equals(array1, x.array1);
 	}
 	
 	public int compareTo(Kmer x){

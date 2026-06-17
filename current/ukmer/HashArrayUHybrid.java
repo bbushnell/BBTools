@@ -426,7 +426,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 		final int[] singleton=new int[] {NOT_PRESENT};
 		final Kmer kmer=new Kmer(kbig);
 		{
-			for(int i=0; i<oldk.length; i++){
+			for(int i=0; i<oldk[0].length; i++){
 				if(oldk[0][i]>NOT_PRESENT){
 					final int v=oldc[i];
 					fillKmer(i, kmer, oldk);

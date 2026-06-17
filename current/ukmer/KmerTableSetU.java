@@ -654,7 +654,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 				assert(len==kmer.len);
 				
 				if(verbose){System.err.println("B: Scanning i="+i+", len="+len+", kmer="+kmer+"\t"+new String(bases, Tools.max(0, i-kbig2), Tools.min(i+1, kbig)));}
-				if(len>=kbig && prob>=minProb){
+				if(len>=kbig && prob>=minProb){ //Note: gates both prefilter and main-table insert on raw minProb; ignores minProbMain (unlike the two-pass path which respects minProbMain separately)
 					final long xor=kmer.xor();
 					int count=prefilterArray.incrementAndReturnUnincremented(xor, 1);
 					if(count>=filterMax2){
@@ -1698,11 +1698,12 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		 * @return True if successful.
 		 */
 		public boolean next(){
-			if(w==null){return false;}
-			if(w.next()){return true;}
-			if(tnum<tables.length){tnum++;}
-			w=(tnum<tables.length ? tables[tnum].walk() : null);
-			return w==null ? false : w.next();
+			while(w!=null){
+				if(w.next()){return true;}
+				tnum++;
+				w=(tnum<tables.length ? tables[tnum].walk() : null);
+			}
+			return false;
 		}
 		
 		/** Gets the current k-mer from the walker.

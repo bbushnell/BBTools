@@ -296,7 +296,7 @@ public final class HashArrayU2D extends HashArrayU {
 		final int[] singleton=new int[] {NOT_PRESENT};
 		final Kmer kmer=new Kmer(kbig);
 		{
-			for(int i=0; i<oldk.length; i++){
+			for(int i=0; i<oldk[0].length; i++){
 				if(oldk[0][i]>NOT_PRESENT){
 					set(fillKmer(i, kmer, oldk), oldc[i]);
 				}
