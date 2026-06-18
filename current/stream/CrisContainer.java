@@ -67,7 +67,7 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	private void fetchInner(){
 		ListNum<Read> ln=cris.nextList();
 		list=(ln==null ? null : ln.list);
-		if(list.size()<1){list=null;}
+		if(list==null || list.size()<1){list=null;}
 		else if(genKmer){
 			for(Read r : list){ReadComparatorTopological5Bit.genKmer(r);}
 		}else if(clump){

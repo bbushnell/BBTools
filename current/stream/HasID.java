@@ -20,7 +20,9 @@ public interface HasID {
 	/** Returns true if this is the last job in the sequence */
 	public boolean last();
 
+	/** Factory: returns a new poison-pill instance of this job type carrying the given id. Serves double duty in OrderedQueueSystem: poison() puts one on the INPUT queue to shut workers down, and setFinished() puts one on the OUTPUT queue to terminate the consumer. */
 	public HasID makePoison(long id);
+	/** Factory: returns a new 'last' marker instance of this job type carrying the given id. Used on the OUTPUT side to mark end-of-ordered-sequence (see OrderedQueueSystem.poison). */
 	public HasID makeLast(long id);
 	
 }

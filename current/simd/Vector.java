@@ -149,8 +149,14 @@ public final class Vector {
 	 * @param valuesIn Input values from previous layer
 	 */
 	public static final void feedForwardDense(Cell[] layer, float[] valuesIn){
+		feedForwardDense(layer, valuesIn, true);//Back-compat: callers with no per-job control fall through to the global gate
+	}
+
+	/** As feedForwardDense(layer, valuesIn), but with a per-job simdFF flag ANDed into the gate,
+	 * so an individual training batch can force scalar feed-forward even when SIMD_FEED_FORWARD is on. */
+	public static final void feedForwardDense(Cell[] layer, float[] valuesIn, boolean simdFF){
 		//		assert(layer.length==valuesIn.length);
-		if(Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {//Gated OFF for NN by default (Shared.SIMD_FEED_FORWARD=false): SIMD reductions can't bit-match scalar, perturbing already-trained nets (validated 2026-06-15)
+		if(simdFF && Shared.SIMD && Shared.SIMD_FEED_FORWARD && valuesIn.length>=MINLEN32) {//Per-job gate: job.simdFF && global SIMD_FEED_FORWARD. SIMD reductions can't bit-match scalar (validated 2026-06-15), so this stays opt-in.
 			SIMD.feedForward(layer, valuesIn);
 			return;
 		}

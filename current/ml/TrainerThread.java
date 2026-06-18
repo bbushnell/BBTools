@@ -39,6 +39,8 @@ public class TrainerThread extends Thread {
 		jobsPerEpoch=parent.jobsPerEpoch;
 		
 		orderedJobs=parent.orderedJobs;
+		simdFFMode=parent.simdFFMode;
+		randySimd=shared.Shared.random(net00.seed^0x5EED5L); //Per-net deterministic RNG for the random-SIMD_FF mode
 		launchInThread=parent.launchInThread;
 		jobResultsQueue=new ArrayBlockingQueue<JobResults>(jobsPerEpoch);
 		workerQueue=parent.workerQueue;
@@ -508,6 +510,13 @@ public class TrainerThread extends Thread {
 			setLock.readLock().lock();
 		}
 	}
+
+	/** Resolves this batch's SIMD feed-forward choice from simdFFMode (0=off, 1=on, 2=random-per-batch). */
+	private boolean computeSimdFF() {
+		if(simdFFMode==1) {return true;}
+		if(simdFFMode==2) {return randySimd.nextBoolean();}
+		return false;
+	}
 	
 	/*--------------------------------------------------------------*/
 	
@@ -727,6 +736,7 @@ public class TrainerThread extends Thread {
 		//This does not seem to change anything...
 //		final CellNet immutableNet=Trainer.copyNetInWorkerThread ||  Trainer.setNetInWorkerThread ? net0.copy(false) : null;
 		final CellNet immutableNet=Trainer.copyNetInWorkerThread ||  Trainer.setNetInWorkerThread ? net00.setFrom(net0, false) : null;
+		final boolean simdFFThis=computeSimdFF(); //Per-batch SIMD_FF choice for this launch
 		unlock();
 		for(int jid=0; jid<jobsPerEpoch; jid++){
 			
@@ -752,6 +762,7 @@ public class TrainerThread extends Thread {
 			}
 			jobs++;
 			sent+=toProcess;
+			job.simdFF=simdFFThis; //Per-batch SIMD feed-forward flag (off/on/random per simdFFMode)
 			workerQueue.add(job);
 		}
 		
@@ -1129,6 +1140,10 @@ public class TrainerThread extends Thread {
 	
 	/** Whether to process job results in submission order for determinism */
 	private final boolean orderedJobs; //Without ordered, very very slight nondeterminism.
+	/** SIMD feed-forward mode: 0=off, 1=on, 2=random-per-batch (set from Trainer.simdFFMode) */
+	private final int simdFFMode;
+	/** Per-net RNG for simdFFMode==2 (random per-batch SIMD_FF choice) */
+	private final shared.Random randySimd;
 	/** Queue for collecting results from completed worker jobs */
 	private final ArrayBlockingQueue<JobResults> jobResultsQueue;
 	/** Queue for distributing jobs to worker threads */

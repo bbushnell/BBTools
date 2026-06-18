@@ -118,8 +118,14 @@ public class SamReadInputStream extends ReadInputStream {
 	@Override
 	public boolean close(){
 		streamer.close();
+		errorState|=streamer.errorState();//#001 fix: was returning the never-set LOCAL errorState, dropping the streamer's. SamStreamer/BamStreamer set errorState=true when a reader thread fails (e.g. a truncated/corrupt BAM), so without this a failed SAM/BAM read was reported as SUCCESS.
 		return errorState;
 	}
+
+	/** @return true if this stream OR its underlying multithreaded Streamer detected an error.
+	 * #001 fix: SamReadInputStream did not override errorState(), so it returned the always-false base field and masked streamer errors up the cris error chain (cris.errorState() -> producer.errorState()). */
+	@Override
+	public boolean errorState(){return errorState || streamer.errorState();}
 	
 	/** Unsupported operation for SamReadInputStream.
 	 * Always throws RuntimeException because restarting is not implemented. */

@@ -113,6 +113,7 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	 */
 	public static ConcurrentReadInputStream getReadInputStream(long maxReads, boolean keepSamHeader,
 			FileFormat ff1, FileFormat ff2, String qf1, String qf2, final boolean mpi, final boolean keepAll){
+		//MPI path: rank 0 builds and starts the real LOCAL cris; non-zero ranks get a null local cris. Both wrap in ConcurrentReadInputStreamD (the distributed cris) which fans reads across ranks. Non-MPI falls through to the format dispatch below.
 		if(mpi){
 			final int rank=Shared.MPI_RANK;
 			final ConcurrentReadInputStream cris0;
@@ -124,6 +125,7 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			}
 			final ConcurrentReadInputStream crisD;
 			if(Shared.USE_CRISMPI){
+				//Deliberate fence (NOT a bug): the true-MPI cris is unfinished/disabled. The message IS the acceptance test - validate before uncommenting the line below; do not delete it as "obsolete".
 				assert(false) : "To support MPI, uncomment this.";
 //				crisD=new ConcurrentReadInputStreamMPI(cris0, rank==0, keepAll);
 				crisD=null;
@@ -136,10 +138,11 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 		assert(ff1!=null);
 		assert(ff2==null || ff1.name()==null || !ff1.name().equalsIgnoreCase(ff2.name())) : ff1.name()+", "+ff2.name();
 		assert(qf1==null || ff1.name()==null || !ff1.name().equalsIgnoreCase(qf2));
-		assert(qf1==null || qf2==null || qf1.equalsIgnoreCase(qf2));
+		assert(qf1==null || qf2==null || !qf1.equalsIgnoreCase(qf2)); //#001-fix [stream/ConcurrentReadInputStream#001]: was missing '!' -> asserted qf1==qf2, crashing (-ea) on valid distinct paired qual files and passing the same-file error. Now asserts the two qual files DIFFER, matching the sibling asserts above; the same-file case is already blocked upstream by testForDuplicateFiles. Verified via reformat.sh paired FASTA+QUAL before/after, 2026-06-18.
 		
+		//Format dispatch: pick the format-specific ReadInputStream for ff1 (and ff2 if paired), then wrap it in the workhorse ConcurrentGenericReadInputStream (or ConcurrentLegacyReadInputStream for the older bread/sequential paths). Branches are mutually exclusive by FileFormat type; an unrecognized format crashes loud (final else).
 		final ConcurrentReadInputStream cris;
-		
+
 		if(ff1.fastq()){
 			
 			ReadInputStream ris1, ris2;
@@ -191,7 +194,7 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			cris=new ConcurrentGenericReadInputStream(ris1, null, maxReads);
 			assert(!cris.paired()) : "\nff1="+ff1+"\nff2="+ff2+
 				"\nris1="+ris1+"\nris2"+null+"\nris1paired"+ris1.paired()+
-				"\np1="+cris.producers()[0]+"\np2"+cris.producers()[2];
+				"\np1="+cris.producers()[0]+"\np2=null"; //#002-fix [stream/ConcurrentReadInputStream#002]: was cris.producers()[2] - producers() is length-1 here (single-producer SAM cris), so the old [2] threw AIOOBE on assert-failure instead of printing the diagnostic; producer2 is null on this path.
 		}else if(ff1.bread()){
 //			assert(false) : ff1;
 			RTextInputStream rtis=new RTextInputStream(ff1, ff2, maxReads);
@@ -253,7 +256,7 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 	}
 	
 	public ArrayList<Read> getReads(){
-		
+		//Convenience drain: pull every list via nextList(), accumulate into one ArrayList, returning each (poison-returning the terminator). For callers that want all reads in memory rather than streaming. The trailing returnList after the loop handles the final size-0/null poison list that ended it.
 		ListNum<Read> ln=nextList();
 		ArrayList<Read> reads=(ln!=null ? ln.list : null);
 		

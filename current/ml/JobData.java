@@ -76,6 +76,10 @@ public class JobData {
 	final CellNet immutableNet;
 	/** Optional mutable network copy for thread-safe modifications */
 	CellNet mutableNet;//Optional and mutable
+	/** Per-job feed-forward SIMD toggle, stamped by the TrainerThread after construction. Only
+	 * consulted inside the Shared.SIMD && Shared.SIMD_FEED_FORWARD gate, so a batch can choose
+	 * scalar vs SIMD feed-forward (noise / SIMD_FF-robustness experiment). Default false. */
+	boolean simdFF=false;//Optional and mutable
 	/** Thread-safe queue for submitting completed job results */
 	final ArrayBlockingQueue<JobResults> jobResultsQueue;
 

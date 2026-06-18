@@ -61,7 +61,7 @@ public class MultiCros {
 	public MultiCros(String pattern1_, String pattern2_,
 			boolean ordered_, boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, int defaultFormat_, int maxSize_){
 		assert(pattern1_!=null && pattern1_.indexOf('%')>=0);
-		assert(pattern2_==null || pattern1_.indexOf('%')>=0);
+		assert(pattern2_==null || pattern2_.indexOf('%')>=0);//#003 FIXED: was pattern1_.indexOf (redundant, never validated pattern2_) - a non-null pattern2_ without '%' collapses all R2 output to one file. Twin of BufferedMultiCros#001.
 		if(pattern2_==null && pattern1_.indexOf('#')>=0){
 			pattern1=pattern1_.replaceFirst("#", "1");
 			pattern2=pattern1_.replaceFirst("#", "2");
@@ -117,9 +117,10 @@ public class MultiCros {
 	public String fname(){return pattern1;}
 	
 	public boolean errorState(){
+		//#001 FIX [stream/MultiCros#001]: was `b=b&&cros.errorState()` seeded from errorState (a field never set true in this class), so it ALWAYS returned false - silently masking any sub-stream error. An error aggregator must OR, not AND (cf. ConcurrentGenericReadOutputStream.errorState; finishedSuccessfully() below correctly uses &&). The live demux/seal callers detect errors via ReadWrite.closeStreams(mc), which ORs the sub-streams directly, so this broken method was NOT biting them - but it is public and must be correct for any direct caller. Latent LOW; fixed anyway (one char, zero perf, called only at teardown).
 		boolean b=errorState;
 		for(ConcurrentReadOutputStream cros : streamList){
-			b=b&&cros.errorState();
+			b=b||cros.errorState();
 		}
 		return b;
 	}
@@ -139,6 +140,7 @@ public class MultiCros {
 	/*--------------------------------------------------------------*/
 	
 	private ConcurrentReadOutputStream makeStream(String name){
+		//Substitute the name into the '%' placeholder of the output pattern(s) to form this name's actual file(s), then open a cros for it.
 		String s1=pattern1.replaceFirst("%", name);
 		String s2=pattern2==null ? null : pattern2.replaceFirst("%", name);
 		final FileFormat ff1=FileFormat.testOutput(s1, defaultFormat, null, allowSubprocess, overwrite, append, ordered);
@@ -151,6 +153,8 @@ public class MultiCros {
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	//Lazy per-name output stream: created once on first sight of a name, cached in streamMap (and streamList for teardown).
+	//TODO: Possible bug [stream/MultiCros#002] - LOW (latent): broken double-checked locking. The first streamMap.get(name) below is UNSYNCHRONIZED yet races the synchronized streamMap.put on a plain LinkedHashMap (not thread-safe) - a concurrent first-access to new names could corrupt the map (e.g. resize during get). NOT triggered today: the live callers (DemuxByName/Seal) call add()->getStream() from a SINGLE consumer thread. The synchronized block implies concurrency WAS intended, which is what makes the unsynchronized get suspect. Fix-if-needed = do the whole lookup inside synchronized(streamMap) (drops the lock-free fast path - a perf call on a class that's on the eventual cros-replacement path, so deferred).
 	public ConcurrentReadOutputStream getStream(String name){
 		ConcurrentReadOutputStream ros=streamMap.get(name);
 		if(ros==null){

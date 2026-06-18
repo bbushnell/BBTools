@@ -69,7 +69,8 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 			prevID=id;
 			maxSeenId=Math.max(id, maxSeenId);
 		}
-		// JobQueue.add() is blocking and handles its own wait/interrupt
+		// JobQueue.add() is blocking and handles its own wait/interrupt.
+		//WHY out-of-order / multi-producer input is safe here (unlike OQS, whose inq is a plain ArrayBlockingQueue needing ONE producer): inq is an ORDERED JobQueue. Even if a real job is counted (maxSeenId bumped under lock) but added AFTER poison()'s pill, the pill's id=maxSeenId+1 sorts strictly LAST, so the ordered release drains it only after every real job - no orphaned job, no hang. (Depends on JobQueue's strict-sequential ordering contract; JobQueue.java's own V2 review still pending.)
 		return inq.add(job);
 	}
 
@@ -139,6 +140,7 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete from the consumer side. */
+	@SuppressWarnings("unchecked")
 	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS2: setFinished()");}
 		finished=true;

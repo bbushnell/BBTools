@@ -43,6 +43,7 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	public boolean addInput(I job){
 		if(job==null){return false;}
 		assert(!job.last()) : "Use poison() to terminate";
+		//THREADING CONTRACT: SINGLE producer (javadoc: "Producer adds input jobs"). maxSeenId/lastSeen update under lock, but putJob (the inq.put) runs OUTSIDE the lock below - safe ONLY with one producer. The locks publish maxSeenId/lastSeen/finished to the WORKER and CONSUMER threads (e.g. setFinished() reads maxSeenId), NOT to order concurrent producers. With >1 producer, poison() could enqueue its input-POISON ahead of a counted-but-not-yet-put job -> a worker stops early -> that job is orphaned -> the ordered outq waits on its id forever.
 		synchronized(this){
 			assert(!lastSeen || job.poison());
 			maxSeenId=Math.max(job.id(), maxSeenId);
@@ -57,10 +58,12 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/** Signal end of input - injects LAST to output and POISON to input. */
 	@SuppressWarnings("unchecked")
 	public synchronized void poison(){
-		if(lastSeen){return;}
+		if(lastSeen){return;}//idempotent: a no-op once already poisoned
 		if(verbose) {System.err.println("OQS: poison()");}
 
-		// Both use maxSeenId+1
+		//End-of-input protocol: two DISTINCT markers, both stamped id=maxSeenId+1 (one past every real job, so the ORDERED outq sorts them strictly last):
+		//  LAST  -> outq: marks the end of ordered output; the workers' real outputs (ids 0..maxSeenId) reorder ahead of it.
+		//  POISON-> inq:  terminates the worker pool (a worker taking it stops pulling input).
 		O lastJob=(O)outputPrototype.makeLast(maxSeenId+1);
 		outq.add(lastJob);
 
@@ -117,7 +120,7 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*----------------        Consumer API          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Get next output job in order (blocks). */
+	/** @return true if more ordered output remains to be consumed. Does NOT block or remove anything (despite the old copy-pasted javadoc - #001 doc fix). */
 	public boolean hasMore(){
 		return outq.hasMore();
 	}
@@ -128,6 +131,7 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete. */
+	@SuppressWarnings("unchecked")
 	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS: setFinished()");}
 		finished=true;

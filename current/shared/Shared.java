@@ -134,7 +134,7 @@ public class Shared {
 	 * is more accurate but cannot bit-match the scalar dot product, so it perturbs reproducibility of already-trained
 	 * nets — a net scores differently across regimes (validated 2026-06-15). Flip + recompile only to experiment.
 	 * Gated together with the live SIMD flag at each call site; recorded in the bbnet header. */
-	public static final boolean SIMD_FEED_FORWARD=false;
+	public static boolean SIMD_FEED_FORWARD=false;//Settable (was final): the simdff= experiment flag flips it; still ANDed with live Shared.SIMD and per-job simdFF at each call site
 	/** SIMD for NN backprop (training only — never runs at inference, so no cross-mode scoring hazard). ON by default:
 	 * ~1.6x faster training -> more random starts -> better best-of-sweep net. Gated with the live SIMD flag at each
 	 * call site, so simd=f disables it too. NOTE: do NOT initialize this from SIMD — SIMD is mutated by a runtime

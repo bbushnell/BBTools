@@ -83,9 +83,11 @@ public class HeaderInputStream extends ReadInputStream {
 		buffer=toReadList(tf, BUF_LEN, nextReadID);
 		int bsize=(buffer==null ? 0 : buffer.size());
 		nextReadID+=bsize;
+		//A short buffer (fewer than BUF_LEN reads) means toReadList hit EOF (it only stops early on a null line), so close the file eagerly rather than waiting for a later empty read.
 		if(bsize<BUF_LEN){tf.close();}
-		
+
 		generated+=bsize;
+		//Currently unreachable: toReadList always returns a (possibly empty) list, never null. Defensive guard kept in case that contract changes.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
@@ -148,6 +150,7 @@ public class HeaderInputStream extends ReadInputStream {
 				numericID++;
 			}
 
+			//NOT redundant with the loop guard: without this break, the for-loop's increment would call tf.nextLine() one more time and that line would then fail the guard and be discarded - losing one read at every buffer boundary. The break exits before that extra read is consumed.
 			if(added>=maxReadsToReturn){break;}
 		}
 		assert(list.size()<=maxReadsToReturn);

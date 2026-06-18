@@ -343,6 +343,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * @return Effective density (0.0-1.0) for this layer
 	 */
 	private static final float layerDensity(float density, float density1, int layer, int layers){
+		//TODO: Possible bug [ml/CellNet#001] - 'layer>=layers+1' is a dead condition (layer is always <=layers-1),
+		//so the intended "output layer -> dense (1f)" case never fires here; likely a typo for 'layers-1'.
+		//Behaviorally inert today: makeEdgesDense/Sparse handle the final layer via an explicit if(finalLayer)
+		//branch and discard this returned value for it. Left as-is pending Brian's review (topology generator).
 		return layer>=layers+1 ? 1f : (layer==1 && density1>0) ? density1 : density; //Output always dense
 	}
 	
@@ -617,6 +621,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		weightMult*=s.weight; //Apply sample-specific weighting
 		
 		applyInput(s.in); //Load input values
+		if(inputNoise>0 && backProp && noiseRandy!=null){ //Input-noise augmentation (training only): noise*(rand()-rand()) per input dim, after copy, before forward prop
+			final float[] v=values[0];
+			for(int i=0; i<v.length; i++){v[i]+=inputNoise*(noiseRandy.nextFloat()-noiseRandy.nextFloat());}
+		}
 		if(DENSE){
 			feedForwardDense(); //Dense forward pass
 		}else{
@@ -720,7 +728,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			final float[] valuesIn=values[lnum-1]; // Previous layer outputs
 			Cell[] layer=net[lnum]; // Current layer cells
 			if(SPECIAL_FMA) { // Use fused multiply-add optimization
-				Vector.feedForwardDense(layer, valuesIn);
+				Vector.feedForwardDense(layer, valuesIn, simdFF); //Per-job SIMD-FF flag (worker-set; false for inference)
 			}else {
 				for(int cnum=0; cnum<layer.length; cnum++) {
 					Cell c=layer[cnum];
@@ -1219,7 +1227,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	static ByteBuilder toHex(BitSet bs, ByteBuilder bb){
 		byte[] bytes=bs.toByteArray(); //Convert BitSet to bytes
 		for(byte b : bytes){
-			//TODO: POSSIBLE BUG - Only handles digits 0-9, not hex A-F. Should use full hex encoding.
+			//NOT standard hex (despite the name): each 4-bit nibble n is encoded as (char)('0'+n),
+			//yielding '0'-'9' then ':;<=>?' for n=10..15. This is a private, self-consistent encoding
+			//that fromHex() reverses exactly via (char-'0')&15. Do NOT "fix" it to real hex A-F:
+			//that would break fromHex() and every existing .bbnet H-line. (Reviewed: round-trip verified.)
 			bb.append((byte)('0'+(b&15))); //Low nibble
 			bb.append((byte)('0'+((b>>4)&15))); //High nibble
 		}
@@ -1238,9 +1249,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	static int[] fromHex(byte[] line, int start){
 		byte[] bytes=new byte[(line.length-start)/2]; //Decode pairs
 		for(int i=start, j=0; i<line.length; i+=2, j++){
-			byte a=line[i], b=line[i+1]; //Hex digit pair
-			//TODO: POSSIBLE BUG - No validation that a,b are valid hex chars. Invalid chars will produce wrong results.
-			int x=((a-'0')&15)|(((b-'0')&15)<<4); //Reconstruct byte
+			byte a=line[i], b=line[i+1]; //Encoded nibble pair (low, high) written by toHex()
+			//Reverses toHex()'s (char)('0'+nibble) encoding; BBTools trusts the .bbnet it wrote, so there
+			//is no char validation by design (a corrupted byte is garbage-in/garbage-out, not a silent miscompute).
+			int x=((a-'0')&15)|(((b-'0')&15)<<4); //Reconstruct byte: low nibble | (high nibble<<4)
 			bytes[j]=(byte)x;
 		}
 		BitSet bs=BitSet.valueOf(bytes); //Convert to BitSet
@@ -1518,10 +1530,14 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	
 	/**
 	 * Checks equality based on training epoch number.
-	 * Networks are considered equal if trained for same number of epochs.
-	 * Used for sorting and comparison during model selection.
-	 * 
-	 * @param b Object to compare with
+	 * Networks are considered equal if trained for the same number of epochs.
+	 * This is intentional: Trainer.networkMap / networkMap2 use CellNet as a HashMap key to
+	 * GROUP networks by epoch for print-mode management, so equals/hashCode are keyed on epoch
+	 * by design. Do NOT change to identity/content equality without updating those maps.
+	 * Note: equals(null) throws NPE (a Comparable/equals-contract violation), but HashMap never
+	 * passes null here so it is unreached; hardening deferred to avoid touching a live hash-key method.
+	 *
+	 * @param b Object to compare with (assumed non-null CellNet)
 	 * @return true if both networks have same epoch count
 	 */
 	@Override
@@ -1622,11 +1638,20 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	
 	/** Number of lines written during last serialization operation */
 	long lastLinesWritten=0;
+
+	/** Per-job SIMD feed-forward flag for THIS net; the worker sets it from job.simdFF before
+	 * processing. Consulted by feedForwardDense; stays false for inference nets. */
+	public boolean simdFF=false;
+	/** Per-worker RNG for input-noise augmentation; the worker sets it before processing. */
+	public shared.Random noiseRandy=null;
 	
 	/*--------------------------------------------------------------*/
 	
 	/** Enable vectorized fused multiply-add operations for ~20% speedup */
 	public static final boolean SPECIAL_FMA=true; //~20% faster when true, but needs ml.Cell class
+	/** Input-noise augmentation magnitude (command-line "noise="); when >0, training adds
+	 * noise*(rand()-rand()) to each input dimension before forward prop. Default 0 (off). */
+	public static float inputNoise=0f;
 	/** Whether to apply bias normalization during training */
 	public static boolean NORMALIZE_BIAS=false;
 	/** Whether to apply weight normalization during training */
