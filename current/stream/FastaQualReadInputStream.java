@@ -37,7 +37,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		
 		btf=ByteFile.makeByteFile(ff);
 		qtf=ByteFile.makeByteFile(FileFormat.testInput(qfname, FileFormat.QUAL, null, ff.allowSubprocess(), false));
-		interleaved=false;
+		interleaved=false;//always false -> toReadList's interleaved branch (prev/mate pairing) is DEAD here; FASTA+QUAL is read single-ended (each base record pairs with its qual record by matching header, not as interleaved mates).
 	}
 	
 	@Override
@@ -100,6 +100,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		
 		if(currentHeader==null && numericID==0){
 //			assert(numericID==0) : numericID;
+			//First call only: prime the leading '>' header from BOTH files. These nextBases/nextQualities return EMPTY bases/quals (the file starts at a header, nothing precedes it) which are discarded; their side effect is setting nextHeaderB/nextHeaderQ, then asserting the base+qual headers match.
 			nextBases(btf, builder);
 			nextQualities(qtf, builder);
 			if(nextHeaderB==null){
@@ -226,7 +227,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		currentHeader=nextHeaderB;
 		nextHeaderB=nextHeaderQ=null;
 		
-		if(bases==null){
+		if(bases==null){//dead/defensive: nextBases returns bb.toBytes(), never null. makeRead's real null-return is the finished/currentHeader==null guards above (the loop ends when the last header is consumed -> currentHeader==null -> next makeRead returns null).
 			if(verbose){System.err.println("Returning null because tf.nextLine()==null: A");}
 			return null;
 		}
@@ -263,6 +264,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 		boolean a=btf.close();
 		boolean b=qtf.close();
 		closed=true;
+		//returns the ByteFile close errors. Equivalent to (errorState||a|b): errorState is only ever set via this close() (fillBuffer L83 does errorState|=close()), which also sets closed=true, so errorState cannot already be true at a FIRST close -> a|b is complete. A re-close hits the closed-guard above and returns the accumulated errorState. (Contrast FastaReadInputStream#001, which returned a literal false.)
 		return a|b;
 	}
 
@@ -307,7 +309,7 @@ public class FastaQualReadInputStream extends ReadInputStream {
 	public String fname(){return btf.name()+","+qtf.name();}
 
 	private ArrayList<Read> buffer=null;
-	private int next=0;
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
 
 	private final ByteFile btf;
 	private final ByteFile qtf;

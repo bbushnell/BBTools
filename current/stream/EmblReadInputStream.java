@@ -42,11 +42,11 @@ public class EmblReadInputStream extends ReadInputStream {
 	 * @param ff FileFormat describing the input source
 	 */
 	public EmblReadInputStream(FileFormat ff){
-		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
+		if(verbose){System.err.println("EmblReadInputStream("+ff+")");}//#001-fix [stream/EmblReadInputStream#001]: was "FastqReadInputStream(" (copy-paste wrong class name).
 		flag=(Shared.AMINO_IN ? Read.AAMASK : 0);
 		stdin=ff.stdio();
 		if(!ff.embl()){
-			System.err.println("Warning: Did not find expected fastq file extension for filename "+ff.name());
+			System.err.println("Warning: Did not find expected embl file extension for filename "+ff.name());//#001-fix: was "fastq file extension".
 		}
 		bf=ByteFile.makeByteFile(ff);
 //		assert(false) : interleaved;
@@ -93,10 +93,11 @@ public class EmblReadInputStream extends ReadInputStream {
 		if(bsize<BUF_LEN){bf.close();}
 		
 		generated+=bsize;
+		//defensive/unreachable: toReadList always returns a (possibly empty) list, never null. An empty buffer -> nextList() maps empty->null as the EOF signal.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
-				System.err.println("Null buffer in FastqReadInputStream.");
+				System.err.println("Null buffer in EmblReadInputStream.");//#001-fix: was "...FastqReadInputStream." (copy-paste wrong class name).
 			}
 		}
 	}
@@ -121,6 +122,7 @@ public class EmblReadInputStream extends ReadInputStream {
 		String idLine=null;
 		ByteBuilder bb=new ByteBuilder();
 		for(byte[] s=bf.nextLine(); s!=null; s=bf.nextLine()){
+			//EMBL ID line -> read name = the WHOLE "ID" line content (minus the 2-char prefix, trimmed), which may include spaces/semicolons (e.g. "X56734; SV 1; ..."). The SQ inner loop's line[0]==' ' assumes non-empty lines (a blank line inside the SQ block -> AIOOBE; malformed input, crash-loud-acceptable).
 			if(Tools.startsWith(s, "ID")){
 				idLine=new String(s, 2, s.length-2).trim();
 //				System.err.println(idLine);
@@ -180,16 +182,17 @@ public class EmblReadInputStream extends ReadInputStream {
 	/** Reports whether this stream or FASTQ parsing has encountered errors.
 	 * @return true if an error was detected */
 	@Override
+	//NB: the FASTQ.errorState() OR is a copy-paste from the FASTQ-based readers — Embl parses INLINE (toReadList), never invoking the FASTQ parser, so this ORs an unrelated process-global. Harmless (over-reports = safe direction); kept as-is.
 	public boolean errorState(){return errorState || FASTQ.errorState();}
-	
+
 	/** Returns the name of the underlying input file.
 	 * @return Input filename */
 	@Override
 	public String fname(){return bf.name();}
 
 	private ArrayList<Read> buffer=null;
-	private int next=0;
-	
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
+
 	private final ByteFile bf;
 	private final int flag;
 

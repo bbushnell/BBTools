@@ -42,11 +42,11 @@ public class GbkReadInputStream extends ReadInputStream {
 	 * @param ff FileFormat describing the input source
 	 */
 	public GbkReadInputStream(FileFormat ff){
-		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
+		if(verbose){System.err.println("GbkReadInputStream("+ff+")");}//#001-fix [stream/GbkReadInputStream#001]: was "FastqReadInputStream(" (copy-paste wrong class name).
 		flag=(Shared.AMINO_IN ? Read.AAMASK : 0);
 		stdin=ff.stdio();
 		if(!ff.gbk()){
-			System.err.println("Warning: Did not find expected fastq file extension for filename "+ff.name());
+			System.err.println("Warning: Did not find expected gbk file extension for filename "+ff.name());//#001-fix: was "fastq file extension".
 		}
 		bf=ByteFile.makeByteFile(ff);
 //		assert(false) : interleaved;
@@ -92,10 +92,11 @@ public class GbkReadInputStream extends ReadInputStream {
 		if(bsize<BUF_LEN){bf.close();}
 		
 		generated+=bsize;
+		//defensive/unreachable: toReadList always returns a (possibly empty) list, never null. An empty buffer -> nextList() maps empty->null as the EOF signal.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
-				System.err.println("Null buffer in FastqReadInputStream.");
+				System.err.println("Null buffer in GbkReadInputStream.");//#001-fix: was "...FastqReadInputStream." (copy-paste wrong class name).
 			}
 		}
 	}
@@ -134,7 +135,8 @@ public class GbkReadInputStream extends ReadInputStream {
 					}
 				}
 				assert(line==null || Tools.startsWith(line, "//")) : new String(line);
-				
+
+				//#002 [stream/GbkReadInputStream#002] LOW (documented, NOT fixed): idLine is ALWAYS null here (the "ID" name-parse above is commented out, and GenBank's keyword is LOCUS not ID anyway) -> every GenBank read gets a numeric id, losing its accession/locus name. Functional limitation, not a correctness bug; fixing = parse the LOCUS line (needs GenBank-format validation). NB: the ORIGIN inner loop's line[0] assumes non-empty lines (a blank line inside the block -> AIOOBE; malformed input, crash-loud-acceptable).
 				Read r=new Read(bb.toBytes(), null, idLine==null ? ""+numericID : idLine, numericID, flag);
 				list.add(r);
 				added++;
@@ -184,10 +186,11 @@ public class GbkReadInputStream extends ReadInputStream {
 	/** Reports whether this stream or FASTQ parsing has encountered errors.
 	 * @return true if an error was detected */
 	@Override
+	//NB: the FASTQ.errorState() OR is a copy-paste from the FASTQ-based readers — Gbk parses INLINE (toReadList), never invoking the FASTQ parser, so this ORs an unrelated process-global. Harmless (over-reports = safe direction); kept as-is.
 	public boolean errorState(){return errorState || FASTQ.errorState();}
 
 	private ArrayList<Read> buffer=null;
-	private int next=0;
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
 	
 	private final ByteFile bf;
 	private final int flag;

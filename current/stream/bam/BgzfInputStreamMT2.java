@@ -189,6 +189,10 @@ public class BgzfInputStreamMT2 extends InputStream {
 			if(!lastJobQueued){
 				inputQueue.offer(BgzfInputJob.POISON_PILL);
 			}
+			//#001-fix [stream/bam/BgzfInputStreamMT2#001]: on a producer error (e.g. truncated/corrupt gzip) the only terminal signal previously reached the WORKER (inputQueue POISON), never the CONSUMER -> read() parked forever in jobQueue.take(). Poison the jobQueue too so the blocked consumer wakes (take() returns null) and read() throws workerError LOUD instead of hanging. Cold path only (runs once, at producer exit, and only when errored) -> zero hot-path cost.
+			if(workerError!=null){
+				jobQueue.poison(BgzfInputJob.POISON_PILL, true);
+			}
 		}
 	}
 
@@ -525,6 +529,8 @@ public class BgzfInputStreamMT2 extends InputStream {
 			if(currentBlockPos>=currentBlockSize){
 				BgzfInputJob nextJob=jobQueue.take();
 				if(nextJob==null){
+					//#001-fix [stream/bam/BgzfInputStreamMT2#001]: distinguish a real producer error from clean EOF. If the producer errored (jobQueue was poisoned to wake us), throw LOUD (crash-loud) instead of silently returning EOF on corrupt input. Clean EOF leaves workerError null and returns -1 as before. Not on the hot path (clean EOF exits via the lastJob branch below), so this check is free.
+					if(workerError!=null){throw workerError;}
 					eofReached=true;
 					return totalRead==0 ? -1 : totalRead;
 				}

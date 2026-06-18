@@ -31,6 +31,7 @@ public class ScarfReadInputStream extends ReadInputStream {
 		
 		tf=ByteFile.makeByteFile(ff);
 		
+		//SCARF pairing is driven solely by the global FORCE_INTERLEAVED flag; per-file auto-detect (the commented alternative) is disabled.
 		interleaved=FASTQ.FORCE_INTERLEAVED;//((tf.is()==System.in || stdin) ? FASTQ.FORCE_INTERLEAVED : FASTQ.isInterleaved(tf.name));
 //		assert(false) : interleaved;
 	}
@@ -72,6 +73,7 @@ public class ScarfReadInputStream extends ReadInputStream {
 		if(bsize<BUF_LEN){tf.close();}
 		
 		generated+=bsize;
+		//defensive/unreachable: FASTQ.toScarfReadList always returns a (possibly empty) list, never null. Clean EOF -> empty buffer (bsize=0<BUF_LEN closes tf), and nextList() maps empty->null as the EOF signal.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
@@ -116,13 +118,13 @@ public class ScarfReadInputStream extends ReadInputStream {
 	 * @return true if any errors have been detected, false otherwise
 	 */
 	@Override
-	public boolean errorState(){return errorState || FASTQ.errorState();}
+	public boolean errorState(){return errorState || FASTQ.errorState();}//anti-swallow: ORs the static (process-global) FASTQ parser error state so a parse failure isn't dropped -> contrast SamReadInputStream#001. Over-reports rather than under (safe direction).
 	
 	@Override
 	public String fname(){return tf.name();}
 
 	private ArrayList<Read> buffer=null;
-	private int next=0;
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0, so the next-based single-read guards above are constant.
 	
 	private final ByteFile tf;
 	private final boolean interleaved;
