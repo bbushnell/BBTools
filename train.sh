@@ -91,6 +91,14 @@ Exotic parameters
 scan=0          Test this many seeds initially before picking one to train.
 scanbatches=1k  Evaluate scanned seeds at this point to choose the best.
 simd=f          Use SIMD instructions for greater speed; requires Java 18+.
+noise=0         Input-noise augmentation: if >0, add noise*(rand()-rand()) to
+                every input dimension before forward propagation during
+                training (like anneal, but on inputs instead of weights).
+                Keyed off the network seed.  Try ~0.000001.
+simdff=f        SIMD feed-forward training mode (needs simd=t).  f=off;
+                t=SIMD feed-forward on for all batches; random=toggle it
+                randomly per batch, training the network to tolerate the
+                SIMD-vs-scalar feed-forward difference.
 cutoffbackprop=0.5   Optimize around this point for separating positive and
                      negative results.  Unrelated to cutoffeval.
 pem=1.0         Positive error mult; when value>target, multiply the error 
