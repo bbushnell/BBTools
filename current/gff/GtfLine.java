@@ -36,7 +36,7 @@ public class GtfLine {
 			if(Tools.startsWith(line, '#')) {continue;}
 			GtfLine gtf=new GtfLine(line);
 			GffLine gff=new GffLine(gtf);
-			gff.appendTo(bb.clear());
+			gff.appendTo(bb.clear());//safe reuse: bsw.print copied bytes out, no ref kept
 			bsw.print(bb.nl());
 		}
 		bsw.poisonAndWait();
@@ -61,7 +61,7 @@ public class GtfLine {
 	    start=lp.parseInt(3);
 	    end=lp.parseInt(4);
 	    score=(lp.termEquals('.', 5) ? -1 : lp.parseFloat(5));
-	    strand=lp.parseByte(6, 0);
+	    strand=lp.parseByte(6, 0);//col6 first byte; GTF strand is 1 char, idx 0 captures it
 	    frame=(lp.termEquals('.', 7) ? -1 : lp.parseInt(7));
 	    attribute=lp.parseString(8);
 //		if(start==267921) {System.err.println(lp+" -> "+attribute);}

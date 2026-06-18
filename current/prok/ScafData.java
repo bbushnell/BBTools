@@ -39,6 +39,7 @@ class ScafData {
 		name=name_;
 		bases=bases_;
 		frames=frames_;
+		//both strands' lists allocated up front so addCDS/addRNA can index [strand] without null checks
 		cdsLines[0]=new ArrayList<GffLine>();
 		cdsLines[1]=new ArrayList<GffLine>();
 		rnaLines[0]=new ArrayList<GffLine>();
@@ -51,6 +52,7 @@ class ScafData {
 	
 	/** Clears frame annotations and resets start/stop lists. */
 	void clear(){
+		//TODO: Possible bug [prok/ScafData#003] - QUESTION: resets frames/starts/stops but NOT cdsLines/rnaLines (annotations persist across clear()). Intentional (per-strand re-scan keeps annotations) or a missing reset? Trace callers to confirm.
 		Arrays.fill(frames, (byte)0);
 		starts.clear();
 		stops.clear();
@@ -59,31 +61,33 @@ class ScafData {
 	/** Reverse-complements bases in place and flips strand. */
 	void reverseComplement(){
 		Vector.reverseComplementInPlaceFast(bases);
-		strand=1^strand;
+		strand=1^strand;//strand provably in {0,1}: init 0, ctors never set it, this is the only mutation
 	}
 	
 	/** Adds a CDS annotation to the strand-appropriate list.
 	 * @param gline CDS GFF line */
 	void addCDS(GffLine gline){
+		//TODO: Possible bug [prok/ScafData#001] - assert guards strand>=0 (catches -1) but NOT the upper bound. GffLine.strand domain is {-1,0,1,2,3} (PLUS,MINUS,QMARK '?',DOT '.'; GffLine.java:697); strand 2 or 3 passes the assert then indexes cdsLines[2/3] -> AIOOBE (array size 2). Reachable (MEDIUM) iff a CDS with '?'/'.' strand reaches here via AnalyzeGenes; latent LOW if only internal 0/1 ORFs do. Trace AnalyzeGenes. Same issue in addRNA.
 		assert(gline.strand>=0) : gline+"\n"+gline.strand;
-		cdsLines[gline.strand].add(gline);
+		cdsLines[gline.strand].add(gline);//requires strand in {0,1}; see ScafData#001
 	}
 	
 	/** Adds an RNA annotation to the strand-appropriate list.
 	 * @param gline RNA GFF line */
 	void addRNA(GffLine gline){
 		assert(gline.strand>=0) : gline+"\n"+gline.strand;
-		rnaLines[gline.strand].add(gline);
+		rnaLines[gline.strand].add(gline);//same as ScafData#001: strand 2/3 ('?'/'.') would AIOOBE here too
 	}
 	
 	/**
 	 * Returns subsequence from start..stop (inclusive) from the scaffold bases.
 	 * @param start Start index (inclusive)
-	 * #param stop End index (inclusive)
-	 * #return Subsequence bytes
+	 * @param stop End index (inclusive)
+	 * @return Subsequence bytes
 	 */
 	byte[] fetch(int start, int stop){
 		assert(start>=0 && stop<bases.length);
+		//TODO: Possible bug [prok/ScafData#002] - assert(start<stop) is STRICTER than the inclusive contract: start==stop is a valid 1-base fetch (copyOfRange handles it) but asserts-out. Latent; reachable iff a caller requests a 1-base subsequence. Trace GeneCaller/callers.
 		assert(start<stop);
 		return Arrays.copyOfRange(bases, start, stop+1);
 	}

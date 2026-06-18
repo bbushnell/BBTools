@@ -248,6 +248,9 @@ public class CutGff_ST {
 	
 	private boolean hasAttributes(GffLine gline, String[] attributes){
 		if(attributes==null){return false;}
+		//TODO: Possible bug [gff/CutGff_ST#001] - gline.attributes.contains(s) lacks a null guard (a truncated line
+		//has attributes=null) -> NPE; identical to the runtime-confirmed CutGff#001. LATENT: CutGff_ST is dead code
+		//(no shell script, no caller; superseded by CutGff's internal processST) -> deletion candidate, not fixed here.
 		for(String s : attributes){
 			if(gline.attributes.contains(s)){
 				return true;
@@ -262,6 +265,10 @@ public class CutGff_ST {
 				Read scaf=map.get(gline.seqid);
 				assert(scaf!=null) : "Can't find "+gline.seqid+" in "+map.keySet();
 				int start, stop;
+				//TODO: Possible bug [gff/CutGff_ST#002] - off-by-one: the cut/mask below is one base SHORT. The correct
+				//twin CutGff uses copyOfRange(...,start,stop+1) and mask i<=stop (inclusive of the feature's last base);
+				//CutGff_ST uses copyOfRange(...,start,stop) and i<stop, dropping that last base. LATENT: dead code
+				//(no shell script/caller; superseded by CutGff) -> deletion candidate, not fixed here.
 				if(strand==0){
 					start=gline.start-1;
 					stop=gline.stop-1;

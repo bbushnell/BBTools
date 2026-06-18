@@ -166,6 +166,8 @@ public class FilterSilva {
 		if(out1!=null){
 			final int buff=4;
 
+			//TODO: Possible bug [prok/FilterSilva#001] - the two clauses are identical (out1 vs in1, checked twice);
+			//harmless redundancy (X && X == X, so it still correctly forbids in==out), but a copy-paste leftover.
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, null, null, buff, null, false);
@@ -231,10 +233,15 @@ public class FilterSilva {
 	
 	/*--------------------------------------------------------------*/
 	
+	/** Decides whether to keep one Silva sequence: drops headers with no parseable taxonomy, and drops
+	 * eukaryote-classified sequences whose header names them as organellar (Chloroplast/Mitochondria) or
+	 * as Bacteria/Archaea (the misclassification this tool exists to remove).
+	 * @param r Read whose id (header) carries the Silva taxonomy string. @return true to keep, false to drop. */
 	private boolean process(Read r){
 		TaxNode tn=tree.parseNodeFromHeader(r.id, true);
-		if(tn==null){return false;}
+		if(tn==null){return false;}//no parseable taxonomy in the header -> drop (cannot classify)
 		if(tree.isEukaryote(tn.id)){
+			//euk-classified, but the header names it organellar or cross-domain -> a misidentification to remove
 			if(r.id.contains(";Chloroplast;") || r.id.contains("Mitochondria")){return false;}
 			if(r.id.contains("Bacteria;") || r.id.contains("Archaea;")){return false;}
 			//Unclear how to remove 16S from euks at this point; best to do it later.

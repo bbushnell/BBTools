@@ -83,6 +83,8 @@ public class GbffLocus {
 	 */
 	private byte[] nextLine(ArrayList<byte[]> lines){
 		byte[] line=null;
+		//GbffFile.nextLocus only adds non-empty lines, so the empty-skip never fires in practice; this just
+		//advances num by one. The size-1 bound keeps num a valid index for the get below.
 		for(final int lim=lines.size()-1; num<lim && (line==null || line.length==0); ){
 //			System.err.println(num+", "+lim);
 			num++;
@@ -111,7 +113,8 @@ public class GbffLocus {
 		return num;
 	}
 	
-	/** Move pointer to next block start */
+	/** Advances past the current feature to the next line that starts a new feature OR block
+	 * (line[0]!=' ' OR line[5]!=' '). @param lines GBFF lines. @return The new line number. */
 	private int advanceFeature(ArrayList<byte[]> lines){
 		for(num++; num<lines.size(); num++){
 			byte[] line=lines.get(num);
@@ -288,6 +291,8 @@ public class GbffLocus {
 	 * @return Line number after processing all features
 	 */
 	private int parseFeatures(ArrayList<byte[]> lines){
+		//each indented line (col 0 == ' ') starts a feature; parse only known types (idx>=0), else skip the
+		//whole feature via advanceFeature. The loop ends at the first non-indented line (next block) or end.
 		for(byte[] line=nextLine(lines); line!=null && line[0]==' '; line=getLine(lines)){
 //			System.err.println(num+": "+new String(line));
 			String type=toFeatureType(line);
@@ -305,12 +310,16 @@ public class GbffLocus {
 		return num;
 	}
 	
-	/** Move pointer to next block start */
+	/** Collects one feature's lines (its location line plus continuation/qualifier lines, identified by
+	 * line[0]==' ' && line[5]==' '), constructs a GbffFeature, and adds it unless it failed to parse (error).
+	 * @param lines GBFF lines. @param type The feature-type key. @return Line number after the feature. */
 	private int parseFeature(ArrayList<byte[]> lines, String type){
 		ArrayList<byte[]> flist=new ArrayList<byte[]>();
 		flist.add(lines.get(num));
 		for(num++; num<lines.size(); num++){
 			byte[] line=lines.get(num);
+			//continuation of this feature requires col0==' ' AND col5==' ' (indented past the feature-key column);
+			//col0 non-space = next block, or col5 non-space = next feature key -> this feature ends here
 			if(line!=null && line.length>0 && (line[0]!=' ' || line[5]!=' ')){
 //				assert(false) : Character.toString(line[0])+", "+Character.toString(line[5])+", "+Character.toString(line[6])+"\n"+new String(line);
 				break;

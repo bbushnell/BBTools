@@ -93,7 +93,7 @@ public class GbffFile {
 			bf=null;
 		}
 		bf=ByteFile.makeByteFile(ff, FileFormat.GBFF);
-		line=bf.nextLine();
+		line=bf.nextLine();//prime the one-record lookahead: nextLocus() expects line positioned at a 'LOCUS ' header (or null)
 		if(line==null){bf.close();}//empty
 	}
 	
@@ -120,7 +120,7 @@ public class GbffFile {
 				}else if(b=='O' && Tools.startsWith(line, "ORIGIN ")){
 					sequence=true;
 				}else if(b==' ' && sequence){
-						//do nothing
+						//skip ORIGIN sequence data (indented). FEATURES lines are indented too, but reach the else below because sequence is still false until ORIGIN.
 				}else{
 					sequence=false;
 					lines.add(line);

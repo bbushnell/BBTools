@@ -275,9 +275,11 @@ public class CompareGff {
 //			int type=gline.prokType();
 //			if(ProkObject.processType(type)){return;}
 //		}
+		//prokType() is now null-safe (GffLine#001 fix): a truncated query line returns -1, processType(-1)=true -> not
+		//skipped. Features are matched ref<->query by (seqid, trueStop): a stop match = TP-stop, +matching start = TP-start.
 		int type=gline.prokType();
 		if(!ProkObject.processType(type)){return;}
-		
+
 		final int stop=gline.trueStop();
 		final int start=gline.trueStart();
 		
