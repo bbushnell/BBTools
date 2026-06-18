@@ -193,6 +193,10 @@ public class ParseCrispr {
 	 * @return true if parameters are valid
 	 */
 	private boolean validateParams(){
+		//TODO: Possible bug [gff/ParseCrispr#001] - validateParams is an unfinished template stub; the assert(false)
+		//below crashes the constructor on startup under -ea. This is a deliberate "not implemented" fence (do NOT
+		//remove it - per convention the message IS the acceptance test). LATENT: ParseCrispr is dead code (no shell
+		//script, no caller) - an unwired/unfinished dev tool. Flag to Brian: is this meant to ship?
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 		assert(false) : "TODO";
 		return true;

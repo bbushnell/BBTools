@@ -348,6 +348,10 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	 * @return true if the line passes all filters
 	 */
 	private boolean hasAttributes(GffLine gline){
+		//[gff/CutGff#001] FIXED: skip lines with null attributes. A truncated "common in IMG" line early-returns
+		//from the GffLine ctor with attributes=null; without this guard, hasAttributes(gline,String[]) below does
+		//gline.attributes.contains(s) -> NPE. Reachable via cutgff.sh (banUnprocessed=false keeps such lines; banPartial defaults true).
+		if(gline.attributes==null){return false;}
 		int len=gline.length();
 		if(len<minLen || len>maxLen){return false;}
 		if(hasAttributes(gline, bannedAttributes)){return false;}
@@ -507,7 +511,9 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	 */
 	private String parseGi(String id){
 		assert(id.startsWith("gi|"));
-		String[] split=id.split("|");
+		//[gff/CutGff#002] FIXED: split("|") treats "|" as a regex (empty alternation) -> splits into single
+		//characters, so split[1] was a single letter, not the GI number. Escaped to split on the literal pipe.
+		String[] split=id.split("\\|");
 		return split[1];
 	}
 	

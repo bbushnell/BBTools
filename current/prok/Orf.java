@@ -9,6 +9,14 @@ import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
 
+/**
+ * A scored open reading frame (gene candidate) on a scaffold: coordinates, reading frame, packed
+ * start/stop codons, the component scores (start/stop/kmer) and the combined orfScore, plus the
+ * per-strand path-finding fields (pathScore/prev/pathLength) used to chain ORFs into a gene model.
+ * Extends PFeature for coordinate/strand handling.
+ *
+ * @author Brian Bushnell
+ */
 public class Orf extends PFeature {
 	
 	/*--------------------------------------------------------------*/
@@ -55,7 +63,7 @@ public class Orf extends PFeature {
 		int codon=0;
 		for(int i=0; i<3; i++){
 //			assert(i+from<bases.length) : i+", "+from+", "+bases.length;
-			byte b=bases[i+from];
+			byte b=bases[i+from];//bounds guard disabled; safe for valid coords (ctor passes from=start or stop-2, both in-bounds)
 			int x=AminoAcid.baseToNumber[b];
 			codon=(codon<<2)|x;
 		}
@@ -66,11 +74,20 @@ public class Orf extends PFeature {
 		return calcOrfScore(0);
 	}
 
+	/** Combines start/stop/inner-kmer sub-scores and ORF length into the heuristic orfScore.
+	 * @param overlap Bases overlapping the previous ORF (subtracted as a length penalty).
+	 * @return The combined ORF score. */
 	public float calcOrfScore(int overlap){
+		//Heuristic: geometric-ish blend of start-codon (a), stop-codon (b) and inner-kmer (c) sub-scores,
+		//each floored by f1/f2/f3, then scaled by length^2.5 minus an overlap penalty.
 		double a=Math.sqrt(Tools.max(f1, e1+startScore));
 //		double b=Math.sqrt(f2/*Tools.max(f2, e2+stopScore)*/);//This is better, ignoring stopscore completely
 		double b=Math.sqrt(Tools.max(f2, e2+0.35f*stopScore));
 		double c=Tools.max(f3, e3+averageKmerScore());
+		//TODO: Possible bug [prok/Orf#002] - assert(x!=Double.NaN) is ALWAYS true (NaN != anything, even NaN),
+		//so these four asserts never catch a NaN. Correct form: assert(!Double.isNaN(x)). As written, a non-finite
+		//c from averageKmerScore() (Orf#001) propagates silently into orfScore. Fix couples to Orf#001 and changes
+		//silent->crash -> flag to Brian before applying.
 		assert(a!=Double.NaN);
 		assert(b!=Double.NaN);
 		assert(c!=Double.NaN);
@@ -81,7 +98,14 @@ public class Orf extends PFeature {
 		return (float)d;
 	}
 	
+	/** Mean inner-kmer score: total kmerScore divided by the number of inner kmers spanned by the CDS.
+	 * @return kmerScore normalized by (length() - kInnerCDS - 2). */
 	public float averageKmerScore(){
+		//TODO: Possible bug [prok/Orf#001] - divisor (length()-kInnerCDS-2) is <=0 for ORFs of length<=kInnerCDS+2
+		//(kInnerCDS defaults to 6 -> length<=8): ==0 yields +/-Infinity, <0 yields a wrong-signed score. Feeds
+		//calcOrfScore (caught by Orf#002's dead NaN guard) and the GFF innerScr field. Reachability pends the
+		//GeneCaller min-ORF-length filter. NOTE: active e1..f3 tuning block is labeled "kinnercds=7" but the
+		//GeneModel.kInnerCDS default is 6 (GeneModel.java:1018) - a label/constant mismatch to confirm at GeneModel.
 		return kmerScore/(length()-GeneModel.kInnerCDS-2); //This slightly affects score if kInnerCDS is changed
 	}
 	
@@ -89,12 +113,18 @@ public class Orf extends PFeature {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Whether prev is a valid earlier ORF that this one may chain after, during path-finding.
+	 * @param prev Candidate predecessor ORF. @param maxOverlap Max bases prev may overlap into this ORF.
+	 * @return True iff prev legally precedes this ORF. */
 	public boolean isValidPrev(Orf prev, int maxOverlap){
+		//valid only if prev strictly precedes: ends before this ends, overlaps by <=maxOverlap, and starts earlier
 		if(prev.stop>=stop || prev.stop>=start+maxOverlap || prev.start>=start){return false;}
+		//and reject a same-frame, same-strand predecessor whose stop reaches into this ORF's start
 		if(prev.frame==frame && prev.strand==strand && prev.stop>=start){return false;}
 		return true;
 	}
 
+	//path-finding accessors below: the prevStrand arg uses 0=plus, anything else=minus (matches Shared.PLUS=0)
 	public float pathScore() {return Tools.max(pathScorePlus, pathScoreMinus);}
 	public float pathScore(int prevStrand) {return prevStrand==0 ? pathScorePlus : pathScoreMinus;}
 
@@ -124,12 +154,16 @@ public class Orf extends PFeature {
 		for(int i=0; i<typeArray.length; i++){
 			String type=typeArray[i];
 			lists[i]=new ArrayList<GffLine>();
+			//TODO: Possible bug [prok/Orf#003] - a duplicate token in `types` makes this map.put overwrite the
+			//earlier mapping, so matching ORFs route only to the LAST list for that type and the earlier
+			//duplicate's list is returned empty (silent data loss, no warning). Latent LOW: callers pass fixed,
+			//non-duplicate type sets.
 			map.put(type,  lists[i]);
 		}
 		for(Orf orf : orfs){
 			String type=ProkObject.typeStrings2[orf.type];
 			ArrayList<GffLine> glist=map.get(type);
-			if(glist!=null) {
+			if(glist!=null) {//null when this ORF's type wasn't among the requested `types` -> silently skip it
 				glist.add(new GffLine(orf));
 			}
 		}

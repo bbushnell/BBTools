@@ -86,7 +86,9 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		
 		while(b<line.length && line[b]!='\t'){b++;}
 		if(b<=a){
-			//Badly formatted line; common in IMG
+			//Badly formatted line; common in IMG: only 5 fields present (nothing from score onward). Early-return
+			//leaves score=0, strand=0(PLUS), phase=0, attributes=null at their defaults -> downstream must null-check
+			//attributes (see prokType [gff/GffLine#001]) and not treat the defaulted strand=PLUS as parsed.
 			return;
 		}
 		assert(b>a) : "Missing field 5: "+new String(line);
@@ -134,6 +136,11 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		String att=gtf.attribute;
 //		if(att.indexOf(';')<0) {att=att.replace(',', ';');}
 //		if(att.contains("; ")) {att.replaceAll("; ", ";");}
+		//Reformat each ';'-separated GTF attribute term into GFF "key=value", in this precedence order:
+		//  space>0       -> split at the FIRST space into key=value (this wins even if '=' appears earlier in the term);
+		//  else equals>0 -> keep the term as-is (already key=value);
+		//  else          -> synthesize "attrib<N>=value" (N = term index).
+		//Correct for normal GTF (key "value"); a term with '=' before its first space would be mis-split, but real GTF doesn't produce that.
 		StringBuilder sb=new StringBuilder();
 		int tnum=0;
 		for(String term : att.split(";")) {
@@ -509,6 +516,8 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 	
 	@Override
 	public int compareTo(GffLine g) {
+		//orders by seqid, then start/stop/strand/type. start-g.start can't overflow: both are positive 1-based
+		//genomic coords well under Integer.MAX. Assumes non-null seqid/type (true for parsed lines).
 		int x=seqid.compareTo(g.seqid);
 		if(x!=0) {return x;}
 		if(start!=g.start) {return start-g.start;}
@@ -634,7 +643,7 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 	
 	/** Returns 5' coordinate considering strand orientation. */
 	public int trueStart(){
-		return strand==0 ? start : stop;
+		return strand==0 ? start : stop;//only PLUS(0) uses start as 5'; MINUS/QMARK/DOT all fall through to stop
 	}
 	
 	/** Returns 3' coordinate considering strand orientation. */
@@ -653,6 +662,10 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		}else if(type.equals("tRNA")){
 			return ProkObject.tRNA;
 		}else if(type.equals("rRNA")){
+			//[gff/GffLine#001] FIXED: guard null attributes. A truncated "common in IMG" line early-returns from the
+			//constructor with attributes=null; the sibling partial() guards null too. Without this, prokType() NPE'd on
+			//a truncated rRNA line via loadGffFile(banUnprocessed=true) in CompareGff/CallGenes/GeneModel + direct calls in CutGff/GradeBins.
+			if(attributes==null){return -1;}
 			if(attributes.contains("16S")){
 				return ProkObject.r16S;
 			}else if(attributes.contains("23S")){

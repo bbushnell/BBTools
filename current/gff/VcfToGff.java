@@ -143,12 +143,12 @@ public class VcfToGff {
 					}else{
 						int i=1;
 						while(i<line.length && line[i]=='#'){i++;}
-						i--;
+						i--;//keep exactly one leading '#' (converts VCF '##' meta to a GFF '#' comment)
 						bb.append(line, i, line.length-i);
 						bb.nl();
 					}
 				}else{
-					if(header!=null){
+					if(header!=null){//emit the column header lazily, once, on the first variant record (never if the VCF has no records)
 						bb.append(header).append('\n');
 						header=null;
 					}
