@@ -134,6 +134,9 @@ public class GradeVCF {
 				histQualFile=b;
 			}else if(a.equals("crossover") || a.equals("xover")){
 				crossover=Double.parseDouble(b);
+			}else if(a.equals("simdff") || a.equals("simdfeedforward")){
+				simdFFEval=Parse.parseBoolean(b);
+				shared.Shared.SIMD_FEED_FORWARD=simdFFEval; //Toggle the batched SIMD feed-forward used for net scoring
 			}else if(a.equals("clearfilters")){
 				if(Parse.parseBoolean(b)){
 					varFilter.clear();
@@ -364,6 +367,7 @@ public class GradeVCF {
 		@Override
 		public void run(){
 			net=(net0==null ? null : net0.copy(false));
+			if(net!=null){net.simdFF=simdFFEval;} //Per-eval SIMD feed-forward toggle (also gated by Shared.SIMD && SIMD_FEED_FORWARD)
 			ListNum<byte[]> ln=nextListSync();
 			while(ln!=null){
 				ByteBuilder bb=(bsw!=null ? new ByteBuilder(4096) : null);
@@ -716,6 +720,9 @@ public class GradeVCF {
 	private CellNet net0=null;
 	private boolean useNet=false;
 	private float netCutoff=0.5f;
+	/** Eval-time SIMD feed-forward toggle (simdff=t/f): stamped onto each worker's scoring net so we can
+	 * measure a net's SIMD_FF-on vs SIMD_FF-off result. Also flips global Shared.SIMD_FEED_FORWARD. */
+	boolean simdFFEval=false;
 
 	double minScore=0;
 	// FN=crossover*FP operating point. 0 (default) = off. When >0, GradeVCF reports the QUAL and NN
