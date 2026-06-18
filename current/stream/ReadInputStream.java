@@ -30,10 +30,11 @@ public abstract class ReadInputStream {
 	 * Loads all reads from a FileFormat into an array.
 	 * @param ff FileFormat describing input
 	 * @param maxReads Max reads to load
-	 * @return Array of reads or null if none
+	 * @return Array of reads, or a zero-length array if none (never null)
 	 */
 	public static final Read[] toReadArray(FileFormat ff, long maxReads){
 		ArrayList<Read> list=toReads(ff, maxReads);
+		//#001-fix [stream/ReadInputStream#001]: toReads(ff) never returns null, so this returns a (possibly empty) array, never null. Load-bearing: prok/ProkObject.stripOrganelle iterates array.length with no null guard. Javadoc corrected ("or null if none"->"empty array if none").
 		return list==null ? null : list.toArray(new Read[0]);
 	}
 	
@@ -62,6 +63,7 @@ public abstract class ReadInputStream {
 			reads=(ln!=null ? ln.list : null);
 		}
 		/* Cleanup */
+		//Each ListNum is returned exactly once: the loop returns every non-terminal list, this returns the terminal poison/empty buffer (returnList tolerates null). list is never null (may be empty).
 		cris.returnList(ln);
 		ReadWrite.closeStream(cris);
 		return list;

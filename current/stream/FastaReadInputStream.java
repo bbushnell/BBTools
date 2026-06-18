@@ -131,12 +131,12 @@ public class FastaReadInputStream extends ReadInputStream {
 	/**
 	 * Closes the input stream and releases resources.
 	 * Thread-safe operation that prevents multiple closures.
-	 * @return false always (legacy return value)
+	 * @return true if an error was detected during reading/closing, false otherwise
 	 */
 	@Override
 	public final boolean close(){
 		synchronized(this){
-			if(!open){return false;}
+			if(!open){return errorState;}
 			open=false;
 			assert(ins!=null);
 
@@ -151,7 +151,8 @@ public class FastaReadInputStream extends ReadInputStream {
 
 			ins=null;
 		}
-		return false;
+		//#001-fix [stream/FastaReadInputStream#001] (LOW, latent): was 'return false' ALWAYS (legacy). The cris reads producer error via BOTH close()-return (ConcurrentGenericReadInputStream L664: errorState|=producer1.close()) AND its errorState() override (L904-906: ...||producer1.errorState()). Returning false broke ONLY the close()-return path -> the cris's errorState FIELD stayed false on a Fasta error; but the canonical ReadWrite.closeStreams (close() THEN errorState|=cris.errorState(), L2340-41) STILL caught it, because errorState() re-reads the RETAINED producer's field (which close() set at L145/L149, and producers are never nulled). So NOT a silent swallow on the standard cleanup path — a latent field/method inconsistency a close()-return-only caller would miss, plus Fasta is the lone outlier among 7 readers. Now returns errorState -> consistent + closes the hole. (Adversarial Sonnet verify corrected my initial "MEDIUM silent swallow" overstatement.)
+		return errorState;
 	}
 	
 	/** Indicates if this stream contains paired-end reads.
@@ -188,6 +189,7 @@ public class FastaReadInputStream extends ReadInputStream {
 			currentList.add(r);
 			len+=r.length();
 			if(interleaved){
+				//r was already added above; if r2 is null here (odd final record at EOF) we break with r left mate-less (added, not dropped). Odd-count interleaved FASTA is malformed input -> out of scope; r1 is kept rather than silently dropped (cf. Scarf/Oneline which drop the odd tail).
 				Read r2=generateRead(1);
 				if(r2==null){break;}
 				len+=r2.length();
@@ -367,6 +369,7 @@ public class FastaReadInputStream extends ReadInputStream {
 					if(verbose){System.err.println("Broke loop when fb="+fb+"; bstart="+bstart+", bstop="+bstop);}
 					break;
 				}
+				//re-count from scratch: fillBuffer() shifted the unconsumed [bstart,bstop) to the front and set bstart=0, so the bases counted so far now sit at buffer[0..]; rescan from bstart with bases=0. Correct (not a leak); amortized ~O(n) as the buffer doubles to fit the record.
 				x=bstart;
 				bases=0;
 			}
@@ -463,6 +466,7 @@ public class FastaReadInputStream extends ReadInputStream {
 				if(verbose){System.err.println("Resized to "+buffer.length);}
 			}
 			if(verbose){System.err.println("A: bstop="+bstop+", len="+len);}
+			//NB: a read exception is swallowed (r stays -1 -> treated as clean EOF). Intentional for the fixed-maxReads early-close case, but it ALSO masks genuine mid-stream read errors (e.g. corrupt gzip) as EOF -> partial data, no crash. See leads.md (intermittent corrupt-.gz hang/swallow, format-agnostic, subprocess/cris layer).
 			try {
 				r=-1;
 				r=ins.read(buffer, bstop, buffer.length-bstop);

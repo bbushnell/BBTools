@@ -37,8 +37,8 @@ public class GfaReadInputStream extends ReadInputStream {
 	
 	/**
 	 * Creates a GFA reader from a FileFormat specification.
-	 * Initializes buffering, interleaving detection, and header processing options.
-	 * Handles custom parsing for synthetic data if GFA.PARSE_CUSTOM is enabled.
+	 * Sets the amino-acid read flag (when Shared.AMINO_IN), opens the underlying ByteFile,
+	 * and warns if the filename lacks a .gfa extension. GFA input is always single-ended.
 	 * @param ff FileFormat object specifying input source and options
 	 */
 	public GfaReadInputStream(FileFormat ff){
@@ -93,6 +93,7 @@ public class GfaReadInputStream extends ReadInputStream {
 		if(bsize<BUF_LEN){tf.close();}
 		
 		generated+=bsize;
+		//defensive/unreachable: toReadList always returns a (possibly empty) list, never null. An empty buffer -> nextList() maps empty->null as the EOF signal.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
@@ -104,11 +105,13 @@ public class GfaReadInputStream extends ReadInputStream {
 	private ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn,
 			long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(400, maxReadsToReturn));
+		//Only GFA 'S' (segment) lines become Reads; all other record types (H/L/P/C/W) are skipped. numericID advances only per added read.
 		for(byte[] line=bf.nextLine(); line!=null && list.size()<maxReadsToReturn; line=bf.nextLine()) {
 			if(line.length>0 && line[0]=='S') {
 				lp.set(line);
 				String id=lp.parseString(1);
 				byte[] bases=lp.parseByteArray(2);
+				//#002-refuted [stream/GfaReadInputStream#002]: a GFA '*' (no-sequence) segment does NOT yield a spurious 1bp read -> Read.validate (always -ea) rejects the junk base and crashes LOUD here (verified: reformat exit=1, no hang). This is the backstop that makes the unvalidated inline parse safe.
 				Read r=new Read(bases, null, id, numericID++, flag);
 				list.add(r);
 			}
@@ -142,12 +145,13 @@ public class GfaReadInputStream extends ReadInputStream {
 	
 	/** Return true if this stream has detected an error */
 	@Override
+	//local-only is correct here: GFA has no delegated sub-parser carrying a separate error flag to OR-in (contrast Scarf's static FASTQ.errorState / Sam's streamer.errorState swallow #001). Inline parse errors surface as exceptions (e.g. Read.validate rejecting junk bases -> verified loud crash), not a swallowed flag.
 	public boolean errorState(){return errorState;}
 
 	/** Current buffer of reads loaded from file */
 	private ArrayList<Read> buffer=null;
 	/** Index of next read to return from buffer */
-	private int next=0;
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
 	
 	/** Underlying file reader for GFA data */
 	private final ByteFile tf;

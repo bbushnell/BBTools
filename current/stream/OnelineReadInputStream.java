@@ -25,7 +25,7 @@ public class OnelineReadInputStream extends ReadInputStream {
 
 	
 	public OnelineReadInputStream(FileFormat ff){
-		if(verbose){System.err.println("FastqReadInputStream("+ff+")");}
+		if(verbose){System.err.println("OnelineReadInputStream("+ff+")");}//#001-fix [stream/OnelineReadInputStream#001]: was "FastqReadInputStream(" (copy-paste wrong class name in diagnostic).
 		
 		stdin=ff.stdio();
 		if(!ff.oneline()){
@@ -76,10 +76,11 @@ public class OnelineReadInputStream extends ReadInputStream {
 		if(bsize<BUF_LEN){tf.close();}
 		
 		generated+=bsize;
+		//defensive/unreachable: toReadList always returns a (possibly empty) list, never null. An empty buffer -> nextList() maps empty->null as the EOF signal.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
-				System.err.println("Null buffer in FastqReadInputStream.");
+				System.err.println("Null buffer in OnelineReadInputStream.");//#001-fix: was "...FastqReadInputStream." (copy-paste wrong class name).
 			}
 		}
 	}
@@ -89,6 +90,7 @@ public class OnelineReadInputStream extends ReadInputStream {
 		Read r1=null, r2=null;
 		long sum=0;
 		for(byte[] line=tf.nextLine(); line!=null; line=tf.nextLine()){
+			//oneline format is "id<TAB>bases"; split on the LAST tab (id may contain tabs, bases won't). A tab-less line -> index<0 -> new String(line,0,index) crashes loud (malformed input -> crash-loud-acceptable).
 			int index=Tools.lastIndexOf(line, (byte)'\t');
 			String id=new String(line, 0, index);
 			byte[] bases=KillSwitch.copyOfRange(line, index+1, line.length);
@@ -101,6 +103,7 @@ public class OnelineReadInputStream extends ReadInputStream {
 				r1.mate=r2;
 				r2.mate=r1;
 			}
+			//emits one unit per match: single-end (r2 always null) adds each read immediately; interleaved adds r1 (carrying its mate) only when the pair completes. The break below is therefore pair-aligned -> MAX_DATA/BUF_LEN never truncate mid-pair. (Odd-count interleaved input leaves the final unpaired r1 unadded -> dropped; malformed input, out of scope.)
 			if(interleaved==(r2!=null)){
 				list.add(r1);
 				r1=r2=null;
@@ -141,14 +144,15 @@ public class OnelineReadInputStream extends ReadInputStream {
 	/** Indicates if the stream has encountered an error.
 	 * @return true if an error has been detected, false otherwise */
 	@Override
+	//local-only is correct: Oneline parses INLINE (toReadList), with no delegated sub-parser carrying a separate error flag to OR-in (unlike Scarf's FASTQ.errorState). Parse errors surface as exceptions (Read.validate), not a swallowed flag.
 	public boolean errorState(){return errorState;}
 	
 	@Override
 	public String fname(){return tf.name();}
 
 	private ArrayList<Read> buffer=null;
-	private int next=0;
-	
+	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
+
 	private final ByteFile tf;
 	private final boolean interleaved;
 
