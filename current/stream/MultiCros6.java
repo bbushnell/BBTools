@@ -228,6 +228,7 @@ public class MultiCros6 extends BufferedMultiCros {
 		while(!heap.isEmpty()) {
 			dumped+=heap.poll().dump(true);
 		}
+		//NOTE (not a bug - do not "simplify"): buffers that were in the heap are visited AGAIN here (they remain in bufferMap), so dump(true) hits them twice - but the second call short-circuits on the list.isEmpty() guard in dump() (no double-write, no double-count). This bufferMap pass exists to also catch buffers that were never heaped (the small ones, below the addToHeap threshold). Redundant for heaped buffers, but safe.
 		for(Entry<String, Buffer> e : bufferMap.entrySet()){
 			dumped+=e.getValue().dump(true);
 		}
@@ -319,7 +320,7 @@ public class MultiCros6 extends BufferedMultiCros {
 	 */
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
-		float mult=0.001f/retireCount;
+		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired). Divisor is semantically correct here (unlike printCreateTime). (The Retires-Per-Call line below has the same retireCalls==0 div-by-zero, also profiling-only.)
 		bb.append("Max Streams:\t").append(maxStreams).nl();
 		bb.append("Retire Count:\t").append(retireCount).nl();
 		bb.append("Retires Per Call:\t").append(retireCount/(float)retireCalls, 2).nl();
@@ -352,7 +353,7 @@ public class MultiCros6 extends BufferedMultiCros {
 	 */
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
-		float mult=0.001f/retireCount;
+		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0. Also the WRONG normalizer (these are CREATE times but there's no createCount field), so the per-stream averages are approximate. Profiling-only (LOW); left approximate given the replacement path.
 		bb.append("Create Time 1:\t").append(createTime1*mult, 2).append(" us").nl();
 		bb.append("Create Time 2:\t").append(createTime2*mult, 2).append(" us").nl();
 		bb.append("Create Time 3:\t").append(createTime3*mult, 2).append(" us").nl();

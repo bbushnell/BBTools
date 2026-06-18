@@ -96,9 +96,11 @@ public class FastqReadInputStream extends ReadInputStream {
 		buffer=FASTQ.toReadList(tf, BUF_LEN, nextReadID, interleaved, flag);
 		int bsize=(buffer==null ? 0 : buffer.size());
 		nextReadID+=bsize;
+		//A short read (bsize<BUF_LEN) means the file is exhausted -> close now. (A file whose read count is an exact multiple of BUF_LEN takes one extra fillBuffer that returns an EMPTY list, then closes.)
 		if(bsize<BUF_LEN){tf.close();}
-		
+
 		generated+=bsize;
+		//null vs empty: a NULL buffer from toReadList is an ERROR (set errorState); an EMPTY (size-0) buffer is normal EOF (nextList() turns it into a null return). So only null trips the error branch.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
@@ -171,7 +173,7 @@ public class FastqReadInputStream extends ReadInputStream {
 	private final IlluminaHeaderParser2 ihp=new IlluminaHeaderParser2();
 
 	private final int BUF_LEN=Shared.bufferLen();
-	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
+	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends. (Currently UNUSED - placeholder for that unimplemented feature; fillBuffer bounds reads by BUF_LEN only.)
 
 	public long generated=0;
 	public long consumed=0;

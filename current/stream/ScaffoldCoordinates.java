@@ -38,6 +38,7 @@ public class ScaffoldCoordinates {
 	 */
 	public boolean set(Read r){
 		valid=false;
+		//ASYMMETRY with set(SiteScore): an UNMAPPED read skips setFromIndex entirely, so valid is left false but the coordinate fields are NOT cleared - stale values from a prior set() persist. set(SiteScore) always calls setFromIndex, which clears on failure. Callers must check the returned valid before trusting any field.
 		if(r.mapped()){setFromIndex(r.chrom, r.start, r.stop, r.strand(), r);}
 		return valid;
 	}
@@ -68,10 +69,13 @@ public class ScaffoldCoordinates {
 			iStop=iStop_;
 			if(Data.isSingleScaffold(iChrom, iStart, iStop)){
 				assert(Data.scaffoldLocs!=null) : "\n\n"+o+"\n\n";
+				//Midpoint is safe as the lookup point because isSingleScaffold just guaranteed the WHOLE span [iStart,iStop] lies in one scaffold, so any interior point (incl. the midpoint) maps to that same scaffold.
+				//TODO: Possible bug [stream/ScaffoldCoordinates#002] - (iStart+iStop) can overflow int when index coords approach Integer.MAX_VALUE/2, yielding a negative/wrong midpoint; overflow-safe idiom is iStart+(iStop-iStart)/2. Reachability depends on the max index-coordinate size BBMap produces - verify before fixing.
 				scafIndex=Data.scaffoldIndex(iChrom, (iStart+iStop)/2);
 				name=Data.scaffoldNames[iChrom][scafIndex];
 				scafLength=Data.scaffoldLengths[iChrom][scafIndex];
 				start=Data.scaffoldRelativeLoc(iChrom, iStart, scafIndex);
+				//stop is derived as relativeStart + span (iStop-iStart) rather than a second scaffoldRelativeLoc lookup; valid because the global->scaffold transform is a constant shift, so the span is preserved.
 				stop=start-iStart+iStop;
 				strand=(byte)strand_;
 				valid=true;

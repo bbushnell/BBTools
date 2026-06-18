@@ -77,6 +77,7 @@ public abstract class ConcurrentReadOutputStream {
 	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2,
 			int rswBuffers, CharSequence header, boolean useSharedHeader, final boolean mpi, final boolean keepAll){
+		//MPI path: rank 0 builds the real local ConcurrentGenericReadOutputStream; other ranks get null. Both wrap in ConcurrentReadOutputStreamD (the distributed cros). Non-MPI (else branch) returns the generic cros directly.
 		if(mpi){
 			final int rank=Shared.MPI_RANK;
 			final ConcurrentReadOutputStream cros0;
@@ -87,6 +88,7 @@ public abstract class ConcurrentReadOutputStream {
 			}
 			final ConcurrentReadOutputStream crosD;
 			if(Shared.USE_CRISMPI){
+				//Deliberate fence (NOT a bug): the true-MPI cros is unfinished/disabled. The message IS the acceptance test - validate before uncommenting; do not delete as "obsolete".
 				assert(false) : "To support MPI, uncomment this.";
 				crosD=null;
 //				crosD=new ConcurrentReadOutputStreamMPI(cros0, rank==0);
@@ -195,8 +197,7 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Secondary output file format (may be null). */
-	/** Primary output file format. */
+	/** Output file formats: ff1 = primary (required), ff2 = secondary (may be null). (#001 doc fix: previously two stacked javadocs in swapped order - secondary before primary - over this combined declaration.) */
 	public final FileFormat ff1, ff2;
 	/** Whether output must preserve list order. */
 	public final boolean ordered;

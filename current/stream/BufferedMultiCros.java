@@ -55,7 +55,7 @@ public abstract class BufferedMultiCros extends Thread {
 			boolean overwrite_, boolean append_, boolean allowSubprocess_, boolean useSharedHeader_, 
 			int defaultFormat_, boolean threaded_, int maxStreams_){
 		assert(pattern1_!=null && pattern1_.indexOf('%')>=0);
-		assert(pattern2_==null || pattern1_.indexOf('%')>=0); //Possible bug: should check pattern2_.indexOf('%')>=0, not pattern1_
+		assert(pattern2_==null || pattern2_.indexOf('%')>=0); //#001 FIXED (author had marked "Possible bug"): was pattern1_.indexOf, which is redundant with the assert above and never validated pattern2_. A non-null pattern2_ must contain '%' or its per-name replaceFirst is a no-op -> all R2 output collapses into one file. (Twin of the same bug in old MultiCros.java ctor.)
 		
 		//Perform # expansion for twin files
 		if(pattern2_==null && pattern1_.indexOf('#')>=0){
@@ -167,7 +167,7 @@ public abstract class BufferedMultiCros extends Thread {
 	 * @throws RuntimeException if not implemented by subclass
 	 */
 	public String printCreateTime() {
-		throw new RuntimeException("printRetireTime not available for "+getClass().getName());
+		throw new RuntimeException("printCreateTime not available for "+getClass().getName());//#003 fix: message said printRetireTime (copy-paste)
 	}
 	
 	public abstract Set<String> getKeys();
@@ -238,7 +238,7 @@ public abstract class BufferedMultiCros extends Thread {
 		assert(threaded) : "This should only be called in threaded mode.";
 		try {
 			for(ArrayList<Read> list=transferQueue.take(); list!=poisonToken; list=transferQueue.take()){
-				if(verbose){System.err.println("Got list; size=\"+transferQueue.size())");}
+				if(verbose){System.err.println("Got list; size="+transferQueue.size());}//#002 fix: a misplaced escaped-quote made this print the LITERAL text 'size="+transferQueue.size())' instead of the value (debug-only).
 				addToBuffers(list);
 				if(verbose){System.err.println("Added list; size="+transferQueue.size());}
 			}

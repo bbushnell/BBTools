@@ -90,6 +90,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			int size=table.size();
 //			System.err.print(size+", ");
 			final boolean flag=(size>=HALF_LIMIT);
+			//BACKPRESSURE (deadlock-free by construction): only a list STRICTLY AHEAD of order (listnum>nextListID) blocks when the buffer is full. The list AT nextListID - the one whose write advances the order and drains the buffer - is NEVER caught by this guard, so it always gets through, writes, and bumps nextListID. wait() releases 'this', so a sibling add() carrying nextListID runs while this one waits. NOTE (#002, LOW latency, RESOLVED): the notifyAll coverage is INCOMPLETE - a drain that drops the buffer below HALF_LIMIT without emptying it, when flag was false at entry, signals neither waiter path. Rather than add fragile notify-tracking, the wait timeout below was tightened 20000ms->500ms, so a missed signal costs at most ~0.5s instead of ~20s (and the poll only runs during active backpressure). Not a deadlock/correctness bug; a bounded latency tail.
 			if(listnum>nextListID && size>=ADD_LIMIT){
 				if(printBufferNotification){
 					System.err.println("Output buffer became full; key "+listnum+" waiting on "+nextListID+".");
@@ -97,7 +98,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 				}
 				while(listnum>nextListID && size>=HALF_LIMIT){
 					try {
-						this.wait(20000);
+						this.wait(500);//#002 fix: 500ms (was 20000) bounds the worst-case spurious stall from the incomplete notifyAll coverage to ~0.5s instead of ~20s. Cheap: this only polls while a producer is actually blocked (active backpressure - rare).
 					} catch (InterruptedException e) {
 						e.printStackTrace();
 					}
@@ -128,6 +129,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 			System.err.println("Error: An unfinished ReadOutputStream was closed.");
 		}
 		//assert(table==null || table.isEmpty()); //TODO Seems like a race condition.  Probably, I should wait at this point until the condition is true before proceeding.
+		//REASONED (not a race under valid usage): add() and close() are BOTH synchronized(this), so they cannot run concurrently; under the contract (all add()s by the producer, THEN close()), a non-empty table at close means a real GAP in list numbering (some listnum never arrived) -> those buffered lists are genuinely unwritten -> the errorState above is correct gap-detection, not a transient race. The disabled assert would false-fire on that legitimate-error path. (Full confirmation of the writer-thread side is gated on ReadStreamByteWriter's own V2 review.)
 		
 //		readstream1.addList(null);
 //		if(readstream2!=null){readstream2.addList(null);}
@@ -164,8 +166,9 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	
 	/**
 	 * Resets the next list ID counter to zero after clearing buffers.
-	 * Waits up to 4 minutes for table to clear before forcing reset.
-	 * Issues warning if table doesn't clear within timeout period.
+	 * Waits up to ~66 minutes (2000 iterations x wait(2000ms)) for the table to clear, warns once past that, then waits indefinitely.
+	 * (#001 doc fix: the javadoc previously said "4 minutes" but 2000 x 2000ms = 4000s; the loop bound may be higher than intended - flagged, code left unchanged.)
+	 * Issues a warning if the table doesn't clear within the timeout period.
 	 */
 	@Override
 	public synchronized void resetNextListID(){
@@ -218,14 +221,16 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 //		assert(list.isEmpty() || list.get(0)==null || list.get(0).numericID>=nextReadID) : list.get(0).numericID+", "+nextReadID;
 		assert(!table.containsKey(listnum));
 		
-		table.put(listnum, new ArrayList<Read>(list));
-		
+		table.put(listnum, new ArrayList<Read>(list));//defensive COPY: the caller may reuse/recycle its list after add() returns
+
+		//Flush every now-contiguous list starting at nextListID, in strict order, advancing nextListID until a gap (a missing listnum) stops it.
 		while(table.containsKey(nextListID)){
 //			System.err.println("Writing list "+first.get(0).numericID);
 			ArrayList<Read> value=table.remove(nextListID);
 			write(value);
 			nextListID++;
 		}
+		//#002 (LOW latency, RESOLVED 2026-06-18): this notifies ONLY on a full drain (table empty), and add()'s other notify is gated on flag, so a partial drain below HALF_LIMIT can miss waking a blocked producer. Rather than make this notify edge-perfect (a waiter-count or size-crossing test - more shared state, more to test), the backpressure wait above was tightened 20000ms->500ms, bounding any missed-signal stall to ~0.5s. This notify left as-is.
 		if(table.isEmpty()){notifyAll();}
 	}
 	
@@ -236,6 +241,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	}
 	
 	private synchronized void write(ArrayList<Read> list){
+		//Crash-loud guard: writing to an already-terminated writer thread would silently drop the lists, so fail loudly instead.
 		if(readstream1!=null){
 			if(readstream1.getState()==State.TERMINATED){throw new RuntimeException("Writing to a terminated thread.");}
 			readstream1.addList(list);

@@ -457,6 +457,16 @@ public class Trainer implements Accumulator<WorkerThread> {
 				sortInThread=Parse.parseBoolean(b);
 			}else if(a.equals("pivotsort")){
 				PIVOT_SORT=Parse.parseBoolean(b);
+			}else if(a.equals("noise") || a.equals("inputnoise")){
+				CellNet.inputNoise=Float.parseFloat(b);
+			}else if(a.equals("simdff") || a.equals("simdfeedforward")){
+				if(b!=null && b.equalsIgnoreCase("random")){
+					simdFFMode=2; Shared.SIMD_FEED_FORWARD=true;
+				}else if(Parse.parseBoolean(b)){
+					simdFFMode=1; Shared.SIMD_FEED_FORWARD=true;
+				}else{
+					simdFFMode=0; Shared.SIMD_FEED_FORWARD=false;
+				}
 			}else if(a.equals("launchinthread")){
 				launchInThread=Parse.parseBoolean(b);
 			}else if(a.equals("setlock") || a.equals("usesetlock")){
@@ -890,6 +900,10 @@ public class Trainer implements Accumulator<WorkerThread> {
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alwt, this);
 		mprof.printTimes();
 		wprof.printTimes();
+		//Verified no-op (not an error-clearer): waitForThreadsToFinish returns fr&&sr&&ar where fr,sr
+		//are hardcoded true and ar==this.success()==!errorState, computed AFTER accumulate() has folded
+		//every worker failure into errorState via |=. So success==true iff errorState already false;
+		//errorState&=!success can never clear a real error. Stylistic tautology, kept as-is.
 		errorState&=!success;
 //		outstream.println("Master finished.");
 		
@@ -1608,7 +1622,10 @@ public class Trainer implements Accumulator<WorkerThread> {
 //				bb.append(f, 1).comma().space();
 				bb.append(dims[i]).tab();
 			}
-			bb.setLength(bb.length-1);
+			//ml/Trainer#001: a no-hidden-layer net (dims.length==2) appends nothing, so bb is empty;
+			//the unconditional trailing-tab trim would call setLength(-1), tripping ByteBuilder's
+			//assert (crash under machineout=t). Guard the trim so empty -> "".
+			if(bb.length>0){bb.setLength(bb.length-1);}
 		}else {
 			bb.append('[');
 			for(int f : dims) {
@@ -1904,6 +1921,9 @@ public class Trainer implements Accumulator<WorkerThread> {
 	//setlock=t setnet=f copynet=t was still fastest, but ttf uses the least memory and is only 4% slower
 	/** Whether to use set-level locking for thread coordination */
 	boolean useSetLock=true;//Nuanced but mostly good
+	/** SIMD feed-forward experiment mode: 0=off, 1=on (all batches), 2=random per batch.
+	 * Set by the "simdff=f|t|random" flag; also flips the global Shared.SIMD_FEED_FORWARD. */
+	int simdFFMode=0;
 	/** Whether to set networks within worker threads for higher concurrency */
 	static boolean setNetInWorkerThread=true;//Higher concurrency per net but more CPU usage
 	/** Whether to copy networks within worker threads for lower CPU usage */

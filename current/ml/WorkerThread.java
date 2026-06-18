@@ -133,6 +133,10 @@ class WorkerThread extends Thread implements Comparable<WorkerThread> {
 			}
 		}
 		assert(net!=null);
+		net.simdFF=job.simdFF; //Per-job SIMD feed-forward flag
+		//Input-noise RNG (rand.FastRandomXoshiro) keyed off the NETWORK seed (net.seed), decorrelated per
+		//epoch+job so parallel jobs don't draw identical noise; created only when noise is enabled.
+		net.noiseRandy=(CellNet.inputNoise>0 ? shared.Shared.random(net.seed^(epoch*0x9E3779B97F4A7C15L)^job.jid) : null);
 		//			}
 		//			net.setFrom(job.net, false);
 	}

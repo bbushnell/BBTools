@@ -166,6 +166,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	public synchronized ListNum<Read> nextList() {
 		ArrayList<Read> list=null;
 		if(verbose){System.err.println("crisG:    **************** nextList() was called; shutdown="+shutdown+", depot.full="+depot.full.size());}
+		//Note: this method is synchronized, so it holds the instance lock the whole time it blocks in take() below.
+		//Loop re-checks shutdown each pass: an interrupted take() leaves list==null, so if shutdown was also set we return null cleanly. (An interrupt WITHOUT shutdown set just loops back into take() and retries - the flag, not the interrupt, is what terminates.)
 		while(list==null){
 			if(shutdown){
 				if(verbose){System.err.println("crisG:    **************** nextList() returning null; shutdown="+shutdown+", depot.full="+depot.full.size());}
@@ -188,11 +190,14 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	
 	@Override
 	public void returnList(long listNumber, boolean poison){
+		//listNumber is unused: this impl tracks no per-list identity, so a returned list is not matched or recycled by id.
 		if(poison){
 			if(verbose){System.err.println("crisG:    A: Adding empty list to full.");}
+			//poison return: push a size-0 list into 'full' so a consumer's take() sees size 0 and terminates.
 			depot.full.add(new ArrayList<Read>(0));
 		}else{
 			if(verbose){System.err.println("crisG:    A: Adding empty list to empty.");}
+			//normal return: replenish the pool with a FRESH size-0 buffer (the consumer's old list is dropped consumer-side, not recycled here). Fresh-and-empty is what makes addPoison's "every buffer in 'empty' is a valid poison" invariant hold.
 			depot.empty.add(new ArrayList<Read>(BUF_LEN));
 		}
 	}
@@ -248,7 +253,8 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		}
 		if(verbose){System.err.println("crisG:    cris thread syncing before shutdown.");}
 		
-		synchronized(running){//TODO Note: for some reason syncing on 'this' instead of 'running' causes a hang.  Something else must be syncing improperly on this.
+		//Load-bearing lock choice (do NOT change to synchronized(this)): close() is synchronized on 'this' and spins in its drain loop (while threads[0].isAlive()) holding 'this' until THIS worker thread terminates. Were this terminal transition synced on 'this', the worker could never acquire it (close() holds it) -> worker never dies -> close() never releases 'this' -> permanent deadlock. The separate 'running' lock breaks the cycle (close() never touches it). Trace-verified 2026-06-18; resolves the original "something else must be syncing improperly on this" TODO.
+		synchronized(running){
 			assert(running[0]);
 			running[0]=false;
 		}
@@ -262,6 +268,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		//Add poison pills
 		if(verbose){System.err.println("crisG:    C: Adding poison to full.");}
 		depot.full.add(new ArrayList<Read>());
+		//i=1 because the first poison was added just above; this adds up to bufferCount-1 more size-0 lists to 'full', pulling them out of 'empty' (every buffer in 'empty' is size-0, so each is a valid poison). NOTE: this alone does NOT guarantee every consumer is signalled - the shutdown early-exit below can add fewer, and run0's post-addPoison cleanup loop drains any remaining empties into 'full' to finish the job.
 		for(int i=1; i<depot.bufferCount; i++){
 			ArrayList<Read> list=null;
 			while(list==null){
@@ -341,6 +348,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	 * Handles sampling, quality filtering, and buffer size constraints.
 	 */
 	private final void readLists(){
+		//PIPELINE STAGE 2 (consumes the ReadThreads): pull raw chunks from p1q/p2q (filled by ReadThread.readLists), repack them into uniform output lists drawn from depot.empty, and push each filled list to depot.full for nextList(). buffer1/buffer2 are the current raw chunks; 'list' is the current output list; 'next' is the read index into buffer1 and PERSISTS across outer-loop iterations (one buffer1 can span several output lists, and one output list can draw from several buffer1's).
 		ArrayList<Read> buffer1=null;
 		ArrayList<Read> buffer2=null;
 		ArrayList<Read> list=null;
@@ -375,6 +383,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			long bases=0;
 			while(list.size()<depot.bufferSize && generated<maxReads && bases<MAX_DATA){
 				if(verbose){System.err.println("crisG:    list.size()="+list.size()+", depot.bufferSize="+depot.bufferSize+", generated="+generated);}
+				//Fetch a fresh raw chunk only when the current one is exhausted (next ran off the end) or absent; otherwise keep consuming the same buffer1 across output lists. p1q.take() blocks until a ReadThread supplies one (or poison at end-of-input).
 				if(buffer1==null || next>=buffer1.size()){
 					buffer1=null;
 					while(!shutdown && buffer1==null){
@@ -425,6 +434,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 					if(buffer2!=null && (buffer1==null || buffer2.size()!=buffer1.size()) && !ALLOW_UNEQUAL_LENGTHS){
 						System.err.println("crisG:    Error: Misaligned read streams.");
 						errorState=true;
+						//#002 (LOW - I overstated this as HIGH; see bug report): in theory a producer ReadThread blocked in pq.put() on a full queue at this abandonment point never terminates, so close().join() would hang. In PRACTICE this does NOT happen and was NOT reproducible (tried both ways 2026-06-18): under -ea (always on via the BBTools scripts) pair() asserts the length mismatch first (~L553, reached before here) and crashes LOUD; with -ea off the stream tears down cleanly via errorState (close() closes the producers, which unblocks the readers). Left as-is rather than guarding a path the assert already covers.
 						return;
 					}
 					assert(ALLOW_UNEQUAL_LENGTHS || buffer2==null || buffer2.size()==buffer1.size());
@@ -460,6 +470,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 				{
 
 					while(next<buffer1.size() && list.size()<depot.bufferSize && generated<maxReads && bases<MAX_DATA){
+						//INVARIANT: only read1 ('a') is added to the output list below; its mate ('b') rides along via a.mate and is NEVER a separate list element -> list.size() counts PAIRS, not reads. incrementGenerated(1)/next++ fire for EVERY read considered, even when the sample gate (randy) skips the list.add -> 'generated' (vs maxReads) bounds reads CONSUMED from input, not reads OUTPUT.
 						Read a=buffer1.get(next);
 						Read b=a.mate;
 						readsIn++;
@@ -553,6 +564,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			Read b=buffer2.get(i);
 
 			assert(a.numericID==b.numericID) : "\n"+a.numericID+", "+b.numericID+"\n"+a.toText(false)+"\n"+b.toText(false)+"\n";
+			//NOT an NPE: a.mate.id in this message is evaluated ONLY when the assert FAILS (a.mate!=null), so the dereference is safe.
 			assert(a.mate==null) : "Please set interleaved=false when using dual input files.\n"+a.id+"\n"+a.mate.id+"\n"+b.id+"\n"+producer1+"\n"+producer2;
 			assert(b.mate==null) : "Please set interleaved=false when using dual input files.";
 			a.mate=b;
@@ -563,9 +575,12 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			//		assert(a.pairnum()!=b.pairnum());
 		}
 		
+		//Tail handling is asymmetric because buffer1 IS the output list (readLists iterates buffer1, not buffer2; a buffer2 read reaches output only as someone's mate or by being added to buffer1).
 		if(len1>len2){
+			//buffer1 surplus needs no action: those reads are already in the output list with their default unpaired state (mate==null, pairnum 0).
 			//do nothing;
 		}else if(len2>len1){
+			//buffer2 surplus would be dropped (buffer2 is not the output), so migrate each into buffer1 as an unpaired read (pairnum 0).
 			for(int i=lim; i<len2; i++){
 				Read b=buffer2.get(i);
 				b.setPairnum(0);
@@ -614,6 +629,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 	public synchronized void shutdown(){
 //		System.err.println("crisG:    Called shutdown.");
 		shutdown=true;
+		//TODO: Possible bug [stream/ConcurrentGenericReadInputStream#001] - guard below is always false (shutdown was just set true on the line above), so this thread-interrupt loop is dead code. Either vestigial (shutdown completes via depot-draining in close()) or the guard is inverted and these interrupts were meant to fire. Author intent needed - do NOT flip blindly: enabling interrupts during a blocking read/take could corrupt the stream.
 		if(!shutdown){//???
 			for(Thread t : threads){
 				if(t!=null && t.isAlive()){
@@ -648,8 +664,9 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 		errorState|=producer1.close();
 		if(producer2!=null){errorState|=producer2.close();}
 		if(verbose){System.err.println("crisG:    producers closed; errorState="+errorState);}
+		//This method holds 'this' (synchronized) for its entire body. The loop below spins until the run0 worker (threads[0]) dies, draining depot.full->depot.empty so the worker's addPoison()/cleanup cannot block. Because 'this' is held throughout, the worker's terminal transition MUST sync on something other than 'this' (it uses 'running'; see run0 ~L256) or this would deadlock. NOTE: this loop does NOT drain p1q/p2q -> see the #002 hang note in ReadThread.readLists.
 		if(threads!=null && threads[0]!=null && threads[0].isAlive()){
-			
+
 			while(threads[0].isAlive()){
 				//				System.out.println("crisG:    B");
 				ArrayList<Read> list=null;
@@ -796,7 +813,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 //						System.out.println("crisG:    B");
 						try {
 							if(verbose){System.err.println("crisG:    Trying to add list");}
-							pq.put(list);
+							pq.put(list); //#002 (LOW): theoretical full-queue hang here is shadowed in practice - see the misaligned-streams note in the outer readLists.
 							generatedLocal+=list.size();
 							list=null;
 							if(verbose){
@@ -819,7 +836,7 @@ public class ConcurrentGenericReadInputStream extends ConcurrentReadInputStream 
 			if(verbose){System.err.println(getClass().getName()+" attempting to poison output queue.");}
 			boolean b=true;
 			while(b){
-				//TODO Note that this could cause a deadlock if there was a premature shutdown, so the consumer died while the queue was full.
+				//#002 (LOW): this poison-put could in theory block forever if the consumer died with pq full, but that path doesn't occur in practice - see the misaligned-streams note in the outer readLists (pair() assert under -ea; clean teardown under -da).
 				try {
 //					pq.offer(poison, 10000, TimeUnit.SECONDS);
 					pq.put(poison); //Possible bug

@@ -26,6 +26,7 @@ public class ConcurrentDepot<K> {
 		bufferCount=numBufs;
 		
 		lists=new ArrayList[numBufs];
+		//Capacity is numBufs+1, NOT numBufs: 'full' must be able to hold all numBufs pooled buffers PLUS one extra NON-pool poison pill that cris injects on shutdown (ConcurrentGenericReadInputStream.addPoison() and returnList(poison=true) do depot.full.add(new ArrayList<>(0)) - a fresh list that was never in the pool). Without the +1 headroom, that add() could throw IllegalStateException once every pooled buffer has converged into 'full'.
 		empty=new ArrayBlockingQueue<ArrayList<K>>(numBufs+1, fair);
 		full=new ArrayBlockingQueue<ArrayList<K>>(numBufs+1, fair);
 		
