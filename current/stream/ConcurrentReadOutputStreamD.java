@@ -9,8 +9,15 @@ import structures.ListNum;
 /**
  * Distributed version of ConcurrentReadOutputStream for MPI-based parallel processing.
  * Provides master-slave architecture where the master node collects reads from slave nodes
- * and writes them to the underlying output stream. Incomplete implementation with TODO
- * placeholders for MPI communication methods.
+ * and writes them to the underlying output stream.
+ *
+ * DORMANT / UNIMPLEMENTED SCAFFOLDING (the javadoc's old "incomplete implementation" note, made precise):
+ * every MPI transport method (unicast/listen/listenFinishedSuccessfully/broadcastFinishedSuccessfully/
+ * broadcastJoin/listenForJoin) is a stub that throws RuntimeException("TODO"). Unreachable by default:
+ * the factory (ConcurrentReadOutputStream.getStream) only builds this when mpi==true AND crismpi=f, while
+ * the default crismpi=true hits a deliberate assert(false) fence first (L~92). Even if forced, a slave
+ * throws on its first add()->unicast(), and a master's ListenThreads throw on listen() (see #001). Treat
+ * as never-exercised-in-production.
  *
  * @author Brian Bushnell
  * @date Jan 26, 2015
@@ -79,6 +86,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	public void close(){
 		if(master){
 			int count=terminatedCount.incrementAndGet();
+			//This loop blocks until every ListenThread increments terminatedCount; a ListenThread that dies WITHOUT incrementing (see #001) hangs it forever.
 			while(count<ranks){
 				synchronized(terminatedCount){
 					count=terminatedCount.intValue();
@@ -154,8 +162,8 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	 */
 	@Override
 	public boolean finishedSuccessfully(){
-		if(finishedSuccessfully){return true;}
-		
+		if(finishedSuccessfully){return true;}//Benign DCL: finishedSuccessfully is monotonic (false->true only), so an unsynchronized stale-false read merely re-enters the sync block below - it can never observe true->false, so it never returns a wrong result.
+
 		synchronized(this){
 			if(finishedSuccessfully){return true;}
 			if(master){
@@ -176,7 +184,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 		unicast(new ListNum<Read>(list, listnum), i);
 	}
 	
-	protected void unicast(ListNum<Read> ln, int i) {
+	protected void unicast(ListNum<Read> ln, int i) {//UNIMPLEMENTED: no-op MPI body, unconditionally throws RuntimeException("TODO"). Same for listen/listenFinishedSuccessfully/broadcastFinishedSuccessfully/broadcastJoin/listenForJoin.
 		if(verbose){System.err.println("crosD "+(master?"master":"slave ")+":    Unicasting reads to "+i+".");}
 		assert(!master);
 		
@@ -306,6 +314,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 		@Override
 		public void run(){
 			assert(master);
+			//TODO: Possible bug [stream/ConcurrentReadOutputStreamD#001] - hang on worker death: listen() currently throws RuntimeException("TODO") (unimplemented), and more generally ANY uncaught exception in this thread skips the terminatedCount.addAndGet(1) below, so master close() waits forever for terminatedCount to reach ranks. Latent LOW (dormant). Crash-loudly fix if ever implemented: guarantee the increment in a finally, or assertDie so a worker failure exits loud instead of hanging the master. See [[assertdie-idiom]].
 			ListNum<Read> ln=listen(sourceNum);
 			while(ln!=null && ln.id>=0){
 				dest.add(ln.list, ln.id);

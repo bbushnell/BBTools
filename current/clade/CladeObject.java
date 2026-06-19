@@ -80,6 +80,7 @@ public class CladeObject {
 		return array;
 	}
 	
+	//CLEVER [verified in-file]: canonical-kmer dimensionality reduction. canon=min(kmer, revComp(kmer)) (L91) collapses the 4^k space to ~half; canonMap assigns each canon a dense index, remap[kmer] maps every raw kmer to its canon's index. makeRemapMatrix special-cases k=2 to stay NONcanonical (identity, L49) because strandedness needs the strand asymmetry. quant subsamples canons (canon%quant==0, L92) to trade resolution for size/speed. Precomputed once into remapMatrix; the hot count loop is then a single array lookup.
 	public static int[] makeRemap(int k){
 		final int bits=2*k;
 		final int max=(int)((1L<<bits)-1);
@@ -163,6 +164,7 @@ public class CladeObject {
 	}
 	
 	public static void countKmersMulti(final byte[] bases, final long[][] counts, int kmax){
+		//Unlike countKmers (L135, which redirects quant>1 to the bounds-checked quantized variant), this has NO quant guard: it indexes counts[k][remapMatrix[k][masked]] directly. Safe because clade.CladeObject.setQuant is never called (only bin's, via QuickBin:265) -> clade quant==1 -> remapMatrix has no -1 -> in-bounds. Would AIOOBE if clade ever set quant>1.
 		if(bases==null || bases.length<1){return;}
 		
 		int kmer=0;
@@ -293,7 +295,8 @@ public class CladeObject {
 	 */
 	static final float rmsDif(int[] a, int[] b, float inva, float invb){
 		assert(a.length==b.length);
-		long sum=0;
+		//TODO: Possible bug [clade/CladeObject#001] (LOW latent) - was `long sum`: d=(ai-bi) are normalized-frequency diffs (<<1) so d*d<1 truncated to 0 every iteration -> method always returned ~0 (and sum/a.length was integer division). The float[] twin rmsDif(float[],float[]) L273 correctly uses double. Dead in clade/ (no caller; EUC path uses Comparison.compareEUC, not this). Same bug in bin/BinObject.java:326 (cross-package lead). Fix applied: double sum.
+		double sum=0;
 		for(int i=0; i<a.length; i++){
 			float ai=a[i]*inva, bi=b[i]*invb;
 			float d=(ai-bi);
@@ -495,7 +498,7 @@ public class CladeObject {
 
 	static int entropyK=4;
 	static int entropyWindow=150;
-	static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref.
+	static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref. (Clade.add L191: when false, seqEntropy=0 so Clade.entropy decays to ~0 -- intended; entdif at Comparison:113 then derives from ~0 on both query+ref.)
 	static int MIN_LINEAGE_LEVEL_E=0;
 	
 }

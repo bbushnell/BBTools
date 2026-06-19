@@ -37,7 +37,7 @@ public class CladeIndex implements Cloneable {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
-		ci.comparisons=ci.slowComparisons=0;
+		ci.comparisons=ci.slowComparisons=ci.sketchComparisons=0;//[clade/CladeIndex#001] FIXED - was missing sketchComparisons (a counter added later than the other two). clone() is per-thread (CladeSearcher:1011) and all three are summed back into the parent (CladeSearcher:969-971) for the stats line (530); a clone inheriting a nonzero parent sketchComparisons would over-count by ~N-threads. Latent today (parent counters are 0 at spawn, single search pass) and the only consequence is a wrong stat -- but the reset must be consistent. NOTE: shallow clone deliberately SHARES the read-only gcDex/cladeMap/ddlIndex; only the mutable per-thread counters are reset.
 		return ci;
 	}
 
@@ -181,7 +181,7 @@ public class CladeIndex implements Cloneable {
 		final int center=Math.round(c.gc*100);
 		final Comparison temp=new Comparison();
 		final ComparisonHeap heap=new ComparisonHeap(maxHits);
-		{
+		{//Seed the heap with a sentinel (query set, ref==null, all difs=1) so heap.worst() is non-null from the first findBestBinary call -- the limit math (worst.k5dif etc.) needs a baseline. The sentinel is evicted once maxHits real hits arrive; if fewer hits exist it survives in results with ref==null (callers guard: addSketchInfo:493, compareDDL ref-null, output skips).
 			Comparison best=new Comparison();
 			best.query=c;
 			heap.offer(best);
@@ -189,6 +189,7 @@ public class CladeIndex implements Cloneable {
 		synchronized(heap) {
 			synchronized(c) {//Probably unnecessary...
 				findBestBinary(c, gcDex[center], heap, temp, center);
+				//Expand GC buckets +/-i out to maxSteps; but if no REAL hit landed yet (worst still the ref==null sentinel), keep expanding to lim so at least one hit is found when any exists.
 				for(int i=1, lim=maxSteps*2+2; i<=maxSteps || (heap.worst().ref==null && i<lim); i++) {
 					int low=center-i, high=center+i;
 					if(low>=0) {findBestBinary(c, gcDex[low], heap, temp, low);}
@@ -257,6 +258,7 @@ public class CladeIndex implements Cloneable {
 		float cagaLimit=worst.cagadif+Math.min(cagaDelta, k5Limit*cagaMult);
 		//Early exit because GC won't match this list
 		if(Math.abs((gcLevel*0.01f)-a.gc)>gcLimit+0.005f) {return;}
+		//CLEVER [verified in-file]: 3-layer pruning for approx-NN over GC-bucketed, hh-sorted clades. (1) skip whole GC buckets whose center is beyond gcLimit; (2) binary-search to the closest-hh entry, then scan outward both ways and BREAK as soon as hhdif exceeds hhLimit -- valid because the bucket is hh-sorted so hhdif is monotonic away from center (center itself is never broken-at, the i<center guard); (3) every accepted hit tightens worst.k5dif -> recomputes the gc/str/hh/caga limits downward, so pruning gets more aggressive as the top-K fills. Heuristic (hh-similarity proxies k-mer similarity), not exact.
 		final int center=binarySearchHH(list, a.hh);
 		for(int i=center; i>=0; i--) {
 			Clade b=list.get(i);

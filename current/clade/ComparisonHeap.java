@@ -27,6 +27,7 @@ public class ComparisonHeap {
      * @param maxSize Maximum number of comparisons to retain */
     public ComparisonHeap(int maxSize) {
         this.maxSize = maxSize;
+        //Requires maxSize>=1: PriorityQueue(initialCapacity<1,...) throws IllegalArgumentException, so ComparisonHeap(0) crashes loud here. Reachable only via a degenerate heapSize=0 flag (CladeIndex default 20); crash-loud on dumb config is acceptable, not silent-wrong.
         // Create a heap ordered to keep the worst comparison at the top
         this.heap = new PriorityQueue<>(maxSize, new WorstFirstComparator());
     }
@@ -38,6 +39,7 @@ public class ComparisonHeap {
      * @return true if added
      */
     public boolean offer(Comparison comp) {
+        //worst-at-root (WorstFirstComparator) makes peek()=worst O(1), so a full heap evicts the worst in O(log n). Object lifecycle: when not full, COPY (new Comparison + setFrom) because comp is a caller-reused scratch object (CladeIndex temp); when full+better, REUSE the evicted object (poll worst, setFrom(comp), re-add) -- zero allocation in the steady-state hot path.
         if (heap.size() < maxSize) {
             // If the heap isn't full yet, create a new Comparison and add it
             Comparison newComp = new Comparison();

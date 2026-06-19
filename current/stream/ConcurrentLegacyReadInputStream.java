@@ -5,6 +5,17 @@ import java.util.concurrent.TimeUnit;
 
 import structures.ListNum;
 
+/**
+ * The "legacy" ConcurrentReadInputStream: wraps a SINGLE ReadInputStream producer and pumps it through a
+ * ConcurrentDepot, terminated by a poison (empty) list. The factory routes the older .bread/sequential
+ * format here (ConcurrentReadInputStream.getReadInputStream, ff1.bread() path, tagged "//TODO: Change to
+ * generic"); it is also constructed directly by the mappers (align2.AbstractMapper), the var/GenerateVarlets
+ * family, several pacbio tools, and RTextInputStream. readLists() has a fast bulk path and a per-read path
+ * (see there). Slated for eventual replacement by ConcurrentGenericReadInputStream; its close() lifecycle is
+ * thinner than the generic/collection variants - see #002.
+ *
+ * @author Brian Bushnell
+ */
 public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	
 	public ConcurrentLegacyReadInputStream(ReadInputStream source, long maxReadsToGenerate){
@@ -131,7 +142,7 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 				assert(buffer.size()<=BUF_LEN); //Although this is not really necessary.
 				
 				if(buffer.size()<=(BUF_LEN-list.size()) && (buffer.size()+generated)<maxReads && randy==null){
-					//Then do a quicker bulk operation
+					//STUDIED-PRAISE fast path: with no subsampling (randy==null) AND the whole source list fits the remaining BUF_LEN AND it won't cross maxReads, a single addAll + one batched counter update replaces the per-read loop. Correctness rests on these three guards exactly reproducing the per-read else branch's effects: no sampling=>every read kept; fits=>no overflow; under maxReads=>no over-generation. [verified against the else branch]
 					list.addAll(buffer);
 					for(Read a : buffer){
 						readsIn++;
@@ -186,7 +197,8 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 	@Override
 	public void shutdown(){
 		shutdown=true;
-		if(threads[0]!=null && threads[0].isAlive()){
+		//#001-fix [stream/ConcurrentLegacyReadInputStream#001]: guard threads!=null. threads is set in run() (~L58), so shutdown() racing in before the producer thread executes (threads still null) would NPE on threads[0]. Setting shutdown=true alone suffices in that case - run()'s loop short-circuits on !shutdown. Was: if(threads[0]!=null ...).
+		if(threads!=null && threads[0]!=null && threads[0].isAlive()){
 			threads[0].interrupt();
 		}
 	}
@@ -209,6 +221,7 @@ public class ConcurrentLegacyReadInputStream extends ConcurrentReadInputStream {
 //				if(threads[i]!=null){System.err.println(i+": "+threads[i].isAlive());}
 //			}
 //		}
+		//TODO: Possible bug [stream/ConcurrentLegacyReadInputStream#002] - close() only closes the producer; unlike the generic/collection cris it does NOT call shutdown() (no interrupt) and does NOT recycle depot buffers. On the normal path the producer self-terminates at EOF/maxReads and is already dead here, so this is fine. But on an EARLY close (consumer abandons mid-stream while the producer is parked in depot.empty.take() with the depot drained), closing the source does NOT unblock that take() - the producer thread leaks, hung forever. It is NON-daemon (parent start() does no setDaemon), so the hang would prevent JVM exit. Latent (abnormal early-abandon path); crash-loudly-relevant (a hang). Document-and-defer: a structural close()-lifecycle change in a legacy class slated for replacement ("//TODO: Change to generic" at the factory); the fix mirrors the collection variant (shutdown()+recycle), not a one-liner.
 		producer.close();
 	}
 

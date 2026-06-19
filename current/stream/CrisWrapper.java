@@ -37,7 +37,8 @@ public class CrisWrapper {
 		if(reads==null || reads.size()==0){
 			reads=null;
 			//System.err.println("Empty.");
-			cris.returnList(ln.id, true);
+			//#001-fix [stream/CrisWrapper#001]: guard ln!=null. cris.nextList() can return null (shutdown), giving reads=null here; ln.id would then NPE. When ln==null there is no list to return - just close.
+			if(ln!=null){cris.returnList(ln.id, true);}
 			errorState|=ReadWrite.closeStream(cris);
 		}
 		index=0;
@@ -62,7 +63,8 @@ public class CrisWrapper {
 			reads=(ln!=null ? ln.list : null);
 			if(reads==null){
 				//System.err.println("*******3");
-				cris.returnList(ln.id, true);
+				//#001-fix [stream/CrisWrapper#001]: ln can be null here (nextList returned null on shutdown); guard before ln.id to avoid NPE. No list to return when ln==null - just close.
+				if(ln!=null){cris.returnList(ln.id, true);}
 				errorState|=ReadWrite.closeStream(cris);
 				//System.err.println("Returning null (2)");
 				return null;
@@ -73,7 +75,7 @@ public class CrisWrapper {
 			//System.err.println("*******5");
 			r=reads.get(index);
 			index++;
-		}else{
+		}else{//Near-dead defensive recursion: after a refill the new list is non-empty (the size==0 case already returned null above) with index reset to 0, so index<reads.size() holds and this branch isn't normally reached; bounded to one level if it ever is.
 			//System.err.println("*******6");
 			//System.err.println("Recalling");
 			return next();

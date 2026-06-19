@@ -65,7 +65,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		while(lp.startsWith('#')) {//Any number of header lines; but lines with tabs are parsed
 			assert(lp.startsWith('#'));
 			if(lp.terms()>1) {
-				lines=lp.parseInt(1);
+				lines=lp.parseInt(1);//NOTE: parsed but never read again -- parsing is driven by startsWith() asserts + list.size(), not this count, so a wrong header count is harmless (don't "fix" it as load-bearing).
 				for(int i=2; i<lp.terms(); i++) {
 					if(lp.termEquals("DEC", i)) {coding=Clade.DECIMAL;}
 					else if(lp.termEquals("A48", i)) {coding=Clade.A48;}
@@ -190,6 +190,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		countKmersMulti(seq, counts, 5);
 		float seqEntropy=(calcCladeEntropy ? et.averageEntropy(seq, false) : 0);
 		entropy=(entropy*bases+seqEntropy*seq.length)/(float)(bases+seq.length);
+		//running bases-weighted mean: reads `bases` BEFORE incrementBases below, so weights are (old bases : new seq.length) -- correct only in this order. When calcCladeEntropy=false (default, CladeObject:498) seqEntropy=0, so entropy decays toward 0 across adds; intended -- field is query-only, and gcCompEntropy/entdif (Comparison:113) then derives from ~0 on BOTH query+ref.
 
 		incrementBases(seq.length);
 		contigs++;
@@ -215,7 +216,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	 */
 	public synchronized void add(Clade c) {
 		finished=false;
-		synchronized(c) {
+		synchronized(c) {//lock order this-then-c; deadlock-free -- merges accumulate into a distinct per-taxID target from source clades (no reciprocal a.add(b)/b.add(a)); see CladeLoaderMF cladeMap merge. CladeLoaderSF:108 hand-merges to bypass the c.taxID>0 assert below.
 			assert(c.taxID>0) : "\n"+this+"\n"+c+"\n";
 			assert(c.bases>0) : "\n"+this+"\n"+c+"\n";//Not really necessary, but preventable
 			assert(taxID==c.taxID || (taxID<1 && bases==0)) : "\n"+this+"\n"+c+"\n";
@@ -249,7 +250,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		caga=KmerTracker.CAGA(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		frequencies=new float[6][];
-		frequencies[3]=toFrequencies(counts[3], 3);
+		frequencies[3]=toFrequencies(counts[3], 3);//toFrequencies divides by sum(counts[3]); an all-zero counts[3] (base-0 clade, or all-N contig) -> inv=1/0=Inf -> NaN freqs. Guarded where it could bite: CladeLoaderSF:125 finishes only if merged.bases>0. //TODO verify no other finish() site reaches here on a bases>0-but-zero-3mer clade.
 		if(MAKE_FREQUENCIES && (method==ABSCOMP || method==ABS)) {
 			frequencies[4]=(maxK<4 || bases<Comparison.minK4Bases ? null : toFrequencies(counts[4], 4));
 			frequencies[5]=(maxK<5 || bases<Comparison.minK5Bases ? null : toFrequencies(counts[5], 5));
@@ -291,6 +292,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		gc=entropy=gcCompEntropy=strandedness=hh=caga=0;
 		Tools.fill(counts, 0);
 		ddl=null;
+		r16S=r18S=null;//[clade/Clade#001] FIXED - clear() now resets SSU too; an emptied clade must carry no rRNA. Was latent (only reuse site CladeServer:499 doesn't set SSU; server extraction unimplemented at CladeServer:726) -- fixed proactively so it can't bite when that TODO lands. r16S/r18S are set only by add(Read,...) and never recomputed by finish(), unlike frequencies. Verified no reuse site relies on SSU surviving clear() (CladeLoaderSF:122-123 copies SSU during merge, a separate op).
 	}
 	
 	@Override
@@ -394,6 +396,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public float caga;
 	private boolean finished=false;
 	
+	//CLEVER [verified in-file]: 4 pluggable serialization codings, dispatched symmetrically in toBytes (L352-355) and parseClade (L135-138), with the active coding selected from the header token so old+new DBs both load. A48 packs longs as base-48 ASCII; OFFSET_* additionally offset/delta-encode (per appendOffsetDec/parseLongArrayOffsetDec; impl in structures/parse, not verified here) -- both shrink the millions of refseq k-mer counts on disk vs plain DECIMAL.
 	public static final int DECIMAL=0, A48=1, OFFSET_DEC=2, OFFSET_A48=3;
 	public static int outputCoding=A48;
 	public static int MAXK=5;
