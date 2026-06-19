@@ -8,6 +8,21 @@ import dna.Data;
 import shared.Shared;
 import structures.ListNum;
 
+/**
+ * A ConcurrentReadInputStream backed by one or two in-memory List<Read> sources instead of a file.
+ * Used to re-stream reads already loaded in RAM: Dedupe/Dedupe2/DedupeProtein, Clumpify (ClumpTools),
+ * and IdentityMatrix feed their loaded read list back through the cris API. A single producer thread
+ * copies reads from producer1 (paired with producer2 by index, or interleaved with mates already
+ * attached) into a ConcurrentDepot, terminated by a poison (empty) list - the same contract as the
+ * file-backed cris variants. Live callers always pass (list, null, -1): producer2 is null and maxReads
+ * is unlimited, so the two-list index-pairing path is not exercised in practice.
+ *
+ * NOTE: ConcurrentReadInputStream.start() deliberately launches run() on a FRESH thread ("prevents a
+ * strange deadlock in ConcurrentCollectionReadInputStream", ~L289) - the close()/shutdown lifecycle
+ * here is delicate; see #001.
+ *
+ * @author Brian Bushnell
+ */
 public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStream {
 	
 	public ConcurrentCollectionReadInputStream(List<Read> source1, List<Read> source2, long maxReadsToGenerate){
@@ -140,8 +155,8 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 					readsIn++;
 					basesIn+=b.length();
 				}
-				if(randy==null || randy.nextFloat()<samplerate){
-					list.add(a);
+				if(randy==null || randy.nextFloat()<samplerate){//Subsampled-IN reads are added; skipped reads still count toward readsIn/basesIn/generated above (they WERE read), only excluded from output.
+					list.add(a);//Interleaved-pair convention: only 'a' enters the list; its mate 'b' rides along as a.mate (set just below). b is NEVER added to the list directly.
 					if(b!=null){
 						assert(a.numericID==b.numericID) : "\n"+a.numericID+", "+b.numericID+"\n"+a.toText(false)+"\n"+b.toText(false)+"\n";
 						a.mate=b;
@@ -157,6 +172,7 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 			}
 
 			if(verbose){System.err.println("E: Adding list("+list.size()+") to full "+depot.full.size()+"/"+depot.bufferCount);}
+			//This list is non-empty for every real read; it becomes EMPTY only after generated>=lim/maxReads (all reads already delivered), which the consumer correctly reads as the end-of-stream poison - so no early empty list, no data loss. The post-completion "push empty lists" iterations are bounded by the outer loop's !shutdown guard (the consumer's close() sets shutdown), NOT by producer1.size(): a handful of iterations, never O(reads). [traced - not a spin or data-loss bug]
 			depot.full.add(list);
 		}
 	}
@@ -169,6 +185,7 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	public void shutdown(){
 		if(verbose){System.out.println("Called shutdown.");}
 		shutdown=true;
+		//TODO: Possible bug [stream/ConcurrentCollectionReadInputStream#001] - dead branch: shutdown was just set true, so !shutdown is always false and the thread-interrupt body below NEVER runs. Latent LOW: termination still works because close() recycles buffers (unblocking a producer parked in depot.empty.take()) and readSingles breaks on the shutdown flag (~L129) - the interrupt is redundant here. Same template pattern as ConcurrentReadInputStreamD#001. NOT auto-fixed: adding a real interrupt risks the delicate close() lifecycle (cf. the start()-on-fresh-thread deadlock workaround); defer to a deliberate systemic decision.
 		if(!shutdown){
 			if(verbose){System.out.println("shutdown 2.");}
 			for(Thread t : threads){
@@ -258,7 +275,7 @@ public class ConcurrentCollectionReadInputStream extends ConcurrentReadInputStre
 	}
 
 	@Override
-	public boolean paired() {
+	public boolean paired() {//Paired if a second list was given; otherwise infer from producer1: empty->unpaired, else interleaved iff its first read has a mate attached.
 		return producer2!=null ? true : (producer1==null || producer1.isEmpty() ? false : producer1.get(0).mate!=null);
 	}
 	

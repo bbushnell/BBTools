@@ -9,6 +9,15 @@ import structures.ListNum;
 /**
  * Concurrent read input stream designed for distributed MPI environments.
  * Supports master-slave architecture where the master reads from the filesystem and broadcasts reads to slave processes, using a concurrent depot for buffering and thread-safe read distribution.
+ *
+ * DORMANT / UNIMPLEMENTED SCAFFOLDING: the MPI transport layer was never finished. Every actual
+ * transport method (broadcast/unicast/listen/listenPaired/listenKeepall) is a stub that throws
+ * RuntimeException("TODO"), so constructing a SLAVE throws immediately (the ctor calls listenPaired),
+ * and a MASTER throws on its first broadcast() inside run(). It is also unreachable by default: the
+ * factory (ConcurrentReadInputStream.getReadInputStream) only builds this when mpi==true AND crismpi=f,
+ * while the default crismpi=true hits a deliberate assert(false) fence first. Treat the depot/teardown
+ * plumbing below as never-exercised-in-production - do not assume it works end-to-end.
+ *
  * @author Brian Bushnell
  * @date Oct 7, 2014
  */
@@ -32,7 +41,7 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 			broadcastPaired(paired);
 			keepAll=keepAll_;
 			broadcastKeepall(keepAll);
-		}else{
+		}else{//Slave construction throws immediately here: listenPaired() is an unimplemented stub that throws RuntimeException("TODO"). See class javadoc.
 			paired=listenPaired();
 			keepAll=listenKeepall();
 		}
@@ -117,7 +126,7 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		}
 		if(verbose){System.err.println("crisD:    cris thread syncing before shutdown.");}
 		
-		synchronized(running){//TODO Note: for some reason syncing on 'this' instead of 'running' causes a hang.  Something else must be syncing improperly on this.
+		synchronized(running){//Load-bearing: sync on 'running', NOT 'this'. close() is synchronized(this) and spins on threads[0].isAlive() (L~416), so a terminal transition under 'this' here would deadlock against close() (it holds 'this' while waiting for this thread to die). Resolves the author's "syncing on this causes a hang" note - same close()-vs-worker lock ordering as ConcurrentGenericReadInputStream.
 			assert(running[0]);
 			running[0]=false;
 		}
@@ -160,6 +169,7 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 
 		if(verbose){System.err.println("crisD:    Entered readLists_master().");}
 		ListNum<Read> lnForUnicastShutdown=null;
+		//TODO: Possible bug [stream/ConcurrentReadInputStreamD#002] - loop condition reads ln.list without an ln!=null guard; source.nextList() can return null (on shutdown), which would NPE here. The slave path (readLists_slave, below) guards ln!=null - inconsistent. Latent LOW (class is dormant; broadcast() throws before a 2nd iteration could even occur).
 		for(ListNum<Read> ln=source.nextList(); !shutdown && ln.list!=null; ln=source.nextList()){
 			final ArrayList<Read> reads=ln.list;
 			final int count=(reads==null ? 0 : reads.size());
@@ -247,7 +257,7 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 	/*----------------      Concurrency Methods     ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	protected void broadcast(ListNum<Read> ln){
+	protected void broadcast(ListNum<Read> ln){//UNIMPLEMENTED: the MPI body is a no-op stub and this method unconditionally throws RuntimeException("TODO") at the end. Same for unicast/listen/listenPaired/listenKeepall. broadcastPaired/broadcastKeepall have their throw COMMENTED OUT, so they silently no-op instead.
 		if(!keepAll && ln.size()>0){//Decide how to send this list
 			final int toRank=(int)(ln.id%ranks);
 			unicast(ln, toRank);
@@ -372,7 +382,8 @@ public class ConcurrentReadInputStreamD extends ConcurrentReadInputStream {
 		if(verbose){System.out.println("crisD:    Called shutdown.");}
 		
 		shutdown=true;
-		if(!shutdown){ //Possible bug: This condition will never be true since shutdown was just set to true above
+		//TODO: Possible bug [stream/ConcurrentReadInputStreamD#001] - dead branch: shutdown was just set true above, so !shutdown is always false and the body below NEVER runs. Effect: shutdown() never propagates to source (master) and never interrupts worker threads. Latent LOW (class is dormant/unimplemented). Likely meant to guard on a PRIOR shutdown state before setting the flag.
+		if(!shutdown){ //This condition will never be true since shutdown was just set to true above
 			
 			if(master){
 				source.shutdown();

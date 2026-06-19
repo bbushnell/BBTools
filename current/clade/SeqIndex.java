@@ -120,12 +120,14 @@ public class SeqIndex extends CladeObject {
 	
 	public Organism fetchOrganism(String name) {
 		TaxNode tn=tree.getNodeByName(name);
-		return tn==null ? null : fetchOrganism(tn.name);
+		//[clade/SeqIndex#002] FIXED - was fetchOrganism(tn.name): a String re-dispatches to THIS same overload -> infinite recursion/StackOverflow. tn.id reaches the int overload (index.get(tid)). Latent (dead code; no callers).
+		return tn==null ? null : fetchOrganism(tn.id);
 	}
 	
 	public Sequence fetchSequence(String name) {
 		TaxNode tn=tree.getNodeByName(name);
-		return tn==null ? null : fetchSequence(tn.name);
+		//[clade/SeqIndex#002] FIXED - same wrong-overload recursion as fetchOrganism(String); tn.id reaches the int overload.
+		return tn==null ? null : fetchSequence(tn.id);
 	}
 	
 	public ArrayList<SeqIndexResult> fetchSequence(Sequence s, SketchMakerMini smm, DisplayParams params) {
@@ -220,7 +222,7 @@ public class SeqIndex extends CladeObject {
 				seqs.addAll(o.seqs);
 			}else if(type.equalsIgnoreCase("16S")) {
 				if(o.r16s!=null) {seqs.add(o.r16s);}
-			}else if(type.equalsIgnoreCase("16S")) {
+			}else if(type.equalsIgnoreCase("18S")) {//[clade/SeqIndex#001] FIXED - was a duplicate "16S" check (copy-paste); type=="18S" matched neither branch and hit the else assert(false) below (crash under -ea / silently-empty 18S set under -da). The o.r18s branch was dead. Latent: SeqIndex has no callers (dead scaffolding).
 				if(o.r18s!=null) {seqs.add(o.r18s);}
 			}else {assert(false) : type;}
 		}
@@ -277,7 +279,7 @@ public class SeqIndex extends CladeObject {
 	public long sequencesAdded;
 	public long organismsAdded;
 	public long basesAdded;
-	public HashMap<Integer, Organism> index;
+	public HashMap<Integer, Organism> index;//TODO: Possible bug [clade/SeqIndex#003] (LOW latent; dead code) - never initialized (no `index=new HashMap` anywhere; ctor empty), so any add()/fetchOrganism() NPEs on index.get/put. Confirms SeqIndex is unfinished scaffolding (zero callers tree-wide; stub main L32). Recorded for whoever completes the class -- NOT initialized here (that's a completion decision, not a typo fix).
 //	public SketchIndex sketchIndex16S;
 //	public SketchIndex sketchIndex18S;
 	public SketchIndex sketchIndex;

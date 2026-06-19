@@ -11,7 +11,11 @@ import structures.ListNum;
  * Dual-stream read input handler that combines two separate ConcurrentReadInputStream
  * objects into paired-end reads. Manages synchronization and pairing of reads from
  * two independent input streams, automatically setting pair numbers and mate
- * relationships for downstream processing.
+ * relationships for downstream processing. Live via SplitPairsAndSingles (bbsplitpairs.sh,
+ * repair.sh) for the two-input-file paired path.
+ *
+ * CAVEAT: pairing is POSITIONAL (i-th R1 &lt;-&gt; i-th R2) and assumes the two streams stay
+ * buffer-aligned; that can break for long/variable-length reads - see #001.
  *
  * @author Brian Bushnell
  */
@@ -49,6 +53,7 @@ public class DualCris extends ConcurrentReadInputStream {
 			System.err.print(",");
 		}
 		System.err.print("Finished.");
+		//TODO: Possible bug [stream/DualCris#002] - LOW (dev-only main): the while loop exits when ln becomes null (~L47), so this ln.id can NPE. Test driver only; no shell-script reach.
 		cris.returnList(ln.id, foundR1, foundR2);
 		ReadWrite.closeStreams(cris);
 	}
@@ -101,6 +106,7 @@ public class DualCris extends ConcurrentReadInputStream {
 		if(ln1!=null && ln2!=null){
 			final int size1=ln1.size(), size2=ln2.size();
 			final int min=Tools.min(size1, size2);
+			//TODO: Possible bug [stream/DualCris#001] - LOW (latent; re-graded from MEDIUM after adversarial verify): positional pairing (ln1[i]<->ln2[i]) assumes cris1 and cris2 deliver BUFFER-ALIGNED lists. Holds whenever the 200-read cap (Shared.READ_BUFFER_LENGTH) binds = all short-read usage. Can break ONLY when the 400000-base cap (READ_BUFFER_MAX_DATA, applied in each sub-stream's crisG.readLists repack) binds first - avg read >2000bp - AND R1/R2 length distributions differ enough to fire it at DIFFERENT read counts; SYMMETRIC long reads (the norm) still stay aligned. When it does fire: buffers desync, reads mispair across boundaries, the size-mismatch handling below orphans the surplus mates - silent pair corruption. Trigger (asymmetric long paired reads through two-file repair.sh/bbsplitpairs.sh) essentially never occurs => LOW, but silent-when-fired => documented + FLAGGED FOR BRIAN (design assumption; see package summary). NOT auto-fixed (structural - needs coordinated/realigned buffering).
 			for(int i=0; i<min; i++){
 				Read r1=ln1.get(i);
 				Read r2=ln2.get(i);
@@ -120,7 +126,7 @@ public class DualCris extends ConcurrentReadInputStream {
 	}
 	
 	@Override
-	public void returnList(long listNum, boolean poison) {
+	public void returnList(long listNum, boolean poison) {//By design: DualCris needs the 3-arg returnList(listNum, foundR1, foundR2) to independently poison each sub-stream; the standard 2-arg form can't express that, so it throws. SplitPairsAndSingles.process3_repair calls the 3-arg version.
 		throw new RuntimeException("Unsupported.");
 	}
 	
@@ -149,7 +155,7 @@ public class DualCris extends ConcurrentReadInputStream {
 	}
 	
 	@Override
-	public void run() {assert(false);}
+	public void run() {assert(false);}//DualCris has no producer thread of its own - it delegates to cris1/cris2's threads. start() (below) is overridden to NOT spawn a thread on `this`, so run() is never reached; the assert is a guard.
 	
 	@Override
 	public void shutdown() {

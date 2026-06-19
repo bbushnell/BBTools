@@ -40,6 +40,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	public Comparison(String s, LineParserS1 lp) {
 		if(lp==null) {lp=new LineParserS1('\t');}
 		lp.set(s);
+		//TODO: Possible bug [clade/Comparison#001] (QUESTION; MEDIUM if reachable) - this parser hardcodes the DEFAULT column layout (no printQTID Q_TaxID col, no ENTdif col): gc=col1, R_TaxID=col5, R_Level=col9, gcdif=col10, k3=col14, k4=15, k5=16. It is the inverse of appendResultMachine (L500)/machineHeader (L463), but those SHIFT columns when printQTID or calcCladeEntropy is on. Sole real caller SendClade:514 parses CladeServer RESPONSES -- if a server runs printQTID=t or calcCladeEntropy=t, every column shifts and this silently misparses (wrong taxID/scores). SendClade itself uses printQTID=false (L106), but the response format is the SERVER's. Verify client/server format negotiation in SendClade + CladeServer; if they can diverge -> silent-wrong MEDIUM.
 		query=new Clade(-1, 0, lp.parseString(0));
 		String levelStr=lp.parseString(9);
 		int level=Tools.isNumeric(levelStr) ? Integer.parseInt(levelStr) : TaxTree.stringToLevel(levelStr.toLowerCase());
@@ -83,6 +84,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @param k5Limit Maximum allowed 5-mer profile difference
 	 * @return The calculated similarity measure (lower is more similar)
 	 */
+	//CLEVER [verified in-file]: two-stage compare for scanning millions of refs. quickCompare (L102) is a cheap scalar GC/strandedness/caga filter that rejects most refs before any k-mer math; only survivors reach slowCompare. Inside ABS/ABSCOMP/COS/HEL/EUC an early-exit cascade computes k3 -> (bail) -> k4 -> (bail) -> k5, returning a scaled coarse distance (k3*k3Mult, k4*k4Mult) the moment it provably exceeds k5Limit, so the expensive high-k SIMD diff is skipped for non-matches. The scaling keeps coarse and fine distances comparable for ranking.
 	float compare(Clade q, Clade r, float gcLimit, float strLimit, float cagaLimit, float k5Limit) {
 		boolean pass=quickCompare(q, r, gcLimit, strLimit, cagaLimit);
 		if(!pass) {return 4+gcdif;}
@@ -179,6 +181,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	}
 	
 	private float difABSCOMP(int k) {
+		//DELETE_COUNTS-safe: prefers precompensated frequencies; the counts fallback is only hit when freq[k]==null. compareABSCOMP's symmetric base-guards (L166/171 check BOTH query+ref bases vs minK4/5Bases, same thresholds Clade.finish uses) ensure that whenever difABSCOMP(k>3) is called, both freq[k] are non-null -> Vector path, never the (possibly-deleted) counts. freq[3] is always computed by finish(), so difABSCOMP(3) is always Vector too.
 		final float[] qfreq=query.frequencies[k];
 		if(qfreq!=null) {return Vector.absDifFloat(qfreq, ref.frequencies[k]);}
 		return SimilarityMeasures.absDifComp(query.counts[k], ref.counts[k], k);
@@ -197,6 +200,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @param k5Limit Maximum allowed 5-mer profile difference
 	 * @return The calculated cosine distance (lower is more similar)
 	 */
+	//NOTE [latent]: compareCOS/HEL/EUC read query.counts[k]/ref.counts[k] DIRECTLY (no frequency fallback, unlike difABS/difABSCOMP). They are DELETE_COUNTS-UNSAFE: if Clade.DELETE_COUNTS were true (server/local-index nulls counts after finish, per Clade:406 comment) these would NPE. Currently safe -- DELETE_COUNTS is never set true anywhere (only declared=false at Clade:406, used at Clade:257); no flag enables it. //TODO if DELETE_COUNTS is ever wired on, gate it to method ABS/ABSCOMP or give these a frequency path.
 	private float compareCOS(float k5Limit) {
 		k3dif=SimilarityMeasures.cosineDifference(query.counts[3], ref.counts[3]);
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*4;}
