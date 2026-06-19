@@ -129,6 +129,19 @@ public final class KillSwitch extends Thread {
 		e.printStackTrace();
 		kill0();
 	}
+
+	/** Assertion-message form of {@link #kill(String)}: prints the message + halts the VM, but is typed to
+	 * return a String so it can sit in an assertion's message position: {@code assert(cond) : KillSwitch.assertDie(msg)}.
+	 * The return is never reached (the VM halts first). Use where a failing assertion runs on a worker thread
+	 * whose AssertionError would otherwise only kill that thread and HANG the producer/consumer pipeline — this
+	 * turns the thread-death-then-hang into a loud whole-process exit. Zero cost on the happy path: the message
+	 * expression is evaluated only when the assertion fails (and not at all under -da).
+	 * @param s Error message to print before termination
+	 * @return never returns; the VM halts inside the call */
+	public static String assertDie(String s){
+		kill(s);
+		return s; //Unreachable: kill() halts the VM.
+	}
 	
 	/** Prints error message without stack trace and terminates the VM immediately.
 	 * @param s Error message to print before termination */

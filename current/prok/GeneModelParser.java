@@ -90,9 +90,9 @@ public class GeneModelParser {
 			}
 		}
 		
-		assert(containers.size()==6) : containers.size();
+		assert(containers.size()==6) : containers.size();//feature-lead: adding lumped SSU/LSU/5.8S types -> >6 containers + extend GeneModel.allContainers (indexed by sc.type below)
 		for(StatsContainer sc : containers){
-			gm.allContainers[sc.type].setFrom(sc);
+			gm.allContainers[sc.type].setFrom(sc);//indexed by parsed type; a .pgm type>=allContainers.length would AIOOBE (only types 0-5 exist today)
 		}
 //		gm.statsCDS.setFrom(containers.get(0);
 //		gm.statstRNA=containers.get(1);
@@ -155,10 +155,11 @@ public class GeneModelParser {
 		sc.lengthCount=lengthCount;
 		sc.lengthSum=lengthSum;
 		
+		//all 3 FrameStats (inner/start/stop) are set BEFORE calculate() -- so the .pgm-load path never reaches calculate/appendTo/multiplyBy with a null FrameStats (resolves prok/StatsContainer#001 latent: both this load path and the train path GeneModel.fillContainers populate all 3 first).
 		sc.setInner(list.get(0));
 		sc.setStart(list.get(1));
 		sc.setStop(list.get(2));
-		
+
 		sc.calculate();
 		assert(sc.inner!=null);
 		return sc;
@@ -282,6 +283,7 @@ public class GeneModelParser {
 	 * @return true if the line was a valid header, false if parsing should continue elsewhere
 	 */
 	public boolean parseHeader(byte[] line){
+		//TODO: Possible bug [prok/GeneModelParser#001] (LOW latent) - line[0] with no empty-line guard (same pattern in parseContainer L125 / parseStats L178). toByteLines adds every nextLine() result, so a blank line in the .pgm would AIOOBE here. BBTools-generated .pgm (GeneModel.appendTo) emit no blank lines and .pgm is an internal format -> latent; a hand-edited/concatenated .pgm with a blank line crashes loud (not wrong). Cheap guard: if(line.length==0){...}.
 		if(line[0]!='#'){return false;}
 		
 		if(Tools.startsWith(line, "#BBMap")){

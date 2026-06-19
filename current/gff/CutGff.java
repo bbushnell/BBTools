@@ -715,7 +715,7 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		

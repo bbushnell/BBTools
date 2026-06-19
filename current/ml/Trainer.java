@@ -904,7 +904,7 @@ public class Trainer implements Accumulator<WorkerThread> {
 		//are hardcoded true and ar==this.success()==!errorState, computed AFTER accumulate() has folded
 		//every worker failure into errorState via |=. So success==true iff errorState already false;
 		//errorState&=!success can never clear a real error. Stylistic tautology, kept as-is.
-		errorState&=!success;
+		errorState|=!success;
 //		outstream.println("Master finished.");
 		
 		//Do anything necessary after processing

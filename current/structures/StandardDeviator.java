@@ -42,7 +42,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //			for(Scaffold s : scaffolds) {addToQueue(queue, s);}
 //			addToQueue(queue, POISON);
 //			boolean success=ThreadWaiter.waitForThreads(alpt, this);
-//			errorState&=!success;
+//			errorState|=!success;
 //			t.stopAndStart("calcSumMT:");
 //		}
 //		
@@ -61,7 +61,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 //			for(Scaffold s : scaffolds) {addToQueue(queue, s);}
 //			addToQueue(queue, POISON);
 //			boolean success=ThreadWaiter.waitForThreads(alpt, this);
-//			errorState&=!success;
+//			errorState|=!success;
 //			t.stopAndStart("calcStdMT:");
 //		}
 //		
@@ -88,7 +88,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			//Start the threads and wait for them to finish
 			ThreadWaiter.startThreads(alpt);
 			boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-			errorState&=!success;
+			errorState|=!success;
 			if(verbose) {t.stopAndStart("calcSumMT:");}
 		}
 		
@@ -105,7 +105,7 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 			//Start the threads and wait for them to finish
 			ThreadWaiter.startThreads(alpt);
 			boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-			errorState&=!success;
+			errorState|=!success;
 			if(verbose) {t.stopAndStart("calcStdMT:");}
 		}
 		

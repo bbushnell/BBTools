@@ -146,6 +146,7 @@ public class AnalyzeGenes {
 				if(!f.exists()){
 					String gz=gff+".gz";
 					f=new File(gz);
+					//[traced, not a finding] under -da this assert is skipped, but gff(=gz) is added regardless and checkFileExistence()->Tools.testInputFiles rejects the missing file -> RuntimeException. So Brian's "may fail in production builds" note is benign: the real gate is downstream.
 					assert(f.exists() && f.canRead()) : "Can't read file "+gff; //Possible bug: assertion may fail in production builds
 					gff=gz;
 				}
@@ -335,7 +336,7 @@ public class AnalyzeGenes {
 				}
 			}
 			
-			//Accumulate per-thread statistics
+			//Accumulate per-thread statistics. Thread-safe: each FileThread built its OWN GeneModel(true) over a disjoint file subset (AtomicInteger fnum hands out indices), and this merge runs single-threaded AFTER join. No shared mutable model during the parallel phase.
 			pgm.add(pt.pgm);
 			
 			success&=pt.success;

@@ -1337,18 +1337,18 @@ public class SamLine implements Serializable {
 					refBases=null;
 				}else{
 					ScafMap map=ScafMap.defaultScafMap();
-					assert(!fixMatchSubs || mdTag!=null || map!=null) : "TODO: Encountered a read with 'M' in cigar string but no MD tag and no ScafMap loaded.\n"
-							+ "This can normally be resolved by adding the flag ref=file, where file is the fasta file to which the reads were mapped.\n\n"+this;
+					assert(!fixMatchSubs || mdTag!=null || map!=null) : KillSwitch.assertDie("Encountered a read with 'M' in cigar string but no MD tag and no ScafMap loaded.\n"
+							+ "This can normally be resolved by adding the flag ref=file, where file is the fasta file to which the reads were mapped.\n\n"+this);
 					if(map==null){
 						refBases=null;
 					}else{
 						Scaffold scaf=map.getScaffold(rnameS());
-						assert(!fixMatchSubs || mdTag!=null || scaf!=null) : "Encountered a read with 'M' in cigar string but no scaffold loaded for "+rnameS();
+						assert(!fixMatchSubs || mdTag!=null || scaf!=null) : KillSwitch.assertDie("Encountered a read with 'M' in cigar string but no scaffold loaded for "+rnameS());
 						if(scaf==null){
 							refBases=null;
 						}else{
 							refBases=scaf.bases;
-							assert(!fixMatchSubs || mdTag!=null || refBases!=null) : "Encountered a read with 'M' in cigar string but no ref bases loaded for "+rnameS();
+							assert(!fixMatchSubs || mdTag!=null || refBases!=null) : KillSwitch.assertDie("Encountered a read with 'M' in cigar string but no ref bases loaded for "+rnameS());
 							if(fixMatchSubs && refBases==null && mdTag==null){
 								return null;
 							}

@@ -75,8 +75,9 @@ public class SamReadInputStream extends ReadInputStream {
 	 * @param threads_ Number of threads for the Streamer (-1 for automatic)
 	 * @param maxReads_ Maximum reads to stream (-1 for all)
 	 */
-	public SamReadInputStream(FileFormat ff, boolean loadHeader_, 
+	public SamReadInputStream(FileFormat ff, boolean loadHeader_,
 			int threads_, long maxReads_){
+		SAM_INPUT_PRESENT=true; //A SAM/BAM input now exists, so SAM output may legitimately wait for its shared header.
 		loadHeader=loadHeader_;
 		stdin=ff.stdio();
 		
@@ -141,8 +142,13 @@ public class SamReadInputStream extends ReadInputStream {
 	 */
 	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
+		//Crash-loud, never hang [SamReadInputStream#002]: if no SAM/BAM input stream was ever opened, no
+		//reader will ever call setSharedHeader, so waiting here deadlocks (e.g. fastq/fasta -> sam, the
+		//common case). Return null (unavailable) and let the caller generate a header instead. This also
+		//resolves the original //TODO for the no-shared-header case.
+		if(!SAM_INPUT_PRESENT){return SHARED_HEADER;}
 		if(printHeaderWait) {System.err.println("Waiting on header to be read from a sam file.");}
-		while(SHARED_HEADER==null){//TODO:  Test with headerless sam, should populate with an empty list
+		while(SHARED_HEADER==null){
 			try{
 				SamReadInputStream.class.wait(100);
 			}catch(InterruptedException e){
@@ -219,6 +225,10 @@ public class SamReadInputStream extends ReadInputStream {
 	 * Globally shared header lines available to all SamReadInputStream instances.
 	 */
 	private static volatile ArrayList<byte[]> SHARED_HEADER;
+	/** True once any SAM/BAM input stream has been opened in this JVM. Gates getSharedHeader's blocking
+	 * wait so a non-SAM input (fastq/fasta), which never sets the shared header, does not deadlock a
+	 * SAM-output writer that requested it. See stream/SamReadInputStream#002. */
+	static volatile boolean SAM_INPUT_PRESENT=false;
 	/** Controls diagnostic logging while waiting for a shared header. */
 	public static boolean printHeaderWait=false;
 	

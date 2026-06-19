@@ -23,6 +23,8 @@ public class FrameStats {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** @param name_ Label for this stat block. @param k_ kmer length (must be <16: mask and kMax=4^k assume 2k<32 bits).
+	 * @param frames_ Number of frame positions tracked. @param leftOffset_ Offset of the reference point within the window. */
 	public FrameStats(String name_, int k_, int frames_, int leftOffset_){
 		name=name_;
 		k=k_;
@@ -42,26 +44,32 @@ public class FrameStats {
 	/*----------------           Methods            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Increments the count for (valid, frame, kmer) and bumps the per-class total validSums[valid]. */
 	public void add(int kmer, int frame, int valid){
 		counts[valid][frame][kmer]++;
 		validSums[valid]++;
 	}
 	
+	/** True iff {@code fs} matches this in name, leftOffset, k, and frames — i.e. their count matrices are add-compatible. */
 	public boolean compatibleWith(FrameStats fs) {
 		return fs.name.equals(name) && fs.leftOffset==leftOffset && fs.k==k && fs.frames==frames;
 	}
 	
+	/** Zeros all count matrices and the validSums totals. */
 	public void clear() {
 		Tools.fill(counts, 0);
 		Arrays.fill(validSums, 0);
 	}
 	
+	/** Replaces this container's data with {@code fs}'s (clear then add); asserts compatibleWith(fs). */
 	public void setFrom(FrameStats fs) {
 		assert(compatibleWith(fs)) : name+", "+frames+", "+fs.name+", "+fs.frames;
 		clear();
 		add(fs);
 	}
 	
+	/** Element-wise adds {@code fs}'s counts and validSums into this (dimensions asserted equal). Does NOT recompute
+	 * probs[][] — the caller must call calculate() afterward (StatsContainer.add does). */
 	public void add(FrameStats fs){
 		assert(fs.name.equals(name));
 		assert(fs.leftOffset==leftOffset);
@@ -89,24 +97,33 @@ public class FrameStats {
 //		calculate();
 	}
 	
+	/** Scales every count and validSums total by {@code mult} (model weighting/normalization). */
 	public void multiplyBy(double mult) {
 		Tools.multiplyBy(counts, mult);
 		Tools.multiplyBy(validSums, mult);
 	}
 	
+	/** Recomputes probs[frame][kmer] from the accumulated true/false counts: each cell is the Laplace-smoothed
+	 * P(valid) for that kmer/frame, scaled by invAvg (the global valid rate). Call after add()/parseData(), before scoring. */
 	void calculate(){
+		//Laplace +1: numerator >=1.0, denominator >=1.0 -> average is in (0,1] and never 0, so invAvg is always finite
 		average=(float)((validSums[1]+1.0)/(validSums[0]+validSums[1]+1.0));
 		invAvg=1.0f/average;
-		
+
 		for(int a=0; a<frames; a++){
 			for(int b=0; b<kMax; b++){
 				long t=countsTrue[a][b];
 				long f=countsFalse[a][b];
+				//t/(t+f+1.0): the +1 smoothing means no div-by-zero even for a kmer/frame never observed (t==f==0 -> 0)
 				probs[a][b]=(float)(t/(t+f+1.0))*invAvg;
 			}
 		}
 	}
 	
+	/** Scores how gene-like the window around {@code point} looks: sums (prob-0.99) over every length-k kmer in the
+	 * frame window and scales by invFrames. Positions before the sequence start are padded with 'A'.
+	 * @param point Reference coordinate the window is laid out around via leftOffset. @param bases Scaffold bases.
+	 * @return Mean per-frame score (higher = better match to the trained model). */
 	public float scorePoint(int point, byte[] bases){
 		final int mask=~((-1)<<(2*k));
 		
@@ -118,6 +135,8 @@ public class FrameStats {
 //		outstream.println("mask="+mask);
 		
 		int start=point-leftOffset;
+		//frame starts at 1-k (negative) and advances in lockstep with len from 0; the len>=k guard is reached only after
+		//k valid bases (>=k frame-increments), so frame>=0 whenever probs[frame] is indexed; frame<frames bounds the top.
 		for(int i=start, frame=0-k+1; i<bases.length && frame<frames; i++, frame++){
 			byte b=(i>=0 ? bases[i] : (byte)'A');
 			int x=AminoAcid.baseToNumber[b];
@@ -144,6 +163,8 @@ public class FrameStats {
 		return score*invFrames;
 	}
 	
+	/** Training: walks every length-k kmer in {@code bases} and tallies it into ALL frames, taking each frame's
+	 * valid/invalid flag from the per-base bitmask {@code validFrames} (bit f = frame f). No-op unless ProkObject.callCDS. */
 	void processCDSFrames(byte[] bases, byte[] validFrames){
 		if(!ProkObject.callCDS){return;}
 		int kmer=0;
@@ -169,6 +190,8 @@ public class FrameStats {
 		}
 	}
 	
+	/** Training: tallies the length-k kmers of the frame window around {@code point} (laid out via leftOffset) into the
+	 * given validity class. Skips points within 3 bases of either end (truncated-gene degenerate cases). @param valid 1=true site, 0=decoy. */
 	void processPoint(byte[] bases, int point, int valid){
 		
 		//Degenerate cases where the point is at the end, possibly from a truncated gene.
@@ -183,6 +206,9 @@ public class FrameStats {
 		
 		int start=point-leftOffset;
 		
+		//Same frame formula as scorePoint (frame=i-start+1-k), but the pre-sequence region is SKIPPED here (advance i to 0,
+		//frame in lockstep) rather than 'A'-padded as scorePoint does. So edge points (point<leftOffset) train on fewer frames
+		//than they're scored on; identical for non-edge points. Intended: can't train on bases that don't exist.
 		int i=start, frame=0-k+1;
 		while(i<0){i++; frame++;}
 		for(; i<bases.length && frame<frames; i++, frame++){
@@ -205,6 +231,8 @@ public class FrameStats {
 	/*----------------         Text Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parses one serialized count row written by appendTo(): tab-separated [valid, frame, count_0 .. count_(kMax-1)]
+	 * into counts[valid][frame], adding the row's sum to validSums[valid]. Asserts valid in {0,1} and frame in [0,frames). */
 	public void parseData(byte[] line) {
 		int a=0, b=0;
 		final int valid, frame;
@@ -226,6 +254,8 @@ public class FrameStats {
 		try {
 			final long[] row=counts[valid][frame];
 			long sum=0;
+			//TODO: Possible bug [prok/FrameStats#001] - the per-kmer assert below reuses the "Missing field 1" message
+			//(copy-pasted from the frame-field check); cosmetic - a misleading diagnostic, fires only on a malformed .pgm. LOW.
 			for(int kmer=0; kmer<row.length; kmer++){
 				while(b<line.length && line[b]!='\t'){b++;}
 				assert(b>a) : "Missing field 1: "+new String(line);
@@ -247,6 +277,8 @@ public class FrameStats {
 		return appendTo(new ByteBuilder()).toString();
 	}
 	
+	/** Serializes the full matrix: header (#name/#k/#frames/#offset + kmer-string column header) then one row per
+	 * (valid, frame): [valid, frame, count_0 .. count_(kMax-1)], tab-separated. Inverse of parseData(). */
 	public ByteBuilder appendTo(ByteBuilder bb){
 		bb.append("#name\t").append(name).nl();
 		bb.append("#k\t").append(k).nl();
@@ -268,6 +300,8 @@ public class FrameStats {
 		return bb;
 	}
 	
+	/** Same layout/header as appendTo() but writes 0 for every count cell — placeholder output for element types that
+	 * are not processed (ProkObject.processType false). */
 	public ByteBuilder append0(ByteBuilder bb){
 		bb.append("#name\t").append(name).nl();
 		bb.append("#k\t").append(k).nl();

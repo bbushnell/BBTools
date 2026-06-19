@@ -142,6 +142,7 @@ public class GeneModel extends ProkObject {
 			processStrand(scafList, Shared.PLUS);
 		}
 		if(PROCESS_MINUS_STRAND){
+			//ScafData.clear() resets only the per-pass scratch (frames/starts/stops); it deliberately PRESERVES cdsLines/rnaLines, which were filled ONCE (fillScafData*) and are consumed for BOTH strands. reverseComplement re-orients bases+strand for the minus pass; the trailing clear/reverseComplement (below) restores the +-strand state. (Resolves prok/ScafData#003: the non-reset of cdsLines/rnaLines is required, not a bug.)
 			for(ScafData sd : scafList){
 				sd.clear();
 				sd.reverseComplement();
@@ -243,6 +244,7 @@ public class GeneModel extends ProkObject {
 			if(idx>=0){
 				String prefix=name.substring(0, idx);
 				if(scafMap.containsKey(prefix)){
+					//TODO: Possible bug [prok/GeneModel#001] - QUESTION (Brian-flagged): two scaffolds sharing a whitespace-delimited prefix (e.g. ">contig1 len=5000" and ">contig1 cov=3") hit this. With -ea (always on) it crashes loud; with -da it silently skips, keeping the first prefix mapping. Brian's own note asks if it should be a runtime exception (crash even under -da). Deliberate fence -- do NOT remove; the message IS the acceptance test.
 					assert(false) : "Duplicate degenerate name: '"+name+"', '"+prefix+"'"; //Possible bug: Should this be a runtime exception instead?
 				}else{
 					scafMap.put(prefix, sd);
@@ -410,6 +412,7 @@ public class GeneModel extends ProkObject {
 		if(start<0 || stop>=sd.length()){return;}
 //		assert(start<stop) : gline; //Not always true for euks...
 		if(strand==Shared.MINUS){
+			//mirror coords into the +-strand frame the bases were reverse-complemented into: p -> len-p-1, and swap start/stop (mirroring inverts order) so start<=stop is preserved. Same mirror as PFeature.flip(). start<stop is NOT asserted because euk CDS can be degenerate.
 			int x=sd.length()-start-1;
 			int y=sd.length()-stop-1;
 			start=y;
@@ -536,6 +539,7 @@ public class GeneModel extends ProkObject {
 	 */
 	private static void markFrames(int start, int stop, byte[] frames, int k){
 		assert(start<=stop) : start+", "+stop;
+		//frameBit cycles through the 3 reading-frame bits {1,2,4}: init 1<<((k-1)%3), <<1 each base, wrapping 4->1. So frames[i] records which of the 3 codon phases a CDS k-mer ENDING at i belongs to (OR-accumulated across overlapping genes). max=min(stop-3,...) trims the final partial codon.
 		for(int i=start+k-1, frameBit=(1<<((k-1)%3)), max=Tools.min(stop-3, frames.length-1); i<=max; i++){
 			frames[i]=(byte)(frames[i]|frameBit);
 			frameBit<<=1;
@@ -646,6 +650,7 @@ public class GeneModel extends ProkObject {
 				len++;
 				if(len>=k){
 					int vf=frames[i];
+					//bit b of frames[] corresponds to the RNA type with typeToFlag==1<<b: bit0=tRNA(1),bit1=16S(2),...,bit4=18S(5) -- exactly rnaContainers[0..4] order. Reading vf&1 then vf>>=1 in lockstep feeds each container its own valid flag. (Confirms prok/ProkObject#001: typeToFlag is only ever reached for RNA types 1..5, never CDS=0.)
 					for(int type=0; type<5; type++){
 						int valid=vf&1;
 						rnaContainers[type].inner.add(kmer, 0, valid);

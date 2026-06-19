@@ -328,7 +328,8 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		//TODO: Possible bug [prok/MergeRibo_Fast#001] (MEDIUM) - "&=" CLEARS previously-accumulated errors. process() calls spawnThreads once PER input file (the for(ffin) loop); if an early file errors (accumulate set errorState, or errorState|=closeStream after) and a LATER file's threads all succeed, this "errorState&=!success" wipes the prior error -> the L281 "terminated in error state" exception never fires (silent error suppression on multi-file input). Should be "errorState|=!success".
+		errorState|=!success;
 	}
 	
 	/**
@@ -451,11 +452,12 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 		boolean processRead(final Read r){
 			Integer key=GiToTaxid.parseTaxidNumber(r.id, '|');
 			if(key==null || key==-1){return false;}
-			float id=align(r);
+			float id=align(r);//expensive alignment done OUTSIDE the lock (runs concurrently across threads)
 			float product=id*r.length();
-			Ribo ribo=new Ribo(r, key, id);
-			
-			
+			Ribo ribo=new Ribo(r, key, id);//Ribo.product == this local product (both = length*identity)
+
+
+			//only the shared-map read+update is synchronized; keeps the highest length*identity per taxID
 			synchronized(bestMap){
 				Ribo old=bestMap.get(key);
 				if(old==null || old.product<product){
@@ -527,6 +529,7 @@ public class MergeRibo_Fast implements Accumulator<MergeRibo_Fast.ProcessThread>
 	private String extout=null;
 
 	HashMap<Integer, Ribo> bestMap=new HashMap<Integer, Ribo>(10000000);
+	//[review note] listMap is dead (never read/written); harmless (HashMap table is lazy-init, so the 10M capacity allocates nothing until first put). Cleanup candidate -- as are `alt`/ffalt (parsed + FileFormat built, never used) and process18S (no flag sets it -> always false; the 18S path is vestigial). This is the legacy 2015 picker, superseded by MergeRibo.
 	HashMap<Integer, ArrayList<Ribo>> listMap=new HashMap<Integer, ArrayList<Ribo>>(10000000);
 	
 	static byte[] consensus16S;

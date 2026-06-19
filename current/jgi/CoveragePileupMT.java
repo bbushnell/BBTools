@@ -493,7 +493,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
 		outstream.println("Finished processing "+readsProcessed+" reads and "+basesProcessed+" bases in "+Tools.plural("file", inputFiles.size())+".");
-		errorState&=!success;
+		errorState|=!success;
 	}
 	
 	/*--------------------------------------------------------------*/

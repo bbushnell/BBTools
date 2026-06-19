@@ -187,6 +187,7 @@ public class PGMTools extends ProkObject {
 			models.add(pgm);
 		}
 		if(normalize){
+			//normalize: scale every model UP to the largest model's basesProcessed so no genome dominates the merge by sheer size. The largest is left as-is (max==basesProcessed -> skipped). max(100,..) floors the divisor so a tiny model can't produce a runaway multiplier.
 			long max=0;
 			for(GeneModel gm : models){
 				max=Tools.max(gm.basesProcessed, max);
@@ -196,6 +197,7 @@ public class PGMTools extends ProkObject {
 					double mult=max/(double)(Tools.max(100, gm.basesProcessed));
 					if(mult!=1) {
 						gm.multiplyBy(mult);
+						//TODO: Possible bug [prok/PGMTools#001] (DOC/QUESTION) - after up-scaling a smaller model to match the largest, its 5S stats are then down-weighted 100x with no comment. Likely deliberate (5S is short/over-counted, and up-scaling a small model would over-amplify its sparse 5S counts) but the magnitude (0.01) and 5S-only targeting are unexplained -- confirm intent + add a rationale comment. Not a logic bug; affects only normalized merges.
 						gm.stats5S.multiplyBy(0.01);
 //						System.err.println("Multiplied by "+mult);
 					}

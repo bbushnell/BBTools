@@ -355,7 +355,7 @@ public class A_SampleSamStreamer implements Accumulator<A_SampleSamStreamer.Proc
 		
 		//Wait for threads to finish
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		

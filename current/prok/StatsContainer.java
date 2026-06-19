@@ -131,7 +131,9 @@ class StatsContainer {
 		bb.append("#count\t").append(lengthCount).nl();
 		bb.append("#lengthSum\t").append(lengthSum).nl();
 		//lengths
+		//#contains is hardcoded 3 == statsArray.length: always exactly 3 FrameStats blocks below
 		bb.append("#contains\t").append(3).nl();
+		//processType: real types use appendTo, others append0 placeholders; assumes entries set (#001)
 		if(ProkObject.processType(type)) {
 			for(FrameStats fs : statsArray){
 				fs.appendTo(bb);
@@ -163,7 +165,7 @@ class StatsContainer {
 		Arrays.fill(lengths, 0);
 		lengthSum=0;
 		lengthCount=0;
-		calculate();
+		calculate(); //clear() null-guards each entry above, but calculate() does not (see #001)
 	}
 	
 	/**
@@ -176,6 +178,7 @@ class StatsContainer {
 		assert(sc.name.equals(name));
 		for(int i=0; i<statsArray.length; i++){
 			FrameStats fs=sc.statsArray[i];
+			//null entry -> fresh+add (==setFrom on a zeroed target); else setFrom (replace). Either way this==sc afterward.
 			if(statsArray[i]==null){
 				statsArray[i]=new FrameStats(fs.name, fs.k, fs.frames, fs.leftOffset);
 				statsArray[i].add(fs);
@@ -206,6 +209,7 @@ class StatsContainer {
 			if(statsArray[i]==null){
 				statsArray[i]=new FrameStats(fs.name, fs.k, fs.frames, fs.leftOffset);
 			}
+			//null entry -> fresh zeroed FrameStats, then add() unconditionally: no double-count
 			statsArray[i].add(fs);
 		}
 
@@ -243,9 +247,13 @@ class StatsContainer {
 	 * and inverse average length from current counts.
 	 */
 	public void calculate(){
+		//TODO: Possible bug [prok/StatsContainer#001] - no null-guard on statsArray[i], unlike clear()/setFrom()/add();
+		//NPEs if an entry is null. Safe iff every type-only-ctor container (GeneModel L862-872, GeneModelParser:153) has
+		//all 3 FrameStats set before calculate/appendTo/multiplyBy run. Reachability deferred to GeneModel/GeneModelParser.
 		for(int i=0; i<statsArray.length; i++){
 			statsArray[i].calculate();
 		}
+		//max(1.0,count) and max(1,lengthAvg) floor both denominators at 1 -> no div-by-zero, even with zero observations
 		lengthAvg=(int)(lengthSum/Tools.max(1.0, lengthCount));
 		invLengthAvg=1f/Tools.max(1, lengthAvg);
 	}
@@ -259,6 +267,8 @@ class StatsContainer {
 	public void addLength(int x){
 		lengthSum+=x;
 		lengthCount++;
+		//x is GffLine.length() (>=0 for valid features) at both callers (GeneModel:563,623); min() high-clamps to the last
+		//bucket. No low-clamp: a negative x would AIOOBE, but stop<start is format-impossible.
 		lengths[Tools.min(x, lengths.length-1)]++;
 	}
 	

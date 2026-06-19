@@ -52,7 +52,7 @@ class ScafData {
 	
 	/** Clears frame annotations and resets start/stop lists. */
 	void clear(){
-		//TODO: Possible bug [prok/ScafData#003] - QUESTION: resets frames/starts/stops but NOT cdsLines/rnaLines (annotations persist across clear()). Intentional (per-strand re-scan keeps annotations) or a missing reset? Trace callers to confirm.
+		//RESOLVED [prok/ScafData#003] (not a bug): cdsLines/rnaLines are deliberately NOT reset -- they're filled once (GeneModel.fillScafData*) and consumed for BOTH strands; frames/starts/stops are per-pass scratch. Clearing the lines would empty the minus-strand pass. See GeneModel.process().
 		Arrays.fill(frames, (byte)0);
 		starts.clear();
 		stops.clear();
@@ -67,7 +67,7 @@ class ScafData {
 	/** Adds a CDS annotation to the strand-appropriate list.
 	 * @param gline CDS GFF line */
 	void addCDS(GffLine gline){
-		//TODO: Possible bug [prok/ScafData#001] - assert guards strand>=0 (catches -1) but NOT the upper bound. GffLine.strand domain is {-1,0,1,2,3} (PLUS,MINUS,QMARK '?',DOT '.'; GffLine.java:697); strand 2 or 3 passes the assert then indexes cdsLines[2/3] -> AIOOBE (array size 2). Reachable (MEDIUM) iff a CDS with '?'/'.' strand reaches here via AnalyzeGenes; latent LOW if only internal 0/1 ORFs do. Trace AnalyzeGenes. Same issue in addRNA.
+		//TODO: Possible bug [prok/ScafData#001] (LOW; traced) - assert guards strand>=0 (catches -1) but NOT the upper bound. GffLine.strand domain {PLUS0,MINUS1,QMARK2,DOT3} (GffLine.java:709); a CDS/rRNA/tRNA on '?'/'.' strand (2/3) passes the assert then indexes cdsLines[2/3] -> AIOOBE (size 2). Sole caller GeneModel.fillScafData* feeds GFF strands; NCBI training data is always +/- so the training path never hits it -> LOW, crash-loud only on a degenerate user GFF. Fix: assert(strand==0||strand==1) for a clear message. Same in addRNA.
 		assert(gline.strand>=0) : gline+"\n"+gline.strand;
 		cdsLines[gline.strand].add(gline);//requires strand in {0,1}; see ScafData#001
 	}
@@ -87,7 +87,7 @@ class ScafData {
 	 */
 	byte[] fetch(int start, int stop){
 		assert(start>=0 && stop<bases.length);
-		//TODO: Possible bug [prok/ScafData#002] - assert(start<stop) is STRICTER than the inclusive contract: start==stop is a valid 1-base fetch (copyOfRange handles it) but asserts-out. Latent; reachable iff a caller requests a 1-base subsequence. Trace GeneCaller/callers.
+		//TODO: Possible bug [prok/ScafData#002] (LOW latent; uncalled) - assert(start<stop) is STRICTER than the inclusive contract: start==stop is a valid 1-base fetch (copyOfRange handles it) but asserts-out. fetch() has NO live caller (only commented at GeneModel:445), so it can't trigger today. Relax to start<=stop if/when fetch() is wired up.
 		assert(start<stop);
 		return Arrays.copyOfRange(bases, start, stop+1);
 	}

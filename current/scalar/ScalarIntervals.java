@@ -424,7 +424,7 @@ public class ScalarIntervals {
 		//Start the threads and wait for them to finish
 		SDAccumulator sda=new SDAccumulator();
 		boolean success=ThreadWaiter.startAndWait(alpt, sda);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		return sda.list;

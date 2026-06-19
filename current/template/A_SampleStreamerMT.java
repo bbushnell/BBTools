@@ -133,7 +133,7 @@ public class A_SampleStreamerMT implements Accumulator<A_SampleStreamerMT.Proces
 		}
 
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 
 		if(fw!=null){
 			fw.poisonAndWait();

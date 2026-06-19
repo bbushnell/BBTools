@@ -479,7 +479,7 @@ public class Reformat2 implements Accumulator<Reformat2.ProcessThread>{
 
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 
 		//Do anything necessary after processing
 

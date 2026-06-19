@@ -852,7 +852,7 @@ public class CrisprFinder implements Accumulator<CrisprFinder.ProcessThread> {
 		}
 		
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		

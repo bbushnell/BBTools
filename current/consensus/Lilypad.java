@@ -393,7 +393,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		
 		//Wait for threads to finish
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		totalAverageInsert=totalInsertSum/(double)totalInsertCount;
