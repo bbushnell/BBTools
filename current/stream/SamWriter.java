@@ -165,13 +165,13 @@ public class SamWriter implements Writer {
 	
 	ArrayList<byte[]> getHeader(){
 		if(verbose) {System.err.println("Fetching header: "+useSharedHeader+","+(header!=null));}
-		ArrayList<byte[]> headerLines;
-		if(useSharedHeader){
-			headerLines=SamReadInputStream.getSharedHeader(true);
-		}else if(header!=null){
-			headerLines=header;
-		}else {
-			headerLines=SamHeader.makeHeaderList(supressHeaderSequences, 
+		ArrayList<byte[]> headerLines=null;
+		//getSharedHeader may now return null when no SAM input exists (non-sam -> sam); fall through to
+		//an explicit header, then to a generated one, rather than blocking or emitting an empty header.
+		if(useSharedHeader){headerLines=SamReadInputStream.getSharedHeader(true);}
+		if(headerLines==null && header!=null){headerLines=header;}
+		if(headerLines==null){
+			headerLines=SamHeader.makeHeaderList(supressHeaderSequences,
 				ReadStreamWriter.MINCHROM, ReadStreamWriter.MAXCHROM);
 		}
 		if(headerLines==null) {

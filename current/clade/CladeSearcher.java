@@ -939,7 +939,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		while(results.size()<queries.size()) {results.add(null);}

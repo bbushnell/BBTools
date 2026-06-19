@@ -48,6 +48,7 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
+		//[review note] RiboMaker is UNFINISHED/disabled-by-design: this fence + validateParams (assert(false) "TODO") + spawnThreads ("TODO: Make consensus and write it?") are deliberate markers (the message IS the acceptance test -- do NOT remove). Running it crashes loud at entry under -ea. The WRITTEN code (loadFilter/passesFilter/loadRef/processRead/queue accumulation) is reviewed correct; only the consensus-emit step is unimplemented.
 		assert(false) : "TODO";
 		
 		//Start a timer immediately upon code entrance.
@@ -436,7 +437,7 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		assert(false) : "TODO: Make consensus and write it?";
@@ -488,6 +489,7 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 	boolean addToQueue(Alignment best, PriorityQueue<Alignment> queue){
 		if(queue.size()<queueLen){queue.add(best);}
 		else{
+			//bounded top-K per position: PriorityQueue head = least element, so peek() is the current WORST kept. Reject best if it's not strictly better (bottom>=best); else evict the worst and insert. Keeps the queueLen best alignments covering this ref window.
 			Alignment bottom=queue.peek();
 			if(bottom.compareTo(best)>=0){return false;}
 			queue.poll();
@@ -635,10 +637,10 @@ public class RiboMaker implements Accumulator<RiboMaker.ProcessThread> {
 			
 			Alignment best=null;
 			if(plus.id>=minus.id){
-				r.reverseComplement();
+				r.reverseComplement();//plus won: undo the RC above so r is back in its ref-matching (+) orientation
 				best=plus;
 			}else{
-				best=minus;
+				best=minus;//minus won: leave r reverse-complemented so it matches the ref orientation it aligned to
 			}
 			if(best.id<minID) {return;}
 			

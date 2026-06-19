@@ -98,7 +98,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 		}
 
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		ReadWrite.closeStream(cris);
 
 		ArrayList<Clade> result=new ArrayList<Clade>();

@@ -417,7 +417,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		
 		//Wait for threads to finish
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		

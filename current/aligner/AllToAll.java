@@ -306,7 +306,7 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		

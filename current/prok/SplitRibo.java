@@ -364,7 +364,8 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		//NOTE: "&=" here is BENIGN (unlike prok/MergeRibo_Fast#001) -- spawnThreads runs ONCE (single cris), errorState starts false, and the |= writeAll/closeStreams ORs happen AFTER this in process(). The &= bug only bites when spawnThreads is looped over multiple inputs (MergeRibo_Fast's case).
+		errorState|=!success;
 		//assert(!errorState);
 		
 		//Do anything necessary after processing
@@ -496,7 +497,7 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 				}
 			}
 
-			//Output reads to the output stream
+			//Output reads to the output stream. Every type's stream gets THIS ln.id (even an empty list) -> ordered output never gaps. This is exactly the always-emit-even-if-empty pattern that prok/CallGenes#002 lacks (its ordered hang IS the absence of this).
 			if(rosa!=null){
 				for(int type=0; type<numTypes; type++){
 					rosa[type].add(out[type], ln.id);
@@ -538,6 +539,7 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 		}
 		
 		private float align(Read r, Read[] refs, int minRef, int maxRef){
+			//TODO: Possible bug [prok/SplitRibo#001] (LOW QUESTION) - guards refs!=null but NOT refs.length. Stage-1 callers pass (0,1) -> access refs[0]; a non-null EMPTY consensus array -> AIOOBE. The DEFAULT sequenceTypes include organellar m16S/m18S/p16S, whose consensus files may not ship (only 16S/18S/23S/5S/ITS seen in resources). Reachable iff loadConsensusSequenceType returns empty[] (vs null) for a missing file. Confirm loader missing-file behavior + that m16S/m18S/p16S consensus exist; guard: if(refs!=null && refs.length>minRef).
 			float bestID=-1;
 			if(refs!=null){
 				for(int i=minRef; i<maxRef; i++){

@@ -98,7 +98,7 @@ public class ScoreTracker {
 	 */
 	public JsonObject toJson(){
 		JsonObject jo=new JsonObject();
-		//TODO: Possible bug [prok/ScoreTracker#001] - sum/count is non-finite when count==0 (empty tracker: 0.0/0=NaN) or when geneInnerScoreSum absorbed NaN/Inf from Orf.averageKmerScore() on a short ORF (Orf.java:85 divides by length()-kInnerCDS-2). addLiteral formats NaN via String.format -> a bare "NaN" token = INVALID JSON (RFC 8259). (toString instead prints "0.0000": ByteBuilder casts (long)NaN=0 -- silently wrong but valid text.) Fix is a design call: guard count==0 here, or guard non-finite in json/JsonLiteral. Reachable iff an empty/degenerate-type tracker is serialized -- trace StatsContainer/AnalyzeGenes.
+		//TODO: Possible bug [prok/ScoreTracker#001] (MEDIUM; reachable) - sum/count is non-finite when count==0 (empty tracker: 0.0/0=NaN) or when geneInnerScoreSum absorbed NaN/Inf from Orf.averageKmerScore() on a short ORF (Orf.java:85 divides by length()-kInnerCDS-2). addLiteral formats NaN via String.format -> a bare "NaN" token = INVALID JSON (RFC 8259). (toString instead prints "0.0000": ByteBuilder casts (long)NaN=0 -- silently wrong but valid text.) Serialized at CallGenes.printStatsJson (L540-573, gated by callX) -> reachable when an enabled type finds zero features + stats=json. Fix is a design call (Brian): guard count==0 here, or guard non-finite in json/JsonLiteral.
 		jo.addLiteral("Start Score", geneStartScoreSum/geneStartScoreCount, 4);
 		jo.addLiteral("Stop Score", geneStopScoreSum/geneStopScoreCount, 4);
 		jo.addLiteral("Inner Score", geneInnerScoreSum/geneInnerScoreCount, 4);

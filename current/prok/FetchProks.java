@@ -270,6 +270,7 @@ public class FetchProks {
 					contigs++;
 					long len;
 					try {
+						//TODO: Possible bug [prok/FetchProks#002] (LOW) - split[8] assumes >=9 tab fields; a malformed/truncated non-# report line with fewer columns -> AIOOBE (only NumberFormatException is caught here, not AIOOBE). Dev crawler parsing external NCBI FTP reports; well-formed assembly_report.txt always has >=9 cols, so latent. Guard: if(split.length>8){...}.
 						len=Long.parseLong(split[8]);
 					} catch (NumberFormatException e) {
 						len=1;
@@ -325,6 +326,7 @@ public class FetchProks {
 		return subAddress;
 	}
 	
+	//sync correctly removed: each ProcessThread owns its own `seen` map (instance field) and handles a disjoint set of genera (genus.hashCode()%threads==tid in run()), so a genus's count is only ever touched by one thread.
 	static int seen(String s, HashMap<String, Integer> map){
 //		synchronized(map){
 			Integer x=map.get(s);
@@ -349,7 +351,7 @@ public class FetchProks {
 		}
 
 		@Override
-		public int compareTo(Stats b) {//true if b is better
+		public int compareTo(Stats b) {//[prok/FetchProks#001 DOC-fixed] positive if THIS is better (this>b): prefer valid-taxID, then >2x-larger size, then longer max contig, then fewer contigs. (Old comment "true if b is better" was inverted; callers do compareTo(best)>0 -> pick this.)
 			if(b==null){return 1;}
 			if(taxID>0 && b.taxID<1){return 1;}
 			if(b.taxID>0 && taxID<1){return -1;}

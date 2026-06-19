@@ -147,7 +147,9 @@ public class CallGenes extends ProkObject {
 					Tools.addFiles(b, pgmList);
 				}
 			}else if(b==null && new File(arg).exists() && FileFormat.isPgmFile(arg)){
-				pgmList.add(b);
+				//[prok/CallGenes#001] FIXED: was pgmList.add(b), but b is null in this branch (guarded by b==null);
+				//the fna branch above correctly adds arg. A bare-pgm-filename positional arg was adding null to pgmList.
+				pgmList.add(arg);
 			}else if(a.equals("outamino") || a.equals("aminoout") || a.equals("outa") || a.equals("outaa") || a.equals("aaout") || a.equals("amino")){
 				outAmino=b;
 			}else if(a.equalsIgnoreCase("out16s") || a.equalsIgnoreCase("16sout")){
@@ -564,6 +566,7 @@ public class CallGenes extends ProkObject {
 			outer.add("Called ORF Stats", stCdsPass.toJson());
 		}
 
+		//[prok/ScoreTracker#001] these toJson() calls are UNGUARDED (no >0 check) -- unlike printStats() above which guards each with "&& rXOut>0". An enabled-but-empty type -> count==0 -> 0.0/0=NaN -> a bare NaN token = invalid JSON. The cheap fix mirrors printStats' rXOut>0 guard, or fix non-finite centrally in ScoreTracker.toJson.
 		if(call16S){outer.add("Called 16S Stats", st16s.toJson());}
 		if(call18S){outer.add("Called 18S Stats", st18s.toJson());}
 		if(call23S){outer.add("Called 23S Stats", st23s.toJson());}
@@ -702,8 +705,8 @@ public class CallGenes extends ProkObject {
 			
 			success&=pt.success;
 		}
-		
-		//Track whether any threads failed
+
+		//Track whether any threads failed. NOTE: this is the CORRECT monotonic pattern (set errorState=true on failure, NEVER clear) -- unlike the template Accumulator tools' "errorState&=!success" (prok/MergeRibo#001 / MergeRibo_Fast#001) which clears prior errors when a later pass succeeds. CallGenes loops spawnThreads per input file (process L403) but stays correct because it never clears.
 		if(!success){errorState=true;}
 	}
 	
@@ -738,6 +741,7 @@ public class CallGenes extends ProkObject {
 	 * @return Refined gene model with weighted combination of predictions
 	 */
 	public static GeneModel makeMultipassModel(GeneModel pgm0, ArrayList<Read> reads, String gff, int passes) {
+		//Self-refinement: each pass re-calls the caller on the genome's OWN predictions (runOnePass) to derive a genome-specific pgm, then PGMTools.mix blends original+derived with pass-dependent weights (early passes trust the derived model less; the final pass weights CDS 0.50 + rRNA/tRNA ~0.12). Bootstraps a tuned model from an unannotated genome -- the praise-worthy core.
 		GeneModel pgm=pgm0;
 		for(int i=1; i<passes; i++) {
 			pgm=runOnePass(reads, gff, pgm);
@@ -1008,6 +1012,7 @@ public class CallGenes extends ProkObject {
 				}
 			}
 			
+			//[prok/CallGenes#002 mechanism] these sequence streams add by r.numericID ONLY when a gene of the type is found; a read with none leaves a gap -> ordered output hangs. (processList's GFF path always adds per ln.id, so it's safe.)
 			if(ros16S!=null){
 				if(list!=null && !list.isEmpty()){
 //					System.err.println("Looking for 16S.");
@@ -1467,7 +1472,10 @@ public class CallGenes extends ProkObject {
 	/**
 	 * Whether to maintain input order in output (may cause hanging on some sequences)
 	 */
+	//TODO: Possible bug [prok/CallGenes#002] (MEDIUM; gated on ordered=true) - Brian-documented hang, mechanism localized: the GFF path (processList) calls bsw.add(bb, ln.id) for EVERY ln.id (even empty) -> safe. But the SEQUENCE streams ros16S/ros18S/rosAmino only add(..., r.numericID) when fetchType/translate return non-null/non-empty (processRead L~1017/1026/1034). A read producing no gene of that type leaves a GAP in the per-numericID ordered stream -> the ordered writer blocks forever waiting for the missing id (RefSeq mito: no CDS -> rosAmino gaps). Fix (Brian's recipe + SplitRibo's always-emit pattern): emit for each numericID even an empty list. Multi-site contract change -> flag-for-Brian, NOT patched.
 	private boolean ordered=false; //this is OK sometimes, but sometimes hangs (e.g. on RefSeq mito), possibly if a sequence produces nothing.
 	//To fix it, just ensure functions like translate always produce an array, even if it is empty.
+	//TODO: Possible bug [prok/CallGenes#002] - real MEDIUM hang (gated on ordered=true) when a sequence yields no genes;
+	//fix per the note above (have translate/fetchType return a non-null empty array). crash-loudly-not-hang.
 	
 }

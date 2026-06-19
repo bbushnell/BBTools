@@ -528,7 +528,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		
 		//Wait for threads to finish
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		
@@ -556,7 +556,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		
 		//Wait for threads to finish
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		ReadWrite.closeStreams(cris);

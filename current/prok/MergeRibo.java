@@ -425,7 +425,8 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		if(verbose){System.err.println("Threads finished with success="+success+".");}
-		errorState&=!success;
+		//TODO: Possible bug [prok/MergeRibo#001] (MEDIUM) - "&=" CLEARS previously-accumulated errors. process() calls spawnThreads SIX+ times on this instance (per input file L294-301, then ffalt L308, then the pickBest pass L320), with errorState|=closeStream/writeAll between. A later successful call does "errorState&=!true"=0, wiping an earlier file's error before the L355 crash-loud throw -- and the final pickBest pass almost always succeeds, so it routinely clears any input-phase error. Should be "errorState|=!success". Same template-propagated bug as MergeRibo_Fast#001 (~49 sites tree-wide; live in multi-spawnThreads tools).
+		errorState|=!success;
 	}
 	
 	@Override
@@ -598,8 +599,9 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			Collections.sort(list);
 			Collections.reverse(list);
 			assert(list.get(0).product>=list.get(1).product);
-			if(list.size()<3 || fast){return list.get(0);}
-			
+			if(list.size()<3 || fast){return list.get(0);}//<3 seqs or fast mode: take the highest-scoring; no consensus worth building
+
+			//consensus path: seed a BaseGraph on the best seq (padded toward full ribo length), align every seq in the taxon to it, traverse for the consensus. useConsensus -> return the consensus itself; else return the REAL seq that best matches the consensus (re-scored + re-sorted).
 			Ribo base=list.get(0);
 			int pad=Tools.max(10, ((processITS ? 900 : 1600)-base.r.length()));
 			BaseGraph bg=new BaseGraph(base.r.name(), base.r.bases, base.r.quality, base.r.numericID, pad);
@@ -640,6 +642,7 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 				if(levelID>0 && levelID!=key) {key=levelID;}
 			}
 			
+			//seenTaxID is thread-safe WITHOUT locking the contains() here: it's WRITTEN only by primary threads (altData=false, in the synchronized(listMap) block below) and READ (contains) only by alt threads (for primary, altData=false short-circuits the &&). The primary spawnThreads fully joins before the alt spawnThreads starts (happens-before), so during the alt phase seenTaxID is read-only. alt = a fallback source for taxa absent from primary.
 			if(key==null || key==-1 || (altData && seenTaxID.contains(key))){return;}
 			float id=align(r);
 			if(id<minID){return;}

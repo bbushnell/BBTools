@@ -320,7 +320,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			alpt.add(new ProcessThread(cris, bsw, shw, queryBuckets, maxSubs, minid, i));
 		}
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 	}
 
 	@Override

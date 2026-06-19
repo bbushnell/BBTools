@@ -111,7 +111,7 @@ public abstract class ReadStreamWriter extends Thread {
 						try {
 							if(supressHeaderSequences){
 								for(byte[] line : list){
-									boolean sq=(line!=null && line.length>2 && line[0]=='@' && line[1]=='S' && line[2]=='Q' && line[3]=='\t');
+									boolean sq=(line!=null && line.length>3 && line[0]=='@' && line[1]=='S' && line[2]=='Q' && line[3]=='\t');
 									if(!sq){
 										myOutstream.write(line);
 										myOutstream.write('\n');

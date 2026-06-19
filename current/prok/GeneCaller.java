@@ -337,6 +337,7 @@ public class GeneCaller extends ProkObject {
 				}
 			}
 		}
+		//best = global max of pathScore() over both prev-strand tables (bestOrfPlus/bestOrfMinus) across all 6 frames; the chain is reconstructed by walking orf.prev() backward. pathScorePlus/pathScoreMinus are tracked per-Orf separately precisely so the DP can pick a predecessor on either strand without clobbering the other strand's running chain.
 		ArrayList<Orf> bestPath=new ArrayList<Orf>();
 		for(Orf orf=best; orf!=null; orf=orf.prev()){
 			bestPath.add(orf);
@@ -618,6 +619,7 @@ public class GeneCaller extends ProkObject {
 			if(x>=0){
 				len++;
 				if(len>=k){
+					//RNA scoring is frameless: inner.probs[0] only (a single frame, unlike CDS's 3). dif=prob-bias is the per-kmer above/below-average increment; currentScore is a Smith-Waterman-style local accumulator clamped at 0 -- a run of above-bias kmers grows it, a below-bias stretch resets it to 0. That reset is exactly where a candidate region [lastStart,maxPos] is closed in the else-branch below.
 					float prob=inner.probs[0][kmer];
 					float dif=prob-bias;//Prob above 1 is more likely than average
 					currentScoreAbs+=prob;
@@ -876,6 +878,7 @@ public class GeneCaller extends ProkObject {
 //					System.err.println("innerScore="+innerScore);
 					assert(rnalen<=maxlen) : "start="+start+", stop="+stop+", rnalen="+rnalen+", minlen="+minlen+", maxlen="+maxlen;
 					if(innerScore>=innerThresh){
+						//refined score = inner^2 (c) * length-fit (d) * geomean of start/stop point scores (sqrt(a*b)). d is a triangular fit peaking at len==window (==1.0) and falling 2.4*invWindow per base off-length; a,b are floored at 0.25 so a weak/negative start or stop degrades but never zeroes or sign-flips the product. The best (start,stop) pair within [minlen,maxlen] wins.
 						final float a=Tools.max(startScore+0.25f, 0.25f);
 						final float b=Tools.max(stopScore+0.25f, 0.25f);
 						final float c=innerScore*innerScore;
@@ -934,6 +937,7 @@ public class GeneCaller extends ProkObject {
 		for(Read r : consensus){
 //			refined=refineByAlignment(orf, bases, strand, sc, r.bases, 15, 15, 2);
 			refined=refineByAlignment(orf, bases, strand, sc, r.bases, sc.startSlop(), sc.stopSlop(), 2);
+			//TODO: Possible bug [prok/GeneCaller#001] - the trailing "|| true" forces break after consensus[0], so the loop never tries a 2nd consensus and the "refined ||" (retry on failure) and "sc.type==r18S" clauses are both dead. If any type ships >1 consensus read, an RNA matching only consensus[1+] is rejected (missed call). Latent LOW today iff every type has <=1 consensus (confirm via ProkObject.consensusReads); looks like leftover debug forcing single-consensus. Flag for Brian.
 			if(refined || sc.type==r18S || true){break;}
 		}
 		if(refined){
@@ -1494,6 +1498,7 @@ public class GeneCaller extends ProkObject {
 //	static float[] biases=new float[] {1f, 1.50f, 1.30f, 1.30f, 1.55f, 1.30f};
 
 //	{"CDS", "tRNA", "16S", "23S", "5S", "18S", "28S", "RNA"};
+	//NOTE (feature forward-lead, Eru 2026-06-19): cutoff1-5/scoreMult/biases are type-indexed and sized 6 = {CDS0,tRNA1,16S2,23S3,5S4,18S5}. Adding 5.8S/28S/25S/ITS (the commented header above shows 28S=6,RNA=7 as the intended next slots) requires extending ALL six of these arrays in lockstep, new ProkObject type constants, and trained rnaContainers. See plans/prok_ribo_trna_its_calling.plan.
 	/** Sum score cutoffs for initial RNA detection by feature type */
 	static float[] cutoff1=new float[] {0, 20f, 300f, 400f, 100f, 400f};//sum score
 	/** ORF score cutoffs for refined RNA evaluation by feature type */

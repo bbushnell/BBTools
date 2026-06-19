@@ -522,7 +522,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		
 		boolean success=ThreadWaiter.waitForThreadsToFinish(alpt, this);
 		outstream.println("Finished processing "+readsIn+" reads and "+basesIn+" bases.");
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		//This transforms SketchHeaps (used for building Sketches) into finished Sketches.

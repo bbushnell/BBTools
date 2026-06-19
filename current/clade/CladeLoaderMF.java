@@ -527,7 +527,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState&=!success;
+		errorState|=!success;
 		
 		//Do anything necessary after processing
 		ArrayList<Clade> out=new ArrayList<Clade>(files.size());
