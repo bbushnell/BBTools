@@ -550,9 +550,27 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		}
 		return list.size()==0 ? null : list;
 	}
-	
+
+	/**
+	 * Builds a biallelic VCFLine carrying a single alternate allele drawn from this (typically
+	 * multiallelic) line.  Mirrors one iteration of {@link #splitAlleles()}: copies the fixed
+	 * fields, swaps in altK, recomputes the variant type and hash, and canonicalizes.  Unlike
+	 * the clone-based splitAlleles, the field constructor gives the new line an INDEPENDENT
+	 * samples list, so the caller may rewrite its genotype without disturbing sibling alleles.
+	 * Used by polyploid decomposition, which keys per-allele lines by sequence (not index).
+	 * @param altK One alternate allele sequence (must not contain a comma)
+	 * @return Biallelic VCFLine for altK, or null if altK equals the reference
+	 */
+	public VCFLine isolateAllele(byte[] altK){
+		VCFLine line=new VCFLine(scaf, pos, id, ref, altK, qual, filter, info, format, type, samples);
+		line.recalc();//altK is no longer multiallelic: recompute SUB/INS/DEL type and rehash
+		if(line.isRef()){return null;}
+		if(TRIM_TO_CANONICAL){line.trimToCanonical();}
+		return line;
+	}
+
 	/** Splits multi-base substitutions into SNPs.
-	 * Discards resultant ref "SNPs" */ 
+	 * Discards resultant ref "SNPs" */
 	private ArrayList<VCFLine> splitSubs(){
 		assert(type==Var.SUB);
 		assert(alt.length>1);

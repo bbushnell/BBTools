@@ -2,6 +2,7 @@ package var2;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map.Entry;
 
@@ -98,6 +99,8 @@ public class CompareVCF {
 				splitAlleles=splitSubs=Parse.parseBoolean(b);
 			}else if(a.equals("splitall") || a.equals("sascsss")) {
 				splitAlleles=splitComplex=splitSubs=Parse.parseBoolean(b);
+			}else if(a.equals("ploidyout") || a.equals("outploidy")) {
+				ploidyOut=Integer.parseInt(b);
 			}else if(a.equals("minscore") || a.equals("minqual") || a.equals("minq")) {
 				minScore=Double.parseDouble(b);
 			}else if(a.equals("trimtocanonical") || a.equals("canonicalize") || a.equals("canonicize") || a.equals("canonize")){
@@ -130,6 +133,14 @@ public class CompareVCF {
 		assert(FastaReadInputStream.settingsOK());
 		
 		if(in1==null || in1.length<2){throw new RuntimeException("Error - at least two input files are required.");}
+
+		if(ploidyOut>0){
+			if(mode!=UNION && mode!=INTERSECTION){
+				throw new RuntimeException("Error - ploidyout requires union or intersection; subtraction is undefined for ploidy merging.");
+			}
+			//Do NOT force splitalleles here: upconvert decomposes multiallelic lines itself (per-alt
+			//dosage from the original GT), which requires that GT intact.  Pre-splitting would discard it.
+		}
 		
 		if(!ByteFile.FORCE_MODE_BF2){
 			ByteFile.FORCE_MODE_BF2=false;
@@ -218,6 +229,7 @@ public class CompareVCF {
 	 * @return HashSet containing all unique variants from all input files
 	 */
 	public HashSet<VCFLine> union(){
+		if(ploidyOut>0){return upconvert(UNION);}
 		final HashSet<VCFLine> set=new HashSet<VCFLine>();
 		for(FileFormat ff : ffin1){
 			getSet(ff, set);
@@ -231,6 +243,7 @@ public class CompareVCF {
 	 * @return HashSet containing variants common to all input files
 	 */
 	public HashSet<VCFLine> intersection(){
+		if(ploidyOut>0){return upconvert(INTERSECTION);}
 		HashSet<VCFLine> set0=null;
 		for(FileFormat ff : ffin1){
 			HashSet<VCFLine> set=getSet(ff, null);
@@ -246,6 +259,7 @@ public class CompareVCF {
 	 * @return HashSet containing variants unique to the first input file
 	 */
 	public HashSet<VCFLine> difference(){
+		assert(ploidyOut<=0) : "ploidyout is undefined for subtraction (should have been rejected at parse).";
 		HashSet<VCFLine> set0=null;
 		for(FileFormat ff : ffin1){
 			HashSet<VCFLine> set=getSet(ff, null);
@@ -253,6 +267,204 @@ public class CompareVCF {
 			else{set0.removeAll(set);}
 		}
 		return set0;
+	}
+
+	/**
+	 * Merges variants across all inputs (union or intersection) and rewrites each
+	 * output line's genotype to the summed ALT dosage, producing a polyploid call set.
+	 * Each diploid input contributes 0, 1, or 2 ALT copies per variant; the output GT is
+	 * (ploidyOut-sum) reference alleles followed by (sum) alternate alleles.  Only UNION
+	 * and INTERSECTION are valid here; subtraction is rejected at parse time.
+	 * @param opMode UNION (variant present in any input) or INTERSECTION (present in all)
+	 * @return Representative VCFLines with rewritten polyploid genotypes
+	 */
+	private HashSet<VCFLine> upconvert(int opMode){
+		assert(opMode==UNION || opMode==INTERSECTION) : opMode;
+		final int nInputs=ffin1.length;
+		final HashMap<VCFLine, VCFLine> rep=new HashMap<VCFLine, VCFLine>();
+		final HashMap<VCFLine, int[]> acc=new HashMap<VCFLine, int[]>();//value = {ALT dosage sum, input count}
+		final int[] inputPloidy=new int[nInputs];
+
+		for(int fi=0; fi<nInputs; fi++){
+			final HashSet<VCFLine> set=getSet(ffin1[fi], null);
+			int ploidyThis=-1;
+			for(VCFLine v : set){
+				final int alleles=gtAlleleCount(v);
+				if(ploidyThis<0){ploidyThis=alleles;}
+				if(v.isMulti()){
+					decomposeMulti(v, rep, acc);//Multiallelic: split per-ALT, dosage = per-allele copy count
+				}else{
+					accumulate(rep, acc, v, altDosage(v));//Biallelic: dosage = ALT copies in the GT
+				}
+			}
+			assert(ploidyThis>=1) : "Input "+fi+" had no readable genotypes.";
+			inputPloidy[fi]=ploidyThis;
+		}
+
+		//Required invariant: the output ploidy equals the sum of the input ploidies.
+		int ploidySum=0;
+		for(int p : inputPloidy){ploidySum+=p;}
+		assert(ploidySum==ploidyOut) : "ploidyout ("+ploidyOut+") must equal the sum of input ploidies ("+ploidySum+").";
+
+		final HashSet<VCFLine> out=new HashSet<VCFLine>();
+		for(VCFLine v : rep.values()){
+			final int[] a=acc.get(v);
+			final int sum=a[0], count=a[1];
+			if(opMode==INTERSECTION && count<nInputs){continue;}//Not present in every input
+			assert(sum>=1 && sum<=ploidyOut) : "ALT dosage "+sum+" out of [1,"+ploidyOut+"] at "+v;
+			setPolyploidGT(v, sum, ploidyOut);
+			out.add(v);
+		}
+		return out;
+	}
+
+	/**
+	 * Decomposes a multiallelic line into one biallelic line per ALT allele actually carried by the
+	 * genotype, accumulating each into the polyploid merge keyed by (scaf,pos,ref,alt).  The per-allele
+	 * dosage is how many copies of that allele's index the GT contains, so 1/2 yields each of the two
+	 * ALTs at dosage 1 while 2/2 yields the second ALT at dosage 2.  Keying by allele SEQUENCE (not
+	 * index) makes this agree across inputs that list the same alleles in a different order, and lets a
+	 * decomposed allele merge with the same allele called biallelically in another input.
+	 * @param v Multiallelic source line (ALT contains a comma)
+	 * @param rep Representative-line map being built
+	 * @param acc Per-key {dosage sum, input count} accumulator
+	 */
+	private void decomposeMulti(VCFLine v, HashMap<VCFLine, VCFLine> rep, HashMap<VCFLine, int[]> acc){
+		final int[] gt=parseGtIndices(v);
+		final String[] alts=new String(v.alt).split(",");
+		for(int k=1; k<=alts.length; k++){//Allele indices are 1-based (0 is the reference)
+			int count=0;
+			for(int idx : gt){if(idx==k){count++;}}
+			if(count==0){continue;}//Listed in ALT but not present in this genotype
+			final VCFLine lk=v.isolateAllele(alts[k-1].getBytes());
+			if(lk==null){continue;}//Allele equals reference (defensive; real ALTs never do)
+			if(normalize){lk.leftAlign(refBases(lk.scaf));}//Native lines were left-aligned in getSet
+			accumulate(rep, acc, lk, count);
+		}
+	}
+
+	/** Adds one variant's ALT dosage into the polyploid accumulator: creates the entry on first sight
+	 * (recording it as the representative line) or sums into it and bumps the input count.
+	 * @param rep Representative-line map
+	 * @param acc Per-key {dosage sum, input count} accumulator
+	 * @param line Variant key (and representative on first sight)
+	 * @param dosage ALT copies to add */
+	private static void accumulate(HashMap<VCFLine, VCFLine> rep, HashMap<VCFLine, int[]> acc, VCFLine line, int dosage){
+		final int[] a=acc.get(line);
+		if(a==null){rep.put(line, line); acc.put(line, new int[]{dosage, 1});}
+		else{a[0]+=dosage; a[1]++;}
+	}
+
+	/**
+	 * Parses the first sample's GT into its allele indices (0 = reference, 1+ = ALT positions).
+	 * Reads only the leading GT subfield, accepts phased ('|') or unphased ('/') separators, and
+	 * handles multi-digit indices; a missing allele ('.') becomes -1, which matches no ALT index.
+	 * @param v Variant whose first sample GT is read
+	 * @return Allele indices in genotype order
+	 */
+	private static int[] parseGtIndices(VCFLine v){
+		assert(!v.samples.isEmpty()) : "No genotype to read: "+v;
+		final byte[] s=v.samples.get(0);
+		int end=0;
+		while(end<s.length && s[end]!=':'){end++;}//GT is the first FORMAT subfield
+		int alleles=1;
+		for(int i=0; i<end; i++){if(s[i]=='/' || s[i]=='|'){alleles++;}}
+		final int[] out=new int[alleles];
+		int slot=0, num=-1;
+		for(int i=0; i<end; i++){
+			final byte c=s[i];
+			if(c=='/' || c=='|'){out[slot++]=num; num=-1;}
+			else if(c>='0' && c<='9'){num=(num<0 ? 0 : num)*10+(c-'0');}
+			//'.' (or any other byte) leaves num at -1: a no-call allele, which matches no ALT index
+		}
+		out[slot]=num;
+		return out;
+	}
+
+	/**
+	 * Counts ALT-allele copies in the first sample's biallelic genotype.  Only called on biallelic
+	 * lines (multiallelic lines are routed to {@link #decomposeMulti}); a residual multiallelic allele
+	 * index (&gt;1) trips an assertion rather than being guessed at, guarding that invariant.
+	 * @param v Variant whose first sample GT is read
+	 * @return ALT copies: 1 for a het (0/1), 2 for a hom-alt (1/1)
+	 */
+	private static int altDosage(VCFLine v){
+		assert(!v.samples.isEmpty()) : "No genotype to read: "+v;
+		final byte[] s=v.samples.get(0);
+		int count=0;
+		for(int i=0; i<s.length && s[i]!=':'; i++){
+			final byte c=s[i];
+			if(c=='/' || c=='|' || c=='.'){continue;}//Separator or missing allele
+			assert(c=='0' || c=='1') : "Residual multiallelic GT (allele index >1); run splitalleles: "+new String(s);
+			if(c=='1'){count++;}
+		}
+		return count;
+	}
+
+	/**
+	 * Returns the number of alleles in the first sample's GT (separators + 1), i.e. the input ploidy.
+	 * @param v Variant whose first sample GT is read
+	 * @return Allele count of the genotype
+	 */
+	private static int gtAlleleCount(VCFLine v){
+		assert(!v.samples.isEmpty()) : "No genotype to read: "+v;
+		final byte[] s=v.samples.get(0);
+		int alleles=1;
+		for(int i=0; i<s.length && s[i]!=':'; i++){
+			if(s[i]=='/' || s[i]=='|'){alleles++;}
+		}
+		return alleles;
+	}
+
+	/**
+	 * Rewrites the variant's first sample to the polyploid genotype: (ploidy-sum) reference
+	 * alleles then (sum) alternate alleles, unphased, preserving any trailing FORMAT subfields
+	 * (e.g. :DP).  Collapses to a single merged sample column.
+	 * @param v Representative line to mutate
+	 * @param sum Total ALT dosage across inputs
+	 * @param ploidy Output ploidy
+	 */
+	private static void setPolyploidGT(VCFLine v, int sum, int ploidy){
+		final String sample=new String(v.samples.get(0));
+		final int colon=sample.indexOf(':');
+		final ByteBuilder bb=new ByteBuilder();
+		for(int i=0; i<ploidy; i++){
+			if(i>0){bb.append('/');}
+			bb.append(i<ploidy-sum ? '0' : '1');//Reference alleles first, then ALT
+		}
+		if(colon>=0){bb.append(sample.substring(colon));}//Preserve ":<trailing subfields>"
+		v.samples.clear();
+		v.samples.add(bb.toBytes());
+	}
+
+	/**
+	 * Rewrites the #CHROM header line's sample columns into one merged column named by
+	 * joining all input sample names with '+', recording the polyploid provenance
+	 * (e.g. HG001+HG002).  Only invoked when ploidyout is active.
+	 */
+	private void renameMergedSample(){
+		if(header==null || samples.isEmpty()){return;}
+		final StringBuilder sb=new StringBuilder();
+		for(int i=0; i<samples.size(); i++){
+			if(i>0){sb.append('+');}
+			sb.append(samples.get(i));
+		}
+		final String merged=sb.toString();
+		for(int i=0; i<header.size(); i++){
+			final byte[] line=header.get(i);
+			if(Tools.startsWith(line, "#CHROM")){
+				final String[] cols=new String(line).split("\t");
+				assert(cols.length>=10) : "Malformed #CHROM line (need 9 fixed columns + sample): "+new String(line);
+				final ByteBuilder bb=new ByteBuilder();
+				for(int c=0; c<9; c++){//#CHROM POS ID REF ALT QUAL FILTER INFO FORMAT
+					if(c>0){bb.append('\t');}
+					bb.append(cols[c]);
+				}
+				bb.append('\t').append(merged);
+				header.set(i, bb.toBytes());
+				break;
+			}
+		}
 	}
 	
 	/**
@@ -294,6 +506,7 @@ public class CompareVCF {
 		}
 
 		{//Processing block
+			if(ploidyOut>0){renameMergedSample();}
 			for(byte[] line : header){
 				headerLinesOut++;
 				if(bsw!=null){bsw.println(line);}
@@ -371,6 +584,7 @@ public class CompareVCF {
 	boolean splitComplex=false;
 	boolean normalize=false;
 	double minScore=-99999;
+	int ploidyOut=0;
 
 	/** BED file restricting which variants are compared; null disables region filtering */
 	private String bedFile=null;

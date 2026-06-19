@@ -41,6 +41,12 @@ sub=t           Keep substitutions.
 del=t           Keep deletions.
 ins=t           Keep insertions.
 
+Genotype-filtering parameters (GT = the first sample's genotype):
+gt=             Keep only these genotypes (comma-separated, e.g. gt=0/1,1/1).
+homozygous=     (hom) hom=t keeps only homozygous calls; hom=f keeps only heterozygous.
+multiallelic=   (ma) ma=t keeps only multiallelic genotypes (an allele index >=2,
+                e.g. 1/2); ma=f excludes them, keeping biallelic genotypes only.
+
 Variant-quality filtering parameters:
 minreads=0              Ignore variants seen in fewer reads.
 minqualitymax=0         Ignore variants with lower max base quality.

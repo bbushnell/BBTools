@@ -33,6 +33,14 @@ normalize=f     (leftalign) Left-align indels using the reference (requires
 bed=<file>      Restrict the comparison to variants inside this BED file's
                 intervals (e.g. a high-confidence benchmark region set).
 invertbed=f     Invert the BED filter: compare only variants OUTSIDE the intervals.
+ploidyout=0     When >0 (e.g. 4), union/intersection merges the diploid input
+                genotypes into one polyploid genotype by summing per-ALT dosage
+                - e.g. building a tetraploid truth from two diploid VCFs.  Requires
+                union or intersection (not subtraction); the output ploidy must
+                equal the sum of the input ploidies.  Multiallelic sites are
+                decomposed per-ALT: each distinct ALT becomes its own biallelic
+                record at its summed dosage (0=not-this-allele padding), so they
+                are included rather than dropped.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
