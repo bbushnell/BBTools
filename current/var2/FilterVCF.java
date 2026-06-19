@@ -157,6 +157,8 @@ public class FilterVCF {
 				homFilter=Parse.parseBoolean(b) ? 1 : -1;
 			}else if(a.equals("heterozygous") || a.equals("het")){
 				homFilter=Parse.parseBoolean(b) ? -1 : 1;
+			}else if(a.equals("multiallelic") || a.equals("ma") || a.equals("multi")){
+				multiFilter=Parse.parseBoolean(b) ? 1 : -1;
 			}else if(samFilter.parse(arg, a, b)){
 				setSamFilter=true;
 			}else if(varFilter.parse(a, b, arg)){
@@ -270,15 +272,18 @@ public class FilterVCF {
 	}
 
 	/**
-	 * Genotype-based pass test for the gt=/homozygous=/heterozygous= filters.  Returns true when
-	 * the variant's genotype (GT, the first ':'-subfield of the first sample column) satisfies BOTH
-	 * the gt= whitelist (if set) and the zygosity constraint (if set).  A record lacking a sample/GT
+	 * Genotype-based pass test for the gt=/homozygous=/heterozygous=/multiallelic= filters.  Returns true
+	 * when the variant's genotype (GT, the first ':'-subfield of the first sample column) satisfies ALL of
+	 * the gt= whitelist, the zygosity constraint, and the multiallelic constraint (each if set).  A record lacking a sample/GT
 	 * column is rejected whenever a genotype filter is active (it cannot be evaluated).
 	 *
 	 * @param vline The parsed VCF line
 	 * @return true if the variant passes the active genotype filter(s)
 	 */
 	private boolean passesGenotype(VCFLine vline){
+		//TODO: Possible bug (pre-existing) - genotypeOf misparses the first ~1-2 variant lines, so the
+		//gt=/homozygous=/multiallelic= filters misclassify them (e.g. gt=0/1 misses a first-line 0/1 record).
+		//Same root cause as the pushback off-by-one noted in process() (~L722).  Not introduced by the multiallelic filter.
 		final String gt=genotypeOf(vline);
 		if(gt==null){return false;}
 		if(gtWhitelist!=null){
@@ -290,6 +295,11 @@ public class FilterVCF {
 			final boolean hom=isHomozygous(gt);
 			if(homFilter>0 && !hom){return false;}
 			if(homFilter<0 && hom){return false;}
+		}
+		if(multiFilter!=0){
+			final boolean multi=isMultiallelic(gt);
+			if(multiFilter>0 && !multi){return false;}//Keep only multiallelic genotypes
+			if(multiFilter<0 && multi){return false;}//Exclude multiallelic genotypes
 		}
 		return true;
 	}
@@ -333,6 +343,24 @@ public class FilterVCF {
 			if(!alleles[i].equals(alleles[0])){return false;}
 		}
 		return true;
+	}
+
+	/**
+	 * Tests whether a normalized genotype string is multiallelic - that is, whether it references any
+	 * alternate allele beyond the first (an allele index &gt;=2, e.g. "1/2" or "2/3").  Reference and
+	 * first-alt alleles (0 and 1) and missing alleles ('.') do not count.
+	 *
+	 * @param gt Normalized genotype string (e.g. "1/2", "0/1", "2/2")
+	 * @return true if any allele index is &gt;=2
+	 */
+	private static boolean isMultiallelic(String gt){
+		if(gt==null || gt.length()==0){return false;}
+		final String[] alleles=gt.split("/");
+		for(String al : alleles){
+			if(al.isEmpty() || al.equals(".")){continue;}
+			try{if(Integer.parseInt(al)>=2){return true;}}catch(NumberFormatException e){}
+		}
+		return false;
 	}
 
 	/**
@@ -538,7 +566,7 @@ public class FilterVCF {
 					}
 
 					//Genotype-based (GT) filtering
-					if(pass && (gtWhitelist!=null || homFilter!=0)){pass&=passesGenotype(vline);}
+					if(pass && (gtWhitelist!=null || homFilter!=0 || multiFilter!=0)){pass&=passesGenotype(vline);}
 
 					//Statistical filtering
 					if(pass && varFilter!=null){
@@ -855,7 +883,7 @@ public class FilterVCF {
 					}
 
 					//Genotype-based (GT) filtering
-					if(pass && (gtWhitelist!=null || homFilter!=0)){pass&=passesGenotype(vline);}
+					if(pass && (gtWhitelist!=null || homFilter!=0 || multiFilter!=0)){pass&=passesGenotype(vline);}
 
 					//Statistical filtering
 					if(pass && varFilter!=null){
@@ -1025,6 +1053,8 @@ public class FilterVCF {
 	private String[] gtWhitelist=null;
 	/** Zygosity filter: 0=off, 1=keep homozygous only (homozygous=t), -1=keep heterozygous only */
 	private int homFilter=0;
+		/** Multiallelic filter: 0=off, 1=keep multiallelic only (multiallelic=t), -1=exclude multiallelic (multiallelic=f) */
+		private int multiFilter=0;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         File Fields          ----------------*/
