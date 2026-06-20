@@ -35,7 +35,8 @@ public class Organism implements Iterable<Sequence>, bin.Sketchable {
 	@Override
 	public int compareTo(Sketchable o){
 		if(taxid()!=o.taxid()) {return taxid()-o.taxid();}
-		return (int)(size()-o.size());
+		//[clade/Organism#001] FIXED - was (int)(size()-o.size()): size is a long genome sum that can exceed 2^31 (large eukaryote), so the cast overflows -> wrong order. Long.compare is overflow-safe. Latent (Organism is used only by the dead SeqIndex subsystem). taxid()-o.taxid() is safe (taxIDs are small positive ints).
+		return Long.compare(size(), o.size());
 	}
 
 	@Override
@@ -61,7 +62,7 @@ public class Organism implements Iterable<Sequence>, bin.Sketchable {
 	public int id(){return tid;}
 
 	@Override
-	public float gc(){assert(false);return 0;}
+	public float gc(){assert(false);return 0;}//unsupported-op fence (Organism has no single GC); same for setFrom/setID. Organism is dead (SeqIndex-only) -- these never fire.
 
 	@Override
 	public long size(){return size;}

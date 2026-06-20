@@ -123,6 +123,7 @@ public class PreClade {
         }
 
         // Calculate derived statistics and complete the Clade
+        //NOTE [clade/Clade#002 reachability]: finish() here is a LIVE finish()-site for a possibly-degenerate clade. PreClade.toClade is reachable via CladeServer's PreClade request path (CladeServer:618, untrusted client input) and bin/GradeBins:1462. A bases==0 / all-N PreClade -> zero counts[3] -> Clade.toFrequencies (1/sum or SimilarityMeasures.compensate) -> NaN frequencies. No bases>0 guard here. See Clade#002; fix is a guard in toFrequencies/finish (resolving at CladeServer review).
         clade.finish();
 
         return clade;

@@ -30,6 +30,7 @@ public class Sequence implements bin.Sketchable {
 		bb.append('>');
 		if(name!=null) {bb.append(name);}
 		bb.nl();
+		//TODO: Possible bug [clade/Sequence#001] (LOW latent; dead code) - FASTA-wrap logic is broken/inverted: the wrap>0&&wrap<len branch (where wrapping SHOULD happen) appends the whole sequence unwrapped, while the else branch (incl. default wrap=-1) runs `for(i<bases.length) append(bases, i*wrap, wrap)` -> with wrap=-1 the offset i*wrap is negative -> AIOOBE; even with wrap>=len it runs len iterations reading past the end. The two branch bodies look swapped AND the loop should step i+=wrap (not i++) bounded to len. DEFERRED (a rewrite of an unused feature, not a typo): wrap is -1 by default with no caller, and toBytes()/toString() have no live callers (the whole SeqIndex subsystem is dead). Likely intended: if(wrap<=0||wrap>=len) append whole; else for(i=0;i<len;i+=wrap) append(bases,i,Math.min(wrap,len-i)).
 		if(bases==null) {bb.nl();}
 		else if(wrap>0 && wrap<bases.length) {
 			bb.append(bases).nl();
@@ -52,6 +53,7 @@ public class Sequence implements bin.Sketchable {
 	@Override
 	public int compareTo(Sketchable o){
 		if(taxid()!=o.taxid()) {return taxid()-o.taxid();}
+		//(int)(size()-o.size()) is SAFE here (unlike Organism#001): size()=bases.length is int-bounded, so the long diff fits int. Dead anyway (SeqIndex-only).
 		return (int)(size()-o.size());
 	}
 

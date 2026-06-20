@@ -250,7 +250,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		caga=KmerTracker.CAGA(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		frequencies=new float[6][];
-		frequencies[3]=toFrequencies(counts[3], 3);//toFrequencies divides by sum(counts[3]); an all-zero counts[3] (base-0 clade, or all-N contig) -> inv=1/0=Inf -> NaN freqs. Guarded where it could bite: CladeLoaderSF:125 finishes only if merged.bases>0. //TODO verify no other finish() site reaches here on a bases>0-but-zero-3mer clade.
+		frequencies[3]=toFrequencies(counts[3], 3);//[clade/Clade#002] resolved: toFrequencies now guards sum==0 (all-N / zero-3mer; note bases>0 guards do NOT catch all-N because Clade.add counts N into bases). ABSCOMP default was already safe via simd Vector.compensate's Math.max guard; only the non-ABSCOMP 1/sum path was unguarded.
 		if(MAKE_FREQUENCIES && (method==ABSCOMP || method==ABS)) {
 			frequencies[4]=(maxK<4 || bases<Comparison.minK4Bases ? null : toFrequencies(counts[4], 4));
 			frequencies[5]=(maxK<5 || bases<Comparison.minK5Bases ? null : toFrequencies(counts[5], 5));
@@ -273,7 +273,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public static float[] toFrequencies(long[] counts, final int k) {
 		if(Comparison.method==Comparison.ABSCOMP) {return SimilarityMeasures.compensate(counts, k);}
 		long sum=Tools.sum(counts);
-		float inv=1f/sum;
+		float inv=(sum==0 ? 0 : 1f/sum);//[clade/Clade#002] FIXED - was 1f/sum: a zero-sum counts[k] (all-N contig or bases==0 clade) -> 1/0=Inf -> NaN freqs. sum==0->inv=0 gives an all-zero freq vector (compares as maximally different), matching the guarded ABSCOMP path (simd Vector.compensate L342 inv/Math.max(aSum,1)). Only non-ABSCOMP methods reach here; ABSCOMP (default, incl. the CladeServer network path) was already safe.
 		float[] freqs=new float[counts.length];
 		for(int i=0; i<counts.length; i++) {freqs[i]=counts[i]*inv;}
 		return freqs;

@@ -25,6 +25,7 @@ public class CladeLoaderAuto extends CladeObject {
 
 		if(files==0){return new ArrayList<Clade>();}
 
+		//3-way threading strategy: 1 file -> CladeLoaderSF with ALL threads (the reason this class exists -- avoids single-threaded fallback on one big file); files>=threads/2 -> CladeLoaderMF (parallelize ACROSS files); else few-files -> loadFewFiles (parallel files x threads/file). readsProcessed/basesProcessed accumulated after each loader completes (main thread; no race).
 		if(files==1){
 			CladeLoaderSF loader=new CladeLoaderSF();
 			ArrayList<Clade> result=loader.loadFile(in.get(0), perContig, minContig, maxReads, finish);
@@ -59,7 +60,7 @@ public class CladeLoaderAuto extends CladeObject {
 				loader.loadFile(fname, perContig, minContig, maxReads, finish, threadsPerFile)
 			);
 		}
-		pool.shutdown();
+		pool.shutdown();//no awaitTermination needed: futures[i].get() below blocks until each task completes, and shutdown() lets the pool's `files` threads die once their tasks finish (no leak). Total concurrency ~= files * threadsPerFile ~= threads.
 
 		ArrayList<Clade> results=new ArrayList<Clade>();
 		for(int i=0; i<files; i++){

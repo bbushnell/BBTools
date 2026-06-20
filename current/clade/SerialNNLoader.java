@@ -73,6 +73,7 @@ public class SerialNNLoader {
 
 			if(lvl<0 || lvl>=levels){continue;}
 			CellNet net=netLines.isEmpty() ? null : CellNetParser.loadFromLines(netLines);
+			//Trusted internal-file assumptions (.bbnets is generated, not user input): a bin>=bins is silently dropped (neither branch stores it); a net with no #cal keeps the all-zero default cal -> CladeConfidence.calibrate returns 0 (effectively no-confidence). Both out-of-scope per input-validity (malformed generated file), but noted. A null net (empty block) is handled gracefully downstream (sigmoid fallback).
 			if(bin<0){
 				allLenNets[lvl]=net;
 				if(calParams!=null){allLenCal[lvl]=calParams;}

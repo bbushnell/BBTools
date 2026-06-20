@@ -11,7 +11,8 @@ public class SeqIndexResult implements Comparable<SeqIndexResult> {
 	
 	@Override
 	public int compareTo(SeqIndexResult o){
-		if(ani!=o.ani) {return ani>o.ani ? 1 : 0;}
+		//[clade/SeqIndexResult#001] FIXED - was `ani>o.ani ? 1 : 0`: returned 0 (==) when this.ani<o.ani, violating the comparator contract (a<b gave 0 while b>a gave 1 -> asymmetric -> Collections.sort at SeqIndex:170 misorders / can throw). Now -1. Latent (SeqIndex subsystem is dead). ani is a fraction so no overflow concern.
+		if(ani!=o.ani) {return ani>o.ani ? 1 : -1;}
 		return ref.compareTo(o.ref);
 	}
 	

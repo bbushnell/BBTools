@@ -150,7 +150,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		//		assert(false) : SKIP_SLOW_VALIDATION+","+VALIDATE_BRANCHLESS+","+JUNK_MODE;
 		if(SKIP_SLOW_VALIDATION){
 			passesJunk=true;
-		}else if(!aminoacid()){
+		}else if(!aminoacid()){//Nucleotide path: SIMD (if available) -> branchless -> scalar. NOTE: VALIDATE_BRANCHLESS is `final true`, so the scalar validateCommonCase() branch is DEAD; the live paths are validateCommonCaseVec (SIMD) and validateCommonCase_branchless.
 			if(U_TO_T){uToT();}
 			if(VALIDATE_VECTOR && Shared.SIMD) {
 				passesJunk=validateCommonCaseVec(processAssertions);
@@ -237,9 +237,9 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 			setJunk(true);
 		}else if(FLAG_BROKEN_QUALITY){
 			setJunk(true);
-		}else{
+		}else{//No broken-quality flag set: crash loud on the bases/quals length mismatch (malformed input).
 			boolean x=false;
-			assert(x=processAssertions);
+			assert(x=processAssertions);//Brian's runtime-assertion-detection idiom: x becomes processAssertions ONLY under -ea (the assert is evaluated). So the kill below fires under -ea (BBTools default) and is skipped under -da. Cf. Shared.EA().
 			if(x){
 				KillSwitch.kill("\nMismatch between length of bases and qualities for read "+numericID+" (id="+id+").\n"+
 					"# qualities="+quality.length+", # bases="+bases.length+"\n\n"+
@@ -434,6 +434,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 		//	System.err.println(junkOr+", "+JUNK_MODE);
 
+		//STUDIED-PRAISE branchless junk detection: each toNumE[b] is NEGATIVE iff b is an invalid base, so OR-ing them all into junkOr accumulates the sign bit - junkOr>=0 iff EVERY char was valid. The entire clean-read common case exits right here with zero per-char branches; only a dirty read (junkOr<0) pays the re-scan below. [verified: baseToNumberExtended maps junk chars to negatives]
 		//Common case
 		if(junkOr>=0){return true;}
 		//	if(junkOr>=0 && (JUNK_MODE!=FIX_JUNK_AND_IUPAC || iupacOr>=0)){return true;}
@@ -483,6 +484,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		}
 	}
 
+	//DEAD via validate(): reached only through the `else` after `else if(VALIDATE_BRANCHLESS)`, but VALIDATE_BRANCHLESS is `final true` (the author's ~L443 TODO acknowledges this) - so validateCommonCase_branchless always wins. Kept as the scalar reference.
+	//#001-fix [stream/Read#001]: the 4 junk-crash messages below reported bases[1] (hardcoded 2nd base, usually VALID) instead of bases[i] (the actual offending char) - a misleading diagnostic. Latent LOW (dead path; would mislead if VALIDATE_BRANCHLESS were ever un-finalized). Fixed bases[1]->bases[i].
 	private boolean validateCommonCase(boolean processAssertions){
 
 		assert(!aminoacid());
@@ -535,7 +538,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 						}else{
 							if(processAssertions){
 								KillSwitch.kill("\nAn input file appears to be misformatted:\n"
-									+ "The character with ASCII code "+bases[1]+" appeared where a base was expected.\n"
+									+ "The character with ASCII code "+bases[i]+" appeared where a base was expected.\n"
 									+ "Sequence #"+numericID+"\n"
 									+ "Sequence ID '"+id+"'\n"
 									+ "Sequence: "+Tools.toStringSafe(bases)+"\n\n"
@@ -564,7 +567,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 						}else{
 							if(processAssertions){
 								KillSwitch.kill("\nAn input file appears to be misformatted:\n"
-									+ "The character with ASCII code "+bases[1]+" appeared where a base was expected.\n"
+									+ "The character with ASCII code "+bases[i]+" appeared where a base was expected.\n"
 									+ "Sequence #"+numericID+"\n"
 									+ "Sequence ID '"+id+"'\n"
 									+ "Sequence: "+Tools.toStringSafe(bases)+"\n\n"
@@ -595,7 +598,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 						}else{
 							if(processAssertions){
 								KillSwitch.kill("\nAn input file appears to be misformatted:\n"
-									+ "The character with ASCII code "+bases[1]+" appeared where a base was expected.\n"
+									+ "The character with ASCII code "+bases[i]+" appeared where a base was expected.\n"
 									+ "Sequence #"+numericID+"\n"
 									+ "Sequence ID '"+id+"'\n"
 									+ "Sequence: "+Tools.toStringSafe(bases)+"\n\n"
@@ -624,7 +627,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 						}else{
 							if(processAssertions){
 								KillSwitch.kill("\nAn input file appears to be misformatted:\n"
-									+ "The character with ASCII code "+bases[1]+" appeared where a base was expected.\n"
+									+ "The character with ASCII code "+bases[i]+" appeared where a base was expected.\n"
 									+ "Sequence #"+numericID+"\n"
 									+ "Sequence ID '"+id+"'\n"
 									+ "Sequence: "+Tools.toStringSafe(bases)+"\n\n"
@@ -675,6 +678,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 			}else if(b1!=b2){
 				m++;
 				if(m>mmax){return false;}
+				//TODO: Possible bug [stream/Read#005] - quality[i]/r.quality[i] dereferenced with no null guard; a FASTA read has null quality, so dedup-by-bases with mismatches (mmax>0) on FASTA would NPE. LATENT LOW: isDuplicateByBases is UNCALLED tree-wide (verified grep) - dead code. If revived, guard quality!=null.
 				if(quality[i]>qmax && r.quality[i]>qmax){return false;}
 				if(banSameQualityMismatch && quality[i]==r.quality[i]){return false;}
 			}
@@ -1170,7 +1174,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 				}else{
 					ss.toBytes(bb);
 				}
-				bb.append(ss==null ? "null" : ss.toText());
+				//#008-fix [stream/Read#008]: removed a redundant second write here - `bb.append(ss==null?"null":ss.toText())` - that DUPLICATED the toBytes/null output just written above. SiteScore.toText and toBytes emit IDENTICAL content (verified), so every site was serialized TWICE into one column, breaking native-format round-trip (fromText's SiteScore.fromText would parse a doubled string). Kept the toBytes path, consistent with the originalSite block below. FLAG FOR BRIAN: validate the sited-read .bread round-trip; the ss==null element case is a pre-existing edge.
 			}
 		}
 
@@ -1213,7 +1217,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 		final String id=new String(split[0]);
 		long numericID=Long.parseLong(split[1]);
-		int chrom=Byte.parseByte(split[2]);
+		//#004-fix [stream/Read#004]: was Byte.parseByte - chrom is an int and toText writes the full int (bb.append(chrom)); a native-format read with chrom>127 (multi-scaffold reference) threw NumberFormatException on round-trip. Now Integer.parseInt to match toText. Native (.bread/.txt) format; latent.
+		int chrom=Integer.parseInt(split[2]);
 		//		byte strand=Byte.parseByte(split[3]);
 		int start=Integer.parseInt(split[4]);
 		int stop=Integer.parseInt(split[5]);
@@ -1254,8 +1259,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		if(!split[14].equals(".")){match=split[14].getBytes();}
 		int[] gaps=null;
 		if(!split[15].equals(".")){
-
-			String[] gstring=split[16].split("~");
+			//#003-fix [stream/Read#003]: was split[16] - the gaps column is 15 (checked just above + written at col 15 by toText); split[16] is the first SiteScore, so a native-format gapped read parsed gaps from the wrong column (NumberFormatException / garbage). Now split[15].
+			String[] gstring=split[15].split("~");
 			gaps=new int[gstring.length];
 			for(int i=0; i<gstring.length; i++){
 				gaps[i]=Integer.parseInt(gstring[i]);
@@ -3166,6 +3171,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		setShortMatch(false);
 	}
 
+	//STUDIED-PRAISE (with toShortMatchString): the RLE match codec. This decoder runs TWO passes - the first computes the EXACT decompressed length so the second fills one right-sized array with no resizing. The per-letter length formula `count += (current>0 ? current-1 : 0)` exactly mirrors the fill loop's `while(current>1)`, so the passes cannot disagree (a mismatch would AIOOBE loudly, never silently corrupt). Round-trip verified: toShort("mmmmSS")="m4S2", toLong back to "mmmmSS".
 	public static byte[] toLongMatchString(byte[] shortmatch){
 		if(shortmatch==null){return null;}
 		assert(shortmatch.length>0);
@@ -3859,6 +3865,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 		Read r=new Read(bases, null, a.id, a.numericID, a.flags, a.chrom, start, stop);
 		r.quality=quals; //This prevents quality from getting capped.
+		//TODO: Possible bug [stream/Read#006] - QUESTION: sets r.setMapped(TRUE) under the SAME condition that just zeroed the coords (~L3859, the "unmapped-ish" case). Marking a coord-zeroed read MAPPED looks inverted (setMapped(false)?). Hot BBMerge code - NOT auto-fixed; FLAG FOR BRIAN. Possible MEDIUM (wrong mapped flag on merged output) if unintentional.
 		if(a.chrom==0 || start==stop || (!a.mapped() && !a.synthetic())){r.setMapped(true);}
 		r.setInsert(insert);
 		r.setPaired(false);
@@ -3901,6 +3908,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		}else{
 			float ideal=Tools.max(minlen, len/(float)parts);
 			int actual=(int)ideal;
+			//TODO: Possible bug [stream/Read#007] - the multi-part split path (len>maxlen, the PRIMARY purpose of split) is UNFINISHED: this active assert(false) crashes under -ea (always on) before any part is produced. Also ~L3914 subquals copyOfRange(quality, a, b+1) is off-by-one vs subbases (a,b) (mismatched length + possible AIOOBE). Both in this fenced path. FLAG FOR BRIAN (is split's multi-part path needed? trace callers).
 			assert(false) : "TODO"; //Some assertion goes here, I forget what
 			for(int i=0; i<parts; i++){
 				int a=i*actual;
@@ -4384,7 +4392,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 			for(int i=0; i<quality.length; i++){
 				byte q=quality[i];
 				byte q2=(byte)Tools.min(q+5, MAX_CALLED_QUALITY);
-				ntquals[i]=ntquals[i+1]=ntquals[i+2]=q2;
+				final int j=i*3; ntquals[j]=ntquals[j+1]=ntquals[j+2]=q2;//#002-fix [stream/Read#002]: was ntquals[i]/[i+1]/[i+2] (index i not i*3) -> overlapping writes left 2/3 of ntquals zero + corrupted the rest; amino i maps to nt 3i,3i+1,3i+2
 			}
 			r.quality=ntquals;
 		}
@@ -4394,6 +4402,7 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	private static final byte[][] QUALCACHE=new byte[1000][];
 
 
+	//Flag bit-layout (the `flags` int): bit 0=strand, 1=mapped, 2=paired, 3=perfect, 4=ambiguous, 5=rescued, (6 free - old COLORMASK), 7=synthetic, 8=discard, 9=invalid, 10=swap, 11=shortmatch, 12=pairnum (single bit: 0=read1/1=read2), 13=insert-valid, 14=adapter, 15=secondary, 16=aminoacid, 17=junk, 18=validated, 19=tested, 20=inverted-repeat, 21=trimmed. 22 bits of 32 used; accessors are (flags&MASK)==MASK, setters clear-then-set. toText writes them as a binary string over maskArray (bits 0-22), fromText does Integer.parseInt(...,2) - symmetric.
 	public static final int STRANDMASK=1;
 	public static final int MAPPEDMASK=(1<<1);
 	public static final int PAIREDMASK=(1<<2);

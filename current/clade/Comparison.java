@@ -273,6 +273,13 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		kid=b.kid;
 		completeness=b.completeness;
 		kmerMatches=b.kmerMatches;
+		//[clade/Comparison#002] FIXED - setFrom previously stopped at kmerMatches, omitting the sketch fields + cachedConfidence (added later). LATENT: ComparisonHeap copies via setFrom only DURING search, before addSketchInfo sets these (so they're defaults at copy time) -> nothing lost today. But an incomplete setFrom is a landmine if a sketch-populated Comparison is ever copied. Completed for robustness (same later-added-field family as CladeIndex#001, CladeContext#001).
+		sketchTaxID=b.sketchTaxID;
+		sketchName=b.sketchName;
+		sketchMatches=b.sketchMatches;
+		sketchLCA=b.sketchLCA;
+		isSketchHit=b.isSketchHit;
+		cachedConfidence=b.cachedConfidence;
 	}
 	
 	/**
