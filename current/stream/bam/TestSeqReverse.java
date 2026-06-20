@@ -10,6 +10,9 @@ import stream.SamLine;
  */
 public class TestSeqReverse {
 
+	//Test harness: round-trips a synthetic FLAG=83 read through SamLine→BAM→SAM and compares
+	//SEQ fields. All checks are print-only — no System.exit(1) on mismatch, so CI cannot detect
+	//failure automatically. main()-only.
 	public static void main(String[] args) throws Exception {
 		// Create a SamLine manually with FLAG=83 (reverse strand, paired, mate1)
 		// FLAG 83 = 0x53 = 01010011 binary
@@ -97,6 +100,9 @@ public class TestSeqReverse {
 			System.out.println("BUG CONFIRMED: Sequences don't match!");
 			System.out.println("Roundtrip is reverse of original? " + roundtripSeq.equals(reverse(originalSeq)));
 			System.out.println("Roundtrip is RC of original? " + roundtripSeq.equals(expectedRC));
+			//TODO: Possible bug [stream/bam/TestSeqReverse#97] - mismatch prints "BUG CONFIRMED" but
+			//does not call System.exit(1); automated test runners will see exit code 0 and report PASS
+			//even when the seq-reversal bug is present.
 		} else {
 			System.out.println("SUCCESS: Sequences match!");
 		}

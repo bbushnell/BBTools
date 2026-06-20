@@ -50,6 +50,7 @@ class KeyValue implements Comparable<KeyValue> {
 	 */
 	@Override
 	public int compareTo(KeyValue o) {
+		//obvious: value DESCending, then key ASCending; key-o.key is int-safe (keys are small contig ids).
 		if(value!=o.value) {return value>o.value ? -1 : 1;}
 		return key-o.key;
 	}

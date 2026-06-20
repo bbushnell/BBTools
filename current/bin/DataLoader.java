@@ -52,6 +52,9 @@ import ukmer.Kmer;
  * @author Brian Bushnell
  */
 public class DataLoader extends BinObject {
+	//REVIEW (Eru 2026-06-19): I/O orchestration for binning (contigs + depth from cov/covstats/sam/header/bloom).
+	//NN feature COMPUTATION lives in SpectraCounter/Oracle, not here; loading correct depth is a normal correctness
+	//concern (not NN-frozen). Finding: #001 covstats loop bound (658). Dead: loadCovFileOld (1263).
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -655,6 +658,12 @@ public class DataLoader extends BinObject {
 			contigs=loadCovFile(covIn, contigs, MAX_DEPTH_COUNT);
 		}else if(covstats.size()>0) {
 			HashMap<String, Contig> contigMap=toMap(contigs, false);
+			//TODO: Possible bug [bin/DataLoader#001] - loop bound is readFiles.size() but it indexes covstats.get(i)
+			//(and passes i as the sample index). covstats is set independently of readFiles (covstats= flag), so:
+			//(1) covstats given but no reads -> loop never runs -> depthCalculated stays false -> assert(line ~422)
+			//crashes; (2) readFiles.size()>covstats.size() -> covstats.get(i) AIOOBE; (3) more covstats than reads ->
+			//files silently dropped. Likely fix: iterate covstats.size(). DESIGN Q for Brian: is covstats-only meant
+			//to be supported, or must covstats pair 1:1 with readFiles (then assert that)? Not patched (semantics call).
 			for(int i=0; i<readFiles.size(); i++) {
 				calcDepthFromCovStats(covstats.get(i), i, contigMap, minContigToLoad);
 			}
@@ -987,6 +996,7 @@ public class DataLoader extends BinObject {
 				Contig c=contigMap.get(shortName);
 				assert(c!=null || minlen>0 || ignoreMissingContigs) : 
 					"Can't find contig that is specified in covstats: "+shortName;
+				//Note: redundant nested if(c!=null) (cosmetic; inner check is dead) -- harmless cleanup candidate.
 				if(c!=null) {
 					if(c!=null) {
 						c.setDepth(depth, sample);
@@ -1260,6 +1270,7 @@ public class DataLoader extends BinObject {
 	 * @param contigs List of contigs to assign coverage data to
 	 * @param maxSamples Maximum number of samples to load from file
 	 */
+	//DEAD: no callers (superseded by loadCovFile at 1329, the single-read 2-pass FileID->RefID remap). Deletion candidate.
 	public ArrayList<Contig> loadCovFileOld(String fname, ArrayList<Contig> contigs, final int maxSamples) {
 		outstream.print("Loading coverage from "+fname+": \t");
 		phaseTimer.start();
@@ -1326,10 +1337,13 @@ public class DataLoader extends BinObject {
 	 * Robust to file order, ID scrambling, and subsets.
 	 * Reads file ONLY ONCE.
 	 */
+	//CLEVER [verified in-file]: single-file-read 2-pass cov loader. Pass 1 stores RAW file IDs as edge keys and builds
+	//fileToRef (fileID->refID); Pass 2 (fixEdgesInMemory, memory-only) remaps edge keys and drops edges to missing/
+	//subsetted contigs. Robust to file order, ID scramble, and subsets without re-reading the file.
 	public ArrayList<Contig> loadCovFile(String fname, ArrayList<Contig> contigs, final int maxSamples) {
 		outstream.print("Loading coverage from "+fname+": \t");
 		phaseTimer.start();
-		
+
 		final boolean creationMode=(contigs==null);
 		if(creationMode){contigs=new ArrayList<Contig>();}
 		
@@ -1384,6 +1398,8 @@ public class DataLoader extends BinObject {
 				if(fileID!=c.id()) {dif++;}
 				
 				//Load Depths
+				//Note: both branches below are identical (cosmetic) -- the numDepths()==0 distinction is vestigial
+				//(setDepth triggers allocation either way). Harmless cleanup candidate.
 				if(c.numDepths()==0) {
 					for(int i=0; i<samples; i++) {
 						c.setDepth(lp.parseFloat(i+3), i); //Triggers allocation

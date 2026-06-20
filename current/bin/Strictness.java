@@ -44,6 +44,9 @@ public class Strictness{
 	
 	static {
 		names=new String[shortNames.length];
+		//VERIFIED the "Order is important" claim: replace runs s->strict, then l->loose, then n->normal IN THAT ORDER,
+		//and each product is safe from later passes ("strict" has no l/n; "loose"'s 's' was already replaced; "normal"'s
+		//'l' was already replaced) -> names build correctly with no double-replacement. Reordering WOULD corrupt them.
 		for(int i=0; i<shortNames.length; i++) {//Order is important here!
 			names[i]=shortNames[i].replace("s", "strict").replace("l", "loose").replace("n", "normal");
 		}

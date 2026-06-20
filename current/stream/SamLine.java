@@ -83,6 +83,10 @@ public class SamLine implements Serializable {
 		seq=sl.seq;
 		qual=sl.qual;
 		optional=sl.optional;
+		//[stream/SamLine#004] FIXED: previously omitted mdTag/obj/scafnum (later-added-field-not-copied pattern). A copy must reproduce ALL state.
+		mdTag=sl.mdTag;
+		obj=sl.obj;
+		scafnum=sl.scafnum;
 	}
 	
 	/**
@@ -215,7 +219,7 @@ public class SamLine implements Serializable {
 				}
 				pos0_mate=(a2+1)+clip+clippedIndels;
 				pos1_mate=(b2+1)-tclip-tclippedIndels;
-				if(pos1_mate>scaflen){pos1=scaflen;}
+				if(pos1_mate>scaflen2){pos1_mate=scaflen2;}//[stream/SamLine#001] FIXED: was 'if(pos1_mate>scaflen){pos1=scaflen;}' - clamped the WRONG variable (pos1, r1's stop) on the wrong bound (scaflen vs scaflen2); copy-paste of the r1 clamp above. pos1_mate feeds TLEN only when sameScaf (where scaflen==scaflen2).
 				
 				if(pos0_mate<1){
 					//This is necessary to prevent mapped reads from having POS less than 1.
@@ -960,8 +964,11 @@ public class SamLine implements Serializable {
 			len+=(c-'0')*mult;
 			mult*=10;
 		}
-		//TODO: Possible bug - returns 0 for an all-clip cigar (loop ran past the start),
-		//discarding the accumulated trailing-clip length; same pattern in countTrailingHardClip.
+		//TODO: Possible bug [stream/SamLine#002] - i<0 means the digit-scan hit the string start; returning 0 here DISCARDS the
+		//accumulated trailing-clip len. Bites an all-soft-clip cigar (e.g. "100S"->0) and, for includeHardClip callers, "50M10H"->0.
+		//LOW: only live caller is Realigner(cigar,true,false); all-soft-clip reads are ~illegal (asserted against in calcLeftClip/calcRightClip).
+		//Note: the loop also accumulates soft-clip digits without checking includeSoftClip, so a naive 'return len' mishandles (false,true).
+		//FLAG FOR BRIAN - subtle clip semantics; not auto-fixed. Same i<0 pattern in countTrailingHardClip below.
 		if(i<0){return 0;}
 		return len;
 	}
@@ -1101,11 +1108,18 @@ public class SamLine implements Serializable {
 	
 	/** Length of clipped (out of bounds) trialing insertions and deletions. */
 	public static int countTrailingIndels(int rloc, int rlen, byte[] match){
-		if(match==null || rloc>=0){return 0;}
+		//[stream/SamLine#003] FIXED 2026-06-20 (greenlit by Brian): ENABLED the trailing out-of-bounds indel
+		//correction (was silently disabled by a copy-pasted leading-version guard). Two coupled changes:
+		//(1) guard 'rloc>=0' -> 'rloc<rlen' so it fires on a 3' overhang (rloc>=rlen), mirroring the leading
+		//version's rloc<0; (2) loop start 'match.length' -> 'match.length-1' to avoid the AIOOBE (match[length]).
+		//Effect: corrects SAM POS/TLEN for reads overhanging a scaffold 3' end with indels in the overhang
+		//(previously only the 5' end was corrected). NEEDS VALIDATION: a 3'-overhang-with-indel read (hard to
+		//construct per Brian); the fix is provably symmetric with the working countLeadingIndels.
+		if(match==null || rloc<rlen){return 0;}
 		int dels=0;
 		int inss=0;
 		int cloc=0;
-		for(int mloc=match.length; mloc>=0 && rloc>=rlen; mloc--){
+		for(int mloc=match.length-1; mloc>=0 && rloc>=rlen; mloc--){
 			byte b=match[mloc];
 			assert(!Tools.isDigit(b));
 			if(b=='D'){
@@ -2345,7 +2359,10 @@ public class SamLine implements Serializable {
 		bb.append(pnext).tab();
 		bb.append(tlen).tab();
 //		int len=bb.length;
-		if(mapped() && strand()==Shared.MINUS){
+		if(mapped() && strand()==Shared.MINUS && FLIP_ON_LOAD){//[SamToBamConverter#001]/flipsam FIX 2026-06-20 (greenlit):
+			//+`&& FLIP_ON_LOAD` so SAM-text output mirrors the load-flip. With flipsam=f the seq is already
+			//forward-reference (load didn't flip), so we write it as-is (else branch) instead of double-flipping.
+			//Symmetric with SamToBamConverter and BamToSamConverter. NEEDS VALIDATION (flipsam=f reverse-strand round-trip).
 			appendReverseComplemented(bb, seq).tab();
 			appendQualReversed(bb, qual);
 //			assert(bb.length==len+seq.length+qual.length+1) : bb.length-len;
@@ -2708,7 +2725,7 @@ public class SamLine implements Serializable {
 	
 	/** Returns the zero-based starting location of this read on the sequence. */
 	public int start(boolean includeSoftClip, boolean includeHardClip){
-		int x=countLeadingClip(cigar, includeSoftClip, includeHardClip);
+		int x=countLeadingClip(cigar, includeSoftClip, includeHardClip);//uses the cigar LEADING-clip helper (clean); SamLine#002/#003 trailing-clip bugs sit in the Read->SAM constructor, not in toRead's start()/stop().
 		return pos-1-x;
 	}
 	

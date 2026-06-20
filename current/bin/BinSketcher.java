@@ -31,6 +31,9 @@ import template.ThreadWaiter;
  * @date December 11, 2024
  */
 public class BinSketcher extends BinObject implements Accumulator<BinSketcher.ProcessThread> {
+	//REVIEW (Eru 2026-06-19): sketches contigs/clusters (MinHash) + queries refseq for taxonomy (SendSketch). NOT
+	//NN-input (sketch taxonomy, not the CellNet). accumulate/success() are the CORRECT Accumulator convention (the
+	//model the inverted SamLoader3/SpectraCounter should match). Finding: #001 DOC errorStateT wrong-javadoc + dead.
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -134,6 +137,8 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 //		bytesProcessed+=pt.bytesProcessedT;
 //		linesOut+=pt.linesOutT;
 //		bytesOut+=pt.bytesOutT;
+		//CORRECT Accumulator convention (errorState|=!success; success(){return !errorState}) -- the model that
+		//SamLoader3 and SpectraCounter were inverted against. (errorStateT line is a no-op: that flag is never set -- #001.)
 		errorState|=(!pt.success);
 		errorState|=(pt.errorStateT);
 	}
@@ -273,7 +278,10 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 		final JsonParser jp=new JsonParser();
 		final DisplayParams params;
 		
-		/** True only if this thread has completed successfully */
+		//TODO: Possible bug [bin/BinSketcher#001] - DOC: this javadoc described `success` (mis-attached). errorStateT is
+		//an ERROR flag (accumulated via errorState|=pt.errorStateT at ~138), and it is NEVER set to true anywhere ->
+		//that accumulate line is a no-op. LOW/DOC: corrected the doc below (or the dead field could be removed).
+		/** True if this thread encountered an error. NOTE: currently never set -> the accumulate at ~138 is a no-op. */
 		protected boolean errorStateT=false;
 		
 		boolean success=false;

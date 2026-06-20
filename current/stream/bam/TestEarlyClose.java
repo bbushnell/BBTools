@@ -7,6 +7,9 @@ import java.io.FileInputStream;
  * producer/worker threads may be blocked on full queues.
  */
 public class TestEarlyClose {
+    //Test harness: opens BgzfInputStreamMT, sleeps 150 ms to let producer/workers fill queues,
+    //then calls close() and prints elapsed time. No assertion — hangs indefinitely if close() deadlocks
+    //(the known MT early-close deadlock is exactly what this targets). main()-only.
     public static void main(String[] args) throws Exception {
         if(args.length<1){
             System.err.println("Usage: java stream.bam.TestEarlyClose <bgzf-file> [threads]");

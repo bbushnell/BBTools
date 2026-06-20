@@ -20,6 +20,9 @@ import structures.BinaryByteWrapperLE;
  */
 public class BamReader {
 
+	//NOT thread-safe by design: the readInt/Short methods share one 8-byte `temp` + `wrapper`, reused per
+	//call (readFully into temp, wrapper.position(0), getInt/getShort). Safe because every caller drives one
+	//BamReader on a single thread (BamIndexWriter, getBamSortOrder) - a per-stream reader, not a shared one.
 	public BamReader(InputStream in){
 		this.in=in;
 		this.temp=new byte[8];
@@ -107,7 +110,7 @@ public class BamReader {
 	/**
 	 * Determine the sort order of a SAM file from its header.
 	 * @param samPath Path to SAM file
-	 * @return "coordinate", "queryname", "unsorted", or "headerless" (if no @HD line)
+	 * @return "coordinate", "queryname", "unsorted", "unknown" (@HD present but no SO: tag), or "headerless" (no @HD line)
 	 * @throws IOException if file cannot be read
 	 */
 	public static String getSamSortOrder(String samPath){
@@ -129,7 +132,7 @@ public class BamReader {
 	/**
 	 * Determine the sort order of a BAM file from its header.
 	 * @param bamPath Path to BAM file
-	 * @return "coordinate", "queryname", "unsorted", or "headerless" (if no @HD line)
+	 * @return "coordinate", "queryname", "unsorted", "unknown" (@HD present but no SO: tag), or "headerless" (no @HD line)
 	 * @throws IOException if file cannot be read
 	 */
 	public static String getBamSortOrder(String bamPath){
@@ -149,6 +152,9 @@ public class BamReader {
 			long lText=reader.readUint32();
 			if(lText==0){return "headerless";}
 			
+			//Inspects only the first min(lText,100) header bytes to find the @HD line - same window as
+			//BamIndexWriter. A @HD line >100 bytes (many optional fields before SO:) could push SO: past the
+			//window -> misreported as "unknown"/sort-order missed. LOW/edge (most @HD lines are <100 bytes).
 			int checkLen=(int)Math.min(lText, 100);
 			byte[] headerStart=reader.readBytes(checkLen);
 			

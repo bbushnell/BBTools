@@ -13,6 +13,9 @@ import java.io.IOException;
  */
 public class TestBgzfSystematic {
 
+	//Test harness: round-trips 1/2/4/8 × 65536 bytes of 'A' data through BgzfOutputStreamMT(1
+	//thread) + BgzfInputStreamMT(1 thread) with byte-for-byte comparison. The 1-block case
+	//(exactly 65536 bytes) directly exercises the known BSIZE-overflow boundary. main()-only.
 	private static final int BLOCK_SIZE = 65536; // 64KB
 
 	public static void main(String[] args) throws IOException {

@@ -18,6 +18,9 @@ import tax.TaxTree;
  * @date 2013
  */
 public class Oracle extends BinObject implements Cloneable {
+	//REVIEW (Eru 2026-06-19): the live bin-comparison engine. similarity() (151) is a staged early-exit cascade;
+	//toVector() (441) builds the CellNet feature vector (NN-FROZEN). Findings: #001 pentamers inverted (NN-frozen,
+	//flag-only), #002 emitTN non-functional in canEmitVector (training-only), #003 stale dead header().
 
 	/**
 	 * Constructs Oracle with explicit similarity threshold parameters.
@@ -215,8 +218,12 @@ public class Oracle extends BinObject implements Cloneable {
 				Vector.cosineDifference(a.trimers, b.trimers) : 0);
 //				SimilarityMeasures.cosineDifference(a.trimers, b.trimers) : 0);
 		
+		//CLEVER [verified in-file]: staged early-exit cascade -- gc/depth (179) -> edges (200,209) -> trimer (here)
+		//-> tetramer (228) -> pentamer (239) -> net, each tier gated and returning -1 before the next, each bumping
+		//its own counter (fast/trimer/tetramer/slow/netComparisons). Cheapest discriminators run first; the expensive
+		//pentamer-cosine + CellNet only run for pairs that survive every prior tier.
 		//This causes a large speedup by avoiding tetramer calculation
-		//0.75 has no effect, so 0.8 is safe (0.725 causes a slight change) 
+		//0.75 has no effect, so 0.8 is safe (0.725 causes a slight change)
 		if(trimerDif>max3merDif*mult*Binner.cutoffMultA ||
 				trimerDif*depthRatio>maxProduct*mult*Binner.cutoffMultB*0.8f) {return -1;}
 
@@ -347,6 +354,10 @@ public class Oracle extends BinObject implements Cloneable {
 	}
 	
 	/** Returns tab-separated header string for vector output formatting */
+	//TODO: Possible bug [bin/Oracle#003] - STALE/DEAD: this 15-column header (active labels 369-381: aSize..sameTax)
+	//does NOT match toVector's actual 28+ column output (sizeProxy/sizeProxy2/.../27=1-similarity). Only caller is
+	//QuickBin:390, which is commented out -> dead. If re-enabled it would mislabel every training column. LOW:
+	//regenerate from the real toVector layout, or delete. (Not NN-critical: dead.)
 	static String header() {
 		ByteBuilder bb=new ByteBuilder();
 //		bb.append('#').append("aSize").tab().append("bSize");//0 1
@@ -463,10 +474,24 @@ public class Oracle extends BinObject implements Cloneable {
 //			KillSwitch.kill(depthRatioMethod+", "+
 //					depthRatio+", "+depthRatioProxy+", "+a.depth(0)+", "+b.depth(0));
 //		}
+		//TODO: Possible bug [bin/Oracle#001] - inverted condition (NN-FROZEN: do NOT patch).
+		//Meant to be "both bins have enough pentamers" (cf. the twin at 232-234/411-413: "a<min || b<min ->
+		//approximate"). As written it is true only when a>=min AND b<min, so: (1) two LARGE bins (both>=min) get
+		//pentamers=false -> hel5 uses the approximation Math.min(1,hel*1.7f) instead of the real pentamer Hellinger;
+		//(2) a-large/b-small computes the real Hellinger against b's near-empty pentamers. hel5 feeds NN input
+		//(vector[11], ~line 513) and addHellinger5=true by default -> reachable. The pretrained CellNet was trained
+		//with THIS computation; it must NOT change now. Fix "<" to ">=" only on a retrain (flag Brian).
+		//RETRAIN-IMPROVEMENT (Brian 2026-06-20): correcting this on a retrain likely HELPS binning -- it would give the
+		//net a real 5-mer Hellinger signal it has never actually had (only the tetramer approximation). Worth doing
+		//if/when the nets are retrained -- but retraining is sensitive and costly, so not lightly. Until then: frozen.
 		final boolean pentamers=(a.numPentamers>=BinObject.minPentamerSizeCompare &&
 				b.numPentamers<BinObject.minPentamerSizeCompare);
 		
 //		float euc=(addEuclidian ? SimilarityMeasures.euclideanDistance(a.tetramers, b.tetramers) : 0);
+		//NN-INPUT (frozen): every value pushed to `list` below is a CellNet feature (index comments //0..//27 are the
+		//trained layout). a/b are pre-ordered smaller-first (397/444) so the asymmetric features (b.gc, sizeProxy vs
+		//sizeProxy2, b.depth) stay consistent. DO NOT reorder, rescale, or change any of these computations -- the
+		//pretrained net depends on them exactly as-is (NN HARD CONSTRAINT). #001 (hel5) lives in this frozen set.
 		final float invA4=Tools.invSum(a.tetramers), invB4=Tools.invSum(b.tetramers);
 		float hel=(addHellinger ? SimilarityMeasures.hellingerDistance(a.tetramers, b.tetramers, invA4, invB4) : 0);
 		float hel3=(addHellinger3 ? SimilarityMeasures.hellingerDistance(a.trimers, b.trimers) : 0);
@@ -574,6 +599,8 @@ public class Oracle extends BinObject implements Cloneable {
 			list.add(a.labelTaxid==b.labelTaxid ? 1 : 0);
 		}
 		list.shrink();
+		//Invariant: no NaN/Inf reaches the net -- every feature above is guarded (isFinite&&>0 in SimilarityMeasures,
+		//norm-floors, Math.min clamps). This assert is the final tripwire (crash-loud if any feature is non-finite).
 		for(float f : list.array) {
 			assert(Float.isFinite(f)) : list;
 		}
@@ -636,6 +663,10 @@ public class Oracle extends BinObject implements Cloneable {
 		boolean merge=(result>0);
 		final boolean ret;
 		if(merge) {ret=(sameTID ? emitTP : emitFP);}
+		//TODO: Possible bug [bin/Oracle#002] - true-negative case (!merge && !sameTID) gates on emitFP, not emitTN,
+		//so the user flag Oracle.emitTN (QuickBin:145) is non-functional and TN emission follows emitFP. Training-vector
+		//emission only (bsw!=null); does NOT touch inference or the pretrained net's input. Default-harmless (both true).
+		//Trivial fix (": emitFP" -> ": emitTN") deferred to Brian (owns the training pipeline; needs a smoke-test).
 		else{ret=(sameTID ? (emitFN && !makingBinMap) : emitFP);}
 //		assert(!ret) : result+", "+merge+", "+sameTID+", "+minSize;
 		return ret;

@@ -36,7 +36,7 @@ public class BamInputStream extends InputStream {
 
 	public BamInputStream(FileFormat ff, boolean ordered, int threads) {
 		Objects.requireNonNull(ff, "FileFormat must not be null");
-		streamer = StreamerFactory.makeSamOrBamStreamer(ff, threads, true, ordered, -1L, false);
+		streamer = StreamerFactory.makeSamOrBamStreamer(ff, threads, true, ordered, -1L, false);//comprehension: saveHeader=true (3rd arg) is load-bearing - it makes BamStreamer call SamReadInputStream.setSharedHeader (BamStreamer:260), the ONLY source for the getSharedHeader() header-load below. makeReads=false (last arg): this wrapper wants SAM text, not Read objects.
 		streamer.start();
 		headerQueue = new ArrayDeque<>();
 	}
@@ -112,7 +112,7 @@ public class BamInputStream extends InputStream {
 					sharedHeader = stream.SamReadInputStream.getSharedHeader(false);
 				}
 				if (sharedHeader == null) {
-					sharedHeader = stream.SamReadInputStream.getSharedHeader(true);
+					sharedHeader = stream.SamReadInputStream.getSharedHeader(true);//comprehension: NON-hanging here despite wait=true - BamStreamer reads natively (constructs no SamReadInputStream), so SAM_INPUT_PRESENT stays false and getSharedHeader returns SHARED_HEADER immediately (SamReadInputStream:149, the #002 fix). Normal case: the 1s poll above already caught the header BamStreamer set via setSharedHeader. Caveat: SHARED_HEADER is static -> a prior sam/bam input in the same JVM could leave a stale header (pre-existing SamReadInputStream global-state concern, not new here).
 				}
 			}
 			if (sharedHeader != null) {

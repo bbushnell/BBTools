@@ -279,7 +279,10 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		}
 		if(!r18sFile.isEmpty()) {
 			for(String fname : r18sFile) {
-				//TODO: Probable bug: passes true (is16S) for 18S files; should be false
+				//[clade/CladeLoader#002 DOC FIXED] VERIFIED correct: addRibo(...,false) -> r16s=false -> stores into
+				//c.r18S (addRibo:587), the right target for 18S. Removed a stale "//TODO: Probable bug: passes true...
+				//should be false" -- that note (Brian, 2026-05-24) predated the 2026-06-05 fix that already changed
+				//true->false; the code is correct and the comment now misleads. (16S loop above correctly passes true.)
 				r18sAdded+=addRibo(map, fname, false);
 			}
 			System.err.println("Added "+r18sAdded+" 18S.");
@@ -342,6 +345,13 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			System.err.println("Attached "+attached+"/"+ddlRecords.size()+" DDL sketches to clades.");
 		}
 
+		//Comprehension: this self-check fires when a Clade's STORAGE key != its own taxID. Mechanism: getOrMakeClade
+		//stores under the resolved-input tid, but makeClade (Clade.java:48) builds the Clade with tn.id from
+		//tree.getNode(tid) -- and the tree can remap tid->tn.id (merged/synonym nodes), so c.taxID(=tn.id) can differ
+		//from the key(=tid). If TWO input tids remap to the SAME tn.id they land under different keys but share
+		//c.taxID -> a duplicate-taxID record in the output DB. Author-acknowledged ("~3 times for RefSeq Bacteria"),
+		//assert deliberately disabled, and self-healing on reload (addClade:460 merges/keeps-larger on duplicate
+		//taxID). Diagnostic-only; left as-is (QUESTION, not an actionable finding).
 		for(Clade c : map.values()) {
 			Integer key=c.taxID;
 			if(map.get(key)!=c) {
@@ -541,6 +551,12 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
 		cris.start(); //Start the stream
 		int added=addRibo(cladeMap, cris, r16s);
+		//TODO: Possible bug [clade/CladeLoader#003] LOW (swallowed error; DOCUMENTED, fix is a design call) - this
+		//local `errorState` is a static-method shadow of nothing usable (no instance field in scope) and is then
+		//discarded, so a closeStreams() failure on the ribo stream is silently dropped instead of propagating to the
+		//instance errorState that process():"terminated in an error state" checks. Rare (close-time failure) -> LOW.
+		//A clean fix needs a signal path (return a status, or a static error flag) rather than changing this static
+		//int-returning signature -> flag Brian. Likely a copy-paste leftover from a non-static context.
 		boolean errorState=false;
 		errorState|=ReadWrite.closeStreams(cris);
 		return added;
@@ -696,6 +712,9 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			//Do anything necessary prior to processing
 			
 			//Process the reads
+			//Note: synchronized(dummy) locks a per-thread FINAL field touched by this thread only, so it is effectively
+			//uncontended (no correctness role; not the cross-thread guard -- that is add(Clade)'s synchronization).
+			//Harmless; reads as defensive/safe-publication scaffolding.
 			synchronized(dummy) {
 				processInner();
 				if(useDummy) {emitDummy();}
@@ -771,6 +790,19 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			if(tid<1) {return false;}
 			Clade c=getOrMakeClade(tid);
 			assert(c.taxID==tid);
+			//TODO: Possible bug [clade/CladeLoader#001] DATA RACE (HIGH; DOCUMENTED, NOT fixed -- flag Brian) -
+			//c.add(byte[],et) (Clade.java:188) is NOT synchronized and does read-modify-write on shared state
+			//(counts[][] via countKmersMulti, entropy, bases via incrementBases, contigs). With useDummy=false,
+			//multiple ProcessThreads pull from ONE shared cris and can getOrMakeClade the SAME shared Clade -- a
+			//multi-contig taxID spans read-chunks handed to different threads -- so concurrent unsynchronized
+			//increments on the count arrays lose updates -> silently corrupted k-mer counts -> wrong reference DB
+			//(silent-wrong-output). Reachable via cladeloader.sh "usedummy=f" with default (multi-)threads; the
+			//DEFAULT useDummy=true path is SAFE (see processContigDummy: dummy is thread-local, merged once via the
+			//synchronized add(Clade), Clade.java:217 -- i.e. the dummy IS the thread-safety mechanism, which
+			//usedummy=f defeats). Fix is a DESIGN call (synchronize this add / force threads==1 when !useDummy /
+			//drop the toggle since dummy is strictly better) -> flag Brian, do not patch unilaterally. NN-note: a
+			//correct fix changes only race-corrupted output, not race-free values, so it does NOT violate the
+			//NN-input constraint -- but it stays DOCUMENT-only here because it is HIGH + concurrency.
 			c.add(r.bases, et);
 			return true;
 		}
@@ -781,9 +813,16 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		 * @return True if successfully processed
 		 */
 		boolean processContigDummy(final Read r){
+			//CLEVER [verified in-file]: the thread-local `dummy` Clade is BOTH a contention optimizer AND the
+			//thread-safety mechanism. Consecutive same-taxID contigs accumulate into dummy via the fast UNsynchronized
+			//add(byte[]) (safe -- dummy is thread-local, touched by this thread only); on a taxID change (or thread
+			//end, run():emitDummy) the whole batch is merged into the shared cladeMap ONCE via the synchronized
+			//add(Clade) (Clade.java:217). Net effect: the shared map is mutated under a lock once per taxID-run
+			//instead of once per contig -- far less contention than locking every add. (Contrast #001: useDummy=false
+			//skips dummy and races on the shared add(byte[]).)
 			int tid=resolveTaxID(r);
 			if(tid<1) {return false;}
-			
+
 			if(tid!=dummy.taxID) {
 				emitDummy();
 				assert(dummy.taxID<0 && dummy.bases==0) : tid+", "+dummy.bases+", "+dummy;

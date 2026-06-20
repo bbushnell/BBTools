@@ -28,6 +28,11 @@ import java.nio.file.Path;
  */
 public class TestBgzfA80k {
 
+	//Stress-test harness: generates 840 KB of repetitive 'A' data, round-trips through
+	//BgzfOutputStreamMT + BgzfInputStreamMT for 1..maxThreads × iterations, and byte-compares
+	//with Files.mismatch(). Default blockSize=65536 directly probes the known BSIZE-overflow
+	//boundary on incompressible input; 'A'-only data is highly compressible so overflow is
+	//unlikely here. main()-only.
 	private static final String INPUT_FILE = "A80k.txt";
 	private static final String COMPRESSED_FILE = "A40k.txt.gz";
 	private static final String OUTPUT_FILE = "A80k.roundtrip.txt";

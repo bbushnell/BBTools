@@ -611,6 +611,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			levels[level]++;
 			
 			if(c!=null && c.ref!=null) {
+				//NN-input note: k3dif/k4dif/k5dif/strdif/gcdif are the trained difference features, here READ-ONLY for
+				//metric averaging (computed upstream in Comparison) -- no NN-input value is produced or altered here.
+				//Div-by-zero guarded by Math.max(.,1e-6) on the ratios.
 				ratio34[level]+=c.k3dif/Math.max(c.k4dif, 0.000001f);
 				ratio45[level]+=c.k4dif/Math.max(c.k5dif, 0.000001f);
 				strandDif[level]+=c.strdif;
@@ -759,6 +762,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				float seqPct=(totalSeqs>0 ? 100f*seqs/totalSeqs : 0);
 				if(minFraction>0 && basePct<minFraction*100 && seqPct<minFraction*100){continue;}
 				if(compColor){
+					//TODO: Possible bug [clade/CladeSearcher#001] LOW latent (DOCUMENTED, flag Brian) - Math.abs(hashCode())
+					//%n is negative-index-prone: a String whose hashCode()==Integer.MIN_VALUE makes Math.abs() return
+					//MIN_VALUE (still negative) -> negative %n -> ArrayIndexOutOfBounds. Essentially-never for a real taxon
+					//name (LOW) and purely COSMETIC (terminal color). Same pattern at appendResult (2 more sites, tagged
+					//#001). NOT fixed unilaterally: the idiomatic fix (hashCode()&Integer.MAX_VALUE)%n CHANGES the color
+					//chosen for every negative-hash string (a visible output change, possibly a regression baseline) ->
+					//flag Brian rather than alter output here.
 					int cidx=Math.abs(entry.getKey().hashCode())%QC_COLORS.length;
 					bb.append(QC_COLORS[cidx]);
 				}
@@ -794,7 +804,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			Comparison c=(Comparison)o;
 			if(setColor && c.ref!=null){
 				String name=nameAtLevel(c.ref.lineage(), colorLevel);
-				bb.append(QC_COLORS[name==null ? 0 : Math.abs(name.hashCode())%QC_COLORS.length]);
+				//[clade/CladeSearcher#001] same Math.abs(hashCode())%n latent AIOOBE (cosmetic; documented at writeComposition).
+			bb.append(QC_COLORS[name==null ? 0 : Math.abs(name.hashCode())%QC_COLORS.length]);
 			}
 			appendResult(c, bb, 0);
 			if(setColor){bb.append(Colors.RESET);}
@@ -815,6 +826,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}
 			if(setColor && c.ref!=null){
 				String name=nameAtLevel(c.ref.lineage(), colorLevel);
+				//[clade/CladeSearcher#001] same Math.abs(hashCode())%n latent AIOOBE (cosmetic; documented at writeComposition).
 				int cidx=(name==null ? 0 : Math.abs(name.hashCode())%QC_COLORS.length);
 				bb.append(QC_COLORS[cidx]);
 				if(prevColorIdx>=0 && cidx==prevColorIdx &&
@@ -942,6 +954,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		errorState|=!success;
 		
 		//Do anything necessary after processing
+		//Order-preserving strided reassembly: thread tnum processed queries[tnum], queries[tnum+threads], ... (run():
+		//i=tid; i+=threads) into pt.results in that order, so pt.results[i] maps back to results[tnum + i*threads].
+		//The pre-fill with nulls guarantees every slot exists before set(); a query whose worker errored stays null
+		//(mirrors searchST returning null on no-hit). Same disjoint-stride pattern as CladeLoaderMF -- deterministic
+		//output order regardless of completion order, no per-result lock needed (each thread owns distinct slots).
 		while(results.size()<queries.size()) {results.add(null);}
 		for(int tnum=0; tnum<threads; tnum++) {
 			ProcessThread pt=alpt.get(tnum);
@@ -1008,6 +1025,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			final int maxHits_, final boolean showRecords_, final int maxHitsToPrint_,
 			final int tid_, final int threads_){
 			queries=queries_;
+			//CLEVER [verified in-file]: each worker gets its OWN index via clone() so search is lock-free -- the clone
+			//shares the immutable reference spectra but carries per-thread mutable search scratch AND per-thread
+			//comparison counters (comparisons/slowComparisons/sketchComparisons), which accumulate() later sums back
+			//into the shared index. (This is exactly why CladeIndex.clone must RESET those counters -- see CladeIndex#001.)
 			index=index_.clone(); // Clone to avoid synchronization issues
 			maxHits=maxHits_;
 			showRecords=showRecords_;
@@ -1025,6 +1046,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			//Do anything necessary prior to processing
 			IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
 			//Run queries
+			//NN-INPUT comprehension (HIGH-NN-risk file): the trained features (k3/k4/k5dif, gcdif, strdif, hhdif...)
+			//and CladeConfidence.predictNN are NOT computed here -- they are produced DOWNSTREAM inside
+			//QueryResult.build -> index.findBest -> Comparison (which calls CladeConfidence). This class only
+			//orchestrates the search and later CONSUMES results read-only (evaluate() metrics; confidence() display).
+			//So per the NN-input constraint there is nothing in the freq->difference->predictNN chain to patch in
+			//CladeSearcher, and none was. (synchronized(clade) below is uncontended: the strided loop gives each
+			//thread a DISJOINT set of queries, so no other thread touches this clade -- it's defensive, not the guard.)
 			for(int i=tid; i<queries.size(); i+=threads) {
 				Clade clade=queries.get(i);
 				synchronized(clade) {

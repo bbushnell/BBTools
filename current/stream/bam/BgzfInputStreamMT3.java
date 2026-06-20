@@ -443,8 +443,16 @@ public class BgzfInputStreamMT3 extends InputStream {
 				//Add to output queue
 				oqs.addOutput(job);
 			}
-		}catch(Exception e){
-			e.printStackTrace();
+		}catch(Throwable e){
+			//[stream/bam/BgzfInputStreamMT3#002] FIXED 2026-06-20 (greenlit, MT3 kept+fixed). Was
+			//`catch(Exception){printStackTrace}` which SWALLOWED an unexpected worker death (no workerError, no
+			//terminal) -> the ordered consumer could park forever on the dead worker's job id. Now: record the
+			//error + force OQS shutdown so the consumer WAKES and throws LOUD (via #001's getOutput-null
+			//workerError check). Throwable (not Exception) also covers AssertionError/Error, matching the MT2
+			//producer fix. The inline DataFormatException path (L407) is unchanged - it addOutputs job.error in
+			//order, the precise/preferred route; this catch is the backstop for everything else.
+			workerError=(e instanceof IOException ? (IOException)e : new IOException("BGZF worker failed", e));
+			oqs.setFinished(true);
 		}finally{
 			inflater.end();
 		}
@@ -474,6 +482,12 @@ public class BgzfInputStreamMT3 extends InputStream {
 			if(currentBlockPos>=currentBlockSize){
 				BgzfInputJob nextJob=oqs.getOutput();
 				if(nextJob==null){
+					//[stream/bam/BgzfInputStreamMT3#001] FIXED + VALIDATED 2026-06-20 (greenlit - Brian wants MT3
+					//KEPT+fixed to transition to OQS). Re-check workerError on the getOutput-null path and throw
+					//LOUD instead of returning silent EOF (mirrors the MT2 fix's consumer half). Now OBSERVABLE
+					//and confirmed: once #003 (the shared-OQS poison() deadlock) was fixed, MT3 on a truncated
+					//.gz crashes loud here (EOFException, no hang); a correct .gz reads clean. See #003.
+					if(workerError!=null){throw workerError;}
 					eofReached=true;
 					oqs.setFinished(true);
 					return totalRead==0 ? -1 : totalRead;
@@ -549,8 +563,11 @@ public class BgzfInputStreamMT3 extends InputStream {
 	@Override
 	public synchronized void close() throws IOException{
 		if(closed){return;}
-		if(verbose)
-		closed=true;
+		closed=true;//[#003] part 1 FIXED: was `if(verbose)\n closed=true;` - a brace-less `if(verbose)` DANGLED
+		//over this assignment, so `closed` was NEVER set (verbose=false) -> close() non-idempotent + the workers'
+		//`while(!closed)` never terminated via the flag. The close()-time DEADLOCK itself (#003 part 2) is fixed
+		//in shared OrderedQueueSystem.poison() (it no longer holds the OQS monitor across a blocking enqueue, so
+		//this setFinished() below can always acquire it). Both validated: truncated .gz now crashes loud, not hangs.
 		if(verbose) {System.err.println("Called close.");}
 		try{closePlainStream();}catch(IOException ignore){}
 		try{in.close();}catch(IOException ignore){}

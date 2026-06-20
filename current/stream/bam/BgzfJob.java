@@ -71,6 +71,10 @@ public class BgzfJob implements HasID, Comparable<BgzfJob> {
 	@Override
 	public boolean last() {return lastJob;}
 	
+	//Poison-by-FLAG (poison()/isPoisonPill() test the `isPoison` field), unlike BgzfInputJob's poison-by-
+	//identity. makePoison HONORS id_ (a fresh poison stamped with the requested id), so a JobQueue post-last
+	//poison sorts exactly at job.id()+1 as JobQueue expects - the write-side twin of BgzfInputJob's harmless
+	//id-ignoring poison. The shared POISON_PILL singleton (L46) is the worker-shutdown marker on inputQueue.
 	@Override
 	public BgzfJob makePoison(long id_) {
 		return new BgzfJob(id_, null, null, false, true);

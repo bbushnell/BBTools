@@ -1639,9 +1639,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	/** Number of lines written during last serialization operation */
 	long lastLinesWritten=0;
 
-	/** Per-job SIMD feed-forward flag for THIS net; the worker sets it from job.simdFF before
-	 * processing. Consulted by feedForwardDense; stays false for inference nets. */
-	public boolean simdFF=false;
+	/** Per-job SIMD feed-forward flag for THIS net; consulted by feedForwardDense. Defaults TRUE so inference
+	 * uses batched SIMD feed-forward when Shared.SIMD_FEED_FORWARD is on; the training worker overrides it
+	 * per-job (job.simdFF) to support the per-batch on/off/random training mode. */
+	public boolean simdFF=true;
 	/** Per-worker RNG for input-noise augmentation; the worker sets it before processing. */
 	public shared.Random noiseRandy=null;
 	

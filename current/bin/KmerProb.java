@@ -69,6 +69,10 @@ public class KmerProb {
 	 * @return
 	 */
 	public static float prob(long length, float dif) {
+		//NN-INPUT (lookup, not computed): result becomes Oracle.kmerProb -> CellNet vector[13]. Table from a trusted
+		//resource (shred4merFractions.tsv). Row idx (quantizeLength) is [0,20] and UNguarded -> relies on the TSV
+		//having matching rows; col idx2 IS clamped to array.length-1. Assumes dif>=0 (cosine-difference invariant);
+		//a negative dif would make idx2 negative, but 1-cosineSimilarity is >=0 by construction.
 		int idx=quantizeLength(length);
 		float[] array=matrix[idx];
 		int idx2=Math.min(array.length-1, (int)(dif*1024));
@@ -85,6 +89,8 @@ public class KmerProb {
 	 * @return Matrix row index for this length bin
 	 */
 	static int quantizeLength(long size) {
+		//Claim: returns [0,20]. size clamped to [200,200000]; idxOffset=ceil(2*log2(200))=16; ceil(2*log2(200000))=36
+		//-> 36-16=20 max, 16-16=0 min. dequantizeLength (live: AllToAllVectorMaker:221/263) is the approximate inverse.
 		size=Tools.mid(size, 200, 200000);
 		int idx=(int)Math.ceil(2*Tools.log2(size));
 		return idx-idxOffset;

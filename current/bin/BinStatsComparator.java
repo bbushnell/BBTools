@@ -12,6 +12,7 @@ class BinStatsComparator implements Comparator<BinStats> {
 	
 	@Override
 	public int compare(BinStats a, BinStats b) {
+		//obvious: contam ASC, size DESC, id ASC (BinStats fields, not methods); mirrors BinComparator for BinStats. int-safe.
 		if(a.contam!=b.contam) {
 			return a.contam<b.contam ? -1 : 1;
 		}

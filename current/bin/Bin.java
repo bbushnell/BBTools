@@ -255,6 +255,12 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	
 	@Override
 	public final void setFrom(JsonObject all) {
+		//TODO: Possible bug [bin/Bin#001] QUESTION (documented; reachability deferred to sketch-callers) - this assert
+		//encodes a "the bin must have GROWN since its last sketch" precondition (sketchedSize is set to size() at the
+		//end of this method, and clearTax resets it to 0). A SECOND setFrom on a bin whose size is unchanged since the
+		//first -> sketchedSize==size() -> assert(sketchedSize<size()) fails -> AssertionError under -ea. Safe iff every
+		//caller only (re)annotates after the bin grows; needs a caller trace (BinSketcher / the annotate path) to
+		//confirm. If re-annotation of an unchanged bin is legitimate, the guard should be <= or removed.
 		assert(sketchedSize<size());
 		clearTax();
 		JsonObject top=null, second=null;
@@ -715,6 +721,13 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 			if(tetramers != null) {addIntToLongArray(clade.counts[4], tetramers);}
 			if(pentamers != null) {addIntToLongArray(clade.counts[5], pentamers);}
 
+			//CLEVER [verified in-file] + NN-SAFE: the fast path APPROXIMATES monomers (splits AT evenly into A=T and
+			//GC evenly into C=G), which is wrong per-base BUT preserves the GC total (C+G==gcSum, A+T==at). Clade.gc is
+			//computed as (C+G)/total from counts[1], so gc comes out EXACT despite the approximation; strandedness/hh/
+			//caga come from counts[2] (dimers, exact-copied) and k3/k4/k5 from counts[3..5] (exact-copied). So every
+			//value the pretrained net consumes (gc + k-mer freqs) is identical between TO_CLADE_FAST and the slow
+			//reprocess-bases path -> the two paths produce NN-equivalent clades, and the default TO_CLADE_FAST=true is
+			//safe under the NN-input constraint. Only the individual A/C/G/T split is approximate, and nothing reads it.
 			// Populate monomers from gcSum (approximate distribution)
 			long at = size() - gcSum;
 			clade.counts[1][0] = at/2;                    // A

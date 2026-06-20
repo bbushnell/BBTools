@@ -60,6 +60,11 @@ public class BamWriterHelper {
 					}
 				}
 
+				//@SQ → ref dict: a ref is added iff it has BOTH a non-null SN AND a positive LN. A @SQ
+				//missing SN or with LN<=0 is silently skipped (invalid ref). Matches the inline @SQ parse in
+				//BamOutputStream.writeHeader (which uses ln!=null; here ln>0 is slightly stricter — a malformed
+				//LN<=0 ref is dropped rather than emitted). refNames/refLengths stay index-aligned (both add or
+				//neither). textBuilder always gets the raw line regardless (full @-header text is preserved).
 				if(sn != null && ln > 0) {
 					refNames.add(sn);
 					refLengths.add(ln);

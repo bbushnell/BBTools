@@ -76,22 +76,30 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 
 	/** Signal end of input - injects LAST to output and POISON to input. */
 	@SuppressWarnings("unchecked")
-	public synchronized void poison(){
-		if(lastSeen){return;}
+	public void poison(){
+		//[OQS2 deadlock FIXED 2026-06-20 (greenlit)] - the SAME latent bug found+fixed in OrderedQueueSystem
+		//(via stream/bam/BgzfInputStreamMT3#003): poison() was `synchronized(this)` and did the BLOCKING
+		//JobQueue enqueues (outq.add + inq.add) WHILE HOLDING the monitor. If outq/inq was full, poison()
+		//blocked holding `this`, so setFinished() (also synchronized(this)) could never run to poison the queues
+		//and wake the blocked enqueue -> circular deadlock. REACHABLE in the live writers (BamWriter, FastqWriter,
+		//SamWriter, BgzfOutputStreamMT2): on close() main calls poison(), and if the WRITER thread errors on
+		//out.write() (full disk / broken pipe) its catch calls setFinished(true) -> deadlock against the blocked
+		//poison(). FIX = mirror addInput's own contract (L74): update lastSeen/read maxSeenId UNDER the lock, do
+		//the blocking enqueues OUTSIDE it. (addInput already did this right; poison() was just inconsistent.)
+		final long finalID;
+		synchronized(this){
+			if(lastSeen){return;}
+			lastSeen=true;
+			finalID = maxSeenId + 1;
+		}
 		if(verbose) {System.err.println("OQS2: poison()");}
-		
-		final long finalID = maxSeenId + 1;
 
-		// Add ONE lastJob for the final consumer
-		O lastJob=(O)outputPrototype.makeLast(finalID);
-		outq.add(lastJob);
+		// Add ONE lastJob for the final consumer (blocking, but OUTSIDE the lock now)
+		outq.add((O)outputPrototype.makeLast(finalID));
 
-		// Add ONE poison pill for the worker threads.
+		// Add ONE poison pill for the worker threads (blocking, outside the lock).
 		// The first worker to get it will exit its loop and re-inject it.
-		I poisonJob=(I)inputPrototype.makePoison(finalID);
-		inq.add(poisonJob);
-
-		lastSeen=true;
+		inq.add((I)inputPrototype.makePoison(finalID));
 	}
 
 	/** Wait for processing to complete. */

@@ -35,6 +35,11 @@ import tracker.EntropyTracker;
  * @date December 17, 2025
  */
 public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
+	//REVIEW (Eru 2026-06-19): parallel SAM/BAM depth+graph loader. CLEVER [verified]: per-sample AtomicLongArray +
+	//modulo sample-bucketing (file i -> sample i%MAX_SAMPLES) gives lock-free depth accumulation (addAndGet) across
+	//files sharing a bucket, plus a queue mode (MAX_CONCURRENT_FILES) bounding open handles. Fixes: #001 et NPE
+	//(minEntropy in (0,1]), #002 inverted accumulate/success (vs Accumulator convention). #003 dead assert (not changed).
+	//NN note: loads depth DATA, not a trained feature -> normal bugfixes, not freeze-gated.
 	
 	/** Builds a loader that reports status to the provided PrintStream. */
 	public SamLoader3(PrintStream outstream_) {
@@ -222,6 +227,9 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	    for(int i=0; i<terms; i++){
 	        allocated[i]=Tools.min((int)Math.ceil(ideal[i]), (int)Math.ceil(ideal[i]*scale));
 	    }
+	    //TODO: Possible bug [bin/SamLoader3#003] - tautology (x>0 || x<=0 is always true) -> this assert checks nothing.
+	    //NOT changed to `Tools.min(allocated)>0`: plain-SAM legitimately allocates 0 zip threads (ideal[1]=0f, line ~199),
+	    //so that stricter check would wrongly fire. LOW: the dead assert should just be removed (Brian's call).
 	    assert(Tools.min(allocated)>0 || Tools.min(allocated)<=0);
 	    assert(Tools.sum(allocated)>=Tools.sum(ideal) || Tools.sum(ideal)>budget);
 	    return allocated;
@@ -234,7 +242,9 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			readsUsed+=t.readsUsedT;
 			basesIn+=t.basesInT;
 			bytesIn+=t.bytesInT;
-			errorState|=(t.success);
+			//FIX [bin/SamLoader3#002]: was `errorState|=(t.success)` (inverted) -- it set errorState on SUCCESS, masking
+			//partial worker failure. Convention (BinSketcher:137, Binner:1209, ContigRenamer:430): error if NOT success.
+			errorState|=(!t.success);
 			if(CARDINALITY) {sharedCT.add(t.ct);}
 		}
 	}
@@ -243,7 +253,9 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 	public ReadWriteLock rwlock() {return null;}
 
 	@Override
-	public synchronized boolean success() {return errorState;}
+	//FIX [bin/SamLoader3#002]: was `return errorState` (inverted) -- Accumulator.success() must be TRUE on success
+	//(ThreadWaiter returns fr&&sr&&acc.success()). Matches convention (BinSketcher:144, Binner:1217, ContigRenamer:434).
+	public synchronized boolean success() {return !errorState;}
 	
 	/**
 	 * Base class for load workers. 
@@ -254,7 +266,10 @@ public class SamLoader3 implements Accumulator<SamLoader3.Worker> {
 			contigMap=contigMap_;
 			contigs=contigs_;
 			graph=graph_;
-			et=(minEntropy<=1 ? null : new EntropyTracker(5, 80, false, minEntropy, true));
+			//FIX [bin/SamLoader3#001]: was `minEntropy<=1 ? null` -- since DataLoader asserts minEntropy in [0,1], et was
+			//ALWAYS null, yet addSamLine uses it under `minEntropy>0` (line ~345) -> NPE for any minEntropy in (0,1].
+			//Creation-null threshold must match the >0 usage: null only when filtering is off (minEntropy<=0).
+			et=(minEntropy<=0 ? null : new EntropyTracker(5, 80, false, minEntropy, true));
 		}
 		
 		void processSam(Streamer ss, AtomicLongArray depthArray) {

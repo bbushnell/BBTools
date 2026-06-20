@@ -91,6 +91,11 @@ public class BamOutputStream extends OutputStream {
 			if (!headerWritten) {
 				writeHeader();
 			}
+			//Per-engine BGZF EOF contract (correctly handled here): the MT engine writes the 28-byte EOF
+			//marker INSIDE its own close() (BgzfOutputStreamMT.writerLoop on lastJob), so we just close it;
+			//the ST engine's close() deliberately does NOT write EOF, so we must call stOut.writeEOF()
+			//explicitly THEN close — exactly once each way. Getting this wrong would either omit the EOF
+			//(truncation-undetectable BAM) or double-write it. See BgzfOutputStream#close contract note.
 			if (mtOut != null) {
 				mtOut.close();
 			} else if (stOut != null) {
@@ -120,6 +125,13 @@ public class BamOutputStream extends OutputStream {
 			return;
 		}
 		byte[] line = (len == raw.length) ? raw : trimBytes(raw, len);
+		//Header accumulation invariant: @-lines are buffered into headerLines UNTIL the first non-@ line,
+		//which triggers writeHeader() (emits BAM magic + header text + ref dict + builds the converter) and
+		//flips headerWritten. After that, headerWritten is permanent, so a stray @-line arriving post-header
+		//(malformed interleaved SAM) would fall through and be parsed as an alignment — out of scope (valid
+		//SAM puts all @-lines first). Header-only input (no alignment) is handled by close()'s
+		//if(!headerWritten) writeHeader(). Empty headerLines (headerless SAM) → writeHeader builds a 0-ref
+		//dict + converter; alignments then resolve refName→refID=-1 in SamToBamConverter (see its review).
 		if (!headerWritten && line[0] == '@') {
 			headerLines.add(line);
 			return;

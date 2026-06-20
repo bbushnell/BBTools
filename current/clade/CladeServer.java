@@ -428,6 +428,12 @@ public class CladeServer {
 
 				return response.toBytes();
 
+			//Comprehension/QUESTION (flag Chloe/Brian): this catch(Exception) makes the server robust to bad requests,
+			//but Clade.parseClade is assert-heavy and BBTools runs with -ea, so MALFORMED (untrusted) network input can
+			//trip an AssertionError -- an Error, NOT an Exception -- which slips PAST this catch and surfaces as a raw
+			//500/dropped connection instead of the intended "Internal server error" message. The server itself
+			//survives (per-request thread pool). If graceful per-request handling of bad input is desired, catch
+			//Throwable here; if crash-the-request-loudly is acceptable (BBTools crash-loud philosophy), this is WAI.
 			} catch (Exception e) {
 				if(verbose || verbose2){
 					System.err.println("[" + new Date() + "] ERROR in CladeClassificationHandler: " + e.getMessage());
@@ -442,6 +448,11 @@ public class CladeServer {
 		 * Uses LineParser1 for efficient byte[] parsing without String conversion.
 		 */
 		private ArrayList<Clade> parseClades(byte[] data){
+			//CLEVER [verified in-file]: dual-format ingestion with auto-detection -- standard Clade (full k-mer counts)
+			//vs PreClade (privacy-preserving: raw counts + name only, no taxonomy leaked to the server). The //PreClade
+			//header is probed on BOTH the first line AND the second (to tolerate a leading URL-parameter line). All
+			//parsing is driven by LineParser1 over the raw byte[] (split on '\n', then '\t'/',' per line) with NO
+			//String allocation on the hot count-parsing path -- only the PreClade name is ever String-converted.
 			if(verbose2){
 				System.err.println("[" + new Date() + "] parseClades() ENTRY - parsing " + data.length + " bytes");
 			}
@@ -640,6 +651,15 @@ public class CladeServer {
 			}
 
 			if(ctx.format==CladeSearcher.MACHINE){
+				//[clade/Comparison#001 RESOLUTION] The server PINS its machine layout: appendResultMachine(false,...)
+				//below hardcodes printQTID=false (and adds no entropy column), so server responses always have the
+				//fixed no-QTID column set -- SendClade's hardcoded Comparison(String,lp) column parser is safe against
+				//the server precisely because the server never varies these columns. RESIDUAL (documented, flag Brian):
+				//ctx.printQTID is IGNORED here even though usage() advertises printqtid={t|f}; and CladeSearcher
+				//serverMode prepends machineHeader(printQTID) -- so quickclade "server=.. qtid=t" yields a header that
+				//declares a QTID column the server's rows lack (header/row column mismatch). Defensible (the server
+				//can't know a query's true taxID, so always-false is correct) but then printqtid should not be
+				//advertised/headered in serverMode. -> #001 (DOC).
 				bb.append("#Query").append(queryNumber).append('\n');
 				int cladeCount=0, sketchCount=0, totalCount=0;
 				for(Comparison comp : validResults){
@@ -692,6 +712,10 @@ public class CladeServer {
 		 * TODO: Implementation pending - returns null stub for now.
 		 */
 		byte[] getResponse(ByteBuilder request) {
+			//Comprehension: this (and FetchSSU/CompareSSU getResponse) is an UNIMPLEMENTED stub returning null. The
+			//UniversalHandler switch routes here, sees null, and replies 500 "Handler returned null response" -- a
+			//graceful not-yet-implemented response, not a crash. (Also note: these handlers' own handle() methods are
+			//dead -- routing goes through UniversalHandler.getResponse, not via per-handler server.createContext.)
 			//TODO: Parse taxID/organism names from request
 			//TODO: Lookup Clade objects from index
 			//TODO: Format as Clade file
@@ -841,7 +865,7 @@ public class CladeServer {
 		sb.append("Parameters in URL: /format=oneline/hits=5/\n");
 		sb.append("  format={human|oneline} - Output format\n");
 		sb.append("  hits=<int> - Number of results per query\n");
-		sb.append("  printqtid={t|f} - Print query TaxID\n");
+		sb.append("  printqtid={t|f} - Print query TaxID\n");//[clade/CladeServer#001 DOC] advertised but IGNORED by formatResults (machine rows hardcode printQTID=false); see the formatResults note.
 		sb.append("  banself={t|f} - Ban self-matches\n");
 		sb.append("  bandupes={t|f} - Ban duplicate matches\n");
 		sb.append("  heap=<int> - Heap size for comparisons\n");

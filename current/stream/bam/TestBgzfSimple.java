@@ -13,6 +13,9 @@ import java.io.IOException;
  */
 public class TestBgzfSimple {
 
+	//Test harness: compresses 21 KB of 'A' data with BgzfOutputStreamMT(1 thread) then
+	//decompresses with BgzfInputStreamMT(1 thread) and byte-compares via filesMatch(). Data
+	//is well under 65536 bytes so the known BSIZE-overflow bug is not exercised. main()-only.
 	public static void main(String[] args) throws IOException {
 		System.out.println("BGZF Simple Data Test");
 		System.out.println("=====================\n");

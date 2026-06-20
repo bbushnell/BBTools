@@ -89,6 +89,13 @@ public class SamToBamConverter implements Cloneable {
 			(seqLen+1)/2+  // packed seq
 			seqLen+              // qual
 			(sl.optional==null ? 0 : 20*sl.optional.size());
+		//Direct-array-write safety invariant: estimatedSize EXACTLY covers the fixed 36B + qname + cigar +
+		//packed-seq + qual, so after bb.expand the subsequent appendSeq/appendSeqReverseComplement/
+		//appendReversed/appendSymbol can write straight into bb.array (caching it) with NO bounds risk - those
+		//4 helpers do NOT ensureExtra themselves. Tags are the ONLY part whose true size can exceed the 20B/tag
+		//estimate, and appendTag re-ensures per tag (ensureExtra L308); since tags are written AFTER seq+qual,
+		//a tag-driven realloc can never invalidate the seq/qual direct writes. (Holds iff ByteBuilder.expand
+		//ensures `estimatedSize` ADDITIONAL bytes - the standard BBTools contract.)
 		bb.expand(estimatedSize);
 
 		bb.appendI32LE(0); //Placeholder
@@ -96,8 +103,16 @@ public class SamToBamConverter implements Cloneable {
 		bb.appendI32LE(refID);
 		bb.appendI32LE(sl.pos-1); //Convert 1-based to 0-based
 		bb.appendU8(sl.qname.length()+1); //Include null terminator
+		//l_read_name is u8 -> qname.length()+1 must be <=255 i.e. qname<=254 chars. The SAM spec caps QNAME
+		//at 254, so valid input never overflows this u8 (format-bounded, not a finding).
 		bb.appendU8(sl.mapq);
 		bb.appendU16LE(bin);
+		//TODO: Possible bug [stream/bam/SamToBamConverter#003] - n_cigar_op is u16 (max 65535) with no
+		//CG-tag fallback. A read with >65535 CIGAR ops (pathological ultra-long ONT alignments) overflows
+		//this field silently (the full cigar bytes are still written by appendCigar -> op-count field
+		//mismatches payload -> corrupt record). This is the known BAM-format limitation htslib works around
+		//via the "CG" aux tag. LOW (extreme input), but silent; crash-loud would prefer an explicit
+		//assert(cigarOpCount<=65535) over a wrapped count.
 		bb.appendU16LE(cigarOpCount);
 		bb.appendU16LE(sl.flag);
 		bb.appendU32LE(seqLen);
@@ -112,11 +127,27 @@ public class SamToBamConverter implements Cloneable {
 		appendCigar(bb, sl.cigar);
 		
 		//SEQ (4-bit encoded)-no temp arrays
+		//TODO: Possible bug [stream/bam/SamToBamConverter#001] - the reverse-strand RC here is UNCONDITIONAL,
+		//but the symmetric read-side BamToSamConverter guards the SAME un-flip with `&& SamLine.FLIP_ON_LOAD`
+		//(BamToSamConverter:409/610/817; flag = `flipsam`, Parser:1452, default true). This is CORRECT under
+		//the default (flipsam=t): SamLine's text ctor flips reverse-strand seq to ORIGINAL orientation on load
+		//(SamLine:474), so RC here restores forward-reference for the BAM. But under `flipsam=f` the load does
+		//NOT flip (seq stays forward-reference), so RC here DOUBLE-flips -> silently corrupt BAM SEQ/QUAL for
+		//every mapped reverse-strand read. SamLine.toBytes:2360 has the identical unconditional-RC (so SAM->SAM
+		//with flipsam=f corrupts too). flag-for-Brian: is flipsam=f supported with mapped SAM/BAM output? If yes
+		//-> add `&& SamLine.FLIP_ON_LOAD` here + at toBytes:2360 (match the read side); if it's FastqScan-only
+		//(no mapped output) -> document the constraint + crash loud. See bug_reports/stream/bam/SamToBamConverter.md.
+		//Note: `mapped` is derived from refID>=0 (rname resolution), NOT sl.mapped() (the 0x4 flag) that the
+		//load-flip used - on inconsistent rname/flag input these diverge (#002 family).
 		boolean mapped=(refID>=0);
 		boolean reverseStrand=((sl.flag & 0x10)!=0);
 		if(sl.seq==null || sl.seq.length==0) {
 			//Do nothing
-		}else if(mapped && reverseStrand && sl.seq!=null && sl.seq.length>0){
+		}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD && sl.seq!=null && sl.seq.length>0){
+			//#001 FIXED 2026-06-20 (greenlit): +`&& SamLine.FLIP_ON_LOAD` mirrors the read-side
+			//BamToSamConverter. With flipsam=f the SamLine seq is already forward-reference (load didn't flip),
+			//so we take the else branch (appendSeq, as-is) instead of double-flipping. NEEDS VALIDATION: a
+			//flipsam=f reverse-strand round-trip (sam→bam→sam, SEQ byte-match).
 			appendSeqReverseComplement(bb, sl.seq);
 		}else{appendSeq(bb, sl.seq);}
 		
@@ -125,7 +156,7 @@ public class SamToBamConverter implements Cloneable {
 			"QUAL length mismatch: qual.length="+sl.qual.length+" != seqLen="+seqLen;
 		if(sl.qual==null || sl.qual.length!=seqLen){
 			appendSymbol(bb, (byte)0xFF, seqLen);
-		}else if(mapped && reverseStrand){
+		}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD){ //#001 FIXED: +FLIP_ON_LOAD guard (mirror read side)
 			appendReversed(bb, sl.qual);
 		}else{bb.append(sl.qual);}
 
@@ -196,6 +227,14 @@ public class SamToBamConverter implements Cloneable {
 	 * Returns packed long: (bin<<32) | cigarOpCount
 	 */
 	private long calculateBinAndLength(SamLine sl){
+		//TODO: Possible bug [stream/bam/SamToBamConverter#002] - this forces cigarOpCount=0 when pos<=0,
+		//but appendCigar() (called separately at L112) encodes ops from sl.cigar REGARDLESS of pos. So a
+		//read with pos<=0 AND a non-"*" cigar writes n_cigar_op=0 into the record while appendCigar emits
+		//real cigar bytes -> the BAM record's op count mismatches its cigar payload -> corrupt record (the
+		//reader parses SEQ starting inside the cigar). Only diverges on INCONSISTENT input (a mapped cigar
+		//at pos<=0; valid SAM has pos>0 <=> cigar!="*"), so LOW/latent - but crash-loud would prefer
+		//catching it. Fix: count ops from the cigar string itself (decoupled from pos), or assert the
+		//pos>0 <=> cigar!="*" invariant loud. The pos>0 + cigar="*" case is consistent (both 0 ops).
 		if(sl.pos<=0 || sl.cigar == null || sl.cigar.equals("*")){
 			return (4680L<<32); //Unmapped, 0 ops
 		}

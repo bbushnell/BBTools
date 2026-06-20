@@ -10,6 +10,9 @@ public class ConfidenceTest {
 
 	public static void main(String[] args) {
 
+		//Comprehension: this is an INSPECTION harness, not an automated test -- it prints timings + confidence values
+		//for human review, with no assertions/pass-fail/exit code. Read-only consumer of the CladeConfidence NN
+		//(probCorrect); it computes no NN inputs, so the NN-input constraint is not engaged here.
 		System.out.println("=== CladeConfidence Test ===\n");
 
 		// Time the static initialization (loads 88 NNs + calibration)

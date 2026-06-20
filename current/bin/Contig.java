@@ -124,8 +124,13 @@ public class Contig extends Bin {
 	}
 	
 	public void loadCountsFast() {
+		//CLEVER [verified in-file]: single-pass k-mer load via countKmersMulti (all of k=2..5 + monomers in ONE scan
+		//of bases), vs loadCountsOld which scans separately per k (4, then 3, then 5) + a manual GC loop. gcSum here is
+		//counts[1][1]+counts[1][2] (C+G). NN-INPUT note: this produces the k-mer counts the pretrained net ultimately
+		//consumes (via Bin->Clade->freq) -> DO NOT alter the computation. (Difference from old: countKmersMulti does
+		//NOT honor `quant` subsampling, while loadCountsOld's countKmers does; identical only at quant=1, the default.)
 		assert(numTetramers==0);
-		
+
 		boolean k5=(countPentamers && size()>=minPentamerSizeCount);
 		int[][] counts=countKmersMulti(bases, k5 ? 5 : 4);
 		gcSum=counts[1][1]+counts[1][2];
@@ -149,6 +154,11 @@ public class Contig extends Bin {
 		if(cluster>=0 && APPEND_CLUSTER_NUMBER) {bb.tab().append("cluster_").append(cluster);}
 		bb.nl();
 		final int wrap=Shared.FASTA_WRAP;
+		//Comprehension: CORRECT FASTA wrap -- steps i+=wrap and appends `wrap` bytes from offset i; the final partial
+		//line (i+wrap>bases.length) relies on ByteBuilder.append(bytes,off,len) clamping len to the array end (verified
+		//by reachability: this is the live quickbin bin-output path and produces valid FASTA). NOTE: this is the
+		//CORRECT twin of the broken clade/Sequence#001, which stepped i++ with an i*wrap offset (AIOOBE) -- same intent,
+		//Contig got it right.
 		for(int i=0; i<bases.length; i+=wrap) {
 			//Now with modified append I can just append(bases, wrap) ...???
 			bb.append(bases, i, wrap).nl();

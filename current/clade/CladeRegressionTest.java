@@ -48,6 +48,10 @@ public class CladeRegressionTest {
 		}
 		System.out.println("PASS: Header present"); pass++;
 
+		//CLEVER [verified in-file]: parses columns BY NAME via findCol (not by hardcoded index), so the test is robust
+		//to column reordering/insertion in the machine format; the parseInt/parseFloat helpers tolerate col==-1
+		//(missing column) by returning -1, degrading gracefully rather than crashing. This is the pattern
+		//CladeCalibrator#001 should adopt -- it hardcodes indices and would silently miscalibrate on a format shift.
 		String[] colNames=header.split("\t");
 		int colQueryName=findCol(colNames, "#QueryName");
 		int colRTaxID=findCol(colNames, "R_TaxID");

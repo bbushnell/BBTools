@@ -13,6 +13,8 @@ import stream.Read;
  * @author Brian Bushnell
  * @date 2013
  */
+//Comprehension: implemented by bin.Bin (-> Contig, Cluster) and by clade.Sequence -- the common contract that lets
+//the sketch/comparison machinery treat bins and clade sequences polymorphically. Clean, fully-documented interface.
 public interface Sketchable extends Comparable<Sketchable> {
 
 	/** Initializes this object from JSON data.

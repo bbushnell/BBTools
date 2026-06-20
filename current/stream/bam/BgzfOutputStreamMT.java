@@ -176,12 +176,29 @@ public class BgzfOutputStreamMT extends OutputStream {
 				if(inputQueue.offer(job)) {enqueued=true; break;}
 				try{Thread.sleep(1);}catch(InterruptedException ie){Thread.currentThread().interrupt();break;}
 			}
+			//[stream/bam/BgzfOutputStreamMT#001] FIXED 2026-06-20 (greenlit by Brian; adversarial-Sonnet
+			//CONFIRMED HIGH before fix). OLD fallback SILENTLY DROPPED the real final block and injected an
+			//EMPTY last-marker stamped jobQueue.nextID() (the writer's CURRENT gap) -> if the writer was
+			//behind under output-sink backpressure, that marker dequeued AHEAD of in-flight blocks -> premature
+			//writeEOF()+close() -> silently TRUNCATED .bam with a valid-looking EOF marker. NEW: never drop the
+			//real block. After the quick non-blocking offers fail (transient backpressure: slow sink -> jobQueue
+			//full -> workers blocked -> inputQueue full), BLOCK on the REAL job via a timed offer-loop that
+			//rechecks workerError each tick -> waits out the (transient) backpressure as the writer drains the
+			//sink and workers free inputQueue, but crashes LOUD if a worker/writer actually died (never hangs,
+			//never drops). The real job carries isLast=true, so the writer still writes EOF AFTER it (correct
+			//order). NEEDS VALIDATION: a slow-sink close (the offers-exhausted path) + byte-for-byte round-trip.
 			if(!enqueued){
-				// Fallback: inject an empty last marker directly to writer with next expected ID
-				BgzfJob lastDirect=new BgzfJob(jobQueue.nextID(), new byte[0], null, true);
-				lastDirect.decompressedSize=0;
-				jobQueue.add(lastDirect);
-				if(verbose){System.err.println("flushBlock: direct last marker to writer");}
+				boolean done=false;
+				while(!done){
+					if(workerError!=null){throw workerError;}//crash loud on real worker/writer death
+					try{
+						done=inputQueue.offer(job, 100, java.util.concurrent.TimeUnit.MILLISECONDS);
+					}catch(InterruptedException ie){
+						Thread.currentThread().interrupt();
+						throw new IOException("Interrupted while submitting final BGZF block", ie);
+					}
+				}
+				if(verbose){System.err.println("flushBlock: blocking-put final block "+job.id);}
 			}
 		}else{
 			try{
@@ -233,6 +250,13 @@ public class BgzfOutputStreamMT extends OutputStream {
 				}
 
 				// If this is the last job, inject poison for other workers (nonblocking)
+				//Poison accounting (why no worker hangs at shutdown): the worker holding the lastJob
+				//injects (workerThreads-1) poisons here, and close() puts exactly 1 more (~L483) =
+				//workerThreads poisons total. The empty-marker lastJob path breaks WITHOUT consuming a
+				//poison (~L262), leaving 1 spare (harmless); the non-empty lastJob path loops back and
+				//consumes 1, balancing exactly. Either way every worker's inputQueue.take() eventually
+				//returns a poison -> no worker blocks forever. (Math.max(1,..) over-injects 1 spare when
+				//workerThreads==1; harmless.)
 				if(job.lastJob){
 					if(verbose){
 						System.err.println("Worker: saw LAST JOB, injecting POISON");
@@ -375,6 +399,12 @@ public class BgzfOutputStreamMT extends OutputStream {
 				}
 
 				// If this was the last job, write EOF marker, close stream, and exit
+				//The writer terminates on the FIRST dequeued job with lastJob==true and writes the BGZF
+				//EOF marker exactly once here. Because jobQueue is ordered (heapReady only releases the
+				//min id == nextID, JobQueue.heapReady/take), in the NORMAL path the real lastJob is the
+				//highest id and is dequeued strictly last -> EOF is correct. This same property is what
+				//makes #001's fallback dangerous: a last-marker stamped with an EARLIER id (nextID at
+				//fallback time) is dequeued early and triggers this EOF+close before later blocks ship.
 				if(job.lastJob){
 					if(verbose){
 						System.err.println("Writer: lastJob written, writing EOF marker");
@@ -605,6 +635,10 @@ public class BgzfOutputStreamMT extends OutputStream {
 	/** Debug flag (enable with -Dbgzf.debug=true) */
 	private static final boolean verbose=false;//Boolean.getBoolean("bgzf.debug");
 	/** Default maximum uncompressed block size (64KB) */
-	public static final int DEFAULT_BLOCK_SIZE=65536;
+	//[block-size lead FIXED 2026-06-20 (greenlit)] 0xff00 (65280), NOT 65536: the BGZF spec/samtools cap the
+	//UNCOMPRESSED block here so the compressed block + 26B overhead always fits the 16-bit BSIZE field. At
+	//65536 an incompressible full block deflates to ~65556 (empirically) -> bsize>65535 -> wraps -> corrupt
+	//framing. Read buffers stay 65536 (other writers may emit up to the spec max), only WRITE size is capped.
+	public static final int DEFAULT_BLOCK_SIZE=65280;
 	public static boolean FILTERED_BGZF=false;
 }

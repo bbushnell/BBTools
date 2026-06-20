@@ -258,6 +258,10 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		
 		//Report timing and results
 		t.stop();
+		//readsProcessed/basesProcessed are intentionally always 0: ProcessThread.run's per-clade counting is
+		//commented out for speed (run():"Makes it slow due to caching?"), so accumulate() only ever adds 0. The
+		//timing line thus shows 0 reads/0 bases BY DESIGN; "Clades" (below) is the real throughput metric.
+		//Speed-gated -> documented, NOT fixed.
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		outstream.println(Tools.things("Clades", list.size(), 8));
 		outstream.println(Tools.things("Bytes Out", bytesOut, 8));
@@ -355,8 +359,15 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			return list;
 		}else if(!perContig) {
 			ArrayList<Clade> list=new ArrayList<Clade>(1);
+			//TODO: Possible bug [clade/CladeLoaderMF#001] FIXED - loadOneCladeFromSequence returns null on an empty/
+			//zero-sequence input file (see its "list==null || list.isEmpty()" guard); adding that null here propagated
+			//it to spawnThreads' collection loop where synchronized(c) NPEs on a null Clade. An empty input file is a
+			//legitimately-reachable degenerate input (default perContig=false; reachable via quickclade.sh->
+			//CladeSearcher:240 and sendclade.sh->SendClade:275). Fix: skip the null so an empty file yields zero
+			//clades -- matching the perContig=true path (processReads returns an empty list for empty input). No
+			//speed/NN-input impact: pure control flow, no count/frequency value touched.
 			Clade c=loadOneCladeFromSequence(ff, et, maxReads);
-			list.add(c);
+			if(c!=null) {list.add(c);}
 			return list;
 		}else {
 			return loadCladesFromSequence(ff, et, minContig, maxReads, finish);
@@ -451,11 +462,16 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		//Grab the first ListNum of reads
 		ListNum<Read> ln=cris.nextList();
 
+		//Vestigial pairing-check stub: r is fetched but never used (the real pairing assert lives in makeCris). A
+		//harmless dead local left from the template scaffold; not a bug, just noted.
 		//Check to ensure pairing is as expected
 		if(ln!=null && !ln.isEmpty()){
 			Read r=ln.get(0);
 		}
 
+		//Correct cris drain: each list fetched in-loop is handed back via returnList(ln) before the next fetch, and
+		//the post-loop returnList(ln.id,...) releases the final empty/null sentinel -- so no list is leaked whether
+		//input is empty (loop never runs) or exhausted (loop exits on null/empty ln).
 		//As long as there is a nonempty read list...
 		while(ln!=null && ln.size()>0){
 			for(Read r : ln) {
@@ -530,6 +546,12 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 		errorState|=!success;
 		
 		//Do anything necessary after processing
+		//Deterministic in-order reassembly: ProcessThread.run strides files (i=tid; i+=threads) and put()s each result
+		//under its distinct file-index key, so every i in [0,files.size()) is populated on the success path and
+		//cladeMap.get(i) is non-null here; iterating 0..n-1 recovers input-file order regardless of which thread
+		//finished first. synchronized(c) requires c!=null -- guaranteed since #001 (empty files no longer yield a null
+		//Clade). LATENT (not fixed; state-corrupted-by-prior-failure, out of scope): if a ProcessThread throws BEFORE
+		//its put(), get(i) is null and the inner for-each NPEs, masking the errorState report at process():266.
 		ArrayList<Clade> out=new ArrayList<Clade>(files.size());
 		for(int i=0; i<files.size(); i++) {
 			ArrayList<Clade> list=cladeMap.get(i);
@@ -609,6 +631,10 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			//Do anything necessary prior to processing
 			
 			//Process the reads
+			//CLEVER [verified in-file]: lock-free per-file parallelism -- each thread owns a DISJOINT stride of file
+			//indices (i=tid; i+=threads) and writes ONLY its own keys into the shared ConcurrentHashMap, so distinct
+			//keys never collide and no per-result lock is needed; spawnThreads then reads keys 0..n-1 to recover
+			//deterministic input-file order despite out-of-order completion (write() re-sorts to canonical Clade order).
 			for(int i=tid; i<files.size(); i+=threads) {
 				ArrayList<Clade> list=loadClades(files.get(i), et, perContig, minContig, maxReads, finish);
 //				for(Clade c : list) {//Makes it slow due to caching?

@@ -137,6 +137,13 @@ public class CladeCalibrator {
                 // Columns: 0=QueryName, 1=Q_GC, 2=Q_Bases, 3=Q_Contigs, 4=RefName,
                 // 5=R_TaxID, 6=R_GC, 7=R_Bases, 8=R_Contigs, 9=R_Level, 10=GCdif,
                 // 11=STRdif, 12=k3dif, 13=k4dif, 14=k5dif, 15=lineage (optional)
+                //TODO: Possible bug [clade/CladeCalibrator#001] LOW/DOC latent (flag Brian) - these column INDICES are
+                //hardcoded positionally and the #-header line is skipped (above), so if the input TSV is generated
+                //with a different column set (e.g. quickclade printqtid=t inserts a query-TaxID column, shifting
+                //everything right) this SILENTLY reads the wrong column as k5dif -> wrong calibration tables, no crash.
+                //Correct as-DOCUMENTED (the header comment specifies printqtid-off machine format), but the parse is
+                //not self-validating. Recommend header-aware parsing by column NAME (as CladeRegressionTest.findCol
+                //does) so a format change is detected, not silently miscalibrated. -> forward lead.
                 String s = new String(line);
                 String[] cols = s.split("\t", -1);
                 if (cols.length < 15) { rowsSkipped++; skipReason[4]++; continue; }
@@ -184,6 +191,11 @@ public class CladeCalibrator {
                 } else {
                     int k5bin = binIdx(k5dif);
                     int k4bin = binIdx(k4dif);
+                    //CLEVER [verified in-file]: builds TWO calibration tables in one pass -- k4 (always) and k5 (only
+                    //when k5dif<1.0). k5dif==1.0 is the "k5 not computed" sentinel for short contigs (per the
+                    //metric comment above), so the confidence lookup can fall back to the k4 table when k5 is
+                    //unavailable instead of having no calibration for short queries. "correct at level L" =
+                    //common-ancestor level in (0, L].
                     for (int li = 0; li < LEVELS.length; li++) {
                         int L = LEVELS[li];
                         boolean correct = (caLevel > 0 && caLevel <= L);

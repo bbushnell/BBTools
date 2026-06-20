@@ -128,13 +128,19 @@ public class Shared {
 	private static boolean disableParallelSort=false;
 	/** True if parallel sort is available */
 	public static boolean parallelSort=testParallelSort();
-	/** True if SIMD optimizations are enabled */
+	/** True if SIMD optimizations are enabled (master gate; also drives parsing/alignment, not just the NN) */
 	public static boolean SIMD=(Vector.simd256);
-	/** SIMD for NN feed-forward (inference + training). Shipped OFF: the SIMD reduction (true-FMA + tree-reduce)
-	 * is more accurate but cannot bit-match the scalar dot product, so it perturbs reproducibility of already-trained
-	 * nets — a net scores differently across regimes (validated 2026-06-15). Flip + recompile only to experiment.
-	 * Gated together with the live SIMD flag at each call site; recorded in the bbnet header. */
-	public static boolean SIMD_FEED_FORWARD=false;//Settable (was final): the simdff= experiment flag flips it; still ANDed with live Shared.SIMD and per-job simdFF at each call site
+	/** SIMD for the NN per-neuron dense fma (the Vector.fma dot-product used when batched feed-forward is off).
+	 * Decoupled from the master SIMD flag so the NN fma path can be toggled (simdfma=) WITHOUT disabling the
+	 * SIMD used for parsing/alignment. ON by default (preserves prior behavior, which gated only on Shared.SIMD);
+	 * ANDed with the live Shared.SIMD at each NN call site. */
+	public static boolean SIMD_FMA=true;
+	/** SIMD for NN feed-forward (inference + training). The SIMD reduction (true-FMA + tree-reduce) is more accurate
+	 * but cannot bit-match the scalar dot product, so a trained net scores slightly differently across regimes.
+	 * Validated harmless 2026-06-20: across scalar/fma/ff the giab net9b CROSSOVER differs by <=1 FP+FN over 35 nets,
+	 * and training quality is statistically equivalent. Default ON post-validation. Toggle with simdff=; ANDed with
+	 * the live Shared.SIMD and the per-job simdFF flag at each call site; recorded in the bbnet header. */
+	public static boolean SIMD_FEED_FORWARD=true;//Default ON (was false): validated bit-transparent for eval, equivalent for training (2026-06-20)
 	/** SIMD for NN backprop (training only — never runs at inference, so no cross-mode scoring hazard). ON by default:
 	 * ~1.6x faster training -> more random starts -> better best-of-sweep net. Gated with the live SIMD flag at each
 	 * call site, so simd=f disables it too. NOTE: do NOT initialize this from SIMD — SIMD is mutated by a runtime

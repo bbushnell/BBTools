@@ -7,6 +7,8 @@ import java.io.IOException;
  * Debug tool to see exactly what happens when reading BGZF files.
  */
 public class DebugBgzfRead {
+	//Debug harness: reads a BGZF file with BgzfInputStreamMT(1 thread) and prints per-block byte
+	//counts to stdout; no assertions. Dead-code block at lines 31-36 does nothing. main()-only.
 	public static void main(String[] args) throws IOException {
 		String file = args.length > 0 ? args[0] : "test_mt_output.bam";
 

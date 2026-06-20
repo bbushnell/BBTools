@@ -182,14 +182,25 @@ public class BgzfInputStreamMT2 extends InputStream {
 					}
 				}
 			}
-		}catch(IOException e){
-			workerError=e;
+		}catch(Throwable e){
+			//#001-fix EXTENDED 2026-06-20 (greenlit): was `catch(IOException e)`, which MISSED the magic-check
+			//AssertionError at readNextBlock L218 (under -ea, the assert fires BEFORE the IOException at L221).
+			//An AssertionError is an Error, not an IOException -> it escaped the catch -> workerError stayed null
+			//-> the finally's poison was skipped -> consumer HUNG on a non-gzip input (e.g. raw bytes as .bam).
+			//Catching Throwable closes that: ANY producer death (IOException, AssertionError, OOM, RuntimeException)
+			//now sets workerError and routes through the poison-the-consumer path below. Validated: random-bytes
+			//.bam now crashes LOUD (was: 25s hang). Wrap non-IOExceptions so workerError stays an IOException.
+			workerError=(e instanceof IOException ? (IOException)e : new IOException("BGZF producer failed", e));
 		}finally{
 			producerFinished=true;
 			if(!lastJobQueued){
 				inputQueue.offer(BgzfInputJob.POISON_PILL);
 			}
-			//#001-fix [stream/bam/BgzfInputStreamMT2#001]: on a producer error (e.g. truncated/corrupt gzip) the only terminal signal previously reached the WORKER (inputQueue POISON), never the CONSUMER -> read() parked forever in jobQueue.take(). Poison the jobQueue too so the blocked consumer wakes (take() returns null) and read() throws workerError LOUD instead of hanging. Cold path only (runs once, at producer exit, and only when errored) -> zero hot-path cost.
+			//#001-fix [stream/bam/BgzfInputStreamMT2#001]: on a producer error (e.g. truncated/corrupt gzip, or a
+			//not-gzip magic-assertion failure) the only terminal signal previously reached the WORKER (inputQueue
+			//POISON), never the CONSUMER -> read() parked forever in jobQueue.take(). Poison the jobQueue too so
+			//the blocked consumer wakes (take() returns null) and read() throws workerError LOUD instead of hanging.
+			//Cold path only (runs once, at producer exit, and only when errored) -> zero hot-path cost.
 			if(workerError!=null){
 				jobQueue.poison(BgzfInputJob.POISON_PILL, true);
 			}
@@ -276,7 +287,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 			long expectedCrc=wrapper.getInt() & 0xFFFFFFFFL;
 			int expectedSize=wrapper.getInt();
 
-			if(compressedSize==0 && expectedSize==0){lastJobQueued=true;}
+			if(compressedSize==0 && expectedSize==0){lastJobQueued=true;}//comprehension: degenerate terminator only - a valid deflate stream is >=2 bytes, so valid blocks have compressedSize>=2. The REAL BGZF EOF marker is compressedSize=2/expectedSize=0 -> inflates to 0 bytes -> skipped by the consumer (decompressedSize==0 -> continue), so concatenated BGZF reads through internal EOF markers correctly.
 
 			BgzfInputJob job=new BgzfInputJob(nextJobId++, compressed, 
 				expectedCrc, expectedSize, lastJobQueued);
@@ -439,7 +450,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 					
 					try{
 						synchronized(job) {
-							job.decompressedSize=inflater.inflate(decompressed, 0, 65536);
+							job.decompressedSize=inflater.inflate(decompressed, 0, 65536);//comprehension: one inflate call - a BGZF block is <=65536 uncompressed so it completes here. A short/partial inflate does NOT truncate silently; it fails the decompressedSize==expectedSize check below into a loud error job (crash-loud).
 							job.decompressed=decompressed;
 						}
 						if(DEBUG){
@@ -482,7 +493,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 					assert(!DEBUG || job.repOK()) : "Worker produced invalid job";
 				}
 
-				//Add to job queue
+				//Add to job queue. comprehension: JobQueue.add ALWAYS returns true (it blocks on flow-control, then unconditionally heap.add + returns true - never drops a job), so ignoring its return here is correct (no silent data loss). The `if(!jobQueue.add(job)){break;}` guards on the error paths above are therefore dead-but-harmless (the break never fires).
 				jobQueue.add(job);
 
 				if(job.lastJob){
@@ -569,7 +580,7 @@ public class BgzfInputStreamMT2 extends InputStream {
 				assert(nextJob.decompressedSize>0) : 
 					"Job "+nextJob.id+" has zero decompressed size";
 
-				currentBlock=nextJob.decompressed;
+				currentBlock=nextJob.decompressed;//comprehension: reading nextJob's fields without sync is safe - the jobQueue add(worker)->take(consumer) edge supplies the happens-before, so the worker's writes (made under synchronized(job), belt-and-suspenders) are visible here. Fresh per-job buffer, so no cross-block aliasing.
 				currentBlockSize=nextJob.decompressedSize;
 				currentBlockPos=0;
 			}

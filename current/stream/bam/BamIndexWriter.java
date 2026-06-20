@@ -194,7 +194,7 @@ public final class BamIndexWriter{
 				int pos=bb.getInt(); //0-based leftmost position (-1 if unavailable)
 				int lReadName=bb.get()&0xFF; //Length of QNAME including NUL
 				bb.get(); //MAPQ (unused for indexing)
-				int bin=bb.getShort()&0xFFFF; //Binning index bin number
+				bb.getShort(); //stored bin field - IGNORED, recomputed via reg2bin below (#001 fix)
 				int nCigar=bb.getShort()&0xFFFF; //Number of CIGAR operations
 				int flag=bb.getShort()&0xFFFF; //SAM flags
 				int lSeq=bb.getInt(); //Sequence length (unused here)
@@ -244,11 +244,18 @@ public final class BamIndexWriter{
 
 				//No need to parse SEQ/QUAL/AUX - all index info extracted
 
+				//[stream/bam/BamIndexWriter#001] FIXED 2026-06-20 (greenlit by Brian): RECOMPUTE the bin via
+				//reg2bin(pos, end) instead of trusting the record's stored `bin` field. A bin=0 / stale-bin
+				//BAM (a legal placeholder - the SAM spec marks bin derivable) would otherwise get a silently
+				//WRONG .bai (every chunk in bin 0 → region queries miss reads). samtools recomputes for the
+				//same reason; refSpan is already in hand, so this is free robustness.
+				int alignmentEndExclusive=pos+Math.max(refSpan, 1);
+				int computedBin=reg2bin(pos, alignmentEndExclusive);
+
 				//Add alignment to bin index
-				ref.addRecord(bin, recordStart, recordEnd);
+				ref.addRecord(computedBin, recordStart, recordEnd);
 
 				//Update linear index for this alignment's span
-				int alignmentEndExclusive=pos+Math.max(refSpan, 1);
 				ref.updateLinearIndex(pos, alignmentEndExclusive, recordStart);
 			}
 
@@ -325,6 +332,25 @@ public final class BamIndexWriter{
 	}
 
 	/**
+	 * Calculate the BAM bin for a 0-based region [beg, end).
+	 * SAMv1.pdf §5.3 reg2bin. Used to recompute the bin per record (#001) rather than trust the
+	 * stored bin field, so a bin=0 / stale-bin BAM still indexes correctly. Matches the writer's
+	 * SamToBamConverter.reg2bin exactly.
+	 * @param beg 0-based start (inclusive)
+	 * @param end 0-based end (exclusive)
+	 * @return bin number
+	 */
+	private static int reg2bin(int beg, int end){
+		--end;
+		if(beg>>14 == end>>14) return ((1<<15)-1)/7+(beg>>14);
+		if(beg>>17 == end>>17) return ((1<<12)-1)/7+(beg>>17);
+		if(beg>>20 == end>>20) return ((1<<9)-1)/7+(beg>>20);
+		if(beg>>23 == end>>23) return ((1<<6)-1)/7+(beg>>23);
+		if(beg>>26 == end>>26) return ((1<<3)-1)/7+(beg>>26);
+		return 0;
+	}
+
+	/**
 	 * Index data for a single reference sequence.
 	 * Contains binning index (hierarchical bins) and linear index (16kb windows).
 	 */
@@ -381,6 +407,12 @@ public final class BamIndexWriter{
 			int linearBegin=pos>>LINEAR_INDEX_SHIFT; //Divide by 16384
 			int linearEnd=Math.max(pos, endExclusive-1)>>LINEAR_INDEX_SHIFT;
 			ensureLinearSize(linearEnd+1);
+			//Earliest-offset invariant (correct ONLY because the BAM is coordinate-sorted - enforced by the
+			//SO:coordinate assert at writeIndex L122): records arrive in non-decreasing virtual-offset order,
+			//so the FIRST record to touch window i has the smallest offset; "set only if UNSET" pins that
+			//earliest offset and ignores later (larger-offset) records overlapping the same window. This is
+			//the BAI linear-index contract (window i -> min offset of any record overlapping it). If the BAM
+			//were unsorted (only reachable via -da, which skips the assert), this silently builds a wrong index.
 			for(int i=linearBegin; i<=linearEnd; i++){
 				if(linear.get(i)==UNSET_OFFSET){ //Only set if unset (want earliest offset)
 					linear.set(i, offset);
@@ -394,6 +426,12 @@ public final class BamIndexWriter{
 		}
 
 		/** @return true if this reference has at least one aligned read */
+		//TODO: Possible bug [stream/bam/BamIndexWriter#002] - gates on firstOffset (set only by addRecord,
+		//which is skipped for pos<0 reads at writeIndex L224). A ref whose reads ALL have refID>=0 but pos<0
+		//(counted via incrementCounts at L221, BEFORE the pos<0 skip) gets NO pseudo-bin -> its mapped/
+		//unmapped counts are silently dropped from the index. Narrow edge (a ref with only position-less
+		//reads; a ref with >=1 positioned read carries complete counts since incrementCounts ran for all).
+		//LOW. Fix: emit the pseudo-bin when (mappedReads+unmappedReads)>0, writing 0/0 offsets if no span.
 		boolean shouldEmitPseudoBin(){
 			return firstOffset>=0 && lastOffset>=firstOffset;
 		}
