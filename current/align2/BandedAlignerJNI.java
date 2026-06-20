@@ -14,6 +14,11 @@ import shared.Shared;
  */
 public class BandedAlignerJNI extends BandedAligner{
 
+	//NOTE: DEAD by design — makeBandedAligner gates this off with `&& false` (always returns
+	//BandedAlignerConcrete) until JNI/Concrete result parity is confirmed (per Brian's TODO there).
+	//The four methods are thin wrappers: seed returnVals[] with current state, call the native
+	//alignXJNI, then read the updated state back out. The alignment logic lives in native C/C++.
+
 	static {
 		Shared.loadJNI();
 	}
@@ -41,7 +46,9 @@ public class BandedAlignerJNI extends BandedAligner{
 		if(args.length>2){qstart=Integer.parseInt(args[2]);}
 		if(args.length>3){rstart=Integer.parseInt(args[3]);}
 		if(args.length>4){maxedits=Integer.parseInt(args[4]);}
-		if(args.length>4){width=Integer.parseInt(args[5]);}
+		//align2/BandedAlignerJNI#001 FIXED: guard was args.length>4 while reading args[5] — AIOOBE on
+		//exactly 5 args. Now >5, matching the args[5] access and BandedAlignerConcrete.main.
+		if(args.length>5){width=Integer.parseInt(args[5]);}
 		
 		BandedAlignerJNI ba=new BandedAlignerJNI(width);
 		

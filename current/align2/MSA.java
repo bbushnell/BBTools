@@ -15,7 +15,13 @@ import stream.SiteScore;
  *
  */
 public abstract class MSA {
-	
+
+	//Abstract base + factory for the MultiStateAligner family (affine-gap multi-state DP). makeMSA() and
+	//minIdToMinRatio() dispatch on a class-name string. LIVE variants in practice: MultiStateAligner11ts
+	//(BBMap default; 11tsJNI when Shared.USE_JNI) and MultiStateAligner9PacBio. The concrete logic here is
+	//the match-string scorer score(byte[]), the tiered calc*Score helpers, and toLocalAlignment (global->
+	//local soft-clip extraction); the fill/traceback/POINTS_* contracts are implemented by the subclasses.
+
 	/**
 	 * Creates appropriate MSA implementation based on specified class name.
 	 * Factory method supporting 7 specialized alignment variants with different performance characteristics.
@@ -639,15 +645,21 @@ public abstract class MSA {
 			int pairedScore=ss.pairedScore>0 ? Tools.max(ss.pairedScore+(maxScore-ss.slowScore), 0) : 0;
 		}
 		
-		if(!ss.perfect && ss.isPerfect(bases)){
+		//align2/MSA#001 FIXED: the block below dereferences ss, but this method contemplates ss==null
+		//(the assert at ~619, plus the if(ss!=null) guards at ~630/~635). Added ss!=null here and on the
+		//else-if so a null ss falls through to `return true` instead of NPEing — behavior-identical when
+		//ss!=null. Reachability of ss==null pending the BBMapThread* call-site review (callers pass
+		//r.topSite()/ss); the guard is correct regardless and matches the method's own null-handling.
+		if(ss!=null && !ss.perfect && ss.isPerfect(bases)){
 			ss.perfect=ss.semiperfect=true;
 			r.setPerfect(true);
 			Arrays.fill(r.match, (byte)'m');
 			ss.setSlowScore(maxScore);
-		}else if(!ss.semiperfect && ss.isSemiPerfect(bases)){
+		}else if(ss!=null && !ss.semiperfect && ss.isSemiPerfect(bases)){
 			ss.semiperfect=true;
 			ChromosomeArray cha=Data.getChromosome(ss.chrom);
 			r.match=ss.match=genMatchNoIndels(bases, cha.array, ss.start);
+			//Recurses at most once: ss.semiperfect was just set true, so the re-entry skips this branch.
 			return toLocalAlignment(r, ss, basesM, minToClip, matchPointsMult);
 		}
 		return true;

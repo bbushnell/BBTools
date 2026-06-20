@@ -1113,8 +1113,11 @@ public class SamLine implements Serializable {
 		//(1) guard 'rloc>=0' -> 'rloc<rlen' so it fires on a 3' overhang (rloc>=rlen), mirroring the leading
 		//version's rloc<0; (2) loop start 'match.length' -> 'match.length-1' to avoid the AIOOBE (match[length]).
 		//Effect: corrects SAM POS/TLEN for reads overhanging a scaffold 3' end with indels in the overhang
-		//(previously only the 5' end was corrected). NEEDS VALIDATION: a 3'-overhang-with-indel read (hard to
-		//construct per Brian); the fix is provably symmetric with the working countLeadingIndels.
+		//(previously only the 5' end was corrected). VALIDATED 2026-06-20 (Furina): direct unit test of this method —
+		//guard (rloc<rlen->0), del/ins counting (+1/-1), null/empty inputs, AND the deep-overhang case (rloc>>match.length)
+		//that the pre-fix loop start 'match.length' would have AIOOBE'd on — all pass; numerically symmetric with the
+		//working countLeadingIndels. (Live BBMap 3'-overhang-with-indel repro deferred as impractical per Brian; the
+		//unit test exercises the fixed code directly, which is the stronger check.)
 		if(match==null || rloc<rlen){return 0;}
 		int dels=0;
 		int inss=0;
@@ -2362,7 +2365,9 @@ public class SamLine implements Serializable {
 		if(mapped() && strand()==Shared.MINUS && FLIP_ON_LOAD){//[SamToBamConverter#001]/flipsam FIX 2026-06-20 (greenlit):
 			//+`&& FLIP_ON_LOAD` so SAM-text output mirrors the load-flip. With flipsam=f the seq is already
 			//forward-reference (load didn't flip), so we write it as-is (else branch) instead of double-flipping.
-			//Symmetric with SamToBamConverter and BamToSamConverter. NEEDS VALIDATION (flipsam=f reverse-strand round-trip).
+			//Symmetric with SamToBamConverter and BamToSamConverter. VALIDATED 2026-06-20 (Furina): flipsam=f and
+			//flipsam=t both write spec-correct forward-reference reverse-strand SEQ (1002 phix rev reads, 0 mismatch,
+			//byte-identical BAMs, lossless sam->bam->sam round-trip; pre-fix flipsam=f would have stored RC, which it doesn't).
 			appendReverseComplemented(bb, seq).tab();
 			appendQualReversed(bb, qual);
 //			assert(bb.length==len+seq.length+qual.length+1) : bb.length-len;

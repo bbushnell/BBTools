@@ -10,7 +10,15 @@ import structures.ByteBuilder;
  * @author Brian Bushnell
  */
 public class BinStats implements Comparable<BinStats> {
-	
+	//=== Eru review 2026-06-20 (V3) === bin quality/stats container; built by GradeBins.toBinStats, printed in cluster report.
+	//CLEVER [verified]: type() tiers (UHQ/VHQ/HQ/MQ/LQ/VLQ/HCN) are exhaustive + the terminal assert(contam>=0.10) (114) is a
+	//  VALID invariant — the MQ (contam<0.10 && complt>=0.50) and LQ (contam<0.10 && complt<0.50) branches together cover ALL
+	//  contam<0.10 at every completeness, so reaching HCN implies contam>=0.10. RNA gate is prokaryote-oriented (16S+23S+5S+
+	//  trna>=18); r18Scount is tracked (euk) but NOT part of the quality gate.
+	//NOTE: compareTo orders size-DESC then name-ASC; no equals/hashCode override -> SORT-ONLY (don't put BinStats in a TreeSet/
+	//  hash-set expecting compareTo semantics; harmless today — names are unique). toBytes (120) is a PARTIAL serialize (core
+	//  stats + lineage; omits RNA/cds counts, clade, filename, contigName). assert(b.gc()!=0) (38) is a tripwire — gc=0 unreachable for real sequence.
+
 	/**
 	 * Constructs BinStats from a Bin object and name.
 	 * Extracts bin metadata: size, contamination, completeness, GC, and depth.

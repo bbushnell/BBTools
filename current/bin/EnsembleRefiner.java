@@ -8,6 +8,18 @@ import map.IntHashSet;
 import shared.Random;
 
 class EnsembleRefiner extends AbstractRefiner {
+    //=== Eru review 2026-06-20 (V3; Brian's discretion grant — refiner family NOT live, reviewed for future-robustness) ===
+    //NOT LIVE [grep-verified]: never instantiated (makeRefiner only builds CRYSTAL). It runs the other 3 refiners and votes.
+    //  This is why GraphRefiner/EvidenceRefiner are also never built. LOW/latent throughout.
+    //CLEVER [verified]: buildConsensus normalizes a co-occurrence matrix by results.size() -> coOccurrence[i][j] = fraction of
+    //  methods that grouped i,j; growConsensusCluster then single-links pairs >= consensusThreshold (0.6) = "majority agree".
+    //  Same conservation-of-mass safety net (isSplitBeneficial) as the siblings.
+    //#001 LOW/latent (crash-loud violation): applyAllRefiners wraps each constituent in `catch(Exception e){}` SILENTLY
+    //  (113/122/132) -> a real bug (NPE/OOM) in a constituent is hidden, contradicting BBTools crash-loud-never-wrong. It's a
+    //  deliberate ensemble-degradation choice, but blanket-silent is risky -> float to Brian (degrade-vs-crash design call).
+    //#002 LOW/latent (debug-stat): splitAttempts double-counted (refine:75 + refineToIntSets:42), same as EvidenceRefiner#001.
+    //NOTE: field `random` (320) is dead (set from seed, never used — consensus is deterministic). Same for EvidenceRefiner.random.
+    //PERF (latent): float[n][n] co-occurrence (O(n^2) mem) + growConsensusCluster toProcess.contains O(n). Fine while dead.
     
     public EnsembleRefiner(Oracle oracle_) {
         this(oracle_, new AbstractRefiner.EnsembleRefinerParams());

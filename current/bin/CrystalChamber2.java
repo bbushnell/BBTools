@@ -4,6 +4,16 @@ import java.util.ArrayList;
 import shared.Random;
 
 class CrystalChamber2 extends AbstractRefiner {
+	//=== Eru review 2026-06-20 (V3; Brian's discretion grant) ===
+	//FULLY DEAD [grep-verified]: NEVER instantiated (only self-refs + a README mention) -> not in makeRefiner, not in
+	//  EnsembleRefiner. An unreferenced alternate of CrystalChamber -> DELETION CANDIDATE. Float keep-vs-delete to Brian.
+	//CLEVER [verified]: convergence by STABILITY detection (assignmentsEqual: stop when assignments stop changing between
+	//  iterations) is more robust than CrystalChamber's centroid-distance threshold (convergenceThreshold is unused here, 16).
+	//#001 LOW/latent (dead): same missing-restore-on-reject as CrystalChamber#001 — recrystallize repoints contig.cluster via
+	//  Cluster.add:153 (author even added a debug integrity check at 154-157) but the 3 reject paths (46/52/64) return null
+	//  WITHOUT restoring. Latent (unreferenced). If Brian KEEPS the file, mirror CrystalChamber's restoreOriginalCluster;
+	//  else delete. NOT patched (deletion candidate, fixing dead-unreferenced code is low-value pending keep/delete).
+	//NOTE: determineOptimalK (81) is dead (k hardcoded to 2 at line 42); kept by author "for future flexibility".
 	
 	/**
 	 * Creates a CrystalChamber2 refiner with the specified Oracle for contig similarity calculations.

@@ -128,6 +128,8 @@ public final class Quad64Heap {
 	 * @param loc Index position of element to percolate up
 	 */
 	private void percDown(int loc){
+		//Despite the name, this sifts TOWARD THE ROOT (index 1); used by add(). Standard sift-up.
+		//(QuadHeap's javadocs call this direction "down toward root" — same operation, opposite wording.)
 		//assert(testForDuplicates());
 		assert(loc>0);
 		if(loc==1){return;}
@@ -154,6 +156,9 @@ public final class Quad64Heap {
 	 * @param loc Index position of element to percolate down
 	 */
 	private void percUp(int loc){
+		//Despite the name, this sifts TOWARD THE LEAVES; used by poll(). Bounds-safe: only called
+		//post-decrement from poll(), so next2<=size+1 stays within the even-length array and
+		//array[size+1] is the freshly-vacated null.
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
 		int next1=loc*2;
@@ -192,6 +197,7 @@ public final class Quad64Heap {
 	 * @param loc Index position of element to percolate down iteratively
 	 */
 	private void percUpIter(int loc){
+		//Dead code: never called (poll() uses percUp). Iterative sift-down kept as an unused alternative.
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
 		final Quad64 a=array[loc];

@@ -15,7 +15,15 @@ import prok.GeneModelParser;
  * @date December 5, 2024
  */
 public class GeneTools {
-	
+	//=== Eru review 2026-06-20 (V3) === static gene-caller config/loader (lazy PGM load); feeds the QuickBin gene-calling path.
+	//#001 LOW (latent): loadPGM:44 ternary `gCaller=(pgm==null && gCaller!=null ? null : CallGenes.makeGeneCaller(pgm))` is
+	//  muddled — when pgm==null && gCaller==null (first call + model-load FAILURE) it calls makeGeneCaller(NULL) instead of
+	//  leaving gCaller null; the `&& gCaller!=null` clause is meaningless. Intended: gCaller=(pgm==null?null:makeGeneCaller(pgm)).
+	//  Latent (model.pgm ships; only bites if missing/corrupt). Not patched — error-path behavior change; verify makeGeneCaller(null)+intent w/ Brian.
+	//NOTE: loadPGM sets CallGenes.call16S/call18S (40) but setMode sets GeneCaller.call16S/etc — same statics or different flag
+	//  targets? possible mismatch (comprehension QUESTION, cross-package into prok/). pgmFile is set at static-init (70) so the
+	//  `if(pgmFile==null)` re-resolve at loadPGM:37 is dead. All methods synchronized (thread-safe lazy init).
+
 	/**
 	 * Creates a new GeneCaller instance using the loaded gene model.
 	 * Automatically loads the prokaryotic gene model if not already loaded.

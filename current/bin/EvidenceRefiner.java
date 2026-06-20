@@ -7,6 +7,19 @@ import map.LongHashMap;
 import shared.Random;
 
 class EvidenceRefiner extends AbstractRefiner {
+    //=== Eru review 2026-06-20 (V3; Brian's discretion grant — refiner family NOT live, reviewed for future-robustness) ===
+    //NOT LIVE [grep-verified]: experimental DBSCAN refiner; makeRefiner only builds CRYSTAL, recluster off-by-default. LOW/latent.
+    //CLEVER [verified]: per-run packed-key similarity cache (findNeighbors:194-208, LongHashMap key=(minId<<32)|maxId, value
+    //  =sim*1e6 as int) avoids recomputing oracle.similarity across the DBSCAN sweep; internal-vs-external separation gate
+    //  (hasGoodSeparation) requires each cluster's internal sim > avg external + 0.1. Div-by-zero guarded (size<2 returns).
+    //SAFETY NET [verified]: same as GraphRefiner — any orphaned contig fails isSplitBeneficial conservation-of-mass -> reject.
+    //#001 LOW (latent, debug-only): splitAttempts is DOUBLE-COUNTED — incremented in refine():102 AND refineToIntSets():53,
+    //  and refine() calls refineToIntSets(). GraphRefiner counts once (only in refineToIntSets). Trivial fix = drop the
+    //  refine() increment (line 102). Debug-stat only (used for % 100 logging) -> documented not patched (dead + cosmetic).
+    //QUESTION (latent quality): the all-noise branch (62-70) shatters the cluster into singletons, which CAN pass
+    //  isSplitBeneficial for a small (<=~10 roughly-equal-contig) cluster -> aggressive shatter when DBSCAN finds no density.
+    //PERF (latent, if activated): expandCluster's toProcess.contains (264) is O(n) per new neighbor -> O(n^2) expansion; plus
+    //  ArrayList<Integer> autoboxing. A boolean[]-in-queue or IntHashSet membership test would fix it. Float to UMP45/Brian.
     
     /**
      * Creates an EvidenceRefiner with the specified Oracle and default parameters.

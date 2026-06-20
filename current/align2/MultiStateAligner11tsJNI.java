@@ -95,7 +95,13 @@ public final class MultiStateAligner11tsJNI extends MSA{
 	 */
 	public MultiStateAligner11tsJNI(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
-		
+
+		//JNI variant: packed is a FLAT 1D array, not the 3D allocInt3D(3,maxRows+1,maxColumns+1) of the scalar
+		//siblings; live DP fill is native (fillLimitedXJNI/fillUnlimitedJNI). Consequence for the family-wide
+		//band-edge finding [align2/MultiStateAligner11ts#002]: a flat col=maxColumns+1 write indexes to
+		//[state][row][0] (=state*(maxRows+1)*(maxColumns+1)+row*(maxColumns+1)+0), in-bounds even worst-case
+		//[2][maxRows][0] since 3*maxRows+2<3*maxRows+3 — so the #002 ARRAY-OVERRUN CRASH cannot occur on this
+		//path (only the 6 three-D siblings AIOOBE). Whether the native fill aliases next-row col-0 is opaque here.
 		packed=KillSwitch.allocInt1D(3*(maxRows+1)*(maxColumns+1));
 		grefbuffer=KillSwitch.allocByte1D(maxColumns+2);
 		vertLimit=KillSwitch.allocInt1D(maxRows+1);
@@ -142,7 +148,10 @@ public final class MultiStateAligner11tsJNI extends MSA{
 		
 		final int halfband=(bandwidth<1 && bandwidthRatio<=0) ? 0 :
 			Tools.max(Tools.min(bandwidth<1 ? 9999999 : bandwidth, bandwidthRatio<=0 ? 9999999 : 8+(int)(rows*bandwidthRatio)), (columns-rows+8))/2;
-		
+
+		//halfband==0 iff both band knobs are off. Falls back to the UNBANDED native fill when: no score cutoff
+		//(minScore<1), the matrix is tiny (columns+rows<90), or the band is unusable (halfband<1 or 3*halfband>columns)
+		//AND the ref window is much wider than the read; otherwise runs the BANDED native fill with minScore-120 slack.
 		if(minScore<1 || (columns+rows<90) || ((halfband<1 || halfband*3>columns) && (columns>read.length+Tools.min(170, read.length+20)))){
 			return fillUnlimited(read, ref, refStartLoc, refEndLoc);
 		}
@@ -202,6 +211,9 @@ public final class MultiStateAligner11tsJNI extends MSA{
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public final int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc){
 		assert(false) : "Needs to be redone to work with score cutoffs.  Not difficult.";
+		//Dead under -ea via the message-bearing assert(false) fence above (message IS the acceptance test — do NOT
+		//remove). This is the ONLY Java DP fill in the JNI variant (the live fill is native); textbook fill writing
+		//packed[(row)(col)] for col 1..columns<=maxColumns with NO col+1 clear-ahead write, so it does not carry #002.
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
 
@@ -1723,7 +1735,7 @@ public final class MultiStateAligner11tsJNI extends MSA{
 	@Override
 	public final int MASK5(){return MASK5;}
 	@Override
-	public final int SCOREOFFSET(){return SCOREOFFSET();}
+	public final int SCOREOFFSET(){return SCOREOFFSET;}//FIXED: was SCOREOFFSET() — family-wide self-recursion typo, see MultiStateAligner11ts#001
 	
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}

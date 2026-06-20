@@ -1570,11 +1570,13 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	boolean runPassA=true;
 	/** Whether to run refinement pass B */
 	boolean runPassB=false;
-	//TODO [bin/Binner#002] - VESTIGIAL flags: runPassC/runPassF/runPassG are parsed (passC/F/G, 74-83) + defaulted but
-	//never read (refineBinMap runs only AA/A/B/D/E). Per Brian (2026-06-20): the passes these named were TESTED and
-	//deliberately REMOVED because they cost runtime without improving results; the enabled passes (A/D/E etc.) are the
-	//ones that helped in practice. So these are leftover flags from removed passes -> recommend DROPPING the flags+parse
-	//(do NOT wire them back up). LOW cleanup.
+	//TODO [bin/Binner#002] - CORRECTED 2026-06-20 (QuickBin cross-class review): of runPassC/F/G, ONLY runPassC is truly
+	//never-read (parsed passC 78-79, default true, read NOWHERE per full-tree grep) -> non-functional, safe to DROP.
+	//runPassF (default false) + runPassG (default true) ARE read at QuickBin:481/485, gating post-residue refinePhase
+	//("f"/"g") -> functional toggles (F off-by-default, G ON-by-default = an actively-running pass). Do NOT drop F/G:
+	//would orphan QuickBin:481/485 and disable an active pass. (Earlier "drop all three / never read" was WRONG — the
+	//read-sites are in the CALLER, not Binner. Brian's "tested+removed" fits C and off-by-default F; but G runs by
+	//default, so trust the code and let Brian reconcile.) LOW cleanup, runPassC only.
 	/** Whether to run refinement pass C */
 	boolean runPassC=true;
 	/** Whether to run refinement pass D */

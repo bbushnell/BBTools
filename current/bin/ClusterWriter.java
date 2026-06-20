@@ -12,7 +12,16 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 public class ClusterWriter{
-	
+	//=== Eru review 2026-06-20 (V3) === LIVE output path: QuickBin.process -> outputClusters (writeThreads<2 branch).
+	//#001 LOW QUESTION [float to Brian]: the single-file branch (no '%' in pattern, 93-104) writes EVERY cluster with NO
+	//  minBases/minContigs filter, whereas the per-bin '%' branch (74-91) filters (sub-threshold -> chaff or dropped). So
+	//  `out=all.fa mincluster=50000` would still emit tiny bins. Intent (single-file = dump-all) or oversight? Not patched.
+	//NOTE: writeChaff=f + small bin -> printBin(a, null, ...) builds bb then discards (bsw null-guarded) = correct drop, minor
+	//  wasted formatting. cpct/bpct (105-106) float-divide by loader.contigsLoaded/basesLoaded -> NaN% on empty input (no
+	//  crash, latent). printCluster does Collections.sort(a.contigs) IN PLACE (mutates the cluster; harmless at output time).
+	//CLEVER [verified]: pattern resolution fixes the '#'->'%' typo (43), does %contam/%comp filename substitution, routes
+	//  sub-threshold bins to a separate chaff file, and buffers via a shared 32KB ByteBuilder flushed at 64KB.
+
 	ClusterWriter(PrintStream outstream_, boolean writeChaff_, boolean loud_, boolean overwrite_, boolean append_){
 		outstream=outstream_;
 		overwrite=overwrite_;

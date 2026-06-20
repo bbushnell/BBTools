@@ -15,10 +15,11 @@ public class Quad64 implements Comparable<Quad64>{
 	}
 	
 	/**
-	 * Compares this Quad64 with another object for equality based on site value.
-	 * An assertion is present in the implementation; primarily used for debugging.
-	 * @param other Object to compare
-	 * @return true if site values match; may assert in debug scenarios
+	 * Intentionally forbidden — asserts false. Quad64 lives only in Quad64Heap (compareTo) and
+	 * raw arrays, never as a hash/set key, so equals must never be invoked; with -ea (always on)
+	 * any call crashes loudly as a tripwire. The site comparison below is unreachable.
+	 * @param other Unused; equals must never be called on Quad64
+	 * @return never returns normally under assertions
 	 */
 	@Override
 	public boolean equals(Object other){
@@ -38,6 +39,9 @@ public class Quad64 implements Comparable<Quad64>{
 	 */
 	@Override
 	public int compareTo(Quad64 other) {
+		//Comparison-based, not (site-other.site): site is a long, so subtract-then-cast-to-int could
+		//mis-order (the commented-out version below is exactly that trap). Column tie-break is a
+		//non-negative bounded index, so its subtraction is overflow-safe.
 		return site>other.site ? 1 : site<other.site ? -1 : column-other.column;
 //		int x=site-other.site;
 //		return(x>0 ? 1 : x<0 ? -1 : column-other.column);

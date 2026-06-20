@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import parse.LineParser1;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import structures.ListNum;
@@ -97,7 +98,8 @@ public class SamStreamer implements Streamer {
 	/** Closes the streamer. Currently a placeholder for resource cleanup. */
 	@Override
 	public synchronized void close(){
-		//TODO: Unimplemented
+		//TODO: Unimplemented [stream/SamStreamer#002 LOW]: close() is a no-op — an early close (before the consumer drains) does
+		//NOT stop the input/worker threads; it relies on the poison/last protocol completing naturally. Lifecycle gap; documented TODO.
 	}
 	
 	/** @return Input filename being streamed. */
@@ -169,6 +171,10 @@ public class SamStreamer implements Streamer {
 			if(list!=null && list.last()){
 				oqs.setFinished(true);
 			}
+			//[stream/SamStreamer#001 FIXED] crash LOUD on a producer/worker error instead of silently truncating: a thread
+			//death set errorState + force-poisoned the OQS (so we got null/last here). A bare `return null` would look like
+			//clean EOF -> wrong/partial results. KillSwitch.kill exits loudly (BBTools contract: crash, never silently wrong).
+			if(errorState){KillSwitch.kill("Error reading SAM file (corrupt or truncated): "+fname);}
 			return null;
 		}
 		return list;
@@ -236,12 +242,20 @@ public class SamStreamer implements Streamer {
 		 * Drives the input side: reads byte slices, queues them, and aggregates thread statistics.
 		 */
 		void processInputThread(){
-			processBytes();
-			if(verbose){outstream.println("tid "+tid+" done with processBytes.");}
-			
-			// Signal completion via OQS
-			oqs.poison();
-			if(verbose){outstream.println("tid "+tid+" done poisoning.");}
+			//[stream/SamStreamer#001 FIXED 2026-06-20]: the try/finally GUARANTEES oqs.poison() runs even when processBytes() throws
+			//(empty-line AIOOBE at L281/L344, or any read error), so the workers in getInput() + the consumer in getOutput() wake
+			//instead of hanging forever; the catch records errorState so nextLines crashes LOUD via KillSwitch instead of silently
+			//truncating. Input-thread death leaves NO ordered gap (chunks 0..k all delivered, LAST reachable) so plain poison() suffices
+			//here (the worker side needs setFinished(true), see makeReads). Mirrors the greenlit BamStreamer#001.
+			try{
+				processBytes();
+			}catch(Throwable t){
+				errorState=true;
+				outstream.println("SamStreamer: error reading "+fname+": "+t);
+			}finally{
+				oqs.poison();//ALWAYS poison so workers (getInput) + consumer (getOutput) wake
+			}
+			if(verbose){outstream.println("tid "+tid+" done with processBytes + poisoning.");}
 			
 			//Wait for completion of all threads
 			boolean allSuccess=true;
@@ -284,6 +298,9 @@ public class SamStreamer implements Streamer {
 						header.add(line);
 					}
 				}else{
+					//comprehension: the FIRST non-@ line flushes the accumulated header to the shared store exactly once (header=null
+					//after), so workers see the full header via SamReadInputStream before any record is parsed. The duplicate flush at
+					//L303 covers the header-only file (no records => the in-loop flush never fires).
 					if(header!=null){
 						SamReadInputStream.setSharedHeader(header);
 						header=null;
@@ -318,51 +335,63 @@ public class SamStreamer implements Streamer {
 		 * Parses queued byte slices into SamLine objects and optionally materializes Read objects.
 		 */
 		void makeReads(){
+			//[stream/SamStreamer#001 FIXED 2026-06-20]: a parse throw (SamLine ctor / line[0] AIOOBE / sl.toRead) used to kill this
+			//worker with its ordered job UNDELIVERED -> the ordered consumer blocked forever on the gap (a plain LAST marker sorts
+			//AFTER the gap, so it can't release it; verified in JobQueue.take/heapReady). The catch force-poisons outq via
+			//oqs.setFinished(true) (sets JobQueue.poisoned -> take() returns null past the gap) + records errorState, so the consumer
+			//wakes and crashes LOUD in nextLines. NOT oqs.poison() here: poison() sets lastSeen, which would trip addInput's assert in
+			//the still-reading input thread. Rethrow so run() skips success=true (this dead worker reports failure to the input thread).
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
-			
+
 			final LineParser1 lp=new LineParser1('\t');
-			ListNum<byte[]> list=oqs.getInput();
-			while(list!=null && !list.poison()){
-				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
-				
-				// Apply subsampling if needed
-				if(samplerate<1f && randy!=null){
-					int nulled=0;
-					for(int i=0; i<list.size(); i++){
-						if(randy.nextFloat()>=samplerate){
-							list.list.set(i, null);
-							nulled++;
+			try{
+				ListNum<byte[]> list=oqs.getInput();
+				while(list!=null && !list.poison()){
+					if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
+
+					// Apply subsampling if needed
+					if(samplerate<1f && randy!=null){
+						int nulled=0;
+						for(int i=0; i<list.size(); i++){
+							if(randy.nextFloat()>=samplerate){
+								list.list.set(i, null);
+								nulled++;
+							}
+						}
+						if(nulled>0) {Tools.condenseStrict(list.list);}
+					}
+
+					ListNum<SamLine> reads=new ListNum<SamLine>(
+						new ArrayList<SamLine>(list.size()), list.id);
+					long readID=list.firstRecordNum;
+					for(byte[] line : list){
+						if(line[0]=='@'){
+							//Ignore header lines
+						}else{
+							SamLine sl=new SamLine(lp.set(line));
+							reads.add(sl);
+							if(makeReads){
+								Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
+								sl.obj=r;
+								r.samline=sl;
+								r.numericID=readID++;
+								if(!r.validated()){r.validate(true);}
+							}
+							readsProcessedT++;
+							basesProcessedT+=(sl.seq==null ? 0 : sl.length());
 						}
 					}
-					if(nulled>0) {Tools.condenseStrict(list.list);}
+					oqs.addOutput(reads);
+					list=oqs.getInput();
 				}
-				
-				ListNum<SamLine> reads=new ListNum<SamLine>(
-					new ArrayList<SamLine>(list.size()), list.id);
-				long readID=list.firstRecordNum;
-				for(byte[] line : list){
-					if(line[0]=='@'){
-						//Ignore header lines
-					}else{
-						SamLine sl=new SamLine(lp.set(line));
-						reads.add(sl);
-						if(makeReads){
-							Read r=sl.toRead(FASTQ.PARSE_CUSTOM);
-							sl.obj=r;
-							r.samline=sl;
-							r.numericID=readID++;
-							if(!r.validated()){r.validate(true);}
-						}
-						readsProcessedT++;
-						basesProcessedT+=(sl.seq==null ? 0 : sl.length());
-					}
-				}
-				oqs.addOutput(reads);
-				list=oqs.getInput();
+				if(verbose){outstream.println("tid "+tid+" done making reads.");}
+				//Re-inject poison for other workers
+				if(list!=null) {oqs.addInput(list);}
+			}catch(Throwable t){
+				errorState=true;
+				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
+				throw new RuntimeException("SamStreamer worker "+tid+" failed: "+fname, t);
 			}
-			if(verbose){outstream.println("tid "+tid+" done making reads.");}
-			//Re-inject poison for other workers
-			if(list!=null) {oqs.addInput(list);}
 		}
 
 		protected long readsProcessedT=0;

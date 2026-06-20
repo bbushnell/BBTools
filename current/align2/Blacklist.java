@@ -111,6 +111,8 @@ public class Blacklist {
 		TextFile tf=new TextFile(fname, false);
 		String line=tf.nextLine();
 		if(line==null){return 0;}
+		//Safe: TextFile.nextLine() calls readLine(skipBlank=true), so it never returns an empty string —
+		//blank lines in the file are skipped. The unguarded charAt(0) here and below cannot get "".
 		final boolean fasta=(line.charAt(0)=='>');
 		System.err.println("Detected "+(black ? "black" : "white")+"list file "+fname+" as "+(fasta ? "" : "non-")+"fasta-formatted.");
 		while(line!=null){

@@ -136,6 +136,12 @@ public class BamWriter implements Writer {
 		try{
 			writer.writeHeaderFromLines(headerLines, supressHeader, supressHeaderSequences);
 		}catch(IOException e){
+			//[stream/BamWriter#001 FIXED 2026-06-20 (greenlit + verified)]: header-write failure here dies BEFORE sharedConverter
+			//is set + notifyAll -> workers would block forever in getConverter(). Set headerFailed + notifyAll so those workers
+			//wake and abort loudly instead of hanging, THEN crash loud. (setFinished(true) alone cannot wake them: getConverter
+			//waits on the BamWriter monitor, not the OQS2 monitor that setFinished notifies.)
+			headerFailed=true;
+			this.notifyAll();
 			throw new RuntimeException(e);
 		}
 
@@ -147,9 +153,14 @@ public class BamWriter implements Writer {
 	
 	private SamToBamConverter getConverter() {
 		synchronized(this) {
-			while(sharedConverter==null) {
+			//[stream/BamWriter#001 FIXED] workers park here until writeHeader() builds sharedConverter+notifyAll; the
+			//`&& !headerFailed` exit + the throw below mean a failed header wakes them to a LOUD abort instead of a permanent hang.
+			while(sharedConverter==null && !headerFailed) {
 				try{this.wait();}
 				catch(InterruptedException e){e.printStackTrace();}
+			}
+			if(sharedConverter==null){//header write failed -> abort this worker loudly (it has not taken an input job yet, so no ordered gap)
+				throw new RuntimeException("BAM header write failed; aborting worker thread.");
 			}
 			return (SamToBamConverter)sharedConverter.clone();
 		}
@@ -311,12 +322,23 @@ public class BamWriter implements Writer {
 		/** Called by start(). */
 		@Override
 		public void run(){
-			if(tid==0){
-				writeOutput(); //Writer thread
-				if(verbose) {System.err.println("Consumer "+tid+" finished.");}
-			}else{
-				processJobs(); //Worker thread
-				if(verbose) {System.err.println("Worker "+tid+" finished.");}
+			try{
+				if(tid==0){
+					writeOutput(); //Writer thread
+					if(verbose) {System.err.println("Consumer "+tid+" finished.");}
+				}else{
+					processJobs(); //Worker thread
+					if(verbose) {System.err.println("Worker "+tid+" finished.");}
+				}
+			}catch(Throwable t){
+				//[stream/BamWriter#001 FIXED 2026-06-20 (greenlit + verified)]: ANY thread failure here used to die WITHOUT
+				//poisoning/finishing the OQS2 -> a writer death left outq undrained (workers block in addOutput) and `finished`
+				//unset (main HANGS in waitForFinish); a worker death left its ordered job id undelivered (the writer's getOutput
+				//blocks forever on the gap). Now escalate to a LOUD finish: setErrorState + oqs.setFinished(true) [force=true
+				//poisons inq+outq, waking the blocked writer/workers AND main], then rethrow so it crashes loud instead of hanging.
+				setErrorState(true);
+				oqs.setFinished(true);
+				throw new RuntimeException("BamWriter thread "+tid+" failed", t);
 			}
 
 			synchronized(this) {
@@ -337,6 +359,8 @@ public class BamWriter implements Writer {
 				try{
 					outstream.write(job.bytes);
 				}catch(Exception e){
+					//[stream/BamWriter#001 FIXED] write error (disk-full/broken-pipe) -> rethrow; run()'s catch escalates to
+					//oqs.setFinished(true), so workers+main wake to a loud finish instead of hanging on the undrained outq.
 					throw new RuntimeException("Error writing output", e);
 				}
 
@@ -403,6 +427,9 @@ public class BamWriter implements Writer {
 		}
 
 		/** Number of reads processed by this thread. */
+		//comprehension: -1 sentinel + the single run() ++ compensate exactly. processJobs does readsWrittenT++ per read from
+		//-1 (ends N-1); run()'s ++ restores true N (basesWrittenT same, from sl.length() sums). A thread that dies mid-run keeps
+		//the -1 offset and is never summed (accumulation L349 only totals threads !=this, after they completed). Obscure but correct.
 		protected long readsWrittenT=-1;
 		/** Number of bases processed by this thread. */
 		protected long basesWrittenT=-1;
@@ -465,6 +492,8 @@ public class BamWriter implements Writer {
 	public long basesWritten=0;
 	/** Were any errors encountered */
 	private boolean errorState=false;
+	/** True if writeHeader() failed; releases getConverter() waiters to a loud abort instead of a permanent hang [#001]. */
+	private volatile boolean headerFailed=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

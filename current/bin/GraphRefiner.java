@@ -12,6 +12,20 @@ import shared.Random;
  * @author UMP45
  */
 class GraphRefiner extends AbstractRefiner {
+    //=== Eru review 2026-06-20 (V3; Brian's discretion grant — refiner family NOT live, reviewed for future-robustness) ===
+    //NOT LIVE [grep-verified]: experimental Louvain-modularity refiner; makeRefiner only ever builds CRYSTAL and
+    //  Binner.recluster is off-by-default, so this never runs. Findings graded LOW/latent. (@author UMP45.)
+    //CLEVER [verified]: calculateModularity (281-282) is the correct Newman-Girvan Q = sum_c[ L_c/m - (D_c/2m)^2 ]
+    //  (expectedInternal/m = D_c^2/4m^2, and sum of getDegree = 2m); the Louvain move-gain (calculateModularityGain)
+    //  is a SIMPLIFIED internal-weight delta that only GUIDES the search -- the real Q gates acceptance at line 70 (>orig+0.1).
+    //SAFETY NET [verified]: groupIntoCommunities drops singletons, but any dropped/orphaned contig makes the result FAIL
+    //  isSplitBeneficial's conservation-of-mass gate -> the whole split is rejected + restoreOriginalCluster -> no contig loss.
+    //#001 LOW/DOC (latent): field 'minEdgeWeight' is applied as a MAX-DISTANCE (buildSimilarityGraph:134: distance=1-sim,
+    //  'if(distance<=minEdgeWeight)') per its own comment + the CrystalChamber parallel -> effective kept edges have
+    //  similarity >= 1-minEdgeWeight (0.7 at the 0.3 default), NOT weight>=minEdgeWeight. Behavior matches author intent;
+    //  the NAME is misleading. Float to UMP45 to rename (e.g. maxEdgeDistance). Not a logic bug.
+    //PERF (latent, only if activated): SimilarityGraph.getNeighbors allocates a new boxed ArrayList<Integer> per call inside
+    //  the per-node hot loop (detectCommunities/calculateModularityGain) -> an int[] adjacency would avoid the churn.
     
     /** Creates a GraphRefiner with the specified Oracle for similarity calculations using default GraphRefinerParams.
      * @param oracle_ Oracle instance for contig similarity evaluation */

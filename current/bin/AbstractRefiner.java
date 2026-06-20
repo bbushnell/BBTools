@@ -19,6 +19,8 @@ abstract class AbstractRefiner extends BinObject {
 	
 	abstract ArrayList<IntHashSet> refineToIntSets(Bin input);
 
+	//Pure validator (no mutation): accepts a split only if >=2 non-empty parts, conservation of mass (sum of part sizes
+	//== original.size() EXACTLY, long equality), and no fragment <10% of original; any violation -> false (reject).
 	protected boolean isSplitBeneficial(Bin original, ArrayList<Bin> splits) {
 		if (splits == null || splits.size() < 2) return false; //Require at least 2 splits to be meaningful
 
@@ -49,13 +51,21 @@ abstract class AbstractRefiner extends BinObject {
 	}
 	
 	public static AbstractRefiner makeRefiner(Oracle oracle, int type, RefinerParams params){
+		//Reachability [verified by grep, Brian-confirmed 2026-06-20: refiners not currently live]: the ONLY caller is
+		//Binner.recluster:1343 via makeRefiner(oracle,DEFAULT_TYPE=CRYSTAL,null) -> builds CrystalChamber only, and
+		//recluster is off-by-default (QuickBin.reclusterClusters=false). GRAPH/EVIDENCE/ENSEMBLE are experimental/unwired
+		//(EnsembleRefiner is never instantiated). The param casts are LATENT: params!=null is never true on the live path;
+		//for any FUTURE direct caller the contract is "params subclass matches type", and a mismatch is a loud CCE
+		//(acceptable crash-loud-never-wrong). Kept simple deliberately; harden only if a refiner is wired up.
 		if(type==CRYSTAL){return new CrystalChamber(oracle);}
-		if(type==GRAPH){return new GraphRefiner(oracle, params!=null ? (GraphRefinerParams)params : new GraphRefinerParams());} //Possible bug: unsafe cast without type validation
-		if(type==EVIDENCE){return new EvidenceRefiner(oracle, params!=null ? (EvidenceRefinerParams)params : new EvidenceRefinerParams());} //Possible bug: unsafe cast without type validation
-		if(type==ENSEMBLE){return new EnsembleRefiner(oracle, params!=null ? (EnsembleRefinerParams)params : new EnsembleRefinerParams());} //Possible bug: unsafe cast without type validation
+		if(type==GRAPH){return new GraphRefiner(oracle, params!=null ? (GraphRefinerParams)params : new GraphRefinerParams());}
+		if(type==EVIDENCE){return new EvidenceRefiner(oracle, params!=null ? (EvidenceRefinerParams)params : new EvidenceRefinerParams());}
+		if(type==ENSEMBLE){return new EnsembleRefiner(oracle, params!=null ? (EnsembleRefinerParams)params : new EnsembleRefinerParams());}
 		throw new RuntimeException("Unknown refiner type: "+type);
 	}
 	
+	//Dead [verified by grep]: no callers + no refiner-type flag parsed -> type isn't user-selectable (DEFAULT_TYPE fixed
+	//at CRYSTAL). If a refiner=TYPE flag is ever added: Tools.find vs the UPPERCASE types[] is case-sensitive -> uppercase s first.
 	public static int findType(String s) {
 		int idx=Tools.find(s, types);
 		assert(idx>=0) : "Can't find type "+s;

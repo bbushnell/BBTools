@@ -146,8 +146,9 @@ public class SamToBamConverter implements Cloneable {
 		}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD && sl.seq!=null && sl.seq.length>0){
 			//#001 FIXED 2026-06-20 (greenlit): +`&& SamLine.FLIP_ON_LOAD` mirrors the read-side
 			//BamToSamConverter. With flipsam=f the SamLine seq is already forward-reference (load didn't flip),
-			//so we take the else branch (appendSeq, as-is) instead of double-flipping. NEEDS VALIDATION: a
-			//flipsam=f reverse-strand round-trip (sam→bam→sam, SEQ byte-match).
+			//so we take the else branch (appendSeq, as-is) instead of double-flipping. VALIDATED 2026-06-20 (Furina):
+			//no-flip BAM decode confirms BOTH flipsam settings store reverse-strand SEQ in forward-reference orientation
+			//(1002 phix rev reads, 0 mismatch, byte-identical BAMs); pre-fix flipsam=f stored RC(seq) — the BAM does not.
 			appendSeqReverseComplement(bb, sl.seq);
 		}else{appendSeq(bb, sl.seq);}
 		
