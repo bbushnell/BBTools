@@ -331,9 +331,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				loader.parse(arg, a, b);
 			}
 		}
+		//Nets load independently (DataLoader:319-321), so any can be null alone; guard each (cf Oracle:51-53).
 		if(net0small!=null) {net0small.cutoff=Binner.netCutoff_small;}
-		if(net0small!=null) {net0mid.cutoff=Binner.netCutoff_mid;}
-		if(net0small!=null) {net0large.cutoff=Binner.netCutoff_large;}
+		if(net0mid!=null) {net0mid.cutoff=Binner.netCutoff_mid;}//[bin/QuickBin#001] FIXED: guard was net0small
+		if(net0large!=null) {net0large.cutoff=Binner.netCutoff_large;}//[bin/QuickBin#001] FIXED: guard was net0small
 		binner.printThresholds();
 	}
 	
@@ -362,6 +363,11 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		
 		Timer t2=new Timer();
 		
+		//CLEVER [verified in-file]: a coarse-to-fine gated binning cascade — load -> followEdges1 -> makeBinMap ->
+		//refineBinMap -> followEdges2 -> processResidue(+F/G) -> fuse -> recluster -> purify. Each stage is flag-gated
+		//and brackets binner.fast/slowComparisons with a before-snapshot + (after-before) delta into its own counter,
+		//giving per-phase comparison instrumentation; edge phases use a fresh local Oracle (400,446) so their counts
+		//stay separate from binner's. (process() does ALL work here; the ProcessThread read-loop below is unused.)
 		contigList=loader.loadData();
 		assert(isValid(contigList, false));
 		if(covOut!=null) {DataLoader.writeCov(covOut, contigList, loader.numDepths, outstream);}
@@ -478,6 +484,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				slowComp=binner.slowComparisons.get();
 				//it would be best to have a bigger compare size limit for residue prior to this
 				//Possibly do this in 2 passes, with range +0 and +2
+				//Cross-class [verified by grep]: QuickBin:481/485 are the ONLY read-sites of Binner.runPassF/runPassG
+				//(Binner merely parses+declares them). So F (default false) + G (default true) ARE functional post-residue
+				//refine toggles, NOT vestigial — only runPassC is truly never-read. removedThisPhase is intentionally
+				//discarded (F/G are terminal refine phases; nothing downstream gates on their count).
 				if(binner.runPassF) {
 					int removedThisPhase=binner.refinePhase(binMap, 
 							"f", 0.9f, -1, true, true, binner.baseRange, Binner.minSizeToMerge, binner.basePasses+0);
@@ -787,7 +797,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Spawn process threads */
+	/** Spawn process threads.
+	 * NOTE [verified]: dead template scaffolding (forked from A_SampleByteFileMT). process() does all work directly via
+	 * loader/binner and never calls spawnThreads(); the ProcessThread read-loop and processReadPair()'s TODO-throw (937)
+	 * are unreachable. accumulate()/success() (819,824) are the CORRECT Accumulator convention but unused. Cleanup-only. */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ConcurrentReadOutputStream ros){
 		
 		//Do anything necessary prior to processing

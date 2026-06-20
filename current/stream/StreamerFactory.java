@@ -47,6 +47,8 @@ public class StreamerFactory {
 	}
 	
 	public static synchronized ArrayList<byte[]> loadSharedHeader(FileFormat ff){
+		//comprehension: maxReads=1 caps the scan — start() loads the SAM header (SamReadInputStream.getSharedHeader), and the
+		//drain consumes only ~1 read's lines, not the whole file, so loading the shared header is O(header), not O(file).
 		Streamer st=makeSamOrBamStreamer(ff, -1, true, true, 1, false);
 		st.start();
 		while(st.nextLines()!=null) {}
@@ -89,12 +91,14 @@ public class StreamerFactory {
 	 */
 	public static Streamer makeStreamer(FileFormat ff1, FileFormat ff2, 
 		boolean ordered, long maxReads, boolean saveHeader, boolean makeReads){
+		//[stream/StreamerFactory#002 LOW/latent] if ff1==null but ff2!=null (R2 without R1 — invalid, normally unreachable),
+		//s1=null and this builds PairStreamer(null, s2). The reachable contract is ff1 present, ff2 optional; latent on bad input.
 		Streamer s1=makeStreamer(ff1, 0, ordered || ff2!=null, maxReads, saveHeader, makeReads);
 		Streamer s2=makeStreamer(ff2, 1, true, maxReads, saveHeader, makeReads);
 		return s2==null ? s1 : new PairStreamer(s1, s2);
 	}
-	
-	public static Streamer makeStreamer(FileFormat ff1, FileFormat ff2, 
+
+	public static Streamer makeStreamer(FileFormat ff1, FileFormat ff2,
 		boolean ordered, long maxReads, boolean saveHeader, boolean makeReads, int threads){
 		Streamer s1=makeStreamer(ff1, 0, ordered || ff2!=null, maxReads, saveHeader, makeReads, threads);
 		Streamer s2=makeStreamer(ff2, 1, true, maxReads, saveHeader, makeReads, threads);
@@ -224,6 +228,8 @@ public class StreamerFactory {
 		}else if(ff.scarf()){
 			return new ScarfStreamer(ff, pairnum, maxReads);
 			
+		//comprehension: reached only by a fasta WITH a qual file — it falls through the qf==null fasta branch (above) and the
+		//intervening bam/sam/gfa/scarf branches (a fasta matches none), so the order is load-bearing: qf==null fasta MUST precede this.
 		}else if(ff.fasta() && qf!=null) {
 			threads=(threads<0 ? FastqStreamer.DEFAULT_THREADS : threads);
 //			return new FastaQualStreamer(ff, qf, pairnum, maxReads);
@@ -252,6 +258,10 @@ public class StreamerFactory {
 		}
 		st.close();
 		if(st.errorState()){
+			//TODO Possible bug [stream/StreamerFactory#001 LOW]: a read error (corrupt/truncated input) is reduced to a stderr
+			//WARNING + returns the PARTIAL reads — the caller gets no programmatic error signal (st is already closed here). Read-side
+			//member of the input-swallow family (ByteFile1:370, BamWriter#002); the sibling ConcurrentReadInputStream.getReads
+			//carries an explicit "//TODO: does not return the error state" (AllToAll:223). Live (SSU loaders, ifa aligners). Escalate (family).
 			System.err.println("Warning - an error was encountered during read input.");
 		}
 		return out;

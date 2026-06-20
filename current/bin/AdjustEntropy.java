@@ -89,6 +89,8 @@ public class AdjustEntropy {
 	 * @param array Reference entropy values indexed by GC content steps
 	 * @return Interpolated maximum entropy value for the specified GC content
 	 */
+	//⚠️ NN-INPUT (compensate→SpectraCounter:223/Clade:255→CellNet) - DOCUMENT+FLAG ONLY, do NOT patch.
+	//TODO: Possible bug [bin/AdjustEntropy#001] - NN-FROZEN: at an exact GC bin boundary (gc*steps integer → lowBin==highBin) both interpolation fractions are 0, so max=(0*lowE+0*highE)*steps=0 instead of array[lowBin]. ALWAYS for gc=0 and gc=1; also interior boundaries (e.g. gc=0.5 when steps is even) → compensate then returns min(1,1+entropy)=1. Wrong NN input for boundary-GC contigs. Fix (retrain only): if(lowBin==highBin) return array[lowBin]. See report.
 	static float maxEntropy(float gc, float[] array) {
 		int steps=array.length-1;
 		float stepSize=1f/steps;
@@ -152,6 +154,7 @@ public class AdjustEntropy {
 					wLoaded=lp.parseInt(1);
 				}
 			}else {
+				//TODO: Possible bug [bin/AdjustEntropy#002] - QUESTION (NN-frozen, don't patch): loads column 1 = AvgEnt (main() writes a tab-separated #GC/AvgEnt/MaxEnt header = cols 0,1,2), yet maxEntropy()/its local call the loaded array "max"; the real MaxEnt is column 2. Either intentional (compensate vs avg-random, misleading name) or a column off-by-one. Float to Brian - changing the column changes NN input. See report.
 				floats.add(lp.parseFloat(1));
 			}
 		}
@@ -159,6 +162,8 @@ public class AdjustEntropy {
 	}
 	
 	/** Returns entropy as a fraction of random entropy for this GC level */
+	//⚠️ NN-INPUT (feeds c.entropy → Oracle vector via SpectraCounter; gcCompEntropy in clade/Clade) - DOCUMENT ONLY, do NOT patch the formula (the net trained on it).
+	//claim: returns 1-(max-entropy) clamped to <=1 - how close the contig entropy is to the GC-matched random reference; entropy>=max clamps to 1. Requires entropyArray pre-loaded (callers call load() first, else NPE in maxEntropy).
 	public static float compensate(float gc, float entropy) {
 		float max=maxEntropy(gc, entropyArray);
 		return Tools.min(1, 1-(max-entropy));//entropy/max;
@@ -175,6 +180,7 @@ public class AdjustEntropy {
 	 * @param trials Number of random sequences to generate for statistics
 	 * @return Average entropy from top-performing samples
 	 */
+	//claim: returns the mean of the top max(sqrt(trials), trials/4) of the trials sorted samples (robust upper estimate, drops low outliers); asserts min<=mid<=max. Offline (table generation), not NN runtime.
 	float randomSequenceEntropy(int len, float gc, EntropyTracker et, int trials) {
 		FloatList fl=new FloatList(trials);
 		for(int i=0; i<trials; i++) {fl.add(randomSequenceEntropy(len, gc, et));}
@@ -243,6 +249,7 @@ public class AdjustEntropy {
 	 * @param gc Target GC content fraction (0.0 to 1.0)
 	 * @return Byte array containing random DNA sequence
 	 */
+	//claim: resulting GC == gc. high=2 (C/G at atcg[2,3]) chosen with prob gc (nextFloat()>=gc has prob 1-gc → high=0=A/T); low bit picks within the pair. Correct at gc=0 (all AT) / gc=1 (all CG). nextInt()&1 unbiased even for negative ints.
 	static byte[] randomSequence(int len, float gc) {
 		byte[] bases=new byte[len];
 		Random randy=Shared.threadLocalRandom();

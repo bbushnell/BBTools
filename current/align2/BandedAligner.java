@@ -28,6 +28,8 @@ public abstract class BandedAligner {
 	
 	public static final BandedAligner makeBandedAligner(int width_){
 		//TODO: Remove the false condition when BandedAlignerJNI yields identical results to BandedAlignerConcrete.
+		//`&& false` force-disables the JNI path: makeBandedAligner ALWAYS returns BandedAlignerConcrete,
+		//so BandedAlignerJNI is currently dead (never instantiated) until JNI/Concrete parity is confirmed.
 		BandedAligner ba=((Shared.USE_JNI && false) ? new BandedAlignerJNI(width_) : new BandedAlignerConcrete(width_));
 		return ba;
 	}
@@ -48,7 +50,11 @@ public abstract class BandedAligner {
 		maxEdits=Tools.min(maxEdits, Tools.max(query.length, ref.length));
 		minEdits=Tools.min(minEdits, maxEdits);
 		//System.err.println("maxEdits="+maxEdits+", "+minEdits);
-		for(long i=minEdits, me=-1; me<maxEdits; i=i*4){
+		//align2/BandedAligner#001 FIXED: was i=i*4, which CANNOT escape 0 — minEdits==0 (with maxEdits>0)
+		//would spin forever (me=min(0,maxEdits)=0, and the only early-out is edits<0, impossible).
+		//max(i*4, i+1) keeps the geometric growth for i>=1 (4i>=i+1) but guarantees progress from 0
+		//(0->1->4...). No reachable change: the sole caller (jgi/IdentityMatrix) passes minEdits=10.
+		for(long i=minEdits, me=-1; me<maxEdits; i=Tools.max(i*4, i+1)){
 			me=Tools.min(i, maxEdits);
 			if(me*2>maxEdits){me=maxEdits;}
 			int edits=alignQuadruple(query, ref, (int)me, exact);
@@ -132,6 +138,7 @@ public abstract class BandedAligner {
 	 * @return Minimum penalized score
 	 */
 	protected int penalizeOffCenter_old(int[] array, int halfWidth){
+		//DEAD: no callers; superseded by penalizeOffCenter (uses max(i,..) instead of +i). Kept for reference.
 		if(verbose){
 			System.err.println("penalizeOffCenter_old("+Arrays.toString(array)+", "+halfWidth);
 		}

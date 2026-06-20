@@ -74,6 +74,10 @@ public class CrisContainer implements Comparable<CrisContainer> {
 			for(Read r : list){ReadComparatorClump.set(r);}
 		}
 		read=(list==null ? null : list.get(0));
+		//comprehension: one-list-LAG recycling — each fetch returns the PREVIOUS list's id (lastNum), so list N is handed back
+		//when fetching N+1; at EOF (ln==null) the final list is returned with poison=true (list==null). Each list is returned
+		//exactly once UNDER the contract "don't fetch() after hasMore()==false" (a post-EOF fetch would re-return lastNum).
+		//[stream/CrisContainer#001 FIXED 2026-06-18] the `list==null ||` guard at L70 is the EOF-NPE fix (was `list.size()<1` on a possibly-null list).
 		if(lastNum>=0){cris.returnList(lastNum, list==null);}
 		if(ln!=null){lastNum=ln.id;}
 		assert((read==null)==(list==null || list.size()==0));
@@ -137,8 +141,8 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	private ArrayList<Read> list;
 	/** Comparator used for ordering reads */
 	private final Comparator<Read> comparator;
-	/** Whether to apply clumping preprocessing for reads */
-	/** Whether to generate k-mers for reads using topological comparator */
+	/** genKmer: generate k-mers for reads (topological 5-bit comparator); clump: apply clumping preprocessing.
+	 * [stream/CrisContainer#002 DOC FIXED] were two stacked, mis-ordered javadocs; combined to match the genKmer,clump declaration order. */
 	private final boolean genKmer, clump;
 //	private double sum=0;
 //	final int count;

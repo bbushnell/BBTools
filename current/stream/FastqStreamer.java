@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import parse.Parse;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -134,6 +135,10 @@ public class FastqStreamer implements Streamer {
 			if(list!=null && list.last()){
 				oqs.setFinished(true);
 			}
+			//[stream/FastqStreamer#001 FIXED] crash LOUD on a producer/worker error instead of silently truncating: a thread death
+			//set errorState + force-poisoned the OQS (so we got null/last here). A bare `return null` would look like clean EOF ->
+			//wrong/partial results. KillSwitch.kill exits loudly (BBTools contract: crash, never silently wrong).
+			if(errorState){KillSwitch.kill("Error reading FASTQ file (corrupt or truncated): "+fname);}
 			return null;
 		}
 		return list;
@@ -200,12 +205,20 @@ public class FastqStreamer implements Streamer {
 		}
 		
 		void processBytes(){
-			processBytes0();
-			if(verbose){outstream.println("tid "+tid+" done with processBytes0.");}
-			
-			// Signal completion via OQS
-			oqs.poison();
-			if(verbose){outstream.println("tid "+tid+" done poisoning.");}
+			//[stream/FastqStreamer#001 FIXED 2026-06-20]: try/finally GUARANTEES oqs.poison() even when processBytes0() throws (an I/O
+			//error from bf.nextLine, OOM, etc.), so the workers in getInput() + the consumer in getOutput() wake instead of hanging;
+			//the catch records errorState so nextList crashes LOUD via KillSwitch instead of silently truncating. Input-thread death
+			//leaves NO ordered gap (chunks delivered in order, LAST reachable) so plain poison() suffices here (the worker side needs
+			//setFinished(true), see makeReadsSingle/makeReadsInterleaved). Same OQS-thread-death fix as the greenlit SamStreamer/BamWriter#001.
+			try{
+				processBytes0();
+			}catch(Throwable t){
+				errorState=true;
+				outstream.println("FastqStreamer: error reading "+fname+": "+t);
+			}finally{
+				oqs.poison();// Signal completion via OQS -- ALWAYS, so workers (getInput) + consumer (getOutput) wake
+			}
+			if(verbose){outstream.println("tid "+tid+" done with processBytes0 + poisoning.");}
 			
 			//Wait for completion of all threads
 			boolean allSuccess=true;
@@ -306,68 +319,71 @@ public class FastqStreamer implements Streamer {
 		
 		/** Iterate through the reads */
 		void makeReadsSingle(){
+			//[stream/FastqStreamer#001 FIXED 2026-06-20]: worker death (a throw in quadToRead/quadToReadVec) used to leave its ordered
+			//job UNDELIVERED -> the ordered consumer blocked forever on the gap. The catch force-poisons outq via oqs.setFinished(true)
+			//(JobQueue.poisoned -> take() returns null past the gap) + records errorState -> consumer wakes + crashes LOUD in nextList.
+			//NOT oqs.poison() (it sets lastSeen, tripping addInput's assert in the still-reading input thread). Rethrow so run() skips success=true.
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
-			
-			ListNum<byte[][]> list=oqs.getInput();
-			while(list!=null && !list.poison()){
-				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
-				
-				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
-				long readID=list.firstRecordNum;
-				
-				if(samplerate>=1f){
-					for(byte[][] quad : list){
-						Read r=quadToRead(quad, pairnum, readID++);
-						reads.add(r);
-					}
-				}else{
-					for(byte[][] quad : list){
-						if(randy.nextFloat()<samplerate){
+
+			try{
+				ListNum<byte[][]> list=oqs.getInput();
+				while(list!=null && !list.poison()){
+					if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
+
+					ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>(list.size()), list.id());
+					long readID=list.firstRecordNum;
+
+					if(samplerate>=1f){
+						for(byte[][] quad : list){
 							Read r=quadToRead(quad, pairnum, readID++);
 							reads.add(r);
 						}
+					}else{
+						for(byte[][] quad : list){
+							if(randy.nextFloat()<samplerate){
+								Read r=quadToRead(quad, pairnum, readID++);
+								reads.add(r);
+							}
+						}
 					}
+
+					oqs.addOutput(reads);
+					list=oqs.getInput();
 				}
-				
-				oqs.addOutput(reads);
-				list=oqs.getInput();
+				if(verbose){outstream.println("tid "+tid+" done making reads.");}
+				//Re-inject poison for other workers
+				if(list!=null) {oqs.addInput(list);}
+			}catch(Throwable t){
+				errorState=true;
+				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
+				throw new RuntimeException("FastqStreamer worker "+tid+" failed: "+fname, t);
 			}
-			if(verbose){outstream.println("tid "+tid+" done making reads.");}
-			//Re-inject poison for other workers
-			if(list!=null) {oqs.addInput(list);}
 		}
 		
 		/** Iterate through the reads */
 		void makeReadsInterleaved(){
+			//[stream/FastqStreamer#001 FIXED 2026-06-20]: same worker-death gap fix as makeReadsSingle — a throw in quadToRead leaves an
+			//undelivered ordered job -> consumer hang; the catch force-poisons outq via setFinished(true) + records errorState so the
+			//consumer wakes + crashes LOUD in nextList. (The odd-pair case at L353 already sets errorState gracefully without throwing.)
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
-			
-			ListNum<byte[][]> list=oqs.getInput();
-			while(list!=null && !list.poison()){
-				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
-				
-				ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>((list.size()+1)/2), list.id());
-				long readID=list.firstRecordNum/2;
-				ArrayList<byte[][]> quads=list.list;
-//				assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
-				if((quads.size()&1)!=0){
-					System.err.println("Incomplete pair near pairnum "+readID);
-					errorState=true;
-				}
 
-				final int lim=(quads.size()|1)-1;
-				if(samplerate>=1f){
-					for(int i=0; i<lim; i+=2){
-						byte[][] quad1=quads.get(i);
-						byte[][] quad2=quads.get(i+1);
-						Read r1=quadToRead(quad1, 0, readID);
-						Read r2=quadToRead(quad2, 1, readID++);
-						r1.mate=r2;
-						r2.mate=r1;
-						reads.add(r1);
+			try{
+				ListNum<byte[][]> list=oqs.getInput();
+				while(list!=null && !list.poison()){
+					if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
+
+					ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>((list.size()+1)/2), list.id());
+					long readID=list.firstRecordNum/2;
+					ArrayList<byte[][]> quads=list.list;
+//					assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
+					if((quads.size()&1)!=0){
+						System.err.println("Incomplete pair near pairnum "+readID);
+						errorState=true;
 					}
-				}else{
-					for(int i=0; i<lim; i+=2){
-						if(randy.nextFloat()<samplerate){
+
+					final int lim=(quads.size()|1)-1;
+					if(samplerate>=1f){
+						for(int i=0; i<lim; i+=2){
 							byte[][] quad1=quads.get(i);
 							byte[][] quad2=quads.get(i+1);
 							Read r1=quadToRead(quad1, 0, readID);
@@ -376,15 +392,31 @@ public class FastqStreamer implements Streamer {
 							r2.mate=r1;
 							reads.add(r1);
 						}
+					}else{
+						for(int i=0; i<lim; i+=2){
+							if(randy.nextFloat()<samplerate){
+								byte[][] quad1=quads.get(i);
+								byte[][] quad2=quads.get(i+1);
+								Read r1=quadToRead(quad1, 0, readID);
+								Read r2=quadToRead(quad2, 1, readID++);
+								r1.mate=r2;
+								r2.mate=r1;
+								reads.add(r1);
+							}
+						}
 					}
+
+					oqs.addOutput(reads);
+					list=oqs.getInput();
 				}
-				
-				oqs.addOutput(reads);
-				list=oqs.getInput();
+				if(verbose){outstream.println("tid "+tid+" done making reads.");}
+				//Re-inject poison for other workers
+				if(list!=null) {oqs.addInput(list);}
+			}catch(Throwable t){
+				errorState=true;
+				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
+				throw new RuntimeException("FastqStreamer worker "+tid+" failed: "+fname, t);
 			}
-			if(verbose){outstream.println("tid "+tid+" done making reads.");}
-			//Re-inject poison for other workers
-			if(list!=null) {oqs.addInput(list);}
 		}
 		
 		private Read quadToRead(byte[][] quad, int pairnum, long id) {

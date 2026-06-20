@@ -12,8 +12,11 @@ import shared.Tools;
  * @date 2013
  */
 public class NeedlemanWunsch {
-	
-	
+
+	//NOTE: DEAD — no callers anywhere (grep, 2026-06-20); only its own test main() uses it. A standalone/
+	//demo global aligner, superseded in production by the banded aligners (BandedAlignerConcrete) and MSA.
+	//Caveats below (debug-print spam in fill(), incomplete UP traceback) are latent while it stays unused.
+
 	/**
 	 * Test program entry point that demonstrates alignment of two input sequences.
 	 * Takes two command-line arguments as sequences and displays the scoring matrix
@@ -81,8 +84,10 @@ public class NeedlemanWunsch {
 	public void fill(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
+		//CLEANUP CANDIDATE (greenlight needed): these two System.err.printlns are debug leftovers; the
+		//inner-loop one spams O(rows*cols) lines to stderr. Harmless only because this class is dead.
 		System.err.println("rows = "+rows+", columns="+columns);
-		
+
 		for(int row=0; row<rows; row++){
 			for(int col=0; col<columns; col++){
 				System.err.println("row = "+row+", col="+col);
@@ -135,6 +140,8 @@ public class NeedlemanWunsch {
 				col--;
 				outPos--;
 			}else{
+				//UP move emits nothing (the gap write is commented out), so query bases aligned to a
+				//ref gap are dropped from the output string — incomplete traceback. Latent (dead class).
 				assert(ptr==UP);
 //				out[outPos]='-';
 				row--;

@@ -9,7 +9,10 @@ package align2;
  * @date 2013
  */
 public final class PackedHeap {
-	
+
+	//NOTE: PackedHeap is currently UNUSED (no instantiations anywhere in the tree as of 2026-06-20).
+	//Kept as a long-value min-heap primitive. See [align2/PackedHeap#001] re: the value-duplicate asserts.
+
 	/**
 	 * Constructs a PackedHeap with specified maximum capacity.
 	 * Creates an array with even length to optimize memory alignment.
@@ -118,6 +121,10 @@ public final class PackedHeap {
 		long a=array[loc];
 		long b=array[next1];
 		long c=array[next2];
+		//WARNING [align2/PackedHeap#001]: a,b,c are long VALUES here (not object refs as in QuadHeap),
+		//so assert(a!=b)/assert(b!=c) forbid DUPLICATE VALUES — a copy-paste artifact from the object heaps.
+		//A value min-heap legitimately holds duplicates; if PackedHeap is ever revived with duplicate
+		//scores these crash under -ea. Latent (class unused). //TODO: confirm intended usage before removing.
 		assert(a!=b);
 		assert(b!=c);
 		assert(b!=-1L);

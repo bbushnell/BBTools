@@ -48,6 +48,10 @@ public class ConservationModel {
      */
     public ConservationModel(float baseMutationRate, int numWaves, float maxAmplitude, 
                            Random randy, int minPeriod, int maxPeriod) {
+        //TODO: Possible bug [bin/ConservationModel#001] - FIX APPLIED (guard): without this, numWaves > unique periods available in [minPeriod,maxPeriod] makes the unique-period do-while loop spin forever (hang). Reachable via uncapped waves=/sinewaves= user args (MutateGenome:108, TestAlignerSuite:61). Guard converts the hang into a loud AssertionError.
+        assert(numWaves <= maxPeriod - minPeriod + 1) : "numWaves=" + numWaves +
+            " exceeds the " + (maxPeriod - minPeriod + 1) + " unique periods available in [" +
+            minPeriod + ", " + maxPeriod + "]; the unique-period loop would never terminate.";
         this.baseMutationRate = baseMutationRate;
         amplitudes = new float[numWaves];
         inversePeriods = new float[numWaves];
@@ -62,6 +66,7 @@ public class ConservationModel {
             amplitudes[i] = maxAmplitude / numWaves;
             
             // Pick unique period in range
+            //claim: terminates - the #001 guard ensures numWaves <= available unique periods; period uniform in [minPeriod, maxPeriod] inclusive. Worst case (numWaves==available) is coupon-collector slow but finite.
             int period;
             do {
                 period = minPeriod + randy.nextInt(maxPeriod - minPeriod + 1);
@@ -86,6 +91,7 @@ public class ConservationModel {
      * @return Mutation probability (0-1)
      */
     public float getMutationProbability(int position) {
+        //claim: returns mutation prob clamped to [0,1]. Each wave adds amplitudes[i]*((sin+1)/2) in [0,amplitudes[i]]; amplitudes sum to maxAmplitude, so rate in [base, base+maxAmplitude] pre-clamp.
         float sineSum = 0;
         
         // Sum all sine wave contributions
@@ -109,6 +115,7 @@ public class ConservationModel {
      * @return true if position should be mutated
      */
     public boolean shouldMutatePosition(int position, Random randy) {
+        //obvious: Bernoulli draw; nextFloat() in [0,1); '<=' means rate>=1 always mutates, rate 0 effectively never (only if nextFloat()==0).
         float mutationRate = getMutationProbability(position);
         return randy.nextFloat() <= mutationRate;
     }

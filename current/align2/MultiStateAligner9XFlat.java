@@ -53,7 +53,14 @@ public final class MultiStateAligner9XFlat extends MSA{
 	 */
 	public MultiStateAligner9XFlat(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
-		
+
+		//align2/MultiStateAligner11ts#002 (family-wide, ESCALATED): packed is maxColumns+1 wide but the limited fill's
+		//clear-ahead writes packed[..][row-1][col+1] at col==colStop; OOB iff columns==maxColumns reaches the band edge.
+		//grefbuffer below is maxColumns+2 (the intended size). Fix = size packed maxColumns+2 across the 6 three-D
+		//siblings — Brian's call (gated on columns==maxColumns reachability). See canonical 11ts:64-69 / :555-562.
+		//VARIANT NOTE: this is the AFFINE_ARRAYS=false flat/PacBio-tuned aligner — TIMEBITS=9 (not 11), distinct POINTS_*
+		//constants, 3-tier (no COST_4/5) penalties, BARRIER_I1=D1=1, scoreNoIndels ss.semiperfect ACTIVE; all
+		//deliberate, diffed vs canonical 11ts.
 		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
 		grefbuffer=KillSwitch.allocByte1D(maxColumns+2);
 		vertLimit=KillSwitch.allocInt1D(maxRows+1);
@@ -607,6 +614,8 @@ public final class MultiStateAligner9XFlat extends MSA{
 		
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
 		final int subfloor=0-2*maxGain;
+		//DIVERGENCE vs canonical 11ts: 11ts widened this overflow guard to subfloor*2L; the int subfloor*2 here can wrap
+		//for reads >~2560bp (latent, assert-only — does not affect the matrix sentinel subfloor itself). LOW.
 		assert(subfloor>BADoff && subfloor*2>BADoff) : (read.length-1)+", "+maxGain+", "+subfloor+", "+(subfloor*2)+", "+BADoff+"\n"
 				+rows+", "+columns+", "+POINTSoff_MATCH2+", "+SCOREOFFSET+"\n"+new String(read)+"\n"; //TODO: Actually, it needs to be substantially more.
 //		final int BARRIER_I2=columns-BARRIER_I1;
@@ -2457,7 +2466,7 @@ public final class MultiStateAligner9XFlat extends MSA{
 	@Override
 	public final int MASK5(){return MASK5;}
 	@Override
-	public final int SCOREOFFSET(){return SCOREOFFSET();}
+	public final int SCOREOFFSET(){return SCOREOFFSET;}//FIXED: was SCOREOFFSET() — family-wide self-recursion typo, see MultiStateAligner11ts#001
 	
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}

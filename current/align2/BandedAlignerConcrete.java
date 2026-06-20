@@ -11,8 +11,14 @@ import shared.Tools;
  *
  */
 public class BandedAlignerConcrete extends BandedAligner{
-	
-	
+
+	//The live banded edit-distance aligner (makeBandedAligner always returns this). Two rolling rows
+	//(array1/array2 swapped via arrayTemp) give O(width) memory; each cell = min(up, diag, left) with
+	//+1 per mismatch/indel and 0 for a match (forceDiag on the last row and at the ref boundary).
+	//The four methods are mirror images — forward/reverse flip column iteration and the force-diagonal
+	//boundary (col==ref.length-1 vs col==0); the RC variants complement the query base. All debug prints
+	//are verbose-guarded. Bounds + mirror-symmetry independently adversarially verified clean (2026-06-20).
+
 	/**
 	 * Testing harness for banded alignment algorithms.
 	 * Runs forward, reverse, and combination alignment tests with both penalized
@@ -95,6 +101,10 @@ public class BandedAlignerConcrete extends BandedAligner{
 		super(width_);
 		array1=new int[maxWidth+2];
 		array2=new int[maxWidth+2];
+		//Size maxWidth+2 IS the bounds guarantee: per-row width<=maxWidth, and the DP indexes mloc in
+		//[1, width], touching mloc-1>=0 and mloc+1<=width+1<=maxWidth+1 (last valid index). The whole-
+		//array big fill here is load-bearing: the band-edge read arrayPrev[width+1] is NEVER re-written
+		//by the per-row loop, so it always returns this 'big' sentinel ("no predecessor"). Verified.
 		Arrays.fill(array1, big);
 		Arrays.fill(array2, big);
 //		for(int i=2; i<rows; i++){
@@ -209,6 +219,12 @@ public class BandedAlignerConcrete extends BandedAligner{
 		lastQueryLoc=qloc-1;
 		lastOffset=lastOffset(arrayCurrent, halfWidth);
 		lastRefLoc=rsloc+halfWidth-lastOffset-1;
+		//Directional clamp (mirrored across the 4 methods): each guards only the overshoot direction
+		//matching its traversal — forward clamps the high end, the reverse variants clamp the low end.
+		//align2/BandedAlignerConcrete#001 (QUESTION, not a confirmed bug): the opposite direction is
+		//structurally unguarded (could in principle exit with lastRefLoc<0), but the swap-guard geometry
+		//(qlen-qstart<=rlen-rstart) is assumed to keep it unreachable. Adversarially verified: no bounds
+		//violation here; lastRefLoc/lastQueryLoc are int fields, not array indices in this method.
 		while(lastRefLoc>=ref.length || lastQueryLoc>=query.length){lastRefLoc--; lastQueryLoc--;}
 		if(verbose){
 			System.out.println("\nFinal state: arrayCurrent="+Arrays.toString(arrayCurrent)+"\nlastRow="+lastRow+", lastEdits="+lastEdits+", lastOffset="+lastOffset+

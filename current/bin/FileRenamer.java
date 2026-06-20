@@ -3,6 +3,7 @@ package bin;
 import java.io.File;
 import java.util.ArrayList;
 
+import fileIO.ReadWrite;
 import json.JsonObject;
 import parse.PreParser;
 import sketch.DisplayParams;
@@ -53,11 +54,15 @@ public class FileRenamer {
 			int taxid=(topHit==null ? -1 : topHit.taxid);
 			
 			File f=new File(fname);
-			String fname2="tid_"+taxid+"_"+fname;
+			//[bin/FileRenamer#001 FIXED 2026-06-20]: prepend tid to the BASENAME, not the whole path. Was "tid_X_"+fname,
+			//which for a path arg (e.g. data/x.fa) produced "tid_X_data/x.fa" (a bogus leading dir) -> renameTo silently failed.
+			String dir=ReadWrite.getPath(fname);
+			String fname2=(dir==null ? "" : dir)+"tid_"+taxid+"_"+ReadWrite.stripPath(fname);
 			File f2=new File(fname2);
 			assert(f.exists());
 			assert(!f2.exists());
-			f.renameTo(f2);
+			boolean renamed=f.renameTo(f2);//[bin/FileRenamer#001] was: return value ignored -> silent failure; crash-loud now
+			assert(renamed) : "Failed to rename "+fname+" -> "+fname2;
 		}
 	}
 	

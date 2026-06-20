@@ -92,6 +92,8 @@ public class GapTools {
 		if(verbose){System.err.println("fixGaps d: "+Arrays.toString(gaps));}
 		
 		int remove=0;
+		//Relies on gaps.length being EVEN (alternating start/stop pairs): the gaps[i+1] read would be
+		//out of bounds for an odd-length array. assert(gaps.length>=4) above checks size, not parity.
 		for(int i=0; i<gaps.length; i+=2){
 			gaps[i]=Tools.constrict(gaps[i], a, b);
 			gaps[i+1]=Tools.constrict(gaps[i+1], a, b);
@@ -296,6 +298,8 @@ public class GapTools {
 		 */
 		@Override
 		public int compareTo(Range r){
+			//Overflow-safe: a,b are non-negative genome coordinates, so the subtractions stay in int range.
+			//Contract is clean — equals() delegates to compareTo()==0, and hashCode() is fenced (assert false).
 			int x;
 			x=a-r.a;
 			if(x!=0){return x;}

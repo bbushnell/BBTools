@@ -122,6 +122,8 @@ public final class QuadHeap {
 	 * @param loc Index of element to percolate down
 	 */
 	private void percDown(int loc){
+		//Despite the name, this sifts TOWARD THE ROOT (index 1); used by add(). Standard sift-up;
+		//the loc>1 guard short-circuits the harmless array[0] read at the top.
 		//assert(testForDuplicates());
 		assert(loc>0);
 		if(loc==1){return;}
@@ -148,6 +150,9 @@ public final class QuadHeap {
 	 * @param loc Index of element to percolate up
 	 */
 	private void percUp(int loc){
+		//Despite the name, this sifts TOWARD THE LEAVES; used by poll(). Bounds-safe: only called
+		//post-decrement from poll(), so next2<=size+1 stays within the even-length array and
+		//array[size+1] is the freshly-vacated null. Assumes distinct object refs (BBIndex Quad pool).
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
 		int next1=loc*2;
@@ -186,6 +191,7 @@ public final class QuadHeap {
 	 * @param loc Index of element to percolate up iteratively
 	 */
 	private void percUpIter(int loc){
+		//Dead code: never called (poll() uses percUp). Iterative sift-down kept as an unused alternative.
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
 		final Quad a=array[loc];

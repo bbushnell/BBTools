@@ -1260,6 +1260,7 @@ public class GradeBins {
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
 			if(line[0]=='u' && Tools.startsWith(line, "user_genome	classification")) {continue;}
 			lptab.set(line);
+			//TODO: Possible bug [bin/GTDBLine#001] - lpsemi is never set() before this -> the GTDBLine ctor's lpsemi.parseString(1) NPEs; the gtdb=/gtdbtk= path crashes on its first data line. Fix couples with the GTDBLine ctor. MEDIUM, gated on reachability; escalated to Brian.
 			GTDBLine gline=new GTDBLine(lptab, lpsemi);
 			if(map.containsKey(gline.name)) {continue;}//Only one taxa per bin
 			map.put(gline.name, new Lineage(gline.classification));

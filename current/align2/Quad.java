@@ -20,7 +20,11 @@ public class Quad implements Comparable<Quad>{
 	 */
 	@Override
 	public boolean equals(Object other){
-		return site==((Quad)other).site;
+		//align2/Quad#001 FIXED: equals was site-only, contradicting compareTo (site,column) — a latent
+		//landmine. equals/hashCode are never invoked today (Quad lives only in QuadHeap and raw Quad[]
+		//arrays, never a hash/tree key), so aligning equals to compareTo's identity (site AND column)
+		//changes no active path; hashCode=site stays contract-valid since equal Quads always share site.
+		return site==((Quad)other).site && column==((Quad)other).column;
 	}
 	
 	/** Returns the site value as the hash code. */
@@ -38,7 +42,7 @@ public class Quad implements Comparable<Quad>{
 		return(x==0 ? column-other.column : x);
 	}
 	
-	/** Returns a string representation of this Quad in the format \"(column,row,site)\".
+	/** Returns a string representation of this Quad in the format "(column,row,site)".
 	 * @return String representation of this Quad */
 	@Override
 	public String toString(){

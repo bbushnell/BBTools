@@ -14,6 +14,14 @@ import shared.Random;
  * @author UMP45
  */
 class CrystalChamber extends AbstractRefiner {
+    //=== Eru review 2026-06-20 (V3; Brian's discretion grant) ===
+    //LIVE-but-off-by-default: the ONLY refiner makeRefiner builds (DEFAULT_TYPE=CRYSTAL) via Binner.recluster:1343 ->
+    //  reachable only when reclusterClusters=t (default false). k=2 "dissolve & recrystallize" (k-means) refinement.
+    //CLEVER [verified]: farthest-first centroid init (k-means++ style: first random, rest maximize min-distance to chosen)
+    //  + a shouldMergeBack guard (245) that rejects a split the Oracle would just merge back -> self-consistency check.
+    //NOTE: "centroid" = the largest member contig (medoid), not a feature average (calculateCentroid, author TODO).
+    //#001 MEDIUM (latent-by-default; FIXED in refine()): was missing restoreOriginalCluster on reject -> contig.cluster
+    //  corruption (recrystallize repoints via Cluster.add:106). Fixed to match the 3 sibling refiners. random IS used (init).
     
     public CrystalChamber(Oracle oracle_) {
         this(oracle_, 12345); // Default seed for backward compatibility
@@ -40,14 +48,18 @@ class CrystalChamber extends AbstractRefiner {
         // Attempt binary recrystallization
         ArrayList<Cluster> crystals=recrystallize(contigs, 2);
         
-        if(crystals==null || crystals.size() != 2){return null;}
+        //[bin/CrystalChamber#001 FIXED 2026-06-20]: recrystallize built crystal Clusters via Cluster.add, which repoints
+        //contig.cluster=crystal (Cluster.java:106). Restore the original back-references on EVERY reject below — the 3 sibling
+        //refiners all do this; CrystalChamber (the live one) was the lone one missing it, leaking stale contig.cluster
+        //pointers to discarded crystals on the common reject path. MEDIUM when recluster=t (off by default).
+        if(crystals==null || crystals.size() != 2){restoreOriginalCluster(cluster); return null;}
         
         // Validate split quality
         ArrayList<Bin> result=new ArrayList<Bin>(crystals);
-        if(!isSplitBeneficial(input, result)){return null;}
+        if(!isSplitBeneficial(input, result)){restoreOriginalCluster(cluster); return null;}
         
         // Additional validation: would Oracle recommend merging these back?
-        if(shouldMergeBack(crystals.get(0), crystals.get(1))){return null;}
+        if(shouldMergeBack(crystals.get(0), crystals.get(1))){restoreOriginalCluster(cluster); return null;}
         
         return result;
     }
@@ -247,6 +259,14 @@ class CrystalChamber extends AbstractRefiner {
         return similarity>minSplitImprovement; // If high similarity, don't split
     }
     
+    /** Restores contig->cluster back-references to the original after a rejected split (recrystallize repoints them via
+     * Cluster.add:106). Mirrors Graph/Evidence/EnsembleRefiner.restoreOriginalCluster. [bin/CrystalChamber#001] */
+    private void restoreOriginalCluster(Cluster originalCluster) {
+        for(Contig contig : originalCluster.contigs) {
+            contig.cluster=originalCluster;
+        }
+    }
+
     /** Inner class representing a cluster centroid.
      * Currently uses a single representative contig for simplicity. */
     private static class Centroid {

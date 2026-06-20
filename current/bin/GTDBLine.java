@@ -16,6 +16,7 @@ public class GTDBLine {
 	 * @param line Tab-delimited byte array containing name and taxonomic classification
 	 */
 	public GTDBLine(byte[] line) {
+		//TODO: Possible bug [bin/GTDBLine#002] - dead ctor (no callers); passes an unset lpsemi -> the 2-arg ctor's lpsemi.parseString(1) would NPE/AIOOBE if ever called. Latent LOW.
 		this(new LineParser1('\t').set(line), new LineParser1(';'));
 	}
 	
@@ -28,11 +29,13 @@ public class GTDBLine {
 	 * @param lpsemi Semicolon-delimited parser for extracting taxonomic classification
 	 */
 	public GTDBLine(LineParser1 lptab, LineParser1 lpsemi) {
-		name=lptab.parseString(0);
+		//TODO: Possible bug [bin/GTDBLine#001] - javadoc says "pre-configured" parsers, but sole caller GradeBins.loadGTDBFile:1263 never set()s lpsemi -> parseString(1) NPEs. Also classification should be the FULL lineage = lptab.parseString(1) (tab field 1, fed to new Lineage()), not semi-term 1. MEDIUM, gated on gtdb= reachability; escalated. See report.
+		name=lptab.parseString(0);//tab field 0 = user_genome name; lptab IS set by caller -> OK
 		classification=lpsemi.parseString(1);
-		if(classification==null) {return;}
+		if(classification==null) {return;}//dead guard: parseString throws on a null line, never returns null
 		
 		//d__Archaea;p__Nanoarchaeota;c__Nanoarchaeia;o__Pacearchaeales;f__GW2011-AR1;g__MWBV01;s__
+		//Dispatch on first char (d/p/c/o/f/g/s - all distinct GTDB prefixes); asserts one term per rank; any other first char silently skipped. charAt(0) safe iff every term is non-empty (GTDB X__ prefix always present; a trailing ';' empty term would crash, but that is format-impossible).
 		for(int i=0; i<lpsemi.terms(); i++) {
 			String term=lpsemi.parseString(i);
 			char c=term.charAt(0);
@@ -69,6 +72,7 @@ public class GTDBLine {
 	 * @return Complete taxonomic path from domain to the specified level
 	 * @throws RuntimeException if level is outside valid range 0-6
 	 */
+	//level 0 = raw domain term; 1-6 = cumulative path via phylum()..species(); out-of-range throws (crash-loud, correct). Requires domain..species populated -> only true if the term loop ran (lpsemi was set; see #001).
 	public String getLevel(int level) {
 		if(level==0) {return domain;}
 		else if(level==1) {return phylum();}
@@ -80,6 +84,7 @@ public class GTDBLine {
 		throw new RuntimeException("Bad level "+level);
 	}
 
+	//obvious: phylum()..species() each prepend the previous to build a cumulative domain;...;rank path. A null rank (term loop never ran) yields a literal "null;" segment rather than a crash - another #001 symptom.
 	/** Returns the taxonomic path from domain to phylum level */
 	public String phylum() {return domain+";"+phylum;}
 	/** Returns the taxonomic path from domain to class level */

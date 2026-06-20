@@ -13,7 +13,13 @@ import shared.Tools;
  * @author Brian Bushnell
  */
 public class ChartMaker {
-	
+	//=== Eru review 2026-06-20 (V3) === chart-data generators from BinStats; called by GradeBins (434/437/440) when the
+	//  hist/ccplot/contamHist output flags are set. All 3 sort by BinStatsComparator first.
+	//VERIFIED SAFE [traced — considered AIOOBE, REFUTED]: writeContamHist indexes count/size[1001] by (int)(b.contam*1000)
+	//  with NO clamp, but Bin.contam=(sum-maxSize)/sum is in [0,1] (maxSize<=sum) -> index in [0,1000], and the arrays are
+	//  sized 1001 EXACTLY for that -> no out-of-bounds. (NaN at sum==0 -> (int)NaN=0 -> bin 0, also safe.) makeChartFromBinStats's
+	//  Tools.max(0, b.contam) (33) is dead-defensive (contam already >=0). No bug.
+
 	/**
 	 * Generates cumulative bin size chart data sorted by contamination.
 	 * Creates a tab-separated file with cumulative size, clean bases, and dirty bases.

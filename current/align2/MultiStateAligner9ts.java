@@ -59,7 +59,16 @@ public final class MultiStateAligner9ts extends MSA{
 	 */
 	public MultiStateAligner9ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
-		
+
+		//align2/MultiStateAligner11ts#002 (family-wide, ESCALATED): packed is maxColumns+1 wide but the limited fill's
+		//clear-ahead writes packed[..][row-1][col+1] at col==colStop; OOB iff columns==maxColumns reaches the band edge.
+		//grefbuffer is maxColumns+2 (intended). Fix = size packed maxColumns+2 across the 6 three-D siblings (Brian's
+		//call, gated on columns==maxColumns reachability). See canonical 11ts:64-69 / :555-562.
+		//VARIANT NOTE: 9ts is the INLINE-BRANCHY ancestor of 11ts — SAME constants, SAME bit-split (TIMEBITS=11), SAME
+		//penalty VALUES, but computed via inline ladders (no POINTSoff_*_ARRAY fields); Illumina-lineage (scoreNoIndels
+		//ss.semiperfect COMMENTED OUT, like 11ts). Carries debug-leftovers 11ts cleaned (all LOW, no correctness impact):
+		//`subfloor*2` int not 2L (fillUnlimited) + `//temporary, for finding a bug` RuntimeException + an unguarded
+		//System.err.println(row) in score2 at col<0.
 		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
 		grefbuffer=KillSwitch.allocByte1D(maxColumns+2);
 		vertLimit=KillSwitch.allocInt1D(maxRows+1);
@@ -2467,7 +2476,7 @@ public final class MultiStateAligner9ts extends MSA{
 	@Override
 	public final int MASK5(){return MASK5;}
 	@Override
-	public final int SCOREOFFSET(){return SCOREOFFSET();}
+	public final int SCOREOFFSET(){return SCOREOFFSET;}//FIXED: was SCOREOFFSET() — family-wide self-recursion typo, see MultiStateAligner11ts#001
 	
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}

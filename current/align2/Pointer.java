@@ -63,6 +63,8 @@ public class Pointer implements Comparable<Pointer>{
 	 */
 	@Override
 	public int compareTo(Pointer o) {
+		//Overflow-safe only because value is always a non-negative row length (matrix[i].length),
+		//so value-o.value stays within int range and never wraps.
 		return value-o.value;
 	}
 	

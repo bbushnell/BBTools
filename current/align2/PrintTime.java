@@ -38,6 +38,8 @@ public class PrintTime {
 //				TextFile tf=new TextFile(args[0], false, false);
 //				String s=tf.nextLine();
 //				tf.close();
+				//Trusts the timestamp this tool itself wrote (below); a hand-corrupted file crashes
+				//loud here, which is the intended BBTools fail-loud behavior, not a bug.
 				long old=Long.parseLong(s);
 				long elapsed=millis-old;
 				if(args.length<2 || Parse.parseBoolean(args[1])){

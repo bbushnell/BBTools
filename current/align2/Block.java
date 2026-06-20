@@ -149,13 +149,21 @@ public class Block implements Serializable{
 			ReadWrite.writeObjectInThread(starts, fname+"2.gz", allowSubprocess);
 		}else{
 			if(copyOnWrite){
+				//align2/Block#001 FIXED: this DEAD branch (copyOnWrite is final=false) built the diff array x
+				//but wrote `starts` (uncompressed) and left x[0]=0. Now matches compress()'s layout —
+				//x[0]=absolute base, x[i]=diff — and writes x, so the read path would decompress it correctly.
 				final int[] x;
 				x=new int[starts.length];
+				x[0]=starts[0];
 				for(int i=1; i<x.length; i++){
 					x[i]=starts[i]-starts[i-1];
 				}
-				ReadWrite.writeObjectInThread(starts, fname+"2.gz", allowSubprocess);
+				ReadWrite.writeObjectInThread(x, fname+"2.gz", allowSubprocess);
 			}else{
+				//Race-free despite the in-place mutate-after-write: writeAsync() serializes `starts` fully
+				//and synchronously (ObjectOutputStream.writeObject + close) before returning, so the
+				//decompress() that follows cannot corrupt the written bytes. (Note: writeObjectInThread,
+				//used for `sites` above, IS deferred — safe only because `sites` is never mutated here.)
 				compress(starts);
 				ReadWrite.writeAsync(starts, fname+"2.gz", allowSubprocess);
 				decompress(starts);

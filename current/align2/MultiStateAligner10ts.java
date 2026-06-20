@@ -3646,7 +3646,7 @@ public final class MultiStateAligner10ts extends MSA{
 	@Override
 	public final int MASK5(){return MASK5;}
 	@Override
-	public final int SCOREOFFSET(){return SCOREOFFSET();}
+	public final int SCOREOFFSET(){return SCOREOFFSET;}//FIXED: was SCOREOFFSET() — family-wide self-recursion typo, see MultiStateAligner11ts#001
 	
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}

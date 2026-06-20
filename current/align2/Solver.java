@@ -12,7 +12,8 @@ public class Solver {
 	
 	
 	public static final long bruteForce(int[] offsets, int[] lengths, int chunk, int minLists, int maxTotalLength){
-		
+		//Dead/debug scaffold: ends in assert(false), and the loop discards every evaluate() result.
+		//No callers. evaluate() and toBitList() are reachable ONLY through here, so they are dead too.
 		int bits=offsets.length;
 		int max=(1<<bits)-1;
 		
@@ -37,6 +38,10 @@ public class Solver {
 	 */
 	public static final void findWorstGreedy(final int[] offsets, final int[] lengths,
 			final int chunk, final int[] lists, int[] r){
+		//DEAD: no callers — all 5 BBIndex* variants call the weighted overload below.
+		//WARNING [align2/Solver#001]: this uniform overload's early-termination test is
+		//`if(min<EARLY_TERMINATION_SCORE)`, but the LIVE weighted overload guards it with `&& i!=0`.
+		//Likely a copy-paste divergence; if revived it could early-terminate on index 0. Intent unconfirmed.
 		assert(r!=null && r.length==2);
 		
 		long min=Long.MAX_VALUE;
@@ -122,6 +127,9 @@ public class Solver {
 //			", valuep="+valuep+", valuem="+valuem+", weight="+keyWeight+"\n"+
 //			"offsets = "+Arrays.toString(offsets)+"\tlengths = "+Arrays.toString(lengths)+"\nlists = "+Arrays.toString(lists)+"\n";
 		
+		//Safe: lists holds DISTINCT sorted indices, so prospect==first iff index==0 and prospect==last
+		//iff index==numlists-1. Thus the lists[index-1] / lists[index+1] reads are only taken when
+		//index>0 / index<numlists-1 respectively — no out-of-bounds on the neighbor lookups.
 		final int offL=(prospect==first ? -1 : offsets[lists[index-1]]);
 		final int offP=offsets[prospect];
 		final int offR=(prospect==last ? offsets[offsets.length-1]+1 : offsets[lists[index+1]]);

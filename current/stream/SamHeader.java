@@ -33,6 +33,7 @@ public class SamHeader {
 		return bb;
 	}
 
+	//[stream/SamHeader] DEAD: 0 external callers (grep) — superseded by header0B (ByteBuilder, the makeHeaderList path). safe_to_delete candidate.
 	public static StringBuilder header0(){
 		//		if(MAKE_TOPHAT_TAGS){
 		//			return new StringBuilder("@HD\tVN:"+(SamLine.VERSION<1.4f ? "1.0" : "1.4")+"\tSO:unsorted");
@@ -172,7 +173,7 @@ public class SamHeader {
 				bb.append("@SQ\tSN:");//+Data.scaffoldNames[i][j]);
 				if(scafName==null){
 					assert(false) : "scaffoldName["+chrom+"]["+scaf+"] = null";
-					bb.append(scafName); //Possible bug: appending null byte array may cause issues
+					bb.append(scafName); //TODO Possible bug [stream/SamHeader#002 LOW/latent]: appends a null byte[] (NPE without -ea); dead under -ea (the assert(false) above fires first, always-on). Crash-loud fix: KillSwitch.kill("null scaffold name") over assert+append-null. (StringBuilder twins append the literal "null" instead — also inconsistent.)
 				}else{
 					appendScafName(bb, scafName);
 				}
@@ -331,7 +332,10 @@ public class SamHeader {
 			sb.append('\n');
 		}
 
-		sb.append("@PG\tID:BBTools\tPN:"+PN+"\tVN:");
+		//[stream/SamHeader#001 FIXED 2026-06-20 (greenlit)] @PG ID unified to BBMap: this (ByteBuilder/BAM path via
+		//makeHeaderList) now emits ID:BBMap, matching the StringBuilder twin header2()(L289, SAM-text). Brian: SAM/BAM
+		//usually originate from BBMap (or FilterSam etc.), so BBMap is the right @PG ID; the old ID:BBTools here diverged.
+		sb.append("@PG\tID:BBMap\tPN:"+PN+"\tVN:");
 		sb.append(Shared.BBTOOLS_VERSION_STRING);
 //		assert(false) : sb+"\n"+PN;
 		if(Shared.BBMAP_CLASS!=null){
@@ -388,7 +392,7 @@ public class SamHeader {
 				bb.append("@SQ\tSN:");//+Data.scaffoldNames[i][j]);
 				if(scafName==null){
 					assert(false) : "scaffoldName["+chrom+"]["+scaf+"] = null";
-					bb.append(scafName); //Possible bug: appending null byte array may cause issues
+					bb.append(scafName); //TODO Possible bug [stream/SamHeader#002 LOW/latent]: appends a null byte[] (NPE without -ea); dead under -ea (the assert(false) above fires first, always-on). Crash-loud fix: KillSwitch.kill("null scaffold name") over assert+append-null. (StringBuilder twins append the literal "null" instead — also inconsistent.)
 				}else{
 					appendScafName(bb, scafName);
 				}
@@ -400,6 +404,9 @@ public class SamHeader {
 		return list;
 	}
 	
+	//comprehension: THE live BAM/SAM header builder (callers: BamWriter/SamWriter/SamWriterST/SamWriterST2). One byte[] per line:
+	//@HD (header0B), then @SQ lines per chrom (header1B) unless supressed, then @RG/@PG (header2B split on '\n'). The shared bb is
+	//reused safely: toBytes()+clear() after @HD, untouched during the @SQ loop (header1B uses its own bb), clean again for header2B.
 	public static ArrayList<byte[]> makeHeaderList(boolean supressHeaderSequences, int MINCHROM, int MAXCHROM) {
 		
 		ArrayList<byte[]> list=new ArrayList<byte[]>(32);

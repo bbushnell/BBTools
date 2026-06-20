@@ -61,6 +61,12 @@ public final class MultiStateAligner11ts extends MSA{
 		super(maxRows_, maxColumns_);
 		
 		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
+		//TODO: Possible bug [align2/MultiStateAligner11ts#002] (latent): the fill loop's clear-ahead writes
+		//packed[..][row-1][col+1] at the colStop boundary. col runs to `columns` (for col=colStart;col<=columns),
+		//so when colStop==maxGoodCol==columns and row>1, col+1=columns+1. This matrix is only maxColumns+1 wide
+		//(indices 0..maxColumns) and columns<=maxColumns is merely asserted, so columns==maxColumns => OOB write
+		//at maxColumns+1. grefbuffer below is maxColumns+2 (one larger). BBMap's long stability implies the
+		//caller keeps columns<maxColumns; ESCALATED to Brian to confirm (else size packed to maxColumns+2).
 		grefbuffer=KillSwitch.allocByte1D(maxColumns+2);
 		vertLimit=KillSwitch.allocInt1D(maxRows+1);
 		horizLimit=KillSwitch.allocInt1D(maxColumns+1);
@@ -192,6 +198,11 @@ public final class MultiStateAligner11ts extends MSA{
 			System.out.println();
 		}
 		
+		//PRUNING INVARIANT (what makes the limited fill faster than the exhaustive fillUnlimited): vertLimit[row]
+		//and horizLimit[col] are LOWER bounds on the score a cell must hold to still reach minScore by the final
+		//row/col, built backward from minScore_off by subtracting the best-case per-step gain (floored at `floor`).
+		//Per cell, limit=max(vlimit,horizLimit[col]); any state scoring below its limit2 is set to subfloor (dead),
+		//collapsing the band to the minGoodCol..maxGoodCol live range carried into the next row.
 		vertLimit[rows]=minScore_off;
 		boolean prevDefined=false;
 		for(int i=rows-1; i>=0; i--){
@@ -2664,8 +2675,11 @@ public final class MultiStateAligner11ts extends MSA{
 	public final int TIMESLIP(){return TIMESLIP;}
 	@Override
 	public final int MASK5(){return MASK5;}
+	//align2/MultiStateAligner11ts#001 FIXED: was `return SCOREOFFSET();` — infinite self-recursion
+	//(StackOverflowError); now returns the static field, matching POINTS_GAP()/TIMESLIP()/MASK5() above.
+	//NOTE: the same typo exists in the sibling MultiStateAligner* classes — fix each when reviewed.
 	@Override
-	public final int SCOREOFFSET(){return SCOREOFFSET();}
+	public final int SCOREOFFSET(){return SCOREOFFSET;}
 	
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}

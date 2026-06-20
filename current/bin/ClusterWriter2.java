@@ -18,7 +18,20 @@ import structures.ByteBuilder;
  * Uses asynchronous job submission for the shared 'chaff' file to avoid lock contention.
  */
 public class ClusterWriter2 {
-	
+	//=== Eru review 2026-06-20 (V3) === DEFAULT live output path (QuickBin writeThreads=4 -> writeThreads<2 false -> this).
+	//#001 QUESTION (same as ClusterWriter): single-file branch (109-121) writes ALL clusters with NO minBases/minContigs
+	//  filter (the '%' multi-file branch filters). Identical in both writers -> likely intentional (single-file=dump-all); float.
+	//CLEVER [verified]: per-bin files written in PARALLEL via work-stealing nextIndex.getAndIncrement(); the shared chaff file
+	//  is written ASYNC (printBinChaff makes a FRESH ByteBuilder per cluster -> bsw.addJob, so concurrent chaff writes are
+	//  thread-safe), counters are AtomicLong. The `sorted && tid>0 -> break` (196) is the key trick: clusters are sorted
+	//  big->small so sub-threshold (chaff) bins form a contiguous TAIL; workers bail on reaching it, leaving the ordered tail
+	//  to tid 0 (boundary chaff bins grabbed by tid>0 are still written; order best-effort -> fine, chaff is a junk-drawer).
+	//CONTRACT CAVEAT (LOW/latent): that break TRUSTS the list is genuinely sorted big->small. A future caller passing
+	//  sorted=t with an UNSORTED list would skip big clusters after the first small one (data loss). Live caller honors it
+	//  (QuickBin:583 sorts, then passes sorted=t at :646).
+	//NOTE: assert(false)//Should not happen (204) is a CORRECT fence — printBinChaff flushes chaffBB per-cluster via a fresh
+	//  bb2, so chaffBB never accumulates -> the final-flush is dead/defensive (do NOT remove). cpct/bpct div-by-0 on empty (latent).
+
 	public ClusterWriter2(PrintStream outstream_, boolean writeChaff_, boolean loud_, 
 			boolean overwrite_, boolean append_, int threads_, boolean sorted_){
 		outstream=outstream_;
