@@ -24,6 +24,9 @@ import structures.IntList;
  * @date January 21, 2026
  */
 public class CovMaker {
+	//REVIEW (Eru 2026-06-19): standalone coverage utility (covmaker.sh) — condense/reorder/convert cov data. NOT
+	//NN-input (its cosine merge clusters SAMPLES, not contigs). Fix #001: condense=f NumberFormatException (parse).
+	//Dead: entropy(ArrayList,int,int) (361). +verified-clever: harmonic inverse-norm O(1) merge update (262).
 
 	public static void main(String[] args){
 		Timer t=new Timer();
@@ -63,8 +66,12 @@ public class CovMaker {
 						boolean x=Parse.parseBoolean(b);
 						assert(!x) : arg;
 						if(!x) {condense=-1;}
+					}else{
+						//FIX [bin/CovMaker#001]: was an UNCONDITIONAL condense=Integer.parseInt(b) after the boolean
+						//block, so the intended `condense=f`/`samples=f` (disable -> condense=-1) threw NumberFormatException
+						//on the "f". Now guarded by else: letter -> boolean path, number -> parseInt. (Verified predict-then-run.)
+						condense=Integer.parseInt(b);
 					}
-					condense=Integer.parseInt(b);
 				}else if(a.equals("minseed")){
 					Binner.minSizeToCompare=Binner.minSizeToMerge=Parse.parseIntKMG(b);
 				}else if(a.equals("permute") || a.equals("sort") || a.equals("reorder")){
@@ -358,6 +365,7 @@ public class CovMaker {
 		return (float)ent/proxyDepths.length;
 	}
 
+	//DEAD: no callers (reorderSamples has its own inline entropy loop at 388-398). Deletion candidate.
 	private float entropy(ArrayList<Contig> contigs, int sample, int limit) {
 		double entropy=0;
 		int count=0;

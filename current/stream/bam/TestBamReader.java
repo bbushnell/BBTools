@@ -14,6 +14,9 @@ import structures.ListNum;
  */
 public class TestBamReader {
 
+	//Test harness: constructs a Streamer via StreamerFactory and prints up to maxReads SAM lines to
+	//stdout; no byte comparison. streamer.close() is never called — leaks threads/file handles on
+	//early exit. main()-only.
 	public static void main(String[] args) {
 		if (args.length < 1) {
 			System.err.println("Usage: java stream.TestBamReader <bamfile> [maxReads]");
@@ -48,6 +51,9 @@ public class TestBamReader {
 		}
 
 		System.err.println("\nTotal reads processed: " + count);
+		//TODO: Possible bug [stream/bam/TestBamReader#51] - streamer.close() is never called;
+		//background reader threads and the underlying file handle are leaked on both normal exit
+		//and early break. Add streamer.close() (or wrap in try-finally) before the final print.
 		System.err.println("Test completed successfully!");
 	}
 }

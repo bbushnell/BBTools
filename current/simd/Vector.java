@@ -91,7 +91,7 @@ public final class Vector {
 	 */
 	public static final float fma(final float[] a, final float[] b){
 		assert(a.length==b.length);
-		if(Shared.SIMD && a.length>=MINLEN32) {return SIMD.fma(a, b);}
+		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32) {return SIMD.fma(a, b);}
 		float c=0;
 		for(int i=0; i<a.length; i++) {c+=a[i]*b[i];}
 		return c;
@@ -109,8 +109,8 @@ public final class Vector {
 	public static final float fma(final float[] a, final float[] b, final int[] bSet, 
 		final int blockSize, boolean allowSimd){
 		assert(a.length==bSet.length);
-		if(Shared.SIMD && a.length>=MINLEN32 && a.length==b.length) {return SIMD.fma(a, b);}
-		if(Shared.SIMD && a.length>=MINLEN32 && allowSimd && ((blockSize&7)==0)) {//This ensures length-8 blocks
+		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && a.length==b.length) {return SIMD.fma(a, b);}
+		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && allowSimd && ((blockSize&7)==0)) {//This ensures length-8 blocks
 			return SIMD.fmaSparse(a, b, bSet);
 		}
 		float c=0;

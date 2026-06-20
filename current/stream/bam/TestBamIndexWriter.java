@@ -17,6 +17,9 @@ import java.nio.file.Files;
  */
 public final class TestBamIndexWriter {
 
+	//Test harness: calls BamIndexWriter.writeIndex() then structurally validates the BAI binary:
+	//magic, nRef, bin/chunk/linear-index counts, pseudo-bin 37450, and optional n_no_coor.
+	//Assertions throw IOException on failure. main()-only.
 	public static void main(String[] args) throws Exception {
 		String bamPath = args.length > 0 ? args[0] : "../Chloe/mapped.bam";
 		String indexPath = args.length > 1 ? args[1] : createTemporaryIndexPath();
@@ -105,6 +108,10 @@ public final class TestBamIndexWriter {
 			}
 		}
 
+		//TODO: Possible bug [stream/bam/TestBamIndexWriter#112] - BAI spec says n_no_coor is
+		//optional; if the file ends here (e.g. nRef==0 or writer omits it), bb.getLong() throws
+		//BufferUnderflowException instead of the expected IOException, hiding a write-side bug.
+		//Guard with: if (bb.remaining() >= 8) { ... }
 		long nNoCoord = bb.getLong();
 		if (nNoCoord < 0) {
 			throw new IOException("Negative n_no_coor value in index");

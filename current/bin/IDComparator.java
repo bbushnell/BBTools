@@ -14,6 +14,7 @@ public class IDComparator implements Comparator<Bin>{
 	
 	@Override
 	public int compare(Bin a, Bin b) {
+		//obvious: id ASC; id()-id() int-safe (small ids).
 		return a.id()-b.id();
 	}
 	

@@ -174,6 +174,18 @@ public class BgzfInputStreamMT extends InputStream {
 				}
 			}
 		}catch(IOException e){
+			//TODO: Possible bug [stream/bam/BgzfInputStreamMT#001] - PRODUCER-DEATH → CONSUMER-HANG, the EXACT
+			//same class as the FIXED+cluster-validated BgzfInputStreamMT2#001. On a producer IOException (corrupt/
+			//truncated BGZF in readNextBlock), workerError is set and the finally offers a POISON to inputQueue
+			//(the WORKER queue) - but NOTHING ever sends a terminal to jobQueue (the CONSUMER queue). read()
+			//checks workerError only BEFORE jobQueue.take() (L538), not after, so a consumer already parked in
+			//jobQueue.take() (L544) hangs FOREVER (no last-job, no jobQueue poison). NOTE the asymmetry: the
+			//WORKER error path IS handled correctly (job.error → jobQueue.add → consumer throws at L559), it's
+			//only the PRODUCER error path that's unterminated. SEVERITY = LOW/latent, because THIS engine is
+			//SUPERSEDED: the live read path (ReadWrite.getUnbgzipStream:1509-1510) uses BgzfInputStream(ST) or
+			//BgzfInputStreamMT2, never this MT; its only non-test constructor is the test-only BamReadInputStreamST.
+			//Fix (if revived) = the MT2 fix: producer poisons jobQueue on error AND read() throws workerError on a
+			//woken null-take (else it returns clean EOF = silent truncation). Otherwise: deletion/dedup candidate.
 			workerError=e;
 		}finally{
 			producerFinished=true;
@@ -449,6 +461,10 @@ public class BgzfInputStreamMT extends InputStream {
 									job.decompressedSize+" bytes");
 							}
 						}catch(DataFormatException e){
+							//Worker error path - CORRECTLY handled (the contrast to #001's producer path): the
+							//errored job is still jobQueue.add'ed with job.error set, so it reaches the consumer
+							//IN ORDER and the consumer throws it (L559). A decompress/size/CRC failure crashes
+							//loud; only a PRODUCER (readNextBlock) failure escapes this terminal-delivery.
 							job.error=new IOException("Decompression failed for job "+
 								job.id, e);
 							if(!jobQueue.add(job)){break;}
@@ -543,6 +559,11 @@ public class BgzfInputStreamMT extends InputStream {
 			if(currentBlockPos>=currentBlockSize){
 				BgzfJob nextJob=jobQueue.take();
 				if(nextJob==null){
+					//#001 second half: a null take (jobQueue lastSeen/poisoned) returns CLEAN EOF here WITHOUT
+					//re-checking workerError. So even if the producer-error path were fixed to poison jobQueue,
+					//the consumer would silently truncate (return EOF) rather than throw - the full MT2-style fix
+					//also needs `if(workerError!=null) throw workerError;` at this null-take. Today jobQueue is
+					//never poisoned on producer error, so this branch isn't reached on that path (it hangs above).
 					eofReached=true;
 					return totalRead==0 ? -1 : totalRead;
 				}

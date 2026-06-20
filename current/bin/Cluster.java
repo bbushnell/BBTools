@@ -87,6 +87,12 @@ public class Cluster extends Bin {
 		return b.isCluster() && ((Cluster)b).contigSet.contains(id());
 	}
 	
+	//CLEVER [verified in-file]: incremental cluster merge -- k-mer count arrays accumulate (clone-on-first then
+	//Tools.add), depths combine as a SIZE-WEIGHTED average (cmult=c.size/size2, bmult=size/size2), and the
+	//dimer-derived metrics (strandedness/hh/caga) are recomputed from the merged dimers each add. avgDepthValid is
+	//invalidated and normDepth recomputed, so cached aggregates stay consistent. The first contig seeds tax/lineage;
+	//later contigs grow nonDominantSize (drives pure()). NN-INPUT note: the merged k-mer counts feed Bin.toClade ->
+	//the net; do not alter the accumulation. add(Cluster) CONSUMES its arg (sets clust.contigs=null) -- caller must discard it.
 	public synchronized Cluster add(Contig c) {
 		timestamp=globalTime;
 //		verbose=(id()==52 || id()==3 || id()==3 || c.id()==52 || c.id()==3 || c.id()==3);
@@ -254,6 +260,9 @@ public class Cluster extends Bin {
 		completeness=contam=entropy=strandedness=hh=caga=score=0;
 		truthSource=0;
 		dest=0;
+		//Comprehension: clear() resets taxid/genusTaxid/labelTaxid to 0, whereas Bin.clearTax uses -1. Both satisfy the
+		//"taxid<1 == invalid" convention used everywhere (calcContam/setFrom etc.), so functionally equivalent; just a
+		//minor inconsistency, not a bug.
 		taxid=genusTaxid=labelTaxid=0;
 		topHit=secondHit=null;
 		nonDominantSize=0;

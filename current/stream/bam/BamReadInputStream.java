@@ -118,6 +118,15 @@ public class BamReadInputStream extends ReadInputStream {
 			list.add(r1);
 
 			// Handle paired reads if interleaved
+			//TODO: Possible bug [stream/bam/BamReadInputStream#001] - interleaved pairing trusts ADJACENCY +
+			//FLAGS only: sl1 is first-of-pair (0x1|0x40) → it pairs sl1 with sl1+1 if sl1+1 is ANY second-of-
+			//pair (0x1|0x80), WITHOUT verifying sl1.qname==sl2.qname. Correct for genuinely interleaved input
+			//(mates adjacent, the mode's contract), but on a COORDINATE-sorted BAM fed with interleaved=true
+			//the mates are far apart → this mis-pairs sl1 with an unrelated second-of-pair read. LOW/by-design
+			//(interleaved mode assumes interleaved data) + TEST-ONLY (this reader is constructed only by its own
+			//main; the live BAM read path is BamStreamer via StreamerFactory). A qname-equality guard would make
+			//it robust to misuse. NOTE: the pair shares ONE numericID (both r1,r2 = nextReadID2, ++ once) -
+			//correct paired semantics; only r1 enters the list (r1.mate=r2), so list.size()=pairs+singletons.
 			if(interleaved && (sl1.flag&0x1)!=0 && (sl1.flag&0x40)!=0){
 				// This is first of pair, next should be second
 				if(idx+1<samLines.size()){

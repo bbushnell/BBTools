@@ -58,6 +58,12 @@ public class BamReadInputStreamST extends ReadInputStream {
 
 		try {
             fis=new FileInputStream(fname);
+			//Despite the "ST" name (no background threads in THIS class - it reads records inline in
+			//fillBuffer), the underlying BGZF decompression is MULTIThreaded when USE_MULTITHREADED_BGZF: this
+			//is the SOLE non-test constructor of BgzfInputStreamMT (the 702-line engine). So this reader is the
+			//concrete path that would exhibit BgzfInputStreamMT#001 (producer-death → consumer HANG on corrupt/
+			//truncated BAM). Both are TEST-ONLY (this reader's only caller is its own main; the live BAM read
+			//path is BamStreamer→BgzfInputStreamMT2), so #001 stays LOW here too.
 			if(BgzfSettings.USE_MULTITHREADED_BGZF) {
 				int threads = Math.max(1, BgzfSettings.READ_THREADS);
 				bgzf=new BgzfInputStreamMT(fis, threads);
@@ -162,6 +168,11 @@ public class BamReadInputStreamST extends ReadInputStream {
 			}
 		} catch(EOFException e){
 			// Normal end of file
+			//EOF detection relies on BamReader.readFully throwing EOFException on ANY end-of-stream (even an
+			//immediate 0-byte read). So readUint32(block_size) at the BGZF EOF marker throws → caught here →
+			//finished. Clean. (A non-EOF IOException re-throws loud below. The hasMore() assert(generated>0)
+			//"Was the file empty?" is a dev sanity guard that fires under -ea on a legitimately-empty BAM;
+			//test-only, acceptable.)
 			finished=true;
 		} catch(IOException e){
 			throw new RuntimeException("Error reading BAM file: "+fname, e);

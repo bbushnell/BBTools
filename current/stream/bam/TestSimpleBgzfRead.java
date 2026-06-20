@@ -7,6 +7,9 @@ import java.io.IOException;
  * Simple test to compare single-threaded vs multithreaded BGZF reading.
  */
 public class TestSimpleBgzfRead {
+	//Test harness: compares total byte COUNT from BgzfInputStream vs BgzfInputStreamMT on the
+	//same file; does NOT compare actual byte content. MT silent-corruption that preserves total
+	//size will pass undetected. main()-only.
 	public static void main(String[] args) throws IOException {
 		String file = args.length > 0 ? args[0] : "mapped.bam";
 

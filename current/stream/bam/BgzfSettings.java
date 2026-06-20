@@ -12,6 +12,13 @@ public final class BgzfSettings {
 	/** Toggle to enable multithreaded BGZF input/output. */
 	public static boolean USE_MULTITHREADED_BGZF = true;
 
+	/**
+	 * Selects the multithreaded BGZF WRITE engine for the GENERIC .gz path (ReadWrite:903-908):
+	 * true → BgzfOutputStreamMT2 (OQS2-based), false → BgzfOutputStreamMT (hand-rolled). NOTE: BAM writes
+	 * do NOT consult this — BamOutputStream always uses BgzfOutputStreamMT when MT is on. (Read side default
+	 * is BgzfInputStreamMT2 via ReadWrite:1510, independent of this flag.) Only consulted when
+	 * {@link #USE_MULTITHREADED_BGZF} is true.
+	 */
 	public static boolean USE_BGZFOS_MT2=true;
 	
 	/**

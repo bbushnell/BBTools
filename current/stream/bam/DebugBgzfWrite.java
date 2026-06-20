@@ -8,6 +8,9 @@ import java.io.IOException;
  * Debug tool to trace BGZF writing in detail.
  */
 public class DebugBgzfWrite {
+	//Debug harness: reads a BGZF file with BgzfInputStream (ST), re-compresses with
+	//BgzfOutputStreamMT (MT), then re-decompresses and compares total byte COUNTS (not content).
+	//MT corruption preserving total size will pass undetected. main()-only.
 	public static void main(String[] args) throws IOException {
 		String input = args.length > 0 ? args[0] : "mapped.bam";
 		String output = "debug_output.bam";

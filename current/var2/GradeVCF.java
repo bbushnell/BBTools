@@ -13,6 +13,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import ml.CellNet;
 import ml.CellNetParser;
+import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -137,6 +138,12 @@ public class GradeVCF {
 			}else if(a.equals("simdff") || a.equals("simdfeedforward")){
 				simdFFEval=Parse.parseBoolean(b);
 				shared.Shared.SIMD_FEED_FORWARD=simdFFEval; //Toggle the batched SIMD feed-forward used for net scoring
+			}else if(a.equals("maxvcfreadthreads") || a.equals("readthreads") || a.equals("vcfthreads")){
+				MAX_VCF_READ_THREADS=Math.max(1, Integer.parseInt(b)); //Tunable worker cap (was hardcoded 8); resolved as min(this, t)
+			}else if(a.equals("lp") || a.equals("lineparser")){
+				useLineParser=Parse.parseBoolean(b); //SIMD LineParser1 path in VCFLine (perf experiment)
+			}else if(a.equals("reusevec")){
+				reuseVec=Parse.parseBoolean(b); //Reuse a per-thread feature vector instead of allocating per variant
 			}else if(a.equals("clearfilters")){
 				if(Parse.parseBoolean(b)){
 					varFilter.clear();
@@ -214,7 +221,7 @@ public class GradeVCF {
 		assert(bedWeight>=0) : "bedweight must be >=0 (got "+bedWeight+").";
 		assert(!invertBed || bedFile!=null) : "invertbed requires a bed= file.";
 
-		threads=Tools.min(8, Shared.threads());
+		threads=Tools.min(MAX_VCF_READ_THREADS>0 ? MAX_VCF_READ_THREADS : (net0==null ? 8 : 16), Shared.threads());
 	}
 
 	private byte[] refBasesFor(String scaf){
@@ -392,7 +399,7 @@ public class GradeVCF {
 			if(line[0]=='#'){return;}
 
 			variantLinesProcessedT++;
-			VCFLine vline=new VCFLine(line);
+			VCFLine vline=(useLineParser ? new VCFLine(line, lp) : new VCFLine(line));
 
 			ArrayList<VCFLine> variants=null;
 			if(splitAlleles || splitSubs){variants=vline.split(splitAlleles, false, splitSubs);}
@@ -452,8 +459,10 @@ public class GradeVCF {
 					// post-hoc scoring would need no reference at all and could never silently corrupt.
 					ScafMap vmap=ScafMap.defaultScafMap();
 					Var v=VcfToVar.fromVCF(origLine, vmap, true, true);
-					float[] vec=VectorUMP45.makeVector(v, properPairRate, totalQualityAvg,
-							totalMapqAvg, readLengthAvg, ploidy, vmap);
+					float[] vec=(reuseVec ? VectorUMP45.makeVector(v, properPairRate, totalQualityAvg,
+							totalMapqAvg, readLengthAvg, ploidy, vmap, vecBuf)
+						: VectorUMP45.makeVector(v, properPairRate, totalQualityAvg,
+							totalMapqAvg, readLengthAvg, ploidy, vmap));
 					net.applyInput(vec);
 					nnScore=net.feedForward();
 				}catch(Throwable e){
@@ -488,6 +497,8 @@ public class GradeVCF {
 		final ByteFile bf;
 		final ByteStreamWriter bsw;
 		CellNet net;
+		final LineParser1 lp=new LineParser1((byte)'\t'); //Reusable SIMD field-splitter (used when useLineParser)
+		final float[] vecBuf=new float[VectorUMP45.DIMS]; //Reusable feature vector (used when reuseVec)
 		final long offset;
 
 		long linesProcessedT=0;
@@ -723,6 +734,10 @@ public class GradeVCF {
 	/** Eval-time SIMD feed-forward toggle (simdff=t/f): stamped onto each worker's scoring net so we can
 	 * measure a net's SIMD_FF-on vs SIMD_FF-off result. Also flips global Shared.SIMD_FEED_FORWARD. */
 	boolean simdFFEval=false;
+	/** lp=t/f: use the SIMD-accelerated LineParser1 path in VCFLine instead of the scalar tab-scan. */
+	boolean useLineParser=false;
+	/** reusevec=t/f: reuse a per-thread feature vector (no per-variant float[] allocation). Default on. */
+	boolean reuseVec=true;
 
 	double minScore=0;
 	// FN=crossover*FP operating point. 0 (default) = off. When >0, GradeVCF reports the QUAL and NN
@@ -744,6 +759,11 @@ public class GradeVCF {
 	boolean normalize=false;
 	boolean splitAlleles=false;
 	boolean splitSubs=false;
+
+	/** Override cap on concurrent VCF-processing worker threads (runtime flag maxvcfreadthreads=, aliases
+	 *  readthreads=, vcfthreads=). 0 = auto: 8 with no network (read-bound; the shared path caps ~9 cores),
+	 *  16 with a network (NN scoring parallelizes). Worker count = min(resolved cap, t). */
+	public static int MAX_VCF_READ_THREADS=0;
 
 	final int threads;
 

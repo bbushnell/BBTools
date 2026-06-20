@@ -18,6 +18,8 @@ class ScoreComparator implements Comparator<Bin> {
 	
 	@Override
 	public int compare(Bin a, Bin b) {
+		//obvious: score ASC, then size ASC, then id ASC; id()-id() int-safe (small ids). (Contrast Bin.compareTo +
+		//BinComparator, which sort size DESC -- different orders for different callers, intentional.)
 		if(a.score!=b.score) {return a.score<b.score ? -1 : 1;}
 		if(a.size()!=b.size()) {return a.size()<b.size() ? -1 : 1;}
 		return a.id()-b.id();

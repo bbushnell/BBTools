@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 
+import parse.LineParser1;
 import parse.Parse;
 import shared.Shared;
 import shared.Tools;
@@ -157,7 +158,69 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		hashcode=hash();
 		if(AUTOCACHE){cache();}
 	}
-	
+
+	/**
+	 * As {@link #VCFLine(byte[])}, but splits fields with a reusable SIMD-accelerated LineParser1
+	 * (one Vector.findSymbols pass instead of a scalar tab-scan per field). The parser is caller-owned
+	 * and reused across lines (one per thread), so no per-line splitter is allocated. Produces an
+	 * identical VCFLine; only the field-splitting path differs.
+	 * @param line Raw VCF line as byte array
+	 * @param lp Reusable LineParser1 whose delimiter is '\t'
+	 */
+	public VCFLine(byte[] line, LineParser1 lp) {
+		lp.set(line); //SIMD: locate every tab in one pass
+		final int nterms=lp.terms();
+		assert(nterms>=8) : "Too few VCF fields ("+nterms+"): "+new String(line);
+
+		lp.setBounds(0);
+		{
+			String s=new String(line, lp.a(), lp.b()-lp.a(), StandardCharsets.US_ASCII);
+			if(Shared.TRIM_READ_COMMENTS){
+				for(int i=0; i<s.length(); i++){
+					if(Character.isWhitespace(s.charAt(i))){s=s.substring(0, i); break;}
+				}
+			}
+			scaf=s;
+		}
+
+		pos=lp.parseInt(1);
+
+		lp.setBounds(2);
+		id=(line[lp.a()]=='.' ? DOT : Arrays.copyOfRange(line, lp.a(), lp.b()));
+
+		{
+			lp.setBounds(3); final int a=lp.a(), b=lp.b();
+			ref=(b<=a+1 ? Var.AL_MAP[line[a]] : Arrays.copyOfRange(line, a, b));
+			reflen=(line[a]=='.' ? 0 : b-a);
+		}
+
+		{
+			lp.setBounds(4); final int a=lp.a(), b=lp.b();
+			alt=(b<=a+1 ? Var.AL_MAP[line[a]] : Arrays.copyOfRange(line, a, b));
+		}
+
+		{
+			lp.setBounds(5); final int a=lp.a(), b=lp.b();
+			qual=(line[a]=='.' && b==a+1 ? 40 : Parse.parseDouble(line, a, b));
+		}
+
+		filter=lp.parseByteArray(6);
+		info=lp.parseByteArray(7);
+
+		final int TYP=Tools.indexOfDelimited(info, "TYP=", 0, (byte)';');
+		type=(TYP>=0 ? Var.typeInitialArray[info[TYP+4]] : type_old());
+		assert(type>=0) : type+", "+TYP+"\n"+new String(info);
+
+		if(nterms>8){//FORMAT (and any samples) present; LoFreq omits FORMAT
+			format=lp.parseByteArray(8);
+			for(int t=9; t<nterms; t++){samples.add(lp.parseByteArray(t));}
+		}
+
+		if(TRIM_TO_CANONICAL){trimToCanonical();}
+		hashcode=hash();
+		if(AUTOCACHE){cache();}
+	}
+
 	/** Converts this VCFLine to a Var object for internal processing.
 	 * @return Var representation of this variant */
 	public Var toVar(){

@@ -75,6 +75,12 @@ public class BgzfOutputStream extends OutputStream {
 	}
 
 	@Override
+	//Contract: close() deliberately does NOT write the BGZF EOF marker - the caller owns it. For BAM,
+	//BamOutputStream.close() calls stOut.writeEOF() THEN stOut.close() (so EOF appears exactly once);
+	//MT/MT2 close() DO write EOF internally (asymmetric contract, correctly handled per-engine by
+	//BamOutputStream). Gap: a direct generic-BGZF .gz via this ST path that calls only close() ends up
+	//WITHOUT the EOF sentinel (still a valid gzip-block concatenation, just no truncation-detection
+	//marker) - LOW, interop-only; data intact.
 	public void close() throws IOException {
 		flush();
 		deflater.end();
@@ -94,8 +100,23 @@ public class BgzfOutputStream extends OutputStream {
 		deflater.setInput(buffer, 0, bufferPos);
 		deflater.finish();
 
-		byte[] compressed = new byte[MAX_BLOCK_SIZE];
-		int compressedSize = deflater.deflate(compressed);
+		//[stream/bam/BgzfOutputStream#001] FIXED 2026-06-20 (greenlit). Two coupled mechanisms (both
+		//empirically reproduced on random data): (a) the OLD single deflate() into a no-headroom buffer left
+		//finished()==false on incompressible data -> dropped the deflate tail -> truncated block; (b) bsize
+		//overflowed the 16-bit BSIZE -> wrapped -> corrupt framing. Fix: cap uncompressed at MAX_BLOCK_SIZE
+		//(0xff00, above) so BSIZE always fits, AND give the compressed buffer +1024 headroom + a finish-loop
+		//(mirrors the MT engine) so the tail is never dropped even on an incompressible block. assert(bsize)
+		//is the loud backstop.
+		byte[] compressed = new byte[MAX_BLOCK_SIZE + 1024];
+		int compressedSize = 0;
+		while(!deflater.finished()){
+			int n = deflater.deflate(compressed, compressedSize, compressed.length - compressedSize);
+			if(n == 0 && deflater.needsInput()){break;}
+			compressedSize += n;
+			if(compressedSize == compressed.length && !deflater.finished()){
+				compressed = java.util.Arrays.copyOf(compressed, compressed.length * 2); //extreme safety net
+			}
+		}
 
 		// Calculate CRC32 of uncompressed data
 		crc.reset();
@@ -107,6 +128,8 @@ public class BgzfOutputStream extends OutputStream {
 		// = 10 + 2 + 6 + compressedSize + 8 = 26 + compressedSize
 		// BSIZE = 26 + compressedSize - 1 = 25 + compressedSize
 		int bsize = 25 + compressedSize;
+		assert(bsize>=27 && bsize<=65535) : "BSIZE overflow: "+bsize+" (uncompressed block must be <=0xff00; "+
+			"with MAX_BLOCK_SIZE=0xff00 this can't fire on valid input). [#001 loud backstop]";
 
 		// Write gzip header with BC subfield
 		writeGzipHeader(bsize);
@@ -169,5 +192,7 @@ public class BgzfOutputStream extends OutputStream {
 	private final byte[] buffer = new byte[MAX_BLOCK_SIZE];
 	private int bufferPos = 0;
 
-	private static final int MAX_BLOCK_SIZE = 65536; // 64KB
+	//[stream/bam/BgzfOutputStream#001 + block-size lead FIXED 2026-06-20 (greenlit)] 0xff00 (65280), NOT
+	//65536: caps the UNCOMPRESSED block so compressed+overhead fits the 16-bit BSIZE (see BgzfOutputStreamMT).
+	private static final int MAX_BLOCK_SIZE = 65280; // 0xff00 - BGZF/samtools uncompressed-block cap
 }

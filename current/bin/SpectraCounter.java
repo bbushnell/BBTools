@@ -22,6 +22,10 @@ import tracker.EntropyTracker;
 import tracker.KmerTracker;
 
 public class SpectraCounter extends BinObject implements Accumulator<SpectraCounter.LoadThread> {
+	//REVIEW (Eru 2026-06-19): computes per-contig k-mer spectra (trimers/tetramers/pentamers/dimers) + entropy +
+	//strandedness — the NN-input SOURCE (-> Oracle vector). Those computations are DOCUMENT-only/untouched. Fix #001:
+	//accumulate/success() inverted vs the Accumulator convention (same family as SamLoader3#002; latent — DataLoader's
+	//errorState is unconsumed). Dead: processContigSlow (199).
 	
 	public SpectraCounter(PrintStream outstream_, boolean parseDepth_, 
 			boolean parseTID_, IntLongHashMap sizeMap_) {
@@ -65,7 +69,9 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 	@Override
 	public synchronized void accumulate(LoadThread t) {
 		synchronized(t) {
-			errorState|=(t.success);
+			//FIX [bin/SpectraCounter#001]: was `errorState|=(t.success)` (inverted, sets error on SUCCESS). Convention:
+			//error if NOT success (cf. QuickBin:819, BinSketcher:137, Binner:1209). Latent (DataLoader.errorState unread).
+			errorState|=(!t.success);
 			contigsLoaded+=t.contigsLoadedT;
 			basesLoaded+=t.basesLoadedT;
 			contigsRetained+=t.contigsRetainedT;
@@ -81,7 +87,9 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 	/** Returns the processing success status.
 	 * @return true if processing completed without errors, false otherwise */
 	@Override
-	public synchronized boolean success() {return errorState;}
+	//FIX [bin/SpectraCounter#001]: was `return errorState` (inverted). Accumulator.success() must be TRUE on success
+	//(ThreadWaiter returns fr&&sr&&acc.success()). Matches QuickBin:824, BinSketcher:144, Binner:1217.
+	public synchronized boolean success() {return !errorState;}
 	
 	class LoadThread extends Thread {
 		
@@ -196,6 +204,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			return null;
 		}
 		
+		//DEAD: no callers (live path is processContig, the loadCountsFast version). Deletion candidate. Note it also
+		//guards strandedness on calcStrandedness, which the live processContig does not (moot while this is dead).
 		void processContigSlow(Contig c) {
 			synchronized(c) {
 //				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());
@@ -231,6 +241,9 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			}
 		}
 		
+		//NN-INPUT SOURCE (live): loadCountsFast -> trimers/tetramers/pentamers/dimers; entropy/strandedness/hh/caga all
+		//feed the Oracle CellNet vector. DOCUMENT-only -- do not alter these computations. (strandedness computed
+		//unconditionally here, no calcStrandedness guard; safe because loadCountsFast always sets dimers=counts[2].)
 		void processContig(Contig c) {
 			synchronized(c) {
 //				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());

@@ -27,6 +27,10 @@ import template.ThreadWaiter;
  * @date 2025
  */
 public class Binner extends BinObject implements Accumulator<Binner.CompareThread> {
+	//REVIEW (Eru 2026-06-19): the binning ENGINE — orchestrates Oracle (per-thread clones), the loaders' contigs/depth/
+	//edges, and BinMap2 across staged passes (makeBinMap strict -> refine/residue/purify/fuse/recluster, increasing
+	//stringency). Findings: #001 MEDIUM processResidue dest>0 should be >=0 (residual targeting cluster-0 not merged);
+	//#002 LOW runPassC/F/G non-functional. NOT NN-input (consumes the Oracle/CellNet, doesn't compute features).
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -840,7 +844,12 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		if(merged<1) {return 0;}
 		for(int i=0; i<map.residual.size(); i++) {
 			Bin a=map.residual.get(i);
-			if(a.dest>0) {
+			//FIX [bin/Binner#001]: was `if(a.dest>0)` -- off-by-one vs the count loop above (835 uses dest>=0) and the
+			//dest>=0 convention everywhere else (mergeWithDest:288, refineBinMapPass:596, purifyCluster:773). residue()
+			//sets a.dest=b.id where b.id can be 0 (contig 0 = largest, a common cluster representative), so a residual
+			//best-matched to cluster-0 was COUNTED as merged but never applied. Changed to >=0. UNTESTED -- changes core
+			//residual-assignment output; needs Brian's binning regression.
+			if(a.dest>=0) {
 				Cluster b=map.contigList.get(a.dest).cluster;
 				assert(a!=b) : "\n"+a.id()+"\n"+b.id()+"\n"+a.dest+"\n"+
 				a.getClass()+"\n"+b.getClass()+"\n"+b.contigSet.contains(a.id());
@@ -1183,8 +1192,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 		//Fill a list with LoadThreads
 		ArrayList<CompareThread> alpt=new ArrayList<CompareThread>(threads);
+		//CLEVER [verified in-file]: each CompareThread gets its own oracle.clone() (per-thread CellNet copies + aligner),
+		//so comparisons run lock-free; only the final merge-application (dest fields) is synchronized. Comparison counters
+		//are AtomicLong, summed in accumulate. The accumulate/success() here are the CORRECT convention (errorState|=!success).
 		for(int i=0; i<threads; i++){
-			CompareThread ct=new CompareThread(list, map, contigs, i, 
+			CompareThread ct=new CompareThread(list, map, contigs, i,
 					threads, mode, range, minSize, oracle.clone());
 			alpt.add(ct);
 		}
@@ -1558,6 +1570,11 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	boolean runPassA=true;
 	/** Whether to run refinement pass B */
 	boolean runPassB=false;
+	//TODO [bin/Binner#002] - VESTIGIAL flags: runPassC/runPassF/runPassG are parsed (passC/F/G, 74-83) + defaulted but
+	//never read (refineBinMap runs only AA/A/B/D/E). Per Brian (2026-06-20): the passes these named were TESTED and
+	//deliberately REMOVED because they cost runtime without improving results; the enabled passes (A/D/E etc.) are the
+	//ones that helped in practice. So these are leftover flags from removed passes -> recommend DROPPING the flags+parse
+	//(do NOT wire them back up). LOW cleanup.
 	/** Whether to run refinement pass C */
 	boolean runPassC=true;
 	/** Whether to run refinement pass D */

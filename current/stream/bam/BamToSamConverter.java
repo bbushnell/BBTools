@@ -35,6 +35,11 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Tab-delimited SAM line as byte array
 	 */
+	//TEST-ONLY [stream/bam/BamToSamConverter#001]: this direct BAM→SAM-text fast path has only ONE caller,
+	//TestSeqReverse (grep-confirmed). The LIVE BAM→SAM-text route goes BamStreamer→toSamLine→SamLine→
+	//SamLine.toBytes, NOT through here. Correctly does NOT reverse-complement (SAM text SEQ and BAM SEQ are
+	//both forward-reference, so a direct passthrough is right — the RC is only for building a SamLine whose
+	//internal seq is original-orientation). Kept as a potential future fast path; currently test-only.
 	public byte[] convertAlignment(byte[] bamRecord){
 		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
 		ByteBuilder sam=new ByteBuilder(16+bamRecord.length*2); //Estimate SAM is ~2x BAM size
@@ -222,6 +227,10 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Populated SamLine object, or null if header
 	 */
+	//TODO: Possible bug [stream/bam/BamToSamConverter#001] - DEAD METHOD (zero callers tree-wide; grep
+	//confirmed). Superseded by toSamLine(byte[],ByteBuilder) (the live BamStreamer path). Functionally
+	//correct, but ~191 lines of dead duplicated decode. Cleanup candidate (delete, or consolidate the
+	//4-way method duplication). LOW/latent. See bug_reports/stream/bam/BamToSamConverter.md.
 	public SamLine toSamLine_slim(byte[] bamRecord){
 //		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
 		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
@@ -420,6 +429,9 @@ public class BamToSamConverter {
 	 * @param bamRecord The raw BAM record bytes (not including block_size field)
 	 * @return Populated SamLine object, or null if header
 	 */
+	//DEAD METHOD [stream/bam/BamToSamConverter#001] - zero callers tree-wide (the "Old" version). Note the
+	//latent inconsistency vs the live path: this sets cigar="*" for n_cigar_op==0 (L466), while toSamLine_slim
+	//and the live toSamLine set null - harmless only because it's dead. Cleanup candidate (delete). LOW.
 	public SamLine toSamLineOld(byte[] bamRecord){
 //		ByteBuffer bb=ByteBuffer.wrap(bamRecord).order(ByteOrder.LITTLE_ENDIAN);
 		BinaryByteWrapperLE bb=new BinaryByteWrapperLE(bamRecord);
@@ -616,6 +628,13 @@ public class BamToSamConverter {
 		return sl;
 	}
 	
+	//THE LIVE METHOD: BamStreamer:362 (the default BAM read path) calls this per record; the other three
+	//parse methods are dead/test-only (see their headers). Optimized: skip-based (BinaryByteWrapperLE.skip)
+	//+ DIRECT bamRecord[] reads for qname/seq/qual (no intermediate ByteBuffer copies), and a caller-supplied
+	//reusable `cigar` ByteBuilder (zero-alloc; assert(cigar.isEmpty()) guards a dirty handoff). Traced clean:
+	//4-bit SEQ map "=ACMGRSVTWYHKDBN", CIGAR "MIDNSHP=X", per-type tag decode, MD:Z→sl.mdTag, and the
+	//FLIP_ON_LOAD-guarded reverse-strand RC below = the CORRECT read-side mirror of the write side (this is
+	//exactly the `&& SamLine.FLIP_ON_LOAD` guard SamToBamConverter#001 is MISSING).
 	public SamLine toSamLine(byte[] bamRecord, ByteBuilder cigar){
 		BinaryByteWrapperLE bbw=new BinaryByteWrapperLE(bamRecord);
 		SamLine sl=new SamLine();
@@ -723,6 +742,10 @@ public class BamToSamConverter {
 		}else{
 			int qualStart=bbw.position();
 			byte firstByte=bamRecord[qualStart];
+			//Missing-QUAL detection by the FIRST byte only is valid: BAM's "qual unavailable" convention is
+			//ALL bytes==0xFF, and a real raw phred score is 0-93 (never 255), so firstByte==0xFF ⟺ qual
+			//absent. (A malformed BAM with qual[0]=0xFF but later real bytes would misread → '*', but that's
+			//format-impossible for valid input.)
 			if(firstByte==(byte)0xFF){
 				bbw.skip((int)l_seq);
 				sl.setQual(null);

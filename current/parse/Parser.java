@@ -922,6 +922,10 @@ public class Parser {
 			}else {
 				Shared.SIMD=Parse.parseBoolean(b);
 			}
+		}else if(a.equalsIgnoreCase("simdff") || a.equalsIgnoreCase("simdfeedforward")){
+			Shared.SIMD_FEED_FORWARD=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("simdfma")){
+			Shared.SIMD_FMA=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("simdsparse")){
 			Vector.SIMD_MULT_SPARSE=Vector.SIMD_FMA_SPARSE=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("simdmultsparse")){

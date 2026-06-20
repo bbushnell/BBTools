@@ -36,6 +36,8 @@ public class SketchRecord extends BinObject {
 		contam=hit.getDouble("Contam").floatValue();
 		taxid=hit.getLong("TaxID").intValue();
 		taxName=hit.getString("taxName");
+		//Comprehension: value type for a server sketch hit; setFrom trusts the JSON keys (Matches/ANI/Complt/Contam/
+		//TaxID/taxName -- generated, not user input). genusTaxid is a -1 placeholder (TODO tree lookup). Clean.
 		genusTaxid=-1;//TODO, get from tree
 	}
 	

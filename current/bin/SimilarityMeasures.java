@@ -8,6 +8,11 @@ import shared.Tools;
 import simd.Vector;
 
 /** Mostly written by ChatGPT and modified by me */
+//REVIEW (Eru 2026-06-19): k-mer-histogram distance measures. LIVE NN-input = the individual int[]/long[]
+//measures Oracle feeds to QuickBin's CellNet (cosineDifference/hellinger/jsd/absDif/cosineDifferenceCompensated
+//on int[] tetramers, Oracle:408-479) + clade/Comparison:187 absDifComp -> QuickClade. Those are trained-against:
+//DOCUMENT only, never patch (NN HARD CONSTRAINT). DEAD here: calculateDifferenceVector (both overloads) and
+//compensate(int[],int,int[]) (#001, broken assert). Most float[] overloads exist only for that dead/demo path.
 public class SimilarityMeasures {
 	
     public static void main(String[] args) {
@@ -106,6 +111,8 @@ public class SimilarityMeasures {
         float jensenShannonDivergence=(JSD ? jensenShannonDivergence(a, b, inva, invb) : 0);
         float hellingerDistance=(HELLINGER? hellingerDistance(a, b, inva, invb) : 0);
         float ksDifference=(KST ? ksTest(a, b, inva, invb) : 0);
+        //LIVE via AllToAllVectorMaker:601 (NN training-vector gen). div counts enabled measures; defaults -> only
+        //COSINE=true so div=1. If ALL flags were off div=0 -> x/0=NaN/Inf, caught by the isFinite guard below -> 0.
         int div=(COSINE ? 1 : 0)+(EUCLID ? 1 : 0)+(ABSOLUTE ? 1 : 0)+(JSD ? 1 : 0)+(HELLINGER ? 1 : 0)+(KST ? 1 : 0);
         float ret=(cosineDifference+euclideanDistance+absoluteDifference+
         		jensenShannonDivergence+hellingerDistance+ksDifference)/div;
@@ -122,6 +129,8 @@ public class SimilarityMeasures {
      * @param b Second frequency histogram
      * @return Array of 6 similarity measure values
      */
+    //DEAD: no live caller of either calculateDifferenceVector overload (only the demo main()). The 6-element
+    //difference vector is not consumed anywhere; Oracle/clade build NN inputs from the individual measures instead.
     public static float[] calculateDifferenceVector(int[] a, int[] b) {
     	float inva=1f/Math.max(1, Tools.sum(a));
     	float invb=1f/Math.max(1, Tools.sum(b));
@@ -231,6 +240,9 @@ public class SimilarityMeasures {
      * @return Cosine similarity between 0 and 1
      */
     public static float cosineSimilarity(int[] a, int[] b, float inva, float invb) {
+    	//NN-INPUT (live: Oracle:408 cosineDifference -> QuickBin CellNet; SIMD path mirrors this in Vector). Normalizes
+    	//a,b by inva,invb; the 1e-15 norm floor below keeps the denominator nonzero so the result is finite even for
+    	//all-zero/all-N spectra (callers don't isFinite-guard cosineDifference). DO NOT alter -- pretrained-net input.
     	if(GC_COMPENSATED) {return cosineSimilarityCompensated(a, b, 4);}
     	if(Shared.SIMD) {return Vector.cosineSimilarity(a, b, inva, invb);}
         float dotProduct=0f;
@@ -334,6 +346,11 @@ public class SimilarityMeasures {
     	for(int i=0; i<aSum.length; i++) {
     		aSum[i]=1f/Math.max(aSum[i], 1);
     	}
+    	//TODO: Possible bug [bin/SimilarityMeasures#001] - DEAD (no callers) + this assert is provably false.
+    	//After the loops aSum[gc]=1/max(groupSum,1): per-GC-group RECIPROCALS, and EVERY empty group becomes 1/1=1.
+    	//So Tools.sum(aSum) is ~never 1 (k=4, one populated group -> ~4.001); with -ea this crashes on first real use.
+    	//Returned comp[] is unaffected by the assert, so a fix is NN-safe -- but the method is vestigial scaffolding
+    	//(twin of the inline norm in cosineSimilarityCompensated + of compensate(long[])); delete-or-fix is Brian's call.
     	assert(Tools.sum(aSum)==1);
 
     	float[] comp=new float[a.length];
@@ -607,6 +624,7 @@ public class SimilarityMeasures {
      * @return Jensen-Shannon divergence value
      */
     public static float jensenShannonDivergence(float[] a, float[] b) {
+        //(vector/demo path) kldSumB is vestigial -- both KL terms accumulate into kldSumA; result is correct JSD.
         float kldSumA=0, kldSumB=0;
         for (int i=0; i<a.length; i++) {
         	float ai=a[i]+0.0005f, bi=b[i]+0.0005f;//Prevents zero values
@@ -642,6 +660,8 @@ public class SimilarityMeasures {
      * @return Jensen-Shannon divergence value
      */
     public static float jensenShannonDivergence(int[] a, int[] b, float inva, float invb) {
+        //LIVE NN-input (Oracle:475 on int[] tetramers). kldSumB is vestigial -- both KL terms fold into kldSumA, so
+        //the value is still correct JSD-in-bits. Do NOT "fix" it (changes nothing) and do NOT alter (pretrained input).
         float kldSumA=0, kldSumB=0;
         for (int i=0; i<a.length; i++) {
         	float ai=a[i]*inva+0.0005f, bi=b[i]*invb+0.0005f;//Prevents zero values

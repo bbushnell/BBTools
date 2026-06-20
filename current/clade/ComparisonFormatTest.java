@@ -111,6 +111,10 @@ public class ComparisonFormatTest {
 			comp.appendResultHuman(human, 0);
 			System.err.println("Human:\n"+human.toString());
 
+			//Comprehension/praise: Test 4 validates format<->parser SYMMETRY -- appendResultMachine output, re-parsed
+			//by Comparison(String,lp), must round-trip (k5dif, lineage, ssudif). This is exactly the Comparison#001
+			//coupling, exercised for printQTID=FALSE only. GAP (forward lead): no printQTID=true round-trip is tested,
+			//so a printQTID=true column-shift would go uncaught here (ties to CladeServer#001 / SendClade#001).
 			//Test 4: Round-trip parse (machine data → constructor)
 			boolean parseOK=true;
 			try{

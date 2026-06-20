@@ -186,6 +186,10 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	}
 	
 	public void add(byte[] seq, EntropyTracker et) {
+		//THREAD-SAFETY: intentionally NOT synchronized (hot path). It does read-modify-write on counts/bases/entropy/
+		//contigs, so the CALLER must guarantee single-thread access to `this` -- e.g. CladeLoader accumulates into a
+		//thread-local `dummy` then merges into the shared map via the synchronized add(Clade). Calling this on a Clade
+		//SHARED across threads is a data race that silently corrupts counts (see clade/CladeLoader#001).
 		finished=false;
 		countKmersMulti(seq, counts, 5);
 		float seqEntropy=(calcCladeEntropy ? et.averageEntropy(seq, false) : 0);

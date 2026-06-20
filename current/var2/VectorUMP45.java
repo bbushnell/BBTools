@@ -21,8 +21,18 @@ public class VectorUMP45 {
 
 	public static float[] makeVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
+		return makeVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map, new float[DIMS]);
+	}
 
-		float[] vec=new float[DIMS];
+	/**
+	 * As makeVector(...), but fills the caller-provided vec (length DIMS) instead of allocating one,
+	 * for per-thread reuse in hot loops. The array is zeroed first because several dims (type/platform
+	 * 1-hot, reserved) rely on zero-initialization.
+	 */
+	public static float[] makeVector(Var v, double pairingRate, double totalQualityAvg,
+			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map, float[] vec){
+
+		java.util.Arrays.fill(vec, 0f);
 		final int type=v.type();
 		final int count=v.alleleCount();
 		final double af=v.alleleFraction();

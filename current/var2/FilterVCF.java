@@ -190,7 +190,11 @@ public class FilterVCF {
 			else if(a.equalsIgnoreCase("countNearbyVars")){
 				countNearby=Parse.parseBoolean(b);
 			}
-			
+
+			else if(a.equals("maxvcfreadthreads") || a.equals("readthreads") || a.equals("vcfthreads")){
+				MAX_VCF_READ_THREADS=Math.max(1, Integer.parseInt(b)); //Tunable worker cap (was hardcoded 8); resolved as min(this, t)
+			}
+
 			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -255,7 +259,7 @@ public class FilterVCF {
 		}
 		
 		//Determine how many threads may be used
-		threads=Tools.min(8, Shared.threads());
+		threads=Tools.min(MAX_VCF_READ_THREADS>0 ? MAX_VCF_READ_THREADS : (net0==null ? 8 : 16), Shared.threads());
 	}
 	
 	/**
@@ -1031,7 +1035,12 @@ public class FilterVCF {
 	/** Average read length from sequencing run */
 	public float readLengthAvg=150;
 	
-	/** Number of processing threads (limited to 8 maximum) */
+	/** Override cap on concurrent VCF-processing worker threads (runtime flag maxvcfreadthreads=, aliases
+	 *  readthreads=, vcfthreads=). 0 = auto: 8 with no network (read-bound; the shared path caps ~9 cores),
+	 *  16 with a network (NN scoring parallelizes). Worker count = min(resolved cap, t). */
+	public static int MAX_VCF_READ_THREADS=0;
+
+	/** Number of processing worker threads (resolved from MAX_VCF_READ_THREADS, the net, and Shared.threads()) */
 	final int threads;
 	/** Whether to use multithreaded processing */
 	public boolean multithreaded=false;

@@ -14,6 +14,8 @@ class BinComparator implements Comparator<Bin> {
 	
 	@Override
 	public int compare(Bin a, Bin b) {
+		//obvious: contam ASC, then size DESC, then id ASC; id()-id() int-safe. (Note: NOT a singleton, unlike
+		//Score/IDComparator -- harmless inconsistency.)
 		if(a.contam!=b.contam) {
 			return a.contam<b.contam ? -1 : 1;
 		}

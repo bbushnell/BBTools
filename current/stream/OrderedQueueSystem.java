@@ -57,20 +57,30 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 
 	/** Signal end of input - injects LAST to output and POISON to input. */
 	@SuppressWarnings("unchecked")
-	public synchronized void poison(){
-		if(lastSeen){return;}//idempotent: a no-op once already poisoned
+	public void poison(){
+		//[stream/bam/BgzfInputStreamMT3#003] FIXED 2026-06-20 (greenlit): poison() was `synchronized(this)`
+		//and did the BLOCKING enqueues (outq.add @ a full bounded JobQueue, and putJob->inq.put @ a full
+		//ArrayBlockingQueue) WHILE HOLDING the monitor. If outq/inq was full, poison() blocked holding `this`,
+		//so setFinished() (also synchronized(this)) could never run to set outq.poisoned=true + notifyAll and
+		//wake the blocked enqueue -> circular deadlock (jstack-proven via MT3 on truncated input: producer in
+		//poison()->outq.add holding the OQS monitor, main in close()->setFinished waiting for it). The 6 other
+		//OQS users (BamStreamer, Fasta/Fastq/SamStreamer, ByteFile3/4) never hit it because a SEPARATE consumer
+		//thread keeps draining outq until the LAST marker, so outq.add never blocks - but the hazard is real.
+		//FIX = mirror addInput's already-blessed contract: update lastSeen/read maxSeenId UNDER the lock, do the
+		//blocking enqueues OUTSIDE it. Now a full queue can't wedge the monitor that setFinished needs to unstick it.
+		final long id;
+		synchronized(this){
+			if(lastSeen){return;}//idempotent: a no-op once already poisoned
+			lastSeen=true;
+			id=maxSeenId+1;
+		}
 		if(verbose) {System.err.println("OQS: poison()");}
 
 		//End-of-input protocol: two DISTINCT markers, both stamped id=maxSeenId+1 (one past every real job, so the ORDERED outq sorts them strictly last):
 		//  LAST  -> outq: marks the end of ordered output; the workers' real outputs (ids 0..maxSeenId) reorder ahead of it.
 		//  POISON-> inq:  terminates the worker pool (a worker taking it stops pulling input).
-		O lastJob=(O)outputPrototype.makeLast(maxSeenId+1);
-		outq.add(lastJob);
-
-		I poisonJob=(I)inputPrototype.makePoison(maxSeenId+1);
-		putJob(poisonJob);
-
-		lastSeen=true;
+		outq.add((O)outputPrototype.makeLast(id));        //blocking, but OUTSIDE the lock now
+		putJob((I)inputPrototype.makePoison(id));          //blocking (inq.put), also outside the lock
 	}
 
 	/** Wait for processing to complete. */

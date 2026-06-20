@@ -62,6 +62,12 @@ public class BgzfInputJob implements HasID, Comparable<BgzfInputJob> {
 	@Override
 	public boolean last(){return lastJob;}
 
+	//Poison-by-IDENTITY (poison()/isPoisonPill() test `this==POISON_PILL`), unlike BgzfJob's poison-by-flag.
+	//makePoison ignores id_ and returns the singleton (id=Long.MAX_VALUE), so a JobQueue post-last poison
+	//(added as makePoison(job.id()+1)) sorts at MAX_VALUE instead of job.id()+1 - HARMLESS, because once a
+	//`last` job is dequeued JobQueue sets lastSeen and the next take() returns null BEFORE that poison is ever
+	//released (JobQueue.take L145). So the poison's id never matters on the consumer side; the singleton is
+	//only meaningfully consumed on the WORKER inputQueue, where isPoisonPill() identity is exact.
 	@Override
 	public BgzfInputJob makePoison(long id_){
 		return POISON_PILL;

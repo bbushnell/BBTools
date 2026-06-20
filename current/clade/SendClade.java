@@ -260,6 +260,10 @@ public class SendClade extends CladeObject {
 		}else {tsw=null;}
 		
 		if(oneline && tsw!=null){
+			//Comprehension: header is machineHeader(FALSE) hardcoded -- self-consistent with the server's pinned
+			//printQTID=false rows. (Contrast CladeSearcher serverMode, which prepends machineHeader(printQTID) and so
+			//can declare a QTID column the server rows lack -- that is the CladeServer#001 mismatch; SendClade does it
+			//right here.)
 			//Print header for oneline format
 			tsw.println(Comparison.machineHeader(false));
 		}
@@ -503,6 +507,17 @@ public class SendClade extends CladeObject {
 	}
 	
 	public static ArrayList<Comparison> responseToComparisons(String s) {
+		//[clade/Comparison#001 CLOSURE] This is the sole live caller of the column-coupled Comparison(String,lp)
+		//parser (the CladeSearcher serverMode call is commented out). It is SAFE today on THREE agreeing facts:
+		//(1) the server PINS appendResultMachine(printQTID=false) (CladeServer.formatResults), (2) the only live
+		//caller of THIS method, sendAndLabel, requests printQTID=false, and (3) SendClade's own oneline header is
+		//machineHeader(false). So the row layout the parser sees is always the no-QTID layout it assumes -> no
+		//misparse. RESIDUAL (latent LOW, documented): the parser does NOT negotiate/inspect a header -- it assumes
+		//the printQTID=false column set. A FUTURE caller feeding it printQTID=true output would misparse by one
+		//column. Also: s==null (sendClades can return null) -> s.split NPEs here; the sole caller sendAndLabel
+		//catches Throwable so it surfaces as 'return false', but this public method is not null-safe on its own.
+		//Note: only the FIRST result line per #Query is parsed (the while-loop skips the rest) -- correct for
+		//sendAndLabel (hits=1), but a multi-hit response would keep only the best hit per query.
 		String[] lines=s.split("\n");
 		ArrayList<Comparison> list=new ArrayList<Comparison>(lines.length/2+1);
 		LineParserS1 lp=new LineParserS1('\t');
@@ -612,7 +627,7 @@ public class SendClade extends CladeObject {
 		//Add parameters
 		bb.append("format=").append(oneline ? "oneline" : "human").append('/');
 		bb.append("hits=").append(hits).append('/');
-		if(printQTID){bb.append("printqtid=t/");}
+		if(printQTID){bb.append("printqtid=t/");}//[clade/SendClade#001 DOC] non-functional end-to-end: the server parses but IGNORES printqtid (CladeServer#001), and SendClade's own header hardcodes machineHeader(false) -> printqtid=t has no effect on output. Flag Brian/Chloe.
 		if(banSelf){bb.append("banself=t/");}
 		bb.append("heap=").append(heapSize).append('/');
 		if(caprecords<Integer.MAX_VALUE){bb.append("caprecords=").append(caprecords).append('/');}
@@ -682,6 +697,12 @@ public class SendClade extends CladeObject {
 				sn=ServerTools.sendAndReceive(message, address);
 			}
 		}else {
+			//CLEVER [verified in-file]: lock-free concurrency throttle (mirrors SendSketch) -- acquire-or-backoff:
+			//addAndGet(1); if the result exceeds maxConcurrency, undo (-1) and sleep, else keep the slot. A transient
+			//overshoot is immediately corrected by the -1, so at most maxConcurrency requests are ever inside
+			//ServerTools.sendAndReceive at once; the matching addAndGet(-1) after the send releases the slot. Bounds
+			//open connections to the JGI server without a lock. (Paired with MAX_CLADES_PER_BATCH=4000, which bounds
+			//per-request message size.)
 			while(concurrency.addAndGet(1)>maxConcurrency) {
 				concurrency.addAndGet(-1);
 				try{Thread.sleep(20);}

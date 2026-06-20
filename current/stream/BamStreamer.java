@@ -10,6 +10,7 @@ import java.util.Arrays;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import stream.bam.BamReader;
@@ -84,6 +85,7 @@ public class BamStreamer implements Streamer {
 	@Override
 	public synchronized void close(){
 		//TODO: Unimplemented
+		//TODO: Possible bug [stream/BamStreamer#002] - LOW/MED: close() is a no-op, so abandoning the stream before EOF leaves the non-daemon ProcessThreads (1 input + N workers) blocked forever (workers in oqs.getInput(), input in ThreadWaiter) with no termination signal. Couples with #001. Structural: close() should poison the OQS + interrupt/join the threads. Author-acknowledged TODO.
 	}
 	
 	@Override
@@ -141,6 +143,11 @@ public class BamStreamer implements Streamer {
 			if(list!=null && list.last()){
 				oqs.setFinished(true);
 			}
+			//[#001 FIXED] crash LOUD on a producer error instead of silently truncating: if the input thread
+			//hit a corrupt/non-BAM error it set errorState + poisoned the OQS (so we got null/last here). A
+			//bare `return null` would look like clean EOF -> wrong/partial results. KillSwitch.assertDie exits
+			//the process loudly (the BBTools error contract: crash, never silently wrong).
+			if(errorState){KillSwitch.kill("Error reading BAM file (corrupt or truncated): "+fname);}
 			return null;
 		}
 		return list;
@@ -196,18 +203,28 @@ public class BamStreamer implements Streamer {
 		}
 
 		void processInputThread(){
-			processBamBytes();
-			if(verbose){outstream.println("tid "+tid+" done with processBamBytes.");}
-			
-			// Signal completion via OQS
-			oqs.poison();
-			if(verbose){outstream.println("tid "+tid+" done poisoning.");}
+			//[stream/BamStreamer#001] FIXED 2026-06-20 (greenlit by Brian): a corrupt/truncated/non-BAM input
+			//can no longer hang the workers+consumer. The try/finally GUARANTEES oqs.poison() runs even when
+			//processBamBytes() throws (so workers in getInput() + the consumer in getOutput() wake); the catch
+			//sets errorState + notifyAll() (releasing any worker still spinning in the pre-converter
+			//sharedConverter-wait at makeReads L329). The consumer then crashes LOUD via the errorState check in
+			//nextLines, instead of silently truncating. Same fix shape as the greenlit bam/BgzfInputStreamMT2#001.
+			//NEEDS VALIDATION: a correct BAM (rc=0, all reads) AND a corrupt/non-BAM .bam (loud crash, NO hang).
+			try{
+				processBamBytes();
+			}catch(Throwable t){
+				synchronized(BamStreamer.this){errorState=true; BamStreamer.this.notifyAll();}
+				outstream.println("BamStreamer: error reading BAM "+fname+": "+t);
+			}finally{
+				oqs.poison();//ALWAYS poison so workers (getInput) + consumer (getOutput) wake
+			}
+			if(verbose){outstream.println("tid "+tid+" done with processBamBytes + poisoning.");}
 			
 			//Wait for completion of all threads
 			boolean allSuccess=true;
 			ThreadWaiter.waitForThreadsToFinish(alpt);
 			for(ProcessThread pt : alpt){
-				if(pt!=this){
+				if(pt!=this){//[stream/BamStreamer#003] LOW: skipping the input thread (this) drops ITS bytesProcessedT - the header bytes accumulated at L250/258 - from bytesProcessed, a stat undercount by the header size (readsProcessedT/basesProcessedT are 0 on the input thread, so only bytes are lost). Fix: add this.bytesProcessedT after this loop.
 					readsProcessed+=pt.readsProcessedT;
 					basesProcessed+=pt.basesProcessedT;
 					bytesProcessed+=pt.bytesProcessedT;
@@ -324,7 +341,12 @@ public class BamStreamer implements Streamer {
 		void makeReads(){
 			if(verbose){outstream.println("Thread "+tid+" waiting on converter.");}
 			synchronized(BamStreamer.this){
-				while(sharedConverter==null){
+				//comprehension: workers block here until the INPUT thread (tid==0) publishes the converter
+				//(synchronized(BamStreamer.this)+notifyAll @280-281); sharedConverter is volatile + the lock =
+				//happens-before; wait(100) is a missed-notify backstop. [#001 FIXED] the `&& !errorState` bail
+				//lets a worker escape this spin if the input thread DIES pre-converter (e.g. magic-mismatch),
+				//where it set errorState+notifyAll in processInputThread's catch -> no hang.
+				while(sharedConverter==null && !errorState){
 					try{
 						BamStreamer.this.wait(100);
 					}catch(InterruptedException e){
@@ -332,6 +354,10 @@ public class BamStreamer implements Streamer {
 					}
 				}
 				converter=sharedConverter;
+			}
+			if(converter==null){//input thread died pre-converter (#001): bail, the finally-poison wakes the consumer
+				if(verbose){outstream.println("tid "+tid+" bailing makeReads: no converter (errorState="+errorState+").");}
+				return;
 			}
 
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}

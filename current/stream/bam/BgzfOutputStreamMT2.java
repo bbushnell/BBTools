@@ -204,6 +204,12 @@ public class BgzfOutputStreamMT2 extends OutputStream {
 			
 			deflater.end();
 			// Re-inject poison for other workers
+			//Each worker exits its loop on a poison job (getInput()==null OR job.poison()) and re-injects it
+			//so the NEXT worker also wakes -> the poison cascades through all N workers (OQS2's poison
+			//protocol, reviewed clean). This is why MT2 needs no manual per-worker poison accounting like the
+			//original MT engine - OQS2 owns ordering+shutdown+backpressure, which is the whole point of the
+			//rewrite (clean vs MT's hand-rolled poison bookkeeping). job is non-null here only on the poison
+			//path (the while-guard exits on null OR poison; null can't be re-added, poison is).
 			if(job!=null) {oqs.addInput(job);}
 		}
 		
@@ -213,8 +219,21 @@ public class BgzfOutputStreamMT2 extends OutputStream {
 				
 				// Writer Logic
 				synchronized(job){
+					//TODO: Possible bug [stream/bam/BgzfOutputStreamMT2#001] - BSIZE 16-bit overflow on an
+					//incompressible full block. The worker's grow-loop (L181-189) correctly captures the full
+					//compressed bytes (no truncation, unlike the ST writer), but for a 65536-byte incompressible
+					//block compressedSize~=65556 -> bsize=18+65556+8-1=65581 > 65535, and writerHeader[16/17]
+					//take only the low 16 bits -> BSIZE wraps -> corrupt BGZF framing, SILENTLY. The original
+					//BgzfOutputStreamMT guards this with assert(bsize>=27 && bsize<=65535) (crash-loud under -ea);
+					//MT2 has NO such guard. LOW (generic-.gz MT path, USE_BGZFOS_MT2=t; needs incompressible
+					//full block, which BBTools' own compressible data never produces). Root cause shared with
+					//#BgzfOutputStream#001: maxBlockSize=65536 leaves no BSIZE headroom (spec/samtools cap at
+					//0xff00). Fix: cap uncompressed block <=0xff00, or at least assert(bsize<=65535) loud.
 					int bsize=18+job.compressedSize+8-1;
-					
+					assert(bsize>=27 && bsize<=65535) : "BSIZE overflow: "+bsize+" (block too large for 16-bit "+
+						"BSIZE; uncompressed block must be <=0xff00). [#001 - restored the guard the original MT "+
+						"engine has; with DEFAULT_BLOCK_SIZE=0xff00 this can't fire on valid input)";
+
 					// Header
 					if(writerHeader==null){writerHeader=new byte[18];}
 					System.arraycopy(GZIP_HEADER_TEMPLATE, 0, writerHeader, 0, 18);
@@ -288,6 +307,8 @@ public class BgzfOutputStreamMT2 extends OutputStream {
 	private volatile IOException errorState;
 	private volatile boolean closed=false;
 	
-	public static final int DEFAULT_BLOCK_SIZE=65536;
+	//[block-size lead FIXED 2026-06-20 (greenlit)] 0xff00 (65280), NOT 65536 - see BgzfOutputStreamMT: caps
+	//the uncompressed block so compressed+overhead fits the 16-bit BSIZE (avoids the incompressible-block wrap).
+	public static final int DEFAULT_BLOCK_SIZE=65280;
 	public static boolean FILTERED_BGZF=false;
 }

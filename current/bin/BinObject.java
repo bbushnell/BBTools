@@ -83,6 +83,11 @@ public class BinObject {
 		return array;
 	}
 	
+	//CLEVER [verified in-file]: canonical-kmer remap (twin of clade/CladeObject's). Each k-mer maps to the index of
+	//its canonical form = min(kmer, reverseComplement(kmer)) so a strand and its revcomp share one frequency slot
+	//(halving dimensionality, strand-agnostic). `quant` subsamples: only canonical kmers with canon%quant==0 get a
+	//slot (count++), the rest collapse — a tunable freq-vector size/speed knob. remap[] then maps every raw kmer to
+	//its (possibly subsampled) canonical index, -1 if dropped. Built once into remapMatrix[k] at class init.
 	public static int[] makeRemap(int k){
 		final int bits=2*k;
 		final int max=(int)((1L<<bits)-1);
@@ -325,7 +330,13 @@ public class BinObject {
 	 */
 	static final float rmsDif(int[] a, int[] b, float inva, float invb){
 		assert(a.length==b.length);
-		long sum=0;
+		//TODO: Possible bug [bin/BinObject#001] FIXED - was `long sum`: d*d is a tiny float (normalized-freq diffs,
+		//each <1, squared) and `sum+=d*d` truncates each to 0 via long conversion -> sum stays 0 -> always returns
+		//~0 (a meaningless distance). Twin of clade/CladeObject#001 (bin is clade's ancestor). DEAD/latent in bin/:
+		//rmsDif(int[]...) is package-private with NO callers (grep), so this never ran -> LOW. NN-safe to fix: nothing
+		//in the freq->difference->NN-input chain calls it. Fix: long->double (matches the rmsDif(float[]) overload at
+		//L300 and absDif's float accumulator).
+		double sum=0;
 		for(int i=0; i<a.length; i++){
 			float ai=a[i]*inva, bi=b[i]*invb;
 			float d=(ai-bi);
@@ -453,6 +464,12 @@ public class BinObject {
 			if(c<'0' || c>'9') {break;}
 			id=id*10+(c-'0');
 		}
+		//TODO: Possible bug [bin/BinObject#002] LOW/QUESTION (documented) - this assert turns a header that CONTAINS
+		//"tid_"/"tid|" but is followed by a non-digit (or zero) into a hard AssertionError under -ea (id stays 0 ->
+		//id>0 fails). Benign in benchmark data (tid_NNN is always well-formed) and headers with no "tid" return -1
+		//cleanly above; but a real assembly contig whose name happens to contain "tid_<nondigit>" would crash rather
+		//than degrade. Graceful "return -1" (treat an unparseable marker as no-tid) would be safer. Borderline per
+		//input-validity (synthetic-marker convention) -> flag, not patched.
 		assert(id>0 && id<Integer.MAX_VALUE) : id+"\n"+line+"\n";
 		return (int)id;
 	}

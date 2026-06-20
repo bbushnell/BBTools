@@ -18,6 +18,10 @@ import java.io.IOException;
  */
 public class TestBgzfMultithreaded {
 
+	//Test harness: reads input.bam → re-compresses → re-decompresses, then compares decompressed
+	//bytes between the two output files (NOT against the original input). MT write corruption that
+	//survives a subsequent MT read round-trip will pass undetected. Also tests ST-read→MT-write
+	//and full MT round-trips. main()-only.
 	public static void main(String[] args) throws IOException {
 		if (args.length < 1) {
 			System.err.println("Usage: java stream.bam.TestBgzfMultithreaded <input.bam> [threads]");
@@ -143,6 +147,10 @@ public class TestBgzfMultithreaded {
 	/**
 	 * Test round-trip correctness by comparing decompressed data.
 	 */
+	//TODO: Possible bug [stream/bam/TestBgzfMultithreaded#146] - testRoundTrip compares two
+	//BgzfInputStreamMT decompression results against each other, never against the original raw
+	//input bytes. Systematic MT write corruption that is faithfully reproduced on MT read will
+	//cause all three tests (Test 1 write, Test 2 compare, Test 3 re-round-trip) to pass silently.
 	private static void testRoundTrip(String file1, String file2, int threads) throws IOException {
 		long startTime = System.currentTimeMillis();
 
