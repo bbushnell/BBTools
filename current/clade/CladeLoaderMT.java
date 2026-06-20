@@ -65,6 +65,7 @@ public class CladeLoaderMT {
 			try{w.join();}catch(InterruptedException e){e.printStackTrace();}
 		}
 
+		//Single-threaded merge AFTER all workers join (no concurrency here) -> Clade.add(Clade)'s this-then-c lock is uncontended; the c.bases>0 guard satisfies Clade.add's assert(c.bases>0), and same-map-key guarantees its taxID==c.taxID assert. Confirms Clade.add's "no reciprocal merge" safety claim.
 		for(ArrayList<Clade> results : allResults){
 			for(Clade c : results){
 				Integer key=c.taxID;
@@ -82,6 +83,7 @@ public class CladeLoaderMT {
 		}
 	}
 
+	//CLEVER [verified in-file]: single-producer/N-consumer load. produce() bundles complete records (split on '#' header when currentRecord>5 lines) into RECORDS_PER_BUNDLE chunks to amortize queue handoff; bundle ids are gap-free sequential, so even an ordered JobQueue can't stall (contrast the prok skip-empty-emit deadlock). Workers parse into THREAD-LOCAL lists (zero lock contention during parse), merged once after join. The 3-mode benchmark main (I/O / queue / parse) isolates where time goes.
 	private static void produce(ByteFile bf,
 			JobQueue<ListNum<ArrayList<byte[]>>> queue){
 		long id=0;

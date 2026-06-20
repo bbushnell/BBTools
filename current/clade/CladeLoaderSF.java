@@ -98,7 +98,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 		}
 
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
-		errorState|=!success;
+		errorState|=!success;//correct |= (accumulates errors); NOT the errorState&=!success bug swept in prok/2ba43793. accumulate() L154 also uses |=. Clean.
 		ReadWrite.closeStream(cris);
 
 		ArrayList<Clade> result=new ArrayList<Clade>();
@@ -122,7 +122,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 				if(merged.r16S==null && partial.r16S!=null){merged.r16S=partial.r16S;}
 				if(merged.r18S==null && partial.r18S!=null){merged.r18S=partial.r18S;}
 			}
-			if(finish && merged.bases>0) {merged.finish();}
+			if(finish && merged.bases>0) {merged.finish();}//bases>0 skips truly-empty merges, but does NOT catch all-N (Clade.add counts N into bases) -- the zero-3mer NaN is guarded at the source now (Clade#002 in toFrequencies).
 			if(merged.bases>0) {result.add(merged);}
 		} else {
 			//Collect per-contig Clades from all threads and sort by numericID
@@ -200,6 +200,7 @@ public class CladeLoaderSF extends CladeObject implements Accumulator<CladeLoade
 						int taxID=CladeObject.resolveTaxID(r.id);
 						Clade c=new Clade(taxID<1 ? -1 : taxID, -1, r.id);
 						c.add(r, et, caller);
+						//NOTE [clade/Clade#002]: perContig finish() with no zero-3mer guard. An all-N contig (length>=minContig) has bases>0 (Clade.add counts N into bases) but zero 3-mers. SAFE NOW: Clade#002 fixed at source (toFrequencies guards sum==0; ABSCOMP default already safe via Vector.compensate). bases>0 guards do NOT catch all-N -- the fix had to be in toFrequencies.
 						if(finish) {c.finish();}
 						perContigClades.add(c);
 						numericIDs.add(r.numericID);

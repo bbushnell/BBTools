@@ -106,6 +106,7 @@ public class QueryResult {
 		ArrayList<Comparison> display=new ArrayList<Comparison>(kept.values());
 		final Clade fTopClade=topCladeRef;
 		final Clade fTopSketch=topSketchRef;
+		//CLEVER [verified in-file]: display list is a UNION of three rankings (top-X by kmer dist, top-X by DDL sketch matches*wkid, top-1 by SSU ANI), deduped by taxID via LinkedHashMap, then sorted by compositeScore. ALL sorts here use Float.compare (NaN-safe -- NaN sorts as max, consistently) unlike Comparison.compareTo's raw `<`, so a NaN dif won't break the sort contract.
 		display.sort((a, b) -> {
 			float sa=a.compositeScore(lcaFor(a, fTopClade, fTopSketch));
 			float sb=b.compositeScore(lcaFor(b, fTopClade, fTopSketch));

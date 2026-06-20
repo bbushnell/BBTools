@@ -165,6 +165,7 @@ public class CladeConfidence {
 	private static final double INV_LN2 = 1.0 / Math.log(2);
 	private static final double LOG2_REF = Math.log(2500) * INV_LN2;
 
+	//CLEVER [verified in-file]: graceful NN->sigmoid degradation. loaded=loadNets() returns null if confidence.bbnets.gz is absent (loadNets L153 null on missing path); probCorrect then falls through to predictSigmoid (5-param PROB_K4/K5 tables) -- calibrated confidence even with no model file. Per-thread net copies (getThreadNet) avoid CellNet contention; calibrate() clamps x to [1e-4,0.9999] so logit never hits +/-Inf.
 	private static final SerialNNLoader.LoadedNets loaded = loadNets();
 
 	// Sigmoid fallback parameters

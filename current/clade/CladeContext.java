@@ -32,6 +32,7 @@ public class CladeContext {
 		this.heap = other.heap;
 		this.printQTID = other.printQTID;
 		this.banSelf = other.banSelf;
+		this.caprecords = other.caprecords;//[clade/CladeContext#001] FIXED - copy ctor omitted caprecords (a later-added field); a cloned context would silently revert the record cap to MAX_VALUE. Latent: copy ctor currently has no callers (CladeServer uses new CladeContext() + parseRequestBody). Added for correctness.
 	}
 	
 
