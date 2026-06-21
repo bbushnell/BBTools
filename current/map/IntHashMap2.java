@@ -191,9 +191,11 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	/**
 	 * Returns 1 if the key is found, else 0.
 	 * @param key
-	 * @return 1 id the key is present, 0 if not
+	 * @return 1 if the key is present, 0 if not
 	 */
 	public int containsKeyBinary(int key){
+		//CLEVER [verified in-file]: branchless. findCell returns cell>=0 (found) or -1 (absent).
+		//~cell>>>31 == 1 for any cell>=0 (sign bit of ~cell set), == 0 for cell==-1 (~-1==0).
 		return (~(findCell(key))>>>31);
 	}
 
@@ -202,7 +204,8 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1.
 	 */
 	public int put(int key, int value){
 		return set(key, value);
@@ -225,12 +228,13 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1.
 	 */
 	public int set(int key, int value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
-		final int oldV=values[cell];
+		final int oldV=values[cell];//0 for a fresh (invalid) cell -> set/put return 0 when absent
 		values[cell]=value;
 		if(keys[cell]==invalid){
 			keys[cell]=key;
@@ -392,6 +396,8 @@ public final class IntHashMap2 implements IntHashMapInterface {
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int hash=Tools.hash32plus(key);
 		final int initial=hash & mask;
+		//probe (scalar, Java-8-safe) wraps [initial,len)->[0,initial); the extra=10 slots merely let
+		//most probes skip the wrap branch -> correctness rests on loadFactor<1, not on `extra`.
 		return Vector.findKeyOrInvalidScalar(keys, key, initial, invalid);
 	}
 
@@ -414,6 +420,8 @@ public final class IntHashMap2 implements IntHashMapInterface {
 		// Round up to next power of 2
 		int newSize=Integer.highestOneBit((int)size2);
 		if(newSize<size2){newSize<<=1;}
+		//crash-loud ceiling: past ~2^30 entries the next doubling overflows the (int)size2 cast
+		//-> newSize<=0 -> this assert fires (requires -ea, always on for BBTools).
 		assert(newSize>0) : "Overflow: "+size2;
 
 		final int size3=newSize+extra;

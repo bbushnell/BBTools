@@ -326,6 +326,9 @@ public final class IntLongHashMap{
 	}
 	
 	public long[] toArray(long thresh){
+		//The ACTIVE asserts below encode the counting-map invariants (intended usage): present key => value!=0, and
+		//keys non-negative -> a stored 0/negative value or a negative key would assert-crash here under -ea. These are
+		//NOT enforced by put()/increment(); by-design for positive-count callers (e.g. bin/SpectraCounter sizeMap).
 		int len=0;
 //		assert(verify());
 		for(int i=0; i<values.length; i++){
@@ -352,6 +355,10 @@ public final class IntLongHashMap{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
+		//repOK-style dev invariant-checker: every caller is a commented `assert(verify()); //123`, so it is OFF in
+		//production by design but must work when called. Uses findCell(key) (not findCell(i)) at the lookup below
+		//-> CORRECT: the index-vs-key family slip does NOT apply here (matches the Long* siblings). Encodes the
+		//counting-map invariant: present key => value>=1; empty cell (key==invalid) => value==0 (0 = empty marker).
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;

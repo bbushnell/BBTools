@@ -261,13 +261,25 @@ public class FastqWriter implements Writer {
 		/** Called by start(). */
 		@Override
 		public void run(){
-			synchronized(this){
-				if(tid==0){
-					writeOutput(); // Writer thread
-				}else{
-					processJobs(); // Worker thread
+			try{
+				synchronized(this){
+					if(tid==0){
+						writeOutput(); // Writer thread
+					}else{
+						processJobs(); // Worker thread
+					}
+					success=true;
 				}
-				success=true;
+			}catch(Throwable t){
+				//[stream/FastqWriter#001 FIXED 2026-06-21]: a thread death without poisoning/finishing the OQS2 HANGS -- a writer death
+				//(write error in writeOutput) leaves outq undrained so workers block in addOutput + `finished` unset so main hangs in
+				//waitForFinish; a worker death (a throw in processJobs/format) leaves its ordered job undelivered so the writer's getOutput
+				//blocks forever on the gap. Escalate to a LOUD finish: errorState + oqs.setFinished(true) [force=true poisons inq+outq,
+				//waking writer+workers+main], then rethrow so the thread dies loud (stack trace) instead of hanging. errorState surfaces via
+				//poisonAndWait's return so the caller decides the exit. Mirrors the greenlit BamWriter#001.
+				errorState=true;
+				oqs.setFinished(true);
+				throw new RuntimeException("FastqWriter thread "+tid+" failed", t);
 			}
 		}
 		

@@ -273,7 +273,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Initial capacity (rounded DOWN to a power of 2 via highestOneBit) [map/IntHashMap3#003]
 	 */
 	public IntHashMap3(int initialSize){
 		this(initialSize, 0.7f);
@@ -281,7 +281,7 @@ public final class IntHashMap3 implements IntHashMapInterface {
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
-	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param initialSize Initial capacity (rounded DOWN to a power of 2 via highestOneBit) [map/IntHashMap3#003]
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
 	 */
 	public IntHashMap3(int initialSize, double loadFactor_){
@@ -335,7 +335,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1. [map/IntHashMap3#002]
 	 */
 	public int put(int key, int value){
 		return set(key, value);
@@ -358,7 +359,8 @@ public final class IntHashMap3 implements IntHashMapInterface {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1. [map/IntHashMap3#002]
 	 */
 	public int set(int key, int value){
 		if(key==invalid){resetInvalid();}
@@ -546,10 +548,20 @@ public final class IntHashMap3 implements IntHashMapInterface {
 		assert(size2>size) : size+", "+size2;
 		
 		final long old=(keys==null ? 0 : keys.length);
-		long size3=Long.highestOneBit(size2);
+		long size3=Long.highestOneBit(size2);//rounds DOWN to a power of 2 (growth path strips the +extra -> clean doubling)
+		//TODO: Possible bug [map/IntHashMap3#001] - mask is taken from the UNCAPPED pow2 here, but size3 (the array
+		//length) is capped at SAFE_ARRAY_LEN on the next line. At the 2^31 tier mask=(int)(2^31-1)=2147483647 >
+		//array maxIndex (SAFE_ARRAY_LEN-1=2147483586) by 61, breaking the "mask == arrayPow2-1" invariant.
+		//Manifestation is OUTPUT-NEUTRAL (adversarially verified): the ~61/2^31 of keys whose hash&mask>=length
+		//skip the bounds-checked first probe loop (cell<limit is false) and land in the [0,..) region; get & set
+		//use the SAME initial so they stay mutually consistent -> no wrong result, just degraded probe locality.
+		//NOT an AIOOBE on the normal path (loadFactor keeps the array <100% full; AIOOBE needs the full-array +
+		//absent-key edge case). LOW/unreached (sole caller ifa/IndelFreeAligner2 stays tiny). Proper fix is a design
+		//choice (a ~2.1e9 non-pow2 array can't be addressed by a pure 2^k-1 mask): cap usable region at 2^30, or add
+		//a tail-wrap. ESCALATED - see bug_reports/map/IntHashMap3.md.
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
-		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {
+		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
 			throw new RuntimeException("Map hit capacity at "+size+":"
 				+"\nkeys.length="+keys.length+"\nsize2="+size2+"\nsize3="+size3);
 		}

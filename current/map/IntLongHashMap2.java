@@ -147,7 +147,8 @@ public final class IntLongHashMap2 implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1. [map/IntLongHashMap2#001]
 	 */
 	public long put(int key, long value){
 		return set(key, value);
@@ -170,7 +171,8 @@ public final class IntLongHashMap2 implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value, or 0 if key was not present (empty cells hold 0;
+	 *         use contains() to disambiguate a stored 0). NOT -1. [map/IntLongHashMap2#001]
 	 */
 	public long set(int key, long value){
 		if(key==invalid){resetInvalid();}
@@ -383,6 +385,14 @@ public final class IntLongHashMap2 implements Serializable {
 		assert(size2>size) : size+", "+size2;
 
 		// Round up to next power of 2
+		//Same int power-of-2 resize as IntHashMap2 (no SAFE_ARRAY_LEN cap, no long sizing) -> NO IntHashMap3#001
+		//uncapped-mask hazard: mask=newSize-1 (below) always fits the newSize+extra array. Crash-loud at the 2^30
+		//ceiling via assert(newSize>0).
+		//TODO: Possible bug [map/IntLongHashMap2#002] - growth is ~4x not 2x: resize() passes keys.length*2L =
+		//2*(newSize+extra); highestOneBit of that = 2*newSize, then the round-up `<<=1` pushes it to 4*newSize (the
+		//+extra tips it past the power-of-2 boundary). Output-CORRECT but over-allocates up to ~2x memory. Shared with
+		//IntHashMap2 (same round-up); IntHashMap3 avoids it (round-DOWN). Intent-ambiguous -> FLOATED for Brian, not
+		//patched (changing it alters probe distribution; speed-first).
 		int newSize=Integer.highestOneBit((int)size2);
 		if(newSize<size2){newSize<<=1;}
 		assert(newSize>0) : "Overflow: "+size2;

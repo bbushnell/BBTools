@@ -98,6 +98,9 @@ public final class FastqScanStreamer implements Streamer{
 			assert(bstart==0);
 			r=Math.max(r, 0);
 			bstop+=r;
+			//bstop>0 here, so buffer[bstop-1] never underflows: the for-condition (r>0 || bstop>0) plus bstop+=max(r,0) guarantee it
+			//(an empty file exits the loop before the body). On a 0-length/EOF read with no trailing '\n', append a synthetic terminal
+			//newline so the last record still parses (expand() first if the buffer is exactly full).
 			if(r==0 && buffer[bstop-1]!='\n') {
 				if(bstop>=buffer.length) {expand();}
 				buffer[bstop++]='\n';
@@ -202,7 +205,7 @@ public final class FastqScanStreamer implements Streamer{
 			final Read r=new Read(bases, quals, header, nextRID);
 			r.setPairnum(pairnum);
 			reads.add(r);
-			nextRID+=(i&1);
+			nextRID+=(i&1);//pairs share a numericID: increments only after the odd (second) mate, so reads 0,1→id 0; 2,3→id 1; pair() then copies r1.numericID onto r2
 			
 			slashrLines+=slashr1+slashr2;
 			totalBases+=basesLen;
@@ -368,6 +371,8 @@ public final class FastqScanStreamer implements Streamer{
 		while(ln==null) {
 			try{
 				ln=queue.take();
+				//re-inject the poison so it stays in the queue: makes nextList() idempotent across repeated end-of-stream calls
+				//(and would release a second consumer); the poison's id sorts nowhere — it's a sentinel, not an ordered job.
 				if(ln.poison()) {queue.put(ln);}
 			}catch(InterruptedException e){
 				if(drained) {return null;}
@@ -432,6 +437,9 @@ public final class FastqScanStreamer implements Streamer{
 	/*----------------            Stats             ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	//TODO: Possible bug [stream/FastqScanStreamer#001] - vestigial: never incremented (this is a FASTQ-only scanner), so always 0;
+	//main()'s `if(ff.samOrBam()) print(totalHeaders)` would print "Headers: 0" if ever reached. LOW/DOC. Remove the field + the
+	//samOrBam print, or wire it up if SAM-header counting is intended. (Public field — grep for external readers before deleting.)
 	public long totalHeaders;
 	public long totalRecords;
 	public long totalBases;

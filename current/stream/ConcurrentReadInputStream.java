@@ -5,6 +5,7 @@ import java.util.Arrays;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import structures.ListNum;
@@ -272,8 +273,13 @@ public abstract class ConcurrentReadInputStream implements ConcurrentReadStreamI
 			returnList(ln.id, ln.list==null || ln.list.isEmpty());
 		}
 		boolean error=ReadWrite.closeStream(this);
+		//[stream/ConcurrentReadInputStream getReads-error FIXED 2026-06-21] crash LOUD on a read error instead of returning PARTIAL reads
+		//with only a stderr warning: a truncated/corrupt input silently yields fewer reads, and callers (e.g. aligner/AllToAll) load this as
+		//REFERENCE data -> wrong results. KillSwitch.kill aborts non-zero (BBTools contract: crash, never silently wrong). Resolves the
+		//AllToAll:223 "does not return the error state" TODO. Sibling of StreamerFactory.getReads#001.
 		if(error){
-			System.err.println("Warning - an error was encountered during read input.");
+			KillSwitch.kill("Error: a read error (corrupt or truncated input) occurred reading "+fname
+				+" during getReads(); aborting rather than returning partial/incorrect read data.");
 		}
 		return out;
 	}

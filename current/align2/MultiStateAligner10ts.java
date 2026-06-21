@@ -56,6 +56,12 @@ public final class MultiStateAligner10ts extends MSA{
 	public MultiStateAligner10ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 
+		//Comprehension (Ady 2026-06-21): 10ts is the family OUTLIER -- TIMEBITS=11 (despite the "10ts" name), its own
+		//harsher tuning (INS=-395/DEL=-472, BARRIER_I1=2/D1=3), no AFFINE_ARRAYS infra; a legacy variant, selectable via
+		//the MSA factory (MSA.java:40) but not the default (11ts is). #002 family-wide: packed is maxColumns+1 wide while
+		//grefbuffer is maxColumns+2, and fillLimitedX (L553) / fillBanded1 (L1028) clear-ahead-write packed[..][row-1][col+1].
+		//bpacked + startmatrix + col0score exist ONLY for the DEAD fillBanded (L1072: assert(false)+zero callers) -- see
+		//align2/MultiStateAligner10ts#001. The startmatrix[matrix][0][i]=i off-by-1 TODO below is moot while fillBanded is dead.
 		packed=new int[3][maxRows+1][maxColumns+1];
 		bpacked=new int[3][maxRows+1][];
 		startmatrix=new int[3][maxRows+1][];
@@ -1071,6 +1077,12 @@ public final class MultiStateAligner10ts extends MSA{
 	 * Will not fill areas that cannot match minScore */
 	private final int[] fillBanded(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
 		assert(false) : "TODO";
+		//TODO: Possible bug [align2/MultiStateAligner10ts#001] - DEAD/UNFINISHED method (assert(false) + zero callers; the
+		//live banded path is fillBanded1, which uses packed). This is the ONLY user of bpacked/startmatrix/col0score. Latent
+		//copy-paste bug inside: the per-state start coordinate is written to startmatrix[MODE_MS] in the DEL branch (L1357,
+		//L1420) and INS branch (L1429, L1487) instead of [MODE_DEL]/[MODE_INS], so those slices are never written by their
+		//own state, while reads (L1395/L1462) and maxStart (L1519) index by actual state -> broken start-tracking. LOW/latent
+		//(dead). Brian's call: finish, or delete fillBanded + bpacked/startmatrix/col0score. (deep-research also caught this.)
 //		minScore=0;
 //		assert(minScore>0);
 		rows=read.length;
@@ -2407,6 +2419,10 @@ public final class MultiStateAligner10ts extends MSA{
 		//Add a cushion to the end to clear out the prior data (especially GAPC) that was there
 		{
 			final int lim=Tools.min(gref.length, greflimit+GREFLIMIT2_CUSHION);
+			//TODO: Possible bug [align2/MultiStateAligner9Flat#001 - family-wide, all 7 siblings]: DEAD guard -- lim is
+			//pre-capped by Tools.min(gref.length,..), so (lim>gref.length) is never true. The intended overflow->return-null
+			//never fires; the cushion silently truncates and a later translate*() throws "Out of bounds" instead. LOW (loud
+			//crash, not wrong output). The check likely should test the UNCAPPED greflimit+GREFLIMIT2_CUSHION. Brian's call.
 			if(lim>gref.length){
 				System.err.println("gref buffer overflow: "+lim+" > "+gref.length);
 				return null;

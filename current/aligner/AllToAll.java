@@ -220,7 +220,7 @@ public class AllToAll implements Accumulator<AllToAll.ProcessThread> {
 		basesProcessed=0;
 		
 		//Fetch data
-		reads=ConcurrentReadInputStream.getReads(maxReads, true, ffin1, null, qfin1, null); //TODO:  Note that this does not return the error state
+		reads=ConcurrentReadInputStream.getReads(maxReads, true, ffin1, null, qfin1, null); //getReads now crashes LOUD (KillSwitch) on a read error rather than returning partial reads — the error state is no longer silently lost here.
 		results=new float[reads.size()][];
 		
 		outstream.println("Loaded "+reads.size()+" sequences.");
