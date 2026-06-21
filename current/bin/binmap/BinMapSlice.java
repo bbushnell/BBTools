@@ -28,6 +28,7 @@ public class BinMapSlice {
 	 * Adds a cluster to this slice.
 	 * Updates local slice bounds for dimensions 2-5.
 	 */
+	//claim: synchronized METHOD -> the slice-local bounds updates (minDim2..maxDim5) below ARE race-safe (this is the fix BinMap.getOrMakeList#001 lacks). list.add is further guarded by synchronized(list).
 	public synchronized void add(Cluster c, Key key) {
 		ArrayList<Cluster> list=map.get(key);
 		if(list==null) {
@@ -60,6 +61,7 @@ public class BinMapSlice {
 			int minD5, int maxD5, 
 			long minSizeToCompare, boolean verbose) {
 		
+		//CLEVER [verified in-file]: intersect the requested dim2-5 range with this slice's ACTUAL observed bounds (start=max(req,actual), stop=min(req,actual)) -> the inner loop visits only populated cells; if any dim's intersection is empty, bail (line below).
 		// Intersect requested search range with actual data bounds for this slice
 		// This is the "Pruning" magic
 		final int start2=Math.max(minD2, minDim2);
@@ -126,6 +128,7 @@ public class BinMapSlice {
 		for(int i=0; i<clusters.size(); i++) {
 			Bin b=clusters.get(i);
 			if(b==null || a==b) {continue;}
+			//claim: break assumes size-DESCENDING list order (bins added largest-first) -> once below threshold, the rest are too. Intentional speed heuristic (same as BinMap).
 			if(b.size()<minSizeToCompare) {break;}
 			
 			float f=oracle.similarity(a, b, 1f);

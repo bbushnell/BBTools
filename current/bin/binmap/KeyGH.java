@@ -6,6 +6,7 @@ class KeyGH extends Key {
 	public KeyGH() {}
 	
 	@Override
+	//claim: KeyGH = GC + HH (dim2 via lowerBoundHH); dim3=0.
 	public KeyGH set(Bin a) {
 		return setValue(a.gc(), a.hh);
 	}

@@ -6,6 +6,7 @@ class KeyG extends Key {
 	public KeyG() {}
 
 	@Override
+	//claim: KeyG = GC only (dim1); dim2/dim3 bounds return 0. Simplest non-null variant.
 	public KeyG set(Bin a) {
 		return setValue(a.gc());
 	}

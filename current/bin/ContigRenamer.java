@@ -425,6 +425,7 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 	
 	@Override
 	public final void accumulate(ProcessThread pt){
+		//claim: CORRECT Accumulator convention (errorState |= !success; success()=!errorState) - this is the reference SamLoader3#002/SpectraCounter#001 were measured against (cited at SamLoader3:246/257).
 		readsProcessed+=pt.readsProcessedT;
 		basesProcessed+=pt.basesProcessedT;
 		errorState|=(!pt.success);
@@ -516,10 +517,12 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		Scaf scaf=scafMap.get(shortName);
 		if(scaf==null) {scaf=scafMap.get(name);}
 		assert(scaf!=null) : "Can't find "+shortName+" in map of size "+scafMap.size();
+		//claim: with -ea (always on for BBTools) the assert above crashes first; this null-fallback only runs under -da (graceful degrade). Not dead, but unreachable in normal runs.
 		if(scaf==null) {return old+delimiter+"cov_0";}
 		
 		IntList tids=scaf.tidList;
 		FloatList covs=scaf.covList;
+		//TODO: Possible bug [bin/ContigRenamer#001] - QUESTION (intent): the pick below uses "maxTid<=0 OR cov>maxCov". While the current best tid is invalid (<=0) it takes each next entry regardless of cov, and a later higher-cov INVALID tid can overwrite a valid one (then maxTid<=0 -> no taxid appended at the addTid line below), suppressing a valid lower-cov tid. Only matters with multiple SAM inputs (one (tid,cov) per file). Intended ("untaxed-coverage-wins") or should it pick the max-cov VALID tid? Float to Brian; NOT changed (annotation-only behavior, intent unclear).
 		float maxCov=0;
 		int maxTid=-1;
 		for(int i=0; i<covs.size(); i++) {
@@ -666,8 +669,9 @@ public class ContigRenamer implements Accumulator<ContigRenamer.ProcessThread> {
 		/**
 		 * Calculates final coverage statistics and determines dominant taxonomic assignment
 		 */
+		//claim: picks the taxid with the most mapped bases (dominant), skipping the invalid key; cov=totalMappedBases/length. Appends ONE (tid,cov) per call -> one per SAM file (processSam calls this per file, clearing map but not the lists).
 		void process() {
-			
+
 			final int[] keys=map.keys();
 			final long[] values=map.values();
 			final int invalid=map.invalid();

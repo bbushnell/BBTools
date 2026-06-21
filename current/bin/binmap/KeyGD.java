@@ -21,6 +21,7 @@ class KeyGD extends Key {
 	 * @param a The Bin to extract values from
 	 * @return This Key instance for method chaining
 	 */
+	//claim: KeyGD = GC + depth(0) (dim2 via lowerBoundDepth, numDepths guard); dim3=0. (set lacks @Override - minor.)
 	public KeyGD set(Bin a) {
 		return setValue(a.gc(), a.depth(0));
 	}

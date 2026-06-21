@@ -21,6 +21,7 @@ class KeyGHD extends Key {
 	 * @param a The Bin to extract values from
 	 * @return This Key instance for method chaining
 	 */
+	//claim: KeyGHD = GC + HH(dim2) + depth(0)(dim3); has gcLevel()/hhLevel()/depthLevel() accessors. (set lacks @Override - minor.)
 	public KeyGHD set(Bin a) {
 		//Assuming Bin.hh is accessible directly or via accessor; using field access based on prompt instructions.
 		return setValue(a.gc(), a.hh, a.depth(0));

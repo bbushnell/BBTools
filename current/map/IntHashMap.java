@@ -164,7 +164,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		for(int i=0; i<map.keys.length; i++) {
 			final int key=map.keys[i];
 			if(key!=map.invalid) {
-				put(key, Tools.max(map.values[i], get(i)));
+				put(key, Tools.max(map.values[i], get(key)));//was get(i) - lone-divergence bug: all 9 setToMax siblings use get(key) (IntHashMap2:297, IntHashMap3:430, LongIntMap:268, ...); get(i) looked up the loop INDEX as a key. Unreached (no caller; bin/Cluster uses the correct IntHashMap2) -> latent LOW, output-neutral. [map/IntHashMap#001 FIXED]
 			}
 		}
 	}
@@ -261,6 +261,7 @@ public final class IntHashMap extends AbstractIntHashMap implements Serializable
 		modulus=(int)newPrime;
 		
 		final int size3=(int)(newPrime+extra);
+		//near the size ceiling (size3>=~1.6e9) the next doubling would overflow Integer.MAX_VALUE, so raise loadFactor to >=0.80 to pack more entries before a resize that can no longer happen.
 		final float lf=(size3<0x60000000 ? loadFactor : Math.max(loadFactor, 0.80f));
 		sizeLimit=(int)(modulus*lf);
 		final int[] oldK=keys;

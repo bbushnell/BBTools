@@ -86,6 +86,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 	 * @param key Hash key identifying the bucket
 	 * @return List of clusters for this key
 	 */
+	//TODO: Possible bug [bin/binmap/BinMap#001] - latent: the grid-bounds updates below (minGridGC=Tools.min(...) etc.) are UN-synchronized, while add() synchronizes list.add -> a data race IF add() runs concurrently (lost min/max -> narrowed findBestCluster search -> missed merges; recall, not corruption). LATENT: BinMap is not instantiated anywhere (no 'new BinMap(' call; superseded by BinMap2/BinMapSlice, whose add() IS synchronized). Deletion candidate -> Brian.
 	public ArrayList<Cluster> getOrMakeList(Key key){
 		ArrayList<Cluster> list=map.get(key);
 		if(list==null) {
@@ -227,6 +228,7 @@ public class BinMap extends BinObject implements Iterable<Cluster> {
 		for(int i=0; i<clusters.size(); i++) {
 			Bin b=clusters.get(i);
 			if(b==null || a==b) {continue;}
+			//claim: break (not continue) assumes the list is size-DESCENDING (bins added largest-first) -> once below threshold, all rest are too. Intentional speed heuristic; an unordered list could stop early (missed compares).
 			if(b.size()<minSizeToCompare) {break;}
 			
 			float f=oracle.similarity(a, b, 1f);

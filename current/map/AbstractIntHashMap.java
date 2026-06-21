@@ -343,7 +343,7 @@ public abstract class AbstractIntHashMap implements IntHashMapInterface{
 				if(values[i]!=0){return false;}
 			}else{
 				numValues++;
-				final int cell=findCell(i);
+				final int cell=findCell(key);//was findCell(i) - latent bug: findCell takes a KEY, so verify must look up keys[i], matching every Long* verify() sibling (e.g. LongHashMap:376). verify() is dead (no caller) -> output-neutral fix. [map/AbstractIntHashMap#001 FIXED]
 				if(i==cell){
 					numFound++;
 				}else{

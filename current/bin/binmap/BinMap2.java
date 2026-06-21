@@ -59,6 +59,7 @@ public class BinMap2 extends BinObject implements Iterable<ArrayList<Cluster>> {
 		int gc=key.gcLevel;
 		
 		// Update global GC bounds
+		//claim: these GC-bounds updates are NOT synchronized -> safe ONLY under single-threaded map build (the line-53 comment states that assumption); the per-slice dim2-5 bounds ARE protected (BinMapSlice.add is synchronized). A future concurrent add would race here.
 		minGridGC=Math.min(minGridGC, gc);
 		maxGridGC=Math.max(maxGridGC, gc);
 		
@@ -94,6 +95,7 @@ public class BinMap2 extends BinObject implements Iterable<ArrayList<Cluster>> {
 	 * Finds best matching cluster.
 	 * Iterates over GC slices using array indices.
 	 */
+	//CLEVER [verified in-file]: sliced architecture - GC level indexes a fixed BinMapSlice[] array (O(1), no boxing/hashing); each slice then prunes dim2-5 by its OWN local bounds. The dim2-5 grids here pass 0/999999 (unused) precisely because the slice does that pruning; null-slice skip is the big win.
 	public Cluster findBestCluster(Bin a, long minSizeToCompare, Key key, int matrixRange, Oracle oracle) {
 		if(key==null) {key=Key.makeKey();}
 		oracle.clear();

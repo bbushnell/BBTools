@@ -12,6 +12,7 @@ import shared.Tools;
  */
 public abstract class Key implements Cloneable {
 
+	//claim: factory on defaultType (default GHDDType=4). All 12 type constants are covered below; an unresolved auto (defaultType=-1) falls through to the throw -> crash-loud, so setType()/pickType must resolve "auto" before any makeKey() call.
 	public static Key makeKey() {
 		if(defaultType==GHDType) {
 			return new KeyGHD();
@@ -105,6 +106,7 @@ public abstract class Key implements Cloneable {
 		return equals((Key)other);
 	}
 
+	//claim: equals + hashCode both use ALL 5 dims (gcLevel,dim2-5) -> consistent, NOT a partial-key landmine; both final so every Key* variant shares them. DOC note: the javadoc below says "three" levels - stale, the code compares five.
 	/**
 	 * Compares this Key with another Key for equality.
 	 * Keys are equal if all three quantization levels match.
@@ -120,6 +122,7 @@ public abstract class Key implements Cloneable {
 		//Shifted to avoid collisions. 
 		//Depth is usually 0-60 (6 bits). HH is 0-50 (6 bits). GC is 0-50 (6 bits).
 		//Allocating 7 bits each is safe and fast.
+		//claim: 7 bits/dim (0-6,7-13,14-20,21-27); dim5 via rotateLeft(28) wraps its high bits into low positions -> can collide with gcLevel for large dim5. Collision-rate quirk only; equals disambiguates -> correctness holds.
 		return gcLevel+(dim2<<7)+(dim3<<14)+(dim4<<21)+Integer.rotateLeft(dim5, 28);
 	}
 
@@ -152,6 +155,7 @@ public abstract class Key implements Cloneable {
 	public int lowerBoundDim5(Bin a, int range, int minGrid, float maxGCDif, float maxDepthRatio) {return 0;}
 	public int upperBoundDim5(Bin a, int range, int maxGrid, float maxGCDif, float maxDepthRatio) {return 0;}
 
+	//CLEVER [verified in-file]: depth bounds are MULTIPLICATIVE (val/maxDepthRatio low, val*maxDepthRatio high) while HH/CAGA/GC bounds are LINEAR (subtract/add) - depth varies on a ratio scale, composition on a linear one. Correct per-dimension physics.
 	public static int lowerBoundDepth(float val, int level, int range, int minGrid, float maxDepthRatio) {
 		// Depth Physics: Use division/multiplication
 		int quant=quantizeDepth(val/maxDepthRatio);
@@ -234,6 +238,7 @@ public abstract class Key implements Cloneable {
 			float f=Float.parseFloat(b);
 			setDepthMult(f);
 		}else if(a.equalsIgnoreCase("dimensions")){
+			//TODO: Possible bug [bin/binmap/Key#001] - VESTIGIAL flag: dimensions is parsed here but has NO reader in bin/ (no variant or map uses it); assert(d<=4) also contradicts the 5-level keys (KeyGHDDD/KeyGHCDD). Same class as Binner#002 -> recommend DROP flag+parse (don't wire up). Escalated to Brian; do NOT remove the parse branch unilaterally.
 			int d=Integer.parseInt(b);
 			assert(d>0 && d<=4);
 			dimensions=d;

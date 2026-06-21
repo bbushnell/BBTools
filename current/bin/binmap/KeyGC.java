@@ -6,6 +6,7 @@ class KeyGC extends Key {
 	public KeyGC() {}
 	
 	@Override
+	//claim: KeyGC = GC + CAGA (dim2 via lowerBoundCAGA); dim3=0. "Dim 2 is CAGA here, not HH" per the in-file note.
 	public KeyGC set(Bin a) {
 		return setValue(a.gc(), a.caga);
 	}
