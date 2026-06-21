@@ -295,13 +295,25 @@ public class SamWriter implements Writer {
 		/** Called by start(). */
 		@Override
 		public void run(){
-			synchronized(this) {
-				if(tid==0){
-					writeOutput(); //Writer thread
-				}else{
-					processJobs(); //Worker thread
+			try{
+				synchronized(this) {
+					if(tid==0){
+						writeOutput(); //Writer thread
+					}else{
+						processJobs(); //Worker thread
+					}
+					success=true;
 				}
-				success=true;
+			}catch(Throwable t){
+				//[stream/SamWriter#001 FIXED 2026-06-21]: a thread death without poisoning/finishing the OQS2 HANGS -- a writer death
+				//(write error in writeOutput/writeHeader) leaves outq undrained so workers block in addOutput + `finished` unset so main
+				//hangs in waitForFinish; a worker death (a throw in processJobs/toSamLines/toBytes) leaves its ordered job undelivered so
+				//the writer's getOutput blocks forever on the gap. Escalate to a LOUD finish: setErrorState + oqs.setFinished(true)
+				//[force=true poisons inq+outq, waking writer+workers+main], then rethrow so the thread dies loud (stack trace) instead of
+				//hanging. errorState surfaces via poisonAndWait's return so the caller decides the exit. Mirrors BamWriter#001/FastqWriter#001.
+				setErrorState(true);
+				oqs.setFinished(true);
+				throw new RuntimeException("SamWriter thread "+tid+" failed", t);
 			}
 		}
 

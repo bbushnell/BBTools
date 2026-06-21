@@ -46,7 +46,11 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		assert(initialSize>0);
 		assert(loadFactor_>0 && loadFactor_<1);
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
-		resize(initialSize);
+		//was resize(initialSize): initialSize=1 -> resize(1) -> newModulus=size2-1=0 -> assert(newModulus>0) crash
+		//(AssertionError), reachable via AbstractIntHashMap.toCountHistogram() on a <=1-entry map
+		//(Tools.mid(1,size(),64)==1). Clamp the resize arg to >=2, matching resize()'s own Tools.max(2,..) growth
+		//guard; 0 still crashes loud via assert(initialSize>0) above (bad input). [map/IntHashMapBinary#001 FIXED]
+		resize(Tools.max(2, initialSize));
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -223,7 +227,10 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 	@Override
 	int findCell(final int key){
 		if(key==invalid){return -1;}
-		
+
+		//`modulus` here is a power-of-2 MASK (capacity-1), NOT a prime: key&mask replaces the prime %. No hash
+		//mixing (raw key bits) -- the 2017 original; IntHashMap2/3 later added Tools.hash32plus. The probe below
+		//wraps [initial,limit)->[0,initial) and is pure scalar (no simd import) -> trivially Java-8-safe.
 		final int limit=keys.length, initial=key&modulus;
 		for(int cell=initial; cell<limit; cell++){
 			final int x=keys[cell];

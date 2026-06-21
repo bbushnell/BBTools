@@ -355,6 +355,10 @@ public final class LongHashMap{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
+		//repOK-style dev checker (all callers are commented `assert(verify()); //123` -> off in production, must work
+		//when called). Uses findCell(key) -> CORRECT (index-vs-key family slip N/A; matches the Long* audit). Encodes
+		//the positive-counting invariant: present key => value>=1; empty cell => value 0 (also asserted with keys>=0 in
+		//getMin/toArray(thresh)). By-design for positive-count callers; put()/increment() don't enforce it.
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;

@@ -44,7 +44,12 @@ public final class IntHashMapBinary extends AbstractIntHashMap{
 		assert(initialSize>0);
 		assert(loadFactor_>0 && loadFactor_<1);
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
-		resize(initialSize);
+		//[structures/IntHashMapBinary#001 FIXED 2026-06-21] clamp to >=2 (matches resize()'s own Tools.max(2,modulus+1) growth guard):
+		//un-clamped resize(1) -> newModulus=size2-1=0 -> assert(newModulus>0) crash under -ea (always). Reachable via
+		//AbstractIntHashMap.toCountHistogram() -> new IntHashMapBinary(Tools.mid(1,size(),64))==1 on a <=1-entry map (testformat.sh, tiny/
+		//empty ZMW). initialSize==0 still asserts loud above. Twin of the empirically-proven map/IntHashMapBinary#001 (Eru); structures/
+		//was V1-skim so it slipped. Cross-package lead, verified at source + applied by Furina.
+		resize(Tools.max(2,initialSize));
 	}
 	
 	/*--------------------------------------------------------------*/

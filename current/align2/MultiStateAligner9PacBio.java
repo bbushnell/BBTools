@@ -57,6 +57,11 @@ public final class MultiStateAligner9PacBio extends MSA{
 	public MultiStateAligner9PacBio(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
+		//Comprehension (Ady 2026-06-21): 9PacBio is a PacBio variant -- TIMEBITS=9, ss.semiperfect ACTIVE
+		//(scoreNoIndels L1945/L2035), AFFINE_ARRAYS=false; groups with 9XFlat despite the "Based on MSA9ts" class doc.
+		//#002 family-wide (all 7 siblings): packed is maxColumns+1 wide but grefbuffer is maxColumns+2; fillLimitedX's
+		//clear-ahead write packed[..][row-1][col+1] can index col+1==columns+1, OOB iff columns==maxColumns at a band
+		//edge with row>1. Escalated (Brian's call); JNI exempt (flat 1D packed).
 		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
 		grefbuffer=KillSwitch.allocByte1D(maxColumns+2);
 		vertLimit=KillSwitch.allocInt1D(maxRows+1);
@@ -545,6 +550,8 @@ public final class MultiStateAligner9PacBio extends MSA{
 				if(col>=colStop){
 					if(col>colStop && (maxGoodCol<col || halfband>0)){break;}
 					if(row>1){
+						//#002 family-wide clear-ahead write (see constructor note): col+1 reaches columns+1 when col==colStop==columns;
+						//OOB iff columns==maxColumns (packed is maxColumns+1 wide). Escalated, Brian's call.
 						packed[MODE_MS][row-1][col+1]=subfloor;
 						packed[MODE_INS][row-1][col+1]=subfloor;
 						packed[MODE_DEL][row-1][col+1]=subfloor;
@@ -615,14 +622,17 @@ public final class MultiStateAligner9PacBio extends MSA{
 		columns=refEndLoc-refStartLoc+1;
 		
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
+		//Comprehension (Ady): int subfloor*2 in the assert below is the 9-series pattern; 11ts (most-maintained) is the
+		//lone sibling using 2L. Latent int-overflow only for reads beyond ~2560bp (assert-only under -ea); LOW, family-consistent.
 		final int subfloor=0-2*maxGain;
 		assert(subfloor>BADoff && subfloor*2>BADoff) : (read.length-1)+", "+maxGain+", "+subfloor+", "+(subfloor*2)+", "+BADoff+"\n"
 				+rows+", "+columns+", "+POINTSoff_MATCH2+", "+SCOREOFFSET+"\n"+new String(read)+"\n"; //TODO: Actually, it needs to be substantially more.
 //		final int BARRIER_I2=columns-BARRIER_I1;
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
-		
+
 		//temporary, for finding a bug
+		//Comprehension (Ady): 9-series debug-leftover (always-on, duplicates the asserts below); 11ts removed it. Cleanup candidate, not a bug -- crashes loud.
 		if(rows>maxRows || columns>maxColumns){
 			throw new RuntimeException("rows="+rows+", maxRows="+maxRows+", cols="+columns+", maxCols="+maxColumns+"\n"+new String(read)+"\n");
 		}
@@ -1486,6 +1496,10 @@ public final class MultiStateAligner9PacBio extends MSA{
 		//Add a cushion to the end to clear out the prior data (especially GAPC) that was there
 		{
 			final int lim=Tools.min(gref.length, greflimit+GREFLIMIT2_CUSHION);
+			//TODO: Possible bug [align2/MultiStateAligner9Flat#001 - family-wide, all 7 siblings]: DEAD guard -- lim is
+			//pre-capped by Tools.min(gref.length,..), so (lim>gref.length) is never true. The intended overflow->return-null
+			//never fires; the cushion silently truncates and a later translate*() throws "Out of bounds" instead. LOW (loud
+			//crash, not wrong output). The check likely should test the UNCAPPED greflimit+GREFLIMIT2_CUSHION. Brian's call.
 			if(lim>gref.length){
 				System.err.println("gref buffer overflow: "+lim+" > "+gref.length);
 				return null;

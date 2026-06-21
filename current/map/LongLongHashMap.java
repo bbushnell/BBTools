@@ -346,6 +346,10 @@ public final class LongLongHashMap{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
+		//repOK dev checker (commented //123 callers -> off in prod, must work when called). findCell(key) -> CORRECT
+		//(index-vs-key family slip N/A). Positive-counting invariant: present key=>value>=1, empty=>0 (also asserted
+		//in toArray(thresh) with keys>=0). By-design; put/increment don't enforce. (get() L179 has Brian's own TODO:
+		//return invalid not -1 on miss -- -1 is unambiguous only under the value>=1 invariant.)
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;

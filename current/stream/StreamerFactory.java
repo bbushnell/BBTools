@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import shared.KillSwitch;
 import shared.Shared;
 import structures.ListNum;
 
@@ -257,12 +258,13 @@ public class StreamerFactory {
 			out.addAll(ln.list);
 		}
 		st.close();
+		//[stream/StreamerFactory#001 FIXED 2026-06-21] crash LOUD on a read error instead of returning PARTIAL reads with only a stderr
+		//warning: a truncated/corrupt input silently yields fewer reads, and st is already closed so the caller can't re-check errorState().
+		//The ~6 callers (ddl SSU loaders, ifa aligners) load this as REFERENCE data -> partial reference = wrong results. KillSwitch.kill
+		//aborts non-zero (BBTools contract: crash, never silently wrong). Sibling: ConcurrentReadInputStream.getReads (same fix; AllToAll:223 resolved).
 		if(st.errorState()){
-			//TODO Possible bug [stream/StreamerFactory#001 LOW]: a read error (corrupt/truncated input) is reduced to a stderr
-			//WARNING + returns the PARTIAL reads — the caller gets no programmatic error signal (st is already closed here). Read-side
-			//member of the input-swallow family (ByteFile1:370, BamWriter#002); the sibling ConcurrentReadInputStream.getReads
-			//carries an explicit "//TODO: does not return the error state" (AllToAll:223). Live (SSU loaders, ifa aligners). Escalate (family).
-			System.err.println("Warning - an error was encountered during read input.");
+			KillSwitch.kill("Error: a read error (corrupt or truncated input) occurred reading "+st.fname()
+				+"; aborting rather than returning partial/incorrect read data.");
 		}
 		return out;
 	}
