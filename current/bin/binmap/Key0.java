@@ -6,6 +6,7 @@ class Key0 extends Key {
 	public Key0() {}
 	
 	@Override
+	//claim: Key0 = degenerate null-key (no dimensions); set() no-op, all bounds return 0 (the key=0 / ZEROType option).
 	public Key0 set(Bin a) {
 		return this; // No state to set
 	}

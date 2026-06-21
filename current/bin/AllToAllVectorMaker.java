@@ -171,6 +171,7 @@ public class AllToAllVectorMaker extends BinObject {
 	 * @param contigs List of all contigs to compare
 	 * @param map Contigs grouped by taxonomic ID
 	 */
+	//claim: NN TRAINING-vector generator (makequickbinvector.sh). The feature vector is computed by oracle.toVector (the FROZEN NN-input path, in Oracle) - this tool only SELECTS pairs + formats output, so its selection/filter logic shapes the training-data DISTRIBUTION (changing it changes future training) but does NOT compute NN values. Last vector column = label (positive=same taxon).
 	private void outputResults(ArrayList<Contig> contigs, HashMap<Integer, ArrayList<Contig>> map){
 		LongHashSet used=new LongHashSet();
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout1);
@@ -349,6 +350,7 @@ public class AllToAllVectorMaker extends BinObject {
 	 * @return Formatted training line or null if no valid pair found
 	 */
 	private ByteBuilder makeLine(ArrayList<ArrayList<Contig>> clusters, Oracle oracle, final boolean positive) {
+		//TODO: Possible bug [bin/AllToAllVectorMaker#001] - latent HANG: if clusters.size()==1 and a negative pair is requested, this loop spins forever (randy.nextInt(1)=0 -> blist==alist always). Reliably hangs on single-taxon training data (positiveRate default 0.5 -> ~half the lines request negative). Also the caller's while(bb==null){bb=makeLine(...)} in outputResults can spin if pairs systematically can't form (heavy filters / degenerate data). Crash-loud guard recommended (e.g. assert positiveRate>=1 || clusters.size()>=2). Escalated to Brian (NN-training tool, behavior change, not smoke-testable here).
 		ArrayList<Contig> alist=clusters.get(randy.nextInt(clusters.size()));
 		ArrayList<Contig> blist=alist;
 		while(!positive && alist==blist) {blist=clusters.get(randy.nextInt(clusters.size()));}
@@ -522,6 +524,7 @@ public class AllToAllVectorMaker extends BinObject {
 		for(int i=0; i<40; i++) {
 			Contig c=list.get(randy.nextInt(list.size()));
 			if(c.size()>=minSize && c.size()<=maxSize && (used==null || !used.contains(c.id()))) {
+				//claim: the used==null guard above is inconsistent with this unconditional used.add -> latent NPE if ever called with used==null; no live caller does (makeVector always passes a non-null IntHashSet; selectBin is unused).
 				used.add(c.id());
 				return c;
 			}

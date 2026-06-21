@@ -35,6 +35,7 @@ public class SpeedTest2 {
 			else if(key.equals("maxcard") || key.equals("card")){maxCard=Long.parseLong(val);}
 			else if(key.equals("threads") || key.equals("t")){threads=Integer.parseInt(val);}
 			else if(key.equals("type") || key.equals("loglogtype")){typeFilter=val;}
+			else{throw new RuntimeException("Unknown parameter '"+args[i]+"'");}
 		}
 
 		final int totalSim=threads*sim;

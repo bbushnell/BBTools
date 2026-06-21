@@ -15,6 +15,7 @@ class KeyGHDD extends Key {
 	public KeyGHDD() {}
 
 	@Override
+	//claim: KeyGHDD = GC + HH(dim2) + depth(0)(dim3) + depth(1)(dim4); 4-dim multi-sample differential-coverage key.
 	public KeyGHDD set(Bin a) {
 		return setValue(a.gc(), a.hh, a.depth(0), a.depth(1));
 	}

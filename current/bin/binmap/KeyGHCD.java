@@ -15,6 +15,7 @@ class KeyGHCD extends Key {
 	public KeyGHCD() {}
 
 	@Override
+	//claim: KeyGHCD = GC + HH(dim2) + CAGA(dim3) + depth(0)(dim4); 4-dim, full composition + abundance.
 	public KeyGHCD set(Bin a) {
 		return setValue(a.gc(), a.hh, a.caga, a.depth(0));
 	}

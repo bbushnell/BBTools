@@ -5,13 +5,14 @@ import bin.Bin;
 class KeyGHCDD extends Key {
 	public KeyGHCDD() {}
 	
+	//claim: KeyGHCDD = GC+HH+CAGA+depth(0)+depth(1) (5 dims, all used); the 4-arg setLevel is a crash-loud trap forcing all 5. NOTE: setLevel/setValue omit the range asserts the 3-4 dim siblings carry (harmless - quantizeX already clamps inputs).
 	@Override
 	public KeyGHCDD set(Bin a) {
 		return setValue(a.gc(), a.hh, a.caga, a.depth(0), a.depth(1));
 	}
 	
 	@Override
-	public KeyGHDDD setLevel(int gc, int hh, int caga, int dp1) {
+	public KeyGHCDD setLevel(int gc, int hh, int caga, int dp1) {//KeyGHCDD#001 fix: return type was KeyGHDDD (copy-paste from KeyGHDDD); harmless (always throws) but corrected
 		throw new RuntimeException("All 5 dims must be set.");
 	}
 	

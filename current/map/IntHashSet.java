@@ -285,11 +285,11 @@ public class IntHashSet{
 	public boolean verify(){
 		int numValues=0;
 		int numFound=0;
-		for(int i=0; i<array.length; i++){ //Possible bug: should this be findCell(value) not findCell(i)?
+		for(int i=0; i<array.length; i++){
 			final int value=array[i];
 			if(value!=invalid){
 				numValues++;
-				final int cell=findCell(i); //Possible bug: searching for index i, should be searching for value?
+				final int cell=findCell(value);//was findCell(i) - author-flagged latent bug, CONFIRMED via cross-family diff (LongHashSet:264 uses findCell(value)); verify() is dead (no caller) -> output-neutral. [map/IntHashSet#001 FIXED]
 				if(i==cell){
 					numFound++;
 				}else{

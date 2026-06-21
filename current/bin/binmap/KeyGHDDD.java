@@ -6,6 +6,7 @@ class KeyGHDDD extends Key {
 	public KeyGHDDD() {}
 	
 	@Override
+	//claim: KeyGHDDD = GC + HH(dim2) + depth0/1/2 (dim3/4/5); 5-dim. 4-arg setLevel is a crash-loud trap with the CORRECT KeyGHDDD return type (unlike KeyGHCDD#001). Omits range asserts (harmless - quantize clamps).
 	public KeyGHDDD set(Bin a) {
 		return setValue(a.gc(), a.hh, a.depth(0), a.depth(1), a.depth(2));
 	}

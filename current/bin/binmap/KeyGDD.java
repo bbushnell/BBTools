@@ -55,7 +55,7 @@ class KeyGDD extends Key {
 	public KeyGDD setValue(float gc, float cov, float cov2) {
 		assert(gc>=0 && gc<=1) : gc;
 		assert(cov>=0) : cov;
-		assert(cov2>=0) : cov;
+		assert(cov2>=0) : cov2;//KeyGDD#001 fix: message printed ": cov" (copy-paste); condition was already correct
 		return setLevel(quantizeGC(gc), quantizeDepth(cov), quantizeDepth(cov2));
 	}
 

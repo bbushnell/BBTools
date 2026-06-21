@@ -471,6 +471,7 @@ public class GradeBins {
 			long contam=Math.round(bin.contam*bin.size);
 			contamScore+=contam;
 			compltScore+=Math.round(bin.complt*(bin.size-contam));
+			//per-bin score: completeness penalized 5x by contamination, floored at 0. The printed "Total Score" is the sum of SQUARES (totalScore2, L505); the linear sum totalScore is computed but its print is commented out (L502-503).
 			double score=Math.max(0, bin.complt-5*bin.contam);
 			totalScore+=score;
 			totalScore2+=score*score;
@@ -626,7 +627,8 @@ public class GradeBins {
 		PTAccumulator pta=new PTAccumulator();
 		boolean success=ThreadWaiter.startAndWait(alpt, pta);
 //		assert(false) : alpt.size()+", "+binStats.size();
-		success&=!success;
+		//TODO: Possible bug [bin/GradeBins#001] - success (from ThreadWaiter, accumulate/success convention) is forced false by `success&=!success` then never read -> a failed ProcessThread is silently swallowed (grade computed on whatever bins loaded; no warning/crash). Crash-loud would be `assert(success)`. LOW (eval tool); intent floated (best-effort vs debug leftover w/ commented assert above). NOT changed.
+		success&=!success;//Forces success=false; result is then dropped (see #001).
 		Tools.condenseStrict(binStats);//Not really necessary, perhaps...
 		
 		if(runQuickClade==1 && qclade && binStats.size()>0) {
@@ -1004,6 +1006,7 @@ public class GradeBins {
 			sum2+=size;
 			final int num=i+1;
 			for(int j=0; j<pcts.length; j++){
+				//fires once per threshold: sizes are sorted descending, so the FIRST contig whose cumulative sum2 crosses cut[j] (prev<cut<=sum2) is the Lxx/Nxx contig.
 				if(sum2>=cuts[j] && prev<cuts[j]){
 					final String label=String.format("%02d", pcts[j]);
 					bb.append('L').append(label).append(": ").append(size).tab();
@@ -1057,6 +1060,7 @@ public class GradeBins {
 					
 					//  *********  Process reads here  *********
 					int tid=BinObject.parseTaxID(r.id);
+					//increment returns the NEW running total for tid; that equals the just-added r.length() ONLY on the first contig of that tid (valid lengths>0) -> taxIDsIn counts DISTINCT positive taxids. (Same idiom in loadTaxIn.)
 					long ret=map.increment(tid, r.length());
 					countMap.increment(tid);
 					if(ret==r.length() && tid>0) {taxIDsIn++;}
@@ -1426,6 +1430,7 @@ public class GradeBins {
 		}
 		
 		private void processFiles() {
+			//stride partition: thread tid owns indices {tid, tid+threads, ...}; the residue classes are disjoint, so each binStats slot is written by exactly ONE thread -> the synchronized(binStats) block guards only the structural grow+set, never a write race on a shared slot.
 			for(int i=tid; i<fnames.size(); i+=threads) {
 				String fname=fnames.get(i);
 				Cluster clust=loadCluster(fname);

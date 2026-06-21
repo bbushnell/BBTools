@@ -17,6 +17,7 @@ class KeyGHC extends Key {
 	public KeyGHC() {}
 
 	@Override
+	//claim: KeyGHC = GC + HH(dim2) + CAGA(dim3); depth-free composition key. set() asserts all inputs Float.isFinite (good guard).
 	public KeyGHC set(Bin a) {
 		assert(Float.isFinite(a.gc())) : a;
 		assert(Float.isFinite(a.hh)) : a;
