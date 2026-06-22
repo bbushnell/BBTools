@@ -358,7 +358,7 @@ public final class BamIndexWriter{
 		
 		ReferenceIndex(int binCapacity){
 			this.linear=new LongList(16); //Grows as needed
-			this.bins=new IntObjectMap<BinData>(binCapacity); //Sized based on genome fragmentation
+			this.bins=new IntObjectMap<BinData>(binCapacity, BinData.class); //Sized based on genome fragmentation
 		}
 
 		/**

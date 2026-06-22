@@ -305,8 +305,8 @@ public class DDLWriter {
 			}
 
 			//Merge thread-local maps; synchronize on each worker
-			final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
-			final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>();
+			final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>(DDLRecord.class);
+			final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(long[].class);
 			for(TidWorker w : workers){
 				try{w.join();}catch(InterruptedException e){e.printStackTrace();}
 				synchronized(w){
@@ -404,8 +404,8 @@ public class DDLWriter {
 			}
 		}
 
-		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>();
-		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>();
+		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>(DDLRecord.class);
+		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(long[].class);
 		private final Streamer cris;
 		private final String fileName;
 		final int threadId;

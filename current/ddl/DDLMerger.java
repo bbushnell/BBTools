@@ -126,8 +126,8 @@ public class DDLMerger {
 			+(condensed>0 ? " Condensed "+condensed+" records to "+targetBuckets+" buckets." : ""));
 
 		//Merge by TID where appropriate
-		final IntObjectMap<TaggedRecord> tidMap=new IntObjectMap<TaggedRecord>();
-		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(); //{gcBases, atBases}
+		final IntObjectMap<TaggedRecord> tidMap=new IntObjectMap<TaggedRecord>(TaggedRecord.class);
+		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(long[].class); //{gcBases, atBases}
 		final ArrayList<DDLRecord> unmerged=new ArrayList<DDLRecord>();
 
 		for(TaggedRecord tr : all){

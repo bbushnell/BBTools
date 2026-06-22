@@ -324,7 +324,7 @@ public class ScalarData implements Comparable<ScalarData>{
 	private ObjectDoubleMap<String> loadPileupCoverage(String fname){
 		LineParser1 lp=new LineParser1('\t');
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
-		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
+		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>(String.class);
 
 		byte[] line=bf.nextLine();
 		// Skip header
@@ -397,8 +397,8 @@ public class ScalarData implements Comparable<ScalarData>{
 		shared.Timer t=new shared.Timer(System.err, false);
 
 		//First pass: get contig lengths from @SQ headers
-		ObjectDoubleMap<String> lengthMap=new ObjectDoubleMap<String>();
-		ObjectDoubleMap<String> bpMap=new ObjectDoubleMap<String>();
+		ObjectDoubleMap<String> lengthMap=new ObjectDoubleMap<String>(String.class);
+		ObjectDoubleMap<String> bpMap=new ObjectDoubleMap<String>(String.class);
 
 		ByteFile bf=ByteFile.makeByteFile(fname, true);
 		byte[] line=bf.nextLine();
@@ -458,7 +458,7 @@ public class ScalarData implements Comparable<ScalarData>{
 		bf.close();
 
 		//Calculate depth = bp/length
-		ObjectDoubleMap<String> depthMap=new ObjectDoubleMap<String>();
+		ObjectDoubleMap<String> depthMap=new ObjectDoubleMap<String>(String.class);
 		Object[] contigKeys=lengthMap.keys();
 		for(Object obj : contigKeys){
 			if(obj!=null){

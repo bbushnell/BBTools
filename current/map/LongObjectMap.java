@@ -1,6 +1,7 @@
 package map;
 
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -77,7 +78,7 @@ public final class LongObjectMap<V> implements Serializable {
 			LongObjectMap<String> map=null;
 			long sum=0;
 			for(int r=0; r<repeats; r++){
-				map=new LongObjectMap<String>();
+				map=new LongObjectMap<String>(String.class);
 				for(int i=0; i<size; i++){
 					map.put(keys[i], values.get(i));
 				}
@@ -125,29 +126,36 @@ public final class LongObjectMap<V> implements Serializable {
 
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
+	 * @param type Component class of the VALUES (e.g. String.class, byte[].class, long[].class) — used to allocate a
+	 *        real V[] backing array via reflection so values() returns a genuine typed array (a plain Object[] backing
+	 *        CCEs at the call site under a concrete V). Pass a class literal; it is a cheap cached constant. [map/LongObjectMap#002]
 	 */
-	public LongObjectMap(){
-		this(256);
+	public LongObjectMap(Class<V> type){
+		this(256, type);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param type Component class of the values (see {@link #LongObjectMap(Class)}).
 	 */
-	public LongObjectMap(int initialSize){
-		this(initialSize, 0.7f);
+	public LongObjectMap(int initialSize, Class<V> type){
+		this(initialSize, 0.7f, type);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param type Component class of the values (see {@link #LongObjectMap(Class)}).
 	 */
-	public LongObjectMap(int initialSize, float loadFactor_){
+	public LongObjectMap(int initialSize, float loadFactor_, Class<V> type){
 		invalid=randy.nextLong()|MINMASK;
 		assert(invalid<0);
 		assert(initialSize>0);
 		assert(loadFactor_>0 && loadFactor_<1);
+		assert(type!=null) : "Component type must be provided (e.g. String.class) to allocate a typed backing array";
+		this.type=type;
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
@@ -341,6 +349,11 @@ public final class LongObjectMap<V> implements Serializable {
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
+		//CLEVER [verified]: no separate occupancy array - empty cells hold the negative `invalid` sentinel and keys are
+		//compared directly (x==key || x==invalid), one long compare per cell. initial=(int)(hash & mask) is in range for
+		//ANY mask: mask is a non-negative int (pow2-1, <=Integer.MAX_VALUE), so hash64plus(key) & mask <= mask < 2^31 and
+		//the (int) cast can't go negative. set() guards key==invalid via resetInvalid() (re-rolls the sentinel + remaps
+		//old cells), so a real key can never alias an empty cell.
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
 		final int initial=(int)(hash & mask);
@@ -361,7 +374,10 @@ public final class LongObjectMap<V> implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
+		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -386,8 +402,11 @@ public final class LongObjectMap<V> implements Serializable {
 		@SuppressWarnings("unchecked")
 		final V[] oldV=values;
 		keys=KillSwitch.allocLong1D((int)size3);
+		//Option A [map/LongObjectMap#002]: allocate a REAL V[] via reflection from the stored component type, so the
+		//backing array's runtime type is genuinely V[] (e.g. String[], byte[][]) and values() returns a usable typed
+		//array instead of an Object[] that CCEs at the call site. `type` is a cheap cached class literal.
 		@SuppressWarnings("unchecked")
-		V[] temp=(V[])new Object[(int)size3];
+		V[] temp=(V[])Array.newInstance(type, (int)size3);
 		values=temp;
 		Arrays.fill(keys, invalid);
 
@@ -431,9 +450,12 @@ public final class LongObjectMap<V> implements Serializable {
 	public long[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array.
-	 * WARNING: Contains null for empty cells. Use with caution.
-	 * @return Internal value array
+	 * Returns the internal value array (the live backing array; null entries mark empty cells).
+	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
+	 * from the component class passed to the constructor [map/LongObjectMap#002] — so it can be used directly (assigned
+	 * to V[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
+	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * @return Internal value array (a real V[])
 	 */
 	public V[] values(){return values;}
 
@@ -473,6 +495,8 @@ public final class LongObjectMap<V> implements Serializable {
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
+	/** Component class of V, for allocating a real V[] backing via reflection (Array.newInstance). [map/LongObjectMap#002] */
+	private final Class<V> type;
 
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;

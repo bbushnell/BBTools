@@ -15,11 +15,11 @@ import structures.IntList;
  * faster clearing when the set is sparse relative to its capacity.
  * Thread-safe for clear() operations but not for remove() operations.
  *
- * Add/clear only: the tracking list is maintained by add() and reset by clear(), but remove() is
- * inherited unchanged from IntHashSet and does NOT update the list -- after a remove() the list
- * desyncs from the set, so clear() (assert size==list.size), the sparse-clear path, and verify()
- * would fail under -ea, and toArray() would return stale (removed) elements. The sole caller
- * (sketch/SketchIndex) uses only add/toArray/clear, so this is latent. See [map/IntHashSetList#001].
+ * Add/clear only: the tracking list is maintained by add() and reset by clear(). remove() is NOT
+ * supported -- it would desync the tracking list (which cannot be kept in sync without an O(n) scan),
+ * so it is overridden to throw UnsupportedOperationException rather than silently corrupt
+ * clear()/toArray()/verify(). The sole caller (sketch/SketchIndex) uses only add/toArray/clear.
+ * See [map/IntHashSetList#001].
  *
  * @author Brian Bushnell
  * @date September 13, 2017
@@ -54,14 +54,12 @@ public class IntHashSetList extends IntHashSet{
 		for(int x : list){
 			assert(set.contains(x));
 			assert(set2.contains(x));
-			set.remove(x);
-			set2.remove(x);
-			assert(!set.contains(x));
-			assert(!set2.contains(x));
 		}
+		set.clear();//IntHashSetList is add/clear-only (remove() throws) -> validate via clear, not per-element remove
+		set2.clear();
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
-		
+
 		for(int x : list2){
 			set.add(x);
 			set2.add(x);
@@ -72,11 +70,9 @@ public class IntHashSetList extends IntHashSet{
 		for(int x : list2){
 			assert(set.contains(x));
 			assert(set2.contains(x));
-			set.remove(x);
-			set2.remove(x);
-			assert(!set.contains(x));
-			assert(!set2.contains(x));
 		}
+		set.clear();
+		set2.clear();
 		assert(set.isEmpty());
 		assert(set2.isEmpty());
 		
@@ -99,9 +95,8 @@ public class IntHashSetList extends IntHashSet{
 					final int value=y[z];
 					set.add(value);
 					set.contains(value);
-					set.remove(value);
-					set.add(value);
 				}
+				set.clear();//add/clear-only: clear each run instead of per-element remove (remove() throws)
 //				for(int x : ll.array){
 //					set.remove(x);
 //				}
@@ -196,9 +191,19 @@ public class IntHashSetList extends IntHashSet{
 	}
 	
 	@Override
+	public boolean remove(int value){
+		//FIXED [map/IntHashSetList#001]: the inherited remove() would silently desync the tracking list (clear()/
+		//toArray()/verify() then corrupt). The list can't be kept in sync without an O(n) scan, and this subclass is
+		//add/clear-only by design (sole caller sketch/SketchIndex), so remove() is UNSUPPORTED -> crash loud, never
+		//corrupt (BBTools crash-loud-never-wrong). Brian-approved 2026-06-22.
+		throw new UnsupportedOperationException("IntHashSetList does not support remove() (it would desync the "
+			+"tracking list); use add/clear cycles, or a plain IntHashSet if you need remove().");
+	}
+
+	@Override
 	public int[] toArray(){
-		//returns the tracking list (O(size)), NOT a scan of the backing array like super.toArray(). Same contents
-		//under add-only usage; would include stale (removed) elements if remove() were ever used (see #001).
+		//returns the tracking list (O(size)), NOT a scan of the backing array like super.toArray(). Equals the set's
+		//contents because the list is kept in sync by add/clear and remove() is unsupported (throws). See #001.
 		int[] r=list.toArray();
 		return r;
 	}
@@ -219,10 +224,8 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	//TODO: Possible bug [map/IntHashSetList#001] - the inherited remove() does NOT update this list, so any remove()
-	//desyncs list from the set (clear()/verify() then fail under -ea; toArray() returns stale elements). Latent: the
-	//sole caller sketch/SketchIndex uses add/toArray/clear only, never remove. Crash-loud fix = override remove() to
-	//throw UnsupportedOperationException; deferred to Brian (API decision on his class).
+	//FIXED [map/IntHashSetList#001]: the inherited remove() would desync this list from the set; remove() is now
+	//overridden to throw UnsupportedOperationException (crash-loud, not silent corruption). add/clear keep it in sync.
 	private IntList list;
 	
 }

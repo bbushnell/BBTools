@@ -1,6 +1,7 @@
 package map;
 
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -75,7 +76,7 @@ public final class ObjectMap<K, V> implements Serializable {
 		}
 
 		// Build ObjectObjectMap
-		ObjectMap<Object, Object> objectMap=new ObjectMap<Object, Object>();
+		ObjectMap<Object, Object> objectMap=new ObjectMap<Object, Object>(Object.class, Object.class);
 		for(int i=0; i<list.size(); i++){
 			objectMap.put(list.get(i), list.get(i));
 		}
@@ -118,7 +119,7 @@ public final class ObjectMap<K, V> implements Serializable {
 			t.start();
 			ObjectMap<Object, Object> map=null;
 			for(int r=0; r<repeats; r++){
-				map=new ObjectMap<Object, Object>();
+				map=new ObjectMap<Object, Object>(Object.class, Object.class);
 				for(int i=0; i<list.size(); i++){
 					map.put(list.get(i), list.get(i));
 				}
@@ -169,27 +170,38 @@ public final class ObjectMap<K, V> implements Serializable {
 
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
+	 * @param typeK Component class of the KEYS (e.g. String.class, byte[].class) — for a real K[] backing.
+	 * @param typeV Component class of the VALUES — for a real V[] backing. Both let keys()/values() return genuine
+	 *        typed arrays instead of an Object[] that CCEs at the call site. Pass class literals; they are cheap
+	 *        cached constants. [map/ObjectMap#002]
 	 */
-	public ObjectMap(){
-		this(256);
+	public ObjectMap(Class<K> typeK, Class<V> typeV){
+		this(256, typeK, typeV);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param typeK Component class of the keys (see {@link #ObjectMap(Class, Class)}).
+	 * @param typeV Component class of the values (see {@link #ObjectMap(Class, Class)}).
 	 */
-	public ObjectMap(int initialSize){
-		this(initialSize, 0.7f);
+	public ObjectMap(int initialSize, Class<K> typeK, Class<V> typeV){
+		this(initialSize, 0.7f, typeK, typeV);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param typeK Component class of the keys (see {@link #ObjectMap(Class, Class)}).
+	 * @param typeV Component class of the values (see {@link #ObjectMap(Class, Class)}).
 	 */
-	public ObjectMap(int initialSize, float loadFactor_){
+	public ObjectMap(int initialSize, float loadFactor_, Class<K> typeK, Class<V> typeV){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
+		assert(typeK!=null && typeV!=null) : "Component types must be provided (e.g. String.class) to allocate typed backing arrays";
+		this.typeK=typeK;
+		this.typeV=typeV;
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
@@ -394,6 +406,10 @@ public final class ObjectMap<K, V> implements Serializable {
 	private int findCellOrEmpty(final K key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
+		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
 		final int initial=hash & mask;
 
@@ -413,7 +429,10 @@ public final class ObjectMap<K, V> implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
+		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -439,10 +458,13 @@ public final class ObjectMap<K, V> implements Serializable {
 		@SuppressWarnings("unchecked")
 		final V[] oldV=values;
 		final int[] oldH=hashes;
+		//Option A [map/ObjectMap#002]: allocate REAL K[]/V[] via reflection from the stored component types, so the
+		//backing arrays' runtime types are genuinely K[]/V[] (e.g. String[], byte[][]) and keys()/values() return usable
+		//typed arrays instead of an Object[] that CCEs at the call site. typeK/typeV are cheap cached class literals.
 		@SuppressWarnings("unchecked")
-		K[] tempK=(K[])new Object[(int)size3];
+		K[] tempK=(K[])Array.newInstance(typeK, (int)size3);
 		@SuppressWarnings("unchecked")
-		V[] tempV=(V[])new Object[(int)size3];
+		V[] tempV=(V[])Array.newInstance(typeV, (int)size3);
 		keys=tempK;
 		values=tempV;
 		hashes=KillSwitch.allocInt1D((int)size3);
@@ -465,16 +487,22 @@ public final class ObjectMap<K, V> implements Serializable {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains null entries for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Returns the internal key array (the live backing array; null entries mark empty cells).
+	 * This is a GENUINE K[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(typeK,...)
+	 * from the key component class passed to the constructor [map/ObjectMap#002] — usable directly (assigned to K[],
+	 * iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
+	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * @return Internal key array (a real K[])
 	 */
 	public K[] keys(){return keys;}
 
 	/**
-	 * Returns the internal value array.
-	 * WARNING: Contains null for empty cells corresponding to null keys.
-	 * @return Internal value array
+	 * Returns the internal value array (the live backing array; null entries mark empty cells).
+	 * This is a GENUINE V[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(typeV,...)
+	 * from the value component class passed to the constructor [map/ObjectMap#002] — usable directly (assigned to V[],
+	 * iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
+	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * @return Internal value array (a real V[])
 	 */
 	public V[] values(){return values;}
 
@@ -508,6 +536,10 @@ public final class ObjectMap<K, V> implements Serializable {
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
+	/** Component class of K, for allocating a real K[] backing via reflection (Array.newInstance). [map/ObjectMap#002] */
+	private final Class<K> typeK;
+	/** Component class of V, for allocating a real V[] backing via reflection (Array.newInstance). [map/ObjectMap#002] */
+	private final Class<V> typeV;
 
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;

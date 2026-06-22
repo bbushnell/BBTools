@@ -96,6 +96,8 @@ public class FastaStreamerZT implements Streamer {
 
 	@Override
 	public synchronized void setSampleRate(float rate, long seed){
+		//[stream/FastaStreamerZT#003] Crash-loud guard (Brian 2026-06-22): fractional sampling of INTERLEAVED FASTA desyncs read pairs (the start-read1 roll has no file-parity guard). Unsupported weird corner — best-effort only. -ea (default) crash loud with the workaround; -da silent best-effort. Shared with FastaStreamerST#001; crash-don't-corrupt.
+		assert(!(interleaved && rate<1f)) : "Fractional sampling of interleaved FASTA is unsupported (read pairs would desync). Workaround: convert to FASTQ, subsample, then convert back to FASTA. ["+fname+"]";
 		samplerate=rate;
 		randy=(rate>=1f ? null : shared.Shared.random(seed));
 	}

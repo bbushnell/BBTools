@@ -67,7 +67,7 @@ public class DDLSSULoader {
 	private static IntObjectMap<byte[]> loadSSUMap(String path){
 		FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, true, true);
 		ArrayList<Read> reads=StreamerFactory.getReads(-1, false, ff, null, null, null);
-		IntObjectMap<byte[]> map=new IntObjectMap<>(reads.size()*2);
+		IntObjectMap<byte[]> map=new IntObjectMap<>(reads.size()*2, byte[].class);
 		for(Read r : reads){
 			int tid=DDLWriter.parseTID(r.id);
 			if(tid>0){map.put(tid, r.bases);}

@@ -69,8 +69,8 @@ public class FastaQualStreamerZT implements Streamer {
 	@Override
 	public synchronized void close() {
 		if(closed){return;}
-		btf.close();
-		qtf.close();
+		errorState|=btf.close();//Fold the reader's error state (truncated/corrupt fasta) — the 2b reader-fold, previously MISSING here so truncation was silently accepted on the live fasta+qual path
+		errorState|=qtf.close();//Fold the qual reader's error state too (two-file streamer)
 		closed=true;
 	}
 
@@ -81,7 +81,7 @@ public class FastaQualStreamerZT implements Streamer {
 
 	@Override
 	public synchronized boolean errorState() {
-		return errorState; // Helper field, though strictly not used much in ZT
+		return errorState; // Now propagates the fasta/qual reader truncation error folded in close() (was previously never set — a 2b reader-fold gap, fixed 2026-06-22)
 	}
 
 	@Override

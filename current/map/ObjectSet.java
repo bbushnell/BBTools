@@ -1,6 +1,7 @@
 package map;
 
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -70,7 +71,7 @@ public final class ObjectSet<T> implements Serializable {
 		}
 
 		// Build ObjectSet
-		ObjectSet<Object> objectSet=new ObjectSet<Object>();
+		ObjectSet<Object> objectSet=new ObjectSet<Object>(Object.class);
 		for(int i=0; i<list.size(); i++){
 			objectSet.add(list.get(i));
 		}
@@ -113,7 +114,7 @@ public final class ObjectSet<T> implements Serializable {
 			t.start();
 			ObjectSet<Object> set=null;
 			for(int r=0; r<repeats; r++){
-				set=new ObjectSet<Object>();
+				set=new ObjectSet<Object>(Object.class);
 				for(int i=0; i<list.size(); i++){
 					set.add(list.get(i));
 				}
@@ -162,17 +163,24 @@ public final class ObjectSet<T> implements Serializable {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public ObjectSet(){
-		this(256);
+	/**
+	 * @param type Component class of the keys (e.g. String.class, byte[].class) — used to allocate a real T[] backing
+	 *        array via reflection so keys() returns a genuine typed array (a plain Object[] backing CCEs at the call
+	 *        site under a concrete T). Pass a class literal; it is a cheap cached constant. [map/ObjectSet#002]
+	 */
+	public ObjectSet(Class<T> type){
+		this(256, 0.7f, type);
 	}
 
-	public ObjectSet(int initialSize){
-		this(initialSize, 0.7f);
+	public ObjectSet(int initialSize, Class<T> type){
+		this(initialSize, 0.7f, type);
 	}
 
-	public ObjectSet(int initialSize, float loadFactor_){
+	public ObjectSet(int initialSize, float loadFactor_, Class<T> type){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
+		assert(type!=null) : "Component type must be provided (e.g. String.class) to allocate a typed backing array";
+		this.type=type;
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
@@ -401,8 +409,11 @@ public final class ObjectSet<T> implements Serializable {
 		@SuppressWarnings("unchecked")
 		final T[] oldK=keys;
 		final int[] oldH=hashes;
+		//Option A [map/ObjectSet#002]: allocate a REAL T[] via reflection from the stored component type, so the
+		//backing array's runtime type is genuinely T[] (e.g. String[], byte[][]) and keys() returns a usable typed
+		//array instead of an Object[] that CCEs at the call site. `type` is a cheap cached class literal.
 		@SuppressWarnings("unchecked")
-		T[] tempK=(T[])new Object[(int)size3];
+		T[] tempK=(T[])Array.newInstance(type, (int)size3);
 		keys=tempK;
 		hashes=KillSwitch.allocInt1D((int)size3);
 
@@ -426,9 +437,12 @@ public final class ObjectSet<T> implements Serializable {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains null entries for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Returns the internal key array (the live backing array; null entries mark empty cells).
+	 * This is a GENUINE T[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
+	 * from the component class passed to the constructor [map/ObjectSet#002] — so it can be used directly (assigned to
+	 * T[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
+	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * @return Internal key array (a real T[])
 	 */
 	public T[] keys(){return keys;}
 
@@ -452,6 +466,8 @@ public final class ObjectSet<T> implements Serializable {
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
+	/** Component class of T, for allocating a real T[] backing via reflection (Array.newInstance). [map/ObjectSet#002] */
+	private final Class<T> type;
 
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;

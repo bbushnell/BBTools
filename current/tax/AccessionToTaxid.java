@@ -211,7 +211,7 @@ public class AccessionToTaxid {
 			assert(maps==null);
 			maps=new ObjectIntMap[128];
 			for(int i=0; i<maps.length; i++){
-				maps[i]=new ObjectIntMap<String>();
+				maps[i]=new ObjectIntMap<String>(String.class);
 			}
 //		}
 
@@ -564,7 +564,7 @@ public class AccessionToTaxid {
 //			if(USE_MAPS){
 				mapsT=new ObjectIntMap[128];
 				for(int i=0; i<mapsT.length; i++){
-					mapsT[i]=new ObjectIntMap<String>();
+					mapsT[i]=new ObjectIntMap<String>(String.class);
 				}
 //			}
 			if(USE_TABLES){
