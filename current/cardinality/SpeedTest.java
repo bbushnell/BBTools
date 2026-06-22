@@ -38,8 +38,8 @@ public class SpeedTest {
 			else{throw new RuntimeException("Unknown parameter '"+args[i]+"'");}
 		}
 
-		final String[] types={"avll", "exa", "udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
-		final String[] labels={"AVLL", "EXA", "UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
+		final String[] types={"avll", "exa", "udll6m", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
+		final String[] labels={"AVLL", "EXA", "UDLL", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
 
 		System.err.println("SpeedTest: "+(memBytes>0 ? "mem="+memBytes : "buckets="+buckets)+
 			" estimators="+numEstimators+" maxCard="+maxCard+" threads="+threads);

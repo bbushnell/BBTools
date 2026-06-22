@@ -75,11 +75,13 @@ public final class HLLLWrapper extends CardinalityTracker {
 
 	private void addJr(int j, int r){
 		if(r<=lowerBound){return;}
+		// reads++;
 
 		final int sVal=S.get(j);
 		final int r0=(sVal>=0) ? sVal : (M[j]&0xFF)+B;
 
 		if(r0<r){
+			// writes++;
 			if(B<=r && r<=B+maxOffset){
 				if(sVal>=0){S.remove(j);}
 				M[j]=(byte)(r-B);
@@ -291,4 +293,8 @@ public final class HLLLWrapper extends CardinalityTracker {
 	private int[] regsBuf;
 
 	static final int DEFAULT_MBITS=3;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 }

@@ -93,9 +93,11 @@ public final class HLLTailCut4 extends CardinalityTracker {
 		// Algorithm 1, line 9: store
 		final int rawOffset=rho-B;
 		if(rawOffset<=0){return;} // at or below base
+		// reads++;
 		final int newOffset=Math.min(rawOffset, K-1);
 		final int oldOffset=offsets[bucket]&0xFF;
 		if(newOffset<=oldOffset){return;}
+		// writes++;
 
 		lastCardinality=-1;
 		offsets[bucket]=(byte)newOffset;
@@ -258,5 +260,9 @@ public final class HLLTailCut4 extends CardinalityTracker {
 
 	/** Mask for a single register: 0xF for 4-bit registers. */
 	public static final int REGISTER_MASK=0xF;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 
 }

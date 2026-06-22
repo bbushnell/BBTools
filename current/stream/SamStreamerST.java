@@ -232,7 +232,7 @@ public class SamStreamerST implements Streamer {
 				outq.put(ln);
 			}
 			
-			bf.close();
+			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("Finished processFileDirectly.");}
 		}
 

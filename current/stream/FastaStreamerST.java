@@ -224,7 +224,7 @@ public class FastaStreamerST implements Streamer {
 			if(ln.size()>0){
 				outputQueue.put(ln);
 			}
-			bf.close();
+			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("Finished processSingle.");}
 		}
 
@@ -329,7 +329,7 @@ public class FastaStreamerST implements Streamer {
 			if(ln.size()>0){
 				outputQueue.put(ln);
 			}
-			bf.close();
+			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("Finished processInterleaved.");}
 		}
 

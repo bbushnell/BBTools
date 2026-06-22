@@ -974,6 +974,9 @@ public abstract class CardinalityTracker implements Drivable {
 	/** Buckets packed per logical storage word. Override in packed types. */
 	public int bucketsPerWord(){return 1;}
 
+	public long registerReads(){return 0;}
+	public long registerWrites(){return 0;}
+
 	/** Given a memory budget in bytes, return the maximum number of buckets for this type. */
 	public static int memToBuckets(String type, int memBytes){
 		CardinalityTracker tmp=makeTracker(type, 64, 31, 0, 0);

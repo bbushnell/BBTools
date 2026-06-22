@@ -368,15 +368,17 @@ public final class ByteFile1 extends ByteFile {
 			try{
 				r=is.read(buffer, bstop, buffer.length-bstop);
 			}catch(IOException e){
-				if(!Shared.anomaly){
-					e.printStackTrace();
-					System.err.println("open="+open);
+				if(!errorState){//Warn loudly ONCE per file; errorState doubles as the spam-guard (decoupled from Shared.anomaly)
+					System.err.println("Error: truncated or corrupt input for '"+name()+"'; data may be incomplete.");
+					if(verbose){e.printStackTrace(); System.err.println("open="+open);}
 				}
+				errorState=true;//Best-effort: still return what was read, but latch the error so close() reports it (->nonzero exit)
 			}catch(NullPointerException e){
-				if(!Shared.anomaly){
-					e.printStackTrace();
-					System.err.println("open="+open);
+				if(!errorState){//Same latch+warn-once for a null stream mid-read
+					System.err.println("Error: read failure (null stream) for '"+name()+"'; data may be incomplete.");
+					if(verbose){e.printStackTrace(); System.err.println("open="+open);}
 				}
+				errorState=true;
 			}
 			if(r>0){
 				bstop=bstop+r;

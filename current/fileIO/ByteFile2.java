@@ -127,7 +127,7 @@ public final class ByteFile2 extends ByteFile {
 					e.printStackTrace();
 				}
 			}
-			thread.bf1.close();
+			errorState|=thread.bf1.close();//Fold the wrapped ByteFile1's read-error state into ours (else a truncated input is lost)
 		}
 		thread=null;
 		currentList=null;

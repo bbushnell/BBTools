@@ -226,7 +226,7 @@ public class FASTQ {
 		int onlyValidA33=0;
 		for(int k=0; k<2; k++){
 			final int a=1+4*k, b=3+4*k;
-			if(oct.size()<b || oct.get(a)==null || oct.get(b)==null){break;}
+			if(oct.size()<=b || oct.get(a)==null || oct.get(b)==null){break;}//[FASTQ#001 FIXED] <=b (was <b): oct.get(b) needs size>=b+1, so a 7-line octet (complete read + truncated 2nd) else IndexOutOfBounds right here. (The null checks are dead-defensive — getFirstOctet never adds null.)
 			byte[] bases=oct.get(a).getBytes();
 			byte[] quals=oct.get(b).getBytes();
 			//		assert(false) : Arrays.toString(quals);
@@ -917,6 +917,7 @@ public class FASTQ {
 	private static void convertQualsVec(final byte[] quals, final byte[] bases,
 			final String name, final long numericID) {
 		assert(quals!=null);
+		//Studied praise + claim: the Vec path DETECTS first (detectQuals only flips the static ASCII_OFFSET, sampling the first <8 reads) and then applies the offset ONCE, uniformly, here -- so it has NO retroactive per-element fixup and structurally cannot hit the quadToRead_slow#002 class (the older slow path converts per-element THEN retroactively re-corrects, which is where the quals[i]/quals[j] typo lived). Cleaner by construction.
 		if(numericID<8 && DETECT_QUALITY) {detectQuals(quals, bases, name, numericID);}
 		Vector.applyQualOffset(quals, bases, -ASCII_OFFSET);
 	}
@@ -1076,7 +1077,7 @@ public class FASTQ {
 					}
 				}
 				ASCII_OFFSET=64;
-				for(int j=0; j<=i; j++) {quals[i]-=31;}
+				for(int j=0; j<=i; j++) {quals[j]-=31;}//[FASTQ#002 FIXED] quals[j] not quals[i]: retroactively correct EACH already-converted qual[0..i] by the 33->64 offset diff (31). The quals[i] typo over-subtracted one element (i+1)x and left 0..i-1 wrong. Matches the correct siblings testQuality:263 + toReadList(TextFile):710.
 			}
 			if(quals[i]<0){
 				

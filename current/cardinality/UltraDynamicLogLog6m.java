@@ -277,6 +277,8 @@ public final class UltraDynamicLogLog6m extends CardinalityTracker {
 	public long branch1=0, branch2=0;
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public long registerReads(){return branch1;}
+	public long registerWrites(){return branch2;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

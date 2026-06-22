@@ -293,7 +293,7 @@ public class FastaStreamer implements Streamer {
 			}
 			ln=null;
 			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
-			bf.close();
+			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
 

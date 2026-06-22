@@ -367,7 +367,11 @@ public final class ByteFile4 extends ByteFile{
 					}
 				}
 			}catch(IOException e){
-				e.printStackTrace();
+				if(!errorState){//Warn loudly once; errorState doubles as the spam-guard
+					System.err.println("Error: truncated or corrupt input for '"+name()+"'; data may be incomplete.");
+					if(verbose){e.printStackTrace();}
+				}
+				errorState=true;//Best-effort: still emit buffered data, but latch the error so close() reports it (->nonzero exit)
 			}
 
 			// Signal completion

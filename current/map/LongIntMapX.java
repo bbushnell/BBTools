@@ -56,7 +56,7 @@ public final class LongIntMapX implements Serializable {
 		Timer t=new Timer();
 
 		{
-			System.err.println("\n*** LongHashMap2 ***");
+			System.err.println("\n*** LongIntMapX ***");
 			Shared.printMemory();
 			t.start();
 			LongIntMapX map=null;
@@ -156,6 +156,7 @@ public final class LongIntMapX implements Serializable {
 	 */
 	public int get(long key){
 		int cell=findCell(key);
+		//miss -> -1 sentinel (legit: present values are >=1, so -1 never aliases a real value)
 		return cell<0 ? -1 : values[cell];
 	}
 
@@ -192,7 +193,8 @@ public final class LongIntMapX implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value associated with key, or 0 if key was not present.
+	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
 	 */
 	public int put(long key, int value){
 		return set(key, value);
@@ -215,11 +217,14 @@ public final class LongIntMapX implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value associated with key, or 0 if key was not present.
+	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
 	 */
 	public int set(long key, int value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
+		//oldV==0 when the cell was empty (values[] zeroed on clear/remove/resize), so set/put return 0 (NOT -1)
+		//for an absent key; 0 is unambiguous since present values are >=1 (counting invariant).
 		final int oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -246,8 +251,7 @@ public final class LongIntMapX implements Serializable {
 	public int setIfNotPresent(long key, int value, long hash){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key, hash);
-		final int oldV=values[cell];
-		if(keys[cell]!=invalid){return 0;}
+		if(keys[cell]!=invalid){return 0;}//removed dead `oldV` local — returns a 0/1 flag, never the prior value
 		values[cell]=value;
 		keys[cell]=key;
 		size++;
@@ -277,6 +281,8 @@ public final class LongIntMapX implements Serializable {
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
+		//CLEVER [verified]: oldV read as a LONG (widening the int) so oldV+incr is a long add that can't wrap
+		//before the clamp to Integer.MAX_VALUE. absent key -> oldV=0 so a present key starts at incr.
 		final int value=(int)Tools.min(Integer.MAX_VALUE, oldV+incr);
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -308,6 +314,7 @@ public final class LongIntMapX implements Serializable {
 	public void setToMax(LongIntMapX map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
+			//get(key) by KEY (not get(i)/index) -> correct; the lone index-vs-key slip was IntHashMap.setToMax.
 			if(key!=map.invalid){
 				put(key, Tools.max(map.values[i], get(key)));
 			}
@@ -399,6 +406,12 @@ public final class LongIntMapX implements Serializable {
 	 * @return Cell index if found, -1 if not found
 	 */
 	private int findCell(final long key){
+		//TODO: Possible bug [map/LongIntMapX#004] - this internal hash (Tools.hash64plus2(key)>>>32) is THE
+		//canonical probe-start for a key. The external-hash overloads (get/set/setIfNotPresent(key,...,hash)) MUST
+		//supply this SAME value, because remove(), resize() re-insert (set(k,v)) and rehashCell() all use this
+		//no-hash path -> a key inserted under a different hash can become unfindable after a resize/remove. The one
+		//live caller (bbduk/BBDukIndexMask2) passes Tools.hash64plus2(key)>>>32, so it's consistent -> DOC gap, not
+		//an active bug; flag for Brian to document the @param hash contract.
 		final long hash=Tools.hash64plus2(key)>>>32;
 		return findCell(key, hash);
 	}
@@ -414,6 +427,7 @@ public final class LongIntMapX implements Serializable {
 		if(key==invalid){return -1;}
 
 		final int limit=keys.length;
+		//two-segment wrap-around scan: [initial,limit) then [0,initial); returns -1 at the first invalid cell.
 		final int initial=(int)(hash & mask);
 
 		for(int cell=initial; cell<limit; cell++){
@@ -448,6 +462,10 @@ public final class LongIntMapX implements Serializable {
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 
 		final int limit=keys.length;
+		//initial=(int)(hash & mask). The supplied hash is Tools.hash64plus2(key)>>>32, CAPPED in [0, 0x7FFFF800] <
+		//SAFE_ARRAY_LEN, so initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier
+		//(hash & -1 == hash). See #002. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and
+		//the RuntimeException is unreachable under the size invariant.
 		final int initial=(int)(hash & mask);
 
 		for(int cell=initial; cell<limit; cell++){
@@ -466,6 +484,9 @@ public final class LongIntMapX implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
+		//4x growth, not 2x: keys.length==pow2+extra, so *2L overshoots 2*pow2 and resize(long) rounds up to
+		//4*pow2 (shared over-allocation with IntHashMap2 / IntLongHashMap2#002; output-correct). This 4x is also
+		//what makes pow2 skip 2^31 and land on 2^32 in the #002 mask edge case below (safe - see there).
 		resize(keys.length*2L);
 	}
 
@@ -479,6 +500,12 @@ public final class LongIntMapX implements Serializable {
 
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
+		//RESOLVED non-bug [map/LongIntMapX#002] - same uncapped-mask shape as LongLongHashMap2#001 / LongIntMap#002.
+		//mask reaches -1 at the 2^32 tier, but it's SAFE: this class buckets on hash=Tools.hash64plus2(key)>>>32,
+		//CAPPED in [0, 0x7FFFF800] < SAFE_ARRAY_LEN (see hash64plus2 javadoc), so hash & -1 == hash is ALWAYS a valid
+		//in-range index - even though bbduk/Allocator + bbduk/BBDukIndexMask2 are real callers. The HASH guarantees
+		//the range; the mask never needs capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the
+		//post->>>32 value could be negative - it cannot; >>>32 of a capped long stays in [0, 0x7FFFF800].)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){

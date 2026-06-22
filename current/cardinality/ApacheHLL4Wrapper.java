@@ -77,8 +77,10 @@ public final class ApacheHLL4Wrapper extends CardinalityTracker {
 	}
 
 	private void updateSlot(final int slotNo, final int newValue){
+		// reads++;
 		final int oldValue=getSlotValue(slotNo);
 		if(newValue<=oldValue){return;}
+		// writes++;
 
 		// HIP (Historic Inverse Probability) accumulator update
 		// kxq tracks sum of 2^(-value) for each register, split by curMin parity
@@ -337,4 +339,8 @@ public final class ApacheHLL4Wrapper extends CardinalityTracker {
 
 	/** Sentinel nibble value indicating the real value is in auxMap. */
 	private static final int AUX_TOKEN=15;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 }

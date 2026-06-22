@@ -549,16 +549,13 @@ public final class IntHashMap3 implements IntHashMapInterface {
 		
 		final long old=(keys==null ? 0 : keys.length);
 		long size3=Long.highestOneBit(size2);//rounds DOWN to a power of 2 (growth path strips the +extra -> clean doubling)
-		//TODO: Possible bug [map/IntHashMap3#001] - mask is taken from the UNCAPPED pow2 here, but size3 (the array
-		//length) is capped at SAFE_ARRAY_LEN on the next line. At the 2^31 tier mask=(int)(2^31-1)=2147483647 >
-		//array maxIndex (SAFE_ARRAY_LEN-1=2147483586) by 61, breaking the "mask == arrayPow2-1" invariant.
-		//Manifestation is OUTPUT-NEUTRAL (adversarially verified): the ~61/2^31 of keys whose hash&mask>=length
-		//skip the bounds-checked first probe loop (cell<limit is false) and land in the [0,..) region; get & set
-		//use the SAME initial so they stay mutually consistent -> no wrong result, just degraded probe locality.
-		//NOT an AIOOBE on the normal path (loadFactor keeps the array <100% full; AIOOBE needs the full-array +
-		//absent-key edge case). LOW/unreached (sole caller ifa/IndelFreeAligner2 stays tiny). Proper fix is a design
-		//choice (a ~2.1e9 non-pow2 array can't be addressed by a pure 2^k-1 mask): cap usable region at 2^30, or add
-		//a tail-wrap. ESCALATED - see bug_reports/map/IntHashMap3.md.
+		//RESOLVED non-bug [map/IntHashMap3#001] - mask is taken from the UNCAPPED pow2 here (capped to SAFE_ARRAY_LEN
+		//next line), so at the 2^31 tier mask=(int)(2^31-1)=2147483647 exceeds the array maxIndex. This is SAFE, not
+		//a bug: findCell uses initial=Tools.hash32plus(key)&mask, and hash32plus is CAPPED below 0x7FFFF800 (< array
+		//length; see hash32plus javadoc). Since hash<0x7FFFF800, hash&mask==hash is ALWAYS a valid in-range index
+		//regardless of the over-wide mask. The HASH (not the mask) guarantees the range. Verdict reached with Brian;
+		//escalation RETRACTED. (My earlier "output-neutral" note over-thought it: the out-of-range hash&mask it
+		//described can never occur with a capped hash - hash itself is always < array length.)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)

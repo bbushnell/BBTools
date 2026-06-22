@@ -39,8 +39,8 @@ public class SpeedTest2 {
 		}
 
 		final int totalSim=threads*sim;
-		final String[] allTypes={"avll", "exa", "udll6", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
-		final String[] allLabels={"AVLL", "EXA", "UDLL6", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
+		final String[] allTypes={"avll", "exa", "udll6m", "ull", "dll4", "ll6", "hll4", "hlll", "htc4", "htb"};
+		final String[] allLabels={"AVLL", "EXA", "UDLL", "ULL", "DLL4", "LL6", "HLL4", "HLLL", "HTC4", "HTB"};
 
 		System.err.println("SpeedTest2: "+(memBytes>0 ? "mem="+memBytes : "buckets="+buckets)+
 			" sim/thread="+sim+" totalSim="+totalSim+" maxCard="+maxCard+" threads="+threads+
@@ -59,6 +59,7 @@ public class SpeedTest2 {
 		final int k=31;
 		final AtomicLong cardSum=new AtomicLong(0);
 		final int totalSim=threads*sim;
+		final CardinalityTracker[][] allCts=new CardinalityTracker[threads][];
 
 		final Thread[] workers=new Thread[threads];
 		final long t0=System.nanoTime();
@@ -68,6 +69,7 @@ public class SpeedTest2 {
 			workers[ti]=new Thread(()->{
 				final FastRandomXoshiro rng=new FastRandomXoshiro(threadId*982451653L+123456789L);
 				final CardinalityTracker[] cts=new CardinalityTracker[sim];
+				allCts[threadId]=cts;
 				final long[] masks=new long[sim];
 				for(int i=0; i<sim; i++){
 					cts[i]=DDLCalibrationDriver.makeInstance(type, buckets, k, 0, 0);
@@ -101,9 +103,22 @@ public class SpeedTest2 {
 		final double mAddsPerSec=totalAdds/elapsedSec/1e6;
 		final double avgCard=(double)cardSum.get()/totalSim;
 
+		long totalReads=0, totalWrites=0;
+		for(CardinalityTracker[] cts : allCts){
+			if(cts==null){continue;}
+			for(CardinalityTracker ct : cts){
+				totalReads+=ct.registerReads();
+				totalWrites+=ct.registerWrites();
+			}
+		}
+
 		System.out.printf("%s\t%d\t%.1f\t%.0f\t%d\t%d%n", label, buckets, mAddsPerSec, avgCard, maxCard, totalSim);
 		System.err.printf("  %s: %d buckets, %.1f M adds/s (%.1f s, avg card=%.0f, %d simultaneous)%n",
 			label, buckets, mAddsPerSec, elapsedSec, avgCard, totalSim);
+		if(totalReads>0||totalWrites>0){
+			System.err.printf("    reads=%.6f%% writes=%.6f%% (of %.0f total adds)%n",
+				100.0*totalReads/totalAdds, 100.0*totalWrites/totalAdds, totalAdds);
+		}
 	}
 
 }

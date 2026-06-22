@@ -179,6 +179,7 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	public long get(long key){
 		int cell=findCell(key);
+		//miss -> -1 sentinel (legit: present values are >=1, so -1 never aliases a real value)
 		return cell<0 ? -1 : values[cell];
 	}
 
@@ -196,7 +197,8 @@ public final class LongLongHashMap2 implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value associated with key, or 0 if key was not present.
+	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
 	 */
 	public long put(long key, long value){
 		return set(key, value);
@@ -219,11 +221,14 @@ public final class LongLongHashMap2 implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return Previous value associated with key, or 0 if key was not present.
+	 *         0 (not -1) means absent; present values are >=1 (counting invariant).
 	 */
 	public long set(long key, long value){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key);
+		//oldV==0 when the cell was empty (values[] is zeroed on clear/remove/resize), so set/put return 0
+		//(NOT -1) for an absent key; 0 is unambiguous since present values are >=1 (counting invariant).
 		final long oldV=values[cell];
 		values[cell]=value;
 		if(keys[cell]==invalid){
@@ -257,6 +262,7 @@ public final class LongLongHashMap2 implements Serializable {
 		final int cell=findCellOrEmpty(key);
 		final long oldV=values[cell];
 		final long value=oldV+incr;
+		//clamp positive overflow to Long.MAX_VALUE; absent key -> oldV=0 so a present key starts at incr
 		values[cell]=Tools.min(Long.MAX_VALUE, value);
 		if(keys[cell]==invalid){
 			keys[cell]=key;
@@ -287,6 +293,8 @@ public final class LongLongHashMap2 implements Serializable {
 	public void setToMax(LongLongHashMap2 map){
 		for(int i=0; i<map.keys.length; i++){
 			final long key=map.keys[i];
+			//get(key) by KEY (not get(i)/index) -> correct; the lone index-vs-key slip was IntHashMap.setToMax.
+			//absent key -> get returns -1, and source value>=1, so max takes the source value. correct.
 			if(key!=map.invalid){
 				put(key, Tools.max(map.values[i], get(key)));
 			}
@@ -382,6 +390,7 @@ public final class LongLongHashMap2 implements Serializable {
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
+		//two-segment wrap-around scan: [initial,limit) then [0,initial); returns -1 at the first invalid cell.
 		final int initial=(int)(hash & mask);
 
 		for(int cell=initial; cell<limit; cell++){
@@ -407,6 +416,10 @@ public final class LongLongHashMap2 implements Serializable {
 
 		final int limit=keys.length;
 		final long hash=Tools.hash64plus(key);
+		//initial=(int)(hash & mask). hash=Tools.hash64plus(key) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so
+		//initial is a valid in-range index for ANY mask - even mask=-1 at the 2^32 tier (hash & -1 == hash). See
+		//#001. loadFactor<1 guarantees >=1 empty cell, so the wrap-around probe halts and the RuntimeException is
+		//unreachable under the size invariant.
 		final int initial=(int)(hash & mask);
 
 		for(int cell=initial; cell<limit; cell++){
@@ -425,6 +438,9 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
+		//4x growth, not 2x: keys.length==pow2+extra, so *2L overshoots 2*pow2 and resize(long) rounds up to
+		//4*pow2 (shared over-allocation with IntHashMap2 / IntLongHashMap2#002; output-correct). This 4x is also
+		//what makes pow2 skip 2^31 and land on 2^32 in the #001 mask edge case below (safe - see there).
 		resize(keys.length*2L);
 	}
 
@@ -438,6 +454,13 @@ public final class LongLongHashMap2 implements Serializable {
 
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
+		//RESOLVED non-bug [map/LongLongHashMap2#001] - mask is taken from the UNCAPPED pow2. With 4x growth pow2
+		//skips 2^31 and reaches 2^32, so mask=(int)(2^32-1)=-1 at the top tier (the capacity-throw below does not
+		//fire). I thought mask=-1 -> initial=(int)(hash & -1)=(int)hash -> negative -> AIOOBE. WRONG: findCell uses
+		//hash=Tools.hash64plus(key), which is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see hash64plus javadoc).
+		//So hash & -1 == hash < 0x7FFFF800 is ALWAYS a valid in-range index even with mask=-1. The HASH guarantees
+		//the range; the mask never needs capping. SAFE. Verdict reached with Brian; escalation RETRACTED. (My
+		//"AIOOBE" proof was circular - I told the skeptic to assume the hash could be negative, which it cannot.)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){

@@ -65,11 +65,13 @@ public final class ErtlULL extends CardinalityTracker {
 		final int q=Long.numberOfLeadingZeros(buckets-1L);// q = 64 - p
 		final int idx=(int)(key>>>q);
 		final int nlz=Long.numberOfLeadingZeros(~(~key<<-q));// nlz in {0, ..., 64-p}
+		// reads++;
 		final byte oldState=registers[idx];
 		long hashPrefix=unpack(oldState);
 		hashPrefix|=1L<<(nlz+~q);// bit at position (nlz + p - 1)
 		final byte newState=pack(hashPrefix);
 		if((newState&0xFF)>(oldState&0xFF)){
+			// writes++;
 			registers[idx]=newState;
 			lastCardinality=-1;
 		}
@@ -328,6 +330,10 @@ public final class ErtlULL extends CardinalityTracker {
 
 	/** 8-bit Ertl-format registers: 6-bit NLZ + 2-bit history. */
 	final byte[] registers;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
