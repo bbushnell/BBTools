@@ -5432,6 +5432,19 @@ public final class Tools {
 		return key;
 	}
 	
+	/**
+	 * Hashes a long key to a non-negative int safe for direct array indexing.
+	 * The result is always in [0, 0x7FFFF800) (= [0, 2147481600)), which is BELOW the
+	 * maximum safe array length Shared.SAFE_ARRAY_LEN (Integer.MAX_VALUE-60). Because of
+	 * this bound the result indexes in-bounds whether used directly OR via {@code hash&mask}
+	 * for ANY mask - including a degenerate mask that has overflowed to -1, since then
+	 * {@code hash & -1 == hash}, still below SAFE_ARRAY_LEN. This range guarantee (not the
+	 * table's mask) is what keeps the power-of-2 hash maps in bounds. Long-key form of
+	 * {@link #hash32plus(int)}.
+	 *
+	 * @param key The key to hash.
+	 * @return A non-negative int in [0, 0x7FFFF800), below the max safe array length.
+	 */
 	public static int hash64plus(long key){
 		key=(~key)+(key<<21);
 		key=key^(key>>>24);
@@ -5440,10 +5453,23 @@ public final class Tools {
 		key=(key+(key<<2))+(key<<4);
 		key=key^(key>>>28);
 		key=key+(key<<31);
-		int ikey=(int)(key&0x7FFFFFFF);
+		int ikey=(int)(key&0x7FFFFFFF);//clear the sign bit -> non-negative, [0, 2^31)
+		//THE CAP: fold top 2048 values down -> result ALWAYS < 0x7FFFF800 (below SAFE_ARRAY_LEN)
 		return ikey<0x7FFFF800 ? ikey : (ikey-0x7FFFF800)*64;
 	}
 	
+	/**
+	 * Hashes a long key to a non-negative long whose HIGH 32 bits form a safe array index.
+	 * Mixes with the MurmurHash3 finalizer, then caps the 64-bit result below
+	 * 0x7FFFF800FFFFFFFFL so that {@code (result >>> 32)} is always in [0, 0x7FFFF800] - at
+	 * or below 2147481600, under the max safe array length Shared.SAFE_ARRAY_LEN. Callers
+	 * take the high 32 bits as the bucket ({@code hash64plus2(key) >>> 32}); the cap makes
+	 * that index in-bounds for ANY mask, even one overflowed to -1 (then {@code idx & -1 ==
+	 * idx}). Wider-entropy long analogue of {@link #hash64plus(long)}.
+	 *
+	 * @param key The key to hash.
+	 * @return A non-negative long whose top 32 bits lie in [0, 0x7FFFF800] (below max array length).
+	 */
 	public static long hash64plus2(long key){
 //		key=(~key)+(key<<21);
 //		key=key^(key>>>24);
@@ -5454,13 +5480,14 @@ public final class Tools {
 //		key=key+(key<<31);
 //		key=(key&0x7FFFFFFFFFFFFFFFL);
 //		return key<0x7FFFF800FFFFFFFFL ? key : (key-0x7FFFF800FFFFFFFFL)*64;
-		
+
 		key^=key>>>33;
 		key*=0xff51afd7ed558ccdL;
 		key^=key>>>33;
 		key*=0xc4ceb9fe1a85ec53L;
 		key^=key>>>33;
-		key=(key&0x7FFFFFFFFFFFFFFFL);
+		key=(key&0x7FFFFFFFFFFFFFFFL);//clear the sign bit -> non-negative, [0, 2^63)
+		//THE CAP: keeps the high 32 bits (result>>>32) <= 0x7FFFF800, below SAFE_ARRAY_LEN
 		return key<0x7FFFF800FFFFFFFFL ? key : (key-0x7FFFF800FFFFFFFFL)*64;
 	}
 
@@ -5474,7 +5501,17 @@ public final class Tools {
 		return key;
 	}
 
-	/** Returns a positive number below Java max array length */
+	/**
+	 * Hashes an int key to a non-negative int safe for direct array indexing.
+	 * The result is always in [0, 0x7FFFF800) (= [0, 2147481600)), BELOW the maximum safe
+	 * array length Shared.SAFE_ARRAY_LEN. So it indexes in-bounds directly or via
+	 * {@code hash & mask} for ANY mask, even one overflowed to -1 (then {@code hash & -1 ==
+	 * hash}). This range guarantee, not the table mask, keeps the power-of-2 maps in
+	 * bounds. See {@link #hash64plus(long)} for the long-key form.
+	 *
+	 * @param key The key to hash.
+	 * @return A non-negative int in [0, 0x7FFFF800), below the max safe array length.
+	 */
 	public static int hash32plus(int key){
 		key=~key+(key<<15);
 		key=key^(key>>>12);
@@ -5482,12 +5519,21 @@ public final class Tools {
 		key=key^(key>>>4);
 		key=key*2057;
 		key=key^(key>>>16);
-		key=key&(0x7FFFFFFF);
+		key=key&(0x7FFFFFFF);//clear the sign bit -> non-negative, [0, 2^31)
+		//THE CAP: fold top 2048 values down -> result ALWAYS < 0x7FFFF800 (below SAFE_ARRAY_LEN)
 		return key<0x7FFFF800 ? key : (key-0x7FFFF800)*64;
 	}
 
-	/** Returns a positive number below Java max array length 
-	 * Slow */
+	/**
+	 * Hashes an int key to a non-negative int below the max safe array length (Slow).
+	 * Variant of {@link #hash32plus(int)} that caps by scaling instead of folding:
+	 * {@code (key*4095)>>12} multiplies the non-negative key by 4095/4096, mapping
+	 * [0, 2^31) into [0, 2^31 - 2^19) - below Shared.SAFE_ARRAY_LEN. Same indexing
+	 * guarantee, marginally slower.
+	 *
+	 * @param key The key to hash.
+	 * @return A non-negative int below the max safe array length.
+	 */
 	public static int hash32plus2(int key){
 		key=~key+(key<<15);
 		key=key^(key>>>12);
@@ -5495,12 +5541,20 @@ public final class Tools {
 		key=key^(key>>>4);
 		key=key*2057;
 		key=key^(key>>>16);
-		key=key&(0x7FFFFFFF);
+		key=key&(0x7FFFFFFF);//clear the sign bit -> non-negative, [0, 2^31)
+		//THE CAP: scale by 4095/4096 -> result in [0, 2^31 - 2^19), below SAFE_ARRAY_LEN
 		return (int)((key*4095L)>>12);
 	}
 
-	/** Returns a positive number below Java max array length 
-	 * Slow */
+	/**
+	 * Hashes an int key to a non-negative int below the max safe array length (Slow).
+	 * Variant of {@link #hash32plus(int)} that caps by floating-point scaling: multiplies
+	 * the non-negative key by hashMult (=16383/16384), mapping [0, 2^31) into
+	 * [0, 2^31 - 2^17) - below Shared.SAFE_ARRAY_LEN. Same indexing guarantee, slower.
+	 *
+	 * @param key The key to hash.
+	 * @return A non-negative int below the max safe array length.
+	 */
 	public static int hash32plus3(int key){
 		key=~key+(key<<15);
 		key=key^(key>>>12);
@@ -5508,7 +5562,8 @@ public final class Tools {
 		key=key^(key>>>4);
 		key=key*2057;
 		key=key^(key>>>16);
-		key=key&(0x7FFFFFFF);
+		key=key&(0x7FFFFFFF);//clear the sign bit -> non-negative, [0, 2^31)
+		//THE CAP: scale by hashMult (16383/16384) -> result in [0, 2^31 - 2^17), below SAFE_ARRAY_LEN
 		return (int)(key*hashMult);
 	}
 

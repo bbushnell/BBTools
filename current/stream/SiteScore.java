@@ -100,7 +100,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	
 	@Override
 	public boolean equals(Object other){
-		return compareTo((SiteScore)other)==0;
+		return other instanceof SiteScore && compareTo((SiteScore)other)==0;//[SiteScore#001] guard: equals(null)/equals(non-SiteScore) must return false per the equals contract, not NPE/ClassCastException
 	}
 	
 	@Override
@@ -404,7 +404,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		SiteScore ss;
 
 		assert(line.length>=11 && line.length<=13) : "\n"+line.length+"\n"+s+"\n"+Arrays.toString(line)+"\n";
-		int chrom=Byte.parseByte(line[0].charAt(0)=='*' ? line[0].substring(1) : line[0]);
+		int chrom=Integer.parseInt(line[0].charAt(0)=='*' ? line[0].substring(1) : line[0]);//[SiteScore#002] Integer not Byte: toText/toBytes write the full int chrom; Byte.parseByte threw NumberFormatException on chrom>127 (large refs >127 2GB blocks) -> broken .bread/SAM round-trip (fromText is live via Read:1292 + SamLine:2254)
 		byte strand=Byte.parseByte(line[1]);
 		int start=Integer.parseInt(line[2]);
 		int stop=Integer.parseInt(line[3]);
@@ -1322,7 +1322,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		stop=b;
 		if(gaps!=null){
 			gaps[gaps.length-1]=b;
-			if(gaps.length-1>gaps.length-2){gaps=GapTools.fixGaps(this);}
+			if(gaps[gaps.length-2]>gaps[gaps.length-1]){gaps=GapTools.fixGaps(this);}//[SiteScore#004] was 'gaps.length-1>gaps.length-2' (a tautology -> fixGaps ran on EVERY setStop); mirrors setStart's value-compare -- fix only when the new stop breaks gap ordering
 			assert(CHECKGAPS()) : Arrays.toString(gaps);
 		}
 	}

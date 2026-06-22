@@ -231,6 +231,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 
 		final int bitPos=relNlz+HISTORY_MARGIN;          // position in register bitmap
 		if(bitPos<0 || bitPos>=WORDLEN){return;}         // out of range
+		// reads++;
 
 		final int oldReg=getReg(idx);
 		int newReg;
@@ -243,6 +244,7 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 		}
 
 		if(newReg<=oldReg){return;}                      // register only increases
+		// writes++;
 
 		setReg(idx, newReg);
 		lastCardinality=-1;                              // invalidate cached result
@@ -998,5 +1000,9 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	private int floorCount;
 	/** Non-empty register count. */
 	private int filledBuckets=0;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 
 }

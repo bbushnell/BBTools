@@ -136,9 +136,11 @@ public final class LogLog6 extends CardinalityTracker {
 
 		// Stored = absNlz+1, clamped to [1,63]
 		final int newStored=Math.min(nlz+1, 63);
+		// reads++;
 		final int oldStored=maxArray[bucket]&0xFF;
 
 		if(newStored<=oldStored){return;}
+		// writes++;
 		lastCardinality=-1;
 		if(oldStored==0){filledBuckets++;}
 		maxArray[bucket]=(byte)newStored;
@@ -174,6 +176,10 @@ public final class LogLog6 extends CardinalityTracker {
 
 	/** Last raw nlzCounts from summarize(). */
 	int[] lastRawNlz, lastCorrNlz;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

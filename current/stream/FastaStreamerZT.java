@@ -63,7 +63,7 @@ public class FastaStreamerZT implements Streamer {
 	@Override
 	public synchronized void close(){
 		if(bf!=null){
-			bf.close();
+			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			bf=null;
 		}
 	}

@@ -491,6 +491,8 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	public double branch1Rate(){return branch1/(double)Math.max(1, added);}
 	/** Fraction of eeMask-passing hashes that updated a bucket. */
 	public double branch2Rate(){return branch2/(double)Math.max(1, branch1);}
+	public long registerReads(){return branch1;}
+	public long registerWrites(){return branch2;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/

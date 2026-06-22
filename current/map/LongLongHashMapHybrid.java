@@ -173,6 +173,9 @@ public final class LongLongHashMapHybrid{
 	
 	public long get(long key){
 //		assert(verify()); //123
+		//returns: single value (>=0), a negative multi-value code (<=-2, decode via getOrFill/fill), or
+		//NOTPRESENT(-1) on miss. The three ranges are disjoint (codes<=-2, -1=absent, singles>=0) so -1 is
+		//unambiguous despite codes also being negative.
 		long value=NOTPRESENT;
 		if(key!=invalid){
 			int cell=findCell(key);
@@ -213,6 +216,9 @@ public final class LongLongHashMapHybrid{
 	 * @return true if the value was added, false if already present
 	 */
 	public boolean put(long key, long value){
+		//public contract: single values must be >=0. Internally values[] encodes multi-value keys as NEGATIVE
+		//codes -(listIndex+OFFSET) (<=-2), so the sign bit distinguishes single (>=0) from multi (<=-2); -1 is
+		//reserved as NOTPRESENT. (resize must bypass this assert to copy codes -> it uses putInner; see #001.)
 		assert(value>=0) : "Unsupported negative value "+value;
 		return putInner(key, value);
 	}
@@ -240,6 +246,9 @@ public final class LongLongHashMapHybrid{
 		assert(keys[cell]==key);
 		final long vCell=values[cell];
 		if(vCell==value) {return false;}
+		//CLEVER [verified]: single->multi transition. vCell>=0 means one inline value; promote it to a side
+		//LongList and store the negative code in its place. Thereafter vCell<0 (a code) just appends to that list.
+		//No size++ here -- multi-value adds add a VALUE, not a KEY.
 		if(vCell>=0) {
 			int listIndex=multivalues.size();
 			LongList list=new LongList(4);
@@ -279,6 +288,9 @@ public final class LongLongHashMapHybrid{
 		values[cell]=0;
 		size--;
 		if(value<0) {
+			//multi-value removal: null the side list (leaves a hole unless it was the last, then shrink). Safe:
+			//only the LAST listIndex is ever shrunk, and no other key holds a higher index, so no dangling code.
+			//A non-last removal leaves a null hole (documented; fine for indexing -- the key is gone, unreachable).
 			int idx=(int)(-value-OFFSET);
 			multivalues.set(idx, null);
 			if(idx+1==multivalues.size()) {multivalues.remove(idx);}
@@ -348,6 +360,8 @@ public final class LongLongHashMapHybrid{
 	}
 	
 	public long[] toArray(long thresh){
+		//SEE #002: the asserts below assume the counting invariant (value==0 iff empty, key>=0) -> they false-fail
+		//on multi-value codes / value-0 singles / negative keys. Dev/threshold helper; 0 callers of this class.
 		int len=0;
 //		assert(verify());
 		for(int i=0; i<values.length; i++){
@@ -374,6 +388,13 @@ public final class LongLongHashMapHybrid{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
+		//TODO: Possible bug [map/LongLongHashMapHybrid#002] - verify() (and toArray(thresh) below) carry the
+		//COUNTING-map invariant copied from LongLongHashMap: present=>value>=1, value==0 iff empty, key>=0. That
+		//does NOT hold for this Hybrid: multi-value keys store NEGATIVE codes (value<=-2 -> the value<1 check
+		//below falsely fails), single values may be 0 (put allows >=0), and keys may be negative. So verify() on
+		//any map holding a multi-value key (or a value-0/negative key) falsely returns false. Dev-only (all //123
+		//callers commented; 0 live callers) -> LOW; for Brian to extend it or mark it single-value-only. The live
+		//get/put/contains/remove paths are correct -- empty-detection is KEY-based (keys[cell]==invalid), not value-based.
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;
@@ -513,7 +534,13 @@ public final class LongLongHashMapHybrid{
 		for(int i=0; i<oldKeys.length; i++){
 			long key=oldKeys[i];
 			if(key!=invalid){
-				put(key, oldValues[i]);
+				//FIXED [map/LongLongHashMapHybrid#001]: re-insert via putInner, NOT put. put() asserts value>=0,
+				//but multi-value keys store a NEGATIVE code (-(listIndex+OFFSET)) in values[]; re-inserting that
+				//code through put() threw AssertionError ("Unsupported negative value") on any resize of a map
+				//holding >=1 multi-value key (-ea is always on). putInner copies the code verbatim (multivalues[]
+				//is untouched by resize), so it still decodes to the same list. Output-neutral for single-value
+				//maps. Empirically proven: crash before / correct decode after. (0 callers today -> latent until used.)
+				putInner(key, oldValues[i]);
 			}
 		}
 //		assert(verify()); //123

@@ -113,6 +113,7 @@ public final class HyperTwoBits extends CardinalityTracker {
 		// Check thresholds T, T+4, T+8 and update 2-bit counter
 		// Value 1 = nlz >= T, value 2 = nlz >= T+4, value 3 = nlz >= T+8
 		if(nlz>=threshold){
+			// reads++;
 			final int oldVal=get(bucket);
 			int newVal;
 			if(nlz>=threshold+8){
@@ -123,6 +124,7 @@ public final class HyperTwoBits extends CardinalityTracker {
 				newVal=1;
 			}
 			if(newVal>oldVal){
+				// writes++;
 				if(oldVal==0){nonzeroCount++;}
 				set(bucket, newVal);
 				lastCardinality=-1;
@@ -329,5 +331,9 @@ public final class HyperTwoBits extends CardinalityTracker {
 
 	/** Maximum threshold before we stop advancing (NLZ can't exceed 64). */
 	private static final int MAX_THRESHOLD=60;
+
+	long reads=0, writes=0;
+	public long registerReads(){return reads;}
+	public long registerWrites(){return writes;}
 
 }

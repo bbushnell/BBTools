@@ -569,13 +569,11 @@ public final class IntLongHashMap3 implements Serializable {
 		
 		final long old=(keys==null ? 0 : keys.length);
 		long size3=Long.highestOneBit(size2);//round-DOWN (no round-up) -> clean 2x growth (unlike IntHashMap2/IntLongHashMap2's 4x)
-		//TODO: Possible bug [map/IntLongHashMap3#001] - IDENTICAL to IntHashMap3#001 (this is its long-value twin):
-		//mask from the UNCAPPED pow2 here, array capped at SAFE_ARRAY_LEN next line -> at the 2^31 tier
-		//mask=(int)(2^31-1)=2147483647 > array maxIndex (SAFE_ARRAY_LEN-1=2147483586) by 61. OUTPUT-NEUTRAL (mechanism
-		//adversarially verified on IntHashMap3#001: probe checks cell<limit before keys[cell]; misplaced keys stay
-		//get/set-consistent; loadFactor keeps the array <100% full so no AIOOBE on the normal path). LOW + UNREACHED
-		//(this class has NO callers at all). Fix = same design choice (cap mask to 2^30 or tail-wrap). ESCALATED
-		//alongside IntHashMap3#001. See bug_reports/map/IntLongHashMap3.md.
+		//RESOLVED non-bug [map/IntLongHashMap3#001] - IDENTICAL to IntHashMap3#001 (its long-value twin): the mask
+		//from the UNCAPPED pow2 exceeds the SAFE_ARRAY_LEN-capped array at the 2^31 tier. SAFE, not a bug: findCell
+		//uses initial=Tools.hash32plus(key)&mask, and hash32plus is CAPPED below 0x7FFFF800 (< array length), so
+		//hash&mask==hash is ALWAYS a valid in-range index regardless of the over-wide mask. The HASH guarantees the
+		//range. Verdict reached with Brian; escalation RETRACTED alongside IntHashMap3#001.
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if(size3<=old || size3>Shared.SAFE_ARRAY_LEN) {//note: size3>SAFE_ARRAY_LEN is dead (Math.min just capped it)
