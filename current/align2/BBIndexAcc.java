@@ -1199,16 +1199,19 @@ public final class BBIndexAcc extends AbstractIndex {
 					
 					int[] gapArray=null;
 					if(site3-site2>=MINGAP+bases.length){
-						gapArray=makeGapArray(locArray, mapStart, MINGAP);
+						//Ady 2026-06-22: ported from live slowWalk3 (BBIndex.java:1547-1573). The old code passed
+						//mapStart (a packed chrom+site number) to makeGapArray, then sub-shifted every element by
+						//(site2-mapStart). That mixed packed and unpacked coordinate spaces, so the gap coord came
+						//out off by 2^24 (one chrom-bit unit) -> negative -> AIOOBE in MSA.makeGref (or the assert
+						//below firing). slowWalk3 passes site2 (unpacked) and clamps the ends with min/max instead.
+						gapArray=makeGapArray(locArray, site2, MINGAP);
 						if(gapArray!=null){
-							int sub=site2-mapStart;//thus site2=mapStart+sub
-							for(int i=0; i<gapArray.length; i++){
-								gapArray[i]+=sub;
-							}
-							assert(gapArray[0]==mapStart) : gapArray[0]+", "+mapStart;
-							assert(gapArray[gapArray.length-1]==mapStop);
+							assert(gapArray[0]>=site2 && gapArray[0]-site2<bases.length) : gapArray[0]+", "+site2;
+							assert(gapArray[gapArray.length-1]<=site3 && site3-gapArray[gapArray.length-1]<bases.length) : gapArray[gapArray.length-1]+", "+site3;
+							gapArray[0]=Tools.min(gapArray[0], site2);
+							gapArray[gapArray.length-1]=Tools.max(gapArray[gapArray.length-1], site3);
 						}
-						assert(false) : Arrays.toString(locArray);
+//						assert(false) : Arrays.toString(locArray);	//Ady 2026-06-22: roadblock disabled; slowWalk3 has this line commented too, now that the gap port is finished
 					}
 					
 					//This code comes from slowWalk3

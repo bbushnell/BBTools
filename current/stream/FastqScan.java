@@ -43,7 +43,7 @@ public final class FastqScan{
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 			
 			if(a.equals("t") || a.equals("threads")) {threads=Integer.parseInt(b);}
-			else if(a.equalsIgnoreCase("simd")) {Shared.SIMD&=Parse.parseBoolean(b);}
+			else if(a.equalsIgnoreCase("simd")) {Shared.SIMD&=Parse.parseBoolean(b);}//&= can DISABLE simd but never force-enable it on Java-8/non-AVX2 (Shared.SIMD is already false there) — the safe gate; no NoClassDefFoundError.
 			else if(Tools.isNumeric(arg)) {threads=Integer.parseInt(arg);}
 			else if(Parser.parseCommonStatic(arg, a, b)) {}
 			else if(Parser.parseZip(arg, a, b)) {}
@@ -115,6 +115,7 @@ public final class FastqScan{
 	FastqScan(FileFormat ff_) {ff=ff_;}
 	
 	public ByteBuilder corruption() {
+		//[stream/FastqScan#001 RESOLVED - Brian] missingTerminalNewline → exit 1 is INTENTIONAL and correct: sequence files are ALWAYS supposed to end in a newline. Its absence flags truncation and eases parsers, and a file lacking it is a mistake — usually someone making a fastq/fasta/sam by hand rather than programmatically. Crash-loud per BBTools philosophy. CLI-only (the countReadsAndBases API never calls this).
 		if(partialRecords<1 && !qualMismatch && !missingTerminalNewline && !missingPlus && !missingAt) {
 			return null;
 		}
@@ -131,6 +132,7 @@ public final class FastqScan{
 		return bb;
 	}
 
+	//Dispatches by detected format to a dedicated byte-scan; every reader shares the growable-buffer + residue-slide skeleton, differing only in per-record field parsing.
 	void read() throws IOException {
 		if(ff.fastq()) {readFastq();}
 		else if(ff.fasta()) {readFasta();}
@@ -158,6 +160,7 @@ public final class FastqScan{
 				missingTerminalNewline=true;
 			}
 			Vector.findSymbols(buffer, 0, bstop, (byte)'\n', newlines.clear());
+			//4 newlines per FASTQ record; integer-divide leaves any trailing partial record in residue, recovered next read or counted as partial at EOF (L195).
 			final int records=newlines.size/4;
 			totalRecords+=records;
 			int recordStart=0;
@@ -191,6 +194,7 @@ public final class FastqScan{
 			bstart=0;
 			bstop=residue;
 			if(r<1) {
+				//FASTQ-only deviation vs the line-based readers below: a 4-line record can be left incomplete in residue at EOF. The line formats self-complete via the missing-newline injection above, so they need no partial count here.
 				if(residue>0) {partialRecords++;}
 				break;
 			}
@@ -441,6 +445,7 @@ public final class FastqScan{
 					Vector.findSymbols(buffer, bstart, lineEnd, (byte)';', symbols.clear());
 					final int size=symbols.size;
 					if(size>=1) {
+						//Assumes the FASTG "...'; SEQ" separator includes the space: basesStartSym lands ON the space, and the -1 in the bases calc below skips it. A separator lacking the space undercounts by 1 (format-trusting; FASTG writers emit "; ").
 						int basesStartSym=symbols.get(size-1)+1;
 						int basesStopSym=lineEnd;
 						int slashr=(buffer[basesStopSym-1]=='\r') ? 1 : 0;
@@ -507,6 +512,7 @@ public final class FastqScan{
 		}
 	}
 
+	//Grows only when a single record exceeds the whole buffer; one reusable buffer + residue-slide means no per-record allocation — the "low overhead" the class javadoc claims. Crashes loud (assert) if a record exceeds MAX_ARRAY_LEN, since newlen then can't grow.
 	private void expand() {
 		long newlen=Math.min(buffer.length*2L, Shared.MAX_ARRAY_LEN);
 		assert(newlen>buffer.length) : "Record "+totalRecords+" is too long.";

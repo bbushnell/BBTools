@@ -206,6 +206,8 @@ public final class ObjectSet<T> implements Serializable {
 	 * @return true if the set did not already contain the key
 	 */
 	public boolean add(T key){
+		//three insert variants share the findCellOrEmpty probe: add (bool added), addAndReturnOld (returns prior key,
+		//overwrites), addIfAbsent (returns prior key, does NOT overwrite). All store the cached hash beside the key.
 		assert(key!=null) : "Null keys not supported";
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
@@ -357,6 +359,10 @@ public final class ObjectSet<T> implements Serializable {
 	private int findCellOrEmpty(final T key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
+		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
 		final int initial=hash & mask;
 
@@ -373,7 +379,10 @@ public final class ObjectSet<T> implements Serializable {
 
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
+		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 
 	private final void resize(final long size2){
@@ -399,14 +408,8 @@ public final class ObjectSet<T> implements Serializable {
 
 		if(size<1){return;}
 
-		// Re-insert everything. 
-		// Note: size is intentionally not reset to 0 here because strict adding logic isn't used,
-		// but since we are iterating the old array and manually placing, it's safer to not increment size 
-		// inside the loop. The size variable remains correct from before the resize.
-		
-		// Wait, we need to re-find positions because mask changed.
-		// Manual insertion to avoid size incrementing or checks:
-		
+		//Re-home every entry into the new array: mask changed, so each key gets a fresh probe start. Place key+cached
+		//hash directly (size is unchanged - we're moving keys, not adding - so no size++ and no resize re-trigger).
 		for(int i=0; i<oldK.length; i++){
 			final T k=oldK[i];
 			if(k!=null){

@@ -402,6 +402,11 @@ public class CallVariants {
 			Parser.processQuality();
 
 			maxReads=parser.maxReads;
+			samplerate=parser.samplerate;
+			sampleseed=parser.sampleseed;
+			//Subsampling forces the single-file streamer path (SamStreamerMF lacks setSampleRate);
+			//a fixed default seed keeps it reproducible and consistent across prefilter and main passes.
+			if(samplerate<1f && sampleseed==-1){sampleseed=1;}
 			overwrite=parser.overwrite;
 			append=parser.append;
 
@@ -584,7 +589,7 @@ public class CallVariants {
 		KCountArray7MTA kca=new KCountArray7MTA(precells, cbits, 2, null, minReads);
 		
 		// Choose processing method based on threading and file count
-		if(!useStreamer || !useStreamerMF || ffin.size()<2 || Shared.threads()<5 || (maxReads>=0 && maxReads<Long.MAX_VALUE)){
+		if(!useStreamer || !useStreamerMF || ffin.size()<2 || Shared.threads()<5 || (maxReads>=0 && maxReads<Long.MAX_VALUE) || samplerate<1f){
 			prefilter_SF(kca); // Single-file processing
 		}else{
 			prefilter_MF(kca); // Multi-file processing
@@ -626,11 +631,13 @@ public class CallVariants {
 			if(useStreamer){
 				cris=null;
 				ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
+				if(samplerate<1f){ss.setSampleRate(samplerate, sampleseed);}
 				ss.start();
 				if(verbose){outstream.println("Started streamer");}
 			}else{
 				ss=null;
 				cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff, null);
+				if(samplerate<1f){cris.setSampleRate(samplerate, sampleseed);}
 				cris.start(); //Start the stream
 				if(verbose){outstream.println("Started cris");}
 			}
@@ -806,7 +813,7 @@ public class CallVariants {
 		t2.start("Processing input files.");
 		
 		// Choose optimal processing strategy based on dataset characteristics
-		if(Shared.threads()>4 && useStreamer && useStreamerMF){
+		if(Shared.threads()>4 && useStreamer && useStreamerMF && samplerate>=1f){
 			processInput_MF(ffin.toArray(new FileFormat[0]), kca); // Multi-file mode for large datasets
 		}else{
 			for(FileFormat ff : ffin){
@@ -977,11 +984,13 @@ public class CallVariants {
 		if(useStreamer){
 			cris=null;
 			ss=StreamerFactory.makeSamOrBamStreamer(ff, streamerThreads, false, false, maxReads, true);
+			if(samplerate<1f){ss.setSampleRate(samplerate, sampleseed);}
 			ss.start();
 			if(verbose){outstream.println("Started streamer");}
 		}else{
 			ss=null;
 			cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff, null);
+			if(samplerate<1f){cris.setSampleRate(samplerate, sampleseed);}
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
@@ -1517,6 +1526,10 @@ public class CallVariants {
 
 	/** Maximum reads to process (-1 for unlimited) */
 	private long maxReads=-1;
+	/** Fraction of input reads to randomly keep (1=all); applied via Streamer/cris setSampleRate. */
+	private float samplerate=1f;
+	/** Subsampling RNG seed; -1 is auto-set to a fixed value when samplerate<1 for reproducibility. */
+	private long sampleseed=-1;
 	
 	/** Scaffold mapping for reference sequences */
 	public ScafMap scafMap;

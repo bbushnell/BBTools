@@ -11,8 +11,11 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Single-threaded FASTA file loader.
- * 
+ * Zero-thread (ZT) FASTA file loader: host-driven — the caller's own thread does the read+parse inline,
+ * spawning no worker thread (cf. FastaStreamerST, which spawns one ProcessThread). Selected by
+ * StreamerFactory for threads==0 / low cores / low memory. The simplest, lowest-overhead FASTA streamer;
+ * having no worker thread, it is structurally immune to the OQS-thread-death-hang class.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date November 10, 2025
@@ -264,6 +267,7 @@ public class FastaStreamerZT implements Streamer {
 		}
 
 		// Handle incomplete pair at end
+		//Comprehension [INTENTIONAL dual-mode, per Brian — NOT a bug]: the pending==null branch above (L246) populates the lone read1 of an odd interleaved file, AND this assert guards it — deliberately. Under -ea (BBTools default) the assert CRASHES LOUD on the odd/malformed input; under -da the assert is skipped and the already-added lone read SHIPS as best-effort. So it is crash-loud by default with a best-effort escape hatch (-da) for someone who REALLY wants to push corrupt data through — not dead code, not a contradiction. (Recognized codebase convention — see bbtools-bughunt skill "Codebase conventions". Shared verbatim with FastaStreamerST.)
 		assert(pending==null) : "Odd number of reads in interleaved FASTA file: "+fname;
 
 		return reads;
@@ -300,7 +304,7 @@ public class FastaStreamerZT implements Streamer {
 	/** True when file is exhausted */
 	private boolean finished=false;
 	
-	/** Header line pending for next list */
+	/** Header line carried ACROSS nextList() calls: when a list fills mid-file, the next record's '>' header is already consumed into this field, so the following call resumes accumulating that record's sequence. bb is fresh per call; this header field is what persists the cross-call parse state (the whole reason a host-driven streamer can chunk output without losing a record boundary). */
 	private byte[] header=null;
 
 	/*--------------------------------------------------------------*/

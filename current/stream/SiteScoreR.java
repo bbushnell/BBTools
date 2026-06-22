@@ -40,6 +40,7 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 	
 	@Override
 	public int compareTo(SiteScoreR other) {
+		//Antisymmetric: descending score/pairedScore (other-this), then ascending chrom/strand/start (this-other). Int-subtraction safe — score and per-chrom coords are bounded well below INT_MAX, so no overflow flips the sign.
 		int x=other.score-score;
 		if(x!=0){return x;}
 		
@@ -58,7 +59,8 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 	
 	@Override
 	public boolean equals(Object other){
-		return compareTo((SiteScoreR)other)==0;
+		//[stream/SiteScoreR#001] guard null/wrong-type → honor equals contract (false, not NPE/CCE). Twin of SiteScore#001 (FIXED). hashCode asserts-false so no hash-collection use; reachability LOW.
+		return other instanceof SiteScoreR && compareTo((SiteScoreR)other)==0;
 	}
 	
 	/**
@@ -122,6 +124,7 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 		sb.append(',');
 		sb.append(pairnum);
 		sb.append(',');
+		//2-bit field, no comma between: writes [semiperfect][perfect] as a base-2 string ("00"/"10"/"11"; "01" impossible since perfect⟹semiperfect). fromText decodes via parseInt(...,2) → perfect=bit0, semiperfect=bit1. Round-trips (verified all cases).
 		sb.append((semiperfect ? 1 : 0));
 		sb.append((perfect ? 1 : 0));
 		sb.append(',');
@@ -159,7 +162,8 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 			correct=true;
 			line[0]=line[0].substring(1);
 		}
-		int chrom=Byte.parseByte(line[0]);
+		//[stream/SiteScoreR#002] int-parse not Byte.parseByte: toText (L111) writes the full int chrom, so byte-parse throws NumberFormatException for chrom>127. Twin of SiteScore#002 (FIXED). Defensive — identical for chrom≤127, cannot regress. Reachability LOW (pacbio/var only, no .sh). Family question for Brian: is a serialized chrom ever >127?
+		int chrom=Integer.parseInt(line[0]);
 		byte strand=Byte.parseByte(line[1]);
 		int start=Integer.parseInt(line[2]);
 		int stop=Integer.parseInt(line[3]);
@@ -254,14 +258,15 @@ public final class SiteScoreR implements Comparable<SiteScoreR>{
 		private IDComparator(){}
 		
 		/**
-		 * Compares two SiteScoreR objects by genomic position.
-		 * Primary sort by chromosome, then start, stop, strand, score (descending), and perfect flag.
+		 * Compares two SiteScoreR objects by read identity first, then genomic position.
+		 * [stream/SiteScoreR#003 DOC] Primary sort is numericID, then pairnum, then chromosome, start, stop, strand, score (descending), perfect — NOT position-primary (the old javadoc mis-described it as PositionComparator's order).
 		 * @param a First SiteScoreR to compare
 		 * @param b Second SiteScoreR to compare
 		 * @return Negative, zero, or positive for a<b, a==b, or a>b respectively
 		 */
 		@Override
 		public int compare(SiteScoreR a, SiteScoreR b) {
+			//numericID is a long, compared with > not subtraction → cannot overflow (the clever-correct bit; a-b would wrap for IDs spanning >INT_MAX).
 			if(a.numericID!=b.numericID){return a.numericID>b.numericID ? 1 : -1;}
 			if(a.pairnum!=b.pairnum){return a.pairnum-b.pairnum;}
 			

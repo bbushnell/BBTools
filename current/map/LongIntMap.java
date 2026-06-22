@@ -416,10 +416,11 @@ public final class LongIntMap implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//4x growth, not 2x: keys.length==pow2+extra, so *2L overshoots 2*pow2 and resize(long) rounds up to
-		//4*pow2 (shared over-allocation with IntHashMap2 / IntLongHashMap2#002; output-correct). This 4x is also
-		//what makes pow2 skip 2^31 and land on 2^32 in the #002 mask edge case below (safe - see there).
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2; fixed (shared pow2-family
+		//over-allocation, anchor [map/IntLongHashMap2#002]). Output unchanged; ~2x less memory. With 2x growth the
+		//top operational tier is now pow2=2^31 (not 2^32) - see the mask note in resize(long) below.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -433,10 +434,12 @@ public final class LongIntMap implements Serializable {
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
 		//RESOLVED non-bug [map/LongIntMap#002] - twin of LongLongHashMap2#001 (long->int; byte-identical resize).
-		//mask reaches -1 at the 2^32 tier, but it's SAFE: findCell uses hash=Tools.hash64plus(key), CAPPED in
-		//[0, 0x7FFFF800) < SAFE_ARRAY_LEN (see hash64plus javadoc), so hash & -1 == hash is ALWAYS a valid in-range
-		//index. The HASH guarantees the range; the mask never needs capping. NOT a bug; escalation RETRACTED with
-		//LongLongHashMap2#001. (My earlier AIOOBE claim assumed the hash could be negative - it cannot.)
+		//With the 2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so
+		//mask=(int)(2^31-1)=Integer.MAX_VALUE (POSITIVE); the next resize throws before mask could reach -1. SAFE
+		//either way: findCell uses hash=Tools.hash64plus(key), CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see
+		//hash64plus javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index. The HASH guarantees the
+		//range; the mask never needs capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the hash could
+		//be negative - it cannot.)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){

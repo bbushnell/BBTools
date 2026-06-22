@@ -13,6 +13,11 @@ import structures.IntList;
 /**
  * FastqScan using FileChannel for IO.
  * Uses a large buffer and FileChannel.read() to bypass InputStream synchronization overhead.
+ * NOTE (Brian): KEPT as a deliberate negative result — this FileChannel approach proved SLOWER than the
+ * InputStream path in HPC, so it is intentionally not wired in (no caller). Its existence is the record
+ * that FileChannels are not worthwhile here; do not delete it as "dead code." Its latent divergences from
+ * FastqScan (no expand(), no trailing-\r strip, no try/finally close) are documented in
+ * bug_reports/stream/FastqScanFC.md and left unfixed since it is not a live path.
  * @author Collei
  */
 public class FastqScanFC {
@@ -34,6 +39,7 @@ public class FastqScanFC {
 	}
 	
 	void scan() throws IOException {
+		//[stream/FastqScanFC#003 LOW latent] raf/channel are closed on the happy path (L99-100) but NOT in a try/finally → leaked if scan() throws mid-loop (the @SuppressWarnings acknowledges it). Orphan class (no caller) → latent.
 		@SuppressWarnings("resource")
 		RandomAccessFile raf=new RandomAccessFile(fname, "r");
 		FileChannel channel=raf.getChannel();
@@ -74,6 +80,7 @@ public class FastqScanFC {
 				
 				// Calculate bases length if needed for stats
 				// bases = basesEnd - headerEnd - 1
+				//[stream/FastqScanFC#002 LOW latent] omits the trailing-\r strip that sibling FastqScan does (slashr1) → +1 base per record on \r\n (Windows) FASTQ. Orphan → latent.
 				int bases=newlines.get(j+1) - newlines.get(j) - 1;
 				totalBases+=bases;
 				
@@ -92,7 +99,8 @@ public class FastqScanFC {
 				// We hit EOF but have a partial record left.
 				// This usually means a truncated file or a file not ending in newline.
 				// In a scanner, we might just drop it or count it as partial.
-				break; 
+				//[stream/FastqScanFC#001 LOW latent] Doubles as the no-expand failure mode: a record > bufSize (256KB) never completes → records=0 → residue fills the buffer → next read returns 0 (no room) → this break DROPS the giant record AND the rest of the file → silent undercount on long-read (>256KB) FASTQ. Sibling FastqScan grows via expand(); this orphan variant has none.
+				break;
 			}
 		}
 		

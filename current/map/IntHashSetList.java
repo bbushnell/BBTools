@@ -15,6 +15,12 @@ import structures.IntList;
  * faster clearing when the set is sparse relative to its capacity.
  * Thread-safe for clear() operations but not for remove() operations.
  *
+ * Add/clear only: the tracking list is maintained by add() and reset by clear(), but remove() is
+ * inherited unchanged from IntHashSet and does NOT update the list -- after a remove() the list
+ * desyncs from the set, so clear() (assert size==list.size), the sparse-clear path, and verify()
+ * would fail under -ea, and toArray() would return stale (removed) elements. The sole caller
+ * (sketch/SketchIndex) uses only add/toArray/clear, so this is latent. See [map/IntHashSetList#001].
+ *
  * @author Brian Bushnell
  * @date September 13, 2017
  */
@@ -159,6 +165,9 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public void clear(){
+		//assert the list-tracking invariant first (size==list.size); holds under add-only usage and would catch a
+		//remove()-induced desync loudly HERE (-ea always on). Dense -> full super.clear(); sparse -> remove only the
+		//tracked elements (cheaper than scanning the whole backing array). list.clear() resets tracking either way.
 		assert(size()==list.size) : list.size+", "+size()+"\n"+list.toString()+"\n"+Arrays.toString(toArray())+"\n"+Arrays.toString(super.toArray())+"\n";
 		if(size()<1){return;}
 		if(size()>0.25*sizeLimit()){
@@ -174,6 +183,8 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public boolean add(int value){
+		//list-tracking invariant: list mirrors the set 1:1 under add-only usage. super.add returns true ONLY for a
+		//genuinely new value, so list never gets a duplicate (verify() checks !containsDuplicates).
 //		boolean b=super.contains(value);
 		if(super.add(value)){
 //			assert(!b);
@@ -186,6 +197,8 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public int[] toArray(){
+		//returns the tracking list (O(size)), NOT a scan of the backing array like super.toArray(). Same contents
+		//under add-only usage; would include stale (removed) elements if remove() were ever used (see #001).
 		int[] r=list.toArray();
 		return r;
 	}
@@ -196,6 +209,7 @@ public class IntHashSetList extends IntHashSet{
 	
 	@Override
 	public boolean verify(){
+		//list must mirror the set exactly: same count, no duplicates, then the base set's own probe-integrity check.
 		if(size()!=list.size){return false;}
 		if(list.containsDuplicates()){return false;}
 		return super.verify();
@@ -205,6 +219,10 @@ public class IntHashSetList extends IntHashSet{
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	//TODO: Possible bug [map/IntHashSetList#001] - the inherited remove() does NOT update this list, so any remove()
+	//desyncs list from the set (clear()/verify() then fail under -ea; toArray() returns stale elements). Latent: the
+	//sole caller sketch/SketchIndex uses add/toArray/clear only, never remove. Crash-loud fix = override remove() to
+	//throw UnsupportedOperationException; deferred to Brian (API decision on his class).
 	private IntList list;
 	
 }

@@ -282,7 +282,7 @@ public class CustomHeader {
 		int found=0;
 		for(int i=0; i<rname.length(); i++){
 			char c=rname.charAt(i);
-			if(c=='!' || c=='&' || c==' ' || c=='$' || c=='{'){found++;}
+			if(c=='!' || c=='&' || c==' ' || c=='$' || c=='{' || c=='_'){found++;}
 		}
 		if(found<1){return rname;}
 		

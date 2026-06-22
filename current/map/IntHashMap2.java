@@ -406,7 +406,10 @@ public final class IntHashMap2 implements IntHashMapInterface {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary and rounded up to 4*pow2 -> fixed to true 2x growth
+		//(shared pow2-family over-allocation, anchor [map/IntLongHashMap2#002]). Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
