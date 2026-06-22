@@ -56,14 +56,20 @@ public final class NNChooser {
 	/** The default/fallback network token, used when no registry entry matches and assertions are disabled. */
 	static final String DEFAULT_RESOURCE="?callvars_illumina_hap_dip.bbnet";
 
+	/** The Illumina polyploid (ploidy&gt;=3) network token.  Trained on synthetic tetraploid (ploidy=4) data;
+	 *  serves ploidy 3 and up, generalizing across ploidy via the inverse-ploidy dims (dim0=1/ploidy, dim32=1). */
+	static final String POLYPLOID_RESOURCE="?callvars_illumina_polyploid.bbnet";
+
 	/**
 	 * Registered networks, most-specific first (choose() returns the first match).
-	 * Today there is one: the Illumina haploid+diploid combined net, which serves
-	 * ploidy 1 (haploid, dim32=0) and ploidy 2 (diploid, dim32=1).
-	 * (Declared after DEFAULT_RESOURCE: Java initializes statics in textual order.)
+	 * Two Illumina nets covering disjoint ploidy ranges:
+	 *   - hap+dip combined net (DEFAULT_RESOURCE): ploidy 1 (haploid, dim32=0) and 2 (diploid, dim32=1).
+	 *   - polyploid net (POLYPLOID_RESOURCE): ploidy 3 and up (synthetic-tetraploid-trained).
+	 * (Declared after the *_RESOURCE tokens: Java initializes statics in textual order.)
 	 */
 	private static final NetEntry[] REGISTRY={
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 1, 2, DEFAULT_RESOURCE),
+		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 3, Integer.MAX_VALUE, POLYPLOID_RESOURCE),
 	};
 
 	/*--------------------------------------------------------------*/
@@ -104,7 +110,7 @@ public final class NNChooser {
 			+". Specify a network with net=, or run with -da to use the default ("+DEFAULT_RESOURCE+").";
 		assert false :
 			"No neural network registered for platform="+platform+" at ploidy="+ploidy
-			+" (registered nets do not cover this ploidy; tetraploid+ nets are not built yet)."
+			+" (registered nets do not cover this ploidy)."
 			+" Specify a network with net=, or run with -da to use the default ("+DEFAULT_RESOURCE+").";
 
 		return Data.findPath(DEFAULT_RESOURCE, false);

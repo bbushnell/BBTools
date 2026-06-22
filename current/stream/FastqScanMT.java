@@ -62,7 +62,7 @@ public final class FastqScanMT {
 		t.stop("Time:   \t");
 		System.out.println("Records:\t"+fqs.totalRecords);
 		System.out.println("Bases:  \t"+fqs.totalBases);
-		System.out.println("Quals:  \t"+fqs.totalBases);//TODO
+		System.out.println("Quals:  \t"+fqs.totalBases);//TODO qualsT is never incremented in scanBuffer (MT does not count quals yet) — prints totalBases as a stand-in (valid since quals==bases for FASTQ). Known-incomplete feature.
 		System.out.println("Bytes:  \t"+fqs.totalBytes);
 	}
 
@@ -71,7 +71,7 @@ public final class FastqScanMT {
 		return countReadsAndBases(ff, halveInterleaved, readThreads, zipThreads);
 	}
 
-	/** Returns molecules, reads, bases, file headers */
+	/** Returns {molecules, reads, bases, sequence headers}. For valid FASTQ #headers==#records, and '@' cannot be counted unambiguously across threads (it is a legal quality char and would double-count at chunk boundaries), so ret[3] returns the record count as an exact proxy. */
 	public static long[] countReadsAndBases(FileFormat ff, boolean halveInterleaved, int readThreads, int zipThreads) {
 		final int oldZT=BgzfSettings.READ_THREADS;
 		if(ff.compressed()) {
@@ -89,7 +89,8 @@ public final class FastqScanMT {
 			//throw new RuntimeException(e);
 			return null;
 		}finally {BgzfSettings.READ_THREADS=oldZT;}
-		long[] ret=new long[] {fqs.totalRecords/recordsPerRead, fqs.totalRecords, 
+		//[stream/FastqScanMT#002 RESOLVED - Brian] ret[3] is SEQUENCE headers (per-record '@' lines), returned as totalRecords on purpose: '@' is a legal quality char and would double-count across chunk boundaries, so #records is the unambiguous proxy — exact for any valid FASTQ; a misformatted file (records!=headers) should crash, not silently mislead. (Single-thread FastqScan's ret[3]=totalHeaders is "file headers" = 0 for fastq, a different quantity; live callers use ret[0..2].)
+		long[] ret=new long[] {fqs.totalRecords/recordsPerRead, fqs.totalRecords,
 			fqs.totalBases, fqs.totalRecords};
 		return ret;
 	}
@@ -186,7 +187,7 @@ public final class FastqScanMT {
 				// We can't identify it, so we assume it's a Sequence line if we can't prove otherwise.
 				// But 1MB without newlines is weird. Assuming sequence base count.
 				assert(false) : "Record exceeded buffer length";
-				bytesT+=len;
+				bytesT+=len;//[stream/FastqScanMT#003 latent] redundant — fillBuffer (L166) already counted these bytes; dead under -ea (assert above halts), double-counts bytesT only under -da. Trivial.
 				return;
 			}
 			
@@ -196,6 +197,8 @@ public final class FastqScanMT {
 			// Scan for @...+.  i is the index of the PREVIOUS newline.
 			// Line i starts at newlines.get(i-1)+1.
 			// We iterate through lines to find @Header (Frame 0) and +Plus (Frame 2)
+			//CORRECT despite '@'/'+' being valid quality chars: the only non-header line that can start with '@' is a QUAL line, whose line i+2 is a SEQ line — which cannot start with '+'. So "@ at i AND + at i+2" uniquely identifies a true header for valid FASTQ. (Studied praise — verified.)
+			//Deeper why (Brian): a FASTQ/FASTA header is arbitrary free text — '@', '+', any byte can appear ANYWHERE in it, not just at position 0 — so NO substring can conclusively prove "this is a complete header." Framing therefore cannot trust header CONTENT; it must anchor on STRUCTURE: the 4-line periodicity, read off the @...+ RELATIVE positions. FASTQ isn't locally parseable; you need global structure from a known anchor. That is the whole reason this stateless-chunk scan is possible.
 			for(int i=0; i<lines-2; i++){
 				final int startHeader=(i==0 ? 0 : newlines.get(i-1)+1);
 				if(buffer[startHeader]=='@'){
@@ -214,8 +217,9 @@ public final class FastqScanMT {
 				// If we are NOT at EOF, this is a very weird buffer (all sequence?), but
 				// with 1MB buffers this shouldn't happen for valid FASTQ.
 				// We will assume the last line is Frame 3.
-				frameStart=(lines-1)-3; 
+				frameStart=(lines-1)-3;
 				// frameStart might be negative, which is fine for the modulo math below.
+				//[stream/FastqScanMT#004 LOW] This "last complete line == Qual(frame 3)" fallback is CORRECT for a complete file (its final chunk ends just after the last qual\n) and for any no-@...+ chunk that still ends on a record boundary. It misframes ONLY when the last complete line is not a qual line — which for the final chunk means a TRUNCATED/incomplete FASTQ (malformed input); a >1MB single line instead crashes loud at the lines==0 assert above. So: bounded miscount on truncated input only, correct on valid complete files. Unlike ST FastqScan (which flags partialRecords), MT silently misframes a truncated tail. (Verifier-flagged, re-traced to LOW.)
 			}
 			
 			// Helper: Frame 0=Head, 1=Seq, 2=Plus, 3=Qual
@@ -227,7 +231,8 @@ public final class FastqScanMT {
 				// Distance from known header line
 				final int dist=i-frameStart;
 				// Modulo 4, handling negatives
-				final int frame=(dist & 3); 
+				//&3 is negative-safe (two's complement). Since every thread locks the same true header phase, all threads agree on each line's absolute frame → the boundary line (prev chunk's residue head + this chunk's line0) is counted consistently, no double-count or miss.
+				final int frame=(dist & 3);
 				
 				if(frame==1){ // Sequence Line
 					int lineLen=lineEnd-lineStart; // Exclude newline
@@ -248,9 +253,11 @@ public final class FastqScanMT {
 				final int frame=(dist & 3);
 				
 				if(frame==1){ // Partial Sequence Line
+					//[stream/FastqScanMT#001] strip a \r straddling the chunk boundary (split exactly at \r|\n of a seq line). The full-line path (L234) and the next chunk's line0 already strip it; this residue head did not → +1 base over-count on \r\n input at that rare alignment.
 					int lineLen=len-lineStart;
+					if(lineLen>0 && buffer[len-1]=='\r'){lineLen--;}
 					basesT+=lineLen;
-				}else if(frame==0){ 
+				}else if(frame==0){
 					// Partial Header Line. 
 					// Do NOT count record yet; it will be counted by the next thread 
 					// which sees the newline terminating this header.

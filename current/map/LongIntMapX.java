@@ -23,6 +23,13 @@ import shared.Tools;
  * - Using arrays instead of Entry objects
  * - Avoiding per-entry object overhead
  * - Better cache locality with linear probing
+ *
+ * External-hash ("X") overloads: get/contains/set/setIfNotPresent each have a variant taking a
+ * precomputed hash alongside the key, for callers (e.g. bbduk/BBDukIndexMask2) that already have it
+ * and want to skip recomputing. CONTRACT: the supplied hash MUST equal Tools.hash64plus2(key)>>>32,
+ * the exact value the no-hash methods compute internally - because remove(), resize() (re-inserts
+ * via set) and rehashCell() all use the no-hash path, so a key inserted under any other hash can
+ * become unfindable after a later resize or remove.
  * 
  * Thread-safety: Not thread-safe. External synchronization required for concurrent access.
  * 
@@ -170,8 +177,10 @@ public final class LongIntMapX implements Serializable {
 	}
 
 	/**
-	 * Gets the value associated with the given key.
+	 * Gets the value associated with the given key, using a precomputed hash.
 	 * @param key Key to look up
+	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
+	 *        become unfindable after a later resize/remove).
 	 * @return Value associated with key, or -1 if key not found
 	 */
 	public int get(long key, long hash){
@@ -180,8 +189,10 @@ public final class LongIntMapX implements Serializable {
 	}
 
 	/**
-	 * Checks if the map contains the given key.
+	 * Checks if the map contains the given key, using a precomputed hash.
 	 * @param key Key to check
+	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
+	 *        become unfindable after a later resize/remove).
 	 * @return true if key is present
 	 */
 	public boolean contains(long key, long hash){
@@ -235,6 +246,14 @@ public final class LongIntMapX implements Serializable {
 		return oldV;
 	}
 	
+	/**
+	 * Associates value with key, using a precomputed hash. Updates the value if the key exists.
+	 * @param key Key to insert/update
+	 * @param value Value to associate with key
+	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
+	 *        become unfindable after a later resize/remove).
+	 * @return Previous value, or 0 if key was not present (counting invariant: present values >=1).
+	 */
 	public int set(long key, int value, long hash){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key, hash);
@@ -248,6 +267,14 @@ public final class LongIntMapX implements Serializable {
 		return oldV;
 	}
 	
+	/**
+	 * Inserts (key,value) only if key is absent, using a precomputed hash. Does not overwrite.
+	 * @param key Key to insert
+	 * @param value Value to associate if key is absent
+	 * @param hash Precomputed Tools.hash64plus2(key)>>>32 (see class doc; MUST match or the key may
+	 *        become unfindable after a later resize/remove).
+	 * @return 1 if inserted (key was absent), 0 if key was already present.
+	 */
 	public int setIfNotPresent(long key, int value, long hash){
 		if(key==invalid){resetInvalid();}
 		final int cell=findCellOrEmpty(key, hash);
@@ -406,12 +433,11 @@ public final class LongIntMapX implements Serializable {
 	 * @return Cell index if found, -1 if not found
 	 */
 	private int findCell(final long key){
-		//TODO: Possible bug [map/LongIntMapX#004] - this internal hash (Tools.hash64plus2(key)>>>32) is THE
-		//canonical probe-start for a key. The external-hash overloads (get/set/setIfNotPresent(key,...,hash)) MUST
-		//supply this SAME value, because remove(), resize() re-insert (set(k,v)) and rehashCell() all use this
-		//no-hash path -> a key inserted under a different hash can become unfindable after a resize/remove. The one
-		//live caller (bbduk/BBDukIndexMask2) passes Tools.hash64plus2(key)>>>32, so it's consistent -> DOC gap, not
-		//an active bug; flag for Brian to document the @param hash contract.
+		//RESOLVED [map/LongIntMapX#004] - DOC, not a bug. This no-hash path computes the canonical probe-start
+		//hash=Tools.hash64plus2(key)>>>32; the external-hash overloads MUST supply that SAME value (contract now
+		//documented in the class javadoc + each overload's @param hash). remove(), resize() (re-inserts via set) and
+		//rehashCell() all use this no-hash path, so a mismatched hash makes a key unfindable after a resize/remove.
+		//The one live caller (bbduk/BBDukIndexMask2) passes Tools.hash64plus2(key)>>>32, so it is consistent.
 		final long hash=Tools.hash64plus2(key)>>>32;
 		return findCell(key, hash);
 	}
@@ -484,10 +510,11 @@ public final class LongIntMapX implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//4x growth, not 2x: keys.length==pow2+extra, so *2L overshoots 2*pow2 and resize(long) rounds up to
-		//4*pow2 (shared over-allocation with IntHashMap2 / IntLongHashMap2#002; output-correct). This 4x is also
-		//what makes pow2 skip 2^31 and land on 2^32 in the #002 mask edge case below (safe - see there).
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2; fixed (shared pow2-family
+		//over-allocation, anchor [map/IntLongHashMap2#002]). Output unchanged; ~2x less memory. With 2x growth the
+		//top operational tier is now pow2=2^31 (not 2^32) - see the mask note in resize(long) below.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -501,11 +528,13 @@ public final class LongIntMapX implements Serializable {
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
 		//RESOLVED non-bug [map/LongIntMapX#002] - same uncapped-mask shape as LongLongHashMap2#001 / LongIntMap#002.
-		//mask reaches -1 at the 2^32 tier, but it's SAFE: this class buckets on hash=Tools.hash64plus2(key)>>>32,
-		//CAPPED in [0, 0x7FFFF800] < SAFE_ARRAY_LEN (see hash64plus2 javadoc), so hash & -1 == hash is ALWAYS a valid
-		//in-range index - even though bbduk/Allocator + bbduk/BBDukIndexMask2 are real callers. The HASH guarantees
-		//the range; the mask never needs capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the
-		//post->>>32 value could be negative - it cannot; >>>32 of a capped long stays in [0, 0x7FFFF800].)
+		//With the 2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so
+		//mask=(int)(2^31-1)=Integer.MAX_VALUE (POSITIVE); the next resize throws before mask could reach -1. SAFE
+		//either way: this class buckets on hash=Tools.hash64plus2(key)>>>32, CAPPED in [0, 0x7FFFF800] < SAFE_ARRAY_LEN
+		//(see hash64plus2 javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index - even though
+		//bbduk/Allocator + bbduk/BBDukIndexMask2 are real callers. The HASH guarantees the range; the mask never needs
+		//capping. NOT a bug; escalation RETRACTED. (My AIOOBE claim assumed the post->>>32 value could be negative - it
+		//cannot; >>>32 of a capped long stays in [0, 0x7FFFF800].)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){

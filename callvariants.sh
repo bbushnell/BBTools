@@ -47,6 +47,10 @@ samstreamer=t   (ss) Load reads multithreaded to increase speed.
 streamermf=8    (ssmf) Allow multiple sam files to be read simultaneously.
                 Set ssmf=X to specify the maximum number or ssmf=f
                 to disable.
+samplerate=1.0  Randomly subsample the input to this fraction of reads
+                (e.g. 0.5 = half depth).  1.0 keeps all reads.
+sampleseed=-1   RNG seed for samplerate; -1 uses a fixed default so the
+                subsample is reproducible.
 
 Processing Parameters:
 prefilter=f     Use a Bloom filter to exclude variants seen fewer than
@@ -157,6 +161,8 @@ Neural Network Scoring:
 nn=f            (usenn) Score variants with a trained neural network rather
                 than the composite heuristic.  With nn set but no net= given,
                 a default network is chosen automatically from platform+ploidy.
+                For Illumina: ploidy 1-2 uses the hap/dip network, ploidy 3+
+                uses the polyploid network.
 net=<file>      Use this specific network (.bbnet), overriding the chooser.
 platform=illumina  Platform for automatic network selection: illumina
                 (default), pacbio, or nanopore (ont).  Only illumina networks

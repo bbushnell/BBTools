@@ -588,8 +588,17 @@ public final class BBMapThreadAcc extends AbstractMapThread{
 			
 			if(numNearPerfectScores<1){
 				scoreSlow(r.sites, basesP, basesM, maxSwScore, maxImperfectSwScore);
+			}else{
+				//Ady 2026-06-22: scoreSlow was skipped because a near-perfect site exists (the speed shortcut Acc
+				//shares with BBMapThread:548). But scoreSlow is also where score is reconciled to slowScore (@497).
+				//slowWalk2 (Acc's live walk, unlike slowWalk3) over-produces wide gapped sites; scoreNoIndels scores
+				//them terribly WITHOUT the indel (slowScore<<0) while score still holds slowWalk2's extendScore, so
+				//score!=slowScore -> trips Tools.removeLowQualitySitesUnpaired @2635/2636. The near-perfect site IS
+				//the answer here, so reconcile the others to their slowScore; the gapped competitors then fall below
+				//threshold and get culled. No-op for sites already consistent (score==slowScore from scoreNoIndels).
+				for(SiteScore ss : r.sites){ss.setScore(ss.slowScore);}
 			}
-			
+
 			if(STRICT_MAX_INDEL){
 				int removed=removeLongIndels(r.sites, index.MAX_INDEL);
 				if(r.numSites()==0){r.clearMapping();}

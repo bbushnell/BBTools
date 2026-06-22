@@ -438,10 +438,11 @@ public final class LongLongHashMap2 implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		//4x growth, not 2x: keys.length==pow2+extra, so *2L overshoots 2*pow2 and resize(long) rounds up to
-		//4*pow2 (shared over-allocation with IntHashMap2 / IntLongHashMap2#002; output-correct). This 4x is also
-		//what makes pow2 skip 2^31 and land on 2^32 in the #001 mask edge case below (safe - see there).
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2; fixed (shared pow2-family
+		//over-allocation, anchor [map/IntLongHashMap2#002]). Output unchanged; ~2x less memory. With 2x growth the
+		//top operational tier is now pow2=2^31 (not 2^32) - see the mask note in resize(long) below.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -454,13 +455,13 @@ public final class LongLongHashMap2 implements Serializable {
 
 		long size3=Long.highestOneBit(size2);
 		if(size3<size2){size3<<=1;}
-		//RESOLVED non-bug [map/LongLongHashMap2#001] - mask is taken from the UNCAPPED pow2. With 4x growth pow2
-		//skips 2^31 and reaches 2^32, so mask=(int)(2^32-1)=-1 at the top tier (the capacity-throw below does not
-		//fire). I thought mask=-1 -> initial=(int)(hash & -1)=(int)hash -> negative -> AIOOBE. WRONG: findCell uses
-		//hash=Tools.hash64plus(key), which is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see hash64plus javadoc).
-		//So hash & -1 == hash < 0x7FFFF800 is ALWAYS a valid in-range index even with mask=-1. The HASH guarantees
-		//the range; the mask never needs capping. SAFE. Verdict reached with Brian; escalation RETRACTED. (My
-		//"AIOOBE" proof was circular - I told the skeptic to assume the hash could be negative, which it cannot.)
+		//RESOLVED non-bug [map/LongLongHashMap2#001] - I claimed mask could go negative -> AIOOBE. WRONG. With the
+		//2x-growth fix the top operational tier is pow2=2^31, clamped to SAFE_ARRAY_LEN below, so mask=(int)(2^31-1)=
+		//Integer.MAX_VALUE (POSITIVE); the next resize throws (crash-loud) before mask could ever reach -1. Either way
+		//it is SAFE: findCell uses hash=Tools.hash64plus(key), CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN (see
+		//hash64plus javadoc), so (int)(hash & mask) == hash is ALWAYS a valid in-range index for ANY mask. The HASH
+		//guarantees the range; the mask never needs capping. Verdict reached with Brian; escalation RETRACTED. (My
+		//"AIOOBE" proof was circular - I seeded the skeptic with the false premise that the hash could be negative.)
 		mask=(int)(size3-1);
 		size3=Math.min(size3+extra, Shared.SAFE_ARRAY_LEN);
 		if((keys!=null && size3<=keys.length) || size3>Shared.SAFE_ARRAY_LEN){

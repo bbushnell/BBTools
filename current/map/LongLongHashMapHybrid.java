@@ -360,23 +360,21 @@ public final class LongLongHashMapHybrid{
 	}
 	
 	public long[] toArray(long thresh){
-		//SEE #002: the asserts below assume the counting invariant (value==0 iff empty, key>=0) -> they false-fail
-		//on multi-value codes / value-0 singles / negative keys. Dev/threshold helper; 0 callers of this class.
+		//FIXED [map/LongLongHashMapHybrid#002] - returns the OCCUPIED keys whose (single) value>=thresh. Previously
+		//asserted the counting invariant (value==0 iff empty, key>=0), which false-failed on this Hybrid's value-0
+		//singles, multi-value codes, and negative keys. Now asserts only the real invariant (empty cell => value 0)
+		//and guards on keys[i]!=invalid so an empty cell is never emitted (the old code could emit the sentinel for
+		//thresh<=0). Multi-value keys carry a negative code, so they are naturally excluded for any thresh>=0.
 		int len=0;
 //		assert(verify());
 		for(int i=0; i<values.length; i++){
-			assert((values[i]==0)==(keys[i]==invalid)) : i+", "+values[i]+", "+keys[i]+", "+invalid+"\n"+toStringSetView();
-			assert((keys[i]<0)==((keys[i]==invalid))) : toStringSetView();
-			if(values[i]>=thresh){
-				assert(keys[i]>=0) : "\nNegative key ("+keys[i]+", "+values[i]+", "+i+") for thresh "+thresh+":\n"+toStringSetView();
-				len++;
-			}
+			assert(keys[i]!=invalid || values[i]==0) : i+", "+values[i]+", "+keys[i]+", "+invalid+"\n"+toStringSetView();
+			if(keys[i]!=invalid && values[i]>=thresh){len++;}
 		}
 		long[] x=KillSwitch.allocLong1D(len);
 		for(int i=0, j=0; j<len; i++){
-			if(values[i]>=thresh){
+			if(keys[i]!=invalid && values[i]>=thresh){
 				x[j]=keys[i];
-				assert(keys[i]>=0) : "\nNegative key ("+keys[i]+", "+values[i]+", "+i+") for thresh "+thresh+":\n"+toStringSetView();
 				j++;
 			}
 		}
@@ -388,13 +386,13 @@ public final class LongLongHashMapHybrid{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
-		//TODO: Possible bug [map/LongLongHashMapHybrid#002] - verify() (and toArray(thresh) below) carry the
-		//COUNTING-map invariant copied from LongLongHashMap: present=>value>=1, value==0 iff empty, key>=0. That
-		//does NOT hold for this Hybrid: multi-value keys store NEGATIVE codes (value<=-2 -> the value<1 check
-		//below falsely fails), single values may be 0 (put allows >=0), and keys may be negative. So verify() on
-		//any map holding a multi-value key (or a value-0/negative key) falsely returns false. Dev-only (all //123
-		//callers commented; 0 live callers) -> LOW; for Brian to extend it or mark it single-value-only. The live
-		//get/put/contains/remove paths are correct -- empty-detection is KEY-based (keys[cell]==invalid), not value-based.
+		//FIXED [map/LongLongHashMapHybrid#002] - verify() previously carried the COUNTING-map invariant copied from
+		//LongLongHashMap (present=>value>=1, value==0 iff empty, key>=0), which is FALSE for this Hybrid: single
+		//values may be 0 (put allows >=0), multi-value keys store a NEGATIVE code (<=-OFFSET), and keys may be any
+		//long (incl. negative). It now checks the Hybrid's REAL invariants: empty cell (key==invalid) => value==0;
+		//occupied cell => value is a single (>=0) OR a valid multi-value code (decodes to a live multivalues[] entry);
+		//and each key is findable at its own cell. The same counting-invariant bug was fixed in toArray(thresh) above.
+		//Dev/test checker (assert(verify()) pattern; the //123 call sites are commented out) but correct when invoked.
 		if(keys==null){return true;}
 		int numValues=0;
 		int numFound=0;
@@ -409,9 +407,14 @@ public final class LongLongHashMapHybrid{
 				}
 			}else{
 				numValues++;
-				if(value<1){
-					assert(false) : i+", "+key+", "+value;
-					return false;
+				//occupied: single value>=0, OR a multi-value code (<=-OFFSET) decoding to a live multivalues[] entry.
+				//-1=NOTPRESENT is never a stored value (its code would decode to idx=-1, caught below).
+				if(value<0){
+					final int idx=(int)(-value-OFFSET);
+					if(idx<0 || idx>=multivalues.size() || multivalues.get(idx)==null){
+						assert(false) : i+", "+key+", "+value+", idx="+idx+", lists="+multivalues.size();
+						return false;
+					}
 				}
 				final int cell=findCell(key);
 				if(i==cell){

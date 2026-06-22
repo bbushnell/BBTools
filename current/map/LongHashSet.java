@@ -241,11 +241,17 @@ public final class LongHashSet{
 	}
 	
 	public long[] toArray(){
-		long[] x=new long[array.length];
+		//FIXED [map/LongHashSet#001]: was `new long[array.length]` copying EVERY cell incl. the invalid sentinels
+		//(returned a capacity-length array of garbage, not the set's elements) — a lone divergence from the IntHashSet
+		//twin. Now sizes to `size` and filters out invalid cells, matching IntHashSet.toArray + the rest of the family.
+		//Latent LOW: 0 callers of LongHashSet.toArray() in current/ (verified by grep), so output-neutral for live code.
+		long[] x=new long[size];
 		int i=0;
 		for(long v : array){
-			x[i]=v;
-			i++;
+			if(v!=invalid){
+				x[i]=v;
+				i++;
+			}
 		}
 		return x;
 	}
@@ -255,6 +261,8 @@ public final class LongHashSet{
 	/*--------------------------------------------------------------*/
 	
 	public boolean verify(){
+		//uses findCell(value) by VALUE -> CORRECT (this is the file that confirmed IntHashSet#001's findCell(i) slip).
+		//repOK-style dev checker: every present value is findable at its own cell, and the counts agree.
 		int numValues=0;
 		int numFound=0;
 		for(int i=0; i<array.length; i++){
@@ -344,6 +352,8 @@ public final class LongHashSet{
 	
 	private final void resize(){
 		assert(size>=sizeLimit);
+		//PRIME sizing (Primes.primeAtLeast) -> clean ~2x growth; NOT the pow2 keys.length*2L that gave ObjectSet and
+		//the pow2 maps their 4x over-allocation. Core machinery (findCell/add/remove/rehash) is the IntHashSet twin.
 		resize(array.length*2L+1);
 	}
 	
@@ -375,6 +385,10 @@ public final class LongHashSet{
 	}
 
 	public final void resizeDestructive(int newSize){
+		//TODO: Possible bug [map/LongHashSet#002] - does NOT reset `modulus`, so resize()'s assert(newPrime>modulus)
+		//fires (crash under -ea) if newSize implies a prime <= the current modulus (a destructive SHRINK); only grows
+		//safely. DEAD (0 callers) -> latent LOW. Fix would be `modulus=0;` here (fresh-init semantics); deferred to
+		//Brian (dead code + intent: should destructive resize support shrinking?).
 		size=0;
 		sizeLimit=0;
 		array=null;
