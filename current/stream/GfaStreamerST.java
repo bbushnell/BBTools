@@ -128,7 +128,7 @@ public class GfaStreamerST implements Streamer {
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
-				errorState=!thread.success;
+				errorState|=!thread.success;//errorState-fold-clobber [family sweep 2026-06-22, same as stream/FastaStreamerST#004]: |= not =, else a plain '=' OVERWRITES the worker's reader-fold (errorState|=bf.close() on truncated input parsed to EOF→success=true) → truncation silently dropped. Crash-loud-on-truncation restored.
 				outputQueue.add(list);//Re-inject
 				return null;
 			}

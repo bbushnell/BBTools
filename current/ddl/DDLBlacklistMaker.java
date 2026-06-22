@@ -182,7 +182,7 @@ public class DDLBlacklistMaker {
 		final TaxTree tree=TaxTree.sharedTree();
 		final String[] inFiles=in.split(",");
 
-		final LongObjectMap<IntHashSet> kmerGenera=new LongObjectMap<IntHashSet>();
+		final LongObjectMap<IntHashSet> kmerGenera=new LongObjectMap<IntHashSet>(IntHashSet.class);
 		long totalRecords=0, totalWithKmers=0;
 		int skippedTids=0;
 

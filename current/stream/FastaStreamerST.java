@@ -12,8 +12,13 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Single-threaded FASTA file loader with simple buffering.
- * 
+ * Single-thread (ST) FASTA file loader: spawns exactly ONE worker ProcessThread that reads+parses the whole file
+ * and hands ListNum&lt;Read&gt; chunks to the consumer over a bounded ArrayBlockingQueue (QUEUE_SIZE=2) — cf.
+ * FastaStreamerZT, which is host-driven and spawns no worker. Selected by StreamerFactory for threads==1 / cores&lt;8
+ * on fasta input (not the SIMD path). The worker's run() pushes its terminal list in a FINALLY, so a worker-thread
+ * death — including an AssertionError from the odd-interleaved assert, which catch(Exception) does not catch — still
+ * delivers a terminal to the consumer: structurally immune to the OQS-thread-death-hang class despite having a worker.
+ *
  * @author Brian Bushnell
  * @contributor Isla
  * @date November 12, 2025
@@ -67,7 +72,7 @@ public class FastaStreamerST implements Streamer {
 
 	@Override
 	public void close(){
-		if(bf!=null) {bf.close(); bf=null;}
+		if(bf!=null) {errorState|=bf.close(); bf=null;}//Fold the reader's error state (matches ZT + the reader-fold family); only bites if the worker threw before its own close, leaving the field bf open
 	}
 
 	@Override
@@ -95,6 +100,8 @@ public class FastaStreamerST implements Streamer {
 
 	@Override
 	public void setSampleRate(float rate, long seed){
+		//[stream/FastaStreamerST#001] Crash-loud guard (Brian 2026-06-22): fractional sampling of INTERLEAVED FASTA desyncs read pairs (the start-read1 roll has no file-parity guard). Unsupported weird corner — best-effort only. Under -ea (default) crash loud with the workaround; under -da the determined user gets silent best-effort. No hot-loop parity fix for a path nobody uses; crash-don't-corrupt.
+		assert(!(interleaved && rate<1f)) : "Fractional sampling of interleaved FASTA is unsupported (read pairs would desync). Workaround: convert to FASTQ, subsample, then convert back to FASTA. ["+fname+"]";
 		samplerate=rate;
 		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
 	}
@@ -112,7 +119,7 @@ public class FastaStreamerST implements Streamer {
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
-				errorState=!thread.success;
+				errorState|=!thread.success;//[stream/FastaStreamerST#004] |= not =: a plain '=' OVERWRITES the worker's reader-error fold (errorState|=bf.close() fires on truncated/corrupt input that still parsed to completion → success=true), silently dropping the truncation signal and defeating the 2b reader-fold. OR-ing keeps BOTH the reader fold and a worker-thread failure.
 				outputQueue.add(list);//Re-inject
 				return null;
 			}
@@ -153,6 +160,7 @@ public class FastaStreamerST implements Streamer {
 				e.printStackTrace();
 				errorState=true;
 			}finally{
+				//COMPREHENSION [OQS-death-safe — the headline]: this terminal push is in a FINALLY, not the catch — it runs on EVERY exit, including an AssertionError from the odd-interleaved assert in processInterleaved (an Error, which catch(Exception) above does NOT catch). So whatever kills the worker, the consumer's outputQueue.take() in nextList() always gets this terminal and reads errorState=!success → a worker death CANNOT strand the consumer. The structurally-correct OQS-death-hang fix, via a bounded queue.
 				// Send terminal list
 				try{
 					ListNum<Read> terminal=new ListNum<Read>(null, -1, ListNum.LAST);
@@ -224,14 +232,14 @@ public class FastaStreamerST implements Streamer {
 			if(ln.size()>0){
 				outputQueue.put(ln);
 			}
-			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
+			errorState|=bf.close(); bf=null;//Fold the reader's error state, then null the field so a later close() can't double-close (close() then no-ops cleanly)
 			if(verbose){outstream.println("Finished processSingle.");}
 		}
 
 		void processInterleaved() throws InterruptedException{
 			if(verbose){outstream.println("Started processInterleaved.");}
 
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			bf=ByteFile.makeByteFile(ffin);//Use the bf FIELD (not a local) so close() can reach it on the -ea odd-interleaved crash path (the assert below throws before this method's own close); matches processSingle
 
 			long listNumber=0;
 			long readID=0;
@@ -289,6 +297,8 @@ public class FastaStreamerST implements Streamer {
 							}
 						}
 					}else{
+						//TODO: Possible bug [stream/FastaStreamerST#001] - interleaved+sampling pair desync (LOW; shared with FastaStreamerZT; FLOAT: is interleaved-FASTA fractional sampling an intended workflow?)
+						//COMPREHENSION [the deviation]: this start-read1 roll has NO file-parity guard. Under sampling (samplerate<1), if a pair's read1 is rejected (header stays null) and THIS branch then accepts the very next '>' — that pair's read2 — read2 is labeled read1 (pending, pairnum 0) and mate-paired with the NEXT pair's read1; mate-links+pairnums desync for the rest of the file. Under samplerate>=1f (common case) header is always set, strict read1/read2 alternation holds → no desync. `pending` tracks mid-pair but NOT file parity.
 						// Not currently building - decide whether to start
 						header=(samplerate>=1f || randy.nextFloat()<samplerate) ? line : null;
 						bb.clear();
@@ -324,12 +334,13 @@ public class FastaStreamerST implements Streamer {
 			}
 
 			// Handle incomplete pair at end
+			//COMPREHENSION [INTENTIONAL dual-mode, per Brian — NOT a bug; same pattern as FastaStreamerZT]: the EOF block above populates the lone read1 of an odd interleaved file AND this assert guards it, deliberately. Under -ea (default) it CRASHES LOUD; under -da it is skipped and the lone read ships best-effort. ST-vs-ZT wrinkle: here it runs on the WORKER thread, so the AssertionError (an Error) escapes catch(Exception) in run() — but run()'s FINALLY still delivers the terminal, so the consumer ends clean (errorState=true), not stranded.
 			assert(pending==null) : "Odd number of reads in interleaved FASTA file: "+fname;
 
 			if(ln.size()>0){
 				outputQueue.put(ln);
 			}
-			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
+			errorState|=bf.close(); bf=null;//Fold the reader's error state, then null the field so a later close() can't double-close (close() then no-ops cleanly)
 			if(verbose){outstream.println("Finished processInterleaved.");}
 		}
 

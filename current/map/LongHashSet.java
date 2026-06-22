@@ -384,13 +384,19 @@ public final class LongHashSet{
 		}
 	}
 
+	/**
+	 * Discards all contents and reallocates the table sized for newSize elements. Unlike clear() (which keeps the
+	 * array and just refills it with the sentinel), this REPLACES the backing array, so it can grow OR shrink the
+	 * capacity -- at the cost of losing every element. Intended for reusing a set object at a different size, e.g.
+	 * pull the elements out, sort/filter them, then refill into a right-sized table.
+	 * @param newSize Target capacity (rounded up to the next prime; may be larger or smaller than the current size)
+	 */
 	public final void resizeDestructive(int newSize){
-		//TODO: Possible bug [map/LongHashSet#002] - does NOT reset `modulus`, so resize()'s assert(newPrime>modulus)
-		//fires (crash under -ea) if newSize implies a prime <= the current modulus (a destructive SHRINK); only grows
-		//safely. DEAD (0 callers) -> latent LOW. Fix would be `modulus=0;` here (fresh-init semantics); deferred to
-		//Brian (dead code + intent: should destructive resize support shrinking?).
+		//FIXED [map/LongHashSet#002]: reset modulus to 0 so resize()'s assert(newPrime>modulus) holds for a SHRINK
+		//too (it previously kept the old modulus -> a destructive shrink crashed under -ea). Now grows or shrinks.
 		size=0;
 		sizeLimit=0;
+		modulus=0;
 		array=null;
 		resize(newSize);
 	}

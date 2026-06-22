@@ -45,7 +45,7 @@ public class SamToBamConverter implements Cloneable {
 
 	public SamToBamConverter(String[] refNames){
 		//Build reference name to ID map
-		refMap=new ObjectIntMap<String>(512);
+		refMap=new ObjectIntMap<String>(512, String.class);
 		for(int i=0; i<refNames.length; i++){
 			refMap.put(refNames[i], i);
 		}

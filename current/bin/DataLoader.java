@@ -502,7 +502,7 @@ public class DataLoader extends BinObject {
 	
 	static ObjectIntMap<String> loadMapFromFasta(String fname, int minSize){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, true, false);
-		ObjectIntMap<String> map=new ObjectIntMap<String>();
+		ObjectIntMap<String> map=new ObjectIntMap<String>(String.class);
 		Streamer st=StreamerFactory.makeStreamer(ff, null, true, -1);
 		st.start();
 		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
@@ -522,7 +522,7 @@ public class DataLoader extends BinObject {
 	
 	static ObjectSet<String> loadSetFromFasta(String fname, int minSize){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, true, false);
-		ObjectSet<String> set=new ObjectSet<String>();
+		ObjectSet<String> set=new ObjectSet<String>(String.class);
 		Streamer st=StreamerFactory.makeStreamer(ff, null, true, -1);
 		st.start();
 		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
@@ -1242,7 +1242,7 @@ public class DataLoader extends BinObject {
 		final int samples=numDepths;
 		int loaded=0;
 		
-		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>();
+		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>(String.class);
 		for(; line!=null; line=bf.nextLine()) {
 			lp.set(line);
 			String name=lp.parseString(0);

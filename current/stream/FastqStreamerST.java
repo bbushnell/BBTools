@@ -133,7 +133,7 @@ public class FastqStreamerST implements Streamer {
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
-				errorState=!thread.success;
+				errorState|=!thread.success;//errorState-fold-clobber [family sweep 2026-06-22, same as stream/FastaStreamerST#004; this streamer is commented-out of StreamerFactory dispatch = latent LOW]: |= not =, else a plain '=' OVERWRITES the worker's reader-fold (errorState|=bf.close() on truncated input parsed to EOF→success=true) → truncation silently dropped.
 				outputQueue.add(list);//Re-inject
 				return null;
 			}

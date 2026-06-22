@@ -264,8 +264,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		readstats=ReadStats.collectingStats() ? new ReadStats() : null;
 
 		if(uniqueNames){
-			nameMap1=new ObjectIntMap<String>();
-			nameMap2=new ObjectIntMap<String>();
+			nameMap1=new ObjectIntMap<String>(String.class);
+			nameMap2=new ObjectIntMap<String>(String.class);
 		}
 	}
 

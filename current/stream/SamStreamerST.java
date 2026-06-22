@@ -62,7 +62,8 @@ public class SamStreamerST implements Streamer {
 
 	@Override
 	public synchronized void close(){
-		//TODO: Unimplemented
+		//[SamStreamerST#001] implemented (was an empty TODO): close+fold the reader so a worker-exception path — which skips the worker's own bf.close() — doesn't leak the handle. On the normal path the worker nulls bf, so this is a clean no-op then. Same field-based close as FastaStreamerST.
+		if(bf!=null){errorState|=bf.close(); bf=null;}
 	}
 	
 	@Override
@@ -108,7 +109,7 @@ public class SamStreamerST implements Streamer {
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
-				errorState=!thread.success;
+				errorState|=!thread.success;//errorState-fold-clobber [family sweep 2026-06-22, same as stream/FastaStreamerST#004]: |= not =, else a plain '=' OVERWRITES the worker's reader-fold (errorState|=bf.close() on truncated input parsed to EOF→success=true) → truncation silently dropped. Crash-loud-on-truncation restored.
 				outq.add(list);//Re-inject
 				return null;
 			}
@@ -155,6 +156,7 @@ public class SamStreamerST implements Streamer {
 				e.printStackTrace();
 				errorState=true;
 			}finally{
+				//COMPREHENSION [OQS-death-safe, same pattern as FastaStreamerST]: terminal pushed in the FINALLY → delivered on EVERY worker exit (incl. an Error that catch(Exception) misses) → the consumer's outq.take() in nextLines never strands; errorState|=!success there reads the worker's outcome.
 				// Send terminal list
 				try{
 					ListNum<SamLine> terminal=new ListNum<SamLine>(null, -1, false, true);
@@ -170,8 +172,8 @@ public class SamStreamerST implements Streamer {
 		void processFileDirectly() throws InterruptedException{
 			if(verbose){outstream.println("Started processFileDirectly.");}
 			
-			ByteFile.FORCE_MODE_BF2=true;
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			ByteFile.FORCE_MODE_BF2=true;//[SamStreamerST#003 QUESTION — FLOAT to Brian] permanent JVM-wide global mutation: forces BF2 mode for EVERY ByteFile created afterward and never resets. Presumably the intended perf default for SAM streaming, but it's a side-effect on unrelated readers. Intended?
+			bf=ByteFile.makeByteFile(ffin);//[SamStreamerST#001] use the bf FIELD (not a local) so the implemented close() can reach it on the worker-exception path; matches FastaStreamerST#002
 			
 			final LineParser1 lp=new LineParser1('\t');
 			long listNumber=0;
@@ -182,6 +184,7 @@ public class SamStreamerST implements Streamer {
 			ListNum<SamLine> ln=new ListNum<SamLine>(new ArrayList<SamLine>(slimit), listNumber++);
 			
 			for(byte[] line=bf.nextLine(); line!=null && readID<maxReads; line=bf.nextLine()){
+				if(line.length==0){continue;}//[SamStreamerST#002] skip blank lines: SAM has none, but ByteFile can return a length-0 line (concat / hand-edit artifact) → line[0] below would AIOOBE on the worker thread. The canonical FastaStreamerST guards length too.
 				if(line[0]=='@'){
 					// Handle header
 					if(header!=null) { 
@@ -232,7 +235,7 @@ public class SamStreamerST implements Streamer {
 				outq.put(ln);
 			}
 			
-			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
+			errorState|=bf.close(); bf=null;//Fold the reader's error state, then null the field so the external close() can't double-close (matches FastaStreamerST)
 			if(verbose){outstream.println("Finished processFileDirectly.");}
 		}
 
@@ -256,6 +259,8 @@ public class SamStreamerST implements Streamer {
 	
 	final ArrayBlockingQueue<ListNum<SamLine>> outq;
 	private ProcessThread thread;
+	/** Input source — a FIELD so close() can reach it on the worker-exception path (#001) */
+	private ByteFile bf;
 	private boolean finished=false;
 	
 	final boolean saveHeader;

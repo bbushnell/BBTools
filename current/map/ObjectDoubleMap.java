@@ -1,6 +1,7 @@
 package map;
 
 import java.io.Serializable;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -40,27 +41,34 @@ public final class ObjectDoubleMap<K> implements Serializable {
 
 	/**
 	 * Creates a new map with default initial capacity (256) and load factor (0.7).
+	 * @param type Component class of the keys (e.g. String.class, byte[].class) — used to allocate a real K[] backing
+	 *        array via reflection so keys() returns a genuine typed array (a plain Object[] backing CCEs at the call
+	 *        site under a concrete K). Pass a class literal; it is a cheap cached constant. [map/ObjectDoubleMap#002]
 	 */
-	public ObjectDoubleMap(){
-		this(256);
+	public ObjectDoubleMap(Class<K> type){
+		this(256, type);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and default load factor (0.7).
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
+	 * @param type Component class of the keys (see {@link #ObjectDoubleMap(Class)}).
 	 */
-	public ObjectDoubleMap(int initialSize){
-		this(initialSize, 0.7f);
+	public ObjectDoubleMap(int initialSize, Class<K> type){
+		this(initialSize, 0.7f, type);
 	}
 
 	/**
 	 * Creates a new map with specified initial capacity and load factor.
 	 * @param initialSize Initial capacity (will be rounded up to next power of 2)
 	 * @param loadFactor Load factor (0.25-0.90) - map resizes when size exceeds capacity*loadFactor
+	 * @param type Component class of the keys (see {@link #ObjectDoubleMap(Class)}).
 	 */
-	public ObjectDoubleMap(int initialSize, float loadFactor_){
+	public ObjectDoubleMap(int initialSize, float loadFactor_, Class<K> type){
 		assert(initialSize>0) : "Initial size must be positive";
 		assert(loadFactor_>0 && loadFactor_<1) : "Load factor must be between 0 and 1";
+		assert(type!=null) : "Component type must be provided (e.g. String.class) to allocate a typed backing array";
+		this.type=type;
 		loadFactor=Tools.mid(0.25f, loadFactor_, 0.90f);
 		resize(initialSize);
 	}
@@ -328,6 +336,10 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	private int findCellOrEmpty(final K key, final int hash){
 		assert(key!=null) : "Null keys not supported";
 
+		//CLEVER [verified]: hashes[] caches each key's hash so the probe compares cheap ints first
+		//(hashes[cell]==hash) and only calls equals() on a hash match. initial=hash & mask is in range for ANY mask:
+		//hash=Tools.hash32plus(...) is CAPPED in [0, 0x7FFFF800) < SAFE_ARRAY_LEN, so even at the top tier
+		//(mask=Integer.MAX_VALUE after the 2x-growth fix) hash & mask == hash is a valid index (see hash32plus javadoc).
 		final int limit=keys.length;
 		final int initial=hash & mask;
 
@@ -347,7 +359,10 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	 */
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary -> rounded up to 4*pow2 (same family bug as the pow2 maps,
+		//anchor [map/IntLongHashMap2#002]); fixed to true 2x growth. Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 
 	/**
@@ -372,8 +387,11 @@ public final class ObjectDoubleMap<K> implements Serializable {
 		final K[] oldK=keys;
 		final double[] oldV=values;
 		final int[] oldH=hashes;
+		//Option A [map/ObjectDoubleMap#002]: allocate a REAL K[] via reflection from the stored component type, so the
+		//backing array's runtime type is genuinely K[] (e.g. String[], byte[][]) and keys() returns a usable typed
+		//array instead of an Object[] that CCEs at the call site. `type` is a cheap cached class literal.
 		@SuppressWarnings("unchecked")
-		K[] temp=(K[])new Object[(int)size3];
+		K[] temp=(K[])Array.newInstance(type, (int)size3);
 		keys=temp;
 		values=KillSwitch.allocDouble1D((int)size3);
 		Arrays.fill(values, -1);
@@ -415,11 +433,14 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Returns the internal key array.
-	 * WARNING: Contains null entries for empty cells. Use with caution.
-	 * @return Internal key array
+	 * Returns the internal key array (the live backing array; null entries mark empty cells).
+	 * This is a GENUINE K[] (e.g. String[], byte[][]) because the backing is allocated via Array.newInstance(type,...)
+	 * from the component class passed to the constructor [map/ObjectDoubleMap#002] — so it can be used directly (assigned
+	 * to K[], iterated, .length) without the ClassCastException a plain Object[] backing would cause at the call site.
+	 * WARNING: live array, contains nulls for empty cells. Use with caution.
+	 * @return Internal key array (a real K[])
 	 */
-	public Object[] keys(){return keys;}
+	public K[] keys(){return keys;}
 
 	/**
 	 * Returns the internal value array.
@@ -458,6 +479,8 @@ public final class ObjectDoubleMap<K> implements Serializable {
 	private int sizeLimit;
 	/** Load factor (fraction of capacity before resize) */
 	private final float loadFactor;
+	/** Component class of K, for allocating a real K[] backing via reflection (Array.newInstance). [map/ObjectDoubleMap#002] */
+	private final Class<K> type;
 
 	/** Extra space beyond power-of-2 size to reduce wrap-around collisions */
 	private static final int extra=10;
