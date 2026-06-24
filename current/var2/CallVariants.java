@@ -394,7 +394,14 @@ public class CallVariants {
 		if(ploidy<1){System.err.println("WARNING: ploidy not set; assuming ploidy=1."); ploidy=1;}
 		samFilter.setSamtoolsFilter();
 
-		// Configure streaming thread count within reasonable bounds
+		// Configure streaming thread count within reasonable bounds.
+		// streamerThreads<1 is the "auto" sentinel; expand it to min(10, 1+threads/3) instead of
+		// flooring to 1.  Flooring collapsed the sentinel before StreamerFactory could expand it,
+		// which dropped the SAM/BAM feed to a single reader thread and serialized input (regression
+		// a751c4fd).  The streamer (BAM->SamLine conversion) saturates the downstream ProcessThreads
+		// well before it needs many threads itself; empirically this feed plateaus by ~ss=12, so the
+		// 1+threads/3 ramp capped at 10 is plenty without starving the workers of cores.
+		if(streamerThreads<1){streamerThreads=Tools.min(10, 1+Shared.threads()/3);}
 		streamerThreads=Tools.max(1, Tools.min(streamerThreads, Shared.threads()));
 		assert(streamerThreads>0) : streamerThreads;
 
