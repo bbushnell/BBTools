@@ -213,9 +213,14 @@ public class StreamerFactory {
 			}
 			
 		}else if(ff.bam() && ReadWrite.nativeBamIn()){
+			//A native SAM/BAM input with saveHeader will call setSharedHeader from its worker thread; flag it
+			//now (synchronously, on this thread) so getSharedHeader(true) blocks for it rather than racing to
+			//null via the #002 gate.  Fixes var2/ScafMap.loadSamHeader race. See SamReadInputStream.markSamInputPresent.
+			if(saveHeader){SamReadInputStream.markSamInputPresent();}
 			return new BamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);
-			
+
 		}else if(ff.samOrBam()){
+			if(saveHeader){SamReadInputStream.markSamInputPresent();}
 			threads=(threads<0 ? SamStreamer.DEFAULT_THREADS : threads);
 			if(Shared.threads()>=4 && threads>1) {
 				return new SamStreamer(ff, threads, saveHeader, ordered, maxReads, makeReads);

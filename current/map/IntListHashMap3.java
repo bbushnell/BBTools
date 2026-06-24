@@ -115,6 +115,9 @@ public final class IntListHashMap3 implements Serializable {
 		return true;
 	}
 	
+	/** After a removal blanks one cell, re-probe the rest of that cluster so no key is stranded behind
+	 * the new gap (identical algorithm to IntListHashMap; verified: rehashCell only moves keys backward
+	 * to dest<=cell, the just-vacated cell is never misread as the stop sentinel). */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -144,6 +147,9 @@ public final class IntListHashMap3 implements Serializable {
 		return true;
 	}
 	
+	//CLEVER [verified]: keys may be any int, so a real key can equal the negative sentinel; on that
+	//insert this regenerates the sentinel and rewrites every old marker, keeping "empty" distinct from
+	//data without reserving a key value (same trick as IntHashSet / the IntListHashMap twin).
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -155,9 +161,11 @@ public final class IntListHashMap3 implements Serializable {
 		}
 	}
 	
-	/** * Returns a positive number below Java max array length.
-	 * Thomas Wang / Bob Jenkins integer hash mixer, adapted for Java.
-	 */
+	/** Thomas Wang / Bob Jenkins integer hash mixer, adapted for Java.
+	 * @return a non-negative int strictly below 0x7FFFF800 (&lt; Shared.SAFE_ARRAY_LEN).
+	 * CLEVER [verified]: the final ternary folds the top range [0x7FFFF800, 0x7FFFFFFF] back down via
+	 * (key-0x7FFFF800)*64, so the output is always a safe array index -> hash(key)&mask is in range for
+	 * ANY mask, even mask=-1 (same capped-hash guarantee as Tools.hash32plus; mask never needs capping). */
 	private static final int hash(int key){
 		key=~key+(key<<15);
 		key=key^(key>>>12);
@@ -169,10 +177,13 @@ public final class IntListHashMap3 implements Serializable {
 		return key<0x7FFFF800 ? key : (key-0x7FFFF800)*64;
 	}
 
+	/** Probe for an existing key; -1 if absent (or if key==the current invalid sentinel).
+	 * initial=hash(key)&mask is IDENTICAL to findCellOrEmpty's, so a key placed on insert is always
+	 * found here (probe-consistency verified). Stops at the first invalid cell (open-addressing). */
 	int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int limit=keys.length;
-		
+
 		// Use mask for fast modulo (Power of 2)
 		final int initial=hash(key) & mask;
 		
@@ -189,6 +200,8 @@ public final class IntListHashMap3 implements Serializable {
 		return -1;
 	}
 	
+	//CLEVER [verified]: initial=hash(key)&mask, byte-identical to findCell's. The two MUST agree or an
+	//inserted key becomes unfindable; they do. Returns key's cell or the first empty cell.
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int limit=keys.length;
@@ -209,7 +222,12 @@ public final class IntListHashMap3 implements Serializable {
 	
 	private final void resize(){
 		assert(size>=sizeLimit);
-		resize(keys.length*2L);
+		//grow 2x: double the LOGICAL pow2 capacity (keys.length-extra==pow2), not keys.length (=pow2+extra).
+		//keys.length*2L overshot the power-of-2 boundary: highestOneBit(2*pow2+20)=2*pow2, then the
+		//size3<size2 round-up doubled AGAIN -> 4*pow2. Fixed to true 2x growth.
+		//TODO: Possible bug [map/IntListHashMap3#001] - shared pow2-family over-allocation, anchor
+		//[map/IntLongHashMap2#002] (Brian-greenlit family fix). Output unchanged; ~2x less memory.
+		resize((keys.length-extra)*2L);
 	}
 	
 	private final void resize(final long size2){
@@ -239,10 +257,14 @@ public final class IntListHashMap3 implements Serializable {
 		}
 	}
 	
+	/** Valid keys only, no sentinels (snapshot of keyList). Use this, not keys(), to iterate keys. */
 	public int[] toArray(){return keyList.toArray();}
-	
+
+	/** Raw backing array - contains the invalid() sentinel in empty cells. Callers must filter on
+	 * invalid() (or use toArray()); index alignment with values() is internal. No caller reads this today. */
 	public int[] keys(){return keys;}
-	
+
+	/** Raw backing array - empty cells are null and live cells align by index with keys(). No caller reads this today. */
 	public IntList[] values(){return values;}
 	
 	public int invalid(){return invalid;}

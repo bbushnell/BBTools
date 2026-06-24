@@ -113,6 +113,10 @@ public final class IntListHashMap implements Serializable {
 		return true;
 	}
 	
+	/** After a removal blanks one cell, re-probe the rest of that cluster so no key is stranded
+	 * behind the new gap. Scans initial+1..limit-1 then wraps 0..initial-1, stopping at the first
+	 * pre-existing empty (verified: rehashCell only moves keys backward to dest<=cell, never past the
+	 * cursor, so nothing is orphaned and the just-vacated cell is never misread as the stop sentinel). */
 	private void rehashFrom(int initial){
 		if(size<1){return;}
 		final int limit=keys.length;
@@ -142,6 +146,9 @@ public final class IntListHashMap implements Serializable {
 		return true;
 	}
 	
+	//CLEVER [verified]: keys may be any int, so a real key can equal the negative sentinel; when that
+	//happens on insert this regenerates the sentinel to an unused negative and rewrites every old marker,
+	//keeping "empty" distinguishable from data without reserving a key value (same trick as IntHashSet).
 	private void resetInvalid(){
 		final int old=invalid;
 		int x=invalid;
@@ -153,6 +160,10 @@ public final class IntListHashMap implements Serializable {
 		}
 	}
 	
+	/** Probe for an existing key; -1 if absent (or if key==the current invalid sentinel).
+	 * key&MASK strips the sign bit so negative keys map into [0,modulus); MASK==Integer.MAX_VALUE
+	 * so this initial index is IDENTICAL to findCellOrEmpty's -> a key placed on insert is always
+	 * found here (probe-consistency verified). Stops at the first invalid cell (open-addressing). */
 	int findCell(final int key){
 		if(key==invalid){return -1;}
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
@@ -169,6 +180,9 @@ public final class IntListHashMap implements Serializable {
 		return -1;
 	}
 	
+	//CLEVER [verified]: initial index here uses (key&Integer.MAX_VALUE)%modulus, byte-identical to
+	//findCell's (key&MASK)%modulus since MASK==Integer.MAX_VALUE. The two MUST agree or an inserted key
+	//becomes unfindable; they do (a lone divergence would be the bug). Returns key's cell or first empty.
 	private int findCellOrEmpty(final int key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
 		final int limit=keys.length, initial=(int)((key&Integer.MAX_VALUE)%modulus);
@@ -185,6 +199,9 @@ public final class IntListHashMap implements Serializable {
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	//Prime-modulus growth: ~2x via primeAtLeast(keys.length*2+1). NOT the pow2 family's 4x bug
+	//(no highestOneBit round-up here). Re-insertion below can't trigger a nested resize: it re-adds
+	//`size` old entries (< the freshly-raised sizeLimit of the bigger table).
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -214,10 +231,14 @@ public final class IntListHashMap implements Serializable {
 		}
 	}
 	
+	/** Valid keys only, no sentinels (snapshot of keyList). Use this, not keys(), to iterate keys. */
 	public int[] toArray(){return keyList.toArray();}
-	
+
+	/** Raw backing array - contains the invalid() sentinel in empty cells. Callers must filter on
+	 * invalid() (or use toArray()); index alignment with values() is internal. No caller reads this today. */
 	public int[] keys(){return keys;}
-	
+
+	/** Raw backing array - empty cells are null and live cells align by index with keys(). No caller reads this today. */
 	public IntList[] values(){return values;}
 	
 	public int invalid(){return invalid;}
