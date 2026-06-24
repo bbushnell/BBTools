@@ -192,8 +192,9 @@ public final class LongLongListHashMap{
 //		assert(verify()); //123
 		if(key==invalid){resetInvalid();}
 		int cell=findCellOrEmpty(key);
-		if(keys[cell]==invalid){
+		if(keys[cell]==invalid){ //new key
 			keys[cell]=key;
+			//reuse a recycled empty list if one is parked here (clear()/remove() keep small lists); else alloc
 			if(values[cell]==null) {
 				values[cell]=new LongList(2);
 			}
@@ -202,7 +203,7 @@ public final class LongLongListHashMap{
 			if(size>sizeLimit){resize();}
 			return true;
 		}
-		values[cell].add(value);
+		values[cell].add(value); //existing key: append to its list
 		return false;
 	}
 	
@@ -311,6 +312,10 @@ public final class LongLongListHashMap{
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** repOK-style dev invariant checker (assert(verify()) pattern; call sites currently //123-disabled).
+	 * VERIFIED CORRECT: looks up findCell(key) and requires it to equal the stored index i (the index-vs-key
+	 * family slip is absent here), and that empty cells have null/empty lists, occupied cells non-empty,
+	 * and numValues==numFound==size. Off in production by design, but works when called. */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -359,6 +364,10 @@ public final class LongLongListHashMap{
 		}
 	}
 	
+	//CLEVER [verified]: unlike IntListHashMap (which nulls the source on a move), this SWAPS the value
+	//slots: destCell is an empty cell whose values[destCell] is a recycled empty/null LongList, so moving
+	//it back to the now-empty sourceCell preserves the recycled-list pool instead of orphaning it. After
+	//the swap, occupied cells still hold non-empty lists and empty cells still hold null/empty lists.
 	private boolean rehashCell(final int sourceCell){
 		final long key=keys[sourceCell];
 		final LongList value=values[sourceCell];
@@ -366,9 +375,9 @@ public final class LongLongListHashMap{
 		if(key==invalid){resetInvalid();}
 		final int destCell=findCellOrEmpty(key);
 		if(sourceCell==destCell){return false;}
-		assert(keys[destCell]==invalid);
+		assert(keys[destCell]==invalid); //destCell empty -> its list is recycled (null or empty)
 		keys[sourceCell]=invalid;
-		values[sourceCell]=values[destCell];
+		values[sourceCell]=values[destCell]; //recycled empty/null list moves to the vacated cell
 		keys[destCell]=key;
 		values[destCell]=value;
 		return true;
@@ -405,9 +414,12 @@ public final class LongLongListHashMap{
 		return -1;
 	}
 	
+	//CLEVER [verified]: initial index here ((key&MASK)%modulus) is byte-identical to findCell's, so a key
+	//placed on insert is always found later (probe-consistency). MASK==Long.MAX_VALUE strips the sign bit
+	//so negative keys map into [0,modulus); a lone divergence between the two would be the bug. None here.
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -420,6 +432,11 @@ public final class LongLongListHashMap{
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	//Prime-modulus growth ~2x via primeAtLeast(keys.length*2+1) -- NOT the pow2 family's 4x bug (no
+	//highestOneBit round-up here). NOTE (efficiency, for Brian -- output-neutral, NOT patched): the
+	//re-insertion below calls put(key, oldValues[i]), which allocs a fresh LongList(2) and addAll-copies
+	//every element, discarding the old list. The new array is all-null so a reference move
+	//(values[destCell]=oldValues[i]) would be safe and O(1)/key; left as-is (speed-first: Brian's call).
 	private final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -461,8 +478,12 @@ public final class LongLongListHashMap{
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Raw backing array - empty cells hold the invalid() sentinel; filter on invalid() (or use
+	 * toArray()). Index-aligned with values(). No caller reads this today. */
 	public long[] keys() {return keys;}
 
+	/** Raw backing array - empty cells are null OR a recycled empty LongList; live cells align by index
+	 * with keys() and hold non-empty lists. No caller reads this today. */
 	public LongList[] values() {return values;}
 
 	public long invalid() {return invalid;}

@@ -2,6 +2,12 @@ package map;
 
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
+//NOTE [map/AtomicBitSet#003] (LOW/latent, NOT patched - 0 callers): this 1-bit lock-free set does NOT
+//override the base merge methods add(AbstractBitSet)/add(RawBitSet)/setToMax(AbstractBitSet). Those
+//dispatch only on RawBitSet/MultiBitSet (else throw "Bad class") and cast `this` to RawBitSet - so calling
+//them on an AtomicBitSet throws (RuntimeException or ClassCastException). The factory never returns this
+//type; it's constructed directly and currently unused. If wired up, either override merge here or document
+//that cross-set merge is unsupported for the atomic variant.
 public class AtomicBitSet extends AbstractBitSet {
 
 	public AtomicBitSet(long capacity_){
@@ -12,6 +18,8 @@ public class AtomicBitSet extends AbstractBitSet {
 		setCapacity(capacity_, extra);
 	}
 
+	//CLEVER [verified]: lock-free OR via CAS retry. `update!=old` short-circuits a no-op (mask adds no new
+	//bits) so no CAS is issued; on contention it re-reads and retries until the OR lands. 1-bit: OR==union.
 	@Override
 	public void addToCell(final int cell, final int mask){
 		int old=array.get(cell);
@@ -30,7 +38,9 @@ public class AtomicBitSet extends AbstractBitSet {
 	@Override
 	public void increment(int x, int amt) {
 		assert(amt>0);
-		assert(x>=0 && x<=capacity);
+		//[map/AtomicBitSet#001] FIXED: was x<=capacity (off-by-one, shared family anomaly with Raw/MultiBitSet);
+		//valid indices are [0,capacity-1]. 1-bit so amt is ignored (set-bit). Unreached today (0 callers).
+		assert(x>=0 && x<capacity);
 		final int cell=x/32;
 		final int bit=x&31;
 		final int mask=1<<bit;
@@ -49,7 +59,7 @@ public class AtomicBitSet extends AbstractBitSet {
 	 */
 	@Override
 	public int getCount(int x) {
-		assert(x>=0 && x<=capacity);
+		assert(x>=0 && x<capacity); //[map/AtomicBitSet#001] FIXED: was x<=capacity (off-by-one, see increment)
 		final int cell=x/32;
 		final int bit=x&31;
 		final int mask=1<<bit;
@@ -95,7 +105,7 @@ public class AtomicBitSet extends AbstractBitSet {
 		length=(int)((capacity+31)/32);
 		if(maxCapacity<capacity){
 			maxLength=length+extra;
-			maxCapacity=length*32;
+			maxCapacity=length*32; //NOTE (latent LOW, =RawBitSet#002): int overflow for length>~67M; should be (long)length*32
 			array=new AtomicIntegerArray(maxLength);
 		}
 	}

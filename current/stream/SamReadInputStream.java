@@ -164,6 +164,16 @@ public class SamReadInputStream extends ReadInputStream {
 		SHARED_HEADER=list;
 		SamReadInputStream.class.notifyAll();
 	}
+
+	/** Marks that a SAM/BAM input source now exists in this JVM, so getSharedHeader(true) may legitimately
+	 * block until that input parses and sets the shared header. Historically this was set in the
+	 * SamReadInputStream constructor (L80), but the native BamStreamer/SamStreamer streamers bypass this
+	 * class entirely, leaving the flag false; getSharedHeader(true) then hit the #002 no-hang gate and
+	 * returned null instead of waiting, racing callers like var2/ScafMap.loadSamHeader (assert header!=null).
+	 * StreamerFactory calls this synchronously, on the constructing thread, whenever it builds a native
+	 * SAM/BAM streamer with saveHeader=true (which commits that streamer to calling setSharedHeader), so the
+	 * gate invariant is visible before the streamer's worker thread starts. */
+	public static void markSamInputPresent(){SAM_INPUT_PRESENT=true;}
 	
 	/**
 	 * Normalizes an @SQ header line by stripping whitespace from the reference name.

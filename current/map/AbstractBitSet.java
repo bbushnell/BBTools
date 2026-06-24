@@ -17,6 +17,8 @@ public abstract class AbstractBitSet {
 	 */
 	public static AbstractBitSet make(int elements, int bitsPerElement){
 		assert(bitsPerElement==1 || bitsPerElement==2) : bitsPerElement;
+		//L20-21 are vestigial over-general guards (a power-of-2 check + a 1+log2 power-of-2 check) left from
+		//an intended {1,2,4,8} generalization; harmless but subsumed by L19 for the supported {1,2}.
 		assert(Integer.bitCount(bitsPerElement)==1) : bitsPerElement;
 		assert(Integer.bitCount(1+Integer.numberOfTrailingZeros(bitsPerElement))==1) : bitsPerElement;
 		//Can also assert
@@ -67,6 +69,8 @@ public abstract class AbstractBitSet {
 		final int[] rbsArray=bs.array();
 		final int[] rbs2Array=bs2.array();
 		final int rbsLength=bs.length();
+		//1-bit elements pack 32/word, so set-union == bitwise OR of the words (no per-element saturation
+		//needed, unlike MultiBitSet's addToCell). Each source word is OR'd into this, then zeroed (move-merge).
 		for(int i=0; i<rbsLength; i++){
 			final int value=rbsArray[i];
 //			if(value!=0){bs2.addToCell(i, value);}
@@ -99,14 +103,22 @@ public abstract class AbstractBitSet {
 		else{throw new RuntimeException("Bad class: "+bs.getClass());}
 	}
 	
-	/** Sets each position to the maximum of this set and a RawBitSet (equivalent to add()).
-	 * @param bs RawBitSet to merge */
+	/** Sets each position to the maximum of this set and a RawBitSet. For 1-bit elements max==OR==add,
+	 * so this delegates to add() — which ALSO ZEROES the input bs as a side effect.
+	 * @param bs RawBitSet to merge (NOTE: cleared by the add() delegation)
+	 * TODO: Possible bug [map/AbstractBitSet#001] (LOW/latent, NOT patched) - asymmetric side effect:
+	 * setToMax(RawBitSet) clears its input (via add) but setToMax(MultiBitSet) below does NOT. So
+	 * setToMax(AbstractBitSet) clears-or-preserves the input depending on the runtime type. UNOBSERVABLE
+	 * at the sole caller (Sketch.mergeBitSets nulls indexBitSet right after), so latent; a future caller
+	 * that reuses a RawBitSet after setToMax would be surprised. Fix = a non-clearing OR for the Raw path,
+	 * OR document the contract; design call for Brian (the clear may be intended as a move-merge). */
 	public void setToMax(RawBitSet bs) {
 		add(bs);
 	}
 	
 	/** Sets each position to the maximum of this set and a MultiBitSet of matching shape.
-	 * @param bs MultiBitSet to merge */
+	 * Unlike setToMax(RawBitSet), this does NOT clear the input (see #001 asymmetry note above).
+	 * @param bs MultiBitSet to merge (preserved) */
 	public void setToMax(MultiBitSet bs) {
 		assert(this.getClass()==bs.getClass()) : this.getClass()+", "+bs.getClass();
 		assert(bits()==bs.bits());
@@ -115,7 +127,7 @@ public abstract class AbstractBitSet {
 		final int rbsLength=bs.length();
 		for(int i=0; i<rbsLength; i++){
 			final int value=rbsArray[i];
-			if(value!=0){setToMax(i, value);}
+			if(value!=0){setToMax(i, value);} //per-cell max; input NOT zeroed (cf. the Raw path)
 		}
 	}
 

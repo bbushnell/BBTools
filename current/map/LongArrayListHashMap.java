@@ -198,8 +198,9 @@ public class LongArrayListHashMap <X> {
 //		assert(verify()); //123
 		if(key==invalid){resetInvalid();}
 		int cell=findCellOrEmpty(key);
-		if(keys[cell]==invalid){
+		if(keys[cell]==invalid){ //new key
 			keys[cell]=key;
+			//reuse a recycled empty list if one is parked here (clear()/remove() keep small lists); else alloc
 			if(values[cell]==null) {
 				values[cell]=new ArrayList<X>(2);
 			}
@@ -208,7 +209,7 @@ public class LongArrayListHashMap <X> {
 			if(size>sizeLimit){resize();}
 			return true;
 		}
-		values[cell].add(value);
+		values[cell].add(value); //existing key: append to its list
 		return false;
 	}
 	
@@ -326,6 +327,9 @@ public class LongArrayListHashMap <X> {
 	/*----------------        Private Methods       ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** repOK-style dev invariant checker (assert(verify()) pattern; call sites //123-disabled).
+	 * VERIFIED CORRECT: requires findCell(key)==stored index i (index-vs-key family slip absent), empty
+	 * cells null/empty, occupied non-empty, numValues==numFound==size. Works when called; off in prod. */
 	public boolean verify(){
 		if(keys==null){return true;}
 		int numValues=0;
@@ -374,6 +378,11 @@ public class LongArrayListHashMap <X> {
 		}
 	}
 	
+	//CLEVER [verified]: SWAPS the value slots (not null-the-source) so destCell's recycled empty/null list
+	//moves back to the vacated sourceCell, preserving the recycle pool. destCell is provably an empty cell
+	//(findCellOrEmpty returns only x==key or x==invalid; sourceCell!=destCell rules out the key) so no other
+	//key's list is clobbered. Invariant holds after: empty cells null/empty, occupied cells non-empty.
+	//(Byte-identical to LongLongListHashMap.rehashCell, adversarially verified there.)
 	private boolean rehashCell(final int sourceCell){
 		final long key=keys[sourceCell];
 		final ArrayList<X> value=values[sourceCell];
@@ -381,9 +390,9 @@ public class LongArrayListHashMap <X> {
 		if(key==invalid){resetInvalid();}
 		final int destCell=findCellOrEmpty(key);
 		if(sourceCell==destCell){return false;}
-		assert(keys[destCell]==invalid);
+		assert(keys[destCell]==invalid); //destCell empty -> its list is recycled (null or empty)
 		keys[sourceCell]=invalid;
-		values[sourceCell]=values[destCell];
+		values[sourceCell]=values[destCell]; //recycled empty/null list moves to the vacated cell
 		keys[destCell]=key;
 		values[destCell]=value;
 		return true;
@@ -420,9 +429,11 @@ public class LongArrayListHashMap <X> {
 		return -1;
 	}
 	
+	//CLEVER [verified]: initial=(key&MASK)%modulus, byte-identical to findCell's -> an inserted key is
+	//always found later. MASK==Long.MAX_VALUE strips the sign bit so negative keys map into [0,modulus).
 	private int findCellOrEmpty(final long key){
 		assert(key!=invalid) : "Collision - this should have been intercepted.";
-		
+
 		final int limit=keys.length, initial=(int)((key&MASK)%modulus);
 		for(int cell=initial; cell<limit; cell++){
 			final long x=keys[cell];
@@ -435,6 +446,14 @@ public class LongArrayListHashMap <X> {
 		throw new RuntimeException("No empty cells - size="+size+", limit="+limit);
 	}
 	
+	//Prime-modulus growth ~2x (primeAtLeast(keys.length*2+1)) -- NOT the pow2 family's 4x bug.
+	//NOTE (efficiency, output-neutral, NOT patched -- speed-first, Brian's call): re-insertion below calls
+	//put(key, oldValues[i]) which allocs a fresh ArrayList(2) and addAll-copies every element; a reference
+	//move would be O(1)/key since the new array is all-null. Same point as LongLongListHashMap.resize.
+	//TODO: Possible bug [map/LongArrayListHashMap#001] (QUESTION for Brian, NOT patched): only resize()
+	//and the ctor body are `synchronized`; put/get/remove/clear/contains are NOT -> this gives NO real
+	//thread-safety (a put() races its own resize()). Either harmless single-threaded dead weight, or a
+	//misleading half-measure. Sole user SeqMap extends this; check SeqMap's concurrency before deciding.
 	private synchronized final void resize(){
 		assert(size>=sizeLimit);
 		resize(keys.length*2L+1);
@@ -477,8 +496,12 @@ public class LongArrayListHashMap <X> {
 	/*----------------            Getters           ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Raw backing array - empty cells hold the invalid() sentinel; filter on invalid() (or use toArray()).
+	 * Index-aligned with values(). Sole user is the SeqMap subclass. */
 	public long[] keys() {return keys;}
 
+	/** Raw backing array (genuinely ArrayList[] at runtime) - empty cells are null OR a recycled empty list;
+	 * live cells align by index with keys() and hold non-empty lists. */
 	public ArrayList<X>[] values() {return values;}
 
 	public long invalid() {return invalid;}

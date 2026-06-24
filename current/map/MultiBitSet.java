@@ -70,7 +70,10 @@ public class MultiBitSet extends AbstractBitSet {
 	@Override
 	public void increment(int x, int amt){
 		assert(amt>0);
-		assert(x>=0 && x<=capacity);
+		//TODO: Possible bug [map/MultiBitSet#001] FIXED - bound was `x<=capacity`, off by one (valid indices
+		//[0,capacity-1]; x==capacity -> phantom element or AIOOBE when capacity%elementsPerCell==0). Shared
+		//family anomaly with RawBitSet (same fix). -ea-only; valid callers already satisfy x<capacity.
+		assert(x>=0 && x<capacity);
 		final int cell=x/elementsPerCell;
 		final int element=x&modulus;
 //		System.err.println(cell+", "+element);
@@ -92,7 +95,7 @@ public class MultiBitSet extends AbstractBitSet {
 
 	@Override
 	public int getCount(int x){
-		assert(x>=0 && x<=capacity);
+		assert(x>=0 && x<capacity); //[map/MultiBitSet#001] FIXED: was x<=capacity (off-by-one, see increment)
 		final int cell=x/elementsPerCell;
 		final int element=x&modulus;
 		final int shift=bits*element;
@@ -119,6 +122,8 @@ public class MultiBitSet extends AbstractBitSet {
 		long sum=0;
 		for(int i=0; i<length; i++){
 			int value=array[i];
+			//counts NON-ZERO 2-bit elements (not their values). while(value!=0) early-exits once all remaining
+			//high elements are zero; a non-zero high element keeps value!=0 until it shifts down and is counted.
 			while(value!=0){
 				if((value&elementMask)!=0){sum++;}
 				value>>>=bits;
@@ -138,10 +143,12 @@ public class MultiBitSet extends AbstractBitSet {
 	@Override
 	public void setCapacity(long capacity_, int extra){
 		capacity=capacity_;
-		length=(int)((capacity+elementsPerCell-1)/elementsPerCell);
+		length=(int)((capacity+elementsPerCell-1)/elementsPerCell); //cells = ceil(capacity/elementsPerCell)
 //		assert(false) : (capacity+elementsPerCell-1)+", "+elementsPerCell+", "+((capacity+elementsPerCell-1)/elementsPerCell);
 		if(maxCapacity<capacity){
 			maxLength=length+extra;
+			//NOTE (latent LOW, NOT patched): length*elementsPerCell is int arithmetic -> overflows for
+			//capacity>~2.1e9 elements; should be (long)length*elementsPerCell. Unreachable for sketch sizes.
 			maxCapacity=length*elementsPerCell;
 			array=new int[maxLength];
 		}

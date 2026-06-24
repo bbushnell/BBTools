@@ -22,10 +22,16 @@ public class RawBitSet extends AbstractBitSet {
 		addToCell(cell, mask);
 	}
 	
+	//1-bit set: `amt` is ignored (a bit can't count past 1) - increment == set-bit. assert(amt>0) just
+	//rejects a no-op/negative caller. Saturating by nature.
 	@Override
 	public void increment(int x, int amt){
 		assert(amt>0);
-		assert(x>=0 && x<=capacity);
+		//TODO: Possible bug [map/RawBitSet#001] FIXED - bound was `x<=capacity`, off by one: valid indices
+		//are [0,capacity-1]; x==capacity reaches a phantom bit (last-cell slack -> miscounted by cardinality)
+		//or AIOOBE when capacity%32==0. Shared family anomaly with MultiBitSet (same fix). -ea-only sharpening;
+		//valid callers (Sketch.countMatches: i<a.length==capacity) already satisfy x<capacity.
+		assert(x>=0 && x<capacity);
 		final int cell=x/32;
 		final int bit=x&31;
 		final int mask=1<<bit;
@@ -42,7 +48,7 @@ public class RawBitSet extends AbstractBitSet {
 	 */
 	@Override
 	public int getCount(int x){
-		assert(x>=0 && x<=capacity);
+		assert(x>=0 && x<capacity); //[map/RawBitSet#001] FIXED: was x<=capacity (off-by-one, see increment)
 		final int cell=x/32;
 		final int bit=x&31;
 		final int mask=1<<bit;
@@ -83,12 +89,16 @@ public class RawBitSet extends AbstractBitSet {
 	@Override
 	public void setCapacity(long capacity_, int extra){
 		capacity=capacity_;
-		length=(int)((capacity+31)/32);
-		if(maxCapacity<capacity){
+		length=(int)((capacity+31)/32); //cells = ceil(capacity/32)
+		if(maxCapacity<capacity){ //only (re)allocate when growing past what we've ever held
 			maxLength=length+extra;
+			//NOTE (latent LOW, NOT patched): length*32 is int arithmetic -> overflows for length>~67M
+			//(capacity>~2.1e9 bits); should be (long)length*32. Unreachable for sketch-sized bitsets, so
+			//documented not fixed. Also maxCapacity intentionally ignores `extra` (conservative reuse bound).
 			maxCapacity=length*32;
 			array=new int[maxLength];
 		}
+		//NOTE: a shrink/same-size reuse does NOT clear stale bits - caller must clear() before reuse.
 	}
 
 	/** Returns the maximum number of bits this set can hold */
