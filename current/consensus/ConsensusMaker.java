@@ -34,6 +34,7 @@ import template.ThreadWaiter;
 import tracker.ReadStats;
 import var2.Realigner;
 import var2.SamFilter;
+import var2.ScafMap;
 
 /**
  * Alters a reference to represent the consensus of aligned reads.
@@ -388,6 +389,9 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 		if(specialRef){return loadReferenceSpecial();}
 		ConcurrentReadInputStream cris=makeRefCris();
 		LinkedHashMap<String, BaseGraph> map=new LinkedHashMap<String, BaseGraph>();
+		//Build a ScafMap from the SAME ref reads (no second file load) so toShortMatch can resolve an
+		//ambiguous M-only cigar (no =/X, no MD tag) against the reference -- e.g. consensus on minimap2 sam=1.3.
+		final ScafMap scafMap=new ScafMap();
 		ListNum<Read> ln=cris.nextList();
 		for(; ln!=null && !ln.isEmpty(); ln=cris.nextList()){
 			if(verbose){outstream.println("Fetched "+ln.size()+" reference sequences.");}
@@ -395,6 +399,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 				if(r.bases!=null && r.bases.length>0){
 					BaseGraph bg=new BaseGraph(r.id, r.bases, r.quality, r.numericID, 0);
 					map.put(r.name(), bg);
+					scafMap.addScaffold(r); //shares r.bases; gives toShortMatch a reference to resolve M against
 //					if(inModel!=null && inModel.name.equals(bg.name)){
 ////						assert(false) : Arrays.toString(bg.refWeights)+"\n"+Arrays.toString(inModel.refWeights);
 //						bg.refWeights=inModel.refWeights;
@@ -414,6 +419,7 @@ public class ConsensusMaker extends ConsensusObject implements Accumulator<Conse
 			}
 		}
 		if(verbose){outstream.println("Loaded "+map.size()+" reference sequences.");}
+		if(scafMap.size()>0){ScafMap.setDefaultScafMap(scafMap, ffref.name());} //enable ref-based M-cigar resolution
 		loadedRef=true;
 		return map;
 	}

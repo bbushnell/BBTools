@@ -565,6 +565,7 @@ public abstract class AbstractMapThread extends Thread {
 			if(MAX_READ_LENGTH>0 || MIN_READ_LENGTH>0){
 				Tools.breakReads(readlist, MAX_READ_LENGTH, MIN_READ_LENGTH, verbose ? System.err : null);
 			}
+			readlist=handleLongReads(readlist);
 
 			//System.err.println("Got a list of size "+readlist.size());
 			for(int i=0; i<readlist.size(); i++){
@@ -3181,6 +3182,32 @@ public abstract class AbstractMapThread extends Thread {
 	
 	/** Returns maximum read length supported by this mapper */
 	public abstract int maxReadLength();
+
+	/**
+	 * Auto-shreds over-length reads so they can be mapped instead of tripping the
+	 * maxReadLength() assertion (and the aligner-matrix overflow it guards). Unpaired
+	 * reads longer than the limit are broken into chunks of (5/6) of the limit (e.g.
+	 * 500 for a 600 limit); the headroom lets a read barely over the limit keep a
+	 * usable residual rather than a 1bp scrap. Residual pieces shorter than
+	 * SHRED_MIN_LENGTH are discarded. Returns the original list unchanged when no
+	 * unpaired read exceeds the limit, so the common case pays only a linear scan.
+	 * Paired over-length reads are left for the maxReadLength() assertion (breakReads
+	 * is single-end only), which crashes loud with remediation instructions.
+	 * @param list Reads pulled from the input stream by this thread
+	 * @return The same list, with any over-length unpaired reads replaced by shreds
+	 */
+	protected final ArrayList<Read> handleLongReads(ArrayList<Read> list){
+		final int limit=maxReadLength();
+		if(limit<1){return list;}
+		boolean longUnpaired=false;
+		for(Read r : list){
+			if(r!=null && r.mate==null && r.bases!=null && r.length()>limit){longUnpaired=true; break;}
+		}
+		if(!longUnpaired){return list;}
+		final int target=Tools.max(1, (limit*5)/6);
+		Tools.breakReads(list, target, SHRED_MIN_LENGTH, verbose ? System.err : null);
+		return list;
+	}
 	
 	/** Ensure top site is congruent with read */
 	protected static final boolean checkTopSite(Read r){
@@ -3556,6 +3583,8 @@ public abstract class AbstractMapThread extends Thread {
 	protected static int MAX_READ_LENGTH=0;
 	/** Minimum read length required (0 for no limit) */
 	protected static int MIN_READ_LENGTH=0;
+	/** Min length of a residual piece kept when auto-shredding over-length reads */
+	protected static int SHRED_MIN_LENGTH=75;
 	
 	/** Whether to use modulo arithmetic in k-mer scoring calculations */
 	protected static boolean USE_MODULO=false;

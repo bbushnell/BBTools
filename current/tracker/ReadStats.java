@@ -1537,8 +1537,8 @@ public class ReadStats {
 		}
 		//eSum now holds entropy in bits.
 		
-		//Multiplier to convert entropy to 0-1 scale.
-		double multiplier=1/Math.log(total);
+		//Multiplier to convert entropy to 0-1 scale; total<=1 has no diversity (log(1)=0 -> 1/0=Inf -> 0*Inf=NaN).
+		double multiplier=(total>1 ? 1/Math.log(total) : 0);
 		
 		//Adjust entropy to 0-1 scale based on window size
 		float e=(float)(eSum*multiplier);

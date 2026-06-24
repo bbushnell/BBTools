@@ -34,7 +34,18 @@ public class Clumpify {
 	public static void main(String[] args){
 		Timer t=new Timer();
 		ReadWrite.ZIPLEVEL=Tools.max(ReadWrite.ZIPLEVEL, 6);
-		
+
+		//TODO: Possible bug [clump/Clumpify#001] (concern ACKNOWLEDGED by Brian 2026-06-24, left as-is for now:
+		//"they could be leaked and should be restored, but for now they don't seem to be causing a problem") -
+		//this save/restore of statics is (a) INCOMPLETE: ZIPLEVEL (restore commented out below), FASTQ.DETECT_QUALITY/ASCII_OFFSET
+		//(set in runOnePass), FASTQ.FORCE_INTERLEAVED, Read.VALIDATE_IN_CONSTRUCTOR, and KmerComparator
+		//defaultSeed/defaultBorder are all mutated but NOT restored; and (b) BYPASSED by the primary library
+		//caller - jgi/RQCFilter2+3 call `new Clumpify(args)` directly (not main()), so NONE of this runs for
+		//them; only assemble/TadPipe (via Clumpify.main) gets the 3-static restore. Whether the leaked FASTQ/
+		//ZIPLEVEL statics affect downstream pipeline stages depends on each caller re-initializing them
+		//(stages re-parse args, which usually resets FASTQ); the clump-only statics don't leak outside clump.
+		//Likely benign in practice but unverified - flagged rather than "fixed" (adding restores could change
+		//pipeline behavior that may rely on e.g. ZIPLEVEL=6, and the full mutated-static set spans the workers).
 		//Capture values of static variables that might be modified in case this is called by another class.
 		final boolean oldCQ=Read.CHANGE_QUALITY;
 		final boolean oldBgzip=ReadWrite.USE_BGZIP, oldPreferBgzip=ReadWrite.PREFER_BGZIP;
@@ -74,6 +85,10 @@ public class Clumpify {
 		
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
 		
+		//args2 is a POSITIONAL template passed to the worker mains (KmerSplit/KmerSort*): indices are fixed
+		//and rewritten by-position in process()/runOnePass[_v2] - [0]in1 [1]in2 [2]out1 [3]out2 [4]groups
+		//[5]ecco [6]rename/addname [7]shortname [8]unpair [9]repair [10]namesort [11]overwrite. Keep this
+		//order in lockstep with the args[N]=... writes below, or a worker receives the wrong flag.
 		args2=new ArrayList<String>();
 		args2.add("in1");
 		args2.add("in2");
@@ -603,8 +618,10 @@ public class Clumpify {
 	 */
 	public static void shortName(Read r) {
 		ByteBuilder sb=new ByteBuilder(14);
+		//CLEVER [verified]: |1 guards against numericID==0 making x stay 0 and looping forever; it only flips
+		//the low bit so it never changes the digit-count, so the zero-padding (to 10 digits) is unaffected.
 		long x=r.numericID|1;
-		
+
 		while(x<1000000000L){
 			x*=10;
 			sb.append('0');

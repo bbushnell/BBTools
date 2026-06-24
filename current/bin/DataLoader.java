@@ -686,7 +686,10 @@ public class DataLoader extends BinObject {
 				SamLine.PARSE_OPTIONAL_MATEQ_ONLY=true;
 //				public static boolean PARSE_OPTIONAL=true;
 //				public static boolean PARSE_OPTIONAL_MD_ONLY=false;
-				
+				//QuickBin needs coverage, not identity: permit ambiguous M-only cigars (e.g. minimap2) instead of
+				//crashing in calcIdentity()/countSubs(). M reads are processed (counted as match) rather than dropped.
+				SamLine.M_CIGARS_OK=true;
+
 				SamLoader3 samLoader=new SamLoader3(outstream);
 				samLoader.minMapq=minMapq;
 				samLoader.minMateq=minMapq;

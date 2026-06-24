@@ -32,7 +32,7 @@ public class SeqPosM implements Cloneable, Comparable<SeqPosM>{
 	 */
 	public SeqPosM(byte[] seq_, int pos_, int count_) {
 //		synchronized(this) {
-			Object o=(seq_==null ? this : seq_);
+			Object o=(seq_==null ? this : seq_); //UNUSED: dead local, leftover lock target (synchronized(o) commented out)
 //			synchronized(o) {
 				seq=seq_;
 				pos=pos_;
@@ -83,6 +83,11 @@ public class SeqPosM implements Cloneable, Comparable<SeqPosM>{
 //		}
 	}
 	
+	//NOTE: same as SeqPos - equals/hashCode key on IDENTITY (pos, seq-hash, seq), compareTo ranks by
+	//(count, length): the INTENTIONAL dedup-key-vs-rank split, not a bug. equals(Object) casts without a
+	//null/type guard (latent NPE/CCE; safe under homogeneous SeqPosM use, e.g. SeqMap's fetch HashSet).
+	//MUTABLE (setFrom/setPos) by design: reused as scratch in SeqMap.fetch - never mutated while a live
+	//hash key (it's cloned before being stored in the result set).
 	@Override
 	public boolean equals(Object o) {
 		return equals((SeqPosM)o);
