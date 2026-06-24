@@ -66,15 +66,20 @@ public class LongListSet{
 	/** Adds a value, triggering sort/condense when the target partition hits its threshold.
 	 * @param x Value to add */
 	public void add(long x){
-		int y=(int)((x&Long.MAX_VALUE)%mod);
+		int y=(int)((x&Long.MAX_VALUE)%mod); //partition by sign-stripped value % mod (mod=3 LongLists -> >2B total)
 		LongList list=array[y];
 		list.add(x);
 		if(list.size>=nextCondense[y]){
+			//CLEVER [verified]: on hitting the threshold, sort+condense (drop duplicates) this partition, then
+			//RATCHET the threshold to mid(old, 2*post-condense-size, MAX). mid() keeps it monotonically
+			//non-decreasing (if condense reclaimed a lot, 2*size<old -> stays old), so condense amortizes to
+			//O(1)/element and can't thrash. This branch leaves the partition sorted; `sorted` stays as-is
+			//(if it was true, all partitions are still sorted -> correct; this re-sorted one).
 			list.sort();
 			list.condense();
 			nextCondense[y]=(int)Tools.mid(nextCondense[y], list.size*2L, Shared.MAX_ARRAY_LEN);
 		}else{
-			sorted=false;
+			sorted=false; //appended an unsorted tail -> the set is no longer globally sorted
 		}
 	}
 	
@@ -119,11 +124,16 @@ public class LongListSet{
 			return findNextValid();
 		}
 		
+		//UNUSED (verified): no caller anywhere (next() does its own j++; hasMore() calls findNextValid
+		//directly). Dead-ish but harmless package-private API; left in place.
 		boolean advance(){
 			j++;
 			return findNextValid();
 		}
-		
+
+		//Positions (i,j) at the next populated slot, skipping exhausted/empty partitions; false when done.
+		//Idempotent once positioned (the common-case fast path returns true without advancing), so calling
+		//hasMore() repeatedly before a single next() is safe. Contract: call hasMore() before each next().
 		boolean findNextValid(){
 			if(i<mod && j<array[i].size){return true;}//common case
 			while(i<mod){

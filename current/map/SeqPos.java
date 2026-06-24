@@ -60,6 +60,11 @@ public class SeqPos implements Cloneable, Comparable<SeqPos>{
 //		}
 //	}
 	
+	//NOTE: equals/hashCode key on IDENTITY (pos, seq-hash, seq) while compareTo ranks by (count, length,
+	//score) - the INTENTIONAL dedup-key-vs-rank split Brian uses (dedup by identity, then sort by quality),
+	//NOT an equals/compareTo-inconsistency bug. equals(Object) casts without a null/type guard (NPE on null,
+	//CCE on a foreign type) - a deliberate speed choice; safe here since SeqPos is only compared to SeqPos
+	//(homogeneous use as SeqMap values). Latent only.
 	@Override
 	public boolean equals(Object o) {
 		return equals((SeqPos)o);

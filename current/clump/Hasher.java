@@ -39,6 +39,8 @@ public class Hasher {
 	 * @param modes Number of different hash modes per character
 	 * @return 2D array of random long values for hash computation
 	 */
+	//CLEVER [verified]: seed=1 is FIXED, so the lookup table is identical every run -> hashing is
+	//deterministic across runs/JVMs. That reproducibility matters for clump (same input -> same clumping).
 	private static synchronized long[][] makeCodes(int symbols, int modes){
 		Random randy=shared.Shared.random(1);
 		long[][] r=new long[symbols][modes];
@@ -57,6 +59,12 @@ public class Hasher {
 	 * @param bases Sequence bytes to hash
 	 * @return Hash code incorporating sequence length and base-specific randomized values
 	 */
+	//Tabulation hash seeded by length: per base, pick mode=code&31 (in [0,31]; hashcodes has 32 modes),
+	//XOR the base's per-mode random long, rotate left 1 to diffuse position. The L65 assert is effectively
+	//dead: makeCodes fills ALL 128 entries (no null for any in-range byte; an out-of-range byte b<0/>127
+	//AIOOBEs first), so it never catches an "invalid character" - but valid sequences (ACGTN ASCII) never
+	//trigger it, and even a stray in-range char just gets a hash (no crash) since this is only a dedup HINT
+	//(KmerSort's equalsPaired compares actual bytes and is the arbiter). Harmless.
 	public static long hash(byte[] bases){
 		long code=bases.length;
 		for(int i=0; i<bases.length; i++){
@@ -85,6 +93,8 @@ public class Hasher {
 	 * @param r Primary read (mate accessed via r.mate)
 	 * @return Combined hash for read pair or single read hash if unpaired
 	 */
+	//a^rotateLeft(b,1) is intentionally ASYMMETRIC (read1 vs read2 have fixed roles), so the pair hash
+	//distinguishes (r,mate) order - correct for paired dedup. Matches equalsPaired (primary+mate in order).
 	public static final long hashPair(Read r){
 		long a=hash(r);
 		if(r.mate==null){return a;}

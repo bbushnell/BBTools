@@ -59,6 +59,11 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 	 * @param count Occurrence count for this sequence
 	 * @param score Quality or similarity score for this sequence
 	 */
+	//Concurrency model (resolves the parent LongArrayListHashMap#001 sync question): SeqMap is BUILD-then-
+	//concurrent-READ. The build (add()/load()) is serialized - load() wraps its loop in synchronized(map) and
+	//the sole user CrisprFinder builds once via SeqMap.load then only fetch()es (no add/put after load). Queries
+	//(fetch/doubleFetch) are read-only get() with per-thread ThreadLocal scratch, so concurrent reads of the
+	//frozen map need no locks. Thus the parent's synchronized resize/ctor is harmless leftover, not load-bearing.
 	public void add(byte[] s, int count, final float score) {
 		if(s==null || s.length<k){return;}
 		
@@ -104,9 +109,12 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 	 */
 	public ArrayList<SeqPosM> fetch(byte[] query, final int a1, final int b1, final int minOverlap0, int maxMM,
 			final int maxTrim, final int maxLopsidedness, float minOverlapFractionQ, boolean sort){
-		final float qgc=Tools.calcGC(query, a1, b1);
 		final int qlen=b1-a1+1;
+		//TODO: Possible bug [map/SeqMap#001] FIXED - the null/length guard MUST precede calcGC(query,...),
+		//which dereferences query; it was below -> a null query NPE'd instead of returning null (the guard's
+		//own intent). Output-neutral for valid input; null/short query now returns null (and skips a wasted calcGC).
 		if(query==null || query.length<k || qlen<k){return null;}
+		final float qgc=Tools.calcGC(query, a1, b1);
 		queries.incrementAndGet();
 
 		final int minOverlapQ=Tools.max(minOverlap0, (int)(minOverlapFractionQ*qlen));
@@ -211,11 +219,12 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 	public ArrayList<SeqPosM> doubleFetch(byte[] query, final int a1, final int b1, final int a2, final int b2,
 			final int minOverlap0, int maxMM,
 			final int maxTrim, final int maxLopsidedness, float minOverlapFractionQ, boolean sort){
-		final float qgc=Tools.calcGC(query, a1, b1);
-		final float qgc2=Tools.calcGC(query, a2, b2);
 		final int qlen=b1-a1+1;
 		assert(qlen==b2-a2+1);
+		//[map/SeqMap#001] FIXED: guard before calcGC (which derefs query); was below -> null query NPE'd.
 		if(query==null || query.length<k || qlen<k){return null;}
+		final float qgc=Tools.calcGC(query, a1, b1);
+		final float qgc2=Tools.calcGC(query, a2, b2);
 		queries.incrementAndGet();
 
 		final int minOverlapQ=Tools.max(minOverlap0, (int)(minOverlapFractionQ*qlen));
@@ -296,6 +305,8 @@ public class SeqMap extends LongArrayListHashMap<SeqPos> {
 			int minOverlapQ, int maxTrim, int maxLopsidedness, float maxGCO, int qpos, 
 			SeqPosM temp, HashSet<SeqPosM> set, ArrayList<SeqPosM> retList) {
 		int lookups=0;
+		//geometric+GC filter per candidate; temp (reused SeqPosM) is keyed into `set` to DEDUP by
+		//(offset pos, seq-hash, seq) so the same alignment found via multiple k-mers is added once.
 		for(SeqPos sp : candidates) {
 			final float gcdif=Tools.absdif(qgc, sp.gc);
 			final int rlen0=sp.seq().length, pos=sp.pos();

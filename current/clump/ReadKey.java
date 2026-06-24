@@ -68,8 +68,12 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 		assert(!r.swapped());
 		flipped=false;
 		kmerMinusStrand=!plus_;
-		
-		if(Clump.opticalOnly || clump.compareUMI){
+
+		//FIXED [clump/ReadKey#001]: was `clump.compareUMI` - accessing the STATIC Clump.compareUMI through the
+		//instance field `clump`, which is null here (set at L67). Legal in Java (statics resolve at compile time,
+		//no NPE) but a landmine: it reads as a null-deref bug, and would BECOME a real NPE if compareUMI were ever
+		//made non-static. Changed to Clump.compareUMI (output-identical; matches the adjacent Clump.opticalOnly).
+		if(Clump.opticalOnly || Clump.compareUMI){
 			FlowcellCoordinate fc=FlowcellCoordinate.getFC();
 			fc.setFrom(r.id);
 			lane=fc.lane;
@@ -178,11 +182,15 @@ class ReadKey implements Serializable, Comparable<ReadKey> {
 	}
 	
 	@Override
+	//equals(Object) casts without a null/type guard (NPE on null, CCE on foreign type) - the usual BBTools
+	//speed choice; safe under homogeneous use (ReadKey-only clump collections). Latent.
 	public boolean equals(Object b){
 		return equals((ReadKey)b, false);
 	}
 	
 	@Override
+	//Consistent with equals (non-containment): hashes kmer+position+strand. Optical fields (lane/tile) are in
+	//equals-under-opticalOnly but not here - fine, they only ADD inequality so equal->same-hash still holds.
 	public int hashCode() {
 		int x=(int)((kmer^position)&0xFFFFFFFFL);
 		return kmerMinusStrand ? -x : x;

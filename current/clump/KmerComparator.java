@@ -123,13 +123,22 @@ public class KmerComparator implements Comparator<Read> {
 			x=KmerComparator2.compareSequence(a, b, 0);
 		}
 		if(x==0){
+			//tie-break among same-pivot reads by expected errors: ea>eb returns -1, so the HIGHER-error read
+			//sorts EARLIER (verified live). Net effect: the lowest-error read ends up LAST among equals - which
+			//dedup/consensus relies on for picking the representative (confirm the kept-read logic at Clump/KmerSort).
 			float ea=a.expectedErrorsIncludingMate(true);
 			float eb=b.expectedErrorsIncludingMate(true);
 			if(ea!=eb){return ea>eb ? -1 : 1;}
 		}
-		return x==0 ? a.id.compareTo(b.id) : x;
+		return x==0 ? a.id.compareTo(b.id) : x; //final tie-break by id for a total, stable order
 	}
 	
+	//THE CORE (verified): picks each read's PIVOT = the canonical k-mer (kmax=max(fwd,rev), L188) with the
+	//maximum hash `code` among acceptable k-mers (minimizer principle). Reads sharing a pivot clump together;
+	//using the CANONICAL k-mer makes the pivot strand-independent so a read and its reverse-complement pick the
+	//same pivot. table!=null filters by k-mer depth (count>=minCount); table==null filters by error-prob>=minProb.
+	//If the chosen pivot is on the minus strand and rcompReads, the read is flipped (L233) so all clumped reads
+	//share orientation. fillShort handles reads < k. Deterministic (hash seeded) -> reproducible clumping.
 	public long fillMax(Read r, ReadKey key, KCountArray table, int minCount){
 		if(mergeFirst && r.pairnum()==0 && r.mate!=null){//This is probably unsafe in multithreaded mode unless the same thread handles both reads.
 			int x=BBMerge.findOverlapStrict(r, r.mate, false);
@@ -209,6 +218,14 @@ public class KmerComparator implements Comparator<Read> {
 				if(accept){
 					topCode=code;
 					topCount=count;
+					//QUESTION [clump/KmerComparator#001] (NOT a fix - output-sensitive; likely intentional):
+					//topProb is set to the THRESHOLD minProb, not the actual `prob`. Verified consequence: after
+					//the first accept, `topProb<minProb` is permanently false, so the PROB path can never upgrade
+					//to a lower-code-but-above-threshold k-mer (else-branch L205 becomes dead). The COUNT path
+					//stores the ACTUAL topCount, so its `topCount<minCount` escape stays live and CAN do that
+					//backward upgrade -> the two paths diverge. NO-OP at the default minProb=0 (then prob>=0 always,
+					//pure argmax-of-code); observable only when minProb>0. The teaching twin example3 stores
+					//topProb=minProb identically, so this is almost certainly by design - flagged to confirm, not fix.
 					topProb=minProb;
 					key.set(kmax, i, (kmax!=kmer));
 				}
@@ -247,6 +264,9 @@ public class KmerComparator implements Comparator<Read> {
 	
 
 	
+	//example1/2/3 are TEACHING twins of fillMax, progressively adding features: example1 = bare max-hash pivot
+	//(fwd only); example2 = + canonical kmax (strand-independent); example3 = + rolling error-prob filter. They
+	//mirror fillMax's logic and serve as the readable reference for it (verified to match the real method).
 	/* For teaching */
 	public long example1(Read r){
 		//Handle degenerate reads shorter than kmer length
@@ -421,6 +441,10 @@ public class KmerComparator implements Comparator<Read> {
 		defaultHashes=Tools.mid(0, x, 8);
 	}
 	
+	//Tabulation hash over the kmer's bytes (hashes=4 mixes the low 4 bytes = "half"; 8 = full). codes is a
+	//seeded random table (SketchTool.makeCodes(...,seed,...)), so the hash is DETERMINISTIC for a given seed ->
+	//the pivot selection is reproducible across runs. &Long.MAX_VALUE forces non-negative (topCode starts at
+	//MIN_VALUE so the first valid k-mer always wins code>topCode).
 	//TODO:  This can be swapped with BBSketch hashing code.  Check speed.
 	public final long hash(long kmer){
 		long code=kmer;

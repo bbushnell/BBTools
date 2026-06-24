@@ -1201,10 +1201,21 @@ public class SamLine implements Serializable {
 
 	/** Calculates alignment identity from CIGAR string.
 	 * @return Identity fraction (0.0 to 1.0) */
+	/** True if a default reference (ScafMap) is loaded that contains this read's scaffold with bases --
+	 * enough for toShortMatch to resolve an ambiguous M-only cigar against the reference (e.g. CallVariants,
+	 * which always loads the ref). Mirrors toShortMatch's ref-availability conditions. */
+	private boolean refLoadedForThisRead(){
+		final ScafMap sm=ScafMap.defaultScafMap();
+		if(sm==null){return false;}
+		final Scaffold scaf=sm.getScaffold(rnameS());
+		return scaf!=null && scaf.bases!=null;
+	}
+
 	public float calcIdentity() {
 		assert(cigar!=null);
-		int match=0, other=0;
-		
+		int match=0, other=0, mCount=0;
+		boolean foundM=false, foundEX=false;
+
 		int current=0;
 		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
@@ -1212,22 +1223,40 @@ public class SamLine implements Serializable {
 				current=(current*10)+(c-'0');
 			}else{
 				if(c=='='){
-					match+=current;
+					match+=current; foundEX=true;
 				}else if(c=='M'){
-					
+					mCount+=current; foundM=true; //Resolved below: N-base (mixed with =/X) or ambiguous (M-only)
 				}else if(c=='X'){
-					other+=current;
+					other+=current; foundEX=true;
 				}else if(c=='D'){
 					other+=current;
 				}else if(c=='N'){
-					
+
 				}else if(c=='I'){
 					other+=current;
 				}else if(c=='S' || c=='H' || c=='P'){
-					
+
 				}
 				current=0;
 			}
+		}
+		//M alongside =/X is BBMap's N-base marker (neither match nor mismatch) -> correctly counted as nothing above.
+		//M with NO =/X is an ambiguous match/mismatch cigar (e.g. minimap2): the cigar alone can't split match from sub.
+		if(foundM && !foundEX){
+			//Ambiguous M-only cigar (e.g. minimap2). Resolve the match/sub split via the MD tag or the loaded
+			//reference -- exactly what toShortMatch does. Crash loud only if NEITHER is available and the tool
+			//did not opt into permissive M handling.
+			if(mdTag()!=null || refLoadedForThisRead()){
+				final byte[] sm=toShortMatch(false); //resolves M via MD tag or ScafMap reference
+				if(sm!=null){
+					final int[] c=Read.countMatchSymbols(sm); //{m,S,C,N,I,D}
+					return c[0]/(float)Tools.max(c[0]+c[1]+c[4]+c[5], 1); //m/(m+S+I+D)
+				}
+			}
+			assert(M_CIGARS_OK) : KillSwitch.assertDie("Cannot compute identity for an ambiguous M-only cigar (no '='/'X'), "
+					+ "and no MD tag or loaded reference to resolve it. Provide =/X cigars or an MD tag, load the reference, "
+					+ "or use a tool that permits M (sets SamLine.M_CIGARS_OK). cigar="+cigar);
+			match+=mCount; //M_CIGARS_OK (e.g. QuickBin): coverage-focused, count aligned M as match so the read is not dropped.
 		}
 		return match/(float)Tools.max(match+other, 1);
 	}
@@ -1236,21 +1265,37 @@ public class SamLine implements Serializable {
 	 * @return Number of substitutions */
 	public int countSubs() {
 		if(cigar==null){return 0;}
-		
+
 		int current=0;
 		int subs=0;
+		boolean foundM=false, foundEX=false;
 		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
 			if(Tools.isDigit(c)){
 				current=(current*10)+(c-'0');
 			}else{
 				if(c=='X'){
-					subs+=current;
+					subs+=current; foundEX=true;
+				}else if(c=='='){
+					foundEX=true;
+				}else if(c=='M'){
+					foundM=true;
 				}
 				current=0;
 			}
 		}
-		return subs;
+		//Ambiguous M-only cigar (M with no =/X): substitutions are uncomputable from the cigar (see calcIdentity).
+		if(foundM && !foundEX){
+			if(mdTag()!=null || refLoadedForThisRead()){//Fixable via MD tag or loaded reference.
+				final byte[] sm=toShortMatch(false);
+				if(sm!=null){return Read.countMatchSymbols(sm)[1];}//S = substitutions
+			}
+			assert(M_CIGARS_OK) : KillSwitch.assertDie("Cannot count substitutions for an ambiguous M-only cigar (no '='/'X'), "
+					+ "and no MD tag or loaded reference to resolve it. Provide =/X cigars or an MD tag, load the reference, "
+					+ "or use a tool that permits M (sets SamLine.M_CIGARS_OK). cigar="+cigar);
+			//M_CIGARS_OK and unresolvable: permissive, report 0 subs (subs is already 0 here; coverage-focused).
+		}
+		return subs; //Mixed M+=/X: M contributes no subs (N-bases); X count stands.
 	}
 	
 	/**
@@ -3224,7 +3269,13 @@ public class SamLine implements Serializable {
 	public static boolean PARSE_OPTIONAL_MD_ONLY=false;
 	/** Parse only YQ (mate quality) tags from optional fields */
 	public static boolean PARSE_OPTIONAL_MATEQ_ONLY=false;
-	
+	/** Permit ambiguous M-only cigars (M with no =/X, e.g. minimap2 output) in identity/sub calculations.
+	 * Default false: calcIdentity()/countSubs() crash-loud on such cigars rather than silently returning a
+	 * wrong value (their match/mismatch split is uncomputable from the cigar alone). A tool that only needs
+	 * coverage and not identity (QuickBin) sets this true to process M reads permissively. Note: M ALONGSIDE
+	 * =/X is always fine (BBMap marks N-base regions with M) and never triggers the crash. */
+	public static boolean M_CIGARS_OK=false;
+
 	/** Reverse complement minus-strand sequences on loading */
 	public static boolean FLIP_ON_LOAD=true;
 	
