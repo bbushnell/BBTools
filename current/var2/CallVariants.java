@@ -394,17 +394,6 @@ public class CallVariants {
 		if(ploidy<1){System.err.println("WARNING: ploidy not set; assuming ploidy=1."); ploidy=1;}
 		samFilter.setSamtoolsFilter();
 
-		// Configure streaming thread count within reasonable bounds.
-		// streamerThreads<1 is the "auto" sentinel; expand it to min(10, 1+threads/3) instead of
-		// flooring to 1.  Flooring collapsed the sentinel before StreamerFactory could expand it,
-		// which dropped the SAM/BAM feed to a single reader thread and serialized input (regression
-		// a751c4fd).  The streamer (BAM->SamLine conversion) saturates the downstream ProcessThreads
-		// well before it needs many threads itself; empirically this feed plateaus by ~ss=12, so the
-		// 1+threads/3 ramp capped at 10 is plenty without starving the workers of cores.
-		if(streamerThreads<1){streamerThreads=Tools.min(10, 1+Shared.threads()/3);}
-		streamerThreads=Tools.max(1, Tools.min(streamerThreads, Shared.threads()));
-		assert(streamerThreads>0) : streamerThreads;
-
 		{ //Process parser fields and extract standard parameters
 			Parser.processQuality();
 
@@ -501,6 +490,18 @@ public class CallVariants {
 		if(sampleName==null){
 			sampleName=ReadWrite.stripToCore(ffin.get(0).name());
 		}
+
+		// Configure streaming thread count within reasonable bounds (format-aware).
+		// streamerThreads<1 is the "auto" sentinel; expand it instead of flooring to 1.  Flooring
+		// collapsed the sentinel before StreamerFactory could expand it, dropping the feed to a single
+		// reader thread and serializing input (regression a751c4fd).  BAM (bgzf) parallel-decompresses
+		// and the feed keeps scaling to ~ss=10-12; SAM (text, even when bgzf) is parse-bound and
+		// saturates the downstream ProcessThreads by ~ss=4 (added streamer threads past that just idle),
+		// so cap SAM lower.  Must run AFTER ffin is built so the input format is known.
+		final int streamerCap=(ffin.get(0).bam() ? 10 : 4);
+		if(streamerThreads<1){streamerThreads=Tools.min(streamerCap, 1+Shared.threads()/3);}
+		streamerThreads=Tools.max(1, Tools.min(streamerThreads, Shared.threads()));
+		assert(streamerThreads>0) : streamerThreads;
 
 		// Reference file is required for variant calling
 		assert(ref!=null) : "Please specify a reference fasta.";
