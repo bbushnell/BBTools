@@ -120,6 +120,7 @@ public class GradeVCF {
 				if(b.equalsIgnoreCase("illumina")){VectorUMP45.platform=VectorUMP45.PLATFORM_ILLUMINA;}
 				else if(b.equalsIgnoreCase("pacbio")){VectorUMP45.platform=VectorUMP45.PLATFORM_PACBIO;}
 				else if(b.equalsIgnoreCase("nanopore") || b.equalsIgnoreCase("ont")){VectorUMP45.platform=VectorUMP45.PLATFORM_NANOPORE;}
+				else if(b.equalsIgnoreCase("roche") || b.equalsIgnoreCase("sbx")){VectorUMP45.platform=VectorUMP45.PLATFORM_ROCHE;}
 				else{VectorUMP45.platform=Integer.parseInt(b);}
 			}else if(a.equals("normalize") || a.equals("leftalign") || a.equals("norm")){
 				normalize=Parse.parseBoolean(b);
