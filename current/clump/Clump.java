@@ -318,6 +318,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									System.out.println(a.toFasta());
 									System.out.println(b.toFasta());
 								}
+								//KEPT-READ DECISION (resolves the carry-forward Q from KmerComparator.compare's
+								//higher-error-first sort). markAll -> discard BOTH. containment -> discard b (a is the
+								//container: equals()==contains(a,b)). else keep the lower-expected-error read: errB>=errA
+								//discards b, else discards a. The survivor always holds min(errA,errB), and since that min
+								//propagates transitively across pairwise comparisons, the representative is the clump's
+								//lowest-error read INDEPENDENT of scan/sort order. Survivor absorbs the other's copies.
 								float errA=a.expectedErrorsIncludingMate(true);
 								float errB=b.expectedErrorsIncludingMate(true);
 								if(markAll){
@@ -377,10 +383,13 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 			}
 		}
 		
+		//CLEVER [verified]: containment is ASYMMETRIC (a-contains-b != b-contains-a) and reads aren't length-sorted,
+		//so one forward scan catches only "earlier contains later". The backward pass catches "later contains
+		//earlier" - together they cover both directions. Plain dedup (exact equality, symmetric) needs only forward.
 		if(containment){
 			dupeReads+=removeDuplicates_backwards(maxSubs, subRate, scanLimit, maxDiscarded, optical, xySorted, mark, markAll, rename, dist);
 		}
-		
+
 		return dupeReads;
 	}
 	
@@ -415,6 +424,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 //						if(optical && keyA.lane!=keyB.lane){break;} //Already in equals method
 //						if(breakOnTile && keyA.tile!=keyB.tile){break;} //Already in equals method
 						if(optical && xySorted && !keyA.nearXY(keyB, dist)){break;}
+						//QUESTION [clump/Clump#001] (output-sensitive, NOT fixed): the forward pass
+						//(removeDuplicates_inner) has a `compareUMI && !umiMatches -> break` guard here that this
+						//backward containment pass OMITS. With containment+compareUMI both on, backward absorption can
+						//merge reads across a UMI mismatch that the forward pass would block -> asymmetric dedup. Note
+						//equals()==contains() never checks UMI either way, so the forward break is the only UMI gate.
+						//Likely a latent gap (containment+UMI is a rare combo); flagged to confirm intent, not changed.
 //						if(System.nanoTime()-start>200000000000L){
 //							TextStreamWriter tsw=new TextStreamWriter("foo.fq", true, false, false);
 //							tsw.start();
@@ -430,6 +445,12 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									System.out.println(a.toFasta());
 									System.out.println(b.toFasta());
 								}
+								//KEPT-READ DECISION (resolves the carry-forward Q from KmerComparator.compare's
+								//higher-error-first sort). markAll -> discard BOTH. containment -> discard b (a is the
+								//container: equals()==contains(a,b)). else keep the lower-expected-error read: errB>=errA
+								//discards b, else discards a. The survivor always holds min(errA,errB), and since that min
+								//propagates transitively across pairwise comparisons, the representative is the clump's
+								//lowest-error read INDEPENDENT of scan/sort order. Survivor absorbs the other's copies.
 								float errA=a.expectedErrorsIncludingMate(true);
 								float errB=b.expectedErrorsIncludingMate(true);
 								if(markAll){
@@ -660,6 +681,10 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 //				}
 //			}
 //		}
+		//If a and b chose the pivot on opposite strands, temporarily reverse-complement b so both align on a's
+		//strand, then flip back after the compare (b is restored). This MUTATES b in place - safe only because b
+		//belongs to the clump this thread owns; the commented block above documents why the PAIRED cross-clump
+		//case would need synchronization ("just don't do that" = a known, accepted limitation, not an oversight).
 		if(rka.kmerMinusStrand!=rkb.kmerMinusStrand){
 			rkb.flip(b, k);
 			flipped=true;
@@ -685,7 +710,10 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 		assert(a.length>=b.length);
 		if(a==b){return false;} //Nothing should contain itself
 		int subs=0;
-		
+
+		//Align by the shared pivot: a[posA] lines up with b[posB], i.e. a_index - b_index = dif. Start one index
+		//at 0 and the other at the offset (possibly negative); the `>=0` guards in the loops skip the overhang so
+		//only the true overlap region is compared. Verified: both branches yield a_index-b_index==dif.
 		int ai, bi;
 		final int dif=posA-posB;
 		if(dif>0){
@@ -1079,6 +1107,9 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	 * @return 2D array [base][position] with quality averages
 	 */
 	float[][] qualityAverages(){
+		//NOTE: reads the baseCounts/qualityCounts FIELDS directly (not the lazy getters), so it assumes both are
+		//already populated. Safe by call order: the only caller (errorCorrect) invokes baseCounts() then
+		//qualityCounts() first. Would NPE if called standalone before those - latent, no such caller exists.
 		if(qualityAverages==null){
 			qualityAverages=new float[4][width];
 			for(int i=0; i<4; i++){

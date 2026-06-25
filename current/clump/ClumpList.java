@@ -59,6 +59,10 @@ public class ClumpList extends ArrayList<Clump> {
 		this.addAll(temp);
 	}
 	
+	//CLEVER [verified]: groups mate-linked clumps together for output locality. The depth<100 guard makes q null
+	//past depth 100, which stops further queueing -> bounds recursion against a stack overflow on deeply mate-
+	//chained clumps. Correctness is unaffected: clumps reached at the limit are still added to temp+marked; any
+	//never-reached clump is swept up by reorderPaired's main loop (the assert temp.size()==size() guards no loss).
 	private void addFriends(Clump c, ArrayList<Clump> temp, int depth){
 		LinkedList<Clump> q=(depth<100 ? new LinkedList<Clump>() : null);
 		for(Read r : c){
@@ -136,6 +140,8 @@ public class ClumpList extends ArrayList<Clump> {
 //		assert(false) : threads;
 		final ArrayList<ClumpThread> alct=new ArrayList<ClumpThread>(threads);
 		int incr=((list.size()+threads-1)/threads);
+		//incr is already ceil(size/threads), so incr*threads>=size>size-1 always -> this incr++ is dead (never
+		//fires). Harmless; the assert below confirms the real invariant threads*incr>=size that slicing needs.
 		if(incr*threads<list.size()-1){incr++;}
 		assert(threads*incr>=list.size()) : threads+", "+incr+", "+list.size();
 		for(int i=0; i<threads; i++){
@@ -264,6 +270,12 @@ public class ClumpList extends ArrayList<Clump> {
 		map=null;
 	}
 	
+	//QUESTION [clump/ClumpList#001] (latent-LOW, NOT fixed): this is double-checked locking on the NON-volatile
+	//field `map`. It is safe ONLY because the sole caller chain (reorder/reorderPaired <- KmerSort1.processInner)
+	//runs single-threaded on the main thread. Under a genuinely concurrent first-call it would misbehave: a second
+	//thread that read temp==null before blocking would, after the first sets map, hit `assert(map==null)` (fails
+	//under -ea) or clobber map=temp(=stale null). No concurrent caller exists today, so latent; if map() ever
+	//becomes concurrent, make `map` volatile and drop the assert. Flagged to confirm, not changed (no live trigger).
 	public LinkedHashMap<LongM, ArrayList<Clump>> map(){
 		LinkedHashMap<LongM, ArrayList<Clump>> temp=map;
 		if(temp==null){
@@ -384,8 +396,15 @@ public class ClumpList extends ArrayList<Clump> {
 			makeSimpleConsensusT=makeSimpleConsensus_;
 		}
 		
-		/** Processes clumps according to mode using atomic work distribution.
-		 * Retrieves clumps via atomic counter and processes based on operation mode. */
+		/** Builds clumps from the pre-kmer-sorted input slice [startIndex, stopIndex).
+		 * BOUNDARY HANDLING (verified, the subtle part): a clump = a maximal run of equal-kmer reads. This thread
+		 * OWNS only clumps that START in its slice. It seeds currentKmer from input[startIndex-1], so any leading
+		 * reads sharing that prior kmer (a clump that started in the previous slice) are SKIPPED here. Conversely
+		 * the main loop's currentClump is finished by the tail loop below, which runs PAST stopIndex (bounded only
+		 * by input.size()) until the kmer changes - so a clump straddling the end (or spanning many slices) is
+		 * fully grabbed by its owning thread. Skip-leading + grab-trailing partition the reads with no loss or
+		 * double-count (validated by addReadsMT's assert list.size()==rAdded). NOTE: not the atomic-counter pattern
+		 * (that's ProcessThread); ClumpThread uses fixed disjoint slices. */
 		@Override
 		public void run(){
 			if(startIndex>=input.size()){return;}

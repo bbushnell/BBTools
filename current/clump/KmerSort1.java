@@ -38,6 +38,11 @@ public class KmerSort1 extends KmerSort {
 	 * @param args Command line arguments for configuration
 	 */
 	public static void main(String[] args){
+		//CLEVER (the right pattern): save the ReadWrite zip statics before the run and restore them after, so an
+		//in-JVM caller (Clumpify invokes this main() directly, not as a subprocess) isn't left with mutated zip
+		//config. NOTE this restore is INCOMPLETE re: the broader static-leak family [clump/Clumpify#001]: the
+		//FASTQ.DETECT_QUALITY/ASCII_OFFSET (set in processInner) and Clump.conservativeMode/KmerComparator statics
+		//are NOT saved/restored here, so they still leak across in-JVM runs. Same deferred concern as Clumpify#001.
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		final float ztd=ReadWrite.ZIP_THREAD_MULT();
 		final int mzt=ReadWrite.MAX_ZIP_THREADS();
@@ -312,6 +317,11 @@ public class KmerSort1 extends KmerSort {
 		ClumpList.UNRCOMP=(!rcomp && !condense);
 		Timer t=new Timer();
 		
+		//Multi-pass error-correction ramp: run the first ~half of passes CONSERVATIVE (stricter thresholds, fewer
+		//false corrections on noisy data) then switch to AGGRESSIVE for the rest (later passes correct on cleaner,
+		//already-improved reads). conservativePasses is the switch point; setConservative(false) is called at L432
+		//once pass>=conservativePasses. NOTE Clump.conservativeMode is static and toggled via multiply/divide of
+		//thresholds, so across in-JVM reuse it can drift (float round-trip) - static-leak family [Clumpify#001].
 		final int conservativePasses=Clump.conservativeFlag ? passes : Tools.max(1, passes/2);
 		if(groups==1 && passes>1){Clump.setConservative(true);}
 
@@ -337,6 +347,10 @@ public class KmerSort1 extends KmerSort {
 			
 			if(verbose){t.start("Fetching reads.");}
 			ArrayList<Read> reads=fetchReads1(cris, kc);
+			//quantizeQuality is disabled after the first group's fetch: for groups==1 it's a simple quantize-once;
+			//for groups>1 the per-group split files were already quantized by KmerSplit (Clumpify sets both
+			//KmerSplit.quantizeQuality and KmerSort1.quantizeQuality), so this avoids re-quantizing groups 1+.
+			//(quantization is deterministic binning, so even the group-0 overlap would be idempotent.)
 			quantizeQuality=false;
 //			if(verbose){t.stop("Fetch time: ");}
 			

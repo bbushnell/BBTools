@@ -266,6 +266,10 @@ public class KmerSort2 extends KmerSort {
 		for(int i=0; rosa!=null && i<rosa.length; i++){
 			final int buff=1;
 
+			//TODO: Possible bug [clump/KmerSort2#001] - the two clauses are IDENTICAL (out1 vs in1 twice); the
+			//second was almost certainly meant to be in2. As written the guard never catches out1==in2, so writing
+			//output over a paired INPUT file (in2) slips through and silently corrupts. LOW/latent (assert + a
+			//user-error case), but output-affecting to "fix" (would newly crash out1==in2 runs) -> flagged for Brian.
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			rosa[i]=ConcurrentReadOutputStream.getStream(ffout1[i], null, null, null, buff, null, false);
@@ -403,6 +407,12 @@ public class KmerSort2 extends KmerSort {
 				basesOut+=r.pairLength();
 			}
 			
+			//Two output models. NORMAL path (doHashAndSplit defaults true -> addToRos): each input group's reads are
+			//re-hashed and SPLIT across all output files rosa[] (multi-group memory-efficient writeout). The else
+			//path (one-group-per-output-file, streaming) progressively closes rosa[group-1] here AND the final loop
+			//below closes ALL rosa -> rosa[0..groups-2] get closed TWICE. Unreachable in normal KmerSort2 flow
+			//(doHashAndSplit is true unless Clumpify sets it false for the KmerSort3/V3 path), so latent; if it ever
+			//runs, the double-close depends on closeStream being idempotent. [clump/KmerSort2#002, latent]
 			if(doHashAndSplit || groups==0){
 				addToRos(rosa, reads, t, kc);
 			}else{
@@ -426,6 +436,10 @@ public class KmerSort2 extends KmerSort {
 		if(verbose){outstream.println("Done!");}
 	}
 	
+	//CLEVER [verified]: the V2 multi-group writeout. With >1 output file, re-hash every read with a FRESH comparator
+	//(seed+1, so the output-split hash is independent of the pivot-selection hash) and hashAndSplit them into div
+	//buckets by hash(kmer)%div, one bucket per output file. This is what makes the groups>1 memory-efficient
+	//pipeline work: each output file becomes a self-contained kmer-partition for a later pass. div==groups asserted.
 	private void addToRos(ConcurrentReadOutputStream[] rosa, ArrayList<Read> list, Timer t, KmerComparator old){
 		if(rosa==null){return;}
 		assert(rosa.length>0);

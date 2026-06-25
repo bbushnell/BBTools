@@ -454,6 +454,10 @@ public abstract class KmerSort {
 					}
 				}
 				
+				//Entry pre-filter: a cheap exact-duplicate cull during fetch, keyed by Hasher.hashPair with
+				//Hasher.equalsPaired as the collision arbiter (hash is only a hint - see Hasher review). NOTE the
+				//table is PER-THREAD, so this catches only exact dups within one thread's lists, not across threads;
+				//it's an optimization, the authoritative dedup happens later in the clumps (Clump.removeDuplicates).
 				if(entryFilterTable!=null){
 					int removed=0;
 					for(int i=0; i<reads.size(); i++){
@@ -500,7 +504,10 @@ public abstract class KmerSort {
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
 			
-			//Optimization for TimSort
+			//Optimization for TimSort: each fetch thread pre-sorts its OWN storage by kmer. This is not the final
+			//order - fetchReads1 concatenates all per-thread storages and the caller (e.g. KmerSort1.processInner)
+			//runs one global Shared.sort. Pre-sorting leaves long pre-ordered runs that TimSort merges cheaply, so
+			//the global sort is near-linear. Correctness rests on that later global sort, not on this one.
 			if(parallelSort){
 				storage.sort(kc);
 //				Shared.sort(storage, kc); //Already threaded; this is not needed.
@@ -561,6 +568,10 @@ public abstract class KmerSort {
 		
 		@Override
 		public void run(){
+			//Stride-partitioned over the read list (thread i handles i, i+threads, ...). Pivots the read (table=null
+			//-> error-prob path), then buckets it by hash(pivot kmer) % groups. The modulo is SAFE from a negative
+			//index because kc.hash masks with &Long.MAX_VALUE (always >=0; see KmerComparator.hash) - a raw kmer
+			//could be negative and break this. Each thread writes only its own array[], no contention.
 			for(int i=id; i<list.size(); i+=threads){
 				Read r=list.get(i);
 				kc.hash(r, null, 0, true);
@@ -625,6 +636,11 @@ public abstract class KmerSort {
 	protected long diskProcessed=0;
 	/** Total bytes processed in memory during operations. */
 	protected long memProcessed=0;
+	//NOTE [ties to clump/Clumpify#001 static-leak family]: entryFiltered/duplicatesTotal/correctionsTotal are
+	//STATIC with no reset anywhere. Correct for a single clumpify CLI run (cumulative across one instance's passes),
+	//but they survive across KmerSort.main() calls in the SAME JVM - so under in-process clumpify reuse (RQCFilter's
+	//`new Clumpify()`, see Clumpify#001) a later run's printStats would report stale-inflated totals. Stats only
+	//(not read output), same deferred concern as Clumpify#001; flagged, not changed.
 	/** Total reads filtered out due to entry filtering (duplicate detection). */
 	protected static long entryFiltered=0;
 

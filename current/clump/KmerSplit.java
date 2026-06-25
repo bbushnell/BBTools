@@ -45,6 +45,10 @@ public class KmerSplit {
 	 * processes input data, and restores system settings after completion.
 	 * @param args Command line arguments
 	 */
+	//CLEVER (the most complete save/restore in the clump family): saves+restores BOTH the ReadWrite zip statics AND
+	//the FASTQ.FORCE_INTERLEAVED/TEST_INTERLEAVED flags around the in-JVM run (Clumpify calls this main() directly).
+	//Still part of the Clumpify#001 family in that the Clump/KmerComparator statics (defaultSeed/hashes/border/
+	//minProb set from args L170-176) are NOT restored - but this is the closest any family member gets.
 	public static void main(String[] args){
 		final boolean pigz=ReadWrite.USE_PIGZ, unpigz=ReadWrite.USE_UNPIGZ;
 		final boolean oldFInt=FASTQ.FORCE_INTERLEAVED, oldTInt=FASTQ.TEST_INTERLEAVED;
@@ -311,6 +315,10 @@ public class KmerSplit {
 			for(int i=0; i<groups; i++){
 				final int buff=8;
 
+				//TODO: Possible bug [clump/KmerSplit#001] - SAME duplicate-clause defect as KmerSort2#001/KmerSort3#001
+				//(now a 3-file family anomaly: KmerSplit/KmerSort2/KmerSort3 all have it; KmerSort1 is single-clause/
+				//correct). Both clauses are out1 vs in1; the second should be in2, so out1==in2 (output over a paired
+				//input) isn't caught. LOW/latent (assert + user-error), output-affecting to fix -> flagged for Brian.
 				assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 				
 				ros[i]=ConcurrentReadOutputStream.getStream(ffout[i], null, null, null, buff, null, false);
@@ -466,6 +474,12 @@ public class KmerSplit {
 					}
 				}
 				
+				//Distribute each read to group = hash(pivot kmer) % groups. This is the INITIAL split that the
+				//KmerSort stage later reads back per-group; correctness requires all reads sharing a pivot to land in
+				//ONE group, which holds because the hash is deterministic and KmerSplit uses the same default seed as
+				//KmerSort's first comparator -> identical pivots -> identical group. %groups is safe from a negative
+				//index because kc.hash masks &Long.MAX_VALUE (see KmerComparator.hash); the assert guards it anyway.
+				//Per-group 200-read buffers flush to ros only when full -> far fewer ros.add calls than per-read.
 				kc.hash(hashList, table, minCount, true);
 				for(Read r : hashList){
 					long kmer=((ReadKey)r.obj).kmer;

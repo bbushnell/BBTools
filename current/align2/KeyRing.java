@@ -254,6 +254,12 @@ public final class KeyRing {
 		if(slots==2 || maxKeys==2){return new int[] {0, slots-1};}
 		if(slots==3 || maxKeys==3){return new int[] {0, slots/2, slots-1};}
 		
+		//Comprehension (Eru 2026-06-24): places maxKeys seed offsets across `slots` (=readlen-blocksize+1 valid start
+		//positions), ALWAYS pinning offsets[0]=0 and offsets[last]=slots-1 for max coverage, and spreading the
+		//`middles` interior offsets at fspacing=midslots/(middles+1) (the +1 deliberately avoids two-adjacent-keys at
+		//the end, see L265). The middles>2 block (below) nudges offsets[1]=floor(fspacing) and offsets[middles]=
+		//ceil(fspacing*middles) to de-cluster the ends. The L299 loop asserts strict monotonicity -> any spacing
+		//collision crashes loud rather than silently producing duplicate/overlapping seeds.
 		int midslots=slots-2;
 		maxKeys=Tools.min(maxKeys, slots);
 		int middles=Tools.min(maxKeys-2, midslots);
@@ -561,9 +567,15 @@ public final class KeyRing {
 //		System.out.println("desiredKeys="+desiredKeys);
 //		System.out.println("Resulting density = "+(desiredKeys*blocksize)/(float)qual.length);
 		
+		//CLEVER [verified] (Eru 2026-06-24): the quality-aware variant. Two error tiers: errorLimit1 (0.94, or 0.99
+		//in semiperfect mode) trims bad ENDS (L531-532); errorLimit2 (0.9999) is the per-position keep test. It walks
+		//`desiredKeys` evenly-spaced TARGET positions (interval apart) but at each target snaps to the nearest GOOD
+		//position: try j, else search backward toward prev (L582), else forward within one interval (L587). Positions
+		//with no good slot become -1 ("miss") and are compacted out at L609-618. So it preserves even spacing while
+		//never placing a seed on a high-error base. KEEP_BAD_KEYS forces all limits to 2f (accept everything).
 		int[] offsets=new int[desiredKeys];
 		float interval=(right-left)/(float)(Tools.max(desiredKeys-1, 1));
-		
+
 		int intervalInt=((int)interval)+1;
 		
 		float f=left;
