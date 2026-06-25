@@ -1,6 +1,7 @@
 package stream;
 
 import dna.AminoAcid;
+import shared.KillSwitch;
 import shared.Tools;
 
 /**
@@ -57,8 +58,12 @@ public class MDWalker {
 					mode=SUB;
 				}
 
-				while(matchPos<matchPos2 || (matchPos<longmatch.length && (longmatch[matchPos]=='I' || false))){
-					assert(matchPos<longmatch.length) : longmatch.length+"\n"+sl.toString()+"\n"+new String(longmatch);
+				while(matchPos<matchPos2 || (matchPos<longmatch.length && longmatch[matchPos]=='I')){
+					//Crash-loud under -ea on an inconsistent MD/longmatch (matchPos overran a match run); -da degrades (break).
+					if(matchPos>=longmatch.length){
+						assert(false) : KillSwitch.assertDie("MD/longmatch inconsistent: matchPos overran the match string in a match run.\n"+(sl==null ? "" : sl.toString()+"\n")+new String(longmatch));
+						break;
+					}
 					if(longmatch[matchPos]=='I'){
 						//						System.err.println("I: mpos="+mpos+", bpos="+bpos);
 						matchPos2++;
@@ -89,8 +94,14 @@ public class MDWalker {
 					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 				}else if(mode==DEL){
 					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
-					rpos++;
-					matchPos++;
+					//Crash-loud under -ea if the deletion runs past the match string; -da advances reference only (best-effort).
+					if(matchPos<longmatch.length){
+						rpos++;
+						matchPos++;
+					}else{
+						assert(false) : KillSwitch.assertDie("MD/longmatch inconsistent: deletion ran past the match string.\n"+(sl==null ? "" : sl.toString()+"\n")+new String(longmatch));
+						rpos++;
+					}
 					sym=c;
 				}
 				//				else if(longmatch[mpos]=='I'){
@@ -105,9 +116,16 @@ public class MDWalker {
 						rpos++;
 						matchPos++;
 					}
-					if(matchPos>=longmatch.length){break;}
+					//Crash-loud under -ea if the MD names a sub past the end of the match string; -da degrades (break).
+					if(matchPos>=longmatch.length){
+						assert(false) : KillSwitch.assertDie("MD names a substitution past the end of the match string (length-inconsistent MD vs CIGAR).\n"+(sl==null ? "" : sl.toString()+"\n")+new String(longmatch));
+						break;
+					}
 					longmatch[matchPos]=(byte)'S';
-					if((bases!=null && !AminoAcid.isFullyDefined(bases[bpos])) || !AminoAcid.isFullyDefined(c)){longmatch[matchPos]='N';}
+					//Crash-loud under -ea if the MD names a sub past the end of read bases; -da treats it as base-defined (best-effort).
+					final boolean basesOver=(bases!=null && bpos>=bases.length);
+					assert(!basesOver) : KillSwitch.assertDie("MD names a substitution past the end of read bases (length-inconsistent MD vs SEQ): bpos="+bpos+", bases.length="+(bases==null ? -1 : bases.length));
+					if((bases!=null && !basesOver && !AminoAcid.isFullyDefined(bases[bpos])) || !AminoAcid.isFullyDefined(c)){longmatch[matchPos]='N';}
 					mode=SUB;
 					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 					bpos++;
@@ -127,6 +145,8 @@ public class MDWalker {
 		//					+ new String(Read.toShortMatchString(longmatch))+"\n"+mdTag;
 	}
 
+	/** Iterates the MD tag substitution-by-substitution. Currently UNUSED (no callers tree-wide; only fixMatch is live
+	 * via SamLine). Kept + bounds-guarded so it is safe if ever revived. */
 	boolean nextSub(){
 		sym=0;
 		while(mdPos<mdTag.length()){
@@ -149,7 +169,7 @@ public class MDWalker {
 					rpos++;
 					matchPos++;
 					sym=c;
-				}else if(longmatch[matchPos]=='I'){
+				}else if(matchPos<longmatch.length && longmatch[matchPos]=='I'){
 					mode=INS;
 					bpos++;
 					matchPos++;

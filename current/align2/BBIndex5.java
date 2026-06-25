@@ -16,7 +16,15 @@ import stream.SiteScore;
  * Based on Index11f
  * Index stored in single array per block.
  * Supports 32-bit unsigned index.
- * 
+ *
+ * Successor to BBIndex (the de-facto "v4", Dec 2012). The headline change is the
+ * 32-bit UNSIGNED packed site coordinate: the heap element is Quad64 (long site)
+ * instead of BBIndex's Quad (int site), packed coords are widened via
+ * ((long)a2)&0xFFFFFFFFL, and the indel-window math uses subUnsigned/addUnsigned
+ * rather than signed +/-. This doubles the addressable range per block from
+ * ~2.1Gbp (signed int) to ~4.29Gbp (unsigned int). Same 67-method API surface as
+ * BBIndex but ~740 lines leaner. Opt-in via BBMap5; default bbmap.sh still uses BBIndex.
+ *
  * @author Brian Bushnell
  * @date Jan 3, 2013
  *

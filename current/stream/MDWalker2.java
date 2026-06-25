@@ -12,6 +12,15 @@ import shared.Tools;
  * - Adds bounds checks around longmatch access to avoid ArrayIndexOutOfBounds.
  * - Keeps original semantics: digits advance matches; '^' enters deletion; letters
  *   mark substitutions; 'I' in longmatch are skipped when counting matches.
+ *
+ * STATUS (2026-06-25): NOT WIRED IN — the live path (SamLine) uses {@link MDWalker}. This was written
+ * as a hardened replacement, but testing showed it UNNECESSARY in practice: {@link TestMDWalker} shows
+ * it produces byte-identical output to MDWalker on all valid input, and the live MDWalker did not crash
+ * on 3,000,000 real Roche bwa long reads (M+MD, ~9% error) — its edge crashes only fire on malformed/
+ * length-inconsistent MD tags, which real aligners do not emit. MDWalker has since been given the same
+ * bounds checks but as crash-loud {@code assert(false) : KillSwitch.assertDie(...)} (crash under -ea,
+ * bypass under -da) rather than this class's silent graceful-degrade, which better matches the project's
+ * crash-loud policy. Kept as a tested reference / drop-in alternative; not deleted.
  */
 public class MDWalker2 {
 

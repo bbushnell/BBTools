@@ -14,7 +14,7 @@ public class VectorUMP45 {
 	public static final int DIMS=33;
 
 	public static final int PLATFORM_ILLUMINA=0, PLATFORM_PACBIO=1,
-			PLATFORM_NANOPORE=2, PLATFORM_RESERVED=3;
+			PLATFORM_NANOPORE=2, PLATFORM_ROCHE=3;
 
 	public static int platform=PLATFORM_ILLUMINA;
 	public static boolean includeScore=false;
