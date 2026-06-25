@@ -62,10 +62,18 @@ public final class BBMapThread5 extends AbstractMapThread {
 	public final int CLEARZONE3;
 	/** Inverse of CLEARZONE3 for performance optimization in calculations */
 	public final float INV_CLEARZONE3;
-	/** Score cutoff for switching to CLEARZONE1b threshold */
-	public final float CLEARZONE1b_CUTOFF=0.92f;
-	/** Score cutoff for switching to CLEARZONE1c threshold */
-	public final float CLEARZONE1c_CUTOFF=0.82f;
+	/** Flat ratio component for clearzone 1b cutoff calculations */
+	public final float CLEARZONE1b_CUTOFF_FLAT_RATIO=12;//3f;
+	/** Flat cutoff value for clearzone 1b threshold (computed from POINTS_MATCH2) */
+	public final float CLEARZONE1b_CUTOFF_FLAT;
+	/** Scale factor for clearzone 1b cutoff calculations */
+	public final float CLEARZONE1b_CUTOFF_SCALE=0.97f;
+	/** Flat ratio component for clearzone 1c cutoff calculations */
+	public final float CLEARZONE1c_CUTOFF_FLAT_RATIO=26;//7f;
+	/** Flat cutoff value for clearzone 1c threshold (computed from POINTS_MATCH2) */
+	public final float CLEARZONE1c_CUTOFF_FLAT;
+	/** Scale factor for clearzone 1c cutoff calculations */
+	public final float CLEARZONE1c_CUTOFF_SCALE=0.92f;
 	
 	/** BBIndex5 instance for k-mer based alignment indexing and scoring */
 	public final BBIndex5 index;
@@ -202,8 +210,10 @@ public final class BBMapThread5 extends AbstractMapThread {
 			CLEARZONE3=0;
 //			CLEARZONE1e=0;
 		}
+		CLEARZONE1b_CUTOFF_FLAT=CLEARZONE1b_CUTOFF_FLAT_RATIO*POINTS_MATCH2;
+		CLEARZONE1c_CUTOFF_FLAT=CLEARZONE1c_CUTOFF_FLAT_RATIO*POINTS_MATCH2;
 		INV_CLEARZONE3=(CLEARZONE3==0 ? 0 : 1f/CLEARZONE3);
-		
+
 		index=new BBIndex5(KEYLEN, minChrom, maxChrom, KFILTER, msa);
 	}
 	
@@ -570,22 +580,43 @@ public final class BBMapThread5 extends AbstractMapThread {
 		}
 		assert(Read.CHECKSITES(r, basesM));
 		
-		if(r.numSites()>1){
-			assert(r.topSite().score==r.topSite().slowScore);
+		if(r.numSites()>=1){
+			assert(r.topSite().score==r.topSite().slowScore) : r.topSite();
 		}
 		
 		if(SLOW_ALIGN || USE_AFFINE_SCORE){r.setPerfectFlag(maxSwScore);}
 		
 		if(r.numSites()>1){
-			final int clearzone=r.perfect() ? CLEARZONEP :
-				r.topSite().score>=(int)(maxSwScore*CLEARZONE1b_CUTOFF) ? CLEARZONE1 :
-					(r.topSite().score>=(int)(maxSwScore*CLEARZONE1c_CUTOFF) ? CLEARZONE1b : CLEARZONE1c);
-			final int numBestSites1=Tools.countTopScores(r.sites, clearzone);
+			final int clearzone;
+			final int score=r.topSite().score;
+			if(r.perfect()){clearzone=CLEARZONEP;}
+			else{
+				assert(score<maxSwScore);
+				final float cz1blimit=(maxSwScore*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT);
+				final float cz1climit=(maxSwScore*CLEARZONE1c_CUTOFF_SCALE-CLEARZONE1c_CUTOFF_FLAT);
+				if(score>cz1blimit){
+					clearzone=(int)(((maxSwScore-score)*CLEARZONE1b+(score-cz1blimit)*CLEARZONE1)/(maxSwScore-cz1blimit));
+				}else if(score>cz1climit){
+					clearzone=(int)(((cz1blimit-score)*CLEARZONE1c+(score-cz1climit)*CLEARZONE1b)/(cz1blimit-cz1climit));
+				}else{
+					clearzone=CLEARZONE1c;
+				}
+			}
+			int numBestSites1=Tools.countTopScores(r.sites, clearzone);
 			if(numBestSites1>1){
 				//Ambiguous alignment
 				assert(r.sites.size()>1);
 				boolean b=processAmbiguous(r.sites, true, AMBIGUOUS_TOSS, clearzone, SAVE_AMBIGUOUS_XY);
 				r.setAmbiguous(b);
+			}else{
+				final int lim=(r.perfect() ? (int)(4f*CLEARZONE_LIMIT1e) : score+CLEARZONE1e>=maxSwScore ? 2*CLEARZONE_LIMIT1e : CLEARZONE_LIMIT1e)+1;
+				if(r.sites.size()>lim && clearzone<CLEARZONE1e){
+					numBestSites1=Tools.countTopScores(r.sites, CLEARZONE1e);
+					if(numBestSites1>lim){
+						boolean b=processAmbiguous(r.sites, true, AMBIGUOUS_TOSS, clearzone, SAVE_AMBIGUOUS_XY);
+						r.setAmbiguous(b);
+					}
+				}
 			}
 		}
 		
@@ -1171,8 +1202,8 @@ public final class BBMapThread5 extends AbstractMapThread {
 
 		if(r.numSites()>1){
 			final int clearzone=r.perfect() ? CLEARZONEP :
-				r.topSite().score>=(int)(maxSwScore1*CLEARZONE1b_CUTOFF) ? CLEARZONE1 :
-					(r.topSite().score>=(int)(maxSwScore1*CLEARZONE1c_CUTOFF) ? CLEARZONE1b : CLEARZONE1c);
+				r.topSite().score>=(int)(maxSwScore1*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT) ? CLEARZONE1 :
+					(r.topSite().score>=(int)(maxSwScore1*CLEARZONE1c_CUTOFF_SCALE-CLEARZONE1c_CUTOFF_FLAT) ? CLEARZONE1b : CLEARZONE1c);
 			int numBestSites1=Tools.countTopScores(r.sites, clearzone);
 			if(numBestSites1>1){
 				//Ambiguous alignment
@@ -1186,8 +1217,8 @@ public final class BBMapThread5 extends AbstractMapThread {
 
 		if(r2.numSites()>1){
 			final int clearzone=r2.perfect() ? CLEARZONEP :
-				r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1b_CUTOFF) ? CLEARZONE1 :
-					(r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1c_CUTOFF) ? CLEARZONE1b : CLEARZONE1c);
+				r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT) ? CLEARZONE1 :
+					(r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1c_CUTOFF_SCALE-CLEARZONE1c_CUTOFF_FLAT) ? CLEARZONE1b : CLEARZONE1c);
 			int numBestSites2=Tools.countTopScores(r2.sites, clearzone);
 			if(numBestSites2>1){
 				//Ambiguous alignment

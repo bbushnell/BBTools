@@ -47,7 +47,7 @@ public class IndexMaker5 {
 			int MAX_ALLOWED_CHROM_INDEX, int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH, boolean WRITE, boolean DISK_INVALID, Block[] index){
 		Timer t=new Timer();
 		
-		MAX_CONCURRENT_BLOCKS=(Shared.WINDOWS ? 1 : Tools.max(1, Shared.threads()/4));
+		MAX_CONCURRENT_BLOCKS=(Shared.LOW_MEMORY ? 1 : (Shared.WINDOWS ? (WRITE ? 1 : Tools.max(1, Shared.threads()/4)) : Tools.max(1, Shared.threads()/4)));
 		
 		minChrom=Tools.max(1, minChrom);
 		if(genome>=0 && Data.GENOME_BUILD!=genome){
@@ -194,8 +194,8 @@ public class IndexMaker5 {
 		 * @return Generated Block containing the k-mer index arrays
 		 */
 		Block makeArrays(){
-			
-			{
+
+			if(!DISK_INVALID){
 				String fname=fname(minChrom, maxChrom, KEYLEN, CHROMBITS);
 				File f=new File(fname);
 
@@ -222,7 +222,7 @@ public class IndexMaker5 {
 			}
 
 			CountThread threads[]=new CountThread[4];
-			int[] sizes=new int[KEYSPACE+1];
+			int[] sizes=KillSwitch.allocInt1D(KEYSPACE+1);
 			int[] intercom=KillSwitch.allocInt1D(4);
 			Block[] indexHolder=new Block[1];
 
@@ -235,7 +235,7 @@ public class IndexMaker5 {
 			}
 			Data.sysout.println("Indexing threads started.");
 			for(int i=0; i<threads.length; i++){
-				if(threads[i].getState()!=State.TERMINATED){
+				while(threads[i].getState()!=State.TERMINATED){
 					try {
 						threads[i].join();
 					} catch (InterruptedException e) {
@@ -356,10 +356,10 @@ public class IndexMaker5 {
 						
 						if(USE_ALLOC_SYNC){
 							synchronized(ALLOC_SYNC){//To allow contiguous memory allocation
-								b=new Block(new int[sum], sizes);
+								b=new Block(KillSwitch.allocInt1D(sum), sizes);
 							}
 						}else{
-							b=new Block(new int[sum], sizes);
+							b=new Block(KillSwitch.allocInt1D(sum), sizes);
 						}
 						indexHolder[0]=b;
 						intercom[2]++;
@@ -658,7 +658,7 @@ public class IndexMaker5 {
 	private static final String THREAD_SYNC=new String("THREAD_SYNC");
 	
 	/** Maximum number of blocks that can be processed concurrently */
-	public static int MAX_CONCURRENT_BLOCKS=(Shared.WINDOWS ? 1 : 2);
+	public static int MAX_CONCURRENT_BLOCKS=(Shared.LOW_MEMORY ? 1 : (Shared.WINDOWS ? 1 : Tools.max(1, Shared.threads()/4)));
 	/** Current number of actively processing blocks */
 	private static int ACTIVE_BLOCKS=0;
 
