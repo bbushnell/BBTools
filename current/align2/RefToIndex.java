@@ -82,9 +82,18 @@ public class RefToIndex {
 			}
 		}
 
+		//Comprehension (Eru 2026-06-24): makeIndex = one-time reference setup, NOT the hot align path. Validates the
+		//FASTA (L72-82), skips rebuild if an up-to-date summary already exists (L94), else deletes stale genome+index
+		//dirs (overwrite-gated) and delegates the actual build to FastaToChromArrays2.main2 (L174). dir here =
+		//".../ref/index/<GENOME_BUILD>" (IndexMaker4.fname parent; ROOT_INDEX ends in "index/").
 		String s=IndexMaker4.fname(1, 1, keylen, 1);
 		String dir=new File(s).getParent();
 		dir=dir.replace('\\', '/');
+		//TODO: Possible bug [align2/RefToIndex#001] (LOW, in deep-research baseline) - the fixed -7 trim assumes a
+		//SINGLE-DIGIT build: dir ends "index/<build>", and "index/"=6 + 1 digit = 7. For build>=10 it over-trims into
+		//the path (e.g. "ref/index/12" -> "ref/i"). `base` is used only for the indexlog name (L90-91) and base.mkdirs()
+		//(L97/L153), BOTH gated behind LOG (default false) -> only a misnamed log + a stray empty dir, no data
+		//corruption. Reachable via build>=10 (no <10 guard; BBSplitter parses build with plain parseInt). Brian's call.
 		final String base=dir.substring(0, dir.length()-7);
 		final String args=(Shared.COMMAND_LINE==null ? "null" : Arrays.toString(Shared.COMMAND_LINE));
 		final String indexlog=base+"build"+build+"_"+
@@ -161,6 +170,12 @@ public class RefToIndex {
 			//assert(false) : "minScaf="+minScaf+", midPad="+midPad+", maxChromLen="+maxChromLen+
 			//		", startPad="+startPad+", stopPad="+stopPad+", FastaToChromArrays2.END_PADDING="+FastaToChromArrays2.END_PADDING;
 			
+			//TODO: Possible bug [align2/RefToIndex#002] (LOW, in deep-research baseline) - the else branch (reached
+			//only when maxChromLen unset AND AUTO_CHROMBITS=false, i.e. user set cbits=N) computes
+			//(1L<<(31-chrombits))-200000 with NO Tools.max(1,..) clamp, so it goes NEGATIVE for chrombits>=14
+			//(14 -> -68928). A chromosome length can't be negative. Reachable via cbits>=14 (legal range; auto caps at
+			//16). With -ea it dies loud at FastaToChromArrays2's `assert(len>0..)` maxlen guard (crash-loud, acceptable);
+			//with -ea off it throws "scaffold exceeds maximum" or yields 0 chroms. Advanced-param-gated -> LOW. Brian's call.
 			maxChromLen=maxChromLen>0 ? maxChromLen : AUTO_CHROMBITS ? FastaToChromArrays2.MAX_LENGTH : ((1L<<(31-(chrombits<0 ? 2 : chrombits)))-200000);
 			minScaf=minScaf>-1 ? minScaf : FastaToChromArrays2.MIN_SCAFFOLD;
 			midPad=midPad>-1 ? midPad : FastaToChromArrays2.MID_PADDING;
@@ -188,9 +203,11 @@ public class RefToIndex {
 	
 	public static long maxChromLen=-1;
 	
-	/** Padding bases added at chromosome starts (-1 for default) */
-	/** Padding bases added at chromosome ends (-1 for default) */
-	/** Padding bases inserted between joined scaffolds (-1 for default) */
+	//align2/RefToIndex#003 DOC FIXED (Eru 2026-06-24): the three stacked javadocs here were orphaned (Java attaches
+	//only the LAST javadoc to a declaration) AND misordered relative to the fields (minScaf was undocumented).
+	//Corrected to the actual declaration order; all default -1 means "use the FastaToChromArrays2 default".
+	/** minScaf: minimum scaffold length to keep; midPad: padding inserted between joined scaffolds;
+	 * stopPad: padding bases added at chromosome ends; startPad: padding bases added at chromosome starts. (-1=default) */
 	public static int minScaf=-1, midPad=-1, stopPad=-1, startPad=-1;
 	public static int chrombits=-1;
 //	public static int minScaf=FastaToChromArrays2.MIN_SCAFFOLD;

@@ -72,6 +72,10 @@ public class KmerReduce {
 
 		main(args);
 
+		//NOTE [clump/KmerReduce#002]: this method is DEAD (no callers anywhere in the tree) and INTENTIONALLY
+		//disabled - the unconditional assert(false) below (dumping params) is a "not finished / do not use" guard,
+		//like KmerSort3's no-arg main. Under -ea (always on) it always throws here, so getValidKmers below is never
+		//reached via this path. Not a live bug; flagged as dead/incomplete so a future caller doesn't trip over it.
 		assert(false) : fname+", "+k+", "+cutoff;
 		KmerTableSet set=getValidKmers(fname, k, cutoff);
 		File f=new File(fname);
@@ -244,6 +248,9 @@ public class KmerReduce {
 		if(out1!=null){
 			final int buff=Tools.max(4, Shared.threads());
 
+			//TODO: Possible bug [clump/KmerReduce#001] - SAME duplicate-clause defect as KmerSplit/KmerSort2/KmerSort3
+			//#001 (the family anomaly is now 4 files; KmerSort1 is single-clause/correct). Both clauses are out1 vs
+			//in1; the second should be in2 -> out1==in2 not caught. LOW/latent (assert + user-error) -> Brian.
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, null, false);
@@ -368,6 +375,9 @@ public class KmerReduce {
 		return dest;
 	}
 	
+	//Decodes a 2-bit-packed kmer back to ACGT bases, high-order 2 bits first (i=k-1 down to 0) so dest[0] is the
+	//leftmost base - the inverse of the kmer-building shift in KmerComparator. Used to emit each read's pivot kmer
+	//as a FASTA sequence (the whole point of KmerReduce: reduce a read to its representative kmer).
 	public void fill(final long kmer, final byte[] dest, int pos){
 		for(int i=k-1; i>=0; i--, pos++){
 			int x=(int)((kmer>>(2*i))&3);

@@ -96,6 +96,11 @@ public class PivotSet {
 				//do nothing
 			}else if(a.equals("condense") || a.equals("consensus")){
 				//do nothing
+			//TODO: Possible bug [clump/PivotSet#001] - the second alias should be "mincr", not "consensus" (lone
+			//divergence: KmerSort1/2/3 + KmerSplit all use `equals("mincount") || equals("mincr")`). Two effects:
+			//(1) the "mincr" alias is broken here -> mincr=N hits the unknown-parameter branch; (2) "consensus" is
+			//DEAD here, already handled (do-nothing) at the earlier L97. LOW/latent: the live table-build path
+			//(ClumpTools.makeSet) passes "minCount", which works via the first clause. Flagged - fix is "mincr".
 			}else if(a.equals("mincount") || a.equals("consensus")){
 				minCount=Integer.parseInt(b);
 			}else if(a.equals("correct") || a.equals("ecc")){
@@ -309,9 +314,11 @@ public class PivotSet {
 					readsProcessedT+=r1.pairCount();
 					basesProcessedT+=r1.pairLength();
 					if(ecco && r2!=null){
-						if(r2!=null){BBMerge.findOverlapStrict(r1, r2, true);}
+						if(r2!=null){BBMerge.findOverlapStrict(r1, r2, true);}//redundant inner null-check (already guarded above); harmless
 					}
 					{
+						//count the read's PIVOT kmer (table=null so the prob path picks it). hash returns -1 for reads
+						//shorter than k; the kmer>=0 guard skips those so KCountArray isn't polluted by a sentinel.
 						final long kmer=kc.hash(r1, null, 0, false);
 						if(kmer>=0){
 							kca.increment(kmer);

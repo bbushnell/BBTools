@@ -11,6 +11,9 @@ public class KmerComparatorY extends KmerComparator2 {
 	/** Private constructor prevents external instantiation */
 	private KmerComparatorY(){}
 	
+	//Y-axis twin of KmerComparatorX: identical pivot prefix + optical logic, but the tail uses spanTilesY and a.y
+	//instead of spanTilesX/a.x (two-pass optical sort, one comparator per flowcell axis). lane/tile/y are bounded
+	//flowcell ints -> subtractions safe; opticalOnly=false -> returns 0 (stable no-op). Deliberate divergence, not a bug.
 	@Override
 	public int compare(ReadKey a, ReadKey b){
 //		assert(FlowcellCoordinate.spanTiles || Clump.forceSortXY);

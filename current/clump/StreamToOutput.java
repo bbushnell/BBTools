@@ -67,6 +67,11 @@ public class StreamToOutput {
 	public boolean process(){
 		if(rosa==null || rosa.length==0){return errorState;}
 		
+		//Optional name-sort first: drain the input through SortByName into a temp .fq.gz, then reopen a cris on
+		//that sorted temp (deleted at the end). Lets the overflow-streamed group still come out name-ordered when
+		//repair/namesort was requested, without holding it in memory. NOTE: if createTempFile throws, the exception
+		//is only printed and `temp` stays null -> the next line NPEs - but that's an unrecoverable env failure (no
+		//temp dir), i.e. crash-loud territory rather than a silent-wrong path.
 		File temp=null;
 		if(sortByName){
 			try {
@@ -144,6 +149,17 @@ public class StreamToOutput {
 		
 		while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 			for(Read r : reads){
+				//QUESTION [clump/StreamToOutput#001] (output-sensitive, NOT fixed): this buckets by the RAW pivot
+				//kmer % groups, but every sibling distributor wraps it - KmerSort.HashSplitThread L579, KmerSplit
+				//L487, and KmerSort2/3.addToRos all use `kc.hash(key.kmer) % groups` (tabulation-hash the pivot
+				//first). Lone divergence. Two effects: (a) raw pivots carry base-composition bias -> uneven group
+				//sizes vs the uniform tabhash; (b) reads streamed here are grouped DIFFERENTLY from reads the normal
+				//addToRos path writes to the SAME output files (and addToRos uses seed+1, this uses the current
+				//seed), so in a re-clumping pass equal-pivot reads may not co-locate -> reduced clumping/EC
+				//completeness for overflow-streamed reads. Rare (memory-overflow fallback) + not data loss (every
+				//read is still written). Also note: unlike PivotSet/KmerReduce there's no `kmer>=0` guard - safe
+				//only because kc.hash is >=0 for valid reads (fillShort handles len<k; -1 needs bases==null,
+				//format-impossible). Flagged to confirm intent, not changed.
 				long kmer=kc.hash(r, null, 0, false);
 				int group=(int)(kmer%groups);
 				out[group].add(r);

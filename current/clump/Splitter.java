@@ -47,6 +47,22 @@ class Splitter {
 				assert(pivots.get(0)==pivot);
 				int added=splitAndAdd(clump, pivots.get(0), (pivots.size>1 ? pivots.get(1) : -1), list);
 				if(added<2) {//Rare case that caused an assertion once
+					//QUESTION [clump/Splitter#001] (output-sensitive=error-correction, NOT fixed): degenerate split -
+					//all reads landed on one side (reachable via the correlated var1|var2 path when the two variants
+					//cover every read). The non-empty side was appended to `list` AND the original is added to `out`,
+					//so the appended copy must be skipped. The i++ does that ONLY when `list` has no pending siblings
+					//(e.g. list==[clump], the case Brian hit): then the append is at i+1 and i++ skips it. But if a
+					//prior 2-way split left pending sub-clumps after i (append goes to the END, not i+1), this i++
+					//skips a REAL pending sub-clump instead, and the degenerate copy gets reprocessed. Consequence is
+					//quality-only: the skipped sub-clump's reads MISS targeted per-allele correction - they are NOT
+					//lost from output (ClumpList CORRECT mode emits the ORIGINAL clump via storage.addAll(c), and the
+					//corrections are applied in-place to shared Read objects). Rare (degenerate split + pending
+					//siblings); the simple single-var path provably can't reach added==1 (major=consensus is always
+					//non-empty) - only the correlated var1|var2 path can (major empty when the two variants cover
+					//every read). Adversarially verified (Sonnet, derived cold). Cleanest fix (needs Brian, speed-
+					//first): when one side is empty don't append the degenerate copy at all - keep the original (it's
+					//already added to out here) and drop this i++; removes both the mis-skip and the reprocessing.
+					//Flagged to confirm, not changed.
 					assert(added==1);
 					out.add(clump);
 					i++;
@@ -375,11 +391,15 @@ class Splitter {
 		return bestVar2;
 	}
 	
+	//CLEVER [verified]: clean inverse coordinate pair between a clump-wide column and a per-read index, offset by
+	//(readPos - maxLeft) = where this read's pivot sits in the clump alignment. toClumpLocation asserts the exact
+	//round-trip with toReadLocation, so the two can never silently drift. A variant is encoded var=(pos<<2)|allele
+	//(alleleMask=0x3), so var>>2 is the clump column and var&0x3 is the 2-bit base.
 	static final int toReadLocation(final int clumpLocation, final int maxLeft, final int readPos){
 		final int readLocation=clumpLocation+readPos-maxLeft;
 		return readLocation;
 	}
-	
+
 	static final int toClumpLocation(final int readLocation, final int maxLeft, final int readPos){
 		final int clumpLocation=readLocation-readPos+maxLeft;
 		assert(readLocation==toReadLocation(clumpLocation, maxLeft, readPos));

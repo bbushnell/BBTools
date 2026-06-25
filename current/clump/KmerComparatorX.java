@@ -15,6 +15,11 @@ public class KmerComparatorX extends KmerComparator2 {
 	 */
 	private KmerComparatorX(){}
 	
+	//Within-clump ordering for optical-duplicate detection (Clump.sort, opticalOnly pass). Shared pivot prefix
+	//(kmer desc, plus-strand first, position desc) matches ReadKey/KmerComparator. Optical tail: lane, then tile
+	//(skipped when spanTilesX - an X-run spans tiles), then x. The lane/tile/x subtractions are safe: all are
+	//bounded flowcell ints (ReadKey<-FlowcellCoordinate, Illumina header). opticalOnly=false -> returns 0 = stable
+	//no-op. Deliberate X-axis twin of KmerComparatorY (which uses spanTilesY/a.y) - two passes, one per axis.
 	@Override
 	public int compare(ReadKey a, ReadKey b){
 //		assert(FlowcellCoordinate.spanTiles || Clump.forceSortXY);

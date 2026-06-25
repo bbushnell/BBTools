@@ -44,6 +44,9 @@ public class KmerSort3 extends KmerSort {
 	 * Delegates to overloaded main method with default parameters.
 	 * @param args Command line arguments
 	 */
+	//The no-arg main is intentionally disabled (assert(false)): KmerSort3 REQUIRES the fileMem/outerPass context
+	//that only Clumpify supplies via the 4-arg main below (Clumpify.java L468). The assert is the API guard;
+	//the delegating call is unreachable past it under -ea (and harmless if -ea were off).
 	public static void main(String[] args){
 		assert(false);
 		main(-1, 1, 1, args);
@@ -321,6 +324,10 @@ public class KmerSort3 extends KmerSort {
 		for(int i=0; rosa!=null && i<rosa.length; i++){
 			final int buff=1;
 
+			//TODO: Possible bug [clump/KmerSort3#001] - SAME duplicate-clause defect as KmerSort2#001 (family
+			//anomaly: 2 of 3 siblings share it; KmerSort1's is single-clause/correct). Both clauses are out1 vs in1;
+			//the second should be in2, so out1==in2 (output over a paired input) is not caught. LOW/latent (assert +
+			//user-error), output-affecting to fix (would newly crash out1==in2) -> flagged for Brian, not changed.
 			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			rosa[i]=ConcurrentReadOutputStream.getStream(ffout1[i], ffout2[i], null, null, buff, null, false);
@@ -366,8 +373,16 @@ public class KmerSort3 extends KmerSort {
 			
 			if(verbose){t.start("Fetching reads.");}
 			ArrayList<Read> reads=null;
-			
+
 			//TODO: There appears to be something unsafe here which could lead to this loop being skipped.
+			//[clump/KmerSort3#003] Traced: under the HAPPY path reads==null cannot escape this loop, so the L<below>
+			//reads.size() NPE doesn't fire. Why: each FetchThread3 puts all its group lists BEFORE its single POISON,
+			//and SynchronousQueue.put BLOCKS until taken, so a thread's POISON can never be dequeued before its
+			//lists. There are exactly `groups` non-null lists (one per group index, possibly empty from streamNext)
+			//for the `groups` iterations of the outer loop -> the loop always gets a list before poisonCount hits
+			//fetchThreads. FRAGILE though (Brian's TODO): if a fetch thread DIED before emitting its POISON (e.g. an
+			//AssertionError in fetchNext_inner from a subthread OOM), this loop and the L491 drain would HANG rather
+			//than crash - the crash-loud anti-pattern, but error-path-gated (needs another failure first).
 			while(poisonCount<fetchThreads && reads==null){
 				try {
 					reads=listQ.take();
@@ -605,6 +620,11 @@ public class KmerSort3 extends KmerSort {
 			rosa=rosa_;
 		}
 		
+		//CLEVER [verified]: producer side of a producer-consumer pipeline. Each FetchThread3 pulls groups via the
+		//shared atomic nextGroup, fetches+hashes+sorts each group (fetchNext), and hands the result list to the main
+		//consumer through a SynchronousQueue (rendezvous, no buffering). When groups run out (fetchNext==null) it
+		//emits exactly one POISON so the consumer can count down completion. This overlaps disk I/O + hashing of the
+		//next group with the consumer's clumping/dedup of the current one - the V3 throughput win over KmerSort1/2.
 		@Override
 		public void run(){
 			for(ArrayList<Read> reads=fetchNext(); reads!=null; reads=fetchNext()){
@@ -643,6 +663,11 @@ public class KmerSort3 extends KmerSort {
 			final ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ffin1[group], ffin2[group], null, null);
 			cris.start();
 			
+			//CLEVER [verified]: graceful degradation for skewed group sizes. If this group's file is far bigger than
+			//the expected per-group share (or its projected in-RAM size exceeds available memory), clumping it would
+			//risk OOM. So instead: if entryfilter is available, enable it to shrink the load; else if it's plain
+			//dedupe, auto-enable entryfilter; else (repair/namesort, or unaltered) STREAM the group straight to
+			//output via streamNext_inner, bypassing the in-memory clump step entirely. forceprocess=t disables this.
 			//Check for file size imbalance
 			if(!Clump.forceProcess){
 				final long size;
@@ -710,6 +735,12 @@ public class KmerSort3 extends KmerSort {
 		private ArrayList<Read> streamNext_inner(ConcurrentReadInputStream cris){
 			StreamToOutput sto=new StreamToOutput(cris, rosa, kc, (repair || namesort), false);
 			errorStateT|=sto.process();
+			//TODO: Possible bug [clump/KmerSort3#002] - data race: these four += target the SHARED enclosing-instance
+			//counters (KmerSort.readsProcessed/basesProcessed/readsOut/basesOut), but streamNext_inner runs on a
+			//FetchThread3, and there can be >1 of them (fetchThreads>=2) hitting the memory-imbalance fallback
+			//concurrently -> lost updates. Contrast fetchNext_inner, which correctly accumulates THREAD-LOCAL
+			//readsProcessedT/basesProcessedT and merges them single-threaded in closeFetchThread3s. Stats-only
+			//(the reads ARE written correctly by StreamToOutput; only the counters undercount) -> LOW, flagged.
 			readsProcessed+=sto.readsIn;
 			basesProcessed+=sto.basesIn;
 			readsOut+=sto.readsIn;
