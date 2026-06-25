@@ -148,9 +148,17 @@ public final class BBMap5 extends AbstractMapper  {
 			maxKeyDensity*=2.5f;
 			minKeyDensity*=2.5f;
 		}else if(slow){
-			//TODO: Unfinished
 			ArrayList<String> list=new ArrayList<String>();
-			
+			list.add("tipsearch="+(TIP_SEARCH_DIST*3)/2);
+//			list.add("maxindel=80");
+			list.add("minhits=1");
+//			list.add("bwr=0.18");
+//			list.add("bw=40");
+			list.add("minratio=0.45");
+//			list.add("midpad=150");
+//			list.add("minscaf=50");
+//			list.add("k=13");
+
 			BBIndex5.setFractionToExclude(BBIndex5.FRACTION_GENOME_TO_EXCLUDE*0.4f);
 			
 			for(String s : args){if(s!=null){list.add(s);}}
@@ -366,8 +374,13 @@ public final class BBMap5 extends AbstractMapper  {
 			
 			if(RefToIndex.AUTO_CHROMBITS){
 				int maxLength=Tools.max(Data.chromLengths);
-				RefToIndex.chrombits=Integer.numberOfLeadingZeros(maxLength); //Different for v5!
-				RefToIndex.chrombits=Tools.min(RefToIndex.chrombits, 16);
+				//v5 packs blocks denser than v4 (unsigned site bits give one more bit than v4's signed -1).
+				//But a block's sites[] is int[] (length ~ total k-mers ~ total bases), capped at Shared.MAX_ARRAY_LEN.
+				//Auto-picking the tightest chrombits packed 16 chroms/block; the first hs37d5 block (chr1..chr16,
+				//~2.8Gbp) overflowed int and hung the index build (producer-death at the CountThread barrier).
+				//For now: cap at chrombits=2 (4 chroms/block, 2^30 site cap) so a block stays under MAX_ARRAY_LEN.
+				//Ideal future: 2^31 cap (Shared.MAX_ARRAY_LEN), 2 chroms/block (chrombits=1) for wheat-scale chroms.
+				RefToIndex.chrombits=Tools.min(2, Integer.numberOfLeadingZeros(maxLength)); //Different for v5! (capped)
 			}
 			if(RefToIndex.chrombits!=-1){
 				BBIndex5.setChromBits(RefToIndex.chrombits);
@@ -394,7 +407,9 @@ public final class BBMap5 extends AbstractMapper  {
 		//Optional section for discrete timing of chrom array loading
 		if(SLOW_ALIGN || AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
 			outstream.println();
-			if(RefToIndex.chromlist==null){
+			if(INDEX_LOADED){
+				//do nothing
+			}else if(RefToIndex.chromlist==null){
 				Data.loadChromosomes(minChrom, maxChrom);
 			}else{
 				assert(RefToIndex.chromlist.size()==maxChrom-minChrom+1) : RefToIndex.chromlist.size();
@@ -540,9 +555,9 @@ public final class BBMap5 extends AbstractMapper  {
 						PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
 						ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
 						LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
-			} catch (Exception e) {
+			} catch (Throwable e) {
 				e.printStackTrace();
-				abort(mtts, "Aborting due to prior error.");
+				abort(mtts, "Aborting due to prior error when making thread "+i+".");
 			}
 			mtts[i].idmodulo=idmodulo;
 			if(verbose){
