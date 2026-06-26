@@ -17,6 +17,7 @@ import fileIO.TextStreamWriter;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -1766,7 +1767,7 @@ public class CalcTrueQuality {
 			final int aq=Tools.sumInt(quals)/quals.length;
 			if(quals!=null){
 				assert(quals.length<=LENMAX || !(use_qp[pass] || use_qbp[pass] || use_qap[pass] || use_qpt[pass])) :
-					"\nThese reads are too long ("+quals.length+"bp) for recalibration using position.  Please select different matrices.\n";
+					KillSwitch.assertDie("\nThese reads are too long ("+quals.length+"bp) for recalibration using position.  Please select different matrices.\n");
 				quals2=new byte[quals.length];
 				for(int i=0; i<bases.length; i++){
 					final byte q2;
