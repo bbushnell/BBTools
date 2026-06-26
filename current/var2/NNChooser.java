@@ -60,6 +60,10 @@ public final class NNChooser {
 	 *  serves ploidy 3 and up, generalizing across ploidy via the inverse-ploidy dims (dim0=1/ploidy, dim32=1). */
 	static final String POLYPLOID_RESOURCE="?callvars_illumina_polyploid.bbnet";
 
+	/** The Roche SBX network token.  Raw seed5 from the s_roche hap+dip net set (2026-06-25), trained on combined
+	 *  haploid+diploid Roche calls (60/30/15x); serves all ploidies via the inverse-ploidy dims. */
+	static final String ROCHE_RESOURCE="?callvars_roche.bbnet";
+
 	/**
 	 * Registered networks, most-specific first (choose() returns the first match).
 	 * Two Illumina nets covering disjoint ploidy ranges:
@@ -70,6 +74,7 @@ public final class NNChooser {
 	private static final NetEntry[] REGISTRY={
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 1, 2, DEFAULT_RESOURCE),
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 3, Integer.MAX_VALUE, POLYPLOID_RESOURCE),
+		new NetEntry(1<<VectorUMP45.PLATFORM_ROCHE, 1, Integer.MAX_VALUE, ROCHE_RESOURCE),
 	};
 
 	/*--------------------------------------------------------------*/

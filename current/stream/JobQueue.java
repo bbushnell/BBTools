@@ -52,10 +52,14 @@ public class JobQueue<K extends HasID>{
 	/**
 	 * Adds a job to the queue, blocking if necessary to respect capacity bounds.
 	 * In bounded mode, blocks until id is within capacity of nextID.
-	 * 
+	 * The capacity bound is SOFT backpressure, not a hard limit: if the calling thread is
+	 * INTERRUPTED while waiting for capacity, it stops waiting and adds the job anyway (relaxing
+	 * the bound by at most one job per interrupted thread). Interrupts are treated as a shutdown
+	 * signal across all callers, so this never grows unbounded. (Does NOT throw; the interrupt
+	 * status is preserved for the caller.)
+	 *
 	 * @param job Job to add to the queue
-	 * @throws InterruptedException if interrupted while waiting for capacity
-	 * @return True when the add is successful.
+	 * @return True when the add is successful (always, once it returns).
 	 */
 	public boolean add(K job) {
 		final long id=job.id();
@@ -81,6 +85,7 @@ public class JobQueue<K extends HasID>{
 						heap.wait();
 					} catch (InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
+						break; //#001 fix: do NOT loop back into wait() with the interrupt flag re-armed - wait() then throws InterruptedException immediately every iteration -> 100% CPU busy-spin holding the heap monitor (the BgzfInputStreamMT2 clean-close race: worker parked here, interrupted by close(), poisoned still false). Stop waiting; fall through to heap.add(job). Capacity is relaxed only during this interrupted shutdown window (no data loss; interrupt status preserved for the caller).
 					}
 				}
 			}else {
@@ -90,6 +95,7 @@ public class JobQueue<K extends HasID>{
 						heap.wait();
 					} catch (InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status for caller
+						break; //#001 fix: do NOT loop back into wait() with the interrupt flag re-armed - wait() then throws InterruptedException immediately every iteration -> 100% CPU busy-spin holding the heap monitor (the BgzfInputStreamMT2 clean-close race: worker parked here, interrupted by close(), poisoned still false). Stop waiting; fall through to heap.add(job). Capacity is relaxed only during this interrupted shutdown window (no data loss; interrupt status preserved for the caller).
 					}
 				}
 			}
@@ -140,6 +146,18 @@ public class JobQueue<K extends HasID>{
 					} catch (InterruptedException e){
 						Thread.currentThread().interrupt(); // Preserve interrupt status
 						// Don't return null here - wait for explicit last signal
+						// CONTRACT/HAZARD (Furina 2026-06-25): this DELIBERATELY ignores interrupts and keeps waiting
+						// for a real terminal (heapReady / lastSeen / poisoned). Note this is the SAME re-arm-then-
+						// loop-back-to-wait() pattern that busy-spun in add() (#001 fix): if a thread is ever
+						// interrupted while parked here, wait() will throw immediately every iteration -> 100% CPU
+						// RUNNABLE spin holding the heap monitor. It is left AS-IS ON PURPOSE because the spin is
+						// currently UNREACHABLE: no JobQueue.take() caller is ever interrupted while in take()
+						// (verified across all users - interrupts target producers/workers, which call add(), and the
+						// waitForFinish-join thread, never the take()-consumer). To unblock a parked consumer, the
+						// correct mechanism is poison()/last (which this loop's !poisoned/!lastSeen conditions honor),
+						// NEVER an interrupt. If a future caller needs to interrupt a consumer, do NOT just add a
+						// `break` here (it would fall through to heap.poll() on a not-ready heap -> NPE or ordering
+						// violation); make it poison-driven instead, or apply the swallow-don't-re-arm variant.
 					}
 				}
 				if(lastSeen || poisoned) {return null;}
