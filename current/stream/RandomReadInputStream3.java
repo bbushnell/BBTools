@@ -137,7 +137,8 @@ public class RandomReadInputStream3 extends ReadInputStream {
 		
 		generated+=reads.size();
 		assert(generated<=number);
-		buffer=reads;
+		buffer=reads;//buffer IS assigned the batch here (cf. SequentialReadInputStream#001, where the
+		//analogous fillBuffer left buffer null and self-referenced buffer.size() -> NPE). Keep this assignment.
 //		assert(false) : reads.size()+", "+toMake;
 	}
 	

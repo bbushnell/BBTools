@@ -98,7 +98,11 @@ public class RTextInputStream extends ReadInputStream {
 		if(textfiles.length>1){
 			ArrayList<Read>[] temp=new ArrayList[textfiles.length];
 			temp[0]=merged;
-			for(int i=0; i<temp.length; i++){
+			//[stream/RTextInputStream#001] start at 1: temp[0] is already 'merged' (textfiles[0] read above).
+			//Starting at 0 re-read textfiles[0] a 2nd time, advancing its pointer 2 batches/call (silently
+			//dropping every other batch of file 0 + desyncing the merge). Latent: only the debug main() reaches
+			//textfiles.length>1; all production callers use the single-file (fname1,fname2) constructors.
+			for(int i=1; i<temp.length; i++){
 				temp[i]=getListFromFile(textfiles[i]);
 			}
 			

@@ -141,6 +141,10 @@ public final class FileScanMT {
 		 * Does not return until buffer is full or stream is empty. 
 		 */
 		private int fillBuffer() throws IOException {
+			//Parallel-scan invariant: the synchronized(is) read is the ONLY shared access; each thread reads a
+			//DISTINCT chunk into its own 1MB buffer, then counts '\n' via SIMD outside the lock. So the chunks
+			//partition the stream exactly -> sum of per-thread linesT/bytesT == total newlines/bytes. The lock
+			//serializes only the reads, not the counting (the parallel win).
 			synchronized(is){
 				int len=0;
 				while(len<buffer.length){

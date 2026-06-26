@@ -347,12 +347,22 @@ public class IndexMaker5 {
 							}
 						}
 						
-						int sum=0;
+						//Accumulate in a long so a block whose total k-mer count exceeds the int[] sites capacity
+						//is detected and killed loudly, rather than silently overflowing int (which previously hung
+						//the build at the barrier below) or producing a corrupt index. BBMap5.autoChromBits() normally
+						//prevents this; this guard backstops manual chrombits=N and pathologically large chromosomes.
+						long sumL=0;
 						for(int i=0; i<sizes.length; i++){
 							int temp=sizes[i];
-							sizes[i]=sum;
-							sum+=temp;
+							sizes[i]=(int)sumL;
+							sumL+=temp;
 						}
+						if(sumL>Shared.MAX_ARRAY_LEN){
+							KillSwitch.kill("Block chr"+minChrom+"-"+maxChrom+" needs "+sumL+" k-mer slots, exceeding "+
+								"MAX_ARRAY_LEN="+Shared.MAX_ARRAY_LEN+".  Use fewer chromosomes per block (lower chrombits) "+
+								"or split chromosomes shorter.");
+						}
+						int sum=(int)sumL;
 						
 						if(USE_ALLOC_SYNC){
 							synchronized(ALLOC_SYNC){//To allow contiguous memory allocation

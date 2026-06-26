@@ -237,7 +237,10 @@ public class FastqStreamerST implements Streamer {
 		void processInterleaved() throws InterruptedException{
 			if(verbose){outstream.println("Started processInterleaved.");}
 
-			ByteFile bf=ByteFile.makeByteFile(ffin);
+			//Assign the FIELD bf (not a local) so close() can reach it - matches processSingle.
+			//[stream/FastqStreamerST#001] interleaved formerly shadowed bf with a local, leaving the
+			//field null, so close() (the consumer's BF4-hang-prevention on limited reads) was a no-op.
+			bf=ByteFile.makeByteFile(ffin);
 			
 			long listNumber=0;
 			long readID=0;

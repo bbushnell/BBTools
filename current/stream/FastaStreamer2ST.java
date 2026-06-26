@@ -168,6 +168,12 @@ public class FastaStreamer2ST implements Streamer{
 
 			bf=new ByteFile1Fc(ffin);
 			IntList newlines=new IntList(256);
+			//Correctness rests on the ByteFile1Fc contract: each block starts with '>', holds
+			//complete records, and carries EXACTLY 2 '\n' per record (header-\n, sequence-\n) with
+			//\r and internal sequence newlines stripped (it unwraps multi-line FASTA via SIMD).
+			//That is why the 2-newline-per-record walk below and block[nl0+1]=='>' are correct;
+			//wrapped FASTA is NOT a bug here - it is unwrapped upstream. A non-'>' start = corrupt
+			//block -> the assert crashes loud (-ea) / best-effort (-da).
 
 			long listNumber=0;
 			while(readsProcessedT<maxReads){

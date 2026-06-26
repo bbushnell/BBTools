@@ -109,6 +109,8 @@ public class SamStreamerMF {
 				else{
 					readsProcessed+=srs.readsProcessed();
 					basesProcessed+=srs.basesProcessed();
+					errorState|=srs.errorState();//[stream/SamStreamerMF#002] fold the exhausted sub-streamer's
+					//error state (truncated/corrupt SAM among many) so it isn't silently dropped - the 2b reader-fold.
 //					if(srs.header!=null){//Should be automatic now
 //						SamReadInputStream.setSharedHeader(srs.header);
 //					}

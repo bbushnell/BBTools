@@ -131,7 +131,8 @@ public class FastaQualStreamer implements Streamer {
 				finished=true;
 				readsProcessed=thread.readsProcessedT;
 				basesProcessed=thread.basesProcessedT;
-				errorState=!thread.success;
+				errorState|=!thread.success;//[stream/FastaQualStreamer#001] |= not =, else this clobbers the
+				//worker's reader-fold (errorState|=bfFa/bfQual.close()) when truncated input parses to EOF→success=true.
 				if(list!=null) {outputQueue.add(list);}//Re-inject terminal
 				return null;
 			}
@@ -281,8 +282,10 @@ public class FastaQualStreamer implements Streamer {
 			if(ln.size()>0){
 				outputQueue.put(ln);
 			}
-			bfFa.close();
-			bfQual.close();
+			//[stream/FastaQualStreamer#001] Fold BOTH readers' error state (truncated/corrupt fasta or qual)
+			//so it isn't silently dropped at the streamer boundary (the 2b reader-fold, two-file form).
+			errorState|=bfFa.close();
+			errorState|=bfQual.close();
 		}
 
 		/** Number of reads processed by this thread */

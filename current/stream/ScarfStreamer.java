@@ -7,8 +7,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
-import parse.LineParser1;
 import parse.Parse;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -239,10 +239,13 @@ public class ScarfStreamer implements Streamer {
 			}
 
 			if(a<0 || b<0){
-				//Malformed line; ignore or crash? 
-				//FastqStreamer crashes on bad format, so we assert validity.
+				//[stream/ScarfStreamer#001] Malformed scarf line (needs >=2 colons for Header:Seq:Qual).
+				//Crash-loud under -ea (KillSwitch.assertDie halts the VM with the offending line) so bad
+				//input is never silently dropped; under -da the assert vanishes and we fall through to the
+				//best-effort skip below. Resolves the author's inline "ignore or crash?" per crash-loud policy.
+				assert(false) : KillSwitch.assertDie("Malformed scarf line (need >=2 colons): "+new String(line));
 				if(verbose){System.err.println("Skipping malformed scarf line: "+new String(line));}
-				return null; 
+				return null;
 			}
 
 			//Copy arrays to create new Read object
@@ -262,8 +265,6 @@ public class ScarfStreamer implements Streamer {
 			return r;
 		}
 		
-		/** Parses colons */
-		private final LineParser1 lp=new LineParser1(':');
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
 		/** Number of bases processed by this thread */

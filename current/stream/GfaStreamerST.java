@@ -198,7 +198,9 @@ public class GfaStreamerST implements Streamer {
 					ln.add(r);
 					bytes+=r.length();
 				}
-				
+				readID++;//[stream/GfaStreamerST#001] count every S-line so maxReads terminates the loop
+				//and each read gets a unique numericID; formerly readID stayed 0 -> maxReads ignored + all ids 0.
+
 				if(ln.size()>=slimit || bytes>=blimit){
 					outputQueue.put(ln);
 					ln=new ListNum<Read>(new ArrayList<Read>(slimit), listNumber++);
