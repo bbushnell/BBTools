@@ -623,6 +623,14 @@ public class BgzfInputStreamMT2 extends InputStream {
 		try{in.close();}catch(IOException ignore){}
 
 		inputQueue.offer(BgzfInputJob.POISON_PILL);
+		//[stream/bam/BgzfInputStreamMT2#002] Force-poison the jobQueue on clean close, BEFORE interrupting.
+		//Without this, a clean close set poisoned=false (poison was only sent on a producer ERROR), so a worker
+		//parked in JobQueue.add()'s capacity-wait could only be woken by the interrupt below - and JobQueue's
+		//interrupt handling re-armed the flag and looped back into wait(), spinning at 100% CPU while holding the
+		//heap monitor (RUNNABLE-at-wait), starving workers 1-N -> no blocks delivered -> non-daemon consumers
+		//hang -> JVM never exits. Setting poisoned=true here makes every parked add()/take() loop exit via its
+		//!poisoned condition cleanly, with no dependence on the interrupt. Cold path (once, at close) -> free.
+		jobQueue.poison(BgzfInputJob.POISON_PILL, true);
 
 		if(producer!=null){producer.interrupt();}
 		if(workers!=null){

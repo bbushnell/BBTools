@@ -171,6 +171,15 @@ public class BamStreamer implements Streamer {
 		if(verbose){outstream.println("Spawned threads.");}
 
 		for(ProcessThread pt : alpt){
+			//[stream/BamStreamer#002] DAEMON: BamStreamer is an INPUT reader, so abandoning it is harmless (no
+			//output to corrupt). Marking the Input+Worker ProcessThreads daemon means that if the consumer stops
+			//draining and main returns (e.g. calctruequality finishes/abandons a still-reading streamer), these
+			//threads can no longer keep the JVM alive parked on full OQS queues -> the JVM-hang is impossible.
+			//(Was: non-daemon -> deadlocked the JVM. The BGZF-InputWorker threads were already daemon.) A proper
+			//close() implementation (deterministic flag-bail teardown) is the complementary fix; this is the
+			//wedge-free safety net. The non-daemon CONSUMER thread still gates JVM exit, so reads aren't dropped
+			//on a normal run - daemon only matters once the consumer is already gone.
+			pt.setDaemon(true);
 			pt.start();
 		}
 		if(verbose){outstream.println("Started threads.");}
