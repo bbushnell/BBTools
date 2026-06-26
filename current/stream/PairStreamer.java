@@ -82,9 +82,16 @@ public class PairStreamer implements Streamer {
 		}
 		if(ln1==null && ln2==null){return null;}
 		
-		// Handle mismatched list sizes
+		// Handle mismatched list sizes.
+		// These asserts encode the lockstep assumption: s1/s2 must return equal-sized batches so reads1[i]
+		// and reads2[i] are true mates. Holds for the common case (count limit slimit dominates for short
+		// symmetric pairs; same-seed subsampling keeps both streams aligned). EDGE (crash-loud, not silent
+		// mispair): long reads where the BYTE limit (TARGET_LIST_BYTES) dominates AND R1/R2 lengths differ
+		// could desync batch sizes on otherwise-valid input. Rare (paired data is short+symmetric); the
+		// assert correctly crashes rather than mispairing. Graceful cross-batch realignment would be the fix
+		// if paired-variable-length-long ever becomes a real workflow.
 		assert(ln1!=null && ln2!=null) : "Paired files have different read counts!";
-		assert(ln1.size()==ln2.size()) : 
+		assert(ln1.size()==ln2.size()) :
 			"List size mismatch: "+ln1.size()+" vs "+ln2.size();
 		
 		// Mate the reads

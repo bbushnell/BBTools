@@ -2,6 +2,13 @@ package stream;
 
 import structures.ListNum;
 
+/**
+ * Legacy contract for concurrent read input streams (the cris family, e.g. ConcurrentReadInputStream).
+ * A producer thread fills an ordered queue of read batches; a single consumer pulls via nextList() and
+ * returns spent batches via returnList(). Predates the newer {@link Streamer} interface.
+ *
+ * @author Brian Bushnell
+ */
 public interface ConcurrentReadStreamInterface extends Runnable{
 	
 	public void start();

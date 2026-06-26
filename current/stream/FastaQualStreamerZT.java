@@ -188,7 +188,10 @@ public class FastaQualStreamerZT implements Streamer {
 		final byte[] bases=nextBases(btf, builder);
 		final byte[] quals=nextQualities(qtf, builder);
 		final byte[] header=currentHeader;
-		
+
+		//currentHeader follows the FASTA header chain; nextHeaderQ (the qual header) is intentionally
+		//discarded here. fa/qual headers are compared only for record 1 (toReadList priming); records
+		//2..N trust file ordering + the per-read length check below. Legacy-faithful (FastaQualReadInputStream).
 		currentHeader=nextHeaderB;
 		nextHeaderB=nextHeaderQ=null;
 		

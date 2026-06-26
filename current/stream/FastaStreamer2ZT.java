@@ -126,34 +126,40 @@ public class FastaStreamer2ZT implements Streamer{
 	private ListNum<Read> nextListSingle(){
 		if(bf==null){return null;}
 
-		// Get block of records with newline positions
-		byte[] block=bf.nextLine(newlines);
-		if(block==null || block.length==0){return null;}
-
 		ArrayList<Read> readList=new ArrayList<Read>();
 		ListNum<Read> reads=new ListNum<Read>(readList, listNum);
 		reads.firstRecordNum=readsProcessed;
 
-		for(int i=0, nl0=-1; i<newlines.size() && readsProcessed<maxReads; i++){
-			int nl1=newlines.get(i);
-			int nl2=(newlines.size()>i+1 ? newlines.get(i+1) : nl1);
-			assert(block[nl0+1]=='>') : nl0+", "+(char)block[nl0+1];
-			final byte[] header=KillSwitch.copyOfRange(block, nl0+2, nl1);
-			final byte[] bases=(nl2>nl1 ? KillSwitch.copyOfRange(block, nl1+1, nl2) : null);
-			if(samplerate>=1f || randy.nextFloat()<samplerate){
-				Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessed, flag);
-				r.setPairnum(pairnum);
-				readList.add(r);
-				readsProcessed++;
-				basesProcessed+=r.length();
+		//[stream/FastaStreamer2ZT#001] Loop blocks until we have >=1 sampled read or hit genuine EOF.
+		//A block that is fully subsampled-out must NOT be returned empty: nextList() treats an empty
+		//list as EOF, so a single unsampled block (1-record blocks for large contigs!) used to silently
+		//truncate the rest of the file under samplerate<1. Return null ONLY at true EOF (block==null).
+		while(readList.isEmpty() && readsProcessed<maxReads){
+			// Get block of records with newline positions
+			byte[] block=bf.nextLine(newlines);
+			if(block==null || block.length==0){break;}
+
+			for(int i=0, nl0=-1; i<newlines.size() && readsProcessed<maxReads; i++){
+				int nl1=newlines.get(i);
+				int nl2=(newlines.size()>i+1 ? newlines.get(i+1) : nl1);
+				assert(block[nl0+1]=='>') : nl0+", "+(char)block[nl0+1];
+				final byte[] header=KillSwitch.copyOfRange(block, nl0+2, nl1);
+				final byte[] bases=(nl2>nl1 ? KillSwitch.copyOfRange(block, nl1+1, nl2) : null);
+				if(samplerate>=1f || randy.nextFloat()<samplerate){
+					Read r=new Read(bases, null, new String(header, StandardCharsets.US_ASCII), readsProcessed, flag);
+					r.setPairnum(pairnum);
+					readList.add(r);
+					readsProcessed++;
+					basesProcessed+=r.length();
+				}
+				if(bases!=null) {
+					i++;
+					nl0=nl2;
+				}else {nl0=nl1;}
 			}
-			if(bases!=null) {
-				i++;
-				nl0=nl2;
-			}else {nl0=nl1;}
 		}
 
-		return reads;
+		return readList.isEmpty() ? null : reads;
 	}
 
 	/*--------------------------------------------------------------*/

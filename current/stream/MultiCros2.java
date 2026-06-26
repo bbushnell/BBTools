@@ -270,6 +270,7 @@ public class MultiCros2 extends BufferedMultiCros {
 			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff1, ff2, rswBuffers, null, useSharedHeader && numDumps==0);
 			ros.start();
 			ros.add(list, 0);
+			//Reviewed V3 (Furina, 2026-06-25): correct OR-fold (errorState |= close result); MultiCros2 is the simple synchronous single-stream base case (maxStreams=1), no retire/heap/profiling, so no MultiCros6#001 div-by-zero twin. dumpResidual's (readsIn<minReadsToDump)==(list non-empty) invariant matches the verified-correct MultiCros6 one.
 			errorState=ReadWrite.closeStream(ros) | errorState;
 //			System.err.println("Closed stream "+name);
 			

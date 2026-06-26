@@ -170,9 +170,21 @@ public class FastaQualWriterST implements Writer {
 	private class WriterRunnable implements Runnable{
 		@Override
 		public void run(){
-			// JobQueue handles ordering. We just take() the next valid job.
-			for(ListNum<Read> job=queue.take(); job!=null && !job.poison(); job=queue.take()){
-				writeReads(job.list);
+			try{
+				// JobQueue handles ordering. We just take() the next valid job.
+				for(ListNum<Read> job=queue.take(); job!=null && !job.poison(); job=queue.take()){
+					writeReads(job.list);
+				}
+			}catch(Throwable t){
+				//[stream/FastaQualWriterST#001] A write failure (write() rethrows IOException) must not strand
+				//the producer. Set errorState (so waitForFinish reports loud), then FORCE-poison the queue
+				//(force=true sets JobQueue.poisoned so a producer blocked in add()'s capacity-wait unblocks
+				//instead of hanging), then surface loud. The blessed SWEEP-A writer-death fix.
+				errorState=true;
+				if(queue!=null){
+					try{queue.poison(new ListNum<Read>(null, queue.maxSeen()+1, ListNum.POISON), true);}catch(Throwable t2){}
+				}
+				throw new RuntimeException("FastaQualWriterST writer thread failed; output may be incomplete.", t);
 			}
 		}
 	}
@@ -237,7 +249,7 @@ public class FastaQualWriterST implements Writer {
 	}
 	
 	private void write(ByteBuilder bb, OutputStream os) {
-		if(bb.length()<0){return;}
+		if(bb.length()==0){return;}//was <0 (never fired); skip empty buffers
 		byte[] array=bb.toBytes();
 		try{
 			os.write(array); //No synchronized(this) needed; only writerThread calls this

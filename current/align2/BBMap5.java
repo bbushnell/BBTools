@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import bloom.BloomFilter;
 import dna.ChromosomeArray;
 import dna.Data;
+import dna.FastaToChromArrays2;
 import fileIO.ReadWrite;
 import jgi.CoveragePileup;
 import shared.Shared;
@@ -86,6 +87,12 @@ public final class BBMap5 extends AbstractMapper  {
 		MAX_SITESCORES_TO_PRINT=5;
 		PRINT_SECONDARY_ALIGNMENTS=false;
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
+
+		//v5 unsigned coords + base-aware autoChromBits support wheat-scale chromosomes: allow a single scaffold up
+		//to ~MAX_ARRAY_LEN/2 (~1.07Gbp) to become its own chrom (vs the 536Mbp default that rejects it). The /2
+		//keeps two such chroms within one block's int[] sites array. Multi-scaffold packing stays at MAX_LENGTH, so
+		//normal-genome layout (and output) is unchanged. See FastaToChromArrays2.MAX_SINGLE_SCAFFOLD.
+		FastaToChromArrays2.MAX_SINGLE_SCAFFOLD=Shared.MAX_ARRAY_LEN/2-200000;
 	}
 	
 	/**
@@ -373,14 +380,7 @@ public final class BBMap5 extends AbstractMapper  {
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
 			
 			if(RefToIndex.AUTO_CHROMBITS){
-				int maxLength=Tools.max(Data.chromLengths);
-				//v5 packs blocks denser than v4 (unsigned site bits give one more bit than v4's signed -1).
-				//But a block's sites[] is int[] (length ~ total k-mers ~ total bases), capped at Shared.MAX_ARRAY_LEN.
-				//Auto-picking the tightest chrombits packed 16 chroms/block; the first hs37d5 block (chr1..chr16,
-				//~2.8Gbp) overflowed int and hung the index build (producer-death at the CountThread barrier).
-				//For now: cap at chrombits=2 (4 chroms/block, 2^30 site cap) so a block stays under MAX_ARRAY_LEN.
-				//Ideal future: 2^31 cap (Shared.MAX_ARRAY_LEN), 2 chroms/block (chrombits=1) for wheat-scale chroms.
-				RefToIndex.chrombits=Tools.min(2, Integer.numberOfLeadingZeros(maxLength)); //Different for v5! (capped)
+				RefToIndex.chrombits=autoChromBits(); //Different for v5! (base-aware, unsigned site field)
 			}
 			if(RefToIndex.chrombits!=-1){
 				BBIndex5.setChromBits(RefToIndex.chrombits);
@@ -505,7 +505,55 @@ public final class BBMap5 extends AbstractMapper  {
 			t.start();
 		}
 	}
-		
+
+	/**
+	 * Auto-selects chrombits (the chromosome/site field split) for v5's unsigned coordinates.
+	 * Two independent ceilings must both hold:
+	 * <ul>
+	 * <li>The per-chromosome site field is (32-chrombits) bits wide, so the largest chromosome must
+	 * fit in 2^(32-chrombits). v5 uses unsigned coordinates, so unlike v4 there is no "-1" headroom bit.</li>
+	 * <li>A block's sites[] is an int[] indexed by k-mer occurrence (~total bases in the block), so the
+	 * summed length of the 2^chrombits chromosomes grouped into one block must stay under
+	 * Shared.MAX_ARRAY_LEN, or the array overflows int and the build hangs (producer-death at the
+	 * CountThread barrier) or crashes.</li>
+	 * </ul>
+	 * Higher chrombits packs more chroms per block (fewer blocks, less memory), so the largest value
+	 * satisfying both is chosen. hs37d5 yields 3 (matching v4); a wheat-scale genome (~1Gbp chroms)
+	 * yields 1 (2 per block). Requires Data.setGenome() to have populated Data.chromLengths first.
+	 * @return The selected chrombits value (always &gt;=1; chrombits=0 is invalid because a 32-bit
+	 * shift is a no-op on int).
+	 */
+	private static int autoChromBits(){
+		final int maxLength=Tools.max(Data.chromLengths);
+		//Coordinate-fit upper bound: largest chrombits whose (32-chrombits)-bit site field still holds maxLength.
+		int chrombits=Integer.numberOfLeadingZeros(maxLength);
+		//Reduce until no block of 2^chrombits consecutive chroms overflows the int[] sites array.
+		while(chrombits>1 && maxBlockBases(chrombits)>Shared.MAX_ARRAY_LEN){chrombits--;}
+		return chrombits;
+	}
+
+	/**
+	 * Computes the maximum total chromosome length over all blocks for a candidate chrombits, using the
+	 * same mask-aligned grouping as IndexMaker5.makeIndex: a block spans chroms [i &amp; ~(cpb-1) ... i | (cpb-1)],
+	 * clamped to [1, numChroms], where cpb=2^chrombits. This sum is the per-block sites[] size that must
+	 * stay under MAX_ARRAY_LEN.
+	 * @param chrombits Candidate chromosome-bit count.
+	 * @return The largest summed chromosome length across all blocks.
+	 */
+	private static long maxBlockBases(int chrombits){
+		final int low=(1<<chrombits)-1;
+		long max=0;
+		for(int i=1; i<=Data.numChroms;){
+			final int a=Tools.max(1, i&~low);
+			final int b=Tools.min(Data.numChroms, i|low);
+			long sum=0;
+			for(int c=a; c<=b; c++){sum+=Data.chromLengths[c];}
+			max=Tools.max(max, sum);
+			i=b+1;
+		}
+		return max;
+	}
+
 	/**
 	 * Executes the main alignment pipeline with performance monitoring.
 	 * Opens input streams, adjusts thread count based on memory constraints,

@@ -10,6 +10,7 @@ import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import parse.Parse;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -499,7 +500,7 @@ public class FastaToChromArrays2 {
 		if(currentScaffold!=null && currentScaffold.length()>0){
 			assert(lastHeader!=null);
 			if(currentScaffold.length()>=MIN_SCAFFOLD){ //#002: honor minscaf for carried-over scaffolds too (was unconditional)
-				assert(currentScaffold.length()+END_PADDING+ca.maxIndex<MAX_LENGTH) : currentScaffold.length()+", "+END_PADDING+", "+ca.maxIndex+", "+MAX_LENGTH;
+				assert(currentScaffold.length()+END_PADDING+ca.maxIndex<MAX_SINGLE_SCAFFOLD) : currentScaffold.length()+", "+END_PADDING+", "+ca.maxIndex+", "+MAX_SINGLE_SCAFFOLD;
 
 //				System.err.println("A: Writing a scaffold because currentScaffold = "+currentScaffold);
 				scaffoldSum++;
@@ -521,12 +522,19 @@ public class FastaToChromArrays2 {
 		while((currentScaffold=nextScaffold(currentScaffold, tf))!=null){
 			//#001: a single scaffold too large to fit even an empty chromosome — fail loudly instead of
 			//silently building 0 chroms (first scaffold) or an over-MAX_LENGTH array (carried scaffold).
-			if((long)currentScaffold.length()+START_PADDING+END_PADDING>MAX_LENGTH){
-				throw new RuntimeException("Scaffold '"+lastHeader+"' length "+currentScaffold.length()+
-					" exceeds the maximum indexable single-chromosome length ~"+(MAX_LENGTH-START_PADDING-END_PADDING)+
+			//Uses KillSwitch.kill (not a plain throw): the info/scaffold TextStreamWriter threads started above are
+			//non-daemon and are only poisoned AFTER the scaffold loop, so an exception escaping here would leave them
+			//blocked and HANG the JVM instead of crashing.  KillSwitch.kill halts the VM past the stuck writers.
+			if((long)currentScaffold.length()+START_PADDING+END_PADDING>MAX_SINGLE_SCAFFOLD){
+				KillSwitch.kill("Scaffold '"+lastHeader+"' length "+currentScaffold.length()+
+					" exceeds the maximum indexable single-chromosome length ~"+(MAX_SINGLE_SCAFFOLD-START_PADDING-END_PADDING)+
 					" (2^31 int-array limit); cannot index this reference. Split the scaffold or use a smaller-genome workflow.");
 			}
-			if(currentScaffold.length()+MID_PADDING+END_PADDING+ca.maxIndex>MAX_LENGTH){break;}
+			//#003 (Eru 2026-06-25): the "scaffolds>0 &&" guard lets a single scaffold larger than MAX_LENGTH (but
+			//<= MAX_SINGLE_SCAFFOLD) occupy its OWN chromosome instead of being broken-then-rejected.  No-op for any
+			//scaffold that fits MAX_LENGTH (those never satisfy this on an empty chrom anyway), so normal multi-scaffold
+			//packing -- and alignment output for ordinary genomes -- is unchanged.
+			if(scaffolds>0 && currentScaffold.length()+MID_PADDING+END_PADDING+ca.maxIndex>MAX_LENGTH){break;}
 			if(scaffolds>0 && !MERGE_SCAFFOLDS){break;}
 			
 			if(scaffolds>0){
@@ -561,7 +569,7 @@ public class FastaToChromArrays2 {
 				else{break;}
 			}
 //			System.err.println("\nAdding Ns: ref.length="+ca.maxIndex);
-			while(terminalN<=END_PADDING && ca.maxIndex<MAX_LENGTH-1){
+			while(terminalN<=END_PADDING && ca.maxIndex<MAX_SINGLE_SCAFFOLD-1){
 //				System.out.print("N");
 				ca.set(ca.maxIndex+1, 'N');
 				terminalN++;
@@ -667,8 +675,14 @@ public class FastaToChromArrays2 {
 	public static int contigTrigger=10;
 	/** Format version number for compatibility tracking */
 	public static int VERSION=5;
-	/** Maximum allowed length for a single chromosome in bases */
+	/** Maximum allowed length for a single chromosome in bases (also the multi-scaffold packing limit) */
 	public static int MAX_LENGTH=(1<<29)-200000;
+	/** Maximum allowed length for a single (unmergeable) scaffold, in bases.  Defaults to MAX_LENGTH so behavior
+	 * is byte-for-byte unchanged for every existing caller.  BBMap5 raises it (to ~MAX_ARRAY_LEN/2) so a
+	 * wheat-scale chromosome becomes its own chrom rather than being rejected, while MAX_LENGTH still governs
+	 * multi-scaffold packing -- so packed-chrom layout, and thus alignment output, stays identical for normal
+	 * genomes.  Only takes effect when set larger than MAX_LENGTH. */
+	public static int MAX_SINGLE_SCAFFOLD=MAX_LENGTH;
 //	public static boolean TRANSLATE_U_TO_T;
 	
 	/** Whether to print verbose debugging information */

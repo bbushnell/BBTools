@@ -154,7 +154,8 @@ public class FastaShredInputStream extends ReadInputStream {
 			}
 			currentList.add(r);
 			len+=r.length();
-			nextReadID++;
+			//[stream/FastaShredInputStream#001] nextReadID is already advanced inside generateRead() when the
+			//read is created; the extra ++ here double-incremented it, yielding non-contiguous IDs (0,2,4,...).
 			if(verbose){System.err.println("Generated a read; i="+i+", BUF_LEN="+BUF_LEN);}
 //			if(i==1){assert(false) : r.numericID+", "+r.mate.numericID;}
 		}

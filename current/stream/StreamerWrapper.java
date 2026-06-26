@@ -189,7 +189,10 @@ public class StreamerWrapper{
 			in1=in1.replace("#", "1");
 		}
 
-		//Do output file # replacement
+		//Do output file # replacement.
+		//Asymmetry vs input above is intentional: input only expands # when no literal file by that
+		//name exists (so a real file named with # still works); output always expands (it's being
+		//created, nothing to collide with) - do not add a File.exists() guard here.
 		if(out1!=null && out2==null && out1.indexOf('#')>-1){
 			out2=out1.replace("#", "2");
 			out1=out1.replace("#", "1");
@@ -309,6 +312,9 @@ public class StreamerWrapper{
 				for(int i=0, len=list.size(); i<len; i++) {
 					SamLine sl=list.get(i);
 					boolean keep=processSamLine(sl);
+					//Base-class keep is always true here (this branch only runs sam->sam/sam->null,
+					//so processSamLine's ffout1.samOrBam() guard holds); the drop-path is the override
+					//extension point (e.g. SamStreamerWrapper). NOT dead code - do not remove.
 					if(!keep) {list.set(i, null);}
 				}
 				if(fw!=null) {fw.addLines(ln);}

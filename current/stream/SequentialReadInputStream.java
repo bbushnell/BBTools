@@ -94,7 +94,7 @@ public class SequentialReadInputStream extends ReadInputStream {
 	 * @return List of generated reads, or null if exhausted */
 	@Override
 	public synchronized ArrayList<Read> nextList() {
-		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");} //Possible bug: Should use buffer.isEmpty() not buffer.size()
+		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
 		if(!hasMore()){return null;}
 		if(buffer==null || next>=buffer.size()){fillBuffer();}
 		ArrayList<Read> r=buffer;
@@ -112,13 +112,17 @@ public class SequentialReadInputStream extends ReadInputStream {
 		next=0;
 		
 		if(position==0){
-			while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;} //Skip initial undefined bases at chromosome start //Possible bug: Undefined bases not being properly skipped
+			while(position<=maxPosition && !AminoAcid.isFullyDefined((char)cha.get(position))){position++;} //Skip initial undefined bases at chromosome start
 		}
 		
 		ArrayList<Read> reads=new ArrayList<Read>(BUF_LEN);
 		int index=0;
 		
-		while(position<=maxPosition && index<buffer.size() && id<maxReads){
+		//[stream/SequentialReadInputStream#001] cap the batch at BUF_LEN. Was index<buffer.size() — but
+		//buffer is set null at the top of fillBuffer() and never reassigned before here, so buffer.size()
+		//was a GUARANTEED NPE on any non-trivial chromosome (the local 'reads' is the batch being built,
+		//sized BUF_LEN). NEEDS end-to-end validation with a real reference (synthetic-read mode) before trusting.
+		while(position<=maxPosition && index<BUF_LEN && id<maxReads){
 			int start=position;
 			int stop=Tools.min(position+readlen-1, cha.maxIndex);
 			byte[] s=cha.getBytes(start, stop);
@@ -126,7 +130,7 @@ public class SequentialReadInputStream extends ReadInputStream {
 			
 			if(s.length<1 || !AminoAcid.isFullyDefined(s)){
 				int firstGood=-1, lastGood=-1;
-				for(int i=0; i<s.length; i++){ //Find longest contiguous defined region //Possible bug: Generic syntax may cause type safety issues
+				for(int i=0; i<s.length; i++){ //Find longest contiguous defined region
 					if(AminoAcid.isFullyDefined(s[i])){
 						lastGood=i;
 						if(firstGood==-1){firstGood=i;}

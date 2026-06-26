@@ -141,12 +141,14 @@ public class FastaQualWriterZT implements Writer {
 	}
 	
 	private void write(ByteBuilder bb, OutputStream os) {
-		if(bb.length()<0){return;}
+		if(bb.length()==0){return;}//was <0 (never fired); skip empty buffers
 		byte[] array=bb.toBytes();
 		try{
 			synchronized(this) {os.write(array);}
 			bb.clear();
 		}catch(IOException e){
+			//Host-driven (no worker thread): this propagates on the CALLER's thread, so a write failure
+			//crashes loud immediately - immune to the ST2-writer-family death-hang (no producer to strand).
 			throw new RuntimeException(e);
 		}
 	}

@@ -246,7 +246,7 @@ public class FastqWriterST2 implements Writer{
 	}
 	
 	private void write(ByteBuilder bb){
-		if(bb.length()<0){return;}
+		if(bb.length()==0){return;}//was <0 (never fired); skip empty buffers
 		byte[] array=bb.toBytes();
 		if(verbose){outstream2.println("FQWST write("+array.length+")");}
 		try{
@@ -266,10 +266,22 @@ public class FastqWriterST2 implements Writer{
 		@Override
 		public void run(){
 			if(verbose){outstream2.println("WR Thread started");}
-			for(ListNum<Read> job=queue.take(); job!=null && !job.poison(); job=queue.take()){
-				if(verbose){outstream2.println("WR Thread got "+job.id+", "+job.last());}
-				// Blocking wait for next job (or poison pill)
-				writeReads(job.list);
+			try{
+				for(ListNum<Read> job=queue.take(); job!=null && !job.poison(); job=queue.take()){
+					if(verbose){outstream2.println("WR Thread got "+job.id+", "+job.last());}
+					// Blocking wait for next job (or poison pill)
+					writeReads(job.list);
+				}
+			}catch(Throwable t){
+				//[stream/FastqWriterST2#001] A write failure (write() rethrows IOException) must not strand the
+				//producer. Set errorState (so waitForFinish reports loud), then FORCE-poison the queue
+				//(force=true sets JobQueue.poisoned so a producer blocked in add()'s capacity-wait unblocks
+				//instead of hanging), then surface loud. The blessed SWEEP-A writer-death fix.
+				errorState=true;
+				if(queue!=null){
+					try{queue.poison(new ListNum<Read>(null, queue.maxSeen()+1, ListNum.POISON), true);}catch(Throwable t2){}
+				}
+				throw new RuntimeException("FastqWriterST2 writer thread failed; output may be incomplete.", t);
 			}
 			if(verbose){outstream2.println("WR Thread finished");}
 		}

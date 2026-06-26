@@ -205,7 +205,7 @@ public class SamWriterST2 implements Writer {
 	
 	/** The actual synchronized I/O call. */
 	private void write(ByteBuilder bb) {
-		if(bb.length()<0){return;}
+		if(bb.length()==0){return;}//was <0 (never fired); skip empty buffers
 		byte[] array=bb.toBytes();
 		try{
 			// CRITICAL: Synchronize on the shared stream object to prevent file corruption
@@ -238,9 +238,21 @@ public class SamWriterST2 implements Writer {
 	private class WriterRunnable implements Runnable{
 		@Override
 		public void run(){
-			// Loop uses the blocking take() and terminates when it retrieves the poison pill (null)
-			for(ListNum<SamLine> job=queue.take(); job!=null; job=queue.take()){
-				writeLines(job);
+			try{
+				// Loop uses the blocking take() and terminates when it retrieves the poison pill (null)
+				for(ListNum<SamLine> job=queue.take(); job!=null; job=queue.take()){
+					writeLines(job);
+				}
+			}catch(Throwable t){
+				//[stream/SamWriterST2#001] A write failure (write()/writeLines rethrow IOException) must not
+				//strand the producer. Set errorState (so waitForFinish reports loud), then FORCE-poison the
+				//queue (force=true sets JobQueue.poisoned so a producer blocked in add()'s capacity-wait
+				//unblocks instead of hanging), then surface loud. The blessed SWEEP-A writer-death fix.
+				errorState=true;
+				if(queue!=null){
+					try{queue.poison(new ListNum<SamLine>(null, queue.maxSeen()+1, ListNum.POISON), true);}catch(Throwable t2){}
+				}
+				throw new RuntimeException("SamWriterST2 writer thread failed; output may be incomplete.", t);
 			}
 		}
 	}

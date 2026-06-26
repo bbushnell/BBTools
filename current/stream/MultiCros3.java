@@ -310,7 +310,7 @@ public class MultiCros3 extends BufferedMultiCros {
 	
 	public String printRetireTime() {
 		ByteBuilder bb=new ByteBuilder();
-		float mult=0.001f/retireCount;
+		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Max Streams:\t").append(maxStreams).nl();
 		bb.append("Retire Count:\t").append(retireCount).nl();
 		bb.append("Retires Per Call:\t").append(retireCount/(float)retireCalls, 2).nl();
@@ -332,7 +332,7 @@ public class MultiCros3 extends BufferedMultiCros {
 	
 	public String printCreateTime() {
 		ByteBuilder bb=new ByteBuilder();
-		float mult=0.001f/retireCount;
+		float mult=0.001f/Tools.max(1, retireCount);//#001 guard: was /retireCount = Infinity when retireCount==0 (no streams retired, e.g. fewer barcodes than maxStreams). Profiling-only. Family twin of MultiCros6#001.
 		bb.append("Create Time 1:\t").append(createTime1*mult, 2).append(" us").nl();
 		bb.append("Create Time 2:\t").append(createTime2*mult, 2).append(" us").nl();
 		bb.append("Create Time 3:\t").append(createTime3*mult, 2).append(" us").nl();

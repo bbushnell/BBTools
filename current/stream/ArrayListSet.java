@@ -183,7 +183,7 @@ public class ArrayListSet {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	private final boolean ordered;
+	private final boolean ordered;//NOTE: set from the ctor but never read anywhere - vestigial (ordered demux was never wired in here; MultiCros handles ordering).
 	private final ArrayList<String> nameList=new ArrayList<String>();
 	private final ArrayList<Pack> packList=new ArrayList<Pack>();
 	private final LinkedHashMap<String, Pack> stringMap=new LinkedHashMap<String, Pack>();
