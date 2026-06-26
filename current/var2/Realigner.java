@@ -104,7 +104,7 @@ public class Realigner {
 			qbases=AminoAcid.reverseComplementBases(qbases);
 		}
 		
-		assert(!r.shortmatch()); //Otherwise convert it or change the score function.
+		if(r.shortmatch()){r.toLongMatchString(false);}
 		final int score0=msa.score(r.match);
 		final int minScore=clipped ? 1 : Tools.max(1, score0-1);
 		
