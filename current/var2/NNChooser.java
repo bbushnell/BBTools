@@ -64,6 +64,11 @@ public final class NNChooser {
 	 *  haploid+diploid Roche calls (60/30/15x); serves all ploidies via the inverse-ploidy dims. */
 	static final String ROCHE_RESOURCE="?callvars_roche.bbnet";
 
+	/** The PacBio HiFi/CCS network token.  s_pe_swarm seed18 (2026-06-28), trained on Shred+BBMap (pe) HG001 PacBio
+	 *  calls; best-on-pbmm2 of a 48-seed swarm, and won concordance across pbmm2/BBMap/MapPacBio test sets.
+	 *  Serves ploidy 1 (haploid) and 2 (diploid) only; ploidy 3+ (tetraploid) is untested for PacBio. */
+	static final String PACBIO_RESOURCE="?callvars_pacbio.bbnet";
+
 	/**
 	 * Registered networks, most-specific first (choose() returns the first match).
 	 * Two Illumina nets covering disjoint ploidy ranges:
@@ -75,6 +80,7 @@ public final class NNChooser {
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 1, 2, DEFAULT_RESOURCE),
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 3, Integer.MAX_VALUE, POLYPLOID_RESOURCE),
 		new NetEntry(1<<VectorUMP45.PLATFORM_ROCHE, 1, Integer.MAX_VALUE, ROCHE_RESOURCE),
+		new NetEntry(1<<VectorUMP45.PLATFORM_PACBIO, 1, 2, PACBIO_RESOURCE),
 	};
 
 	/*--------------------------------------------------------------*/
