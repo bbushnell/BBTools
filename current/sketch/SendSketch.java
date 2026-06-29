@@ -559,6 +559,7 @@ public class SendSketch extends SketchObject {
 						e.printStackTrace();
 					}
 				}
+				assert(array!=null) : KillSwitch.assertDie("Failed to parse server response as JSON after 10 retries.");
 				assert(array.length==sketchesThisChunk);
 				for(Object o : array) {
 					JsonObject jo=(JsonObject)o;

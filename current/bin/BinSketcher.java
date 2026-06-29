@@ -213,6 +213,7 @@ public class BinSketcher extends BinObject implements Accumulator<BinSketcher.Pr
 						if(results==null) {continue;}
 
 						JsonObject all=jp.parseJsonObject(results);
+						if(all==null){continue;}
 						c.setFrom(all);
 					}
 					assert(c.sketchedSize()==c.size());

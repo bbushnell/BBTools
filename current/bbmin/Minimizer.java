@@ -126,7 +126,7 @@ public class Minimizer {
 
 				final long hashcode=hash(kmer, rkmer);
 				//TODO: Possible bug [bbmin/Minimizer#003] - leftover per-kmer debug print floods stderr and destroys throughput; remove before any real use.
-				System.err.println("i="+i+", code="+hashcode);
+//				System.err.println("i="+i+", code="+hashcode);
 
 				//Track the best code in the window and its state
 				if(hashcode>=minCode && hashcode<=bestCode){

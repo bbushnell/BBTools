@@ -414,12 +414,9 @@ public class StandardDeviator implements Accumulator<StandardDeviator.ProcessThr
 		}
 	}
 
-	/** Reports processing success status.
-	 * @return Always false (this implementation reports errors via errorState) */
 	@Override
 	public boolean success() {
-		// TODO Auto-generated method stub
-		return false;
+		return !errorState;
 	}
 	
 	/*--------------------------------------------------------------*/
