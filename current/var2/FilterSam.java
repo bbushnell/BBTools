@@ -610,7 +610,7 @@ public class FilterSam {
 
 			//Notify the input stream that the final list was used
 			if(ln!=null){
-				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
+				ss.returnList(ln.id, ln.list==null || ln.list.isEmpty());//[var2/FilterSam#001] was cris (null in the streamer path) — copy-paste from processCris; latent NPE if a future Streamer terminates with a non-null list
 			}
 		}
 		
@@ -752,9 +752,9 @@ public class FilterSam {
 	/** Bad output file path */
 	private String outBad=null;
 
-	/** VCF file path */
+	/** Variant (internal var-format) file path */
 	private String varFile=null;
-	/** Variant file path */
+	/** VCF file path */
 	private String vcfFile=null;
 	/** Map of known variants loaded from VCF or variant file */
 	private VarMap varMap=null;

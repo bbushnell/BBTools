@@ -118,7 +118,7 @@ public class FungalRelease {
 				scafNum = Parse.parseKMG(b);
 			} else if (a.equals("renamescaffolds") || a.equals("rename")) {
 				renameScaffolds = Parse.parseBoolean(b);
-			} else if (a.equals("scafnum")) { //Possible bug: duplicate condition, should be "contignum"
+			} else if (a.equals("contignum")) {
 				contigNum = Parse.parseKMG(b);
 			} else if (a.equals("renamecontigs")) {
 				renameContigs = Parse.parseBoolean(b);

@@ -254,7 +254,7 @@ public class VarM {
 			int i=0;
 			while(i<allele.length && allele[i]==base1){i++;}
 			while(i<allele.length && allele[i]==base2){i++;}
-			if(i<bases.length){return 0;}
+			if(i<allele.length){return 0;}
 			int left=VarHelper.homopolymerCountLeft(bases, start, base1);
 			int right=VarHelper.homopolymerCountRight(bases, stop+1, base2);
 			return left+right+1;

@@ -1740,7 +1740,7 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 			// Check if entire insertion is homopolymer
 			while(i<allele.length && allele[i]==base1){i++;}
 			while(i<allele.length && allele[i]==base2){i++;}
-			if(i<bases.length){return 0;} // Mixed sequence insertion
+			if(i<allele.length){return 0;} // Mixed sequence insertion
 			// Count flanking homopolymer
 			int left=VarHelper.homopolymerCountLeft(bases, start, base1);
 			int right=VarHelper.homopolymerCountRight(bases, stop+1, base2);

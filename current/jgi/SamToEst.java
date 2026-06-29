@@ -341,7 +341,7 @@ public class SamToEst {
 				long half=(count+1)/2; //50th percentile of number of introns
 				assert(half<=count);
 				long count2=0; //Current sum of length
-				for(int i=0; count2<half; i++){
+				for(int i=minIntron; count2<half; i++){
 					long x=introns.get(i);
 					if(x>0){
 						count2+=x;

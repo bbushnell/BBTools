@@ -809,8 +809,7 @@ public class FilterVCF {
 			while(ln!=null && ln!=POISON_BYTES){
 				ByteBuilder bb=new ByteBuilder(4096);
 				for(byte[] line : ln){
-					linesProcessedT++;
-					processLine(line, bb);
+					processLine(line, bb);//[var2/FilterVCF#001] removed duplicate linesProcessedT++ here — processLine() already counts each line, so the lines/sec summary was 2x in MT mode
 				}
 				if(bsw!=null){bsw.add(bb, ln.id+offset);}
 				ln=nextListSync();

@@ -200,6 +200,7 @@ public class DDLMerger {
 			fresh.cardinality=old.cardinality;
 			fresh.gc=old.gc;
 			fresh.origin=old.origin;
+			fresh.lineage=old.lineage;//[ddl/DDLMerger#001] was omitted here -> #lineage silently dropped from every merged record
 			numbered.add(fresh);
 		}
 

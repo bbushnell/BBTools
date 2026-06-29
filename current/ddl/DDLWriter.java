@@ -30,7 +30,9 @@ import tax.TaxTree;
 /**
  * Builds DynamicDemiLog sketches from FASTA/FASTQ files and writes them
  * as A48-encoded TSV. Supports perfile (with multithreading), persequence,
- * and pertid modes.
+ * and pertid modes. In pertid mode all sequences sharing a taxID are merged
+ * into one sketch ACROSS all input files (one record per taxID for the whole
+ * input set); use DDLMerger for organelle-aware separate-vs-merged control.
  *
  * Usage: DDLWriter in=a.fa,b.fa out=ddls.tsv.gz [k=31] [buckets=2048]
  *
@@ -288,6 +290,14 @@ public class DDLWriter {
 	}
 
 	void processPerTid(Timer t){
+		//[ddl/DDLWriter#001 FIXED] All sequences sharing a taxID are merged into ONE sketch, ACROSS all input
+		//files: the tidMap/gcMap are shared over every file and the output is written ONCE after the last file.
+		//(Previously these were per-file, so multi-file input either crashed on file 2 with ow=f or silently kept
+		//only the last file's records with ow=t.) Organelle-aware separate-vs-merged handling is left to DDLMerger
+		//and its merge* flags; DDLWriter pertid keeps it simple: one record per taxID across the whole input set.
+		final int threads=Shared.threads();
+		final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>(DDLRecord.class);
+		final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(long[].class);
 		for(int f=0; f<inFiles.length; f++){
 			final String path=inFiles[f];
 			if(verbose){outstream.println("Processing "+path);}
@@ -296,7 +306,6 @@ public class DDLWriter {
 			final Streamer cris=StreamerFactory.getReadInputStream(-1, false, ff, null, -1);
 			cris.start();
 
-			final int threads=Shared.threads();
 			final String fileName=new File(path).getName();
 			TidWorker[] workers=new TidWorker[threads];
 			for(int i=0; i<threads; i++){
@@ -304,9 +313,7 @@ public class DDLWriter {
 				workers[i].start();
 			}
 
-			//Merge thread-local maps; synchronize on each worker
-			final IntObjectMap<DDLRecord> tidMap=new IntObjectMap<DDLRecord>(DDLRecord.class);
-			final IntObjectMap<long[]> gcMap=new IntObjectMap<long[]>(long[].class);
+			//Merge thread-local maps into the shared tidMap; synchronize on each worker
 			for(TidWorker w : workers){
 				try{w.join();}catch(InterruptedException e){e.printStackTrace();}
 				synchronized(w){
@@ -341,24 +348,24 @@ public class DDLWriter {
 				}
 			}
 			ReadWrite.closeStreams(cris);
-
-			//Finalize and sort
-			ArrayList<DDLRecord> records=new ArrayList<DDLRecord>();
-			for(int tid : tidMap.toArray()){
-				DDLRecord rec=tidMap.get(tid);
-				rec.cardinality=rec.ddl.cardinality();
-				long[] gc=gcMap.get(tid);
-				if(gc!=null && gc[0]+gc[1]>0){rec.gc=gc[0]*1f/(gc[0]+gc[1]);}
-				records.add(rec);
-			}
-			Collections.sort(records);
-			if(writeLineage){attachLineage(records);}
-			DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
-
-			t.stop();
-			outstream.println("Wrote "+records.size()+" DDL sketches to "+out+" using "+threads+" threads");
-			outstream.println("Time: \t"+t);
 		}
+
+		//Finalize and sort ONCE across all files
+		ArrayList<DDLRecord> records=new ArrayList<DDLRecord>();
+		for(int tid : tidMap.toArray()){
+			DDLRecord rec=tidMap.get(tid);
+			rec.cardinality=rec.ddl.cardinality();
+			long[] gc=gcMap.get(tid);
+			if(gc!=null && gc[0]+gc[1]>0){rec.gc=gc[0]*1f/(gc[0]+gc[1]);}
+			records.add(rec);
+		}
+		Collections.sort(records);
+		if(writeLineage){attachLineage(records);}
+		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
+
+		t.stop();
+		outstream.println("Wrote "+records.size()+" DDL sketches to "+out+" using "+threads+" threads");
+		outstream.println("Time: \t"+t);
 	}
 
 	/** Worker thread for multithreaded pertid mode.

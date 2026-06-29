@@ -452,7 +452,7 @@ public class RefRenamer {
 			return bb.append('>').append(name).nl();
 		}
 		
-		oldRef=new String(line, 1, limit);
+		oldRef=new String(line, 1, limit-1);
 		newRef=(refMap.get(oldRef));
 		name=(newRef!=null ? newRef : oldRef);
 		if(name==newRef) {headersConverted++;}

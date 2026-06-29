@@ -593,7 +593,7 @@ public class SplitNexteraLMP extends BBTool_ST {
 		int right=merged.length()-merged.stop-1;
 
 		r1left=(left>=minReadLength ? merged.subRead(0, merged.start) : null);
-		r1right=(right>=minReadLength ? merged.subRead(merged.stop+1, merged.length()-1) : null);
+		r1right=(right>=minReadLength ? merged.subRead(merged.stop+1, merged.length()) : null);
 		if(r1right!=null && r1left!=null){
 			r1right.setPairnum(1);
 			if(RENAME){
