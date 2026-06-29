@@ -34,7 +34,7 @@ public class Assembly {
 		ByteFile bf=ByteFile.makeByteFile(ff);
 
 		clear();
-		acgtnio=new long[7];
+		acgtnio=new long[8];
 		int contigLen=0;
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()) {
 			if(line[0]=='>') {

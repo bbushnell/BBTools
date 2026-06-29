@@ -212,6 +212,9 @@ public class KeepBestCopy {
 					list=new ArrayList<Read>(200);
 				}
 			}
+			if(!list.isEmpty()){
+				if(ros!=null){ros.add(list, ln);}
+			}
 		}
 		
 		errorState|=ReadStats.writeAll();
@@ -243,7 +246,7 @@ public class KeepBestCopy {
 	
 	private boolean isBetterThan(Read r, Read old){
 		if(old==null){return true;}
-		int oldNs=r.countNocalls();
+		int oldNs=old.countNocalls();
 		int Ns=r.countUndefined();
 		int oldDef=old.length()-oldNs;
 		int def=r.length()-Ns;

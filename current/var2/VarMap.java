@@ -484,7 +484,8 @@ public class VarMap implements Iterable<Var> {
 			if(ADArray!=null){Tools.add(AFArray, pt.AFArray);} // Note: triggered on ADArray check
 			success&=pt.success;
 		}
-		
+		if(!success){throw new RuntimeException("VarMap.processVariantsMT_inner: a ProcessThread failed (see stderr trace above).");}
+
 		return types;
 	}
 	

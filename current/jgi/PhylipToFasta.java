@@ -135,7 +135,6 @@ public class PhylipToFasta {
 						sb.append(c);
 						bases++;
 					}
-					pos++;
 				}
 				s=tf.nextLine();
 			}

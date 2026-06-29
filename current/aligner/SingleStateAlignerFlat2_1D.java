@@ -411,7 +411,7 @@ public final class SingleStateAlignerFlat2_1D implements Aligner, IDAligner {
 		}
 		
 		if(extra!=null){
-			assert(extra.length==5);
+			assert(extra.length==6);
 			extra[0]=match;
 			extra[1]=sub;
 			extra[2]=del;

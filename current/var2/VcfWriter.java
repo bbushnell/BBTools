@@ -279,6 +279,7 @@ public class VcfWriter {
 		/** Main thread execution - processes variant batches */
 		public void run(){
 			makeBytes();
+			success=true;
 		}
 		
 		/**
