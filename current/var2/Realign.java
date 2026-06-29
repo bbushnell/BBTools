@@ -97,9 +97,6 @@ public class Realign {
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
-			}else if(a.equals("parse_flag_goes_here")){
-				long fake_variable=Parse.parseKMG(b);
-				//Set a variable here
 			}
 			
 			
@@ -448,8 +445,7 @@ public class Realign {
 			if(sl.properPair()){properlyPairedReadsProcessedT++;}
 			if(sl.hasMate()){pairedInSequencingReadsProcessedT++;}
 			final Scaffold scaf=scafMap.getScaffold(sl);
-			final int scafnum=scaf.number;
-			
+
 //			r.toLongMatchString(false); //Not necessary if scoring can be done on short match string
 			assert(sl.cigar!=null) : sl;
 			boolean realigned=realigner.realign(r, sl, scaf, unclip);

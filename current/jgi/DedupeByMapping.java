@@ -258,7 +258,7 @@ public class DedupeByMapping extends BBTool_ST{
 					else{
 						Read old2=old1.mate;
 						float a=(r1.expectedErrors(true, 0)+(r2==null ? 0 : r2.expectedErrors(true, 0)))/r1.pairLength();
-						float b=old1.expectedErrors(true, 0)+(old2==null ? 0 : old2.expectedErrors(true, 0))/(old1.length()+old1.mateLength());
+						float b=(old1.expectedErrors(true, 0)+(old2==null ? 0 : old2.expectedErrors(true, 0)))/(old1.length()+old1.mateLength());
 						if(a<b){
 							quadToRead.put(q, r1);
 							duplicateReads+=1+old1.mateCount();
@@ -273,7 +273,7 @@ public class DedupeByMapping extends BBTool_ST{
 			list=null;
 			nameToRead=null;
 		}
-		
+
 		{
 			ArrayList<Read> list=new ArrayList<Read>(Shared.bufferLen());
 			int num=0;
@@ -376,7 +376,7 @@ public class DedupeByMapping extends BBTool_ST{
 					else{
 						Read old2=old1.mate;
 						float a=(r1.expectedErrors(true, 0)+(r2==null ? 0 : r2.expectedErrors(true, 0)))/r1.pairLength();
-						float b=old1.expectedErrors(true, 0)+(old2==null ? 0 : old2.expectedErrors(true, 0))/(old1.length()+old1.mateLength());
+						float b=(old1.expectedErrors(true, 0)+(old2==null ? 0 : old2.expectedErrors(true, 0)))/(old1.length()+old1.mateLength());
 						if(a<b){
 							quadToRead.put(q, r1);
 							duplicateReads+=1+old1.mateCount();

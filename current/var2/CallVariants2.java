@@ -477,6 +477,7 @@ public class CallVariants2 {
 		long varsProcessed0=0;
 		for(Sample sample : samples){
 			loadedVars+=sample.process1(forcedVars1, forcedVars2);
+			errorStateOverall|=sample.errorState; //[var2/CallVariants2#001] propagate per-sample failure; without this the line-582 throw is dead (errorStateOverall was never assigned)
 			varsProcessed0+=sample.varsProcessed;
 			sample.clear();
 			scafMap.clearCoverage();
@@ -508,7 +509,8 @@ public class CallVariants2 {
 		
 		for(Sample sample : samples){
 			sample.process2(forcedVars2);
-			
+			errorStateOverall|=sample.errorState; //[var2/CallVariants2#001] propagate per-sample failure; without this the line-582 throw is dead (errorStateOverall was never assigned)
+
 			if(sample.vcfName!=null){
 				VcfWriter vw=new VcfWriter(sample.varMap, varFilter, sample.readsProcessed-sample.readsDiscarded, 
 						sample.pairedInSequencingReadsProcessed, sample.properlyPairedReadsProcessed,

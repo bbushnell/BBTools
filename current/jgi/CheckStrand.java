@@ -609,8 +609,8 @@ public class CheckStrand {
 			}
 		}
 
-		double aFraction=matches/(double)j;
-		double bFraction=matches/(double)i;
+		double aFraction=matches/(double)b.length;
+		double bFraction=matches/(double)a.length;
 		
 		return new double[] {aFraction, bFraction};
 	}

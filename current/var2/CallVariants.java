@@ -809,10 +809,14 @@ public class CallVariants {
 		if(prefilter){
 			t2.start("Loading the prefilter.");
 			kca=prefilter(varFilter.minAlleleDepth, vcfin==null ? null : varMap);
-			double used=(100.0*kca.cellsUsed())/kca.cells;
-			outstream.println("Added "+varsProcessed+" events to prefilter; approximately "+(long)(kca.estimateUniqueKmers(2))+" were unique.");
-			outstream.println(Tools.format("The prefilter is %.2f%% full.", used));
-			varsProcessed=0; // Reset counter for main processing
+			if(kca!=null){//[var2/CallVariants#001] honor prefilter()'s designed null-return on low memory instead of dereferencing null
+				double used=(100.0*kca.cellsUsed())/kca.cells;
+				outstream.println("Added "+varsProcessed+" events to prefilter; approximately "+(long)(kca.estimateUniqueKmers(2))+" were unique.");
+				outstream.println(Tools.format("The prefilter is %.2f%% full.", used));
+				varsProcessed=0; // Reset counter for main processing
+			}else{
+				outstream.println("Insufficient memory for prefilter; skipping prefiltering.");
+			}
 			t2.stop("Time: ");
 			outstream.println();
 		}else{
@@ -1138,8 +1142,8 @@ public class CallVariants {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** This class is static to prevent accidental writing to shared variables.
-	 * It is safe to remove the static modifier. */
+	/** Non-static inner class; reads outer-instance fields (varMap, filters, scafMap, dumpVars()).
+	 * Making it static would require passing all that shared state in explicitly. */
 	private class ProcessThread extends Thread {
 		
 		//Constructor

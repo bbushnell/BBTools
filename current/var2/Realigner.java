@@ -198,9 +198,9 @@ public class Realigner {
 	long realignmentsRetained=0;  
 	long realignmentsImproved=0;
 	
-	private int maxrows=602;
+	private int maxrows=603; //[var2/Realigner#001] was 602 (stale & dead: constructor always overwrites with defaultMaxrows=603)
 	private int columns=2000;
-	private int padding=100;
+	private int padding=200; //[var2/Realigner#001] was 100 (stale & dead: constructor always overwrites with defaultPadding=200)
 	private String msaType;
 	private MSA msa;
 	

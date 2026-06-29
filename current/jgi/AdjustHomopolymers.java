@@ -428,7 +428,7 @@ public class AdjustHomopolymers {
 
 		byte prevBase='?';
 		byte prevQual=20;
-		byte streak=0;
+		int streak=0;
 		for(int i=0; i<bases.length; i++){
 			final byte b=bases[i];
 			final byte q=quals[i];

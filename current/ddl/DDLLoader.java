@@ -126,6 +126,8 @@ public class DDLLoader {
 
 			long[] kmers=null;
 			if(currentHasKmers){
+				//Safe to read kmerLine before parsing 'line' below: ByteFile.nextLine() returns a fresh
+				//array per call (copyOfRange), so this does not alias or overwrite the pending data line.
 				byte[] kmerLine=bf.nextLine();
 				if(kmerLine!=null && kmerLine.length>0){
 					kmers=parseKmers(kmerLine, lp);

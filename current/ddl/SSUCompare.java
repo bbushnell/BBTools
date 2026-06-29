@@ -113,6 +113,11 @@ public class SSUCompare {
 			address=DEFAULT_ADDRESS;
 		}
 		if(address!=null && !local){
+			//TODO: Possible bug [ddl/SSUCompare#001] - this routes ALL non-local runs through sendToServer, which
+			//carries neither the lookup name/tid nor the literal. So server-side lookup (name=/tid=) and literal=
+			//are unreachable from the client: sendLookupToServer(665)/sendLiteralToServer(686) emit exactly the
+			////name=///literal= that SSUServer.processLookup/processLiteral expect, but are NEVER called (dead).
+			//Fix: dispatch lookupName/lookupTid -> sendLookupToServer, literal -> sendLiteralToServer here. FLOATED.
 			sendToServer(inFiles, address, callMode, maxRecords, minHits, buffer, formatter);
 			return;
 		}
