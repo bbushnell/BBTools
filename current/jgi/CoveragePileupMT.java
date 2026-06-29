@@ -1886,8 +1886,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 
 	@Override
 	public boolean success() {
-		// TODO Auto-generated method stub
-		return false;
+		return !errorState;
 	}
 	
 	/** Blocking queue for distributing work among threads */
