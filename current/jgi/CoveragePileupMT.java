@@ -894,7 +894,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 				String kcovS=k+"-mer coverage:";
 				String kcorrectS="Percent correct "+k+"-mers:";
 				while(kcovS.length()<26){kcovS=kcovS+" ";}
-				while(kcovS.length()<26){kcorrectS=kcorrectS+" ";}
+				while(kcorrectS.length()<26){kcorrectS=kcorrectS+" ";}
 				outstream.println(Tools.format("\n"+kcovS+"           \t%.3f", mappedKmers*1.0/refKmers));
 				outstream.println(Tools.format(kcorrectS+"           \t%.3f", 100*correctKmers/kmersProcessed));
 				//			outstream.println(kmersProcessed+", "+correctKmers);
@@ -1739,7 +1739,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 							if(STRANDED){scaf.obj1=makeCA(scaf.length);}
 						}
 						CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
-						addCoverageIgnoringDeletions(start, stop, match, ca);
+						basehits=addCoverageIgnoringDeletions(start, stop, match, ca);
 					}else {
 						synchronized(scaf) {
 							if(scaf.obj0==null){
@@ -1747,7 +1747,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 								if(STRANDED){scaf.obj1=makeCA(scaf.length);}
 							}
 							CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
-							addCoverageIgnoringDeletions(start, stop, match, ca);
+							basehits=addCoverageIgnoringDeletions(start, stop, match, ca);
 						}
 					}
 				}else if(USE_BITSETS){
@@ -1757,7 +1757,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 							if(STRANDED){scaf.obj1=new BitSet(scaf.length);}
 						}
 						BitSet bs=(BitSet)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
-						addCoverageIgnoringDeletions(start, stop, match, bs);
+						basehits=addCoverageIgnoringDeletions(start, stop, match, bs);
 					}
 				}
 				scaf.basehits+=basehits;

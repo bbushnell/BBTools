@@ -463,7 +463,7 @@ class BBDukParser {
 				qfin2=b;
 			}else if(a.equals("qfout") || a.equals("qfout1")){
 				qfout1=b;
-			}else if(a.equals("qfin2")){
+			}else if(a.equals("qfout2")){//[bbduk/BBDukParser] was duplicate "qfin2" -> the explicit qfout2= flag was unreachable (twin of jgi/BBDuk#004)
 				qfout2=b;
 			}else if(a.equals("out") || a.equals("out1") || a.equals("outu") || a.equals("outu1") || a.equals("outnonmatch") ||
 					a.equals("outnonmatch1") || a.equals("outunnmatch") || a.equals("outunmatch1") || a.equals("outunnmatched") || a.equals("outunmatched1")){

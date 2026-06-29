@@ -1434,7 +1434,7 @@ public class CoveragePileup {
 				String kcovS=k+"-mer coverage:";
 				String kcorrectS="Percent correct "+k+"-mers:";
 				while(kcovS.length()<26){kcovS=kcovS+" ";}
-				while(kcovS.length()<26){kcorrectS=kcorrectS+" ";}
+				while(kcorrectS.length()<26){kcorrectS=kcorrectS+" ";}
 				outstream.println(Tools.format("\n"+kcovS+"           \t%.3f", mappedKmers*1.0/refKmers));
 				outstream.println(Tools.format(kcorrectS+"           \t%.3f", 100*correctKmers/kmersProcessed));
 				//			outstream.println(kmersProcessed+", "+correctKmers);

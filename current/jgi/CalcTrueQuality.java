@@ -1423,7 +1423,7 @@ public class CalcTrueQuality {
 							if(incrQb12) matrixT.qb12BadMatrix[pairnum][q1][n1][n2]+=1;
 							if(incrQb012) matrixT.qb012BadMatrix[pairnum][q1][n0][n1][n2]+=1;
 							if(incrQb123) matrixT.qb123BadMatrix[pairnum][q1][n1][n2][n3]+=1;
-							if(incrQb123) matrixT.qb234BadMatrix[pairnum][q1][n2][n3][n4]+=1;
+							if(incrQb234) matrixT.qb234BadMatrix[pairnum][q1][n2][n3][n4]+=1;
 							if(incrQ12b12) matrixT.q12b12BadMatrix[pairnum][q1][q2][n1][n2]+=1;
 							if(incrQp) matrixT.qpBadMatrix[pairnum][q1][pos]+=1;
 							if(incrQ) matrixT.qBadMatrix[pairnum][q1]+=1;
