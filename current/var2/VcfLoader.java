@@ -46,6 +46,7 @@ public class VcfLoader {
 		VcfLoader loader=new VcfLoader(fname, scafMap, false);
 		ArrayList<ProcessThread> alpt=loader.spawnThreads(false, false);
 		loader.waitForFinish(alpt);
+		if(loader.errorState){throw new RuntimeException("VcfLoader: failed to load "+fname);}
 		return loader.varMap;
 	}
 	
@@ -53,6 +54,7 @@ public class VcfLoader {
 		VcfLoader loader=new VcfLoader(fname, scafMap, true);
 		ArrayList<ProcessThread> alpt=loader.spawnThreads(loadCoverage, extendedInfo);
 		loader.waitForFinish(alpt);
+		if(loader.errorState){throw new RuntimeException("VcfLoader: failed to load "+fname);}
 		return loader.varMap;
 	}
 	
@@ -193,17 +195,20 @@ public class VcfLoader {
 		
 		@Override
 		public void run(){
-			//Do anything necessary prior to processing
-			
-			//Process the reads
-			if(tid==0){
-				processBytes();
-			}else{
-				makeVars();
+			try{
+				//Process the reads
+				if(tid==0){
+					processBytes();
+				}else{
+					makeVars();
+				}
+				//Indicate successful exit status
+				success=true;
+			}finally{
+				//Always forward POISON so a crashed thread can't hang its siblings — exactly once per thread,
+				//on both normal and exception exit (no double-poison, so no queue-full self-hang). Crash-loud, never deadlock.
+				putBytes(POISON_BYTES);
 			}
-			
-			//Indicate successful exit status
-			success=true;
 		}
 		
 		void processBytes(){
@@ -244,7 +249,7 @@ public class VcfLoader {
 				list=null;
 			}
 			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
-			putBytes(POISON_BYTES);
+			//POISON now forwarded by run()'s finally (guarantees forwarding even if the reader crashes — no deadlock).
 			if(verbose){outstream.println("tid "+tid+" done poisoning.");}
 			bf.close();
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
@@ -311,14 +316,14 @@ public class VcfLoader {
 				}
 				synchronized(varMap){
 					for(Var v : vars){
-						varMap.addUnsynchronized(v);
+						if(v!=null){varMap.addUnsynchronized(v);}
 					}
 				}
 				list=takeBytes();
 			}
 			if(verbose){outstream.println("tid "+tid+" done making vars.");}
 
-			putBytes(POISON_BYTES);
+			//POISON now forwarded by run()'s finally (guarantees forwarding even if a parser crashes — no deadlock).
 			if(verbose){outstream.println("tid "+tid+" done poisoning bytes.");}
 		}
 		

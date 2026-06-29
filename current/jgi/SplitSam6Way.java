@@ -103,7 +103,7 @@ public class SplitSam6Way {
 				if(r1unmapped!=null){r1unmapped.println(line);}
 				if(r2plus!=null){r2plus.println(line);}
 				if(r2minus!=null){r2minus.println(line);}
-				if(r2minus!=null){r2minus.println(line);}
+				if(r2unmapped!=null){r2unmapped.println(line);}
 			}else{
 				if(reads>=maxReads){break;}
 				
@@ -155,9 +155,9 @@ public class SplitSam6Way {
 		outstream.println("R1 Plus Reads:      "+r1preads);
 		outstream.println("R1 Minus Reads:     "+r1mreads);
 		outstream.println("R1 Unmapped Reads:  "+r1ureads);
-		outstream.println("R1 Plus Reads:      "+r2preads);
-		outstream.println("R1 Minus Reads:     "+r2mreads);
-		outstream.println("R1 Unmapped Reads:  "+r2ureads);
+		outstream.println("R2 Plus Reads:      "+r2preads);
+		outstream.println("R2 Minus Reads:     "+r2mreads);
+		outstream.println("R2 Unmapped Reads:  "+r2ureads);
 	}
 	
 	private PrintStream outstream=System.err;

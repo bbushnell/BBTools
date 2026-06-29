@@ -77,7 +77,7 @@ public class SealRefInfo {
 					}else if("artifacts".equalsIgnoreCase(s)){
 						fname=Data.findPath("?sequencing_artifacts.fa.gz");
 					}else if("crisprs".equalsIgnoreCase(s)){
-						s=Data.findPath("?crisprs.fa.gz");
+						fname=Data.findPath("?crisprs.fa.gz");
 					}else{
 						assert(false) : "Can't find reference file "+s;
 					}

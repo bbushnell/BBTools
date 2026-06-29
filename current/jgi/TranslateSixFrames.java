@@ -156,7 +156,7 @@ public class TranslateSixFrames {
 		}
 		
 		if(out1==null){
-			if(out1==null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
+			if(out2!=null){throw new RuntimeException("Error - cannot define out2 without defining out1.");}
 			if(!parser.setOut){
 				out1="stdout";
 			}
