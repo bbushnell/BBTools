@@ -1075,7 +1075,7 @@ public class KmerCoverage {
 							if(verbose){outstream.println();}
 							if(OUTPUT_ATTACHMENT && ros!=null){
 								r2.obj=(ros.ff1.fastq() ? toFastqString(r2) : toFastaString(r2));
-								toss2=r.discarded();
+								toss2=r2.discarded();
 							}else{
 								 int[] cov=getCoverageAndIncrementHistogram(r2);
 								 if(cov==null){toss2=true;}
