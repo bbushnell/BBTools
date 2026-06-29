@@ -3189,8 +3189,7 @@ public class KmerNormalize {
 									for(int i=covlast; i>=0 && cov[i]<=lim; i--){lc++;}
 								}
 								lowcount+=lc;
-								cov2=cov;
-								
+
 								if(rhistogram!=null){
 									int d=depthAL2>=0 ? depthAL2 : truedepth2>=0 ? truedepth2 : 0;
 									d=Tools.min(d, HIST_LEN-1);

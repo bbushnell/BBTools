@@ -1352,8 +1352,8 @@ public final class AssemblyStats2 {
 		long s50=slen/2;
 		long c50=clen/2;
 		
-		long s90=(int)(slen*0.9f);
-		long c90=(int)(clen*0.9f);
+		long s90=slen*9L/10;
+		long c90=clen*9L/10;
 
 		final int numOverCutoff=(FORMAT==7 ? 1000 : 50000);
 		final int numOverCutoffPlusOne=numOverCutoff+1;

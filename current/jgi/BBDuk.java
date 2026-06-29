@@ -188,7 +188,7 @@ public class BBDuk {
 				qfin2=b;
 			}else if(a.equals("qfout") || a.equals("qfout1")){
 				qfout1=b;
-			}else if(a.equals("qfin2")){
+			}else if(a.equals("qfout2")){//[jgi/BBDuk] was duplicate "qfin2" -> the explicit qfout2= flag was unreachable
 				qfout2=b;
 			}else if(a.equals("out") || a.equals("out1") || a.equals("outu") || a.equals("outu1") || a.equals("outnonmatch") ||
 					a.equals("outnonmatch1") || a.equals("outunnmatch") || a.equals("outunmatch1") || a.equals("outunnmatched") || a.equals("outunmatched1")){
@@ -1396,7 +1396,7 @@ public class BBDuk {
 		if(ktrimLeft || ktrimRight || ktrimN){
 			String x=(ktrimN ? "KMasked: " : "KTrimmed:");
 			jsonStats.add("reads"+x, readsKTrimmed);
-			jsonStats.add("bases+x", basesKTrimmed);
+			jsonStats.add("bases"+x, basesKTrimmed);//[jgi/BBDuk] was "bases+x" literal (twin of bbduk/BBDukProcessorS#001)
 		}
 		if(swift){
 			jsonStats.add("readsTrimmedBySwift", readsTrimmedBySwift);
@@ -3025,7 +3025,7 @@ public class BBDuk {
 							}
 						}
 						if(r2!=null){
-							if(filterPolyC>0 && detectPolyLeft(r1, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {
+							if(filterPolyC>0 && detectPolyLeft(r2, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {//[jgi/BBDuk] was r1 -> r2's poly-C filter was deciding on r1's content (twin of bbduk/BBDukProcessorS#002)
 								setDiscarded(r2);
 								readsPolyTrimmedT++;
 							}else if(trimPolyCLeft>0 || trimPolyCRight>0){
@@ -4426,7 +4426,7 @@ public class BBDuk {
 		
 		private int trimLowEntropy(final Read r, BitSet bs, EntropyTracker et){
 			final int window=et.windowBases();
-			System.err.println("Trimming "+r.id+", len "+r.length()+", window "+window);
+			if(verbose){outstream.println("Trimming "+r.id+", len "+r.length()+", window "+window);}//[jgi/BBDuk] was an unguarded per-read System.err.println (twin of bbduk/BBDukProcessorS#003)
 			if(r==null || r.length()<window){return 0;}
 			final byte[] bases=r.bases;
 			if(bs==null){bs=new BitSet(r.length());}
