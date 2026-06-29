@@ -19,7 +19,8 @@
 ##fnr 0.003487
 ##err 0.012717
 ##wer 0.035416
-##ctf 0.486238
+##old_cutoff 0.486238
+##ctf 0.564000
 #coding A48
 #edges 30043
 ##layer 1

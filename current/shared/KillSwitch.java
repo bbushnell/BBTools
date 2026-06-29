@@ -2,6 +2,7 @@ package shared;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
+import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Array;
 import java.util.Arrays;
 //import com.sun.management.OperatingSystemMXBean;
@@ -130,17 +131,25 @@ public final class KillSwitch extends Thread {
 		kill0();
 	}
 
-	/** Assertion-message form of {@link #kill(String)}: prints the message + halts the VM, but is typed to
-	 * return a String so it can sit in an assertion's message position: {@code assert(cond) : KillSwitch.assertDie(msg)}.
-	 * The return is never reached (the VM halts first). Use where a failing assertion runs on a worker thread
-	 * whose AssertionError would otherwise only kill that thread and HANG the producer/consumer pipeline — this
-	 * turns the thread-death-then-hang into a loud whole-process exit. Zero cost on the happy path: the message
-	 * expression is evaluated only when the assertion fails (and not at all under -da).
+	/** Assertion-message form: prints the message, waits for the JVM to quiesce
+	 * (giving output threads a chance to flush), then halts.  Typed to return a
+	 * String so it sits in an assertion's message position:
+	 * {@code assert(cond) : KillSwitch.assertDie(msg)}.
+	 * The return is never reached (the VM halts first).  Use where a failing
+	 * assertion runs on a worker thread whose AssertionError would otherwise only
+	 * kill that thread and HANG the producer/consumer pipeline — this turns the
+	 * thread-death-then-hang into a loud whole-process exit.  Zero cost on the
+	 * happy path: the message expression is evaluated only when the assertion
+	 * fails (and not at all under -da).
 	 * @param s Error message to print before termination
 	 * @return never returns; the VM halts inside the call */
 	public static String assertDie(String s){
-		kill(s);
-		return s; //Unreachable: kill() halts the VM.
+		ballast=null;
+		Exception e=new Exception(s);
+		e.printStackTrace();
+		waitForQuiescence(400, 20000, 200, 0.05f);
+		kill0();
+		return s; //Unreachable: kill0() halts the VM.
 	}
 	
 	/** Prints error message without stack trace and terminates the VM immediately.
@@ -237,7 +246,80 @@ public final class KillSwitch extends Thread {
 	
 	
 	/*--------------------------------------------------------------*/
-	
+	/*----------------       Quiescence Detection      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Waits for this JVM to become quiescent (idle), then returns.
+	 * Polls the process's own CPU usage via ThreadMXBean to detect
+	 * whether threads are actively computing or hung/idle.
+	 * Returns early once the JVM has been idle for 2 consecutive polls
+	 * AND at least minMillis have elapsed.  Returns unconditionally
+	 * after maxMillis regardless of activity.
+	 *
+	 * @param minMillis  Minimum wait time in ms before returning (floor)
+	 * @param maxMillis  Maximum wait time in ms before returning (ceiling)
+	 * @param interval   Polling interval in ms between CPU measurements
+	 * @param minCPU     Idle threshold as a fraction of 1 CPU core
+	 *                   (e.g. 0.01 = 1% of one core).  A poll interval
+	 *                   where CPU usage falls below this is counted as idle.
+	 */
+	public static void waitForQuiescence(int minMillis, int maxMillis,
+			int interval, float minCPU){
+		final ThreadMXBean tmx=ManagementFactory.getThreadMXBean();
+		if(!tmx.isThreadCpuTimeSupported() || !tmx.isThreadCpuTimeEnabled()){
+			safeSleep(Math.min(minMillis, maxMillis));
+			return;
+		}
+
+		final long start=System.nanoTime();
+		final long minNanos=minMillis*1_000_000L;
+		final long maxNanos=maxMillis*1_000_000L;
+		final long intervalNanos=interval*1_000_000L;
+		int consecutiveIdle=0;
+
+		long prevCpu=totalThreadCpuNanos(tmx);
+		while(true){
+			safeSleep(interval);
+			long now=System.nanoTime();
+			long elapsed=now-start;
+			if(elapsed>=maxNanos){return;}
+
+			long curCpu=totalThreadCpuNanos(tmx);
+			long cpuDelta=curCpu-prevCpu;
+			prevCpu=curCpu;
+
+			// cpuDelta is nanoseconds of CPU consumed across all threads
+			// during one interval.  As a fraction of 1 core:
+			//   fraction = cpuDelta / intervalNanos
+			// (intervalNanos is wall-clock time for the interval)
+			float fraction=(float)cpuDelta/Math.max(intervalNanos, 1);
+			if(fraction<minCPU){
+				consecutiveIdle++;
+			}else{
+				consecutiveIdle=0;
+			}
+
+			if(consecutiveIdle>=2 && elapsed>=minNanos){return;}
+		}
+	}
+
+	/** Sum of CPU time (nanoseconds) consumed by all live threads in this JVM. */
+	private static long totalThreadCpuNanos(ThreadMXBean tmx){
+		long total=0;
+		for(long id : tmx.getAllThreadIds()){
+			long t=tmx.getThreadCpuTime(id);
+			if(t>0){total+=t;}
+		}
+		return total;
+	}
+
+	private static void safeSleep(long ms){
+		try{Thread.sleep(ms);}catch(InterruptedException e){}
+	}
+
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Safely allocates AtomicIntegerArray with OutOfMemoryError handling.
 	 * @param len Array length
