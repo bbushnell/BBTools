@@ -110,6 +110,9 @@ public class TransferLabels {
 			if(suffix!=null){transferred++;}else{unmatched++;}
 		}
 		bf.close();
+		//TODO: Possible bug [var2/TransferLabels#001] (LOW, dropped-wire) - poisonAndWait()'s errorState
+		//return is discarded; a write failure yields a truncated output VCF while the tool exits 0. Capture
+		//it and exit(1)/throw on true.
 		bsw.poisonAndWait();
 
 		out.println("Input variants:        "+total);

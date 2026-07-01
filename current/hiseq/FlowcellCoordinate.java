@@ -66,6 +66,8 @@ public class FlowcellCoordinate implements Comparable<FlowcellCoordinate> {
 
 	@Override
 	public int compareTo(FlowcellCoordinate b) {
+		//Subtraction comparators are overflow-safe here: lane/tile are small and x/y are pixel coords
+		//(<~10^5), so no difference approaches Integer.MAX. Order is lane,tile,Y,X (note: Y before X).
 		if(lane!=b.lane){return lane-b.lane;}
 		if(tile!=b.tile){return tile-b.tile;}
 		if(y!=b.y){return y-b.y;}

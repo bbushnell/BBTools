@@ -185,6 +185,9 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	 * Updates lane, tile, x, and y fields.
 	 */
 	private void parseCoordinates(){
+		//From the comment separator, walk back 4 colons to land at the start of lane:tile:x:y (the last
+		//4 colon-separated coord fields before the space/slash). Works regardless of how many ':'-fields
+		//precede the coords (machine/run/flowcell vary in count across platforms).
 		pos=commentSeparator;
 		goBackSeveralColons(4);
 		lane=parseInt();
@@ -296,6 +299,8 @@ public class IlluminaHeaderParser1 extends ReadHeaderParser {
 	 * @return The parsed character
 	 */
 	private char parseChar(){
+		//Reads one char then steps over its trailing ':' (single-char field like "1" or "N" in "1:N:0").
+		//Asserts enforce exactly that shape: char, then ':' (or EOL), then a non-':' (the next field's start).
 		char c=id.charAt(pos);
 		assert(c!=':');
 		pos++;

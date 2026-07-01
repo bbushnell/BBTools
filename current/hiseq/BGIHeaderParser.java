@@ -60,6 +60,9 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	 */
 	public String toIllumina(String barcode) {
 		bb.clear();
+		//TODO: Possible bug [hiseq/BGIHeaderParser#001] - machine() is hard-coded null for BGI, so this
+		//emits the literal "null" as the instrument field and DROPS the real BGI instrument id (sample(),
+		//term 0). Likely should be append(sample()). QUESTION: intentional placeholder, or regression?
 		bb.append(machine()).colon();
 		bb.append(run()).colon();
 		bb.append(flowcell()).colon();
@@ -116,6 +119,8 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	 * Parses a substring from the fifth token, starting at position 3 with base 10.
 	 * @return Tile number
 	 */
+	//tile and y share term 4 (the "R<yyy><tile...>" field): y = chars[0,3), tile = chars[3,10).
+	//yPos() reads the same token at [0,3); this split is the BGI row-field encoding, not two tokens.
 	@Override
 	public int tile() {return lp.parseInt(4, 3, 10);}
 
@@ -173,6 +178,9 @@ public class BGIHeaderParser extends ReadHeaderParser {
 	 */
 	@Override
 	public String extra() {
+		//TODO: Possible bug [hiseq/BGIHeaderParser#002] - guard tests terms<=11 but reads term 6, so extra
+		//is always null for a standard 6-term BGI header (and for any 7-11 term one). The 11 looks copied
+		//from another parser; to read term 6 it should be terms()<=6 ? null : parseString(6).
 		return lp.terms()<=11 ? null : lp.parseString(6);
 	}
 	

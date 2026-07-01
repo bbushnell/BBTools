@@ -288,6 +288,8 @@ public class Foo6 {
 		list.sort();
 		t.stop("sorting2: ");
 		t.start();
+		//TODO: Possible bug [fun/Foo6#001] (LOW) - mean divides by list.size and median indexes it; both crash
+		//when no 'F'-type line matched (empty list). Scratch tool.
 		long mean=sum/list.size;
 		long median=list.get((int)(list.size*0.5));
 		System.out.println("total size: \t"+(sum/tera)+" TB \t("+sum+")"+"\t"+"("+((sum/tebi))+" tebibytes)");

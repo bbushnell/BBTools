@@ -51,6 +51,9 @@ public class FindPath {
 	 * @param stop Target destination node
 	 * @return Path object containing node sequence and total distance, null if unreachable
 	 */
+	//DOC note [fun/FindPath#001]: the javadoc calls this "Dijkstra's algorithm", but it is actually a
+	//label-correcting / Bellman-Ford-style relaxation (BFS waves, no priority queue). The result is correct
+	//for non-negative weights; only the name is wrong.
 	private static Path findPath(Node start, Node stop) {
 		HashMap<Node, Path> pmap=new HashMap<Node, Path>();
 		pmap.put(start, new Path(start));

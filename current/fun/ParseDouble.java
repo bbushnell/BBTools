@@ -198,6 +198,10 @@ public class ParseDouble {
      * @return Parsed double value including special values
      */
     public static double parseDouble2(final byte[] array, final int a0, final int b) {
+        //TODO: Possible bug [fun/ParseDouble#001] (LOW/DOC) - javadoc claims "complete IEEE 754 compliance",
+        //but this special-value check only fires for length 2-4, so "Infinity" (8 chars) falls through to
+        //numeric parsing and mis-parses; and any 2-4 char string starting with non-numeric N/I loosely returns
+        //NaN/Inf. Fix the doc or broaden the check. (Benchmark; positive test inputs only.)
         // Check for special values
         if(b-a0>1 && b-a0<5) {
             final byte x=array[a0];

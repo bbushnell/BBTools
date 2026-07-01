@@ -8,6 +8,9 @@ import shared.Tools;
  * Transforms raw variant metrics into standardized features optimized for quality prediction.
  * @author Brian Bushnell
  */
+//TODO: Possible bug [var2/VectorElba#001] (LOW, dead) - this whole class has ZERO callers tree-wide
+//(superseded intern scaffolding; the live feature vector is VectorUMP45). elbaScaleQualNew below is also
+//never called even within this class. Cleanup candidate; bundle with the FeatureVectorMaker dead-dispatch.
 public class VectorElba {
 
 	/**

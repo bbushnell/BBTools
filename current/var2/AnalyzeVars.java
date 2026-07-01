@@ -113,7 +113,11 @@ public class AnalyzeVars {
 				}
 				byte replacement=Tools.toLowerCase(m);
 				Var v;
-				if(m=='D'){v=new Var(scafnum, rpos, rpos+len+1, 0, Var.DEL);}//Check the +1; may not be right
+				//Checked (G11 2026-06-29): the +1 is CORRECT. The varMap here is loaded via VcfLoader->
+				//VcfToVar.fromVCF, which uses anchor-INCLUSIVE DEL coords (stop=pos+len+1); this rpos+len+1
+				//matches it, so known deletions DO get found. (It does NOT match the anchor-exclusive
+				//toSubsAndIndels/STA-STO convention, but that is not the parser this compares against.)
+				if(m=='D'){v=new Var(scafnum, rpos, rpos+len+1, 0, Var.DEL);}
 				else{
 					byte[] alt=(len==1 ? Var.AL_MAP[b] : Arrays.copyOfRange(bases, bpos, bpos+len));
 					v=new Var(scafnum, rpos, rpos, alt, Var.INS);

@@ -175,6 +175,9 @@ public class LabelVCF {
 			total++;
 		}
 		bf.close();
+		//TODO: Possible bug [var2/LabelVCF#001] (LOW, dropped-wire) - poisonAndWait() returns an errorState
+		//boolean that is discarded; a write failure -> truncated labeled VCF but the tool still exits 0.
+		//Capture it and System.exit(1)/throw on true (crash-loud-never-wrong).
 		bsw.poisonAndWait();
 
 		out.println("Labeled variants: "+total);

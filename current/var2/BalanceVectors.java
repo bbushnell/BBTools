@@ -192,6 +192,11 @@ public class BalanceVectors {
 		long fill=targetNeg-enrichedCount;
 		if(fill>0){
 			final IntList pool=new IntList();
+			//TODO: Possible bug [var2/BalanceVectors#001] (DOC/QUESTION->UMP45) - class javadoc says the
+			//representative fill samples "nontrivial negatives (composite score > 0.01)", but there is NO such
+			//filter here: pool = ALL unchosen negatives. Either restore the filter (only meaningful when
+			//vectors were built with includescore=t, else score col is 0 and it'd exclude everything) or fix
+			//the javadoc. NN-pipeline-owned: flag, don't change balancing behavior unilaterally.
 			for(int i=0; i<neg.size(); i++){
 				if(!chosen[i]){pool.add(i);}
 			}

@@ -35,6 +35,8 @@ public class Crunch {
 					continue;
 				}
 				long size = Long.parseLong(splitLine[3]);
+				//TODO: Possible bug [fun/Crunch#001] (LOW) - atime/mtime are parsed but never used (dead
+				//locals); only size is aggregated. Remove, or use them. Scratch tool.
 				long atime = Long.parseLong(splitLine[11]);
 				long mtime = Long.parseLong(splitLine[12]);
 

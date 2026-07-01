@@ -35,6 +35,9 @@ public class Palindrome {
 			}else if(s.startsWith("loop")) {
 				maxLoop=Integer.parseInt(s.split("=")[1]);
 			}else if(new File(args[0]).exists()) {
+				//TODO: Possible bug [fun/Palindrome#001] (LOW) - wrong variable: checks/loads args[0] instead
+				//of s, so a filename only works as the sole args[0]; with multiple args this reloads args[0]
+				//per non-flag arg and ignores the actual arg s. Should be new File(s).exists()/getSequence(s).
 				sequences.addAll(getSequence(args[0]));
 			}else {
 				sequences.add(s);

@@ -156,6 +156,9 @@ public class Genetic {
 	 * @return Fitness score (higher is better)
 	 */
 	public static double f(long x){
+		//TODO: Possible bug [fun/Genetic#001] (LOW) - x*x is long*long (overflows for bits>31, i.e. x>~3e9)
+		//BEFORE widening to double, so fitness is garbage/negative for large 'bits'. Default bits=8 is fine.
+		//Fix if large-bit runs matter: return (double)x*x;
 		return x*x;
 	}
 	

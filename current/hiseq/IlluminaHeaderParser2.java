@@ -68,6 +68,11 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	public IlluminaHeaderParser2 parse(String id_) {
 		id=id_;
 		lp.set(id_);
+		//LineParserS3 splits on ':' AND treats whitespace as a term boundary, so the comment fields
+		//(pairCode/chastity/controlBits/barcode) land in their OWN terms after the coordinate block.
+		//whitespaceIndex = index of the term containing/preceding the space (6 for the standard 7-coord
+		//header), so pairCode is at whitespaceIndex+1, etc. This boundary behavior is what makes every
+		//comment accessor below correct; without it pairCode would read the chastity term.
 		whitespaceIndex=lp.indexOfWhitespace();
 		return this;
 	}
@@ -77,10 +82,13 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	}
 	
 	public boolean looksValid() {
+		//A real Illumina header has >=8 terms (7 coords + >=1 comment) and the space falls right
+		//after yPos: term 6 (no UMI) or 7 (with a 3rd index). Confirms the term layout the accessors assume.
 		return(lp.terms()>=8 && whitespaceIndex>=6 && whitespaceIndex<=7);
 	}
-	
+
 	public boolean looksShrunk() {
+		//A shrunk header has a 2-char term at index 2 (the flowcell field collapsed); cheap heuristic.
 		return(lp.terms()>3 && lp.bounds().get(2)==2);
 	}
 	
@@ -193,6 +201,9 @@ public class IlluminaHeaderParser2 extends ReadHeaderParser {
 	}
 	
 	public long encodeCoordinates() {
+		//Packs lane|tile|x|y into one long: tile<17 bits, x<20 bits, y<20 bits (total 57<64).
+		//Lossless only while tile<2^17 and x,y<2^20 (~1M px) — true for all real flowcell coords;
+		//a coordinate above those would overlap the next field. Bounded-input assumption, not a guard.
 		long x=lane();
 		x=(x<<17)^tile();
 		x=(x<<20)^xPos();
