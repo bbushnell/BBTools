@@ -313,7 +313,7 @@ public abstract class AbstractCardStats {
 				final double est=dlcFromVk(tier, vk, B);
 				final int occ=B-vk;
 				final double w;
-				switch(DLC_INFO_MODE){
+				switch(DLC_INFO_MODE){ //mode 2 (0-param theory, default) falls to default case
 					case 0:{
 						final double err=DLC_INFO_A/Math.sqrt(Math.max(occ, 1))
 							+DLC_INFO_B/Math.sqrt(Math.max(vk, 1));
@@ -421,6 +421,8 @@ public abstract class AbstractCardStats {
 	 */
 	static double hllEstimate(final double hllSumFilled, final int V, final int B,
 			final double alpha_m){
+		//+2*V (not +V): the factor of 2 cancels with the 2* in the raw formula,
+		//giving the standard HLL result alpha_m*B^2/(hllSumFilled+V).
 		final double hllSum=hllSumFilled+2*V;
 		final double raw=2*alpha_m*(double)B*(double)B/hllSum;
 		if(raw<2.5*B){
@@ -578,15 +580,15 @@ public abstract class AbstractCardStats {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Builds the rawEstimates() output array matching the old CardinalityStats.toArray() layout.
+	 * Builds the rawEstimates() output array for DDLCalibrationDriver.
 	 * <p>
-	 * This exists ONLY for migration: subclass rawEstimates() calls this to produce
-	 * output identical to the old code.  Will be deleted once calibration drivers
-	 * are refactored to use named getters.
+	 * Column order matches DDLCalibrationDriver.ESTIMATOR_NAMES, NOT the old
+	 * CardinalityStats.toArray() layout (which differs at slots 4 and 10).
+	 * Will be deleted once calibration drivers are refactored to use named getters.
 	 *
 	 * @param s          the CardStats object with all computed estimates
 	 * @param hybridEst  the hybrid estimate chosen by the subclass (hybridDLL or hybridDDL)
-	 * @return double[] in the exact same column order as old CardinalityStats.toArray()
+	 * @return double[] indexed by DDLCalibrationDriver.ESTIMATOR_NAMES order
 	 */
 	static double[] buildLegacyArray(final CardStats s, final double hybridEst){
 		final int total=17+NUM_DLC_TIERS+NUM_EXTRA;

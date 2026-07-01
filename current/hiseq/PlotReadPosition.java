@@ -80,6 +80,12 @@ public class PlotReadPosition {
 			out1=parser.out1;
 		}
 
+		//NOTE (not a bug, but a readability trap): PARSE_COMMENT is a SINGLE static declared in the parent
+		//ReadHeaderParser (L262), so IlluminaHeaderParser1.PARSE_COMMENT and IlluminaHeaderParser2.PARSE_COMMENT
+		//are the SAME field -- setting it here does reach the IHP2 'ihp' below. BUT IHP2 never reads
+		//PARSE_COMMENT at all (only IHP1 gates parseComment() on it); IHP2 always splits the comment terms via
+		//LineParserS3. So for THIS tool (which uses IHP2) this line is effectively a no-op; barcode() works
+		//regardless. Don't "fix" the class name into IHP2 expecting behavior change -- there is none.
 		IlluminaHeaderParser1.PARSE_COMMENT=true;
 		ffout1=FileFormat.testOutput(out1, FileFormat.HEADER, ".header", true, true, false, false);
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, null, true, true);
@@ -111,6 +117,7 @@ public class PlotReadPosition {
 		}else{ros=null;}
 		
 		long readsProcessed=0, basesProcessed=0;
+		long readsNoBarcode=0, readsWithBarcode=0;//[PlotReadPosition#001] track/skip barcode-less reads
 		{
 			
 			ListNum<Read> ln=cris.nextList();
@@ -135,6 +142,16 @@ public class PlotReadPosition {
 					ihp.parse(r1);
 //					System.err.println(ihp);
 					String barcode=ihp.barcode();
+					//[hiseq/PlotReadPosition#001] FIXED (G11 2026-07-01, Brian-authorized, option A): a header with
+					//no barcode term (IHP2.barcode()==null: terms<=whitespaceIndex+4) has no meaningful barcode
+					//distance -> skip it (null out so it's not written) and count it, instead of NPEing on
+					//barcode.length()/findClosest(null). If NO read has a barcode, a warning prints after the loop.
+					if(barcode==null){
+						reads.set(idx, null);
+						readsNoBarcode++;
+						continue;
+					}
+					readsWithBarcode++;
 					Barcode bc=matrix.findClosest(barcode, 99, 0);
 					int dist=barcode.length();
 					if(bc!=null) {
@@ -162,6 +179,11 @@ public class PlotReadPosition {
 		t.stop();
 		outstream.println("Time:                         \t"+t);
 		outstream.println("Reads Processed:    "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
+		//[PlotReadPosition#001] report barcode-less reads that were skipped; flag the all-non-barcoded case.
+		if(readsNoBarcode>0){
+			outstream.println("Reads skipped (no barcode): "+readsNoBarcode);
+			if(readsWithBarcode==0){outstream.println("Warning: no barcodes found in input.");}
+		}
 	}
 	
 	/*--------------------------------------------------------------*/

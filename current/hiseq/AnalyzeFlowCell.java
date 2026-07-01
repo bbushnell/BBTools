@@ -1095,7 +1095,13 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 */
 	boolean processReadPair_inner(final Read r1, final Read r2){
 		
-		MicroTile mt=flowcell.getMicroTile(r1.id);
+		//[hiseq/AnalyzeFlowCell#001] FIXED (G11 2026-07-01, Brian-authorized): was getMicroTile(r1.id), the
+		//create=TRUE overload, which never returns null -> the mt==null warning below was DEAD CODE and a read
+		//with no build-phase tile would silently get a fresh discard=0 tile (kept, no warning) + pollute the
+		//flowcell. Now a create=FALSE lookup: a coordinate not seen during the fill phase returns null -> the
+		//warning fires and the read is kept, degrading cleanly when the filtered input differs from the built one.
+		//Single-threaded path (processInner instance method), so the shared-ihp getMicroTile(String,...) is safe.
+		MicroTile mt=flowcell.getMicroTile(r1.id, false);
 		if(mt==null){
 			if(!warned){
 				outstream.println("\nWarning - a read was found with no corresponding MicroTile:\n"+r1.id);
@@ -1146,6 +1152,11 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	 * @return true if read has problematic G-content pattern
 	 */
 	private boolean shouldDiscardG(Read r, MicroTile mt){
+		//mt.tracker is non-null here: shouldDiscardG is only reached when discardG is set (shouldDiscard L1135),
+		//and discardG forces MicroTile.TRACK_CYCLES=true (process init L95), so every MicroTile has a tracker.
+		//cycleAverages[2] is the per-cycle G fraction (ACGTN order -> G=index 2). gArray is indexed by cycle i
+		//over bases.length; safe as long as tracked cycle count >= this read's length (holds when build saw
+		//reads at least this long, i.e. the same input).
 		final byte[] bases=r.bases;
 		final float[] gArray=mt.tracker.cycleAverages[2];
 		

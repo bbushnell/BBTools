@@ -612,8 +612,9 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Compressed 16-bit bucket maxima; (relNlzStored << 10) | invMantissa
-	 * where relNlzStored = nlz - globalNLZ. Stored value of 0 means empty. */
+	/** Compressed 16-bit bucket maxima; (absNlz << mantissabits) | invMantissa.
+	 * Uses ABSOLUTE NLZ encoding — absNlz is the true leading-zero count,
+	 * not relative to globalNLZ. Stored value of 0 means empty. */
 	private final char[] maxArray;
 	/** Count of observations at the current maximum score for each bucket. */
 	private final char[] countArray;

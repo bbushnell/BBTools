@@ -74,6 +74,9 @@ public class Lane implements Iterable<Tile> {
 	 * @param b The source lane to add data from
 	 */
 	public void add(Lane b) {
+		//Merge path (called only from FlowCell.add, itself under synchronized(a=Lane)). The tb/ta locks
+		//guard the per-Tile merge; getTile(tb.tile) grows THIS lane's 'tiles' unsynchronized, relying on the
+		//caller's FlowCell-monitor contract (see FlowCell.getMicroTile(String)). Not the concurrent fill path.
 		for(Tile tb : b.tiles) {
 			if(tb!=null) {
 				synchronized(tb) {
@@ -131,7 +134,7 @@ public class Lane implements Iterable<Tile> {
 		long mts=0;
 		for(Tile t : this) {
 			for(MicroTile mt : t) {
-//				if(mt!=null) {
+//				if(mt!=null) {//correctly dead: Tile.iterator()->mtList() pre-filters nulls, mt is never null here
 					hits+=mt.hits;
 					misses+=mt.misses;
 					errors+=mt.baseErrorCount;
@@ -140,6 +143,10 @@ public class Lane implements Iterable<Tile> {
 //				}
 			}
 		}
+		//This triple-guard precisely covers every reachable zero-denominator below: alignedBases (E at L~147),
+		//hits+misses (U at L~153), and the empty-lane case (mts). Residual (non-reachable on real PhiX): if
+		//E==1 (every aligned base erroneous -> C=0 -> P=0) AND hits==0 (-> NU=0), then NU/P=0/0=NaN and the
+		//HG assert below fires (crash-loud, acceptable). E<1 in practice, so this never triggers.
 		if(mts<1 || alignedBases<1 || hits+misses<1) {return 0;}
 		assert(alignedBases>0) : "No alignment data.";
 		assert(hits+misses>0) : "No kmer data.";

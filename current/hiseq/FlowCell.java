@@ -35,6 +35,17 @@ public class FlowCell {
 	 * @return MicroTile corresponding to the parsed coordinates
 	 */
 	public MicroTile getMicroTile(String id) {//This method is NOT threadsafe
+		//NOT threadsafe on TWO counts, both load-bearing (G11 2026-07-01): (1) it mutates the shared
+		//'ihp' field below, and (2) it cascades into getLane/getTile/Tile.get(...,true) which grow the
+		//lanes/tiles/xlist/ylist ArrayLists with no internal lock. If two threads call this on the SAME
+		//FlowCell, ihp.parse races (reads land in the WRONG microtile -> silently wrong output) AND the
+		//ArrayList backbone races. The whole hiseq structural-growth path (getLane/getTile/get) is
+		//UNSYNCHRONIZED BY DESIGN; safety is the CALLER'S contract. Verified every live caller honors it:
+		//  - AnalyzeFlowCell fill (ProcessThread) holds synchronized(flowcellT) around getMicroTile (~L1537);
+		//  - AnalyzeFlowCell sam/filter paths are single-threaded (processInner instance method, ~L643/1098);
+		//  - PlotFlowCell.WorkerThread each own a PRIVATE FlowCell (fc=new FlowCell(k)), merged later via add();
+		//  - PlotFlowCell.fillTilesInner is the single-threaded fill path.
+		//Tripwire: a future caller that grows a SHARED FlowCell from multiple threads without a lock breaks both.
 		ihp.parse(id);
 		return getMicroTile(ihp);
 	}
@@ -46,6 +57,19 @@ public class FlowCell {
 	 */
 	public MicroTile getMicroTile(IlluminaHeaderParser2 ihp){
 		return getLane(ihp.lane()).getMicroTile(ihp.tile(), ihp.xPos(), ihp.yPos(), true);
+	}
+
+	/**
+	 * Lookup-or-create variant of {@link #getMicroTile(String)}. When create=false, returns null if the
+	 * microtile cell for this id's coordinates does not already exist (the lane/tile containers may still be
+	 * created). Like getMicroTile(String) it is NOT threadsafe (shared ihp) -- single-threaded callers only.
+	 * @param id Illumina read identifier string
+	 * @param create Whether to create the MicroTile if it doesn't exist
+	 * @return MicroTile at the parsed coordinates, or null if absent and create=false
+	 */
+	public MicroTile getMicroTile(String id, boolean create){//NOT threadsafe (shared ihp)
+		ihp.parse(id);
+		return getLane(ihp.lane()).getMicroTile(ihp.tile(), ihp.xPos(), ihp.yPos(), create);
 	}
 	
 	/**
@@ -82,6 +106,9 @@ public class FlowCell {
 	 * @return Lane object at the specified index
 	 */
 	public Lane getLane(int lane){
+		//Structural-growth primitive: grows 'lanes' unsynchronized (see getMicroTile(String) contract).
+		//Grows to lane+1 entries; every index <=lane becomes non-null here, so lanes never holds a null
+		//once this returns for that index (toList's if(lane!=null) guard is thus defensive-only).
 		while(lanes.size()<=lane){lanes.add(new Lane(lanes.size()));}
 		return lanes.get(lane);
 	}
@@ -421,7 +448,9 @@ public class FlowCell {
 	/** Calculates the overall alignment rate for the FlowCell.
 	 * @return Fraction of reads that aligned successfully */
 	public double alignmentRate() {
-		return readsAligned/(double)readsProcessed;
+		//Guarded (G11 2026-07-01): was `readsAligned/(double)readsProcessed`, a lone divergence -- baseErrorRate()
+		//below already uses Tools.max(basesAligned,1). readsProcessed==0 (empty flowcell) -> NaN otherwise.
+		return readsAligned/(double)(Tools.max(readsProcessed, 1));
 	}
 	
 	/** Calculates the overall base error rate for aligned reads.

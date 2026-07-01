@@ -273,12 +273,14 @@ public class TileDump {
 		}
 		bsw.print("#reads\t").print(fc.readsProcessed).nl();
 		bsw.print("#avgReads\t").print(fc.avgReads, 1).nl();
-		bsw.print("#avgLen\t").print(fc.basesProcessed/(1.0*fc.readsProcessed), 1).nl();
+		//Denominators guarded with Tools.max(...,1) (G11 2026-07-01): an empty flowcell (readsProcessed/
+		//readsAligned/basesAligned==0) otherwise emits NaN into these '#' metadata lines.
+		bsw.print("#avgLen\t").print(fc.basesProcessed/Tools.max(1.0, fc.readsProcessed), 1).nl();
 		bsw.print("#alignReads\t").print(fc.readsAligned, 1).nl();
 		bsw.print("#alignBases\t").print(fc.basesAligned, 1).nl();
-		bsw.print("#alignRate\t").print(fc.readsAligned/(double)fc.readsProcessed, 5).nl();
-		bsw.print("#readErrRate\t").print(fc.readErrors/(double)fc.readsAligned, 5).nl();
-		bsw.print("#baseErrRate\t").print(fc.baseErrors/(double)fc.basesAligned, 5).nl();
+		bsw.print("#alignRate\t").print(fc.readsAligned/(double)(Tools.max(1, fc.readsProcessed)), 5).nl();
+		bsw.print("#readErrRate\t").print(fc.readErrors/(double)(Tools.max(1, fc.readsAligned)), 5).nl();
+		bsw.print("#baseErrRate\t").print(fc.baseErrors/(double)(Tools.max(1, fc.basesAligned)), 5).nl();
 		
 		bsw.print("#avgQuality\t").print(fc.avgQuality, 5).nl();
 		bsw.print("#avgUnique\t").print(fc.avgUnique, 5).nl();
@@ -608,6 +610,12 @@ public class TileDump {
 			long hmpCount=lp.parseLong();
 			long hmpSum=lp.parseLong();
 			
+			//SELF-CONSISTENT reconstruction, NOT a bug (do not "fix" reads->kmerCount here): the dump stores
+			//DERIVED per-tile metrics, not raw kmer/quality counters, so reload picks internal counters that
+			//REPRODUCE those metrics. It sets hits+misses=reads (not the true, unstored kmer count) and
+			//depthSum=reads*depth, so uniquePercent()=misses/(hits+misses)=uniquePercent and
+			//depth()=depthSum/(hits+misses)=depth recompute EXACTLY. Same for the *Sum fields vs their averages.
+			//The absolute counts are intentionally fake; every ratio/derived value markTiles+plotting use is exact.
 			mt.misses=(long)(uniquePercent*reads*0.01);
 			mt.hits=reads-mt.misses;
 			mt.readQualityByProbSum=reads*averageQualityProb;
@@ -786,6 +794,10 @@ public class TileDump {
 				cDiscards++;
 			}
 			
+			//Four parallel 3-part threshold checks (quality/errorFree/polyG/unique) below: each fires only
+			//when the deviation exceeds ALL of {N*std, frac*avg, abs}. Verified each uses its OWN metric's
+			//constants (qual*/errorFree*/polyG*/unique*) and correct sign: dq=avg-q & de=avg-e discard LOW
+			//values; dpg=pg-avg & du=u-avg discard HIGH values. No cross-metric mixup -- keep it that way.
 			if(dq>qDeviations*flowcell.stdQuality && dq>flowcell.avgQuality*qualFraction && dq>qualAbs){
 				mt.discard++;
 				qDiscards++;
@@ -805,7 +817,9 @@ public class TileDump {
 			if(dpg>pgDeviations*flowcell.stdPolyG && 
 					dpg>flowcell.avgPolyG*polyGFraction && dpg>polyGAbs){
 				mt.discard++;
-				gDiscards++;
+				gDiscards++;//NOTE: polyG discards are counted under gDiscards (reported as "G spikes"); the
+				//dedicated G-content check (~L820) that would ALSO feed gDiscards is currently commented out,
+				//so gDiscards == polyG-discard count. Intentional counter reuse, not a separate pgDiscards.
 //				assert(dpg<0) : "pg="+pg+", dpg="+dpg+", devs="+pgDeviations+", std="+flowcell.stdPolyG+"\n"
 //				+ "avg="+flowcell.avgPolyG+", frac="+polyGFraction+", abs="+polyGAbs+
 //				", t1="+ (pgDeviations*flowcell.stdPolyG)+", t2="+(flowcell.avgPolyG*polyGFraction);
@@ -832,6 +846,11 @@ public class TileDump {
 		long fullSizeDiscards=mtDiscards-cDiscards;
 		long maxDiscards=(long)(maxDiscardFraction*fullSize);
 		if(fullSizeDiscards>maxDiscards) {
+			//Over the discard cap: rescue (un-discard) flagged tiles in sorted order until back under it.
+			//Sort order = MicroTile.compareTo, so its correctness decides WHICH reads survive here --
+			//see the [hiseq/MicroTile#001] tiebreaker bug (equal-uniquePercent tiles rescued by readCount
+			//instead of quality). Rescue gate requires readCount>=10 AND >=2% of avg: a tile with readCount
+			//in [10, 0.02*avgReads) is NOT a low-count auto-discard (needs rc<10 too) yet is NOT rescuable.
 			Collections.sort(mtList);
 			for(MicroTile mt : mtList) {
 				if(mt.discard>0 && mt.readCount>=10 && mt.readCount>=0.02f*avgReads) {//full size discard

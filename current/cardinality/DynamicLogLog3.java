@@ -247,10 +247,11 @@ public final class DynamicLogLog3 extends CardinalityTracker {
 	}
 
 	/**
-	 * Counts buckets that will become tier-0 after decrement (currently stored=2),
-	 * then decrements all non-empty stored values by 1.
-	 * Only called when minZeroCount==0, guaranteeing all non-empty have stored>=2.
-	 * Returns count of new tier-0 buckets (stored==1 after decrement).
+	 * Decrements all non-empty stored values by 1 (tier shift after globalNLZ advance).
+	 * EARLY_PROMOTE: stored=1→0 becomes empty (filledBuckets decremented); lcMin compensates.
+	 * Classic: stored=2→1 becomes new tier-0; stored=1→0 doesn't happen (minZeroCount
+	 *   tracks stored=0 AND stored=1, so advance only fires when all are stored>=2).
+	 * Returns count of buckets entering the tracked-zero category after decrement.
 	 */
 	private int countAndDecrement(){
 		int newMinZeroCount=0;

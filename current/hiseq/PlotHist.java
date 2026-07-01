@@ -264,8 +264,13 @@ public class PlotHist {
 					int lineTerms=Tools.min(terms, lp.terms());
 					for(int term=0; term<lineTerms; term++) {
 						double d=lp.parseDouble(term);
+						//bin is in [0, bins]: maxArray[term] is this column's MAX (from gatherData), so d<=max ->
+						//d/max<=1.0 -> bin<=bins; negatives clamp to 0 via Tools.max. The d==max row gives exactly
+						//bin=bins, which is why countMatrix is sized [terms][bins+1] (index bins is the last valid
+						//slot). 0/0 (all-zero column, d==0) -> NaN -> (int)NaN==0 -> bin 0. So the assert never fires
+						//on valid numeric input; do NOT "simplify" bins+1 to bins (that would AIOOB on the max row).
 						int bin=Tools.max(0, (int)((d/maxArray[term])*bins));
-						assert(bin<=bins && term<countMatrix.length) : 
+						assert(bin<=bins && term<countMatrix.length) :
 							"\n"+new String(line)+"\nterm="+term+", bin="+bin+"/"+bins+", d="+d+
 							", max="+maxArray[term]+"\n"+Arrays.toString(maxArray);
 						countMatrix[term][bin]++;
@@ -293,7 +298,12 @@ public class PlotHist {
 			}
 			bytesOut+=bb.length();
 			bsw.print(bb);
-			bsw.poison();
+			//[hiseq/PlotHist#001] FIXED (G11 2026-07-01, Neptune-authorized): was bare `poison()` -- a lone
+			//divergence from the package idiom (every other ByteStreamWriter close uses poisonAndWait():
+			//AnalyzeFlowCell L697/1281, TileDump L324). poison() (void) neither waits for the writer to flush
+			//nor returns the write-error status, so process()'s errorState check (~L214) could never see a
+			//write failure (silent truncation/data-loss reported as success). Now waits AND captures the error.
+			errorState|=bsw.poisonAndWait();
 		}
 	}
 	

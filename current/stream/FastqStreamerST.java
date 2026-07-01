@@ -210,9 +210,10 @@ public class FastqStreamerST implements Streamer {
 					errorState=true;
 					break;
 				}
-				
+				if(plus!=null && plus.length>1){plus=PLUS;}
+
 				bytes+=2*bases.length;
-				
+
 				if(samplerate>=1f || randy.nextFloat()<samplerate){
 					byte[][] quad=new byte[][]{header, bases, plus, quals};
 					Read r=quadToRead(quad, pairnum, readID);
@@ -271,9 +272,11 @@ public class FastqStreamerST implements Streamer {
 					errorState=true;
 					break;
 				}
-				
+				if(plus1!=null && plus1.length>1){plus1=PLUS;}
+				if(plus2!=null && plus2.length>1){plus2=PLUS;}
+
 				bytes+=2*(bases1.length+bases2.length);
-				
+
 				if(samplerate>=1f || randy.nextFloat()<samplerate){
 					byte[][] quad1=new byte[][]{header1, bases1, plus1, quals1};
 					byte[][] quad2=new byte[][]{header2, bases2, plus2, quals2};
@@ -358,6 +361,7 @@ public class FastqStreamerST implements Streamer {
 	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 	public static int TARGET_LIST_BYTES=262144;
 	private static final int QUEUE_SIZE=4;
+	private static final byte[] PLUS=new byte[]{(byte)'+'};
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
