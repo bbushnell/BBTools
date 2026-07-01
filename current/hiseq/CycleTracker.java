@@ -134,13 +134,16 @@ public class CycleTracker {
 	}
 	
 	public void clear() {
-		for(long[] array : acgtnq) {Arrays.fill(array, 0);}
-		//TODO: Possible bug [hiseq/CycleTracker#001] - cycleAverages[i], maxes, averages are null until
-		//process() allocates them, so clear() on a fresh/unprocessed tracker NPEs in Arrays.fill(null,...).
-		//Safe only after process(); guard each with !=null or null-check before filling.
-		for(float[] array : cycleAverages) {Arrays.fill(array, 0);}
-		Arrays.fill(maxes, 0);
-		Arrays.fill(averages, 0);
+		//[hiseq/CycleTracker#001] FIXED (G11 2026-07-01, Brian-authorized): acgtnq[i] is null until resize()
+		//(via an add), and cycleAverages[i]/maxes/averages are null until process() -- so the old unguarded
+		//Arrays.fill(...) NPE'd when clear() ran on a fresh/added-but-unprocessed tracker. Now null-guarded so
+		//clear() is valid at any lifecycle stage (a null array is already "empty" -> filling it is a no-op).
+		//Reachability at time of fix: LATENT -- the only caller is MicroTile.clear(), which itself has NO
+		//callers tree-wide (dead path). Fixed anyway per the existence rule (provably NPE-prone logic).
+		for(long[] array : acgtnq) {if(array!=null) {Arrays.fill(array, 0);}}
+		for(float[] array : cycleAverages) {if(array!=null) {Arrays.fill(array, 0);}}
+		if(maxes!=null) {Arrays.fill(maxes, 0);}
+		if(averages!=null) {Arrays.fill(averages, 0);}
 	}
 	
 	/*--------------------------------------------------------------*/

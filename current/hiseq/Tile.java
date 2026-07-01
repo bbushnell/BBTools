@@ -35,12 +35,18 @@ public class Tile implements Iterable<MicroTile> {
 	 * @return MicroTile at the specified position, or null if not found and create=false
 	 */
 	public MicroTile get(int x, int y, boolean create){
+		//When create=true this GROWS xlist/ylist (getIndex + ylist.add/set) with NO internal lock;
+		//callers mutating a shared Tile concurrently must hold the owning FlowCell's monitor
+		//(see FlowCell.getMicroTile(String) contract). x,y are non-negative pixel coords (format guarantees),
+		//so xindex/yindex>=0 -> the /xSize bucketing and array indices are always valid.
 		final int xindex=x/xSize, yindex=y/ySize;
 		ArrayList<MicroTile> ylist=getIndex(xindex, create);
 		if(ylist==null || (yindex>=ylist.size() && !create)) {return null;}
-		while(yindex>=ylist.size()){ylist.add(null);}
+		while(yindex>=ylist.size()){ylist.add(null);}//ylist is padded with NULLs (unlike xlist's non-null lists)
 		MicroTile mt=ylist.get(yindex);
 		if(mt==null && create){
+			//Inclusive cell bounds: cell xindex spans [xindex*xSize, (xindex+1)*xSize-1] with no gap/overlap
+			//vs the neighbor, so the assert below (mt.contains(x,y)) always holds for the (x,y) that created it.
 			mt=new MicroTile(lane, tile, xindex*xSize, (xindex+1)*xSize-1, yindex*ySize, (yindex+1)*ySize-1);
 			ylist.set(yindex, mt);
 		}
@@ -97,6 +103,12 @@ public class Tile implements Iterable<MicroTile> {
 	 * @param tb Source tile whose MicroTiles will be added to this tile
 	 */
 	public void add(Tile tb) {
+		//Merge path. The mtb/mta locks below guard the per-MicroTile field accumulation ONLY, NOT the
+		//get(...,true) structural growth of THIS tile's xlist/ylist -- that relies on the caller holding
+		//the FlowCell monitor (FlowCell.add wraps this in synchronized(a=Lane); the fill path never calls
+		//add()). 'x' (an xlist entry) is never null: getIndex only ever inserts non-null lists, so no
+		//null-guard on x is needed here (unlike toText/mtList, whose if(ylist!=null) is defensive-only).
+		//'mtb' CAN be null (ylist is null-padded in get()), hence the if(mtb!=null) guard is required.
 		for(ArrayList<MicroTile> x : tb.xlist) {
 			for(MicroTile mtb : x) {
 //				System.err.println("Adding mt "+mtb.x1+" "+mtb.y1);

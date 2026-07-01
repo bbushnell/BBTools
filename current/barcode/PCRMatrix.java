@@ -591,6 +591,9 @@ public abstract class PCRMatrix {
 					best=i;
 					hdist=d;
 				}
+				//Safe early-reject, NOT over-eager: hdist2 only decreases, and any accept needs hdist2>=hdist+clearzone;
+				//once hdist2<clearzone (hdist>=0) the margin can never reach clearzone for a later candidate, so no unique
+				//match is possible. Don't "fix" this to keep scanning - it cannot change the -1 result.
 				if(hdist2<clearzone) {return -1;}
 			}
 		}

@@ -213,7 +213,11 @@ public class MicroTile implements Comparable<MicroTile>{
 	 * @return Average depth per k-mer */
 	public double depth(){
 		long count=kmerCount();
-		return depthSum*1.0/count;
+		//[hiseq/MicroTile#002] FIXED (G11 2026-07-01, Brian-authorized): was `depthSum*1.0/count` with no guard
+		//-- the ONLY ratio method here missing the `count==0 ? 0 :` guard its siblings (hitPercent/uniquePercent/
+		//polyGPercent) all have. When a tile has reads but no kmers (hits+misses==0, e.g. a run without kmer/bloom
+		//loading) count==0 -> NaN in the toText "depth" column and in FlowCell.avgDepth. Now returns 0 like siblings.
+		return count==0 ? 0 : depthSum*1.0/count;
 	}
 	
 	/** Gets average G content from cycle tracker.
@@ -382,6 +386,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		int valid=0;
 		float good=0;
 		float product=1;
+		//Rolling window product of per-base correctness probs over the last k bases. Invariant: when len>k
+		//the base leaving the window is quals[i-k], divided back out via PROB_CORRECT_INVERSE so 'product'
+		//equals exactly the product of the current k in-window bases. q==0 (no-call) breaks the run:
+		//len/product reset, so windows never span a q0 -> quals[i-k] is guaranteed >0 when the divide runs
+		//(len>k means k+1 consecutive q>0). No div/inverse of a zero-prob entry.
 		for(int i=0, len=0; i<quals.length; i++) {
 			byte q=quals[i];
 			if(q>0) {
@@ -611,7 +620,11 @@ public class MicroTile implements Comparable<MicroTile>{
 		}
 		bb.tab().append(homoPolyGCount);
 		bb.tab().append(homoPolyGSum);
-		bb.tab().append(homoPolyGCount/(double)readCount, 5);
+		//[hiseq/MicroTile#003] FIXED (G11 2026-07-01, Brian-authorized): was raw (double)readCount divisor while
+		//L590 (avgBases) and L634 (merge rate) in this same method use Tools.max(1.0, readCount). A tile populated
+		//only via the SAM path (AnalyzeFlowCell.processSam increments alignedReadCount but NOT readCount) has
+		//readCount==0 -> NaN in the polyG_Rate column. Now guarded like its siblings.
+		bb.tab().append(homoPolyGCount/Tools.max(1.0, readCount), 5);
 //		assert(false) : homoPolyGSum+"\n"+bb;
 		
 		bb.tab().append(barcodes);
@@ -672,7 +685,13 @@ public class MicroTile implements Comparable<MicroTile>{
 		if(ua!=ub) {return ua>ub ? 1 : -1;}
 		double qa=averageReadQualityByProb();
 		double qb=mt.averageReadQualityByProb();
-		if(ua!=ub) {return qa<qb ? 1 : -1;}
+		//[hiseq/MicroTile#001] FIXED (G11 2026-07-01, Brian-authorized): was `if(ua!=ub)` (re-tested the
+		//uniqueness key already returned on above, making the quality tiebreaker DEAD CODE and letting
+		//equal-uniquePercent tiles fall through to readCount). Now `if(qa!=qb)` so quality is the real
+		//SECONDARY tiebreaker. Order is intentional: uniqueness (empirical) primary, quality (claimed,
+		//may be uncalibrated) secondary. Live impact: TileDump discard-cap rescue (~L835) now rescues
+		//tied tiles by quality, changing which reads filterbytile.sh keeps on uniquePercent ties.
+		if(qa!=qb) {return qa<qb ? 1 : -1;}
 		if(readCount!=mt.readCount) {return readCount>mt.readCount ? -1 : 1;}
 		return 0;
 	}

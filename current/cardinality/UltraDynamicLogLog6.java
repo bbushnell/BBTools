@@ -252,7 +252,9 @@ public final class UltraDynamicLogLog6 extends CardinalityTracker {
 		for(int i=0; i<buckets; i++){
 			final int reg=getReg(i);
 			if(reg==0){newFloorCount++; continue;}
-			final int newReg=reg-4; // decrement nlzPart by 1 (bits [5:2]), history unchanged
+			//reg-4 decrements nlzPart (bits [5:2]) by 1 without touching history (bits [1:0]),
+		//because each nlzPart level spans 4 register values (one per history pattern).
+		final int newReg=reg-4;
 			setReg(i, newReg);
 			if((newReg>>>2)<=HISTORY_MARGIN){newFloorCount++;}
 		}

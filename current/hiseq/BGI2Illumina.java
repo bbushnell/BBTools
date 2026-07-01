@@ -404,6 +404,13 @@ public class BGI2Illumina {
 	 * @return true (reads are always retained after header conversion)
 	 */
 	boolean processReadPair(final Read r1, final Read r2){
+		//Header REWRITE (not a filter): BGI id -> Illumina id in place; always returns true so processList
+		//keeps every read. The shared 'bhp' (BGIHeaderParser2, NOT threadsafe -- own ihp/lp/bb state) is safe
+		//because this tool is single-threaded (processInner drains lists sequentially on one thread). toIllumina
+		//emits the verified well-formed structure "CG:0:flowcell:lane:tile:x:y pair:N:control:barcode"; the same
+		//'barcode' flag is applied to every read (cg2illumina = one sample per file; BGI headers carry no inline
+		//barcode -- BGIHeaderParser2.barcode() is null). parse() then toIllumina() must stay in THIS order (parse
+		//populates lp before the accessors read it).
 		bhp.parse(r1.id);
 		r1.id=bhp.toIllumina(barcode);
 		if(r2!=null) {

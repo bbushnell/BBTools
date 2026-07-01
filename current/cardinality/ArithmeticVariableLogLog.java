@@ -300,20 +300,24 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	}
 
 	/** Demotes all registers by one tier (called when globalNLZ advances).
+	 *  Tier width varies: T0=1 state, T1=2 states, T2-HTL=4 states each, above HTL=1 state.
+	 *  So "decrement by one tier" means different arithmetic at each boundary:
+	 *  reg-1 above HTL (1 state/tier), reg-4 in the 4-state zone, explicit remap at T2→T1
+	 *  (width change 4→2) and T1→T0 (width change 2→1).
 	 *  Returns the new floor count (registers at or below HISTORY_MARGIN). */
 	private int countAndDecrement(){
 		int newFloorCount=0;
 		for(int i=0; i<modBuckets; i++){
 			final int reg=getReg(i);
-			if(reg==0){newFloorCount++; continue;}       // already at zero
+			if(reg==0){newFloorCount++; continue;}
 			final int exp=stateToExp(reg);
 			int newReg;
-			if(exp>HTL+1){newReg=reg-1;}                 // above history: simple decrement
+			if(exp>HTL+1){newReg=reg-1;}                 // above history: 1 state/tier
 			else if(exp==HTL+1){newReg=toState(exp-1, 0);} // entering history zone: clear hist
-			else if(exp>=3){newReg=reg-4;}               // tiers 2+: shift down one tier (4 states)
-			else if(exp==2){newReg=toState(1, stateToHist(reg));} // T2→T1: keep MSB of hist
-			else if(exp==1){newReg=0;}                   // T1→T0: becomes empty
-			else{newReg=0;}                              // already empty
+			else if(exp>=3){newReg=reg-4;}               // tiers 2+: 4 states/tier
+			else if(exp==2){newReg=toState(1, stateToHist(reg));} // T2→T1: width 4→2, keep MSB
+			else if(exp==1){newReg=0;}                   // T1→T0: width 2→1
+			else{newReg=0;}
 			setReg(i, newReg);
 			if(stateToExp(newReg)<=HISTORY_MARGIN){newFloorCount++;}
 		}

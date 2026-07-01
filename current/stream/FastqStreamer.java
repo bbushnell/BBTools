@@ -270,8 +270,9 @@ public class FastqStreamer implements Streamer {
 						errorState=true;
 						break;
 					}
+					if(plus.length>1){plus=PLUS;}
 					bytes+=2*bases.length;//Ignore header, usually short
-					
+
 					byte[][] record=new byte[][]{header, bases, plus, quals};
 					ln.add(record);
 				}
@@ -292,8 +293,9 @@ public class FastqStreamer implements Streamer {
 						errorState=true;
 						break;
 					}
+					if(plus.length>1){plus=PLUS;}
 					bytes+=2*bases.length;//Ignore header, usually short
-					
+
 					byte[][] record=new byte[][]{header, bases, plus, quals};
 					ln.add(record);
 				}
@@ -478,6 +480,7 @@ public class FastqStreamer implements Streamer {
 	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 	public static int TARGET_LIST_BYTES=262144;
 	public static int DEFAULT_THREADS=2;
+	private static final byte[] PLUS=new byte[]{(byte)'+'};
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/

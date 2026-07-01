@@ -326,6 +326,9 @@ public class PCRMatrixHDist extends PCRMatrix implements Accumulator<PCRMatrixHD
 	 */
 	@Override
 	public final void accumulate(PopThread t) {
+		//Guarded on localCounts DELIBERATELY: in !localCounts mode run() already merged into the shared
+		//`counts` under synchronized(counts), so there is nothing to accumulate here. Removing this guard
+		//(always merging t.countsT) would DOUBLE-COUNT every read in shared-counts mode.
 		if(localCounts) {
 			synchronized(t) {
 				Tools.add(counts, t.countsT);

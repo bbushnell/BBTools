@@ -89,6 +89,10 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 	
 	@Override
 	public String machine() {
+		//"CG" (Complete Genomics) is the CORRECT reference: toIllumina() above emits machine() as the leading
+		//field, giving a well-formed "CG:run:flowcell:...". Contrast [hiseq/BGIHeaderParser#001]: the v1
+		//BGIHeaderParser.machine() returns null -> its toIllumina() emits a literal "null" machine field. Twin
+		//divergence -> confirm which parser cg2illumina.sh (BGI2Illumina) actually uses; if v1 is live, #001 is real.
 		return "CG";//Complete Genomics
 	}
 
@@ -104,6 +108,13 @@ public class BGIHeaderParser2 extends ReadHeaderParser {
 		return s!=null ? s : "FC";
 	}
 
+	//The fixed field indices below (lane=2, xPos=3, tile/yPos from field 4, pairCode=5) are SAFE despite BGI's
+	//VARIABLE-LENGTH prefix (some headers have a "prefix_run" before the LCR block, some don't) precisely
+	//because lp is a LineParserS4Reverse: it reverses the delimiters ("_LCR/"->"/RCL_"), parses right-to-left,
+	//and front-pads to exactly delimiters.length()+1 terms before reversing bounds (LineParserS4Reverse.set
+	//L84-89). Net effect: the SUFFIX fields (pair/coords/lane) anchor to stable indices from the right, and
+	//the uncertain prefix collapses into terms 0..1. So `v300056266_run28L3C001R.../1` and `E200008112L1C001R.../1`
+	//both yield lane@2, coord-field@4, pair@5. A future editor MUST NOT "simplify" these to a forward parser.
 	/**
 	 * Extracts lane number from BGI header.
 	 * Parses the third field (index 2) as lane identifier.

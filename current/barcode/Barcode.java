@@ -81,6 +81,16 @@ public class Barcode implements Comparable<Barcode> {
 			pos2=pos+1;
 			assert(pos>=0) : pos+", "+Character.toString(delimiter)+", "+name;
 		}else{
+			//TODO: Possible bug [barcode/Barcode#001] - no-delimiter midpoint split is off by one for even length.
+			//For an even-length concatenated dual index (e.g. "AAAACCCC", want "AAAA"|"CCCC") this gives
+			//pos=5 -> left=substring(0,5)="AAAAC", right=substring(5,8)="CCC": one base misassigned to left.
+			//Symmetric split needs pos=len/2 (not len/2+1). Currently LATENT: this branch is only reached when
+			//delimiter==0 AND barcodesPerRead==2, but the only caller path (BarcodeStats.split(), which has zero
+			//callers tree-wide; and leftString/rightString@BarcodeStats:540 guarded by leftStats!=null dual mode)
+			//always carries delimiter>0 in the live pipeline (CountBarcodes2:571 sets dual<=>delimiter>0).
+			//CONFIRM INTENT: is delimiter-less dual meant to be supported? If yes this is a live wrong-split; if no,
+			//the branch is vestigial. Consequence if a future caller feeds a delimiter-less dual barcode here:
+			//both extracted indices are silently wrong (left too long by 1, right missing its first base).
 			boolean even=((name.length()&1)==0);
 			pos=(name.length()/2)+1;
 			pos2=(even ? pos : pos+1);
@@ -706,6 +716,11 @@ public class Barcode implements Comparable<Barcode> {
 	 * @param barcode Barcode string to analyze
 	 * @return Delimiter byte, or 0 if none or multiple delimiters
 	 */
+	//NOTE: this String overload counts DIGITS as delimiters (nonletters), unlike the byte[] overload below
+	//which separates digits (tile numbers) from 'other'. So delimiter("ACGTAC5") returns '5' here but 0 there.
+	//Currently safe: the live caller (CountBarcodes2:570) passes a byte[], so this String overload is unused;
+	//if a future caller feeds a tile-bearing NAME here, a lone tile digit would be misread as a dual-index
+	//delimiter -> wrong barcodesPerRead=2 and wrong split. Keep the two overloads in sync if reviving this one.
 	public static byte delimiter(String barcode){
 		if(barcode==null || barcode.length()<3) {return 0;}
 		int letters=0, nonletters=0;

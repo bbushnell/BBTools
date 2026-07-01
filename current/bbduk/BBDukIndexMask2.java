@@ -261,6 +261,12 @@ public class BBDukIndexMask2 extends BBDukIndex {
 //		}
 	}
 	
+	//TODO: Possible bug [bbduk/BBDukIndexMask2#005] - dump() is a no-op (LongIntMapX has no dumpKmersAsBytes),
+	//but Mask2 is the DEFAULT index (BBDukLoader:74-75: WAYS=8!=7 + indexmask2=true -> Mask2) and BBDukLoader:161-166
+	//calls index.dump() UNCONDITIONALLY when dump!=null. So `dump=file` on default settings silently writes an
+	//EMPTY file (no error/warning) - a crash-loud violation. Mod.dump()/Mask.dump() are implemented; only this
+	//default sibling isn't. ESCALATED to Brian (design call): implement dump for LongIntMapX, OR crash-loud guard
+	//when dump= meets a can't-dump index. Report: bug_reports/bbduk/BBDukIndexMask2.md.
 	void dump(ByteStreamWriter bsw, int minCount, int maxCount) {//TODO
 //		for(LongIntMapX set : keySets){
 //			set.dumpKmersAsBytes(bsw, k, minCount, maxCount, null);
