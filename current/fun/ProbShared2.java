@@ -81,7 +81,10 @@ public class ProbShared2 {
 		}
 		
 		bases=randomSequence(len1);
-		
+
+		//TODO: Possible bug [fun/ProbShared2#001] (LOW) - kmer and len are NOT reset before this second loop,
+		//so the first k-1 kmers checked are chimeric (seq2-tail bits + seq1-head bits) rather than pure seq1
+		//kmers -> small false-match bias in the Monte Carlo estimate. Reset kmer=0; len=0; before the loop.
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			long x=baseToNumber[b];

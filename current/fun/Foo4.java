@@ -242,6 +242,8 @@ public class Foo4 {
 		
 		long total=sizes.sumLong();
 		long mode=sizes.mode();
+		//TODO: Possible bug [fun/Foo4#001] (LOW) - mean divides by sizes.size and median indexes it; both
+		//crash (ArithmeticException / OOB) when no 'F'-type line matched (empty filtered set). Scratch tool.
 		long mean=sizes.sumLong()/sizes.size;
 		long median=sizes.get((int)(sizes.size*0.5));
 		

@@ -88,11 +88,18 @@ public class VcfToVar {
 			else if(alt.length==1 && Var.AL_MAP[alt[0]]!=null){
 				alt=Var.AL_MAP[alt[0]];  // Use pre-allocated single base array
 			}
+			//NOTE (convention, not a bug here): reflen is decremented ONLY for insertions (reflen==1), so a
+			//DELETION keeps the full REF length -> stop=pos+len+1 (anchor-INCLUSIVE). This differs from
+			//Var.toSubsAndIndels / VCFLine.makeVar (STA/STO), which are anchor-EXCLUSIVE. Self-consistent in
+			//the fromVCF reload world; the mismatch only bites at a cross-parser boundary (see var2/
+			//VcfToTrainingVectors#001 and the InvertVCF#001 STO-for-indels investigation).
 			if(reflen==1){reflen--;}  // Adjust reference length for insertions
 		}else{
 			start=pos-1;  // Convert to 0-based coordinates
 		}
-		
+
+		//TODO: Possible bug [var2/VcfToVar#001] (LOW, dead) - readlen is computed but never used; stop uses
+		//reflen and the Var ctor derives read length from alt. Delete this line.
 		final int readlen=(alt==null || alt.length==0 || alt[0]=='.' ? 0 : alt.length);
 		final int stop=start+reflen;
 		

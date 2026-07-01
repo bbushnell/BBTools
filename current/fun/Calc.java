@@ -122,6 +122,9 @@ public class Calc {
 	 */
 	void processInner(int numStats){
 		int bits=numStats*5;
+		//TODO: Possible bug [fun/Calc#001] (LOW) - 1<<bits silently overflows int for numStats>=7 (bits>=35;
+		//Java masks the shift to the low 5 bits), so iters wraps to a tiny wrong value -> wrong distribution.
+		//Default numStats=6 (bits=30) is fine. Use 1L<<bits (and a long/larger range) if numStats can exceed 6.
 		final int iters=1<<bits;
 		final int buckets=1+31*numStats;
 		int[] counts=new int[buckets];

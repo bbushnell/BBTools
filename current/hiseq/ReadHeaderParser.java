@@ -178,10 +178,12 @@ public abstract class ReadHeaderParser {
 		return 0;
 	}
 	
+	//Illumina tile number is SSWWTT-ish: surface = thousands digit, swath = hundreds digit.
+	//e.g. tile 1101 -> surface 1, swath 1. (tile%1000 strips the surface, /100 takes the swath digit.)
 	public static final int surface(int tile) {
 		return tile/1000;
 	}
-	
+
 	public static final int swath(int tile) {
 		return (tile%1000)/100;
 	}
@@ -204,6 +206,9 @@ public abstract class ReadHeaderParser {
 		return bc.length();
 	}
 	
+	//Dual-index barcode "AAAA+CCCC": length1 = letters before the first non-letter (the '+' delimiter),
+	//length2 = letters after the last non-letter (scanning from the end). A single-index barcode (all
+	//letters) has no delimiter, so length2 returns 0 here and numBarcodes() counts it as 1.
 	public static int barcodeLength2(String bc) {
 		if(bc==null) {return 0;}
 		for(int i=bc.length()-1; i>=0; i--){

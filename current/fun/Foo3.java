@@ -51,6 +51,9 @@ public class Foo3 {
 		}
 		
 		sizes.sort();
+		//TODO: Possible bug [fun/Foo3#001] (LOW) - mean divides by sizes.size; crashes (div-by-zero) when no
+		//'F'-type line matched (empty filtered set). Scratch tool. (Also: combine/compress/getSize below are
+		//dead here - Foo3 uses Pair objects, not the packed-long encoding; those methods are used only in Foo5.)
 		long mean=sum/sizes.size;
 		long median=sizes.get((int)(sizes.size*0.5));
 		System.out.println("total size: \t"+(sum/tera)+" TB \t("+sum+")"+"\t"+"("+((sum/tebi))+" tebibytes)");

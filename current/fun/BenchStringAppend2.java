@@ -207,6 +207,9 @@ public class BenchStringAppend2 {
 
 	// VarHandles (Java 9+)
 	static void appendVarHandles(ByteBuilder bb, String x){
+		//TODO: Possible bug [fun/BenchStringAppend2#001] (LOW) - mislabeled: this "VarHandles" test actually
+		//calls Vector.append (the VarHandle body is commented out), so the reported "VarHandles" timing is for
+		//Vector.append, and the STRING_*_HANDLE fields + USE_VARHANDLES are dead. Rename or restore the body.
 		Vector.append(bb, x);
 //		if(x == null) return;
 //

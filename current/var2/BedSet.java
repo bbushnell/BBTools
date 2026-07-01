@@ -142,6 +142,8 @@ public class BedSet {
 		final Bed interAll=op(beds, INTERSECTION);
 
 		t.stop();
+		//TODO: Possible bug [var2/BedSet#002] (LOW) - bytesProcessed is never incremented anywhere, so the
+		//reported bytes/sec is always 0. Wire it from the input byte counts, or drop it from this call.
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, bytesProcessed, 8));
 		outstream.println();
 		outstream.println("Operation:         \t"+modeName(mode));
@@ -423,6 +425,10 @@ public class BedSet {
 			for(Map.Entry<String, int[]> e : starts.entrySet()){
 				final int[] s=e.getValue(), t=stops.get(e.getKey());
 				for(int i=0; i<s.length; i++){
+					//TODO: Possible bug [var2/BedSet#001] (MEDIUM, QUESTION-to-Brian) - loadBed admits start==stop
+					//(assert start<=stop, a valid zero-length BED interval) but this rejects it (assert s[i]<t[i]),
+					//so an ISOLATED zero-length interval crashes here under -ea. Crash-loud not silent-wrong, so
+					//intent question: relax to s[i]<=t[i] (0-bp interval is harmless) OR reject at load with <stop.
 					assert(s[i]<t[i]) : "Zero/negative-length interval "+s[i]+","+t[i]+" on "+e.getKey();
 					assert(i==0 || s[i]>t[i-1]) : "Unmerged/unsorted intervals on "+e.getKey();
 					b+=(t[i]-s[i]);

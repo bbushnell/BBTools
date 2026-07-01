@@ -36,6 +36,8 @@ public class Palindrome2 {
 			}else if(s.startsWith("loop")) {
 				maxLoop=Integer.parseInt(s.split("=")[1]);
 			}else if(new File(args[0]).exists()) {
+				//TODO: Possible bug [fun/Palindrome2#001] (LOW) - wrong variable (same as Palindrome#001):
+				//checks/loads args[0] instead of s. Should be new File(s).exists()/getSequence(s).
 				sequences.addAll(getSequence(args[0]));
 			}else {
 				sequences.add(s);

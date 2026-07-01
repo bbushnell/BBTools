@@ -74,6 +74,8 @@ public class DiskBench {
 				if(path==null){path="";}
 				else if(!path.endsWith("/")){path=path+"/";}
 			}else if(a.equals("lines")){
+				//TODO: Possible bug [fun/DiskBench#003] (LOW) - maxLines is parsed and stored but never read
+				//by any read loop (runBf/runQf/runTf/runBis*); the lines= cap is a dead flag.
 				maxLines=Long.parseLong(b);
 				if(maxLines<0){maxLines=Long.MAX_VALUE;}
 			}else if(a.equals("data") || a.equals("size")){
@@ -83,6 +85,8 @@ public class DiskBench {
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("gzip")){
+				//TODO: Possible bug [fun/DiskBench#002] (LOW) - the gzip flag assigns to verbose (copy-paste
+				//of the verbose branch above), so gzip=t does nothing gzip-related. Wire it or remove it.
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("mode")){
 				assert(b!=null) : "Bad parameter: "+arg;
@@ -189,6 +193,10 @@ public class DiskBench {
 			for(int i=0; i<1000; i+=shiftsPerRand){
 				int x=randy.nextInt();
 				for(int j=0; j<shiftsPerRand; j++){
+					//TODO: Possible bug [fun/DiskBench#001] (LOW) - operator precedence: 33+x&63 parses as
+					//(33+x)&63 (additive binds tighter than &) -> byte in [0,63], embedding \n/control chars
+					//into the "lines". The correct twin at the tail loop below is 33+(x&63) -> [33,96]. The
+					//embedded newlines fragment lines and skew the line-based read benchmarks. Fix: 33+(x&63).
 					byte b=(byte)(33+x&63);
 					bb.append(b);
 					x>>=shift;
@@ -215,6 +223,9 @@ public class DiskBench {
 		written+=bb.length;
 		bsw.print(bb);
 		bb.clear();
+		//TODO: Possible bug [fun/DiskBench#004] (LOW) - poisonAndWait()'s errorState return is discarded, and
+		//the field 'errorState' is never set true anywhere, so the crash-loud check in process() is dead. A
+		//write failure during the benchmark is swallowed. Capture: errorState|=bsw.poisonAndWait().
 		bsw.poisonAndWait();
 		File f=new File(fname);
 		long diskSize=(f.length());

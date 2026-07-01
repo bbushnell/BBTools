@@ -91,6 +91,9 @@ public class BenchmarkA48 {
 		while(value!=0){
 			byte b=(byte)(value&0x3F);
 			temp[i]=b;
+			//TODO: Possible bug [fun/BenchmarkA48#001] (LOW) - signed >>6 on a NEGATIVE value sign-extends and
+			//never reaches 0 -> infinite loop (and temp[] overflow). The forward variant handles negatives;
+			//this is positive-only. Use >>>6 for unsigned shift if negative input is possible.
 			value=value>>6;
 			i++;
 		}

@@ -31,6 +31,8 @@ public class ByteVectorBench {
 		int delta=33;
 		if(args.length>0) {iterations=Parse.parseIntKMG(args[0]);}
 		if(args.length>1) {numArrays=Parse.parseIntKMG(args[1]);}
+		//TODO: Possible bug [fun/ByteVectorBench#001] (LOW) - copy-paste guard not updated: these test
+		//args.length>1 but read args[2]/args[3] -> ArrayIndexOutOfBounds with exactly 2 args. Should be >2/>3.
 		if(args.length>1) {minlen=Parse.parseIntKMG(args[2]);}
 		if(args.length>1) {maxlen=Parse.parseIntKMG(args[3]);}
 		

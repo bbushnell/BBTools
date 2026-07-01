@@ -156,6 +156,8 @@ public class VectorsFromLabeledVCF {
 			if(label>=0.5){positive++;}else{negative++;}
 		}
 		bf.close();
+		//TODO: Possible bug [var2/VectorsFromLabeledVCF#001] (LOW, dropped-wire) - poisonAndWait()'s errorState
+		//return is discarded; a write failure -> truncated vector TSV while the tool exits 0. Capture + exit(1).
 		bsw.poisonAndWait();
 
 		out.println("Vectors written: "+written+" (positive: "+positive+", negative: "+negative+")");

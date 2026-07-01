@@ -16,6 +16,10 @@ import dna.Data;
  * pipeline for variant calling accuracy estimation.
  * @author Brian Bushnell
  */
+//TODO: Possible bug [var2/VectorDonovan#001] (LOW, dead) - ZERO callers tree-wide (superseded intern
+//scaffolding; live vector is VectorUMP45). Also latent: the static QuantileTransformer fields below init at
+//class-load from resource files and would throw ExceptionInInitializerError if those files are absent - a
+//trap if this class is ever re-wired. Cleanup candidate.
 public class VectorDonovan {
 	/** Java implementation of sklearn's QuantileTransformer with uniform output distribution.
 	 * Replicates the exact transformation used in Python for neural network feature preprocessing. */

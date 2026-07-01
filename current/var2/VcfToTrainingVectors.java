@@ -106,6 +106,8 @@ public class VcfToTrainingVectors {
 
 			// Check truth membership using key
 			String key=makeKey(v, scafMap);
+			//[var2/VcfToTrainingVectors#001 FIXED] DELs now match: makeKeyFromVcfFields was made anchor-inclusive
+			//to agree with makeKey/fromVCF. See the FIXED note in makeKeyFromVcfFields for the full rationale.
 			boolean inTruth=truthSet.contains(key);
 
 			// Assign continuous label
@@ -195,7 +197,14 @@ public class VcfToTrainingVectors {
 			// Indel: strip leading base
 			normalizedAlt=alt.substring(1);
 			start=pos; // stays 1-based then converted
-			refLen--;
+			//FIXED [var2/VcfToTrainingVectors#001] (was HIGH; G11 2026-06-29, UMP45-cleared): mirror
+			//VcfToVar.fromVCF's DEL convention. The old `refLen--` (unconditional) made DEL truth keys
+			//anchor-EXCLUSIVE (stop=pos+len), but candidate keys (from fromVCF) are anchor-INCLUSIVE
+			//(stop=pos+len+1), so truthSet.contains() was ALWAYS false for deletions -> true DELs mislabeled
+			//as non-truth -> wrong NN training targets. Now `if(refLen==1){refLen--;}` decrements only for the
+			//insertion case (matching fromVCF), so DEL keys line up. SUB/INS unchanged; degenerate guard below
+			//unaffected. (No shipped net used this tool, per UMP45 — low-risk fix, no retrain needed.)
+			if(refLen==1){refLen--;}
 			if(refLen==0 && normalizedAlt.isEmpty()){
 				// Pure insertion of 1 base that got stripped — degenerate
 				return null;

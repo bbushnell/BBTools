@@ -46,6 +46,9 @@ public class BenchmarkReverse{
 		byte[][] testArraysReverse=new byte[arraySize][];
 		byte[][] testArraysRevComp=new byte[arraySize][];
 		
+		//TODO: Possible bug [fun/BenchmarkReverse#001] (LOW) - hardcoded 1000 but arrays are sized arraySize
+		//(args[1]); for arraySize>1000 the rest stay null -> Vector.reverseInPlace(null) NPE in the benchmark.
+		//Should loop i<arraySize (and warmup below also indexes %1000).
 		for(int i=0; i<1000; i++){
 			int len=1+Math.min(rand.nextInt(1000), rand.nextInt(1000));
 			testArraysReverse[i]=randomBytes(rand, len);

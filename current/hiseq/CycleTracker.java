@@ -26,7 +26,9 @@ public class CycleTracker {
 	public void add(CycleTracker ct){
 //		assert(false) : length+", "+ct.length;
 		final long[][] matrix=ct.acgtnq;
-		if(matrix[0]==null){return;}
+		if(matrix[0]==null){return;}//ct empty (never added to); nothing to merge
+		//resize's assert(newLen>length) holds: matrix[0]!=null here => ct.length>=1, and acgtnq[0]==null
+		//iff our length==0, so the null case has ct.length>=1>0; the other case is guarded by ct.length>length.
 		if(acgtnq[0]==null || ct.length>length){
 			resize(ct.length);
 		}
@@ -54,6 +56,8 @@ public class CycleTracker {
 			cycleAverages[i]=new float[length];
 			long[] array=acgtnq[i];
 			for(int j=0; j<length; j++){
+				//cycleSum[j]>=1 for every j<length: resize only ever extends length to a read's length,
+				//so the read that set 'length' contributed a base to every cycle j<length. No div-by-zero.
 				float f=array[j]/(float)cycleSum[j];
 				cycleAverages[i][j]=f;
 				maxes[i]=Tools.max(f, maxes[i]);
@@ -131,6 +135,9 @@ public class CycleTracker {
 	
 	public void clear() {
 		for(long[] array : acgtnq) {Arrays.fill(array, 0);}
+		//TODO: Possible bug [hiseq/CycleTracker#001] - cycleAverages[i], maxes, averages are null until
+		//process() allocates them, so clear() on a fresh/unprocessed tracker NPEs in Arrays.fill(null,...).
+		//Safe only after process(); guard each with !=null or null-check before filling.
 		for(float[] array : cycleAverages) {Arrays.fill(array, 0);}
 		Arrays.fill(maxes, 0);
 		Arrays.fill(averages, 0);

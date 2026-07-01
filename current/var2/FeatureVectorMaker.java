@@ -52,9 +52,13 @@ public class FeatureVectorMaker {
 	 * @param map Scaffold mapping for calculating positional features and end distances
 	 * @return Float array feature vector ready for neural network input layer
 	 */
+	//TODO: Possible bug [var2/FeatureVectorMaker#001] (LOW) - toVector() has ZERO callers (grep); the live
+	//path calls VectorUMP45.makeVector directly. setMode() IS called (netmode= flag) but no live code reads
+	//MODE, so netmode=elba/lawrence/donovan is a SILENT NO-OP (and would be a dim-mismatch if it weren't
+	//dead). The ELBA/LAWRENCE/DONOVAN branches below are all dead. Cleanup/architecture decision for Brian.
 	public static float[] toVector(Var v, double pairingRate, double totalQualityAvg,
 			double totalMapqAvg, double readLengthAvg, int ploidy, ScafMap map){
-		
+
 		if(MODE==ELBA){
 			return makeElbaVector(v, pairingRate, totalQualityAvg, totalMapqAvg, readLengthAvg, ploidy, map);
 		}else if(MODE==LAWRENCE){
@@ -121,6 +125,10 @@ public class FeatureVectorMaker {
 		vec[idx++]=(count>0 ? (float)(v.properPairCount/(double)count) : 0f); //Proper pair rate
 		
 		//Context features relative to dataset averages
+		//TODO: Possible bug [var2/FeatureVectorMaker#002] (LOW, latent - this method is DEAD per #001) - these
+		//three ratio dims divide by count with NO count>0 guard (the avg dims above DO guard), so count==0
+		//gives baseQSum/count = 0.0/0.0 = NaN into the vector, and there is no validateVector here (unlike
+		//VectorUMP45). If toVector is ever revived, add the count>0 guard (NaN->1.0).
 		vec[idx++]=(float)(totalQualityAvg>0 ? (v.baseQSum/(double)count)/totalQualityAvg : 1.0); //Quality ratio vs dataset
 		vec[idx++]=(float)(totalMapqAvg>0 ? (v.mapQSum/(double)count)/totalMapqAvg : 1.0); //MapQ ratio vs dataset
 		vec[idx++]=(float)(pairingRate>0 ? (v.properPairCount/(double)count)/pairingRate : 1.0); //Pairing ratio vs dataset

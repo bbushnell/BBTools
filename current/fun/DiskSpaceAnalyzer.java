@@ -86,6 +86,10 @@ public class DiskSpaceAnalyzer {
 			writer.write("<tr><th>Path</th><th>Size (MB)</th><th>Percentage</th></tr>\n");
 
 			Collections.sort(dirSizes, SIZE_COMPARATOR);
+			//TODO: Possible bug [fun/DiskSpaceAnalyzer#001] (LOW) - totalSize sums EVERY DirSize, but each
+			//directory's bytes already include its subdirectories' bytes (which are also separate entries),
+			//so nested dirs are counted multiple times -> totalSize inflated -> percentages understated/wrong
+			//(and they won't sum to 100%). Also percentage=bytes*100/totalSize is NaN when totalSize==0 (empty).
 			long totalSize=0;
 			for (DirSize dir : dirSizes) {totalSize+=dir.bytes;}
 
