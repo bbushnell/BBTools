@@ -40,6 +40,7 @@ public class MergeCoverageOTU {
 			if(count==0){
 				assert(s.startsWith("#")) : "Expected a header line starting with #";
 				CovStatsLine.initializeHeader(s);
+				headers.add(s);//FIXED (G11 2026-07-02, Brian-auth) [driver/MergeCoverageOTU#001] store the '#' header so the output loop actually writes it — headers was declared+iterated but never populated → merged output had no header line.
 			}else{
 				int space=s.indexOf(' ');
 				String otu=s.substring(space+1, s.indexOf('\t'));
@@ -57,6 +58,7 @@ public class MergeCoverageOTU {
 		
 		TextStreamWriter tsw=new TextStreamWriter(out, true, false, false);
 		tsw.start();
+		//[driver/MergeCoverageOTU#001] FIXED — headers is now populated at count==0 (see the header read above), so this writes the '#' header line.
 		for(String s : headers){tsw.println(s);}
 		for(String s : map.keySet()){
 			CovStatsLine csl=map.get(s);

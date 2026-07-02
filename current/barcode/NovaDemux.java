@@ -289,6 +289,9 @@ public class NovaDemux {
 			}else if(a.equals("mapout")){
 				mapOut=b;
 			}else if(a.equals("client") || a.equals("server") || a.equals("useserver")){
+				//COMPREHENSION: this is the CORRECT wiring (sets setUseServer=true on an explicit choice) - contrast
+				//[barcode/CountBarcodes2#001], the sibling driver, which forgets setUseServer=true and thus overrides
+				//explicit useserver=f. NovaDemux is the clean member; CountBarcodes2 is the lone divergence.
 				if("auto".equalsIgnoreCase(b)) {
 					useServer=false;
 					setUseServer=false;
@@ -409,7 +412,11 @@ public class NovaDemux {
 			}
 
 			//This does not prevent expansion into a matching string
-			assert(out1==null || (!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1))) : "Input file and output file have same name.";
+			//[barcode/NovaDemux#001] FIXED: 2nd clause was a copy-paste `in1` (should be in2), twin of CountBarcodes#001.
+			//Here it is HARMLESS/vacuous - out1 must contain '%' (asserted above) so it can never equal any real input
+			//filename - but fixed anyway for correctness and family consistency (never leave one twin fixed and the
+			//other not). No runtime effect while out1 stays a %-pattern.
+			assert(out1==null || (!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2))) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 		}
 	}
@@ -469,6 +476,9 @@ public class NovaDemux {
 		if(useServer) {
 			System.err.println("Using client-server mode for barcode analysis.");
 			DemuxData dd=new DemuxData(barcodeLength1, barcodeLength2, barcodeDelimiter);
+			//[barcode/DemuxData#001] (call-site) - like CountBarcodes2, `counts` here is codeMap.values() (or
+			//loadCounts' file-order list) = UNSORTED, fed to DemuxData.encode() whose ENSURE_SORTED is dead code.
+			//So NovaDemux ALSO trips the server-side decode assert under -ea. Both live encode callers are affected.
 			dd.codeCounts=counts;
 			dd.expectedList=expectedSet;
 			DemuxClient client=new DemuxClient();

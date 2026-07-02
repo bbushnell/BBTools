@@ -286,6 +286,7 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 				idmask_write=Integer.parseInt(b);
 			}else if(a.equals("allkmers")){
 //				kmersPerRead=(Parse.parseBoolean(b) ? 0 : 1);
+				//G11: idmask_write masks kmer POSITIONS within a read (see L858-860: a position i is used iff (i&idmask_write)==((numericID+3)&idmask_write)). allkmers=true → idmask_write=0 → predicate is 0==0 → every position used ("all kmers"). allkmers=false → 15 → only positions whose low 4 bits match a per-read phase (from numericID) → ~1/16 of kmers sampled per read. Inverted-mask replacement for the old kmersPerRead toggle; sign verified (true=all).
 				boolean x=Parse.parseBoolean(b);
 				idmask_write=(x ? 0 : 15);
 			}
@@ -300,7 +301,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else if(b==null && new File(arg).exists()){
-				extra.add(b);
+				//FIXED (G11 2026-07-02) [hiseq/AnalyzeFlowCell#002] wrong-variable: b is provably null in this branch (guard is b==null), so `extra.add(b)` added a null filename. extra=[null] → NPE in BloomFilter.makeKca on the bloom+multithreaded loadKmers path (extra is unused elsewhere, so the bare-arg extra file was silently dropped). arg is the existing filename. Was `extra.add(b)`. Shared anomaly with PlotFlowCell#001.
+				extra.add(arg);
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -948,7 +950,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 		{
 			int a=list.get(max), b=list.get(max-1), c=list.get(max-2);
 			a=Tools.min(a, b, c);
-			list.set(0, a);
+			//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [hiseq/AnalyzeFlowCell#003] copy-paste: this end-of-list block computes `a` from the max end but was writing list.set(0,a) (start index) → index 0 clobbered with the end-of-read value, and the last element (index max) never smoothed. Now list.set(max, a). Twin fix: smooth5#004. Was list.set(0, a).
+			list.set(max, a);
 		}
 		for(int i=1; i<max; i++) {
 			int a=list.get(i-1), b=list.get(i), c=list.get(i+1);
@@ -975,8 +978,9 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			int a=list.get(max), b=list.get(max-1), c=list.get(max-2), d=list.get(max-3);
 			a=Tools.min(a, b, c);
 			b=Tools.min(b, Tools.max(a, Tools.min(c, d)));
-			list.set(0, a);
-			list.set(1, b);
+			//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [hiseq/AnalyzeFlowCell#004] copy-paste: this end block computes a/b from the max end but was writing indices 0 and 1 → indices 0,1 clobbered with end-of-read values, last two elements (max, max-1) never smoothed. Now writes max and max-1. Twin fix: smooth3#003. Was list.set(0,a); list.set(1,b).
+			list.set(max, a);
+			list.set(max-1, b);
 		}
 		for(int i=2; i<max-1; i++) {
 			int a=list.get(i-2), b=list.get(i-1), c=list.get(i), d=list.get(i+1), e=list.get(i+2);
@@ -1002,7 +1006,8 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 			//Since max is only 3 this could be much more efficient, without a double loop
 			if(kdepth>0) {
 				for(int j=i, max=i+k; j<max; j++) {
-					blist.set(j, Tools.max(blist.get(i), kdepth));
+					//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [hiseq/AnalyzeFlowCell#005] wrong-index: spreads kmer-depth kdepth across base positions [i,i+k) taking the running max at each position. Was reading blist.get(i) (fixed outer index) → later j clobbered any larger value a prior kmer wrote at j. Now reads blist.get(j) so the max accumulates correctly per position. Was blist.get(i).
+					blist.set(j, Tools.max(blist.get(j), kdepth));
 				}
 			}
 		}

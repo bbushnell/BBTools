@@ -48,6 +48,7 @@ public class ProcessFragMerging {
 		
 	}
 	
+	//G11: dev-only log-collator (summarizemerge.sh maps to ProcessSpeed, not this). Assumes GNU-time "XmY.ZZZs" format + fixed BBMerge log column layout; malformed input → AIOOB/NumberFormat crash-loud (acceptable for a throwaway analysis tool). toSeconds below is IDENTICAL to ProcessSpeed2.toSeconds (duplicated); split[1] assumes an 'm' is present.
 	public static double toSeconds(String s){
 		s=s.replaceAll("s", "");
 		String[] split=s.split("m");

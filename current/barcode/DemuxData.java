@@ -118,6 +118,19 @@ public class DemuxData {
 			bb.append(s).nl();
 		}
 		
+		//TODO: Possible bug [barcode/DemuxData#001] - the sort here is DEAD CODE and never runs. When an out-of-order
+		//pair is found, `break` (below) exits the loop immediately; `sorted` is set false ONLY right before that break,
+		//so the `if(!sorted){...sort...}` block can never be reached (it sits after the break, and on every other
+		//iteration `sorted` is still true). => ENSURE_SORTED DETECTS unsorted input but never actually sorts it.
+		//Why it matters: encode() (delta counts, line ~221) and decode()'s assert (line ~483) BOTH require codeCounts
+		//to be in Barcode.compareTo order (counts non-increasing). The live caller feeds dd.codeCounts=bs.codeMap.values()
+		//(a HashMap's values = UNSORTED) via the client-server path (CountBarcodes2:371, useServer). With -ea (always on)
+		//the server-side decode then trips assert(count<=prevCount||prevCount<0) at ~483 and CRASHES. Not corruption
+		//(the delta is self-inverse -> without -ea it reconstructs correctly), but a crash-loud on legitimate input.
+		//Latent for local-JGI runs (prob/ loaded -> useServer stays false -> DemuxData path never taken).
+		//Recommended fix: move the sort AFTER the loop (or drop the break and guard the sort post-loop):
+		//   for(...){ if(prev!=null && bc.compareTo(prev)<0){sorted=false; break;} prev=bc; }
+		//   if(!sorted){ ArrayList<Barcode> list=new ArrayList<>(codeCounts); Collections.sort(list); codeCounts=list; }
 		if(ENSURE_SORTED) {
 			Barcode prev=null;
 			boolean sorted=true;
@@ -480,6 +493,12 @@ public class DemuxData {
 			}else {x3=-1;}
 			
 			final long count=(x3<0 ? prevCount : deltaCounts && prevCount>0 ? prevCount-x3 : x3);
+			//LOAD-BEARING INVARIANT: this assert requires codeCounts to arrive in non-increasing count order
+			//(count<=prevCount). That order is supposed to be guaranteed by DemuxData.ENSURE_SORTED in encode() - but
+			//that sort is currently DEAD CODE (see [barcode/DemuxData#001]), so unsorted HashMap.values() input trips
+			//this assert. The delta math itself (prevCount-x3) is order-independent/self-inverse; it is only THIS assert
+			//(and the symmetric encode-side delta-barcode asserts) that demand the ordering. If #001 is fixed the input
+			//is sorted and this holds; if instead the ordering requirement is dropped, this assert must be relaxed too.
 			assert(count>0 && (count<=prevCount || prevCount<0)) : x3+", "+count+", "+prevCount+"\n"+new String(line);
 			final long code1=(x1<0 ? prevCode1 : 
 				deltaBarcodes && count==prevCount ? prevCode1+x1 : x1);

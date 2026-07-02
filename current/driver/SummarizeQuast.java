@@ -143,6 +143,7 @@ public class SummarizeQuast {
 							double[] array=new double[ald.size()];
 							for(int i=0; i<ald.size(); i++){array[i]=ald.get(i);}
 							Arrays.sort(array);
+							//G11: percentile indices are AIOOB-safe — len=size-1, and Math.round(f*len) for f in [0.1,0.9] lies in [0,len]=[0,size-1]. Guarded by !ald.isEmpty() (L140) so size>=1 (size=1 → all indices 0). Verified in-bounds.
 							final int len=array.length-1;
 							tsw.print("\t"+array[(int)Math.round(0.1*len)]);
 							tsw.print("\t"+array[(int)Math.round(0.25*len)]);
@@ -210,7 +211,7 @@ public class SummarizeQuast {
 		
 		private void normalize(ArrayList<Entry> list){
 			if(list.isEmpty()){return;}
-			if(list==null || list.isEmpty()){return;}
+			if(list==null || list.isEmpty()){return;}//G11: dead/misordered — L212 already dereferenced list.isEmpty(), so a null list would have NPE'd there; this list==null check can never fire (and list is never null anyway, from metrics.values()). Harmless dead defensive code.
 			double sum=0;
 			for(Entry e : list){
 				sum+=e.value;

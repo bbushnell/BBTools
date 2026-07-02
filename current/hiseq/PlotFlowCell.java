@@ -161,7 +161,8 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else if(b==null && new File(arg).exists()){
-				extra.add(b);
+				//FIXED (G11 2026-07-02) [hiseq/PlotFlowCell#001] wrong-variable: b is provably null in this branch (guard is b==null), so `extra.add(b)` added a null filename. extra=[null] → NPE in BloomFilter.makeKca on the bloom+multithreaded path (extra is unused on all other paths, so the bare-arg extra file was silently dropped there). arg is the existing filename. Was `extra.add(b)`. Shared anomaly with AnalyzeFlowCell#002 (same wrong-variable).
+				extra.add(arg);
 			}else{
 				outstream.println("Unknown parameter "+args[i]);
 				assert(false) : "Unknown parameter "+args[i];
@@ -249,6 +250,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	public void process(Timer t){
 		
 		final int oldThreads=Shared.threads();
+		//G11: dead ternary — both arms are 64, so this is unconditionally capThreads(64) regardless of kmersPerRead (vestigial mode-specific cap that was never differentiated). Harmless; not a behavioral bug.
 		Shared.capThreads(kmersPerRead>0 ? 64 : 64);
 		
 		barcodeStats=loadBarcodes(expectedBarcodes);
@@ -482,6 +484,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 			}
 		}else {
 //			final long kmer=toKmer(r.bases, randy.nextInt(r.length()-k2), k);
+			//G11: (r.length()-k2) is guaranteed >=1 here — the L467 guard returns when r.length()<k (k=31, k2=30), so length>=31 → length-30>=1; no div-by-zero in the modulo. numericID>=0 (stream-assigned) → non-negative index.
 			final long kmer=toKmer(r.bases, (int)(r.numericID%(r.length()-k2)), k);
 			if(kmer>=0){
 				if(keySets!=null) {
@@ -593,6 +596,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 	 */
 	void processOneKmer(Read r, MicroTile mt) {
 //		final long kmer=toKmer(r.bases, randy.nextInt(r.length()-k2), k);
+		//G11: same modulo-safety as loadKmers — reached only via processTileKmers (L580 guard r.length()<k returns), so length>=31 → (length-k2)>=1, no div-by-zero. (numericID+1) can't overflow at realistic read counts.
 		final long kmer=toKmer(r.bases, (int)((r.numericID+1)%(r.length()-k2)), k);
 		if(kmer<0) {
 			mt.misses++;

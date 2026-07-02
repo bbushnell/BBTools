@@ -177,6 +177,8 @@ public class CountBarcodes2 {
 				useMatrix=Parse.parseBoolean(b);
 			}else if(a.equals("client") || a.equals("server") || a.equals("useserver")){
 				useServer=Parse.parseBoolean(b);
+				//TODO: [barcode/CountBarcodes2#001] FIX SITE - should also set `setUseServer=true;` here so that the
+				//auto-enable block in process() (~365) respects an explicit user choice instead of overriding it.
 			}
 			
 			else if(a.equals("probsout") || a.equals("outprobs")){
@@ -354,6 +356,10 @@ public class CountBarcodes2 {
 			Timer t2=new Timer();
 
 			final Collection<Barcode> counts=bs.codeMap.values();
+			//TODO: Possible bug [barcode/BarcodeCounter#001] (call-site) - barcodeCountPercentile contains an
+			//unconditional assert(false) and is marked "don't call it directly", so setting the user flag
+			//mincountpercent/mincountpercentile>0 CRASHES under -ea (always on). Also `thresh` is never read below
+			//(block-scoped, discarded) -> the percentile filter is a no-op even under -da. See BarcodeCounter#001.
 			if(minCountPercentile>0) {
 				long thresh=BarcodeCounter.barcodeCountPercentile(counts, minCountPercentile);
 			}
@@ -361,6 +367,11 @@ public class CountBarcodes2 {
 			final HashMap<String, String> assignmentMap;
 			{//New code block for using server
 
+				//TODO: Possible bug [barcode/CountBarcodes2#001] - the `!setUseServer` guard is VACUOUS: setUseServer is
+				//never assigned true anywhere (the useserver/client/server parse case at ~178-179 sets useServer but
+				//forgets setUseServer=true). So an explicit `useserver=f` is silently OVERRIDDEN back to true here when
+				//matrixType0==PROB && !probLoaded(). Low impact (local prob can't work unloaded, so server is a
+				//reasonable fallback) but it ignores an explicit user flag. Fix: set setUseServer=true in the parse case.
 				if(PCRMatrix.matrixType0==PCRMatrix.PROB_TYPE && !PCRMatrix.probLoaded()
 						&& !setUseServer && !useServer) {
 					useServer=true;
@@ -368,6 +379,9 @@ public class CountBarcodes2 {
 				if(useServer) {
 					System.err.println("Using client-server mode for barcode analysis.");
 					DemuxData dd=new DemuxData(bs.length1, bs.length2, bs.delimiter);
+					//TODO: Possible bug [barcode/DemuxData#001] (call-site) - `counts` is bs.codeMap.values(), an
+					//UNSORTED HashMap view. DemuxData.encode()'s ENSURE_SORTED is dead code (never sorts), so under -ea
+					//the server-side decode asserts on the non-descending count order and crashes. See DemuxData#001.
 					dd.codeCounts=counts;
 					dd.expectedList=new LinkedHashSet<String>(bs.expectedCodeMap.keySet());
 					DemuxClient client=new DemuxClient();

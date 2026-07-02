@@ -133,6 +133,11 @@ public class DemuxServer {
 		port=port_;
 		allowLocalHost=allowLocalHost_;
 		addressPrefix=addressPrefix_;
+		//TODO: Possible bug [barcode/DemuxServer#001] FIX SITE - the parsed kill code (local killCode_, set from the
+		//kill/killcode flag at ~111) is NEVER copied to the `killCode` field; it stays null. Consequence: the /kill
+		//context is never registered (~147, `if(killCode!=null)`) AND testCode (~285) rejects every code. So the
+		//documented remote-kill feature is completely dead - `kill=SECRET` does nothing; the server can only be stopped
+		//by killing the process. Fix: add `killCode=killCode_;` here (mirroring port/allowLocalHost/addressPrefix above).
 		
 		ReadWrite.USE_UNPIGZ=false;
 //		ReadWrite.USE_UNBGZIP=false;
@@ -144,6 +149,8 @@ public class DemuxServer {
 		//Initialize handlers
 		httpServer.createContext("/", new BaseHandler());
 		httpServer.createContext("/demux", new DemuxHandler());
+		//[barcode/DemuxServer#001] consequence: killCode is always null here (never assigned from killCode_), so this
+		//branch never runs -> /kill is never registered even when the user supplied kill=code. See fix site above.
 		if(killCode!=null){
 			httpServer.createContext("/kill", new KillHandler());
 		}
@@ -328,6 +335,10 @@ public class DemuxServer {
 		@Override
 		public void handle(HttpExchange t) throws IOException {
 			final long startTime=System.nanoTime();
+			//TODO: Possible bug [barcode/DemuxServer#002] (minor/perf) - the `|| true` forces per-query logging
+			//("Demux handler" + full printQuery) on EVERY request regardless of verbose2. Confirmed intentional-looking
+			//debug leftover (Brian's own inline note below). Harmless to correctness; noisy + slight overhead on a hot
+			//server path. Fix: drop `|| true`.
 			if(verbose2 || true){ //Possible bug: Verbose logging always enabled due to || true
 				System.err.println("Demux handler");
 				printQuery(t, addressPrefix, allowLocalHost, printIP, printHeaders);
@@ -339,6 +350,9 @@ public class DemuxServer {
 			final long fetchTime=System.nanoTime();
 			System.err.println("Fetched "+body.size()+" chunks in "+
 					(fetchTime-startTime)/1000000+" ms.");
+			//COMPREHENSION (re [barcode/DemuxData#001]): this decode of the client's chunks is EXACTLY where the
+			//client-server crash lands - new DemuxData(body)->decode()->parseCountLine trips the descending-count
+			//assert (DemuxData ~483) when the client sent unsorted codeCounts (its dead ENSURE_SORTED never sorted).
 			DemuxData dd=new DemuxData(body);
 			final long parseTime=System.nanoTime();
 			System.err.println("Parsed "+body.size()+" chunks in "+

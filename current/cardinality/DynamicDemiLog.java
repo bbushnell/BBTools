@@ -436,19 +436,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	/*----------------        Static Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Restores floating-point compressed score to approximate original hash magnitude.
-	 * @param stored Compressed 16-bit value from maxArray (relative encoding)
-	 * @return Approximate original hash value before compression */
-	private long restore(int stored){
-		final int absNlz=(stored>>mantissabits)+globalNLZ;
-		if(absNlz<=0){return Long.MAX_VALUE;}
-		long lowbits=(~stored)&mask;
-		long mantissa=(1L<<mantissabits)|lowbits;
-		int shift=wordlen-absNlz-mantissabits-1;
-		if(shift<0){return 1L;}
-		return mantissa<<shift;
-	}
-
 	/** Counts buckets whose absolute NLZ matches the given tier.
 	 * Used during add() to find the new floor tier from absolute-encoded merged values. */
 	private static int countTermsInTier(final int nlz, final char[] array) {
@@ -459,47 +446,6 @@ public final class DynamicDemiLog extends CardinalityTracker {
 			sum+=equalsBit;
 		}
 		return sum;
-	}
-
-	/** Converts a relative stored value to its absolute equivalent. */
-	private static int toAbsolute(int stored, int globalNLZ){
-		if(stored==0){return 0;}
-		return ((stored>>mantissabits)+globalNLZ)<<mantissabits | (stored&mask);
-	}
-
-	/** Compares two DDLs converting to absolute values.
-	 * @return int[]{lower, equal, higher} bucket counts */
-	private static int[] compareAbsolute(DynamicDemiLog a, DynamicDemiLog b){
-		int lower=0, equal=0, higher=0;
-		for(int i=0; i<a.maxArray.length; i++){
-			final int va=toAbsolute(a.maxArray[i], a.globalNLZ);
-			final int vb=toAbsolute(b.maxArray[i], b.globalNLZ);
-			int dif=va-vb;
-			int nbit=(dif>>>31);
-			int hbit=((-dif)>>>31);
-			lower+=nbit;
-			higher+=hbit;
-			equal+=1-nbit-hbit;
-		}
-		return new int[]{lower, equal, higher};
-	}
-
-	/** Compares two DDLs with absolute conversion, excluding empty-empty pairs.
-	 * @return int[]{lower, equal, higher, bothEmpty} */
-	private static int[] compareDetailedAbsolute(DynamicDemiLog a, DynamicDemiLog b){
-		int lower=0, equal=0, higher=0, bothEmpty=0;
-		for(int i=0; i<a.maxArray.length; i++){
-			final int va=toAbsolute(a.maxArray[i], a.globalNLZ);
-			final int vb=toAbsolute(b.maxArray[i], b.globalNLZ);
-			if(va==0 && vb==0){bothEmpty++; continue;}
-			int dif=va-vb;
-			int nbit=(dif>>>31);
-			int hbit=((-dif)>>>31);
-			lower+=nbit;
-			higher+=hbit;
-			equal+=1-nbit-hbit;
-		}
-		return new int[]{lower, equal, higher, bothEmpty};
 	}
 
 	/** Compares two absolute-encoded maxArrays bucket by bucket using branchless bit arithmetic.

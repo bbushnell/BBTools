@@ -66,8 +66,14 @@ public final class NNChooser {
 
 	/** The PacBio HiFi/CCS network token.  s_pe_swarm seed18 (2026-06-28), trained on Shred+BBMap (pe) HG001 PacBio
 	 *  calls; best-on-pbmm2 of a 48-seed swarm, and won concordance across pbmm2/BBMap/MapPacBio test sets.
-	 *  Serves ploidy 1 (haploid) and 2 (diploid) only; ploidy 3+ (tetraploid) is untested for PacBio. */
+	 *  Serves ploidy 1 (haploid) and 2 (diploid); ploidy 3+ is served by {@link #PACBIO_POLYPLOID_RESOURCE}. */
 	static final String PACBIO_RESOURCE="?callvars_pacbio.bbnet";
+
+	/** The PacBio HiFi/CCS polyploid (ploidy&gt;=3) network token.  s_pe_tetjumbo seed5 (2026-07-02), trained on a
+	 *  75%-tetraploid + 12%-diploid + 12%-haploid PacBio jumbo (HG001+HG002 pe-shred, ploidy-encoded so it
+	 *  generalizes across ploidy via dim0=1/ploidy and dim32). Best of a 16-seed swarm on the tetraploid eval
+	 *  (CROSSOVER_NN 116,378 vs the diploid net's 170,372 = -31.7%). Serves ploidy 3 and up. */
+	static final String PACBIO_POLYPLOID_RESOURCE="?callvars_pacbio_polyploid.bbnet";
 
 	/**
 	 * Registered networks, most-specific first (choose() returns the first match).
@@ -81,6 +87,7 @@ public final class NNChooser {
 		new NetEntry(1<<VectorUMP45.PLATFORM_ILLUMINA, 3, Integer.MAX_VALUE, POLYPLOID_RESOURCE),
 		new NetEntry(1<<VectorUMP45.PLATFORM_ROCHE, 1, Integer.MAX_VALUE, ROCHE_RESOURCE),
 		new NetEntry(1<<VectorUMP45.PLATFORM_PACBIO, 1, 2, PACBIO_RESOURCE),
+		new NetEntry(1<<VectorUMP45.PLATFORM_PACBIO, 3, Integer.MAX_VALUE, PACBIO_POLYPLOID_RESOURCE),
 	};
 
 	/*--------------------------------------------------------------*/

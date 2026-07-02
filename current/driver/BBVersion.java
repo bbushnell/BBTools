@@ -16,6 +16,7 @@ public class BBVersion {
 	 * @param args Command-line arguments; presence triggers additional version output
 	 */
 	public static void main(String[] args){
+		//G11: CLEAN — trivial. Always prints version string; any arg → also prints the codename. No input, no failure mode.
 		System.out.println(Shared.BBTOOLS_VERSION_STRING);
 		if(args.length>0){System.out.println(Shared.BBMAP_VERSION_NAME);}
 	}

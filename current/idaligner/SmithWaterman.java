@@ -130,7 +130,7 @@ public class SmithWaterman implements IDAligner{
 		loops.addAndGet(mloops);
 
 		// For Smith-Waterman, use the global maximum found during computation
-		return postprocess(globalMaxScore, globalMaxJ, qLen, rLen, posVector);
+		return postprocess(globalMaxScore, globalMaxI, globalMaxJ, qLen, rLen, posVector);
 	}
 
 	/**
@@ -142,7 +142,7 @@ public class SmithWaterman implements IDAligner{
 	 * @param posVector Optional array for returning reference start/stop coordinates.
 	 * @return Identity
 	 */
-	private static final float postprocess(long maxScore, int maxPos, int qLen, int rLen, int[] posVector) {
+	private static final float postprocess(long maxScore, int maxI, int maxPos, int qLen, int rLen, int[] posVector) {
 		// Extract alignment information
 		final long bestScore=maxScore;
 		final int originPos=(int)(bestScore&POSITION_MASK);
@@ -157,15 +157,16 @@ public class SmithWaterman implements IDAligner{
 		final int refAlnLength=(endPos-originPos);
 		final int rawScore=(int)(bestScore >> SCORE_SHIFT);
 
-		// Solve the system of equations:
-		// 1. M + S + I = qLen (for local alignment, this might be partial)
+		// Solve the system of equations using aligned query length (maxI), not full qLen:
+		// 1. M + S + I = alignedQLen
 		// 2. M + S + D = refAlnLength
 		// 3. M - S - I - D = Score
+		final int alignedQLen=maxI; //local alignment ends at query row maxI
 
 		// Calculate operation counts
-		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
-		final float matches=((rawScore+qLen+deletions)/2f);
-		final float substitutions=Math.max(0, qLen-matches-insertions);
+		final int insertions=Math.max(0, alignedQLen+deletions-refAlnLength);
+		final float matches=((rawScore+alignedQLen+deletions)/2f);
+		final float substitutions=Math.max(0, alignedQLen-matches-insertions);
 	    final float identity=matches/(matches+substitutions+insertions+deletions);
 
 		if(PRINT_OPS) {

@@ -195,6 +195,7 @@ public class PlotGC {
 							}
 						}
 						if(printShortBins && i>start){
+							//G11: tail partial-bin. Here i==bases.length (one PAST last index) so stop=i-1; len=(i-start)-1 = (i-1)-start = span-1, matching the main loop's len=(i-start) where i was the INCLUSIVE last index. Both give (baseCount-1) → rStop math consistent. acgt still holds the leftover bases' counts (reset only after each full bin), so this partial bin's GC is correct. No off-by-one.
 							int len=(i-start)-1;
 							rStop=rStart+len;
 							String s=toGC(r.id, start, i-1, rStart, rStop, acgt);
@@ -236,9 +237,9 @@ public class PlotGC {
 	}
 	
 	private String toGC(String name, int start, int stop, long rstart, long rstop, int[] acgt){
-		int at=acgt[0]+acgt[3];
-		int gc=acgt[1]+acgt[2];
-		float sum=Tools.max(1, at+gc);
+		int at=acgt[0]+acgt[3];//A(0)+T(3)
+		int gc=acgt[1]+acgt[2];//C(1)+G(2) — AminoAcid.baseToNumber A=0,C=1,G=2,T=3, so indices are correct
+		float sum=Tools.max(1, at+gc);//G11: max(1,..) guards an all-N/empty window → gcf=0 not NaN. NaN-safe.
 		float gcf=gc/sum;
 		return Tools.format("%s\t%d\t%d\t%d\t%d\t%d\t%.3f\n", name, stop-start+1, start+offset, stop+offset, rstart+offset, rstop+offset, gcf);
 	}

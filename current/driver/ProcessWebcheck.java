@@ -105,6 +105,7 @@ public class ProcessWebcheck {
 		
 		assert(FastaReadInputStream.settingsOK());
 		
+		//G11: in1 is an inline-initialized ArrayList (L282) so `in1==null` is ALWAYS false — this guard is dead (same shape as CountSharedLines#001). Difference: here the real no-input guard is `assert(ffin1.size()>0)` at L132, which fires under -ea (always on for BBTools) → no-input crashes loud. So dead code, not a live bug (unlike CountSharedLines which had no backstop).
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 		
 		if(!ByteFile.FORCE_MODE_BF2){

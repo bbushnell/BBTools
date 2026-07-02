@@ -197,6 +197,12 @@ public class AnalyzeBarcodes {
 	 */
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
+		//TODO: Possible bug [barcode/AnalyzeBarcodes#001] (LOW) - this over-asserts: it requires expectedBarcodeFile,
+		//but the tool ALSO supports count mode `expected=<number>` (parse sets expectedBarcodeCount when b is numeric,
+		//and BarcodeStats.loadStatic uses expectedBarcodeCount to pick the top-N observed barcodes as expected). So
+		//`expected=100` sets expectedBarcodeCount>0 and leaves expectedBarcodeFile null -> this assert fires (crash
+		//under -ea, always on) even though the feature works downstream. Fix: require in1!=null && (expectedBarcodeFile
+		//!=null || expectedBarcodeCount>0). Flagged, not auto-fixed (confirm count-mode is intended-supported).
 		assert(in1!=null && expectedBarcodeFile!=null) : "Barcode stats and expected barcodes must be specified.";
 		return true;
 	}

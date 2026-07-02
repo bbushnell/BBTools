@@ -266,6 +266,12 @@ public class BarcodeStats {
 		assert(barcodesPerRead==2) : barcodesPerRead;
 		BarcodeStats split=new BarcodeStats((char)0, 1, pairnum==0 ? "Left" : "Right");
 		split.length1=(pairnum==0 ? length1 : length2);
+		//REACHABILITY NOTE (re [barcode/Barcode#001]): getStringForPairnum below splits on `delimiter`. Its buggy
+		//no-delimiter MIDPOINT branch (pos=len/2+1, mis-splits even-length concatenated dual indices) fires only when
+		//delimiter==0. The live pipeline never reaches it here: loadStatic sets barcodesPerRead=2 ONLY when a
+		//delimiter>0 was detected (delimiter<=0 -> single, barcodesPerRead=1), and split() asserts barcodesPerRead==2.
+		//So "dual here" implies delimiter>0 implies the correct delimiter path. Only BarcodeStats.main() (arg-driven
+		//test entry) could pass delimiter==0 with codesPerRead=2 and trip #001 -> keeps Barcode#001 latent-LOW.
 		for(Barcode b : expectedCodeList) {
 			split.addExpectedCode(b.getStringForPairnum(pairnum, delimiter));
 		}
@@ -619,7 +625,11 @@ public class BarcodeStats {
 		int hdist=s.length();
 		int hdist2=hdist;
 		assert(best==null); //Otherwise hdist should be 0.
-		
+
+		//COMPREHENSION: hdist=closest distance (best), hdist2=second-closest. On a new global best, the OLD best's
+		//distance is pushed into hdist2 (the `hdist2=hdist` line) BEFORE best/hdist are overwritten, so hdist2 is
+		//always the true runner-up, never stale. Accept (below) requires hdist+clearzone<=hdist2 (unambiguous). A tie
+		//(d==hdist==hdist2) collapses hdist2 to hdist -> rejected unless clearzone<=0. Verified: [5,3,4],[3,5,4],[3,3].
 		for(int i=0; i<expectedCodeList.size(); i++) {
 			Barcode b=expectedCodeList.get(i);
 			int d=b.hdist(s);

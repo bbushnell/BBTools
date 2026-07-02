@@ -243,6 +243,15 @@ public class DemuxClient {
 				byte[] line=responseParser.parseByteArrayFromCurrentField();
 				tp.set(line);
 				int term=0;
+				//COMPREHENSION (resolves DemuxServer's "decode on the other end" TODO): this reconstructs the server's
+				//skip-if-same A48 response (DemuxServer.appendA48). An empty field means "same as previous pair", so
+				//current[term]=prev[term] (safe: decoded arrays are immutable; prev/current are swapped each line below).
+				//Field COUNT is fixed by the server always writing 3 tabs for dual / 1 tab for single, so term must land
+				//on 4 or 2. LOAD-BEARING: a value-right equal to the previous pair (COMMON - Pair sorts by value b, so
+				//consecutive lines share values) makes the line end in a trailing tab with an empty vR. That empty field
+				//IS still yielded because LineParser2.advance leaves b ON the trailing delimiter and hasMore()=b<length
+				//stays true for one final advance (verified in parse/LineParser2). If LineParser2 ever dropped trailing
+				//empties, or the server stopped emitting the fixed tab count, this would term=3 -> the assert below fires.
 				while(tp.hasMore()) {
 					tp.advance();
 					if(tp.currentFieldLength()<1) {
@@ -252,7 +261,7 @@ public class DemuxClient {
 					}
 					term++;
 				}
-				
+
 				assert(term==2 || term==4) : term+": '"+new String(line)+"'";
 				final String key, value;
 				if(term==2) {

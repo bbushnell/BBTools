@@ -89,6 +89,7 @@ public class SummarizeCoverage {
 					String[] split=line.split("\t");
 					long count=Long.parseLong(split[5]);
 					double mb=Double.parseDouble(split[2]);
+					//TODO: Possible bug [driver/SummarizeCoverage#001] - LOW: `pcount==0` is used as the "no primary chosen yet" sentinel, but it conflates that with a legitimate 0-read organism. If the current primary has count==0 (a real line with zero mapped reads), the pcount==0 term stays true and the NEXT line unconditionally replaces it as primary regardless of its (lower) mb → wrong primary when the true max-coverage entry happens to have 0 reads. Cleaner sentinel: `pname==null`. Edge (count and mb usually correlate), so LOW.
 					if(pcount==0 || mb>pmb || (mb==pmb && count>pcount)){
 						pname=split[0];
 						ocount+=pcount;

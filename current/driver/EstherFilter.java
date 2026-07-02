@@ -79,6 +79,7 @@ public class EstherFilter {
 			String[] split=s.split("\t");
 			float value=0;
 			try {
+				//TODO: Possible bug [driver/EstherFilter#001] - LOW parse robustness (twin at processToNames L120): the catch handles ONLY NumberFormatException, but a short BLAST line (<12 tab cols) makes split[11] throw ArrayIndexOutOfBounds — NOT caught → uncaught crash. Also, when NFE IS caught, value stays 0, so with cutoff<=0 a bad line would pass. Widen the catch (or length-check split) and/or `continue` on parse failure. m8 always has 12 cols, so LOW.
 				value=Float.parseFloat(split[11].trim());
 			} catch (NumberFormatException e) {
 				e.printStackTrace();
@@ -160,6 +161,7 @@ public class EstherFilter {
 			reads=(ln!=null ? ln.list : null);
 		}
 		/* Cleanup */
+		//TODO: Possible bug [driver/EstherFilter#002] - LOW: unguarded cris.returnList(ln) — at normal loop exit ln may be null (if nextList() returned null), so this can NPE at cleanup; other tools guard `if(ln!=null){cris.returnList(ln.id, ...)}`. Also cris is never closed (no closeStream/errorState). Niche tool → LOW.
 		cris.returnList(ln);
 	}
 	

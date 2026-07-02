@@ -347,6 +347,14 @@ public class CompareLabels {
 		@Override
 		public int compareTo(Label o) {
 			//Put unknown at the top
+			//TODO: Possible bug [barcode/CompareLabels#001] (MEDIUM) - this comparator is ASYMMETRIC: it handles
+			//this==UNKNOWN (return -1) but NOT o==UNKNOWN. So for a normal label N whose count > UNKNOWN U's count:
+			//compare(U,N)=-1 (unknown rule) AND compare(N,U)=-1 (count rule, N.count>U.count) -> same sign, which
+			//VIOLATES the Comparable antisymmetry contract. Collections.sort (TimSort) can then throw "Comparison
+			//method violates its general contract!" whenever a classified label out-counts UNKNOWN (realistic on
+			//well-classified data). Even when it doesn't throw, "UNKNOWN at top" isn't reliably achieved. Fix: add the
+			//symmetric case right here -> if(!name.equalsIgnoreCase("UNKNOWN") && o.name.equalsIgnoreCase("UNKNOWN")) return 1;
+			//Flagged, not auto-fixed (behavior on the labelStats output sort; confirm the UNKNOWN-at-top intent).
 			if(name.equalsIgnoreCase("UNKNOWN") && !o.name.equalsIgnoreCase("UNKNOWN")) {return -1;}
 			long dif=count()-o.count();
 			if(dif>0) {return -1;}

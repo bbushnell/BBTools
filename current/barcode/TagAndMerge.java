@@ -239,7 +239,11 @@ public class TagAndMerge {
 		if(r==null) {return;}
 		if(trimLen>=0 && trimLen<r.length()) {
 			final int x=TrimRead.trimToPosition(r, 0, trimLen-1, 1);
-			assert(x>0) : x+", "+trimLen+", "+r.length(); //Possible bug: assertion may fail if trimLen >= read length
+			//COMPREHENSION (HK416 2026-07-02): the guard above (trimLen<r.length()) already EXCLUDES trimLen>=length,
+			//so the old note's scenario can't occur. The real boundary is trimLen==0 (settable via trim=0): then
+			//trimToPosition(r,0,-1,1) trims to an empty read and x is likely <=0 -> this assert fires. trim=0 is a
+			//nonsensical flag value (trim to zero length), so this is a crash-loud on bad input, not a live bug.
+			assert(x>0) : x+", "+trimLen+", "+r.length();
 		}
 		bb.clear();
 		if(!shrinkHeader) {

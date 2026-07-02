@@ -167,7 +167,7 @@ public class ReduceSilva {
 		//Process the read stream
 		processInner(cris, ros);
 		
-		ReadWrite.closeStreams(cris, ros);
+		//FIXED (G11 2026-07-02, Brian-auth) [driver/ReduceSilva#001] removed a redundant first `ReadWrite.closeStreams(cris, ros)` that was here (its return discarded). The single canonical close is `errorState|=ReadWrite.closeStreams(cris, ros)` below, so errorState now reflects the real close, not a re-close of already-closed streams.
 		if(verbose){outstream.println("Finished.");}
 		
 		errorState|=ReadStats.writeAll();

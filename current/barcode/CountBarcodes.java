@@ -228,7 +228,12 @@ public class CountBarcodes {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//[barcode/CountBarcodes#001] FIXED: 2nd clause was a copy-paste `in1` (should be in2), matching the correct
+			//sibling assert on the next line. Now catches out1 colliding with input file 2. Unlike the twin
+			//NovaDemux#001 (where out1 must be a %-pattern so the assert is vacuous), CountBarcodes' out1 is a real
+			//filename, so out1==in2 is a REACHABLE collision (would overwrite input 2 while reading it). NEEDS no
+			//behavior review: it only makes the existing guard fire on a case it was always meant to catch.
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, false);
