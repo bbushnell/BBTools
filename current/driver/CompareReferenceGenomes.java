@@ -17,6 +17,9 @@ public class CompareReferenceGenomes {
 	 * @param args Command-line arguments: [pattern1] [pattern2] where # is replaced by chromosome
 	 */
 	public static void main(String[] args){
+		//n [CompareReferenceGenomes] CLEAN dev-tool (no .sh, no callers): only risks are args[0]/[1] unguarded (AIOOBE) and a
+		//n missing chrom file → ChromosomeArray.read throws. The compare() itself is correct+bounds-safe: it walks only the
+		//n overlap [max(minIndex),min(maxIndex)] so cha.get(i)/chb.get(i) never go OOB. Nothing to fix.
 		compareGenomes(args[0], args[1]);
 	}
 	

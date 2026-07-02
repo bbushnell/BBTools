@@ -17,6 +17,10 @@ public class CollateSpikeIn {
 
 		System.out.println("jobID\t%Control (BBMap)\t%Accuracy (BBMap)");
 		
+		//n [CollateSpikeIn] LOW/dev (no .sh, no callers — parses hardcoded /projectb/.../pacbio BBMapPacBio logs): args[0]
+		//n unguarded (AIOOBE 0 args); tf never closed (leak); split[1] on "mapped:" (L26) and split[2] on "Match Rate:" (L29)
+		//n are unguarded → AIOOBE if a matched line lacks the expected token count. file.substring(indexOf('/')+1) (L38) is
+		//n safe (no '/' → substring(0)=whole). Dead personal one-off → LOW.
 		TextFile tf=new TextFile(args[0], false);
 		String file=null, mapped=null, acc=null;
 		String line=tf.nextLine();

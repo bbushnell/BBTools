@@ -78,6 +78,10 @@ public class MeasureGene {
 			
 		}
 
+		//TODO: Possible bug [driver/MeasureGene#001] LOW/dead: `sum` and `count` (L35-36) are NEVER updated — the loop body
+		//that would accumulate them is commented out (L48-75); analyzeGene(g) is called for its side-effect println only and
+		//its return value is discarded (L47). So this headline summary ALWAYS prints "Sum: 0", "Count: 0", "Average: NaN"
+		//(0/0). The per-gene averages from analyzeGene still print; only this final aggregate is dead/meaningless. Dev tool.
 		System.out.println("Sum: "+sum);
 		System.out.println("Count: "+count);
 		System.out.println("Average: "+sum/count);
@@ -126,6 +130,7 @@ public class MeasureGene {
 //			if(f2!=0){System.out.println(Tools.format("%.3f, %.3f, %.5f", f1, f3, f2));}
 		}
 		
+		//NOTE [driver/MeasureGene#002] LOW/edge: div-by-zero → NaN if g.exons.length==0 (no guard). Unlikely for a normal gene.
 		float avg=(float)(sum/(2*g.exons.length));
 		
 		System.out.println(Tools.format("Average: %.3f", avg));
@@ -221,7 +226,7 @@ public class MeasureGene {
 	/** Motif pattern for AC exon start sequences */
 	private static final MotifProbsN mAC=MotifProbsN.makeMotif("AC Exon Starts MP2", 13, 11, 2);
 	/** Motif pattern for ATG exon start sequences */
-	private static final MotifProbsN mATG=MotifProbsN.makeMotif("ATG Exon Starts MP2", 13, 11, 2);
+	private static final MotifProbsN mATG=MotifProbsN.makeMotif("ATG Exon Starts MP2", 13, 11, 2); //NOTE: dead field — mATG is never used in any MotifMulti (mEStart uses mAG,mAC; mGStart uses mGStartATG). Comprehension.
 
 	/** Motif pattern for GT exon stop sequences */
 	private static final MotifProbsN mGT=MotifProbsN.makeMotif("GT Exon Stops MP2", 10, 3, 2);

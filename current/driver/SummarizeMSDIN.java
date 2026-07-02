@@ -13,6 +13,13 @@ import fileIO.TextFile;
 public class SummarizeMSDIN {
 	
 	public static void main(String[] args){
+		//NOTE [driver/SummarizeMSDIN#001] LOW/dev (no .sh, no callers): args[0] unguarded → AIOOBE with 0 args; and the
+		//TextFile below is read to EOF but NEVER closed (TextFile doesn't auto-close on EOF) → leaked stream. Also the flags
+		//M/E/S/D/I/N/B are hardcoded (only S + MS=match+sub are effective; no CLI to change them → fixed output columns), and
+		//every Long.parseLong(split[last]) is wrapped in an EMPTY catch: if a rate field is a percentage/float rather than a
+		//plain integer count, the parse fails silently and the count stays 0 — so correctness hinges on the exact BBMap stat
+		//format. The "Error Rate:" branch is uniquely flag-gated at PARSE time (`E && ...`, L77) vs the other rates which parse
+		//unconditionally; harmless because E is always false (that line just falls through unmatched). Dev benchmark parser → LOW.
 		String fname=args[0];
 		boolean M=false;
 		boolean E=false;

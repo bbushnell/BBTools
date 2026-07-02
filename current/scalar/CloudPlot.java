@@ -586,6 +586,10 @@ public class CloudPlot {
 		g.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING, java.awt.RenderingHints.VALUE_RENDER_QUALITY);
 		g.setRenderingHint(java.awt.RenderingHints.KEY_STROKE_CONTROL, java.awt.RenderingHints.VALUE_STROKE_PURE);
 
+		//n [CloudPlot#001 cosmetic] the comment says "White background" but the fill is Color.BLACK — stale comment; the plot is
+		//n intentionally black-backed. Studied praise elsewhere: cagaToColor6 (L924-925) DOES guard out-of-range input (<0 / >1) —
+		//n the robust pattern that scalar/Scalars#001's histogram lacks; interpolateColor clamps RGB to [0,255]; legend %cutoffs
+		//n guard div-by-zero with Math.max(total,1). CloudPlot is fundamentally clean recent viz code (Brian/G11/Neptune, Oct-2025).
 		// White background
 		g.setColor(Color.BLACK);
 		g.fillRect(0, 0, width, height);
@@ -622,6 +626,10 @@ public class CloudPlot {
 				float logXmax=(float)Math.log(xmax+logOffset)+logShift;
 				normX=(logX-logXmin)/(logXmax-logXmin);
 			}else{
+				//NOTE [scalar/CloudPlot#002] LOW/edge: normX (and normY below) divide by (xmax-xmin) with NO degenerate guard,
+				//unlike normZ (L655/L660 guard `<0.001f` → 0.5). If xmax==xmin (single distinct X value, or bad params) → NaN →
+				//(int)(NaN*plotWidth)=0 → all points pinned to the left/bottom margin. Degenerate, not a crash. Same for the size
+				//normS=(s-dataMin)/(dataMax-dataMin) (L680). Cosmetic for a viz tool, but mirror the Z-guard for robustness.
 				normX=(x-xmin)/(xmax-xmin);
 			}
 

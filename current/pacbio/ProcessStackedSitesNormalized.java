@@ -76,6 +76,10 @@ public class ProcessStackedSitesNormalized {
 		
 		process(infile, outfile);
 		
+		//n [PSSN#003 note] LOW/cosmetic: correctIn*100/sitesIn and correctOut*100/sitesOut are 0/0=NaN on empty input (no crash,
+		//n double div). args[0..1] unguarded (AIOOBE<2). Buffer.close() uses tsw.poison() (not poisonAndWait) — safe, TextStreamWriter
+		//n is non-daemon so the JVM joins it at exit. Buffer.setLimits reads array[0].chrom but array[0] is always non-null when it's
+		//n called (fill returns before setLimits on empty input; add/fill always leave array[0] set) — verified, no NPE.
 		System.out.println("Sites In:\t"+sitesIn+"    \t"+Tools.format("%.3f%% correct",correctIn*100d/sitesIn));
 		System.out.println("Sites Out:\t"+sitesOut+"    \t"+Tools.format("%.3f%% correct",correctOut*100d/sitesOut));
 		t.stop();
@@ -209,6 +213,12 @@ public class ProcessStackedSitesNormalized {
 //		for(int i=0; i<retain; i++){
 //			list.get(i).retainVotes++;
 //		}
+		//n [ProcessStackedSitesNormalized#002 comprehension] LOW/note: list is sorted by NCOMP (normalizedScore) but the break
+		//n test below uses best.SCORE (`best.score-b.score>best.score*SCORE_THRESH`) — a DIFFERENT key — so b.score can exceed
+		//n best.score and the drop-off cutoff is approximate w.r.t. the sort order. Not a crash; intended-ish (score gates while
+		//n normalizedScore orders). Also a single-site interval → sites=1 → retain=(int)(1*0.75)=0 → 0 votes → that lone site is
+		//n dropped unless it earns votes from OTHER overlapping intervals (vote-based design, retainVotes accumulate across the
+		//n sliding window). best==null only when list is empty, and then retain is also 0 so the loop body (which derefs best) never runs — safe.
 		Shared.sort(list, SiteScoreR.NCOMP);
 //		assert(false) : SCORE_THRESH;
 		final SiteScoreR best=(list!=null && list.size()>0 ? list.get(0) : null);
@@ -276,6 +286,10 @@ public class ProcessStackedSitesNormalized {
 		
 		int maxEndDist=(ssr.reflen()-INTERVAL)/2;
 //		float modifier2=(0.03f*endDist)/maxEndDist;
+		//TODO: Possible bug [pacbio/ProcessStackedSitesNormalized#001] LOW/dev: maxEndDist=(reflen()-INTERVAL)/2 is 0 when a
+		//site's reflen()==INTERVAL (short site, INTERVAL default 12) → this FLOAT divide by 0.0f yields Infinity/NaN → modifier2
+		//→ f=score*(1+modifier+Inf) → NaN/Inf normalizedScore, which then poisons the NCOMP sort in markRetain (NaN comparisons).
+		//reflen()<INTERVAL makes maxEndDist negative → modifier2 sign flips (de-prioritizes centered reads instead). Unguarded.
 		float modifier2=CENTER_WEIGHT*endDist/(float)maxEndDist; //Prioritize reads centered on this interval
 
 		float f=ssr.score*(1+modifier+modifier2);

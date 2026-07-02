@@ -129,6 +129,13 @@ public class SortSites {
 		return outname.replace("#", "b"+Data.GENOME_BUILD+"_"+key);
 	}
 	
+	//n [SortSites] TRACED CLEAN (no .sh, no callers — invoked by MakePacBioScript scripts). External-sort-via-temp-files, same
+	//n architecture as StackSites2. Correct: temp writers poisoned (finish L140) THEN joined per-block (finishBy* L164/L232)
+	//n before their files are read — proper flush ordering. finishByID grouping (`numericID>id||pairnum>pairnum` + else-assert
+	//n `id==id&&pairnum==pairnum`) is SOUND: IDCOMP sorts (id,pairnum) monotonically and a given id never spans blocks
+	//n (idkey=id/BLOCKSIZE), so within-id pairnum is non-decreasing → the else-assert can't fire wrongly. poskey/idkey packing
+	//n correct. Only nits: args[0..1] unguarded (AIOOBE<2); the unconditional sb.append('\n')+print at finishBy* end emits a
+	//n lone newline when the last block was empty (cosmetic). sitesRead==sitesWritten sanity assert (main L68) is consistent.
 	private static final void finish(String outname){
 		TextStreamWriter out=new TextStreamWriter(outname, true, false, false);
 		out.start();

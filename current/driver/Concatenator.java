@@ -20,12 +20,18 @@ public class Concatenator {
 	 */
 	public static void main(String args[]){
 		
+		//NOTE [driver/Concatenator#001] LOW/dev: arg validation is assert-ONLY → with -da, args[0]/args[1] are used unguarded
+		//(AIOOBE with <2 args) and the "no comma in output name" rule is unenforced. Dead dev tool (no .sh/callers) → LOW.
 		assert(args.length==2 && !args[1].contains(","));
 		TextStreamWriter tsw=new TextStreamWriter(args[1], false, false, true);
 		tsw.start();
 		for(String s : args[0].split(",")){
 			writeFile(s, tsw);
 		}
+		//n REFUTED (not a bug): poison() here (vs ConcatenateFiles' poisonAndWait) does NOT truncate output — TextStreamWriter
+		//n extends Thread with NO setDaemon (verified) → non-daemon, so the JVM joins it at exit after main returns and it drains
+		//n its FIFO queue then flushes on the poison marker. Only cost is that poison()'s dropped return hides errorState — which
+		//n main ignores anyway. Benign style difference, not a truncation defect. merge() below is a dead unused helper.
 		tsw.poison();
 	}
 	

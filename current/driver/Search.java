@@ -32,10 +32,14 @@ public class Search {
 	 * @param nearby If true, searches for nearby genes; if false, exact code overlaps only
 	 * @return List of genes that overlap or are near the specified point, null if no range contains p
 	 */
+	//NOTE [driver/Search#002] LOW/dead: findGenesBinary/findGenesLinear/findPointLinear/overlaps/findGenes are DEAD — the only
+	//external referents (dna.Data, var.Variation) call ONLY findPointBinary + containsPointBinary. So these carry the same
+	//empty-array AIOOBE as #001 but unreachably: findGenesBinary→findPointBinary returns 0→ranges[0] on empty; findGenesLinear→
+	//findPointLinear returns array.length-1 = -1 on empty→ranges[-1]. Dead-latent twins of #001; left as-is.
 	public static List<Gene> findGenesBinary(int p, Range[] ranges, boolean nearby){
 		ArrayList<Gene> list=null;
 		int a=findPointBinary(p, ranges);
-		
+
 		Range r=ranges[a];
 		
 //		System.out.println("Searching for "+p+" in "+r+"; previous range was "+ranges[a-1]);
@@ -116,6 +120,15 @@ public class Search {
 	
 	public static int findPointBinary(int p, Range[] array){
 		assert(array!=null);
+		//TODO: Possible bug [driver/Search#001] LOW→MEDIUM-if-reachable/ESCALATE: on an empty array this returns 0 — but 0
+		//is NOT a valid index for a length-0 array, and every LIVE caller blindly indexes the result:
+		//  · dna.Data.getNearestGeneSets(chrom,loc) L632: `r[index].obj1` — NO empty guard → r[0] AIOOBE.
+		//  · var.Variation.filterCodingVariances L153: `ranges[rnum].intersects(...)` — NO empty guard → ranges[0] AIOOBE.
+		//By contrast dna.Data.getNearestGeneSets(chrom,loc1,loc2) L656 DOES guard (`if(ranges==null||length==0)return null`),
+		//and the sibling containsPointBinary below CORRECTLY guards empty→false. So the empty case is a shape the author handled
+		//in 2 of 3 sibling sites but the findPointBinary contract + 2 callers miss it. Reachable iff geneSetRangeMatrix(chrom)/
+		//geneCodeAndExon/geneNearby can be length 0 (a chrom with zero gene ranges) — the guarded twin implies the author thought
+		//it could. Cross-package fix (driver+dna+var) & the return-on-empty is a design choice → ESCALATED, not fixed here.
 		if(array.length==0){return 0;}
 		int result=findPointBinary(p, 0, max(0, array.length-1), array);
 		
@@ -126,6 +139,8 @@ public class Search {
 	
 	public static boolean containsPointBinary(int p, Range[] array, int thresh){
 		assert(array!=null);
+		//n GOOD (studied praise / contrast to #001): THIS sibling guards empty correctly — returns false, never indexes.
+		//n Same author, same file; the divergence with findPointBinary's empty→0 is what flags #001 as a real oversight.
 		if(array.length==0){return false;}
 		int rnum=findPointBinary(p, 0, max(0, array.length-1), array);
 		

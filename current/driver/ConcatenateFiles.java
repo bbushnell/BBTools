@@ -57,6 +57,9 @@ public class ConcatenateFiles {
 	 * @param out Output filename, or null to auto-generate by replacing '#' with 'ALL'
 	 */
 	public static void concatenatePattern(final String basename, final String out){
+		//n [ConcatenateFiles note] concatenatePattern is HARD-DISABLED under -ea by this assert(false) (hardcoded chrom 1-25,
+		//n human-specific). main() routes here for any NON-directory `in` → so `ConcatenateFiles <file>` AssertionErrors with -ea;
+		//n runs the human-specific path only with -da. args[0] is unguarded (AIOOBE with 0 args). Dead dev tool → LOW/note.
 		assert(false) : "This is human-specific.";
 		String outname=(out==null ? basename.replace("#", "ALL") : out);
 		
@@ -96,12 +99,18 @@ public class ConcatenateFiles {
 		
 		final File dir=new File(in);
 		final File[] files=dir.listFiles();
+		//TODO: Possible bug [driver/ConcatenateFiles#001] LOW/dev: dir.listFiles() returns null on I/O error or unreadable
+		//dir (even though main gated on isDirectory()) → Arrays.sort(null) NPE. Unguarded. Dead dev tool (no .sh/callers) → LOW.
 		Arrays.sort(files);
 		
 		final File outfile=new File(out);
 		final OutputStream os=ReadWrite.getOutputStream(out, false, true, true);
 		
 		for(File f : files){
+			//NOTE [driver/ConcatenateFiles#002] LOW/dev: self-exclusion uses File.equals (LEXICAL abstract-pathname compare),
+			//not canonical. f is dir-prefixed (from listFiles); outfile=new File(out) where out may be a bare/relative name
+			//→ f.equals(outfile) is false even when they are the same file → the output file inside `in` is read as an input
+			//(self-concat of its own partial content). Fragile exclusion (mirror of ConcatenateTextFiles#001, opposite cause).
 			if(f!=null && f.isFile() && !f.equals(outfile)){
 				String fname=f.getAbsolutePath();
 				System.err.println("Processing "+fname);

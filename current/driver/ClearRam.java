@@ -19,8 +19,11 @@ public class ClearRam {
 	 */
 	public static void main(String[] args){
 		
+		//n [ClearRam] CLEAN dev-tool (no .sh, no callers): attempt() INTENTIONALLY allocates 1M-long arrays until OutOfMemoryError,
+		//n which is caught here to report the max — the infinite loop + OOM is by design, not a bug. writeJunk() (L63) is a dead
+		//n unused helper. args ignored. Nothing to fix.
 		for(int i=0; i<2; i++){
-			
+
 			try {
 				System.gc();
 				attempt();

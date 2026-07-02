@@ -273,7 +273,10 @@ public class FilterReadsByName {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//FIXED [driver/FilterReadsByName#003]: second conjunct was a copy-paste duplicate `!out1.equalsIgnoreCase(in1)`
+			//(in1 twice) => out1==in2 collision escaped this input-clobber guard. Line below correctly checks out2 vs BOTH
+			//inputs; this line now mirrors it (out1 vs in1 AND in2). Found via the dead twin FilterReadsByNameOld L277.
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=WriterFactory.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, useSharedHeader, -1);

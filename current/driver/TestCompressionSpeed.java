@@ -15,6 +15,9 @@ public class TestCompressionSpeed {
 	
 	public static void main(String[] args){
 		
+		//n [TestCompressionSpeed] LOW/dev/note (no .sh, no callers — zip level 0-9 benchmark): args[0]/[1] unguarded (AIOOBE).
+		//n args[1].replaceFirst("#",...) — if args[1] has no '#', every level writes to the SAME filename (overwrite), so the
+		//n per-level size/time readings are meaningless. Benchmark harness → LOW. compress() writes the text 4x by design.
 		TextFile tf=new TextFile(args[0], false);
 		String[] lines=tf.toStringLines();
 		tf.close();

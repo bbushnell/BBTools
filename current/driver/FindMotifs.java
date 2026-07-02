@@ -29,7 +29,7 @@ public class FindMotifs {
 		
 		int chrom=1;
 		if(args.length>0){
-			chrom=Integer.parseInt(args[0]);
+			chrom=Integer.parseInt(args[0]); //NOTE [driver/FindMotifs#002] LOW: this parsed chrom is DEAD — the loop at L131 does `for(chrom=1; chrom<=maxChrom; chrom++)`, overwriting it. The command-line chromosome arg is ignored (always scans chr1-22).
 		}
 		
 		int maxChrom=22;
@@ -132,6 +132,11 @@ public class FindMotifs {
 //			count+=analyzeChromosomeGStarts(chrom, m, locations);
 //			count+=analyzeChromosomeGStartsStronger(chrom, m, locations, firstBeaten);
 //			count+=analyzeChromosomeGStartsStrongerInFrame(chrom, m, locations, firstBeaten, true, Gene.PLUS);
+			//TODO: Possible bug [driver/FindMotifs#001] LOW/dead: passes Shared.MINUS, but analyzeChromosomeGStartsStrongerInFrame
+			//(and its two dead twins) opens with `assert(strand==Shared.PLUS) : "TODO"` (L275) => with assertions ON (-ea, the
+			//BBTools default) this tool AssertionErrors on chr1 immediately — it cannot run as written. The eset-building DOES
+			//implement the MINUS branch (L281-285), so the assert is a stale "not-validated-for-MINUS" guard contradicting the call.
+			//Dead research one-off (no .sh, no callers). Left as-is; flagged.
 			count+=analyzeChromosomeGStartsStrongerInFrame(chrom, m, locations, firstBeaten, true, Shared.MINUS);
 			Data.unload(chrom, true);
 		}

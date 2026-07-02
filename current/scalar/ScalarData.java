@@ -168,6 +168,11 @@ public class ScalarData implements Comparable<ScalarData>{
 				pos=match ? pos+interval : 0;
 				bb.appendt(name);
 			}
+			//NOTE [scalar/ScalarData#001] LOW/latent: these `X.size()>0 ? X.get(i) : default` guards (length/depth/start/taxIDs/
+			//taxIDs2 here, and gc/hh/caga in mean()/stdev()) protect against an EMPTY list but NOT a list SHORTER than gc — if any
+			//parallel list is partially populated (size in (0, gc.size)) then X.get(i) AIOOBEs for i>=X.size(). The lists ARE kept
+			//parallel by construction (readTSV/toInterval/addRow add to all together), so latent — but the guard shape is wrong
+			//(should be size()>i). Also mean()/stdev() call gc/hh/caga.mean() unguarded → NaN on empty data (depth IS guarded).
 			bb.appendt(length.size()>0 ? length.get(i) : 0, decimals);
 			bb.appendt(gc.get(i), decimals);
 			bb.appendt(hh.get(i), decimals);
@@ -521,6 +526,11 @@ public class ScalarData implements Comparable<ScalarData>{
 	Clade clade;
 	Sketch sketch;
 
+	//NOTE [scalar/ScalarData#002] LOW: depthMap is a SHARED-MUTABLE STATIC ("so all instances can share"). Footgun: if two
+	//ScalarData instances loadDepth() DIFFERENT files, the second overwrites the first's map for BOTH instances (and getDepth
+	//reads whichever was loaded last). Fine for the single-run CLI use, but a latent cross-contamination trap for any multi-
+	//dataset use. Also loadDepthFromAlignment's Integer.parseInt(parts[1]) NFEs on a non-numeric FLAG (guarded only by len>=6),
+	//and parseDepthFromHeader's parseFloat(5) assumes term 5 exists. All LOW (recent, well-structured; these are edges).
 	/** Depth map for coverage lookup by contig name (static so all instances can share) */
 	static ObjectDoubleMap<String> depthMap=null;
 

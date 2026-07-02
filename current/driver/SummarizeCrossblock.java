@@ -80,6 +80,11 @@ public class SummarizeCrossblock {
 		
 		if(in==null){throw new RuntimeException("Error - at least one input file is required.");}
 		
+		//VERIFIED (not a bug): the comma-vs-single asymmetry matches the documented contract (summarizecrossblock.sh:
+		//"A text file of files, OR a comma-delimited list of files"). Comma => literal results.txt paths (no expansion).
+		//Single => treated as a file-of-files: parseStringsFromFiles reads its lines and replaces the entry with them.
+		//Minor LOW/DOC edge: a LONE results.txt given as `in=results.txt` (no comma) is mis-expanded into its own lines;
+		//to summarize exactly one file you must use the comma/list form. Documented modes are both honored — note only.
 		if(in.contains(",")){
 			for(String s : in.split(",")){
 				inList.add(s);
@@ -101,13 +106,18 @@ public class SummarizeCrossblock {
 	
 	void process(Timer t){
 		final TextStreamWriter tsw;
+		//GOOD: this is the CORRECT optional-output pattern — null-guard the construction AND every use. It is exactly what
+		//FilterAssemblySummary#001 and CorrelateIdentity#001 both LACK (they build TextStreamWriter(ffout1) unconditionally
+		//and NPE when out= is omitted). Here out= optional works cleanly. Studied praise.
 		tsw=ffout1!=null ? new TextStreamWriter(ffout1) : null;
 		if(tsw!=null){tsw.start();}
 		if(tsw!=null){tsw.print("#fname\tcopies\tcontigs\tcontigsDiscarded\tbases\tbasesDiscarded\n");}
-		
-		int i=1;
+
+		int i=1; //column "copies" is just the 1-based ordinal of the file in the list (replicate number in the crossblock-validation context); NOT a copy-count. Comprehension note.
 		for(String fname : inList){
 			ParseCrossblockResults pcr=null;
+			//GOOD: per-file try/catch(Throwable) => one bad results.txt yields an "ERROR" row and the batch continues
+			//(contrast SummarizeContamReport#001, where one empty input NPEs and kills the whole batch). Studied praise.
 			try{
 				pcr=new ParseCrossblockResults(new String[] {"in="+fname});
 				Timer t2=new Timer();
@@ -119,6 +129,9 @@ public class SummarizeCrossblock {
 			}
 			i++;
 		}
+		//TODO: Possible bug [driver/SummarizeCrossblock#001] LOW: errorState is captured from poisonAndWait() but NEVER
+		//propagated — process() has no terminal `if(errorState){throw}` (contrast FilterAssemblySummary L146), and main()
+		//ignores x.errorState. So a writer-drain failure is recorded then silently swallowed; the tool always exits 0.
 		if(tsw!=null){errorState|=tsw.poisonAndWait();}
 	}
 
@@ -131,6 +144,9 @@ public class SummarizeCrossblock {
 	
 	/*--------------------------------------------------------------*/
 
+	//TODO: Possible bug [driver/SummarizeCrossblock#002] LOW/dead-code: these 4 fields are NEVER assigned (process()
+	//delegates per-file to a ParseCrossblockResults and prints pcr.*() directly, never accumulating into these). So the
+	//4 getters below always return 0. Dead unless an external caller trusts them (this is a standalone main tool, so unused).
 	private long basesKept=0;
 	private long basesDiscarded=0;
 	private long contigsKept=0;

@@ -21,7 +21,10 @@ public class Translator2 {
 	 * @param args Command-line arguments: [fromBuild] [toBuild] [chromosome] [location...]
 	 */
 	public static void main(String[] args){
-		
+		//NOTE [driver/Translator2#001] LOW/dev: args[0],args[1],args[2] and the args[i] loop are read with NO length guard
+		//→ AIOOBE with <3 args; Integer.parseInt(args[i]) → NumberFormatException on a non-numeric loc. Standalone dev CLI
+		//(no .sh, no external callers), crash-loud on bad input — format contract. The static translate(int...) helper below
+		//is also unused externally (dead). Input strand assumed '+' (main prints "+"). All LOW/dev.
 		int from=Gene.toBuild(args[0]);
 		int to=Gene.toBuild(args[1]);
 

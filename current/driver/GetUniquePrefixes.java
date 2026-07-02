@@ -45,7 +45,11 @@ public class GetUniquePrefixes {
 				sequence.append(line);
 			}
 		}
-		
+		//TODO: Possible bug [driver/GetUniquePrefixes#001] LOW/dev (no .sh, no callers): the LAST FASTA record is never
+		//emitted — dedup+print only fires when the NEXT ">" header is seen (L32-41), so after EOF the final accumulated
+		//`sequence`/`header` is dropped. Missing final flush (same shape as GenerateNoCallsFromCoverage#001). Also args[0]/
+		//parseInt(args[1]) unguarded (AIOOBE/NFE) and tf is never closed (leak). Dead one-off → LOW; the dropped-last-record
+		//is the real one. Fix: replicate the L32-41 flush block once more after the loop.
 	}
 	
 }

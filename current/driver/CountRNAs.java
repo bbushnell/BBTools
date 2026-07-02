@@ -20,6 +20,9 @@ public class CountRNAs {
 	 * @param args Command line arguments: [0] genome build number, [1] gene map file path
 	 */
 	public static void main(String[] args){
+		//NOTE [driver/CountRNAs#001] LOW/dev (no .sh, no callers): args[0]/args[1] unguarded → AIOOBE with <2 args, NFE if
+		//args[0] non-numeric. Also Data.getGenes(chrom) (L29) can return null for an unloaded chrom → NPE in the for-each
+		//(no guard). Dead one-off → LOW. Categorization logic (pseudo/untranslated/coding) is otherwise clean.
 		Data.GENOME_BUILD=Integer.parseInt(args[0]);
 		Data.GENE_MAP=args[1];
 		long coding=0;

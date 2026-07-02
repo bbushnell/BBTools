@@ -20,6 +20,11 @@ public class MergeTextFiles {
 	 * @param args Command-line arguments: [file1] [file2]
 	 */
 	public static void main(String[] args){
+		//NOTE [driver/MergeTextFiles#001] LOW/dev format-contract (no .sh, no callers): args[0]/args[1] unguarded → AIOOBE
+		//with <2 args. In mergeWithHeader: an EMPTY input file → lines1[0]/lines2[0] AIOOBE at the header append (L64), and
+		//makeTable does `line[col]` (col up to col2=1) with NO short-line or null-line guard → AIOOBE on a <col+1-column data
+		//line, NPE on a null row (contrast findMaxWidth, which DOES null-guard rows). All dev format-contract crashes → LOW.
+		//NOTE: MergeTextFiles2.java is a line-for-line LOGIC DUPLICATE of this class (only javadoc differs) — dedup candidate.
 		CharSequence sb=mergeWithHeader(args[0], args[1], 0, 1);
 		System.out.println(sb);
 	}
@@ -68,6 +73,10 @@ public class MergeTextFiles {
 			String[] line1=table1.get(key);
 			String[] line2=table2.get(key);
 			
+			//n Asymmetric-but-safe: line1==null (key only in file2) synthesizes a stub so the key echoes into file1's col1;
+			//n line2==null (key only in file1) gets NO stub, but toString null-guards `b` so it just prints blanks for file2
+			//n (the key still shows via the real line1). line2[col2] here is safe: line1==null ⇒ key∈table2 ⇒ line2!=null, and
+			//n line2 was keyed at col2 in makeTable so it has length>col2. Cosmetic key-echo asymmetry, not a bug.
 			if(line1==null){
 				line1=new String[col1+1];
 				line1[col1]=line2[col2];

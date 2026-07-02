@@ -183,6 +183,11 @@ public class Scalars {
 		for(byte b : bases) {
 			boolean newValid=dimers.addWindowed(b);
 			if(newValid) {
+				//NOTE [scalar/Scalars#001] RESOLVED — NOT a crash (verified against tracker/KmerTracker): hist is [14][1025] and
+				//metrics bin as (int)(metric()*1024). I traced all 14 KmerTracker metrics — each is mathematically ∈[0,1] (numerator
+				//⊆ or ±denominator), so the index is ∈[0,1024] and fits. The degenerate case (zero denominator) returns NaN, and
+				//(int)(NaN*1024)==0 in Java → in-bounds bin 0. So no AIOOBE; the only artifact is that a degenerate window's NaN
+				//metric lands in bin 0, slightly skewing that histogram. Downgraded from the earlier AIOOBE concern. LOW/cosmetic.
 				hist[0][(int)(dimers.GC()*1024)]++;
 				hist[1][(int)(dimers.strandedness()*1024)]++;
 				hist[2][(int)(dimers.HH()*1024)]++;
@@ -216,6 +221,9 @@ public class Scalars {
 				bb.append("AA\tAC\tAG\tAT\tCA\tCC\tCG\tGA\tGC\tTA\n");
 			}
 			if(rowheader) {bb.append("kmers\t");}
+			//NOTE [scalar/Scalars#002] LOW/dev: 1f/Tools.sum(dimers.counts) → Infinity when the input had no valid dimers (empty
+			//file / all-N), so the raw counts print as NaN. Cosmetic (pattern a). Also the bb.set(bb.length()-1,'\n') calls (raw
+			//and windowed) assume >=1 column was appended; safe in practice (2-mer always yields entries) but SIOOB if bb were empty.
 			float mult=1f/Tools.sum(dimers.counts);
 			for(int i=0; i<dimers.counts.length; i++) {
 				int r=AminoAcid.reverseComplementBinary(i, 2);

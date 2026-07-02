@@ -113,6 +113,11 @@ public class ParseCrossblockResults {
 		}
 		errorState|=tf.close();
 
+		//TODO: Possible bug [driver/ParseCrossblockResults#001] LOW: if out= is given, the writer is created, started, and
+		//IMMEDIATELY poisonAndWait'd with NOTHING ever written (no tsw.print anywhere) → out= produces an EMPTY file. The
+		//parsed stats (basesKept/contigsDiscarded/...) are only exposed via getters, which SummarizeCrossblock reads directly
+		//— they are never written to the file. So standalone `... out=x` yields an empty x. This class is really a library
+		//engine for SummarizeCrossblock; out= is vestigial/misleading. (GOOD: ffout1!=null guard + errorState capture are correct.)
 		if(ffout1!=null){
 			final TextStreamWriter tsw;
 			{
@@ -150,6 +155,9 @@ public class ParseCrossblockResults {
 	private static class ResultsLine{
 		
 		public ResultsLine(String s){
+			//NOTE [driver/ParseCrossblockResults#002] LOW/format-contract: split[3]=length, split[2]=removed-flag (1=removed);
+			//assumes ≥4 tab columns and numeric cols 2&3. A short or non-numeric crossblock line → uncaught AIOOBE/NumberFormat.
+			//Mitigated when called via SummarizeCrossblock (per-file try/catch(Throwable) → "ERROR" row); standalone crashes.
 			String[] split=s.split("\t");
 			length=Integer.parseInt(split[3]);
 			removed=Integer.parseInt(split[2])==1;

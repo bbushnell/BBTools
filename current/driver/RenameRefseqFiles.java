@@ -26,6 +26,9 @@ public class RenameRefseqFiles {
 				String path=dir+tn.id+".fa.gz";
 				File f=new File(path);
 				if(f.exists()){
+					//NOTE [driver/RenameRefseqFiles#001] LOW/dev (no .sh, no callers): File.renameTo() return ignored →
+					//silent rename failure (target exists / cross-fs / perm), same as RenameByHeader#001. args[0] also
+					//unguarded (AIOOBE 0 args). Dead one-off → LOW.
 					f.renameTo(new File(dir+"refseq_"+tn.id+".fa.gz"));
 				}
 			}

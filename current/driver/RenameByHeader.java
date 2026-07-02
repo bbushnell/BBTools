@@ -57,6 +57,8 @@ public class RenameByHeader {
 
 			if(f!=null && f.exists()){
 				if(f.isDirectory()){
+					//n [RenameByHeader#002] LOW/dev: f.listFiles() can return null on an unreadable dir/I/O error (even past
+					//n exists()&&isDirectory()) → NPE in this for-each. Unguarded (same shape as ConcatenateFiles#001). Dead tool → LOW.
 					for(File f2 : f.listFiles()){
 						String name=f2.getAbsolutePath();
 						if(f2.isFile() && FileFormat.hasFastaOrFastqExtension(name)){
@@ -120,6 +122,11 @@ public class RenameByHeader {
 		if(sb.length()>0){
 			String name=f.getName();
 			sb.append(name);
+			//NOTE [driver/RenameByHeader#001] LOW/dev: File.renameTo(...) returns a boolean success flag that is IGNORED here.
+			//A failed rename (target already exists, cross-filesystem move, permission denied) is silently swallowed — the
+			//file keeps its old name with no error/log. Should check the return. Dead dev tool (no .sh/callers) → LOW.
+			//n GOOD (studied praise): the header-token parse above (split[1]/[2]/[3]) is wrapped in try/catch that logs the
+			//n offending path and skips — deliberate defense against short/malformed headers, unlike most unguarded split[] tools.
 			f.renameTo(new File(sb.toString()));
 		}
 	}

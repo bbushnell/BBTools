@@ -109,6 +109,12 @@ public class FilterAssemblySummary {
 		
 		final TextStreamWriter tsw;
 		{
+			//TODO: Possible bug [driver/FilterAssemblySummary#001] out= omitted => ffout1==null (FileFormat.testOutput
+			//returns null for a null name), and new TextStreamWriter(null) NPEs immediately (TextStreamWriter ctor
+			//dereferences ff.fastq() on line 1). in1 gets a clean "input required" throw (L85) but out1 gets none, so
+			//running with no out= yields a raw NPE instead of a clean error or stdout. The dead `if(tsw!=null)` guard at
+			//L129 shows optional-output was INTENDED, but only half-wired: construction here and poisonAndWait below are
+			//unguarded. INTENT UNCLEAR (require-out-with-clean-error vs make-out-optional) => escalate, not fixing in place.
 			tsw=new TextStreamWriter(ffout1);
 			tsw.start();
 			if(verbose){outstream.println("Started tsw");}
@@ -126,13 +132,13 @@ public class FilterAssemblySummary {
 				String result=processLine(line);
 				if(result!=null){
 					linesRetained++;
-					if(tsw!=null){tsw.println(result);}
+					if(tsw!=null){tsw.println(result);} //tsw is never null here (built unconditionally L112) => this guard is DEAD/vestigial; it is the fingerprint of the intended-optional-output that #001 left half-wired.
 				}
 			}
 		}
 		
-		errorState|=tsw.poisonAndWait();
-		errorState|=tf.close();
+		errorState|=tsw.poisonAndWait(); //GOOD: writer drain return captured into errorState (contrast SummarizeCoverage#002 which dropped it). [If #001 makes out optional, this too needs an `if(tsw!=null)` guard.]
+		errorState|=tf.close(); //GOOD: reader close return also captured.
 		
 		t.stop();
 		
@@ -151,13 +157,17 @@ public class FilterAssemblySummary {
 	
 	private String processLine(String line){
 //		System.out.println("Processing line "+line);
-		if(line.startsWith("#")){return null;}
+		if(line.startsWith("#")){return null;} //header lines (NCBI assembly_summary starts data-header rows with '#') skipped.
 		String[] split=line.split("\t");
+		//TODO: Possible bug [driver/FilterAssemblySummary#002] LOW/format-contract: guard is assert-ONLY. With -da (the
+		//shell default disables nothing, but production runs often use -da), a short/blank line (<7 cols) makes split[6]
+		//throw AIOOBE, and a non-numeric col-7 makes Integer.parseInt throw NumberFormatException — both uncaught => the
+		//whole run dies on ONE malformed line. Crash-loud, no corruption; same shape as EstherFilter#001 / SummarizeSealStats#002.
 		assert(split.length>6) : split.length+"\n"+"'"+line+"'";
-		String id=split[6];
+		String id=split[6]; //split[6] = column 7 = species_taxid in NCBI assembly_summary.txt (col 6/index 5 is 'taxid'). Using species_taxid is plausibly intentional (species-level filtering); NOT flagged as a bug — comprehension note only.
 		int number=Integer.parseInt(id);
 //		System.out.println("Found number "+number+" from "+id+"; node: "+filter.tree().getNode(number));
-		boolean b=filter.passesFilter((int)number);
+		boolean b=filter.passesFilter((int)number); //(int) cast redundant: number is already int. Cosmetic.
 //		System.out.println("passesFilter? "+b);
 		return b ? line : null;
 	}

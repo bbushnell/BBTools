@@ -206,8 +206,15 @@ public class StackSites {
 			g.array[i]=null;
 		}
 		
+		//n [StackSites] TRACED CLEAN (no .sh, no callers — invoked by MakePacBioScript-generated scripts). out.poison() (vs the
+		//n evolved StackSites2's out.poisonAndWait() L372) is NOT a truncation bug: TextStreamWriter is non-daemon (no setDaemon)
+		//n so the JVM joins it at exit and it drains its queue on the poison marker; SS2 just uses the tidier wait-form. write()
+		//n interval-grouping asserts hold for start>=0; Glob growth is correct; checkPerfection compares revcomp(read) vs ref
+		//n forward for minus strand (correct). This class constructs SiteScoreR with pairnum (L117/L158) → its output later becomes
+		//n SiteR via var.GenerateVarlets, so read-0's mate here is what surfaces the SiteR#001 pairnum-zero collision downstream.
+		//n Minor: readsProcessed++ (L84) counts before the r!=null check, so null list slots inflate the count slightly.
 		out.poison();
-		
+
 	}
 	
 	private static boolean checkPerfection(int start, int stop, byte[] bases, ChromosomeArray cha, boolean rcomp, float f) {

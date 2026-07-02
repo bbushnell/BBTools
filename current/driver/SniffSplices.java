@@ -46,8 +46,15 @@ public class SniffSplices {
 		if(args.length>0){
 			for(String s1 : args){
 				String s=s1.toLowerCase();
+				//NOTE [driver/SniffSplices#001] LOW/cosmetic/dev: "rcomp" sets the flag here but has no continue/else,
+				//so it ALSO falls through the motif if/else chain (matches no motif token) to the final else and gets
+				//list.add("RCOMP") — i.e. the flag word is itself analyzed as a spurious sequence. Harmless: "RCOMP"
+				//contains non-ACGT bases → baseTupleToNumber<0 → matchStrength returns minProb (no crash), just prints
+				//a meaningless "For string ...RCOMP..." block. Dev one-off (no .sh, no callers) so LOW.
 				if(s.equalsIgnoreCase("rcomp")){rcomp=true;}
 
+				//n motif selection is by substring on the LOWERCASED arg; real DNA seqs (ACGTN) can't contain these
+				//n tokens, so no false trigger. Sequences are added upper-cased at the final else.
 				if(s.contains("estart_ac")){m=eStarts2_AC;}
 				else if(s.contains("estart_15")){m=eStarts2_15;}
 				else if(s.contains("estart")){m=eStarts2;}
@@ -154,6 +161,10 @@ public class SniffSplices {
 
 			for(int i=0; i<s.length(); i++){
 
+				//n EDGE-SAFE (verified): matchStrength is called for EVERY i incl. 0 and length-1, and only
+				//n percentile() below is try/catch-wrapped — but MotifProbsN.matchStrength guards internally
+				//n (a=a-center; if(a<0 || a+length+N-1>source.length) return minProb), so no AIOOBE regardless of
+				//n whether the 4-N padding covers the motif window. normalize() does no array access. No bug here.
 				float strength=m.matchStrength(code, i);
 				float norm=m.normalize(strength);
 				float percent=-1;

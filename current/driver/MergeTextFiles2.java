@@ -21,6 +21,10 @@ public class MergeTextFiles2 {
 	 * @param args Command-line arguments: file1 file2
 	 */
 	public static void main(String[] args){
+		//NOTE [driver/MergeTextFiles2#001] LOW/dev format-contract (no .sh, no callers): IDENTICAL logic to MergeTextFiles —
+		//args[0]/args[1] unguarded (AIOOBE <2 args); empty input → lines[0] AIOOBE at header append (L65); makeTable line[col]
+		//AIOOBE on short lines + no null-row guard (contrast findMaxWidth). This class is a line-for-line LOGIC DUPLICATE of
+		//driver/MergeTextFiles (only javadoc differs) — one of the two is a dedup candidate. See MergeTextFiles#001.
 		CharSequence sb=mergeWithHeader(args[0], args[1], 0, 1);
 		System.out.println(sb);
 	}

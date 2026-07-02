@@ -55,6 +55,10 @@ public class ConvertSamToAln {
 			if(!s.startsWith("@")){
 				String[] line=s.split("\t");
 				assert(line.length>1) : s;
+					//NOTE [driver/ConvertSamToAln#001] LOW/dev (no .sh, no callers): this assert only checks length>1, but the
+					//parse below reads line[2] and line[3] → a SAM line with <4 tab fields throws AIOOBE that the try/catch does
+					//NOT swallow (it catches NumberFormatException only). So a short/truncated data line crashes (and with -da the
+					//assert is gone too). Assert should be length>=4. Weaker-guard-than-access, like FilterAssemblySummary#002.
 				
 				boolean success=true;
 				boolean nomap=false;

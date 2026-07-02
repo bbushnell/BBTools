@@ -133,20 +133,29 @@ public class CorrelateIdentity {
 		}
 		
 		ArrayList<String[]> list=new ArrayList<String[]>();
+		//Extracts the strictly-lower triangle + diagonal (j:1..i), skipping col 0 (row-label column) and the redundant
+		//upper triangle of a symmetric identity matrix. Comprehension: pairs matrix1[i][j] with matrix2[i][j] as (x,y).
 		for(int i=0; i<matrix1.length; i++){
+			//TODO: Possible bug [driver/CorrelateIdentity#002] LOW/precondition: matrix2 is indexed by matrix1's dimensions
+			//(loop bound matrix1.length, and matrix2[i][j]) with NO shape check that matrix2.length>=matrix1.length or that
+			//matrix2[i] has >=i+1 cols. If in2 is a smaller/ragged matrix than in1, matrix2[i][j] throws AIOOBE. Correlating
+			//two identity matrices assumes same taxa set / same shape, so this is a loud precondition crash — LOW, not fixed.
 			for(int j=1; j<=i; j++){
 				list.add(new String[] {matrix1[i][j], matrix2[i][j]});
 			}
 		}
-		
-		Collections.shuffle(list);
-		
+
+		Collections.shuffle(list); //NOTE: uses Collections' own Random, NOT sampleseed => sampleseed is doubly-dead (see #003). Order is non-reproducible.
+
+		//TODO: Possible bug [driver/CorrelateIdentity#001] LOW: out= omitted => new TextStreamWriter(null,...) => testOutput(null)
+		//returns null => FileFormat-ctor NPE (TextStreamWriter.java:41). No out-required guard (in files ARE guarded L100-105).
+		//Same shape as FilterAssemblySummary#001, and here there is not even the vestigial null-guard. Escalated, not fixed.
 		TextStreamWriter tsw=new TextStreamWriter(out, overwrite, append, true);
 		tsw.start();
 		for(String[] pair : list){
 			tsw.print(pair[0]+"\t"+pair[1]+"\n");
 		}
-		tsw.poisonAndWait();
+		tsw.poisonAndWait(); //NOTE [#001 cont'd]: poisonAndWait() return DROPPED and this class has NO errorState field/terminal throw => a write failure is silently swallowed and the tool still exits 0 (pattern b). LOW.
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -159,6 +168,12 @@ public class CorrelateIdentity {
 	
 //	private Random randy=shared.Shared.random();
 
+	//TODO: Possible bug [driver/CorrelateIdentity#003] LOW/dead-code: samplerate, sampleseed, columnLength are ALL
+	//parse-only/never-read in process() — subsampling was never implemented (`//private Random randy` above is commented
+	//out; Collections.shuffle uses its own Random). So `samplerate=0.1` is silently accepted (even assert-validated L85)
+	//yet has ZERO effect — the user gets every pair, not a sample. Not documented in matrixtocolumns.sh usage, so it's a
+	//silent-accept-and-ignore of an undocumented arg rather than a broken doc promise. Also sampleseed is a `float` field
+	//assigned Long.parseLong(b) (L87) => long→float widening (cosmetic, unused anyway). columnLength never referenced.
 	private float samplerate=1;
 	private float sampleseed=-1;
 	private int columnLength=Integer.MAX_VALUE;
