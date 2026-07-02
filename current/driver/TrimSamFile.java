@@ -78,12 +78,16 @@ public class TrimSamFile {
 		LineParser1 lp=new LineParser1('\t');
 		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
 			if(s[0]=='@'){//header
+				//TODO: Possible bug [driver/TrimSamFile#001] LOW/dev (no .sh, no callers): System.out.println(s) with s a
+				//byte[] binds to println(Object) — PrintStream has NO println(byte[]) overload (only char[]) — so this prints
+				//the array's default toString "[B@<hash>" for EVERY line, NOT the SAM text. The tool's entire output is garbage
+				//array refs. Fix: `System.out.println(new String(s))`. Both call sites (here + L86) are affected. Dead tool → LOW.
 				System.out.println(s);
 			}else{
 				SamLine sl=new SamLine(lp.set(s));
-				
+
 				if(!set.contains(sl.qname)){
-					System.out.println(s);
+					System.out.println(s); //n same println(byte[])→Object defect as above [driver/TrimSamFile#001].
 				}
 			}
 		}

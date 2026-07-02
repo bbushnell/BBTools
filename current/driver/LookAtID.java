@@ -33,6 +33,9 @@ public class LookAtID {
 		for(String s=tf.nextLine(); s!=null; s=tf.nextLine()){
 			SiteScoreR[] array=SiteScoreR.fromTextArray(s);
 			String[] split=s.split("\t");
+			//n [LookAtID] LOW/dev (no .sh, no callers — SiteScoreR ID-overflow diagnostic): the loop indexes split[i] with
+			//n i<array.length, so if fromTextArray yields more elements than the tab-split has fields, split[i] AIOOBEs (the
+			//n two tokenizations are assumed 1:1). args[0] unguarded. tf IS closed (L51). Diagnostic-only, low stakes → LOW/note.
 			for(int i=0; i<array.length; i++){
 				SiteScoreR ssr=array[i];
 				String s2=split[i];

@@ -70,6 +70,11 @@ public class RemoveAdapters3 {
 				Data.setPath(b);
 			}else if(a.equals("fasta") || a.equals("in") || a.equals("input") || a.equals("in1") || a.equals("input1")){
 				in1=b;
+				//NOTE [pacbio/RemoveAdapters3#001] LOW/dev (DEAD — no .sh; RA2 is the shell twin): same null-b NPE as
+				//RemoveAdapters2#002 — a bare `in1`/`in1=` (b==null) → b.indexOf('#') NPE; asymmetric with the out= branch (L95)
+				//which guards b==null. TWIN NOTE: RA3 diverges from RA2 in ways that make it SAFER elsewhere — its printStatistics
+				//has NO basesIn/totalReads line (so no RA2#001 div-by-zero), and it doesn't count basesOut/readsOut + its
+				//split(ArrayList) asserts single-end (so no RA2#003 paired-double-count). This shared in= NPE is the only carryover.
 				if(b.indexOf('#')>-1){
 					in1=b.replace("#", "1");
 					in2=b.replace("#", "2");
@@ -106,6 +111,9 @@ public class RemoveAdapters3 {
 					}
 				}
 			}else if(a.equals("perfectmode")){
+				//NOTE [pacbio/RemoveAdapters3#004] LOW/dev: PERFECTMODE and ziplevel are DEAD flags — PERFECTMODE is set here but
+				//never read anywhere, and ziplevel (set to 2) is never applied to ReadWrite.ZIPLEVEL or anything else. Parsed-but-
+				//ignored (pattern c). Likewise maxImperfectSwScore (ctor L300) is computed but never used. Dead tool → LOW.
 				PERFECTMODE=Parse.parseBoolean(b);
 				if(ziplevel==-1){ziplevel=2;}
 			}else if(a.equals("minratio")){
@@ -362,6 +370,9 @@ public class RemoveAdapters3 {
 			ArrayList<Read> out=new ArrayList<Read>(in.size());
 			for(Read r : in){
 				if(r!=null){
+					//NOTE [pacbio/RemoveAdapters3#003] LOW/dev/latent: this asserts single-end, but run() DOES process mates
+					//(processRead(r.mate), L323) — so a PAIRED input with SPLIT=true trips this AssertionError (-ea). Inconsistent
+					//single/paired handling (RA2's split handles mates instead). Latent: RA3 is dead + PacBio is ~always single-end.
 					assert(r.mate==null);
 					if(!r.hasAdapter()){out.add(r);}
 					else{out.addAll(split(r));}
@@ -545,7 +556,11 @@ public class RemoveAdapters3 {
 			int[] rvec=msaR.fillAndScoreLimited(rcomp1, rcomp2, 0, rcompDistance-1, 0, null);
 			int score=rvec==null ? -99999 : rvec[0];
 //			System.out.println(minSwScoreSuspect+", "+score+"\n");
-			return score>=1000;
+			//NOTE [pacbio/RemoveAdapters3#002] LOW/dev: HARDCODED magic threshold 1000 — the computed field minSwScoreRcomp (ctor
+		//L298, scaled to the aligner score range) is DEAD: the line that would use it (just below) is commented out. So the
+		//rcomp gate is a raw constant unrelated to MINIMUM_ALIGNMENT_SCORE_RATIO / aligner scale, and minSwScoreRcomp is never
+		//read. Also msaR is the NON-adapter aligner (author's own TODO at ctor L294 asks why). Dead tool → LOW.
+		return score>=1000;
 //			return score>=minSwScoreRcomp;
 		}
 

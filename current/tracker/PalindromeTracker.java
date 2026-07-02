@@ -28,6 +28,11 @@ public class PalindromeTracker {
 		}
 		int tailDif=tail2-tail1;
 		int rlen=b0-a0+1;
+		//NOTE [tracker/PalindromeTracker#001] LOW/comprehension: the increment() calls below use tail1/tail2/rlen (and p.plen()/
+		//loop()/matches/mismatches) as HISTOGRAM INDICES, which assumes non-negative values — i.e. the palindrome lies within
+		//[a0,b0] (a0<=p.a<=b0 → tail1,tail2>=0) and b0>=a0 (→ rlen>=1). If a caller ever passes inverted/out-of-region coords,
+		//tail1 or rlen goes negative → LongList.increment(negative) (AIOOBE / wrong bin). Depends on the caller contract (normal
+		//palindrome-in-region use is safe). tailDif>=0 after the swap above. Otherwise the tracker is clean (parallel LongLists).
 		plenList.increment(p.plen());
 		loopList.increment(p.loop());
 		tailList.increment(tail1);

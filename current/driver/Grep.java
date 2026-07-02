@@ -17,8 +17,10 @@ public class Grep {
 	 */
 	public static void main(String[] args){
 		
+		//n [Grep] CLEAN dev-trivial (no .sh, no callers): only risk is args[0]/args[1] unguarded → AIOOBE with <2 args.
+		//n tf properly closed (L27); literal substring search. Nothing else to flag.
 		TextFile tf=new TextFile(args[0], true);
-		
+
 		String s=null;
 		
 		for(s=tf.nextLine(); s!=null; s=tf.nextLine()){

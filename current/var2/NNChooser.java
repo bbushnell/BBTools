@@ -64,15 +64,18 @@ public final class NNChooser {
 	 *  haploid+diploid Roche calls (60/30/15x); serves all ploidies via the inverse-ploidy dims. */
 	static final String ROCHE_RESOURCE="?callvars_roche.bbnet";
 
-	/** The PacBio HiFi/CCS network token.  s_pe_swarm seed18 (2026-06-28), trained on Shred+BBMap (pe) HG001 PacBio
-	 *  calls; best-on-pbmm2 of a 48-seed swarm, and won concordance across pbmm2/BBMap/MapPacBio test sets.
-	 *  Serves ploidy 1 (haploid) and 2 (diploid); ploidy 3+ is served by {@link #PACBIO_POLYPLOID_RESOURCE}. */
+	/** The PacBio HiFi/CCS network token.  s_pe_swarm seed46 (2026-07-02), trained on Shred+BBMap (pe) HG001 PacBio
+	 *  calls; best-on-pbmm2 of the 48-seed swarm under the platform-correct eval (pbmm2 30x diploid CROSSOVER_NN 55,938,
+	 *  the lowest of all 48). Serves ploidy 1 (haploid) and 2 (diploid); ploidy 3+ is served by
+	 *  {@link #PACBIO_POLYPLOID_RESOURCE}. (Replaced seed18, which was selected under a wrong-platform eval.) */
 	static final String PACBIO_RESOURCE="?callvars_pacbio.bbnet";
 
-	/** The PacBio HiFi/CCS polyploid (ploidy&gt;=3) network token.  s_pe_tetjumbo seed5 (2026-07-02), trained on a
-	 *  75%-tetraploid + 12%-diploid + 12%-haploid PacBio jumbo (HG001+HG002 pe-shred, ploidy-encoded so it
-	 *  generalizes across ploidy via dim0=1/ploidy and dim32). Best of a 16-seed swarm on the tetraploid eval
-	 *  (CROSSOVER_NN 116,378 vs the diploid net's 170,372 = -31.7%). Serves ploidy 3 and up. */
+	/** The PacBio HiFi/CCS polyploid (ploidy&gt;=3) network token.  s_pe_swarm seed38 (2026-07-02) -- a DIPLOID-trained
+	 *  net (not a dedicated tetraploid net; the dedicated tet-jumbo nets all lost). Best ploidy-4 extrapolator of the
+	 *  48-seed swarm on the pbmm2 tetraploid eval (CROSSOVER_NN 84,280 vs no-NN 244,555 = -66%); the ploidy encoding
+	 *  (dim0=1/ploidy, dim32) lets a diploid net generalize to higher ploidy. Note diploid accuracy does NOT predict
+	 *  tetraploid extrapolation: seed46 (best diploid) is worst on tet, seed38 (mediocre diploid) is best on tet.
+	 *  Serves ploidy 3 and up. (Replaced s_pe_tetjumbo seed5, which was selected under a wrong-platform eval.) */
 	static final String PACBIO_POLYPLOID_RESOURCE="?callvars_pacbio_polyploid.bbnet";
 
 	/**

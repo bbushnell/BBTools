@@ -372,6 +372,13 @@ public class StackSites2 {
 		out.poisonAndWait();
 	}
 	
+	//n [StackSites2] TRACED CLEAN (no .sh, no callers — the EVOLVED twin of StackSites, invoked by MakePacBioScript scripts).
+	//n Divergences from StackSites are intentional generational evolution, NOT bugs: SS2 gates pcov on semiperfect (perfect→
+	//n truePcov separately), trims PCOV_TIP_DIST from the pcov increment range, blocks output into per-key temp files (Glob),
+	//n adds coverage-based retainSite filtering, and uses out.poisonAndWait() (cleaner than SS's poison()). retainSite's
+	//n pcov/tpcov/cov reads below use possibly-negative (start-PCOV_TIP_DIST) or past-end (stop+PCOV_TIP_DIST) indices, but
+	//n CoverageArray2.get clamps OOB→0 (verified L145) so NO AIOOBE. cov.increment(j,-1) intentionally mutates shared coverage
+	//n as sites are tossed (order-sensitive greedy filter — by design). Like StackSites it feeds SiteR#001 downstream via pairnum.
 	private static boolean retainSite(SiteScoreR ssr, CoverageArray pcov, CoverageArray tpcov, CoverageArray cov){
 		if(ssr.semiperfect && !ssr.perfect){return true;} //For tip extension
 		assert(cov!=null && cov!=FAKE) : (cov==FAKE)+", "+ssr.chrom;

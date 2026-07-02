@@ -47,6 +47,11 @@ public class FixDumbFile {
 		sb.append("library_name\trun_date");
 		Set<String> keys=map.keySet();
 		{
+			//TODO: Possible bug [driver/FixDumbFile#001] LOW/dev (no .sh, no callers): if the input has zero data rows (empty
+			//file, or every line is a "library_name" header) the map is empty → keys.iterator().next() throws
+			//NoSuchElementException. Unguarded. Also term[2] (L53), term0[0]/[1] (L61-62) and term[3] (L64) are unguarded
+			//column reads → AIOOBE on any data line with <4 tab fields (#002). The `else if(s.contains("\tmode\t")){}` at
+			//L37 is a dead empty block (no-op leftover). Dead one-off → LOW.
 			String key0=keys.iterator().next();
 			ArrayList<String[]> list0=map.get(key0);
 			for(String[] term : list0){

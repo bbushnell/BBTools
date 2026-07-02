@@ -16,6 +16,8 @@ public class LineCount {
 	 */
 	public static void main(String[] args){
 		
+		//n [LineCount] CLEAN dev-trivial (no .sh, no callers): only risk is args[0] unguarded → AIOOBE with 0 args. tf is
+		//n properly closed (L21); countLines returns non-blank count. Nothing else to flag.
 		TextFile tf=new TextFile(args[0], false);
 		long lines=tf.countLines();
 		tf.close();

@@ -281,9 +281,9 @@ public class Contig {
 	 * @return true if contig is in canonical form, false otherwise
 	 */
 	boolean canonical(){
-		//TODO: Possible bug [assemble/Contig#002] - baseToComplementExtended[i] indexed by loop POSITION not by a base; baseToComplementExtended[0]==0 < any base byte, so this returns true on iteration 0 for every real contig => canonical() is constant-true => rcomp() at Tadpole1:689/Tadpole2:552 never fires => contig canonicalization is dead. Likely intended baseToComplementExtended[bases[i]], but the compare DIRECTION must be re-derived (indexing by base inverts a<b vs canonical convention). Do NOT auto-fix: on assembly path, determinism-relevant.
+		//[assemble/Contig#002 FIXED 2026-07-02] Was `baseToComplementExtended[i]` (indexed by loop POSITION not by a base) => baseToComplementExtended[0]==0 < any base byte => returned true on iteration 0 for every contig => canonical() was constant-true => the rcomp() canonicalization at Tadpole1:689/Tadpole2:552 NEVER fired => output contig ORIENTATION was left build-order-dependent (nondeterministic under multithreading), which the orientation-sensitive popBubbles then amplified into a nondeterministic contig COUNT. Correct test: a contig is canonical iff its sequence <= its reverse-complement, i.e. compare bases[i] to complement(bases[n-1-i]).
 		for(int i=0, j=bases.length-1; i<bases.length; i++, j--){
-			final byte a=AminoAcid.baseToComplementExtended[i], b=bases[j];
+			final byte a=bases[i], b=AminoAcid.baseToComplementExtended[bases[j]];
 			if(a<b){return true;}
 			else if(b<a){return false;}
 		}

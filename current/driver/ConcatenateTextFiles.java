@@ -53,6 +53,11 @@ public class ConcatenateTextFiles {
 
 	private static void concatenate(String[] split) {
 		String outname=split[split.length-1];
+		//n [ConcatenateTextFiles#002] LOW/dev: overwrite protection is assert-ONLY → with -da an existing output is silently
+		//n clobbered (WriteThread ctor re-opens it for write with no recheck). GOOD (studied praise): the WriteThread
+		//n producer-consumer is correct — data buffers flushed only at size>=LIST_SIZE (never empty), so the empty-list poison
+		//n at concatenate() end is unambiguous; ArrayBlockingQueue is FIFO (input order preserved); each buffer is handed off by
+		//n reference-swap (L105) so no data race on list contents. run() exits only on the poison. Sound.
 		assert(overwrite || !new File(outname).exists()) : outname+" exists.";
 		
 		WriteThread wt=new WriteThread(outname);
@@ -111,6 +116,10 @@ public class ConcatenateTextFiles {
 			File[] contents=f.listFiles();
 			for(File c : contents){
 				String abs=c.getAbsolutePath();
+				//NOTE [driver/ConcatenateTextFiles#001] LOW/dev: self-exclusion compares c.getAbsolutePath() against wt.fname,
+				//which is getCanonicalPath() (WriteThread ctor L127). Absolute!=canonical in general (symlinks, ./..), so when
+				//scanning a directory the output file may NOT be excluded → it gets read as an input and concatenated into
+				//itself (reads its own partial content). Should compare canonical-to-canonical. Dead dev tool (no .sh/callers) → LOW.
 				if(!abs.equals(wt.fname)){
 //					System.out.println(c+" == "+new File(wt.fname)+" : "+c.equals(new File(wt.fname)));
 					processTerm(abs, bufferptr, wt);

@@ -37,7 +37,12 @@ public class MoveFiles {
 
 		
 		File[] files=dir.listFiles();
-		
+		//NOTE [driver/MoveFiles#001] LOW/dev (no .sh, no callers): (a) despite the class name "MoveFiles" and the javadoc
+		//("moves matching files"), copyFile() only COPIES — the source is never deleted, so this is a copy, not a move.
+		//(b) dir.listFiles() can return null (I/O error) even past the exists()/isDirectory() asserts → NPE in the for-each
+		//below (unguarded; and the asserts vanish under -da). (c) name-matching (strip ext → strip trailing non-digits →
+		//endsWith("chr"+chrom)) assumes the chrom number is the last digit-run — fragile but endsWith avoids chr1/chr11
+		//collisions. args[0] unguarded. Dead one-off → LOW.
 		for(int chrom=1; chrom<=22; chrom++){
 			
 			String key="chr"+chrom;

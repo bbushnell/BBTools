@@ -49,6 +49,10 @@ public class TestLockSpeed {
 			}
 		}
 		
+		//n [TestLockSpeed] CLEAN dev-benchmark (no .sh, no callers): compares increment strategies (unlocked/synchronized/atomic/
+		//n volatile/fieldupdater). The racy modes (UNLOCKED counter++, VOLATILE counter++) intentionally lose updates — that IS
+		//n the measurement; box.value() being < threads*max for those is expected, not a bug. mode+params validated (throw on
+		//n unknown mode L60, assert on unknown param). Only nit: Speed calc divides by t.elapsed → Infinity if elapsed==0 (instant).
 		CountBox box;
 		if(mode==UNLOCKED || mode==LOCKED){
 			box=new LockBox();

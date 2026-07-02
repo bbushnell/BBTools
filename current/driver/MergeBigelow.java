@@ -110,6 +110,11 @@ public class MergeBigelow {
 		
 		final TextStreamWriter tsw;
 		{
+			//NOTE [driver/MergeBigelow#001] LOW/dev: out= is optional-LOOKING (out1 defaults null; only in1&in2 are required
+			//at ctor L83) but is NOT actually optional here — if out= is omitted, ffout1=FileFormat.testOutput(null,...)=null,
+			//and this unconditional new TextStreamWriter(null) NPEs at its ctor (TextStreamWriter L41: ff.fastq() on null ff).
+			//The dead `if(tsw!=null...)` guard at L128 shows optional-output WAS intended but was only half-wired. Same shape
+			//as FilterAssemblySummary#001 / pattern (f). Dev one-off (no .sh, no callers) so LOW; a real user always passes out=.
 			tsw=new TextStreamWriter(ffout1);
 			tsw.start();
 			if(verbose){outstream.println("Started tsw");}
@@ -130,9 +135,12 @@ public class MergeBigelow {
 			}
 		}
 		
+		//n GOOD (studied praise): errorState is fully propagated on the MAIN path — both the writer drain AND the in1
+		//n reader close are captured, and L139 throws if set. This is the correct plumbing that SummarizeCrossblock#001
+		//n and SummarizeSealCrosstalk#001 both LACK. (The gap is only #002: the in2 reader in hash() is never closed.)
 		errorState|=tsw.poisonAndWait();
 		errorState|=tf.close();
-		
+
 		t.stop();
 		outstream.println(Tools.timeLinesBytesProcessed(t, linesProcessed, charsProcessed, 8));
 		
@@ -186,9 +194,14 @@ public class MergeBigelow {
 			String line;
 			while((line=tf.nextLine())!=null){
 				String[] split=line.split(delimiter);
-				table.put(split[0], split);
+				table.put(split[0], split); //n split[0] is always safe: String.split on any input yields length>=1.
 			}
 		}
+		//NOTE [driver/MergeBigelow#002] LOW/resource/dev: this in2 TextFile is read to EOF then NEVER closed. TextFile does
+		//NOT auto-close at EOF (readLine returns null without close(), verified TextFile L374), so the in2 InputStream leaks
+		//until process exit, and TextFile.close()'s errorState (errorState|=ReadWrite.finishReading, L311) is discarded for in2.
+		//Asymmetric with the main-loop tf which IS closed (process() L134). Should be `tf.close();` before return (dropping its
+		//return is fine — the in1 close already feeds the propagated errorState). Dev one-off so LOW; matters only if reused.
 		return table;
 	}
 	

@@ -93,12 +93,18 @@ public class MergeReadsAndGenome {
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else{
-				System.err.println("Unknown parameter "+split[i]);
+				//[wrong-variable FIX — pacbio/MergeReadsAndGenome#001]: was `split[i]` — `split` is arg.split("=") (length 1-2)
+				//but `i` is the args loop index, so split[i] AIOOBEs for any unknown param at i>=2 (before the assert can report it).
+				//Corrected to args[i] (the actual offending argument).
+				System.err.println("Unknown parameter "+args[i]);
 				assert(false);
 			}
 		}
 		
 		assert(FastaReadInputStream.settingsOK());
+		//NOTE [pacbio/MergeReadsAndGenome#003] LOW/dev: if in!=null but out==null, `new File(out)` below dereferences out (NPE)
+		//BEFORE the `assert(out!=null)` at L109 that was meant to catch it — the null-check comes too late. Reorder the assert
+		//above this block. Dead tool (no .sh/no callers) → LOW.
 		if(in!=null){
 			File a=new File(out);
 			for(String s : in){
@@ -182,7 +188,12 @@ public class MergeReadsAndGenome {
 		while(startN<r.length() && r.bases[startN]=='N'){startN++;}
 		while(stopN>0 && r.bases[stopN]=='N'){stopN--;}
 		if(startN>0 || stopN<r.length()-1){
-			if(r.length()-startN-stopN<50){return null;}
+			//[wrong-formula FIX — pacbio/MergeReadsAndGenome#002]: startN and stopN are the INDICES of the first/last non-N base,
+			//so the trimmed length is stopN-startN+1 (matching copyOfRange(bases,startN,stopN+1) below). The old check
+			//`r.length()-startN-stopN<50` mixes a length with two indices and is wrong — e.g. len=100,startN=10,stopN=80 gives 10<50
+			//and WRONGLY discards a valid 71bp trimmed read. Corrected to the actual trimmed length. (Behavior change — Brian please
+			//confirm the 50bp minimum was meant to apply to the trimmed length, which the copyOfRange makes near-certain.)
+			if(stopN-startN+1<50){return null;}
 			r.bases=KillSwitch.copyOfRange(r.bases, startN, stopN+1);
 			if(r.quality!=null){r.quality=KillSwitch.copyOfRange(r.quality, startN, stopN+1);}
 		}

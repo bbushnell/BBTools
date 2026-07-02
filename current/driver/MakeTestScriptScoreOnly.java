@@ -5,6 +5,10 @@ public class MakeTestScriptScoreOnly {
 	
 	public static void main(String[] args){
 		
+		//REVIEWED (G11, genuine V3): CLEAN dev toy (personal benchmark generator, hardcoded /work/bbushnell/ paths; no .sh,
+		//no callers). NOTE the contrast with its twin MakeTestScript: THERE the assert (>=1) under-guarded a >=3 arg need and
+		//`strings` could stay null (unknown mode → NPE). HERE the assert `==1` correctly matches the single-arg usage (only
+		//args[0] read) and `strings` is unconditionally assigned (L78) → no null/NPE risk. Simpler twin is the cleaner one.
 		assert(args.length==1) : "Please enter number of reads.";
 		numReads=Integer.parseInt(args[0]);
 		

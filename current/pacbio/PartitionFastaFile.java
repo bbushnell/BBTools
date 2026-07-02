@@ -24,6 +24,11 @@ public class PartitionFastaFile {
 		assert(!infile.equalsIgnoreCase(outfile));
 		assert(outfile.contains("#"));
 		long partition=Integer.parseInt(args[2]);
+		//NOTE [pacbio/PartitionFastaFile#001] LOW/dev (no .sh, no callers): args[3] is SKIPPED — maxDataOut reads args[4], so a
+		//value passed as args[3] is silently ignored (off-by-one gap in positional args). Also args[0..2] unguarded (AIOOBE<3),
+		//parseInt/parseLong NFE. And the maxDataOut cutoff in split() (`dataOut<maxDataOut` checked at loop top) can stop MID-record
+		//— header written, sequence partially written — which contradicts the javadoc's "complete sequences are not split"
+		//(that guarantee holds only for the per-`partition` boundary, which IS checked at '>' headers). Dead dev tool → LOW.
 		if(args.length>4){maxDataOut=Long.parseLong(args[4]);}
 		
 		if(ReadWrite.ZIPLEVEL<2){ReadWrite.ZIPLEVEL=2;}
@@ -66,6 +71,9 @@ public class PartitionFastaFile {
 		System.out.println("Avg:   "+(dataOut)/pnum);
 //		System.out.println("\n"+s+"\n"+dataOut+"\n"+maxDataOut);
 		
+		//n [PartitionFastaFile] this synchronized(tsw){tsw.wait(100)} is a pointless 100ms sleep — nothing ever notifies tsw, so
+		//n it just blocks 100ms before poison(). Harmless (poison drains and the non-daemon writer is joined at JVM exit) but a
+		//n code smell / no-op. The per-partition split (currentBases>=partition, checked only at '>' headers) DOES keep whole records.
 		try {
 			synchronized(tsw){
 				tsw.wait(100);

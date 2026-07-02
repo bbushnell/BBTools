@@ -36,11 +36,17 @@ public final class SelectReads {
 		if(args.length>4){reads=Parse.parseKMG(args[4]);}
 		
 		symbol=Tools.toUpperCase(symbol);
+		//TODO: Possible bug [driver/SelectReads#001] LOW/dev (no .sh, no callers): these are SEQUENTIAL ifs, not else-if, so
+		//they CASCADE. cigar 'X' → 'S' (L40) then immediately 'S' → 'C' (L42), and a direct 'S' also → 'C'. The target index
+		//array below is {'M','S','D','I','C'}, where index 1 = 'S' (substitution). But NO input can ever produce a final 'S':
+		//both 'X' and 'S' collapse to 'C'. → substitution selection is UNREACHABLE; msdic[1] is never queryable. Intent is
+		//ambiguous (match-string 'S'=substitution vs cigar 'S'=softclip), so ESCALATE rather than blind-fix (else-if chain, or
+		//pick which 'S' wins). Dead dev tool → LOW.
 		if(symbol=='='){symbol='M';}
 		if(symbol=='X'){symbol='S';}
 		if(symbol=='N'){symbol='D';}
 		if(symbol=='S' || symbol=='H' || symbol=='P'){symbol='C';}
-		
+
 		final int index=Tools.indexOf(new char[] {'M','S','D','I','C'}, symbol);
 		assert(index>=0) : "Symbol (3rd argument) must be M, S, D, I, C (for match string symbols) or M, =, X, D, N, I, S, H, P (for cigar symbols).";
 		

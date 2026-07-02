@@ -183,8 +183,13 @@ public class PartitionReads {
 					tsw1[mod].print(a);
 					if(paired){
 						b.append('\n');
-						if(tsw2[i]!=null){tsw2[i].print(b);}
-						else{tsw1[i].print(b);}
+						//[driver-style wrong-variable FIX — pacbio/PartitionReads#001]: the mate must go to the SAME partition as
+						//its read (tsw1[mod] above), to honor the class's "maintains read pairing integrity" guarantee. This used
+						//`i` (the readlist loop index, 0..readlist.size()) instead of `mod` (0..partitions): (a) i>=partitions →
+						//AIOOBE (arrays are size `partitions`, default 2, but readlist has hundreds), and (b) for i<partitions the
+						//mate landed in partition i, SEPARATED from its read. Obvious wrong-variable bug; corrected i→mod (both lines).
+						if(tsw2[mod]!=null){tsw2[mod].print(b);}
+						else{tsw1[mod].print(b);}
 					}
 					
 					x++;

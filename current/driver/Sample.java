@@ -35,8 +35,10 @@ public class Sample {
 			e.printStackTrace();
 			System.exit(1);
 		}
-		
-		
+		//TODO: Possible bug [driver/Sample#001] LOW/dev (no .sh, no callers — "example" template class): pw is a PrintWriter over
+		//a BufferedOutputStream that is NEVER flushed or closed — main returns here without pw.close()/pw.flush(), so the buffered
+		//output is lost/truncated (an empty or partial output file). br is likewise never closed (leak). As a copy-a-file example
+		//this is a real defect. Fix: pw.close() (flushes) in a finally, and br.close(). Dead template → LOW.
 	}
 	
 	/**

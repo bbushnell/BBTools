@@ -17,6 +17,11 @@ import var.Variation;
  * Supports both VarLine and Variation object types for genomic variant data.
  * @author Brian Bushnell
  */
+//REVIEWED (G11, genuine V3): DEAD class — no external callers (legacy chain-file liftover on var.VarLine/Variation, the
+//pre-var2 variant model). translate(VarLine) and translate(Variation) are near-twins and are MUTUALLY CONSISTENT (same
+//PLUS/MINUS coord logic, same length-preservation + begin<=end asserts). The two `!v2.call.equalsIgnoreCase("ref")` /
+//`!v2.ref.equalsIgnoreCase("ref")` pairs (L154/158, L221/225) are DIFFERENT fields (call vs ref) each vs "ref" — VERIFIED
+//NOT the `!x.eq(y) && !x.eq(y)` copy-paste typo swept elsewhere. One latent note below (#001). All LOW/dead.
 public class Translator {
 	
 	
@@ -55,6 +60,10 @@ public class Translator {
 //						System.out.println("\n"+vl+"\n->\n"+vl2);
 //					}
 					if(vl2!=null){
+						//TODO: Possible bug [driver/Translator#001] LOW/dead/latent: alvls is sized `in.length` (INPUT chrom
+						//count), but chrom is the DESTINATION chromosome (vl2.chromosome = dest1[0] from the chain). If a
+						//liftover maps a variant onto a destination chrom index >= in.length, alvls[chrom] throws AIOOBE. Safe
+						//only when in.length already covers every possible destination chrom (e.g. full-genome sizing). Twin at L94.
 						int chrom=vl2.chromosome;
 						alvls[chrom].add(vl2);
 					}

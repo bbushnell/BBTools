@@ -303,6 +303,11 @@ public class MakePacBioScript {
 			boolean eccline=s.contains("?ecc?");
 			boolean sortline=s.contains("?sort?");
 			boolean refline=s.contains("?ref?");
+			//NOTE [pacbio/MakePacBioScript#001] LOW/dev (no .sh, no callers — personal script generator w/ hardcoded
+			///house/homedirs/b/bushnell/ template paths): mergeline is a COPY-PASTE dup of refline — both test "?ref?". It was
+			//presumably meant to test a distinct marker (e.g. "?merge?"). As written mergeline==refline, and its ONLY use (the
+			//`optional` computation just below) already includes !refline, so mergeline is fully redundant/dead — no functional
+			//effect, but any intended merge-line handling never happens. Harmless given no template relies on it.
 			boolean mergeline=s.contains("?ref?");
 			boolean optional=(!eccline && !sortline && !refline && !mergeline && s.startsWith("#?")); //Optional for some other reason
 			

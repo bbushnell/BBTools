@@ -152,7 +152,10 @@ public class ReduceSilva {
 		if(out1!=null){
 			final int buff=4;
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//CLEANED [driver/ReduceSilva#003]: was the codebase-wide `!out1.eq(in1) && !out1.eq(in1)` copy-paste (in1 twice).
+			//HERE it is HARMLESS REDUNDANCY, not a functional bug: ReduceSilva has NO in2 (single-input tool), so there is no
+			//second input for the duplicate to have missed. Deduped to a single check for pattern-consistency (Neptune's sweep).
+			assert(!out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, null, buff, null, false);
 			ros.start();

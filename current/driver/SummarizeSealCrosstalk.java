@@ -94,6 +94,10 @@ public class SummarizeSealCrosstalk {
 		ArrayList<Result> results=new ArrayList<Result>();
 		ByteBuilder bb=new ByteBuilder();
 
+		//NOTE [driver/SummarizeSealCrosstalk#002] LOW/cosmetic: this "#All values are in read PPM." note AND the "#Files\t<list>"
+		//line are built into bb then bb.clear()'d WITHOUT being emitted — the header.add(...) that would keep them is commented
+		//out (line below). So the output silently lacks its PPM-explanation comment and the input-file list; it begins at the
+		//#Totals row + "#Name..." header. Likely a sloppy disable rather than intent.
 		bb.append("#All values are in read PPM.\n");
 		bb.append("#Files");
 		for(String s : in) {bb.tab().append(s);}
@@ -152,7 +156,7 @@ public class SummarizeSealCrosstalk {
 			bb.clear();
 		}
 
-		errorState=bsw.poisonAndWait() | errorState;
+		errorState=bsw.poisonAndWait() | errorState; //NOTE [driver/SummarizeSealCrosstalk#001] LOW: errorState IS captured here, but process() never acts on it (the `assert(!errorState)` at ~L137 is commented out) and main() can't read it (private, no getter) → a writer-drain failure is recorded then silently swallowed; the tool always exits 0. Same shape as SummarizeCrossblock#001.
 	}
 	
 	private static class Result implements Comparable<Result> {

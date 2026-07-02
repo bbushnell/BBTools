@@ -133,6 +133,12 @@ public class KmerTracker{
 		}
 		long gc=acgt[1]+acgt[2];
 		long at=acgt[0]+acgt[3];
+		//NOTE [tracker/KmerTracker#001] LOW/cosmetic: INCONSISTENT div-by-zero guarding across the metrics. HH() and CAGA()
+		//guard the denominator with Math.max(1f, ...), but GC (here), strandedness, AAAT, CCCG, PP, ACTG, ACAG, ATMTA, AT, CCMCG
+		//do NOT → they return NaN on empty/degenerate counts (denominator 0). Consumers must tolerate NaN. RESOLVES scalar/
+		//Scalars#001: every metric is mathematically ∈[0,1] (numerator ⊆ or ±denominator), so (int)(metric*1024) ∈[0,1024] fits
+		//hist[14][1025]; and NaN → (int)(NaN*1024) == 0 in Java → in-bounds. So NO AIOOBE — just a NaN→bin-0 stat artifact on
+		//degenerate windows. Recommend adding the Math.max(1f,denom) guard to the unguarded metrics for consistency.
 		return gc/(float)(at+gc);
 	}
 

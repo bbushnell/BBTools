@@ -51,6 +51,11 @@ public class TransposeTextFile {
 		
 		StringBuilder sb=new StringBuilder(4096);
 		
+		//TODO: Possible bug [driver/TransposeTextFile#001] LOW/dev (no .sh, no callers): `columns` is taken from the FIRST
+		//non-skipped row (lines2[skipLines]) and then lines2[row][column] is read for EVERY row < columns — so a RAGGED input
+		//(any row with fewer columns than row skipLines) throws AIOOBE, and rows with MORE columns are silently truncated.
+		//Assumes a perfectly rectangular file. Also lines2[skipLines] itself AIOOBEs if the file has <=skipLines lines
+		//(empty file, or skip too large). Dead one-off → LOW.
 		int columns=lines2[skipLines].length;
 
 		for(int column=0; column<columns; column++){

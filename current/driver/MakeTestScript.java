@@ -5,10 +5,13 @@ public class MakeTestScript {
 	
 	public static void main(String[] args){
 		
+		//NOTE [driver/MakeTestScript#001] LOW/dev: the assert checks args.length>=1, but the code immediately needs >=3
+		//(args[1]=readlen, args[2]=mode) → with 1 or 2 args the assert PASSES then args[1]/args[2] throw AIOOBE, and the
+		//assert message ("Please enter number of reads.") is misleading. Should be `assert(args.length>=3)`. Dev tool.
 		assert(args.length>=1) : "Please enter number of reads.";
 		numReads=Integer.parseInt(args[0]);
 		readlen=Integer.parseInt(args[1]);
-		
+
 		String mode=args[2];
 		String extra=(args.length>3 ? args[3] : "EXTRA");
 		
@@ -189,8 +192,13 @@ public class MakeTestScript {
 //				gradesam+"#S_r#Rx#L.sam #R",
 //		};
 		
+		//NOTE [driver/MakeTestScript#002] LOW/dev: if `mode` matches none of the if-blocks above, `strings` stays null and
+		//print(strings,...) NPEs on its `for(String s : array)` (first call below). No unknown-mode guard. Dev tool, crash-loud.
+		//Also: all command templates hardcode personal paths (/house/homedirs/b/bushnell/...) — this is Brian's own aligner
+		//benchmark scaffolding, not a general tool. replaceAll("#S",...) is regex but '#' isn't a metachar and the replacement
+		//strings carry no $/\\, so it's harmless here.
 		int[] blank=new int[] {0, 0, 0, 0, 0};
-		
+
 		int preload=100;
 		if(mode.equalsIgnoreCase("masai")){
 			preload=1000;

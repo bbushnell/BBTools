@@ -48,6 +48,10 @@ public class ScalarInterval {
 	public void set(ScalarData data, int index) {
 		this.name = (data.names != null ? data.names.get(index) : null);
 		this.length = (data.length != null ? data.length.get(index) : 0);
+		//NOTE [scalar/ScalarInterval#001] LOW: gc/hh/caga are read WITHOUT the null-guard that every other field here has
+		//(name/length/depth/start/taxID/taxID2 all use `data.X!=null ? ... : default`). So if ScalarData.gc/hh/caga are null this
+		//set() NPEs. Presumably intentional (gc/hh/caga are the always-computed core metrics) — but the asymmetry is a latent trap
+		//if a ScalarData is ever built with those unset. Consistency: guard them too, or assert they're non-null in ScalarData.
 		this.gc = data.gc.get(index);
 		this.hh = data.hh.get(index);
 		this.caga = data.caga.get(index);

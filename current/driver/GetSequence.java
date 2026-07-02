@@ -71,13 +71,22 @@ public class GetSequence {
 //		System.out.println(Data.GENOME_BUILD);
 //		System.out.println(chrom);
 //		System.out.println(strand);
-		
+
+		//n [GetSequence#002] LOW/dev/TODO: strand IS parsed above (toStrand, L64) but only PLUS is implemented — passing "-"
+		//n trips this assert (AssertionError with -ea). Explicit unimplemented-feature guard (the ": TODO" says so), not a
+		//n silent bug; same parse-then-assert-default shape as FindMotifs#001. `base` (L41) is likewise dead-configurable
+		//n (comment says "change to 0 or 1" but no arg sets it → always 0). The static get()/get(...) helpers below are unused.
 		assert(strand==Shared.PLUS) : "TODO";
 		ChromosomeArray cha=Data.getChromosome(chrom);
-		
+
 		String[] array=new String[args.length];
-		
+
 //		System.out.println("firstLoc="+firstLoc+"/"+args.length);
+		//TODO: Possible bug [driver/GetSequence#001] LOW/dev: if NO coordinate arg is present (no arg starting with a digit,
+		//'[' or '('), firstLoc stays -1 and this loop starts at i=-1 → args[-1] AIOOBE. Reachable by e.g. `GetSequence chr1`
+		//(chrom-only, no range). Also this whole main assumes well-formed input: empty arg → charAt(0) AIOOBE (L50);
+		//`build` without `=N` → split[1] AIOOBE/NFE (L54); chrom left -1 (no chrN arg) → Data.getChromosome(-1) (L76);
+		//out-of-bounds range → cha.getString may AIOOBE. All dev format-contract crashes (no .sh, no callers) → LOW.
 		for(int i=firstLoc; i<args.length; i++){
 //			System.out.println("Processing "+args[i]);
 			args[i]=args[i].replace("[","").replace("]","").replace("(","").replace(")","").replace(",","").trim();

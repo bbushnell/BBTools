@@ -853,6 +853,17 @@ public class CallVariants {
 		varMap.totalQualityAvg=totalQualityAvg;
 		varMap.totalMapqAvg=totalMapqAvg;
 		varMap.readLengthAvg=trimmedBasesProcessed/(double)Tools.max(1, readsProcessed-readsDiscarded);
+		// Guard against the silent wrong-platform-vector class of bug (2026-07-02): NN feature vectors encode a
+		// platform one-hot (VectorUMP45 dims 4-7). If NN scoring runs on long reads while platform is still the
+		// Illumina default, every vector gets the wrong platform bit and the net scores off-distribution — silently,
+		// with no crash and plausible-looking numbers. Illumina reads are always short (<=~600bp even on 2x300 MiSeq);
+		// an average read length above 1000 with platform=illumina means the platform= flag was forgotten. Crash
+		// loudly here rather than publish garbage scores. (Shredded long reads are short, so pacbio/nanopore with the
+		// correct platform pass regardless; this only constrains the illumina case.)
+		assert(!useNet || VectorUMP45.platform!=VectorUMP45.PLATFORM_ILLUMINA || varMap.readLengthAvg<=1000) :
+			"NN scoring with platform=illumina (the default) but average read length "+varMap.readLengthAvg+" > 1000. "
+			+"Illumina reads are short; long reads need platform=pacbio/nanopore/roche, or every NN vector gets the wrong "
+			+"platform one-hot and the net scores off-distribution. Did you forget the platform= flag?";
 		t2.stop("Time: ");
 		Shared.printMemory();
 		outstream.println();

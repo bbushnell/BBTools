@@ -127,6 +127,12 @@ public class MergeFastaContigs {
 	
 	
 	
+	//n [MergeFastaContigs] this 3-arg merge() (writes to System.out) is DEAD — no callers; main() dispatches only to mergeFasta/
+	//n mergeFastq. Superseded stdout version. Also `modulo` field (L520) is dead (defined, never read). mergeFasta uses
+	//n poisonAndWait() (L321-322) while mergeFastq uses poison() (L431-432) — both safe (TextStreamWriter non-daemon), a style
+	//n divergence not a bug. Class is functionally sound but crufty (N-pad assembly of contigs into synthetic chroms). One real
+	//n edge: if the read loop exits on the chrom<maxChromsOut / dataOut<maxDataOut cap MID-contig, `temp` can be non-empty at the
+	//n trailing assert(temp.length()==0) (fires under -ea; content lost under -da). Normal EOF clears temp so it holds then.
 	public static void merge(String infile, String outfile, String outindex) {
 		StringBuilder temp=new StringBuilder(MIN_CONTIG_TO_ADD);
 		TextFile tf=new TextFile(infile, false);
@@ -406,6 +412,11 @@ public class MergeFastaContigs {
 				}
 
 				temp.setLength(0);
+				//NOTE [pacbio/MergeFastaContigs#001] LOW/dev/dead: these two lines are copy-paste cruft from the FASTA path.
+				//Here `s=new String(r.bases)` (L380) is NEVER null (so the break is dead), and `label=s.substring(1)` sets label
+				//to the SEQUENCE-minus-first-char — but label is unconditionally reset to r.id at the top of the next iteration
+				//(L381) before it's ever used, so this reassignment is DEAD (harmless). In the FASTA path s IS a '>'-header and
+				//substring(1) correctly strips '>'; that logic was pasted here where it doesn't apply.
 				if(s==null){break;}
 				label=s.substring(1);
 

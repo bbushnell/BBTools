@@ -102,6 +102,11 @@ public class RenameNcbiToTid {
 		
 		final TextStreamWriter tsw;
 		{
+			//NOTE [driver/RenameNcbiToTid#002] LOW/dev: out= is optional-looking (only in1 required, ctor L81) but NOT
+			//optional — omitting out= gives ffout1=testOutput(null)=null → this new TextStreamWriter(null) NPEs at ctor
+			//(TextStreamWriter L41 ff.fastq()). Dead `tsw!=null` guard L119 = optional-output half-wired. Pattern (f),
+			//same as MergeBigelow#001/FilterAssemblySummary#001. Dev one-off; a real user passes out=. errorState below
+			//IS correctly propagated (L123-124 capture + L129 throw) — studied praise.
 			tsw=new TextStreamWriter(ffout1);
 			tsw.start();
 			if(verbose){outstream.println("Started tsw");}
@@ -134,8 +139,14 @@ public class RenameNcbiToTid {
 	
 	private static String processLine(String line){
 		if(line.startsWith(">ncbi")){
-			line=line.replaceFirst(">ncbi", ">tid");
+			line=line.replaceFirst(">ncbi", ">tid"); //n ">ncbi" has no regex metachars → replaceFirst is safe/literal here.
 			int firstSpace=line.indexOf(' ');
+			//TODO: Possible bug [driver/RenameNcbiToTid#001] LOW/dev: a ">ncbi..." header with NO space → firstSpace=-1 →
+			//substring(0,-1) throws StringIndexOutOfBoundsException (crash, not a clean skip). Real for an accession-only
+			//header like ">ncbi12345" (no description). Unguarded structured-field index (pattern e). Recommended trivial
+			//guard: `if(firstSpace>=0){ line=line.substring(0,firstSpace)+"|"+line.substring(firstSpace+1); }` — i.e. a
+			//spaceless header becomes ">tid12345" with no pipe (no description to separate). Left un-applied: dev one-off
+			//(no .sh, no callers) and Brian's real NCBI headers always have a space; the else-behavior is a mild judgment call.
 			line=line.substring(0, firstSpace)+"|"+line.substring(firstSpace+1);
 		}
 		return line;

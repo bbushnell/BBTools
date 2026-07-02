@@ -19,6 +19,8 @@ public class PrintEnv {
 	
 	public static void main(String[] args){
 		
+		//n [PrintEnv] CLEAN (no .sh, no callers): env-var dump + timestamp + hostname (in try/catch). No args, no file I/O,
+		//n no index/parse risk. Nothing to flag.
 		Date d=new Date();
 		System.out.println("Time: "+d.getTime()+" = "+d+"\n");
 		

@@ -104,8 +104,15 @@ public class GenerateNoCallsFromCoverage {
 	 * @param gender Sample gender ('M' or 'F'), affects haploid chromosome handling
 	 * @return List of VarLine objects representing no-call regions
 	 */
+	//REVIEWED (G11, genuine V3): this ENTIRE class is DEAD — generate()/removeDuplicateNocalls()/splitHaplotypes have
+	//ZERO callers anywhere in current/ (verified by grep). Legacy pre-var2 no-call scaffolding on var.VarLine (which now
+	//survives only here + driver/Translator). Findings below are real shapes but have NO live impact.
+	//TODO: Possible bug [driver/GenerateNoCallsFromCoverage#001] LOW/dead-code: the loop emits VarLines ONLY on a level
+	//TRANSITION (`level!=newLevel`, below) and there is NO post-loop flush. So the FINAL run — if it is level 0 or 1 (a
+	//no-call region extending to chra.maxIndex) — is never emitted: a no-call at the very END of a chromosome is silently
+	//dropped. (The commented generateOld had the same omission.) Would be MEDIUM if reachable; LOW because the method is dead.
 	public static ArrayList<VarLine> generate(byte chrom, CoverageArray2 ca, int build, char gender){
-		
+
 		assert(minCovered>=1);
 		assert(minHalfCovered>=1);
 		assert(minCovered>=minHalfCovered);
@@ -419,8 +426,11 @@ public class GenerateNoCallsFromCoverage {
 		}
 		if(prev!=null){output.add(prev);}
 		
+		//Traced (G11): the recursion re-runs until a pass makes no un-intersection change (needToReprocess stays false).
+		//Each pass strictly trims/removes one overlap and the branch asserts verify non-intersection, so it converges — no
+		//bug found in this intricate assert-heavy legacy de-overlap logic (precision>recall; class is dead anyway).
 		if(needToReprocess){return removeDuplicateNocallsHaplotyped(output);}
-		
+
 		Shared.sort(output);
 		return output;
 	}

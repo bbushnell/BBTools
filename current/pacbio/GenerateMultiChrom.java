@@ -47,6 +47,10 @@ public class GenerateMultiChrom {
 		int mincontig=-1;
 		int maxcontig=-1;
 		int buffer=-1;
+		//TODO: Possible bug [pacbio/GenerateMultiChrom#001] LOW/dev (no .sh, no callers): guard is `args.length>3` but the block
+		//reads args[4] AND args[5] → AIOOBE when exactly 4 or 5 args are given (only args[3], or args[3..4], present). Guard should
+		//be args.length>5. Also args[0..2] parseInt NFE-unguarded; makeSynthetic's `while(a<=cha.array.length)` can read one past
+		//the end (cha.get clamps, low risk); addN's spread=maxContig-minContig+1 → randy.nextInt(spread) throws if maxContig<minContig.
 		if(args.length>3){
 			mincontig=Integer.parseInt(args[3]);
 			maxcontig=Integer.parseInt(args[4]);

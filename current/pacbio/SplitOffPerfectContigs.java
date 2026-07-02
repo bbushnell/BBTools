@@ -248,6 +248,11 @@ public class SplitOffPerfectContigs {
 			final int length=r.length();
 			if(length>=minContig){
 				int minCov=Integer.MAX_VALUE;
+				//TODO: Possible bug [pacbio/SplitOffPerfectContigs#001] LOW/dev: if a range's length <= 2*tipbuffer the window
+				//[r.a+tipbuffer, r.b-tipbuffer] is EMPTY → this loop never runs → minCov stays Integer.MAX_VALUE → the range is
+				//classified "good"/perfect below with NO actual coverage check. Config-dependent: tipbuffer=max(1,padding) and a
+				//range must clear minContig(=MIN_CONTIG_TO_ADD, 50) to get here, so the default (padding 4 → tipbuffer 4, 2*4<50)
+				//is safe, but a large padding (>= ~25) lets a minContig-length contig auto-pass unverified. Guard the empty window.
 				for(int i=r.a+tipbuffer; i<=r.b-tipbuffer; i++){
 					minCov=Tools.min(minCov, ca.get(i));
 				}
@@ -332,6 +337,12 @@ public class SplitOffPerfectContigs {
 		return contig;
 	}
 	
+	//n [SplitOffPerfectContigs] TRACED CLEAN otherwise (no direct .sh; part of the pacbio assembly pipeline via generated scripts):
+	//n avg-len prints guard the divisor with Tools.max(count,1) (no div-by-zero); CoverageArray.get/increment clamp OOB→0 (verified);
+	//n cha2 sizing (badlen += 2*N_PAD_LENGTH2-N_PAD_LENGTH+10) leaves 10 bytes of slack over the actual content and cha2.set
+	//n auto-extends anyway (no overflow); the basesKept/contigsKept/... stat fields are all assigned AND used (contrast the
+	//n dead ones in driver/SummarizeCrossblock#002); tsw.poison() is safe (TextStreamWriter non-daemon → joined at JVM exit).
+	//n BREAK_BAD_CONTIGS forward/reverse 'X'-marking passes are symmetric and bounds-safe.
 	public static void writeContig(CharSequence sb, TextStreamWriter tsw, int blocklen){
 		for(int i=0; i<sb.length(); i+=blocklen){
 			int max=Tools.min(i+blocklen, sb.length());

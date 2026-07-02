@@ -42,6 +42,10 @@ public class CompareSequences {
 				same++;
 			}else{
 				different++;
+				//n [CompareSequences] LOW/dev/note (no .sh, no callers): N-check uses uppercase 'N' literal only, so a case
+				//n change of N ('N' vs 'n') satisfies a=='N'&&b!='N' → counted as nToBase AND (below) as caseDifferent — a
+				//n double/mis-count. Also args[0]/[1] unguarded; the "%" line (L68) is 0/0=NaN on empty overlap (lim==0). Cosmetic
+				//n stat inaccuracies in a dead diagnostic → LOW. Base comparison itself is bounds-safe (lim=min(maxIndex)).
 				if(a=='N' && b!='N'){
 					nToBase++;
 				}else if(a!='N' && b=='N'){

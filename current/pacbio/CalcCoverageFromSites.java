@@ -215,6 +215,10 @@ public class CalcCoverageFromSites {
 		
 		long length=nCount+baseCount;
 		double invlen=1.0/length;
+		//NOTE [pacbio/CalcCoverageFromSites#002] LOW/dev/cosmetic (both methods): these reciprocals are unguarded — nCount==0
+		//(genome with no N), baseCount==0, nCountCovered==0, or length==0 → Infinity, and finite*Inf / 0*Inf → NaN/Infinity in
+		//the printed stats. Likewise correctSitesB=correctSites*100/totalSites is 0/0=NaN on empty input. Double division → no
+		//crash, just NaN/Inf in the report (pattern a). args[0..2] are also unguarded (AIOOBE<3); mincoverage arg split[1] AIOOBE.
 		double invbase=1.0/baseCount;
 		double invn=1.0/nCount;
 		double invnc=1.0/nCountCovered; //covered N's
@@ -316,9 +320,12 @@ public class CalcCoverageFromSites {
 			for(SiteScoreR ssr : sites){
 				
 				if(bs!=null){
+					//NOTE [pacbio/CalcCoverageFromSites#001c] LOW/dev: TWIN DIVERGENCE — processAndWrite() guards this cast with
+					//`ssr.numericID<=Integer.MAX_VALUE` (L87) but this process() twin does NOT → a numericID > MAX_VALUE wraps to a
+					//negative int → bs.set(negative) IndexOutOfBoundsException. The no-output path is the less-guarded twin.
 					bs.set((int)ssr.numericID);
 				}
-				
+
 				int len=ssr.stop-ssr.start+1;
 				totalSites++;
 				totalSiteLen+=len;
@@ -326,9 +333,13 @@ public class CalcCoverageFromSites {
 					correctSites++;
 					correctSiteLen+=len;
 				}
-				
-				
+
+
 				int chrom=ssr.chrom;
+				//TODO: Possible bug [pacbio/CalcCoverageFromSites#001a] LOW/dev: TWIN DIVERGENCE — this process() twin does NOT apply
+				//the MIN_END_DIST end-trim that processAndWrite() uses (there: min=start+MIN_END_DIST, max=stop-MIN_END_DIST, L101-102).
+				//So the two methods count coverage over DIFFERENT spans → the printed statistics differ depending solely on whether
+				//an outfile was passed. processAndWrite (with trim) is presumably the intended behavior; this twin drifted.
 				int min=Tools.max(ssr.start,  0);
 				int max=Tools.min(ssr.stop,  Data.chromLengths[chrom]-1);
 				byte[] array=coverage[chrom];
@@ -376,6 +387,9 @@ public class CalcCoverageFromSites {
 			ChromosomeArray cha=Data.getChromosome(chrom);
 			byte[] cov=coverage[chrom];
 			byte[] cor=correct[chrom];
+			//NOTE [pacbio/CalcCoverageFromSites#001b] LOW/dev: TWIN DIVERGENCE — this process() twin iterates the FULL chromosome
+			//(cov.length), while processAndWrite() iterates only to cov.maxIndex (L155). So the baseCount/nCount denominators and
+			//the noCoverage tallies differ between the two paths (process() counts trailing uncovered positions, the other doesn't).
 			for(int i=0; i<cov.length; i++){
 				char b=Tools.toUpperCase((char)cha.get(i));
 				if(!AminoAcid.isFullyDefined(b)){b='N';}
@@ -439,6 +453,10 @@ public class CalcCoverageFromSites {
 		
 		long length=nCount+baseCount;
 		double invlen=1.0/length;
+		//NOTE [pacbio/CalcCoverageFromSites#002] LOW/dev/cosmetic (both methods): these reciprocals are unguarded — nCount==0
+		//(genome with no N), baseCount==0, nCountCovered==0, or length==0 → Infinity, and finite*Inf / 0*Inf → NaN/Infinity in
+		//the printed stats. Likewise correctSitesB=correctSites*100/totalSites is 0/0=NaN on empty input. Double division → no
+		//crash, just NaN/Inf in the report (pattern a). args[0..2] are also unguarded (AIOOBE<3); mincoverage arg split[1] AIOOBE.
 		double invbase=1.0/baseCount;
 		double invn=1.0/nCount;
 		double invnc=1.0/nCountCovered; //covered N's

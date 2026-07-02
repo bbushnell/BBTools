@@ -205,7 +205,7 @@ public class Life {
 		for(int y=0; y<rows; y++){
 			changes+=fillRow(y);
 			if(display){
-				printRow2(current[y]);
+				printRow2(current[y]); //NOTE [driver/Life#003] LOW/cosmetic: printRow2 ALSO does linesOut++/bytesOut+= (L285-286), so with display=true linesOut/bytesOut are DOUBLE-counted per row (advance also counts below). The bsw-based printRow (L268) is never called → bsw is opened by makeBSW but nothing is ever written to it → out= (default stdout.txt) is always EMPTY; rendering goes to System.out instead.
 				//			printRow(current[y]);
 			}
 			linesOut++;
@@ -256,11 +256,18 @@ public class Life {
 
 		//Calculate last cell
 		sum+=a[0]+b[0]+c[0];
-		final byte prevState=b[0];
+		//FIXED [driver/Life#001]: was `prevState=b[0]` — a copy-paste from the first-cell block. The last cell's OWN state is
+		//b[xMax], not b[0]. stateMap[prevState][sum] picks the Dead vs Live rule row by the cell's current state; using b[0]
+		//meant the entire rightmost column was evolved with cell-0's alive/dead state, so wherever b[0]!=b[xMax] and sum∈{3,4}
+		//the last column got the wrong next state (e.g. a live last cell with 3 neighbors wrongly dies if cell 0 is dead).
+		final byte prevState=b[xMax];
 		final byte nextState=stateMap[prevState][sum];
 		dest[xMax]=nextState;
 
 //		changed+=(ns^ps);//1 if something changed
+		//NOTE [driver/Life#002] LOW/dead: `changed` is never incremented (all `changed+=` lines are commented out), so
+		//fillRow always returns 0 → advance()→runCycle() always sees changes==0, and runCycle's `changes>0` return is
+		//IGNORED by processInner anyway. So the intended "stop early when the board is stable" is not wired; it runs full maxCycles.
 		return changed;
 	}
 	

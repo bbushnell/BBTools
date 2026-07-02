@@ -72,6 +72,9 @@ public class RemoveAdapters2 {
 				USE_ALT_MSA=Parse.parseBoolean(b);
 			}else if(a.equals("fasta") || a.equals("in") || a.equals("input") || a.equals("in1") || a.equals("input1")){
 				in1=b;
+				//NOTE [pacbio/RemoveAdapters2#002] LOW: b is unguarded here — a bare `in1` or `in1=` (b==null) → b.indexOf('#')
+				//NPEs. Asymmetric with the out= branch (L105) which DOES guard b==null/"null"/"none". A `null` sentinel string
+				//is also not handled on input. Shell-reachable so a user typo triggers a raw NPE rather than a clean message.
 				if(b.indexOf('#')>-1){
 					in1=b.replace("#", "1");
 					in2=b.replace("#", "2");
@@ -244,7 +247,12 @@ public class RemoveAdapters2 {
 		long totalAdapters=plusAdaptersFound+minusAdaptersFound;
 		if(expected<1){expected=1;}
 		if(unexpected<1){unexpected=1;}
-		
+
+		//TODO: Possible bug [pacbio/RemoveAdapters2#001] LOW (shell-reachable via removesmartbell.sh, empty-input edge):
+		//basesIn/totalReads is INTEGER division, and totalReads = goodReadsFound+badReadsFound = 0 on an empty input →
+		//ArithmeticException "/ by zero" (a hard CRASH here, not a NaN). Note the divide-guards are inconsistent: L254 guards
+		//readsOut>0, and L253's adapters/basesIn is FLOAT division (→ Infinity, cosmetic) — but THIS avg-length is unguarded
+		//integer division. Fix: guard totalReads>0 (or Tools.max(1,totalReads)). Low frequency but user-reachable.
 		System.out.println("Reads In:                \t"+totalReads+"  \t("+basesIn+" bases, avg length "+(basesIn/totalReads)+")");
 		System.out.println("Good reads:              \t"+goodReadsFound);
 		System.out.println("Bad reads:               \t"+badReadsFound+"  \t("+totalAdapters+" adapters)");
@@ -332,6 +340,12 @@ public class RemoveAdapters2 {
 //					System.err.println("Adding list of length "+readlist.size());
 					
 					ArrayList<Read> out=SPLIT ? split(readlist) : readlist;
+					//TODO: Possible bug [pacbio/RemoveAdapters2#003] LOW/stats/latent: when SPLIT=true, split() FLATTENS mates —
+					//it adds r AND r.mate as SEPARATE top-level entries in `out` (see split(ArrayList) L372-378), keeping their
+					//mutual mate pointers. This loop then counts r.length() PLUS r.mate.length() for every entry, so a paired
+					//unsplit read is counted twice: once as its own `out` entry (+its mate), and once as the OTHER entry's mate.
+					//→ basesOut/readsOut ~2x over-counted for PAIRED+SPLIT. Latent: PacBio is ~always single-end (mate==null →
+					//no double count). Fix: in the post-split loop count only r, not r.mate (split already flattened mates).
 					for(Read r : out){
 						if(r!=null){
 							Read r2=r.mate;

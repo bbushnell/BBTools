@@ -17,11 +17,16 @@ public class ProcessSpeed {
 		
 		System.out.println("#real\tuser\tsys\tcorrect\tincorrect\tSNR");
 		
+		//NOTE [driver/ProcessSpeed#002] LOW/dev: args[0] used with no length guard → AIOOBE if invoked with no args.
+		//.replace("in=","") strips the literal "in=" anywhere (fine for a filename; not a prefix-only strip). Crash-loud.
 		String fname=args[0].replace("in=", "");
 		TextFile tf=new TextFile(fname);
 		for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
 			if(line.startsWith("***")){
-				System.out.println(line.replace("\\*\\*\\*", "").trim());
+				//FIXED [driver/ProcessSpeed#001] was `line.replace("\\*\\*\\*","")`: String.replace is LITERAL, so it searched
+				//for the 6-char sequence \*\*\* (backslash-star ×3), which never occurs in a line that startsWith("***").
+				//=> the *** decoration was NEVER stripped (author confused replace with replaceAll). Now strips literal "***".
+				System.out.println(line.replace("***", "").trim());
 			}else if(line.startsWith("real\t")){
 				String time=line.split("\t")[1];
 				double seconds=toSeconds(time);
@@ -54,6 +59,8 @@ public class ProcessSpeed {
 	}
 	
 	public static double toSeconds(String s){
+		//Parses bash `time` format "MmSS.sss s" (e.g. "1m30.500s") → 60*min+sec. Duplicated in ProcessSpeed2.toSeconds.
+		//Format-contract: input WITHOUT an 'm' (e.g. plain "30.5s") → split("m") length 1 → split[1] AIOOBE. Crash-loud, dev tool.
 		s=s.replaceAll("s", "");
 		String[] split=s.split("m");
 		String seconds=split[1], minutes=split[0];

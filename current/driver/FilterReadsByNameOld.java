@@ -37,6 +37,9 @@ import tracker.ReadStats;
  * @author Brian Bushnell
  * @date Oct 8, 2014
  */
+//REVIEWED (G11, genuine V3): DEAD class — zero callers anywhere in current/, no .sh. Superseded by driver/FilterReadsByName.
+//Kept only as a twin reference. Its value in this bughunt: comparing it to the live class revealed the copy-paste assert
+//bug (#002 here = #003 live, FIXED in both) and confirmed the '/'-prefix bug (#001 live) predates the rewrite.
 public class FilterReadsByNameOld {
 
 	public static void main(String[] args){
@@ -244,6 +247,7 @@ public class FilterReadsByNameOld {
 		}
 	}
 	
+	//DEAD method: only referenced from commented-out code (L160, L325 both commented). Unused.
 	private static String substringUntilWhitespace(String s){
 		for(int i=0; i<s.length(); i++){
 			char c=s.charAt(i);
@@ -274,7 +278,10 @@ public class FilterReadsByNameOld {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//FIXED [driver/FilterReadsByNameOld#002] (DEAD class, fixed for twin-consistency): second conjunct was a
+			//copy-paste duplicate of the first (in1 twice) => out1==in2 collision unguarded. THIS dead twin is what revealed
+			//the SAME bug in the LIVE FilterReadsByName (fixed there as #003). Now mirrors the out2 check on the line below.
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, qfout1, qfout2, buff, null, useSharedHeader);
@@ -332,10 +339,10 @@ public class FilterReadsByNameOld {
 							char prev=x>=2 ? header.charAt(x-2) : 'X';
 							char c=header.charAt(x-1);
 							char next=header.charAt(x);
-							if(Character.isWhitespace(c) || (c=='/' && (next=='1' || next=='2'))){
+							if(Character.isWhitespace(c) || (c=='/' && (next=='1' || next=='2'))){ //DEAD twin of live FilterReadsByName#001: substring(0,x) keeps the trailing '/' (.trim() won't strip it), so "read/1"->"read/". Live fixed to substring(0,x-1) for '/'. Dead class, left as-is.
 								prefix=header.substring(0, x).trim();
 								break;
-							}else if(Character.isWhitespace(prev) && (c=='1' || c=='2') && next==':'){
+							}else if(Character.isWhitespace(prev) && (c=='1' || c=='2') && next==':'){ //NOTE: effectively DEAD branch — a whitespace at prev(x-2) would have fired the isWhitespace(c) break one iteration earlier.
 								prefix=header.substring(0, x).trim();
 								break;
 							}
@@ -363,7 +370,7 @@ public class FilterReadsByNameOld {
 					
 					if(keepThisRead){
 						if(fromPos>=0){
-							TrimRead.trimToPosition(r1, fromPos, toPos, 1);
+							TrimRead.trimToPosition(r1, fromPos, toPos, 1); //NOTE: r1-only pos-trim; r2 (mate) is NOT trimmed on paired input — twin of live FilterReadsByName#002 (QUESTION). Dead class.
 						}
 						retain.add(r1);
 						readsOut+=r1.pairCount();

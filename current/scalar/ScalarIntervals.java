@@ -169,7 +169,12 @@ public class ScalarIntervals {
 		for(int i=0; i<in.size(); i++) {
 			FileFormat ffin=FileFormat.testInput(in.get(i), FileFormat.FASTA, null, true, true);
 			ScalarData data=toIntervals(ffin, window, interval, minlen, breakOnContig, maxReads);
-			data.print(bsw, printName, header && i==0, interval>0 && printPos, interval);
+			//[arg-swap FIX — scalar/ScalarIntervals#001]: ScalarData.print's signature is (bsw, header, printName, printPos, interval),
+			//but this call passed (bsw, printName, header&&i==0, ...) — args 2 & 3 swapped, so the `header` param got printName and
+			//the `printName` param got header&&i==0. Masked when both default false; with printname=true or header=true it prints
+			//the header line / Name column under the wrong condition. Corrected order: header-line gated by (header && i==0), Name
+			//column gated by printName. (Recent co-authored file — flagged to Neptune.)
+			data.print(bsw, header && i==0, printName, interval>0 && printPos, interval);
 			if(true) {
 				System.err.print(data.mean(true, ffin.name()));
 				System.err.print(data.stdev(true, ffin.name()));
@@ -203,6 +208,10 @@ public class ScalarIntervals {
 		cris=ConcurrentReadInputStream.getReadInputStream(maxReads, false, ff, null);
 		cris.start();
 		ScalarData data=toIntervals(cris, window, interval, minlen, tid, breakOnContig, maxReads);
+		//NOTE [scalar/ScalarIntervals#002] LOW: this LOCAL `errorState` shadows the class static — a read error here is logged
+		//(L208) but NEVER propagated to the static ScalarIntervals.errorState that process() asserts on (L185), so a single-
+		//threaded read failure exits 0. The MT path DOES set the static (via SDAccumulator). Asymmetric. Also process() has dead
+		//`if(header && true)`/`if(true)` debug leftovers (L166/L173).
 		boolean errorState=ReadWrite.closeStreams(cris);
 		if(verbose){System.err.println("Finished reading data.");}
 		if(errorState){System.err.println("Something went wrong reading "+ff.name());}

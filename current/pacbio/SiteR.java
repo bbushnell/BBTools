@@ -21,6 +21,13 @@ public class SiteR {
 	public SiteR(int start_, int stop_, int chrom, byte strand, long numericID, int pairnum){
 		start=start_;
 		stop=stop_;
+		//TODO: Possible bug [pacbio/SiteR#001] LOW→MEDIUM (shared class): SIGN-MAGNITUDE ZERO COLLISION. pairnum is encoded as
+		//the sign of numericID (odd→negate), but -0==0, so for numericID==0 with pairnum==1 (odd) idPairnum=0 → pairNum()
+		//(L86, idPairnum>=0?0:1) returns 0, NOT 1. numericID is 0-based, so this is exactly READ 0's MATE — reachable on the
+		//very first read pair. The assert(pairnum==pairNum()) at L37 CATCHES this under -ea (AssertionError on that read);
+		//under -da it silently returns the wrong pairnum to every consumer (StackSites/SortSites/etc). The chrom/strand packing
+		//below has the same -0 flaw for chrom==0, but chrom is 1-based so that leg is unreachable. Fix needs a real spare bit
+		//for pairnum rather than the sign of a value whose domain includes 0.
 		if((pairnum&1)==0){
 			idPairnum=numericID;
 		}else{
