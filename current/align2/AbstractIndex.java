@@ -266,6 +266,9 @@ public abstract class AbstractIndex {
 	 * @return Bonus score based on list size
 	 */
 	static final int calcListSizeBonus(int size){
+		//TODO: Possible bug [align2/AbstractIndex#001] - no lower-bound guard: a negative `size` indexes
+		//LIST_SIZE_BONUS[neg] -> AIOOBE. The int[] overload above is structurally safe (array.length>=0). LOW/latent:
+		//all 15 callers are gated by ADD_LIST_SIZE_BONUS (compile-time false) AND pass hit-list sizes (>=0). Brian's call.
 		if(size>LIST_SIZE_BONUS.length-1){return 0;}
 		return LIST_SIZE_BONUS[size];
 	}

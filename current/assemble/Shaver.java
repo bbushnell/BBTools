@@ -145,8 +145,8 @@ public abstract class Shaver extends ShaveObject {
 	 * @return Number of k-mers removed from the graph
 	 */
 	public final long shave(){
-		assert(minSeed>=minCount) : "Required: mincount >= minSeed >= maxCount. "+minCount+", "+minSeed+", "+maxCount;
-		assert(minSeed<=maxCount) : "Required: mincount >= minSeed >= maxCount. "+minCount+", "+minSeed+", "+maxCount;
+		assert(minSeed>=minCount) : "Required: minCount <= minSeed <= maxCount. "+minCount+", "+minSeed+", "+maxCount;//msg was backwards ('mincount >= minSeed >= maxCount'); code asserts minCount<=minSeed<=maxCount [assemble/Shaver#001 FIXED]
+		assert(minSeed<=maxCount) : "Required: minCount <= minSeed <= maxCount. "+minCount+", "+minSeed+", "+maxCount;
 		assert(removeHair || removeBubbles);
 		
 		Timer t=new Timer();

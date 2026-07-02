@@ -433,6 +433,7 @@ public class Tadpole2 extends Tadpole {
 		}
 		
 		/** From kmers */
+		//TODO: Possible bug [assemble/Tadpole2#002] - this makeContig never checks IGNORE_BAD_OWNER on a BAD_OWNER extendToRight result (always release+return null), whereas Tadpole1.makeContig honors IGNORE_BAD_OWNER (trim last base / bb.length-- and keep the contig). So the `ibo=t` / ignorebadowner flag silently no-ops for k>31. Non-default flag => LOW; feature-parity gap vs the k<=31 path.
 		private Contig makeContig(final ByteBuilder bb, Kmer kmer, boolean alreadyClaimed){
 			bb.setLength(0);
 			bb.appendKmer(kmer);
@@ -1137,6 +1138,7 @@ public class Tadpole2 extends Tadpole {
 			if(useOwnership){
 				owner=table.getOwner(kmer);
 				if(verbose){outstream.println("Owner is initially "+id+" for key "+kmer);}
+				//TODO: Possible bug [assemble/Tadpole2#001] - LONE DIVERGENCE vs Tadpole1: the loop-detection below returns LOOP, but Tadpole1.extendToRight (canonical, k<=31) returns `fbranch ? F_BRANCH : LOOP`. When extension rolls into a kmer this thread already owns AND that kmer is a forward-branch (fbranch), Tadpole1 codes the end F_BRANCH; Tadpole2 mis-codes it LOOP. Consequences (k>31 contig path): a wrong LOOP end can (a) trigger trimCircular's kbig-1 trim when the other end also reads LOOP, and (b) suppress forward-branch handling in default-on popBubbles - either can shift the final contig COUNT by +/-1. owner==id is multithreaded-timing-gated, matching Brian's rare ±1-only-multithreaded-k>31 nondeterminism => STRONG candidate for that bug. Fix = `return fbranch ? F_BRANCH : LOOP;` to match Tadpole1, but DO NOT auto-apply - validate against the nondeterminism repro first (may change assembly output).
 				if(owner==id){//loop detection
 					if(verbose  /*|| true*/){
 //						outstream.println(new String(bb.array, bb.length()-31, 31));

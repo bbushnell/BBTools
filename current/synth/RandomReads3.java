@@ -209,6 +209,8 @@ public final class RandomReads3 {
 				minNLen=Parse.parseIntKMG(b);
 			}else if(a.equals("fastawrap") || a.equals("wrap")){
 				Shared.FASTA_WRAP=Parse.parseIntKMG(b);
+			}else if(a.equals("addcigar") || a.equals("cigar")){
+				ADD_CIGAR=Parse.parseBoolean(b);
 			}else if(a.startsWith("seed")){
 				seed2=Long.parseLong(b);
 			}else if(a.equals("ref") || a.equals("reference") || a.equals("in")){
@@ -762,6 +764,49 @@ public final class RandomReads3 {
 			if(j>=0 && j<bases.length){bases[j]=adapter[i];}
 		}
 		return bases;
+	}
+
+	/**
+	/**
+	 * Build an extended CIGAR string from the final locs array.
+	 * Must be called after all mutations are applied and locs is filled.
+	 * Uses = for match, X for mismatch, I for insertion, D for deletion.
+	 */
+	public static byte[] buildCigar(byte[] bases, int[] locs,
+			dna.ChromosomeArray cha, int readlen){
+		structures.ByteBuilder bb=new structures.ByteBuilder(readlen);
+		char lastOp=0;
+		int runLen=0;
+
+		for(int i=0; i<readlen; i++){
+			// Detect deletion: gap in ref positions
+			if(i>0 && locs[i]>locs[i-1]+1){
+				// Flush current run before emitting deletion
+				if(runLen>0){bb.append(runLen); bb.append(lastOp); runLen=0; lastOp=0;}
+				int delLen=locs[i]-locs[i-1]-1;
+				bb.append(delLen); bb.append('D');
+			}
+
+			// Detect insertion vs match/mismatch
+			char op;
+			if(i>0 && locs[i]==locs[i-1]){
+				op='I';
+			}else{
+				byte refBase=cha.get(locs[i]);
+				op=(bases[i]==refBase && AminoAcid.isFullyDefined(bases[i])) ? '=' : 'X';
+			}
+
+			if(op==lastOp){
+				runLen++;
+			}else{
+				if(runLen>0){bb.append(runLen); bb.append(lastOp);}
+				lastOp=op;
+				runLen=1;
+			}
+		}
+		if(runLen>0){bb.append(runLen); bb.append(lastOp);}
+
+		return bb.toBytes();
 	}
 
 	/**
@@ -2060,10 +2105,15 @@ public final class RandomReads3 {
 			if(locs[i]<0){locs[i]=locs[i+1];}
 		}
 		final int x=locs[0], y=locs[bases.length-1];
+
+		// Build CIGAR before RC so it's in forward-ref orientation
+		final byte[] cigar=(ADD_CIGAR ? buildCigar(bases, locs, cha, bases.length) : null);
+
 		if(verbose){
 			outstream.println("After adding SNPs, SUBs, Ns, and fixing locs: ");
 			outstream.println("'"+new String(bases)+"'");
 			outstream.println(Arrays.toString(Arrays.copyOf(locs, Tools.min(locs.length, bases.length))));
+			if(cigar!=null){outstream.println("cigar: "+new String(cigar));}
 		}
 		
 //		if(FORCE_LOC>=0 || FORCE_CHROM>=0){
@@ -2116,6 +2166,7 @@ public final class RandomReads3 {
 //		Read r=new Read(bases, chrom, (byte)strand, loc, loc+bases.length-1, rid, quals, false);
 		Read r=new Read(bases, quals, rid, chrom, x, y, (byte)strand);
 		r.setSynthetic(true);
+		if(cigar!=null){r.match=cigar;}
 		assert(r.length()==readlen);
 
 		if(ADD_ERRORS_FROM_QUALITY && !perfect){addErrorsFromQuality(r, randyQual);}
@@ -2411,6 +2462,9 @@ public final class RandomReads3 {
 	
 	/** Ban generation of reads over unspecified reference bases */
 	static boolean BAN_NS=false;
+
+	/** Embed a CIGAR string in the match field of the SYN header */
+	public static boolean ADD_CIGAR=false;
 
 	/** Ensure SNPs and N regions don't overlap within a single read */
 	public static boolean USE_UNIQUE_SNPS=true;

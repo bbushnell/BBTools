@@ -443,10 +443,10 @@ public class QuantumAligner implements IDAligner{
 		final int rlen=refEnd-refStart+1;
 		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd+1));
 		if(region!=ref){Tools.toUpperCase(region);}
-		int a=posVector[0], b=posVector[1];
 		final float id=alignStatic(query, region, posVector);
-		assert(posVector[1]>0) : id+", "+Arrays.toString(posVector)+", "+refStart+"-"+refEnd+", "+a+"-"+b;
 		if(posVector!=null) {
+			int a=posVector[0], b=posVector[1];
+			assert(posVector[1]>0) : id+", "+Arrays.toString(posVector)+", "+refStart+"-"+refEnd+", "+a+"-"+b;
 			posVector[0]+=refStart;
 			posVector[1]+=refStart;
 		}

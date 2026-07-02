@@ -70,7 +70,7 @@ abstract class AbstractExploreThread extends ShaveObject implements Runnable {
 	 */
 	abstract boolean processNextTable(final Kmer kmer, Kmer temp);
 
-	boolean processNextVictims(){return processNextVictims(myKmer, myKmer);}
+	boolean processNextVictims(){return processNextVictims(myKmer, myKmer2);}//was (myKmer, myKmer): aliased scratch temp onto the live kmer; sibling processNextTable() above uses (myKmer, myKmer2). Dead convenience method (no callers) - fixed as landmine removal [assemble/AbstractExploreThread#001 FIXED]
 	abstract boolean processNextVictims(final Kmer kmer, Kmer temp);
 
 	/*--------------------------------------------------------------*/
