@@ -74,6 +74,7 @@ public class TestAlignerSuite {
 		aligners.add(new DriftingAligner());
 		aligners.add(new WobbleAligner());
 		aligners.add(new ScrabbleAligner());
+		aligners.add(new ScrabbleAffine());
 		aligners.add(new QuantumAligner());
 		aligners.add(new QuabbleAligner());
 		aligners.add(new XDropHAligner());

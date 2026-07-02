@@ -2086,6 +2086,11 @@ public final ArrayList<SiteScore> find(byte[] basesP, byte[] basesM, byte[] qual
 		Arrays.fill(locArray, -1);
 		
 		
+		//TODO [align2/BBIndexPacBio#001]: LIVE assert(refbase>=minLoc&&refbase<=maxLoc) at L2095 (rev) + L2147 (fwd) -
+		//Brian DISPROVED+DISABLED the identical assert in BBIndex (L2742/L2793: "Apparently not a correct assumption" +
+		//captured production stack trace). The packed-int window test (value>=minVal) can borrow across chrom bits near
+		//a contig start; a cross-contig hit in the same block passes it but numberToSite(value) is outside [minLoc,maxLoc]
+		//-> -ea crash on multi-contig refs (slowWalk3 live, USE_SLOWALK3=true). ESCALATED (DR HIGH/MED). Brian's assert/call.
 		//First fill in reverse
 		for(int i=0, keynum=0; i<numHits; i++){
 			final int value=values[i];
@@ -2535,6 +2540,9 @@ public final ArrayList<SiteScore> find(byte[] basesP, byte[] basesM, byte[] qual
 	}
 	@Override
 	final int[] getKeyScoreArray(int len, int strand){
+		//TODO [align2/BBIndexPacBio#003]: wrong pool dim - keyScoreArrays is int[2][1201][], so `.length`==2 (strand)
+		//not 1201 (len); should be keyScoreArrays[strand].length. For len>=2 returns fresh new int[len] instead of
+		//pooling. Sibling getBaseScoreArray (above) does it right. LOW/perf; family-wide (=BBIndex#001). Brian's call.
 		if(len>=keyScoreArrays.length){return new int[len];}
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];

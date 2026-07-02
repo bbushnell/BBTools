@@ -335,7 +335,7 @@ public class Test {
 		final Class<? extends IDAligner> c=ida.getClass();
 		if(debug) {setOrCatch(c, "debug", debug);}
 		if(global) {setOrCatch(c, "GLOBAL", global);}
-		if(printOps) {setOrCatch(c, "PRINT_OPS", global);}
+		if(printOps) {setOrCatch(c, "PRINT_OPS", printOps);}
 		if(output!=null) {setOrCatch(c, "output", output);}
 		if(statsmode){testAndPrintStats(ida, args[0], args[1], iters);}
 		else{testAndPrintPos(ida, args[0], args[1], iters);}

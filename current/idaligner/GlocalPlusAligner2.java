@@ -117,7 +117,7 @@ public class GlocalPlusAligner2 implements IDAligner{
 		// Banding parameters
 		final int bandWidth=rLen;
 		// Initialize band limits for use outside main loop
-		final int bandStart=1, bandEnd=rLen-1;
+		final int bandStart=1, bandEnd=rLen;
 
 		// Create arrays for current and previous rows
 		long[] prev=new long[rLen+1], curr=new long[rLen+1];

@@ -2267,7 +2267,8 @@ public abstract class Tadpole extends ShaveObject{
 		int count=0, countHQ=0, qsum=0;
 		for(int i=0, prev=-window; i<len; i++, prev++){
 			byte b=array[i];
-			
+
+			//TODO: Possible bug [assemble/Tadpole#001] - add-guard reads quals[prev] with prev possibly <0 (loop starts prev=-window; unlike the remove-branch below which guards prev>=0). If a correction candidate (array[i]!=0) falls in the first 'window' bases with quals!=null => quals[-window] AIOOBE. Safe when the reassembly seed keeps the first kbig bases uncorrected AND kbig>window (normal k); crashes for k<=window(~12). Also likely should be quals[i] not quals[prev] (value/qsum use i: b=array[i], qsum+=quals[i]); and qsum is never decremented (2291 commented) so its window check is effectively cumulative. Reachability to confirm at Tadpole1/2 reassemble_inner.
 			if(b!=0 && (quals==null || quals[prev]>0)){
 				count++;
 				if(quals!=null){

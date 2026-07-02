@@ -388,8 +388,8 @@ public class QuabbleAligner implements IDAligner{
 		final byte[] region=(rlen==ref.length ? ref : Arrays.copyOfRange(ref, refStart, refEnd+1));
 		if(region!=ref){Tools.toUpperCase(region);}
 		final float id=alignStatic(query, region, posVector);
-		assert(posVector[1]>0) : id+", "+Arrays.toString(posVector)+", "+refStart;
 		if(posVector!=null) {
+			assert(posVector[1]>0) : id+", "+Arrays.toString(posVector)+", "+refStart;
 			posVector[0]+=refStart;
 			posVector[1]+=refStart;
 		}

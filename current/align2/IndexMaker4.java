@@ -114,6 +114,9 @@ public class IndexMaker4 {
 	 */
 	public static Block makeBlock(int minChrom, int maxChrom, int k, int CHROMBITS, int MAX_ALLOWED_CHROM_INDEX,
 			int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH, boolean WRITE, boolean DISK_INVALID, Block[] matrix){
+		//TODO [align2/IndexMaker4#002]: dead method - ZERO callers (grep finds only defs in IndexMaker4+IndexMaker5,
+		//no invocations) and the two assert(false) guards make it unusable under -ea. Superseded single-block relic;
+		//live path is makeIndex->BlockMaker. (Same dead method in IndexMaker5, the unfinished successor.)
 		assert(false) : maxChrom+", "+MAX_ALLOWED_CHROM_INDEX;
 		BlockMaker idm=new BlockMaker(minChrom, maxChrom, k, CHROMBITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, WRITE, DISK_INVALID, matrix);
 		Block block=idm.makeArrays();
@@ -298,6 +301,9 @@ public class IndexMaker4 {
 				if(ALLOW_POLYMERS){
 					banmask=-1; //poly-A still slips through
 				}else{
+					//TODO [align2/IndexMaker4#001]: dead store - `b` (the base-id homopolymer key) is built here
+					//but never read; banmask below uses the id-independent periodicity formula. Harmless vestige of
+					//an earlier exact-homopolymer filter, superseded by the (key>>banshift)!=(key&banmask) clumpy filter.
 					int b=0;
 					for(int i=0; i<KEYLEN; i++){
 						b<<=2;

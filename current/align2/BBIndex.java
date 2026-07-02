@@ -3241,6 +3241,10 @@ public final class BBIndex extends AbstractIndex {
 	 * @return Reusable integer array
 	 */
 	private final int[] getOffsetArray(int len){
+		//TODO [align2/BBIndex#002]: no `if(len>=offsetArrays.length){return new int[len];}` guard (siblings getLocArray/
+		//getBaseScoreArray HAVE it; getGreedyListArray/getGenericArray below also omit it). Shadowed in BBIndex by the
+		//256-sized work arrays (startArray etc. overflow at the same threshold), BUT deep-research found the analogous
+		//Skimmer getters MEDIUM-REACHABLE via vslow+long reads. VERIFY-OWED: can BBMap exceed 256 keys? If yes -> add guard.
 		if(offsetArrays[len]==null){offsetArrays[len]=new int[len];}
 		return offsetArrays[len];
 	}
@@ -3281,6 +3285,10 @@ public final class BBIndex extends AbstractIndex {
 	}
 	@Override
 	final int[] getKeyScoreArray(int len, int strand){
+		//TODO [align2/BBIndex#001]: wrong pool dimension - keyScoreArrays is int[2][256][], so `.length`==2 (strand
+		//dim) not 256 (len dim); should be keyScoreArrays[strand].length. For len>=2 this returns a fresh new int[len]
+		//instead of pooling -> a hot-path alloc every find()/strand. Sibling getBaseScoreArray (above) does it right.
+		//LOW/perf (fresh array is valid). Family-wide (BBIndexPacBio/Skimmer/Acc); deep-research AGREES, same LOW.
 		if(len>=keyScoreArrays.length){return new int[len];}
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];

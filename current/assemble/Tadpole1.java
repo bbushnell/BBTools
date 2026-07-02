@@ -1836,6 +1836,7 @@ public class Tadpole1 extends Tadpole {
 	private boolean fixBestMutant(final byte[] bases, final int a, final LongList kmers, final IntList counts, final int pos, final long kmer){
 		int shift=2*pos;
 		long mask=(3L)<<shift;
+		//TODO: Possible bug [assemble/Tadpole1#001] - num extracts the wrong bits for pos>0: (kmer>>shift)&mask masks with (3<<shift) after already shifting right by shift, yielding values in {0,1<<shift,...} instead of the base index 0-3; should be (kmer>>shift)&3L. Can feed an out-of-range index to numberToBase. DEAD as-is: only caller is errorCorrectBruteForce, which is gated behind `if(false && ...)` (~1758) => latent LOW.
 		byte num=(byte)((kmer>>shift)&mask);
 		byte base=AminoAcid.numberToBase[num];
 		byte old=bases[a+pos];

@@ -166,7 +166,7 @@ public class Contig {
 	
 	public float caga() {
 		if(hh<0) {calcScalarsFast();}
-		return hh;
+		return caga;//was 'return hh' (copy-paste from hh()); caga field is computed by calcScalarsFast/calcScalars [assemble/Contig#001 FIXED]
 	}
 	
 	public void calcScalars() {
@@ -281,6 +281,7 @@ public class Contig {
 	 * @return true if contig is in canonical form, false otherwise
 	 */
 	boolean canonical(){
+		//TODO: Possible bug [assemble/Contig#002] - baseToComplementExtended[i] indexed by loop POSITION not by a base; baseToComplementExtended[0]==0 < any base byte, so this returns true on iteration 0 for every real contig => canonical() is constant-true => rcomp() at Tadpole1:689/Tadpole2:552 never fires => contig canonicalization is dead. Likely intended baseToComplementExtended[bases[i]], but the compare DIRECTION must be re-derived (indexing by base inverts a<b vs canonical convention). Do NOT auto-fix: on assembly path, determinism-relevant.
 		for(int i=0, j=bases.length-1; i<bases.length; i++, j--){
 			final byte a=AminoAcid.baseToComplementExtended[i], b=bases[j];
 			if(a<b){return true;}
