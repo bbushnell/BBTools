@@ -108,6 +108,12 @@ public class BarcodeMappingStats {
 	 */
 	public void writeStats(String outbarcodes, boolean overwrite) {
 		ByteBuilder bb=new ByteBuilder();
+		//TODO: Possible bug [barcode/BarcodeMappingStats#001] (LOW) - toSortedList returns NULL for an empty/null map,
+		//but this method does not guard it: sum(codeList) (next line) and the `for(Barcode bc : codeList)` loop below
+		//both dereference codeList -> NullPointerException when codeMap is empty (no barcodes counted). Reachable: this
+		//class is used by jgi/Seal.java, so a Seal run that produces zero mapped barcodes then calls writeStats crashes.
+		//(The inner sourceMap.get(bc.name) is safe - increment() always populates codeMap and sourceMap together.)
+		//Fix: early-return or treat null codeList as empty. Flagged, not auto-fixed (Seal-side reachability unverified).
 		ArrayList<Barcode> codeList=toSortedList(codeMap);
 		final long sum=sum(codeList);
 		final double invSum=1.0/(Tools.max(1, sum));

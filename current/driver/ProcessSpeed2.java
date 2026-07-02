@@ -38,6 +38,7 @@ public class ProcessSpeed2 {
 		
 	}
 	
+	//G11: dev timing-parser (processspeed.sh). Reads GNU-time real/user/sys lines → seconds. Crash-loud on non-"XmY.ZZZs" input (split[1] assumes 'm'). toSeconds IDENTICAL to ProcessFragMerging.toSeconds (duplicated). CLEAN for its contract.
 	public static double toSeconds(String s){
 		s=s.replaceAll("s", "");
 		String[] split=s.split("m");

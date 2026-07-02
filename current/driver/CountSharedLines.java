@@ -121,7 +121,8 @@ public class CountSharedLines {
 			append=parser.append;
 		}
 		
-		if(in1==null || in2==null){throw new RuntimeException("Error - at least one input file is required from each set.");}
+		//FIXED (G11 2026-07-02, Brian-auth) [driver/CountSharedLines#001] in1/in2 are inline-initialized LinkedHashSets (never null), so the old `in1==null||in2==null` guard could never fire and a no-input run silently no-op'd. Now `.isEmpty()` correctly errors when either set has no files.
+		if(in1.isEmpty() || in2.isEmpty()){throw new RuntimeException("Error - at least one input file is required from each set.");}
 	}
 	
 	final static String getOutputName(String fname){
@@ -189,6 +190,7 @@ public class CountSharedLines {
 		for(String fname2 : list){
 			long shared=0;
 			final LinkedHashSet<String> set2=getContents(fname2);
+			//TODO: Possible bug [driver/CountSharedLines#002] - LOW/DOC: matching is EXACT set membership only. The parsed flags substrings/nameSubstringOfLine/lineSubstringOfLine and include/exclude are never consulted here, and maxLines is never applied in getContents() — all silently ignored though accepted on the command line. Misleading (a user passing substring=/exclude= gets plain exact-match counts). Either implement or reject these flags.
 			for(String s : set1){
 				if(set2.contains(s)){
 					shared++;

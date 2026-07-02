@@ -344,6 +344,7 @@ public class RenameAndMux {
 			in1=path.replace("#", "1");
 		}
 
+		//TODO: Possible bug [driver/RenameAndMux#001] - concurrency: this synchronized block sets the GLOBAL statics FASTQ.FORCE_INTERLEAVED/TEST_INTERLEAVED per-file, but the CONSUMER that reads them — cris=getReadInputStream(...) at ~L386 — is OUTSIDE the lock. With threads>1 (default) and heterogeneous inputs (e.g. one "reads#.fq" pair-of-files → sets FORCE_INTERLEAVED=false, and one single interleaved file with out2 set → wants FORCE_INTERLEAVED=true), thread A can set the flag, exit the lock, thread B overwrite it, then A's cris reads B's value → A's file de-interleaved wrong → wrong pairing/output. The lock covers the write but not the read, so it doesn't prevent the race. Homogeneous inputs converge to one value → latent there. MEDIUM. Fix (design call): pass interleaving explicitly to getReadInputStream, or extend the lock to cover cris creation. ESCALATED.
 		synchronized(getClass()){
 
 			//Adjust interleaved settings based on number of output files
@@ -426,6 +427,7 @@ public class RenameAndMux {
 
 				final ArrayList<Read> listOut=reads;
 				
+				//G11: list id hardcoded 0 (nextListNumber.getAndIncrement() commented out → nextListNumber field is DEAD). Safe ONLY because ros is unordered (ordered=false at L502, getStream(...,false) at L304) so the id is ignored. LATENT tripwire: if `ordered` were ever flipped to true, every list sharing id=0 would break output ordering. Annotated, not a bug today.
 				if(ros!=null){ros.add(listOut, 0/*nextListNumber.getAndIncrement()*/);}
 
 				cris.returnList(ln);

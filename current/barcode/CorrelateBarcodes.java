@@ -204,7 +204,11 @@ public class CorrelateBarcodes {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//[barcode/CorrelateBarcodes#001] FIXED: 2nd clause was a copy-paste `in1` (should be in2), matching the
+			//correct sibling assert on the next line. THIRD instance of the same family typo (with CountBarcodes#001 +
+			//NovaDemux#001). Reachable here like CountBarcodes (out1 is a real filename, not a %-pattern), so out1==in2
+			//was an uncaught overwrite-input collision. Now caught. Fixed per RULE #6 (obvious copy-paste twin).
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, false);

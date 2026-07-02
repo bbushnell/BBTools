@@ -348,6 +348,13 @@ public class BarcodeCounter {
 	 * @param percentile Percentile threshold (0.0 to 1.0)
 	 * @return Count value at the specified percentile (asserts in current implementation)
 	 */
+	//TODO: Possible bug [barcode/BarcodeCounter#001] - this method is marked "don't call it directly" and contains an
+	//unconditional `assert(false)` (below), yet it IS called live: CountBarcodes2:357-358 invokes it whenever the
+	//user flag mincountpercent/mincountpercentile is set >0. Under -ea (ALWAYS on for BBTools) that user flag => an
+	//immediate AssertionError crash. And the caller discards the result (the `thresh` local is never read), so even
+	//with -da the flag is a silent no-op. => half-built feature wired to a user flag: reachable crash + dead output.
+	//MEDIUM. Fix is NOT obvious (percentileValueBySum is itself marked untested) -> flag to Brian: either finish+test
+	//and drop the assert, or remove/guard the CountBarcodes2 wiring (or make the flag fail with "not implemented").
 	public static long barcodeCountPercentile(Collection<Barcode> barcodes, float percentile) {
 		//Just an example; don't call it directly.
 		SuperLongList sll=makeCountList(barcodes);

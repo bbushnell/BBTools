@@ -208,6 +208,7 @@ public class SummarizeSealStats {
 						pbases=bases;
 					}else{
 						boolean process=true;
+						//TODO: Possible bug [driver/SummarizeSealStats#002] - LOW/QUESTION unguarded AIOOB: name=split[0].split(",") and barcode=name[0].split("-") are indexed at name[2] (ignoreSameTaxa) and barcode[1] (ignoreSameBarcode) with NO length check — only the ignoreSameLocation branch below asserts name.length==4. A taxa name with <3 comma-fields (or a first field with no '-') → ArrayIndexOutOfBounds, uncaught (not in try/catch). Gated behind the non-default ignoreSame* flags + a name not matching the assumed barcode-...,taxa,loc structure, so LOW reachability. Also NOTE: pcount==0 sentinel here (L165/L201) shares SummarizeCoverage#001 (0-count vs unset), and poisonAndWait() return at L116 is dropped w/ no errorState (SummarizeCoverage#002 shape).
 						if(ignoreSameTaxa){
 							if(name[2].contains(name0[2]) || name0[2].contains(name[2])){
 								process=false;

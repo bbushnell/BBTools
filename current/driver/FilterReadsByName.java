@@ -331,8 +331,12 @@ public class FilterReadsByName {
 							char prev=x>=2 ? header.charAt(x-2) : 'X';
 							char c=header.charAt(x-1);
 							char next=header.charAt(x);
-							if(Character.isWhitespace(c) || (c=='/' && (next=='1' || next=='2'))){
-								prefix=header.substring(0, x).trim();
+							//FIXED (G11 2026-07-02, Brian-authorized via Neptune) [driver/FilterReadsByName#001] the '/1'/'/2' boundary previously shared substring(0,x).trim() with the whitespace case, but charAt(x-1)=='/' was included in [0,x) and trim() does NOT strip '/', so header "READ5/1" produced prefix="READ5/" which never matched a clean base name "READ5" (names stored as base names via Tools.addNames) → base-name filtering of /1//2 reads silently failed (matching reads kept instead of removed). Split the condition: the '/' case now uses substring(0, x-1) to exclude the slash; whitespace keeps substring(0,x).trim().
+							if(Character.isWhitespace(c)){
+								prefix=header.substring(0, x).trim();//boundary space at x-1 removed by trim()
+								break;
+							}else if(c=='/' && (next=='1' || next=='2')){
+								prefix=header.substring(0, x-1).trim();//exclude the '/' at x-1 (trim() would NOT strip it)
 								break;
 							}else if(Character.isWhitespace(prev) && (c=='1' || c=='2') && next==':'){
 								prefix=header.substring(0, x).trim();
@@ -355,13 +359,14 @@ public class FilterReadsByName {
 								if(header.startsWith(name)){match=true;} //TODO: Fast hashing like in DemuxByName
 							}
 						}
-						keepThisRead=(match!=exclude);
+						keepThisRead=(match!=exclude);//G11: XOR-with-exclude verified: exclude=true(default,"remove")→keep=!match; exclude=false("include")→keep=match. Both correct.
 					}
 					
 //					assert(false) : names.contains(name)+", "+name+", "+prefix+", "+exclude;
 					
 					if(keepThisRead){
 						if(fromPos>=0){
+							//TODO: Possible bug [driver/FilterReadsByName#002] - QUESTION: for a kept PAIRED read only r1 is position-trimmed; mate r2 (=r1.mate) is left full, and basesOut+=r1.pairLength() then counts r2's untrimmed length. May be intended (pos-trim targets read1), but looks like incomplete paired handling. Verify intent; LOW.
 							TrimRead.trimToPosition(r1, fromPos, toPos, 1);
 						}
 						retain.add(r1);

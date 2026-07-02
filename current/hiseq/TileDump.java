@@ -299,6 +299,7 @@ public class TileDump {
 			bsw.print("#uniqueToBaseErrorRate\t").print(fc.uniqueToBaseErrorRateFormula[0], 5).print('+').print(fc.uniqueToBaseErrorRateFormula[1],5).print('X').nl();
 		}
 		
+		//G11: printCycleStats is hardcoded false, so this whole loop (and printTSV below) is currently DEAD — the per-lane depth/match/sub cycle-stat dump is disabled. Vestigial, not a bug; kept as a toggle for future cycle-stat output. (Also, lane.depthCounts etc. are the AtomicLongArrays that fillTilesInner's atomic-increment TODO left unused.)
 		boolean printCycleStats=false;
 		for(Lane lane : fc.lanes){
 			if(lane!=null && printCycleStats){
@@ -323,6 +324,7 @@ public class TileDump {
 				lane.print(bsw, fc.k, fc.uniqueToReadErrorRateFormula, fc.uniqueToBaseErrorRateFormula);
 			}
 		}
+		//TODO: Possible bug [hiseq/TileDump#001] - poisonAndWait() return (the write-error flag) is discarded. This is the SAFE variant (it waits, so output is fully flushed — no truncation, unlike the PlotHist#001 bare-poison() case), but TileDump has no errorState field / process() is void / main() checks no exit status, so a write error (disk full etc.) is silently swallowed and never reflected in the exit code. LOW: data integrity is fine; only error-status fidelity is lost, and the tool lacks any error-propagation plumbing to carry it. Fixing fully would mean threading an errorState through process()/main().
 		bsw.poisonAndWait();
 	}
 	

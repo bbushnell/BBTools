@@ -444,6 +444,12 @@ public class LegacyFileWriter {
 	 * @param barcode Assigned barcode (null treated as undetermined)
 	 */
 	void add(Read r, String barcode) {
+		//TODO: Possible bug [barcode/LegacyFileWriter#001] (LOW) - this NPEs on a null `r`: line below dereferences
+		//r.pairnum(). The caller NovaDemux.processInner (~709) does `legacyWriter.add(r.mate, name)`, and r.mate is
+		//NULL for single-end input. So legacy mode (legacypath=...) + single-end reads -> NullPointerException here.
+		//(barcode==null is handled just below, but r==null is not.) Reachable but niche (legacy output is paired-
+		//oriented). Fix options (Brian's call): guard `if(r==null){return;}` at the top here, or make NovaDemux:709
+		//skip the call when r.mate==null, or declare single-end+legacy unsupported. Flagged, not auto-fixed (design).
 		if(barcode==null) {barcode=UNDETERMINED;}
 		QTag[] qtags=tagMap.get(barcode);
 		if(qtags==null) {

@@ -218,9 +218,9 @@ public class LoadReads {
 		double diskRatio=diskBytesProcessed/(double)size;
 		double readRatio=readsProcessed/(double)size;
 		
-		long overhead=usedMem-diskBytesProcessed;
+		long overhead=usedMem-diskBytesProcessed;//G11: this LOCAL long shadows the int FIELD `overhead` (CLI param, L421). The field is used earlier at L207 (estimateFileMemory) BEFORE this local is declared, so no conflict — from here on `overhead` means computed mem-overhead. Confusing name reuse, not a bug.
 		
-		double mult=1.0/readsProcessed;
+		double mult=1.0/readsProcessed;//TODO: Possible bug [driver/LoadReads#001] - LOW/cosmetic: empty input readsProcessed==0 → mult=Infinity → Infinity/NaN in every "Average" stat below; siblings /size (empty file) and /t.elapsed. stderr stats only, data-free (benchmark tool). Guard w/ Tools.max(1,..).
 		double memPerRead=usedMem*mult;
 //		double mem0PerRead=usedMem*mult;
 		double mem1PerRead=memBytesProcessed*mult;

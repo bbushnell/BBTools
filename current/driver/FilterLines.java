@@ -180,6 +180,7 @@ public class FilterLines {
 						char c=line.charAt(x-1);
 						char next=line.charAt(x);
 						if(Character.isWhitespace(c)){
+							//G11: whitespace-ONLY boundary here (no '/1'//'2' case), and substring(0,x).trim() cleans the trailing space → correct. NOT subject to FilterReadsByName#001 (which had a '/' case that trim() couldn't strip).
 							prefix=line.substring(0, x).trim();
 							break;
 						}
@@ -214,7 +215,7 @@ public class FilterLines {
 		
 		t.stop();
 		
-		double rpnano=linesProcessed/(double)(t.elapsed);
+		double rpnano=linesProcessed/(double)(t.elapsed);//TODO: Possible bug [driver/FilterLines#001] - LOW/cosmetic: t.elapsed can be 0 (empty/instant run) → NaN/Infinity in the stderr "reads/sec" line below; data unaffected. Guard w/ Tools.max(1,t.elapsed).
 		
 		outstream.println("\nTime:               "+t);
 		outstream.println("Lines Processed:    "+linesProcessed+" \t"+Tools.format("%.2fk reads/sec", rpnano*1000000));

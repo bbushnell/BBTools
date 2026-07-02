@@ -151,6 +151,7 @@ public class SummarizeContamReport {
 		{
 			String line;
 			
+			//TODO: Possible bug [driver/SummarizeContamReport#001] - LOW NPE on empty/truncated report: tf.nextLine() returns null on an empty file (or a header-only one at the next nextLine()), then line.startsWith(...) NPEs with no message. An empty contam report (clean sample, no contamination) is plausibly legitimate → a batch summarizecontam.sh would crash on ONE empty input rather than skipping it. Guard: if(line==null){errorState|=tf.close(); return;} (or a clear error). Also note: filterA/filterB/filter below (L188-189) are dead (real filter is the a>=minSeqUnits && b>=minReads at L191), and ComparatorB is unused.
 			line=tf.nextLine();
 			if(line.startsWith("CONTAM SUMMARY")){
 				line=tf.nextLine();
