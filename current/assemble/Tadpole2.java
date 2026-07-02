@@ -1138,7 +1138,7 @@ public class Tadpole2 extends Tadpole {
 			if(useOwnership){
 				owner=table.getOwner(kmer);
 				if(verbose){outstream.println("Owner is initially "+id+" for key "+kmer);}
-				//TODO: Possible bug [assemble/Tadpole2#001] - LONE DIVERGENCE vs Tadpole1: the loop-detection below returns LOOP, but Tadpole1.extendToRight (canonical, k<=31) returns `fbranch ? F_BRANCH : LOOP`. When extension rolls into a kmer this thread already owns AND that kmer is a forward-branch (fbranch), Tadpole1 codes the end F_BRANCH; Tadpole2 mis-codes it LOOP. Consequences (k>31 contig path): a wrong LOOP end can (a) trigger trimCircular's kbig-1 trim when the other end also reads LOOP, and (b) suppress forward-branch handling in default-on popBubbles - either can shift the final contig COUNT by +/-1. owner==id is multithreaded-timing-gated, matching Brian's rare ±1-only-multithreaded-k>31 nondeterminism => STRONG candidate for that bug. Fix = `return fbranch ? F_BRANCH : LOOP;` to match Tadpole1, but DO NOT auto-apply - validate against the nondeterminism repro first (may change assembly output).
+				//[assemble/Tadpole2#001 FIXED 2026-07-02] LONE DIVERGENCE vs Tadpole1: this loop-detection returned LOOP unconditionally, but Tadpole1.extendToRight (canonical, k<=31) returns `fbranch ? F_BRANCH : LOOP`. A forward-branching loop-closure was mis-coded LOOP instead of F_BRANCH, which (a) can trigger trimCircular's kbig-1 trim when both ends read LOOP and (b) suppresses forward-branch handling in default-on popBubbles - either can shift the k>31 contig COUNT by +/-1. owner==id is multithreaded-timing-gated => matched Brian's rare ±1-only-multithreaded-k>31 nondeterminism. Fixed to match Tadpole1 (see return below).
 				if(owner==id){//loop detection
 					if(verbose  /*|| true*/){
 //						outstream.println(new String(bb.array, bb.length()-31, 31));
@@ -1146,7 +1146,7 @@ public class Tadpole2 extends Tadpole {
 						outstream.println(toText(kmer));
 						outstream.println("Breaking because owner was "+owner+" for thread "+id+".");
 					}
-					return LOOP;
+					return fbranch ? F_BRANCH : LOOP;//was `return LOOP` - a forward-branching loop-closure must be coded F_BRANCH, matching Tadpole1.extendToRight [assemble/Tadpole2#001 FIXED]
 				}
 				owner=table.setOwner(kmer, id);
 				if(verbose){outstream.println("B. Owner is now "+id+" for kmer "+kmer);}

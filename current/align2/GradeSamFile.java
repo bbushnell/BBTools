@@ -2,9 +2,11 @@ package align2;
 
 import java.io.File;
 import java.util.BitSet;
+import java.util.HashMap;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
+import fileIO.TextFile;
 import fileIO.TextStreamWriter;
 import parse.LineParser1;
 import parse.Parse;
@@ -39,20 +41,25 @@ public class GradeSamFile {
 		}
 		
 		String in=null, outl=null, outs=null;
+		String fastq=null;
 		long reads=-1;
-		
+
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("in") || a.equals("in1")){
 				in=b;
 			}else if(a.equals("reads")){
 				reads=Parse.parseKMG(b);
+			}else if(a.equals("fastq") || a.equals("fq") || a.equals("infq")){
+				fastq=b;
 			}else if(a.equals("parsecustom")){
 				parsecustom=Parse.parseBoolean(b);
+			}else if(a.equals("parsecigar") || a.equals("gradecigar")){
+				gradeCigar=Parse.parseBoolean(b);
 			}else if(a.equals("thresh")){
 				THRESH2=Integer.parseInt(b);
 			}else if(a.equals("printerr")){
@@ -76,6 +83,12 @@ public class GradeSamFile {
 			}else{
 				throw new RuntimeException("Unknown parameter "+arg);
 			}
+		}
+
+		// Load truth CIGARs from FASTQ if provided
+		if(fastq!=null && gradeCigar){
+			truthCigars=loadTruthCigars(fastq);
+			System.err.println("Loaded "+truthCigars.size()+" truth CIGARs from "+fastq);
 		}
 		
 		if(outl!=null){
@@ -176,7 +189,17 @@ public class GradeSamFile {
 		}
 		System.out.println();
 		System.out.println(Tools.format("false negative:        \t"+(falseNegativeB<10?" ":"")+"%.3f", falseNegativeB)+"%");
-		
+
+		if(gradeCigar && truthCigars!=null && cigarCompared>0){
+			double cmult=100d/cigarCompared;
+			System.out.println();
+			System.out.println("CIGAR correctness ("+cigarCompared+" reads with truth CIGARs):");
+			System.out.println(Tools.format("indels correct:        \t"+(cigarIndelsCorrect*cmult<10?" ":"")+"%.3f", cigarIndelsCorrect*cmult)+"%");
+			System.out.println(Tools.format("indels wrong count:    \t"+(cigarIndelsWrongCount*cmult<10?" ":"")+"%.3f", cigarIndelsWrongCount*cmult)+"%");
+			System.out.println(Tools.format("indels wrong size:     \t"+(cigarIndelsWrongSize*cmult<10?" ":"")+"%.3f", cigarIndelsWrongSize*cmult)+"%");
+			System.out.println(Tools.format("no truth cigar:        \t"+((mappedRetained-cigarCompared)*cmult<10?" ":"")+"%.3f", (mappedRetained-cigarCompared)*cmult)+"%");
+		}
+
 		if(printerr){
 			System.err.println();
 			System.err.println("Mapping Statistics for "+args[0]+":");
@@ -288,10 +311,8 @@ public class GradeSamFile {
 					}
 
 					if(strict){
-						//					System.err.println("TPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 						truePositiveStrict++;
 					}else{
-						//					System.err.println("FPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 						falsePositiveStrict++;
 						if(tswStrict!=null){
 							if(ffStrict.samOrBam()){
@@ -302,9 +323,17 @@ public class GradeSamFile {
 						}
 					}
 				}
+
+				// CIGAR comparison if truth CIGARs are loaded
+				if(truthCigars!=null){
+					byte[] truthCigar=truthCigars.get(sl.qname);
+					if(truthCigar!=null){
+						gradeCigarAlignment(sl, truthCigar);
+					}
+				}
 			}
 		}
-		
+
 	}
 	
 	/**
@@ -338,9 +367,6 @@ public class GradeSamFile {
 		int start=sl.start(true, true);
 		int stop=sl.stop(start, true, true);
 		if(!h.rname.equals(sl.rnameS())){return false;}
-
-		if(h.start!=start){return false;}
-		if(h.stop!=stop){return false;}
 		return(absdif(h.start, start)<=THRESH2 || absdif(h.stop, stop)<=THRESH2);
 	}
 	
@@ -385,6 +411,93 @@ public class GradeSamFile {
 //		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
 //	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------      CIGAR grading          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Load truth CIGARs from FASTQ headers into a HashMap keyed by full read name
+	 *  (including pairnum suffix, matching SAM QNAME). */
+	static HashMap<String, byte[]> loadTruthCigars(String path){
+		HashMap<String, byte[]> map=new HashMap<>();
+		TextFile tf=new TextFile(path);
+		String line;
+		while((line=tf.nextLine())!=null){
+			if(!line.startsWith("@SYN_") && !line.startsWith("@syn_")){continue;}
+			// Key = full header minus @, matching SAM QNAME exactly
+			String qname=line.substring(1);
+
+			// Extract CIGAR from match field (field 7 in SYN format)
+			// Parse the SYN_ portion (before space) to find the match field
+			int space=qname.indexOf(' ');
+			String synPart=(space>0) ? qname.substring(4, space) : qname.substring(4);
+			String[] parts=synPart.split("_", 10);
+			if(parts.length<8 || parts[7].equals(".")){
+				tf.nextLine(); tf.nextLine(); tf.nextLine();
+				continue;
+			}
+			byte[] cigar=parts[7].getBytes();
+			map.put(qname, cigar);
+
+			tf.nextLine(); tf.nextLine(); tf.nextLine();
+		}
+		tf.close();
+		return map;
+	}
+
+	/** Extract indel events from a SAM CIGAR string. Returns {insOpens, insTotal, delOpens, delTotal}. */
+	static int[] samCigarIndels(String cigar){
+		int insOpens=0, insTotal=0, delOpens=0, delTotal=0;
+		int num=0;
+		for(int i=0; i<cigar.length(); i++){
+			char c=cigar.charAt(i);
+			if(c>='0' && c<='9'){
+				num=num*10+(c-'0');
+			}else{
+				if(c=='I'){insOpens++; insTotal+=num;}
+				else if(c=='D'){delOpens++; delTotal+=num;}
+				num=0;
+			}
+		}
+		return new int[]{insOpens, insTotal, delOpens, delTotal};
+	}
+
+	/** Extract indel events from a truth CIGAR (=/X/I/D format). Same return as samCigarIndels. */
+	static int[] truthCigarIndels(byte[] cigar){
+		int insOpens=0, insTotal=0, delOpens=0, delTotal=0;
+		int num=0;
+		for(int i=0; i<cigar.length; i++){
+			byte c=cigar[i];
+			if(c>='0' && c<='9'){
+				num=num*10+(c-'0');
+			}else{
+				if(c=='I'){insOpens++; insTotal+=num;}
+				else if(c=='D'){delOpens++; delTotal+=num;}
+				num=0;
+			}
+		}
+		return new int[]{insOpens, insTotal, delOpens, delTotal};
+	}
+
+	/** Compare a SAM alignment's CIGAR against the truth CIGAR. */
+	static void gradeCigarAlignment(SamLine sl, byte[] truthCigar){
+		cigarCompared++;
+		int[] samIndels=samCigarIndels(sl.cigar);
+		int[] truthIndels=truthCigarIndels(truthCigar);
+
+		boolean countsMatch=(samIndels[0]==truthIndels[0] && samIndels[2]==truthIndels[2]);
+		boolean sizesMatch=(samIndels[1]==truthIndels[1] && samIndels[3]==truthIndels[3]);
+
+		if(countsMatch && sizesMatch){
+			cigarIndelsCorrect++;
+		}else if(!countsMatch){
+			cigarIndelsWrongCount++;
+		}else{
+			cigarIndelsWrongSize++;
+		}
+	}
+
+	/*--------------------------------------------------------------*/
+
 	private static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
@@ -420,5 +533,12 @@ public class GradeSamFile {
 	public static boolean BLASR=false;
 	public static boolean USE_BITSET=true;
 	public static BitSet seen=null;
-	
+
+	public static boolean gradeCigar=true;
+	public static HashMap<String, byte[]> truthCigars=null;
+	public static int cigarCompared=0;
+	public static int cigarIndelsCorrect=0;
+	public static int cigarIndelsWrongCount=0;
+	public static int cigarIndelsWrongSize=0;
+
 }

@@ -123,6 +123,11 @@ public class CallVariants {
 		SamLine.PARSE_0=false; // Don't parse read names by default
 		SamLine.PARSE_8=false; // Don't parse next segment info
 		SamLine.PARSE_OPTIONAL_MD_ONLY=true; // Only parse MD tag from optional fields
+
+		// Variants called here are makeVar-convention (DEL start on the first deleted base). Gate the DEL
+		// homopolymer left-flank count so live hpc matches the anchor-inclusive fromVCF hpc the nets were
+		// trained on (see Var.DEL_ANCHOR_EXCLUSIVE). Set once, before any scoring threads spawn. (2026-07-02.)
+		Var.DEL_ANCHOR_EXCLUSIVE=true;
 		
 		SamLine.RNAME_AS_BYTES=false;
 		
