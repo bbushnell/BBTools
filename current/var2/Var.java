@@ -1715,11 +1715,18 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 		return 1f-(count*0.1f/9); // Linear penalty up to count=9
 	}
 
+	/** Process-level gate for the DEL homopolymer-count convention. CallVariants scores makeVar-convention Vars
+	 *  (DEL start ON the first deleted base); it sets this true so {@link #homopolymerCount(ScafMap)}'s DEL left
+	 *  flank counts from start-1, matching the anchor-inclusive fromVCF hpc the nets were trained on. Default
+	 *  false preserves the fromVCF-correct behavior for GradeVCF / VectorsFromLabeledVCF and every other caller.
+	 *  Safe as a process-global because CallVariants never builds fromVCF Vars in-process. (2026-07-02 fix.) */
+	public static boolean DEL_ANCHOR_EXCLUSIVE=false;
+
 	/**
 	 * Counts homopolymer run length around this variant position.
 	 * Different calculation methods for substitutions, insertions, and deletions.
 	 * Used to assess likelihood of sequencing errors in repetitive sequence.
-	 * 
+	 *
 	 * @param map Scaffold mapping for reference sequence access
 	 * @return Length of homopolymer run (0 = no homopolymer)
 	 */
@@ -1753,8 +1760,15 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 			while(pos<=stop && bases[pos]==base1){pos++;}
 			while(pos<=stop && bases[pos]==base2){pos++;}
 			if(pos<=stop){return 0;} // Mixed sequence deletion
-			// Count flanking homopolymer
-			int left=VarHelper.homopolymerCountLeft(bases, start, base1);
+			// Count flanking homopolymer.
+			// makeVar builds DELs anchor-EXCLUSIVE (start ON the first deleted base), but this branch is written
+			// for the anchor-INCLUSIVE convention (start=anchor, base1=bases[start+1]) that VcfToVar.fromVCF
+			// produces. Under the makeVar convention the left flank therefore counts one extra base (the first
+			// deleted base itself). CallVariants (the only in-process scorer of makeVar Vars) sets
+			// DEL_ANCHOR_EXCLUSIVE so the left flank counts from start-1, making live hpc match the fromVCF hpc
+			// the nets were trained on. stop is invariant between the two conventions, so base2/right/+1 are
+			// unaffected — the left flank is the sole divergent term. (2026-07-02 integrated-vs-post-hoc fix.)
+			int left=VarHelper.homopolymerCountLeft(bases, DEL_ANCHOR_EXCLUSIVE ? start-1 : start, base1);
 			int right=VarHelper.homopolymerCountRight(bases, stop, base2);
 			return left+right+1;
 		}else{
