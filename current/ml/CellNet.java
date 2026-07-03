@@ -1084,6 +1084,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("##err ").append(errorRate, 6).nl();
 		bb.append("##wer ").append(weightedErrorRate, 6).nl();
 		bb.append("##ctf ").append(cutoff, 6).nl();
+		if(platform>=0){bb.append("##platform ").append(platform).nl();} //Round-trip the training platform tag (absent when unset)
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
 		return bb;
 	}
@@ -1290,6 +1291,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		copy.tpRate=tpRate;
 		copy.tnRate=tnRate;
 		copy.cutoff=cutoff; //Copy configuration
+		copy.platform=platform; //Copy platform tag
 		copy.fname=fname; //Preserve source-file metadata
 		copy.alpha=alpha;
 		copy.annealStrength=annealStrength;
@@ -1332,6 +1334,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		tpRate=cn.tpRate;
 		tnRate=cn.tnRate;
 		cutoff=cn.cutoff; //Copy classification threshold
+		platform=cn.platform; //Copy platform tag
 		fname=cn.fname; //Copy source-file metadata
 		alpha=cn.alpha; //Copy learning parameters
 		annealStrength=cn.annealStrength;
@@ -1576,6 +1579,10 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	float annealStrength=-1;
 	/** Classification threshold for binary decisions */
 	public float cutoff=-1;
+	/** Opaque platform tag round-tripped from the ##platform header (-1 = unset). The ml layer does not
+	 *  interpret it; the caller (var2) asserts the scoring platform matches this to prevent scoring a net
+	 *  under the wrong feature-vector platform one-hot. */
+	public int platform=-1;
 	/** Current training epoch number */
 	int epoch=-1;
 	/** Display counter for printing progress */

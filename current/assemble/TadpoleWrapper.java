@@ -95,9 +95,9 @@ public class TadpoleWrapper {
 		
 		if(set.isEmpty()){
 			kmers=new int[] {31};
-		}
-		
-		{
+		}else{//was a bare '{' block that unconditionally clobbered the {31} default with new int[set.size()] (=int[0])
+			//when set is empty, leaving kmers empty -> the k-loop never runs -> bestRecord stays null -> assert/NPE.
+			//Made 'else' so the k=31 default actually takes effect. Non-empty path is unchanged. [assemble/TadpoleWrapper#001 FIXED]
 			kmers=new int[set.size()];
 			int i=0;
 			for(Integer x : set){

@@ -550,6 +550,9 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			int subs=0;
 			for(int m=0; m<match.length(); m++){
 				final byte b=match.get(m);
+				//n comprehension: toMatch() only ever emits 'm' (match), 'S' (in-bounds mismatch), or 'C' (out-of-bounds clip) —
+				//n never 'N'. So the 'N' arm is dead here (harmless); 'S' is the only thing counted. 'C' is deliberately NOT a sub:
+				//n clip cost is accounted separately via clipPenalty above, so overhang isn't double-charged. Correct.
 				if(b=='S' || b=='N'){subs++;}
 			}
 
@@ -709,6 +712,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 					int count=0;
 					int maxSubsQ=Math.min(maxSubs, (int)(q.length()*subrate));
 
+					//n comprehension (reused-buffer safety, non-obvious): getSeedHits returns the per-thread REUSED IntList hitsList
+					//n (cleared on entry), so the forward and reverse calls alias the SAME list. It's safe ONLY because alignSparse
+					//n FULLY consumes seedHits into a fresh results IntList on the line right after each getSeedHits, BEFORE the next
+					//n getSeedHits (reverse) clears/refills hitsList. Order is load-bearing: forward-get -> forward-consume -> reverse-
+					//n get -> reverse-consume. hitsList is a per-ProcessThread field (run() inits it), so no cross-thread aliasing either.
 					IntList seedHits=getSeedHits(q, refIndex, false, seedMap);
 					if(originalRefs==null){
 						IntList hits=alignSparse(q.bases, ref.bases, maxSubsQ, q.maxClips, seedHits);
@@ -843,6 +851,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 				// -1       = Missing
 				// < -1     = Singleton (RefPos | MIN_VALUE)
 				// >= 0     = List Head Pointer
+				//n studied praise: PackedIndex4 packs three states into one int per kmer with zero extra memory — val==-1 means
+				//n ABSENT, val<-1 means a SINGLETON with its ref position stored in the low 31 bits (val&Integer.MAX_VALUE), and
+				//n val>=0 means a HEAD POINTER into positions[], where each entry's sign bit is a STOP bit (entry<0 => last). So the
+				//n common singleton case costs no positions[] slot at all, and the multi-hit list needs no length field. Verified the
+				//n decode matches getSeedHitsList's identical scheme; the #001 guard is exactly what keeps the -1 state out of the else.
 				final int val=map.get(kmer);
 
 				if(val==-1){continue;}//FIXED [ifa/IndelFreeAligner4#001]: -1 = Missing (kmer absent from reference); skip. Same fix as getSeedHitsList.

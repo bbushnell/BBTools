@@ -92,6 +92,11 @@ public class SealStats {
 	 * @return SealStatsLine containing aggregated counts for non-primary references
 	 */
 	public SealStatsLine countNonprimary(String name) {
+		//n [tracker/SealStats#001] LOW/latent: primary() is DOCUMENTED to return null on an empty map (a Seal stats file with
+		//n only headers, i.e. a sample that matched no reference — a legitimately-occurring input), and this line dereferences
+		//n primary.name with no guard -> NPE. Verified LATENT: grep found ZERO live callers of countNonprimary (existence-vs-
+		//n reachability: wrong-but-unreached -> latent LOW). The reachable primary()-null path is in driver/SummarizeSealCrosstalk
+		//n L113 (usePrimary mode), which is that file's concern. `name` param is unused (javadoc already notes this honestly).
 		SealStatsLine primary=primary();
 		return countNonmatching(primary.name);
 	}
@@ -155,6 +160,13 @@ public class SealStats {
 
 		@Override
 		public boolean equals(Object o) {return equals((SealStatsLine)o);}
+		//n [tracker/SealStats#002] LOW/QUESTION-float, do NOT patch: equals compares NAME ONLY, but compareTo compares
+		//n reads,then bases,then name — an equals/compareTo inconsistency, and there is no hashCode override, and equals(Object)
+		//n casts without instanceof/null guard. This has the tell of Brian's INTENTIONAL partial-key pattern: a reference's
+		//n identity IS its name (equals), while ranking is by abundance (compareTo) — so two lines with the same name are the
+		//n "same reference" but ordered by counts. VERIFIED it's currently harmless: SealStatsLine is never a key in any hash/
+		//n tree collection (the map here is String-keyed; compareTo is used only by primary()'s max-scan), so the contract
+		//n mismatch is never exercised. Float as a QUESTION per the landmine CAVEAT (plausible dedup-then-rank purpose), not a fix.
 		/**
 		 * Tests equality based on reference name only.
 		 * @param o SealStatsLine to compare against
