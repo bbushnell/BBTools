@@ -474,7 +474,12 @@ public class BubblePopper {
 		}
 
 		left.maxCov=Tools.max(left.maxCov, right.maxCov, mid.maxCov);
-		left.minCov=Tools.min(left.maxCov, right.maxCov); //Possible bug: should include mid.maxCov in min calculation
+		//[assemble/BubblePopper#001 FIXED 2026-07-02] minCov was computed from the maxCov FIELDS (min of two maximums) and
+		//omitted mid; corrected to the minCov fields incl. mid. Twin of merge() below. NOTE: Contig.minCov/maxCov are only
+		//printed in the FASTA header (Contig.java:101-102) and are never initialized at build time (0 for un-merged contigs),
+		//so today this is a latent/correctness fix; making min=/max= actually meaningful needs build-side coverage init (a
+		//separate feature, NOT done here - awaiting Brian's call).
+		left.minCov=Tools.min(left.minCov, right.minCov, mid.minCov);
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
 		double coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
@@ -612,7 +617,9 @@ public class BubblePopper {
 		right.setUsed(destMap, allContigs); //Don't do this until redirection is finished!
 
 		left.maxCov=Tools.max(left.maxCov, right.maxCov);
-		left.minCov=Tools.min(left.maxCov, right.maxCov);
+		//[assemble/BubblePopper#001 FIXED 2026-07-02] TWIN of pop(): minCov was computed from the maxCov fields; corrected to
+		//the minCov fields. (Same header-only/uninitialized caveat as noted in pop().)
+		left.minCov=Tools.min(left.minCov, right.minCov);
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
 		double coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);

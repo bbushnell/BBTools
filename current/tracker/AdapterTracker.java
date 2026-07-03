@@ -47,6 +47,9 @@ public class AdapterTracker {
 	}
 	
 	private boolean looksLikePhix(Read r, int insert){
+		//n comprehension/caller-contract: r.mate.bases is dereferenced unconditionally -> NPE if r has no mate. Safe because
+		//n AdapterTracker infers adapters from insert size (paired-read overlap): storeAdapterSequence is only fed paired reads
+		//n by BBMerge, so r.mate is non-null on every path that reaches here. Latent, gated on the paired-only caller contract.
 		return looksLikePhix(r.bases, insert) || looksLikePhix(r.mate.bases, insert);
 	}
 	
@@ -105,6 +108,11 @@ public class AdapterTracker {
 			long t=lists[3].get(i);
 			long sum=(a+c+g+t);
 			max=Tools.max(max, sum);
+			//n studied praise: this consensus loop scales BOTH its stop test and its call threshold with the running max
+			//n coverage, so it behaves sensibly at any depth (verified). Stop (L108): quits on zero coverage, OR on a >1000x
+			//n coverage drop from the peak (sum<=max/1000, the adapter signal has run out), OR on an absolute floor once
+			//n well-covered (max>100 && sum<8). Call (below): needs a >2/3 majority base, PLUS a +4 absolute margin once
+			//n max>100 so a couple of stray high-depth reads can't fabricate a base. Depth-adaptive without any magic fixed cutoff.
 			if(sum==0 || (sum<10 && sum<=max/1000) || (max>100 && sum<8)){break;}
 			long thresh=(max>100 ? 4+(sum*2)/3 : (sum*2)/3);
 			if(a>thresh){

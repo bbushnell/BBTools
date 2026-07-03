@@ -590,23 +590,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 					basesOutT+=r.length();
 				}
 			}
-			if(sl.mapped() && sl.pairedOnSameChrom() && sl.properPair() && sl.primary() && !sl.supplementary() && sl.leftmost()){
-				final String rname=sl.rnameS();
-				
-				Contig scaf=getScaffold(rname);
-				if(scaf!=null){
-					final int insertSize=calcInsertSize(sl);
-					insertCounts.incrementAndGet(Tools.mid(0, insertSize, insertCounts.length()-1));
-					scaf.add(sl);
-
-					readsOutT++;
-					basesOutT+=r.length();
-
-					totalInsertSumT+=insertSize;
-					totalInsertCountT++;
-				}
 			}
-		}
 
 		protected long readsProcessedT=0;
 		protected long basesProcessedT=0;

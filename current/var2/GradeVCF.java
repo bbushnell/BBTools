@@ -443,6 +443,15 @@ public class GradeVCF {
 			// NN score for the histogram axis (computed for every variant, not gated).
 			float nnScore=-1;
 			if(net!=null){
+				// Guard (mirrors Var.netScore): fail loudly if the net's declared platform != the scoring
+				// platform, instead of silently scoring the wrong feature-vector platform one-hot. This is the
+				// post-hoc path where the 2026-07-02 bug actually lived (gradevcf without platform=). MUST be
+				// outside the try below, or the catch(Throwable) would swallow the AssertionError. Fires only
+				// for platform-stamped nets (##platform header); unstamped research nets pass.
+				assert(net.platform<0 || net.platform==VectorUMP45.platform) :
+					"NN net "+net.fname+" was trained with platform="+net.platform+" but is being scored with platform="
+					+VectorUMP45.platform+" (0=illumina 1=pacbio 2=nanopore 3=roche). Pass the matching platform= flag; "
+					+"otherwise the vector platform one-hot is wrong and scores are off-distribution.";
 				try{
 					// makeVector recomputes two reference-derived features from scaffold BASES:
 					// contigEndDist (vec[30], capped at nScan) and homopolymerCount (vec[28]). So

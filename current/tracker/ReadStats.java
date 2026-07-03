@@ -37,6 +37,12 @@ public class ReadStats {
 	 * @param addToList Whether to add this instance to the global objectList
 	 */
 	public ReadStats(boolean addToList){
+		//n studied praise + comprehension: the whole class is a clean flag-driven design. Every histogram is allocated here iff
+		//n its COLLECT_* flag is set, else left null; addToHistograms()/mergeAll()/writeAll() then gate every access behind the
+		//n SAME static flag, so null arrays are never touched. This keeps memory proportional to what the user asked for. It is
+		//n safe ONLY because the COLLECT_* flags are static and set ONCE before any ReadStats is built — so every instance in
+		//n objectList has an identical allocation shape, which is exactly what mergeAll() relies on (it never re-checks per-instance
+		//n nullness for the flag-gated arrays). The per-thread instances add to objectList under synchronized; merge is single-thread.
 		if(addToList){
 			synchronized(ReadStats.class){
 				objectList.add(this);
@@ -1130,8 +1136,13 @@ public class ReadStats {
 	public int lengthAboveAverageQscore(float limit, int pairnum) {
 		final long[] qs=qualSum[pairnum];
 		long[] ql=qualLength[pairnum];
+		//n [tracker/ReadStats#002] LOW/latent (also in writeQualityToFile L1165-1172): the `if(ql!=null)` clone-guard implies the
+		//n author thought ql could be null, yet the very next line derefs ql[i] unconditionally -> NPE if qualLength is null. In
+		//n practice it's a dead-but-misleading guard: this method (and writeQualityToFile) only run in quality-collecting contexts
+		//n (COLLECT_QUALITY_STATS -> qualLength allocated non-null, ctor L46-49), so no live NPE. Not patching (removing the guard
+		//n vs adding a real null-path is a design call); flag so the false sense of null-safety is on record. Same for qs below.
 		if(ql!=null) {ql=ql.clone();}//Prevents modification of originals
-		
+
 		for(int i=MAXLEN-2; i>=0; i--){ql[i]+=ql[i+1];}
 		for(int i=0; i<MAXLEN; i++) {
 			if(ql[i]<0) {return i;}
@@ -1290,7 +1301,8 @@ public class ReadStats {
 		boolean includeNs=true;
 		long m=matchSum[pairnum][pos];
 		long d=delSum[pairnum][pos]; //left-adjacent deletion
-		long d2=delSum[pairnum][Tools.min(pos, delSum[pairnum].length-1)]; //right-adjacent deletion
+		//d2 is the right-adjacent deletion, so it indexes pos+1; the min clamps the last position back to len-1.
+		long d2=delSum[pairnum][Tools.min(pos+1, delSum[pairnum].length-1)]; //right-adjacent deletion
 		long i=insSum[pairnum][pos];
 		long s=subSum[pairnum][pos];
 		long n=(includeNs ? nSum[pairnum][pos] : 0); //This only tracks no-calls, not no-refs.
@@ -1630,6 +1642,10 @@ public class ReadStats {
 		sb.append("#Median\t"+Tools.percentileHistogram(insertHist.array, 0.5)+"\n");
 		sb.append("#Mode\t"+Tools.calcModeHistogram(insertHist.array)+"\n");
 		sb.append("#STDev\t"+Tools.format("%.3f", Tools.standardDeviationHistogram(insertHist.array))+"\n");
+		//n [tracker/ReadStats#003] LOW/cosmetic (pattern-a, family): pairedCount+unpairedCount==0 (no reads) -> 0/0 -> NaN printed.
+		//n Same shape elsewhere in the writers on empty input: writeBaseContentToFile2 mult=1/(a+c+g+t+n) at an all-zero position,
+		//n and the stdev/variance/entropy=sum/values with values==0 in writeQualityToFile/writeQualityAccuracyToFile. All are
+		//n empty-input diagnostics only (no read corruption, per the input-validity risk model); left as-is, documented not fixed.
 		double percent=pairedCount*100.0/(pairedCount+unpairedCount);
 		sb.append("#PercentOfPairs\t"+Tools.format("%.3f", percent)+"\n");
 //		sb.append("#PercentOfPairs\t"+Tools.format("%.3f", matedPercent)+"\n");

@@ -547,7 +547,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 				
 				if(scaf!=null){
 					final int insertSize=calcInsertSize(sl);
-					insertCounts.incrementAndGet(Tools.mid(0, insertSize, insertCounts.length()));
+					insertCounts.incrementAndGet(Tools.mid(0, insertSize, insertCounts.length()-1));
 					scaf.add(sl, insertSize);
 
 					readsOutT++;

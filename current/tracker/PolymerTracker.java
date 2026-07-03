@@ -88,6 +88,9 @@ public class PolymerTracker {
 		for(int i=0; i<5; i++){//Make reverse-cumulative version
 			LongList list=countsACGTN[i];
 			LongList sumList=new LongList(list.size);
+			//n comprehension: reverse-cumulative sum[len]=sum[len+1]+count[len]. Correct because (a) descending len means
+			//n sum[len+1] was set on the PRIOR iteration, and (b) the base case sum[list.size] reads past sumList's live size
+			//n so LongList.get returns 0 (default) — no seed needed. sums[len] thus = total count of homopolymers of length>=len.
 			for(int len=list.size-1; len>=0; len--){
 				sumList.set(len, sumList.get(len+1)+list.get(len));
 			}
@@ -140,6 +143,9 @@ public class PolymerTracker {
 	}
 	
 	public long getCount(byte base, int length) {
+		//n comprehension/caller-contract: baseToNumberACGTN maps A/C/G/T/N->0..4 and ANY other byte->-1, so countsACGTN[-1]
+		//n would AIOOBE. Safe here because every caller passes a literal ACGTN base (calcRatio/calcRatioCumulative feed uppercase
+		//n base constants); a non-ACGTN or lowercase byte would crash. Latent, gated on caller contract — not a live bug.
 		int x=AminoAcid.baseToNumberACGTN[base];
 		return countsACGTN[x].get(length);
 	}

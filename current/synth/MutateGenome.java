@@ -131,7 +131,7 @@ public class MutateGenome {
 				long[] counts=Parse.parseLongArray(b);
 				kmerFreq=new float[counts.length];
 				float mult=1f/Tools.sum(counts);
-				for(int j=0; j<counts.length; k++) {kmerFreq[j]=counts[j]*mult;}
+				for(int j=0; j<counts.length; j++) {kmerFreq[j]=counts[j]*mult;}
 			}
 
 			else if(a.equals("prefix")){

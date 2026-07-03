@@ -173,7 +173,7 @@ public final class IceCreamFinder {
 			}else if(a.equals("format")){
 				if(b==null){
 					assert(false) : arg;
-				}else if(Tools.isDigit(b.charAt(i))){
+				}else if(Tools.isDigit(b.charAt(0))){
 					format=Integer.parseInt(b);
 				}else if(b.equalsIgnoreCase("json")){
 					format=FORMAT_JSON;
@@ -1159,8 +1159,9 @@ public final class IceCreamFinder {
 
 			if(rvec==null || rvec[0]<minSwScore){return 0;}
 			final int score=rvec[0];
-			final int start=Tools.max(0, rvec[1]-adapterTipPad);
-			final int stop=rvec[2]-adapterTipPad;
+			final int offset=bases.length-adapterTipLen;
+			final int start=Tools.max(0, rvec[1]+offset);
+			final int stop=Tools.min(bases.length-1, rvec[2]+offset);
 			for(int i=start; i<=stop; i++){r.bases[i]='X';}
 			return stop-start+1;
 		}
@@ -1249,7 +1250,7 @@ public final class IceCreamFinder {
 				if(discardedReads>0 || trimmedReads>0){
 					truePositiveZMWsT++;
 				}else if(ambigReads>0){
-					ambiguousZMWs++;
+					ambiguousZMWsT++;
 				}else{
 					falseNegativeZMWsT++;
 //					StringBuilder sb=new StringBuilder();
@@ -1260,7 +1261,7 @@ public final class IceCreamFinder {
 				if(discardedReads>0){
 					falsePositiveZMWsT++;
 				}else if(ambigReads>0){
-					ambiguousZMWs++;
+					ambiguousZMWsT++;
 				}else{
 					trueNegativeZMWsT++;
 				}

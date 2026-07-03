@@ -209,6 +209,15 @@ public class Reassemble {
 		outstream.println("Output: "+out);
 		outstream.println("Mode: "+(useAppendMode ? "append (direct output)" : "temp files (concatenate after)"));
 
+		//[assemble/Reassemble#001 FIXED 2026-07-02] In append mode every genome (incl. the first) writes with app=t; nothing
+		//used to clear a pre-existing out file, so re-running with the same out= silently appended the new assembly onto stale
+		//contigs. Delete it once up front so the run starts clean (temp-file mode already overwrites out in concatenateOutputs).
+		//Matches BBTools' default-overwrite convention.
+		if(useAppendMode){
+			File of=new File(out);
+			if(of.exists()){of.delete();}
+		}
+
 		ArrayList<GenomeRecord> records=new ArrayList<GenomeRecord>();
 		long cumulativeContigOffset=0;
 
@@ -384,6 +393,7 @@ public class Reassemble {
 		ArrayList<String> args=new ArrayList<String>(tadpoleArgs);
 		args.add("in="+inputFile);
 		args.add("out="+outputFile);
+		//[assemble/Reassemble#001] app=t is correct here now that process() deletes any pre-existing out up front (see there).
 		if(useAppendMode){
 			args.add("app=t");  // Append mode
 		}

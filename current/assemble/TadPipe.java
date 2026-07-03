@@ -291,9 +291,14 @@ public class TadPipe {
 		
 		{
 			mergeArgs.add("in="+outClumped);
-			
-			mergeArgs.add("out="+"j.fq");
-			mergeArgs.add("outu="+"q.fq");
+
+			//[assemble/TadPipe#001 FIXED 2026-07-02] merged/unmerged reads were written to hardcoded "j.fq"/"q.fq" (CWD debug
+			//leftovers) instead of the outMerged/outUnmerged temp files that the very next stage (ecc, below) reads via
+			//`in=outMerged,outUnmerged`. Those temps are empty File.createTempFile stubs, so the pipeline processed no reads
+			//from the merge onward and orphaned the real output in ./j.fq,./q.fq. Wired to the correct temp files. (Brian OK'd
+			//the fix; he'll separately check whether TadPipe is still used by anyone.)
+			mergeArgs.add("out="+outMerged);
+			mergeArgs.add("outu="+outUnmerged);
 
 			mergeArgs.add("k=75");
 			mergeArgs.add("extend2=120");
@@ -350,6 +355,10 @@ public class TadPipe {
 		}
 		
 		if(extend2){
+			//TODO: Possible bug [assemble/TadPipe#002] - input uses outMergedExtended TWICE (should be
+			//outMergedExtended,outUnmergedExtended); the unmerged-extended reads are dropped. Also line ~369 deletes
+			//outMergedExtended twice and leaks outUnmergedExtended. DEAD/latent: `extend2` is never set true (field=false,
+			//only the extend2_ arg-prefix populates a list, never the boolean), so this whole block is unreachable. Copy-paste. LOW.
 			extend2Args.add("in="+outMergedExtended+","+outMergedExtended);
 			extend2Args.add("out="+outMergedExtended2+","+outUnmergedExtended2);
 

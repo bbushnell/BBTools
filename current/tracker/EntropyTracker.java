@@ -73,6 +73,11 @@ public class EntropyTracker {
 		assert(windowKmers>0 && (entropyCutoff>=0 || entropyCutoff==-1) && entropyCutoff<=1) : k+", "+windowBases+", "+windowKmers+", "+entropyCutoff;
 		
 		bitsPerBase=(amino ? 5 : 2);
+		//n [tracker/EntropyTracker#006] LOW/latent-edge: the k>15 guard for the shift is correct for nucleotide (bitsPerBase=2:
+		//n 2*k exceeds 31 only when k>15), but for amino (bitsPerBase=5) the product 5*k exceeds 31 at k>=7, so mask and kmerSpace
+		//n use a Java int-shift with count>=35 (silently masked to count&31) -> wrong mask/kmerSpace for amino && k in [7,15]. The
+		//n constructor assert only bounds k<=15, not bitsPerBase*k<=31. Latent: amino EntropyTracker is used with tiny k (default
+		//n 2, see ctor above); no path builds an amino tracker with k>=7. Correct guard would be `bitsPerBase*k>31`, not `k>15`.
 		mask=(k>15 ? -1 : ~((-1)<<(bitsPerBase*k)));
 		kmerSpace=(1<<(bitsPerBase*k));//Note: This should be different for amino, but decoding would be a pain
 		symbolToNumber=AminoAcid.symbolToNumber(amino);
@@ -328,8 +333,13 @@ public class EntropyTracker {
 	 * @param bases Sequence to analyze
 	 * @param counts Work array for k-mer counting (can be null)
 	 * @param k K-mer length
-	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 * @return Strandedness score (0=perfectly stranded/single-strand, 1=perfectly balanced/unstranded)
 	 */
+	//n [tracker/EntropyTracker#002] DOC (family-wide, LIVE via bin/clade/SpectraCounter): 3 of the 4 strandedness @return docs
+	//n stated "0=unstranded, 1=perfectly stranded" — INVERTED. All variants compute sum(min(a,b))/sum(max(a,b)) over complement
+	//n pairs, so a==b (balanced/unstranded) -> 1.0 and one-strand-only (b=0) -> 0.0. Verified with a k=1 "AAAA" trace: counts
+	//n [4,0,0,0], A/T pair min=0 max=4 -> 0.0 = maximally stranded. Corrected 3 docs to match the math + the already-correct
+	//n sibling strandedness(int[],k) below. (The complement (~kmer) pairing is INTENTIONAL and correct — see #005 for the why.)
 	public static float strandedness(byte[] bases, int[] counts, int k) {
 		if(counts==null) {counts=new int[1<<(2*k)];}
 		countKmers(bases, counts, k);
@@ -346,6 +356,12 @@ public class EntropyTracker {
 		final int mask=~((-1)<<(2*k));
 		assert(mask==counts.length-1);
 		long lower=0, upper=0;
+		//Pairs each kmer with its complement ~kmer (not reverse-complement), by design. This measures DIRECTIONAL strand bias:
+		//does a kmer occur more reading forward than backward. The ideal comparison is freq(AC) vs freq(CA) (AC reversed), but by
+		//Chargaff's 2nd parity freq(CA)~=freq(revcomp(CA))=freq(TG) on a long sequence, and TG=~AC is faster than the true reverse.
+		//So AC-vs-TG is a fast proxy for AC-vs-CA. Balanced -> 1.0 (unstranded); AC present but TG absent -> 0.0 (stranded); a
+		//poly-ACGT repeat scores 0.0 because every dimer occurs only forward. Intended for contig-length k=2 dimers.
+		//Partition: kmer in [0,len/2) pairs with mask-kmer in [len/2,len), no self-pair (mask is odd).
 		for(int kmer=0, limit=counts.length/2; kmer<limit; kmer++) {
 			int a=counts[kmer];
 			int b=counts[mask&(~kmer)];
@@ -359,7 +375,7 @@ public class EntropyTracker {
 	 * Calculates strandedness from existing k-mer counts using long arrays.
 	 * @param counts Array of k-mer counts indexed by numeric k-mer value
 	 * @param k K-mer length
-	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 * @return Strandedness score (0=perfectly stranded/single-strand, 1=perfectly balanced/unstranded)
 	 */
 	public static float strandedness(long[] counts, int k) {
 		final int mask=~((-1)<<(2*k));
@@ -377,7 +393,7 @@ public class EntropyTracker {
 	/**
 	 * Optimized strandedness calculation for k=2 (dinucleotides).
 	 * @param counts Array of 16 dinucleotide counts
-	 * @return Strandedness score (0=unstranded, 1=perfectly stranded)
+	 * @return Strandedness score (0=perfectly stranded/single-strand, 1=perfectly balanced/unstranded)
 	 */
 	public static float strandednessK2(int[] counts) {
 		final int mask=15;
@@ -413,6 +429,18 @@ public class EntropyTracker {
 		int valid=0;
 		double sum=0;
 		int sums=0;
+		//TODO: Possible bug [tracker/EntropyTracker#001] - FIXED HERE (was bases[i], now bases[j]); flagged for Brian's review.
+		//n #001 EMPIRICALLY VALIDATED (predict-then-run): with the fix, a two-region seq (poly-AC stranded | ACTG balanced,
+		//n window=12) returns 0.654 — the sliding average of ~0.0 and ~0.99, proving it traverses BOTH regions; window=len
+		//n reproduces the non-windowed strandedness exactly (0.95==0.95). The old bases[i] code would report ~0 (first region only).
+		//n [tracker/EntropyTracker#001] LATENT wrong-variable (LOW: strandednessWindowed + its K2 twin have ZERO callers in
+		//n the repo — verified by grep — so nothing is broken today; fix is landmine-removal for the first future caller). The
+		//n remove/trailing pointer must read the base LEAVING the window, at bases[j] (j=i-window), NOT bases[i]. With the old
+		//n bases[i], jkmer obeys the SAME recurrence as ikmer on the SAME input, so within k shifts jkmer==ikmer permanently;
+		//n then every counts[ikmer]++ is cancelled by counts[jkmer]-- and the window never slides (freezes at its i~=window
+		//n state), returning one window's strandedness repeated. bases[j] makes it the standard two-pointer rolling window:
+		//n ikmer counts the kmer entering at i, jkmer removes the kmer that entered `window` steps earlier (ending at j). j is
+		//n a valid index here (0<=j<i<bases.length under the j>=0 gate). Mirrors the instance add()/kmer2 lagging-pointer design.
 		for(int i=0, j=-window, ikmer=0, jkmer=0, ilen=0, jlen=0; i<bases.length; i++, j++){
 			{
 				byte b=bases[i];
@@ -426,9 +454,9 @@ public class EntropyTracker {
 					}
 				}else{ilen=ikmer=0;}
 			}
-			
+
 			if(j>=0){
-				byte b=bases[i];
+				byte b=bases[j];
 				int y=AminoAcid.baseToNumber[b];
 				jkmer=((jkmer<<2)|y)&mask;
 				if(y>=0){
@@ -483,7 +511,7 @@ public class EntropyTracker {
 			}
 			
 			if(j>=0){
-				byte b=bases[i];
+				byte b=bases[j];//[tracker/EntropyTracker#001] FIXED: was bases[i] (K2 twin of the bug above); trailing base is at j.
 				int y=AminoAcid.baseToNumber[b];
 				jkmer=((jkmer<<2)|y)&mask;
 				if(y>=0){
@@ -666,6 +694,7 @@ public class EntropyTracker {
 			}
 		}
 		
+		//divisor is only ever incremented, so this never fires; 0 valid windows falls through to 0.0 below, which callers accept.
 		if(divisor<0){return -1;}//No valid windows.
 		
 		//Calculate the average
@@ -723,7 +752,13 @@ public class EntropyTracker {
 				double e=calcEntropy();
 				float mmf=calcMaxMonomerFraction();
 				sum+=e;
-				if(e<entropyCutoff && mmf>maxMonomerFraction){
+				//TODO: Possible bug [tracker/EntropyTracker#003] - FIXED HERE (mmf> -> mmf>=); flagged for Brian's review.
+				//n [tracker/EntropyTracker#003] LIVE (icecream/ReformatPacBio + IceCreamFinder, both allowNs=false): the loop
+				//n branch used mmf>maxMonomerFraction while the first-window branch above uses mmf>=maxMonomerFraction, and the
+				//n javadoc says "at least the monomer fraction" (>=). Twin-drift between the prefill-window eval and the loop eval;
+				//n aligned the loop to >= to match both. Only bites at the exact-equality boundary (rare with floats), so low blast
+				//n radius, but it made the first window and all later windows classify the mmf==threshold case differently.
+				if(e<entropyCutoff && mmf>=maxMonomerFraction){
 					totalLowWindows++;
 					currentLowWindows++;
 					maxLowWindows=Tools.max(maxLowWindows, currentLowWindows);
@@ -732,7 +767,7 @@ public class EntropyTracker {
 				}
 			}
 		}
-		
+
 		//Calculate the average; not needed
 		double avg=(sum/(Tools.max(1, totalWindows)));
 		
@@ -829,6 +864,12 @@ public class EntropyTracker {
 				countCounts[newCount]++;
 				
 				/* Update entropy */
+				//n studied praise: this is the elegant core. entropy[c]=(c/W)*log(c/W) is precomputed per possible count, so
+				//n when one kmer's count goes oldCount->newCount the window's entropy sum is repaired in O(1) by adding just the
+				//n delta entropy[newCount]-entropy[oldCount] — no rescan of the kmer space. Paired with the mirror-image decrement
+				//n on the evicting side, calcEntropyFast() is a single multiply of this running sum. verify() (when enabled) proves
+				//n the incremental sum stays identical to the from-scratch Slow/SuperSlow computations to 1e-6, which is what makes
+				//n trusting the fast path safe. Precompute-the-transition-cost is the whole trick.
 				currentEsum=currentEsum+entropy[newCount]-entropy[oldCount];
 //				currentEsum+=entropyDeltaPlus[oldCount];
 

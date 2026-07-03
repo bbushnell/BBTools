@@ -102,7 +102,7 @@ public class ZMW extends ArrayList<Read> {
 				if(tab<0){tab=suffix.indexOf(' ');}
 				if(tab>0){
 					coords=coords.substring(0, tab);
-					comment=coords.substring(tab);
+					comment=suffix.substring(tab);
 				}
 				String[] split=Tools.underscorePattern.split(coords);
 				int left=Integer.parseInt(split[0]);

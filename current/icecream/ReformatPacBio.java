@@ -157,7 +157,7 @@ public final class ReformatPacBio {
 			}else if(a.equals("format")){
 				if(b==null){
 					assert(false) : arg;
-				}else if(Tools.isDigit(b.charAt(i))){
+				}else if(Tools.isDigit(b.charAt(0))){
 					format=Integer.parseInt(b);
 				}else if(b.equalsIgnoreCase("json")){
 					format=FORMAT_JSON;
@@ -256,7 +256,7 @@ public final class ReformatPacBio {
 			
 			else if(a.equals("whitelist")){
 				whitelist=b;
-			}else if(a.equals("whitelist")){
+			}else if(a.equals("blacklist")){
 				blacklist=b;
 			}
 			
@@ -1179,7 +1179,7 @@ public final class ReformatPacBio {
 					if(tab<0){tab=suffix.indexOf(' ');}
 					if(tab>0){
 						coords=coords.substring(0, tab);
-						comment=coords.substring(tab);
+						comment=suffix.substring(tab);
 					}
 					String[] split=Tools.underscorePattern.split(coords);
 					int left=Integer.parseInt(split[0]);

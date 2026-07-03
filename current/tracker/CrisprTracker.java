@@ -39,7 +39,13 @@ public class CrisprTracker {
 		int slen=sstop-sstart+1;
 		int ulen=rlen+slen;
 		int tlen=p.b.b-p.a.a+1;
-
+		//n [tracker/CrisprTracker] comprehension: all increment() args below must be >=0 or LongList.increment AIOOBEs (a
+		//n negative loc is <array.length so it skips the auto-grow resize and indexes array[neg] directly, verified
+		//n structures/LongList#93/#83). rlen=r.length()>=0. slen=sstop-sstart+1=(p.b.a-1)-(p.a.b+1)+1=p.b.a-p.a.b-1>=1
+		//n REQUIRES the Crispr invariant p.a.b<p.b.a (first repeat ends before second begins, i.e. a real spacer exists) —
+		//n guaranteed by the repeat-spacer-repeat detector that builds Crispr; overlapping repeats would give slen<=0. ulen,
+		//n tlen>=1 follow. rgci/sgci=round(gc*gcMult) with gc in [0,1] -> [0,100], never negative; NaN gc (all-N region,
+		//n calcGC 0/0) -> Math.round(NaN)=0 -> bin 0, in-bounds (same safe degenerate as scalar/Scalars#001).
 		rlenList.increment(rlen);
 		slenList.increment(slen);
 		ulenList.increment(ulen);
@@ -50,8 +56,15 @@ public class CrisprTracker {
 		mismatchList.increment(p.mismatches);
 		crisprsFound++;
 //		partialTipRepeats+=((p.a.length()==p.b.length()) ? 0 : 1);
+		//n studied praise: this line is a real refinement over the commented-out predecessor above. The old test called a
+		//n repeat-pair "complete" whenever lengths matched; the new one ALSO demands the pair not be flush against either
+		//n sequence end (p.a.a>0 && p.b.b<s.length-1). A repeat touching position 0 or s.length-1 is likely truncated by the
+		//n contig boundary ("tip"), so equal observed lengths there are coincidental, not evidence of completeness. Verified
+		//n against the field doc "partial or tip repeats that may be incomplete" — the code now matches the stated intent.
 		partialTipRepeats+=((p.a.length()==p.b.length() && p.a.a>0 && p.b.b<s.length-1) ? 0 : 1);
 		//Matches, mismatches, and copies need to be incremented manually
+		//n comprehension: matchList/mismatchList ARE filled above (this add()); this note's "manually" refers to copyList,
+		//n refMismatchList, refMismatchListValid — the 3 lists never touched here, incremented by the alignment caller.
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -104,6 +117,8 @@ public class CrisprTracker {
 	/*--------------------------------------------------------------*/
 
 	/** Counts of A/C/G/T/N bases observed across processed CRISPR regions. */
+	//n [tracker/CrisprTracker#002] LOW/dead: acgtn is never read or written anywhere in this class (no callers set it —
+	//n it is private). Dead field; harmless. Leaving in place (may be a stub for a planned per-base tally). Flag, don't remove.
 	private final int[] acgtn=new int[5];
 
 	/** Total number of CRISPR structures discovered. */
@@ -139,9 +154,14 @@ public class CrisprTracker {
 	public LongList mismatchList=new LongList();
 	/** Histogram of repeat copy counts. */
 	public LongList copyList=new LongList();
-	/** Histogram of repeat GC content in 2% increments. */
+	//n [tracker/CrisprTracker#001] LOW/DOC: "2% increments" + capacity 51 are STALE. gcMult=100 (see field below, doc says
+	//n "100 = 1% steps") so rgci/sgci=round(gc*100) span bins 0..100 (101 values), i.e. 1% increments, not 2%. Not a crash:
+	//n LongList(51) is only a growth hint and increment() auto-grows (resize) at the first bin>50, which fires on any GC>50%
+	//n (extremely common). Effect is a one-time array regrow + a misleading comment. Fix = doc "1% increments" and, if desired,
+	//n size these new LongList(101). Verified 1% via gcMult doc + Math.round; no correctness impact.
+	/** Histogram of repeat GC content in 1% increments (bins 0..100). */
 	public LongList rgcList=new LongList(51);
-	/** Histogram of spacer GC content in 2% increments. */
+	/** Histogram of spacer GC content in 1% increments (bins 0..100). */
 	public LongList sgcList=new LongList(51);
 	/** Histogram of reference mismatch counts for all alignments. */
 	public LongList refMismatchList=new LongList(51);
