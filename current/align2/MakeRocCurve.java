@@ -208,9 +208,12 @@ public class MakeRocCurve {
 		int q=r.mapScore;
 		
 		int THRESH=0;
-		primaryA[q]++;
+		//[align2/MakeRocCurve#002 FIXED 2026-07-03] primaryA[q]++ was BEFORE the clamp below, so it indexed with the raw
+		//mapScore -> AIOOBE when mapScore<0 or >=discardedA.length(1000), reachable for long/high-scoring reads (samtoroc.sh).
+		//Every other array access uses the clamped q; moved the increment after the clamp so primaryA is bucketed consistently.
 		if(q<0){q=0;}
 		if(q>=discardedA.length){q=discardedA.length-1;}
+		primaryA[q]++;
 		
 		if(r.discarded()/* || r.mapScore==0*/){
 			discardedA[q]++;
@@ -314,8 +317,10 @@ public class MakeRocCurve {
 		int stop=sl.stop(start, true, true);
 		if(!h.rname.equals(sl.rnameS())){return false;}
 
-		if(h.start!=start){return false;} //Possible bug: strict check before tolerance check
-		if(h.stop!=stop){return false;} //Possible bug: strict check before tolerance check
+		//[align2/MakeRocCurve#001 FIXED 2026-07-03] Removed two exact-match early returns (if(h.start!=start)return false; and
+		//if(h.stop!=stop)return false;) that ran BEFORE the tolerance check below - they made this "loose" check require an EXACT
+		//start AND stop, i.e. identical to isCorrectHit (strict), so the loose ROC columns silently equaled the strict ones.
+		//The commented-out original isCorrectHitLoose went straight to the absdif tolerance; restored that. THRESH2=20 default.
 		return(absdif(h.start, start)<=THRESH2 || absdif(h.stop, stop)<=THRESH2);
 	}
 	
