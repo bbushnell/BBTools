@@ -131,8 +131,8 @@ class ResultLineParser {
 	private TaxNode getTaxNode(String fname){
 		String name=ReadWrite.stripToCore(fname);
 		if(name.startsWith("tid_")){
-			int idx2=fname.indexOf('_', 4);
-			int x=Parse.parseInt(fname, 4, idx2);
+			int idx2=name.indexOf('_', 4);
+			int x=Parse.parseInt(name, 4, idx2);
 			return x>0 ? tree.getNode(x) : null;
 			//name=name.substring(idx2+1); //This would allow fall-through to name parsing
 		}

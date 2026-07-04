@@ -957,9 +957,9 @@ public class PartitionReads3 {
 
 				//When accumulated reaches or exceeds target, we've filled this partition
 				//Set boundary to START of next bin, so current bin stays in current partition
-				//IMPORTANT: Use consistent binning with histogram! Histogram uses (metric*1023) so boundary must use (i+1)/1023.0f
+				//Reconstruct the metric at the start of bin i+1. The histogram bins via (int)(metric*1024) into a 1025-slot array, so the inverse divisor is 1024 (same as findValleyBoundaries).
 				if(accumulated>=target){
-					boundaries[partitionIndex]=(mode==DEPTH ? dequantizeDepth(i+1) : (i+1)/1023.0f);
+					boundaries[partitionIndex]=(mode==DEPTH ? dequantizeDepth(i+1) : (i+1)/1024.0f);
 					partitionIndex++;
 					target=targetPerPartition*(partitionIndex+1);  //Update target for next partition
 				}

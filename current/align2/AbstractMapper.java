@@ -410,7 +410,7 @@ public abstract class AbstractMapper {
 				minid=-1;
 			}else if(a.equals("minidentity") || a.equals("minid")){
 				assert(b!=null) : "Bad parameter: "+arg;
-				if(b.lastIndexOf('%')==b.length()-1){minid=Double.parseDouble(b.substring(b.length()-1))/100;}
+				if(b.lastIndexOf('%')==b.length()-1){minid=Double.parseDouble(b.substring(0, b.length()-1))/100;}//substring must drop the trailing '%' (0..len-1), not keep it (len-1..end)
 				else{minid=Double.parseDouble(b);}
 				assert(minid>=0 && minid<=100) : "min identity must be between 0 and 1.  Values from 1 to 100 will be assumed percent and divided by 100.";
 			}else if(a.equals("rcompmate") || a.equals("reversecomplementmate")){
@@ -605,7 +605,7 @@ public abstract class AbstractMapper {
 				coverageMinScaf=Integer.parseInt(b);
 			}else if(a.equals("binnedcoverage") || a.equals("bincov")){
 				coverageBinned=b;
-			}else if(a.equals("coverage") || a.equals("basecov")){
+			}else if(a.equals("basecov")){//FIXED [align2/AbstractMapper#003]: removed the dead "coverage" alias here — the earlier calcCov branch (coverage|cov|calccov|calccoverage) shadows it, so only "basecov" ever reached coverageBase.
 				coverageBase=b;
 			}else if(a.equals("rangecov")){
 				rangeCov=b;
@@ -648,7 +648,7 @@ public abstract class AbstractMapper {
 			}else if(a.equals("startcov") || a.equals("covstart")){
 				covStartOnly=Parse.parseBoolean(b);
 			}else if(a.equals("stopcov") || a.equals("covstop")){
-				covStartOnly=Parse.parseBoolean(b);
+				covStopOnly=Parse.parseBoolean(b);//was covStartOnly (copy-paste); covStopOnly is what BBMap*.java passes as stopcov= to CoveragePileup
 			}else if(a.equals("concisecov")){
 				CoveragePileup.CONCISE=Parse.parseBoolean(b);
 			}else if(a.equals("covwindow")){
@@ -2401,8 +2401,9 @@ public abstract class AbstractMapper {
 			
 			perfectMatch2+=mtt.perfectMatch2; //Highest slow score is max slow score
 			semiperfectMatch2+=mtt.semiperfectMatch2; //A semiperfect mapping was found
-			perfectMatchBases1+=mtt.perfectMatchBases1;
-			semiperfectMatchBases1+=mtt.semiperfectMatchBases1;
+			//FIXED [align2/AbstractMapper#004]: read-2 accumulator was copying read-1 fields; corrected to *Bases2 (cf. printOutputStats:1540-1541). The read-2 avgNumIncorrect/avgPerfectSites refs below were the same slip and are also corrected.
+			perfectMatchBases2+=mtt.perfectMatchBases2;
+			semiperfectMatchBases2+=mtt.semiperfectMatchBases2;
 			
 			duplicateBestAlignment2+=mtt.ambiguousBestAlignment2;
 
@@ -2630,8 +2631,8 @@ public abstract class AbstractMapper {
 			noHitPercent=noHit2*invTrials100;
 			
 			avgNumCorrect=(SKIMMER ? totalNumCorrect2*invTrials : (totalCorrectSites2/(1d*(truePositiveP2+truePositiveM2))));
-			avgNumIncorrect=totalNumIncorrect1*invTrials; //Skimmer only
-			avgNumIncorrectPrior=totalNumIncorrectPrior1*invTrials; //Skimmer only
+			avgNumIncorrect=totalNumIncorrect2*invTrials; //Skimmer only //FIXED #004: was ...1 in the read-2 block
+			avgNumIncorrectPrior=totalNumIncorrectPrior2*invTrials; //Skimmer only //FIXED #004: was ...1
 
 			rateCapturedAllCorrect=totalNumCapturedAllCorrect2*invTrials100; //Skimmer only
 			rateCapturedAllTop=totalNumCapturedAllCorrectTop2*invTrials100; //Skimmer only
@@ -2649,8 +2650,8 @@ public abstract class AbstractMapper {
 			avgPostTrimSites=postTrimSiteSum2*invTrials;
 			avgPostRescueSites=postRescueSiteSum2*invTrials;
 			avgSites=siteSum2*invTrials;
-			avgPerfectSites=(perfectHitCount1*invTrials);
-			avgSemiPerfectSites=(semiPerfectHitCount1*invTrials);
+			avgPerfectSites=(perfectHitCount2*invTrials);//FIXED #004: was perfectHitCount1 in the read-2 block
+			avgSemiPerfectSites=(semiPerfectHitCount2*invTrials);//FIXED #004: was semiPerfectHitCount1
 			avgTopSites=topSiteSum2*invTrials;
 			lowQualityReadsDiscardedPercent=lowQualityReadsDiscarded2*invTrials100;
 

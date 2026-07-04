@@ -283,8 +283,17 @@ public final class ByteFile1 extends ByteFile {
 			if(listPos>=positions.size()){
 				fillBuffer();
 
-				// If still no positions after fill, we're done
+				// If still no newlines after fill, emit any trailing line (a final line
+				// lacking a terminating newline) and finish; matches nextLineList, which
+				// synthesizes nlpos=bstop for this case. Without this the trailing line was
+				// dropped on the SIMD path, and the leftover bstart<bstop tripped
+				// fillBuffer's assert(bstart>0) on the next call.
 				if(positions.size()==0){
+					if(bstop>bstart){//Trailing data with no final newline; mirror nextLineList's nlpos>=bstop branch (limit=bstop, no \r strip)
+						lineNum++;
+						list.add(KillSwitch.copyOfRange(buffer, bstart, bstop));
+						bstart=bstop;//Consume it so the next fillBuffer sees bstart==bstop and cleanly EOFs
+					}
 					break;
 				}
 			}

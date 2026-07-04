@@ -1119,7 +1119,7 @@ public final class SketchTool extends SketchObject {
 								if(s.startsWith("SZ:") || s.startsWith("SIZE:")){//Sketch length
 									currentSketchSize=Integer.parseInt(sub);
 								}else if(s.startsWith("CD:")){//Coding
-									A48=HEX=NUC=delta=counts=false;
+									A48=HEX=NUC=delta=counts=unsorted=false;
 									
 									for(int i=0; i<sub.length(); i++){
 										char c=sub.charAt(i);
@@ -1192,8 +1192,8 @@ public final class SketchTool extends SketchObject {
 									" differs from loaded hash version "+HASH_VERSION+".\n"
 											+ "You may need to download the latest version of BBTools.\n"+new String(line)+"\n");}
 						}else{//Potential hang
-							assert(k_sketch==k && !NUC) : "Sketch kmer length "+k_sketch+" differs from loaded kmer length "+k+"\n"+new String(line);
-							assert(k2_sketch==k2 && !NUC) : "Sketch kmer length "+k_sketch+","+k2_sketch+" differs from loaded kmer length "+k+","+k2+"\n"+new String(line);
+							assert(k_sketch==k || NUC) : "Sketch kmer length "+k_sketch+" differs from loaded kmer length "+k+"\n"+new String(line);
+							assert(k2_sketch==k2 || NUC) : "Sketch kmer length "+k_sketch+","+k2_sketch+" differs from loaded kmer length "+k+","+k2+"\n"+new String(line);
 							assert(hashVersion_sketch==HASH_VERSION || NUC) : "Sketch hash version "+hashVersion_sketch+
 									" differs from loaded hash version "+HASH_VERSION+".\n"
 											+ "You may need to download the latest version of BBTools.\n"+new String(line)+"\n";

@@ -277,7 +277,6 @@ public class Sketch extends SketchObject implements Comparable<Sketch>, Cloneabl
 		keys=Arrays.copyOf(keys, newSize);
 //		fixKeyCounts(newSize);
 		if(keyCounts!=null){
-			for(int i=0; i<newSize; i++)
 			keyCounts=Arrays.copyOf(keyCounts, newSize);
 		}
 	}

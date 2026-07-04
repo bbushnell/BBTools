@@ -175,8 +175,14 @@ public final class ByteFile4 extends ByteFile{
 
 	@Override
 	public final void reset(){
+		//ByteFile4's producer/worker pipeline and its final, non-re-armable OrderedQueueSystem (setFinished is
+		//permanent) cannot be restarted, so reset() cannot restore a readable state. Rather than silently return
+		//an empty stream (contract violation), fail loudly: warn and latch errorState so close() reports a nonzero
+		//exit. Callers needing reset() should use ByteFile1/ByteFile2 instead.
+		System.err.println("Error: ByteFile4 does not support reset() for '"+name()+
+			"'; the multithreaded read pipeline cannot be restarted. Use ByteFile1 or ByteFile2 if reset is required.");
+		errorState=true;
 		close();
-		open();
 		superReset();
 	}
 

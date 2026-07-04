@@ -3,6 +3,8 @@ package ml;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import shared.Random;
 
 import shared.Shared;
@@ -1084,9 +1086,27 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("##err ").append(errorRate, 6).nl();
 		bb.append("##wer ").append(weightedErrorRate, 6).nl();
 		bb.append("##ctf ").append(cutoff, 6).nl();
-		if(platform>=0){bb.append("##platform ").append(platform).nl();} //Round-trip the training platform tag (absent when unset)
+		for(Map.Entry<String,String> e : tags.entrySet()){ //Custom tags; emit only lowercase keys (skip the doubled-up original-case duplicates)
+			String k=e.getKey();
+			if(k.equals(k.toLowerCase())){bb.append("##").append(k).space().append(e.getValue()).nl();}
+		}
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
 		return bb;
+	}
+
+	/** Store a custom tag under BOTH its original case and lowercase (same value), so getTag() is
+	 *  case-insensitive by construction; on serialization only the lowercase key is written. */
+	public void setTag(String key, String value){
+		if(key==null){return;}
+		tags.put(key, value);
+		String lk=key.toLowerCase();
+		if(!lk.equals(key)){tags.put(lk, value);}
+	}
+	/** Case-insensitive custom-tag lookup; returns null if absent. */
+	public String getTag(String key){
+		if(key==null){return null;}
+		String v=tags.get(key);
+		return v!=null ? v : tags.get(key.toLowerCase());
 	}
 	
 	/**
@@ -1291,7 +1311,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		copy.tpRate=tpRate;
 		copy.tnRate=tnRate;
 		copy.cutoff=cutoff; //Copy configuration
-		copy.platform=platform; //Copy platform tag
+		copy.tags=new LinkedHashMap<String,String>(tags); //Copy custom tags
 		copy.fname=fname; //Preserve source-file metadata
 		copy.alpha=alpha;
 		copy.annealStrength=annealStrength;
@@ -1334,7 +1354,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		tpRate=cn.tpRate;
 		tnRate=cn.tnRate;
 		cutoff=cn.cutoff; //Copy classification threshold
-		platform=cn.platform; //Copy platform tag
+		tags=new LinkedHashMap<String,String>(cn.tags); //Copy custom tags
 		fname=cn.fname; //Copy source-file metadata
 		alpha=cn.alpha; //Copy learning parameters
 		annealStrength=cn.annealStrength;
@@ -1579,10 +1599,13 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	float annealStrength=-1;
 	/** Classification threshold for binary decisions */
 	public float cutoff=-1;
-	/** Opaque platform tag round-tripped from the ##platform header (-1 = unset). The ml layer does not
-	 *  interpret it; the caller (var2) asserts the scoring platform matches this to prevent scoring a net
-	 *  under the wrong feature-vector platform one-hot. */
-	public int platform=-1;
+	/** Arbitrary custom header tags: the ##key value lines the parser did not recognize, for open-ended
+	 *  per-network metadata the ml layer does not interpret (platform, feature-format version, etc.).
+	 *  Keys are case-insensitive: each is DOUBLED UP (original case AND lowercase, both -> the same value)
+	 *  so getTag() hits regardless of query case; on serialization ONLY the lowercase key is emitted (the
+	 *  original-case duplicate is skipped) for canonical, deterministic output. Insertion-ordered so saved
+	 *  nets stay byte-reproducible. Set/read via setTag()/getTag(). */
+	public LinkedHashMap<String,String> tags=new LinkedHashMap<String,String>();
 	/** Current training epoch number */
 	int epoch=-1;
 	/** Display counter for printing progress */

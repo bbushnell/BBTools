@@ -185,7 +185,7 @@ public class CoverageArray3 extends CoverageArray {
 	public String toString(){
 		StringBuilder sb=new StringBuilder();
 		sb.append('[');
-		for(int i=0; i<=length(); i++){
+		for(int i=0; i<length(); i++){
 			if(i>0){sb.append(", ");}
 			sb.append((int)array[i]);
 		}

@@ -399,23 +399,31 @@ public abstract class AbstractMapThread extends Thread {
 				if(ss.match!=null && !ss.perfect() && Read.identityFlat(ss.match, true)<IDFILTER){
 					r.sites.set(i, null);
 					removed++;
-					if(i==0){removedTop=true;}
+					//INTENTIONAL, confirmed by Brian 2026-07-03: a PAIRED read's PRIMARY site is deliberately EXEMPT from idfilter
+					//(pairing evidence justifies keeping a lower-identity primary; the primary-removal branch near the top of this
+					//method is gated on !r.paired()). So this loop is i>0 (secondaries only). The `if(i==0){removedTop=true;}` here is
+					//vestigial copy-paste from the processEditFilter twin (which uses i>=0) and is DEAD — commented out for archaeology.
+					//Consequently removedTop stays false by design: the `if(removedTop && ...)` regen guard above and the
+					//`if(removedTop){...}` fixup block below are inert, and this method always returns false.
+					//if(i==0){removedTop=true;}
 				}
 			}
 			if(removed>0){Tools.condenseStrict(r.sites);}
 		}
-		if(removedTop){
-			if(r.mate!=null){
-				r.setPaired(false);
-				r.mate.setPaired(false);
-			}
-			if(r.sites==null || r.sites.isEmpty() || r.topSite().match==null){
-				r.clearMapping();
-			}else{
-				r.setFromTopSite();
-			}
-		}
-		return removedTop;
+		//DEAD, commented for archaeology (see the note in the loop above): removedTop is never set true because a paired read's
+		//primary is intentionally exempt from idfilter, so this fixup block never executed.
+		//if(removedTop){
+		//	if(r.mate!=null){
+		//		r.setPaired(false);
+		//		r.mate.setPaired(false);
+		//	}
+		//	if(r.sites==null || r.sites.isEmpty() || r.topSite().match==null){
+		//		r.clearMapping();
+		//	}else{
+		//		r.setFromTopSite();
+		//	}
+		//}
+		return removedTop;//always false by design (paired-primary idfilter exemption); kept as the boolean return contract callers OR into their own removedTop
 	}
 	
 	/**
@@ -1050,7 +1058,10 @@ public abstract class AbstractMapThread extends Thread {
 			}
 			if(i>0 && ss.match==null && !r.paired()){
 				if(verbose){System.err.println("Removed site "+ss);}
+				//FIXED [align2/AbstractMapThread#002] (Brian-approved 2026-07-03): added i-- after remove(i). Without it, the site that
+				//shifts into slot i is skipped by the i++ (the near-twin loop in the needsSorting block already does remove(i); ... i--;).
 				r.sites.remove(i);
+				i--;
 			}else{
 				if(oldScore!=ss.score || oldSlowScore!=ss.slowScore){scoreChanged++;}
 				best=Tools.max(ss.slowScore, best);
@@ -1602,18 +1613,9 @@ public abstract class AbstractMapThread extends Thread {
 		}
 	}
 	
-	protected final static void removeMapped(ArrayList<Read> list){
-		for(int i=0; i<list.size(); i++){
-			Read r=list.get(i);
-			if(r.numSites()==0){
-				if(r.mate==null || r.mate.numSites()==0){
-					list.set(i, null);
-				}
-			}
-		}
-	}
-	
-	
+	//[align2/AbstractMapThread#003] removeMapped(ArrayList<Read>) DELETED 2026-07-03 (Brian-approved): it was a byte-for-byte copy of
+	//removeUnmapped (removed numSites()==0, the opposite of its name) with zero callers tree-wide. Removed rather than fixed.
+
 	/**
 	 * Trims a list of alignment sites based on scoring criteria.
 	 * Implementation-specific algorithm for removing low-quality sites.
@@ -1773,7 +1775,7 @@ public abstract class AbstractMapThread extends Thread {
 	public void calcStatistics1(final Read r, final int maxSwScore, final int maxPossibleQuickScore){
 		final Read r2=r.mate;
 		final int len1=r.length();
-		final int len2=(r2==null ? 0 : r.length());
+		final int len2=(r2==null ? 0 : r2.length());//was r.length() (typo): len2 is the MATE's length, summed with len1 into numMatedBases/badPairBases
 		
 		if(OUTPUT_PAIRED_ONLY && r.mate!=null && !r.paired() && (r.mapped() || r.mate.mapped())){r.clearPairMapping();}
 		if(r.ambiguous() && (AMBIGUOUS_TOSS || r.mapped())){

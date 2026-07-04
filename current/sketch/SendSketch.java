@@ -517,7 +517,6 @@ public class SendSketch extends SketchObject {
 		int idx=0, limit=inSketches.size()-1;
 		IntHashSet nulls=new IntHashSet();
 		for(Sketch sk : inSketches){
-			idx++;
 			if(bb.length==0){
 				bb.append(params.toString(chunkNum));
 				chunkNum++;
@@ -527,7 +526,8 @@ public class SendSketch extends SketchObject {
 				sk.toBytes(bb);//This does not handle null sketches
 				sketchesThisChunk++;
 			}
-			if(sketchesThisChunk>=SEND_BUFFER_MAX_SKETCHES || bb.length>SEND_BUFFER_MAX_BYTES || idx>=limit){ //Don't allow too much data in a single transaction
+			idx++;
+			if(sketchesThisChunk>=SEND_BUFFER_MAX_SKETCHES || bb.length>SEND_BUFFER_MAX_BYTES || idx>limit){ //Don't allow too much data in a single transaction
 				if(verbose){System.err.println("Sending:\n"+bb);}
 //				outstream.println(cntr+", "+bb.length);
 				

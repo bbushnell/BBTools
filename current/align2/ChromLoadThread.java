@@ -133,13 +133,11 @@ public class ChromLoadThread extends Thread {
 						e.printStackTrace();
 					}
 				}
-				//TODO: Possible bug [align2/ChromLoadThread#001] - the i>0 (acquire) branch waits while at capacity but never
-				//adds i to lock[0]; only the i<=0 (release) branch modifies the counter. So lock[0] only ever counts DOWN (starts
-				//0, goes negative), lock[0]>=MAX_CONCURRENT is never true, and (a) the MAX_CONCURRENT throttle is defeated (all
-				//per-chromosome load threads spawn at once) and (b) loadAll's completion-wait `while(lock[0]>0)` never blocks, so
-				//it busy-spins on `while(r[i]==null)`. Classic "wait but forgot to acquire". Reachable via dna.Data.loadChromosomes.
-				//Results stay CORRECT (all chromosomes load); only throttling/CPU-efficiency break -> LOW/correctness-neutral.
-				//Fix: add `lock[0]+=i;` here. ESCALATE: concurrency/perf change in the core genome loader (RULE #6 perf-impact).
+				//FIXED [align2/ChromLoadThread#001] (Brian-approved 2026-07-03): the acquire branch waited for capacity but never
+				//actually acquired (never added i to the counter); only release (i<=0) modified lock[0], so it only counted DOWN and
+				//both the MAX_CONCURRENT throttle and loadAll's completion-wait were dead (busy-spin). Added the missing acquire below;
+				//lock[0] now tracks the live load count, so wait/notify throttles to MAX_CONCURRENT and the completion-wait blocks properly.
+				lock[0]+=i;
 			}
 			r=lock[0];
 		}

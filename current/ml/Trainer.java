@@ -615,6 +615,9 @@ public class Trainer implements Accumulator<WorkerThread> {
 				}
 			}
 			
+			else if(a.startsWith("tag_")){//Custom net metadata: tag_<key>=<value> (e.g. tag_platform=1), stamped onto every saved net
+				netTags.put(a.substring(4), b);
+			}
 			else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else{
@@ -1362,6 +1365,7 @@ public class Trainer implements Accumulator<WorkerThread> {
 	 */
 	private synchronized void writeNetwork(CellNet net, FileFormat ff) {
 		if(ff==null) {return;}
+		for(java.util.Map.Entry<String,String> e : netTags.entrySet()){net.setTag(e.getKey(), e.getValue());} //Stamp custom tags before serialization
 		if(net.lastStats==null) {
 			net.lastStats=genPrintStringFull(net, -1);
 		}
@@ -1882,6 +1886,9 @@ public class Trainer implements Accumulator<WorkerThread> {
 	
 	/** Whether system is in training mode (vs evaluation only) */
 	boolean training=true;
+	/** Custom header tags to stamp onto every saved net (from tag_<key>=<value> args, e.g. tag_platform=1).
+	 *  Applied in writeNetwork(); keys are lowercase (the arg key is already lower-cased). */
+	java.util.LinkedHashMap<String,String> netTags=new java.util.LinkedHashMap<String,String>();
 	
 	/*--------------------------------------------------------------*/
 	
