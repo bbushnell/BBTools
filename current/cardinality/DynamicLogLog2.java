@@ -291,7 +291,7 @@ public final class DynamicLogLog2 extends CardinalityTracker {
 
 	/** Maximum NLZ value (64-bit hash). */
 	private static final int wordlen=64;
-	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
+	/** Social promotion threshold. 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 
 	/** When true, hashes that would overflow the 2-bit register are silently ignored.

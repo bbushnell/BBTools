@@ -169,8 +169,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
 			return new SetSketch16();
 		}
-		assert(false) : "TODO: "+type;
-		throw new RuntimeException(type);
+		assert(false) : "Unknown Type: "+type;
+		throw new RuntimeException("Unknown Type: "+type);
 	}
 
 	/**
@@ -310,8 +310,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
 			return new SetSketch16(p.loglogbuckets, p.loglogk, p.loglogseed, p.loglogMinprob);
 		}
-		assert(false) : "TODO: "+type;
-		throw new RuntimeException(type);
+		assert(false) : "Unknown Type: "+type;
+		throw new RuntimeException("Unknown Type: "+type);
 	}
 
 	/**
@@ -459,8 +459,8 @@ public abstract class CardinalityTracker implements Drivable {
 		}else if("SS16".equalsIgnoreCase(type) || "SetSketch16".equalsIgnoreCase(type)){
 			return new SetSketch16(buckets_, k_, seed, minProb_);
 		}
-		assert(false) : "TODO: "+type;
-		throw new RuntimeException(type);
+		assert(false) : "Unknown Type: "+type;
+		throw new RuntimeException("Unknown Type: "+type);
 	}
 
 	/*--------------------------------------------------------------*/

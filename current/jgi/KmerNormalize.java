@@ -519,7 +519,13 @@ public class KmerNormalize {
 		}
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
-		
+
+		//FIXED [jgi/KmerNormalize#005]: duplicate-input guard for key=value syntax. The line-87 guard
+		//(in2.equalsIgnoreCase(in1)) only runs on the positional-arg path; for 'in=x in2=x' in2 is null there,
+		//and in1/in2 get their real values later in the parse loop but were never re-checked -> doubled data ran.
+		//Placed after # expansion (508-514 derives distinct reads1/reads2) and fixExtension so in1/in2 are final.
+		if(in1!=null && in2!=null && in1.equalsIgnoreCase(in2)){throw new RuntimeException("Both input files are the same.");}
+
 		if(DETERMINISTIC){ordered=true;}
 		
 		boolean ok=Tools.testOutputFiles(overwrite, append, false, outKeep1, outToss1, outKeep2, outToss2, khistFile, khistFileOut, rhistFile, rhistFileOut, peakFile, peakFileOut);

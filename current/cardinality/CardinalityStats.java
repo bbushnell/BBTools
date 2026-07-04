@@ -262,7 +262,7 @@ public class CardinalityStats {
 	}
 
 	/**
-	 * Factory for mantissa-free classes (DLL3, DLL4, DLL3v2).
+	 * Factory for mantissa-free classes (DLL3, DLL4).
 	 * Derives difSum, hllSumFilled, gSum, count entirely from the nlzCounts histogram.
 	 * Passes minZeros=0 to the constructor so lcMin equals lcPure (no tier-dependent
 	 * scaling), making the output independent of internal tier promotion state.

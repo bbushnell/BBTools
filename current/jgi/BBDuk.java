@@ -863,7 +863,8 @@ public class BBDuk {
 		assert(!useShortKmers || ktrimRight || ktrimLeft || ktrimN || ksplit) : "\nSetting mink or useShortKmers also requires setting a ktrim mode, such as 'r', 'l', or 'n'\n";
 		
 		if(maskMiddle){
-			assert(k>midMaskLen+1);
+			assert(k>midMaskLen+1) : "Middle-masking requires k>midMaskLen+1, but k="+k+" and midMaskLen="+midMaskLen+
+				".  Increase k, shorten the mask, or disable middle-masking with mm=f.";
 			int bits=midMaskLen*bitsPerBase;
 //			int shift=(k-maskMiddle)&(~1);//Equivalent to (x/2)*2
 			int shift=((k-midMaskLen)/2)*bitsPerBase; //old behavior before moving to variable width can be restored with +1: "((k-maskMiddle+1)/2)*bitsPerBase"

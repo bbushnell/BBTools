@@ -18,8 +18,6 @@ in2=null            Second input file for paired reads in two files
 extra=null          Additional files to use for input (generating hash table) but not for output
 fastareadlen=2^31   Break up FASTA reads longer than this.  Can be useful when processing scaffolded genomes
 tablereads=-1       Use at most this many reads when building the hashtable (-1 means all)
-kmersample=1        Process every nth kmer, and skip the rest
-readsample=1        Process every nth read, and skip the rest
 interleaved=auto    May be set to true or false to force the input read file to ovverride autodetection of the input file as paired interleaved.
 qin=auto            ASCII offset for input quality.  May be 33 (Sanger), 64 (Illumina), or auto.
 
@@ -27,7 +25,6 @@ Output parameters:
 out=<file>          File for normalized or corrected reads.  Use out2 for paired reads in a second file
 outt=<file>         (outtoss) File for reads that were excluded from primary output
 reads=-1            Only process this number of reads, then quit (-1 means all)
-sampleoutput=t      Use sampling on output as well as input (not used if sample rates are 1)
 keepall=f           Set to true to keep all reads (e.g. if you just want error correction).
 zerobin=f           Set to true if you want kmers with a count of 0 to go in the 0 bin instead of the 1 bin in histograms.
                     Default is false, to prevent confusion about how there can be 0-count kmers.

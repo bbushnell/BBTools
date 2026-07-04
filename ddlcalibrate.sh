@@ -20,7 +20,6 @@ Estimator types (loglogtype= or type=):
   ddl8          DynamicDemiLog8, 8-bit mantissa.
   dll2          DynamicLogLog2, 2-bit registers.
   dll3          DynamicLogLog3, 3-bit registers (1-bit mantissa).
-  dll3v2        DynamicLogLog3v2, variant with social promotion.
   dll4          DynamicLogLog4, 4-bit registers (no mantissa).
   dll4m         DynamicLogLog4m, mantissa variant.
   bdll3         BankedDynamicLogLog3, banked 3-bit registers.

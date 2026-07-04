@@ -69,7 +69,12 @@ public class ScafMap {
 	 */
 	@Deprecated
 	public static ScafMap loadSamHeader(FileFormat ff, ScafMap scafMap){
-		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, 0, true, false, 0, false);
+		//maxReads=1, not 0: the streamer's read loop is gated by readID<maxReads and readID only counts
+		//READ lines, never @ header lines (SamStreamerST.processFileDirectly). maxReads=0 makes the guard
+		//false on entry, so the loop never runs, no @SQ line is ever added, and an EMPTY shared header is
+		//published -> callers see scafMap.size()==0 (bbduk vcf=/var= over SAM crashed here). maxReads=1 reads
+		//the full header + exactly one read (not the whole file), so @SQ is captured cheaply for SAM and BAM.
+		Streamer ss=StreamerFactory.makeSamOrBamStreamer(ff, 0, true, false, 1, false);
 		ss.start();
 		scafMap=waitForSamHeader(scafMap);
 		ss.close();
