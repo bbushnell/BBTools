@@ -28,6 +28,13 @@ minscore=0.0    Reject variants with QUAL below this threshold.
 
 Neural network parameters:
 net=<file>      Neural network file (.bbnet).
+platform=illumina  Sequencing platform of the network being scored: illumina
+                (default), pacbio, nanopore (ont), or roche (sbx).  This sets
+                the platform field in the NN feature vector, so it MUST match
+                the platform the network was TRAINED on.  gradevcf defaults to
+                illumina, so when grading a pacbio/nanopore/roche network you
+                MUST pass platform= or every score is wrong (off-distribution);
+                a platform-tagged net asserts under -ea to catch this.
 netmode=        Feature vector mode (ump45, elba, lawrence, donovan).
 netcutoff=      NN output threshold; variants below this are rejected.
                 Use 'auto' to read cutoff from the .bbnet file.

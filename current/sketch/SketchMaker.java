@@ -904,7 +904,12 @@ public class SketchMaker extends SketchObject {
 			threadID=tid_;
 			
 			smm=new SketchMakerMini(tool, mode, defaultParams.minEntropy, defaultParams.minProb, defaultParams.minQual);
-			localMap=(mode==PER_TAXA ? new HashMap<Long, SketchHeap>() : null);
+			//localMap is used by manageHeap_perTaxa/dumpLocalMap, which run for BOTH PER_TAXA and PER_IMG; allocating only for PER_TAXA
+			//left it null in PER_IMG and NPE'd on the first sketch-completing read (localMap.remove/get/size). Allocate for both.
+			//TODO: Possible bug [sketch/SketchMaker#001] - PER_IMG is unfinished/untested (no IMG database to test against). localMap here
+			//is keyed by taxID in some paths (remove((long)taxID)) but by imgID in others (key=imgID at line ~1194 for get/put), so PER_IMG
+			//accumulation may be logically inconsistent. Verify end-to-end when an IMG database exists before trusting PER_IMG output.
+			localMap=((mode==PER_TAXA || mode==PER_IMG) ? new HashMap<Long, SketchHeap>() : null);
 		}
 		
 		//Called by start()

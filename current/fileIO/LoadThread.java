@@ -77,7 +77,7 @@ public class LoadThread<X> extends Thread{
 			assert(activeThreads[0]==(activeThreads[1]+activeThreads[2]) && activeThreads[0]>=0 && activeThreads[1]>=0 &&
 					activeThreads[2]>=0 && activeThreads[2]<=lim) : Arrays.toString(activeThreads);
 			
-			if(activeThreads[2]==0 || (activeThreads[2]<lim && activeThreads[1]>0)){activeThreads.notify();}
+			if(activeThreads[2]==0 || (activeThreads[2]<lim && activeThreads[1]>0)){activeThreads.notifyAll();}
 //			System.err.println(activeThreads[2]);
 //			try {
 //				activeThreads.wait(5000);
@@ -112,7 +112,7 @@ public class LoadThread<X> extends Thread{
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				if(activeThreads[2]==0 || (activeThreads[2]<lim && activeThreads[1]>0)){activeThreads.notify();}
+				if(activeThreads[2]==0 || (activeThreads[2]<lim && activeThreads[1]>0)){activeThreads.notifyAll();}
 			}
 		}
 	}
@@ -132,7 +132,12 @@ public class LoadThread<X> extends Thread{
 	}
 	
 	/** Shared load-thread counters indexed as [total, waiting, running]; invariant: total==waiting+running. Synchronized on to throttle concurrent reads to LIMIT. */
-	//TODO: Possible bug [fileIO/LoadThread#002] - could not verify single activeThreads.notify() (in addRunningThread + waitForReadingToFinish) is sufficient vs notifyAll() when multiple threads wait on this monitor; no failing schedule found, so left unchanged. -Furina 2026-06-16
+	//FIXED [fileIO/LoadThread#002]: single notify() -> notifyAll() (both sites). Worker threads (addRunningThread,
+	//no timeout) and the main thread (waitForReadingToFinish, 8s timeout) both wait on this monitor; a finishing
+	//thread's single notify() could wake the main thread (which can't progress while workers are queued) instead of a
+	//ready worker, stalling that worker until the 8s timeout re-notified. notifyAll() wakes all; those that can't
+	//proceed re-wait. Not a deadlock and output was always correct (the timeout self-heals), so this is a latency fix.
+	//Same twin pattern fixed in ReadWrite.addRunningThread/waitForWritingToFinish. -Furina flagged 2026-06-16, G11 fixed 2026-07-04
 	public static int[] activeThreads={0, 0, 0};
 
 	private final String fname;

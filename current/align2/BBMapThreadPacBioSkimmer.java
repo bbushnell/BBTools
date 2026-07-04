@@ -534,7 +534,7 @@ public final class BBMapThreadPacBioSkimmer extends AbstractMapThread{
 		int numTopCorrect=correctness[10];
 
 		final int len1=r.length();
-		final int len2=(r2==null ? 0 : r.length());
+		final int len2=(r2==null ? 0 : r2.length());//was r.length() (typo): twin of AbstractMapThread#004. len2 is the MATE's length; currently unused in this override, corrected for family consistency.
 		
 		assert(numSites==numCorrect+numIncorrect) : numSites+", "+numCorrect+", "+numIncorrect+", "+r.numSites();
 		assert(numSites==r.numSites());

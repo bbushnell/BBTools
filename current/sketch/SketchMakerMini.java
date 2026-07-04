@@ -301,6 +301,12 @@ public class SketchMakerMini extends SketchObject {
 	}
 	
 	public void processReadNucleotide(final Read r){
+		processReadNucleotide(r, true);
+	}
+
+	/** countStats is true for a normal read; the PacBio-fallback re-entry at the bottom of this method passes false so that
+	 * per-read genome size, sequence count, and base composition are tallied exactly once even though the read is reprocessed. */
+	private void processReadNucleotide(final Read r, final boolean countStats){
 		if(processSSU && heap.r16S()==null && r.length()>=min_SSU_len && !useSSUMapOnly && !heap.isEukaryote()){
 			Orf orf=gCaller.makeRna(r.id, r.bases, ProkObject.r16S);//TODO: 18S
 			if(orf!=null && orf.length()>=min_SSU_len){
@@ -321,8 +327,10 @@ public class SketchMakerMini extends SketchObject {
 		
 		final boolean noBlacklist=!(Blacklist.exists() || Whitelist.exists());
 		final long min=minHashValue;
-		heap.genomeSizeBases+=r.length();
-		heap.genomeSequences++;
+		if(countStats){//Tally read length and sequence count once; the fallback recursion passes countStats=false to avoid double-counting.
+			heap.genomeSizeBases+=r.length();
+			heap.genomeSequences++;
+		}
 		if(eTracker!=null){eTracker.clear();}
 		
 //		assert(false) : minProb+", "+minQual+", "+(quals==null);
@@ -343,7 +351,7 @@ public class SketchMakerMini extends SketchObject {
 					rkmer=0;
 				}else{
 					len++;
-					baseCounts[(int)x]++;
+					if(countStats){baseCounts[(int)x]++;}//Once per read; skipped on the fallback recursion.
 				}
 				
 //				System.err.println("\n"+AminoAcid.kmerToString(kmer, k)+"\n"+AminoAcid.kmerToString(rkmer, k)+"\n"
@@ -412,7 +420,7 @@ public class SketchMakerMini extends SketchObject {
 						prob=1;
 					}else{
 						len++;
-						baseCounts[(int)x]++;
+						if(countStats){baseCounts[(int)x]++;}//Once per read; skipped on the fallback recursion.
 					}
 				}
 				
@@ -462,7 +470,10 @@ public class SketchMakerMini extends SketchObject {
 					synchronized(this){
 						minProb=0;
 					}
-					processReadNucleotide(r);
+					//Reprocess with the quality filter disabled. countStats=false so genomeSizeBases/genomeSequences/baseCounts (already
+					//tallied by this first pass) aren't double-counted. genomeSizeKmers/probSum ARE re-counted here, correctly, because the
+					//first pass added none (positiveQualityKmers==0 means nothing passed prob>=minProb).
+					processReadNucleotide(r, false);
 				}
 			}
 		}

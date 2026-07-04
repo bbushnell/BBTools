@@ -75,6 +75,12 @@ public class ChainLine implements Comparable<ChainLine> {
 	 * @return Index of ChainLine containing the location, or -1 if not found
 	 */
 	public static int binarySearch(int loc, ChainLine[] array){
+		//FIXED [fileIO/ChainLine#001]: null array means the chromosome has zero chain blocks (Data.getChainLines /
+		//ChainBlock.loadChainLines legitimately leaves lines[chrom]==null for an uncovered chromosome). Return -1
+		//("not found") to match the contract and both callers' existing index<0/result==null "untranslatable" handling
+		//(Translator.translate:132, Translator2 via translate()); without this, array.length below NPEs on a valid
+		//liftover query for an uncovered chromosome — defeating the tools' own graceful no-mapping design.
+		if(array==null){return -1;}
 		return binarySearch(loc, array, 0, array.length-1);
 	}
 	

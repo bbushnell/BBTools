@@ -152,6 +152,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4();
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2();
+		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
+			return new Fll52();//5 antennae + duplicate counter; NN-blended estimate
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog();
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){
@@ -291,6 +293,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4(p);
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2(p);
+		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
+			return new Fll52(p);
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog(p);
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){
@@ -436,6 +440,8 @@ public abstract class CardinalityTracker implements Drivable {
 			return new HLLTailCut4(buckets_, k_, seed, minProb_);
 		}else if("FLL2".equalsIgnoreCase(type) || "FutureLogLog2".equalsIgnoreCase(type)){
 			return new FutureLogLog2(buckets_, k_, seed, minProb_);
+		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
+			return new Fll52(buckets_, k_, seed, minProb_);
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog(buckets_, k_, seed, minProb_);
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){

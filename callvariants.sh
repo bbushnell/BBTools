@@ -164,10 +164,14 @@ nn=f            (usenn) Score variants with a trained neural network rather
                 For Illumina: ploidy 1-2 uses the hap/dip network, ploidy 3+
                 uses the polyploid network.
 net=<file>      Use this specific network (.bbnet), overriding the chooser.
-platform=illumina  Platform for automatic network selection: illumina
-                (default), pacbio, or nanopore (ont).  Only illumina networks
-                exist currently; others assert under -ea, or use the default
-                under -da.
+platform=illumina  Sequencing platform.  Sets the platform field in the NN
+                feature vector AND picks the default network.  Options:
+                illumina (default), pacbio, nanopore (ont), roche (sbx).
+                Networks currently ship for illumina (ploidy 1-2 and 3+),
+                pacbio (ploidy 1-2 and 3+), and roche.  IMPORTANT: platform
+                must match the network's training platform - scoring a net
+                under the wrong platform gives wrong results (and asserts
+                under -ea if the net declares its platform).
 netcutoff=auto  NN score threshold; 'auto' uses the network's embedded cutoff.
 
 Other Parameters:
