@@ -1113,11 +1113,6 @@ public class DDLCalibrationDriver {
 //						System.err.println("\n=== DLC ASSERTION FAILURE ===");
 //						System.err.println("trueCard="+trueCard+" dlcEst="+String.format("%.2f", dlcEst)
 //							+" relErr="+String.format("%.4f", relErr));
-//						if(ddl instanceof DynamicLogLog3v2){
-//							final DynamicLogLog3v2 d=(DynamicLogLog3v2)ddl;
-//							System.err.println("globalNLZ="+d.minZeros());
-//							if(d.lastStats!=null){System.err.println(d.lastStats.toString());}
-//						}
 //						System.err.println("filledBuckets="+ddl.filledBuckets());
 //						assert false : "DLC error "+String.format("%.1f%%", relErr*100)+" at trueCard="+trueCard;
 //					}

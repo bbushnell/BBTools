@@ -223,6 +223,10 @@ public class RegressionTrainer {
 
 		// ---- Export: build a real CellNet, fold standardization into layer 1 ----
 		final CellNet net=new CellNet(dims, Math.max(0, seed), 1.0f, 0f, 1, new ArrayList<>());
+		// randomize() consults the activation-rate tables that ml.Trainer normally
+		// initializes; we assign every cell's function explicitly below, so zero
+		// the rates (skips random activation selection and satisfies the assertion).
+		java.util.Arrays.fill(Function.TYPE_RATES, 0f);
 		net.randomize();   // allocates dense edge topology + weight arrays
 		for(int l=0; l<L; l++){
 			final Cell[] layer=net.net[l+1];

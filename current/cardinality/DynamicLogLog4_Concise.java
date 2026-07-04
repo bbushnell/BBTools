@@ -285,7 +285,7 @@ public final class DynamicLogLog4_Concise extends CardinalityTracker {
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
 	public static final boolean FAST_COUNT=false;
-	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
+	/** Social promotion threshold. 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 
 	/** Default resource file for DDL correction factors. */

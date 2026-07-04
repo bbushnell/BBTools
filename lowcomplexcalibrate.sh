@@ -14,7 +14,7 @@ every add to capture behavior while 'parked' at a given cardinality.
 Usage:  lowcomplexcalibrate.sh card=5000 ddls=128 type=dll3
 
 Estimator types (type= or loglogtype=):
-  ddl, ddl2, ddl8, dll2, dll3, dll3v2, dll4, dll4m, bdll3, ll6, udll6,
+  ddl, ddl2, ddl8, dll2, dll3, dll4, dll4m, bdll3, ll6, udll6,
   pll16c, htb, htc, ull8, ertl  (see ddlcalibrate.sh for descriptions)
 
 Parameters:

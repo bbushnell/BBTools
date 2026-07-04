@@ -504,7 +504,7 @@ public final class DynamicLogLog4 extends CardinalityTracker {
 	 *  in summarize(). Eliminates the O(buckets) scan per rawEstimates() call — ~32x speedup
 	 *  for CF table generation. Disabled in production (false) to avoid the per-add overhead. */
 	public static final boolean FAST_COUNT=false;
-	/** Social promotion threshold (see DynamicLogLog3v2). 0=classic behavior. */
+	/** Social promotion threshold. 0=classic behavior. */
 	public static int PROMOTE_THRESHOLD=0;
 	/** When true, advance tier as soon as all buckets are nonzero (stored>=1) rather than >=2.
 	 * At advance, subtracts 1 from all buckets, which may reset some to empty (stored=0).
