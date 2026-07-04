@@ -1074,6 +1074,7 @@ public final class FileFormat {
 		else if(ext.equals("embl")){return EMBL;}
 		else if(ext.equals("gbk")){return GBK;}
 		else if(ext.equals("gbff")){return GBFF;}
+		else if(ext.equals("alm")){return ALM;}//FIXED [fileIO/FileFormat#003]: twin of testFormat's ext map (L468) had 'alm' but this one didn't, so rawExtensionCode(".alm")=UNKNOWN diverged from testFormat=ALM, spuriously tripping Parser.validateStdio's "specify format" assert on stdout.alm/stdin.alm. The two maps must agree except the deliberate TXT case below.
 		else if(ext.equals("bbnet")){return BBNET;}
 		else if(ext.equals("bbvec") || ext.equals("vec")){return BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){return CLADE;}

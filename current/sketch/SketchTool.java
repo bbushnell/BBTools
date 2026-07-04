@@ -1266,7 +1266,7 @@ public final class SketchTool extends SketchObject {
 		
 		@Override
 		public void run(){
-			success=false;
+			success=true;//Optimistic; a load failure below flips this to false, and it must STAY false.
 			for(StringNum sn=queue.poll(); sn!=null; sn=queue.poll()){
 				ArrayList<Sketch> temp=null;
 				try {
@@ -1284,7 +1284,7 @@ public final class SketchTool extends SketchObject {
 					for(Sketch s : temp){add(s);}
 				}
 			}
-			success=true;
+			//Do NOT set success=true here; that would clobber a failure caught above, so loadSketches_MT's assert(success) could never detect a bad reference file.
 		}
 		
 		private void add(Sketch s){

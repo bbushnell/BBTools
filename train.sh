@@ -24,6 +24,12 @@ validate=<file> Optional validation dataset used exclusively for evaluation.
 net=<file>      Optional input network to train.
 out=<file>      Final output network after the last epoch.
 outb=<file>     Best discovered network according to evaluation metrics.
+tag_KEY=VALUE   Stamp a custom metadata tag into every saved network's header
+                as '##KEY VALUE' (lower-cased).  Repeatable for multiple tags.
+                Read back later via CellNet.getTag (case-insensitive).  E.g.
+                tag_platform=1 records the training platform so downstream
+                scoring (CallVariants/GradeVCF) can assert the scoring platform
+                matches, instead of silently scoring under the wrong platform.
 overwrite=f     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 

@@ -1062,7 +1062,14 @@ public class TaxTree implements Serializable{
 		assert(child!=null && parent!=null) : "Null parameters.";
 		if(child==null || parent==null){return false;}
 		
-		while(child!=parent && child.levelExtended<=parent.levelExtended && child.id!=child.pid){
+		//FIXED [tax/TaxTree#001]: DROPPED the level early-exit (child.levelExtended<=parent.levelExtended). It assumed
+		//levels are non-decreasing up the path, but the real NCBI tree is heavily non-monotonic: (a) no-rank nodes have
+		//levelExtended==0 (a no-rank PARENT made any ranked child return a wrong FALSE, e.g. descendsFrom(Bacteria,
+		//cellularOrganisms)), AND (b) genuine rank inversions are COMMON. Empirically, the minimal `parent.levelExtended<1`
+		//guard still left 76,633 wrong-FALSE pairs in a 1.58M-pair sample (predict-then-run vs descendsFrom2), so no
+		//level-based early-exit is safe here. Now a plain parent-chain walk (identical logic to descendsFrom2); depth is
+		//~30 so the lost optimization is negligible. Post-fix: 0 mismatches vs descendsFrom2 across the whole tree.
+		while(child!=parent && child.id!=child.pid){
 			child=getNode(child.pid);
 		}
 		return child==parent;
@@ -1076,6 +1083,10 @@ public class TaxTree implements Serializable{
 	 */
 	public boolean descendsFrom2(int taxID, final int ancestorID) {
 		TaxNode tn=getNode(taxID);
+		//NOTE [tax/TaxTree]: this never matches a self-parent (root) node — the id==ancestorID check runs BEFORE the
+		//root-exit, so the loop stops without testing the root. Thus descendsFrom2(x, LIFE_ID)==false for every x.
+		//Harmless as used: every is* caller (isPlant/isAnimal/isFungus/isEukaryote/isProkaryote) passes a NON-root
+		//ancestor. If you ever need a root ancestor, use descendsFrom(TaxNode,TaxNode) (which does match the root).
 		while(tn.id!=tn.pid){
 			if(tn.id==ancestorID){return true;}
 			tn=getNode(tn.pid);
@@ -1915,13 +1926,17 @@ public class TaxTree implements Serializable{
 	/** Percolate counts upward from a specific level.
 	 * @param fromLevel Starting level */
 	public void percolateUp(final int fromLevel){
+		//FIXED [tax/TaxTree#002]: the old stratified push (n.incrementSum(countRaw); parent.incrementSum(n.countSum))
+		//assumed a parent always sits in a strictly-higher stratum than its children, so that a child's countSum was
+		//complete before its parent forwarded it. NO-RANK internal nodes (levelExtended==0, the lowest stratum,
+		//processed FIRST) break that: a no-rank node forwarded its incomplete sum, then its ranked children (later
+		//strata) pushed into it too late to reach the no-rank node's ancestors. Empirically this dropped 92% of counts
+		//on the real NCBI tree (root got 216,768 of 2,835,394). Reroute each node's own countRaw through the correct
+		//order-independent parent-chain walk percolateUp(node,amt); since every node is in exactly one stratum,
+		//percolateUp() (which calls this for every level) still visits each node exactly once -> no double count.
 		final TaxNode[] stratum=treeLevelsExtended[fromLevel];
 		for(final TaxNode n : stratum){
-			n.incrementSum(n.countRaw);
-			TaxNode parent=nodes[n.pid];
-			if(n!=parent){
-				parent.incrementSum(n.countSum);
-			}
+			if(n!=null){percolateUp(n, n.countRaw);}
 		}
 	}
 	

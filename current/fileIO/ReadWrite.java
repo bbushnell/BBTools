@@ -2266,7 +2266,7 @@ public class ReadWrite {
 			assert(activeThreads[0]==(activeThreads[1]+activeThreads[2]) && activeThreads[0]>=0 && activeThreads[1]>=0 &&
 					activeThreads[2]>=0 && activeThreads[2]<=max) : Arrays.toString(activeThreads);
 			
-			if(activeThreads[2]==0 || (activeThreads[2]<max && activeThreads[1]>0)){activeThreads.notify();}
+			if(activeThreads[2]==0 || (activeThreads[2]<max && activeThreads[1]>0)){activeThreads.notifyAll();}//FIXED [fileIO/ReadWrite#007]: notify()->notifyAll(); mixed worker(no-timeout)+main(waitForWritingToFinish,8s) waiters, a wasted single-notify to the main thread stalled a ready worker until the 8s timeout. Latency fix (self-healed, output was correct). Twin of LoadThread#002.
 			return activeThreads[2];
 		}
 	}
@@ -2296,7 +2296,7 @@ public class ReadWrite {
 					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				if(activeThreads[2]==0 || (activeThreads[2]<maxWriteThreads && activeThreads[1]>0)){activeThreads.notify();}
+				if(activeThreads[2]==0 || (activeThreads[2]<maxWriteThreads && activeThreads[1]>0)){activeThreads.notifyAll();}//FIXED [fileIO/ReadWrite#007]: notify()->notifyAll(), see addRunningThread.
 			}
 		}
 	}
