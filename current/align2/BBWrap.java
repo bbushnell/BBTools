@@ -215,12 +215,10 @@ public class BBWrap {
 				BBMapAcc.main(args);
 			}else if(mapper.equalsIgnoreCase("bbsplit") || mapper.equalsIgnoreCase("bbsplitter")){
 				BBSplitter.main(args);
+			}else{//FIXED [align2/BBWrap#001] (Brian-approved 2026-07-03): crash loud on an unrecognized mapper= value instead of
+				//silently skipping the file (no mapping, no output, no error). Matches house style — the arg parse loop already throws on unknown params.
+				throw new RuntimeException("Unknown mapper: "+mapper);
 			}
-			//TODO: Possible bug [align2/BBWrap#001] - no final else: an unrecognized mapper= value (e.g. a typo) matches no
-			//branch, so this file is silently SKIPPED - no mapping, no output, no error. Violates crash-loud-never-silently-wrong.
-			//Reachable via bbwrap.sh (user-facing). LOW (needs a flag typo). Fix: add `else{throw new RuntimeException("Unknown
-			//mapper: "+mapper);}` (matches house style - the parse loop already throws on unknown params). ESCALATE: behavior
-			//change on a live user tool (silent no-op -> crash).
 		}
 	}
 	

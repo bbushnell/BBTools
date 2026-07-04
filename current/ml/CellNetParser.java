@@ -3,6 +3,8 @@ package ml;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import fileIO.ByteFile;
 import parse.LineParser2;
@@ -74,7 +76,7 @@ public class CellNetParser {
 		net.samplesTrained=samples;
 //		net.annealSeed=annealSeed;
 		net.setCutoff(cutoff);
-		net.platform=platform; //Round-trip the platform tag (-1 if absent)
+		for(Map.Entry<String,String> e : tags.entrySet()){net.setTag(e.getKey(), e.getValue());} //Round-trip custom tags
 		net.fpRate=fpr; net.fnRate=fnr; net.errorRate=err; net.weightedErrorRate=wer; net.lastStats=stats; //Round-trip the stored stats
 		assert(layers==net.layers);
 		posFirstEdge=pos;
@@ -109,10 +111,11 @@ public class CellNetParser {
 					err=parseFloat(line);
 				}else if(Tools.startsWith(line, "##wer")){
 					wer=parseFloat(line);
-				}else if(Tools.startsWith(line, "##platform")){
-					platform=parseInt(line);
 				}else if(Tools.startsWith(line, "##")){
-					//Comment; ignore
+					//Unrecognized ##key value -> custom tag (applied to the net after construction, since
+					//the net does not exist yet here). A bare "##" with no value is ignored as a comment.
+					int sp=Tools.indexOf(line, delimiter);
+					if(sp>2){tags.put(new String(line, 2, sp-2), new String(line, sp+1, line.length-sp-1));}
 				}else if(Tools.startsWith(line, "#version")){
 					version=parseInt(line);
 				}else if(Tools.startsWith(line, "#layers")){
@@ -337,8 +340,9 @@ public class CellNetParser {
 	int pos=0;
 	/** Classification threshold cutoff value */
 	float cutoff=0.5f;
-	/** Platform tag from the ##platform header (-1 if absent); round-tripped to the net, asserted by var2 at scoring. */
-	int platform=-1;
+	/** Unrecognized ##key value header lines, accumulated during parseHeader() then applied to the net via
+	 *  setTag() once it is constructed. */
+	LinkedHashMap<String,String> tags=new LinkedHashMap<String,String>();
 	/** Stored performance metrics read from the header (defaults match CellNet's, so an absent line is a no-op). */
 	float fpr=999, fnr=999, err=999, wer=999;
 	/** Stored training-stats line (##stats content), or null if absent. */

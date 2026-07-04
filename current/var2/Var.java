@@ -1351,9 +1351,10 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 			double readLengthAvg, int ploidy, ScafMap map, CellNet net){
 		// Guard: a net trained for one platform must be scored under that platform, or its feature-vector
 		// platform one-hot (VectorUMP45 dims 4-7) is wrong and every score is off-distribution (silently).
-		// Fires only when the net declares a platform (##platform header); unstamped research nets pass.
-		assert(net.platform<0 || net.platform==VectorUMP45.platform) :
-			"NN net "+net.fname+" was trained with platform="+net.platform+" but is being scored with platform="
+		// Fires only when the net declares a "platform" tag (##platform header); unstamped research nets pass.
+		String platformTag=net.getTag("platform");
+		assert(platformTag==null || Integer.parseInt(platformTag.trim())==VectorUMP45.platform) :
+			"NN net "+net.fname+" was trained with platform="+platformTag+" but is being scored with platform="
 			+VectorUMP45.platform+" (0=illumina 1=pacbio 2=nanopore 3=roche). Pass the matching platform= flag; "
 			+"otherwise the vector platform one-hot is wrong and scores are off-distribution.";
 		float[] vec=VectorUMP45.makeVector(this, properPairRate, totalQualityAvg,

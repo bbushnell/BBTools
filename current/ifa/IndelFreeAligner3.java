@@ -253,6 +253,7 @@ public class IndelFreeAligner3 implements Accumulator<IndelFreeAligner3.ProcessT
 		}
 		assert(minHitsProb<=1);
 		assert(maxSubs>=0);
+		assert(qStep>=1) : "qStep must be at least 1: "+qStep;//qStep is an unconditional loop stride (i+=qStep); 0 would hang. rStep>=1 already ensured by bitCount(rStep)==1.
 		return true;
 	}
 

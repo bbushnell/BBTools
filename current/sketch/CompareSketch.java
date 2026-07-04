@@ -285,7 +285,7 @@ public class CompareSketch extends SketchObject {
 					if(outName0!=null){sk.setName0(outName0);}
 					if(SketchMaker.parseSubunit && sk.name0()!=null){
 						if(outMeta!=null){
-							sk.meta=(ArrayList<String>)sk.meta.clone();
+							if(sk.meta!=null){sk.meta=(ArrayList<String>)sk.meta.clone();}
 						}else if(sk.meta==null){
 							if(sk.name0().contains("SSU_")){
 								sk.addMeta("subunit:ssu");

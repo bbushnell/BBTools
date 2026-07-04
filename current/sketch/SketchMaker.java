@@ -1026,12 +1026,13 @@ public class SketchMaker extends SketchObject {
 				if(sizeList!=null){
 					unitSizeBases=taxID<0 ? -1 : sizeList.get(taxID);
 				}else if(sizeMap!=null){
-					unitSizeBases=sizeMap.get(imgID);
+					Long v=sizeMap.get(imgID);
+					unitSizeBases=v!=null ? v : -1;
 				}else{
 					unitSizeBases=-1;
 				}
-				
-				
+
+
 				if(mode==PER_TAXA){
 					if(tossJunk && tn==null){return;}
 					if(tn!=null){
@@ -1291,7 +1292,8 @@ public class SketchMaker extends SketchObject {
 				if(sizeList!=null){
 					unitSizeBases=localHeap.taxID<0 ? -1 : sizeList.get((int)localHeap.taxID);
 				}else if(sizeMap!=null){
-					unitSizeBases=sizeMap.get(localHeap.imgID);
+					Long v=sizeMap.get(localHeap.imgID);
+					unitSizeBases=v!=null ? v : -1;
 				}else{
 					unitSizeBases=-1;
 				}

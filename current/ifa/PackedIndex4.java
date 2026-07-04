@@ -112,6 +112,9 @@ public class PackedIndex4{
 					// Multi-Hit: 'val' is the current pointer.
 					// Check if this slot is empty (0) to detect First Write vs Subsequent Write.
 					
+					//The positions[val]==0 "empty slot" test is safe even though refPos can be 0: refPos==0 only when j==0,
+					//the globally-lowest j, which is processed last (backwards scan) and thus is always a key's terminal HEAD
+					//write — no later write re-reads that slot. Non-head slots always get a j>0 (nonzero) refPos.
 					if(positions[val]==0){
 						// Case A: Slot is 0. This is the End Index (First Write).
 						// Write Stop Bit. Do NOT decrement pointer.

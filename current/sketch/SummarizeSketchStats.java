@@ -352,11 +352,11 @@ public class SummarizeSketchStats {
 			unique=Integer.parseInt(split[6]);
 			noHit=Integer.parseInt(split[7]);
 			taxID=Integer.parseInt(split[8]);
-			gSize=Integer.parseInt(split[9]);
+			gSize=Long.parseLong(split[9]);
 			gSeqs=Integer.parseInt(split[10]);
 			
 			name=split[11];
-			if(name.equals(".") && split.length>11){
+			if(name.equals(".") && split.length>12){
 				name=split[12];
 			}
 		}
@@ -370,7 +370,7 @@ public class SummarizeSketchStats {
 		int unique;
 		int noHit;
 		int taxID;
-		int gSize;
+		long gSize;
 		int gSeqs;
 		String name;
 	}

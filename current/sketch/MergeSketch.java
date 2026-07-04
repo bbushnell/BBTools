@@ -225,8 +225,11 @@ public class MergeSketch extends SketchObject {
 		heap.genomeSizeKmers=Tools.max(heap.genomeSizeKmers, sizeOut);
 		ArrayList<String> meta=inSketches.get(0).meta;
 		if(meta==null){meta=outMeta;}
-		else if(outMeta!=null){meta.addAll(outMeta);}
-		Sketch union=new Sketch(heap, false, tool.trackCounts, outMeta);
+		else if(outMeta!=null){
+			meta=new ArrayList<String>(meta);
+			meta.addAll(outMeta);
+		}
+		Sketch union=new Sketch(heap, false, tool.trackCounts, meta);
 
 		if(outTaxName!=null){union.setTaxName(outTaxName);}
 		if(outFname!=null){union.setFname(outFname);}

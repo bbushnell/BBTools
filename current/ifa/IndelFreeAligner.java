@@ -163,7 +163,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 			}else if(a.equals("k")){
 				if(b==null || b.equals("0") || b.equals("-1")){
 					kArray=null;
-				}if(b.indexOf(',')>-1){
+				}else if(b.indexOf(',')>-1){ //else required: b is null in the branch above; a bare if would NPE on b.indexOf. Matches IFA4.
 					int[] temp=Parse.parseIntArray(b, ",");
 					kArray=temp;
 				}else{
@@ -230,6 +230,7 @@ public class IndelFreeAligner implements Accumulator<IndelFreeAligner.ProcessThr
 		}
 		assert(minHitsProb<=1);
 		assert(maxSubs>=0);
+		assert(qStep>=1) : "qStep must be at least 1: "+qStep;//qStep is an unconditional loop stride (i+=qStep); 0 would hang. rStep>=1 already ensured by bitCount(rStep)==1.
 		return true;
 	}
 
