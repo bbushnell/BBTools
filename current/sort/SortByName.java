@@ -521,7 +521,7 @@ public class SortByName {
 			waitOnMemory(outstandingMem, 0);
 			outstream.println("Merging "+(dumps+1)+" files.");
 			ReadWrite.ZIPLEVEL=ziplevel0;
-			mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);
+			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);//[SortByName#001]: capture merge errorState (was discarded)
 		}
 		
 	}
@@ -662,7 +662,7 @@ public class SortByName {
 			waitOnMemory(outstandingMem, 0);
 			outstream.println("Merging "+(dumps+1)+" files.");
 			ReadWrite.ZIPLEVEL=ziplevel0;
-			mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);
+			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader, false);//[SortByName#001]: capture merge errorState (was discarded)
 		}
 		
 	}
@@ -1130,6 +1130,11 @@ public class SortByName {
 
 		if(verbose || true){outstream.println("Created a WriteThread for "+temp1+(temp2==null ? "" : ", "+temp2));}
 		WriteThread wt=new WriteThread(storage, currentMem, outstandingMem, temp1, temp2, useHeader, outstream);
+		//[sort/SortByName#001 FIXED]: WriteThread is now a NON-static inner class whose `errorState` IS this instance's
+		//errorState (its shadowing field removed, and SortByName.errorState made volatile). So a crashed WriteThread (disk
+		//full / IO error / sort assertion) now sets the tool's errorState, which process()'s `if(errorState){throw}` checks
+		//after waitOnMemory has joined all writers -> a failed background write becomes a LOUD "output may be corrupt" crash
+		//instead of silently dropping the reads of a partial/missing temp file. (Also un-swallows the poisonAndWait error.)
 		wt.start();
 	}
 	
@@ -1142,8 +1147,8 @@ public class SortByName {
 	 * Handles concurrent sorting operations to maximize throughput and manage
 	 * memory pressure during large dataset processing.
 	 */
-	private static class WriteThread extends Thread{
-		
+	private class WriteThread extends Thread{//NON-static [SortByName#001]: so `errorState` below is the outer instance's, propagating failures
+
 		/**
 		 * Constructor for WriteThread with all required parameters.
 		 * Initializes thread state for background sorting and file output operations.
@@ -1199,7 +1204,7 @@ public class SortByName {
 					}
 				}
 				if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
-				errorState|=ros.poisonAndWait();
+				if(ros.poisonAndWait()){errorState=true;}//[SortByName#001]: monotonic (only ever SETS true) — a |= RMW on the shared volatile could let one WriteThread's success revert another's error (G11 catch)
 				if(verbose){outstream.println("Closed ros.");}
 			} catch (Throwable e) {
 				// Catching Throwable ensures we catch Assertions and RuntimeExceptions
@@ -1229,11 +1234,11 @@ public class SortByName {
 		final String fname2;
 		/** Whether to preserve SAM/BAM headers in output */
 		final boolean useHeader;
-		/** Error state flag for this thread's operations */
-		boolean errorState=false;
+		//[SortByName#001]: WriteThread's own errorState field REMOVED so `errorState` in run() resolves to the outer
+		//SortByName.errorState (volatile), propagating background-write failures to the tool instead of a dead field.
 		/** Print stream for this thread's status messages */
 		final PrintStream outstream;
-		
+
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1352,8 +1357,9 @@ public class SortByName {
 	public static boolean verbose=false;
 	/** Print verbose messages */
 	public static final boolean verbose2=false;
-	/** True if an error was encountered */
-	public boolean errorState=false;
+	/** True if an error was encountered. Volatile [SortByName#001]: written by background WriteThreads (non-static inner
+	 * class) and read by process() after waitOnMemory joins them; volatile guarantees the failure is visible. */
+	public volatile boolean errorState=false;
 	/** Overwrite existing output files */
 	private boolean overwrite=true;
 	/** Append to existing output files */

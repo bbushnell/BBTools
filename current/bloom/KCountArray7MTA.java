@@ -793,7 +793,7 @@ public final class KCountArray7MTA extends KCountArray {
 			word=array.get(index);
 			value=((word>>>cellShift)&valueMask);
 			if(value>=newMin){return value;}//Too high; don't increment
-			value=min(value+1, maxValue);
+			value=(int)min(value+1L, maxValue);
 			word2=(value<<cellShift)|(word&~((valueMask)<<cellShift));
 		}while(word!=word2 && !array.compareAndSet(index, word, word2));
 		return value;
@@ -819,7 +819,7 @@ public final class KCountArray7MTA extends KCountArray {
 		do{
 			word=array.get(index);
 			value=((word>>>cellShift)&valueMask);
-			int value2=min(value+incr, maxValue);
+			int value2=(int)min(value+(long)incr, maxValue);//was min(value+incr,...) (int add): overflows at cellBits=32 when value near 2^31-1, wrapping the maxValue cap negative. Matches the guarded twin incrementHashedLocal. Latent (needs 32-bit cells + ~2^31 count of one kmer).
 			word2=(value2<<cellShift)|(word&~((valueMask)<<cellShift));
 		}while(word!=word2 && !array.compareAndSet(index, word, word2));
 //		if(value==1){cellsUsedPersonal.incrementAndGet(num);}

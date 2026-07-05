@@ -27,8 +27,14 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	 */
 	public CrisContainer(String fname, Comparator<Read> comparator_, boolean allowSubprocess){
 		comparator=comparator_;
-		genKmer=(comparator.getClass()==ReadComparatorTopological5Bit.class);
-		clump=(comparator.getClass()==ReadComparatorClump.class);
+		//FIXED [stream/CrisContainer#001]: null-comparator NPE. Commit 1bf3ec1a refactored these checks from
+		//reference-equality (comparator==ReadComparatorTopological5Bit.comparator, null-safe) to comparator.getClass(),
+		//which NPEs when comparator is null. Shuffle2 passes null (it shuffles, never sorts), so its temp-file merge
+		//died here before writing any reads. Null-guarding restores the pre-refactor tolerance; getClass() is kept
+		//(not reverted to ==) because the refactor split each comparator into dual ascending/descending singletons,
+		//so reference-equality would miss the descending instance. -GitHub #12 / G11 2026-07-04
+		genKmer=(comparator!=null && comparator.getClass()==ReadComparatorTopological5Bit.class);
+		clump=(comparator!=null && comparator.getClass()==ReadComparatorClump.class);
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, allowSubprocess, true);
 		cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null, null, null);
 //		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
@@ -44,8 +50,10 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	 */
 	public CrisContainer(ConcurrentReadInputStream cris_, Comparator<Read> comparator_){
 		comparator=comparator_;
-		genKmer=(comparator.getClass()==ReadComparatorTopological5Bit.class);
-		clump=(comparator.getClass()==ReadComparatorClump.class);
+		//FIXED [stream/CrisContainer#001] (twin): same null-comparator NPE as the (String,...) ctor above. Currently
+		//no caller passes null to this 2-arg form, so it's latent — but the null-guard keeps the twins consistent.
+		genKmer=(comparator!=null && comparator.getClass()==ReadComparatorTopological5Bit.class);
+		clump=(comparator!=null && comparator.getClass()==ReadComparatorClump.class);
 		cris=cris_;
 //		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
 		fetch();

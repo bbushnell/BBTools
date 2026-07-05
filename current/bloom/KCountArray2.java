@@ -101,7 +101,7 @@ public class KCountArray2 {
 		int value=((word>>>cellShift)&valueMask);
 		if(value==0 && incr>0){cellsUsed++;}
 		else if(incr<0 && value+incr==0){cellsUsed--;}
-		value=min(value+incr, maxValue);
+		value=(int)min(value+(long)incr, maxValue);//long add: int value+incr overflows the maxValue cap at cellBits=32 (twin of KCountArray7MTA). Latent.
 		word=(value<<cellShift)|(word&~((valueMask)<<cellShift));
 		array[index]=word;
 		return (int)value;
@@ -115,7 +115,7 @@ public class KCountArray2 {
 		int word=array[index];
 		int cellShift=(int)(cellBits*key);
 		final int value=((word>>>cellShift)&valueMask);
-		final int value2=min(value+incr, maxValue);
+		final int value2=(int)min(value+(long)incr, maxValue);//long add: int value+incr overflows the maxValue cap at cellBits=32 (twin of KCountArray7MTA). Latent.
 		word=(value2<<cellShift)|(word&~((valueMask)<<cellShift));
 		array[index]=word;
 		return value;

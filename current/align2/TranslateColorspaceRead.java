@@ -420,7 +420,7 @@ public final class TranslateColorspaceRead {
 							if(newlen>=msa.maxColumns-80){
 								while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 								while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-								while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+								while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 							}else{
 								int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 								extraPadLeft=Tools.max(x, extraPadLeft);
@@ -433,7 +433,7 @@ public final class TranslateColorspaceRead {
 							if(newlen>=msa.maxColumns-80){
 								while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 								while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-								while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+								while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 							}else{
 								int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 								extraPadLeft=Tools.max(x, extraPadLeft);
@@ -459,7 +459,7 @@ public final class TranslateColorspaceRead {
 								if(newlen>=msa.maxColumns-80){
 									while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 									while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-									while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+									while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 								}else{
 									int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 									extraPadLeft=Tools.max(x, extraPadLeft);
@@ -472,7 +472,7 @@ public final class TranslateColorspaceRead {
 								if(newlen>=msa.maxColumns-80){
 									while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 									while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-									while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+									while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 								}else{
 									int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 									extraPadLeft=Tools.max(x, extraPadLeft);
@@ -574,7 +574,7 @@ public final class TranslateColorspaceRead {
 						if(newlen>=msa.maxColumns-80){
 							while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 							while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-							while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+							while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 						}
 					}else{
 						//TODO: In this case the alignment will probably be wrong.
@@ -583,7 +583,7 @@ public final class TranslateColorspaceRead {
 						if(newlen>=msa.maxColumns-80){
 							while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 							while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-							while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+							while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 						}else{
 							int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 							extraPadLeft=Tools.max(x, extraPadLeft);
@@ -608,7 +608,7 @@ public final class TranslateColorspaceRead {
 							if(newlen>=msa.maxColumns-80){
 								while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 								while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-								while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+								while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 							}else{
 								int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 								extraPadLeft=Tools.max(x, extraPadLeft);
@@ -621,7 +621,7 @@ public final class TranslateColorspaceRead {
 							if(newlen>=msa.maxColumns-80){
 								while(newlen>=msa.maxColumns-80 && extraPadLeft>extraPadRight){newlen--;extraPadLeft--;}
 								while(newlen>=msa.maxColumns-80 && extraPadLeft<extraPadRight){newlen--;extraPadRight--;}
-								while(newlen>=msa.maxColumns-80){newlen-=2;extraPadLeft--;extraPadRight--;}
+								while(newlen>=msa.maxColumns-80 && extraPadLeft>0 && extraPadRight>0){newlen-=2;extraPadLeft--;extraPadRight--;}//#19 floor: no lower bound here drove pads negative (assert at :444, or AIOOBE w/o -ea) when a spliced greflen>=maxColumns-80. Loops above self-stop at equality; only this equal-decrement loop could go <0. Latent on HEAD (mapPacBio bypasses realign_new); no-op for all reachable cases.
 							}else{
 								int x=Tools.max(0, Tools.min(20, ((msa.maxColumns-newlen)/2)-40));
 								extraPadLeft=Tools.max(x, extraPadLeft);

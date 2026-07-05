@@ -52,14 +52,19 @@ public final class HashArray1D extends HashArray {
 				size++;
 				values[cell]=incr;
 				if(autoResize && size+victims.size>sizeLimit){resize();}
-				return 1;
+				//Comprehension [kmer/HashArray1D#001 RESOLVED]: return incr, not 1 — increment() is contracted to
+				//"Returns count", and a NEW entry's count IS incr. Now consistent with every sibling (HashForest.increment
+				//-> n.value()==incr; KmerTable.increment -> n.value==incr; HashArrayHybrid.increment:74 -> return incr) and
+				//with this class's own victims path below (return x). Was previously `return 1`, correct only for incr=1
+				//(every current caller passes incr=1, so this is behavior-neutral today and hardens the incr>1 path).
+				return incr;
 			}
 		}
 		int x=victims.increment(kmer, incr);
 		if(autoResize && size+victims.size>sizeLimit){resize();}
 		return x;
 	}
-	
+
 	@Override
 	public final int incrementAndReturnNumCreated(final long kmer, final int incr){
 		int cell=kmerToCell(kmer);
@@ -418,6 +423,12 @@ public final class HashArray1D extends HashArray {
 		 * @return true if a valid entry was found, false if iteration is complete
 		 */
 		public boolean next(){
+			//TODO: Possible bug [kmer/HashArray1D#002] - empty-cell sentinel here is NOT_XPRESENT(0), but regenerate()
+			//writes NOT_PRESENT(-1) into emptied value cells (values[pos]=NOT_PRESENT). Walking a POST-regenerate table
+			//would therefore not skip those cells and would emit spurious (kmer=-1, value=-1) entries. LATENT / NOT
+			//REACHABLE today: walk() is called only in jgi/KmerCountExact (which never regenerate()s); regenerate() is
+			//called only in assemble/ (Shaver/RemoveThread), which dump via dumpKmersAsBytes_MT, not walk(). Tied to the
+			//author's own //TODO below (NOT_XPRESENT=0 "fix array initialization"). If ever unified, use one sentinel.
 			while(i<values.length && values[i]==NOT_XPRESENT){i++;}
 			if(i<values.length){
 				kmer=array[i];
