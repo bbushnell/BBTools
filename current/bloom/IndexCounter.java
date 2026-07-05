@@ -42,6 +42,10 @@ public class IndexCounter extends KmerCountAbstract {
 	 * @return Populated and finalized KCountArray
 	 */
 	public KCountArray makeKcaFromIndex(long cells, int cbits, int hashes){
+		//The 4-segment split double-counts each internal-boundary kmer and drops the last (length%4)
+		//bases per chromosome (see IndexCounter#001). Correct ONLY for a presence bitmap (bits=1),
+		//where the double-counts saturate; crash loud rather than emit inflated counts at bits>1.
+		assert(cbits==1) : "IndexCounter is only correct for bits=1 (presence bitmap); see IndexCounter#001. cbits="+cbits;
 		KCountArray kca=KCountArray.makeNew(cells, cbits, hashes, null, 0);
 		try {
 			countFromIndex(kca);
@@ -136,6 +140,10 @@ public class IndexCounter extends KmerCountAbstract {
 
 			final byte[] bases=ca.array;
 			if(bases==null || bases.length<k){return;}
+			//TODO: Possible bug [bloom/IndexCounter#001] - the kmer ending at each internal segment
+			//boundary (segNum*segLength-1) is counted by BOTH this segment (warmup) and segment segNum-1,
+			//and segment 3 stops at 4*segLength so the last (length mod 4) bases' kmers are never counted.
+			//Negligible in the only live caller (BBMap bloomfilter=t uses bits=1, so double-counts saturate).
 			final int segLength=bases.length/4;
 			final int start=Tools.max(0, segNum*segLength-k);
 			final int stop=Tools.min(bases.length, (segNum+1)*segLength);

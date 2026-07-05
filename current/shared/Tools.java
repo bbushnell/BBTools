@@ -2423,7 +2423,9 @@ public final class Tools {
 								better=(a.slowScore>b.slowScore ? a : b);
 							}else if(a.pairedScore!=b.pairedScore){
 								better=(a.pairedScore>b.pairedScore ? a : b);
-							}else if(a.pairedScore!=b.pairedScore){
+							//FIXED [shared/Tools#009]: this condition DUPLICATED the pairedScore test above (always false here), so the
+							//quickScore tiebreak was dead code and control fell to else{better=a}. Now correctly tests a.quickScore!=b.quickScore.
+							}else if(a.quickScore!=b.quickScore){
 								better=(a.quickScore>b.quickScore ? a : b);
 							}else{
 								better=a;
@@ -2513,7 +2515,9 @@ public final class Tools {
 								better=(a.slowScore>b.slowScore ? a : b);
 							}else if(a.pairedScore!=b.pairedScore){
 								better=(a.pairedScore>b.pairedScore ? a : b);
-							}else if(a.pairedScore!=b.pairedScore){
+							//FIXED [shared/Tools#009]: this condition DUPLICATED the pairedScore test above (always false here), so the
+							//quickScore tiebreak was dead code and control fell to else{better=a}. Now correctly tests a.quickScore!=b.quickScore.
+							}else if(a.quickScore!=b.quickScore){
 								better=(a.quickScore>b.quickScore ? a : b);
 							}else{
 								better=a;
@@ -4518,7 +4522,10 @@ public final class Tools {
 			if(array[i]==b){seen++;}
 			i++;
 		}
-		return (i==array.length ? -1 : i-1);
+		//FIXED [shared/Tools#010]: was "return (i==array.length ? -1 : i-1)", which returned -1 (not found) when the nth
+		//occurrence was the LAST array element (i is incremented to array.length right after finding it). Now keyed on seen:
+		//if we reached n matches, i-1 is the nth match's index regardless of position; only a genuine short-fall (seen<n) is -1.
+		return seen>=n ? i-1 : -1;
 	}
 	
 	/**

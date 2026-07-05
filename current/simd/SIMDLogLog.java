@@ -77,6 +77,9 @@ public class SIMDLogLog {
 			final ShortVector vaU=va.lanewise(VectorOperators.XOR, SBIAS);
 			final ShortVector vbU=vb.lanewise(VectorOperators.XOR, SBIAS);
 
+			//Comprehension: lt/eq/gt partition each ACTIVE lane exactly once (so lower+equal+higher+bothEmpty==lanes, checked by
+			//main()'s sum==len). va==vb => vaU==vbU => lt&gt both false, eq true; va<vb(unsigned) => vaU<vbU => only lt. The XOR
+			//bias is required for lt/gt (unsigned char order) but NOT for eq (equality is bias-invariant), which is why eqMask uses raw va/vb.
 			final VectorMask<Short> ltMask=vaU.compare(VectorOperators.LT, vbU).and(active);
 			final VectorMask<Short> eqMask=va.compare(VectorOperators.EQ, vb).and(active);
 			final VectorMask<Short> gtMask=vaU.compare(VectorOperators.GT, vbU).and(active);

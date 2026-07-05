@@ -80,6 +80,10 @@ public class DumpThread extends Thread{
 	 */
 	@Override
 	public void run(){
+		//Comprehension (concurrency, verified): bb is THREAD-LOCAL (new per run()), so no sharing race on it; tables are
+		//partitioned lock-free via the shared AtomicInteger nextTable (each index claimed by exactly one thread); and every
+		//write to the shared bsw is synchronized (inside dumpKmersAsBytes_MT's 16KB flush, and the final leftover flush
+		//below). So no two threads touch the same table or race on bsw. Safe.
 		final ByteBuilder bb=new ByteBuilder(16300);
 		for(int i=nextTable.getAndIncrement(); i<tables.length; i=nextTable.getAndIncrement()){
 			AbstractKmerTable t=tables[i];

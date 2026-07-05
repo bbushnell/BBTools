@@ -23,6 +23,10 @@ public interface Random {//Can't extend RandomGenerator, not added until v17.
 	
 	public default int nextInt(int bound) {
 		assert(bound>=0) : "bound must be positive: "+bound;
+		//TODO: Possible bug [shared/Random#001] - assert is bound>=0 but the message (and JDK contract) says "positive".
+		//bound==0 PASSES the assert, then the power-of-2 fast path below computes (0&(0-1))==0 -> true -> returns
+		//((int)nextLong())&(0-1) = x&-1 = an ARBITRARY int (incl. negative), not a value in [0,bound). Latent LOW: bound==0
+		//is caller misuse, but per crash-loud the assert should be bound>0 to fail loudly instead of returning garbage.
 		//if(bound <= 0) {throw new IllegalArgumentException("bound must be positive");}//Slow
 
 		// Fast path for powers of 2

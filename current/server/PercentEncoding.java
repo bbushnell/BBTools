@@ -59,6 +59,12 @@ public class PercentEncoding {
 		ByteBuilder bb=new ByteBuilder();
 		for(int i=0, max=s.length(); i<max; i++){
 			char c=s.charAt(i);
+			//TODO: Possible bug [server/PercentEncoding#003] - symbolToCodeArray has length 128 but c is a Java char (0-65535);
+			//this indexes it UNGUARDED, so any non-ASCII char (c>=128) present alongside a special ASCII symbol (which makes
+			//containsSpecialSymbol true, so we don't return early) throws ArrayIndexOutOfBounds. The sibling commonSymbolToCode
+			//guards the SAME access with isCommon.get(c) first -> symbolToCode is the lone unguarded divergence. For a server
+			//path an uncaught AIOOBE crashes the handler instead of passing the char through. MASKED for pure-ASCII input.
+			//Fix: guard like the sibling, e.g. String code=(c<128 ? symbolToCodeArray[c] : null);
 			String code=symbolToCodeArray[c];
 			if(code!=null){
 //				System.err.print("e("+code+")");

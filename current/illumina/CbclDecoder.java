@@ -48,6 +48,7 @@ public class CbclDecoder {
 		//Decompress gzip data
 		ByteArrayInputStream bais=new ByteArrayInputStream(compressedData);
 		GZIPInputStream gis=new GZIPInputStream(bais);
+		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Violates Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
 		byte[] decompressed=gis.readAllBytes();
 		gis.close();
 
@@ -125,6 +126,7 @@ public class CbclDecoder {
 		//Read compressed data
 		FileInputStream fis=new FileInputStream(filename);
 		fis.skip(header.compressedDataOffset);
+		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Violates Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
 		byte[] compressedData=fis.readAllBytes();
 		fis.close();
 

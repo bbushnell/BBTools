@@ -109,6 +109,13 @@ public final class Vector {
 	public static final float fma(final float[] a, final float[] b, final int[] bSet, 
 		final int blockSize, boolean allowSimd){
 		assert(a.length==bSet.length);
+		//Comprehension: this 5-arg (sparse) form is only reached from ml.Cell.summateSparse / updateEdgesHiddenLayerSparse,
+		//where bSet (inputs/outputs) is non-null (Cell.check: CellNet.DENSE==(inputs==null)). The dense shortcut below computes
+		//Sum(a[i]*b[i]), which equals the intended Sum(a[i]*b[bSet[i]]) ONLY if bSet is the identity permutation.
+		//TODO: Possible bug [simd/Vector#002] - dense shortcut ignores bSet when a.length==b.length (fires even when allowSimd=false,
+		//e.g. Cell.java:389). Wrong output for a fully-connected sparse cell whose edge ordering is a non-identity permutation.
+		//Latent/LOW: reachable only if the net builder ever produces such a cell (UNVERIFIED - check CellNet edge ordering).
+		//Crash-loud fix: assert bSet is identity here (or take the shortcut only when bSet==null) to turn silent-wrong into a loud crash.
 		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && a.length==b.length) {return SIMD.fma(a, b);}
 		if(Shared.SIMD && Shared.SIMD_FMA && a.length>=MINLEN32 && allowSimd && ((blockSize&7)==0)) {//This ensures length-8 blocks
 			return SIMD.fmaSparse(a, b, bSet);
@@ -491,6 +498,9 @@ public final class Vector {
 	 */
 	public static final void addProduct(final float[] a, final float[] b, int[] bSet, final float mult, int blockSize){
 		assert(a.length==bSet.length);
+		//TODO: Possible bug [simd/Vector#002] - twin of the fma dense-shortcut above: this ignores bSet when a.length==b.length,
+		//computing a[i]+=b[i]*mult instead of a[i]+=b[bSet[i]]*mult. Only reached from Cell.updateEdgesHiddenLayerSparse (sparse,
+		//bSet!=null); correct only if a fully-connected sparse cell always has identity ordering (UNVERIFIED). Same crash-loud fix.
 		if(Shared.SIMD && a.length>=MINLEN32 && a.length==b.length) {SIMD.addProduct(a, b, mult); return;}
 		if(Shared.SIMD && a.length>=MINLEN32 && SIMD_MULT_SPARSE && ((blockSize&7)==0)) {SIMD.addProductSparse(a, b, bSet, mult); return;}
 		for(int i=0; i<a.length; i++) {a[i]+=b[bSet[i]]*mult;}

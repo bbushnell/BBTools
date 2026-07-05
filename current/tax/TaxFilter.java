@@ -328,6 +328,7 @@ public class TaxFilter {
 		if(numbers==null){return;}
 		String[] array=numbers.split(",");
 		for(String s : array){
+			if(s.isEmpty()){continue;}//FIXED [tax/TaxFilter#001]: skip empty tokens (leading/interior comma, e.g. taxids=,5 or taxids=3,,4) — the sibling addNameOrNumber already guards s.length()<1; without this s.charAt(0) below throws a bare StringIndexOutOfBounds. (Trailing commas are stripped by split; blank file lines are dropped by TextFile.nextLine.)
 			if(Tools.isDigit(s.charAt(0))){
 				final int x=Integer.parseInt(s);
 				addNumber(x, promote);
@@ -443,6 +444,12 @@ public class TaxFilter {
 	 */
 	public boolean passesFilter(final int id){
 //		if((taxSet==null || taxSet.isEmpty()) && reqLevels==0){return !include;}
+		//NOTE [tax/TaxFilter]: empty filter returns TRUE (pass all) here, INTENTIONALLY diverging from passesFilter(String)/
+		//(TaxNode) which return !include. This is LOAD-BEARING, do NOT "unify" it: sketch DisplayParams.postParse builds an
+		//include-mode whitelist that can have an empty taxSet but a non-null contains-string (name-only whitelist); its
+		//passesTaxFilter needs this id-check to PASS so the subsequent passesFilterByNameOnly can do the real filtering.
+		//Returning !include (=false for the include-mode white filter) would reject everything before the name check runs.
+		//The two behaviors agree except for empty & include==true; each caller uses the overload giving its desired semantic.
 		if((taxSet==null || taxSet.isEmpty()) && reqLevels==0){return true;}
 		TaxNode tn=tree.getNode(id);
 //		assert(tn!=null || !REQUIRE_PRESENT) : "Could not find node number "+id;

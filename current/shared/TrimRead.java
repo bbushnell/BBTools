@@ -351,6 +351,10 @@ public final class TrimRead implements Serializable {
 		if(bases==null || bases.length==0){return 0;}
 		if(qual==null){return avgErrorRate>=1 ? 0 : ((((long)testLeftN(bases))<<32) | (((long)testRightN(bases))&0xFFFFFFFFL));}
 		
+		//Comprehension: this is a Kadane maximum-subarray. delta=avgErrorRate-probError is >0 for a base BETTER than the
+		//average error rate, <0 for worse; the max-sum contiguous run [maxLoc-maxCount+1 .. maxLoc] is the highest-quality
+		//stretch to KEEP, and everything before it (left) and after it (right) is trimmed. All-bad read (no positive run) ->
+		//maxScore stays 0 -> left=0,right=length -> trim everything (later capped by minlen in trim()). Tie-break prefers the longer run.
 		float maxScore=0;
 		float score=0;
 		int maxLoc=-1;

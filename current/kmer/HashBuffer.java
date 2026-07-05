@@ -61,6 +61,11 @@ public class HashBuffer extends AbstractKmerTable {
 		KmerBuffer buffer=buffers[way];
 //		final int size=buffer.addMulti(kmer, incr);
 		final int size=buffer.add(kmer);
+		//Comprehension (clever, verified): throttled dump — once the buffer is at least half full, attempt a dump every
+		//16 adds ((size&SIZEMASK)==0, SIZEMASK=15) with a NON-blocking tryLock (dumpBuffer force=false), but force a
+		//blocking dump only when completely full (size>=buflen). This keeps lock contention low while guaranteeing the
+		//buffer never exceeds buflen (the force branch drains it at the boundary). incr is asserted ==1 here; bulk incr>1
+		//is coalesced in dumpBuffer_inner into incrementAndReturnNumCreated(prev,sum), never into increment().
 		if(size>=halflen && (size>=buflen || (size&SIZEMASK)==0)){
 			return dumpBuffer(way, size>=buflen);
 		}

@@ -709,6 +709,8 @@ public class ReadCounter extends KmerCountAbstract {
 						if(merge){
 							final int insert=findOverlap(r1, r2, false);
 							if(insert>0){
+								//r2 is rcomp'd and not restored (unlike BloomFilterWrapper) - safe HERE: this path
+								//only COUNTS the merged r1 and discards r2 (no output), so r2's orientation is moot.
 								r2.reverseComplementFast();
 								r1=r1.joinRead(insert);
 								r2=null;

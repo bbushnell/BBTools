@@ -432,6 +432,11 @@ public abstract class HashArray extends AbstractKmerTable {
 	 * @return Cell position, NOT_PRESENT if not found, or HASH_COLLISION if probing limit reached
 	 */
 	final int findKmer(final long kmer, final int startCell){
+		//Comprehension (clever, verified): three-way return is the crux of the whole design. A hit returns the cell; a
+		//NOT_PRESENT sentinel returns immediately (linear insertion guarantees the kmer cannot be past the first gap);
+		//exhausting the `extra`-wide probe window returns HASH_COLLISION — meaning "if present at all, it overflowed to
+		//the victim forest." set() spills to victims under exactly the same full-window condition, so the two stay in
+		//lockstep: a kmer is in the array iff findable within the window, else in victims, never lost between them.
 		int cell=startCell;
 		for(final int max=cell+extra; cell<max; cell++){
 			final long n=array[cell];
@@ -478,6 +483,11 @@ public abstract class HashArray extends AbstractKmerTable {
 	@Override
 	public final boolean dumpKmersAsText(TextStreamWriter tsw, int k, int mincount, int maxcount){
 		if(twoD){
+			//Comprehension [kmer/HashArray 2D-dump, NOT a bug]: the 2D branch intentionally applies NEITHER mincount NOR
+			//maxcount (all three dump variants do the same) — a 2D entry holds an int[] of values (e.g. multiple scaffold
+			//IDs, Seal/BBDuk ref tables), so a scalar count threshold has no well-defined meaning here. Masked in any case:
+			//every 2D-table dump caller (Seal:766/1543, BBDuk ref) passes mincount<=1 and maxcount=Integer.MAX_VALUE. The
+			//1D branch below is the count-filtered path; keep 2D unfiltered unless a per-value count semantic is defined.
 			final int[] singleton=new int[1];
 			for(int i=0; i<array.length; i++){
 				long kmer=array[i];

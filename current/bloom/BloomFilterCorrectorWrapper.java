@@ -712,7 +712,7 @@ public class BloomFilterCorrectorWrapper {
 								if(insert>0){
 									r2.reverseComplementFast();
 									r1=r1.joinRead(insert);
-									r2.reverseComplementFast();
+									r2.reverseComplementFast();//Restore r2 to input orientation after the join (r2_0 must stay unmutated for the revert/unmerge paths below).
 									r2=null;
 									if(testMerge && !corrector.mergeOK(r1, initialLength1, initialLength2, kmers, testMergeWidth, testMergeThresh, testMergeMult)){
 										r1=r1_0;

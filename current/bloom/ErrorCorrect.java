@@ -394,62 +394,73 @@ public class ErrorCorrect extends Thread{
 	public static BitSet detectErrors(final Read r, final KCountArray kca, final int k, final int thresh){
 		
 		final int kbits=2*k;
+		final int shift2=kbits-2;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
 		final byte[] bases=r.bases;
-		
+
 		int bslen=r.length()-k+1;
 		if(bslen<1){return null;} //Read is too short to detect errors
 		BitSet bs=new BitSet(bslen);
-		
+
 		int len=0;
-		long kmer=0;
+		long kmer=0, rkmer=0;
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			if(x<0){
 				len=0;
 				kmer=0;
+				rkmer=0;
 			}else{
 				kmer=((kmer<<2)|x)&mask;
+				rkmer=((rkmer>>>2)|((long)AminoAcid.baseToComplementNumber[b]<<shift2))&mask;
 				len++;
-				
+
 				if(len>=k){
-					int count=kca.read(kmer);
+					int count=kca.read(Tools.max(kmer, rkmer));//canonical read - see detectErrorsBulk [bloom/ErrorCorrect#001]
 					if(count>=thresh){
 						bs.set(i+1-k);
 					}
 				}
 			}
 		}
-		
+
 		return bs;
 	}
 	
 	/** Sets a 1 bit for every base covered by a kmer with count at least thresh */
 	public static BitSet detectErrorsBulk(final Read r, final KCountArray kca, final int k, final int thresh, final int stepsize){
-		
+
 		final int kbits=2*k;
+		final int shift2=kbits-2;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
 		final byte[] bases=r.bases;
-		
+
 		if(r.bases==null || r.length()<k){return null;} //Read is too short to detect errors
 		BitSet bs=new BitSet(r.length());
 		final int setlen=k;
-		
+
 		int len=0;
-		long kmer=0;
+		long kmer=0, rkmer=0;
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			if(x<0){
 				len=0;
 				kmer=0;
+				rkmer=0;
 			}else{
 				kmer=((kmer<<2)|x)&mask;
+				rkmer=((rkmer>>>2)|((long)AminoAcid.baseToComplementNumber[b]<<shift2))&mask;
 				len++;
-				
+
+				//FIXED 2026-07-05 [bloom/ErrorCorrect#001]: read the CANONICAL kmer max(kmer,rkmer),
+				//not forward-only. The count arrays are canonical (ReadCounter rcomp=true stores at
+				//max(kmer,rkmer); KmerCount5/6 store both strands), so a forward read missed ~half the
+				//kmers on canonical arrays (bbnorm/ecc multipass), N-ing correct bases. max() is right
+				//for both array types (both-strands populate both cells with the same count).
 				if(len>=k && ((len-k)%stepsize==0 || i==bases.length-1)){
-					int count=kca.read(kmer);
+					int count=kca.read(Tools.max(kmer, rkmer));
 					if(count>=thresh){
 						bs.set(i+1-setlen, i+1);
 					}
@@ -457,37 +468,43 @@ public class ErrorCorrect extends Thread{
 			}
 		}
 		r.errors=bs.cardinality()-r.length();
-		
+
 		return bs;
 	}
 	
 	/** Sets 1 for all bases.
 	 * Then clears all bits covered by incorrect kmers. */
 	public static BitSet detectTrusted(final Read r, final KCountArray kca, final int k, final int thresh, final int detectStepsize){
-		
+
 		final int kbits=2*k;
+		final int shift2=kbits-2;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
 		final byte[] bases=r.bases;
-		
+
 		if(r.bases==null || r.length()<k){return null;} //Read is too short to detect errors
 		BitSet bs=new BitSet(r.length());
 		bs.set(0, r.length());
 		final int setlen=k;
-		
+
 		int len=0;
-		long kmer=0;
+		long kmer=0, rkmer=0;
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			if(x<0){
 				len=0;
 				kmer=0;
+				rkmer=0;
 			}else{
 				kmer=((kmer<<2)|x)&mask;
+				rkmer=((rkmer>>>2)|((long)AminoAcid.baseToComplementNumber[b]<<shift2))&mask;
 				len++;
-				
+
+				//FIXED 2026-07-05 [bloom/ErrorCorrect#001]: canonical read max(kmer,rkmer), not forward-only.
+				//Arrays are canonical (ReadCounter) or both-strands (KmerCount5/6); forward-only misread ~half
+				//the kmers on canonical arrays, wrongly clearing trusted bases. See detectErrorsBulk.
 				if(len>=k && (i%detectStepsize==0 || i==bases.length-1)){
-					int count=kca.read(kmer);
+					int count=kca.read(Tools.max(kmer, rkmer));
 					if(count<thresh){
 						bs.clear(i+1-setlen, i+1);
 //						bs.clear(i+1-setlen+detectStepsize, i+1-detectStepsize);
@@ -515,27 +532,30 @@ public class ErrorCorrect extends Thread{
 	public static BitSet detectErrorsTips(final Read r, final KCountArray kca, final int k, final int thresh){
 		
 		final int kbits=2*k;
+		final int shift2=kbits-2;
 		final long mask=(kbits>63 ? -1L : ~((-1L)<<kbits));
 		final byte[] bases=r.bases;
-		
+
 		if(r.bases==null || r.length()<k){return null;} //Read is too short to detect errors
 		BitSet bs=new BitSet(r.length());
 		final int setlen=k;
-		
+
 		int len=0;
-		long kmer=0;
+		long kmer=0, rkmer=0;
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			if(x<0){
 				len=0;
 				kmer=0;
+				rkmer=0;
 			}else{
 				kmer=((kmer<<2)|x)&mask;
+				rkmer=((rkmer>>>2)|((long)AminoAcid.baseToComplementNumber[b]<<shift2))&mask;
 				len++;
-				
+
 				if(len>=k){
-					int count=kca.read(kmer);
+					int count=kca.read(Tools.max(kmer, rkmer));//canonical read - see detectErrorsBulk [bloom/ErrorCorrect#001]
 					if(count>=thresh){
 						bs.set(i+1-setlen);
 						bs.set(i);

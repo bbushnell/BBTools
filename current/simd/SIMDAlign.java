@@ -80,6 +80,14 @@ public class SIMDAlign {
 	/** Vectorized constant for N-base detection (value 15) */
 	private static final LongVector v15=LongVector.broadcast(LSPECIES, 15);
 
+	//Comprehension (applies to the whole alignBandVector* family): the SIMD path scores match/N differently from this
+	//family's own scalar fallback, yet is equivalent under the fixed base encoding. SIMD uses isMatch=(q==r) and
+	//hasN=((q|r)>=15); scalar uses isMatch=((q&r)>0 && q==r) and hasN=(q==15 || r==31). Equivalence holds because bases
+	//are single-bit ACGT (1,2,4,8), query-N=15 (all 4 bits), ref-N=31 (5th bit), and no base is 0: then q==r already
+	//implies (q&r)=q>0, and (q|r)>=15 is reachable ONLY via q==15 or r==31 (two single ACGT bits OR to at most 12).
+	//If that encoding is ever violated (a 0/gap base, an IUPAC multi-bit base, or ref-N stored as 15), SIMD and the
+	//scalar tail would diverge on the same aligner call (band>=LWIDTH vs <LWIDTH). The processCrossCutDiagonal* family
+	//instead uses the simplified (q==r)/((q|r)>15) in BOTH its SIMD and scalar paths - consistent by construction.
 	/** Designed to eliminate scalar loop by reprocessing some final elements */
 	public static void alignBandVector(long q, long[] ref, int bandStart, int bandEnd, 
 			long[] prev, long[] curr){

@@ -516,6 +516,10 @@ public class TableLoaderLockFree {
 					long x2=AminoAcid.baseToComplementNumber[b];
 					kmer=((kmer<<2)|x)&mask;
 					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+					//Comprehension (verified, NOT a bug): on an N (x<0) only len and rkmer are reset, NOT kmer — the pervasive
+					//BBTools idiom (see BBDuk2, QualityTools). Safe because the forward kmer is built by LEFT-shift, so any
+					//N-garbage is shifted out of the 2k-bit mask window after k valid bases; and len>=k gates all use until
+					//then. rkmer (right-shift, new base at the high end) is reset defensively so it's clean the moment len>=k.
 					if(x<0){len=0; rkmer=0;}else{len++;}
 					if(verbose){outstream.println("Scanning2 i="+i+", kmer="+kmer+", rkmer="+rkmer+", bases="+new String(bases, Tools.max(0, i-k2), Tools.min(i+1, k)));}
 					if(len>=k){
@@ -623,6 +627,11 @@ public class TableLoaderLockFree {
 					added=map.set(key, id);
 				}else{
 					assert(storeMode==INCREMENT);
+					//TODO: Possible bug [kmer/TableLoaderLockFree#001] - INCREMENT returns the raw COUNT as "added" (kmers
+					//stored), but mutate()'s INCREMENT branch (~line 663) converts it to numCreated via x=(x==1?1:0). So a
+					//re-seen kmer here adds its full count to the stat instead of 0, inflating addedT/the returned total.
+					//LATENT / MASKED: both instantiators (SplitNexteraLMP:207, TableReader:59) set SET_IF_NOT_PRESENT, so
+					//INCREMENT is a dead branch here. If ever used, mirror mutate: added=(map.increment(key,1)==1?1:0).
 					added=map.increment(key, 1);
 				}
 			}else if(edist>0){

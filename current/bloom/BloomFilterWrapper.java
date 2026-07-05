@@ -540,6 +540,12 @@ public class BloomFilterWrapper {
 					
 					//Reads are processed in this block.
 					{
+						//Merge is used only to expose insert-spanning kmers to the filter and to cut duplicate
+						//lookups; the merge is reverted afterward (FIXED 2026-07-05 [bloom/BloomFilterWrapper#001])
+						//so the output is always the original, correctly-oriented pair. Previously r2 was left
+						//reverse-complemented and the matched/unmatched bins were inconsistent (merged vs original),
+						//with readsOut counting the merged pairCount(=1) though 2 reads were written.
+						final Read r1_0=r1, r2_0=r2;
 						if((ecco || merge) && r1!=null && r2!=null){
 							if(merge){
 								final int insert=BBMerge.findOverlapStrict(r1, r2, false);
@@ -558,6 +564,14 @@ public class BloomFilterWrapper {
 							addCounts(r2, counts);
 						}
 						final boolean match=matchesFilter(r1, r2);
+
+						//Revert the merge: restore r2's input orientation and route the original pair to output.
+						if(merge && r2==null && r2_0!=null){
+							r2_0.reverseComplementFast();
+							r1=r1_0;
+							r2=r2_0;
+						}
+
 						if(match){
 							reads.set(idx, null);
 							matched.add(r1);

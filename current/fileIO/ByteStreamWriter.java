@@ -201,6 +201,11 @@ public class ByteStreamWriter extends Thread {
 	
 	@Override
 	public synchronized void start(){
+		//ADDED [ByteStreamWriter start-guard]: catch the write-before-start bug class. Buffered print/println before start()
+		//force an addJob that asserts(started) (-> -ea crash once output>maxLen), or are lost if the writer is never started.
+		//forcePrint() writes straight to outstream and never touches buffer, so pre-start header writes stay exempt.
+		//Motivated by tax/ImgRecord#001 (never started/closed) + tax/AnalyzeAccession#001 (started after the writes).
+		assert(buffer==null || buffer.isEmpty()) : "ByteStreamWriter.start() called after "+buffer.length()+" bytes were already buffered via print/println; start() must precede all buffered writes. Use forcePrint() for pre-start direct writes (e.g. headers).";
 		super.start();
 		if(verbose){System.err.println(this.getState());}
 		synchronized(this){

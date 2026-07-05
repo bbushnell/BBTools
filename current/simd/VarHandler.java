@@ -45,9 +45,12 @@ final class VarHandler{
 	static ByteBuilder appendString(ByteBuilder bb, String x){
 		if(x==null){return bb;}
 		
+		//Comprehension: value is the String's OWN internal byte[] (VarHandle alias, not a copy) - safe because it is only READ
+		//(arraycopy source), never mutated, preserving String immutability. Java-8 safety: on 8 String.value is char[], so the
+		//static findVarHandle(...,byte[].class) throws -> AVAILABLE=false -> Vector.varHandles false -> this method is never called.
 		byte[] value=(byte[])STRING_VALUE_HANDLE.get(x);
 		byte coder=(byte)STRING_CODER_HANDLE.get(x);
-		
+
 		if(coder==0){ // LATIN1 - direct copy
 			bb.expand(value.length);
 			System.arraycopy(value, 0, bb.array, bb.length, value.length);

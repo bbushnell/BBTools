@@ -228,6 +228,11 @@ public class KmerNode2D extends KmerNode {
 			return 1;
 		}
 		
+		//Comprehension [kmer/KmerNode2D dedup, likely by-design]: duplicate detection scans ONLY the last slowAddLimit(=4)
+		//entries, NOT the whole set. This is a deliberate O(1)-amortized tradeoff (the "slow bit" comment + the slowAddLimit
+		//constant) to avoid O(n) dedup on every add. CONSEQUENCE: a value re-inserted more than 4 positions back is NOT
+		//deduped -> FOREST2D value lists can contain duplicates, DIVERGING from HashArray2D.insertValue which scans the
+		//entire set (no dups). QUESTION for Brian: is the ARRAY2D vs FOREST2D dedup difference intended/harmless downstream?
 		for(int i=numValues-1, lim=Tools.max(0, numValues-slowAddLimit); i>=lim; i--){//This is the slow bit
 			if(values[i]==v){return 0;}
 			if(values[i]<0){

@@ -133,6 +133,7 @@ public class AnalyzeAccession_ST {
 		
 		if(ffout!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(ffout);
+			bsw.start();//FIXED [tax/AnalyzeAccession_ST#001] (twin of AnalyzeAccession#001): start() MUST precede any print. addJob asserts(started) (ByteStreamWriter:292) + ArrayBlockingQueue(5) put()-blocks; writing before start() crashes under -ea once buffered output reaches maxLen=32768. Latent (few distinct L/D/- shapes) but a real contract violation; matches the FindAncestor start()-first idiom.
 			bsw.println("#Pattern\tCount\tCombos\tBits");
 			ArrayList<StringNum> list=new ArrayList<StringNum>();
 			list.addAll(countMap.values());
@@ -148,7 +149,6 @@ public class AnalyzeAccession_ST {
 				bsw.print(sn.toString().getBytes());
 				bsw.println("\t"+(long)combos+"\t"+Tools.format("%.2f", Tools.log2(combos)));
 			}
-			bsw.start();
 			errorState|=bsw.poisonAndWait();
 		}
 		

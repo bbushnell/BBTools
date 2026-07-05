@@ -463,6 +463,10 @@ public final class HashForest extends AbstractKmerTable implements Iterable<Kmer
 	 */
 	@Override
 	public boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
+		//Note: Confirmed correct because the per-node dump (KmerNode1D.dumpKmersAsBytes) recursively walks the whole
+		//BST subtree and applies mincount to EVERY node. A prior outer node.value()>=mincount gate here tested only the
+		//cell's ROOT node, wrongly skipping low-count-root subtrees that contain qualifying children (dump data loss),
+		//and double-decremented `remaining` per cell; it was removed in 0e2547dc. Do NOT re-add an outer count gate.
 		for(int i=0; i<array.length; i++){
 			KmerNode node=array[i];
 			if(node!=null){

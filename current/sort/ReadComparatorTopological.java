@@ -45,6 +45,14 @@ public class ReadComparatorTopological extends ReadComparator{
 		int x=compareVectors(r1.bases, r2.bases);
 		if(x!=0){return x;}
 
+		//TODO: Possible bug [sort/ReadComparatorTopological#001] - the mate comparison runs ONLY when BOTH mates are non-null;
+		//otherwise it is silently SKIPPED (x stays 0, falls through to length/quality/numericID). This conditional skip can
+		//VIOLATE Comparator transitivity for reads with identical primary bases/length/quality but MIXED mate-presence:
+		//given A,C identical-primary with A.mate.bases>C.mate.bases, and mateless B (identical primary, numericID between),
+		//A vs C compares mates (A>C) while A vs B and B vs C skip mates and use numericID (A<B<C) -> A<B<C yet A>C. Java's
+		//TimSort throws "Comparison method violates its general contract!" on detection. MASKED: normal input is homogeneous
+		//(all paired or all single -> mate compare always or never runs -> transitive). Fix: give mate-presence a consistent
+		//order like ReadComparatorPosition does for SamLines (e.g. mate!=null sorts before/after mate==null), not a skip.
 		if(r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.bases, r2.mate.bases);
 		}

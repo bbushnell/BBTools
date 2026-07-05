@@ -15,6 +15,12 @@ import structures.IntList;
  * @date Sep 12, 2023?
  *
  */
+//Comprehension: DEAD CODE - the single-width (256-only) predecessor of the live dual-width SIMDByte256; no live caller
+//references this class (only fun/ benchmarks). Kept for reference. It carries the same latent divergences its successor was
+//fixed for, so do NOT revive without porting the fixes: (1) applyQualOffset/capQuality zero quality only on eq('N') but the
+//scalar tail uses baseToNumber[b]<0 (all non-ACGTU) -> see live [simd/SIMDByte256#002]; (2) lowerCaseToN masks GE 'a' with NO
+//upper bound, so '{|}~'/DEL (123-127) also map to N, whereas the live SIMDByte256 correctly ANDs GE 'a' with LE 'z';
+//(3) #001 findLastSymbol tail-mask AIOOBE (below). All latent because the class is unreferenced.
 final class SIMDByte256_only{
 
 	private static final VectorSpecies<Byte> BSPECIES=ByteVector.SPECIES_256;

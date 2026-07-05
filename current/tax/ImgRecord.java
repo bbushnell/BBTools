@@ -53,9 +53,11 @@ public class ImgRecord implements Serializable {
 	 */
 	private static void writeAsText(HashMap<Long, ImgRecord> map, String out){
 		TextStreamWriter tsw=new TextStreamWriter(out, true, false, false);
+		tsw.start();//FIXED [tax/ImgRecord#001]: writer was never started NOR closed. tsw.println() buffers; either it crashes under -ea once output>32768 (addJob asserts(started), TextStreamWriter:208) or, for tiny output, silently writes NOTHING (consumer thread never runs, buffer discarded, thread leaked). Reachable from main() whenever an output arg is given, and IMG dumps are large -> the crash path. Added start()+poisonAndWait() for the correct start->write->flush/join lifecycle (matches the pacbio/SortSites idiom).
 		for(Entry<Long, ImgRecord> e : map.entrySet()){
 			tsw.println(e.toString());
 		}
+		tsw.poisonAndWait();
 	}
 	
 	@Override

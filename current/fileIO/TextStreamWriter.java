@@ -136,6 +136,11 @@ public class TextStreamWriter extends Thread {
 	
 	@Override
 	public synchronized void start(){
+		//ADDED [TextStreamWriter start-guard]: catch the write-before-start bug class. Buffered print/println before start()
+		//force an addJob that asserts(started) (-> -ea crash once buffered), or are lost if the writer is never started.
+		//TextStreamWriter has NO direct-write path (no forcePrint), so it must ALWAYS be started before any use.
+		//Motivated by tax/ImgRecord#001 (never started/closed) + tax/AnalyzeAccession#001 (started after the writes).
+		assert(buffer==null || buffer.isEmpty()) : "TextStreamWriter.start() called after "+buffer.size()+" entr(ies) were already buffered via print/println; start() must precede all writes.";
 		super.start();
 		if(verbose){System.err.println(this.getState());}
 		synchronized(this){

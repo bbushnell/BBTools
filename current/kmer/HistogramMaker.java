@@ -71,6 +71,10 @@ public final class HistogramMaker {
 		for(int i=0; i<threads; i++){array[i].start();}
 		
 		//Wait for completion of all threads
+		//Comprehension (concurrency, verified): each FillThread accumulates into its OWN thread-local sll (work-stealing the
+		//tables via the shared AtomicInteger next), and the reduction sll.addTo(ca) runs HERE in the main thread AFTER each
+		//join — sequentially, one thread's sll at a time — so ca is never touched concurrently. Safe. (`success`/`errorState`
+		//below are vestigial: never set false, so errorState is always false and unreturned — harmless dead code.)
 		final long[] ca=new long[histMax+1];
 		boolean success=true;
 		for(FillThread pt : array){

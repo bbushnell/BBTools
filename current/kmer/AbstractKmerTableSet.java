@@ -237,6 +237,10 @@ public abstract class AbstractKmerTableSet {
 //			outstream.println("Estimated valid kmers 3+: "+(long)filter[0].estimateUniqueKmers(prehashes, 3));
 //			outstream.println("Estimated valid kmers 4+: "+(long)filter[0].estimateUniqueKmers(prehashes, 4));
 			
+			//Comprehension (verified termination): currentPass is incremented once per call (line ~230) and every
+			//recursive branch is gated on it, so recursion is bounded and terminates. auto mode (prepasses<0): recurse
+			//while currentPass is even, else only while currentPass<5 AND still under capacity -> hard cap at 5 passes.
+			//Fixed mode: recurse while currentPass<prepasses. onePass short-circuits before here (returns in the if-branch).
 			if(prepasses<0){//auto
 				if((currentPass&1)==0){
 					return makePrefilter(filter, ht);

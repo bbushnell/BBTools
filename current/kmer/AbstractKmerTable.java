@@ -187,6 +187,10 @@ public abstract class AbstractKmerTable implements KmerTableInterface {
 	 * @return Number of G and C bases
 	 */
 	public static final int gc(long kmer){
+		//Comprehension (clever, verified): for 2-bit symbols A=00,C=01,G=10,T=11, a base is G or C iff its two bits DIFFER
+		//(b1^b0: C=01->1, G=10->1, A/T->0). (kmer^(kmer<<1)) puts b1^b0 at each symbol's high bit; the 0xAA... mask keeps
+		//one such bit per symbol; bitCount = #GC. NUCLEOTIDE-only (assumes 2-bit); meaningless under AMINO_IN 5-bit, but GC
+		//is a nucleotide concept so callers never use it there.
 		return Long.bitCount((kmer^(kmer<<1))&0xAAAAAAAAAAAAAAAAL); //May be faster
 //		int gc=0;
 //		while(kmer>0){

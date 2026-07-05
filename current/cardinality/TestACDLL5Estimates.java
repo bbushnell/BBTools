@@ -21,6 +21,7 @@ public class TestACDLL5Estimates{
 
 		System.out.printf("%-12s %-14s %-14s %-14s %-14s %-14s %-14s%n",
 			"Adds", "C_DLC", "A_DLC", "C_LDLC", "A_LDLC", "C_Hybrid", "A_Hybrid");
+		//TODO: Uses Java 9+ library: String.repeat (since Java 11). Violates the Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
 		System.out.println("=".repeat(100));
 
 		int cpIdx=0;

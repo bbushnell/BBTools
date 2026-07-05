@@ -224,8 +224,11 @@ public class Minimizer {
 		Arrays.fill(baseToNumber, (byte)-1);
 		Arrays.fill(baseToComplementNumber, (byte)-1);
 		baseToNumber['A']=baseToNumber['a']=baseToComplementNumber['T']=baseToComplementNumber['t']=0;
-		baseToNumber['C']=baseToNumber['c']=baseToComplementNumber['G']=baseToComplementNumber['c']=1;
-		baseToNumber['G']=baseToNumber['g']=baseToComplementNumber['C']=baseToComplementNumber['g']=2;
+		//FIXED [bbmin/Minimizer#001]: the lowercase complement entries were TRANSPOSED - complement['c'] was 1 (should be 2) and
+		//complement['g'] was 2 (should be 1), so an rkmer over a soft-masked (lowercase) c/g was wrong -> wrong canonical minimizer.
+		//Now complement['g']=1 and complement['c']=2, matching their uppercase counterparts (complement(C/c)=G=2, complement(G/g)=C=1).
+		baseToNumber['C']=baseToNumber['c']=baseToComplementNumber['G']=baseToComplementNumber['g']=1;
+		baseToNumber['G']=baseToNumber['g']=baseToComplementNumber['C']=baseToComplementNumber['c']=2;
 		baseToNumber['T']=baseToNumber['t']=baseToComplementNumber['A']=baseToComplementNumber['a']=3;
 	}
 }
