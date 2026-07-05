@@ -2265,15 +2265,20 @@ public abstract class Tadpole extends ShaveObject{
 		
 		int cleared=0;
 		int count=0, countHQ=0, qsum=0;
+		//count, qsum and countHQ are all windowed (incremented as a correction enters at i, decremented
+		//as one leaves at prev). FIXED 2026-07-05, aligned to the canonical twin bloom/BloomFilterCorrector.clearWindow2:
+		//(1) [resolves assemble/Tadpole#001] the entry guard read quals[prev] - the LEAVING base, and prev<0
+		//    in the first 'window' bases => quals[-window] AIOOBE for k<=window; now quals[i], the entering base;
+		//(2) qsum was only incremented (cumulative, not windowed) and countHQ only decremented (never incremented,
+		//    so it drifted negative); both are now symmetric so qsum>qsumLimit is a true windowed test.
 		for(int i=0, prev=-window; i<len; i++, prev++){
 			byte b=array[i];
 
-			//TODO: Possible bug [assemble/Tadpole#001] - add-guard reads quals[prev] with prev possibly <0 (loop starts prev=-window; unlike the remove-branch below which guards prev>=0). If a correction candidate (array[i]!=0) falls in the first 'window' bases with quals!=null => quals[-window] AIOOBE. Safe when the reassembly seed keeps the first kbig bases uncorrected AND kbig>window (normal k); crashes for k<=window(~12). Also likely should be quals[i] not quals[prev] (value/qsum use i: b=array[i], qsum+=quals[i]); and qsum is never decremented (2291 commented) so its window check is effectively cumulative. Reachability to confirm at Tadpole1/2 reassemble_inner.
-			if(b!=0 && (quals==null || quals[prev]>0)){
+			if(b!=0 && (quals==null || quals[i]>0)){
 				count++;
 				if(quals!=null){
 					qsum+=quals[i];
-//					if(quals!=null && quals[i]>=hqThresh){countHQ++;}
+					countHQ++;
 				}
 				if(count>limit || qsum>qsumLimit /*|| countHQ>limitHQ*/){
 					for(int j=Tools.max(0, i-window), lim=bb.length(); j<lim; j++){
@@ -2288,8 +2293,8 @@ public abstract class Tadpole extends ShaveObject{
 			if(prev>=0 && array[prev]>0 && (quals==null || quals[prev]>0)){
 				count--;
 				if(quals!=null){
+					qsum-=quals[prev];
 					countHQ--;
-//					 if(quals[prev]>=hqThresh){qsum-=quals[i];}
 				}
 			}
 		}

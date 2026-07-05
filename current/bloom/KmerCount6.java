@@ -273,9 +273,11 @@ public class KmerCount6 extends KmerCountAbstract {
 							ErrorCorrect.detectTrusted(r, trusted, k, thresh, detectStepsize));
 //						System.out.println("\n"+toString(bs, r.length()));
 //						System.out.println(new String(r.bases));
+						//FIXED 2026-07-05 [bloom/KmerCount6#001]: guard r.quality!=null (FASTA input has null
+						//quals) - was an unguarded NPE. Matches the live twin ReadCounter.clearUntrustedBases.
 						for(int i=bs.nextClearBit(0); i<r.length(); i=bs.nextClearBit(i+1)){
 							r.bases[i]='N';
-							r.quality[i]=0;
+							if(r.quality!=null){r.quality[i]=0;}
 						}
 //						System.out.println(new String(r.bases));
 //						System.out.println("used = "+Tools.format("%.3f%%",count.usedFraction()*100));
@@ -291,7 +293,7 @@ public class KmerCount6 extends KmerCountAbstract {
 							ErrorCorrect.detectTrusted(r2, trusted, k, thresh, detectStepsize));
 						for(int i=bs.nextClearBit(0); i<r2.length(); i=bs.nextClearBit(i+1)){
 							r2.bases[i]='N';
-							r2.quality[i]=0;
+							if(r2.quality!=null){r2.quality[i]=0;}//FIXED 2026-07-05 [bloom/KmerCount6#001]: FASTA null-quals guard.
 						}
 					}
 					addRead(r2, count, k, mask, rcomp);

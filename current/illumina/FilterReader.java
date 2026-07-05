@@ -23,6 +23,9 @@ public class FilterReader {
 		FileInputStream fis=new FileInputStream(fname);
 
 		//Read all bytes
+		//TODO: Uses Java 9+ library: readAllBytes (InputStream.readAllBytes, since Java 9). Compiles under any modern JDK with no
+		//warning, but violates the Java-8 BYTECODE-COMPLIANCE target (Brian: he compiles for 8 compliance, so no Java-9+ syntax OR
+		//library classes/methods). Also in illumina/CbclDecoder (x2). Address post-compaction (e.g. read via a manual buffer loop).
 		byte[] data=fis.readAllBytes();
 		fis.close();
 

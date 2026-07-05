@@ -90,6 +90,9 @@ public final class FastRandomAES implements Random {
 
 	private void refillBuffer() {
 		try {
+			//Comprehension: counterBlock is all-zero PLAINTEXT and is never incremented here - correct, because AES/CTR keeps the
+			//counter INTERNAL to the Cipher and advances it per update() call, so successive refills yield successive keystream
+			//blocks; encrypting zeros returns the raw keystream. (The "counter" naming is misleading: it's the zero plaintext.)
 			// Encrypt counter blocks to generate random bytes
 			cipher.update(counterBlock, 0, counterBlock.length, outputBlock);
 

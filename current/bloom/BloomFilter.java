@@ -373,6 +373,9 @@ public class BloomFilter implements Serializable {
 			long x2=AminoAcid.baseToComplementNumber[b];
 			kmer=((kmer<<bitsPerBase)|x)&mask;
 			rkmer=((rkmer>>>bitsPerBase)|(x2<<shift2))&mask;
+			//Only rkmer is zeroed here (kmer is not, and several sibling loops zero neither).
+			//Safe: the len<k gate blocks all use of kmer/rkmer until k more valid bases have
+			//shifted any garbage past the 2k-bit mask, so both self-heal before len>=k again.
 			if(x<0){len=0; rkmer=0;}else{len++;}
 			if(len>=k){
 				prev2=prev;
@@ -755,7 +758,10 @@ public class BloomFilter implements Serializable {
 		assert(minConsecutiveMatches>1);
 		final long[] array=keys.array;
 		final int len=keys.size;
-		
+
+		//Stride by minConsecutiveMatches, probing only positions i≡(mcm-1) mod mcm.
+		//Any run of mcm consecutive matches spans mcm consecutive indices, which contain
+		//exactly one such position, so this stride can never skip a real run.
 		for(int i=minConsecutiveMatches-1; i<len; i+=minConsecutiveMatches){
 			final boolean found;
 			{
@@ -764,6 +770,7 @@ public class BloomFilter implements Serializable {
 			}
 			if(found){
 				int streak=1;
+				//array[i-j] needs no bounds check: i>=mcm-1 (loop start) and j<mcm, so i-j>=0.
 				for(int j=1; j<minConsecutiveMatches; j++){
 					final long key=array[i-j];
 					if(key<0 || filter.read(key)<thresh){break;}

@@ -818,13 +818,18 @@ final class SIMD{
 		final int limit=keys.length;
 		final IntVector vKey=IntVector.broadcast(ISPECIES, key);
 		final IntVector vInvalid=IntVector.broadcast(ISPECIES, invalid);
-		
+
+		//Comprehension: checking matchKey BEFORE matchInvalid within an 8-block looks like it could return the key even when
+		//an 'invalid' sits at a lower lane (which scalar findKey, stopping at the first key-or-invalid, would treat as "absent"->-1).
+		//It is safe because of the linear-probe insertion invariant: a present key ALWAYS precedes the first invalid/empty slot in
+		//its probe sequence (no tombstones - changeAll rewrites collisions, nothing deletes). So within any block key-lane < invalid-lane,
+		//making matchKey.firstTrue() the true first hit; SIMD and scalar agree. Divergence would require an already-corrupt table (out of scope).
 		// Search from initial to end
 		for(int cell=initial; cell<=limit-IWIDTH; cell+=IWIDTH){
 			IntVector v=IntVector.fromArray(ISPECIES, keys, cell);
 			VectorMask<Integer> matchKey=v.eq(vKey);
 			VectorMask<Integer> matchInvalid=v.eq(vInvalid);
-			
+
 			if(matchKey.anyTrue()){
 				return cell+matchKey.firstTrue();
 			}

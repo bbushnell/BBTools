@@ -524,9 +524,14 @@ public class SIMDAlignByte {
 			for(int i=0; i<qLen; i++){
 				ByteVector q=ByteVector.broadcast(BSPECIES, query[i]);
 				ByteVector r=ByteVector.fromArray(BSPECIES, ref, pos+i);
+				//TODO: Possible bug [simd/SIMDAlignByte#002] - this SIMD bulk counts a sub only on q!=r (pure equality), but the
+				//scalar boundary helper alignClippedScalar (used by this same method's clip pre/post loops) counts q!=r OR
+				//baseToNumber[q]<0, so an undefined base that equals ref (N-vs-N most commonly) is a MATCH here but a SUB there.
+				//Same-call inconsistency: bulk positions and clip positions score N-vs-N differently. Reachable via IndelFreeAligner
+				//on ASCII reads/refs containing N. LOW: rare trigger (needs q==r AND undefined), small/arguable impact. Sibling of SIMDByte256#002.
 				VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
 				scoreV=scoreV.add(oneV, mismatchMask);
-				
+
 				underLimitMask=scoreV.compare(VectorOperators.LE, limitV);
 				if(!underLimitMask.anyTrue()){
 					break;

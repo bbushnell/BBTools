@@ -145,6 +145,7 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 
 		if(ffout!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(ffout);
+			bsw.start();//FIXED [tax/AnalyzeAccession#001]: start() MUST precede any print. print/println buffer into an ArrayBlockingQueue(5) whose addJob asserts(started) (ByteStreamWriter:292) and put()-blocks; writing before start() crashes under -ea (BBTools default) once buffered output reaches maxLen=32768 (i.e. >~1300 distinct L/D/- patterns). Latent today (real accession data has few distinct shapes -> <32KB) but a real contract violation. Matches the FindAncestor start()-first idiom. Twin: AnalyzeAccession_ST#001.
 			bsw.println("#Pattern\tCount\tCombos\tBits");
 			ArrayList<StringNum> list=new ArrayList<StringNum>();
 			list.addAll(countMap.values());
@@ -160,7 +161,6 @@ public class AnalyzeAccession implements Accumulator<AnalyzeAccession.ProcessThr
 				bsw.print(sn.toString().getBytes());
 				bsw.println("\t"+(long)combos+"\t"+Tools.format("%.2f", Tools.log2(combos)));
 			}
-			bsw.start();
 			errorState|=bsw.poisonAndWait();
 		}
 

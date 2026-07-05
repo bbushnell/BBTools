@@ -290,6 +290,11 @@ public class SyncHeart {
 		Shared.setBufferLen(len);
 		writeUnlock();
 	}
+	//TODO: Possible bug [shared/SyncHeart#001] - lock/unlock without try-finally (whole class): if the guarded body ever throws
+	//(e.g. an assertion inside Shared.setBufferLen/setBufferData under -ea - the only bodies here that call a method rather than
+	//assign a field), writeUnlock() is skipped and the ReentrantReadWriteLock write lock LEAKS, deadlocking all future config
+	//access. LATENT: current bodies (field assigns + these two setters) don't throw, but per crash-loud-never-hang the safe form
+	//is `writeLock(); try{...}finally{writeUnlock();}`. Same applies to every read/write pair in this class.
 	
 	/** Thread-safe getter for read buffer length */
 	public static int bufferLen() {

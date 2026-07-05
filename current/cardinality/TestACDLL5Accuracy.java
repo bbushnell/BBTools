@@ -32,6 +32,7 @@ public class TestACDLL5Accuracy{
 			"Adds", "C_chg", "A_chg", "C_ovfl", "A_ovfl",
 			"C_DLC", "A_DLC", "C_LDLC", "A_LDLC",
 			"C_Mean", "A_Mean", "C_Hybrid", "A_Hybrid", "A>=C?");
+		//TODO: Uses Java 9+ library: String.repeat (since Java 11). Violates the Java-8 bytecode-compliance target (no compiler warning). Address post-compaction.
 		System.out.println("=".repeat(170));
 
 		int cpIdx=0;

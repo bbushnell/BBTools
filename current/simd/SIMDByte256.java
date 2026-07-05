@@ -472,6 +472,11 @@ final class SIMDByte256{
 				ByteVector vbases=ByteVector.fromArray(BSPECIES256, bases, i);
 				ByteVector vresult=vquals.add(vdelta256);
 				vresult=vresult.max(vcap2_256);
+				//KNOWN/WONTFIX [simd/SIMDByte256#002]: this SIMD path zeros quality only for uppercase 'N', while the scalar twin
+				//(Vector.applyQualOffset) zeros it for EVERY undefined base (baseToNumber[b]<0: lowercase 'n', IUPAC, '.', '-'). So
+				//SIMD-on vs SIMD-off give DIFFERENT quality for a base+qscore pair whose base is lowercase/IUPAC - but that never
+				//legitimately occurs (reads are uppercase ACGTN; contigs carry no qscores). WONTFIX (Brian): matching scalar would
+				//add ~10 vector ops per 32-byte block to the every-read quality path, not worth it for input that cannot arise.
 				VectorMask<Byte> maskN=vbases.eq(vn256);
 				vresult=vresult.blend(vzero256, maskN);
 				vresult.intoArray(quals, i);
@@ -525,6 +530,10 @@ final class SIMDByte256{
 				ByteVector vquals=ByteVector.fromArray(BSPECIES256, quals, i);
 				ByteVector vbases=ByteVector.fromArray(BSPECIES256, bases, i);
 				ByteVector vresult=vquals.max(vcap2_256).min(ByteVector.broadcast(BSPECIES256, max));
+				//KNOWN/WONTFIX [simd/SIMDByte256#002]: same 'N'-only vs baseToNumber[b]<0 divergence as applyQualOffset (twin). Scalar
+				//Vector.capQuality zeros quality for ALL undefined bases; this SIMD path only for uppercase 'N'. Differs only on a
+				//lowercase/IUPAC base carrying a qscore, which never legitimately occurs (uppercase-ACGTN reads; contigs have no quals).
+				//WONTFIX (Brian): ~10 extra vector ops/block on the hot quality path is not worth handling input that cannot arise.
 				VectorMask<Byte> maskN=vbases.eq(vn256);
 				vresult=vresult.blend(vzero256, maskN);
 				vresult.intoArray(quals, i);

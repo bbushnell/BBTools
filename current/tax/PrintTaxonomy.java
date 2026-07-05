@@ -303,12 +303,17 @@ public class PrintTaxonomy {
 			}else{
 				List<TaxNode> list=tree.getNodesByNameExtended(name);
 				if(list!=null){
+					//FIXED [tax/PrintTaxonomy#001]: multi-match now REPLACES split[col] with the tab-joined taxlines, matching
+					//the single-match branch above (split[col]=tl). It previously appended to sb while leaving split[col] as the
+					//original name, so the final column-rebuild emitted the taxlines PLUS the full unreplaced original line.
+					StringBuilder sb2=new StringBuilder();
 					String tab="";
 					for(TaxNode tn2 : list){
-						sb.append(tab);
-						sb.append(makeTaxLine(tree, tn2, minLevelExtended, maxLevelExtended, skipNonCanonical, reverseOrder).toString());
+						sb2.append(tab);
+						sb2.append(makeTaxLine(tree, tn2, minLevelExtended, maxLevelExtended, skipNonCanonical, reverseOrder).toString());
 						tab="\t";
 					}
+					split[col]=sb2.toString();
 				}else{
 					split[col]=split[col]+"_***NOT_FOUND***";
 				}

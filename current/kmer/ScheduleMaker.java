@@ -126,6 +126,10 @@ public class ScheduleMaker {
 	 * @return Array of prime table sizes in ascending order, or single maxSize if prealloc=true
 	 */
 	public int[] makeSchedule(){
+		//Comprehension (verified): builds a geometric-descent size ladder then reverses to ascending. Starts at maxSize,
+		//drops 5x (invResizeMult) then 3x per step (invResizeMult2) down to initialSize, optionally appends initialSize,
+		//reverses, and rounds each up to a prime (Primes.primeAtLeast). primeAtLeast is monotonic so the sorted order the
+		//assert checks survives conversion; any resulting duplicate sizes are harmless (resize() no-ops when prime2<=prime).
 		if(prealloc || maxSize<2L*initialSize){return new int[] {maxSize};}
 		IntList list=new IntList(10);
 		list.add(maxSize);

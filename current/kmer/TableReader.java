@@ -484,7 +484,14 @@ public class TableReader {
 //		final long key=(max&middleMask)|lengthMask;
 		
 		final long key=toValue(kmer, rkmer, lengthMask);
-		
+
+		//TODO: Possible bug [kmer/TableReader#001] - the lookup-side speed predicate here is ((key/WAYS)&15)>=speed, but the
+		//STORE-side predicate in TableLoaderLockFree.failsSpeed is (key&Long.MAX_VALUE)%17<speed - different modulus (16 vs 17)
+		//AND different key transform. A ref kmer and a matching read kmer share the same key, so store and lookup MUST apply
+		//the SAME predicate or matches are dropped (ref stored but read skipped, or vice versa) -> sensitivity far below the
+		//documented speed/sensitivity tradeoff. LATENT / MASKED: the only tool using both classes together (jgi/SplitNexteraLMP,
+		//loader arg4=0 + reader arg3=0) sets speed=0, which bypasses BOTH predicates (noAccel here, failsSpeed short-circuits).
+		//If speed>0 is ever used on this loader+reader path, align the two predicates. QUESTION for Brian: which is canonical?
 		if(noAccel || ((key/WAYS)&15)>=speed){
 			if(verbose){outstream.println("Testing key "+key);}
 			AbstractKmerTable set=sets[(int)(key%WAYS)];

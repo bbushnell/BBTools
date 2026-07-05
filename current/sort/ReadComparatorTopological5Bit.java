@@ -41,6 +41,12 @@ public class ReadComparatorTopological5Bit extends ReadComparator{
 		int x=compareVectors(r1.bases, r2.bases, 12);
 		if(x!=0){return x;}
 
+		//TODO: Possible bug [sort/ReadComparatorTopological5Bit#001] - SAME defect as ReadComparatorTopological#001 (family-
+		//shared anomaly): the mate comparison runs ONLY when both mates are non-null, else it is SKIPPED. This can violate
+		//Comparator transitivity for reads sharing the 12-mer key (numericID) with identical bases/length/quality but MIXED
+		//mate-presence -> the id tiebreaker (line ~61) and mate compare disagree, and Java TimSort throws "violates its
+		//general contract". MASKED by homogeneous mate-presence. Contrast ReadComparatorClump, which routes mates through a
+		//null-handling compareInner (correct). Fix: give mate-presence a consistent order instead of skipping.
 		if(r1.mate!=null && r2.mate!=null){
 			x=compareVectors(r1.mate.bases, r2.mate.bases, 0);
 		}

@@ -261,6 +261,11 @@ public class KmerPosition3 {
 		//Writes the header line to the output file.
 		bsw.println("#pos\tread1_count\tread1_perc\tread2_count\tread2_perc");
 		
+		//Comprehension: the divisions below (countArray[i]/(float)readArray[i]) look like a div-by-zero / AIOOBE risk, but are
+		//safe: matchCounts is a SUBSET of totalCounts (a match at start-pos p only happens when that kmer was processed, which
+		//already did totalCounts.increment(p)), so countArray.length<=readArray.length AND readArray[i]>=1 for every i<countArray.length.
+		//Thus whenever the guard countArray.length>i lets us read readArray[i], it is in-bounds and non-zero. Single-end -> counts2
+		//lists stay empty -> countArray2.length==0 -> guard always false -> readArray2 never indexed.
 		//Finds the maximum of both read set lengths.
 		//This handles if one read set is longer than the other.
 		//Its important to use the longer length to avoid iterating out of bounds.

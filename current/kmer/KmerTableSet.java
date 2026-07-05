@@ -1291,6 +1291,11 @@ public class KmerTableSet extends AbstractKmerTableSet {
 				kmer=rkmer=0;
 			}else{len++;}
 			if(len>=k){
+				//TODO: Possible bug [kmer/KmerTableSet#003] - getCount returns NOT_PRESENT(-1) for an absent kmer, but this
+				//is summed/min'd UNCLAMPED, unlike every sibling count-consumer (fillSpecificCounts:~932, fillRightCounts_safe:~1648,
+				//fillLeftCounts_safe:~1814) which all use Tools.max(count,0). An absent contig kmer would drag sum down and set
+				//minCov=-1. MASKED if contigs only ever contain present kmers (true in normal assembly-from-this-table). Lone
+				//divergence from the clamp pattern. QUESTION for Brian: can a contig reach here with an absent kmer? If so, clamp.
 				int count=getCount(kmer, rkmer);
 				sum+=count;
 				max=Tools.max(count, max);

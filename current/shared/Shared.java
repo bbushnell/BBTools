@@ -140,6 +140,9 @@ public class Shared {
 	 * Validated harmless 2026-06-20: across scalar/fma/ff the giab net9b CROSSOVER differs by <=1 FP+FN over 35 nets,
 	 * and training quality is statistically equivalent. Default ON post-validation. Toggle with simdff=; ANDed with
 	 * the live Shared.SIMD and the per-job simdFF flag at each call site; recorded in the bbnet header. */
+	//NOTE (Brian, 2026-07): SIMD_FEED_FORWARD was validated safe AND accurate whenever SIMD is enabled, so it no longer needs to
+	//be an INDEPENDENT switch - it is effectively vestigial (kept only for back-compat / an escape hatch). A future reader should
+	//not treat simdff= as a meaningful correctness control; the SIMD feed-forward is considered equivalent to scalar when SIMD is on.
 	public static boolean SIMD_FEED_FORWARD=true;//Default ON (was false): validated bit-transparent for eval, equivalent for training (2026-06-20)
 	/** SIMD for NN backprop (training only — never runs at inference, so no cross-mode scoring hazard). ON by default:
 	 * ~1.6x faster training -> more random starts -> better best-of-sweep net. Gated with the live SIMD flag at each
@@ -792,7 +795,11 @@ public class Shared {
 	 */
 	public static final void sort(int[] array, int from, int to){
 		try {
-			if(!parallelSort || array.length<=parallelSortLength){
+			//FIXED [shared/Shared#002]: added "|| THREADS<2" (was missing here and in sort(float[])/sort(double[]), though
+			//sort(long[])/sort(T[])/sort(list) had it). Without it, at t=1 with length>parallelSortLength this called
+			//Arrays.parallelSort, which uses the common ForkJoinPool (all cores), NOT Shared.THREADS - oversubscribing a user's
+			//explicit t=1 (e.g. to share a cluster node). Not a correctness issue (result identical); a thread-contract fix.
+			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){
 				Arrays.sort(array, from, to);
 				return;
 			}
@@ -834,7 +841,7 @@ public class Shared {
 	 */
 	public static final void sort(float[] array, int from, int to){
 		try {
-			if(!parallelSort || array.length<=parallelSortLength){
+			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){//[shared/Shared#002] added || THREADS<2 to honor t=1
 				Arrays.sort(array, from, to);
 				return;
 			}
@@ -855,7 +862,7 @@ public class Shared {
 	 */
 	public static final void sort(double[] array, int from, int to){
 		try {
-			if(!parallelSort || array.length<=parallelSortLength){
+			if(!parallelSort || array.length<=parallelSortLength || THREADS<2){//[shared/Shared#002] added || THREADS<2 to honor t=1
 				Arrays.sort(array, from, to);
 				return;
 			}

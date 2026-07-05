@@ -606,6 +606,10 @@ public final class KillSwitch extends Thread {
 	public static byte[] copyOf(byte[] buffer, long newLength) {
 		final int len=buffer.length;
 		final int len2=(int)Tools.min(newLength, Shared.MAX_ARRAY_LEN);
+		//Comprehension (pattern shared by all copyOf overloads): abort ONLY when the request was clamped (newLength>len2, i.e.
+		//newLength>MAX_ARRAY_LEN) AND the clamp yields nothing bigger than the current buffer (len2<=len) - i.e. growth is
+		//impossible, so copying would silently shrink/lose data -> crash loud instead. When len2>len (clamped but still grows),
+		//it proceeds with a MAX-sized array; the caller then sees capacity len2<newLength and fails loud downstream (AIOOBE), not silently.
 		if(newLength>len2 && len2<=len){
 			exceptionKill(new Exception("Tried to create an array above length limit: "+len+"," +newLength));
 		}

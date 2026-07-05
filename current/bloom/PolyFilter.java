@@ -351,7 +351,7 @@ public class PolyFilter implements Accumulator<PolyFilter.ProcessThread> {
 		if(kpoly>0) {
 			kpoly=Tools.min(kpoly, 32);
 			midMask=makeMidMask(maskMiddle, kpoly);
-			kmerMask=(kpoly==32 ? 0 : ~((-1L)<<(2*kpoly)));
+			kmerMask=(kpoly==32 ? -1L : ~((-1L)<<(2*kpoly)));//k==32 fills all 64 bits: mask must be a no-op (-1L). 0 would zero every kmer, silently disabling kmerScan.
 			set=makeSet(polymers, kpoly, hdist, midMask);
 			System.err.println("Added "+set.size()+" kmer mutants to filter set.");
 		}

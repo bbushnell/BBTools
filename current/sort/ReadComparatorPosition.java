@@ -34,6 +34,13 @@ public final class ReadComparatorPosition extends ReadComparator {
 		}else if(sl1==null && sl2==null) {
 			//fall through
 		}else if(sl1==null) {
+			//TODO: Possible bug [sort/ReadComparatorPosition#001] - a read WITHOUT a SamLine sorts FIRST here (sl1==null ->
+			//-1 => r1 before r2; sl2==null -> +1 => r1 after r2). This contradicts BOTH (a) this method's javadoc ("a read
+			//with a SamLine sorts before one without") AND (b) the SamLine-level convention below (line ~54) where an
+			//UNMAPPED read (scafnum<0, also positionless) sorts LAST. So no-samline and unmapped-samline reads - both
+			//positionless - land at OPPOSITE ends. Still a valid total order (no crash), but the -1/+1 look swapped: to make
+			//positionless reads sort last (matching unmapped + the doc), return +1 here and -1 below. MASKED when reads
+			//homogeneously have/lack SamLines (typical: a SAM sort has them all; a FASTQ sort has none). QUESTION for Brian.
 			return -1;
 		}else {
 			return 1;

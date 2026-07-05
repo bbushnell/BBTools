@@ -50,6 +50,10 @@ public class SimpleHttpServer {
 				rparam = rparam.substring(1);
 			}
 			if (rparam.endsWith("/")){
+				//TODO: Possible bug [server/SimpleHttpServer#001] - substring(length-1) returns the LAST char (the "/"), so
+				//rparam becomes "/" instead of having its trailing slash removed; should be substring(0, length-1). (Also
+				//lines ~76-79 concat JSON entries with NO comma separators -> invalid JSON output.) Demo server (author's
+				//mock data, "fill in other data here"), so low impact - but both are real defects.
 				rparam = rparam.substring(rparam.length()-1);
 			}
 			System.out.println(rparam);

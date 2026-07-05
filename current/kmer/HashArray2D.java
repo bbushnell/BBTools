@@ -109,7 +109,11 @@ public final class HashArray2D extends HashArray {
 		}
 		int[] set=values[cell];
 		assert(set!=null);
-		
+
+		//Comprehension (verified invariant): a cell's value set is always PACKED — real values (scaffold IDs, >=0) in a
+		//prefix, then NOT_PRESENT(-1) padding, no gaps. Every insert either fills the first negative slot or appends at
+		//oldSize and fills the rest with NOT_PRESENT, so the prefix stays contiguous. Hence scanning for v (dedup) and
+		//stopping at the first negative slot is complete: v cannot appear after a negative, so a negative means "v absent".
 		for(int i=0; i<set.length; i++){
 			if(set[i]==v){return;}
 			else if(set[i]<0){set[i]=v;return;}

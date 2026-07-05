@@ -75,6 +75,11 @@ public final class FastRandomSIMD implements shared.Random {
 			// Calculate results (s0 + s1)
 			LongVector resultVec = s0Vec.add(s1Vec);
 
+			//Comprehension: this vectorized state update is xoroshiro128+ across 4 independent lanes and is BIT-IDENTICAL to the
+			//scalar FastRandom.nextLong: result=s0+s1; s1'=s1^s0; s0'=rotl(s0,24)^s1'^(s1'<<16); s1''=rotl(s1',37). (s0Vec is
+			//rotl'd BEFORE being XORed, matching the scalar's rotl(s0,24).) The 4 lanes are seeded distinctly via SplitMix64, so
+			//consuming the buffer interleaves 4 independent streams - fine for array-fill randomness. Uses jdk.incubator.vector
+			//UNGATED (Java-9+); safe only because this is an opt-in leaf RNG (Shared uses FastRandomXoshiro), never loaded on Java 8.
 			// Update state
 			s1Vec = s1Vec.lanewise(VectorOperators.XOR, s0Vec);
 

@@ -165,6 +165,11 @@ public final class KmerTable extends AbstractKmerTable {
 	 */
 	@Override
 	public int getValue(long kmer){
+		//TODO: Possible bug [kmer/KmerTable#001] - returns 0 for an absent kmer, but the AbstractKmerTable.getValue contract
+		//(javadoc: "-1 means the kmer was not present") and the sibling impls (HashArray/HashForest.getValue) return
+		//NOT_PRESENT(-1). Largely benign for current callers (hit-tests use id>0; count-consumers clamp Tools.max(count,0) -
+		//both 0 and -1 collapse to 0), but a caller relying on the documented -1 absence sentinel (e.g. `if(count<0)`) would
+		//mis-treat an absent kmer as present-with-count-0. KmerTable IS reachable (jgi/CalcUniqueness; BBDuk usetable). LOW.
 		int cell=(int)(kmer%prime);
 		KmerLink n=array[cell];
 		while(n!=null && n.pivot!=kmer){n=n.next;}
@@ -181,6 +186,10 @@ public final class KmerTable extends AbstractKmerTable {
 	 */
 	@Override
 	public int[] getValues(long kmer, int[] singleton){
+		//TODO: Possible bug [kmer/KmerTable#002] - this asserts array.length==0 (the HASH array is empty), which is never true
+		//for a constructed table (array=new KmerLink[prime], prime>=1) -> would ALWAYS AssertionError under -ea if reached.
+		//Almost certainly a copy-paste error for `assert(singleton.length==1)` (cf. KmerNode1D.values()). MASKED: KmerTable is
+		//1D and getValues (2D-oriented) is not called on it. Fix: assert(singleton.length==1).
 		assert(array.length==0);
 		singleton[0]=getValue(kmer);
 		return singleton;

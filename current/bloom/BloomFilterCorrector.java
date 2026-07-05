@@ -654,14 +654,20 @@ public class BloomFilterCorrector {
 		
 		int cleared=0;
 		int count=0, countHQ=0, qsum=0;
+		//count, qsum and countHQ are all windowed: each is incremented when a nonzero correction
+		//enters the window at i and decremented when one leaves at prev, so each reflects only the
+		//current window. (countHQ is currently unused - its limit check is commented out - but kept
+		//symmetric so it does not drift.) FIXED 2026-07-05: qsum previously only incremented
+		//(cumulative, not windowed) and countHQ only decremented; both are now symmetric. Same fix
+		//applied to the twin assemble/Tadpole.clearWindow2 (from which this was copied).
 		for(int i=0, prev=-window; i<len; i++, prev++){
 			byte b=array[i];
-			
+
 			if(b!=0 && (quals==null || quals[i]>0)){
 				count++;
 				if(quals!=null){
 					qsum+=quals[i];
-//					if(quals!=null && quals[i]>=hqThresh){countHQ++;}
+					countHQ++;
 				}
 				if(count>limit || qsum>qsumLimit /*|| countHQ>limitHQ*/){
 					for(int j=Tools.max(0, i-window), lim=bb.length(); j<lim; j++){
@@ -676,8 +682,8 @@ public class BloomFilterCorrector {
 			if(prev>=0 && array[prev]>0 && (quals==null || quals[prev]>0)){
 				count--;
 				if(quals!=null){
+					qsum-=quals[prev];
 					countHQ--;
-//					 if(quals[prev]>=hqThresh){qsum-=quals[i];}
 				}
 			}
 		}

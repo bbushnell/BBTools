@@ -127,6 +127,10 @@ public final class HashArrayHybrid extends HashArray {
 	 */
 	@Override
 	protected final int readCellValue(int cell) {
+		//Comprehension (clever, verified): values[cell] is a tagged union — >=0 is a direct single count; -1 is NOT_PRESENT
+		//(empty); <=-2 is the NEGATED index into setList holding a multi-value array (0-x recovers the index). This lets the
+		//common single-value case cost one int with no indirection, promoting to a setList array only when a kmer needs
+		//multiple values. insertValue(:210) asserts v>0 and resize(:361) asserts v<-1||v>0, so 0 is never a stored count.
 		final int x=values[cell];
 		if(x>-2){return x;}
 		return setList.get(0-x)[0];

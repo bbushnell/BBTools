@@ -24,6 +24,10 @@ public class LocsReader {
 
 		//Read header (12 bytes)
 		byte[] headerBytes=new byte[12];
+		//TODO: Possible bug [illumina/LocsReader#001] - return value of fis.read(headerBytes) is IGNORED; FileInputStream.read(byte[])
+		//may return fewer than 12 bytes even on a valid file (not guaranteed to fill), leaving trailing 0s -> numClusters parsed from
+		//garbage. The per-cluster reads below ARE checked (read!=8 throws); the header read is not. Latent-LOW (local files usually fill).
+		//Fix: loop until 12 bytes read, or throw on short read (as CbclHeader.readHeader does).
 		fis.read(headerBytes);
 
 		//Last 4 bytes = cluster count (little-endian)
