@@ -203,7 +203,7 @@ public class KCountArray4 extends KCountArray {
 		if(verbose){System.err.println(", array="+arrayNum+", index="+index+", cellShift="+(cellShift%32)+", value="+value+", limit="+lim);}
 		if(value>lim){return value;}
 		if(value==0 && incr>0){cellsUsed++;}
-		value=min(value+incr, maxValue);
+		value=(int)min(value+(long)incr, maxValue);
 		word=(value<<cellShift)|(word&~((valueMask)<<cellShift));
 		array[index]=word;
 		return value;
@@ -219,7 +219,7 @@ public class KCountArray4 extends KCountArray {
 		int cellShift=(int)(cellBits*key);
 		int value=((word>>>cellShift)&valueMask);
 		if(value==0 && incr>0){cellsUsed++;}
-		value=min(value+incr, maxValue);
+		value=(int)min(value+(long)incr, maxValue);
 		word=(value<<cellShift)|(word&~((valueMask)<<cellShift));
 		array[index]=word;
 		return value;

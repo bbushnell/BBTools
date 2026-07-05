@@ -341,7 +341,8 @@ public class Shred {
 		for(int chunk=0; chunk<chunks; chunk++){
 			int a=(int)Math.floor(inc2*chunk);
 			int b=(chunk==chunks-1 ? bases.length : overlap+(int)Math.floor(inc2*(chunk+1)));
-			b=Tools.min(b, a+shredLength);
+			//long math: a+shredLength can exceed Integer.MAX_VALUE for huge sequences (GitHub #5, same class as processUnevenly).
+			b=(int)Tools.min((long)b, (long)a+shredLength);
 			final int length=b-a;
 			if(length<minLength){return;}
 			final byte[] bases2=KillSwitch.copyOfRange(bases, a, b);
@@ -362,7 +363,9 @@ public class Shred {
 		final byte[] quals=r1.quality;
 		final String name=(prefix==null ? r1.id : prefix+r1.numericID);
 		for(int i=0; i<bases.length; i+=increment){
-			final int limit=Tools.min(i+shredLength, bases.length);
+			//long math: i+shredLength can exceed Integer.MAX_VALUE for huge sequences (GitHub #5).
+			//The min result is <=bases.length<=Integer.MAX_VALUE, so the cast back to int is safe.
+			final int limit=(int)Tools.min((long)i+shredLength, bases.length);
 			final int length=limit-i;
 			if(length<minLength){return;}
 			final byte[] bases2=KillSwitch.copyOfRange(bases, i, limit);

@@ -251,7 +251,7 @@ public class Shuffle2 {
 			cris.start(); //Start the stream
 			if(verbose){outstream.println("Started cris");}
 		}
-		boolean paired=cris.paired();
+		paired=cris.paired();//FIXED [sort/Shuffle2#001]: store as a field so the merge knows to read interleaved temp files back as pairs
 		if(!ffin1.samOrBam()){outstream.println("Input is being processed as "+(paired ? "paired" : "unpaired"));}
 		
 //		//Optionally create a read output stream
@@ -399,7 +399,7 @@ public class Shuffle2 {
 				Shared.capBufferLen(4);
 				Shared.capBuffers(1);
 			}
-			mergeAndDump(outTemp, /*dumpCount, */useSharedHeader);
+			errorState|=mergeAndDump(outTemp, /*dumpCount, */useSharedHeader);//[Shuffle2#002]: capture merge errorState (was discarded)
 		}
 		
 	}
@@ -542,7 +542,18 @@ public class Shuffle2 {
 		
 		final int oldBuffers=Shared.numBuffers();
 		final int oldBufferLen=Shared.bufferLen();
-		
+
+		//FIXED [sort/Shuffle2#001]: intermediate temp files are ALWAYS written interleaved for paired data (each temp has
+		//a single output file, so ConcurrentReadOutputStream auto-sets OUTPUT_INTERLEAVED). But the merge below reopens
+		//them via CrisContainer, which reads with the GLOBAL FASTQ interleaved flags -- and for two-file paired input those
+		//were set false during setup, so pairs came back as singles (mate==null) and the two-file output writer asserted at
+		//ReadStreamByteWriter.writeFastq:495. Force interleaved read-back when paired so mates are reconstructed; restore
+		//the prior flags after merge. Unpaired temps are plain singles -> leave false. (Also covers mergeRecursive, which
+		//routes every sub-merge through this same method.) -GitHub #12-B / G11 2026-07-04
+		final boolean oldFI=FASTQ.FORCE_INTERLEAVED, oldTI=FASTQ.TEST_INTERLEAVED;
+		FASTQ.FORCE_INTERLEAVED=paired;
+		FASTQ.TEST_INTERLEAVED=false;
+
 		if(fnames.size()>4){
 			Shared.capBufferLen(8);
 			Shared.setBuffers(1);
@@ -592,7 +603,9 @@ public class Shuffle2 {
 		
 		Shared.setBufferLen(oldBufferLen);
 		Shared.setBuffers(oldBuffers);
-		
+		FASTQ.FORCE_INTERLEAVED=oldFI;//FIXED [sort/Shuffle2#001]: restore interleaved flags changed for the merge read-back
+		FASTQ.TEST_INTERLEAVED=oldTI;
+
 		return errorState;
 	}
 	
@@ -664,6 +677,11 @@ public class Shuffle2 {
 
 		if(verbose || true){outstream.println("Created a WriteThread for "+temp);}
 		WriteThread wt=new WriteThread(storage, currentMem, outstandingMem, temp, useHeader, outstream);
+		//[sort/Shuffle2#002 FIXED]: WriteThread is now a NON-static inner class whose `errorState` IS this instance's
+		//errorState (its shadowing field removed, Shuffle2.errorState made volatile). A crashed WriteThread now sets the
+		//tool's errorState, which process()'s `if(errorState){throw}` checks after waitOnMemory joins all writers -> a failed
+		//background write becomes a LOUD "output may be corrupt" crash instead of silently dropping a partial temp file's
+		//reads at merge (CrisContainer.peek()==null skip). (Also un-swallows the closeStream error.)
 		wt.start();
 	}
 	
@@ -676,7 +694,7 @@ public class Shuffle2 {
 	 * Shuffles read collection and writes to output stream in batches
 	 * while managing memory usage tracking.
 	 */
-	private static class WriteThread extends Thread{
+	private class WriteThread extends Thread{//NON-static [Shuffle2#002]: so `errorState` in run() is the outer instance's, propagating failures
 		
 		/**
 		 * Creates WriteThread for background file writing.
@@ -726,7 +744,7 @@ public class Shuffle2 {
 				}
 			}
 			if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
-			errorState|=ReadWrite.closeStream(ros);
+			if(ReadWrite.closeStream(ros)){errorState=true;}//[Shuffle2#002]: monotonic (only ever SETS true) — a |= RMW on the shared volatile could let one WriteThread's success revert another's error (G11 catch)
 			if(verbose){outstream.println("Closed ros.");}
 			
 			}catch(Throwable e){
@@ -755,8 +773,8 @@ public class Shuffle2 {
 		final String fname;
 		/** Whether WriteThread should preserve SAM/BAM headers */
 		final boolean useHeader;
-		/** Error state for WriteThread execution */
-		boolean errorState=false;
+		//[Shuffle2#002]: WriteThread's own errorState field REMOVED so `errorState` in run() resolves to the outer
+		//Shuffle2.errorState (volatile), propagating background-write failures to the tool instead of a dead field.
 		/** Output stream for WriteThread progress messages */
 		final PrintStream outstream;
 		
@@ -810,6 +828,10 @@ public class Shuffle2 {
 	
 	/** Whether to preserve shared headers in SAM/BAM files */
 	private boolean useSharedHeader=false;
+
+	/** Whether the input is paired; captured in process() and used to force interleaved read-back of the
+	 * always-interleaved intermediate temp files during merge. See [sort/Shuffle2#001]. */
+	private boolean paired=false;
 	
 	/** Whether temporary files are allowed when memory limits are exceeded */
 	private boolean allowTempFiles=true;
@@ -853,8 +875,9 @@ public class Shuffle2 {
 	public static boolean verbose=false;
 	/** Print verbose messages */
 	public static final boolean verbose2=false;
-	/** True if an error was encountered */
-	public boolean errorState=false;
+	/** True if an error was encountered. Volatile [Shuffle2#002]: written by background WriteThreads (non-static inner
+	 * class) and read by process() after waitOnMemory joins them; volatile guarantees the failure is visible. */
+	public volatile boolean errorState=false;
 	/** Overwrite existing output files */
 	private boolean overwrite=true;
 	/** Append to existing output files */

@@ -50,6 +50,11 @@ public class KmerLink extends AbstractKmerTable {
 			if(value<Integer.MAX_VALUE){value+=incr;}
 			return value;
 		}
+		//TODO: Possible bug [kmer/KmerLink#001] - a new CHAINED node returns 1 (not incr), while the pivot-init case above
+		//returns incr and the existing-node case returns the count. So increment() violates "Returns count" for incr>1 on a
+		//chained insert; worse, incrementAndReturnNumCreated (return x==incr?1:0) then reports 0-created for a real creation
+		//when incr>1. Same family as HashArray1D#001. MASKED: KmerLink.increment isn't reached as a table entry (KmerTable
+		//manipulates KmerLink fields directly / calls set(), never increment()); and hot-path incr is 1. Fix: return incr.
 		if(next==null){next=new KmerLink(kmer, incr); return 1;}
 		return next.increment(kmer, incr);
 	}
@@ -303,7 +308,7 @@ public class KmerLink extends AbstractKmerTable {
 	@Override
 	public final boolean dumpKmersAsBytes(ByteStreamWriter bsw, int k, int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
-		if(value>=mincount){
+		if(value>=mincount && value<=maxcount){
 			if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 			bsw.printlnKmer(pivot, value, k);
 		}
@@ -325,7 +330,11 @@ public class KmerLink extends AbstractKmerTable {
 	@Override
 	public final boolean dumpKmersAsBytes_MT(final ByteStreamWriter bsw, final ByteBuilder bb, final int k, final int mincount, int maxcount, AtomicLong remaining){
 		if(value<1){return true;}
-		if(value>=mincount){
+		//Comprehension [kmer/KmerLink#002 RESOLVED]: dumps now filter on BOTH bounds (value>=mincount && value<=maxcount) in
+		//all 3 variants (bytes/_MT/text), matching HashArray/HashForest and the KmerNode1D#001 fix (Brian: "match HashArray").
+		//This _MT variant is reachable via KmerTable.dumpKmersAsBytes_MT. Was mincount-only; masked because all callers pass
+		//maxcount=Integer.MAX_VALUE, so behavior-neutral today and correct for a real maxcount.
+		if(value>=mincount && value<=maxcount){
 			if(remaining!=null && remaining.decrementAndGet()<0){return true;}
 			toBytes(pivot, value, k, bb);
 			bb.nl();
@@ -356,7 +365,7 @@ public class KmerLink extends AbstractKmerTable {
 	private final StringBuilder dumpKmersAsText(StringBuilder sb, int k, int mincount, int maxcount){
 		if(value<1){return sb;}
 		if(sb==null){sb=new StringBuilder(32);}
-		if(value>=mincount){sb.append(AbstractKmerTable.toText(pivot, value, k)).append('\n');}
+		if(value>=mincount && value<=maxcount){sb.append(AbstractKmerTable.toText(pivot, value, k)).append('\n');}
 		if(next!=null){next.dumpKmersAsText(sb, k, mincount, maxcount);}
 		return sb;
 	}

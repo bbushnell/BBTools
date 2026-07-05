@@ -525,7 +525,7 @@ public class KCountArray5MT extends KCountArray {
 			int cellShift=(int)(cellBits*key);
 			int value=((word>>>cellShift)&valueMask);
 			if(value==0){cellsUsedPersonal++;}
-			value=min(value+1, maxValue);
+			value=(int)min(value+1L, maxValue);
 			word=(value<<cellShift)|(word&~((valueMask)<<cellShift));
 			array[index]=word;
 			if(verbose){System.err.println("\n*** wt"+num+" Incremented hashed key "+key_+".  Value = "+readHashed(key_)+" ***");}
