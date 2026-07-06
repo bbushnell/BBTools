@@ -251,8 +251,13 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		}
 		assert(cell>=0);
 		final long[] key=kmer.key();
-		
-		if(cell==NOT_PRESENT){
+
+		//[ukmer/HashArrayU#002] Presence must be read from the cell CONTENTS, not the index.
+		//findKmerOrEmpty returns a valid index (>=0), or HASH_COLLISION (handled above) - it NEVER
+		//returns the NOT_PRESENT (-1) sentinel. With the assert(cell>=0) above, 'cell==NOT_PRESENT'
+		//was always false, so the insert branch was dead and this method never stored anything
+		//(always returned 0). Fixed to mirror set()'s notpresent=(arrays[0][cell]==NOT_PRESENT).
+		if(arrays[0][cell]==NOT_PRESENT){
 			setKmer(key, cell);
 			insertValue(key, value, cell);
 			size++;

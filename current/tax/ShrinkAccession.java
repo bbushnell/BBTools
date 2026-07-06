@@ -73,8 +73,7 @@ public class ShrinkAccession {
 				mode=(!Parse.parseBoolean(b) ? SEQUENCE : ASSEMBLY);
 			}else if(a.equals("gi")){
 				KEEP_GI_NUMBERS=Parse.parseBoolean(b);
-			}else if(a.equals("outgi") || a.equals("giout") || a.equals("gi")){
-				giOut=b;
+			//REMOVED [tax/ShrinkAccession cleanup]: the dead outgi/giout/gi->giOut->ffoutGi cluster. Its "gi" alias here was already shadowed by the KEEP_GI_NUMBERS branch above (unreachable live bomb), and ffoutGi was created but NEVER written. outgi=/giout= now correctly report as unknown parameters.
 			}else if(parser.in1==null && i==0 && Tools.looksLikeInputStream(arg)){
 				parser.in1=arg;
 			}else if(parser.out1==null && i==1 && !arg.contains("=")){
@@ -113,7 +112,6 @@ public class ShrinkAccession {
 		}
 
 		ffout=FileFormat.testOutput(out, FileFormat.TXT, null, true, overwrite, append, false);
-		ffoutGi=FileFormat.testOutput(giOut, FileFormat.TXT, null, true, overwrite, append, false);
 		ffin=FileFormat.testInput(in, FileFormat.TXT, null, true, true);
 		
 	}
@@ -259,7 +257,7 @@ public class ShrinkAccession {
 			charsProcessed+=line.length+1;
 			linesProcessed++;
 
-			if(Tools.startsWith(line, "#")){continue;}//Concatenated files or new header
+			if(Tools.startsWith(line, "#")){line=bf.nextLine(); continue;}//FIXED [tax/ShrinkAccession#001]: bare `continue` skipped the bottom-of-loop line=bf.nextLine() (L282) → INFINITE HANG on any '#' line in the body (concatenated assembly_summary files / mid-stream header — the very case this branch exists to skip). Must advance before continuing. Reachable via shrinkaccession.sh asm=t.
 			lp.set(line);
 
 			bb.append(lp.parseByteArray(0)).tab().tab();//accession
@@ -305,7 +303,6 @@ public class ShrinkAccession {
 	
 	private String in=null;
 	private String out=null;
-	private String giOut=null;
 	private int mode=SEQUENCE;
 
 	long linesProcessed=0;
@@ -316,7 +313,6 @@ public class ShrinkAccession {
 	
 	private final FileFormat ffin;
 	private final FileFormat ffout;
-	private final FileFormat ffoutGi;
 	
 	/*--------------------------------------------------------------*/
 	

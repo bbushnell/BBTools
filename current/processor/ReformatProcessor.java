@@ -53,6 +53,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			if(loglog!=null) {
 				rp.loglog=loglog.copy();
 			}
+			//Comprehension: nameMap1/nameMap2 are intentionally NOT deep-copied - they are only used under uniqueNames, which
+			//forces workers=1 (recommendedWorkers + Reformat2:94), so the single worker clone safely shares the one map (no race,
+			//and uniqueness stays global). randy is copied but is a DEAD field here - sampling is done entirely by the caller
+			//(Reformat2 reads sampleReadsTarget/samplerate/sampleseed and owns its own randy); ReformatProcessor.randy is never read.
 			//Independent per-thread mutable state (else worker clones race on the shared instances)
 			rp.rhp=new IlluminaHeaderParser2();
 			if(readstats!=null){
@@ -949,7 +953,10 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		boolean changed=false;
 		for(int i=0; i<header.length(); i++){
 			char c=header.charAt(i);
-			byte b=headerSymbols[c];
+			//[processor/ReformatProcessor#001] FIXED: guard non-ASCII (c>=128) - headerSymbols is size 128, so a header char
+			//>=128 (e.g. a UTF-8/international sample name) threw AIOOBE. This function's job is to sanitize headers to
+			//filesystem-valid strings, so an out-of-table char maps to '_' (the Arrays.fill default), not a crash. No change for ASCII.
+			byte b=(c<128 ? headerSymbols[c] : (byte)'_');
 			array[i]=b;
 			changed|=(b!=c);
 		}

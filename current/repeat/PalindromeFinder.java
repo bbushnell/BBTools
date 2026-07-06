@@ -364,6 +364,9 @@ public class PalindromeFinder {
 	}
 	
 	/** TODO: Make a new dynamic programming version with +10 for match and -9 for mismatch */
+	//Comprehension: each stem arm spans matches+mismatches aligned positions (invariant asserted below: matches+mismatches==a2-a),
+	//with mismatches interior and outermost/innermost forced to matches. Thus true loop=length-2*plen, NOT length-2*matches -
+	//see [repeat/Palindrome#001]: Palindrome.loop() undercounts the arm here (this is the DEFAULT CRISPR path, maxMismatches=2).
 	private Palindrome longestImperfectPalindrome(final byte[] s, final int a0, final int b0, final int minPos, final int maxPos){
 //		System.err.println("longestPerfectPalindrome("+a0+", "+b0+")");
 		assert(b0>a0) : a0+", "+b0;

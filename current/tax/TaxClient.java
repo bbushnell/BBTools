@@ -359,7 +359,7 @@ public class TaxClient {
 	 * @return Comma-separated string representation, or null if list is null/empty
 	 */
 	private static String fuse(ArrayList<?> list){
-		if(list==null || list.size()<0){return null;} //Possible bug: size() is never negative
+		if(list==null || list.size()<1){return null;}//FIXED [tax/TaxClient#001]: was `size()<0` (never true — author-flagged) so an empty list fell through to setLength(sb.length()-1)==setLength(-1) → StringIndexOutOfBoundsException. `<1` restores the intended null-on-empty guard. Latent today: fuse() is reached only from main() fast-mode (guarded size>0); the public *ToTaxidArray(ArrayList) overloads are otherwise uncalled (external callers use the String overloads).
 		StringBuilder sb=new StringBuilder();
 		for(Object s : list){
 			sb.append(s).append(',');

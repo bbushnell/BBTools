@@ -255,7 +255,7 @@ public class FindAncestor {
 			while(i<line.length && line[i]!=delimiter){i++;}
 			final int stop=i;
 			if(Tools.startsWith(line, prefix, start)){start+=3;}
-			assert(start<stop) : "Badly formatted line at "+start+":\n"+new String(line);
+			//RELAXED [tax/FindAncestor]: was assert(start<stop):"Badly formatted line" — fired under -ea on a benign trailing/empty delimiter token (e.g. "gi1,gi2," or a bare "gi|"). gi numbers are legacy; best-effort is preferable. The if(start<stop) guard below already skips empty tokens.
 //			System.err.println(start+","+stop+",'"+new String(line).substring(start, stop)+"'");
 			if(start<stop){
 				final int number=Parse.parseInt(line, start, stop);

@@ -240,7 +240,7 @@ public class SplitByTaxa {
 		errorState|=ReadWrite.closeStream(cris);
 		
 		for(ConcurrentReadOutputStream ros : map.values()){
-			ReadWrite.closeStream(ros);
+			errorState|=ReadWrite.closeStream(ros);//FIXED [tax/SplitByTaxa#001]: was discarding the close-error return; the cris close one line up captures it via |=. A per-taxon output that errored or didn't finishSuccessfully() would otherwise leave errorState false -> no throw at L253 -> exit 0 on truncated/corrupt output.
 		}
 		
 		//Report timing and results
@@ -297,7 +297,8 @@ public class SplitByTaxa {
 					TaxNode tn=tree.parseNodeFromHeader(r1.id, true);
 					if(tn==null){tn=tree.getNodeByName(r1.id);}
 					if(tn==null){tn=unknown;}
-					while(tn.levelExtended<taxLevelE && tn.id!=tn.pid){tn=tree.getNode(tn.pid);}
+					//climb toward taxLevelE; terminates: root has id==pid, and the `unknown` fallback node also has id==pid(-99) so it never spins.
+				while(tn.levelExtended<taxLevelE && tn.id!=tn.pid){tn=tree.getNode(tn.pid);}
 					
 					if(out1!=null){
 						ConcurrentReadOutputStream ros=map.get(tn.name);

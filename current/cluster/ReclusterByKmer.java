@@ -186,7 +186,11 @@ public class ReclusterByKmer {
 	}
 	
 	/*--------------------------------------------------------------*/
-	
+
+	//Comprehension: process() is a PASSTHROUGH - it counts reads/bases and copies input->output unchanged. It NEVER calls
+	//findKmerSpectra() or recluster(), so the entire clustering scaffold (ClusterThread/ReadTag/Cluster/ClusterTools kmer methods)
+	//is UNREACHABLE from the live entry point. The class javadoc ("reclustering handled by ClusterThreads") describes the
+	//unwired scaffold, not runtime behavior. This whole tool is abandoned (no .sh, no callers) - findings here are latent-LOW.
 	void process(Timer t){
 		
 		
@@ -207,7 +211,9 @@ public class ReclusterByKmer {
 				outstream.println("Writing interleaved.");
 			}
 
-			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in1)) : "Input file and output file have same name.";
+			//FIXED [cluster/ReclusterByKmer#001] (Brian-greenlit): 2nd clause was a duplicate of in1; now in2, so out1==in2 is caught
+			//(prevents silently overwriting paired input in2). Mirror of the already-fixed MergeReadHeaders#002 (:201).
+			assert(!out1.equalsIgnoreCase(in1) && !out1.equalsIgnoreCase(in2)) : "Input file and output file have same name.";
 			assert(out2==null || (!out2.equalsIgnoreCase(in1) && !out2.equalsIgnoreCase(in2))) : "out1 and out2 have same name.";
 			
 			ros=ConcurrentReadOutputStream.getStream(ffout1, ffout2, null, null, buff, null, false);
@@ -266,12 +272,17 @@ public class ReclusterByKmer {
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
 		
 		if(errorState){
-			throw new RuntimeException("ReformatReads terminated in an error state; the output may be corrupt.");
+			//FIXED [cluster/ReclusterByKmer#002] (Brian-greenlit): was "ReformatReads" (wrong tool name); now "ReclusterByKmer".
+			//Mirror of the already-fixed MergeReadHeaders#003 (:265).
+			throw new RuntimeException("ReclusterByKmer terminated in an error state; the output may be corrupt.");
 		}
 	}
 	
 	/*--------------------------------------------------------------*/
 	
+	//TODO: Possible bug [cluster/ReclusterByKmer#003] - off-by-one: grows clusterList to size x (indices 0..x-1) then does
+	//get(x) below -> IndexOutOfBounds whenever x>=size at entry (and cluster0/-1 seeds make x=-1 -> get(-1)). Condition should be
+	//x>=size and the loop grow to i<=x (size x+1). Latent-LOW: dead path (only reached via findKmerSpectra, which process() never calls).
 	Cluster fetchCluster(int x){
 		if(x>clusterList.size()){
 			synchronized(clusterList){
@@ -506,6 +517,9 @@ public class ReclusterByKmer {
 					if(a<0 || b<0){
 						float c=0-(Tools.min(a, b))*1.5f;
 						a=a+c;
+						//TODO: Possible bug [cluster/ReclusterByKmer#004] - b=a+c uses the just-updated a (=old_a+c), giving b=old_a+2c;
+						//should be b=b+c to shift b by the same offset. Skews the RAND ambiguity coin weighting. Latent-LOW: dead
+						//(reCluster starts with assert(false):"TODO" and is only reached via recluster(), which process() never calls).
 						b=a+c;
 					}
 					float coin=randy.nextFloat()*(a+b);

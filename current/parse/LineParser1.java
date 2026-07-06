@@ -218,8 +218,9 @@ public final class LineParser1 implements LineParser {
 	}
 	
 	public byte parseByteFromCurrentField(int offset) {
-		assert(a<b);
-		return line[a];
+		final int index=a+offset;
+		assert(index<b);
+		return line[index];
 	}
 	
 	@Override
@@ -396,9 +397,9 @@ public final class LineParser1 implements LineParser {
 	}
 	
 	/**
-	 * Increments the start position by the specified amount.
-	 * Note: Implementation appears to increment 'a' instead of 'b'.
-	 * @param amt Amount to increment position
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right.
+	 * @param amt Amount to increment the end position
 	 * @return New length of current field
 	 */
 	@Override

@@ -72,6 +72,11 @@ public class Repeat implements Cloneable, Comparable<Repeat> {
 		contig=null;
 		contigName=null;
 		gc=entropy=0;
+		//Comprehension: seq is deliberately NOT cleared - it is only ever set by setSeq() on TERMINAL closedRepeats
+		//(RepeatFinder.makePreview, on repeatSet.closedRepeats), never on the reused openRepeats that flow through clear();
+		//so no stale-seq can leak into a new repeat via appendPreview's if(seq!=null) short-circuit. Verified safe.
+		//Note: fields minDepth and depthSum are written here/increment() but currently READ nowhere (dead as of this rev) -
+		//minDepth is also not updated on the advance branch. Not bugs (unused); candidates for removal or wiring into output.
 	}
 	
 	/**
@@ -84,6 +89,9 @@ public class Repeat implements Cloneable, Comparable<Repeat> {
 	 * @return Finalized repeat if gap exceeded, null if successfully extended
 	 */
 	public Repeat increment(Read currentContig, int pos, int currentDepth) {
+		//Note: [repeat/RepeatFinder#001 FIXED] RepeatFinder.processReadEntropy used to violate this assert (built an 'E' Repeat with
+		//depth=minDepth then called increment(...,2) -> assert(2>=minDepth) crashed for mincount>2). Fixed at the call site: the entropy
+		//repeat is now built with depth=2, matching the increment call, so this assert holds. No live caller now reaches currentDepth<depth.
 		assert(currentDepth>=depth);//TODO: This can be disabled, but then the currentDepth<depth case needs to be handled; currently the function is not called inside gaps
 		final int gap=pos-stop-1;
 		if(contigNum==currentContig.numericID && gap<=maxGap) {//advance

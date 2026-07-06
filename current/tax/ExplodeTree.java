@@ -160,7 +160,7 @@ public class ExplodeTree {
 				if(writeNames){
 					try {
 						String fname=node.simpleName()+".name";
-						File nf=new File(fname);
+						File nf=new File(dir+fname);//FIXED [tax/ExplodeTree#001]: was `new File(fname)` (CWD) but the write target is `dir+fname` — the exists() guard checked the wrong path, so it never actually skipped an existing .name file (redundant re-writes) and could spuriously skip on a coincidental CWD file. LOW: .name content is idempotent (node.name).
 						if(!nf.exists()){
 							ReadWrite.writeString(node.name, dir+fname);
 						}

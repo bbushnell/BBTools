@@ -843,7 +843,11 @@ public class RepeatFinder implements Accumulator<RepeatFinder.ProcessThread> {
 			final byte[] bases=rd.bases;
 			
 			et.clear();
-			Repeat current=new Repeat(null, -1, minDepth, window, Tools.max(0, maxGap-k)+window, minRepeat, 'E'); //TODO: Use a buffer.
+			//FIXED [repeat/RepeatFinder#001] (Brian-greenlit): entropy Repeat now built with depth=2 (was minDepth). increment(...,2)
+			//below asserts currentDepth>=depth; with depth=minDepth that was assert(2>=minDepth) -> AssertionError for mincount>2 (crash
+			//on the first low-entropy window under -ea; repro findrepeats.sh entropy=t mindepth=3). Entropy ('E') repeats are
+			//depth-agnostic, so nominal depth=2 (matching the increment call) is correct and removes the crash.
+			Repeat current=new Repeat(null, -1, 2, window, Tools.max(0, maxGap-k)+window, minRepeat, 'E'); //TODO: Use a buffer.
 			int sum=0;
 			for(int i=0, min=window-1; i<bases.length; i++){
 				et.add(bases[i]);
