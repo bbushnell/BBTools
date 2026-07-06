@@ -124,7 +124,9 @@ public final class LineParserS2 implements LineParserS {
 	
 	public String parseString() {
 		int len=advance();
-		assert(b>a) : currentTerm+", "+line;
+		//[parse/LineParserS2#001] No assert(b>a) here: an empty field (a==b) is valid delimited
+		//data and must yield "", matching the byte-twin LineParser2.parseString() and all S-siblings.
+		//The real "called past end" guard is hasMore(); the removed assert wrongly crashed valid empty fields.
 		return line.substring(a, b);
 	}
 	
@@ -317,9 +319,9 @@ public final class LineParserS2 implements LineParserS {
 	}
 	
 	/**
-	 * Increments the start position of current field by specified amount.
-	 * Note: This appears to increment 'a' instead of 'b' as method name suggests.
-	 * @param amt Amount to increment the position
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right.
+	 * @param amt Amount to increment the end position
 	 * @return The new length of the current field
 	 */
 	@Override

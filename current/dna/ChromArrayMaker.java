@@ -20,6 +20,14 @@ import stream.Read;
 
 /**
  * Replaces FastaToChromArrays with a more general solution that can handle fastq.
+ *
+ * Note: this class currently has NO callers tree-wide (no .sh, no importers); the live
+ * canonical reference indexer is {@link FastaToChromArrays2} (used by BBMap5, RefToIndex,
+ * Data, AssemblyStats2, etc.). Its makeNextChrom is the un-hardened predecessor of
+ * FastaToChromArrays2's and lacks that class's later oversize-scaffold guards (its #001
+ * KillSwitch.kill on scaffolds &gt; MAX_SINGLE_SCAFFOLD, #002 minscaf on carried scaffolds,
+ * #003 single-large-scaffold-own-chrom): here the oversize check is a bare assert (crash-loud
+ * under -ea, but no KillSwitch and no MAX_SINGLE_SCAFFOLD). Prefer FastaToChromArrays2 for edits.
  * @author Brian Bushnell
  * @date Jul 18, 2014
  *

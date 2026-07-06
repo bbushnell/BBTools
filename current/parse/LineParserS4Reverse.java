@@ -363,9 +363,9 @@ public final class LineParserS4Reverse implements LineParserS {
 	}
 	
 	/**
-	 * Increments the start boundary of the current field.
-	 * Note: This appears to be a bug as it increments 'a' instead of 'b'.
-	 * @param amt Amount to increment by
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right (in line coordinates).
+	 * @param amt Amount to increment the end position
 	 * @return New length of the current field
 	 */
 	@Override

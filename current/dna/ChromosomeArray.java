@@ -379,7 +379,12 @@ public class ChromosomeArray implements Serializable {
 	public ArrayList<Range> toContigRanges(final int nBlockSize){
 		assert(nBlockSize>0);
 		ArrayList<Range> list=new ArrayList<Range>();
-		
+
+		//State machine: 'contig' is open while inside defined bases; stop tracks the last
+		//defined base, so emitted Range(start,stop) is inclusive and excludes trailing Ns.
+		//An 'X' breaks immediately; an 'N'-run breaks only once it reaches nBlockSize, so
+		//gaps shorter than nBlockSize are bridged within one contig. ns seeds to nBlockSize+1
+		//(as if preceded by a full gap) so a leading defined base opens cleanly.
 		int start=-1;
 		int stop=-1;
 		int ns=nBlockSize+1;

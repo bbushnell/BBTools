@@ -130,6 +130,10 @@ public class Gene implements Comparable<Gene>, Serializable{
 
 			for(Exon e : exons){
 
+				//TODO: Possible bug [dna/Gene#002] - UTR base counts lack the +1 that ecLen (below) uses.
+				//A fully-UTR exon (e.b<codeStart) contributes e.b-e.a, but has e.b-e.a+1 bases, so
+				//utrLength5/3prime undercount by 1 per UTR-only exon (spanning exons are counted right).
+				//LATENT-LOW: utrLength5prime/utrLength3prime are never read anywhere, so the value is discarded.
 				utr0+=max(0, min(e.b, codeStart)-e.a);
 				utr2+=max(0, e.b-max(e.a, codeStop));
 				
@@ -255,6 +259,10 @@ public class Gene implements Comparable<Gene>, Serializable{
 		Gene out=new Gene(chromosome, strand, XtxStart, XtxStop, XcodeStart, XcodeStop, Xid,
 				Xsymbol, XmrnaAcc, XproteinAcc,
 				Xstatus< 0 ? null : statusCodes[Xstatus], Xcompleteness<0 ? null : completenessCodes[Xcompleteness],
+				//TODO: Possible bug [dna/Gene#001] - sourceCodes[primarySource] is UNGUARDED, unlike
+				//toString() (L912: primarySource>=0 ? sourceCodes[primarySource] : ""). primarySource is
+				//-1 when source was null/unknown (ctor L94), so a source-less gene would AIOOBE here.
+				//LATENT-LOW: Gene.merge(Gene) has NO callers tree-wide, so unreachable today.
 				exons, Xuntranslated, Xpseudo, Xvalid, sourceCodes[primarySource], Xdescription, XfullDescription);
 		
 		return out;

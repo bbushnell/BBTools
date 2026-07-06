@@ -1722,7 +1722,7 @@ public class TaxServer {
 		int tid=AccessionToTaxid.get(accession);
 		if(tid<0 && distributed && serverNum==0){
 			accession=stripAccession(accession);
-			int slaveNum=accession.hashCode()%serverCount;
+			int slaveNum=Math.floorMod(accession.hashCode(), serverCount);//FIXED [tax/TaxServer#001]: was hashCode()%serverCount → negative for ~half of accessions (String.hashCode sign kept by %) → slaveAddress.get(neg) AIOOBE. floorMod is always [0,serverCount). MUST stay identical to AccessionToTaxid:870 partition formula or routing != loading.
 			if(slaveNum!=serverNum){
 				String path=slaveAddress.get(slaveNum);
 				tid=TaxClient.accessionToTaxidSpecificServer(path, accession);
@@ -2057,8 +2057,10 @@ public class TaxServer {
 		{
 			sb.append("\nVersion\tCount\n");
 			ArrayList<String> list=new ArrayList<String>();
-			for(Entry<String, StringNum> e : versionMap.entrySet()){
-				list.add(e.getValue().toString());
+			synchronized(versionMap){//FIXED [tax/TaxServer#002]: iteration must hold the same lock the writer (handleInner L767) holds, else CME/partial-read on /stats. Map is tiny (one entry per distinct client version) and this path is cold, so contention is negligible.
+				for(Entry<String, StringNum> e : versionMap.entrySet()){
+					list.add(e.getValue().toString());
+				}
 			}
 			Collections.sort(list);
 			for(String s : list){
@@ -2542,7 +2544,7 @@ public class TaxServer {
 			PT_HEADER=HEADER+PT_BIT, PT_ACCESSION=ACCESSION+PT_BIT, PT_IMG=IMG+PT_BIT, PT_SILVAHEADER=SILVAHEADER+PT_BIT;
 	/** Semicolon-response query types */
 	public static final int SC_GI=GI+SC_BIT, SC_NAME=NAME+SC_BIT, SC_TAXID=TAXID+SC_BIT,
-			SC_HEADER=HEADER+SC_BIT, SC_ACCESSION=ACCESSION+SC_BIT, SC_IMG=IMG+SC_BIT, SC_SILVAHEADER=SILVAHEADER+PT_BIT;
+			SC_HEADER=HEADER+SC_BIT, SC_ACCESSION=ACCESSION+SC_BIT, SC_IMG=IMG+SC_BIT, SC_SILVAHEADER=SILVAHEADER+SC_BIT;//FIXED [tax/TaxServer#003]: was +PT_BIT (lone twin-deviation among the SC_* constants) → sc_silvaheader collided with pt_silvaheader (both 23) and toResponse set plaintext not semicolon → silently returned taxID instead of lineage.
 	
 	public static final int SOURCE_REFSEQ=1, SOURCE_SILVA=2, SOURCE_IMG=3;
 	

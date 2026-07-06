@@ -90,9 +90,13 @@ public class ChromToFasta {
 	public static int writeContigs(ChromosomeArray cha, int contig, int trigger, int fastaBlocklen, TextStreamWriter tsw){
 		
 		StringBuilder sb=new StringBuilder(4000);
-		
+
+		//Note: ns counts consecutive Ns and is NOT reset after an emit — safe because Ns are only
+		//appended to sb while sb.length()>0, so trailing Ns of a just-emitted (now-empty) contig are
+		//skipped and never mis-trimmed. sb always begins with a non-N base, so the setLength(len-ns)
+		//trims exactly the trailing Ns and can never underflow.
 		int ns=0;
-		
+
 		for(int aloc=cha.minIndex; aloc<=cha.maxIndex; aloc++){
 			byte b=cha.get(aloc);
 			if(b=='N'){
@@ -132,6 +136,11 @@ public class ChromToFasta {
 		}
 	}
 	
+	//TODO: Possible bug [dna/ChromToFasta#001] - duplicate FASTA header: this prints ">"+chromosome
+	//AND the delegate writeChrom(cha,tsw,blocklen) prints it again (L144), so output has two header
+	//lines per chromosome. LATENT-LOW: this (cha,fname,blocklen) overload has NO callers tree-wide and
+	//ChromToFasta is a standalone dev utility (no .sh, no importers); main() uses the (cha,tsw,blocklen)
+	//form directly, which prints the header once. Fix if ever wired: drop the print here.
 	public static void writeChrom(ChromosomeArray cha, String fname, int blocklen){
 		TextStreamWriter tsw=new TextStreamWriter(fname, true, false, false);
 		tsw.start();

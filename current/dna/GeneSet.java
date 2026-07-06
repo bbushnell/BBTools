@@ -5,6 +5,13 @@ import shared.Shared;
 import shared.Tools;
 
 
+/**
+ * A group of transcript {@link Gene}s sharing one gene id, name, and chromosome.
+ * Aggregates their span (minStart..maxEnd) and folds per-transcript flags: pseudo and
+ * untranslated are the logical AND across all transcripts, and strand collapses to '?'
+ * if the transcripts disagree. Ordered/compared by chromosome, then minStart, then name.
+ * @author Brian Bushnell
+ */
 public class GeneSet implements Comparable<GeneSet>{
 	
 	public static void main(String[] args){
@@ -118,6 +125,9 @@ public class GeneSet implements Comparable<GeneSet>{
 	}
 	
 	public boolean equals(GeneSet other){
+		//Note: equality is by compareTo, i.e. chromosome+minStart+name only — NOT gene content.
+		//Two GeneSets with the same name/chrom/minStart but different transcripts compare equal.
+		//Consistent with hashCode (name+chrom).
 		return compareTo(other)==0;
 	}
 	

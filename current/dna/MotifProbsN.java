@@ -250,6 +250,10 @@ public class MotifProbsN extends Motif {
 			}
 			
 			int n=AminoAcid.baseTupleToNumber(chunk);
+			//Note: Confirmed safe. baseTupleToNumber packs N bases (2 bits each), so n is in
+			//[0,4^N-1]=[0,baseProb.length-1] for defined bases, or -1 for any non-ACGT base.
+			//Thus n can never equal baseProb.length; the '>' (not '>=') never lets an OOB index
+			//reach probs[i][n] (probs[i].length==baseProb.length==4^N, asserted in makeMotif).
 			if(n<0 || n>baseProb.length){return minProb;}
 			
 //			float p1=(probs[i][n]+(matrixAvg*importance[i]*.1f));
