@@ -266,6 +266,10 @@ public class MergeReadHeaders {
 		}
 	}
 	
+	//Comprehension: MergeReadHeaders is the one LIVE tool in cluster/ (functional header-replacer, unrelated to clustering; still
+	//scriptless - direct java only). Re-traced its 3 pre-existing FIXED anchors (#001 assert->exception here; #002 dup-in1->in2 at
+	//:201; #003 wrong-tool-name at :265) - all correct. Twins #001/#002 remain UNFIXED in sibling ReclusterByKmer (see its anchors).
+	//Minor: the `remove` var (process(), ~:243) is dead (always false). No new bugs.
 	public static String processHeader(String s){
 		if(s==null){throw new RuntimeException("Header file has fewer lines than reads in the input.");}// [cluster/MergeReadHeaders#001] FIXED: was assert(s!=null)
 		return s;

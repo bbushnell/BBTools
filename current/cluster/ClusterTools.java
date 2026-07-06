@@ -22,6 +22,10 @@ public class ClusterTools {
 		return null;
 	}
 
+	//TODO: Possible bug [cluster/ClusterTools#001] - 'len' is initialized to 0 and NEVER incremented (the len++ line is commented
+	//out below), so if(len>=k) is never true for k>=1 -> the array is never populated, returning a zero-filled (then sorted) array.
+	//Same defect in the 4-arg toKmerCounts below. Latent-LOW: only reached via ReadTag/Cluster, which are dead (see ReclusterByKmer
+	//passthrough note + ReadTag.processHeader assert(false)). If ever revived, uncomment the len++/N-reset line. Provably wrong logic.
 	public static int[] toKmers(final byte[] bases, int[] array_, final int k){
 		if(bases==null || bases.length<k){return null;}
 		final int alen=bases.length-k+1;

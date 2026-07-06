@@ -34,6 +34,9 @@ class ReadTag implements Serializable{
 		processHeader(r.id);
 	}
 	
+	//Comprehension: assert(false):"TODO" here is a deliberate NOT-IMPLEMENTED fence (not a bug) - it makes the ReadTag
+	//constructor crash-loud under -ea. ReadTag is only constructed by ReclusterByKmer's ClusterThread, whose path is dead
+	//(process() is a passthrough - never calls findKmerSpectra/recluster). So this fence never fires in practice. Abandoned code.
 	private void processHeader(String s){
 		assert(false) : "TODO";
 		gc=-1;

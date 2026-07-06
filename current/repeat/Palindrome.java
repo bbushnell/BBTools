@@ -64,7 +64,10 @@ public class Palindrome implements Comparable<Palindrome>, Cloneable {
 	
 	public int length() {return b-a+1;}
 	
-	public int loop() {return length()-2*matches;}
+	//FIXED [repeat/Palindrome#001] (Brian-greenlit): was length()-2*matches, which overcounted the loop by 2*mismatches on the
+	//imperfect/CRISPR path (arm=plen=matches+mismatches per bbcrisprfinder help "plen excludes the loop or tail"). Now length()-2*plen():
+	//identical on the perfect path (mismatches=0), and corrects the CRISPR minLoop/maxLoop accept-filter for interior-mismatch palindromes.
+	public int loop() {return length()-2*plen();}
 	
 	public Palindrome clear() {
 		a=b=matches=mismatches=0;

@@ -3101,9 +3101,10 @@ public final class Tools {
 	 * @return True if the array starts with the String.
 	 */
 	public static boolean startsWith(byte[] array, String s, int initialPos) {
-		if(array==null || s==null || array.length+initialPos<s.length()){return false;}
-		for(int i=initialPos; i<s.length(); i++){
-			if(array[i]!=s.charAt(i)){return false;}
+		//FIXED [shared/Tools.startsWith#001]: was `for(i=initialPos; i<s.length(); i++) array[i] vs s.charAt(i)` (same index into both) + guard `array.length+initialPos<s.length()`. That only matched the intended "does array AT initialPos begin with s" contract when initialPos==0; for initialPos>=s.length() the loop was empty → returned true unconditionally (var2 SN:/LN:/AD= asserts vacuous; FindAncestor mis-stripped non-gi| tokens). Now compares array[initialPos+i] vs s[i]; guard needs array long enough to hold s at initialPos.
+		if(array==null || s==null || array.length<initialPos+s.length()){return false;}
+		for(int i=0; i<s.length(); i++){
+			if(array[initialPos+i]!=s.charAt(i)){return false;}
 		}
 		return true;
 	}
@@ -3114,9 +3115,10 @@ public final class Tools {
 	 * @return True if the array starts with the String.
 	 */
 	public static boolean startsWith(byte[] array, byte[] s, int initialPos) {
-		if(array==null || s==null || array.length+initialPos<s.length){return false;}
-		for(int i=initialPos; i<s.length; i++){
-			if(array[i]!=s[i]){return false;}
+		//FIXED [shared/Tools.startsWith#001]: identical defect to the String twin above — same-index compare + wrong guard made initialPos>0 broken (empty loop → true). Now array[initialPos+i] vs s[i].
+		if(array==null || s==null || array.length<initialPos+s.length){return false;}
+		for(int i=0; i<s.length; i++){
+			if(array[initialPos+i]!=s[i]){return false;}
 		}
 		return true;
 	}

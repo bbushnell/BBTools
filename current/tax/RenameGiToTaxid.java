@@ -414,7 +414,11 @@ public class RenameGiToTaxid {
 								while(initial<=line.length && line[initial-1]!='|'){initial++;}
 							}
 						}
-						
+						//FIXED [tax/RenameGiToTaxid#001]: base case ">tid|123"/">ncbi|123" with NO 2nd '|' — the seek loop ran initial past the end (line.length+1), so new String(line,initial,terminal-initial) became new String(line,len+1,-1) → StringIndexOutOfBounds. `initial` is dual-use (preserved-header start AND lookup start); decouple with lookupStart. No 2nd bar => preserve nothing (initial=terminal) and look up the whole "tid|123" (lookupStart=1) so parseNodeFromHeader->getNodeOldStyle resolves the tid directly.
+						final int lookupStart;
+						if(initial>line.length){initial=terminal; lookupStart=1;}
+						else{lookupStart=initial;}
+
 						if(shrinkNames){//This is for nr/nt
 							for(int i=initial; i<terminal; i++){
 								if(line[i]==1){//SOH
@@ -423,7 +427,7 @@ public class RenameGiToTaxid {
 							}
 						}
 
-						String s=new String(line, initial, terminal-initial);
+						String s=new String(line, lookupStart, terminal-lookupStart);
 
 						tn=tree.parseNodeFromHeader(s, true);
 					}
@@ -745,8 +749,10 @@ public class RenameGiToTaxid {
 	private void updateHeadersFromServer_gff(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
 		ByteBuilder bb=new ByteBuilder();
 		ArrayList<String> names=new ArrayList<String>();
+		int terms=0;
 		for(byte[] line : lines){
 			if(line[0]!='#' && !Tools.startsWith(line, "tid")){
+				terms++;
 				if(bb.length()>0){bb.append(',');}
 				for(byte b : line){
 					if(b=='\t'){break;}
@@ -755,23 +761,16 @@ public class RenameGiToTaxid {
 			}
 		}
 		if(bb.length()<1){return;}
-		
+
 //		assert(false) : bb;
-		
+
 //		System.err.println("Sending '"+bb+"'");
-		
-		int[] serverIds;
-		if(mode==ACCESSION_MODE || mode==UNITE_MODE){
-			serverIds=TaxClient.accessionToTaxidArray(bb.toString());
-		}else if(mode==GI_MODE){
-			serverIds=TaxClient.giToTaxidArray(bb.toString());
-		}else{
-			serverIds=TaxClient.headerToTaxidArray(bb.toString());
-		}
+
+		//HARDENED [tax/RenameGiToTaxid#002]: was a single direct TaxClient.*ToTaxidArray with NO retry on a wrong-LENGTH server response (only null was handled) → a corrupt-length array would silently misalign every subsequent header. The FASTA path already retries via translateToTaxIDs; the taxserver goes flaky under load (Cloudflare) and returns corrupt-length responses, so route GFF through the same retry (same mode-dispatch). Persistent failure still returns null -> KillSwitch (loud).
+		int[] serverIds=translateToTaxIDs(bb, terms);
 		if(serverIds==null){
 			KillSwitch.kill("Null response for '"+bb.toString()+"'");
 		}
-//		assert(serverIds!=null) : "Null response for '"+bb.toString()+"'";
 		bb.clear();
 		
 		if(!names.isEmpty()){

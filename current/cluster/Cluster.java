@@ -119,10 +119,14 @@ public class Cluster{
 		return r.mate==null ? scoreSingle(r) : scorePaired(r);
 	}
 	
+	//Comprehension: all Cluster scoring (scoreSingle/scorePaired/scoreGc/scoreDepth, and scoreKmer1/2 which compute f then
+	//discard it) is stubbed with assert(false):"TODO" - deliberate NOT-IMPLEMENTED fences, not bugs. Only reached via
+	//ReclusterByKmer.reCluster (itself assert(false)-stubbed) on the dead clustering path. add()/recalculate() ARE implemented,
+	//but nothing live calls them either (process() passthrough). Abandoned scaffold - documented, not flagged.
 	public float scoreSingle(Read r) {
 		if(r==null){return 0;}
 		ReadTag rt=(ReadTag)r.obj;
-		
+
 		assert(false) : "TODO";
 		float depthScore=scoreDepthSingle(rt);
 		float gcScore=scoreGcSingle(rt);
