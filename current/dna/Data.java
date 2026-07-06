@@ -1418,6 +1418,9 @@ public class Data {
 	public static final Range[][] geneCodeRangeMatrix=new Range[63][];
 	private static final Range[][] geneCodeAndExonRangeMatrix=new Range[63][];
 	public static final Range[][] exonRangeMatrix=new Range[63][];
+	//Non-volatile despite double-checked-locking accessors (getGeneIDTable/geneIdToNameTable under
+	//GENEIDLOCK); safe for the same reason documented on chromosomePlusMatrix below — gene data is
+	//loaded during single-threaded setup before worker threads fork (happens-before).
 	public static HashMap<Integer, ArrayList<GeneSet>> geneIDTable;
 
 	/** Ranges within genes and exons or within NEAR their ends */

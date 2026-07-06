@@ -383,9 +383,9 @@ public final class LineParserS4 implements LineParserS {
 	}
 	
 	/**
-	 * Increments the start boundary (a) by the specified amount.
-	 * Note: This appears to increment 'a' rather than 'b' as the name suggests.
-	 * @param amt Amount to increment
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right.
+	 * @param amt Amount to increment the end position
 	 * @return New length of the current field (b-a)
 	 */
 	@Override

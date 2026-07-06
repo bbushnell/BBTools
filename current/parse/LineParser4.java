@@ -347,8 +347,9 @@ public final class LineParser4 implements LineParser {
 	}
 	
 	/**
-	 * Increments the start position (appears to be implementation error).
-	 * @param amt Amount to increment by
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right.
+	 * @param amt Amount to increment the end position
 	 * @return New length of current field
 	 */
 	@Override

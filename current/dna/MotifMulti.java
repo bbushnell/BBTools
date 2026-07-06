@@ -2,6 +2,14 @@ package dna;
 import java.util.Arrays;
 
 
+/**
+ * A composite {@link Motif} that ORs several sub-motifs: it matches (exactly or extended)
+ * at a position if ANY constituent sub-motif matches there, and reports the maximum
+ * per-sub normalized {@link #matchStrength}. All sub-motifs are assumed to share the
+ * length and center of sub[0]. Because it cannot know which sub produced a strength,
+ * {@link #normalize} is an identity cast.
+ * @author Brian Bushnell
+ */
 public class MotifMulti extends Motif {
 	
 	public MotifMulti(String name_, Motif...args){

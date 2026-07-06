@@ -5,6 +5,13 @@ import java.util.HashMap;
 import shared.Tools;
 
 
+/**
+ * An immutable genomic interval [a,b] (inclusive) on a given chromosome and strand,
+ * tagged as UTR and/or CDS. Provides interval algebra (intersect/overlap/crosses/
+ * contains) and distance-to-splice-site queries. Coordinates are inclusive, so
+ * length()=b-a+1. Interned via the static {@code table} for deduplication.
+ * @author Brian Bushnell
+ */
 public class Exon implements Comparable<Exon>, Serializable{
 	
 	private static final long serialVersionUID = 1890833345682913235L;

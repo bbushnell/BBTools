@@ -867,7 +867,7 @@ public class AccessionToTaxid {
 			if(distributed){
 				String accession=new String(line, 0, dot);//slow
 				assert(accession.equals(accession.toUpperCase()));//TODO: Disable. (slow)
-				if(accession.hashCode()%serverCount!=serverNum){return false;}
+				if(Math.floorMod(accession.hashCode(), serverCount)!=serverNum){return false;}//FIXED [tax/AccessionToTaxid + TaxServer#001]: was hashCode()%serverCount → negative bucket (serverNum always >=0) dropped ~half of accessions from EVERY server (silent data loss). floorMod is always [0,serverCount). MUST stay identical to TaxServer:1725 routing formula.
 			}
 			
 			if(USE_TABLES){

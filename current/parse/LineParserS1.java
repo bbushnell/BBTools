@@ -330,9 +330,9 @@ public final class LineParserS1 implements LineParserS {
 	}
 	
 	/**
-	 * Moves the start boundary of the current field forward by the specified amount.
-	 * Note: This method appears to have a bug - it modifies 'a' instead of 'b'.
-	 * @param amt Number of characters to advance the boundary
+	 * Increments the end position (right bound b) of the current field by the specified amount,
+	 * growing (or with negative amt, shrinking) the current field on the right.
+	 * @param amt Amount to increment the end position
 	 * @return New length of the current field after adjustment
 	 */
 	@Override

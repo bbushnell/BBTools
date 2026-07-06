@@ -355,7 +355,10 @@ public class Parser {
 				TrimRead.windowMode=true;
 				TrimRead.optimalMode=false;
 				String[] split=b.split(",");
-				if(b.length()>1){
+				//[parse/Parser#004] Guard on split.length, NOT b.length(): bare "window" (len>1, no comma →
+				//split=["window"], no [1]) AIOOBE'd, while "w" worked by luck. Now both bare forms use the
+				//default windowLength=4; "window,N"/"w,N" set N. qtrim=window is a documented flag (changelog).
+				if(split.length>1){
 					TrimRead.windowLength=Integer.parseInt(split[1]);
 				}
 			}else if(Tools.isDigit(b.charAt(0))){
@@ -1103,7 +1106,9 @@ public class Parser {
 			if(ReadStats.COLLECT_QUALITY_STATS){System.err.println("Set average quality histogram output to "+ReadStats.AVG_QUAL_HIST_FILE);}
 		}else if(a.equals("overallbasequalityhistogram") || a.equals("overallbasequalityhist") || a.equals("obqhist")){
 			ReadStats.BQUAL_HIST_OVERALL_FILE=(b==null || b.equalsIgnoreCase("null") || b.equalsIgnoreCase("none")) ? null : b;
-			ReadStats.COLLECT_QUALITY_STATS=(ReadStats.BQUAL_HIST_FILE!=null || ReadStats.QUAL_HIST_FILE!=null || ReadStats.AVG_QUAL_HIST_FILE!=null || ReadStats.BQUAL_HIST_OVERALL_FILE!=null);
+			//[parse/Parser#005] Use !qhistsNull() like the other four qhist branches. The prior hand-rolled
+			//OR omitted QUAL_COUNT_HIST_FILE, so 'qchist=x obqhist=null' silently dropped qchist collection.
+			ReadStats.COLLECT_QUALITY_STATS=!qhistsNull();
 			if(ReadStats.COLLECT_QUALITY_STATS){System.err.println("Set quality histogram output to "+ReadStats.QUAL_HIST_FILE);}
 		}else if(a.equals("matchhistogram") || a.equals("matchhist") || a.equals("mhist")){
 			ReadStats.MATCH_HIST_FILE=(b==null || b.equalsIgnoreCase("null") || b.equalsIgnoreCase("none")) ? null : b;

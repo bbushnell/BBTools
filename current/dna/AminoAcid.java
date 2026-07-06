@@ -974,12 +974,15 @@ public final class AminoAcid {
 
 	/**
 	 * Converts three base bytes to amino acid character.
-	 * Returns '?' for codons containing N bases.
+	 * NOTE: N maps to A here (baseToNumberACGTN2['N']=0), so N-bearing codons translate
+	 * as if N were A; the n>3 '?' guard below is unreachable for valid ACGTN input (all
+	 * table values are 0-3 or -1, and -1 is caught by the assert). Currently has no
+	 * callers; use toByte for N-aware translation (it returns 'X' for N codons).
 	 *
 	 * @param c1 First base byte
 	 * @param c2 Second base byte
 	 * @param c3 Third base byte
-	 * @return Amino acid character or '?' for ambiguous codons
+	 * @return Amino acid character (N treated as A)
 	 */
 	public static final char toChar(byte c1, byte c2, byte c3){
 		assert(baseToNumberACGTN2[c1]>=0 && baseToNumberACGTN2[c2]>=0 && baseToNumberACGTN2[c3]>=0);
@@ -1085,16 +1088,22 @@ public final class AminoAcid {
 	}
 
 	/**
-	 * Translates DNA subsequence to amino acids.
-	 * Translates region from start to stop positions.
+	 * Translates a DNA subsequence to amino acids, OMITTING the terminal codon.
+	 * De-facto contract (sole caller is prok.CallGenes on ORF coordinates): start and
+	 * stop are INCLUSIVE base positions spanning a full ORF (first base of the start
+	 * codon .. last base of the stop codon), and the terminal stop codon is
+	 * intentionally not translated. Yields (stop-start-2)/3 = orf.length()/3-1 acids.
 	 *
 	 * @param bases DNA sequence to translate
-	 * @param start Starting position (inclusive)
-	 * @param stop Ending position (exclusive)
-	 * @return Amino acid sequence for the specified region
+	 * @param start Starting position (inclusive; first base of start codon)
+	 * @param stop Ending position (inclusive; last base of stop codon)
+	 * @return Amino acid sequence for [start,stop] minus the terminal stop codon
 	 */
 	public static final byte[] toAAs(byte[] bases, int start, int stop){
 		if(bases==null){return null;}
+		//Note: Confirmed correct. Drops the terminal stop codon (Orf coords are inclusive per
+		//Orf.java:32-33), NOT an off-by-one; alen=(stop-start-2)/3=orf.length()/3-1, verified
+		//against CallGenes.translate's asserted (r.length()+1)*3==orf.length(). Do not "fix" to i<=stop.
 		stop-=2;
 		final int blen=stop-start;
 		final int alen=blen/3;
