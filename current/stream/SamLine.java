@@ -2275,7 +2275,8 @@ public class SamLine implements Serializable {
 		}
 		
 		r.mapScore=mapq;
-		r.setSecondary(!primary());
+		r.setSecondary(!nonSecondary());
+		r.setSupplementary(supplementary());
 		
 //		if(mapped()){
 //			r.list=new ArrayList<SiteScore>(1);
@@ -2572,6 +2573,7 @@ public class SamLine implements Serializable {
 		if(r2!=null && r2.strand()==Shared.MINUS){flag|=0x20;}
 		if(r.secondary()){flag|=0x100;}
 		if(r.discarded()){flag|=0x200;}
+		if(r.supplementary()){flag|=0x800;}
 		return flag;
 	}
 	
@@ -2670,9 +2672,18 @@ public class SamLine implements Serializable {
 		return firstFragment() ? 0 : lastFragment() ? 1 : 0;
 	}
 
-	/** Tests whether this is a primary alignment.
+	/** Tests whether the secondary-alignment bit (SAM 0x100) is NOT set.
+	 * NOTE: this is NOT the SAM "primary" definition, which also excludes supplementary
+	 * (0x800); use primary()/nonPrimary() below for the spec-correct test.
 	 * @return True if FLAG bit 0x100 is not set */
-	public boolean primary(){return (flag&0x100)==0;}
+	public boolean nonSecondary(){return (flag&0x100)==0;}
+	/** Tests whether this is the SAM primary (representative) alignment: neither the
+	 * secondary (0x100) nor the supplementary (0x800) bit is set.
+	 * @return True if neither 0x100 nor 0x800 is set */
+	public boolean primary(){return (flag&0x900)==0;}
+	/** Tests whether this is a non-primary alignment: secondary (0x100) or supplementary (0x800).
+	 * @return True if 0x100 or 0x800 is set */
+	public boolean nonPrimary(){return (flag&0x900)!=0;}
 	/** Sets primary alignment status.
 	 * @param b True for primary, false for secondary */
 	public void setPrimary(boolean b){

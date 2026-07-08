@@ -460,7 +460,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 	
 	private static int calcInsertSize(SamLine sl) {
 		assert(sl.mapped() && sl.pairedOnSameChrom());
-		assert(sl.primary());
+		assert(sl.nonSecondary());
 		assert(!sl.supplementary());
 		assert(sl.leftmost());
 		
@@ -574,7 +574,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 			if(samFilter!=null && !samFilter.passesFilter(sl)){return;}
 			
 			//sl.nextMapped();
-			if(sl.mapped() && sl.primary() && !sl.supplementary()){
+			if(sl.mapped() && sl.nonSecondary() && !sl.supplementary()){
 				final String rname=sl.rnameS();
 				Contig scaf=getScaffold(rname);
 				if(scaf!=null){
@@ -752,7 +752,7 @@ public class Lilypad implements Accumulator<Lilypad.ProcessThread> {
 		}
 
 		void add(SamLine sl){
-			assert(sl.mapped() && sl.primary() && !sl.supplementary());
+			assert(sl.mapped() && sl.nonSecondary() && !sl.supplementary());
 			if(sl.nextMapped()){
 				if(sl.pairedOnSameChrom()){
 					if(!sl.properPair()){

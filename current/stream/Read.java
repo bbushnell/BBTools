@@ -3444,6 +3444,10 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	public boolean insertvalid(){return (flags&INSERTMASK)==INSERTMASK;}
 	public boolean hasAdapter(){return (flags&ADAPTERMASK)==ADAPTERMASK;}
 	public boolean secondary(){return (flags&SECONDARYMASK)==SECONDARYMASK;}
+	public boolean supplementary(){return (flags&SUPPLEMENTARYMASK)==SUPPLEMENTARYMASK;}
+	/** True iff neither secondary (SAM 0x100) nor supplementary (SAM 0x800) is set; i.e.
+	 * this is the SAM representative (primary) line of its read. */
+	public boolean primary(){return (flags&(SECONDARYMASK|SUPPLEMENTARYMASK))==0;}
 	public boolean aminoacid(){return (flags&AAMASK)==AAMASK;}
 	public boolean amino(){return (flags&AAMASK)==AAMASK;}
 	public boolean junk(){return (flags&JUNKMASK)==JUNKMASK;}
@@ -4260,6 +4264,11 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		if(b){flags|=SECONDARYMASK;}
 	}
 
+	public void setSupplementary(boolean b){
+		flags=(flags&~SUPPLEMENTARYMASK);
+		if(b){flags|=SUPPLEMENTARYMASK;}
+	}
+
 	public void setAminoAcid(boolean b){
 		flags=(flags&~AAMASK);
 		if(b){flags|=AAMASK;}
@@ -4402,14 +4411,14 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 	private static final byte[][] QUALCACHE=new byte[1000][];
 
 
-	//Flag bit-layout (the `flags` int): bit 0=strand, 1=mapped, 2=paired, 3=perfect, 4=ambiguous, 5=rescued, (6 free - old COLORMASK), 7=synthetic, 8=discard, 9=invalid, 10=swap, 11=shortmatch, 12=pairnum (single bit: 0=read1/1=read2), 13=insert-valid, 14=adapter, 15=secondary, 16=aminoacid, 17=junk, 18=validated, 19=tested, 20=inverted-repeat, 21=trimmed. 22 bits of 32 used; accessors are (flags&MASK)==MASK, setters clear-then-set. toText writes them as a binary string over maskArray (bits 0-22), fromText does Integer.parseInt(...,2) - symmetric.
+	//Flag bit-layout (the `flags` int): bit 0=strand, 1=mapped, 2=paired, 3=perfect, 4=ambiguous, 5=rescued, 6=supplementary (old COLORMASK), 7=synthetic, 8=discard, 9=invalid, 10=swap, 11=shortmatch, 12=pairnum (single bit: 0=read1/1=read2), 13=insert-valid, 14=adapter, 15=secondary, 16=aminoacid, 17=junk, 18=validated, 19=tested, 20=inverted-repeat, 21=trimmed. 22 bits of 32 used; accessors are (flags&MASK)==MASK, setters clear-then-set. toText writes them as a binary string over maskArray (bits 0-22), fromText does Integer.parseInt(...,2) - symmetric.
 	public static final int STRANDMASK=1;
 	public static final int MAPPEDMASK=(1<<1);
 	public static final int PAIREDMASK=(1<<2);
 	public static final int PERFECTMASK=(1<<3);
 	public static final int AMBIMASK=(1<<4);
 	public static final int RESCUEDMASK=(1<<5);
-	//	public static final int COLORMASK=(1<<6); //TODO:  Change to semiperfectmask?
+	public static final int SUPPLEMENTARYMASK=(1<<6); //SAM flag 0x800; reuses the freed old COLORMASK bit
 	public static final int SYNTHMASK=(1<<7);
 	public static final int DISCARDMASK=(1<<8);
 	public static final int INVALIDMASK=(1<<9);

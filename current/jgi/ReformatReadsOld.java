@@ -1217,16 +1217,20 @@ public class ReformatReadsOld {
 				cris.returnList(ln.id, true);
 			}
 		}
-		assert(!errorState);
+		//assertDie (not a bare assert): these run before the output streams are closed, so a
+		//bare AssertionError would kill only the main thread and leave non-daemon writer threads
+		//alive -> the JVM hangs.  errorState is legitimately reachable (truncated/corrupt input),
+		//so crash the whole process loudly instead.
+		assert(!errorState) : KillSwitch.assertDie("Error state set during read processing.");
 		errorState|=ReadStats.writeAll();
-		assert(!errorState);
+		assert(!errorState) : KillSwitch.assertDie("Error state set while writing ReadStats.");
 		{
 			//Prevent a spurious error message in the event of a race condition when maxReads is set.
 			boolean b=ReadWrite.closeStream(cris);
 			if(maxReads<1 || maxReads==Long.MAX_VALUE || (maxReads!=readsProcessed && maxReads*2!=readsProcessed && samplerate<1)){errorState|=b;}
-		}assert(!errorState);
+		}assert(!errorState) : KillSwitch.assertDie("Error state set closing the input stream; the input may be truncated or corrupt.");
 		errorState|=ReadWrite.closeOutputStreams(ros, rosb);
-		assert(!errorState);
+		assert(!errorState) : KillSwitch.assertDie("Error state set closing the output streams.");
 		if(deleteEmptyFiles){
 			deleteEmpty(readsOut1, readsOut2, readsOutSingle);
 		}

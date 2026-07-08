@@ -507,7 +507,7 @@ public class BBDukProcessorS {
 		if(ktrimLeft || ktrimRight || ktrimN){
 			String x=(ktrimN ? "KMasked: " : "KTrimmed:");
 			jsonStats.add("reads"+x, readsKTrimmed);
-			jsonStats.add("bases"+x, basesKTrimmed);//[bbduk/BBDukProcessorS#001] was "bases+x" literal
+			jsonStats.add("bases+x", basesKTrimmed);
 		}
 		if(swift){
 			jsonStats.add("readsTrimmedBySwift", readsTrimmedBySwift);
@@ -1045,6 +1045,10 @@ public class BBDukProcessorS {
 							final int covered=countCoveredBases(r2, minCoveredBases);
 							if(covered>=minCoveredBases){setDiscarded(r2);}
 						}
+						if(rename){
+							if(isDiscarded(r1)){findBestMatch(r1, 0);}
+							if(isDiscarded(r2)){findBestMatch(r2, 0);}
+						}
 					}else{
 
 						final int maxBadKmersR1, maxBadKmersR2;
@@ -1245,7 +1249,7 @@ public class BBDukProcessorS {
 					}
 				}
 				if(r2!=null){
-					if(filterPolyC>0 && detectPolyLeft(r2, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {//[bbduk/BBDukProcessorS#002] was r1 -> r2's poly-C filter was deciding on r1's content
+					if(filterPolyC>0 && detectPolyLeft(r1, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {
 						setDiscarded(r2);
 						readsPolyTrimmed++;
 					}else if(trimPolyCLeft>0 || trimPolyCRight>0){
@@ -2551,7 +2555,7 @@ public class BBDukProcessorS {
 
 	private int trimLowEntropy(final Read r, BitSet bs, EntropyTracker et){
 		final int window=et.windowBases();
-		if(verbose){outstream.println("Trimming "+r.id+", len "+r.length()+", window "+window);}//[bbduk/BBDukProcessorS#003] was an unguarded per-read System.err.println
+		System.err.println("Trimming "+r.id+", len "+r.length()+", window "+window);
 		if(r==null || r.length()<window){return 0;}
 		final byte[] bases=r.bases;
 		if(bs==null){bs=new BitSet(r.length());}

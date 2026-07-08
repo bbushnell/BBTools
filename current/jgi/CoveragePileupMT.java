@@ -1547,7 +1547,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			final double cKmers=sl.qual==null ? kmers : Tools.countCorrectKmers(sl.qual, k);
 			kmersProcessed+=kmers;
 			correctKmers+=cKmers;
-			final boolean properPair=(sl.hasMate() && sl.mapped() && sl.primary() && sl.properPair());
+			final boolean properPair=(sl.hasMate() && sl.mapped() && sl.nonSecondary() && sl.properPair());
 			if(PHYSICAL_COVERAGE && properPair){
 				SamLine mate=pairTable.remove(sl.qname);
 				if(mate==null){pairTable.put(sl.qname, sl);}
@@ -1561,7 +1561,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 					mappedKmers+=kmers;
 					addCoverage(sl.rnameS(), null, null, Tools.min(start1, start2), Tools.max(stop1, stop2), length, sl.mappedNonClippedBases(), strand, 2, sl.properPair(), sl);
 				}
-			}else if(sl.mapped() && (USE_SECONDARY || sl.primary()) && sl.mapq>=minMapq){
+			}else if(sl.mapped() && (USE_SECONDARY || sl.nonSecondary()) && sl.mapq>=minMapq){
 				assert(sl.seq!=null || sl.cigar!=null) : "This program requires bases or a cigar string for every sam line.  Problem line:\n"+sl+"\n";
 //				assert(sl.seq!=null) : sl.toString();
 				final int length=sl.length();

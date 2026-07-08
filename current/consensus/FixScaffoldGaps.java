@@ -434,7 +434,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 	 */
 	private static int calcInsertSize(SamLine sl) {
 		assert(sl.mapped() && sl.pairedOnSameChrom());
-		assert(sl.primary());
+		assert(sl.nonSecondary());
 		assert(!sl.supplementary());
 		assert(sl.leftmost());
 		
@@ -539,7 +539,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 			if(samFilter!=null && !samFilter.passesFilter(sl)){return;}
 			
 			//sl.nextMapped();
-			if(sl.mapped() && sl.pairedOnSameChrom() && sl.properPair() && sl.primary() && !sl.supplementary() && sl.leftmost()){
+			if(sl.mapped() && sl.pairedOnSameChrom() && sl.properPair() && sl.nonSecondary() && !sl.supplementary() && sl.leftmost()){
 				final String rname=sl.rnameS();
 				Scaffold scaf=refMap.get(rname);
 				if(scaf==null){scaf=refMap2.get(Tools.trimToWhitespace(rname));}
@@ -614,7 +614,7 @@ public class FixScaffoldGaps implements Accumulator<FixScaffoldGaps.ProcessThrea
 		 */
 		void add(SamLine sl, int insertSize){
 			assert(sl.mapped() && sl.pairedOnSameChrom());
-			assert(sl.primary());
+			assert(sl.nonSecondary());
 			assert(!sl.supplementary());
 			assert(sl.leftmost());
 

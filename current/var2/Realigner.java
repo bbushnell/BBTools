@@ -34,7 +34,7 @@ public class Realigner {
 	}
 	
 	public boolean realign(Read r, SamLine sl, final boolean unclip){
-		if(!r.mapped() || sl.supplementary() || !sl.primary()){return false;}
+		if(!r.mapped() || sl.supplementary() || !sl.nonSecondary()){return false;}
 		Scaffold scaf=map.getScaffold(sl.rnameS());
 		assert(scaf!=null) : sl.rnameS();
 		return realign(r, sl, scaf, unclip);
@@ -58,7 +58,7 @@ public class Realigner {
 	 * @return true if realignment was successful and improved the alignment
 	 */
 	public boolean realign(final Read r, final SamLine sl, final byte[] ref, final boolean unclip){
-		if(!r.mapped() || sl.supplementary() || !sl.primary()){return false;}
+		if(!r.mapped() || sl.supplementary() || !sl.nonSecondary()){return false;}
 		
 		// Analyze alignment quality to determine if realignment is worthwhile
 		int[] mSCNID=r.countMatchSymbols();
