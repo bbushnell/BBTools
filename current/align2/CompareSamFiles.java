@@ -104,7 +104,7 @@ public class CompareSamFiles {
 				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
 					SamLine sl=new SamLine(lp.set(s));
-					if(sl.primary()){
+					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						if(parsecustom && r.originalSite==null){
 							assert(false);
@@ -127,7 +127,7 @@ public class CompareSamFiles {
 				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
 					SamLine sl=new SamLine(lp.set(s));
-					if(sl.primary()){
+					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						if(parsecustom && r.originalSite==null){
 							assert(false);
@@ -156,7 +156,7 @@ public class CompareSamFiles {
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
 					SamLine sl=new SamLine(lp.set(s));
 //					assert(false) : s+", "+truePos1.cardinality()+", "+truePos2.cardinality()+", "+falsePos1.cardinality()+", "+falsePos2.cardinality()+", ";
-					if(sl.primary()){
+					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						int id=(int)r.numericID;
 						if(!added.get(id)){
@@ -185,7 +185,7 @@ public class CompareSamFiles {
 				byte c=s[0];
 				if(c!='@'/* && c!=' ' && c!='\t'*/){
 					SamLine sl=new SamLine(lp.set(s));
-					if(sl.primary()){
+					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						int id=(int)r.numericID;
 						if(!added.get(id)){

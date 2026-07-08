@@ -523,16 +523,20 @@ public class ReformatReads {
 
 		processStream(cris, ros, rosb, readsRemaining, basesRemaining);
 
-		assert(!errorState);
+		//assertDie (not a bare assert): these run before the streams are closed below, so a
+		//bare AssertionError here would kill only the main thread and leave non-daemon output
+		//writer threads alive -> the JVM hangs forever.  errorState is legitimately reachable
+		//(e.g. truncated/corrupt input), so crash the whole process loudly instead.
+		assert(!errorState) : KillSwitch.assertDie("Error state set during read processing.");
 		errorState|=ReadStats.writeAll();
-		assert(!errorState);
+		assert(!errorState) : KillSwitch.assertDie("Error state set while writing ReadStats.");
 		{
 			//Prevent a spurious error message in the event of a race condition when maxReads is set.
 			boolean b=ReadWrite.closeStream(cris);
 			if(maxReads<1 || maxReads==Long.MAX_VALUE || (maxReads!=readsProcessed && maxReads*2!=readsProcessed && samplerate<1)){errorState|=b;}
-		}assert(!errorState);
+		}assert(!errorState) : KillSwitch.assertDie("Error state set closing the input stream; the input may be truncated or corrupt.");
 		errorState|=ReadWrite.closeOutputStreams(ros, rosb);
-		assert(!errorState);
+		assert(!errorState) : KillSwitch.assertDie("Error state set closing the output streams.");
 		if(deleteEmptyFiles){
 			deleteEmpty(readsOut1, readsOut2, readsOutSingle);
 		}
@@ -885,12 +889,14 @@ public class ReformatReads {
 		}
 
 		if(primaryOnly){
-			if(r1!=null && (r1.bases==null || r1.secondary())){
+			//!primary() drops both secondary (0x100) and supplementary (0x800) alignments;
+			//supplementary alignments are canonically non-primary per the SAM spec.
+			if(r1!=null && (r1.bases==null || !r1.primary())){
 				r1.setDiscarded(true);
 				unmappedBasesT+=initialLength1;
 				unmappedReadsT++;
 			}
-			if(r2!=null && (r2.bases==null || r2.secondary())){
+			if(r2!=null && (r2.bases==null || !r2.primary())){
 				r2.setDiscarded(true);
 				unmappedBasesT+=initialLength2;
 				unmappedReadsT++;

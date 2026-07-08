@@ -362,7 +362,7 @@ public class RestoreBases {
 			int j=i+1;
 			while(j<n && sameGroup(primary, all.get(j))){j++;}
 			//group is [i, j); primary is the rank-0 record (primary && !supplementary)
-			final boolean usable=primary.primary() && !primary.supplementary() && primary.seq!=null;
+			final boolean usable=primary.nonSecondary() && !primary.supplementary() && primary.seq!=null;
 			if(usable && hasHardClip(primary.cigar)){
 				//primary itself lacks the full read (hard-clipped) - cannot restore this group
 				skippedHardPrimary+=(j-i-1);
@@ -580,7 +580,7 @@ public class RestoreBases {
 	 * @return 0 for primary-non-supplementary, 1 for secondary, 2 for supplementary */
 	private static int rank(SamLine sl){
 		if(sl.supplementary()){return 2;}
-		if(!sl.primary()){return 1;}
+		if(!sl.nonSecondary()){return 1;}
 		return 0;
 	}
 

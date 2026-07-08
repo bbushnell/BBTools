@@ -25,6 +25,7 @@ import fileIO.TextStreamWriter;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -3141,28 +3142,39 @@ public final class Dedupe {
 		
 		@Override
 		public void run(){
-			
+			try{
+				runInner();
+			}catch(Throwable t){
+				//A worker thread dying silently would let Dedupe finish with wrong output and
+				//exit 0 (e.g. the determineCluster2 AIOOBE on an orphan unit).  Crash the whole
+				//JVM loudly instead: print the stack trace and halt with exit 1.
+				KillSwitch.throwableKill(t);
+			}
+		}
+
+		private void runInner(){
+
 			ConcurrentReadInputStream cris=crisq.poll();
-			
+
 //			String lastName=null;
-			
+
 			while(cris!=null){
 				ListNum<Read> ln=cris.nextList();
 				ArrayList<Read> reads=(ln!=null ? ln.list : null);
-				
+
 				while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
-					
+
 					for(Read r : reads){
 //						lastName=r.id;
 						processReadOuter(r);
 					}
-					
+
 					if(codeMapT!=null && (codeMapT.size()>threadMaxReadsToBuffer || basesStoredT>threadMaxBasesToBuffer)){
 						assert(addToCodeMapT);
 						long added=mergeMaps();
 						addedToMainT+=added;
 					}
-					
+
 					cris.returnList(ln);
 					ln=cris.nextList();
 					reads=(ln!=null ? ln.list : null);
@@ -3174,9 +3186,9 @@ public final class Dedupe {
 				}
 				cris=crisq.poll();
 			}
-			
+
 //			System.err.println("Thread finished; last name = "+lastName);
-			
+
 			codeMapT=null;
 			localConflictList=null;
 			sharedConflictList=null;
@@ -3475,6 +3487,11 @@ public final class Dedupe {
 								if(quit){break;}//too many edges
 								int u1cluster=-1, u2cluster=-2;
 								if(preventTransitiveOverlaps && u!=u2){
+									//Only cluster-member units have a slot in clusterNumbers; invalid or
+									//orphaned units carry unitID==Integer.MAX_VALUE and would index out of
+									//bounds in determineCluster2.  They cannot be clustered, so skip the
+									//overlap entirely under preventTransitiveOverlaps.
+									if(!u.clusterMember() || !u2.clusterMember()){continue;}
 									u1cluster=u.determineCluster();
 									u2cluster=u2.determineCluster();
 								}
@@ -4549,6 +4566,14 @@ public final class Dedupe {
 		
 		int determineCluster() {
 			return determineCluster2(unitID);
+		}
+
+		/** True if this unit occupies a valid slot in clusterNumbers (a real cluster
+		 * member).  Invalid or orphaned units (a read whose mate was invalidated) carry
+		 * unitID==Integer.MAX_VALUE and have no slot; clustering them would index out of
+		 * bounds in determineCluster2. */
+		boolean clusterMember() {
+			return clusterNumbers!=null && unitID>=0 && unitID<clusterNumbers.length();
 		}
 		
 		/**

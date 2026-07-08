@@ -104,7 +104,7 @@ public class DedupeByMapping extends BBTool_ST{
 	
 	boolean processReadPair_unsorted(Read r1) {
 		SamLine sl=r1.samline;
-		if(!sl.primary()){return false;}
+		if(!sl.nonSecondary()){return false;}
 		if(sl.mapped()){
 			String rname=new String(sl.rname());
 			Integer x=contigToNumber.get(rname);
@@ -140,7 +140,7 @@ public class DedupeByMapping extends BBTool_ST{
 	boolean processReadPair_sorted(Read r1) {
 		assert(false) : "TODO";
 		SamLine sl=r1.samline;
-		if(!sl.primary()){return false;}
+		if(!sl.nonSecondary()){return false;}
 		if(sl.mapped()){
 			String rname=new String(sl.rname());
 			Integer x=contigToNumber.get(rname);

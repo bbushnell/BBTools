@@ -136,7 +136,7 @@ public class GradeSamFile {
 				int id=(parsecustom && seen!=null ? ((((int)sl.parseNumericId())<<1)|sl.pairnum()) : (int)lines);
 //				System.out.println(sl.parseNumericId()+", "+sl.pairnum()+", "+id+"");
 //				if(id%500==10){assert(false);}
-				if(sl.primary() && (!parsecustom || seen==null || !seen.get(id))){
+				if(sl.nonSecondary() && (!parsecustom || seen==null || !seen.get(id))){
 					Read r=sl.toRead(parsecustom);
 					if(seen!=null){seen.set(id);}
 					if(parsecustom && r.originalSite==null){

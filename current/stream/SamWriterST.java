@@ -167,7 +167,7 @@ public class SamWriterST implements Writer {
 				clone.setFromSite(ss);
 				clone.setSecondary(true);
 				SamLine secondary=new SamLine(clone, r.pairnum());
-				assert(!secondary.primary());
+				assert(!secondary.nonSecondary());
 				assert(!ReadStreamWriter.USE_ATTACHED_SAMLINE || secondary.cigar!=null) : r;
 				samLines.add(secondary);
 			}

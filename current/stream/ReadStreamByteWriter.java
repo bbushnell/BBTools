@@ -659,7 +659,7 @@ public class ReadStreamByteWriter extends ReadStreamWriter {
 				clone.setFromSite(ss);
 				clone.setSecondary(true);
 				SamLine secondary=new SamLine(clone, r.pairnum());
-				assert(!secondary.primary());
+				assert(!secondary.nonSecondary());
 
 
 				assert(!ASSERT_CIGAR || secondary.cigar!=null) : r;

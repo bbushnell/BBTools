@@ -191,7 +191,7 @@ public class SamToEst {
 			}else{
 				
 				SamLine sl=new SamLine(lp.set(line));
-				if(USE_SECONDARY || sl.primary()){
+				if(USE_SECONDARY || sl.nonSecondary()){
 					
 					if(sl.mapped() && sl.cigar!=null){
 						String cigar=sl.cigar;

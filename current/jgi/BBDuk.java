@@ -188,7 +188,7 @@ public class BBDuk {
 				qfin2=b;
 			}else if(a.equals("qfout") || a.equals("qfout1")){
 				qfout1=b;
-			}else if(a.equals("qfout2")){//[jgi/BBDuk] was duplicate "qfin2" -> the explicit qfout2= flag was unreachable
+			}else if(a.equals("qfin2")){
 				qfout2=b;
 			}else if(a.equals("out") || a.equals("out1") || a.equals("outu") || a.equals("outu1") || a.equals("outnonmatch") ||
 					a.equals("outnonmatch1") || a.equals("outunnmatch") || a.equals("outunmatch1") || a.equals("outunnmatched") || a.equals("outunmatched1")){
@@ -863,8 +863,7 @@ public class BBDuk {
 		assert(!useShortKmers || ktrimRight || ktrimLeft || ktrimN || ksplit) : "\nSetting mink or useShortKmers also requires setting a ktrim mode, such as 'r', 'l', or 'n'\n";
 		
 		if(maskMiddle){
-			assert(k>midMaskLen+1) : "Middle-masking requires k>midMaskLen+1, but k="+k+" and midMaskLen="+midMaskLen+
-				".  Increase k, shorten the mask, or disable middle-masking with mm=f.";
+			assert(k>midMaskLen+1);
 			int bits=midMaskLen*bitsPerBase;
 //			int shift=(k-maskMiddle)&(~1);//Equivalent to (x/2)*2
 			int shift=((k-midMaskLen)/2)*bitsPerBase; //old behavior before moving to variable width can be restored with +1: "((k-maskMiddle+1)/2)*bitsPerBase"
@@ -1397,7 +1396,7 @@ public class BBDuk {
 		if(ktrimLeft || ktrimRight || ktrimN){
 			String x=(ktrimN ? "KMasked: " : "KTrimmed:");
 			jsonStats.add("reads"+x, readsKTrimmed);
-			jsonStats.add("bases"+x, basesKTrimmed);//[jgi/BBDuk] was "bases+x" literal (twin of bbduk/BBDukProcessorS#001)
+			jsonStats.add("bases+x", basesKTrimmed);
 		}
 		if(swift){
 			jsonStats.add("readsTrimmedBySwift", readsTrimmedBySwift);
@@ -2824,6 +2823,10 @@ public class BBDuk {
 									final int covered=countCoveredBases(r2, keySets, minCoveredBases);
 									if(covered>=minCoveredBases){setDiscarded(r2);}
 								}
+								if(rename){
+									if(isDiscarded(r1)){findBestMatch(r1, keySets, 0);}
+									if(isDiscarded(r2)){findBestMatch(r2, keySets, 0);}
+								}
 							}else{
 
 								final int maxBadKmersR1, maxBadKmersR2;
@@ -3026,7 +3029,7 @@ public class BBDuk {
 							}
 						}
 						if(r2!=null){
-							if(filterPolyC>0 && detectPolyLeft(r2, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {//[jgi/BBDuk] was r1 -> r2's poly-C filter was deciding on r1's content (twin of bbduk/BBDukProcessorS#002)
+							if(filterPolyC>0 && detectPolyLeft(r1, filterPolyC, maxNonPoly, (byte)'C')>=filterPolyC) {
 								setDiscarded(r2);
 								readsPolyTrimmedT++;
 							}else if(trimPolyCLeft>0 || trimPolyCRight>0){
@@ -4427,7 +4430,7 @@ public class BBDuk {
 		
 		private int trimLowEntropy(final Read r, BitSet bs, EntropyTracker et){
 			final int window=et.windowBases();
-			if(verbose){outstream.println("Trimming "+r.id+", len "+r.length()+", window "+window);}//[jgi/BBDuk] was an unguarded per-read System.err.println (twin of bbduk/BBDukProcessorS#003)
+			System.err.println("Trimming "+r.id+", len "+r.length()+", window "+window);
 			if(r==null || r.length()<window){return 0;}
 			final byte[] bases=r.bases;
 			if(bs==null){bs=new BitSet(r.length());}

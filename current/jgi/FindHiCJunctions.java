@@ -294,7 +294,7 @@ public class FindHiCJunctions {
 	
 	private boolean process(Read r, SamLine sl){
 		
-		if(sl==null || !sl.mapped() || !sl.primary() || sl.supplementary()|| r.match==null || !r.containsNonNM()){
+		if(sl==null || !sl.mapped() || !sl.nonSecondary() || sl.supplementary()|| r.match==null || !r.containsNonNM()){
 			return false;
 		}
 		

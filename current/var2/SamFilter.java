@@ -106,7 +106,7 @@ public class SamFilter {
 		if(!sl.mapped()){return includeUnmapped;}
 		else if(!includeMapped){return false;}
 
-		if(!includeNonPrimary && !sl.primary()){return false;}
+		if(!includeNonPrimary && !sl.nonSecondary()){return false;}
 		if(!includeSupplementary && sl.supplementary()){return false;}
 		if(!includeDuplicate && sl.duplicate()){return false;}
 

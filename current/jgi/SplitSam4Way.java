@@ -83,10 +83,10 @@ public class SplitSam4Way {
 //				bases+=sl.seq.length();
 				bases+=sl.seq.length;
 				
-				if(!sl.mapped() || !sl.nextMapped() || !sl.hasMate() || !sl.primary()){
+				if(!sl.mapped() || !sl.nextMapped() || !sl.hasMate() || !sl.nonSecondary()){
 					if(unmapped!=null){unmapped.println(bytes);}
 					ureads++;
-//					System.out.println("unmapped: "+sl.mapped()+", "+sl.nextMapped()+", "+sl.hasMate()+", "+!sl.primary());
+//					System.out.println("unmapped: "+sl.mapped()+", "+sl.nextMapped()+", "+sl.hasMate()+", "+!sl.nonSecondary());
 				}else if(!sl.pairedOnSameChrom() || sl.strand()==sl.nextStrand()){
 					if(chimeric!=null){chimeric.println(bytes);}
 					creads++;

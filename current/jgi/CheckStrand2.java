@@ -1339,7 +1339,7 @@ public class CheckStrand2 implements Accumulator<CheckStrand2.ProcessThread> {
 		 * @param sl The read's SamLine.
 		 */
 		void processSamLine(final Read r1, final SamLine sl) {
-			if(!sl.primary() || sl.supplementary()) {return;}
+			if(!sl.nonSecondary() || sl.supplementary()) {return;}
 			samLinesProcessedT++;
 			if(!sl.mapped()) {return;}
 			allAlignedReadsT++;
