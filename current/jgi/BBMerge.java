@@ -1277,6 +1277,9 @@ public class BBMerge {
 				if(findAdapterSequence){
 					atrack.merge(ct.atrackT);
 				}
+
+				//Combine this thread's cardinality tracker into the shared loglog (thread-safe: merged at join).
+				if(loglog!=null && ct.loglogT!=null){loglog.add(ct.loglogT);}
 			}
 		}
 		
@@ -1844,7 +1847,9 @@ public class BBMerge {
 			trimReadsByOverlap=trimByOverlap_;
 			kmerT=(tadpole==null || tadpole.k()<32 ? null : new Kmer(tadpole.k()));
 			net=(net0==null ? null : net0.copy(false));
-			
+			//Unique per-thread tracker, same params (seed) as the shared loglog so they merge correctly.
+			loglogT=(loglog==null ? null : CardinalityTracker.makeTracker(2048, 31, 0, 0));
+
 			if(useEntropy){
 				kmerCounts=new short[1<<(2*entropyK)];
 			}else{
@@ -1876,8 +1881,8 @@ public class BBMerge {
 				ArrayList<Read> listg=(rosgood==null /*&& rosi==null*/ ? null : new ArrayList<Read>(reads.size()));
 				ArrayList<Read> listb=(rosbad==null ? null : new ArrayList<Read>(reads.size()));
 				
-				if(loglog!=null){
-					for(Read r1 : reads){loglog.hash(r1);}
+				if(loglogT!=null){
+					for(Read r1 : reads){loglogT.hash(r1);}
 				}
 				
 				for(Read r1 : reads){
@@ -2936,6 +2941,11 @@ public class BBMerge {
 		
 //		final LongList[][] adapterCountsT=new LongList[2][4];
 		final AdapterTracker atrackT=new AdapterTracker();
+
+		/** Per-thread cardinality tracker; merged into the shared loglog after this thread joins.
+		 * The shared loglog is not thread-safe, so each thread accumulates into its own tracker with
+		 * the same params (same seed) and they are combined at the end. */
+		final CardinalityTracker loglogT;
 
 		private final BitSet mergeOKBitsetT=new BitSet(400);
 		private final Kmer kmerT;

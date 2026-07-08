@@ -124,15 +124,21 @@ public final class FutureLogLog2 extends CardinalityTracker {
 
 		if(CLAMP_OVERFLOW){
 			// Overflow hashes (delta>1) set the MSB: proves NLZ >= absNLZ+1
-			if(delta<0){return;}
+			if(delta<0){ctrBelow++; bumpCtr(3, wordIdx); return;}
 		}else{
 			// IOT: only delta 0 (floor hit) and 1 (future hit) are representable
-			if(delta<0 || delta>1){return;}
+			if(delta<0){ctrBelow++; bumpCtr(3, wordIdx); return;}
+			if(delta>1){ctrHigh++; bumpCtr(2, wordIdx); return;}
 		}
 		final int clampedDelta=Math.min(delta, 1);
 
 		final int bitToSet=1<<(clampedDelta+register*2);
-		if((word&bitToSet)!=0){return;} // bit already set
+		if((word&bitToSet)!=0){
+			ctrRehit++;
+			bumpCtr(0, wordIdx);
+			if(clampedDelta==1){bumpCtr(1, wordIdx);}
+			return;
+		} // bit already set
 
 		lastCardinality=-1;
 		lastEstimates=null;
@@ -143,6 +149,9 @@ public final class FutureLogLog2 extends CardinalityTracker {
 			final boolean wasZeroExp=(localExp==0);
 			word=promote(word);
 			words[wordIdx]=(short)word;
+			if(ctrX!=null){ // recent-window semantics
+				for(int sem=0; sem<4; sem++){ctrX[sem][wordIdx]=0;}
+			}
 			// Update numLocalZeros tracking
 			if(wasZeroExp){
 				numLocalZeros--;
@@ -390,6 +399,24 @@ public final class FutureLogLog2 extends CardinalityTracker {
 	public int getModBuckets(){return modBuckets;}
 	public int getGlobalExp(){return globalExp;}
 	/** Debug: return raw word value at index i. */
+	/** Event counters (Amber, 2026-07-04): duplicate-pressure observables.
+	 * ctrRehit: add hit an already-set bit; ctrBelow: NLZ below the window floor;
+	 * ctrHigh: NLZ above the representable aperture (IOT drop / would-be clamp). */
+	public long ctrRehit=0, ctrBelow=0, ctrHigh=0;
+	/** Brian's per-word 2-bit saturating counters (2026-07-04), FOUR candidate
+	 * semantics tallied side by side to find which occupancy vector best
+	 * separates HC from LC and LC shapes.  All saturate at 3 and reset on
+	 * promotion of their word.  Experimental side-state (like 'added').
+	 * [0]=re-hit any set bit; [1]=re-hit the FUTURE bit only (highest
+	 * recordable level); [2]=overflow arrivals (delta>1); [3]=below-floor
+	 * arrivals (delta<0). */
+	public byte[][] ctrX;
+
+	private void bumpCtr(int sem, int wordIdx){
+		if(ctrX==null){ctrX=new byte[4][numWords];}
+		if(ctrX[sem][wordIdx]<3){ctrX[sem][wordIdx]++;}
+	}
+
 	public int getWord(int i){return words[i]&0xFFFF;}
 
 	/*--------------------------------------------------------------*/

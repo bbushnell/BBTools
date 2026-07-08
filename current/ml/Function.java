@@ -162,6 +162,7 @@ public abstract class Function {
 		array[ESIG]=ExtendedSigmoid.instance;
 		array[EMSIG]=ExtendedMSig.instance;
 		array[BELL]=Bell.instance;
+		array[LINEAR]=Linear.instance;
 		for(int i=0; i<array.length; i++) {
 			Function f=array[i];
 			assert(f!=null) : i+", "+TYPES[i]+", "+f;
@@ -203,13 +204,13 @@ public abstract class Function {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static final int SIG=0, TANH=1, RSLOG=2, MSIG=3, SWISH=4, ESIG=5, EMSIG=6, BELL=7;
+	public static final int SIG=0, TANH=1, RSLOG=2, MSIG=3, SWISH=4, ESIG=5, EMSIG=6, BELL=7, LINEAR=8;
 	
-	static final String[] TYPES=new String[] {"SIG", "TANH", "RSLOG", "MSIG", "SWISH", "ESIG", "EMSIG", "BELL"};
+	static final String[] TYPES=new String[] {"SIG", "TANH", "RSLOG", "MSIG", "SWISH", "ESIG", "EMSIG", "BELL", "LINEAR"};
 	
 	static final String[] TYPES_LONG=new String[] {"SIGMOID", "HYPERBOLICTANGENT", 
 	"ROTATIONALLYSYMMETRICLOGARITHM", "MIRROREDSIGMOID", "SWISH",
-	"EXTENDEDSIGMOID", "EXTENDEDMIRROREDSIGMOID", "GAUSSIAN"};
+	"EXTENDEDSIGMOID", "EXTENDEDMIRROREDSIGMOID", "GAUSSIAN", "LINEAR"};
 	
 	/** Array of singleton Function instances indexed by type */
 	private static final Function[] functions=makeFunctions();

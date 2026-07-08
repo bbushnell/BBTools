@@ -1325,7 +1325,7 @@ public class Data {
 			if(!f.exists()){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
 				f=new File(ROOT+fname);
-				if(f.exists()){path=ROOT;}
+				if(f.exists()){path=ROOT+fname;}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+ROOT);}}
 			}
 			if(!f.exists()){

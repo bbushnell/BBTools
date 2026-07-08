@@ -154,6 +154,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new FutureLogLog2();
 		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
 			return new Fll52();//5 antennae + duplicate counter; NN-blended estimate
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E();//3-bit antennae + chronicle estimator; no merge (threads=1)
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E();//3-bit antennae + chronicle estimator; no merge (threads=1)
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog();
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){
@@ -295,6 +299,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new FutureLogLog2(p);
 		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
 			return new Fll52(p);
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E(p);
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E(p);
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog(p);
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){
@@ -442,6 +450,10 @@ public abstract class CardinalityTracker implements Drivable {
 			return new FutureLogLog2(buckets_, k_, seed, minProb_);
 		}else if("FLL52".equalsIgnoreCase(type) || "Fll52".equalsIgnoreCase(type)){
 			return new Fll52(buckets_, k_, seed, minProb_);
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E(buckets_, k_, seed, minProb_);
+		}else if("FLL53".equalsIgnoreCase(type) || "Fll53".equalsIgnoreCase(type)){
+			return new Fll53E(buckets_, k_, seed, minProb_);
 		}else if("BCLL".equalsIgnoreCase(type) || "BankedCeilingLogLog".equalsIgnoreCase(type)){
 			return new BankedCeilingLogLog(buckets_, k_, seed, minProb_);
 		}else if("TTLL".equalsIgnoreCase(type) || "TwinTailLogLog".equalsIgnoreCase(type)){

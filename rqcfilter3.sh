@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 24, 2026
+Last modified July 8, 2026
 
 Description:  RQCFilter3 is a revised version of RQCFilter2 using BBDukStreamer and the Streamer interface.
 The dependencies are available at http://portal.nersc.gov/dna/microbial/assembly/bushnell/RQCFilterData.tar

@@ -481,6 +481,9 @@ public final class ExpandedTwinTailLogLog5 extends CardinalityTracker {
 		return (double)filled/numBuckets;
 	}
 
+	/** Analytic maximum-likelihood estimate (no calibration tables); see TailMLE. */
+	public double mleEstimate(){return TailMLE.estimate(regs, globalExp, numBuckets);}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
