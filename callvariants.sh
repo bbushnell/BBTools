@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 31, 2025
+Last modified July 5, 2026
 
 Description:  Calls variants from sam or bam input.
 In default mode, all input files are combined and treated as a single sample.

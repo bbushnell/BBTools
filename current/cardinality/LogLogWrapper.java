@@ -35,7 +35,7 @@ import tracker.ReadStats;
  * @author Brian Bushnell
  * @date 2014
  */
-class LogLogWrapper {
+public class LogLogWrapper {
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
@@ -155,6 +155,8 @@ class LogLogWrapper {
 				gcHist=Parse.parseBoolean(b);
 			}else if(a.equals("histmax") || a.equals("histlen")){
 				histMax=Parse.parseIntKMG(b);
+			}else if(a.equals("histcolumns") || a.equals("khistcolumns") || a.equals("cols")){
+				histColumns=Integer.parseInt(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("loglogcounts") || a.equals("loglogcount") ||
@@ -374,13 +376,16 @@ class LogLogWrapper {
 		if(khistFile!=null){
 			ByteStreamWriter bsw=new ByteStreamWriter(khistFile, overwrite, false, true);
 			bsw.start();
-			bsw.print(gcSum!=null ? "#Depth\tCount\tScaled\tGC%\n" : "#Depth\tCount\tScaled\n");
+			final boolean raw=(histColumns>=3);
+			bsw.print("#Depth\t"+(raw ? "RawCount\t" : "")+"Count"+(gcSum!=null ? "\tGC%\n" : "\n"));
 			for(int i=1; i<hist.length; i++){
 				if(hist[i]>0){
 					bsw.print(i);
 					bsw.print('\t');
-					bsw.print(hist[i]);
-					bsw.print('\t');
+					if(raw){
+						bsw.print(hist[i]);
+						bsw.print('\t');
+					}
 					bsw.print(scaled[i]);
 					if(gcSum!=null){
 						bsw.print('\t');
@@ -550,6 +555,10 @@ class LogLogWrapper {
 	private String peaksFile=null;
 	private boolean gcHist=false;
 	private int histMax=100000;
+	/** khist column format: 2 = legacy KmerCountExact format (#Depth\tCount[\tGC%]); >=3 adds a
+	 * leading RawCount column (the raw sampled bucket count) -> #Depth\tRawCount\tCount[\tGC%].
+	 * Count is always the scaled (extrapolated) estimate. Default 2 matches the exact-count khist. */
+	private int histColumns=2;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

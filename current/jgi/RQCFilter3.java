@@ -15,6 +15,7 @@ import bbduk.BBDukProcessor;
 import bbduk.BBDukS;
 import bloom.PolyFilter;
 import cardinality.CardinalityTracker;
+import cardinality.LogLogWrapper;
 import clump.Clumpify;
 import clump.KmerSort;
 import dna.AminoAcid;
@@ -3601,7 +3602,7 @@ public class RQCFilter3 {
 			if(in2!=null){argList.add("in2="+inPre+in2);}
 			
 			if(ihistName!=null){argList.add("ihist="+ihistName);}
-			if(cardinalityName!=null){argList.add("outc="+cardinalityName);}
+			//cardinality.txt (outc) is no longer produced here; the DDL khist step writes it accurately.
 			if(pigz!=null){argList.add("pigz="+pigz);}
 			if(unpigz!=null){argList.add("unpigz="+unpigz);}
 			argList.add("zl="+(zl==null ? ""+ReadWrite.ZIPLEVEL : zl));
@@ -3634,6 +3635,12 @@ public class RQCFilter3 {
 			BBMerge merger=new BBMerge(mergeargs);
 			try {
 				merger.process();
+				//Note: merger.loglog is a single tracker hashed concurrently by all MateThreads with no
+				//synchronization, so under multithreading it races and undercounts (observed ~4.1B vs the
+				//true ~20.6B).  It is used ONLY for the #Input/#Remaining log lines below now; cardinality.txt
+				//is written accurately by the DDL khist step instead.  Calling cardinality() also overwrites
+				//the shared CardinalityTracker.lastCardinalityStatic, but khist() no longer reads that global
+				//(it measures its own input via DynamicDemiLog), so the stale value is now harmless.
 				log("#Input:\t"+(merger.readsProcessedTotal*2)+" reads\t"+merger.basesProcessedTotal+" bases\t"+merger.loglog.cardinality()+" kmers", true, false);
 				log("#Remaining:\t"+(merger.readsProcessedTotal*2)+" reads\t"+merger.basesProcessedTotal+" bases\t"+merger.loglog.cardinality()+" kmers", true, false);
 			} catch (Exception e) {
@@ -3652,7 +3659,7 @@ public class RQCFilter3 {
 	
 	
 	/**
-	 * Runs BBNorm or KmerCountExact to generate a kmer frequency histogram.
+	 * Generates a kmer frequency histogram (and peaks) using DynamicDemiLog via LogLogWrapper.
 	 * 
 	 * @param in1 Primary input reads file (required)
 	 * @param in2 Secondary input reads file
@@ -3666,77 +3673,42 @@ public class RQCFilter3 {
 
 		final String inPre=(prefix==null ? outDir : (tmpDir==null ? outDir : tmpDir)+prefix);
 		
-		final long cardinality=CardinalityTracker.lastCardinalityStatic;
-		final long capacity=kmerCapacity(12, true);
-		outstream.println("cardinality="+cardinality+", capacity="+capacity);
-		
-		if(cardinality<1 || cardinality*2.5>capacity){ //Too many kmers for exact counts; use BBNorm
-			{//Fill list with BBNorm arguments
-				argList.add("overwrite="+overwrite);
+		//Always use DynamicDemiLog (via LogLogWrapper) for the kmer frequency histogram.
+		//Replaces the old BBNorm (bloom) and KmerCountExact (exact-count) paths, both of which
+		//scaled memory with cardinality and OOMed on ultra-high-cardinality metagenomes (e.g. a
+		//NovaSeqX 25B metagenome with ~21 billion distinct kmers).  DDL uses fixed memory (1m
+		//buckets), is far faster, yields the GC column for free, and cannot OOM regardless of
+		//input size.  It also measures cardinality on this exact input in the same pass, so it no
+		//longer relies on the shared CardinalityTracker.lastCardinalityStatic global (which the
+		//preceding BBMerge step could overwrite with a post-merge estimate for a different set).
+		{//Fill list with LogLogWrapper (DynamicDemiLog) arguments
+			argList.add("overwrite="+overwrite);
 
-				//Set read I/O files
-				if(in1!=null){argList.add("in1="+inPre+in1);}
-				if(in2!=null){argList.add("in2="+inPre+in2);}
+			//Set read I/O files
+			if(in1!=null){argList.add("in1="+inPre+in1);}
+			if(in2!=null){argList.add("in2="+inPre+in2);}
 
-				if(khistName!=null){argList.add("khist="+khistName);}
-				if(peaksName!=null){argList.add("peaks="+peaksName);}
-				if(unpigz!=null){argList.add("unpigz="+unpigz);}
-				argList.add("keepall");
-				argList.add("prefilter");
-				argList.add("passes=1");
-				argList.add("bits=16");
-				argList.add("minprob=0");
-				argList.add("minqual=0");
-				argList.add("histcolumns=2");
-			}
+			if(khistName!=null){argList.add("khist="+khistName);}
+			if(peaksName!=null){argList.add("peaks="+peaksName);}
+			if(unpigz!=null){argList.add("unpigz="+unpigz);}
+			//cardinality.txt now comes from this accurate DDL pass, not from BBMerge's (racy) loglog.
+			if(cardinalityName!=null){argList.add("out="+cardinalityName);}
+			argList.add("buckets=1m");
+		}
 
-			String[] khistargs=argList.toArray(new String[0]);
+		String[] khistargs=argList.toArray(new String[0]);
 
-			if(reproduceName!=null){
-				writeReproduceFile(reproduceName, "khist.sh", khistargs);
-			}
+		if(reproduceName!=null){
+			writeReproduceFile(reproduceName, "loglog.sh", khistargs);
+		}
 
-			if(!dryrun){//run KmerNormalize
-				try {
-					KmerNormalize.main(khistargs);
-				} catch (Exception e) {
-					e.printStackTrace();
-					log("failed", true);
-					System.exit(1);
-				}
-			}
-		}else{
-			{//Fill list with KmerCountExact arguments
-				argList.add("overwrite="+overwrite);
-				
-				//Set read I/O files
-				if(in1!=null){argList.add("in1="+inPre+in1);}
-				if(in2!=null){argList.add("in2="+inPre+in2);}
-
-				if(khistName!=null){argList.add("khist="+khistName);}
-				if(peaksName!=null){argList.add("peaks="+peaksName);}
-				if(unpigz!=null){argList.add("unpigz="+unpigz);}
-				argList.add("gchist");
-				
-				if(cardinality*4>capacity){
-					argList.add("prealloc");
-				}
-			}
-
-			String[] khistargs=argList.toArray(new String[0]);
-
-			if(reproduceName!=null){
-				writeReproduceFile(reproduceName, "kmercountexact.sh", khistargs);
-			}
-
-			if(!dryrun){//run KmerCountExact
-				try {
-					KmerCountExact.main(khistargs);
-				} catch (Exception e) {
-					e.printStackTrace();
-					log("failed", true);
-					System.exit(1);
-				}
+		if(!dryrun){//run LogLogWrapper (DynamicDemiLog khist)
+			try {
+				LogLogWrapper.main(khistargs);
+			} catch (Exception e) {
+				e.printStackTrace();
+				log("failed", true);
+				System.exit(1);
 			}
 		}
 		

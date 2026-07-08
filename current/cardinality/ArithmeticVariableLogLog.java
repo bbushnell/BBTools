@@ -1000,6 +1000,9 @@ public class ArithmeticVariableLogLog extends CardinalityTracker {
 	private final int modBuckets;
 	/** Global NLZ floor (advances as registers fill). */
 	private int globalNLZ=-1;
+
+	/** Current global NLZ floor (read-only; used by AvllMLE's analytic extractor). */
+	public int getGlobalNLZ(){return globalNLZ;}
 	/** Registers at or below HISTORY_MARGIN. */
 	private int floorCount;
 	/** Non-empty register count. */

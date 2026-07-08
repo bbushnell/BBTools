@@ -2,7 +2,7 @@
 
 usage(){
 echo "
-Written by UMP45
+Written by Brian Bushnell
 Last modified July 5, 2026
 
 Description:  Reads a fasta/fastq file, encodes every kmer as a 2-bit-packed

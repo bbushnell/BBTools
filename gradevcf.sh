@@ -2,8 +2,8 @@
 
 usage(){
 echo "
-Written by UMP45
-Last modified June 13, 2026
+Written by Brian Bushnell
+Last modified July 5, 2026
 
 Description:  Grades a VCF against a truth set and produces concordance metrics
 and cumulative histograms.  Replaces a multi-step filtervcf+comparevcf pipeline
