@@ -403,7 +403,16 @@ public class CladeObject {
 			if(c<'0' || c>'9') {break;}
 			id=id*10+(c-'0');
 		}
-		assert(id>0 && id<Integer.MAX_VALUE) : id+"\n"+line+"\n";
+		//TODO [clade/CladeObject#002] FIXED (real, MEDIUM: silent query loss) - term "tid_" was matched as a bare
+		//substring via indexOf, so any header word CONTAINING it triggered the parser: e.g. "plastid__direct_refseq__NC_..."
+		//contains "tid_", whose next char is '_' (no digits) -> id stays 0 -> the old assert(id>0 ...) threw AssertionError
+		//in the CladeLoaderSF query-load thread, silently dropping EVERY such query (270 organelle contigs in the Fig-3
+		//benchmark). Downstream already treats taxID<1 as "unlabeled" (resolveTaxID L417, CladeLoaderSF:201 taxID<1?-1),
+		//so a spurious no-number match should yield -1, not crash. Return -1 when no positive number follows the marker;
+		//real "tid_1234"/"tid|1234" headers are unaffected. (A stricter word-boundary check on the marker is a possible
+		//follow-up if "plastid_5..."-style digit-bearing false matches ever occur; not present in this data.)
+		if(id<=0) {return -1;}
+		assert(id<Integer.MAX_VALUE) : id+"\n"+line+"\n";
 		return (int)id;
 	}
 	

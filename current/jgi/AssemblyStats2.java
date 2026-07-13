@@ -144,6 +144,8 @@ public final class AssemblyStats2 {
 					printL90=Parse.parseBoolean(b);
 				}else if(a.equals("printextended") || a.equals("extended")){
 					printExtended=Parse.parseBoolean(b);
+				}else if(a.equals("swapnl") || a.equals("swapln")){
+					swapNL=Parse.parseBoolean(b);
 				}else if(a.equals("overwrite") || a.equals("ow")){
 					overwrite=Parse.parseBoolean(b);
 				}else if(a.equals("n_")){
@@ -1573,17 +1575,20 @@ public final class AssemblyStats2 {
 		String sPowSumString=String.format((sPowSum/logSumOffset>=10000 ? "%.0f" : "%.3f"), sPowSum/logSumOffset);
 		String cPowSumString=String.format((cPowSum/logSumOffset>=10000 ? "%.0f" : "%.3f"), cPowSum/logSumOffset);
 		String sAssemblyScoreString=String.format((sAssemblyScore>=10000 ? "%.0f" : "%.3f"), sAssemblyScore);
-		
+		final String NL=(swapNL ? "L/N" : "N/L");
+		final String nPre=(swapNL ? "L" : "N");
+		final String lPre=(swapNL ? "N" : "L");
+
 		if(FORMAT<1){
 			//Do nothing
 		}else if(FORMAT<3){
 			
 			if(addfilename){sb.append("Filename:                           \t"+name+"\n");}
-			sb.append("Main genome scaffold N/L50:         \t"+ll50+"/"+formatKB(ln50, 3, 0)+"\n");
-			sb.append("Main genome contig N/L50:           \t"+cl50+"/"+formatKB(cn50, 3, 0)+"\n");
+			sb.append("Main genome scaffold "+NL+"50:         \t"+ll50+"/"+formatKB(ln50, 3, 0)+"\n");
+			sb.append("Main genome contig "+NL+"50:           \t"+cl50+"/"+formatKB(cn50, 3, 0)+"\n");
 			if(printL90){
-				sb.append("Main genome scaffold N/L90:         \t"+ll90+"/"+formatKB(ln90, 3, 0)+"\n");
-				sb.append("Main genome contig N/L90:           \t"+cl90+"/"+formatKB(cn90, 3, 0)+"\n");
+				sb.append("Main genome scaffold "+NL+"90:         \t"+ll90+"/"+formatKB(ln90, 3, 0)+"\n");
+				sb.append("Main genome contig "+NL+"90:           \t"+cl90+"/"+formatKB(cn90, 3, 0)+"\n");
 			}
 			if(printExtended){
 				sb.append("Main genome scaffold logsum:        \t"+sLogSumString+"\n");
@@ -1637,15 +1642,15 @@ public final class AssemblyStats2 {
 				sb.append("scaf_bp\t");
 				sb.append("contig_bp\t");
 				sb.append("gap_pct\t");
-				sb.append("scaf_N50\t");
-				sb.append("scaf_L50\t");
-				sb.append("ctg_N50\t");
-				sb.append("ctg_L50\t");
+				sb.append("scaf_"+nPre+"50\t");
+				sb.append("scaf_"+lPre+"50\t");
+				sb.append("ctg_"+nPre+"50\t");
+				sb.append("ctg_"+lPre+"50\t");
 				if(printL90){
-					sb.append("scaf_N90\t");
-					sb.append("scaf_L90\t");
-					sb.append("ctg_N90\t");
-					sb.append("ctg_L90\t");
+					sb.append("scaf_"+nPre+"90\t");
+					sb.append("scaf_"+lPre+"90\t");
+					sb.append("ctg_"+nPre+"90\t");
+					sb.append("ctg_"+lPre+"90\t");
 				}
 				if(printExtended){
 					sb.append("scaf_logsum\t");
@@ -1714,15 +1719,15 @@ public final class AssemblyStats2 {
 			jo.add("scaf_bp", scaflen);
 			jo.add("contig_bp", contiglen);
 			jo.addLiteral("gap_pct", (scaflen-contiglen)*100f/scaflen, 5);
-			jo.add("scaf_N50", ll50);
-			jo.add("scaf_L50", ln50);
-			jo.add("ctg_N50", cl50);
-			jo.add("ctg_L50", cn50);
+			jo.add("scaf_"+nPre+"50", ll50);
+			jo.add("scaf_"+lPre+"50", ln50);
+			jo.add("ctg_"+nPre+"50", cl50);
+			jo.add("ctg_"+lPre+"50", cn50);
 
-			jo.add("scaf_N90", ll90);
-			jo.add("scaf_L90", ln90);
-			jo.add("ctg_N90", cl90);
-			jo.add("ctg_L90", cn90);
+			jo.add("scaf_"+nPre+"90", ll90);
+			jo.add("scaf_"+lPre+"90", ln90);
+			jo.add("ctg_"+nPre+"90", cl90);
+			jo.add("ctg_"+lPre+"90", cn90);
 
 			jo.addLiteral("scaf_logsum", sLogSumString);
 			jo.addLiteral("scaf_powsum", sPowSumString);
@@ -1750,11 +1755,11 @@ public final class AssemblyStats2 {
 			sb.append("scaf_bp\t");
 //			sb.append("contig_bp\t");
 //			sb.append("gap_pct\t");
-			sb.append("scaf_N50\t");
-			sb.append("scaf_L50\t");
+			sb.append("scaf_"+nPre+"50\t");
+			sb.append("scaf_"+lPre+"50\t");
 			if(printL90){
-				sb.append("scaf_N90\t");
-				sb.append("scaf_L90\t");
+				sb.append("scaf_"+nPre+"90\t");
+				sb.append("scaf_"+lPre+"90\t");
 			}
 			if(printExtended){
 				sb.append("scaf_logsum\t");
@@ -1764,8 +1769,8 @@ public final class AssemblyStats2 {
 			if(printExtended || printAssemblyScore){
 				sb.append("asm_score\t");
 			}
-//			sb.append("ctg_N50\t");
-//			sb.append("ctg_L50\t");
+//			sb.append("ctg_"+nPre+"50\t");
+//			sb.append("ctg_"+lPre+"50\t");
 			sb.append("scaf_max\t");
 //			sb.append("ctg_max\t");
 			sb.append("scaf_n_gt50K");
@@ -1823,13 +1828,13 @@ public final class AssemblyStats2 {
 //			sb.append("scaf_bp\t");
 			sb.append("contig_bp\t");
 			sb.append("gap_pct\t");
-//			sb.append("scaf_N50\t");
-//			sb.append("scaf_L50\t");
-			sb.append("ctg_N50\t");
-			sb.append("ctg_L50\t");
+//			sb.append("scaf_"+nPre+"50\t");
+//			sb.append("scaf_"+lPre+"50\t");
+			sb.append("ctg_"+nPre+"50\t");
+			sb.append("ctg_"+lPre+"50\t");
 			if(printL90){
-				sb.append("ctg_N90\t");
-				sb.append("ctg_L90\t");
+				sb.append("ctg_"+nPre+"90\t");
+				sb.append("ctg_"+lPre+"90\t");
 			}
 			if(printExtended){				
 				sb.append("ctg_logsum\t");
@@ -1881,9 +1886,9 @@ public final class AssemblyStats2 {
 		}else if(FORMAT==7){
 
 			if(addfilename){sb.append("Filename:                           \t"+name+"\n");}
-			sb.append("Main genome contig N/L50:           \t"+cl50+"/"+formatKB(cn50, 3, 0)+"\n");
+			sb.append("Main genome contig "+NL+"50:           \t"+cl50+"/"+formatKB(cn50, 3, 0)+"\n");
 			if(printL90){
-				sb.append("Main genome contig N/L90:           \t"+cl90+"/"+formatKB(cn90, 3, 0)+"\n");
+				sb.append("Main genome contig "+NL+"90:           \t"+cl90+"/"+formatKB(cn90, 3, 0)+"\n");
 			}
 			if(printExtended){
 //				sb.append("Main genome contig logsum:          \t"+cLogSumString+"\n");
@@ -2361,6 +2366,7 @@ public final class AssemblyStats2 {
 	public static boolean addfilename=false;
 	/** Whether to include N90/L90 statistics in output */
 	public static boolean printL90=true;
+	public static boolean swapNL=false;
 	/** Whether to include extended statistics (logsum, powersum) */
 	public static boolean printExtended=false;
 	/** Minimum length threshold for logsum calculations */

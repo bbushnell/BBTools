@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified March 3, 2020
+Last modified July 13, 2026
 
 Description:  Generates basic assembly statistics such as scaffold count, 
 N50, L50, GC content, gap percent, etc.  For multiple files, please use
@@ -30,6 +30,7 @@ pdl=f           (printduplicatelines) Set to true to print lines in the
 n_=t            This flag will prefix the terms 'contigs' and 'scaffolds'
                 with 'n_' in formats 3-6.
 addname=f       Adds a column for input file name, for formats 3-6.
+swapnl=f        For users who that L means Number and N means Length.
 
 Logsum and Powsum Parameters:
 logoffset=1000  Minimum length for calculating log sum.

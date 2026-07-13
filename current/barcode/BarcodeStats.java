@@ -85,9 +85,14 @@ public class BarcodeStats {
 	 */
 	public static LinkedHashSet<String> loadBarcodeSet(LinkedHashSet<String> barcodeSet,
 			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2){
+		return loadBarcodeSet(barcodeSet, barcodeDelimiter, rcIndex1, rcIndex2, true);
+	}
+
+	public static LinkedHashSet<String> loadBarcodeSet(LinkedHashSet<String> barcodeSet,
+			byte barcodeDelimiter, boolean rcIndex1, boolean rcIndex2, boolean requireUniformLength){
 		if(barcodeSet==null || barcodeSet.isEmpty()) {return null;}
 		int barcodeLength=0;
-		
+
 		//Handle names
 		@SuppressWarnings("unchecked")
 		LinkedHashSet<String> tempSet=new LinkedHashSet<String>(barcodeSet);
@@ -101,10 +106,10 @@ public class BarcodeStats {
 //					assert(false) : "'"+Character.toString(barcodeDelimiter)+"'="+((int)(barcodeDelimiter));
 					if(barcodeDelimiter>0 || rcIndex1 || rcIndex2) {
 						line=BarcodeStats.fixBarcode(line, barcodeDelimiter, rcIndex1, rcIndex2);
-						assert(barcodeDelimiter<1 || line.indexOf(barcodeDelimiter)>=0) : 
+						assert(barcodeDelimiter<1 || line.indexOf(barcodeDelimiter)>=0) :
 							line+", "+barcodeDelimiter;
 					}
-					assert(barcodeLength==0 || barcodeLength==line.length()) : barcodeLength+", "+line.length()+
+					assert(!requireUniformLength || barcodeLength==0 || barcodeLength==line.length()) : barcodeLength+", "+line.length()+
 						", "+"'"+Character.toString(barcodeDelimiter<0 ? '0' : barcodeDelimiter)+"'="+((int)(barcodeDelimiter))+"\n"+line;
 					barcodeLength=line.length();
 					barcodeSet.add(line);
@@ -112,10 +117,10 @@ public class BarcodeStats {
 			}else{
 				if(barcodeDelimiter>0 || rcIndex1 || rcIndex2) {
 					s=BarcodeStats.fixBarcode(s, barcodeDelimiter, rcIndex1, rcIndex2);
-					assert(barcodeDelimiter<1 || s.indexOf(barcodeDelimiter)>=0) : 
+					assert(barcodeDelimiter<1 || s.indexOf(barcodeDelimiter)>=0) :
 						s+", "+barcodeDelimiter;
 				}
-				assert(barcodeLength==0 || barcodeLength==s.length());
+				assert(!requireUniformLength || barcodeLength==0 || barcodeLength==s.length());
 				barcodeLength=s.length();
 				barcodeSet.add(s);
 			}//Re-add each key as a literal name

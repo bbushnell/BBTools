@@ -12,13 +12,17 @@ visualization with CloudPlot or external analysis tools.
 
 Output TSV Format:
 #Name   Length  GC      HH      CAGA    Depth   Start   TaxID   TaxID2
-- Name: Sequence/contig name
+- Name: Sequence/contig name (printed only with printname=t)
 - Length: Interval length in bases
 - GC: GC content (0-1)
 - HH: Homopolymer-heteropolymer ratio (0-1, GC-independent)
 - CAGA: Compositional asymmetry (0-1, GC-independent)
 - Depth: Read coverage depth (from cov/depth file or header)
-- Start: Start position within contig (0 for whole contigs)
+- Start: Start position within contig (printed only with printpos=t)
+Note: Name and Start columns above appear only when their flag is set; the
+default data table is: #Length GC HH CAGA Depth TaxID TaxID2.  A per-file
+Mean/STDev summary is also printed to stderr (columns: label GC HH CAGA Depth
+TaxID Name) — a deliberately different, shorter layout than the data table.
 - TaxID: Primary taxonomy ID (from clade, sketch, or header)
 - TaxID2: Secondary taxonomy ID (for concordance checking)
 
@@ -50,7 +54,8 @@ depth=<file>    SAM/BAM file for depth calculation.
                 Calculates depth from aligned bases in the file.
 
 Processing parameters:
-header=f        Print TSV header line.
+header=t        Print the #-prefixed TSV header line into the output table
+                (now on by default; set header=f to omit).
 window=50000    If nonzero, calculate metrics over sliding windows.
                 Otherwise calculate per contig. Larger has lower variance.
 interval=10000  Generate a data point every this many bp.
