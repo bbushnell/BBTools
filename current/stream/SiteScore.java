@@ -689,6 +689,7 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		if(match==null || match.length<1){return clipped;}
 		assert(lengthsAgree());
 		
+		int dClipped=0;
 		for(int mpos=0, rpos=start; mpos<match.length; mpos++){
 			final byte m=match[mpos];
 			if(m=='C'){
@@ -704,7 +705,9 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				}else if(m=='Y'){//Should not happen
 					start--;
 				}else if(m=='D'){
-					//Do nothing
+					start++;
+					match[mpos]='Z';
+					dClipped++;
 				}else if(rpos>=0){
 					break;
 				}else{
@@ -712,11 +715,10 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 					rpos++;
 				}
 				clipped++;
-				match[mpos]='C';
+				if(match[mpos]!='Z'){match[mpos]='C';}
 			}
 		}
-		assert(clipped==0 || lengthsAgree());
-		
+
 		for(int mpos=match.length-1, rpos=stop; mpos>=0; mpos--){
 			final byte m=match[mpos];
 			if(m=='C'){
@@ -733,7 +735,9 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 				}else if(m=='Y'){
 					stop++;
 				}else if(m=='D'){
-					//Do nothing
+					stop--;
+					match[mpos]='Z';
+					dClipped++;
 				}else if(rpos<rlen){
 					break;
 				}else{
@@ -741,11 +745,20 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 					rpos--;
 				}
 				clipped++;
-				match[mpos]='C';
+				if(match[mpos]!='Z'){match[mpos]='C';}
 			}
 		}
+
+		if(dClipped>0){
+			byte[] trimmed=new byte[match.length-dClipped];
+			int j=0;
+			for(int i=0; i<match.length; i++){
+				if(match[i]!='Z'){trimmed[j++]=match[i];}
+			}
+			match=trimmed;
+		}
 		assert(clipped==0 || lengthsAgree());
-		
+
 		return clipped;
 	}
 	

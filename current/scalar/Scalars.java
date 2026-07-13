@@ -218,7 +218,7 @@ public class Scalars {
 		if(raw) {
 			if(header){
 //				bb.append("AA\tAC\tAG\tAT\tCA\tCC\tCG\tCT\tGA\tGC\tGG\tGT\tTA\tTC\tTG\tTT\n");
-				bb.append("AA\tAC\tAG\tAT\tCA\tCC\tCG\tGA\tGC\tTA\n");
+				bb.append("#AA\tAC\tAG\tAT\tCA\tCC\tCG\tGA\tGC\tTA\n");
 			}
 			if(rowheader) {bb.append("kmers\t");}
 			//NOTE [scalar/Scalars#002] LOW/dev: 1f/Tools.sum(dimers.counts) → Infinity when the input had no valid dimers (empty
@@ -236,7 +236,7 @@ public class Scalars {
 			bb.set(bb.length()-1, '\n');
 		}else{
 			if(header){
-				bb.append("GC\tSTR\tHH\tPP\tAAAT\tCCCG\tHMH\tHHPP\tACTG\tACAG\tCAGA\tCCMCG\tATMTA\tAT\n");
+				bb.append("#GC\tSTR\tHH\tPP\tAAAT\tCCCG\tHMH\tHHPP\tACTG\tACAG\tCAGA\tCCMCG\tATMTA\tAT\n");
 			}
 			if(window<1) {
 				if(rowheader) {bb.append("Mean\t");}
@@ -290,7 +290,7 @@ public class Scalars {
 	/** K-mer tracker for dimer counting */
 	private final KmerTracker dimers;
 	/** Whether to print column headers */
-	private boolean header=false;
+	private boolean header=true;
 	/** Whether to print row headers */
 	private boolean rowheader=false;
 	/** Whether to print timing information */

@@ -163,8 +163,8 @@ public class ScalarIntervals {
 		
 		if(verbose){outstream.println("Finished reading data; printing to "+out);}
 		
-		if(header && true) {System.err.print(ScalarData.header(true, printName, false));}
-		
+		//Column header now goes into the OUTPUT file via data.print(...) below (gated by header && i==0),
+		//matching the data rows exactly. The previous System.err header here mismatched the Mean/STDev rows.
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ffout);
 		for(int i=0; i<in.size(); i++) {
 			FileFormat ffin=FileFormat.testInput(in.get(i), FileFormat.FASTA, null, true, true);
@@ -630,7 +630,7 @@ public class ScalarIntervals {
 	/** Output file format */
 	private final FileFormat ffout;
 	/** Whether to print column headers */
-	private boolean header=false;
+	private boolean header=true;
 	/** Whether to print row headers */
 	private boolean rowheader=false;
 	private boolean raw=false;

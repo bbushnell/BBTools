@@ -36,6 +36,8 @@ invert=f        Invert sam filters.
 ordered=t       Keep reads in input order.
 duplicate=t     Include reads marked as duplicate.
 qfail=t         Include reads marked as qfail.
+bed=<file>      Restrict to reads overlapping intervals in this BED file.
+include=t       If true, keep reads in BED regions; if false, exclude them.
 ref=<file>      Optional reference file.
 
 

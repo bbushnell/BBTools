@@ -415,7 +415,7 @@ public class DemuxByName2 {
 			{//Process names, because they can either be literals or filenames at this point
 				LinkedHashSet<String> set=new LinkedHashSet<String>(assignmentMap.keySet());
 				assignmentMap.clear();
-				set=BarcodeStats.loadBarcodeSet(set, (byte)barcodeDelimiter, rcIndex1, rcIndex2);
+				set=BarcodeStats.loadBarcodeSet(set, (byte)barcodeDelimiter, rcIndex1, rcIndex2, false);
 				for(String key : set){assignmentMap.put(key, key);}
 			}
 		}

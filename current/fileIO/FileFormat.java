@@ -326,8 +326,13 @@ public final class FileFormat {
 						" "+(fname==null ? "stream" : fname)+"; defaulting to "+FORMAT_ARRAY[a[0]]+".");
 			}
 		}
+		if(PRINT_WARNING && mode_==READ && fname!=null && fname.startsWith("/dev/fd/") && !warnedDevFd){
+			warnedDevFd=true;
+			System.err.println("NOTE: Input "+fname+" appears to be a process substitution; "
+					+"these may not work reliably. Consider piping through stdin instead.");
+		}
 		if(verbose){System.err.println(Arrays.toString(a));}
-		
+
 		if(overrideFormat>0){a[0]=overrideFormat;}
 		if(overrideCompression>0){a[1]=overrideCompression;}
 		
@@ -1315,6 +1320,7 @@ public final class FileFormat {
 	public static boolean verbose=false;
 	/** Whether to print format detection warnings */
 	public static boolean PRINT_WARNING=true;
+	private static boolean warnedDevFd=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------          Constants           ----------------*/

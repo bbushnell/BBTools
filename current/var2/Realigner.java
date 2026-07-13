@@ -127,6 +127,11 @@ public class Realigner {
 		ss.score=ss.quickScore;
 		ss.match=msa.traceback(qbases, rbases, a, b, score[3], score[4], score[5], false);
 		assert(ss.match!=null);
+		{
+			int nonD=0;
+			for(byte m : ss.match){if(m!='D'){nonD++;}}
+			if(nonD!=qbases.length){return false;}
+		}
 		
 		SiteScore oldSS2=ss.clone(); //Debugging backup
 		oldSS2.match=ss.match.clone();
