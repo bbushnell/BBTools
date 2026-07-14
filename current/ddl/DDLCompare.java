@@ -57,10 +57,10 @@ public class DDLCompare {
 			+"?refseqSketchDDL_k25e5b2048.tsv.gz,?refseqSketchDDL_k25e5b2048_merged.tsv.gz");}
 
 		if(blacklistSet){
-			if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile);}
+			if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
 		}else if(!DynamicDemiLog.blacklistExists()){
 			String blPath=dna.Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
-			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath, k);}
 		}
 
 		if(queryFile!=null){formatter.printQueryName=true;}

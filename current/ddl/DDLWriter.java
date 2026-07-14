@@ -120,7 +120,7 @@ public class DDLWriter {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
-		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile);}
+		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
 		if(mode==PER_FILE){processPerFile(t);}
 		else if(mode==PER_SEQUENCE){processPerSequence(t);}
 		else if(mode==PER_TID){processPerTid(t);}

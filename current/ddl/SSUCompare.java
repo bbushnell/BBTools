@@ -98,7 +98,7 @@ public class SSUCompare {
 
 		if(!DynamicDemiLog.blacklistExists()){
 			String blPath=dna.Data.findPath("?riboDDLBlacklist.fa.gz", false);
-			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath, k);}
 		}
 
 		if(!callMode && !callSetByUser && queryFile==null && !inFiles.isEmpty()){

@@ -105,7 +105,7 @@ public class DDLBlacklistMaker {
 	void processCondense(Timer t){
 		final LongHashSet bl;
 		if(blacklistFile!=null){
-			DynamicDemiLog.loadBlacklist(blacklistFile);
+			DynamicDemiLog.loadBlacklist(blacklistFile, k);
 			bl=getBlacklistSet();
 		}else{
 			bl=null;

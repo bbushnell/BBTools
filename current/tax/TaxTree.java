@@ -2834,14 +2834,24 @@ public class TaxTree implements Serializable{
 	
 	/** Location of gitable.int2d.gz for gi lookups */
 	public static final String defaultTableFile(){return defaultTableFile.replaceAll("TAX_PATH", TAX_PATH);}
-	/** Location of tree.taxtree.gz */
+	/** Location of tree.taxtree.gz.
+	 * The tree now ships with BBTools, so resources/ wins; TAX_PATH is only a legacy fallback for
+	 * installations that predate the bundled tree.  The other taxonomy files (gitable, accession2taxid,
+	 * imgDump, ...) are far too large to bundle and still live under TAX_PATH -- this priority applies
+	 * to the TREE ALONE.
+	 *
+	 * TAX_PATH used to be checked first, which silently won on any host where TAX_PATH held a tree
+	 * (e.g. Dori, whose TAX_PATH is a hardcoded personal directory selected by the SLURM_PARTITION
+	 * env var).  Two jobs on the same cluster could then load DIFFERENT taxonomy snapshots depending
+	 * on the environment they inherited, with no error and no warning -- only different results.
+	 * Rank assignments differ between snapshots, so this silently changes output. */
 	public static final String defaultTreeFile(){
-		String s=defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);
-		if(new File(s).exists()) {return s;}
 		String s2=Data.RESOURCES()+"tree.taxtree.gz";
 		if(new File(s2).exists()) {return s2;}
 		s2=Data.ROOT()+"tree.taxtree.gz";
 		if(new File(s2).exists()) {return s2;}
+		String s=defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);
+		if(new File(s).exists()) {return s;}
 		return s;
 	}
 	

@@ -1,5 +1,6 @@
 package cardinality;
 
+import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import map.LongHashSet;
@@ -659,36 +660,58 @@ public final class DynamicDemiLog extends CardinalityTracker {
 
 	public static boolean blacklistExists(){return blacklist!=null;}
 
-	/** Loads a blacklist from a FASTA file of kmer sequences.
-	 * Each sequence is converted to a canonical packed 2-bit long
-	 * using the same encoding as CardinalityTracker.hashSmall(). */
-	public static synchronized void loadBlacklist(String path){
+	/** Loads a blacklist from a FASTA file, adding every kmer of length k via a sliding window.
+	 * Records may be bare kmers (one per record, the legacy layout) or arbitrary longer
+	 * sequences, such as the contigs emitted by kcompress; both yield the same kmer set.
+	 * A kmer may not span a record boundary or an undefined base -- either resets the window --
+	 * so the N-padding inserted by 'fuse' cannot manufacture junction kmers.
+	 * Kmers are canonicalized to a packed 2-bit long using the same encoding as
+	 * CardinalityTracker.hashSmall(), which is what hashAndStore() tests against.
+	 * @param path FASTA file of blacklisted sequences
+	 * @param k Kmer length; must match the k of the sketches being masked */
+	public static synchronized void loadBlacklist(String path, final int k){
 		if(path==null){return;}
+		assert(k>=1 && k<=32) : "Blacklist kmer length must be 1-32, but k="+k;
 		final FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, false, true);
 		final ByteFile bf=ByteFile.makeByteFile(ff);
 		final LongHashSet set=new LongHashSet(256);
-		StringBuilder sb=new StringBuilder();
+
+		final int shift=2*k;
+		final int shift2=shift-2;
+		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
+		long kmer=0, rkmer=0;
+		int len=0;
+
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length<1){continue;}
-			if(line[0]=='>'){
-				if(sb.length()>0){
-					set.add(packKmer(sb.toString().getBytes()));
-					sb.setLength(0);
+			if(line[0]=='>'){kmer=rkmer=0; len=0; continue;}
+			for(final byte b : line){
+				if(AminoAcid.isFullyDefined(b)){
+					final long x=(b>>1)&3;//A=0, C=1, T=2, G=3, matching packKmer
+					final long x2=x^2;//Complement
+					kmer=((kmer<<2)|x)&mask;
+					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+					len++;
+				}else{
+					kmer=rkmer=0;
+					len=0;
 				}
-			}else{
-				for(byte b : line){sb.append((char)b);}
+				if(len>=k){set.add(Math.max(kmer, rkmer));}
 			}
 		}
-		if(sb.length()>0){set.add(packKmer(sb.toString().getBytes()));}
 		bf.close();
 		blacklist=set;
 		System.err.println("Loaded "+set.size()+" blacklisted kmers from "+path);
 	}
 
 	/** Packs a nucleotide sequence into a canonical 2-bit long.
-	 * Uses the same encoding as CardinalityTracker.hashSmall(). */
+	 * Uses the same encoding as CardinalityTracker.hashSmall().
+	 * The whole sequence becomes one kmer, so it must fit in a long; sequences longer
+	 * than 32bp would silently wrap the shifts and yield a meaningless value.
+	 * To extract every kmer from a longer sequence, use loadBlacklist(path, k) instead. */
 	public static long packKmer(byte[] bases){
 		final int k=bases.length;
+		assert(k<=32) : "packKmer cannot encode a "+k+"bp sequence; max is 32bp.";
 		final int shift=2*k;
 		final int shift2=shift-2;
 		final long mask=(shift>63 ? -1L : ~((-1L)<<shift));
