@@ -153,6 +153,7 @@ public class BBDukProcessorS {
 		failIfNoBarcode=p.failIfNoBarcode;
 		barcodes=p.barcodes;
 		maxNs=p.maxNs;
+		maxNRate=p.maxNRate;
 		minConsecutiveBases=p.minConsecutiveBases;
 		minBaseFrequency=p.minBaseFrequency;
 		minReadLength=p.minReadLength;
@@ -1345,6 +1346,21 @@ public class BBDukProcessorS {
 						setDiscarded(r1);
 					}
 					if(r2!=null && r2.countUndefined()>maxNs){
+						readsNFiltered++;
+						basesNFiltered+=r2.length();
+						setDiscarded(r2);
+					}
+				}
+				//Same, but as a fraction of read length rather than an absolute count.  A rate of 1
+				//cannot discard anything, so the default skips the work.  The discarded checks
+				//prevent double-counting a read that also failed maxNs.
+				if(maxNRate<1){
+					if(r1!=null && !r1.discarded() && r1.countUndefined()>maxNRate*r1.length()){
+						readsNFiltered++;
+						basesNFiltered+=r1.length();
+						setDiscarded(r1);
+					}
+					if(r2!=null && !r2.discarded() && r2.countUndefined()>maxNRate*r2.length()){
 						readsNFiltered++;
 						basesNFiltered+=r2.length();
 						setDiscarded(r2);
@@ -3155,6 +3171,9 @@ public class BBDukProcessorS {
 	private final HashSet<String> barcodes;
 	/** Throw away reads containing more than this many Ns.  Default: -1 (disabled) */
 	private final int maxNs;
+	/** Throw away reads with a greater fraction of Ns than this.  Default: 1 (disabled).
+	 * Unlike maxNs this scales with read length. */
+	private final float maxNRate;
 	/** Throw away reads containing without at least this many consecutive called bases. */
 	private final int minConsecutiveBases;
 	/** Throw away reads containing fewer than this fraction of any particular base. */

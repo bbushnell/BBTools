@@ -55,6 +55,11 @@ Size parameters:
 mincluster=50k  (mcs) Minimum output cluster size in base pairs; smaller
                 clusters will share a residual file if chaff=t.
 mincontig=100   Don't load contigs smaller than this; reduces memory usage.
+maxnrate=0.75   Discard contigs where more than this fraction of the bases are
+                undefined (N), and thus carry too little signal to bin.
+                Contigs with fewer valid tetramers than half of mincontig are
+                also discarded.  Real assemblies contain no such contigs, but
+                shredded synthetic references (e.g. CAMI) can.
 minseed=2500    Minimum contig length to create a new cluster; reducing this
                 can increase speed dramatically for large metagenomes,
                 increase sensitivity for small contigs, and slightly increase

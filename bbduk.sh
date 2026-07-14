@@ -229,9 +229,13 @@ minavgquality=0     (maq) Reads with average quality (after trimming) below
 maqb=0              If positive, calculate maq from this many initial bases.
 minbasequality=0    (mbq) Reads with any base below this quality (after 
                     trimming) will be discarded.
-maxns=-1            If non-negative, reads with more Ns than this 
+maxns=-1            If non-negative, reads with more Ns than this
                     (after trimming) will be discarded.
-mcb=0               (minconsecutivebases) Discard reads without at least 
+maxnrate=1          If below 1, reads with a greater fraction of Ns
+                    than this will be discarded.  Unlike maxns this scales
+                    with read length, so maxnrate=0.75 excludes junk
+                    sequences of any length.  May be used with maxns.
+mcb=0               (minconsecutivebases) Discard reads without at least
                     this many consecutive called bases.
 ottm=f              (outputtrimmedtomatch) Output reads trimmed to shorter 
                     than minlength to outm rather than discarding.

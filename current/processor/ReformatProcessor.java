@@ -210,6 +210,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		failIfNoBarcode=parser.failIfNoBarcode;
 		barcodes=parser.barcodes;
 		maxNs=parser.maxNs;
+		//Shared flag, tool-specific default; unset (negative) keeps this tool's default of 1 (no-op).
+		maxNRate=(parser.maxNRate>=0 ? parser.maxNRate : maxNRate);
 		minConsecutiveBases=parser.minConsecutiveBases;
 		minReadLength=parser.minReadLength;
 		maxReadLength=parser.maxReadLength;
@@ -663,6 +665,21 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 			}
 		}
 
+		//N rate filter; unlike maxNs this scales with read length.  A rate of 1 cannot discard
+		//anything (a read is at most 100% Ns), so skip the work entirely at the default.
+		if(maxNRate<1){
+			if(r1!=null && !r1.discarded() && r1.countUndefined()>maxNRate*r1.length()){
+				lowqBasesT+=r1.length();
+				lowqReadsT++;
+				r1.setDiscarded(true);
+			}
+			if(r2!=null && !r2.discarded() && r2.countUndefined()>maxNRate*r2.length()){
+				lowqBasesT+=r2.length();
+				lowqReadsT++;
+				r2.setDiscarded(true);
+			}
+		}
+
 		//Consecutive bases filter
 		if(minConsecutiveBases>0){
 			if(r1!=null && !r1.discarded() && !r1.hasMinConsecutiveBases(minConsecutiveBases)){
@@ -816,7 +833,7 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 		// Light operations (0.25f each)
 		if(forceTrimLeft>0 || forceTrimRight>=0 || forceTrimRight2>0 || forceTrimModulo>0){workers+=0.25f;}
 		if(minAvgQuality>0 || minAvgQualityBases>0){workers+=0.25f;}
-		if(maxNs>=0){workers+=0.25f;}
+		if(maxNs>=0 || maxNRate<1){workers+=0.25f;}
 		if(minConsecutiveBases>0){workers+=0.25f;}
 		if(minReadLength>0 || maxReadLength>0){workers+=0.25f;}
 		if(reverseComplement || reverseComplementMate || complement){workers+=0.25f;}
@@ -1129,6 +1146,8 @@ public class ReformatProcessor implements Processor<ReformatProcessor> {
 	public float minAvgQuality=0;
 	public int minAvgQualityBases=0;
 	public int maxNs=-1;
+	/** Maximum fraction of Ns per read; scales with length, unlike maxNs.  1 is a no-op. */
+	public float maxNRate=1;
 	public int minConsecutiveBases=0;
 
 	//Length

@@ -309,7 +309,11 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 				assert(false) : "Unknown parameter "+args[i];
 			}
 		}
-		
+
+		//maxnrate is a shared flag with a tool-specific default; unset (negative) keeps QuickBin's 0.75.
+		//Read tools default to 1 (no-op), but poly-N contigs carry no binning signal, so QuickBin drops them.
+		SpectraCounter.maxNRate=(parser.maxNRate>=0 ? parser.maxNRate : SpectraCounter.maxNRate);
+
 		return parser;
 	}
 	
@@ -369,6 +373,9 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		//giving per-phase comparison instrumentation; edge phases use a fresh local Oracle (400,446) so their counts
 		//stay separate from binner's. (process() does ALL work here; the ProcessThread read-loop below is unused.)
 		contigList=loader.loadData();
+		//A load thread that dies takes its whole batch of contigs with it, so a loader error means the
+		//contig list is silently incomplete.  Without this, the run finished with exit code 0.
+		errorState|=loader.errorState;
 		assert(isValid(contigList, false));
 		if(covOut!=null) {DataLoader.writeCov(covOut, contigList, loader.numDepths, outstream);}
 		loader.trimEdges(contigList, Binner.maxEdges, Binner.minEdgeWeight, Binner.reciprocalEdges);

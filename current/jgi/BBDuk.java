@@ -130,6 +130,7 @@ public class BBDuk {
 		parser.minLenFraction=0f;
 		parser.requireBothBad=false;
 		parser.maxNs=-1;
+		parser.maxNRate=-1;//Negative means unset; this tool defaults to 1 (no-op)
 		parser.overwrite=overwrite;
 		boolean trimByOverlap_=false, useQualityForOverlap_=false, strictOverlap_=true;
 		boolean trimPairsEvenly_=false;
@@ -624,6 +625,8 @@ public class BBDuk {
 			minReadLength=parser.minReadLength;
 			maxReadLength=parser.maxReadLength;
 			maxNs=parser.maxNs;
+			//Shared flag, tool-specific default; unset (negative) means 1, which is a no-op.
+			maxNRate=(parser.maxNRate>=0 ? parser.maxNRate : 1f);
 			minConsecutiveBases=parser.minConsecutiveBases;
 			removePairsIfEitherBad=(!parser.requireBothBad) && (!trimFailuresTo1bp_);
 			tossJunk=parser.tossJunk;
@@ -3130,6 +3133,20 @@ public class BBDuk {
 								setDiscarded(r2);
 							}
 						}
+						//Same, but as a fraction of read length; a rate of 1 (the default) is a no-op.
+						//The discarded checks prevent double-counting a read that also failed maxNs.
+						if(maxNRate<1){
+							if(r1!=null && !r1.discarded() && r1.countUndefined()>maxNRate*r1.length()){
+								readsNFilteredT++;
+								basesNFilteredT+=r1.length();
+								setDiscarded(r1);
+							}
+							if(r2!=null && !r2.discarded() && r2.countUndefined()>maxNRate*r2.length()){
+								readsNFilteredT++;
+								basesNFilteredT+=r2.length();
+								setDiscarded(r2);
+							}
+						}
 						//Determine whether to discard the reads based on a lack of useful kmers
 						if(minConsecutiveBases>0){
 							if(isNotDiscarded(r1) && !r1.hasMinConsecutiveBases(minConsecutiveBases)){setDiscarded(r1);}
@@ -5192,6 +5209,9 @@ public class BBDuk {
 	final HashSet<String> barcodes;
 	/** Throw away reads containing more than this many Ns.  Default: -1 (disabled) */
 	final int maxNs;
+	/** Throw away reads with a greater fraction of Ns than this.  Default: 1 (disabled).
+	 * Unlike maxNs this scales with read length. */
+	final float maxNRate;
 	/** Throw away reads containing without at least this many consecutive called bases. */
 	final int minConsecutiveBases;
 	/** Throw away reads containing fewer than this fraction of any particular base. */

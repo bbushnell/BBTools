@@ -123,7 +123,11 @@ public class Contig extends Bin {
 		}
 	}
 	
-	public void loadCountsFast() {
+	/**
+	 * Counts kmers of all needed lengths in a single pass and populates the spectra.
+	 * @return The number of defined (ACGT) bases; undefined bases such as N are not counted.
+	 */
+	public int loadCountsFast() {
 		//CLEVER [verified in-file]: single-pass k-mer load via countKmersMulti (all of k=2..5 + monomers in ONE scan
 		//of bases), vs loadCountsOld which scans separately per k (4, then 3, then 5) + a manual GC loop. gcSum here is
 		//counts[1][1]+counts[1][2] (C+G). NN-INPUT note: this produces the k-mer counts the pretrained net ultimately
@@ -141,6 +145,10 @@ public class Contig extends Bin {
 
 		numTetramers=(int)Tools.sum(tetramers);
 		numPentamers=k5 ? (int)Tools.sum(pentamers) : 0;
+
+		//countKmersMulti only increments counts[1] for defined bases, so this is the ACGT count;
+		//size()-acgt is the number of Ns.  Free here, versus a second pass over the bases.
+		return (int)Tools.sum(counts[1]);
 	}
 	
 	/**
@@ -239,6 +247,9 @@ public class Contig extends Bin {
 	
 	private int id=-1;
 	public final int size;
+	/** Flagged by SpectraCounter for contigs with too little ACGT signal to bin (e.g. poly-N).
+	 * Only used to evict them from a prebuilt list; contigs loaded via streaming are never added. */
+	public boolean junk=false;
 	public Cluster cluster=null;
 	public final String name;
 	public final String shortName;

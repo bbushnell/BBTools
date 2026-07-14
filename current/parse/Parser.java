@@ -507,6 +507,10 @@ public class Parser {
 			minLenFraction=Float.parseFloat(b);
 		}else if(a.equals("maxns")){
 			maxNs=Integer.parseInt(b);
+		}else if(a.equals("maxnrate") || a.equals("maxnfraction")){
+			maxNRate=Float.parseFloat(b);
+			if(maxNRate>1) {maxNRate/=100;}
+			assert(maxNRate<0 || maxNRate<=1) : "maxnrate should be a fraction (0-1) or percent: "+maxNRate;
 		}else if(a.equals("minconsecutivebases") || a.equals("mcb")){
 			minConsecutiveBases=Integer.parseInt(b);
 		}else if(a.equals("minavgquality") || a.equals("minaveragequality") || a.equals("maq")){
@@ -1839,6 +1843,11 @@ public class Parser {
 	public int minAvgQualityBases=0;
 	/** Maximum ambiguous (N) bases allowed per read (-1 for unlimited) */
 	public int maxNs=-1;
+	/** Maximum fraction of ambiguous (N) bases allowed per read.  Unlike maxNs this scales with
+	 * read length, which is useful for excluding junk sequences of varying lengths, such as
+	 * poly-N contigs.  Negative means unset, so each tool can apply its own default; 1 is a
+	 * no-op (a read cannot exceed 100% Ns).  Most tools default to 1, but QuickBin uses 0.75. */
+	public float maxNRate=-1;
 	/** Minimum consecutive non-N bases required */
 	public int minConsecutiveBases=0;
 	/** Minimum read length after trimming to retain */
