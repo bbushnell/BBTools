@@ -499,6 +499,17 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				e.printStackTrace();
 			}
 		}
+		if(!serverMode && sketchRecords!=null && !sketchRecords.isEmpty()){
+			//Local mode: adopt the loaded sketch DB's bucket count into Clade.DDL_BUCKETS so query
+			//sketches match the DB/index without an explicit ddlbuckets= flag. Server mode negotiates
+			//the server's bucket size separately (not handled here). Runs before loadQueries so query
+			//DDLs are built at the right size.
+			final int dbBuckets=sketchRecords.get(0).ddl.buckets;
+			if(dbBuckets>0 && Clade.DDL_BUCKETS!=dbBuckets){
+				if(showLoading){outstream.println("Adopting DDL_BUCKETS="+dbBuckets+" from sketch DB.");}
+				Clade.DDL_BUCKETS=dbBuckets;
+			}
+		}
 		loadQueries(serverMode);
 		if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
 		
@@ -800,6 +811,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @return The ByteBuilder with appended results
 	 */
 	ByteBuilder appendResult(Object o, ByteBuilder bb) {
+		if(o==null) {return bb;}//findBest returns null for a query with no hit; emit nothing (matches appendResultMachine's c==null path and evaluate()'s no-hit handling).
 		if(o.getClass()==Comparison.class) {
 			Comparison c=(Comparison)o;
 			if(setColor && c.ref!=null){
