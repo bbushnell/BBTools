@@ -139,7 +139,7 @@ public class CladeServer {
 		if(!cardinality.DynamicDemiLog.blacklistExists()){
 			String blPath=dna.Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
 			if(blPath!=null){
-				cardinality.DynamicDemiLog.loadBlacklist(blPath);
+				cardinality.DynamicDemiLog.loadBlacklist(blPath, Clade.DDL_K);
 			}
 		}
 

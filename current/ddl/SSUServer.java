@@ -95,7 +95,7 @@ public class SSUServer {
 
 		if(!DynamicDemiLog.blacklistExists()){
 			String blPath=dna.Data.findPath("?riboDDLBlacklist.fa.gz", false);
-			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath);}
+			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath, k);}
 		}
 
 		if(refFile==null && ref16sFile==null && ref18sFile==null){
