@@ -30,6 +30,7 @@ import parse.LineParser4;
 import parse.LineParserS1;
 import parse.LineParserS4;
 import parse.Parse;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -370,9 +371,17 @@ public class DataLoader extends BinObject {
 		final boolean parseCov=(covIn==null && readFiles.isEmpty() && covstats.isEmpty() && !flatMode);
 		final ArrayList<Contig> contigs=loadAndProcessContigs(fname, parseCov);
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
-		
+
+		//Everything downstream indexes contigs.get(0), so an empty list dies with a bare
+		//IndexOutOfBoundsException.  Reachable whenever a filter removes every contig.
+		if(contigs.isEmpty()) {
+			KillSwitch.kill("No contigs were retained from "+fname+
+					"\nAll contigs were discarded as too short (mincontig="+minContigToLoad+
+					") or as junk with too few defined bases (maxnrate="+SpectraCounter.maxNRate+").");
+		}
+
 		loadDepth(contigs, parseCov, true);
-		
+
 		return contigs;
 	}
 	
@@ -613,6 +622,10 @@ public class DataLoader extends BinObject {
 		outstream.print("Calculating kmer frequency spectra: \t");
 		SpectraCounter sc=new SpectraCounter(outstream, parseCov, parseTID, sizeMap);
 		sc.makeSpectra(contigs, null, minContigToLoad);
+		errorState|=sc.errorState;
+		//loadContigsST assigned IDs, but makeSpectra may have evicted junk contigs, so renumber.
+		//IDs must stay dense and equal to the list position; cov files index contigs by ID.
+		for(int i=0; i<contigs.size(); i++) {contigs.get(i).setID(i);}
 		phaseTimer.stopAndPrint();
 		return contigs;
 	}

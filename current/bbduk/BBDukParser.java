@@ -103,6 +103,8 @@ class BBDukParser {
 			minReadLength=parser.minReadLength;
 			maxReadLength=parser.maxReadLength;
 			maxNs=parser.maxNs;
+			//Shared flag, tool-specific default; unset (negative) means 1, which is a no-op.
+			maxNRate=(parser.maxNRate>=0 ? parser.maxNRate : 1f);
 			minConsecutiveBases=parser.minConsecutiveBases;
 			removePairsIfEitherBad=(!parser.requireBothBad) && (!trimFailuresTo1bp);
 			tossJunk=parser.tossJunk;
@@ -437,6 +439,7 @@ class BBDukParser {
 		parser.minLenFraction=0f;
 		parser.requireBothBad=false;
 		parser.maxNs=-1;
+		parser.maxNRate=-1;
 		parser.overwrite=overwrite;
 		
 		return args;
@@ -1283,6 +1286,9 @@ class BBDukParser {
 	final HashSet<String> barcodes;
 	/** Throw away reads containing more than this many Ns.  Default: -1 (disabled) */
 	final int maxNs;
+	/** Throw away reads with a greater fraction of Ns than this.  Default: 1 (disabled).
+	 * Unlike maxNs this scales with read length. */
+	final float maxNRate;
 	/** Throw away reads containing without at least this many consecutive called bases. */
 	final int minConsecutiveBases;
 	/** Throw away reads containing fewer than this fraction of any particular base. */

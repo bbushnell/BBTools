@@ -61,9 +61,28 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		//Start the threads and wait for them to finish
 		boolean success=ThreadWaiter.startAndWait(alpt, this);
 		errorState|=!success;
-		
+
 		//Do anything necessary after processing
-		
+		if(contigsDiscarded>0) {
+			//Streamed contigs are never added to the list, but a prebuilt list still holds them.
+			if(cris==null) {removeJunk(contigs);}
+			outstream.println("Discarded "+contigsDiscarded+" junk contigs ("+
+					basesDiscarded+" bases) with insufficient ACGT signal.");
+		}
+	}
+
+	/** Removes contigs flagged as junk, preserving the order of the rest.
+	 * Callers must reassign contig IDs afterward, since removal shifts positions.
+	 * @param contigs List to filter in place */
+	private void removeJunk(ArrayList<Contig> contigs) {
+		ArrayList<Contig> temp=new ArrayList<Contig>(contigs.size()-contigsDiscarded);
+		for(Contig c : contigs) {
+			if(!c.junk) {temp.add(c);}
+		}
+		assert(temp.size()==contigs.size()-contigsDiscarded) :
+			temp.size()+", "+contigs.size()+", "+contigsDiscarded;
+		contigs.clear();
+		contigs.addAll(temp);
 	}
 	
 	@Override
@@ -76,6 +95,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 			basesLoaded+=t.basesLoadedT;
 			contigsRetained+=t.contigsRetainedT;
 			basesRetained+=t.basesRetainedT;
+			contigsDiscarded+=t.contigsDiscardedT;
+			basesDiscarded+=t.basesDiscardedT;
 		}
 	}
 
@@ -127,7 +148,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		void runOnContigs() {
 			for(int i=tid; i<contigs.size(); i+=threads) {
 				Contig c=contigs.get(i);
-				processContig(c);
+				//The contig is already in the list, so flag it; makeSpectra evicts it after the threads join.
+				if(!processContig(c)) {c.junk=true;}
 			}
 		}
 		
@@ -140,10 +162,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 				ArrayList<Contig> localContigs=new ArrayList<Contig>(ln.size());
 				for(Read r : ln) {
 					Contig c=loadContig(r);
-					if(c!=null) {
-						processContig(c);
-						localContigs.add(c);
-					}
+					if(c!=null && processContig(c)) {localContigs.add(c);}
 				}
 				synchronized(contigs) {contigs.addAll(localContigs);}
 				
@@ -155,8 +174,7 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		Contig processRead(Read r) {
 			Contig c=loadContig(r);
 			if(c==null) {return null;}
-			processContig(c);
-			return c;
+			return processContig(c) ? c : null;
 		}
 		
 		Contig loadContig(Read r) {
@@ -244,12 +262,26 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		//NN-INPUT SOURCE (live): loadCountsFast -> trimers/tetramers/pentamers/dimers; entropy/strandedness/hh/caga all
 		//feed the Oracle CellNet vector. DOCUMENT-only -- do not alter these computations. (strandedness computed
 		//unconditionally here, no calcStrandedness guard; safe because loadCountsFast always sets dimers=counts[2].)
-		void processContig(Contig c) {
+		/**
+		 * Calculates the kmer spectra and derived statistics for one contig.
+		 * @param c Contig to process
+		 * @return true to retain the contig, or false if it is junk and should be discarded
+		 */
+		boolean processContig(Contig c) {
 			synchronized(c) {
 //				System.err.println("Thread "+tid+" got lock on "+c.name+", "+c.id()+", "+c.size());
 				contigsProcessedT++;
 				basesProcessedT+=c.size();
-				c.loadCountsFast();
+				final int acgt=c.loadCountsFast();
+				if(isJunk(c, acgt)) {
+					contigsDiscardedT++;
+					basesDiscardedT+=c.size();
+					if(cris!=null) {//Only the streaming path runs loadContig, which counts retained before
+						contigsRetainedT--;//the bases have been examined; undo that here.
+						basesRetainedT-=c.size();
+					}
+					return false;
+				}
 				if(c.numDepths()>1) {c.fillNormDepth();}
 				if(calcEntropy) {
 					if(!calcEntropyFast) {
@@ -271,11 +303,34 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 					}
 					assert(b) : "Could not parse depth from "+c.name;
 				}
-				
-				assert(c.tetramers!=null && c.numTetramers>0);
+
+				//Junk contigs already returned above, so a surviving contig with no tetramers means the
+				//spectra were never loaded -- a code error.  assertDie makes it a loud exit instead of an
+				//AssertionError that only kills this thread and silently discards its whole batch.
+				assert(c.tetramers!=null && c.numTetramers>0) : KillSwitch.assertDie(
+						"Contig "+c.name+" (length "+c.size()+") has no tetramers after loading.");
+				return true;
 			}
 		}
-		
+
+		/**
+		 * Determines whether a contig lacks enough ACGT signal to be worth binning.
+		 * Real assemblers do not emit poly-N contigs, but shredded synthetic references (e.g. CAMI) do;
+		 * their spectra are empty or near-empty, which is meaningless for binning.
+		 *
+		 * @param c Contig with spectra already loaded
+		 * @param acgt Number of defined (ACGT) bases in the contig
+		 * @return true if the contig is junk and should be discarded
+		 */
+		boolean isJunk(Contig c, int acgt) {
+			if(c.numTetramers<1) {return true;}//No signal at all; would fail the tetramer assertion below
+			final float nRate=1-(acgt/(float)c.size());
+			if(nRate>maxNRate) {return true;}
+			//Below half the minimum contig length there is too little signal to place the contig,
+			//even if the defined bases are contiguous.
+			return c.numTetramers*2<minlen;
+		}
+
 		final int tid;
 		final int threads;
 		final int minlen;
@@ -294,6 +349,8 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 		long basesLoadedT=0;
 		int contigsRetainedT=0;
 		long basesRetainedT=0;
+		int contigsDiscardedT=0;
+		long basesDiscardedT=0;
 	}
 	
 	public PrintStream outstream=System.err;
@@ -306,8 +363,13 @@ public class SpectraCounter extends BinObject implements Accumulator<SpectraCoun
 	public long basesLoaded=0;
 	public int contigsRetained=0;
 	public long basesRetained=0;
-	
+	public int contigsDiscarded=0;
+	public long basesDiscarded=0;
+
 	public boolean errorState=false;
+	/** Contigs with a higher fraction of undefined bases (N) than this are discarded as junk.
+	 * Real assemblies never contain them; shredded synthetic references (e.g. CAMI) do. */
+	public static float maxNRate=0.75f;
 	public static boolean calcEntropy=true;
 	public static boolean calcEntropyFast=false;
 	public static boolean calcStrandedness=true;

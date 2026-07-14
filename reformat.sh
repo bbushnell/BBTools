@@ -129,6 +129,9 @@ barcodefilter=f         Remove reads with unexpected barcodes if barcodes is set
                         A barcode must be the last part of the read header.
 barcodes=               Comma-delimited list of barcodes or files of barcodes.
 maxns=-1                If 0 or greater, reads with more Ns than this (after trimming) will be discarded.
+maxnrate=1              If below 1, reads with a greater fraction of Ns than this will be discarded.
+                        Unlike maxns this scales with read length, so maxnrate=0.75 excludes junk
+                        sequences of any length.  Both filters may be used together.
 minconsecutivebases=0   (mcb) Discard reads without at least this many consecutive called bases.
 forcetrimleft=0         (ftl) If nonzero, trim left bases of the read to this position (exclusive, 0-based).
 forcetrimright=-1       (ftr) If nonnegative, trim right bases of the read after this position (exclusive, 0-based).

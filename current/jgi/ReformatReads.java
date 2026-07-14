@@ -304,6 +304,8 @@ public class ReformatReads {
 			failIfNoBarcode=parser.failIfNoBarcode;
 			barcodes=parser.barcodes;
 			maxNs=parser.maxNs;
+			//Shared flag, tool-specific default; unset (negative) keeps 1, which is a no-op.
+			maxNRate=(parser.maxNRate>=0 ? parser.maxNRate : maxNRate);
 			minConsecutiveBases=parser.minConsecutiveBases;
 			minReadLength=parser.minReadLength;
 			maxReadLength=parser.maxReadLength;
@@ -1009,6 +1011,20 @@ public class ReformatReads {
 			}
 		}
 
+		//Same as maxNs, but as a fraction of read length; a rate of 1 (the default) is a no-op.
+		if(maxNRate<1){
+			if(r1!=null && !r1.discarded() && r1.countUndefined()>maxNRate*r1.length()){
+				lowqBasesT+=r1.length();
+				lowqReadsT++;
+				r1.setDiscarded(true);
+			}
+			if(r2!=null && !r2.discarded() && r2.countUndefined()>maxNRate*r2.length()){
+				lowqBasesT+=r2.length();
+				lowqReadsT++;
+				r2.setDiscarded(true);
+			}
+		}
+
 		if(minConsecutiveBases>0){
 			if(r1!=null && !r1.discarded() && !r1.hasMinConsecutiveBases(minConsecutiveBases)){
 				lowqBasesT+=r1.length();
@@ -1149,7 +1165,7 @@ public class ReformatReads {
 			outstream.println("Short Read Discards:    \t"+readShortDiscardsT+" reads ("+Tools.format("%.2f",readShortDiscardsT*rpmult)+"%) \t"+
 				baseShortDiscardsT+" bases ("+Tools.format("%.2f",baseShortDiscardsT*bpmult)+"%)");
 		}
-		if(minAvgQuality>0 || maxNs>=0 || chastityFilter || tossJunk || removeBadBarcodes){
+		if(minAvgQuality>0 || maxNs>=0 || maxNRate<1 || chastityFilter || tossJunk || removeBadBarcodes){
 			outstream.println("Low quality discards:   \t"+lowqReadsT+" reads ("+Tools.format("%.2f",lowqReadsT*rpmult)+"%) \t"+
 				lowqBasesT+" bases ("+Tools.format("%.2f",lowqBasesT*bpmult)+"%)");
 		}
@@ -1855,6 +1871,8 @@ public class ReformatReads {
 	private float minAvgQuality=0;
 	private int minAvgQualityBases=0;
 	private int maxNs=-1;
+	/** Maximum fraction of Ns per read; scales with length, unlike maxNs.  1 is a no-op. */
+	private float maxNRate=1;
 	private int minConsecutiveBases=0;
 	private int breakLength=0;
 	private int maxReadLength=0;
