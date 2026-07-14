@@ -468,7 +468,10 @@ public class CladeIndex implements Cloneable {
 	public void buildSketchIndex(){
 		if(sketchRecords==null || sketchRecords.isEmpty()){return;}
 		long t0=System.nanoTime();
-		ddlIndex=new DDLIndex();
+		//Size the index to the DB's actual bucket count (as DDLCompare/SSUCompare/SSUServer do); the no-arg
+		//DDLIndex() hardcodes 4096, so a 32k-bucket sketch DB overflowed matrix[b] -> AIOOBE at DDLIndex.query.
+		final int ddlBuckets=sketchRecords.get(0).ddl.buckets;
+		ddlIndex=new DDLIndex(ddlBuckets);
 		int it=indexThreads>0 ? indexThreads : Math.min(Shared.threads(), 32);
 		ddlIndex.addAll(sketchRecords, it);
 		long elapsed=System.nanoTime()-t0;

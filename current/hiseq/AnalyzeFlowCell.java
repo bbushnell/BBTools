@@ -500,7 +500,14 @@ public class AnalyzeFlowCell implements Accumulator<AnalyzeFlowCell.ProcessThrea
 	void loadKmers(){
 		Timer t2=new Timer();
 		outstream.print("Loading kmers:  \t");
-		
+
+		//NONDETERMINISM (Eru, 2026-07-13): output varies with the LOAD thread count, strictly via the
+		//UNIQUENESS calc -- per-tile Bloom-filter kmer hit/miss counts differ when kmers are loaded by
+		//>1 thread (quality/error/poly-G flags are thread-stable). loadthreads=1 (implied by t=1) is
+		//fully deterministic. RULED OUT by experiment as the cause (do NOT re-chase): (1) conservative-
+		//update counting -- forcing plain order-independent atomic-add counting did not help; (2) cell-
+		//count variation -- pinning the table size did not help (still diverged). The exact mechanism
+		//inside the multithreaded loader was not isolated.
 		loadThreads=Tools.min(loadThreads, Shared.threads());
 		final int oldMCT=KmerCountAbstract.MAX_COUNT_THREADS;
 		final float oldProb=KmerCountAbstract.minProb;

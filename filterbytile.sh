@@ -19,6 +19,10 @@ performance when processing one lane at a time.  For this purpose it is best
 to use as much memory as possible (e.g., 200GB RAM for 5 billion reads),
 though it will still work with much less memory.
 
+For reproducible output, run single-threaded (t=1).  With multiple threads the
+kmer-uniqueness metric is not perfectly deterministic across thread counts;
+quality and error-rate metrics are unaffected.
+
 Please read bbmap/docs/guides/FilterByTileGuide.txt for more information.
 
 
