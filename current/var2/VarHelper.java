@@ -258,7 +258,7 @@ public class VarHelper {
 	}
 
 	public static int homopolymerCountLeft(final byte[] bases, final int pos, final byte base){
-		if(pos<0 || bases[pos]!=base){return 0;}
+		if(pos<0 || pos>=bases.length || bases[pos]!=base){return 0;}
 		if(!AminoAcid.isFullyDefined(base)){return 0;}
 		
 		int count=0;
@@ -270,7 +270,9 @@ public class VarHelper {
 	}
 
 	public static int homopolymerCountRight(final byte[] bases, final int pos, final byte base){
-		if(pos<0 || bases[pos]!=base){return 0;}
+		//pos can equal bases.length for an insertion whose right flank is the contig end
+		//(caller passes stop+1); guard it like homopolymerCountSub before indexing bases[pos].
+		if(pos<0 || pos>=bases.length || bases[pos]!=base){return 0;}
 		if(!AminoAcid.isFullyDefined(base)){return 0;}
 		
 		int count=0;
