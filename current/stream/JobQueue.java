@@ -17,6 +17,12 @@ import shared.Tools;
  * Bounded mode prevents memory issues by blocking producers when the queue reaches capacity,
  * while still allowing jobs matching nextID to be added immediately to prevent deadlocks.
  * 
+ * CONTRACT: Only supports ordered streams with dense, complete IDs (firstID, firstID+1, ...,
+ * no skipped IDs).  A missing ID stalls the consumer until a poison/last pill arrives.
+ * Producers of sparse streams must insert empty placeholder jobs for filtered-out IDs.
+ * The ordered_ constructor parameter is currently ADVISORY-ONLY (see constructor): every
+ * queue runs in ordered mode, because unordered mode violated assumptions elsewhere.
+ * 
  * @author Brian Bushnell
  * @contributor Isla
  * @date October 23, 2025
@@ -43,6 +49,12 @@ public class JobQueue<K extends HasID>{
 		half=(capacity+1)/2; // Used for lazy notification optimization
 		quarter=(half+1)/2;//Anyone can add under quarter full
 		ordered=ordered_ || true;//TODO: Review all cases where this can legitimately be set to false.
+		//TODO: Possible bug - ordered_ is silently ignored (forced true).  Callers passing false
+		//(OQS 'ordered', OQS2 'orderedOutput') get strict ordering plus its hidden dense-ID
+		//requirement: any skipped ID hangs the consumer until poison.  Intent was "ordered=false
+		//makes things cheaper", but correctness was hard to ensure; disordered mode violated
+		//assumptions elsewhere and caused hangs (Brian).  Safe reading: ordered=true means "I
+		//need ordering"; ordered=false does NOT mean "gap-tolerant".  Class javadoc updated.
 		bounded=bounded_;
 		nextID=firstID;
 		maxSeen=firstID-1;
@@ -182,6 +194,11 @@ public class JobQueue<K extends HasID>{
 				}
 			}
 		}
+		//TODO: Possible bug - a last() marker is RETURNED to the consumer as a normal job here
+		//(only poison maps to null; the null arrives on the NEXT call).  Every consumer must
+		//either tolerate the makeLast() payload as processable (empty) cargo or check job.last()
+		//itself - nothing in getOutput()/take() docs says so.  If any job type's makeLast()
+		//carries non-empty or half-initialized payload, it gets processed as data.
 		return job==null || job.poison() ? null : job;
 	}
 	
@@ -228,6 +245,14 @@ public class JobQueue<K extends HasID>{
 	}
 	
 	public boolean hasMore(){
+		//TODO: Possible bug - ignores 'poisoned'.  After a FORCED shutdown (poison(pill, force=true),
+		//e.g. writer error paths calling setFinished(true)), take() returns null forever while
+		//hasMore() stays true - a `while(hasMore()){process(getOutput());}` consumer spins or NPEs
+		//on the exact path where a thread just died.  Candidate fix is `!lastSeen && !poisoned`,
+		//but that changes visible behavior for every user under nondeterministic timing, so it
+		//needs real multi-workflow validation, not a drive-by edit.  NOTE: the GRACEFUL path is
+		//unaffected - poisoned is only ever set by force=true, so with the intended never-forced
+		//protocol hasMore()==!lastSeen is correct.
 		synchronized(heap){return !lastSeen;}
 	}
 	
@@ -239,6 +264,13 @@ public class JobQueue<K extends HasID>{
 		synchronized(heap){return maxSeen;}
 	}
 	
+	//TODO: Possible bug - with force=false the pill's id (maxSeenId+1) sorts strictly LAST, so if
+	//the stream has a genuine gap (a worker died holding job k), heapReady stays false at nextID=k
+	//and the consumer never wakes despite the notifyAll: only force=true guarantees liveness after
+	//job loss.  Fine under the graceful never-lose-a-job protocol; callers on ERROR paths must use
+	//force=true.  ALSO NOTE (deliberate, verified): OQS shutdown can put LAST@m+1 and POISON@m+1
+	//into the same heap - equal ids, arbitrary tie-break.  Both orders terminate correctly today
+	//(traced 2026-07-14); do not "fix" the tie without re-tracing both interleavings.
 	public void poison(K poison, boolean force) {
 		assert(poison!=null && poison.poison()) : poison;
 		synchronized(heap){
