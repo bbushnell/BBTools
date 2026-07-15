@@ -148,6 +148,9 @@ public class OrderedQueueSystem2<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete from the consumer side. */
+	//TODO: Possible bug - see JobQueue.poison(): force=false does not guarantee blocked threads wake
+	//if a stream has an ID gap (dead worker); error paths should pass force=true.  Also see
+	//JobQueue.hasMore(): after force=true, hasMore() stays true while take() returns null.
 	@SuppressWarnings("unchecked")
 	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS2: setFinished()");}

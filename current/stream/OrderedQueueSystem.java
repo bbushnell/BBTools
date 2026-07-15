@@ -102,6 +102,11 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	/*--------------------------------------------------------------*/
 
 	/** Get next input job (blocks). */
+	//TODO: Possible bug - getInput/putJob swallow interrupts entirely (print + retry): workers are
+	//unkillable except via the poison pill.  Consistent with the house poison-driven-shutdown
+	//policy (see JobQueue.take()'s documented hazard), but a stray interrupt on a healthy worker
+	//prints an alarming stack trace and is otherwise ignored.  If interrupt-based shutdown is ever
+	//needed, make it poison-driven instead of adding a break here.
 	public I getInput(){
 		I job=null;
 		while(job==null){
@@ -141,6 +146,9 @@ public class OrderedQueueSystem<I extends HasID, O extends HasID> {
 	}
 
 	/** Signal that processing is complete. */
+	//TODO: Possible bug - see JobQueue.poison(): force=false does not guarantee the consumer wakes
+	//if the output stream has an ID gap (dead worker); error paths should pass force=true.  Also
+	//see JobQueue.hasMore(): after force=true, hasMore() stays true while take() returns null.
 	@SuppressWarnings("unchecked")
 	public synchronized void setFinished(boolean force){
 		if(verbose) {System.err.println("OQS: setFinished()");}
