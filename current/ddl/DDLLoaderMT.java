@@ -127,7 +127,11 @@ public class DDLLoaderMT {
 		int contigs=0;
 		float gc=-1;
 		int offset=-1;
-		byte[] dataLine=null;
+		boolean hasKmers=false;
+		//A kmer-bearing record has TWO non-# lines: the DDL bucket data, then the kmer data (matching
+		//DDLLoader.appendRecord's write order).  Keep them separate; the last-line-wins idiom would
+		//silently drop the DDL line and parse the kmer line as buckets.
+		byte[] dataLine=null, kmerLine=null;
 
 		for(byte[] line : lines){
 			if(line.length<1){continue;}
@@ -144,14 +148,21 @@ public class DDLLoaderMT {
 				else if(lp.termEquals("#origin", 0)){origin=lp.parseString(1);}
 				else if(lp.termEquals("#lineage", 0)){lineage=lp.parseString(1);}
 				else if(lp.termEquals("#offset", 0)){offset=(int)lp.parseLong(1);}
-			}else{
+				else if(lp.termEquals("#haskmers", 0)){hasKmers=lp.parseLong(1)>0;}
+			}else if(dataLine==null){
 				dataLine=line;
+			}else{
+				kmerLine=line;
 			}
 		}
 
 		if(dataLine==null){return null;}
 
-		DynamicDemiLog ddl=DDLLoader.parseDDL(dataLine, lp, k, offset);
+		long[] kmers=null;
+		if(hasKmers && kmerLine!=null && kmerLine.length>0){
+			kmers=DDLLoader.parseKmers(kmerLine, lp);
+		}
+		DynamicDemiLog ddl=DDLLoader.parseDDL(dataLine, lp, k, offset, kmers);
 		DDLRecord rec=new DDLRecord(ddl, recId, tid, name);
 		rec.filename=file;
 		rec.bases=bases;

@@ -69,6 +69,10 @@ public class DDLBlacklistMaker {
 				blacklistFile=b;
 			}else if(a.equals("condense")){
 				condense=Parse.parseBoolean(b);
+			}else if(a.equals("prefilter")){
+				prefilter=Parse.parseBoolean(b);
+			}else if(a.equals("prefilterbits") || a.equals("pfbits")){
+				prefilterBits=Integer.parseInt(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -178,53 +182,76 @@ public class DDLBlacklistMaker {
 	/*-----------        Blacklist Generation        ---------------*/
 	/*--------------------------------------------------------------*/
 
+	@SuppressWarnings("unchecked")
 	void processBlacklist(Timer t){
 		final TaxTree tree=TaxTree.sharedTree();
 		final String[] inFiles=in.split(",");
+		final int shards=Tools.mid(1, Shared.threads(), MAX_SHARDS);
+		outstream.println("Sharding by bucket across "+shards+" thread(s).");
+		final Timer pt=new Timer(outstream, true);//Phase timer, independent of the total-runtime timer t.
 
-		final LongObjectMap<IntHashSet> kmerGenera=new LongObjectMap<IntHashSet>(IntHashSet.class);
-		long totalRecords=0, totalWithKmers=0;
+		//Optional pass 1: build a lossy counting table so the exact maps below only hold candidates.
+		final byte[][] counts=(prefilter ? countKmers(inFiles, shards) : null);
+		if(prefilter){pt.stopAndStart("Prefilter pass 1 total:");}
+
+		//Disjoint per-shard maps.  A kmer's bucket = hash(kmer)&bucketMask is fixed across every sketch,
+		//so kmerArray[i] always holds a kmer whose bucket is i; splitting buckets into contiguous ranges
+		//therefore partitions kmer space exactly.  The per-shard maps never share a key, so they need no
+		//locks and no merge, and no single map approaches LongObjectMap's array-backed capacity.
+		final LongObjectMap<IntHashSet>[] maps=new LongObjectMap[shards];
+		for(int s=0; s<shards; s++){maps[s]=new LongObjectMap<IntHashSet>(IntHashSet.class);}
+
+		long totalRecords=0, totalWithKmers=0, prefiltered=0, loadNanos=0, mapNanos=0;
 		int skippedTids=0;
 
 		for(String inFile : inFiles){
 			outstream.println("Loading "+inFile);
-			ArrayList<DDLRecord> records=DDLLoader.loadFile(inFile.trim(), k);
+			long ts=System.nanoTime();
+			ArrayList<DDLRecord> records=DDLLoaderMT.loadFile(inFile.trim(), k);
+			loadNanos+=System.nanoTime()-ts;
 			outstream.println("  "+records.size()+" records");
+			totalRecords+=records.size();
+
+			final int buckets=bucketCount(records);
+			final int[] genusTids=genusTids(records, tree);//Resolved once, not once per shard.
 
 			int withKmers=0;
-			for(DDLRecord rec : records){
-				if(rec.ddl.hasKmers()){withKmers++;}
+			for(int r=0; r<records.size(); r++){
+				if(records.get(r).ddl.hasKmers()){
+					withKmers++;
+					if(genusTids[r]<0){skippedTids++;}
+				}
 			}
-			totalRecords+=records.size();
 			totalWithKmers+=withKmers;
+			if(buckets<1){records.clear(); continue;}
 
-			for(DDLRecord rec : records){
-				long[] kmers=rec.ddl.kmerArray();
-				if(kmers==null){continue;}
-				int tid=rec.taxID;
-				if(tid<1 || (tree!=null && tid>=tree.nodes.length)){skippedTids++; continue;}
-				int genusTid=tid;
-				if(tree!=null){
-					TaxNode gn=tree.getNodeAtLevel(tid, TaxTree.GENUS);
-					if(gn!=null){genusTid=gn.id;}
-				}
-				for(long kmer : kmers){
-					if(kmer==0){continue;}
-					IntHashSet genera=kmerGenera.get(kmer);
-					if(genera==null){
-						genera=new IntHashSet(4);
-						kmerGenera.put(kmer, genera);
-					}
-					genera.add(genusTid);
-				}
+			ts=System.nanoTime();
+			final ArrayList<MapThread> list=new ArrayList<MapThread>(shards);
+			for(int s=0; s<shards; s++){
+				list.add(new MapThread(records, genusTids, counts, maps[s],
+					shardLo(s, buckets, shards), shardLo(s+1, buckets, shards)));
 			}
+			for(MapThread mt : list){mt.start();}
+			for(MapThread mt : list){
+				while(mt.getState()!=Thread.State.TERMINATED){
+					try{mt.join();}catch(InterruptedException e){e.printStackTrace();}
+				}
+				prefiltered+=mt.prefiltered;
+			}
+			mapNanos+=System.nanoTime()-ts;
 			records.clear();
-			outstream.println("  Kmer map size: "+kmerGenera.size());
+			outstream.println("  Kmer map size: "+mapSize(maps));
 		}
+		if(counts!=null){
+			outstream.println("Prefilter rejected "+prefiltered+" kmer instances before the exact map.");
+		}
+		outstream.println("  [pass 2 phases: load "+sec(loadNanos)+"s (MT load, reader-bound), accumulate "
+			+sec(mapNanos)+"s ("+shards+" threads)]");
+		pt.stopAndStart("Accumulation pass 2 total:");
 
 		outstream.println("\nTotal records: "+totalRecords+" ("+totalWithKmers+" with kmers)");
 		if(skippedTids>0){outstream.println("Skipped "+skippedTids+" records with out-of-range TaxIDs.");}
-		outstream.println("Unique kmers across all files: "+kmerGenera.size());
+		outstream.println("Unique kmers across all files: "+mapSize(maps));
 
 		if(validate && inFiles.length==1){
 			outstream.println("\nReloading for validation...");
@@ -235,7 +262,7 @@ public class DDLBlacklistMaker {
 		}
 
 		if(out!=null && totalWithKmers>0){
-			buildBlacklist(kmerGenera, t);
+			buildBlacklist(maps, t);
 		}else if(out!=null){
 			outstream.println("ERROR: No records have kmer arrays. Rebuild with kmers=t.");
 		}
@@ -243,48 +270,281 @@ public class DDLBlacklistMaker {
 
 	/*--------------------------------------------------------------*/
 
-	void buildBlacklist(LongObjectMap<IntHashSet> kmerGenera, Timer t){
+	/**
+	 * Optional pass 1: count kmer occurrences in a lossy counting table, so that pass 2 only needs
+	 * an exact map entry for kmers that could possibly survive.
+	 *
+	 * The table is counts[bucket][kmer & cellMask], saturating at 255.  The bucket index is free:
+	 * a DDL sketch stores at most one kmer per bucket, so a kmer's array position IS its bucket, and
+	 * a kmer's bucket is fixed (hash & bucketMask) across every sketch.
+	 *
+	 * Losslessness: a kmer in g distinct genera occupies g distinct taxids, hence at least g
+	 * records, and its cell aggregates at least its own records, so
+	 *     cellCount >= recordCount >= genusCount.
+	 * No kmer that would pass minTaxCount can be filtered out here; collisions only INFLATE counts,
+	 * admitting extra kmers to pass 2, which counts them exactly and discards them.  The blacklist is
+	 * therefore identical to the one-pass build.
+	 *
+	 * This exists because the exact map is the memory bottleneck: LongObjectMap is array-backed and
+	 * capped near 1.825 billion entries (SAFE_ARRAY_LEN * 0.85), which a 64k-bucket RefSeq build
+	 * exceeds outright.
+	 *
+	 * @param inFiles Sketch files to scan
+	 * @param shards Number of bucket ranges to count in parallel
+	 * @return counts[bucket][cell], or null if no records had kmer arrays
+	 */
+	private byte[][] countKmers(String[] inFiles, final int shards){
+		final int cells=1<<prefilterBits;
+		byte[][] counts=null;
+		long instances=0, loadNanos=0, countNanos=0;
+
+		for(String inFile : inFiles){
+			outstream.println("Prefilter pass 1: counting "+inFile.trim());
+			long ts=System.nanoTime();
+			ArrayList<DDLRecord> records=DDLLoaderMT.loadFile(inFile.trim(), k);
+			loadNanos+=System.nanoTime()-ts;
+			final int buckets=bucketCount(records);
+			if(buckets<1){records.clear(); continue;}
+			if(counts==null){
+				counts=new byte[buckets][cells];
+				outstream.println("  Counting table: "+buckets+" buckets x "+cells+" cells = "
+					+String.format("%.1f", buckets*(double)cells/(1024*1024*1024))+" GB");
+			}
+			assert(buckets==counts.length) : "Sketches disagree on bucket count: "+buckets+" vs "+counts.length;
+
+			ts=System.nanoTime();
+			final ArrayList<CountThread> list=new ArrayList<CountThread>(shards);
+			for(int s=0; s<shards; s++){
+				list.add(new CountThread(records, counts, shardLo(s, buckets, shards), shardLo(s+1, buckets, shards)));
+			}
+			for(CountThread ct : list){ct.start();}
+			for(CountThread ct : list){
+				while(ct.getState()!=Thread.State.TERMINATED){
+					try{ct.join();}catch(InterruptedException e){e.printStackTrace();}
+				}
+				instances+=ct.instances;
+			}
+			countNanos+=System.nanoTime()-ts;
+			records.clear();
+		}
+		outstream.println("Prefilter pass 1 done: "+instances+" kmer instances counted.");
+		outstream.println("  [pass 1 phases: load "+sec(loadNanos)+"s (MT load, reader-bound), count "
+			+sec(countNanos)+"s ("+shards+" threads)]");
+		return counts;
+	}
+
+	/** Counts kmers for one contiguous range of buckets.  Threads own disjoint rows of the counting
+	 * table (a kmer at array index i lands in counts[i]), so increments never race and no atomics
+	 * are needed. */
+	private class CountThread extends Thread {
+
+		CountThread(ArrayList<DDLRecord> records_, byte[][] counts_, int lo_, int hi_){
+			records=records_; counts=counts_; lo=lo_; hi=hi_;
+		}
+
+		@Override
+		public void run(){
+			final int cellMask=(1<<prefilterBits)-1;
+			for(DDLRecord rec : records){
+				final long[] kmers=rec.ddl.kmerArray();
+				if(kmers==null){continue;}
+				final int limit=Math.min(hi, kmers.length);
+				for(int i=lo; i<limit; i++){
+					final long kmer=kmers[i];
+					if(kmer==0){continue;}
+					final byte[] row=counts[i];
+					final int cell=(int)(kmer&cellMask);
+					if((row[cell]&0xFF)<255){row[cell]++;}//Saturate rather than wrap
+					instances++;
+				}
+			}
+		}
+
+		private final ArrayList<DDLRecord> records;
+		private final byte[][] counts;
+		private final int lo, hi;
+		long instances=0;
+	}
+
+	/** Accumulates kmer->genera for one contiguous bucket range into a map owned solely by this thread.
+	 * Bucket ranges partition kmer space exactly (a kmer's bucket is fixed across every sketch), so the
+	 * per-shard maps are disjoint and require no merge. */
+	private class MapThread extends Thread {
+
+		MapThread(ArrayList<DDLRecord> records_, int[] genusTids_, byte[][] counts_,
+				LongObjectMap<IntHashSet> map_, int lo_, int hi_){
+			records=records_; genusTids=genusTids_; counts=counts_; map=map_; lo=lo_; hi=hi_;
+		}
+
+		@Override
+		public void run(){
+			final int cellMask=(counts!=null ? (1<<prefilterBits)-1 : 0);
+			for(int r=0; r<records.size(); r++){
+				final int genusTid=genusTids[r];
+				if(genusTid<0){continue;}//Unusable TaxID
+				final long[] kmers=records.get(r).ddl.kmerArray();
+				if(kmers==null){continue;}
+				final int limit=Math.min(hi, kmers.length);
+				for(int i=lo; i<limit; i++){
+					final long kmer=kmers[i];
+					if(kmer==0){continue;}
+					if(counts!=null && !survivesPrefilter(counts[i][(int)(kmer&cellMask)], kmer)){
+						prefiltered++;
+						continue;
+					}
+					IntHashSet genera=map.get(kmer);
+					if(genera==null){
+						genera=new IntHashSet(4);
+						map.put(kmer, genera);
+					}
+					genera.add(genusTid);
+				}
+			}
+		}
+
+		private final ArrayList<DDLRecord> records;
+		private final int[] genusTids;
+		private final byte[][] counts;
+		private final LongObjectMap<IntHashSet> map;
+		private final int lo, hi;
+		long prefiltered=0;
+	}
+
+	/** First bucket owned by shard s, splitting [0,buckets) into contiguous ranges. */
+	private static int shardLo(int s, int buckets, int shards){
+		return (int)((long)buckets*s/shards);
+	}
+
+	/** Genus TaxID per record, or -1 where the TaxID is unusable.  Resolved once per file rather than
+	 * once per shard, since every shard would otherwise repeat the same tree walks. */
+	private static int[] genusTids(ArrayList<DDLRecord> records, TaxTree tree){
+		final int[] out=new int[records.size()];
+		for(int r=0; r<out.length; r++){
+			final int tid=records.get(r).taxID;
+			if(tid<1 || (tree!=null && tid>=tree.nodes.length)){out[r]=-1; continue;}
+			int genusTid=tid;
+			if(tree!=null){
+				TaxNode gn=tree.getNodeAtLevel(tid, TaxTree.GENUS);
+				if(gn!=null){genusTid=gn.id;}
+			}
+			out[r]=genusTid;
+		}
+		return out;
+	}
+
+	/** Total live entries across all per-shard maps. */
+	private static long mapSize(LongObjectMap<IntHashSet>[] maps){
+		long sum=0;
+		for(LongObjectMap<IntHashSet> m : maps){sum+=m.size();}
+		return sum;
+	}
+
+	/** Format nanoseconds as seconds with 2 decimals, for phase timing. */
+	private static String sec(long nanos){return Tools.format("%.2f", nanos/1e9);}
+
+	/** Bucket count of the first record carrying kmers; 0 if none do. */
+	private static int bucketCount(ArrayList<DDLRecord> records){
+		for(DDLRecord rec : records){
+			final long[] kmers=rec.ddl.kmerArray();
+			if(kmers!=null){return kmers.length;}
+		}
+		return 0;
+	}
+
+	/**
+	 * Decides whether a kmer earns an exact map entry, given its (possibly inflated) cell count.
+	 * A saturated cell always passes, so minTaxCount above 255 stays safe.  Low-entropy kmers bypass
+	 * the count entirely, mirroring buildBlacklist's entropy criterion (entropy depends only on the
+	 * kmer, so it needs no map).
+	 */
+	private boolean survivesPrefilter(final byte cellCount, final long kmer){
+		final int count=cellCount&0xFF;
+		if(count>=255 || count>=minTaxCount){return true;}
+		return minEntropy>0 && kmerEntropy(kmer, k, entropyK)<minEntropy;
+	}
+
+	/** Gathers and rank-promotes the surviving kmers of ONE shard map into its own results list.
+	 * The shard maps are disjoint and TaxTree lookups are read-only, so with a per-thread scratch set
+	 * and per-thread results, the promotion parallelizes with nothing mutable shared. */
+	private class BuildThread extends Thread {
+
+		BuildThread(LongObjectMap<IntHashSet> map_, TaxTree tree_, int[] levels_){
+			map=map_; tree=tree_; LEVELS=levels_;
+		}
+
+		@Override
+		public void run(){
+			final IntHashSet promoted=new IntHashSet(256);
+			final long[] keys=map.keys();
+			final long invalid=map.invalid();
+			for(long kmer : keys){
+				if(kmer==invalid){continue;}
+				final IntHashSet genera=map.get(kmer);
+				if(genera==null){continue;}
+				final int genusCount=genera.size();
+				final float ent=kmerEntropy(kmer, k, entropyK);
+				final boolean passesTaxa=(genusCount>=minTaxCount);
+				final boolean passesEntropy=(minEntropy>0 && ent<minEntropy);
+				if(!passesTaxa && !passesEntropy){continue;}
+				if(!passesTaxa){byEntropy++;}
+
+				long[] entry=new long[2+LEVELS.length+1];
+				entry[0]=kmer;
+				entry[1]=genusCount;
+				entry[2]=genusCount;
+				entry[2+LEVELS.length]=(long)(ent*1000);
+
+				if(tree!=null){
+					int[] tids=genera.toArray();
+					for(int lev=1; lev<LEVELS.length; lev++){
+						promoted.clear();
+						for(int tid : tids){
+							TaxNode node=tree.getNodeAtLevel(tid, LEVELS[lev]);
+							if(node!=null){promoted.add(node.id);}
+						}
+						entry[2+lev]=promoted.size();
+					}
+				}
+				results.add(entry);
+			}
+		}
+
+		private final LongObjectMap<IntHashSet> map;
+		private final TaxTree tree;
+		private final int[] LEVELS;
+		final ArrayList<long[]> results=new ArrayList<long[]>();
+		int byEntropy=0;
+	}
+
+	/*--------------------------------------------------------------*/
+
+	void buildBlacklist(LongObjectMap<IntHashSet>[] maps, Timer t){
 		final TaxTree tree=TaxTree.sharedTree();
 		final int[] LEVELS={TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
 			TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.SUPERKINGDOM};
 		final String[] LCODES={"g", "f", "o", "c", "p", "k", "sk"};
+		final Timer bt=new Timer(outstream, true);//Build-phase timer.
 
+		//Parallel gather+promote: one thread per disjoint shard map.  TaxTree lookups are read-only and
+		//each thread keeps its own scratch set + results list, so the threads share nothing mutable.
+		final ArrayList<BuildThread> builders=new ArrayList<BuildThread>(maps.length);
+		for(LongObjectMap<IntHashSet> m : maps){builders.add(new BuildThread(m, tree, LEVELS));}
+		for(BuildThread b : builders){b.start();}
 		final ArrayList<long[]> results=new ArrayList<long[]>();
 		int byEntropy=0;
-		final IntHashSet promoted=new IntHashSet(256);
-		final long[] keys=kmerGenera.keys();
-		final long invalid=kmerGenera.invalid();
-		for(long kmer : keys){
-			if(kmer==invalid){continue;}
-			final IntHashSet genera=kmerGenera.get(kmer);
-			final int genusCount=genera.size();
-			final float ent=kmerEntropy(kmer, k, entropyK);
-			final boolean passesTaxa=(genusCount>=minTaxCount);
-			final boolean passesEntropy=(minEntropy>0 && ent<minEntropy);
-			if(!passesTaxa && !passesEntropy){continue;}
-			if(!passesTaxa){byEntropy++;}
-
-			long[] entry=new long[2+LEVELS.length+1];
-			entry[0]=kmer;
-			entry[1]=genusCount;
-			entry[2]=genusCount;
-			entry[2+LEVELS.length]=(long)(ent*1000);
-
-			if(tree!=null){
-				int[] tids=genera.toArray();
-				for(int lev=1; lev<LEVELS.length; lev++){
-					promoted.clear();
-					for(int tid : tids){
-						TaxNode node=tree.getNodeAtLevel(tid, LEVELS[lev]);
-						if(node!=null){promoted.add(node.id);}
-					}
-					entry[2+lev]=promoted.size();
-				}
+		for(BuildThread b : builders){
+			while(b.getState()!=Thread.State.TERMINATED){
+				try{b.join();}catch(InterruptedException e){e.printStackTrace();}
 			}
-			results.add(entry);
+			results.addAll(b.results);//Concatenated in map order -> deterministic input to the sort below.
+			byEntropy+=b.byEntropy;
 		}
+		bt.stopAndStart("  build: gather+promote:");
 
-		results.sort((a, b)->Long.compare(b[1], a[1]));
+		//Genus count descending; kmer ascending breaks ties so output is reproducible regardless of the
+		//shard count (which only changes the order entries were discovered in, never the set).
+		results.sort((a, b)->{int c=Long.compare(b[1], a[1]); return c!=0 ? c : Long.compare(a[0], b[0]);});
+		bt.stopAndStart("  build: sort:");
 		outstream.println("Kmers output: "+results.size()
 			+" ("+(results.size()-byEntropy)+" by genus count >= "+minTaxCount
 			+(byEntropy>0 ? ", "+byEntropy+" by low entropy < "+minEntropy : "")
@@ -308,6 +568,7 @@ public class DDLBlacklistMaker {
 			bsw.print(DynamicDemiLog.unpackKmer(kmer, k)+"\n");
 		}
 		bsw.poisonAndWait();
+		bt.stop("  build: write:");
 
 		t.stop();
 		outstream.println("Wrote "+results.size()+" kmers to "+out);
@@ -437,6 +698,12 @@ public class DDLBlacklistMaker {
 	private boolean verbose=false;
 	private boolean validate=false;
 	private boolean condense=false;
+	/** Two-pass mode: count kmers in a lossy table first, so the exact map only holds candidates. */
+	private boolean prefilter=false;
+	/** Low kmer bits used to index the counting table; table is buckets x 2^prefilterBits bytes. */
+	private int prefilterBits=18;
+	/** Upper bound on bucket shards; past the thread count, more shards only add per-map overhead. */
+	private static final int MAX_SHARDS=64;
 	private int validateSamples=100000;
 
 	private static final PrintStream outstream=System.err;
