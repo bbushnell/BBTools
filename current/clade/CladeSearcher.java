@@ -148,6 +148,22 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			return Data.findPath("?refseqA48_with_ribo.spectra.gz", false);
 		}
 	}
+
+	/**
+	 * Resolves the blacklist= value to a file path, or null if the blacklist is disabled.
+	 * "auto" (or "t"/"true") -> DEFAULT_BLACKLIST; "f"/"false"/"none"/null -> null (disabled);
+	 * anything else is treated as a literal blacklist file path.
+	 */
+	private static String resolveBlacklist(String value){
+		if(value==null || value.equalsIgnoreCase("f") || value.equalsIgnoreCase("false")
+				|| value.equalsIgnoreCase("none")){
+			return null;
+		}
+		if(value.equalsIgnoreCase("auto") || value.equalsIgnoreCase("t") || value.equalsIgnoreCase("true")){
+			return Data.findPath(DEFAULT_BLACKLIST, false);
+		}
+		return value;
+	}
 	
 	/**
 	 * Sets up the searcher by loading necessary components.
@@ -370,6 +386,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
+			}else if(a.equals("blacklist") || a.equals("bl")){
+				//"auto" (the default) resolves to DEFAULT_BLACKLIST; "f"/"false"/"none"/null disables;
+				//anything else is a literal path.  Resolved in process() via resolveBlacklist().
+				blacklistFile=(b==null ? "f" : b);
 			}else if(CladeIndex.parse(arg, a, b)){
 				//Do nothing
 			}else if(b==null && new File(arg).isFile() && FileFormat.isSequence(arg)){
@@ -461,7 +481,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		setup();
 
 		if(!DynamicDemiLog.blacklistExists()){
-			String blPath=Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
+			String blPath=resolveBlacklist(blacklistFile);
 			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath, Clade.DDL_K);}
 		}
 
@@ -1162,6 +1182,13 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private boolean setColor=false;
 	private boolean colorExplicit=false;
 	private int colorLevel=TaxTree.FAMILY;
+
+	/** Blacklist for query DDL sketching: "auto" (default, resolves to DEFAULT_BLACKLIST), a file
+	 * path to use, or "f"/"none" to disable.  Resolved by resolveBlacklist() in process(). */
+	private String blacklistFile="auto";
+
+	/** Default blacklist resource pattern used when blacklist=auto (the 4k genome blacklist). */
+	static final String DEFAULT_BLACKLIST="?genomeDDLBlacklist_k25e5b4096.fa.gz";
 
 	/*--------------------------------------------------------------*/
 

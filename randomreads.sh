@@ -42,8 +42,8 @@ seed=0          Use this to set the random number generator seed;
                 use -1 for a random seed.
 
 Length Parameters - normally only minlength and maxlength are needed.
-minlength=150   Generate reads of up to this length.
-maxlength=150   Generate reads of at least this length.
+minlength=150   Generate reads of at least this length.
+maxlength=150   Generate reads of up to this length.
 gaussianlength=f  Use a gaussian length distribution (for PacBio).
                   Otherwise, the distribution is linear.
 midlength=-1    Gaussian curve peaks at this point.  Must be between
@@ -83,7 +83,7 @@ maxns=0         Add at most this many blocks of Ns per read.
 maxinslen=12    Max length of insertions.
 maxdellen=400   Max length of deletions.
 maxsublen=12    Max length of contiguous substitutions.
-maxnlen=1       Min length of N blocks.
+maxnlen=1       Max length of N blocks.
 
 mininslen=1     Min length of insertions.
 mindellen=1     Min length of deletions.
