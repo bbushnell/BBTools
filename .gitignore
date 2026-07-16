@@ -11,3 +11,4 @@ resources/*SketchDDL.tsv.gz
 resources/all_*_best_taxsorted.fa.gz
 resources/riboKmers20fused.fa.gz
 resources/refseqSketchDDL_*
+resources/refseqGenomeDDLBlacklist_k25e5b65536.fa.gz
