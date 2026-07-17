@@ -165,6 +165,47 @@ public final class DynamicDemiLog extends CardinalityTracker {
 		return fromArray(newMax, src.id, src.name, src.k, -1, newKmers);
 	}
 
+	/** Blacklist-aware condense.  Like condense(), but for each new bucket it prefers the
+	 * highest-scoring NON-blacklisted kmer among the old buckets that fold into it, matching what
+	 * re-sketching with the blacklist active would produce (hashAndStore rejects blacklisted kmers).
+	 * A new bucket keeps a blacklisted kmer only when every folded candidate is blacklisted -- the
+	 * source sketch does not retain the next-best kmer, so that residue is the (tiny, for a sparse
+	 * blacklist) approximation versus a full re-sketch.  Uses the static blacklist loaded by
+	 * loadBlacklist(); falls back to plain condense when no blacklist is loaded or the source lacks
+	 * kmers.  Requires kmers=t sketches for any masking to occur.
+	 * @param src Source DDL (must carry kmers for masking)
+	 * @param newBuckets Target bucket count (power of 2, < src.buckets)
+	 * @return New condensed DDL with blacklisted kmers demoted */
+	public static DynamicDemiLog condenseBlacklisted(DynamicDemiLog src, int newBuckets){
+		if(blacklist==null || src.kmerArray==null){return condense(src, newBuckets);}
+		if(newBuckets==src.buckets){return src;}
+		assert(newBuckets>0 && (newBuckets&(newBuckets-1))==0) : "newBuckets must be power of 2: "+newBuckets;
+		assert(newBuckets<src.buckets) : "Cannot expand "+src.buckets+" to "+newBuckets;
+
+		final char[] newMax=new char[newBuckets];
+		final boolean[] winnerBad=new boolean[newBuckets];//whether the current winner is blacklisted
+		final int newMask=newBuckets-1;
+
+		for(int i=0; i<src.buckets; i++){
+			final char score=src.maxArray[i];
+			if(score==0){continue;}
+			final int ni=i&newMask;
+			final long kmer=src.kmerArray[i];
+			final boolean bad=(kmer!=0 && blacklist.contains(kmer));
+			if(newMax[ni]==0){//first candidate for this new bucket
+				newMax[ni]=score; winnerBad[ni]=bad;
+			}else if(winnerBad[ni] && !bad){//replace a blacklisted winner with a clean one
+				newMax[ni]=score; winnerBad[ni]=false;
+			}else if(winnerBad[ni]==bad && score>newMax[ni]){//same status -> higher score wins (first on ties)
+				newMax[ni]=score;
+			}//else current winner is clean and this candidate is blacklisted -> keep current
+		}
+		//Output carries NO kmers: a classification DB does not need them, and dropping them keeps the
+		//file the same size/format as a non-kmer build.  The blacklist decision above used the SOURCE
+		//sketch's kmers, which is all that is required.
+		return fromArray(newMax, src.id, src.name, src.k, -1, null);
+	}
+
 	@Override
 	public DynamicDemiLog copy(){return new DynamicDemiLog(buckets, k, -1, minProb);}
 
