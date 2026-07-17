@@ -115,7 +115,7 @@ minsketchhits=5 Minimum matching DDL buckets to report a sketch hit.
 ddlk=25         K-mer length for DDL sketches.
 ddlbuckets=4096 Number of buckets in DDL sketches.
 blacklist=auto  DDL kmer blacklist applied to query sketches (common kmers are
-                skipped).  auto = the bundled 4k blacklist; set a file path to
+                skipped).  auto = the bundled genomic blacklist (soft, ~6k kmers); set a file path to
                 use a specific blacklist, or blacklist=f to disable.
 
 Threading Parameters:

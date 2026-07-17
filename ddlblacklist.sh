@@ -59,47 +59,43 @@ Tuned cutoffs (each level run independently, merged with MergeDDLBlacklists):
   Combined: 4,230 unique kmers -> riboDDLBlacklist.fa.gz
   Noise reduction: 10-29x.  Speed improvement: 2.6x on all-to-all.
 
-=== Whole-genome blacklists (k=31, buckets=2048, exponent=5) ===
+=== Whole-genome blacklists (k=25, exponent=5; production buckets=4096) ===
 
-Step 1: Build double-sized sketches (buckets=4096) with kmers=t per clade:
-  ddlwriter.sh in=refseq.CLADE.fna.gz out=CLADE.tsv.gz k=31 buckets=4096 \\
+IMPORTANT - use SOFT (high) cutoffs for genome blacklists.  A genome blacklist
+should remove only kingdom/phylum-level "universal" noise (the plant-vs-octopus
+kmers) while PRESERVING the genus/family signal needed for distant-relative
+detection.  Aggressive low cutoffs (e.g. genus/250) strip phylogenetic signal
+and must NOT be used here.  Blacklisted kmers have higher trimer entropy (0.919)
+than the bulk of genus>=5 kmers (0.890) - they are compositionally generic.
+
+Step 1: Build sketches with kmers=t per clade at the target bucket count:
+  ddlwriter.sh in=refseq.CLADE.fna.gz out=CLADE.tsv.gz k=25 buckets=4096 \\
     exponent=5 mode=pertid kmers=t lineage=t tossjunk t=32
+  (Denser blacklists use buckets=32768 or 65536 - one dump per bucket count.)
 
 Step 2: Generate combined genus-promoted kmer dump across all clades:
   ddlblacklist.sh in=archaea.tsv.gz,bacteria.tsv.gz,...,viral.tsv.gz \\
-    out=combined_dump.fa.gz k=31 exponent=5 mincount=5
+    out=combined_dump.fa.gz k=25 exponent=5 mincount=5
+  TaxIDs promoted to genus level during collection; sketch data discarded
+  after kmer extraction.
 
-  Files processed sequentially; each clade's sketch data is discarded
-  after kmer extraction.  TaxIDs promoted to genus level during collection.
-  304M distinct kmers across 200k records from 12 RefSeq clades.
+Step 3: Filter at SOFT thresholds (union) using awk on the dump headers.
+  A kmer is blacklisted if it passes ANY of:
+    genus g>=1600 | family f>=270 | order o>=110 | class c>=40
+  NO phylum/kingdom filter (those levels are already covered by genus+family).
 
-Step 3: Filter at chosen thresholds using awk on combined_dump.fa.gz headers,
-  merge with deduplication.  Cutoffs chosen from cumulative distribution plot
-  (Y = kmers with count >= X):
-  genus/250, family/50, order/20, class/10, phylum/5
+  A single genomic blacklist ships: refseqGenomeDDLBlacklist_k25e5b65536.fa.gz (5,944 kmers, built
+  from the 65536-bucket dump).  It is bucket-count-independent (just a kmer set), so it masks 4k/32k/64k
+  sketches alike and is the default for both DDLWriter (build time) and QuickClade (query time).
+  Counts scale gently with the dump's bucket count (4096->1,651; 32768->3,607; 65536->5,944).
+  Noise floor (class+ distance, 2M pairs): 5.06 -> 2.64; genus signal kept.
 
-  Individual level counts: g/400=3853, f/75=6309, o/30=6785, c/10=6199, p/5=8166
-  Merged: 15,726 unique kmers
+Step 4 (optional): kcompress fuse=160 shrinks the blacklist for distribution;
+  verify lossless with kmercountexact (symmetric difference MUST be 0).  The
+  *_fused.fa.gz forms require the loadBlacklist sliding-window reader.
 
-Step 4: Validate via condense mode (no re-sketching needed):
-  ddlblacklist.sh in=archaea.tsv.gz,...,viral.tsv.gz condense=t validate=t \\
-    blacklist=bl_merged.fa k=31 exponent=5 samples=200000
-
-  Condenses 4096->2048 buckets while preferring non-blacklisted kmers.
-  Approximates real blacklist effect without reading terabytes of genomes.
-
-Step 5: Iterate (optional, marginal benefit for genomes):
-  Re-sketch with blacklist active to expose second-tier masked kmers:
-    ddlwriter.sh ... blacklist=bl_merged.fa
-  Re-run ddlblacklist.sh on new sketches with same thresholds.
-  Merge iter1+iter2 blacklists.  For RefSeq genomes, iteration added
-  2,022 new kmers with negligible noise improvement
-  (0.70 -> 0.71), confirming convergence after one iteration.
-
-Final result: genomeDDLBlacklist.fa.gz (23,020 kmers, 571KB)
-  Noise floor: 4.66 -> 0.71 avg shared keys at class+ distance (6.6x)
-  Genus signal preserved: 145.4 -> 143.7 (99%)
-  Autoloaded by DDLCompare.  Also loaded by DDLWriter via blacklist= flag.
+Loaded by DDLWriter (blacklist= at sketch build time) and by CladeSearcher /
+QuickClade (blacklist= applied to the query).  DDLCompare autoloads the default.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

@@ -99,6 +99,9 @@ public class DDLMerger {
 		//Load all records from all files, tagged with source category
 		final ArrayList<TaggedRecord> all=new ArrayList<TaggedRecord>();
 		int condensed=0;
+		//Load the blacklist once so condense can prefer non-blacklisted kmers (bake the blacklist
+		//into the condensed DB, equivalent to re-sketching with blacklist= but without reading genomes).
+		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
 		for(String path : inFiles){
 			int cat=categorize(path);
 			String origin=originFromFilename(path);
@@ -106,7 +109,7 @@ public class DDLMerger {
 			for(DDLRecord rec : records){
 				if(rec.origin==null){rec.origin=origin;}
 				if(targetBuckets>0 && rec.ddl.buckets>targetBuckets){
-					DynamicDemiLog cddl=DynamicDemiLog.condense(rec.ddl, targetBuckets);
+					DynamicDemiLog cddl=DynamicDemiLog.condenseBlacklisted(rec.ddl, targetBuckets);
 					DDLRecord crec=new DDLRecord(cddl, rec.id, rec.taxID, rec.name);
 					crec.filename=rec.filename;
 					crec.bases=rec.bases;

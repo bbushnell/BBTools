@@ -1188,7 +1188,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private String blacklistFile="auto";
 
 	/** Default blacklist resource pattern used when blacklist=auto (the 4k genome blacklist). */
-	static final String DEFAULT_BLACKLIST="?genomeDDLBlacklist_k25e5b4096.fa.gz";
+	static final String DEFAULT_BLACKLIST="?refseqGenomeDDLBlacklist_k25e5b65536_fused.fa.gz";
 
 	/*--------------------------------------------------------------*/
 

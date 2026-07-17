@@ -990,15 +990,21 @@ public class SortByName {
 			
 			final Read peek=(q.isEmpty() ? null : q.peek().peek());
 			final int maxIndex=(peek==null ? buffer.size() : indexOfLowestAbovePivot(buffer, peek));
-			ArrayList<Read> list=new ArrayList<Read>(maxIndex);
-			
+			ArrayList<Read> list=new ArrayList<Read>();
+			long listBases=0;//[sort/SortByName#002]
 			for(int index=0; index<maxIndex; index++){
 				Read r=buffer.get(index);
 				assert(peek==null || comparator.compare(peek, r)>0) : "\n"+peek+"\n"+r;
 				list.add(r);
+				listBases+=r.length()+r.mateLength();//[sort/SortByName#002]
 				maxLen=Tools.max(maxLen, r.length());
+				if(list.size()>=MAX_BLOCK_READS || listBases>=MAX_BLOCK_BASES){//[sort/SortByName#002]: double-bound so a chromosome-scale block never overflows the writer's 2GB byte[]
+					if(ros!=null){ros.add(list, id++);}
+					list=new ArrayList<Read>();
+					listBases=0;
+				}
 			}
-			if(ros!=null){ros.add(list, id++);}
+			if(ros!=null && !list.isEmpty()){ros.add(list, id++);}
 			
 			ArrayList<Read> oldbuffer=buffer;
 			buffer=new ArrayList<Read>(2*limit);
@@ -1192,15 +1198,18 @@ public class SortByName {
 
 				if(verbose){outstream.println("Sorted reads.");}
 
-				ArrayList<Read> buffer=new ArrayList<Read>(200);
+				ArrayList<Read> buffer=new ArrayList<Read>();
+				long bufferBases=0;//[sort/SortByName#002]
 				long id=0;
 				for(int i=0, lim=storage.size(); i<lim; i++){
 					Read r=storage.set(i, null);
 					buffer.add(r);
-					if(buffer.size()>=200){
+					bufferBases+=r.length()+r.mateLength();//[sort/SortByName#002]
+					if(buffer.size()>=MAX_BLOCK_READS || bufferBases>=MAX_BLOCK_BASES){//[sort/SortByName#002]: double-bound (reads AND bases)
 						if(ros!=null){ros.add(buffer, id);}
 						id++;
-						buffer=new ArrayList<Read>(200);
+						buffer=new ArrayList<Read>();
+						bufferBases=0;
 					}
 				}
 				if(ros!=null && buffer.size()>0){ros.add(buffer, id);}
@@ -1323,6 +1332,14 @@ public class SortByName {
 	
 	/** Static limit for merge file operations (24) */
 	private static int mergeFileLimit=24;
+
+	/** [sort/SortByName#002] Output blocks handed to the writer are DOUBLE-bounded: at most this many
+	 * reads OR this many bases, whichever comes first.  FastqWriter formats each block into a single
+	 * byte[] capped at Integer.MAX_VALUE (~2GB); a read-count-only bound overflows it on chromosome-scale
+	 * scaffolds (a 200-read block of RefSeq plant/vertebrate contigs can clear 2GB).  100Mbp/block stays
+	 * far under the cap for both FASTA (~100MB) and FASTQ (~200MB). */
+	private static final int MAX_BLOCK_READS=100000;
+	private static final long MAX_BLOCK_BASES=100000000L;//100 Mbp
 	
 	/** Whether to generate k-mer data for topological sorting */
 	private boolean genKmer=true;
