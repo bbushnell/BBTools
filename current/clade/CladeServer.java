@@ -162,6 +162,8 @@ public class CladeServer {
 			outstream.println("Loading sketch file: "+CladeIndex.sketchFile);
 			java.util.ArrayList<ddl.DDLRecord> sketchRecords=ddl.DDLLoaderMT.loadFile(CladeIndex.sketchFile, Clade.DDL_K);
 			index.finishSketches(sketchRecords);
+			//Record the loaded sketch resolution so the /bucketsize endpoint can advertise it to clients.
+			sketchBuckets=(sketchRecords.isEmpty() ? Clade.DDL_BUCKETS : sketchRecords.get(0).ddl.buckets);
 			sketchTimer.stop();
 			outstream.println("Loaded "+sketchRecords.size()+" sketches and built index in "+sketchTimer);
 		}
@@ -230,6 +232,7 @@ public class CladeServer {
 		server.createContext("/", new UniversalHandler());
 		server.createContext("/kill", new KillHandler());
 		server.createContext("/stats", new StatsHandler());
+		server.createContext("/bucketsize", new BucketSizeHandler());
 		server.createContext("/favicon.ico", new IconHandler());
 		return null;
 	}
@@ -304,6 +307,17 @@ public class CladeServer {
 				reply(t, "Handler returned null response".getBytes(), 500);
 			}
 			logQuery(t, "request", System.nanoTime()-startTime, null);
+		}
+	}
+
+	/** Handles /bucketsize: returns the loaded sketch DB's bucket count as a single base-10 text string,
+	 *  so a client can size (or downsample) its query sketches to match this server before sending. */
+	class BucketSizeHandler implements HttpHandler {
+
+		@Override
+		public void handle(HttpExchange t) throws IOException {
+			if(verbose2){System.err.println("BucketSize handler");}
+			reply(t, Integer.toString(sketchBuckets).getBytes(), 200);
 		}
 	}
 
@@ -869,6 +883,9 @@ public class CladeServer {
 		sb.append("  banself={t|f} - Ban self-matches\n");
 		sb.append("  bandupes={t|f} - Ban duplicate matches\n");
 		sb.append("  heap=<int> - Heap size for comparisons\n");
+		sb.append("\nCapability endpoints (GET):\n");
+		sb.append("  /bucketsize - Preferred sketch bucket count, as a single integer\n");
+		sb.append("  /stats - Server statistics\n");
 		return sb.toString();
 	}
 
@@ -937,6 +954,10 @@ public class CladeServer {
 
 	/** Reference clade index */
 	private static CladeIndex index;
+
+	/** Bucket count of the loaded sketch DB, advertised by the /bucketsize capability endpoint so a client
+	 *  can build (or downsample) its query sketches to this resolution before sending. */
+	private static int sketchBuckets=Clade.DDL_BUCKETS;
 
 	/** Query counters */
 	private static final AtomicLong queryCount=new AtomicLong();

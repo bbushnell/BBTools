@@ -509,5 +509,11 @@ public class CladeObject {
 	static int entropyWindow=150;
 	static boolean calcCladeEntropy=false;//Currently this just affects queries, not ref. (Clade.add L191: when false, seqEntropy=0 so Clade.entropy decays to ~0 -- intended; entdif at Comparison:113 then derives from ~0 on both query+ref.)
 	static int MIN_LINEAGE_LEVEL_E=0;
-	
+
+	/** When true, the few-files query loader (CladeLoaderAuto.loadFewFiles) 2x-overprovisions
+	 *  threads-per-file for the multithreaded sequence->sketch loading, so a small number of
+	 *  large files does not leave allocated cores idle.  Affects ONLY threads-per-file in the
+	 *  few-files branch (1<files<2*threads); the 1-file and many-files paths are unchanged. */
+	public static boolean OVERPROVISION_LOAD_THREADS=true;
+
 }
