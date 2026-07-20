@@ -47,7 +47,12 @@ public class CladeLoaderAuto extends CladeObject {
 
 	private ArrayList<Clade> loadFewFiles(ArrayList<String> in, boolean perContig,
 			int minContig, long maxReads, boolean finish, int threads, int files) {
-		final int threadsPerFile=Tools.max(1, threads/files);
+		int tpf=Tools.max(1, threads/files);
+		//OVERPROVISION_LOAD_THREADS (CladeObject): 2x threads-per-file so a few large files saturate the
+		//allocated cores instead of leaving them idle (e.g. 10 files on 32 threads: 3->6 threads/file).
+		//Only the few-files branch, only threads-per-file; files-per-process and the 1-file/many-files paths are untouched.
+		if(OVERPROVISION_LOAD_THREADS && files>1 && files<2*threads){tpf*=2;}
+		final int threadsPerFile=tpf;
 		ExecutorService pool=Executors.newFixedThreadPool(files);
 		@SuppressWarnings("unchecked")
 		Future<ArrayList<Clade>>[] futures=new Future[files];
@@ -60,7 +65,7 @@ public class CladeLoaderAuto extends CladeObject {
 				loader.loadFile(fname, perContig, minContig, maxReads, finish, threadsPerFile)
 			);
 		}
-		pool.shutdown();//no awaitTermination needed: futures[i].get() below blocks until each task completes, and shutdown() lets the pool's `files` threads die once their tasks finish (no leak). Total concurrency ~= files * threadsPerFile ~= threads.
+		pool.shutdown();//no awaitTermination needed: futures[i].get() below blocks until each task completes, and shutdown() lets the pool's `files` threads die once their tasks finish (no leak). Total concurrency ~= files * threadsPerFile ~= threads (or ~2*threads when OVERPROVISION_LOAD_THREADS doubles threadsPerFile).
 
 		ArrayList<Clade> results=new ArrayList<Clade>();
 		for(int i=0; i<files; i++){
