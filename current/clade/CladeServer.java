@@ -233,6 +233,10 @@ public class CladeServer {
 		server.createContext("/kill", new KillHandler());
 		server.createContext("/stats", new StatsHandler());
 		server.createContext("/bucketsize", new BucketSizeHandler());
+		//Also expose it under the /quickclade proxy prefix: Apache forwards the FULL public path to this
+		//server, so bbmapservers.jgi.doe.gov/quickclade/bucketsize arrives here as "/quickclade/bucketsize"
+		//and must match a context of its own (longest-prefix routing would otherwise fall through to "/").
+		server.createContext("/quickclade/bucketsize", new BucketSizeHandler());
 		server.createContext("/favicon.ico", new IconHandler());
 		return null;
 	}
