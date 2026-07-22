@@ -536,7 +536,7 @@ public class SendClade extends CladeObject {
 	}
 	
 	private String sendClades(Collection<Clade> clades) {
-		return sendClades(clades, null, oneline, hits,
+		return sendClades(clades, address, oneline, hits,
 			printQTID, banSelf, heapSize, verbose, Integer.MAX_VALUE);
 	}
 

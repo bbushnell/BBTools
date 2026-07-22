@@ -205,11 +205,32 @@ public class CladeIndex implements Cloneable {
 	}
 
 	public ArrayList<Comparison> findBest(final Clade c, final int maxHits) {
+		normalizeQueryDDL(c);//Fold an oversized query sketch down to the DB resolution (fold queries, never the DB).
 		ArrayList<Comparison> results=findBestCladesOnly(c, maxHits);
 		if(ddlIndex!=null){
 			addSketchInfo(results, c);
 		}
 		return results;
+	}
+
+	/** DDL resolution (bucket count) of the loaded sketch DB, which query sketches must match for DDL
+	 *  comparison; -1 when no sketch DB is loaded. */
+	public int refDDLBuckets(){
+		return (sketchRecords!=null && !sketchRecords.isEmpty()) ? sketchRecords.get(0).ddl.buckets : -1;
+	}
+
+	/** Folds an oversized query DDL down to the sketch-DB resolution so it can be compared against the DB
+	 *  sketches. A larger sketch condenses cleanly to a smaller bucket count (bigger->smaller only), which
+	 *  keeps the query and DB maxArrays the same length and avoids the SIMDLogLog length assertion. Only the
+	 *  QUERY is folded; the DB is never modified. An undersized query (fewer buckets than the DB) cannot be
+	 *  upsized and is left unchanged -- compareDDL/addSketchInfo then skip it on the bucket-size guard, and
+	 *  the server rejects it with an explicit message (CladeServer.CladeClassificationHandler). */
+	private void normalizeQueryDDL(final Clade c){
+		if(c==null || c.ddl==null){return;}
+		final int refBuckets=refDDLBuckets();
+		if(refBuckets>0 && c.ddl.buckets>refBuckets){
+			c.ddl=cardinality.DynamicDemiLog.condense(c.ddl, refBuckets);
+		}
 	}
 
 	private void findBestLinear(Clade a, ArrayList<Clade> list, ComparisonHeap heap,
@@ -482,6 +503,10 @@ public class CladeIndex implements Cloneable {
 
 	public void addSketchInfo(ArrayList<Comparison> results, Clade query){
 		if(ddlIndex==null || query.ddl==null){return;}
+		//The DDL index is sized to the DB bucket count; a query at a different resolution (an undersized
+		//sketch that findBest could not fold) would index out of range in DDLIndex.query. Skip the sketch
+		//lookup on a size mismatch rather than throwing AIOOBE.
+		if(query.ddl.buckets!=refDDLBuckets()){return;}
 		int[][] topSketch=ddlIndex.topHits(query.ddl, maxSketchHits);
 		if(topSketch==null || topSketch.length==0){return;}
 

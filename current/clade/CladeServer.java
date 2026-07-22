@@ -301,6 +301,12 @@ public class CladeServer {
 				case COMPARE_SSU:
 					response=compareSSUHandler.getResponse(request);
 					break;
+				case BUCKET_SIZE:
+					//Capability probe over the ONE publicly-proxied path: the reverse proxy only forwards the
+					//base /quickclade path (sub-paths like GET /bucketsize are stripped), so a client behind the
+					//proxy asks for the preferred sketch resolution by POSTing "//BucketSize" and reading it back.
+					response=Integer.toString(sketchBuckets).getBytes();
+					break;
 				default:
 					response="Invalid request type".getBytes();
 			}
@@ -424,6 +430,21 @@ public class CladeServer {
 
 				if(clades==null || clades.isEmpty()){
 					return "No valid clades found in request".getBytes();
+				}
+
+				//Reject undersized query sketches with a clear, actionable message. An OVERSIZED query sketch is
+				//auto-folded down to the DB resolution in CladeIndex.findBest; an UNDERSIZED one cannot be upsized,
+				//so tell the client to rebuild at the server's resolution (readable via the //BucketSize marker)
+				//rather than silently degrading to a spectra-only result.
+				final int refBuckets=index.refDDLBuckets();
+				if(refBuckets>0){
+					for(Clade clade : clades){
+						if(clade.ddl!=null && clade.ddl.buckets<refBuckets){
+							return ("Query sketch has "+clade.ddl.buckets+" buckets but this server's database uses "
+								+refBuckets+" buckets. Sketches cannot be upsized; rebuild the query at "+refBuckets
+								+" buckets or more (query //BucketSize for the server's size).").getBytes();
+						}
+					}
 				}
 
 				//Process clades and generate response
@@ -865,6 +886,7 @@ public class CladeServer {
 		if(data.startsWith("//FetchClade")) {return FETCH_CLADE;}
 		if(data.startsWith("//FetchSSU")) {return FETCH_SSU;}
 		if(data.startsWith("//CompareSSU")) {return COMPARE_SSU;}
+		if(data.startsWith("//BucketSize")) {return BUCKET_SIZE;}
 		return INVALID;
 	}
 
@@ -879,7 +901,8 @@ public class CladeServer {
 		sb.append("  //PreClade - Privacy-preserving classification\n");
 		sb.append("  //FetchClade - Fetch Clade file by taxID/organism\n");
 		sb.append("  //FetchSSU - Fetch 16S/18S sequence by taxID/organism\n");
-		sb.append("  //CompareSSU - Align query SSU to references\n\n");
+		sb.append("  //CompareSSU - Align query SSU to references\n");
+		sb.append("  //BucketSize - Preferred sketch bucket count (POST marker; also GET /bucketsize)\n\n");
 		sb.append("Parameters in URL: /format=oneline/hits=5/\n");
 		sb.append("  format={human|oneline} - Output format\n");
 		sb.append("  hits=<int> - Number of results per query\n");
@@ -969,5 +992,5 @@ public class CladeServer {
 	private static final AtomicLong iconQueries=new AtomicLong();
 
 	/** Request type constants */
-	private static final int INVALID=0, CLADE=1, PRECLADE=2, FETCH_CLADE=3, COMPARE_SSU=4, FETCH_SSU=5;
+	private static final int INVALID=0, CLADE=1, PRECLADE=2, FETCH_CLADE=3, COMPARE_SSU=4, FETCH_SSU=5, BUCKET_SIZE=6;
 }
