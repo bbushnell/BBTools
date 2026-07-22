@@ -61,19 +61,19 @@ public class VectorUMP45 {
 		vec[11]=(float)v.revisedAlleleFraction(af, readLengthAvg);
 
 		// 12-13: Mapping quality
-		vec[12]=(float)(v.mapQAvg()*INV40);
+		vec[12]=(count>0) ? (float)(v.mapQAvg()*INV40) : 0f;
 		vec[13]=v.mapQMax*INV40;
 
 		// 14-15: Base quality
-		vec[14]=(float)(v.baseQAvg()*INV40);
+		vec[14]=(count>0) ? (float)(v.baseQAvg()*INV40) : 0f;
 		vec[15]=v.baseQMax*INV40;
 
 		// 16-17: Identity (2x-1 maps 0.5-1.0 to 0-1)
-		vec[16]=(float)(2*v.identityAvg()*0.001-1);
+		vec[16]=(count>0) ? (float)(2*v.identityAvg()*0.001-1) : 0f;
 		vec[17]=(float)(2*v.idMax*0.001-1);
 
 		// 18-19: End distance
-		vec[18]=log2p1(v.edistAvg())*INV4;
+		vec[18]=(count>0) ? log2p1(v.edistAvg())*INV4 : 0f;
 		vec[19]=log2p1(v.endDistMax)*INV4;
 
 		// 20: Read length average
@@ -99,7 +99,7 @@ public class VectorUMP45 {
 		vec[25]=(float)VarProb.eventProb(v.r1AlleleCount(), v.r2AlleleCount());
 
 		// 26: Nearby variant count
-		vec[26]=1f/(v.nearbyVarCount+1);
+		vec[26]=1f/(Math.max(v.nearbyVarCount, 0)+1);
 
 		// 27: Proper pair rate
 		vec[27]=(count==0) ? 0f : (float)v.properPairRate();
