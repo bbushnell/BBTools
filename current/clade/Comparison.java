@@ -305,6 +305,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 *  Only runs when both query and ref have DDL sketches. */
 	public final void compareDDL(){
 		if(query==null || ref==null || query.ddl==null || ref.ddl==null){return;}
+		//Bucket-size guard: mismatched sketch resolutions (an undersized query, or a ref clade whose DDL
+		//was never replaced by an attached sketch) would trip the length assertion in
+		//SIMDLogLog.compareDetailed. Skip the DDL metrics for this pair rather than crash; oversized query
+		//sketches are pre-folded to the DB resolution in CladeIndex.findBest.
+		if(query.ddl.buckets!=ref.ddl.buckets){return;}
 		int[] cmp=Vector.compareDDL(query.ddl.maxArray(), ref.ddl.maxArray());
 		int lower=cmp[0], equal=cmp[1], higher=cmp[2];
 		kmerMatches=equal;
