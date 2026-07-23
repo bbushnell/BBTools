@@ -141,7 +141,7 @@ public class CallVariants {
 		parser.qtrimLeft=qtrimLeft;
 		parser.qtrimRight=qtrimRight;
 		parser.trimq=trimq;
-		Shared.TRIM_READ_COMMENTS=Shared.TRIM_RNAME=true;
+		Shared.TRIM_READ_DESCRIPTION=Shared.TRIM_RNAME=true;
 		Read.IUPAC_TO_N=true; // Convert ambiguous bases to N
 		
 		// Configure default SAM filtering parameters
@@ -430,7 +430,7 @@ public class CallVariants {
 			trimq=parser.trimq;
 			trimE=parser.trimE();
 
-			trimWhitespace=Shared.TRIM_READ_COMMENTS;
+			trimWhitespace=Shared.TRIM_READ_DESCRIPTION;
 		}
 
 		// Disable strand tracking if no VCF output is specified

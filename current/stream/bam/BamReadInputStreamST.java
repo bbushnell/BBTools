@@ -89,7 +89,7 @@ public class BamReadInputStreamST extends ReadInputStream {
 					if(text[i]=='\n'){
 						if(i>start){
 							byte[] line=Arrays.copyOfRange(text, start, i);
-							if(Shared.TRIM_RNAME){line=SamReadInputStream.trimHeaderSQ(line);}
+							if(Shared.TRIM_READ_DESCRIPTION){line=SamReadInputStream.trimHeaderSQ(line);}
 							header.add(line);
 						}
 						start=i+1;

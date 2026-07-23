@@ -729,12 +729,12 @@ public class Parser {
 			}else if(Parse.parseBoolean(b)){
 				KillSwitch.launch();
 			}
-		}else if(a.equals("trd") || a.equals("trc") || a.equals("trimreaddescription") || a.equals("trimreaddescriptions")){
-			Shared.TRIM_READ_COMMENTS=Parse.parseBoolean(b);
-			if(!setTrimRname){Shared.TRIM_RNAME=Shared.TRIM_READ_COMMENTS;}
+		}else if(a.equals("trd") || a.equals("trc") || a.equals("trimreaddescription") || a.equals("trimreaddescriptions") || a.equals("trimreadcomments")){
+			Shared.TRIM_READ_DESCRIPTION=Parse.parseBoolean(b);
 		}else if(a.equals("trimrefdescription") || a.equals("trimrefdescriptions") || a.equals("trimrname")){
 			Shared.TRIM_RNAME=Parse.parseBoolean(b);
-			setTrimRname=true;
+		}else if(a.equals("trimqname")){
+			Shared.TRIM_QNAME=Parse.parseBoolean(b);
 		}else if(a.equals("tuc") || a.equals("touppercase")){
 			Read.TO_UPPER_CASE=Parse.parseBoolean(b);
 		}else if(a.equals("lctn") || a.equals("lowercaseton")){
@@ -1970,8 +1970,6 @@ public class Parser {
 	/** Print thread count changes to stderr */
 	public static boolean printSetThreads=true;
 	
-	/** Whether read name trimming was explicitly set */
-	private static boolean setTrimRname=false;
 	/** Input quality score ASCII offset */
 	private static byte qin=-1;
 	/** Output quality score ASCII offset */

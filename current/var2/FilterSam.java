@@ -215,10 +215,10 @@ public class FilterSam {
 			String[] cvargs=new String[] {inString, "ref="+ref, "clearfilters", "minreads="+(maxBadAlleleDepth), 
 					"minallelefraction="+maxBadAlleleFraction, "printexecuting=f"};
 
-			boolean trd=Shared.TRIM_READ_COMMENTS;
+			boolean trd=Shared.TRIM_READ_DESCRIPTION;
 			boolean trn=Shared.TRIM_RNAME;
 			CallVariants cv=new CallVariants(cvargs);
-			Shared.TRIM_READ_COMMENTS=trd;
+			Shared.TRIM_READ_DESCRIPTION=trd;
 			Shared.TRIM_RNAME=trn;
 			
 			cv.prefilter=prefilter;

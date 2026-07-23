@@ -151,7 +151,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 
 	/**
 	 * Resolves the blacklist= value to a file path, or null if the blacklist is disabled.
-	 * "auto" (or "t"/"true") -> DEFAULT_BLACKLIST; "f"/"false"/"none"/null -> null (disabled);
+	 * "auto" (or "t"/"true") -> ddl.DDLCompare.DEFAULT_BLACKLIST; "f"/"false"/"none"/null -> null (disabled);
 	 * anything else is treated as a literal blacklist file path.
 	 */
 	private static String resolveBlacklist(String value){
@@ -160,7 +160,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			return null;
 		}
 		if(value.equalsIgnoreCase("auto") || value.equalsIgnoreCase("t") || value.equalsIgnoreCase("true")){
-			return Data.findPath(DEFAULT_BLACKLIST, false);
+			return Data.findPath(ddl.DDLCompare.DEFAULT_BLACKLIST, false);
 		}
 		return value;
 	}
@@ -387,7 +387,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(a.equals("blacklist") || a.equals("bl")){
-				//"auto" (the default) resolves to DEFAULT_BLACKLIST; "f"/"false"/"none"/null disables;
+				//"auto" (the default) resolves to ddl.DDLCompare.DEFAULT_BLACKLIST; "f"/"false"/"none"/null disables;
 				//anything else is a literal path.  Resolved in process() via resolveBlacklist().
 				blacklistFile=(b==null ? "f" : b);
 			}else if(CladeIndex.parse(arg, a, b)){
@@ -1183,12 +1183,9 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private boolean colorExplicit=false;
 	private int colorLevel=TaxTree.FAMILY;
 
-	/** Blacklist for query DDL sketching: "auto" (default, resolves to DEFAULT_BLACKLIST), a file
+	/** Blacklist for query DDL sketching: "auto" (default, resolves to ddl.DDLCompare.DEFAULT_BLACKLIST), a file
 	 * path to use, or "f"/"none" to disable.  Resolved by resolveBlacklist() in process(). */
 	private String blacklistFile="auto";
-
-	/** Default blacklist resource pattern used when blacklist=auto (the 4k genome blacklist). */
-	static final String DEFAULT_BLACKLIST="?refseqGenomeDDLBlacklist_k25e5b65536_fused.fa.gz";
 
 	/*--------------------------------------------------------------*/
 

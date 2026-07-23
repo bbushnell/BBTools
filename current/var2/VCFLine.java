@@ -70,7 +70,7 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		assert(b>a) : "Missing field 0: "+new String(line);
 		{
 			String s=new String(line, a, b-a, StandardCharsets.US_ASCII);
-			if(Shared.TRIM_READ_COMMENTS){
+			if(Shared.TRIM_READ_DESCRIPTION){
 				for(int i=0; i<s.length(); i++){
 					if(Character.isWhitespace(s.charAt(i))){
 						s=s.substring(0, i);
@@ -175,7 +175,7 @@ public class VCFLine implements Comparable<VCFLine>, Cloneable {
 		lp.setBounds(0);
 		{
 			String s=new String(line, lp.a(), lp.b()-lp.a(), StandardCharsets.US_ASCII);
-			if(Shared.TRIM_READ_COMMENTS){
+			if(Shared.TRIM_READ_DESCRIPTION){
 				for(int i=0; i<s.length(); i++){
 					if(Character.isWhitespace(s.charAt(i))){s=s.substring(0, i); break;}
 				}

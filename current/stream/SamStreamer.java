@@ -294,7 +294,7 @@ public class SamStreamer implements Streamer {
 			for(byte[] line=bf.nextLine(); line!=null && reads<maxReads; line=bf.nextLine()){
 				if(line[0]=='@'){
 					if(header!=null) { 
-						if(Shared.TRIM_RNAME){line=SamReadInputStream.trimHeaderSQ(line);}
+						if(Shared.TRIM_READ_DESCRIPTION){line=SamReadInputStream.trimHeaderSQ(line);}
 						header.add(line);
 					}
 				}else{

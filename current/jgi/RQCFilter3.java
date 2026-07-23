@@ -1871,7 +1871,7 @@ public class RQCFilter3 {
 				log("failed", true);
 				System.exit(1);
 			}
-			Shared.TRIM_READ_COMMENTS=Shared.TRIM_RNAME=false;
+			Shared.TRIM_READ_DESCRIPTION=Shared.TRIM_RNAME=false;
 		}
 		
 		log("calcTrueQuality finish", true);
