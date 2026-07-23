@@ -589,7 +589,7 @@ public class FASTQ {
 		char c=s.charAt(0);
 		int start=0, stop=s.length();
 		if(c=='@' || c=='>'){start=1;}
-		if(Shared.TRIM_READ_COMMENTS){
+		if(Shared.TRIM_READ_DESCRIPTION){
 			for(int i=start; i<stop; i++){
 				if(Character.isWhitespace(s.charAt(i))){
 					stop=i;
@@ -611,7 +611,7 @@ public class FASTQ {
 		byte c=s[0];
 		int start=0, stop=s.length;
 		if(c=='@' || c=='>'){start=1;}
-		if(Shared.TRIM_READ_COMMENTS){//Could vectorize, unlikely to matter
+		if(Shared.TRIM_READ_DESCRIPTION){//Could vectorize, unlikely to matter
 			for(int i=start; i<stop; i++){
 				if(Character.isWhitespace(s[i])){
 					stop=i;

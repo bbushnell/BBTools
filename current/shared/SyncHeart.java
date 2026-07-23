@@ -240,14 +240,14 @@ public class SyncHeart {
 	/** Thread-safe setter for read comment trimming */
 	public static void setTrimReadComments(boolean b) {
 		writeLock();
-		Shared.TRIM_READ_COMMENTS = b;
+		Shared.TRIM_READ_DESCRIPTION = b;
 		writeUnlock();
 	}
 	
 	/** Thread-safe getter for read comment trimming */
 	public static boolean trimReadComments() {
 		readLock();
-		boolean result = Shared.TRIM_READ_COMMENTS;
+		boolean result = Shared.TRIM_READ_DESCRIPTION;
 		readUnlock();
 		return result;
 	}

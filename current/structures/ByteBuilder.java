@@ -718,6 +718,31 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @param x String to append
 	 * @return This ByteBuilder for chaining
 	 */
+	public ByteBuilder appendUntilWhitespace(String s){
+		if(s==null){return append(nullBytes);}
+		final int slen=s.length();
+		expand(slen);
+		for(int i=0; i<slen; i++){
+			final char c=s.charAt(i);
+			if(c<=' '){break;}
+			array[length]=(byte)c;
+			length++;
+		}
+		return this;
+	}
+
+	public ByteBuilder appendUntilWhitespace(byte[] x){
+		if(x==null){return append(nullBytes);}
+		expand(x.length);
+		for(int i=0; i<x.length; i++){
+			final byte b=x[i];
+			if(b<=' '){break;}
+			array[length]=b;
+			length++;
+		}
+		return this;
+	}
+
 	public ByteBuilder appendt(String x){return append(x).tab();}
 	/**
 	 * Appends integer followed by tab character.

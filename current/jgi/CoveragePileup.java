@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 
 import align2.QualityTools;
 import dna.ChromosomeArray;
@@ -417,6 +418,8 @@ public class CoveragePileup {
 		error=false;
 		list=new ArrayList<Scaffold>(initialScaffolds);
 		table=new HashMap<String, Scaffold>(initialScaffolds);
+		aliasTable=new HashMap<String, Scaffold>(initialScaffolds);
+		ambiguousAliases=new HashSet<String>();
 		
 		if(PHYSICAL_COVERAGE){
 			pairTable=new HashMap<String, SamLine>();
@@ -651,10 +654,12 @@ public class CoveragePileup {
 					lp.set(line);
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					if(!table.containsKey(scaf.name)) {
-						assert(reference==null) : 
-							"\nSam file contained rname missing from ref:\n"+scaf+"\n\n"+table.get(scaf.name);
+					Scaffold existing=lookupScaffold(scaf.name);
+					if(existing==null){
+						assert(reference==null) :
+							"\nSam file contained rname missing from ref:\n"+scaf+"\n\n"+lookupScaffold(scaf.name);
 						table.put(scaf.name, scaf);
+						registerAlias(scaf.name, scaf);
 						list.add(scaf);
 						refBases+=scaf.length;
 					}
@@ -765,12 +770,9 @@ public class CoveragePileup {
 				scaf=table.get(name);
 				if(ADD_FROM_REF && scaf==null){
 					scaf=new Scaffold(name, 0);
-//					if(!warned){//No longer relevant because order of loading changed.
-//						outstream.println("Warning - SAM header did not include "+name+"\nAbsent scaffolds will be added; further warnings will be suppressed.");
-//						warned=true;
-//					}
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
 					table.put(name, scaf);
+					registerAlias(name, scaf);
 					list.add(scaf);
 					addLen=true;
 				}
@@ -800,8 +802,45 @@ public class CoveragePileup {
 			Arrays.fill(acgtn, 0);
 		}
 	}
-	
-	
+
+	private static String trimToWhitespace(String s){
+		if(s==null){return null;}
+		for(int i=0; i<s.length(); i++){
+			if(Character.isWhitespace(s.charAt(i))){return s.substring(0, i);}
+		}
+		return s;
+	}
+
+	private void registerAlias(String fullName, Scaffold scaf){
+		if(aliasTable==null){return;}
+		String trimmed=trimToWhitespace(fullName);
+		if(trimmed.equals(fullName)){
+			aliasTable.put(trimmed, scaf);
+			return;
+		}
+		if(ambiguousAliases.contains(trimmed)){return;}
+		if(aliasTable.containsKey(trimmed)){
+			ambiguousAliases.add(trimmed);
+			aliasTable.remove(trimmed);
+		}else{
+			aliasTable.put(trimmed, scaf);
+		}
+	}
+
+	Scaffold lookupScaffold(String name){
+		Scaffold scaf=table.get(name);
+		if(scaf!=null){return scaf;}
+		if(aliasTable!=null && !name.isEmpty()){
+			if(ambiguousAliases!=null && ambiguousAliases.contains(name)){
+				KillSwitch.kill("ERROR: Ambiguous scaffold name '"+name+"' matches multiple reference sequences. "+
+					"Use full names or rename scaffolds to have unique first tokens.");
+			}
+			scaf=aliasTable.get(name);
+		}
+		return scaf;
+	}
+
+
 	/**
 	 * Processes ORF FASTA file and calculates coverage statistics for each ORF.
 	 * Parses Prodigal-format ORF headers and maps coverage data to ORF regions.
@@ -927,7 +966,7 @@ public class CoveragePileup {
 	 */
 	public boolean addCoverage(final String scafName, final byte[] seq, byte[] match, final int start0, final int stop0, final int readlen, 
 			final int nonClippedBases, final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
-		Scaffold scaf=table.get(scafName);
+		Scaffold scaf=lookupScaffold(scafName);
 		if(scaf==null){
 			if(ADD_FROM_READS){
 				if(!warned){
@@ -2363,6 +2402,10 @@ public class CoveragePileup {
 	private ArrayList<Scaffold> list;
 	/** Maps names to scaffolds */
 	private HashMap<String, Scaffold> table;
+	/** Maps trimmed names to scaffolds for tolerant lookup of untrimmed/trimmed SAM names */
+	private HashMap<String, Scaffold> aliasTable;
+	/** Trimmed names that map to multiple scaffolds — lookup must fail loud */
+	private HashSet<String> ambiguousAliases;
 	/** Converts BBMap index coordinates to scaffold coordinates */
 	private final ScaffoldCoordinates coords=new ScaffoldCoordinates(), coords2=new ScaffoldCoordinates();
 	

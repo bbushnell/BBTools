@@ -421,8 +421,7 @@ public class SamLine implements Serializable {
 				qual=r1.quality;
 			}
 		}
-		
-		trimNames();
+
 		optional=makeOptionalTags(r1, r2, perfect, scafloc, scaflen, inbounds, inbounds2);
 //		assert(r.pairnum()==1) : "\n"+r.toText(false)+"\n"+this+"\n"+r2;
 	}
@@ -512,13 +511,10 @@ public class SamLine implements Serializable {
 		trimNames();
 	}
 	
-	/** Trims reference names and read names to whitespace boundaries
-	 * if configured via global flags TRIM_RNAME and TRIM_READ_COMMENTS. */
+	/** Trims reference names and read names to whitespace boundaries at input time,
+	 * gated by TRIM_READ_DESCRIPTION (input-side normalization for all formats). */
 	public void trimNames(){
-//		System.err.println();
-//		System.err.println("rname= "+new String(rname));
-//		System.err.println("qname= "+new String(qname));
-		if(Shared.TRIM_RNAME){
+		if(Shared.TRIM_READ_DESCRIPTION){
 			if(RNAME_AS_BYTES){
 				setRname(Tools.trimToWhitespace(rname()));
 				setRnext(Tools.trimToWhitespace(rnext()));
@@ -526,13 +522,8 @@ public class SamLine implements Serializable {
 				setRnameS(Tools.trimToWhitespace(rnameS()));
 				setRnext(Tools.trimToWhitespace(rnext()));
 			}
-		}
-		if(Shared.TRIM_READ_COMMENTS){
 			qname=(Tools.trimToWhitespace(qname));
 		}
-//		System.err.println("rname2="+new String(rname));
-//		System.err.println("qname2="+new String(qname));
-//		assert(false) : Shared.TRIM_RNAME+", "+Shared.TRIM_READ_COMMENTS+", "+new String(rname)+", "+qname;
 	}
 	
 	/**
@@ -2390,21 +2381,21 @@ public class SamLine implements Serializable {
 		final int buflen=Tools.max(rnameLen(), (rnext==null ? 1 : rnext.length), (seq==null ? 1 : seq.length), (qual==null ? 1 : qual.length));
 		
 		if(bb==null){bb=new ByteBuilder(textLength()+4);}
-		if(qname==null){bb.append('*').tab();}else{bb.append(qname).tab();}
+		if(qname==null){bb.append('*').tab();}else{appendOutputQname(bb, qname).tab();}
 		bb.append(flag).tab();
 		if(RNAME_AS_BYTES){
 			assert(!(rname==null && rnameS!=null));
-			appendTo(bb, rname).tab();
+			appendOutputRname(bb, rname).tab();
 		}else{
 			assert(!(rname!=null && rnameS==null)) : RNAME_AS_BYTES+", "+rname+", "+rnameS;
-			appendTo(bb, rnameS).tab();
+			appendOutputRnameS(bb, rnameS).tab();
 		}
 		bb.append(pos).tab();
 		bb.append(mapq).tab();
 		if(cigar==null){bb.append('*');}
 		else{bb.append(cigar);}
 		bb.tab();
-		appendTo(bb, rnext).tab();
+		appendOutputRname(bb, rnext).tab();
 		bb.append(pnext).tab();
 		bb.append(tlen).tab();
 //		int len=bb.length;
@@ -2443,7 +2434,25 @@ public class SamLine implements Serializable {
 		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
 		return sb.append(a);
 	}
-	
+
+	private static ByteBuilder appendOutputQname(ByteBuilder sb, String a){
+		if(a==null){return sb.append('*');}
+		if(Shared.TRIM_QNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
+	private static ByteBuilder appendOutputRname(ByteBuilder sb, byte[] a){
+		if(a==null || a==bytestar || (a.length==1 && a[0]=='*')){return sb.append('*');}
+		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
+	private static ByteBuilder appendOutputRnameS(ByteBuilder sb, String a){
+		if(a==null || a.equals("*")){return sb.append('*');}
+		if(Shared.TRIM_RNAME){return sb.appendUntilWhitespace(a);}
+		return sb.append(a);
+	}
+
 	/**
 	 * Appends string to ByteBuilder, using '*' for null/empty strings.
 	 * @param sb ByteBuilder to append to

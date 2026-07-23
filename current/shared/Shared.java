@@ -182,10 +182,13 @@ public class Shared {
 	public static byte FAKE_QUAL=30;
 	/** True if file extensions should be automatically fixed */
 	public static boolean FIX_EXTENSIONS=true;
-	/** True if read comments should be trimmed */
-	public static boolean TRIM_READ_COMMENTS=false;
-	/** True if RNAME should be trimmed in SAM reads */
-	public static boolean TRIM_RNAME=false;
+	/** True if read descriptions should be trimmed at input time (all formats).
+	 * Strips header text after first whitespace when reading FASTA/FASTQ/SAM. */
+	public static boolean TRIM_READ_DESCRIPTION=false;
+	/** True if RNAME/@SQ SN should be trimmed at first whitespace in SAM/BAM output */
+	public static boolean TRIM_RNAME=true;
+	/** True if QNAME should be trimmed at first whitespace in SAM/BAM output */
+	public static boolean TRIM_QNAME=true;
 	/** True if output should use KMG formatting */
 	public static boolean OUTPUT_KMG=true;
 	/** Temporary directory path */

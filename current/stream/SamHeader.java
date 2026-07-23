@@ -231,33 +231,43 @@ public class SamHeader {
 	}
 
 	static void appendScafName(StringBuilder sb, byte[] scn){
+		int start=0;
 		if(Data.scaffoldPrefixes){
-			int k=0;
-			while(k<scn.length && scn[k]!='$'){k++;}
-			k++;
-			while(k<scn.length){
-				sb.append((char)scn[k]);
-				k++;
+			while(start<scn.length && scn[start]!='$'){start++;}
+			start++;
+			assert(start<=scn.length) : "Scaffold name missing '$' prefix delimiter: "+new String(scn);
+			if(start>scn.length){start=scn.length;}
+		}
+		int end=scn.length;
+		if(Shared.TRIM_RNAME){
+			for(int i=start; i<end; i++){
+				if(Character.isWhitespace(scn[i])){end=i; break;}
 			}
-		}else{
-			final char[] buffer=Shared.getTLCB(scn.length);
-			for(int i=0; i<scn.length; i++){buffer[i]=(char)scn[i];}
-			sb.append(buffer, 0, scn.length);
+		}
+		final int len=end-start;
+		if(len>0){
+			final char[] buffer=Shared.getTLCB(len);
+			for(int i=start; i<end; i++){buffer[i-start]=(char)scn[i];}
+			sb.append(buffer, 0, len);
 		}
 	}
 
 	static void appendScafName(ByteBuilder sb, byte[] scn){
+		int start=0;
 		if(Data.scaffoldPrefixes){
-			int k=0;
-			while(k<scn.length && scn[k]!='$'){k++;}
-			k++;
-			while(k<scn.length){
-				sb.append(scn[k]);
-				k++;
-			}
-		}else{
-			sb.append(scn);
+			while(start<scn.length && scn[start]!='$'){start++;}
+			start++;
+			assert(start<=scn.length) : "Scaffold name missing '$' prefix delimiter: "+new String(scn);
+			if(start>scn.length){start=scn.length;}
 		}
+		int end=scn.length;
+		if(Shared.TRIM_RNAME){
+			for(int i=start; i<end; i++){
+				if(Character.isWhitespace(scn[i])){end=i; break;}
+			}
+		}
+		final int len=end-start;
+		if(len>0){sb.append(scn, start, len);}
 	}
 
 	public static StringBuilder header2(){

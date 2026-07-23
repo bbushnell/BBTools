@@ -188,7 +188,7 @@ public class SamStreamerST implements Streamer {
 				if(line[0]=='@'){
 					// Handle header
 					if(header!=null) { 
-						if(Shared.TRIM_RNAME){line=SamReadInputStream.trimHeaderSQ(line);}
+						if(Shared.TRIM_READ_DESCRIPTION){line=SamReadInputStream.trimHeaderSQ(line);}
 						header.add(line);
 					}
 				}else{

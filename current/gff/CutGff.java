@@ -83,7 +83,7 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		
-		Shared.TRIM_READ_COMMENTS=Shared.TRIM_RNAME=true;
+		Shared.TRIM_READ_DESCRIPTION=Shared.TRIM_RNAME=true;
 		Read.TO_UPPER_CASE=true;
 		Read.VALIDATE_IN_CONSTRUCTOR=true;
 		GffLine.parseAttributes=true;

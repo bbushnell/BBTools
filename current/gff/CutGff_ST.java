@@ -57,7 +57,7 @@ public class CutGff_ST {
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.setZipThreads(Shared.threads());
 		
-		Shared.TRIM_READ_COMMENTS=Shared.TRIM_RNAME=true;
+		Shared.TRIM_READ_DESCRIPTION=Shared.TRIM_RNAME=true;
 		GffLine.parseAttributes=true;
 		
 		{//Parse the arguments

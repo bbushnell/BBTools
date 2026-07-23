@@ -316,7 +316,7 @@ public class FastaReadInputStream extends ReadInputStream {
 		assert(x>=bstop || buffer[x]<=slashr);
 		
 		int start=bstart+1, stop=x;
-		if(Shared.TRIM_READ_COMMENTS){
+		if(Shared.TRIM_READ_DESCRIPTION){
 			for(int i=start; i<stop; i++){
 				if(Character.isWhitespace(buffer[i])){
 					stop=i;

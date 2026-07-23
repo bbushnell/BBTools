@@ -54,12 +54,13 @@ public class DDLCompare {
 
 		if("refseq".equals(refFile)){refFile=shared.Resources.find(
 			"?refseqSketchDDL_k25e5b4096.tsv.gz,?refseqSketchDDL_k25e5b4096_merged.tsv.gz,"
+			+"?refseqSketchDDL_k25e5b32768.tsv.gz,"//dense 32k DB; after the 4k default (zero-config stays 4k)
 			+"?refseqSketchDDL_k25e5b2048.tsv.gz,?refseqSketchDDL_k25e5b2048_merged.tsv.gz");}
 
 		if(blacklistSet){
 			if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
 		}else if(!DynamicDemiLog.blacklistExists()){
-			String blPath=dna.Data.findPath("?genomeDDLBlacklist_k25e5b4096.fa.gz", false);
+			String blPath=dna.Data.findPath(DEFAULT_BLACKLIST, false);
 			if(blPath!=null){DynamicDemiLog.loadBlacklist(blPath, k);}
 		}
 
@@ -80,7 +81,7 @@ public class DDLCompare {
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
-			else if(a.equals("ref")){refFile=b;}
+			else if(a.equals("ref")){refFile=resolveSketchAlias(b);}
 			else if(a.equals("refseq")){refFile="refseq";}
 			else if(a.equals("query")){file1=b;}
 			else if(a.equals("queryfile") || a.equals("qf")){queryFile=b;}
@@ -508,6 +509,28 @@ public class DDLCompare {
 
 	private static String fmt(long nanos){return String.format("%.3f", nanos*1e-9);}
 
+	/** Expands a "#k" sketch/ref-file shorthand (e.g. ref=32k or sketchfile=32k -> ?refseqSketchDDL_k25e5b32768.tsv.gz,
+	 * i.e. #*1024 buckets) to a resolved resource path.  A literal existing file of that name always wins (escape
+	 * hatch); a value that is not a bare "<digits>k" is returned unchanged (a literal path).  If the "#k" expansion
+	 * names a resource that is not installed, the ?resource string is returned so the not-found message names it.
+	 * SINGLE SOURCE OF TRUTH -- shared by clade.CladeIndex (sketchfile=) and DDLCompare (ref=). */
+	public static String resolveSketchAlias(String s){
+		if(s==null || s.isEmpty() || new java.io.File(s).exists()){return s;}//null/empty, or a real file: use as-is
+		final int last=s.length()-1;
+		final char c=s.charAt(last);
+		if((c=='k' || c=='K') && last>=1){//"<digits>k" (or K)
+			boolean digits=true;
+			for(int i=0; i<last; i++){if(!Character.isDigit(s.charAt(i))){digits=false; break;}}
+			if(digits){
+				int buckets=Integer.parseInt(s.substring(0, last))*1024;
+				String resource="?refseqSketchDDL_k25e5b"+buckets+".tsv.gz";
+				String path=dna.Data.findPath(resource, false);
+				return path!=null ? path : resource;
+			}
+		}
+		return s;//literal path
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -538,6 +561,11 @@ public class DDLCompare {
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Default genome/DDL blacklist for QuickClade (clade.CladeSearcher / clade.CladeServer) and DDLCompare --
+	 * a k-mer set, so it masks any bucket count / DDL resolution.  SINGLE SOURCE OF TRUTH for the DDL blacklist.
+	 * NOTE: ddl.SSUCompare / ddl.SSUServer use a DIFFERENT (ribosomal) blacklist and do NOT reference this. */
+	public static final String DEFAULT_BLACKLIST="?refseqGenomeDDLBlacklist_k25e5b65536_fused.fa.gz";
 
 	private static final int MIN_GENE_CALL_LENGTH=800;
 }
