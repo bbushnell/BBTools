@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 8, 2026
+Last modified July 23, 2026
 
 Description:  Aligns sequences, not allowing indels.
 Brute force mode guarantees all alignments will be found and reported,
