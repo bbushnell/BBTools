@@ -486,21 +486,23 @@ public class SIMDAlignByte {
 	 */
 	public static final IntList alignDiagonal(byte[] query, byte[] ref, int maxSubs, int maxClips){
 		assert(maxSubs<256) : "This method can only handle up to 255 substitutions.";
+		assert(maxClips<128) : "This method can only handle up to 127 clips.";
 		final int qLen=query.length;
 		final int rLen=ref.length;
 		IntList results=null;
-//		System.err.println("\talignDiagonal(ql="+query.length+", rl="+ref.length+", ms="+maxSubs+", mc="+maxClips);
-		
+
 		// Calculate alignment range
 		final int startPos=-maxClips;
 		final int endPos=rLen-qLen+maxClips;
-		
+
 		// Vector constants
-		ByteVector limitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxSubs));
+		ByteVector subLimitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxSubs));
+		ByteVector clipLimitV=ByteVector.broadcast(BSPECIES, (byte)(-128+maxClips));
 		ByteVector oneV=ByteVector.broadcast(BSPECIES, (byte)1);
-		
+		ByteVector nV=ByteVector.broadcast(BSPECIES, (byte)'N');
+
 		int pos=startPos;
-		
+
 		// Scalar pre-loop for negative positions (left clips)
 		while(pos<0 && pos<=endPos){
 			int subs=alignClippedScalar(query, ref, maxSubs, maxClips, pos);
@@ -508,44 +510,45 @@ public class SIMDAlignByte {
 				if(results==null){results=new IntList();}
 				results.add(pos);
 			}
-//			System.err.println("A: pos="+pos+", subs="+subs);
 			pos++;
 		}
-		
+
 		// SIMD main loop - only process when we have enough reference data
 		final int maxSimdPos=rLen-qLen-BWIDTH+1;
 		while(pos<=endPos && pos<=maxSimdPos){
 			int validLanes=Math.min(BWIDTH, endPos-pos+1);
 			if(validLanes<=0){break;}
-			
-			ByteVector scoreV=ByteVector.broadcast(BSPECIES, (byte)-128);
+
+			ByteVector subsV=ByteVector.broadcast(BSPECIES, (byte)-128);
+			ByteVector clipsV=ByteVector.broadcast(BSPECIES, (byte)-128);
 			VectorMask<Byte> underLimitMask=null;
-			
+
 			for(int i=0; i<qLen; i++){
 				ByteVector q=ByteVector.broadcast(BSPECIES, query[i]);
 				ByteVector r=ByteVector.fromArray(BSPECIES, ref, pos+i);
-				//TODO: Possible bug [simd/SIMDAlignByte#002] - this SIMD bulk counts a sub only on q!=r (pure equality), but the
-				//scalar boundary helper alignClippedScalar (used by this same method's clip pre/post loops) counts q!=r OR
-				//baseToNumber[q]<0, so an undefined base that equals ref (N-vs-N most commonly) is a MATCH here but a SUB there.
-				//Same-call inconsistency: bulk positions and clip positions score N-vs-N differently. Reachable via IndelFreeAligner
-				//on ASCII reads/refs containing N. LOW: rare trigger (needs q==r AND undefined), small/arguable impact. Sibling of SIMDByte256#002.
-				VectorMask<Byte> mismatchMask=q.compare(VectorOperators.NE, r);
-				scoreV=scoreV.add(oneV, mismatchMask);
+				VectorMask<Byte> diffMask=q.compare(VectorOperators.NE, r);
+				VectorMask<Byte> nMask=r.compare(VectorOperators.EQ, nV);
+				VectorMask<Byte> subMask=diffMask.andNot(nMask);
 
-				underLimitMask=scoreV.compare(VectorOperators.LE, limitV);
+				subsV=subsV.add(oneV, subMask);
+				clipsV=clipsV.add(oneV, nMask);
+
+				VectorMask<Byte> subOK=subsV.compare(VectorOperators.LE, subLimitV);
+				VectorMask<Byte> clipOK=clipsV.compare(VectorOperators.LE, clipLimitV);
+				underLimitMask=subOK.and(clipOK);
 				if(!underLimitMask.anyTrue()){
 					break;
 				}
 			}
-			
+
 			if(underLimitMask!=null && underLimitMask.anyTrue()){
-				VectorMask<Byte> successMask=scoreV.compare(VectorOperators.LE, limitV);
+				VectorMask<Byte> successMask=subsV.compare(VectorOperators.LE, subLimitV)
+					.and(clipsV.compare(VectorOperators.LE, clipLimitV));
 				if(results==null){results=new IntList();}
 				for(int lane=0; lane<validLanes; lane++){
 					if(successMask.laneIsSet(lane)){
 						results.add(pos+lane);
 					}
-//					System.err.println("B: pos="+(pos+lane)+", subs="+(int)scoreV.lane(lane));
 				}
 			}
 			pos+=BWIDTH;
