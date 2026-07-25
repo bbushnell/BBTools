@@ -2,6 +2,7 @@ package var2;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Set;
 
 import fileIO.ByteFile;
@@ -226,6 +227,9 @@ public class ScafMap {
 	public void clear(){
 		map.clear();
 		alt.clear();
+		ambiguousAlt.clear();
+		if(promotedAliases!=null){promotedAliases.clear();}
+		hasNameOnlyScaffolds=false;
 		list.clear();
 	}
 	
@@ -257,9 +261,16 @@ public class ScafMap {
 	 */
 	public Scaffold addScaffold(Read r){
 		Scaffold scaf=map.get(r.id);
+		if(scaf==null && TRIM_WHITESPACE_ALSO && hasNameOnlyScaffolds){
+			scaf=findNameOnlyScaffoldForReference(r);
+		}
 		if(scaf==null){
 			scaf=new Scaffold(r.id, size(), r.length());
 			add(scaf);
+		}
+		if(scaf.length!=r.length()){
+			throw new IllegalArgumentException("Reference scaffold '"+r.id+"' has length "+r.length()+
+					", but the matching scaffold '"+scaf.name+"' has length "+scaf.length+".");
 		}
 		scaf.bases=r.bases;
 		assert(scaf.bases.length==scaf.length) : "Incorrect reference length: "+scaf.bases.length+", "+scaf.length+", "+scaf.name;
@@ -274,8 +285,9 @@ public class ScafMap {
 	 */
 	public Scaffold add(byte[] line){
 		Scaffold scaf=new Scaffold(line, size());
-		Scaffold old=map.get(scaf.name);
+		Scaffold old=findScaffoldForSecondarySource(scaf.name);
 		if(old!=null){return old;}
+		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
 	
@@ -301,8 +313,9 @@ public class ScafMap {
 		}
 		int length=Parse.parseInt(line, lengthValStart, lengthValEnd);
 		Scaffold scaf=new Scaffold(name, size(), length);
-		Scaffold old=map.get(scaf.name);
+		Scaffold old=findScaffoldForSecondarySource(scaf.name);
 		if(old!=null){return old;}
+		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
 	
@@ -317,6 +330,7 @@ public class ScafMap {
 		Scaffold scaf=map.get(s);
 		if(scaf!=null){return scaf;}
 		scaf=new Scaffold(s, size(), len);
+		hasNameOnlyScaffolds=true;
 		return add(scaf);
 	}
 	
@@ -334,19 +348,70 @@ public class ScafMap {
 		map.put(scaf.name, scaf);
 		String s=scaf.name;
 		if(TRIM_WHITESPACE_ALSO){
-			for(int i=0; i<s.length(); i++){
-				if(Character.isWhitespace(s.charAt(i))){
-					String s2=s.substring(0, i);
-					boolean b=alt.containsKey(s2);
-					assert(!b);
-					if(!b){
-						alt.put(s2, scaf);
-					}
-					break;
+			String alias=Tools.trimToWhitespace(s);
+			if(!ambiguousAlt.contains(alias)){
+				Scaffold old=alt.get(alias);
+				if(old!=null && old!=scaf){
+					ambiguousAlt.add(alias);
+					alt.remove(alias);
+				}else{
+					alt.put(alias, scaf);
 				}
 			}
 		}
 		return scaf;
+	}
+
+	private Scaffold findNameOnlyScaffoldForReference(Read r){
+		final String fullName=r.id;
+		final String alias=Tools.trimToWhitespace(fullName);
+		Scaffold scaf=null;
+
+		if(promotedAliases!=null && promotedAliases.contains(alias)){
+			scaf=alt.get(alias);
+			if(scaf==null){scaf=map.get(alias);}
+		}else if(!alias.equals(fullName)){
+			Scaffold candidate=map.get(alias);
+			if(candidate!=null && candidate.bases==null && candidate.name.equals(alias)){
+				if(candidate.length!=r.length()){
+					throw lengthCollision(fullName, r.length(), alias, candidate.length);
+				}
+				if(promotedAliases==null){promotedAliases=new HashSet<String>();}
+				promotedAliases.add(alias);
+				map.remove(alias);
+				scaf=candidate;
+			}
+		}
+
+		if(scaf!=null){
+			if(scaf.length!=r.length()){
+				throw lengthCollision(fullName, r.length(), alias, scaf.length);
+			}
+			map.put(fullName, scaf);
+		}
+		return scaf;
+	}
+
+	private static IllegalArgumentException lengthCollision(String fullName, int fullLength,
+			String shortName, int shortLength){
+		return new IllegalArgumentException("Reference scaffold '"+fullName+"' has length "+fullLength+
+				", but shortened scaffold name '"+shortName+"' already identifies a scaffold of length "+
+				shortLength+". The short name is ambiguous.");
+	}
+
+	private Scaffold findScaffoldForSecondarySource(String name){
+		Scaffold value=map.get(name);
+		if(value!=null || !TRIM_WHITESPACE_ALSO){return value;}
+		value=alt.get(name);
+		if(value!=null){return value;}
+
+		String alias=Tools.trimToWhitespace(name);
+		if(!alias.equals(name)){return null;}
+		if(ambiguousAlt.contains(alias)){
+			throw new IllegalArgumentException("Ambiguous scaffold name '"+alias+
+					"' matches multiple reference sequences. Use unique first tokens.");
+		}
+		return alt.get(alias);
 	}
 	
 	/**
@@ -411,21 +476,14 @@ public class ScafMap {
 		Scaffold value=map.get(s);
 		if(value==null){value=alt.get(s);}
 		if(value==null && TRIM_WHITESPACE_ALSO){
-			int index=-1;
-			for(int i=0; i<s.length(); i++){
-				if(Character.isWhitespace(s.charAt(i))){
-					index=i;
-					break;
-				}
+			String alias=Tools.trimToWhitespace(s);
+			if(ambiguousAlt.contains(alias)){
+				throw new IllegalArgumentException("Ambiguous scaffold name '"+alias+
+						"' matches multiple reference sequences. Use unique first tokens.");
 			}
-			String sub=null;
-			if(index>0){
-				sub=s.substring(0, index);
-				value=alt.get(sub);
-				if(value==null){value=map.get(sub);}
-			}
-			assert(value!=null) : "Scaffold not present in reference: "+s+"\nwhitespace="+index+
-				"\nsubstring="+sub+"\nkeySet="+keySet()+"\naltSet="+altKeySet()+"\n";
+			if(!alias.equals(s)){value=alt.get(alias);}
+			assert(value!=null) : "Scaffold not present in reference: "+s+
+				"\nalias="+alias+"\nkeySet="+keySet()+"\naltSet="+altKeySet()+"\n";
 		}
 		assert(value!=null) : s+"\n"+keySet()+"\n"+altKeySet()+"\n";
 		return value;
@@ -480,6 +538,9 @@ public class ScafMap {
 	final ArrayList<Scaffold> list=new ArrayList<Scaffold>();
 	final HashMap<String, Scaffold> map=new HashMap<String, Scaffold>();
 	private final HashMap<String, Scaffold> alt=new HashMap<String, Scaffold>();
+	private final HashSet<String> ambiguousAlt=new HashSet<String>();
+	private HashSet<String> promotedAliases;
+	private boolean hasNameOnlyScaffolds=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/

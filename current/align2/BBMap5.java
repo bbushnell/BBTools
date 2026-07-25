@@ -417,7 +417,6 @@ public final class BBMap5 extends AbstractMapper  {
 					Data.chromosomePlusMatrix[cha.chromosome]=cha;
 				}
 			}
-			if(Shared.TRIM_RNAME){Data.trimScaffoldNames();}
 			t.stop();
 			outstream.println("Loaded Reference:\t"+t);
 			t.start();

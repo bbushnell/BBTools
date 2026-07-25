@@ -415,7 +415,6 @@ public final class RandomReads3 {
 				Data.chromosomePlusMatrix[cha.chromosome]=cha;
 			}
 		}
-		if(Shared.TRIM_RNAME){Data.trimScaffoldNames();}
 		if(targetCov>0){
 			long glen=genomeLength();
 			float target=(2*glen*targetCov)/(minlen+maxlen);

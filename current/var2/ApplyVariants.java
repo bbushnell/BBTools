@@ -10,6 +10,7 @@ import fileIO.ReadWrite;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.NameMapper;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -250,9 +251,9 @@ public class ApplyVariants {
 		}
 		
 		ArrayList<VCFLine> lines=vfile.lines(true);
-		varMap=new HashMap<String, ArrayList<Var>>(ScafMap.defaultScafMap().size());
+		varMap=new NameMapper<ArrayList<Var>>(ScafMap.defaultScafMap().size());
 		for(VCFLine line : lines){
-			ArrayList<Var> value=varMap.get(line.scaf);
+			ArrayList<Var> value=varMap.getExact(line.scaf);
 			if(value==null){
 				value=new ArrayList<Var>();
 				varMap.put(line.scaf, value);
@@ -269,17 +270,23 @@ public class ApplyVariants {
 		//Reset counters
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
-		
+
 		//Process the read stream
-		processInner(cris, ros);
-		
+		RuntimeException processingFailure=null;
+		try{
+			processInner(cris, ros);
+		}catch(RuntimeException e){
+			processingFailure=e;
+		}
+
 		if(verbose){outstream.println("Finished; closing streams.");}
 		
 		//Write anything that was accumulated by ReadStats
 		errorState|=ReadStats.writeAll();
 		//Close the read streams
 		errorState|=ReadWrite.closeStreams(cris, ros);
-		
+		if(processingFailure!=null){throw processingFailure;}
+
 		//Report timing and results
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
@@ -430,10 +437,6 @@ public class ApplyVariants {
 		}
 		
 		ArrayList<Var> vars=varMap.get(r.id);
-		if(vars==null){
-			String sub=Tools.trimToWhitespace(r.id);
-			vars=varMap.get(sub);//Handles truncated sequence names
-		}
 		if(vars==null){return;}
 		int removed=0;
 		for(int i=0; i<vars.size(); i++){
@@ -463,10 +466,6 @@ public class ApplyVariants {
 		}
 		
 		ArrayList<Var> vars=varMap.get(r.id);
-		if(vars==null){
-			String sub=Tools.trimToWhitespace(r.id);
-			vars=varMap.get(sub);//Handles truncated sequence names
-		}
 		if(vars==null){return;}
 		int removed=0;
 		for(int i=0; i<vars.size(); i++){
@@ -626,7 +625,7 @@ public class ApplyVariants {
 	
 	private byte noCovSymbol='N';
 	
-	HashMap<String, ArrayList<Var>> varMap;
+	NameMapper<ArrayList<Var>> varMap;
 	
 	HashMap<String, CoverageArray> depthMap;
 	

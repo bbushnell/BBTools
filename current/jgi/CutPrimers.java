@@ -1,7 +1,6 @@
 package jgi;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
@@ -11,6 +10,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.KillSwitch;
+import shared.NameMapper;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -110,11 +110,11 @@ public class CutPrimers {
 			ros.start();
 		}else{ros=null;}
 
-		LinkedHashMap<String, SamLine> p1set=toSamLines(sam1);
-		LinkedHashMap<String, SamLine> p2set=toSamLines(sam2);
+		NameMapper<SamLine> p1set=toSamLines(sam1);
+		NameMapper<SamLine> p2set=toSamLines(sam2);
 		long readsProcessed=0, readsSuccess=0;
-		{
-			
+		RuntimeException processingFailure=null;
+		try{
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
 			
@@ -189,8 +189,11 @@ public class CutPrimers {
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
+		}catch(RuntimeException e){
+			processingFailure=e;
 		}
 		ReadWrite.closeStreams(cris, ros);
+		if(processingFailure!=null){throw processingFailure;}
 		if(verbose){outstream.println("Finished.");}
 		
 		t.stop();
@@ -199,10 +202,10 @@ public class CutPrimers {
 		outstream.println("Sequences Generated:  "+readsSuccess);
 	}
 	
-	public static LinkedHashMap<String, SamLine> toSamLines(String fname){
+	public static NameMapper<SamLine> toSamLines(String fname){
 		ByteFile tf=ByteFile.makeByteFile(fname, false);
 		LineParser1 lp=new LineParser1('\t');
-		LinkedHashMap<String, SamLine> list=new LinkedHashMap<String, SamLine>();
+		NameMapper<SamLine> list=new NameMapper<SamLine>();
 		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
 			if(s[0]!='@'){
 				SamLine sl=new SamLine(lp.set(s));
