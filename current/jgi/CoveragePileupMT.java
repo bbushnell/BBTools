@@ -6,7 +6,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -56,9 +58,9 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	 * @param args Command-line arguments specifying input files and options */
 	public static void main(String[] args){
 		Timer t=new Timer();
-		
+
 		CoveragePileupMT x=new CoveragePileupMT(args);
-		
+
 		x.process();
 		
 		t.stop();
@@ -97,7 +99,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("ref") || a.equals("reference") || a.equals("fasta")){
 				reference=b;
 			}else if(a.equals("streams") || a.equals("maxstreams")){
@@ -253,7 +255,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			}else{
 				throw new RuntimeException("Unknown parameter: "+args[i]);
 			}
-			
+
 		}
 		trimE=(float)QualityTools.phredToProbError(trimq);
 //		assert(false) : qtrimLeft+", "+qtrimRight+", "+trimq+", "+trimE;
@@ -329,6 +331,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	public void clear(){
 		list=null;
 		table=null;
+		ambiguousAliases=null;
+		fallbackQueries=null;
 		pairTable=null;
 		
 		program=null;
@@ -386,6 +390,8 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		error=false;
 		list=new ArrayList<Scaffold>(initialScaffolds);
 		table=new HashMap<String, Scaffold>(initialScaffolds);
+		ambiguousAliases=new HashSet<String>();
+		fallbackQueries=new ConcurrentHashMap<String, String>();
 		
 		if(PHYSICAL_COVERAGE){
 			pairTable=new HashMap<String, SamLine>();
@@ -542,11 +548,13 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 				}
 			}
 			if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-			assert(!table.containsKey(scaf.name)) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
-			table.put(scaf.name, scaf);
-			list.add(scaf);
-			refBases+=scaf.length;
-			refKmers+=scaf.length-k+1;
+			Scaffold existing=lookupExactScaffold(scaf.name);
+			if(existing==null){
+				putScaffold(scaf.name, scaf);
+				list.add(scaf);
+				refBases+=scaf.length;
+				refKmers+=scaf.length-k+1;
+			}
 
 			//				sc.obj=new CoverageArray2(table.size(), sc.length);
 			//				outstream.println("Made scaffold "+sc.name+" of length "+sc.length);
@@ -608,11 +616,9 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 					len=0;
 					Arrays.fill(acgtn, 0);
 				}
-				
+
 				String name=new String(s, 1, s.length-1);
-				String shortName=Tools.trimToWhitespace(name);
-				
-				scaf=table.get(shortName);
+				scaf=lookupReferenceScaffold(name);
 				if(ADD_FROM_REF && scaf==null){
 					scaf=new Scaffold(name, 0);
 					if(!warned){
@@ -620,7 +626,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 						warned=true;
 					}
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					table.put(shortName, scaf);
+					putScaffold(name, scaf);
 					list.add(scaf);
 					addLen=true;
 				}
@@ -651,8 +657,76 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 			Arrays.fill(acgtn, 0);
 		}
 	}
-	
-	
+
+	private Scaffold lookupReferenceScaffold(String name){
+		Scaffold scaf=lookupExactScaffold(name);
+		String alias=Tools.trimToWhitespace(name);
+		String prior=fallbackQueries.putIfAbsent(alias, name);
+		if(prior!=null && !prior.equals(name)){return scaf;}
+		if(scaf!=null){return scaf;}
+
+		scaf=table.get(alias);
+		if(scaf!=null && scaf.name.equals(alias) && !ambiguousAliases.contains(alias)){
+			table.remove(alias);
+			scaf.name=name;
+			putScaffold(name, scaf);
+			return scaf;
+		}
+		return null;
+	}
+
+	private void putScaffold(String fullName, Scaffold scaf){
+		Scaffold old=table.get(fullName);
+		if(old!=null && old!=scaf){
+			assert(!old.name.equals(fullName)) : "Duplicate scaffold name: "+fullName;
+			ambiguousAliases.add(fullName);
+		}
+		table.put(fullName, scaf);
+
+		String trimmed=Tools.trimToWhitespace(fullName);
+		if(trimmed.equals(fullName)){return;}
+		if(ambiguousAliases.contains(trimmed)){return;}
+		old=table.get(trimmed);
+		if(old!=null && old!=scaf){
+			ambiguousAliases.add(trimmed);
+			if(!old.name.equals(trimmed)){table.remove(trimmed);}
+		}else{
+			table.put(trimmed, scaf);
+		}
+	}
+
+	private Scaffold lookupExactScaffold(String name){
+		Scaffold scaf=table.get(name);
+		return scaf!=null && scaf.name.equals(name) ? scaf : null;
+	}
+
+	private Scaffold lookupScaffold(String name){
+		if(name==null){return null;}
+		Scaffold scaf=table.get(name);
+		if(scaf!=null){return scaf;}
+		if(name.isEmpty()){return null;}
+
+		String trimmed=Tools.trimToWhitespace(name);
+		if(ambiguousAliases.contains(trimmed)){
+			KillSwitch.kill("ERROR: Ambiguous scaffold name '"+trimmed+"' matches multiple reference sequences. "+
+					"Use full names or rename scaffolds to have unique first tokens.");
+		}
+		if(trimmed.equals(name)){return null;}
+		scaf=table.get(trimmed);
+		if(scaf!=null){
+			String prior=fallbackQueries.putIfAbsent(trimmed, name);
+			if(prior!=null && !prior.equals(name)){
+				boolean validShortQuery=name.equals(trimmed) && prior.equals(scaf.name);
+				if(!validShortQuery){
+					KillSwitch.kill("ERROR: Ambiguous scaffold name '"+trimmed+"' matches both '"+
+							prior+"' and '"+name+"'. Use unique first tokens or consistent full names.");
+				}
+			}
+		}
+		return scaf;
+	}
+
+
 	/**
 	 * Processes ORF FASTA file and writes coverage statistics for each ORF.
 	 * Extracts ORF coordinates from headers and calculates depth metrics.
@@ -762,7 +836,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		int leftTrimAmount=border, rightTrimAmount=border;
 		if(border>0){
 			r=sl.toRead(false);
-			sc=table.get(sl.rnameS());
+			sc=lookupScaffold(sl.rnameS());
 			assert(sc!=null) : sl+"\n\n"+sl.rnameS()+"\n\n"+table;
 			int skipTrimRange=Tools.max(10, border+5);
 			if(r.start<skipTrimRange){
@@ -785,7 +859,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		if(leftTrimAmount<1 && rightTrimAmount<1){trimmed=0;}
 		else{
 			if(r==null){r=sl.toRead(false);}
-			if(sc==null){sc=table.get(sl.rnameS());}
+			if(sc==null){sc=lookupScaffold(sl.rnameS());}
 			int scaflen=(sc==null ? 1999999999 : sc.length);
 			trimmed=TrimRead.trimReadWithMatch(r, sl, leftTrimAmount, rightTrimAmount, 0, scaflen, false);
 		}
@@ -1596,7 +1670,7 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 		 */
 		public boolean addCoverage(final String scafName, final byte[] seq, byte[] match, final int start0, final int stop0, final int readlen, 
 				final int nonClippedBases, final int strand, int incrementFrags, boolean properPair, SamLine sl){//sl is optional
-			Scaffold scaf=table.get(scafName);
+			Scaffold scaf=lookupScaffold(scafName);
 			if(scaf==null){
 				if(EA){
 					KillSwitch.kill("ERROR: A read was mapped to unknown reference sequence "+scafName);
@@ -1909,6 +1983,10 @@ public class CoveragePileupMT implements Accumulator<CoveragePileupMT.LoadThread
 	private ArrayList<Scaffold> list;
 	/** Maps names to scaffolds */
 	private HashMap<String, Scaffold> table;
+	/** First-token aliases shared by multiple stored scaffold names */
+	private HashSet<String> ambiguousAliases;
+	/** First non-exact query seen for each alias, used to detect lost-name collisions */
+	private ConcurrentHashMap<String, String> fallbackQueries;
 	
 	/** Mapping program name */
 	private String program=null;

@@ -357,6 +357,8 @@ public class CoveragePileup {
 	public void clear(){
 		list=null;
 		table=null;
+		ambiguousAliases=null;
+		fallbackQueries=null;
 		pairTable=null;
 		
 		program=null;
@@ -418,8 +420,8 @@ public class CoveragePileup {
 		error=false;
 		list=new ArrayList<Scaffold>(initialScaffolds);
 		table=new HashMap<String, Scaffold>(initialScaffolds);
-		aliasTable=new HashMap<String, Scaffold>(initialScaffolds);
 		ambiguousAliases=new HashSet<String>();
+		fallbackQueries=new HashMap<String, String>();
 		
 		if(PHYSICAL_COVERAGE){
 			pairTable=new HashMap<String, SamLine>();
@@ -551,7 +553,7 @@ public class CoveragePileup {
 		if(line==null) {return;}
 		lp.set(line);
 		String name=lp.parseString(0);
-		Scaffold scaf=table.get(name);
+		Scaffold scaf=lookupScaffold(name);
 		
 		for(; line!=null; line=bf.nextLine()) {
 			assert(!Tools.startsWith(line, '#'));
@@ -559,14 +561,14 @@ public class CoveragePileup {
 			int len=lp.length(0);
 			if(len>0 && !lp.termEquals(name, 0)) {
 				name=lp.parseString(0);
-				scaf=table.get(name);
+				scaf=lookupScaffold(name);
 			}
 			int pos=lp.parseInt(1);
 			int cov=lp.parseInt(2);
 			if(cov>0) {
 				if(USE_COVERAGE_ARRAYS){
 					if(scaf.obj0==null){
-						scaf.obj0=(bits32 ? new CoverageArray3(table.size(), scaf.length) : new CoverageArray2(table.size(), scaf.length));
+						scaf.obj0=(bits32 ? new CoverageArray3(list.size(), scaf.length) : new CoverageArray2(list.size(), scaf.length));
 					}
 					CoverageArray ca=(CoverageArray)scaf.obj0;
 					ca.increment(pos, cov);
@@ -600,10 +602,14 @@ public class CoveragePileup {
 					lp.set(line);
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					assert(!table.containsKey(scaf.name)) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
-					table.put(scaf.name, scaf);
-					list.add(scaf);
-					refBases+=scaf.length;
+					Scaffold existing=(reference==null ? lookupExactScaffold(scaf.name) : lookupScaffold(scaf.name));
+					if(existing==null){
+						assert(reference==null) :
+							"\nSam file contained rname missing from ref:\n"+scaf+"\n\n"+lookupScaffold(scaf.name);
+						putScaffold(scaf.name, scaf);
+						list.add(scaf);
+						refBases+=scaf.length;
+					}
 //					sc.obj=new CoverageArray2(table.size(), sc.length+1);
 //					outstream.println("Made scaffold "+sc.name+" of length "+sc.length);
 				}else if(a=='P' && b=='G'){
@@ -654,12 +660,11 @@ public class CoveragePileup {
 					lp.set(line);
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					Scaffold existing=lookupScaffold(scaf.name);
+					Scaffold existing=(reference==null ? lookupExactScaffold(scaf.name) : lookupScaffold(scaf.name));
 					if(existing==null){
 						assert(reference==null) :
 							"\nSam file contained rname missing from ref:\n"+scaf+"\n\n"+lookupScaffold(scaf.name);
-						table.put(scaf.name, scaf);
-						registerAlias(scaf.name, scaf);
+						putScaffold(scaf.name, scaf);
 						list.add(scaf);
 						refBases+=scaf.length;
 					}
@@ -722,8 +727,8 @@ public class CoveragePileup {
 						scaf.gc=ca.calcGC(loc, length, counts);
 					}
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					assert(!table.containsKey(scaf.name)) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
-					table.put(scaf.name, scaf);
+					assert(lookupExactScaffold(scaf.name)==null) : "\nDuplicate scaffold name!\n"+scaf+"\n\n"+table.get(scaf.name);
+					putScaffold(scaf.name, scaf);
 					list.add(scaf);
 					refBases+=scaf.length;
 				}
@@ -765,14 +770,13 @@ public class CoveragePileup {
 					len=0;
 					Arrays.fill(acgtn, 0);
 				}
-				
+
 				String name=new String(s, 1, s.length-1);
-				scaf=table.get(name);
+				scaf=lookupReferenceScaffold(name);
 				if(ADD_FROM_REF && scaf==null){
 					scaf=new Scaffold(name, 0);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					table.put(name, scaf);
-					registerAlias(name, scaf);
+					putScaffold(name, scaf);
 					list.add(scaf);
 					addLen=true;
 				}
@@ -803,39 +807,76 @@ public class CoveragePileup {
 		}
 	}
 
-	private static String trimToWhitespace(String s){
-		if(s==null){return null;}
-		for(int i=0; i<s.length(); i++){
-			if(Character.isWhitespace(s.charAt(i))){return s.substring(0, i);}
+	private Scaffold lookupReferenceScaffold(String name){
+		Scaffold scaf=lookupExactScaffold(name);
+		String alias=Tools.trimToWhitespace(name);
+		String prior=fallbackQueries.get(alias);
+		if(prior==null){
+			fallbackQueries.put(alias, name);
+		}else if(!prior.equals(name)){
+			return scaf;
 		}
-		return s;
+		if(scaf!=null){return scaf;}
+
+		scaf=table.get(alias);
+		if(scaf!=null && scaf.name.equals(alias) && !ambiguousAliases.contains(alias)){
+			table.remove(alias);
+			scaf.name=name;
+			putScaffold(name, scaf);
+			return scaf;
+		}
+		return null;
 	}
 
-	private void registerAlias(String fullName, Scaffold scaf){
-		if(aliasTable==null){return;}
-		String trimmed=trimToWhitespace(fullName);
-		if(trimmed.equals(fullName)){
-			aliasTable.put(trimmed, scaf);
-			return;
+	private void putScaffold(String fullName, Scaffold scaf){
+		Scaffold old=table.get(fullName);
+		if(old!=null && old!=scaf){
+			assert(!old.name.equals(fullName)) : "Duplicate scaffold name: "+fullName;
+			ambiguousAliases.add(fullName);
 		}
+		table.put(fullName, scaf);
+
+		String trimmed=Tools.trimToWhitespace(fullName);
+		if(trimmed.equals(fullName)){return;}
 		if(ambiguousAliases.contains(trimmed)){return;}
-		if(aliasTable.containsKey(trimmed)){
+		old=table.get(trimmed);
+		if(old!=null && old!=scaf){
 			ambiguousAliases.add(trimmed);
-			aliasTable.remove(trimmed);
+			if(!old.name.equals(trimmed)){table.remove(trimmed);}
 		}else{
-			aliasTable.put(trimmed, scaf);
+			table.put(trimmed, scaf);
 		}
+	}
+
+	private Scaffold lookupExactScaffold(String name){
+		Scaffold scaf=table.get(name);
+		return scaf!=null && scaf.name.equals(name) ? scaf : null;
 	}
 
 	Scaffold lookupScaffold(String name){
+		if(name==null){return null;}
 		Scaffold scaf=table.get(name);
 		if(scaf!=null){return scaf;}
-		if(aliasTable!=null && !name.isEmpty()){
-			if(ambiguousAliases!=null && ambiguousAliases.contains(name)){
-				KillSwitch.kill("ERROR: Ambiguous scaffold name '"+name+"' matches multiple reference sequences. "+
+		if(!name.isEmpty()){
+			String trimmed=Tools.trimToWhitespace(name);
+			if(ambiguousAliases!=null && ambiguousAliases.contains(trimmed)){
+				KillSwitch.kill("ERROR: Ambiguous scaffold name '"+trimmed+"' matches multiple reference sequences. "+
 					"Use full names or rename scaffolds to have unique first tokens.");
 			}
-			scaf=aliasTable.get(name);
+			if(trimmed.equals(name)){return null;}
+			scaf=table.get(trimmed);
+			if(scaf!=null){
+				String prior=fallbackQueries.get(trimmed);
+				if(prior==null){
+					fallbackQueries.put(trimmed, name);
+				}else if(!prior.equals(name)){
+					boolean validShortQuery=name.equals(trimmed) && prior.equals(scaf.name);
+					if(!validShortQuery){
+						KillSwitch.kill("ERROR: Ambiguous scaffold name '"+trimmed+"' matches both '"+
+								prior+"' and '"+name+"'. Use unique first tokens or consistent full names.");
+					}
+				}
+			}
 		}
 		return scaf;
 	}
@@ -977,7 +1018,7 @@ public class CoveragePileup {
 				}
 				scaf=new Scaffold(scafName, 0);
 				if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-				table.put(scafName, scaf);
+				putScaffold(scafName, scaf);
 				list.add(scaf);
 				return addCoverage(scaf, seq, match, start0, stop0, readlen, nonClippedBases, strand, incrementFrags, properPair, sl);
 			}else if(EA){
@@ -1059,9 +1100,9 @@ public class CoveragePileup {
 		
 		if(USE_COVERAGE_ARRAYS){
 			if(scaf.obj0==null){
-				scaf.obj0=(bits32 ? new CoverageArray3(table.size(), scaf.length) : new CoverageArray2(table.size(), scaf.length));
+				scaf.obj0=(bits32 ? new CoverageArray3(list.size(), scaf.length) : new CoverageArray2(list.size(), scaf.length));
 				if(STRANDED){
-					scaf.obj1=(bits32 ? new CoverageArray3(table.size(), scaf.length) : new CoverageArray2(table.size(), scaf.length));
+					scaf.obj1=(bits32 ? new CoverageArray3(list.size(), scaf.length) : new CoverageArray2(list.size(), scaf.length));
 				}
 			}
 			CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
@@ -1123,9 +1164,9 @@ public class CoveragePileup {
 		int basehits=0;
 		if(USE_COVERAGE_ARRAYS){
 			if(scaf.obj0==null){
-				scaf.obj0=(bits32 ? new CoverageArray3(table.size(), scaf.length) : new CoverageArray2(table.size(), scaf.length));
+				scaf.obj0=(bits32 ? new CoverageArray3(list.size(), scaf.length) : new CoverageArray2(list.size(), scaf.length));
 				if(STRANDED){
-					scaf.obj1=(bits32 ? new CoverageArray3(table.size(), scaf.length) : new CoverageArray2(table.size(), scaf.length));
+					scaf.obj1=(bits32 ? new CoverageArray3(list.size(), scaf.length) : new CoverageArray2(list.size(), scaf.length));
 				}
 			}
 			CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
@@ -1194,10 +1235,10 @@ public class CoveragePileup {
 			if(line[1]=='S' && line[2]=='Q'){
 				lp.set(line);
 				String name=Scaffold.name(lp);
-				if(!table.containsKey(name)){
+				if(lookupScaffold(name)==null){
 					Scaffold scaf=new Scaffold(lp);
 					if(COUNT_GC){scaf.basecount=KillSwitch.allocLong1D(8);}
-					table.put(scaf.name, scaf);
+					putScaffold(scaf.name, scaf);
 					list.add(scaf);
 					refBases+=scaf.length;
 				}
@@ -1224,7 +1265,7 @@ public class CoveragePileup {
 		int leftTrimAmount=border, rightTrimAmount=border;
 		if(border>0){
 			r=sl.toRead(false);
-			sc=table.get(sl.rnameS());
+			sc=lookupScaffold(sl.rnameS());
 			assert(sc!=null) : sl+"\n\n"+sl.rnameS()+"\n\n"+table;
 			int skipTrimRange=Tools.max(10, border+5);
 			if(r.start<skipTrimRange){
@@ -1247,7 +1288,7 @@ public class CoveragePileup {
 		if(leftTrimAmount<1 && rightTrimAmount<1){trimmed=0;}
 		else{
 			if(r==null){r=sl.toRead(false);}
-			if(sc==null){sc=table.get(sl.rnameS());}
+			if(sc==null){sc=lookupScaffold(sl.rnameS());}
 			int scaflen=(sc==null ? 1999999999 : sc.length);
 			trimmed=TrimRead.trimReadWithMatch(r, sl, leftTrimAmount, rightTrimAmount, 0, scaflen, false);
 		}
@@ -2402,10 +2443,10 @@ public class CoveragePileup {
 	private ArrayList<Scaffold> list;
 	/** Maps names to scaffolds */
 	private HashMap<String, Scaffold> table;
-	/** Maps trimmed names to scaffolds for tolerant lookup of untrimmed/trimmed SAM names */
-	private HashMap<String, Scaffold> aliasTable;
 	/** Trimmed names that map to multiple scaffolds — lookup must fail loud */
 	private HashSet<String> ambiguousAliases;
+	/** First non-exact query seen for each alias, used to detect lost-name collisions */
+	private HashMap<String, String> fallbackQueries;
 	/** Converts BBMap index coordinates to scaffold coordinates */
 	private final ScaffoldCoordinates coords=new ScaffoldCoordinates(), coords2=new ScaffoldCoordinates();
 	

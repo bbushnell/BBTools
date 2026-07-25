@@ -3,7 +3,6 @@ package jgi;
 import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.HashMap;
 
 import fileIO.ByteFile;
 import fileIO.ByteFile1;
@@ -15,6 +14,7 @@ import fileIO.TextStreamWriter;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.NameMapper;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -174,8 +174,8 @@ public class FilterByCoverage {
 	
 	void process(Timer t){
 
-		final HashMap<String, CovStatsLine> cslMap0=new HashMap<String, CovStatsLine>(1024);
-		final HashMap<String, CovStatsLine> cslMap1=new HashMap<String, CovStatsLine>(1024);
+		final NameMapper<CovStatsLine> cslMap0=new NameMapper<CovStatsLine>(1024);
+		final NameMapper<CovStatsLine> cslMap1=new NameMapper<CovStatsLine>(1024);
 		if(ffCov0!=null){
 			TextFile tf=new TextFile(ffCov0);
 			int i=0;
@@ -247,6 +247,7 @@ public class FilterByCoverage {
 		
 		long readsFiltered=0;
 		long basesFiltered=0;
+		long readsMissingCoverage=0;
 		
 		final TextStreamWriter tsw=(logfile==null ? null : new TextStreamWriter(logfile, (overwrite && !logappend), logappend, true));
 //		System.err.println("***** overwrite="+overwrite+", logappend="+logappend+", combined="+(overwrite && !logappend));
@@ -255,7 +256,8 @@ public class FilterByCoverage {
 			if(logheader){tsw.print("#assembly\tcontig\tcontam\tlength\tavgFold\treads\tpercentCovered"+(ffCov0==null ? "" : "\tavgFold0\treads0\tnormRatio")+"\n");}
 		}
 		
-		{
+		RuntimeException processingFailure=null;
+		try{
 			
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -324,6 +326,7 @@ public class FilterByCoverage {
 						}
 						
 					}else{
+						readsMissingCoverage++;
 						contam=true;
 						covRatio=0;
 					}
@@ -366,10 +369,13 @@ public class FilterByCoverage {
 			if(ln!=null){
 				cris.returnList(ln.id, ln.list==null || ln.list.isEmpty());
 			}
+		}catch(RuntimeException e){
+			processingFailure=e;
 		}
 		
 		errorState|=ReadWrite.closeStreams(cris, rosClean, rosDirty);
 		if(tsw!=null){errorState|=tsw.poisonAndWait();}
+		if(processingFailure!=null){throw processingFailure;}
 		
 		t.stop();
 		
@@ -383,6 +389,11 @@ public class FilterByCoverage {
 		outstream.println("Bases Out:          "+basesOut);
 		outstream.println("Reads Filtered:     "+readsFiltered);
 		outstream.println("Bases Filtered:     "+basesFiltered);
+		if(readsMissingCoverage>0){
+			outstream.println("Warning: No coverage record was found for "+readsMissingCoverage+
+					" sequence"+(readsMissingCoverage==1 ? "" : "s")+
+					"; these sequences were filtered.");
+		}
 		if(trimEnds>0){
 			outstream.println("Bases Trimmed:      "+basesTrimmed);
 		}
