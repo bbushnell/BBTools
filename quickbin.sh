@@ -102,6 +102,31 @@ cutoff=0.52     Neural network output threshold; higher increases specificity,
                 moderates other stringency settings, so increasing it would
                 make 'strict' mode stricter.
 
+Training vector parameters:
+These emit feature vectors for the contig pairs QuickBin actually compared,
+for use as neural network training data.  Contig headers must contain
+labels such as 'tid_1234' so pairs can be scored as same-taxon or not.
+vectorout=<file>  Destination for feature vectors.  Nothing is emitted
+                unless this is set; the emit flags below have no effect
+                on their own.
+emitTP=t        Emit vectors for same-taxon pairs that were merged.
+emitFP=t        Emit vectors for different-taxon pairs that were merged.
+emitFN=t        Emit vectors for same-taxon pairs that were not merged.
+emitTN=t        Emit vectors for different-taxon pairs that were not
+                merged.  Note: these currently follow emitFP instead.
+minEmitSize=0   Ignore pairs whose smaller contig is below this length.
+maxEmitSize=2g  Ignore pairs whose smaller contig is above this length.
+negativeEmitProb=1  Emit different-taxon pairs at this rate, to reduce
+                the fraction of negative examples.
+banbadmerges=f  Veto merges that would create an impure cluster, so
+                emitted labels stay reliable.  Merges are still chosen
+                normally, so the vectors reflect real binning behavior;
+                this is the flag to use when generating training data.
+perfectoracle=f Decide every merge from the labels instead of by
+                comparison.  This is a diagnostic, not a training mode:
+                it measures how well the rest of the pipeline performs
+                given hypothetically perfect merge decisions.
+
 Edge-processing parameters:
 e1=0            Edge-first clustering passes; may increase speed
                 at the cost of purity.

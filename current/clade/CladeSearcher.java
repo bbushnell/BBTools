@@ -319,6 +319,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				//records=1 quietly shrank the candidate pool that confidence is computed
 				//from. Generation is set below, from heapSize.
 				maxHitsToPrint=Integer.parseInt(b);
+			}else if(a.equals("printcomposite") || a.equals("composite")){
+				Comparison.printComposite=Parse.parseBoolean(b);
 			}else if(a.equals("caprecords") || a.equals("maxrecords")){
 				caprecords=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){

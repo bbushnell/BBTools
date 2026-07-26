@@ -113,11 +113,11 @@ public class QueryResult {
 		final Clade fTopClade=topCladeRef;
 		final Clade fTopSketch=topSketchRef;
 		//CLEVER [verified in-file]: display list is a UNION of three rankings (top-X by kmer dist, top-X by DDL sketch matches*wkid, top-1 by SSU ANI), deduped by taxID via LinkedHashMap, then sorted by compositeScore. ALL sorts here use Float.compare (NaN-safe -- NaN sorts as max, consistently) unlike Comparison.compareTo's raw `<`, so a NaN dif won't break the sort contract.
-		display.sort((a, b) -> {
-			float sa=a.compositeScore(lcaFor(a, fTopClade, fTopSketch));
-			float sb=b.compositeScore(lcaFor(b, fTopClade, fTopSketch));
-			return Float.compare(sb, sa);
-		});
+		//Computed ONCE per hit rather than inside the comparator, which previously re-derived
+		//it O(n log n) times (each call does several sqrt/log); also makes it available to print
+		//and to feed a ranking model.
+		for(Comparison c : display){c.composite=c.compositeScore(lcaFor(c, fTopClade, fTopSketch));}
+		display.sort((a, b) -> Float.compare(b.composite, a.composite));
 
 		// Cache confidence. The V2 model reads two of its 48 input dimensions from OTHER
 		// hits of this query (the strongest competitor, and the most taxonomically remote

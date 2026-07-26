@@ -166,12 +166,12 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 //		k3dif=SimilarityMeasures.absDifComp(query.counts[3], ref.counts[3], 3);
 		k3dif=difABSCOMP(3);//Already compensated
 		if(earlyExit && k3dif*comparisonCutoffMult2>k5Limit) {return k3dif*k3Mult;}
-		if(query.bases<minK4Bases || ref.bases<minK4Bases || maxK<4) {return k3dif*k3Mult;}
+		if(query.bases<minK4Bases || ref.bases<minK4Bases || maxK<4 || !comparableAt(4)) {return k3dif*k3Mult;}
 		k4dif=maxK<4 ? k3dif : difABSCOMP(4);
 //		k4dif=maxK<4 ? k3dif : Vector.absDifComp(query.counts[4], ref.counts[4], 4, BinObject.gcmapMatrix[4]);
 //		k4dif=Vector.absDifFloat(query.tetramers, ref.tetramers);//Already compensated.  This makes it 12% slower for some reason.
 		if(earlyExit && k4dif*comparisonCutoffMult>k5Limit) {return k4dif*k4Mult;}
-		if(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5) {return k4dif*k4Mult;}
+		if(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5 || !comparableAt(5)) {return k4dif*k4Mult;}
 //		final boolean skipK5=(query.bases<minK5Bases || ref.bases<minK5Bases || maxK<5);
 //		k5dif=skipK5 ? k4dif*1f : SimilarityMeasures.absDifComp(query.counts[5], ref.counts[5], 5);
 		
@@ -181,6 +181,19 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return k5dif;
 	}
 	
+	/** Do BOTH sides actually carry k-mer data at this k?
+	 *  The bases thresholds alone are not a sufficient guard. Clade.toBytes derives its CONCISE maxK
+	 *  from bases, so a record written while its bases was corrupt carries no k4/k5 arrays at all
+	 *  despite reporting a huge bases -- all 92 records damaged by the pre-53259e69 parseInt overflow
+	 *  are exactly that shape. While bases stayed corrupt the bases gate happened to reject them, so
+	 *  difABSCOMP's stated invariant ("whenever difABSCOMP(k>3) is called, both freq[k] are non-null")
+	 *  held by luck. Repairing bases at load removes that luck, so the gate must test the data itself.
+	 *  Costs two reference-null checks, and only after the k3 early-exit has already rejected most refs. */
+	private boolean comparableAt(int k) {
+		return (query.frequencies[k]!=null || query.counts[k]!=null)
+				&& (ref.frequencies[k]!=null || ref.counts[k]!=null);
+	}
+
 	private float difABSCOMP(int k) {
 		//DELETE_COUNTS-safe: prefers precompensated frequencies; the counts fallback is only hit when freq[k]==null. compareABSCOMP's symmetric base-guards (L166/171 check BOTH query+ref bases vs minK4/5Bases, same thresholds Clade.finish uses) ensure that whenever difABSCOMP(k>3) is called, both freq[k] are non-null -> Vector path, never the (possibly-deleted) counts. freq[3] is always computed by finish(), so difABSCOMP(3) is always Vector too.
 		final float[] qfreq=query.frequencies[k];
@@ -330,7 +343,19 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 			}
 			return -1;
 		}
-		return CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
+		return CladeConfidence.probCorrect(confidenceLength(), gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
+	}
+
+	/** Query length for the confidence model, saturated to int range.
+	 *  probCorrect takes an int, but a query clade can exceed 2^31 bases whenever a whole large
+	 *  genome is classified as a single query (percontig=f) -- 2.1Gbp is an ordinary plant or
+	 *  amphibian. The bare (int) cast wrapped such a query NEGATIVE, and predictNN's
+	 *  Math.max(length,1) then turned that into a length of ONE, describing a multi-gigabase query
+	 *  to the network as the shortest possible one: maximally wrong, and silent. Saturating is exact
+	 *  for every query below 2Gbp and merely pins the feature above it; binIndex already clamps to
+	 *  its top bin well before this point, so the bin choice is unaffected either way. */
+	private int confidenceLength(){
+		return (int)Math.min(query.bases, Integer.MAX_VALUE);
 	}
 
 	/**
@@ -359,7 +384,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	private float[] legacyProfile(){
 		float[] vals=new float[CONF_LEVELS.length];
 		for(int i=0; i<CONF_LEVELS.length; i++){
-			vals[i]=CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif,
+			vals[i]=CladeConfidence.probCorrect(confidenceLength(), gcdif, strdif, hhdif,
 					cagadif, k3dif, k4dif, k5dif, CONF_LEVELS[i]);
 		}
 		return vals;
@@ -542,6 +567,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("\tlineage");
 		bb.append("\tConfLevel\tConfidence");
 		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketch_LCA");}
+		//Appended LAST, and only on request, so existing column positions never shift.
+		if(printComposite){bb.append("\tCompositeScore");}
 		return bb;
 	}
 	
@@ -596,6 +623,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(CladeIndex.USE_SKETCH_INDEX){
 			bb.tab().append(sketchLCA>=0 ? TaxTree.levelToString(sketchLCA) : ".");
 		}
+		if(printComposite){bb.tab().append(composite, 6);}
 		return bb;
 	}
 	
@@ -765,6 +793,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	/** Number of matching DDL buckets (excluding empty-empty). -1 when not computed. */
 	int kmerMatches=-1;
 
+	/** compositeScore from the display sort, cached so it is computed once per hit
+	 *  rather than O(n log n) times inside the comparator, and so it can be printed. */
+	float composite=-1;
+
 	int sketchTaxID=-1;
 	String sketchName;
 	int sketchMatches=-1;
@@ -775,6 +807,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	int[] cachedLevels;
 
 	public static float confThreshold=0.90f;
+	/** Emit the ranking score as a trailing machine-format column (printcomposite=t). */
+	public static boolean printComposite=false;
 
 	private static final int[] CONF_LEVELS={
 		TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
