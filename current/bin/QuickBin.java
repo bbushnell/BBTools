@@ -140,13 +140,13 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			else if(a.equals("vectorout")){
 				vectorOut=b;
 			}else if(a.equalsIgnoreCase("emitTP")){
-				Oracle.emitTP=Parse.parseBoolean(b);
+				Oracle.emitTP=parseEmitFlag(a, b);
 			}else if(a.equalsIgnoreCase("emitTN")){
-				Oracle.emitTN=Parse.parseBoolean(b);
+				Oracle.emitTN=parseEmitFlag(a, b);
 			}else if(a.equalsIgnoreCase("emitFP")){
-				Oracle.emitFP=Parse.parseBoolean(b);
+				Oracle.emitFP=parseEmitFlag(a, b);
 			}else if(a.equalsIgnoreCase("emitFN")){
-				Oracle.emitFN=Parse.parseBoolean(b);
+				Oracle.emitFN=parseEmitFlag(a, b);
 			}else if(a.equalsIgnoreCase("minEmitSize")){
 				Oracle.minEmitSize=Parse.parseIntKMG(b);
 			}else if(a.equalsIgnoreCase("maxEmitSize")){
@@ -317,6 +317,23 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		return parser;
 	}
 	
+	/**
+	 * Parses an emit flag, rejecting a filename passed where a boolean belongs.
+	 * These select which comparison types are emitted; the destination is 'vectorout'.
+	 * Without this guard, 'emitfp=fp.tsv' reaches Boolean.parseBoolean, which returns
+	 * false for anything but "true", so it silently DISABLES the emission it was meant
+	 * to enable - no vectors, no error, exit 0.
+	 *
+	 * @param a Flag name, for the message
+	 * @param b Flag value
+	 * @return The parsed boolean
+	 */
+	private static boolean parseEmitFlag(String a, String b){
+		assert(b==null || b.indexOf('.')<0) : "The "+a+" flag is a boolean, not a filename; "
+			+"emitted vectors are written to vectorout=.  Saw "+a+"="+b;
+		return Parse.parseBoolean(b);
+	}
+
 	/**
 	 * Reprocesses original arguments to update binner and loader configurations.
 	 * Updates network cutoff thresholds and prints final threshold settings.

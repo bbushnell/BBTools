@@ -9,6 +9,7 @@ import prok.CallGenes;
 import prok.GeneCaller;
 import prok.Orf;
 import cardinality.DynamicDemiLog;
+import shared.KillSwitch;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
@@ -140,7 +141,22 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 					c.counts[k]=null;
 				}
 			}
-			
+
+			//Derive bases from the monomer counts instead of trusting the stored field.
+			//Databases built before 53259e69 parsed `bases` with parseInt, so any taxon exceeding
+			//2^31 bases wrapped NEGATIVE at load time -- 92 such records exist in the shipped
+			//refseqA48_with_ribo.spectra, including heavily-sequenced organisms like E. coli.
+			//The 1-mer counts were never affected (they parse through parseLongArray), so they are
+			//the authoritative total. Recomputing HERE, at the single point where a clade enters
+			//the program from a file, means a corrupted count cannot propagate at all -- rather
+			//than every downstream reader having to remember to call monomerSum(). That matters
+			//because `bases` is not merely displayed: compareABSCOMP gates k4 and k5 on
+			//bases<minK4Bases/minK5Bases, so a negative value silently demoted those references to
+			//a 3-mer-only comparison forever. Falls back to the parsed value when counts[1] is
+			//absent (a maxk-limited or counts-stripped record), which is all monomerSum() does.
+			c.setBases(c.monomerSum());
+
+
 			for(pos++; pos<list.size(); pos++) {
 				final byte[] line=list.get(pos);
 				lp.set(line);
@@ -254,10 +270,23 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		caga=KmerTracker.CAGA(counts[2]);
 		gcCompEntropy=AdjustEntropy.compensate(gc, entropy);
 		frequencies=new float[6][];
+		//A missing 3-mer array is NOT a normal state: every record carries one, CONCISE output never
+		//omits it, and difABSCOMP(3) is called unconditionally. Fail loudly and by name rather than
+		//NPE several frames deep inside SIMD code, where the message names only a local variable "a".
+		assert(counts[3]!=null) : KillSwitch.assertDie("Clade tid="+taxID+" ("+name+") has no 3-mer "
+				+"counts; the record is truncated or was written by a broken writer.");
 		frequencies[3]=toFrequencies(counts[3], 3);//[clade/Clade#002] resolved: toFrequencies now guards sum==0 (all-N / zero-3mer; note bases>0 guards do NOT catch all-N because Clade.add counts N into bases). ABSCOMP default was already safe via simd Vector.compensate's Math.max guard; only the non-ABSCOMP 1/sum path was unguarded.
 		if(MAKE_FREQUENCIES && (method==ABSCOMP || method==ABS)) {
-			frequencies[4]=(maxK<4 || bases<Comparison.minK4Bases ? null : toFrequencies(counts[4], 4));
-			frequencies[5]=(maxK<5 || bases<Comparison.minK5Bases ? null : toFrequencies(counts[5], 5));
+			//Guard on the ARRAY, not on `bases` alone. toBytes derives its CONCISE maxK from bases,
+			//so a record whose bases was WRONG when written carries no k4/k5 counts at all. That is
+			//exactly the 92 spectra records corrupted by the pre-53259e69 parseInt overflow: all 92
+			//lost both spectra, because a negative bases made the writer treat them as tiny. While
+			//bases stayed corrupt on reload the bases-only guard happened to match, so nothing threw;
+			//repairing bases at load makes the guard stop firing and hands toFrequencies a null array.
+			//An absent higher-k array is a NORMAL state (short records legitimately have none), so it
+			//yields null frequencies rather than an error -- unlike the k3 case asserted above.
+			frequencies[4]=(maxK<4 || counts[4]==null || bases<Comparison.minK4Bases ? null : toFrequencies(counts[4], 4));
+			frequencies[5]=(maxK<5 || counts[5]==null || bases<Comparison.minK5Bases ? null : toFrequencies(counts[5], 5));
 			if(DELETE_COUNTS) {counts[3]=counts[4]=counts[5]=null;}
 		}
 		finished=true;

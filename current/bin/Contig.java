@@ -202,7 +202,13 @@ public class Contig extends Bin {
 		bb.tab().append(id());
 		bb.tab().append(size());
 		for(int i=0, max=numDepths(); i<max; i++) {
-			bb.tab().append(depth(i), 2);
+			//4 decimals, not 2: a cov file exists so a run can be repeated without re-parsing
+			//the sam/bam, so it should reproduce those results.  At 2 decimals the rounded depth
+			//shifts contigs across depthwidth gridlines and maxDepthRatio boundaries, flipping
+			//borderline merges; measured up to 0.037 percentage points of bad-contig rate versus
+			//the same run from bam.  The reader parses floats generically (DataLoader.loadCovFile
+			//uses parseFloat with offsets from #Depths), so legacy 2-decimal files still load.
+			bb.tab().append(depth(i), 4);
 		}
 		ArrayList<KeyValue> list=KeyValue.toList(pairMap);
 		if(list!=null) {
