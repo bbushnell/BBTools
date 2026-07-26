@@ -1,30 +1,283 @@
 package clade;
 
+import java.util.ArrayList;
+
 import ml.CellNet;
 import dna.Data;
 import shared.Tools;
 import structures.FloatList;
+import tax.TaxNode;
 import tax.TaxTree;
 
 /**
- * Estimates the probability that a QuickClade hit is taxonomically correct
- * at a given level, using neural networks with calibration via
- * K*sigmoid(a*logit(x)+b)^c.
+ * Estimates the probability that a QuickClade hit is taxonomically correct at a
+ * given level.
  *
- * Hybrid model: all-length NNs for order-domain (5 models),
- * per-length-bin NNs for species-family (33 models, 3 levels × 11 bins).
- * Falls back to 5-parameter sigmoid model if .bbnets file is missing.
+ * Three models are supported, selected automatically from what
+ * confidence.bbnets.gz actually contains:
  *
- * @author Brian Bushnell, Ady
+ * 1. V2 (preferred) -- one network per level for 9 levels (species..domain,
+ *    including superkingdom), taking the 48-dimension feature vector defined by
+ *    {@link ConfidenceVectorizer}. Because two of those dimensions describe OTHER
+ *    hits of the same query (the strongest competitor, and the most taxonomically
+ *    remote hit among the top ten), a V2 score cannot be computed from a lone
+ *    Comparison -- it needs the query's hit group. See profile().
+ * 2. V1 (legacy) -- the 8-level, 10-feature hybrid: all-length networks for
+ *    order..domain and per-length-bin networks for species..family.
+ * 3. No model file -- the 5-parameter PROB_K4/PROB_K5 sigmoid tables.
+ *
+ * Calibration converts a network's raw score into a probability. Two forms ship
+ * in the bundle: the 4-parameter K*sigmoid(a*logit(x)+b)^c, and an isotonic
+ * lookup table. The table is PREFERRED when present -- measured on held-out data
+ * it beat the parametric form at every level (ECE 7x-27x lower), because the
+ * parametric failure is structured rather than noisy: entire confidence bands
+ * come out biased in one direction, which a scalar ECE hides when most of the
+ * mass sits in the two extreme bins. The parametric constants are retained as a
+ * fallback and for bundles that carry no table.
+ *
+ * @author Brian Bushnell, Ady, Noire
  */
 public class CladeConfidence {
+
+	/*--------------------------------------------------------------*/
+	/*----------------          V2 entry point      ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** True when a V2 (48-input, 9-level) bundle is loaded and complete. */
+	public static boolean v2Ready(){return v2;}
+
+	/**
+	 * Probability that group.get(index) is correct, for all 9 levels in LEVELS
+	 * order (species first). Returns null when no V2 model is loaded.
+	 *
+	 * The 48-dim vector is built ONCE and reused across the 9 networks; the
+	 * taxonomy lookups it needs (domain one-hot, pairwise LCAs across the top
+	 * hits) dominate its cost, so building it per level would be wasteful.
+	 */
+	public static float[] profile(ArrayList<Comparison> group, int index){
+		if(!v2 || group==null || index<0 || index>=group.size()){return null;}
+		final Comparison self=group.get(index);
+		if(self.query==null || self.ref==null){return null;}
+		final FloatList fl=getThreadInput();
+		buildVector(fl, group, index);
+		final float[] out=new float[levelsV2.length];
+		for(int i=0; i<levelsV2.length; i++){
+			final CellNet net=getThreadNetV2(i);
+			if(net==null){out[i]=-1; continue;}
+			net.applyInput(fl);
+			out[i]=applyCal(net.feedForward(), i);
+		}
+		return out;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      V2 feature assembly     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Builds the 48-dim vector for group.get(i). This MUST stay dimension-for-
+	 * dimension identical to ConfidenceVectorizer.buildVector/smallVector,
+	 * including the invalid-fill=0 convention -- that class defines the training
+	 * distribution and is the authority here.
+	 *
+	 * Values are rounded to the precision appendResultMachine printed, because
+	 * the training vectors were parsed back out of that text: the difs went
+	 * through 5 decimals and ssuID/kid/wkid through 4. Feeding full precision at
+	 * inference would present the networks a subtly different distribution than
+	 * the one they were fit on.
+	 */
+	private static void buildVector(FloatList fl, ArrayList<Comparison> group, int i){
+		final Comparison h=group.get(i);
+		fl.size=0;
+
+		final float gcdif=r5(h.gcdif), strdif=r5(h.strdif), hhdif=r5(h.hhdif), cagadif=r5(h.cagadif);
+		final float k3dif=r5(h.k3dif), k4dif=r5(h.k4dif), k5dif=r5(h.k5dif);
+		//The validity tests MUST run on the ROUNDED values, not the raw ones. Training read
+		//these back from printed text, so a dif of 0.999996 reached the vectorizer as 1.00000
+		//and counted as "spectra absent". Testing the raw value here would call it present and
+		//fill dims 3-10 that the training distribution has as zeros -- an eight-dimension
+		//divergence on exactly the rows sitting against the 1.0 boundary.
+		final boolean spectraValid=(k3dif<1 || k4dif<1 || k5dif<1);
+		final boolean sketchValid=(h.kid>=0);
+
+		//--- main (26) ---
+		final float len=Math.max(h.query.bases, 1);
+		fl.add((float)(Math.log(len)*INV_LN2));            //1  log2(len)
+		fl.add((float)(0.001*Math.sqrt(len)));             //2  0.001*sqrt(len)
+		fl.add(spectraValid ? gcdif : 0);                  //3
+		fl.add(spectraValid ? strdif : 0);                 //4
+		fl.add(spectraValid ? hhdif : 0);                  //5
+		fl.add(spectraValid ? cagadif : 0);                //6
+		fl.add(spectraValid ? k3dif : 0);                  //7
+		fl.add(spectraValid ? k4dif : 0);                  //8
+		fl.add(spectraValid ? k5dif : 0);                  //9
+		fl.add(spectraValid ? k3dif/(k5dif+0.01f) : 0);    //10
+		fl.add(sketchValid ? r4(h.kid) : 0);               //11 kid
+		fl.add(sketchValid ? r4(h.wkid) : 0);              //12 wkid
+		fl.add(spectraValid ? 1 : 0);                      //13 spectra-present
+		fl.add(sketchValid ? 1 : 0);                       //14 sketch-present
+		final float ssuID=r4(1f-h.ssudif);
+		final boolean ssuValid=(ssuID>0);
+		fl.add(ssuValid ? ssuID : 0);                      //15 SSU-ANI
+		fl.add(ssuValid ? 1 : 0);                          //16 SSU-valid
+		domainOneHot(h.ref.taxID, fl);                     //17-23 domain 1-hot (7)
+		final boolean lcaValid=(h.sketchLCA>0);
+		fl.add(lcaValid ? encodeLevel(h.sketchLCA) : 0);   //24 cross-method LCA
+		fl.add(lcaValid ? 1 : 0);                          //25 cross-method LCA valid
+		fl.add(log2Buckets());                             //26 log2(#buckets)/16
+
+		//--- small #1: strongest competitor; small #2: most remote among the top ten ---
+		smallVector(altTopOther(i, group), h, group, fl);
+		smallVector(altMostRemote(i, group), h, group, fl);
+		assert(fl.size==VECTOR_DIMS) : fl.size+" != "+VECTOR_DIMS;
+	}
+
+	/** 11-dim alt-hit block, all zero when the alt does not exist. */
+	private static void smallVector(int alt, Comparison self, ArrayList<Comparison> group, FloatList fl){
+		if(alt<0){
+			for(int k=0; k<SMALL_DIMS; k++){fl.add(0);}
+			return;
+		}
+		final Comparison a=group.get(alt);
+		final boolean aSketch=(a.kid>=0);
+		fl.add(1);                                         //1 valid
+		fl.add(r5(a.k4dif));                               //2 k4dif
+		fl.add(aSketch ? r4(a.kid) : 0);                   //3 kid
+		fl.add(aSketch ? r4(a.wkid) : 0);                  //4 wkid
+		fl.add(aSketch ? 1 : 0);                           //5 sketch-present(alt)
+		fl.add(encodeLevel(lcaLevel(a, self)));            //6 LCA(alt,this) -- always valid
+		final boolean altLcaValid=(a.sketchLCA>0);
+		fl.add(altLcaValid ? encodeLevel(a.sketchLCA) : 0);//7 alt's cross-method LCA
+		fl.add(altLcaValid ? 1 : 0);                       //8
+		final float aSsu=r4(1f-a.ssudif);
+		final boolean altSsuValid=(aSsu>0);
+		fl.add(altSsuValid ? aSsu : 0);                    //9 SSU-ANI(alt)
+		fl.add(altSsuValid ? 1 : 0);                       //10
+		fl.add(r5(a.gcdif));                               //11 gcdif(query, alt-ref)
+	}
+
+	/** Top hit other than i: hit 0, or hit 1 when i is itself hit 0. -1 if the query has one hit. */
+	private static int altTopOther(int i, ArrayList<Comparison> group){
+		if(group.size()<2){return -1;}
+		return (i==0) ? 1 : 0;
+	}
+
+	/** Among the top TOP_EXAMINE hits, the one whose LCA with hit i is shallowest (most remote);
+	 *  ties resolve to the highest-ranked, which is the strongest. */
+	private static int altMostRemote(int i, ArrayList<Comparison> group){
+		final Comparison self=group.get(i);
+		int best=-1, bestLevel=-1;
+		final int examine=Math.min(TOP_EXAMINE, group.size());
+		for(int j=0; j<examine; j++){
+			if(j==i){continue;}
+			final int lvl=lcaLevel(group.get(j), self);
+			if(lvl>bestLevel){bestLevel=lvl; best=j;} //higher level = shallower = more remote
+		}
+		return best;
+	}
+
+	/** Formal-rank level of the LCA between two hits' references. */
+	private static int lcaLevel(Comparison a, Comparison b){
+		final TaxTree tree=CladeObject.tree;
+		if(tree==null || a.ref==null || b.ref==null){return TaxTree.LIFE;}
+		return formalLevel(tree.commonAncestor(a.ref.taxID, b.ref.taxID), tree);
+	}
+
+	/** Promotes a node up the parent chain to the next formal rank (>=SPECIES). */
+	private static int formalLevel(int tid, TaxTree tree){
+		if(tid<1 || tree==null){return TaxTree.LIFE;}
+		TaxNode n=tree.getNode(tid);
+		while(n!=null && n.level<TaxTree.SPECIES){n=(n.pid>0 && n.pid!=n.id) ? tree.getNode(n.pid) : null;}
+		return n==null ? TaxTree.LIFE : n.level;
+	}
+
+	/** Continuous 0-1 LCA encoding: life(11)->0 ... species(2)->1.0, constant step 1/9. */
+	private static float encodeLevel(int level){
+		final float x=(11-level)/9f;
+		return x<0 ? 0 : (x>1 ? 1 : x);
+	}
+
+	/** 7-way domain one-hot of the reference: bacteria, archaea, virus, animal, plant, fungi, other-euk. */
+	private static void domainOneHot(int rtid, FloatList fl){
+		final TaxTree tree=CladeObject.tree;
+		int hot=-1;
+		if(tree!=null){
+			final TaxNode sk=tree.getNodeAtLevel(rtid, TaxTree.SUPERKINGDOM);
+			final String skn=(sk!=null && sk.name!=null) ? sk.name.toLowerCase() : "";
+			if(skn.contains("bacteria")){hot=0;}
+			else if(skn.contains("archaea")){hot=1;}
+			else if(skn.contains("virus") || skn.contains("viroid") || skn.contains("viria")){hot=2;}
+			else if(skn.contains("eukaryota")){
+				final TaxNode k=tree.getNodeAtLevel(rtid, TaxTree.KINGDOM);
+				final String kn=(k!=null && k.name!=null) ? k.name.toLowerCase() : "";
+				if(kn.contains("metazoa")){hot=3;}
+				else if(kn.contains("viridiplantae")){hot=4;}
+				else if(kn.contains("fungi")){hot=5;}
+				else{hot=6;}
+			}
+		}
+		for(int k=0; k<7; k++){fl.add(k==hot ? 1 : 0);} //all zero when the superkingdom is unclassified
+	}
+
+	/** log2(bucket count)/16, matching ConfidenceVectorizer's buckets= parameter. 0 in no-sketch (fast) mode. */
+	private static float log2Buckets(){
+		final int b=CladeIndex.USE_SKETCH_INDEX ? Clade.DDL_BUCKETS : 0;
+		return (float)(Math.log(Math.max(b, 1))/Math.log(2)/16.0);
+	}
+
+	/** Round to the 5 decimals appendResultMachine printed for the dif columns. */
+	private static float r5(float f){return Math.round(f*100000f)/100000f;}
+	/** Round to the 4 decimals appendResultMachine printed for ssuID/kid/wkid. */
+	private static float r4(float f){return Math.round(f*10000f)/10000f;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Calibration        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Isotonic table when the bundle carries one, else the 4-parameter form. */
+	private static float applyCal(float raw, int idx){
+		if(loaded!=null && loaded.allLenLutX!=null && loaded.allLenLutX[idx]!=null){
+			return lookup(raw, loaded.allLenLutX[idx], loaded.allLenLutY[idx]);
+		}
+		return calibrate(raw, loaded.allLenCal[idx]);
+	}
+
+	/** Monotone table lookup, linearly interpolated between knots and clamped at the ends. */
+	static float lookup(float x, float[] lx, float[] ly){
+		final int last=lx.length-1;
+		if(x<=lx[0]){return ly[0];}
+		if(x>=lx[last]){return ly[last];}
+		int lo=0, hi=last;
+		while(lo+1<hi){
+			final int mid=(lo+hi)>>>1;
+			if(lx[mid]<=x){lo=mid;}else{hi=mid;}
+		}
+		final float dx=lx[hi]-lx[lo];
+		final float f=(dx<=0 ? 0 : (x-lx[lo])/dx);
+		return ly[lo]+f*(ly[hi]-ly[lo]);
+	}
+
+	/** p = K * sigmoid(a * logit(x) + b) ^ c */
+	private static float calibrate(float x, float[] p) {
+		x=Tools.mid(0.0001f, x, 0.9999f);
+		float K=p[0], a=p[1], b=p[2], c=p[3];
+		double lx=Math.log(x / (1.0 - x));
+		double s=1.0 / (1.0 + Math.exp(-(a * lx + b)));
+		return (float)Math.min(1.0, K * Math.pow(s, c));
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      V1 / fallback entries   ----------------*/
+	/*--------------------------------------------------------------*/
 
 	public static float probCorrect(int length, float gcdif, float strdif,
 			float hhdif, float cagadif,
 			float k3dif, float k4dif, float k5dif, int taxLevel) {
-		int idx = levelToIndex(taxLevel);
+		int idx = levelToIndexV1(taxLevel);
 		if(idx<0){return -1;}
-		if(USE_NN && loaded!=null && k5dif<1.0f){
+		//A V2 bundle carries no V1-shaped networks; a lone hit cannot supply the alt-hit
+		//dimensions, so this path degrades to the sigmoid tables rather than guessing them.
+		if(!v2 && USE_NN && loaded!=null && k5dif<1.0f){
 			CellNet net;
 			float[] cal;
 			if(loaded.allLenNets[idx]!=null){
@@ -44,12 +297,10 @@ public class CladeConfidence {
 
 	/** Backwards-compatible call without gcdif/strdif/hhdif/cagadif; always uses sigmoid. */
 	public static float probCorrect(int length, float k3dif, float k4dif, float k5dif, int taxLevel) {
-		int idx = levelToIndex(taxLevel);
+		int idx = levelToIndexV1(taxLevel);
 		if(idx<0){return -1;}
 		return predictSigmoid(idx, length, k3dif, k4dif, k5dif);
 	}
-
-	/*---------- NN prediction ----------*/
 
 	private static float predictNN(CellNet master, float[] cal, int idx, int length,
 			float gcdif, float strdif, float hhdif, float cagadif,
@@ -72,16 +323,33 @@ public class CladeConfidence {
 		return calibrate(raw, cal);
 	}
 
-	/** p = K * sigmoid(a * logit(x) + b) ^ c */
-	private static float calibrate(float x, float[] p) {
-		x=Tools.mid(0.0001f, x, 0.9999f);
-		float K=p[0], a=p[1], b=p[2], c=p[3];
-		double lx=Math.log(x / (1.0 - x));
-		double s=1.0 / (1.0 + Math.exp(-(a * lx + b)));
-		return (float)Math.min(1.0, K * Math.pow(s, c));
+	private static float predictSigmoid(int idx, int length, float k3dif, float k4dif, float k5dif) {
+		double[] params = (k5dif < 1.0f) ? PROB_K5[idx] : PROB_K4[idx];
+		float kdif = (k5dif < 1.0f) ? k5dif : k4dif;
+		double floor = params[0];
+		double log2len = Math.log(Math.max(length, 1)) * INV_LN2 - LOG2_REF;
+		double z = params[1] + params[2] * log2len + params[3] * k3dif + params[4] * kdif;
+		double sigmoid = 1.0 / (1.0 + Math.exp(z));
+		return (float)(floor + (1.0 - floor) * sigmoid);
 	}
 
-	/*---------- thread-local nets ----------*/
+	/*--------------------------------------------------------------*/
+	/*----------------        Thread-local nets     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static CellNet getThreadNetV2(int idx){
+		CellNet[] local=threadNetsV2.get();
+		if(local==null){
+			local=new CellNet[levelsV2.length];
+			threadNetsV2.set(local);
+		}
+		if(local[idx]==null){
+			final CellNet master=loaded.allLenNets[idx];
+			if(master==null){return null;}
+			local[idx]=master.copy(false);
+		}
+		return local[idx];
+	}
 
 	private static CellNet getThreadNet(CellNet master, int idx, int length) {
 		CellNet[][] local = threadNets.get();
@@ -104,37 +372,27 @@ public class CladeConfidence {
 	private static FloatList getThreadInput() {
 		FloatList fl = threadInput.get();
 		if(fl==null){
-			fl = new FloatList(NUM_FEATURES);
+			fl = new FloatList(VECTOR_DIMS);
 			threadInput.set(fl);
 		}
 		return fl;
 	}
 
+	private static final ThreadLocal<CellNet[]> threadNetsV2 = new ThreadLocal<>();
 	private static final ThreadLocal<CellNet[][]> threadNets = new ThreadLocal<>();
 	private static final ThreadLocal<FloatList> threadInput = new ThreadLocal<>();
 
-	/*---------- bin lookup ----------*/
+	/*--------------------------------------------------------------*/
+	/*----------------            Lookups           ----------------*/
+	/*--------------------------------------------------------------*/
 
 	static int binIndex(int length) {
 		int raw = 63 - Long.numberOfLeadingZeros(Math.max(1, (long)length / 2500));
 		return Tools.mid(0, raw, NUM_BINS-1);
 	}
 
-	/*---------- sigmoid fallback ----------*/
-
-	private static float predictSigmoid(int idx, int length, float k3dif, float k4dif, float k5dif) {
-		double[] params = (k5dif < 1.0f) ? PROB_K5[idx] : PROB_K4[idx];
-		float kdif = (k5dif < 1.0f) ? k5dif : k4dif;
-		double floor = params[0];
-		double log2len = Math.log(Math.max(length, 1)) * INV_LN2 - LOG2_REF;
-		double z = params[1] + params[2] * log2len + params[3] * k3dif + params[4] * kdif;
-		double sigmoid = 1.0 / (1.0 + Math.exp(z));
-		return (float)(floor + (1.0 - floor) * sigmoid);
-	}
-
-	/*---------- level mapping ----------*/
-
-	private static int levelToIndex(int taxLevel) {
+	/** V1 level->index; the legacy 8-level model has no superkingdom slot. */
+	private static int levelToIndexV1(int taxLevel) {
 		switch (taxLevel) {
 			case TaxTree.SPECIES: return 0;
 			case TaxTree.GENUS:   return 1;
@@ -148,7 +406,9 @@ public class CladeConfidence {
 		}
 	}
 
-	/*---------- initialization ----------*/
+	/*--------------------------------------------------------------*/
+	/*----------------         Initialization       ----------------*/
+	/*--------------------------------------------------------------*/
 
 	private static SerialNNLoader.LoadedNets loadNets() {
 		String path = Data.findPath("?confidence.bbnets.gz", true);
@@ -156,17 +416,72 @@ public class CladeConfidence {
 		return SerialNNLoader.load(path);
 	}
 
-	/*---------- constants ----------*/
+	/**
+	 * A bundle is V2 only if it supplies a complete set: 9 levels, every network
+	 * present, every network taking the 48-dim vector. Anything short of that is
+	 * treated as V1 (or as absent), so a partial or older file degrades to a
+	 * working model instead of producing confident nonsense.
+	 */
+	private static boolean detectV2(SerialNNLoader.LoadedNets ln){
+		if(ln==null || ln.levels<1 || ln.allLenNets==null){return false;}
+		if(buildLevels(ln).length!=ln.levels){return false;} //every net must declare a known level
+		for(int i=0; i<ln.levels; i++){
+			final CellNet net=ln.allLenNets[i];
+			if(net==null || net.numInputs()!=VECTOR_DIMS || net.numOutputs()!=1){return false;}
+		}
+		return true;
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
 
 	static final boolean USE_NN = true;
 	private static final int NUM_LEVELS = 8;
 	private static final int NUM_BINS = 11;
-	private static final int NUM_FEATURES = 10;
 	private static final double INV_LN2 = 1.0 / Math.log(2);
 	private static final double LOG2_REF = Math.log(2500) * INV_LN2;
 
-	//CLEVER [verified in-file]: graceful NN->sigmoid degradation. loaded=loadNets() returns null if confidence.bbnets.gz is absent (loadNets L153 null on missing path); probCorrect then falls through to predictSigmoid (5-param PROB_K4/K5 tables) -- calibrated confidence even with no model file. Per-thread net copies (getThreadNet) avoid CellNet contention; calibrate() clamps x to [1e-4,0.9999] so logit never hits +/-Inf.
+	/** Levels the loaded bundle actually supplies, in file order. Empty when V2 is inactive. */
+	public static int[] activeLevels(){return levelsV2;}
+	static final int MAIN_DIMS=26, SMALL_DIMS=11, VECTOR_DIMS=MAIN_DIMS+2*SMALL_DIMS; //48
+	static final int TOP_EXAMINE=10;
+	/**
+	 * Maps a #label name to its TaxTree level. Deliberately NOT a fixed nine-element list:
+	 * the shipped bundle omits superkingdom (no node in the taxonomy carries that rank, so
+	 * its network merely duplicates kingdom), and a level absent from the file must be
+	 * absent from inference too rather than silently shifting every index after it.
+	 */
+	private static int levelFromLabel(String label){
+		if(label==null){return -1;}
+		final String s=label.trim().toLowerCase();
+		if(s.equals("species")){return TaxTree.SPECIES;}
+		if(s.equals("genus")){return TaxTree.GENUS;}
+		if(s.equals("family")){return TaxTree.FAMILY;}
+		if(s.equals("order")){return TaxTree.ORDER;}
+		if(s.equals("class")){return TaxTree.CLASS;}
+		if(s.equals("phylum")){return TaxTree.PHYLUM;}
+		if(s.equals("kingdom")){return TaxTree.KINGDOM;}
+		if(s.equals("superkingdom")){return TaxTree.SUPERKINGDOM;}
+		if(s.equals("domain")){return TaxTree.DOMAIN;}
+		return -1;
+	}
+
+	/** Level list built from the bundle; null/empty means no usable V2 model. */
+	private static int[] buildLevels(SerialNNLoader.LoadedNets ln){
+		if(ln==null || ln.allLenLabels==null){return new int[0];}
+		final int[] out=new int[ln.levels];
+		for(int i=0; i<ln.levels; i++){
+			out[i]=levelFromLabel(ln.allLenLabels[i]);
+			if(out[i]<0){return new int[0];} //unlabeled or unknown -> refuse the whole bundle
+		}
+		return out;
+	}
+
+	//CLEVER [verified in-file]: graceful NN->sigmoid degradation. loaded=loadNets() returns null if confidence.bbnets.gz is absent (loadNets null on missing path); probCorrect then falls through to predictSigmoid (5-param PROB_K4/K5 tables) -- calibrated confidence even with no model file. Per-thread net copies (getThreadNet/getThreadNetV2) avoid CellNet contention; calibrate() clamps x to [1e-4,0.9999] so logit never hits +/-Inf.
 	private static final SerialNNLoader.LoadedNets loaded = loadNets();
+	private static final boolean v2 = detectV2(loaded);
+	private static final int[] levelsV2 = v2 ? buildLevels(loaded) : new int[0];
 
 	// Sigmoid fallback parameters
 	static final double[][] PROB_K4 = {
