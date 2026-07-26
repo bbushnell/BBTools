@@ -39,8 +39,11 @@ public class SerialNNLoader {
 		if(bins<1){bins=1;}
 		CellNet[] allLenNets=new CellNet[levels];
 		float[][] allLenCal=new float[levels][4];
+		float[][] allLenLutX=new float[levels][], allLenLutY=new float[levels][];
+		String[] allLenLabels=new String[levels];
 		CellNet[][] binNets=new CellNet[levels][bins];
 		float[][][] binCal=new float[levels][bins][4];
+		float[][][] binLutX=new float[levels][bins][], binLutY=new float[levels][bins][];
 
 		while(pos<allLines.size()) {
 			String line=new String(allLines.get(pos));
@@ -51,7 +54,8 @@ public class SerialNNLoader {
 			int bin=parts.length>1 ? Integer.parseInt(parts[1]) : -1;
 			pos++;
 
-			float[] calParams=null;
+			float[] calParams=null, lutX=null, lutY=null;
+			String label=null;
 			ArrayList<byte[]> netLines=new ArrayList<>();
 
 			while(pos<allLines.size()) {
@@ -63,8 +67,25 @@ public class SerialNNLoader {
 						Float.parseFloat(cp[0]), Float.parseFloat(cp[1]),
 						Float.parseFloat(cp[2]), Float.parseFloat(cp[3])
 					};
+				}else if(s.startsWith("#lut ")){
+					//Isotonic calibration table: a count, then exactly that many "x<tab>y" lines.
+					//Consumed BY COUNT because the points are bare numbers that CellNetParser would
+					//otherwise ingest as network lines.
+					final int n=Integer.parseInt(s.substring(5).trim());
+					assert(n>0 && pos+n<allLines.size()) : "#lut "+n+" overruns the file at line "+pos;
+					lutX=new float[n]; lutY=new float[n];
+					for(int i=0; i<n; i++){
+						pos++;
+						final String[] xy=new String(allLines.get(pos)).trim().split("\\s+");
+						assert(xy.length>=2) : "Malformed #lut point at line "+pos;
+						lutX[i]=Float.parseFloat(xy[0]); lutY[i]=Float.parseFloat(xy[1]);
+						assert(i==0 || lutX[i]>=lutX[i-1]) : "#lut x must be ascending at line "+pos;
+					}
 				}else if(s.startsWith("#label")){
-					// skip
+					//The bundle DECLARES which taxonomic level each network answers, so the
+					//consumer never has to assume a fixed level list. Dropping a level from the
+					//file is then sufficient to remove it everywhere.
+					label=s.substring(6).trim();
 				}else{
 					netLines.add(allLines.get(pos));
 				}
@@ -77,17 +98,25 @@ public class SerialNNLoader {
 			if(bin<0){
 				allLenNets[lvl]=net;
 				if(calParams!=null){allLenCal[lvl]=calParams;}
+				if(lutX!=null){allLenLutX[lvl]=lutX; allLenLutY[lvl]=lutY;}
+				allLenLabels[lvl]=label;
 			}else if(bin<bins){
 				binNets[lvl][bin]=net;
 				if(calParams!=null){binCal[lvl][bin]=calParams;}
+				if(lutX!=null){binLutX[lvl][bin]=lutX; binLutY[lvl][bin]=lutY;}
 			}
 		}
 
 		LoadedNets result=new LoadedNets();
 		result.allLenNets=allLenNets;
 		result.allLenCal=allLenCal;
+		result.allLenLutX=allLenLutX;
+		result.allLenLutY=allLenLutY;
+		result.allLenLabels=allLenLabels;
 		result.binNets=binNets;
 		result.binCal=binCal;
+		result.binLutX=binLutX;
+		result.binLutY=binLutY;
 		result.levels=levels;
 		result.bins=bins;
 		return result;
@@ -96,8 +125,13 @@ public class SerialNNLoader {
 	public static class LoadedNets {
 		public CellNet[] allLenNets;
 		public float[][] allLenCal;
+		/** Isotonic calibration table per level (null when the bundle carries only #cal). */
+		public float[][] allLenLutX, allLenLutY;
+		/** Level name each network was trained for, from its #label line; null if absent. */
+		public String[] allLenLabels;
 		public CellNet[][] binNets;
 		public float[][][] binCal;
+		public float[][][] binLutX, binLutY;
 		public int levels;
 		public int bins;
 	}

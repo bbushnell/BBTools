@@ -119,9 +119,20 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			String s=defaultRef();
 			if(s!=null) {ref.add(s);}
 		}
-		CladeIndex.heapSize=Math.max(CladeIndex.heapSize, maxHitsToPrint);
+		//Records to GENERATE, as distinct from records to display. The confidence vector's
+		//alt-hit dimensions describe the strongest competitor and the most taxonomically
+		//remote hit among the top CladeConfidence.TOP_EXAMINE candidates, so the pool must
+		//be at least that deep or those dimensions land outside the trained distribution.
+		//Both the spectra heap AND the sketch index are sized from it -- previously only the
+		//spectra heap followed heapSize while sketch hits were capped separately at a
+		//default of 5, so the two halves of the candidate pool could differ in depth.
+		recordsToGenerate=CladeConfidence.v2Ready()
+				? Math.max(CladeConfidence.TOP_EXAMINE, maxHitsToPrint)
+				: Math.max(1, maxHitsToPrint);
+		CladeIndex.heapSize=Math.max(CladeIndex.heapSize, recordsToGenerate);
+		CladeIndex.maxSketchHits=Math.max(CladeIndex.maxSketchHits, recordsToGenerate);
 		if(filterLevel>=0){
-			CladeIndex.heapSize=Math.max(CladeIndex.heapSize, maxHitsToPrint*3);
+			CladeIndex.heapSize=Math.max(CladeIndex.heapSize, recordsToGenerate*3);
 		}
 		if(!colorExplicit){
 			setColor=(format!=MACHINE);
@@ -303,8 +314,11 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("cladehits") || a.equals("maxcladehits")){
 				maxHitsToPrint=Integer.parseInt(b);
 			}else if(a.equals("records")){
+				//DISPLAY ONLY. This used to also set maxSketchHits, which tied how many
+				//candidates were GENERATED to how many the user wanted PRINTED -- so
+				//records=1 quietly shrank the candidate pool that confidence is computed
+				//from. Generation is set below, from heapSize.
 				maxHitsToPrint=Integer.parseInt(b);
-				CladeIndex.maxSketchHits=Integer.parseInt(b);
 			}else if(a.equals("caprecords") || a.equals("maxrecords")){
 				caprecords=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
@@ -851,7 +865,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		String prevColorName=null;
 		for(Comparison c : coll) {
 			if(i>=caprecords){break;}
-			if(i>=maxHitsToPrint && !c.isSketchHit) {continue;}
+			//Display cap, total. This used to skip only NON-sketch hits past the cap, so a
+			//run could print anywhere from records to 2*records rows depending on how many
+			//spectra and sketch hits happened to overlap.
+			if(i>=maxHitsToPrint){break;}
 			if(seen!=null && c.ref!=null){
 				String name=nameAtLevel(c.ref.lineage(), filterLevel);
 				if(name!=null && !seen.add(name)){continue;}
@@ -978,7 +995,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(queries, index, maxHits, showRecords, maxHitsToPrint, i, threads));
+			alpt.add(new ProcessThread(queries, index, maxHits, showRecords, recordsToGenerate,
+					maxHitsToPrint, i, threads));
 		}
 		
 		//Start the threads and wait for them to finish
@@ -1054,7 +1072,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		 * @param threads_ Total number of threads
 		 */
 		ProcessThread(ArrayList<Clade> queries_, CladeIndex index_,
-			final int maxHits_, final boolean showRecords_, final int maxHitsToPrint_,
+			final int maxHits_, final boolean showRecords_, final int recordsToGenerate_,
+			final int recordsToDisplay_,
 			final int tid_, final int threads_){
 			queries=queries_;
 			//CLEVER [verified in-file]: each worker gets its OWN index via clone() so search is lock-free -- the clone
@@ -1064,7 +1083,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			index=index_.clone(); // Clone to avoid synchronization issues
 			maxHits=maxHits_;
 			showRecords=showRecords_;
-			maxHitsToPrint=maxHitsToPrint_;
+			recordsToGenerate=recordsToGenerate_;
+			recordsToDisplay=recordsToDisplay_;
 			tid=tid_;
 			threads=threads_;
 		}
@@ -1092,7 +1112,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 					readsProcessedT+=clade.contigs;
 					basesProcessedT+=clade.bases;
 					QueryResult qr=QueryResult.build(clade, index, maxHits,
-						maxHitsToPrint, showRecords, ssa);
+						recordsToGenerate, recordsToDisplay, showRecords, ssa);
 					results.add(qr.displayList);
 				}
 			}
@@ -1120,7 +1140,10 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		/** Maximum number of hits to return per query */
 		private final int maxHits;
 		private final boolean showRecords;
-		private final int maxHitsToPrint;
+		/** How many candidates to GENERATE per query; display trimming happens later. */
+		private final int recordsToGenerate;
+		/** How many rows will actually be printed; only these get confidence computed. */
+		private final int recordsToDisplay;
 		/** Thread ID */
 		final int tid;
 		/** Total number of threads in the pool */
@@ -1209,6 +1232,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/** Maximum number of hits to print per query */
 	private int maxHitsToPrint=5;
+	/** Candidates generated per query (>=CladeConfidence.TOP_EXAMINE when V2 confidence is active). */
+	private int recordsToGenerate=5;
 
 	/** Hard cap on total results per query after sorting */
 	private int caprecords=Integer.MAX_VALUE;

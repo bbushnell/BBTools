@@ -1,5 +1,6 @@
 package clade;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 import bin.SimilarityMeasures;
@@ -322,31 +323,68 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 
 	public float confidence(int taxLevel){
 		if(query==null){return -1;}
+		if(cachedConfidence!=null){
+			final int[] lv=cachedLevels;
+			for(int i=0; i<lv.length; i++){
+				if(lv[i]==taxLevel){return cachedConfidence[i];}
+			}
+			return -1;
+		}
 		return CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif, taxLevel);
 	}
 
-	public void cacheConfidence(){
-		cachedConfidence=sortedConfidence();
+	/**
+	 * Computes and caches the confidence profile for this hit.
+	 *
+	 * The V2 model needs the query's whole hit group, because two of its input
+	 * dimensions describe OTHER hits (the strongest competitor and the most
+	 * taxonomically remote hit among the top ten). Callers must therefore pass
+	 * the group this Comparison belongs to and its index within it; V1 and the
+	 * sigmoid fallback ignore both. Falls back to the legacy per-hit profile when
+	 * no V2 model is loaded, so behavior is unchanged without the new bundle.
+	 */
+	public void cacheConfidence(ArrayList<Comparison> group, int index){
+		if(query==null){return;}
+		float[] vals=CladeConfidence.profile(group, index);
+		int[] levels=CladeConfidence.activeLevels();
+		if(vals==null){vals=legacyProfile(); levels=CONF_LEVELS;}
+		//Sorted ascending to enforce monotonicity: a hit cannot be likelier correct
+		//at species than at domain, so the profile is forced non-decreasing by rank.
+		Arrays.sort(vals);
+		cachedConfidence=vals;
+		cachedLevels=levels;
 	}
 
-	/** Computes confidence for all 8 levels, sorted ascending to enforce
-	 * monotonicity (species lowest, domain highest). */
+	/** The legacy per-hit profile over the 8 V1 levels. */
+	private float[] legacyProfile(){
+		float[] vals=new float[CONF_LEVELS.length];
+		for(int i=0; i<CONF_LEVELS.length; i++){
+			vals[i]=CladeConfidence.probCorrect((int)query.bases, gcdif, strdif, hhdif,
+					cagadif, k3dif, k4dif, k5dif, CONF_LEVELS[i]);
+		}
+		return vals;
+	}
+
+	/** Cached profile if present, else a freshly computed legacy one. */
 	private float[] sortedConfidence(){
 		if(cachedConfidence!=null){return cachedConfidence;}
 		if(query==null){return null;}
-		float[] vals=new float[CONF_LEVELS.length];
-		for(int i=0; i<CONF_LEVELS.length; i++){
-			vals[i]=confidence(CONF_LEVELS[i]);
-		}
+		float[] vals=legacyProfile();
 		Arrays.sort(vals);
 		return vals;
+	}
+
+	/** Levels matching whatever sortedConfidence() just returned. */
+	private int[] sortedLevels(){
+		return cachedConfidence!=null ? cachedLevels : CONF_LEVELS;
 	}
 
 	public int confidentLevel(float threshold){
 		float[] sc=sortedConfidence();
 		if(sc==null){return -1;}
+		final int[] lv=sortedLevels();
 		for(int i=0; i<sc.length; i++){
-			if(sc[i]>=threshold){return CONF_LEVELS[i];}
+			if(sc[i]>=threshold){return lv[i];}
 		}
 		return -1;
 	}
@@ -354,10 +392,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	public void appendConfidenceString(ByteBuilder bb){
 		float[] sc=sortedConfidence();
 		if(sc==null){return;}
+		final int[] lv=sortedLevels();
 		for(int i=sc.length-1; i>=0; i--){
 			if(sc[i]<0){continue;}
 			if(i<sc.length-1){bb.append(';');}
-			bb.append(TaxTree.levelToStringShort(CONF_LEVELS[i])).append(':');
+			bb.append(TaxTree.levelToStringShort(lv[i])).append(':');
 			bb.append(sc[i]*100, 1);
 		}
 	}
@@ -365,9 +404,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	public void appendConfidentLevel(ByteBuilder bb, float threshold){
 		float[] sc=sortedConfidence();
 		if(sc==null){bb.append("None"); return;}
+		final int[] lv=sortedLevels();
 		for(int i=0; i<sc.length; i++){
 			if(sc[i]>=threshold){
-				bb.append(TaxTree.levelToString(CONF_LEVELS[i]));
+				bb.append(TaxTree.levelToString(lv[i]));
 				bb.append(':').append(sc[i]*100, 1);
 				return;
 			}
@@ -731,6 +771,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	int sketchLCA=-1;
 	boolean isSketchHit;
 	float[] cachedConfidence;
+	/** Taxonomic levels matching cachedConfidence, since V1 caches 8 and V2 caches 9. */
+	int[] cachedLevels;
 
 	public static float confThreshold=0.90f;
 

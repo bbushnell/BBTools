@@ -25,8 +25,14 @@ public class QueryResult {
 	int topSketchTID=-1;
 	int topSSUTID=-1;
 
+	/**
+	 * @param recordsToGenerate How many candidates to keep per ranking when assembling the
+	 *   display list. This is a GENERATION depth, not a display count -- confidence reads the
+	 *   top CladeConfidence.TOP_EXAMINE of the sorted union, so the pool must be at least that
+	 *   deep regardless of how many rows the user asked to print.
+	 */
 	static QueryResult build(Clade query, CladeIndex index, int maxHits,
-			int maxHitsToPrint, boolean showRecords, IDAligner ssa){
+			int recordsToGenerate, int recordsToDisplay, boolean showRecords, IDAligner ssa){
 
 		QueryResult qr=new QueryResult();
 		ArrayList<Comparison> all=index.findBest(query, maxHits);
@@ -62,7 +68,7 @@ public class QueryResult {
 		// Top clade hits by kmer
 		int cladeCount=0;
 		for(Comparison c : cladeHits){
-			if(cladeCount>=maxHitsToPrint) break;
+			if(cladeCount>=recordsToGenerate) break;
 			if(!kept.containsKey(c.ref.taxID)){
 				kept.put(c.ref.taxID, c);
 			}
@@ -113,12 +119,17 @@ public class QueryResult {
 			return Float.compare(sb, sa);
 		});
 
-		// Cache confidence
-		if(showRecords){
-			for(Comparison c : display){c.cacheConfidence();}
-		}else if(!display.isEmpty()){
-			display.get(0).cacheConfidence();
-		}
+		// Cache confidence. The V2 model reads two of its 48 input dimensions from OTHER
+		// hits of this query (the strongest competitor, and the most taxonomically remote
+		// hit among the top ten), so each hit is scored against the whole display list --
+		// which is exactly the per-query group the training vectors were built from.
+		// Even when only the top hit is scored, it still sees the full list.
+		// Scored AFTER the sort and BEFORE any trimming, so each hit sees the ranked pool.
+		// Only the rows that can actually be displayed are scored: the pool is now generated
+		// to TOP_EXAMINE depth regardless of records=, so scoring all of it would cost up to
+		// 9 network evaluations per hit for rows nobody asked to see.
+		final int nConf=Math.min(showRecords ? Math.max(recordsToDisplay, 1) : 1, display.size());
+		for(int i=0; i<nConf; i++){display.get(i).cacheConfidence(display, i);}
 
 		qr.displayList=display;
 		return qr;
