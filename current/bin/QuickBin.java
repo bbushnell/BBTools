@@ -417,7 +417,11 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 		
 		if(vectorOut!=null) {
 			Oracle.bsw=ByteStreamWriter.makeBSW(vectorOut, overwrite, append, true);
-//			Oracle.bsw.println(Oracle.header());
+			//The '#dims' header is written lazily by Oracle.emitVector on the first vector, because the
+			//vector width is not knowable until one exists.  Reset the flag here so a second run in the
+			//same JVM re-emits it.  (Oracle.header() is NOT the header to write here -- it produces stale
+			//column names, not a '#dims' line; see the note above Oracle.header().)
+			Oracle.dimsHeaderWritten=false;
 		}
 		
 		Timer ct=new Timer(outstream);
