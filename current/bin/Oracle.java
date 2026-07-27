@@ -354,10 +354,13 @@ public class Oracle extends BinObject implements Cloneable {
 	}
 	
 	/** Returns tab-separated header string for vector output formatting */
-	//TODO: Possible bug [bin/Oracle#003] - STALE/DEAD: this 15-column header (active labels 369-381: aSize..sameTax)
-	//does NOT match toVector's actual 28+ column output (sizeProxy/sizeProxy2/.../27=1-similarity). Only caller is
-	//QuickBin:390, which is commented out -> dead. If re-enabled it would mislabel every training column. LOW:
+	//TODO: Possible bug [bin/Oracle#003] - STALE/DEAD: this 15-column header (active labels below: aSize..sameTax)
+	//does NOT match toVector's actual 28+ column output (sizeProxy/sizeProxy2/.../27=1-similarity). LOW:
 	//regenerate from the real toVector layout, or delete. (Not NN-critical: dead.)
+	//⚠ DO NOT re-enable this to fix a missing header. It emits COLUMN NAMES, not a '#dims' line, and the
+	//names are wrong. The real machine-readable header is now written by emitVector() above, derived from
+	//the actual vector. QuickBin's commented-out call to this method was the tempting one-line "fix"; it
+	//would have written a misleading header instead of a correct one.
 	static String header() {
 		ByteBuilder bb=new ByteBuilder();
 //		bb.append('#').append("aSize").tab().append("bSize");//0 1
@@ -704,6 +707,21 @@ public class Oracle extends BinObject implements Cloneable {
 			bb.append(vector.get(i), 7, true);
 		}
 		synchronized(bsw) {
+			//Emit the '#dims' header once, on the first vector, so vectorout= files are self-describing
+			//like AllToAllVectorMaker's.  Written here rather than where the stream is opened because the
+			//width is only knowable from a real vector, and none exists until the first comparison emits.
+			//Derived exactly as AllToAllVectorMaker:185 does -- inputs, outputs, weights -- so both
+			//emitters produce byte-identical headers.  vector always includes the answer (emitVector is
+			//only reached via toVector(a,b,vector,true)), so it holds inputs + weights + 1 output.
+			//Without this, every vectorout= file was headerless: ml.DataLoader then infers width from the
+			//column count and CANNOT know a weight column is present, so it silently reads the weight as
+			//an extra input and shifts every field.  Downstream tools were left guessing a layout that
+			//only the emitter knows.
+			if(!dimsHeaderWritten) {
+				final int weights=(printWeightInVector>0 ? 1 : 0);
+				bsw.print("#dims\t").print(vector.size()-(1+weights)).tab().print(1).tab().println(weights);
+				dimsHeaderWritten=true;
+			}
 			bsw.print(bb.nl());
 		}
 	}
@@ -785,6 +803,8 @@ public class Oracle extends BinObject implements Cloneable {
 	
 	/** Global output stream writer for vector emission */
 	static ByteStreamWriter bsw;
+	/** Whether the '#dims' header has been written to bsw yet; reset when a new bsw is opened. */
+	static boolean dimsHeaderWritten=false;
 	/** Whether to emit true positive training vectors */
 	static boolean emitTP=true;
 	/** Whether to emit false positive training vectors */
