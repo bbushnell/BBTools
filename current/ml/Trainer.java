@@ -17,6 +17,7 @@ import fileIO.ReadWrite;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -324,7 +325,7 @@ public class Trainer implements Accumulator<WorkerThread> {
 			}
 				
 			else if(a.equalsIgnoreCase("weights") || a.equalsIgnoreCase("weighted")){
-				DataLoader.weighted=Parse.parseBoolean(b);
+				DataLoader.setWeighted(Parse.parseBoolean(b));
 			}
 				
 			else if(a.equals("lowweightannealcutoff") || a.equals("lwac")){
@@ -967,7 +968,12 @@ public class Trainer implements Accumulator<WorkerThread> {
 					printFPR, printFNR, printTPR, printTNR, printCutoff, false, false));
 			}
 			
-			if(dims0==null) {
+			//With netin= the dims come from the file, not from dims0, so gating on dims0 alone would hide
+			//the loaded architecture.  NOTE this block only runs when networksTested>1, and a SINGLE
+			//netin path forces networksPerCycle=1 (loadNetworks), so in practice this only adds output
+			//for a multi-path netin=a,b.  The single-net case is covered by reportIgnoredDims instead,
+			//which prints the loaded dims directly.
+			if(dims0==null || netIn!=null) {
 				outstream.println("\nBest Dims:\t"+Arrays.toString(bestNet.dims));
 				outstream.println("Final Dims:\t"+Arrays.toString(finalNet.dims));
 				if(printMode==printAverage) {
@@ -1215,7 +1221,41 @@ public class Trainer implements Accumulator<WorkerThread> {
 	 * @return Array of networks ready for training
 	 */
 	private CellNet[] fetchNetworks(String path, int count) {
-		return path==null ? createNetworks(count) : loadNetworks(path);
+		if(path==null) {return createNetworks(count);}
+		final CellNet[] nets=loadNetworks(path);
+		reportIgnoredDims(path, nets);
+		return nets;
+	}
+
+	/**
+	 * Reports a dims= flag that the loaded network overrode.  With netin= the architecture comes from
+	 * the file: dims0 is only ever read by randomNetwork(long), on the createNetworks branch, which is
+	 * not taken here.  Passing both flags is NORMAL and correct when they AGREE -- shipped '#CL' command
+	 * lines carry both and every retrain script copies them -- so this fires only on a real disagreement.
+	 *
+	 * Specifically it covers the HIDDEN layers, which is the only part that was ever silent.  The
+	 * constructor sets numInputs=dims0[0] and numOutputs=dims0[last], and loadNetwork already asserts
+	 * both against the loaded net, so a dims= that disagrees on the FIRST or LAST layer dies there
+	 * before reaching this method.  A disagreement confined to the hidden layers (or to the layer
+	 * COUNT, which nothing asserts) passes every existing check.  That is exactly the shape that cost
+	 * an hour of compute on a bit-for-bit duplicate net: the widths matched at both ends, so training
+	 * succeeded, exited 0, and the requested architecture appeared nowhere -- while the ACTUAL one was
+	 * hidden too, since trainNetworks suppresses its 'Best Dims' line whenever dims0 is set.
+	 *
+	 * It is a print rather than an assert because the run is not wrong, merely not what was asked for;
+	 * aborting would kill retrains that currently work.
+	 * @param path The netin= path, for the message
+	 * @param nets Networks just loaded from that path
+	 */
+	private void reportIgnoredDims(String path, CellNet[] nets) {
+		if(dims0==null || warnedIgnoredDims || nets==null || nets.length<1 || nets[0]==null) {return;}
+		final int[] loaded=nets[0].dims;
+		if(loaded==null || Arrays.equals(loaded, dims0)) {return;}
+		warnedIgnoredDims=true;//Once per run, not once per cycle.
+		outstream.println("WARNING: netin="+path+" set dims to "+Arrays.toString(loaded)
+				+", ignoring dims="+Arrays.toString(dims0)+".\n"
+				+"The architecture comes from the input network.  Drop dims=, correct it to match, "
+				+"or train a fresh net if you meant to change shape.");
 	}
 	
 	/**
@@ -1347,8 +1387,17 @@ public class Trainer implements Accumulator<WorkerThread> {
 		final CellNet net=CellNetParser.load(path, false);
 		if(setCutoffForEvaluation) {net.setCutoff(cutoffForEvaluation);}
 //		dims=net.dims.clone();
-		assert(numInputs<0 || net.numInputs()==numInputs);
-		assert(numOutputs<0 || net.numOutputs()==numOutputs);
+		//assertDie, not a bare assert: spawnThreads starts the WorkerThreads BEFORE calling
+		//trainNetworks, so an AssertionError here kills main while non-daemon workers stay parked on
+		//workerQueue.take() and the JVM never exits.  Measured: a first-layer mismatch hung until the
+		//timeout killed it.  Loud exit instead, and with a message -- these asserts previously had none,
+		//so the user got a bare AssertionError and then a hang.
+		assert(numInputs<0 || net.numInputs()==numInputs) : KillSwitch.assertDie(
+			"Network "+path+" takes "+net.numInputs()+" inputs, but dims= specifies "+numInputs
+			+".  The input width is fixed by the network; drop dims= or match its first value.");
+		assert(numOutputs<0 || net.numOutputs()==numOutputs) : KillSwitch.assertDie(
+			"Network "+path+" has "+net.numOutputs()+" outputs, but dims= specifies "+numOutputs
+			+".  The output width is fixed by the network; drop dims= or match its last value.");
 		numLayers=net.numLayers();
 		numInputs=net.numInputs();
 		numOutputs=net.numOutputs();
@@ -1800,6 +1849,8 @@ public class Trainer implements Accumulator<WorkerThread> {
 	
 	/** Primary input file path */
 	private String netIn=null;
+	/** Set once reportIgnoredDims has fired, so a multi-cycle run does not repeat it every cycle. */
+	private boolean warnedIgnoredDims=false;
 
 	/** Secondary input file path */
 	private String dataIn=null;

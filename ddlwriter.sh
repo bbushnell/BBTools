@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Ady
-Last modified April 18, 2026
+Last modified July 26, 2026
 
 Description:  Builds DynamicDemiLog sketches from FASTA/FASTQ files
 and writes them as A48-encoded TSV.  Computes GC content during hashing.
@@ -20,11 +20,25 @@ seed=12345      Hash seed.
 mode=perfile    One DDL per input file (default).  Multithreaded.
                 persequence: one DDL per sequence/contig.
                 pertid: merge sequences sharing the same taxonomy ID.
+                Each value also works as a bare flag, e.g. 'pertid'.
 parsetaxid=t    Extract taxonomy IDs from filenames (tid_NNNN) or
                 headers (tid|NNNN).  Set false for anonymous mode.
+lineage=t       Attach a taxonomic lineage string to each record, using
+                the tax tree.  Costs a one-time tree load here, but saves
+                every downstream reader from loading the tree at all.
+kmers=f         Also store the source kmers, one per bucket, in the
+                output.  Adds a data line per record; readers restore them.
+blacklist=<file>  Ignore kmers present in this file while sketching.  The
+                filename is recorded in the output header.
+exponent=5      Exponent bit width within each 16-bit bucket value; the
+                mantissa gets the remaining 16-exponent bits.  Written to
+                the output header and restored automatically on load.
+                5 suits genomes (an extra mantissa bit, and the cardinalities
+                it gives up are unreachable); use 6 for read files.
 threads=auto    Number of threads for perfile mode (auto = all cores).
                 Peaks at ~32 cores for bgzipped RefSeq input.
 overwrite=f     Overwrite existing output.
+verbose=f       Print additional progress information.
 "
 }
 

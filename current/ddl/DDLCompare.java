@@ -44,6 +44,11 @@ public class DDLCompare {
 			outstream=pp.outstream;
 		}
 
+		//Genome sketching defaults to exponent 5, which trades unreachable high cardinalities for an
+		//extra mantissa bit.  Set before parsing so an 'exponent=' flag still wins, and before loading
+		//so a sketch file's #exponent header still wins over both.
+		DynamicDemiLog.setExponent(5);
+
 		{
 			final Parser parser=parse(args);
 			Parser.processQuality();

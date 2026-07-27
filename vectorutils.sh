@@ -10,6 +10,10 @@ Description:  Manipulates neural-network training-vector files (the tab-delimite
 inputs and writes one or more outputs, applying (in order): deduplicate, subsample,
 shuffle, partition by fraction, and positive/negative balance.  The '#dims' header
 is preserved as line 1 of each output (unlike a plain 'shuf', which corrupts it).
+If no input carried a '#dims' header and none is given, the output gets none and a
+warning explains the risk.  A header is never invented: whether the second-to-last
+column is a weight or an input cannot be recovered from the data, and guessing it
+wrong feeds the weight into the feature vector without tripping any assertion.
 
 Usage:  vectorutils.sh in=<files> out=<file[:frac],...> [flags]
 
@@ -18,6 +22,9 @@ Example:
 
 Parameters:
 in=<a,b,c>      Input vector files (also accepted as bare positional filenames).
+dims=28,1,1     Write this '#dims' header, overriding whatever the inputs had.
+                Required when the set is WEIGHTED (third field 1) or has
+                multiple outputs; neither can be inferred from the data.
 out=<f1:0.9,f2:0.1>  Output files, each with a partition fraction.  Fractions are
                 normalized to sum to 1; a single out= with no fraction gets the whole set.
 shuffle         Randomly shuffle rows (needed for a meaningful random partition).

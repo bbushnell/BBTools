@@ -919,8 +919,11 @@ public class GradeBins {
 				}else if(contam<0.10f && comp>=0.5f) {
 					mq++;
 					mqSize+=size;
-					if(comp<.90f) {mqINC++;}
-					if(contam>0.05f) {mqCON++;}
+					//<= and >= (not < and >) so these exactly complement the HQ gate above, which is
+					//STRICT per MIMAG (>90% complete, <5% contam).  An MQ bin at comp==0.90 or
+					//contam==0.05 IS held back from HQ, but was previously flagged by neither reason.
+					if(comp<=.90f) {mqINC++;}
+					if(contam>=0.05f) {mqCON++;}
 				}else if(contam<0.1f && comp<0.5f){
 					lq++;
 					lqSize+=size;

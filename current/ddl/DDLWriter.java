@@ -55,6 +55,10 @@ public class DDLWriter {
 		Shared.capBufferLen(200);
 		Shared.capBuffers(8);
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
+		//Genome sketching defaults to exponent 5, which trades unreachable high cardinalities for an
+		//extra mantissa bit.  Set before parsing so an 'exponent=' flag still wins, and before loading
+		//so a sketch file's #exponent header still wins over both.
+		DynamicDemiLog.setExponent(5);
 
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){

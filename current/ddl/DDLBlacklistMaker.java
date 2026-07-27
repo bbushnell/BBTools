@@ -44,6 +44,11 @@ public class DDLBlacklistMaker {
 	}
 
 	public DDLBlacklistMaker(String[] args){
+		//Genome sketching defaults to exponent 5, which trades unreachable high cardinalities for an
+		//extra mantissa bit.  Set before parsing so an 'exponent=' flag still wins, and before loading
+		//so a sketch file's #exponent header still wins over both.
+		DynamicDemiLog.setExponent(5);
+
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];

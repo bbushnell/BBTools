@@ -24,7 +24,11 @@ import structures.ByteBuilder;
  * format read by ml.DataLoader / ml.Trainer). Combines any number of input vector files and emits one
  * or more outputs, applying — in this order — deduplicate, subsample, shuffle, partition (by fraction),
  * and positive/negative balance. The '#dims' header is carried through correctly (never shuffled into
- * the body), which is why this exists: a plain `shuf` corrupts the header.
+ * the body), which is why this exists: a plain `shuf` corrupts the header. If no input carried one and
+ * none was declared with dims=, the output gets none either and a warning explains the risk — a header
+ * is never invented, because whether the second-to-last column is a weight or an input is unrecoverable
+ * from the data, and guessing it wrong feeds a weight into the feature vector without tripping any
+ * assertion. A weighted or multi-output set must be declared with dims=.
  *
  * Example:
  *   vectorutils.sh a.tsv b.tsv c.tsv out=training.tsv:0.9,validation.tsv:0.1 shuffle samplerate=0.5 balance=0.3
@@ -39,6 +43,9 @@ import structures.ByteBuilder;
  *                       until it is fraction X of that output's total (Brian's default; X~0.25-0.3).
  *                       Applied to EACH output independently, after partition. Default 0 (off).
  *   deduplicate (dedupe) Remove exact-duplicate rows (sort-based). Default off.
+ *   dims=28,1,1         Write this '#dims' header, overriding whatever the inputs had. Required when
+ *                       the set is WEIGHTED (third field = 1) or has multiple outputs, since neither
+ *                       can be inferred from the data. Default: carry the inputs' header, or infer.
  *   seed=N              RNG seed (>=0 deterministic; -1 random). Default 1.
  *   ow=t                Overwrite outputs.
  *
@@ -81,6 +88,8 @@ public class VectorUtils {
 				balance=Float.parseFloat(b);
 			}else if(a.equals("deduplicate") || a.equals("dedupe")){
 				dedupe=(b==null || Parse.parseBoolean(b));
+			}else if(a.equals("dims")){
+				dims0=Parse.parseIntArray(b, ",", "x");
 			}else if(a.equals("seed")){
 				seed=Long.parseLong(b);
 			}else if(a.equals("ow") || a.equals("overwrite")){
@@ -157,6 +166,36 @@ public class VectorUtils {
 		}
 		long nIn=rows.size();
 
+		//An explicit dims= is authoritative: it is the only way to state a weighted or multi-output
+		//layout, which cannot be recovered from the data (a weighted set's third '#dims' field is what
+		//tells ml.DataLoader the last column is a weight, not an input).
+		if(dims0!=null){
+			final byte[] explicit=dimsHeaderBytes(dims0);
+			if(dimsHeader!=null && !Arrays.equals(dimsHeader, explicit)){
+				outstream.println("Note: replacing the input '#dims' header with dims="
+					+Arrays.toString(dims0)+".");
+			}
+			dimsHeader=explicit;
+		}else if(dimsHeader==null && !rows.isEmpty()){
+			//No input carried a header and none was declared.  Deliberately DO NOT invent one.
+			//Whether the second-to-last column is a weight or an input cannot be recovered from the
+			//data (ml.DataLoader parses inputs, then the weight, then the output -- parseDataLine),
+			//and guessing wrong is not a labeling error but a DATA error: a weighted row read as
+			//unweighted feeds the weight into the feature vector, and DataLoader's
+			//assert(pos==lp.terms()) still passes because the column count works out either way.
+			//Writing a guessed header would also SILENCE DataLoader's own load-time
+			//"Inferring N inputs, 1 output, 0 weights" line -- the one place the word 'weights'
+			//appears.  So warn here, stay silent in the file, and let that second guard survive.
+			//Use dims= to state the layout; then it is declared rather than assumed.
+			lp.set(rows.get(0));
+			final int terms=lp.terms();
+			outstream.println("WARNING: No input file had a '#dims' header, and none was given, so the "
+				+"output has none either.\nRows carry "+terms+" columns.  ml.DataLoader will assume "
+				+(terms-1)+" inputs, 1 output and NO weight column; if there IS a weight column that "
+				+"silently becomes an input.\nDeclare the layout to be sure: dims="+(terms-1)
+				+",1  (unweighted)  or  dims="+(terms-2)+",1,1  (one output plus a weight).");
+		}
+
 		if(dedupe){rows=deduplicate(rows);}
 		if(samplerate<1f){rows=subsample(rows, samplerate, randy);}
 		if(shuffle){Collections.shuffle(rows, randy);}
@@ -175,7 +214,8 @@ public class VectorUtils {
 			nOut+=part.size();
 		}
 		t.stop();
-		outstream.println("Rows in: "+nIn+"  rows out: "+nOut+"  inputs: "+inFiles.size()+"  outputs: "+outNames.size());
+		outstream.println("Rows in: "+nIn+"  rows out: "+nOut
+			+"  input files: "+inFiles.size()+"  output files: "+outNames.size());
 		outstream.println("Time: \t"+t);
 		if(errorState){throw new RuntimeException(getClass().getName()+" terminated in an error state.");}
 	}
@@ -231,6 +271,13 @@ public class VectorUtils {
 		return terms>0 && lp.parseFloat(terms-1)>=0.5f;
 	}
 
+	/** Renders a dims array as a TAB-delimited '#dims' header line.  ml.DataLoader requires tabs. */
+	private static byte[] dimsHeaderBytes(int[] dims){
+		StringBuilder sb=new StringBuilder(32).append("#dims");
+		for(int d : dims){sb.append('\t').append(d);}
+		return sb.toString().getBytes();
+	}
+
 	private void write(String name, ArrayList<byte[]> rows){
 		FileFormat ff=FileFormat.testOutput(name, FileFormat.TXT, null, true, overwrite, false, false);
 		ByteStreamWriter bsw=new ByteStreamWriter(ff);
@@ -254,6 +301,8 @@ public class VectorUtils {
 	private float samplerate=1f, balance=0f;
 	private long seed=1;
 	private byte[] dimsHeader=null;
+	/** Explicit '#dims' from dims=; authoritative, and the only way to declare a weight column. */
+	private int[] dims0=null;
 
 	private final LineParser1 lp=new LineParser1('\t');
 	private PrintStream outstream=System.err;

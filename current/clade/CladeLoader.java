@@ -14,6 +14,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import map.IntHashSet;
 import parse.LineParser1;
 import parse.Parse;
 import parse.Parser;
@@ -151,6 +152,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				}
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
+			}else if(a.equals("whitelist") || a.equals("tids") || a.equals("tidlist")){
+				whitelistFile=b;
 			}else if(a.equals("mergedupes")){
 				mergeDuplicateTaxIDs=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
@@ -268,8 +271,30 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		//Reset counters
 		readsProcessed=basesProcessed=0;
 		
+		if(whitelistFile!=null){
+			whitelist=loadTids(whitelistFile);
+			outstream.println("Loaded "+whitelist.size()+" whitelisted taxIDs from "+whitelistFile);
+		}
+
 		ConcurrentHashMap<Integer, Clade> map=null;
 		map=load(in, map);
+
+		if(whitelist!=null){
+			//The sequence-input path builds clades without consulting addClade, so sweep the map
+			//too; on the clade-file path this finds nothing and costs one pass.
+			int swept=0;
+			for(Integer key : new ArrayList<Integer>(map.keySet())){
+				if(!whitelist.contains(key.intValue())){map.remove(key); swept++;}
+			}
+			whitelistDropped+=swept;
+			outstream.println("Whitelist: kept "+map.size()+", dropped "+whitelistDropped
+				+(swept>0 ? " ("+swept+" swept post-load)" : ""));
+			//A whitelisted taxID that never appeared is not an error -- the DDL side legitimately
+			//holds taxa the spectra side lacks -- but it is worth seeing, since a large count means
+			//the two databases disagree more than expected.
+			int missing=whitelist.size()-map.size();
+			if(missing>0){outstream.println("Whitelist: "+missing+" listed taxID(s) had no record here.");}
+		}
 		
 		if(!r16sFile.isEmpty()) {
 			for(String fname : r16sFile) {
@@ -467,10 +492,17 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	 * @param lp LineParser for processing tabular data
 	 * @return true if a new clade was added, false if merged or rejected
 	 */
-	private static boolean addClade(final ArrayList<byte[]> set, 
+	private static boolean addClade(final ArrayList<byte[]> set,
 			ConcurrentHashMap<Integer, Clade> map, LineParser1 lp) {
 		if(set.size()<=5) {return false;}
 		Clade c=Clade.parseClade(set, lp);
+		//Reject here rather than at write time so a filtered record never enters the map; on a
+		//RefSeq-scale clade file the discarded fraction would otherwise sit there for the whole
+		//run.  NOTE this method is only reached on the SINGLE-THREADED fallback path
+		//(CladeLoaderMT.loadClades delegates here only when threads<2); the multithreaded path has
+		//its own merge loop and applies the same check there.  Both are needed -- filtering only
+		//here would silently do nothing on a normal run.  Rejections are counted, not silent.
+		if(whitelist!=null && !whitelist.contains(c.taxID)) {whitelistDropped++; return false;}
 		Integer key=c.taxID;
 		Clade old=map.get(key);
 		if(old==null) {
@@ -487,6 +519,31 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		return false;
 	}
 	
+	/**
+	 * Loads a taxID whitelist: one integer per line, '#' comments and blanks ignored.
+	 * Written to consume ddlmerger.sh's tidsout= directly, so the surviving taxIDs of the sketch
+	 * database can be applied to the spectra database without a second scan or a hand-built list.
+	 * A whitelist subsumes a blacklist here: filtering to the taxa the sketch DB kept removes both
+	 * the size-filtered taxa and any taxa the spectra DB holds alone, in one pass.
+	 * @param path File of taxIDs
+	 * @return Set of taxIDs to keep
+	 */
+	static IntHashSet loadTids(String path){
+		IntHashSet set=new IntHashSet(1<<18);
+		ByteFile bf=ByteFile.makeByteFile(FileFormat.testInput(path, FileFormat.TXT, null, true, true));
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length<1 || line[0]=='#'){continue;}
+			int stop=line.length;
+			while(stop>0 && (line[stop-1]=='\r' || line[stop-1]==' ' || line[stop-1]=='\t')){stop--;}
+			if(stop<1){continue;}
+			int tid=Parse.parseInt(line, 0, stop);
+			if(tid>0){set.add(tid);}
+		}
+		bf.close();
+		assert(set.size()>0) : "Whitelist "+path+" contained no taxIDs.";
+		return set;
+	}
+
 	/**
 	 * Load clades from a clade-format file.
 	 * @param ff FileFormat for input
@@ -939,6 +996,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	
 	/** Whether to merge duplicate tax IDs */
 	static boolean mergeDuplicateTaxIDs=false;
+
+	/** Path given by whitelist=; null disables filtering entirely. */
+	private String whitelistFile=null;
+	/** TaxIDs to keep, or null for no filtering.  Static to match the other load-time toggles
+	 * (mergeDuplicateTaxIDs, replaceRibo, useDummy), since addClade is static. */
+	static IntHashSet whitelist=null;
+	/** Records rejected by the whitelist. */
+	static long whitelistDropped=0;
 	
 	/** Whether to replace existing ribosomal RNA sequences */
 	static boolean replaceRibo=false;

@@ -37,15 +37,24 @@ collisiontest   Measure all-pairs collision rate in a DDL reference file.
                 Requires ref= to be set.
 
 Blacklist:
-                Autoloads genomeDDLBlacklist_k25e5b4096.fa.gz from resources/
-                if present.  The blacklist filters taxonomically uninformative
-                kmers during query sketch construction.  Pre-built reference
-                sketches already have blacklisting baked in.
+blacklist=<file>  Kmer blacklist to apply while sketching queries.  If unset,
+                autoloads refseqGenomeDDLBlacklist_k25e5b65536_fused.fa.gz from
+                resources/ if present.  It is a kmer set, so it masks any bucket
+                count.  Filters taxonomically uninformative kmers during query
+                sketch construction; pre-built reference sketches already have
+                blacklisting baked in.
+
+Other Parameters:
+ssu=f           Load SSU sequences and align them for the reported hits.
+percontig=f     One sketch per input sequence rather than per file.
+minsketch=400   Skip sequences shorter than this in percontig mode.
+pload=t         Load SSU maps in parallel with the reference sketches.
 
 Sketch Parameters:
 k=25            K-mer length for hashing.
 buckets=2048    Number of DDL buckets.
-exponent=6      Exponent bits (1-8).  Default 6.
+exponent=5      Exponent bits (1-8).  A reference or query file's #exponent
+                header overrides this; files that disagree are a fatal error.
 
 Examples:
 ddlcompare.sh ecoli.fa mruber.fa
