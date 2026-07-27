@@ -107,7 +107,7 @@ public class DDLLoader {
 					}
 				}
 				else if(lp.termEquals("#seed", 0)){/*file-level, informational*/}
-				else if(lp.termEquals("#exponent", 0)){DynamicDemiLog.setExponent((int)lp.parseLong(1));}
+				else if(lp.termEquals("#exponent", 0)){DynamicDemiLog.setExponent((int)lp.parseLong(1), true, path);}
 				else if(lp.termEquals("#id", 0)){currentId=lp.parseLong(1);}
 				else if(lp.termEquals("#tid", 0)){currentTid=(int)lp.parseLong(1);}
 				else if(lp.termEquals("#name", 0)){currentName=lp.parseString(1);}

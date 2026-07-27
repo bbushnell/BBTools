@@ -54,7 +54,7 @@ public class DDLLoaderMT {
 			workers[i].start();
 		}
 
-		produce(bf, queue);
+		produce(bf, queue, path);
 
 		for(Thread w : workers){
 			try{w.join();}catch(InterruptedException e){e.printStackTrace();}
@@ -73,7 +73,7 @@ public class DDLLoaderMT {
 	private static final byte[] PREFIX_EXPONENT="#exponent".getBytes();
 
 	private static void produce(ByteFile bf,
-			JobQueue<ListNum<ArrayList<byte[]>>> queue){
+			JobQueue<ListNum<ArrayList<byte[]>>> queue, String path){
 		long id=0;
 		ArrayList<ArrayList<byte[]>> bundle=new ArrayList<>(RECORDS_PER_BUNDLE);
 		ArrayList<byte[]> currentRecord=new ArrayList<>(12);
@@ -82,7 +82,7 @@ public class DDLLoaderMT {
 			if(Tools.startsWith(line, PREFIX_EXPONENT, 0)){
 				LineParser1 hlp=new LineParser1('\t');
 				hlp.set(line);
-				if(hlp.terms()>=2){DynamicDemiLog.setExponent((int)hlp.parseLong(1));}
+				if(hlp.terms()>=2){DynamicDemiLog.setExponent((int)hlp.parseLong(1), true, path);}
 				continue;
 			}
 			if((Tools.startsWith(line, PREFIX_TID, 0) || Tools.startsWith(line, PREFIX_ID, 0))

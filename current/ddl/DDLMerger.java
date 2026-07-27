@@ -4,6 +4,9 @@ import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.TreeSet;
 
 import cardinality.DynamicDemiLog;
 import map.IntObjectMap;
@@ -12,7 +15,10 @@ import parse.Parser;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
+import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import structures.ByteBuilder;
 
 /**
  * Loads multiple DDL files, optionally merges records sharing a TID
@@ -42,6 +48,10 @@ public class DDLMerger {
 
 	public DDLMerger(String[] args){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=true;
+		//Genome sketching defaults to exponent 5, which trades unreachable high cardinalities for an
+		//extra mantissa bit.  Set before parsing so an 'exponent=' flag still wins, and before loading
+		//so a sketch file's #exponent header still wins over both.
+		DynamicDemiLog.setExponent(5);
 
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
@@ -54,6 +64,8 @@ public class DDLMerger {
 				k=Integer.parseInt(b);
 			}else if(a.equals("buckets")){
 				targetBuckets=Integer.parseInt(b);
+			}else if(a.equals("exponent") || a.equals("ebits")){
+				DynamicDemiLog.setExponent(Integer.parseInt(b));
 			}else if(a.equals("mergemito") || a.equals("mergemitochondrion")){
 				mergeMito=Parse.parseBoolean(b);
 			}else if(a.equals("mergeplastid")){
@@ -62,6 +74,10 @@ public class DDLMerger {
 				mergePlasmid=Parse.parseBoolean(b);
 			}else if(a.equals("merge") || a.equals("mergeall")){
 				mergeMain=mergeMito=mergePlastid=mergePlasmid=Parse.parseBoolean(b);
+			}else if(a.equals("minsize") || a.equals("originfileminsizefilter")){
+				parseMinSize(b);
+			}else if(a.equals("tidsout") || a.equals("outtids")){
+				tidsOut=b;
 			}else if(a.equals("blacklist")){
 				blacklistFile=b;
 			}else if(a.equals("verbose")){
@@ -108,6 +124,10 @@ public class DDLMerger {
 			ArrayList<DDLRecord> records=DDLLoaderMT.loadFile(path, k);
 			for(DDLRecord rec : records){
 				if(rec.origin==null){rec.origin=origin;}
+				//Filter AT LOAD, before anything accumulates: a dropped record never enters the
+				//list, so filtering makes this tool cheaper rather than more expensive (it holds
+				//every surviving record in memory, and the 26% being cut is 26% never held).
+				if(!keep(rec)){filtered++; continue;}
 				if(targetBuckets>0 && rec.ddl.buckets>targetBuckets){
 					DynamicDemiLog cddl=DynamicDemiLog.condenseBlacklisted(rec.ddl, targetBuckets);
 					DDLRecord crec=new DDLRecord(cddl, rec.id, rec.taxID, rec.name);
@@ -126,7 +146,9 @@ public class DDLMerger {
 			if(verbose){outstream.println("Loaded "+records.size()+" records from "+path+" ("+catName(cat)+")");}
 		}
 		outstream.println("Loaded "+all.size()+" total records from "+inFiles.length+" files."
-			+(condensed>0 ? " Condensed "+condensed+" records to "+targetBuckets+" buckets." : ""));
+			+(condensed>0 ? " Condensed "+condensed+" records to "+targetBuckets+" buckets." : "")
+			+(filtered>0 ? " Dropped "+filtered+" below the size filter." : ""));
+		reportFilter();
 
 		//Merge by TID where appropriate
 		final IntObjectMap<TaggedRecord> tidMap=new IntObjectMap<TaggedRecord>(TaggedRecord.class);
@@ -209,12 +231,168 @@ public class DDLMerger {
 
 		final String bl=(blacklistFile!=null ? blacklistFile : DDLLoader.lastBlacklistHeader);
 		DDLLoader.writeFile(numbered, out, overwrite, k, 12345L, bl);
+		writeTids(numbered);
 
 		t.stop();
 		int merged=all.size()-numbered.size();
 		outstream.println("Wrote "+numbered.size()+" DDL records to "+out
 			+(merged>0 ? " (merged "+merged+" duplicates)" : ""));
 		outstream.println("Time: \t"+t);
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------          Size Filter         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Parses minsize=key,bases+key,bases -- a per-origin minimum genome size.
+	 * Keyed on the SOURCE FILE rather than on a clade, because clade membership is exactly the
+	 * thing that is ambiguous here: 'plastid' vs 'chloroplast' naming differs between releases,
+	 * and organelle taxonomy is confusing enough that hardcoding it would be its own bug.  The
+	 * file split already encodes the domain, so the file is the honest key -- and filenames can
+	 * change, so they belong in a flag rather than in the source.
+	 *
+	 * ⚠ THE SEPARATOR IS '+', AND THAT IS NOT A STYLE CHOICE.  Every BBTools launcher (294 of
+	 * them) ends in `eval $CMD`, so bash re-parses the assembled command line AFTER the caller's
+	 * quoting is gone.  Candidates were tested through a real launcher rather than assumed:
+	 *   ';' and '|'  SEVER the command.  minsize='a,2000;b,100000' tidsout=x silently applied
+	 *                only rule 'a', never set tidsout, printed "b,100000: command not found",
+	 *                and exited 0 with plausible output.  Semicolons are unusable in ANY
+	 *                BBTools argument for this reason.
+	 *   '~'          EXPANDS, silently.  Bash tilde-expands after '=' in an assignment-shaped
+	 *                word: minsize=~/x became minsize=/home/<user>/x.  Silent substitution is
+	 *                worse than severance because nothing is printed.
+	 *   ':'          survives alone, but ENABLES tilde expansion after itself (x=a,1:~root/y
+	 *                became x=a,1:/root/y), and already means something else in BBTools --
+	 *                vectorutils out=f1:0.9,f2:0.1 uses it for partition fractions.
+	 *   '+'          inert under every test, through the real launcher.  Chosen.
+	 * ';' is still accepted for direct `java ddl.DDLMerger` invocation, where no eval intervenes.
+	 * The fully eval-proof form needs no separator at all -- repeat the flag, entries accumulate:
+	 *   minsize=refseq_bacteria.fa.gz,100000 minsize=refseq_invertebrate.fa.gz,1000000
+	 * @param s '+'- or ';'-delimited key,bases pairs
+	 */
+	private void parseMinSize(String s){
+		if(s==null || s.length()<1){return;}
+		for(String pair : s.split("[+;]")){
+			if(pair.trim().length()<1){continue;}
+			int comma=pair.lastIndexOf(',');
+			assert(comma>0) : "minsize entries must be key,bases -- got '"+pair+"'";
+			String key=normalizeOrigin(pair.substring(0, comma).trim());
+			long min=Parse.parseKMG(pair.substring(comma+1).trim());
+			assert(key.length()>0) : "Empty key in minsize entry '"+pair+"'";
+			minSize.put(key, min);
+			ruleHits.put(key, 0L);
+			ruleDrops.put(key, 0L);
+		}
+	}
+
+	/** Strips directory, compression and format suffixes so a rule key and a record origin can
+	 * be compared regardless of which layer the name came from (source fasta vs sketch file). */
+	static String normalizeOrigin(String s){
+		if(s==null){return "";}
+		String name=new File(s).getName().toLowerCase();
+		for(String ext : new String[]{".gz", ".bz2", ".zip"}){
+			if(name.endsWith(ext)){name=name.substring(0, name.length()-ext.length());}
+		}
+		for(String ext : new String[]{".tsv", ".ddl", "_ddl", ".fna", ".fasta", ".fa", ".txt"}){
+			if(name.endsWith(ext)){name=name.substring(0, name.length()-ext.length());}
+		}
+		//Collapse every run of . _ - to a single _ so a rule key and a record value match regardless
+		//of which separator each side used: the #file header is dot-separated (refseq.bacteria.fna.gz
+		//-> refseq_bacteria) while a hand-typed key or a 32k #origin (bacteria_b64k) is underscored.
+		//Both sides pass through this one function, so keys and values normalize identically.
+		name=name.replaceAll("[._-]+", "_").replaceAll("^_+|_+$", "");
+		return name;
+	}
+
+	/** Rule key matching this record, or null if none.  Matches the record's SOURCE FILE (#file
+	 * header) first and its origin second -- either hitting is enough.  Filename is the load-bearing
+	 * field: in a merged sketch file the per-record #file always survives, while #origin is either
+	 * absent (the 4k file, where rec.origin then gets overwritten with the input filename) or a
+	 * clade+build tag (the 32k file, e.g. bacteria_b64k).  So origin alone would match nothing. */
+	private String ruleFor(DDLRecord rec){
+		String key=ruleForValue(rec.filename);
+		if(key==null){key=ruleForValue(rec.origin);}
+		return key;
+	}
+
+	/** Rule key matching a single origin/filename string, or null.  Exact match wins; otherwise a
+	 * containment match either way, so 'refseq_bacteria' matches 'refseq.bacteria.genomic' variants. */
+	private String ruleForValue(String value){
+		final String o=normalizeOrigin(value);
+		if(o.length()<1){return null;}
+		if(minSize.containsKey(o)){return o;}
+		for(String key : minSize.keySet()){
+			if(o.contains(key) || key.contains(o)){return key;}
+		}
+		return null;
+	}
+
+	/**
+	 * Whether this record survives the size filter.
+	 * An origin named by NO rule is kept whole.  That default is what makes organelles, plasmids
+	 * and viruses exempt without any clade logic: you simply do not list those files.  It also
+	 * makes the failure mode safe -- a new or renamed input file passes through visibly (and is
+	 * reported below) rather than silently vanishing from the database.
+	 */
+	private boolean keep(DDLRecord rec){
+		//Report against the SOURCE FILE when present (the clade-specific field); fall back to origin.
+		//On the 4k file rec.origin is the input filename for every record, so the filename is what
+		//makes the "unfiltered (kept whole)" line name the actual exempt clades (plasmid, viral, ...).
+		final String label=(rec.filename!=null && rec.filename.length()>0 ? rec.filename
+			: (rec.origin!=null ? rec.origin : ""));
+		originSeen.merge(label, 1L, Long::sum);
+		String key=ruleFor(rec);
+		if(key==null){
+			unruledOrigins.add(label);
+			return true;
+		}
+		ruleHits.merge(key, 1L, Long::sum);
+		if(rec.bases>=minSize.get(key)){return true;}
+		ruleDrops.merge(key, 1L, Long::sum);
+		originDropped.merge(label, 1L, Long::sum);
+		return false;
+	}
+
+	/** Reports what the filter did, including the cases that are silent failures otherwise:
+	 * a rule that matched nothing (renamed or missing input) and an origin no rule covered. */
+	private void reportFilter(){
+		if(minSize.isEmpty()){return;}
+		outstream.println("\nSize filter (per source file):");
+		for(Map.Entry<String, Long> e : minSize.entrySet()){
+			final String key=e.getKey();
+			final long seen=ruleHits.get(key), dropped=ruleDrops.get(key);
+			outstream.println("  "+key+"\tmin="+e.getValue()+"\tmatched="+seen
+				+"\tdropped="+dropped+"\tkept="+(seen-dropped)
+				+(seen==0 ? "\t<-- WARNING: matched NO records; renamed or missing input?" : ""));
+		}
+		if(!unruledOrigins.isEmpty()){
+			ArrayList<String> list=new ArrayList<String>(unruledOrigins);
+			Collections.sort(list);
+			outstream.println("  Unfiltered (no rule, kept whole): "+list.size()+" origin(s): "
+				+String.join(", ", list));
+		}
+	}
+
+	/** Writes the surviving taxIDs, sorted and unique, one per line -- the whitelist for the
+	 * downstream clade filter, so the two databases can be made congruent without a second scan. */
+	private void writeTids(ArrayList<DDLRecord> records){
+		if(tidsOut==null){return;}
+		TreeSet<Integer> tids=new TreeSet<Integer>();
+		for(DDLRecord rec : records){
+			if(rec.taxID>0){tids.add(rec.taxID);}
+		}
+		FileFormat ff=FileFormat.testOutput(tidsOut, FileFormat.TXT, null, true, overwrite, false, false);
+		ByteStreamWriter bsw=new ByteStreamWriter(ff);
+		bsw.start();
+		ByteBuilder bb=new ByteBuilder(1<<16);
+		for(int tid : tids){
+			bb.append(tid).nl();
+			if(bb.length()>=(1<<16)){bsw.print(bb); bb.clear();}
+		}
+		if(bb.length()>0){bsw.print(bb);}
+		bsw.poisonAndWait();
+		outstream.println("Wrote "+tids.size()+" distinct taxIDs to "+tidsOut);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -295,6 +473,20 @@ public class DDLMerger {
 	private boolean overwrite=false;
 	private boolean verbose=false;
 	private String blacklistFile=null;
+	private String tidsOut=null;
+
+	/** Per-source-file minimum genome size, from minsize=.  Insertion-ordered so the report
+	 * lists rules in the order they were given. */
+	private final LinkedHashMap<String, Long> minSize=new LinkedHashMap<String, Long>();
+	/** Records each rule matched, and of those, how many it dropped. */
+	private final LinkedHashMap<String, Long> ruleHits=new LinkedHashMap<String, Long>();
+	private final LinkedHashMap<String, Long> ruleDrops=new LinkedHashMap<String, Long>();
+	/** Origins seen, and origins covered by no rule (kept whole, and reported). */
+	private final LinkedHashMap<String, Long> originSeen=new LinkedHashMap<String, Long>();
+	private final LinkedHashMap<String, Long> originDropped=new LinkedHashMap<String, Long>();
+	private final TreeSet<String> unruledOrigins=new TreeSet<String>();
+	/** Records removed by the size filter. */
+	private long filtered=0;
 
 	private boolean mergeMain=true;
 	private boolean mergeMito=true;

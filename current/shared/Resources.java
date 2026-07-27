@@ -88,6 +88,8 @@ public class Resources {
 	private static final String GITHUB_RELEASES="https://github.com/bbushnell/BBTools/releases/";
 	private static final String GITHUB_V3982="https://github.com/bbushnell/BBTools/releases/tag/v39.82/";
 	private static final String GITHUB_V3984="https://github.com/bbushnell/BBTools/releases/tag/v39.84/";
+	/** Direct download prefix for the v40.00 release (size-filtered DDL + congruent spectra). */
+	private static final String GITHUB_V4000="https://github.com/bbushnell/BBTools/releases/download/v40.00/";
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
 	private static final String SOURCEFORGE_URL="https://sourceforge.net/projects/bbmap/files/Resources/";
 	/** The dense 32k DDL sketch DB is ~11.6 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
@@ -98,14 +100,14 @@ public class Resources {
 	static{
 		RESOURCE_URLS.put("all_euk_18S_best_taxsorted.fa.gz", GITHUB_V3982);
 		RESOURCE_URLS.put("all_prok_16S_best_taxsorted.fa.gz", GITHUB_V3982);
-		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096.tsv.gz", GITHUB_RELEASES);
+		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096.tsv.gz", GITHUB_V4000+"refseqSketchDDL_k25e5b4096.tsv.gz");
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b4096_merged.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b32768.tsv.gz", ZENODO_DDL32K);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("refseqSketchDDL_k25e5b2048_merged.tsv.gz", GITHUB_RELEASES);
 		RESOURCE_URLS.put("ribokmers.fa.gz", GITHUB_V3982);
 
-		RESOURCE_URLS.put("refseqA48_with_ribo.spectra.gz", GITHUB_V3984);
+		RESOURCE_URLS.put("refseqA48_with_ribo.spectra.gz", GITHUB_V4000+"refseqA48_with_ribo.spectra.gz");
 
 		RESOURCE_URLS.put("RQCFilterData.tar", NERSC_URL);
 		RESOURCE_URLS.put("riboKmers20fused.fa.gz", NERSC_URL);

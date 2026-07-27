@@ -68,6 +68,14 @@ public class CladeLoaderMT {
 		//Single-threaded merge AFTER all workers join (no concurrency here) -> Clade.add(Clade)'s this-then-c lock is uncontended; the c.bases>0 guard satisfies Clade.add's assert(c.bases>0), and same-map-key guarantees its taxID==c.taxID assert. Confirms Clade.add's "no reciprocal merge" safety claim.
 		for(ArrayList<Clade> results : allResults){
 			for(Clade c : results){
+				//Whitelist is applied HERE as well as in CladeLoader.addClade, because this merge
+				//loop is the real path: addClade is only reached via the threads<2 fallback above,
+				//so filtering solely there would silently do nothing on any normal multithreaded
+				//run.  Applied at merge, so a rejected clade never enters the shared map.
+				if(CladeLoader.whitelist!=null && !CladeLoader.whitelist.contains(c.taxID)){
+					CladeLoader.whitelistDropped++;
+					continue;
+				}
 				Integer key=c.taxID;
 				Clade old=map.get(key);
 				if(old==null){

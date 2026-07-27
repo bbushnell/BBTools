@@ -5,6 +5,7 @@ import fileIO.ByteFile;
 import fileIO.FileFormat;
 import map.LongHashSet;
 import parse.Parser;
+import shared.KillSwitch;
 import shared.Tools;
 import structures.ByteBuilder;
 
@@ -658,11 +659,47 @@ public final class DynamicDemiLog extends CardinalityTracker {
 	 * preventing scan loops from running into the unrepresentable NLZ range. */
 	private static int maxNLZ=1<<exponentBits;
 
+	/** Exponent width forced by a loaded sketch file's #exponent header; -1 if no file has set one.
+	 * Once a file forces a width, live sketches are already decoded under it, so a conflicting
+	 * width is fatal rather than silently reinterpreting them. */
+	private static int exponentFromFile=-1;
+	/** Whatever forced exponentFromFile, for the mismatch message. */
+	private static String exponentSource=null;
+
+	/** Sets the exponent width as a default or from a user flag.
+	 *  @param bits Exponent bits (5 or 6; default 6) */
+	public static void setExponent(int bits){setExponent(bits, false, null);}
+
+	/** Sets the exponent width.
+	 *  @param bits Exponent bits
+	 *  @param fromFile True if this value came from a sketch file's #exponent header */
+	public static void setExponent(int bits, boolean fromFile){setExponent(bits, fromFile, null);}
+
 	/** Sets the exponent width and recalculates all derived fields.
 	 *  Must be called before creating any DDL instances.
-	 *  @param bits Exponent bits (5 or 6; default 6) */
-	public static synchronized void setExponent(int bits){
+	 *  The width is process-global, so every live sketch is decoded under it; once a sketch FILE
+	 *  has forced a value, a conflicting one is fatal.  Silently reinterpreting already-loaded
+	 *  sketches under a new mantissa split yields wrong data with no error, which is worse than
+	 *  a crash.  A default or user flag may still set the width freely before any file is read.
+	 *  @param bits Exponent bits (5 or 6; default 6)
+	 *  @param fromFile True if this value came from a sketch file's #exponent header
+	 *  @param source File or flag supplying the value; used only in the mismatch message */
+	public static synchronized void setExponent(int bits, boolean fromFile, String source){
 		assert(bits>=1 && bits<=8) : "Exponent bits must be 1-8, got "+bits;
+		assert(exponentFromFile<0 || exponentFromFile==bits) : KillSwitch.assertDie(
+			"Exponent mismatch: "+exponentSource+" set exponent="+exponentFromFile+", but "
+			+(source==null ? "a later value" : source)+" requires exponent="+bits+".\n"
+			+"The exponent width is process-global, so sketches written at different widths cannot "
+			+"be loaded or compared in one process.  Rebuild one side at the other's width, or "
+			+"process them separately.");
+		if(fromFile){
+			if(exponentFromFile<0 && exponentBits!=bits){
+				System.err.println("Note: exponent "+exponentBits+" replaced by file value "+bits
+					+(source==null ? "." : " from "+source+"."));
+			}
+			exponentFromFile=bits;
+			exponentSource=(source==null ? "a sketch file" : source);
+		}
 		exponentBits=bits;
 		nlzMask=(1<<exponentBits)-1;
 		mantissabits=16-exponentBits;

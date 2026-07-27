@@ -115,7 +115,7 @@ public class DataLoader {
                             matrix.dims=parseIntArray(s, delimiter, true);
                             matrix.numInputs=matrix.dims[0];
                             matrix.numOutputs=matrix.dims[1];
-                            weighted=(matrix.dims.length>2 && matrix.dims[2]==1);
+                            setWeighted(matrix.dims.length>2 && matrix.dims[2]==1);
                             assert(matrix.dims.length>1) : matrix.dims.length+", "+Arrays.toString(matrix.dims)+", '"+new String(s)+"'";
                         }else if(Tools.startsWith(s, "#inputs")) {
                             matrix.numInputs=parseInt(s);
@@ -339,7 +339,32 @@ public class DataLoader {
     
     static long lastInvalidLines=0;
     
-    static boolean weighted=false;
+    /** Whether data lines carry a weight column between the inputs and the outputs. */
+    private static boolean weighted=false;
+    /** Whether weighted has been established yet; before that, any value is accepted. */
+    private static boolean setWeighted=false;
+
+    /**
+     * Declares whether data lines carry a weight column.
+     * This is process-global and outlives the file that set it, so a second, CONFLICTING declaration
+     * is refused rather than silently applied: parseDataLine reads inputs, then the weight, then the
+     * outputs, so flipping this mid-run shifts every column and quietly turns a weight into a feature.
+     * The column count still adds up either way, so the assert in parseDataLine would not catch it.
+     * Re-declaring the SAME value is always fine (every file in a set states the same layout).
+     * @param b True if a weight column is present
+     */
+    public static void setWeighted(boolean b){
+        assert(b==weighted || !setWeighted) :
+            "Conflicting weight layout: already loaded data with weighted="+weighted
+            +", cannot switch to weighted="+b+" in the same process.\n"
+            +"A weight column sits between the inputs and the output, so changing this shifts every "
+            +"column.  Load weighted and unweighted sets in separate runs.";
+        weighted=b;
+        setWeighted=true;
+    }
+
+    /** True if data lines carry a weight column. */
+    public static boolean weighted(){return weighted;}
     
     public static final byte delimiter='\t';
     

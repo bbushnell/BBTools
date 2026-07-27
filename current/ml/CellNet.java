@@ -7,6 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import shared.Random;
 
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import simd.Vector;
@@ -669,7 +670,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public CellNet applyInput(FloatList valuesIn) {
 		//assert(check());
-		assert(valuesIn.size==dims[0]) : valuesIn.size+"; "+Arrays.toString(dims);
+		assert(valuesIn.size==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.size));
 		Vector.copy(values[0], valuesIn.array); // Copy to input layer
 		return this;
 	}
@@ -682,9 +683,44 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 */
 	public CellNet applyInput(float[] valuesIn) {
 		//assert(check());
-		assert(valuesIn.length==dims[0]) : valuesIn.length+"; "+Arrays.toString(dims);
+		assert(valuesIn.length==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.length));
 		Vector.copy(values[0], valuesIn); // Copy to input layer
 		return this;
+	}
+
+	/**
+	 * Explains an input-width mismatch, then halts the VM via KillSwitch.assertDie at the call site.
+	 *
+	 * applyInput is called from SEVEN packages -- ml (Trainer via processSample, Calibrate,
+	 * RegressionTrainer, NetFilter, ScoreSequence, SequenceToVector), bin/Oracle, clade/CladeConfidence,
+	 * jgi/BBMerge, and var2 (Var, GradeVCF) -- several of them multithreaded, so this halt is deliberately
+	 * process-wide rather than trainer-specific.
+	 *
+	 * Halting is the correct response everywhere it is reached: values[0] is allocated as
+	 * new float[dims[0]] at construction, so a width mismatch cannot be absorbed, and a net fed the wrong
+	 * feature layout returns confident nonsense rather than degraded output -- the one failure BBTools
+	 * does not tolerate. In ml.Trainer specifically a plain AssertionError is also unrecoverable in a
+	 * second way: it kills only the worker and leaves the consumer parked in Trainer.fetchFromQueue
+	 * forever, observed as a job RUNNING at ~0.6% CPU indefinitely, holding a cluster node until someone
+	 * notices. Under -da the assertion is skipped entirely and this method never runs, so behavior for
+	 * anyone running without assertions is unchanged; under -ea the message costs nothing on the happy
+	 * path, being built only once the assertion has already failed.
+	 *
+	 * The usual cause is a data file whose column count disagrees with the network: an unheadered vector
+	 * file infers its width from the column count, so a weight column read as an input widens every row
+	 * by one and lands here.
+	 * @param given Number of input values supplied
+	 * @return Never returns; the return type exists only to sit in an assertion's message slot
+	 */
+	private String inputMismatch(int given){
+		return "Network input width mismatch: got "+given+" values, but this network takes "+dims[0]
+			+" (dims="+Arrays.toString(dims)+").\n"
+			+"If the data file has no '#dims' header its width is inferred from the column count, so a "
+			//'given' is the INPUT count, not the column count: on the unweighted inference path
+			//DataLoader sets numInputs=terms-1, so the row has given+1 columns.  Quoting 'given' here
+			//would understate it by one and send the reader looking for a different file.
+			+"weight column is counted as an input.  Add a header, e.g. '#dims "+(given-1)+" 1 1' for "
+			+(given+1)+" columns with one weight, or state it with vectorutils.sh dims=.";
 	}
 	
 	/**
