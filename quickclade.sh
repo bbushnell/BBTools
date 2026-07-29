@@ -64,6 +64,11 @@ steps=6         Only search up to this many GC intervals (of 0.01) away from
                 the query GC.
 callssu=t       Call 16S and 18S for alignment to reference SSU.  Slightly
                 slower.  Affects top hit ordering.
+useranking=t    Use the neural-network ranker to reorder results (default: on
+                when a DDL sketch database is loaded).  The ranking net
+                improves species-level accuracy by 3-9% over the heuristic
+                composite score.  Disabled in fast mode (no DDL data).
+                Set useranking=f to use the heuristic composite ordering.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.
 composition=    Output a taxonomy composition report to this file.  Shows

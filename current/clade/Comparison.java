@@ -563,7 +563,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.appendt("k4dif");
 		bb.append("k5dif");
 		if(Clade.callSSU) {bb.tab().append("ssuID");}
-		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tKID\tCompleteness\tKmerMatches");}
+		if(Clade.MAKE_DDLS){bb.append("\tANI\tWKID\tKID\tCompleteness\tKmerMatches\tR_Cardinality");}
 		bb.append("\tlineage");
 		bb.append("\tConfLevel\tConfidence");
 		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketch_LCA");}
@@ -613,6 +613,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 			bb.tab().append(kid>=0 ? kid : -1, 4);
 			bb.tab().append(completeness>=0 ? completeness : -1, 4);
 			bb.tab().append(kmerMatches);
+			bb.tab().append(ref.ddl!=null ? ref.ddl.cardinality() : 0);
 		}
 		bb.tab().append(lineage());
 
@@ -796,6 +797,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	/** compositeScore from the display sort, cached so it is computed once per hit
 	 *  rather than O(n log n) times inside the comparator, and so it can be printed. */
 	float composite=-1;
+	float rankingScore=Float.NEGATIVE_INFINITY;
 
 	int sketchTaxID=-1;
 	String sketchName;
