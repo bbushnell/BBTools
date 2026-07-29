@@ -57,7 +57,10 @@ import structures.FloatList;
  * verified against CellNet's own feedForward before training starts.
  *
  * Input format: same as train.sh — '#dims &lt;in&gt; &lt;out&gt;' header, then tab-delimited
- * floats, inputs first, target last.  One output supported.
+ * floats, inputs first, then &lt;out&gt; target columns.  MULTIPLE OUTPUTS are supported: the
+ * last dims entry sets the output width, loss is summed squared error across outputs, and
+ * every output is checked on the round trip.  One output remains the common case and its
+ * behaviour is unchanged.
  *
  * @author Amber (for Brian), with final= modes by Neptune
  * @date July 2026
@@ -197,9 +200,6 @@ public class RegressionTrainer {
 		if(dims.length<2){
 			throw new IllegalArgumentException("dims needs at least an input and output layer");
 		}
-		if(dims[dims.length-1]!=1){
-			throw new IllegalArgumentException("one output supported; last dim must be 1");
-		}
 		if(epochs<1){throw new IllegalArgumentException("epochs must be positive: "+epochs);}
 		if(batch<1){throw new IllegalArgumentException("batch must be positive: "+batch);}
 		if(vfraction<0 || vfraction>=1){
@@ -280,6 +280,7 @@ public class RegressionTrainer {
 	 */
 	private void loadData(){
 		numInputs=dims[0];
+		numOutputs=dims[dims.length-1];
 		if(!readVectors()){
 			//Parse's fast path does not support exponents: outside of assertions it reads
 			//'e' as a digit and silently returns a wrong number, so a file containing
@@ -291,6 +292,8 @@ public class RegressionTrainer {
 
 		assert(vectors.length>=(long)numSamples*numInputs) :
 			vectors.length+", "+numSamples+", "+numInputs;
+		assert(targets.length>=(long)numSamples*numOutputs) :
+			targets.length+", "+numSamples+", "+numOutputs;
 
 		outstream.println("loaded "+numSamples+" samples, dims="+Arrays.toString(dims));
 		if(numSamples<1){throw new RuntimeException("No samples were loaded from "+in);}
@@ -321,9 +324,9 @@ public class RegressionTrainer {
 				return false;
 			}
 			lp.set(line);
-			if(lp.terms()<numInputs+1){continue;}
+			if(lp.terms()<numInputs+numOutputs){continue;}
 			for(int i=0; i<numInputs; i++){vecList.add(lp.parseFloat(i));}
-			tgtList.add(lp.parseFloat(numInputs));
+			for(int k=0; k<numOutputs; k++){tgtList.add(lp.parseFloat(numInputs+k));}
 		}
 		errorState|=bf.close();
 
@@ -332,7 +335,7 @@ public class RegressionTrainer {
 		//numSamples bounds the valid region, so the slack costs nothing but address space.
 		vectors=vecList.array;
 		targets=tgtList.array;
-		numSamples=tgtList.size;
+		numSamples=tgtList.size/numOutputs;
 		return true;
 	}
 
@@ -371,6 +374,13 @@ public class RegressionTrainer {
 	private void checkHeader(byte[] line, LineParser1 lp){
 		lp.set(line);
 		if(lp.terms()<2){return;}
+		if(lp.terms()>=3){
+			final int headerOutputs=lp.parseInt(2);
+			if(headerOutputs!=numOutputs){
+				outstream.println("WARNING: file header declares "+headerOutputs
+					+" outputs but dims= declares "+numOutputs+".");
+			}
+		}
 		final int headerInputs=lp.parseInt(1);
 		if(headerInputs!=numInputs){
 			outstream.println("WARNING: file header declares "+headerInputs
@@ -544,10 +554,6 @@ public class RegressionTrainer {
 			throw new IllegalArgumentException("dims="+Arrays.toString(dims)
 				+" does not match the net in "+netIn+" "+Arrays.toString(netDims));
 		}
-		if(dims[dims.length-1]!=1){
-			throw new IllegalArgumentException("one output supported; net has "
-				+dims[dims.length-1]);
-		}
 		outstream.println("netin: continuing from "+netIn+" "+Arrays.toString(dims)
 			+"; training in RAW input space, no re-standardization");
 	}
@@ -568,9 +574,11 @@ public class RegressionTrainer {
 		for(int s=0; s<n; s++){
 			System.arraycopy(vectors, s*numInputs, buffer, 0, numInputs);
 			net.applyInput(buffer);
-			final double a=net.feedForward();
-			final double b=predict(s, weights, bias);
-			maxDiff=Math.max(maxDiff, Math.abs(a-b));
+			net.feedForward();
+			final double[] b=predict(s, weights, bias);
+			for(int k=0; k<numOutputs; k++){
+				maxDiff=Math.max(maxDiff, Math.abs(net.getOutput(k)-b[k]));
+			}
 		}
 		final boolean ok=(maxDiff<1e-3);
 		outstream.println(String.format(
@@ -879,10 +887,16 @@ public class RegressionTrainer {
 			}
 		}
 
-		final double outv=actF[layers][0];
-		final double err=outv-targets[sample];
-		if(sampleError!=null){sampleError[sample]=(float)Math.abs(err);}
-		deltaF[layers][0]=(float)(2*err*finDeriv(outv, finalType));
+		final float[] outs=actF[layers];
+		double sqErr=0, absErr=0;
+		for(int k=0; k<numOutputs; k++){
+			final double outv=outs[k];
+			final double err=outv-targets[sample*numOutputs+k];
+			sqErr+=err*err;
+			absErr+=Math.abs(err);
+			deltaF[layers][k]=(float)(2*err*finDeriv(outv, finalType));
+		}
+		if(sampleError!=null){sampleError[sample]=(float)(absErr/numOutputs);}
 
 		for(int l=layers-1; l>=0; l--){
 			final int rows=dims[l+1], cols=dims[l];
@@ -912,7 +926,7 @@ public class RegressionTrainer {
 				}
 			}
 		}
-		return err*err;
+		return sqErr;
 	}
 
 	/** Float Adam update, then refresh the transpose the backward pass reads.
@@ -1057,10 +1071,16 @@ public class RegressionTrainer {
 			}
 		}
 
-		final double outv=act[layers][0];
-		final double err=outv-targets[sample];
-		if(sampleError!=null){sampleError[sample]=(float)Math.abs(err);}
-		delta[layers][0]=2*err*finDeriv(outv, finalType);
+		final double[] outs=act[layers];
+		double sqErr=0, absErr=0;
+		for(int k=0; k<numOutputs; k++){
+			final double outv=outs[k];
+			final double err=outv-targets[sample*numOutputs+k];
+			sqErr+=err*err;
+			absErr+=Math.abs(err);
+			delta[layers][k]=2*err*finDeriv(outv, finalType);
+		}
+		if(sampleError!=null){sampleError[sample]=(float)(absErr/numOutputs);}
 
 		for(int l=layers-1; l>=0; l--){
 			final int rows=dims[l+1], cols=dims[l];
@@ -1081,7 +1101,7 @@ public class RegressionTrainer {
 				}
 			}
 		}
-		return err*err;
+		return sqErr;
 	}
 
 	/**
@@ -1121,9 +1141,11 @@ public class RegressionTrainer {
 		double sum=0;
 		for(int s=numTrain; s<numSamples; s++){
 			final int sample=perm[s];
-			final double p=predict(sample, weights, bias);
-			final double e=p-targets[sample];
-			sum+=e*e;
+			final double[] p=predict(sample, weights, bias);
+			for(int k=0; k<numOutputs; k++){
+				final double e=p[k]-targets[sample*numOutputs+k];
+				sum+=e*e;
+			}
 		}
 		return sum/numValid;
 	}
@@ -1135,7 +1157,7 @@ public class RegressionTrainer {
 	 * @param b Bias arrays
 	 * @return Network output
 	 */
-	private double predict(final int sample, final double[][] w, final double[][] b){
+	private double[] predict(final int sample, final double[][] w, final double[][] b){
 		final int base=sample*numInputs;
 		double[] cur=scratchA, next=scratchB;
 		for(int i=0; i<numInputs; i++){cur[i]=(vectors[base+i]-mean[i])/sd[i];}
@@ -1150,7 +1172,7 @@ public class RegressionTrainer {
 			}
 			final double[] t=cur; cur=next; next=t;
 		}
-		return cur[0];
+		return cur;//caller reads the first numOutputs entries
 	}
 
 	/**
@@ -1209,9 +1231,11 @@ public class RegressionTrainer {
 		for(int s=0; s<n; s++){
 			System.arraycopy(vectors, s*numInputs, buffer, 0, numInputs);
 			check.applyInput(buffer);
-			final double a=check.feedForward();
-			final double b=predict(s, weights, bias);
-			maxDiff=Math.max(maxDiff, Math.abs(a-b));
+			check.feedForward();
+			final double[] b=predict(s, weights, bias);
+			for(int k=0; k<numOutputs; k++){
+				maxDiff=Math.max(maxDiff, Math.abs(check.getOutput(k)-b[k]));
+			}
 		}
 		final boolean ok=(maxDiff<1e-3);
 		outstream.println(String.format(
@@ -1331,6 +1355,8 @@ public class RegressionTrainer {
 	private float[] targets;
 	private int numSamples;
 	private int numInputs;
+	/** Output width; 1 is the classic scalar case */
+	private int numOutputs;
 	private int numTrain;
 	private int numValid;
 	/** Sample indices; [0,numTrain) train, [numTrain,numSamples) validation */
