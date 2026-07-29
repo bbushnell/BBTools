@@ -92,9 +92,9 @@ public class Resources {
 	private static final String GITHUB_V4000="https://github.com/bbushnell/BBTools/releases/download/v40.00/";
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
 	private static final String SOURCEFORGE_URL="https://sourceforge.net/projects/bbmap/files/Resources/";
-	/** The dense 32k DDL sketch DB is ~11.6 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
-	 * (concept DOI, always resolves to the latest version). */
-	private static final String ZENODO_DDL32K="https://doi.org/10.5281/zenodo.21500129";
+	/** The size-filtered 32k DDL sketch DB is ~9.8 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
+	 * as a direct-download file link pinned to the v40.00 record (matches the v40.00 GitHub links above). */
+	private static final String ZENODO_DDL32K="https://zenodo.org/records/21630308/files/refseqSketchDDL_k25e5b32768.tsv.gz";
 
 	private static final HashMap<String, String> RESOURCE_URLS=new HashMap<>();
 	static{
