@@ -131,6 +131,11 @@ public class QueryResult {
 		final int nConf=Math.min(showRecords ? Math.max(recordsToDisplay, 1) : 1, display.size());
 		for(int i=0; i<nConf; i++){display.get(i).cacheConfidence(display, i);}
 
+		// Ranking: re-sort by neural net score if available (not fast mode, not absent)
+		if(CladeRanking.ready() && Clade.MAKE_DDLS){
+			CladeRanking.scoreAndResort(display, Clade.DDL_BUCKETS, TaxTree.getTree());
+		}
+
 		qr.displayList=display;
 		return qr;
 	}
