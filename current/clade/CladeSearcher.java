@@ -151,13 +151,17 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @return Path to the default reference database, or null if unavailable
 	 */
 	public static String defaultRef() {
+		//Always prefer the shipped resources/ copy first (Data.findPath checks resources/, the jar, and the
+		///global/cfs resources hardlink); fall back to a known cluster path ONLY when resources/ lacks it.
+		//The reverse order silently loaded a stale ~/clade copy over the current resources/ database.
+		String local=Data.findPath("?refseqA48_with_ribo.spectra.gz", false);
+		if(local!=null){return local;}
 		if(Shared.DORI) {
 			return ("/clusterfs/jgi/groups/gentech/homes/bbushnell/clade/refseqA48_with_ribo.spectra.gz");
 		}else if(Shared.PERLMUTTER) {
 			return ("/global/cfs/cdirs/bbtools/clade/refseqA48_with_ribo.spectra.gz");
-		}else {
-			return Data.findPath("?refseqA48_with_ribo.spectra.gz", false);
 		}
+		return null;
 	}
 
 	/**
@@ -236,6 +240,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		Timer t=(showLoading ? new Timer(outstream, false) : new Timer());
 		sketchRecords=new ArrayList<ddl.DDLRecord>();
 		if(CladeIndex.sketchFile!=null){
+			if(showLoading){outstream.println("Loading sketch file "+CladeIndex.sketchFile);}
 			ArrayList<ddl.DDLRecord> records=ddl.DDLLoaderMT.loadFile(CladeIndex.sketchFile, Clade.DDL_K);
 			sketchRecords.addAll(records);
 		}else{
@@ -247,6 +252,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			if(files==null || files.length==0){return;}
 			java.util.Arrays.sort(files, (a, b)->Long.compare(b.length(), a.length()));
 			for(java.io.File f : files){
+				if(showLoading){outstream.println("Loading sketch file "+f.getAbsolutePath());}
 				ArrayList<ddl.DDLRecord> records=ddl.DDLLoaderMT.loadFile(f.getAbsolutePath(), Clade.DDL_K);
 				sketchRecords.addAll(records);
 			}
