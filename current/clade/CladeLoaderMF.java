@@ -316,7 +316,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	 */
 	public static Clade loadOneCladeFromClade(FileFormat ff) {
 		ArrayList<byte[]> lines=ByteFile.toLines(ff);
-		Clade c=Clade.parseClade(lines, new LineParser1('\t'));
+		Clade c=Clade.parseCladeFlex(lines, new LineParser1('\t'));
 		return c;
 	}
 	
@@ -410,7 +410,7 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 	private static boolean addClade(final ArrayList<byte[]> set, 
 			ArrayList<Clade> clades, LineParser1 lp) {
 		if(set.size()<=5) {return false;}
-		Clade c=Clade.parseClade(set, lp);
+		Clade c=Clade.parseCladeFlex(set, lp);
 		synchronized(c) {
 			c.finish();
 			clades.add(c);

@@ -13,6 +13,7 @@ import shared.KillSwitch;
 import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
+import structures.BytePrefixDispatcher;
 import tax.PrintTaxonomy;
 import tax.TaxNode;
 import tax.TaxTree;
@@ -189,6 +190,120 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return c;
 	}
 	
+	//Field-name -> id for the ORDER-INDEPENDENT parser (parseCladeFlex). Extend by adding a name here AND a
+	//switch case. Dispatch is zero-allocation (BytePrefixDispatcher on the line bytes -- no per-line String).
+	private static final String[] FLEX_NAMES={"tid","level","name","lineage","domain","gc","entropy",
+		"strandedness","bases","contigs","ddl","16S","18S"};
+	private static final int F_TID=0, F_LEVEL=1, F_NAME=2, F_LINEAGE=3, F_DOMAIN=4, F_ENTROPY=6,
+		F_CONTIGS=9, F_DDL=10, F_16S=11, F_18S=12;//gc(5)/strandedness(7)/bases(8) recognized-but-derived
+	private static final BytePrefixDispatcher FLEX=new BytePrefixDispatcher(FLEX_NAMES, (byte)'\t');
+	//A record must carry these; bases/contigs are optional (bases recomputed from monomers, contigs->0).
+	private static final long FLEX_REQUIRED=(1L<<F_TID)|(1L<<F_LEVEL)|(1L<<F_NAME);
+
+	/**
+	 * ORDER-INDEPENDENT record parser -- an alternative to {@link #parseClade} that dispatches metadata rows by
+	 * NAME (any order; unknown rows skipped) rather than by fixed position, then parses the k-mer count block in
+	 * strict fixed order. This is the backward-AND-forward-compatible shape: an old build skips a field it does
+	 * not know, a new build handles a field an old file lacks. Produces a Clade IDENTICAL to parseClade for
+	 * well-formed records. Metadata dispatch is zero-allocation; the only allocations are the name/lineage
+	 * Strings, same as parseClade. Kept as a peer of parseClade for A/B benchmarking.
+	 */
+	public static Clade parseCladeFlex(ArrayList<byte[]> list, LineParser1 lp) {
+		int coding=Clade.DECIMAL;
+		int maxk=5;
+
+		int pos=0;
+		lp.set(list.get(pos));
+		while(lp.startsWith('#')) {//header/comment rows: parse coding/MAXK, skip anything unrecognized
+			if(lp.terms()>1) {
+				for(int i=2; i<lp.terms(); i++) {
+					if(lp.termEquals("DEC", i)) {coding=Clade.DECIMAL;}
+					else if(lp.termEquals("A48", i)) {coding=Clade.A48;}
+					else if(lp.termEquals("DECo", i)) {coding=Clade.OFFSET_DEC;}
+					else if(lp.termEquals("A48o", i)) {coding=Clade.OFFSET_A48;}
+					else if(lp.termStartsWith("MAXK", i)) {maxk=lp.parseInt(i, 4);}
+				}
+			}
+			pos++;
+			lp.set(list.get(pos));
+		}
+
+		//Order-independent metadata dispatch, up to the first k-mer line (starts with a digit).
+		int tid=-1, level=-1, domain=-1;
+		String name=null, lineage=null;
+		float entropy=0;
+		long contigs=0, used=0;
+		for(; pos<list.size(); pos++) {
+			final byte[] line=list.get(pos);
+			if(line==null || line.length==0 || line[0]=='#') {continue;}
+			if(line[0]>='0' && line[0]<='9') {break;}//k-mer data begins
+			lp.set(line);
+			switch(FLEX.lookup(line, 0, line.length)) {
+				case F_TID: tid=lp.parseInt(1); used|=(1L<<F_TID); break;
+				case F_LEVEL: level=lp.parseInt(1); used|=(1L<<F_LEVEL); break;
+				case F_NAME: name=lp.parseString(1); used|=(1L<<F_NAME); break;
+				case F_LINEAGE: lineage=lp.parseString(1); break;
+				case F_DOMAIN: domain=lp.parseInt(1); break;
+				case F_ENTROPY: entropy=lp.parseFloat(1); break;
+				case F_CONTIGS: contigs=lp.parseLong(1); break;
+				default: break;//gc/strandedness/bases: derived/recomputed; unknown: ignored (extensible)
+			}
+		}
+		assert((used&FLEX_REQUIRED)==FLEX_REQUIRED) :
+			"Record missing a required field (tid/level/name); usedMask="+used;
+
+		Clade c=new Clade(tid, level, name);
+		synchronized(c) {
+			c.lineage=lineage;
+			c.domain=domain;
+			c.entropy=entropy;
+			c.contigs=contigs;
+
+			final boolean offset=(coding==Clade.OFFSET_DEC || coding==Clade.OFFSET_A48);
+			for(int k=1; k<=maxk; k++) {
+				lp.set(list.get(pos));
+				assert(lp.startsWith((char)(k+'0'))) : "Expected "+k+"-mer counts at line "+pos+": "+lp;
+				final int terms=lp.terms();
+				final int expected=arrayLength[k]+1+(offset ? 1 : 0);
+				assert(k<2 || terms==1 || terms==canonicalKmers[k]+1+(offset ? 1 : 0)) :
+					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
+				assert(terms==expected || (k>3 && terms==1)) :
+					k+", "+c.counts[k].length+", "+canonicalKmers[k]+", "+terms+", "+expected+", "+c.bases;
+				if(offset ? terms>=expected : terms>=arrayLength[k]+1) {
+					if(coding==Clade.DECIMAL) {lp.parseLongArray(1, c.counts[k]);}
+					else if(coding==Clade.A48) {lp.parseLongArrayA48(1, c.counts[k]);}
+					else if(coding==Clade.OFFSET_DEC) {lp.parseLongArrayOffsetDec(1, c.counts[k]);}
+					else {lp.parseLongArrayOffsetA48(1, c.counts[k]);}
+				}else{
+					c.counts[k]=null;
+				}
+				pos++;
+			}
+
+			c.setBases(c.monomerSum());//authoritative total from 1-mers (overflow history in parseClade)
+
+			for(; pos<list.size(); pos++) {
+				final byte[] line=list.get(pos);
+				if(line==null || line.length==0 || line[0]=='#') {continue;}
+				lp.set(line);
+				switch(FLEX.lookup(line, 0, line.length)) {
+					case F_16S: c.r16S=lp.parseByteArray(1); break;
+					case F_18S: c.r18S=lp.parseByteArray(1); break;
+					case F_DDL:
+						if(lp.terms()>1) {
+							char[] loaded=new char[lp.terms()-1];
+							for(int i=0; i<loaded.length; i++) {loaded[i]=(char)lp.parseLongA48(i+1);}
+							c.ddl=DynamicDemiLog.fromArray(loaded, c.taxID, c.name, DDL_K);
+						}
+						break;
+					default: break;//"kmers" when MAXK<5, or unknown trailing metadata -> ignored
+				}
+			}
+			c.finish();
+		}
+		return c;
+	}
+
 	public void add(Read r, EntropyTracker et, GeneCaller caller) {
 		add(r.bases, et);
 		if(caller==null || hasSSU() || r.length()<900) {return;}

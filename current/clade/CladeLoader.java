@@ -500,7 +500,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	private static boolean addClade(final ArrayList<byte[]> set,
 			ConcurrentHashMap<Integer, Clade> map, LineParser1 lp) {
 		if(set.size()<=5) {return false;}
-		Clade c=Clade.parseClade(set, lp);
+		Clade c=Clade.parseCladeFlex(set, lp);
 		//Reject here rather than at write time so a filtered record never enters the map; on a
 		//RefSeq-scale clade file the discarded fraction would otherwise sit there for the whole
 		//run.  NOTE this method is only reached on the SINGLE-THREADED fallback path
@@ -564,7 +564,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 //				if(Tools.startsWith(line, '#')) {continue;}
 //				assert(set.size()<=13);
 				if(Tools.startsWith(line, '#') && !set.isEmpty()) {//New record
-					Clade c=Clade.parseClade(set, lp);
+					Clade c=Clade.parseCladeFlex(set, lp);
 					synchronized(c) {
 						c.finish();
 						out.add(c);
@@ -575,7 +575,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			}
 		}
 		if(set.size()>1) {//New record
-			Clade c=Clade.parseClade(set, lp);
+			Clade c=Clade.parseCladeFlex(set, lp);
 			synchronized(c) {
 				c.finish();
 				out.add(c);

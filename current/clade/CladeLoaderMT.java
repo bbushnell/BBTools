@@ -127,7 +127,7 @@ public class CladeLoaderMT {
 				batch!=null; batch=queue.take()){
 			for(ArrayList<byte[]> record : batch){
 				if(record.size()>5){
-					Clade c=Clade.parseClade(record, lp);
+					Clade c=Clade.parseCladeFlex(record, lp);
 					if(c!=null){results.add(c);}
 				}
 			}

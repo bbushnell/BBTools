@@ -468,7 +468,7 @@ public class CladeServer {
 				return response.toBytes();
 
 			//Comprehension/QUESTION (flag Chloe/Brian): this catch(Exception) makes the server robust to bad requests,
-			//but Clade.parseClade is assert-heavy and BBTools runs with -ea, so MALFORMED (untrusted) network input can
+			//but Clade.parseCladeFlex is assert-heavy and BBTools runs with -ea, so MALFORMED (untrusted) network input can
 			//trip an AssertionError -- an Error, NOT an Exception -- which slips PAST this catch and surfaces as a raw
 			//500/dropped connection instead of the intended "Internal server error" message. The server itself
 			//survives (per-request thread pool). If graceful per-request handling of bad input is desired, catch
@@ -525,7 +525,7 @@ public class CladeServer {
 
 		/**
 		 * Parse standard Clade format - optimized with byte[] parsing.
-		 * Collects lines between '#' markers and passes to Clade.parseClade().
+		 * Collects lines between '#' markers and passes to Clade.parseCladeFlex().
 		 */
 		private ArrayList<Clade> parseStandardCladeFormat(LineParser1 newlineParser){
 			ArrayList<Clade> list=new ArrayList<Clade>();
@@ -541,7 +541,7 @@ public class CladeServer {
 
 				if(newlineParser.termStartsWith("#", term) && !currentClade.isEmpty()){
 					//Found new clade header and we have collected lines - process previous clade
-					Clade c=Clade.parseClade(currentClade, lp);
+					Clade c=Clade.parseCladeFlex(currentClade, lp);
 					if(c!=null){
 						c.finish();
 						list.add(c);
@@ -554,7 +554,7 @@ public class CladeServer {
 
 			//Process final clade if any lines remain
 			if(currentClade.size()>1){
-				Clade c=Clade.parseClade(currentClade, lp);
+				Clade c=Clade.parseCladeFlex(currentClade, lp);
 				if(c!=null){
 					c.finish();
 					list.add(c);
