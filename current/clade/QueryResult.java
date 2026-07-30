@@ -119,22 +119,27 @@ public class QueryResult {
 		for(Comparison c : display){c.composite=c.compositeScore(lcaFor(c, fTopClade, fTopSketch));}
 		display.sort((a, b) -> Float.compare(b.composite, a.composite));
 
-		// Cache confidence. The V2 model reads two of its 48 input dimensions from OTHER
-		// hits of this query (the strongest competitor, and the most taxonomically remote
-		// hit among the top ten), so each hit is scored against the whole display list --
-		// which is exactly the per-query group the training vectors were built from.
-		// Even when only the top hit is scored, it still sees the full list.
-		// Scored AFTER the sort and BEFORE any trimming, so each hit sees the ranked pool.
-		// Only the rows that can actually be displayed are scored: the pool is now generated
-		// to TOP_EXAMINE depth regardless of records=, so scoring all of it would cost up to
-		// 9 network evaluations per hit for rows nobody asked to see.
+		// Ranking: re-sort by neural net score if available (not fast mode, not absent).
+		// MUST run BEFORE confidence is cached. The confidence net's alt-hit dimensions read the
+		// NEIGHBOR ORDER (strongest competitor, most remote among the top ten), and its slow
+		// (49-dim) variant reads each hit's rankingScore as an input -- both are only correct once
+		// ranking has scored and re-sorted the list. The training vectors were built from this
+		// post-ranking order, so caching earlier scored against a different neighbor set and never
+		// saw the ranking dim; it also cached the pre-ranking top-N while write() prints the
+		// post-ranking top-N, leaving promoted hits uncached (they fell to the legacy path).
+		if(CladeRanking.ready() && Clade.MAKE_DDLS){
+			CladeRanking.scoreAndResort(display, Clade.DDL_BUCKETS);
+		}
+
+		// Cache confidence over the FINAL (ranking-sorted) list, so the cached hits are EXACTLY the
+		// ones write() prints (it caps at maxHitsToPrint == recordsToDisplay in this same order).
+		// The V2 model reads two of its input dimensions from OTHER hits of this query (the
+		// strongest competitor, and the most taxonomically remote hit among the top ten), so each
+		// hit is scored against the whole display list -- the per-query group the training vectors
+		// were built from. Only the displayable rows are scored (the pool is generated to
+		// TOP_EXAMINE depth regardless of records=, so scoring all of it would be wasted work).
 		final int nConf=Math.min(showRecords ? Math.max(recordsToDisplay, 1) : 1, display.size());
 		for(int i=0; i<nConf; i++){display.get(i).cacheConfidence(display, i);}
-
-		// Ranking: re-sort by neural net score if available (not fast mode, not absent)
-		if(CladeRanking.ready() && Clade.MAKE_DDLS){
-			CladeRanking.scoreAndResort(display, Clade.DDL_BUCKETS, TaxTree.getTree());
-		}
 
 		qr.displayList=display;
 		return qr;

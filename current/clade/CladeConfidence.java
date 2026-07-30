@@ -43,8 +43,8 @@ public class CladeConfidence {
 	/*----------------          V2 entry point      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** True when a V2 (48-input, 9-level) bundle is loaded and complete. */
-	public static boolean v2Ready(){return v2;}
+	/** True when a V2 bundle is loaded and complete (per-level nets OR a single multi-output net). */
+	public static boolean v2Ready(){return v2 || multiV2 || multiV2Slow;}
 
 	/**
 	 * Probability that group.get(index) is correct, for all 9 levels in LEVELS
@@ -55,11 +55,37 @@ public class CladeConfidence {
 	 * hits) dominate its cost, so building it per level would be wasteful.
 	 */
 	public static float[] profile(ArrayList<Comparison> group, int index){
-		if(!v2 || group==null || index<0 || index>=group.size()){return null;}
+		if((!v2 && !multiV2 && !multiV2Slow) || group==null || index<0 || index>=group.size()){return null;}
 		final Comparison self=group.get(index);
 		if(self.query==null || self.ref==null){return null;}
 		final FloatList fl=getThreadInput();
 		buildVector(fl, group, index);
+		//Slow (49-dim) net: used ONLY when ranking actually ran for this hit -- slow mode sets rankingScore,
+		//fast mode leaves it -Inf. Append the raw ranking score as dim 49, matching ConfidenceVectorizer,
+		//whose training dim came through the 6-decimal RankingScore column, so round to 6 here too.
+		if(multiV2Slow && Float.isFinite(self.rankingScore)){
+			fl.add(r6(self.rankingScore));
+			final CellNet net=getThreadMultiNetSlow();
+			net.applyInput(fl);
+			net.feedForward();
+			final float[] raw=net.getOutput();
+			final float[] out=new float[levelsMultiSlow.length];
+			for(int i=0; i<levelsMultiSlow.length; i++){out[i]=applyMultiCalSlow(raw[i], i);}
+			return out;
+		}
+		if(multiV2){ //ONE net, N output heads, one forward pass, N per-output calibrations
+			final CellNet net=getThreadMultiNet();
+			net.applyInput(fl);
+			net.feedForward();
+			final float[] raw=net.getOutput();
+			final float[] out=new float[levelsMulti.length];
+			for(int i=0; i<levelsMulti.length; i++){out[i]=applyMultiCal(raw[i], i);}
+			return out;
+		}
+		//No slow-net hit and no 48-dim multi net -> use the per-level V2 nets if present, else return null so
+		//the caller (cacheConfidence) takes its legacy/sigmoid fallback. Without this, a slow-only bundle would
+		//return a non-null EMPTY array for a fast-mode hit, suppressing that fallback and crashing downstream.
+		if(!v2){return null;}
 		final float[] out=new float[levelsV2.length];
 		for(int i=0; i<levelsV2.length; i++){
 			final CellNet net=getThreadNetV2(i);
@@ -120,7 +146,7 @@ public class CladeConfidence {
 		final boolean ssuValid=(ssuID>0);
 		fl.add(ssuValid ? ssuID : 0);                      //15 SSU-ANI
 		fl.add(ssuValid ? 1 : 0);                          //16 SSU-valid
-		domainOneHot(h.ref.taxID, fl);                     //17-23 domain 1-hot (7)
+		domainOneHot(h.ref.domain, fl);                    //17-23 domain 1-hot (7); reads the stored domain (no tree)
 		final boolean lcaValid=(h.sketchLCA>0);
 		fl.add(lcaValid ? encodeLevel(h.sketchLCA) : 0);   //24 cross-method LCA
 		fl.add(lcaValid ? 1 : 0);                          //25 cross-method LCA valid
@@ -176,11 +202,15 @@ public class CladeConfidence {
 		return best;
 	}
 
-	/** Formal-rank level of the LCA between two hits' references. */
+	/** Formal-rank level of the LCA between two hits' references, from their lineage strings (no TaxTree). The
+	 *  lineages now carry d__ (domain), so cross-kingdom-same-domain pairs resolve correctly. Fallback: viruses
+	 *  carry no d__ token (not a domain in NCBI), so when the lineages share no rank, use the stored domain field
+	 *  -- same domain -> domain-level LCA, else unrelated (LIFE). Reproduces the tree-based LCA the net trained on. */
 	private static int lcaLevel(Comparison a, Comparison b){
-		final TaxTree tree=CladeObject.tree;
-		if(tree==null || a.ref==null || b.ref==null){return TaxTree.LIFE;}
-		return formalLevel(tree.commonAncestor(a.ref.taxID, b.ref.taxID), tree);
+		if(a.ref==null || b.ref==null){return TaxTree.LIFE;}
+		final int lca=CladeIndex.lineageLCA(a.ref.lineage(), b.ref.lineage());
+		if(lca>0){return lca;}
+		return (a.ref.domain>=0 && a.ref.domain==b.ref.domain) ? TaxTree.DOMAIN : TaxTree.LIFE;
 	}
 
 	/** Promotes a node up the parent chain to the next formal rank (>=SPECIES). */
@@ -197,26 +227,13 @@ public class CladeConfidence {
 		return x<0 ? 0 : (x>1 ? 1 : x);
 	}
 
-	/** 7-way domain one-hot of the reference: bacteria, archaea, virus, animal, plant, fungi, other-euk. */
-	private static void domainOneHot(int rtid, FloatList fl){
-		final TaxTree tree=CladeObject.tree;
-		int hot=-1;
-		if(tree!=null){
-			final TaxNode sk=tree.getNodeAtLevel(rtid, TaxTree.SUPERKINGDOM);
-			final String skn=(sk!=null && sk.name!=null) ? sk.name.toLowerCase() : "";
-			if(skn.contains("bacteria")){hot=0;}
-			else if(skn.contains("archaea")){hot=1;}
-			else if(skn.contains("virus") || skn.contains("viroid") || skn.contains("viria")){hot=2;}
-			else if(skn.contains("eukaryota")){
-				final TaxNode k=tree.getNodeAtLevel(rtid, TaxTree.KINGDOM);
-				final String kn=(k!=null && k.name!=null) ? k.name.toLowerCase() : "";
-				if(kn.contains("metazoa")){hot=3;}
-				else if(kn.contains("viridiplantae")){hot=4;}
-				else if(kn.contains("fungi")){hot=5;}
-				else{hot=6;}
-			}
-		}
-		for(int k=0; k<7; k++){fl.add(k==hot ? 1 : 0);} //all zero when the superkingdom is unclassified
+	/** 7-way domain one-hot from the record's STORED domain category (0-6): bacteria, archaea, virus, animal,
+	 *  plant, fungi, other-euk; all-zero when unknown (domain<0 or >6). The domain is embedded at DB build time
+	 *  (cladeloader adddomain=t, which computes it from the tree ONCE), so no TaxTree is loaded at query time.
+	 *  All-zero-when-unknown reproduces the training distribution exactly (the tree-based builder gave all-zero
+	 *  for an unclassified superkingdom). */
+	private static void domainOneHot(int domain, FloatList fl){
+		for(int k=0; k<7; k++){fl.add(k==domain ? 1 : 0);}
 	}
 
 	/** log2(bucket count)/16, matching ConfidenceVectorizer's buckets= parameter. 0 in no-sketch (fast) mode. */
@@ -229,6 +246,8 @@ public class CladeConfidence {
 	private static float r5(float f){return Math.round(f*100000f)/100000f;}
 	/** Round to the 4 decimals appendResultMachine printed for ssuID/kid/wkid. */
 	private static float r4(float f){return Math.round(f*10000f)/10000f;}
+	/** Round to the 6 decimals appendResultMachine printed for the RankingScore column. */
+	private static float r6(float f){return Math.round(f*1000000f)/1000000f;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Calibration        ----------------*/
@@ -275,9 +294,11 @@ public class CladeConfidence {
 			float k3dif, float k4dif, float k5dif, int taxLevel) {
 		int idx = levelToIndexV1(taxLevel);
 		if(idx<0){return -1;}
-		//A V2 bundle carries no V1-shaped networks; a lone hit cannot supply the alt-hit
-		//dimensions, so this path degrades to the sigmoid tables rather than guessing them.
-		if(!v2 && USE_NN && loaded!=null && k5dif<1.0f){
+		//A V2 or multi-output bundle carries no V1-shaped allLenNets (the multi net lives in
+		//loaded.multiNet), and a lone hit cannot supply the alt-hit dimensions, so this legacy path
+		//degrades to the sigmoid tables rather than dereference a null allLenNets. The real V2/multi
+		//confidence is computed group-aware via profile() and cached upstream.
+		if(!v2 && !multiV2 && !multiV2Slow && USE_NN && loaded!=null && loaded.allLenNets!=null && k5dif<1.0f){
 			CellNet net;
 			float[] cal;
 			if(loaded.allLenNets[idx]!=null){
@@ -351,6 +372,36 @@ public class CladeConfidence {
 		return local[idx];
 	}
 
+	/** Thread-local copy of the single multi-output net. */
+	private static CellNet getThreadMultiNet(){
+		CellNet n=threadMultiNet.get();
+		if(n==null){n=loaded.multiNet.copy(false); threadMultiNet.set(n);}
+		return n;
+	}
+
+	/** Per-output calibration for the multi-output net: isotonic table when present, else 4-param. */
+	private static float applyMultiCal(float raw, int idx){
+		if(loaded.multiLutX!=null && loaded.multiLutX[idx]!=null){
+			return lookup(raw, loaded.multiLutX[idx], loaded.multiLutY[idx]);
+		}
+		return calibrate(raw, loaded.multiCal[idx]);
+	}
+
+	/** Thread-local copy of the optional slow (49-input) multi-output net. */
+	private static CellNet getThreadMultiNetSlow(){
+		CellNet n=threadMultiNetSlow.get();
+		if(n==null){n=loadedSlow.multiNet.copy(false); threadMultiNetSlow.set(n);}
+		return n;
+	}
+
+	/** Per-output calibration for the slow net's heads: isotonic table when present, else 4-param. */
+	private static float applyMultiCalSlow(float raw, int idx){
+		if(loadedSlow.multiLutX!=null && loadedSlow.multiLutX[idx]!=null){
+			return lookup(raw, loadedSlow.multiLutX[idx], loadedSlow.multiLutY[idx]);
+		}
+		return calibrate(raw, loadedSlow.multiCal[idx]);
+	}
+
 	private static CellNet getThreadNet(CellNet master, int idx, int length) {
 		CellNet[][] local = threadNets.get();
 		if(local==null){
@@ -379,6 +430,8 @@ public class CladeConfidence {
 	}
 
 	private static final ThreadLocal<CellNet[]> threadNetsV2 = new ThreadLocal<>();
+	private static final ThreadLocal<CellNet> threadMultiNet = new ThreadLocal<>();
+	private static final ThreadLocal<CellNet> threadMultiNetSlow = new ThreadLocal<>();
 	private static final ThreadLocal<CellNet[][]> threadNets = new ThreadLocal<>();
 	private static final ThreadLocal<FloatList> threadInput = new ThreadLocal<>();
 
@@ -416,6 +469,15 @@ public class CladeConfidence {
 		return SerialNNLoader.load(path);
 	}
 
+	/** Optional 49-input slow bundle (ranking dim). Null when absent -> the fast bundle covers every mode.
+	 *  warn=false: this file is OPTIONAL, so its absence must be silent (no scary "Cannot find" + stack
+	 *  trace). A deployment with only confidence.bbnets.gz is a supported configuration, not an error. */
+	private static SerialNNLoader.LoadedNets loadSlowNets() {
+		String path = Data.findPath("?confidence49.bbnets.gz", false);
+		if(path==null){return null;}
+		return SerialNNLoader.load(path);
+	}
+
 	/**
 	 * A bundle is V2 only if it supplies a complete set: 9 levels, every network
 	 * present, every network taking the 48-dim vector. Anything short of that is
@@ -432,6 +494,45 @@ public class CladeConfidence {
 		return true;
 	}
 
+	/**
+	 * A single-net multi-output bundle: `#multioutput 1`, one 48-input net with `levels` output heads,
+	 * every head declaring a known level. Backward-compatible: the per-level V2 path is untouched, and a
+	 * bundle that is not multi-output makes this return false.
+	 */
+	private static boolean detectMultiV2(SerialNNLoader.LoadedNets ln){
+		if(ln==null || !ln.multioutput || ln.multiNet==null || ln.levels<1){return false;}
+		if(ln.multiNet.numInputs()!=VECTOR_DIMS || ln.multiNet.numOutputs()!=ln.levels){return false;}
+		return buildLevelsFromLabels(ln.multiLabels).length==ln.levels;
+	}
+
+	/**
+	 * The OPTIONAL slow bundle: a single multi-output net taking the 49-dim vector (the 48 features plus
+	 * Neptune's ranking score as dim 49). Loaded from confidence49.bbnets.gz and used per-hit only in slow
+	 * mode, where the ranking net has run. Requires exactly VECTOR_DIMS+1 inputs so it can never be confused
+	 * with the 48-dim fast bundle.
+	 */
+	private static boolean detectMultiV2Slow(SerialNNLoader.LoadedNets ln){
+		if(ln==null || !ln.multioutput || ln.multiNet==null || ln.levels<1){return false;}
+		if(ln.multiNet.numInputs()!=VECTOR_DIMS+1 || ln.multiNet.numOutputs()!=ln.levels){return false;}
+		return buildLevelsFromLabels(ln.multiLabels).length==ln.levels;
+	}
+
+	/**
+	 * A slow net's outputs get LABELED by activeLevels(), which returns the PRIMARY (fast) model's level
+	 * array whenever a fast model is loaded. So the slow bundle is usable in the hybrid only if its levels
+	 * are element-wise identical to the primary's; otherwise a slow-scored hit would be paired with the
+	 * wrong (or wrong-length) level list -- silent-wrong output, or an AIOOBE in Comparison.confidence. A
+	 * mismatched pair is a packaging error, so disable the slow net and use the 48-dim net everywhere.
+	 * (Slow-only, no fast model: the primary IS the slow list, so this is trivially satisfied.)
+	 */
+	private static boolean slowLevelsMatchPrimary(SerialNNLoader.LoadedNets slow){
+		if(slow==null || slow.multiLabels==null){return false;}
+		final int[] s=buildLevelsFromLabels(slow.multiLabels);
+		if(s.length==0){return false;}
+		final int[] primary=multiV2 ? levelsMulti : (v2 ? levelsV2 : s);
+		return java.util.Arrays.equals(s, primary);
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -442,8 +543,8 @@ public class CladeConfidence {
 	private static final double INV_LN2 = 1.0 / Math.log(2);
 	private static final double LOG2_REF = Math.log(2500) * INV_LN2;
 
-	/** Levels the loaded bundle actually supplies, in file order. Empty when V2 is inactive. */
-	public static int[] activeLevels(){return levelsV2;}
+	/** Levels the loaded bundle actually supplies, in file order. Empty when no V2 model is active. */
+	public static int[] activeLevels(){return multiV2 ? levelsMulti : (multiV2Slow ? levelsMultiSlow : levelsV2);}
 	static final int MAIN_DIMS=26, SMALL_DIMS=11, VECTOR_DIMS=MAIN_DIMS+2*SMALL_DIMS; //48
 	static final int TOP_EXAMINE=10;
 	/**
@@ -469,10 +570,16 @@ public class CladeConfidence {
 
 	/** Level list built from the bundle; null/empty means no usable V2 model. */
 	private static int[] buildLevels(SerialNNLoader.LoadedNets ln){
-		if(ln==null || ln.allLenLabels==null){return new int[0];}
-		final int[] out=new int[ln.levels];
-		for(int i=0; i<ln.levels; i++){
-			out[i]=levelFromLabel(ln.allLenLabels[i]);
+		if(ln==null){return new int[0];}
+		return buildLevelsFromLabels(ln.allLenLabels);
+	}
+
+	/** Maps an array of #label names to TaxTree level codes; empty if any is unlabeled/unknown. */
+	private static int[] buildLevelsFromLabels(String[] labels){
+		if(labels==null || labels.length<1){return new int[0];}
+		final int[] out=new int[labels.length];
+		for(int i=0; i<labels.length; i++){
+			out[i]=levelFromLabel(labels[i]);
 			if(out[i]<0){return new int[0];} //unlabeled or unknown -> refuse the whole bundle
 		}
 		return out;
@@ -481,7 +588,12 @@ public class CladeConfidence {
 	//CLEVER [verified in-file]: graceful NN->sigmoid degradation. loaded=loadNets() returns null if confidence.bbnets.gz is absent (loadNets null on missing path); probCorrect then falls through to predictSigmoid (5-param PROB_K4/K5 tables) -- calibrated confidence even with no model file. Per-thread net copies (getThreadNet/getThreadNetV2) avoid CellNet contention; calibrate() clamps x to [1e-4,0.9999] so logit never hits +/-Inf.
 	private static final SerialNNLoader.LoadedNets loaded = loadNets();
 	private static final boolean v2 = detectV2(loaded);
+	private static final boolean multiV2 = detectMultiV2(loaded);
 	private static final int[] levelsV2 = v2 ? buildLevels(loaded) : new int[0];
+	private static final int[] levelsMulti = multiV2 ? buildLevelsFromLabels(loaded.multiLabels) : new int[0];
+	private static final SerialNNLoader.LoadedNets loadedSlow = loadSlowNets();
+	private static final boolean multiV2Slow = detectMultiV2Slow(loadedSlow) && slowLevelsMatchPrimary(loadedSlow);
+	private static final int[] levelsMultiSlow = multiV2Slow ? buildLevelsFromLabels(loadedSlow.multiLabels) : new int[0];
 
 	// Sigmoid fallback parameters
 	static final double[][] PROB_K4 = {

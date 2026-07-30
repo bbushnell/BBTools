@@ -68,6 +68,7 @@ public class ConfidenceVectorizer {
 			in1=parser.in1;
 			out1=parser.out1;
 		}
+		vdims=ranking ? (MAIN_DIMS+2*SMALL_DIMS+1) : (MAIN_DIMS+2*SMALL_DIMS); //49 with ranking dim, else 48
 		assert(in1!=null) : "No input (in=machine.tsv).";
 		assert(out1!=null) : "No output (out=vectors.tsv or a prefix for mode=binary).";
 		assert(treeFile!=null) : "No taxonomy tree (tree=tree.taxtree.gz).";
@@ -91,6 +92,8 @@ public class ConfidenceVectorizer {
 				buckets=Integer.parseInt(b);
 			}else if(a.equals("mode")){
 				continuous=(b!=null && (b.startsWith("cont")||b.equals("c")||b.equals("regression")||b.equals("reg")));
+			}else if(a.equals("ranking") || a.equals("rank")){
+				ranking=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -111,7 +114,7 @@ public class ConfidenceVectorizer {
 		outstream.println("Loading tree: "+treeFile);
 		tree=TaxTree.loadTaxTree(treeFile, outstream, true, false);
 		log2buckets=(float)(Math.log(Math.max(buckets,1))/Math.log(2)/16.0);
-		outstream.println("featureVersion=2 mode="+(continuous?"continuous":"binary")+" buckets="+buckets+" dims="+VECTOR_DIMS);
+		outstream.println("featureVersion=2 mode="+(continuous?"continuous":"binary")+" buckets="+buckets+" ranking="+ranking+" dims="+vdims);
 
 		//Set up output writer(s)
 		if(continuous){
@@ -124,7 +127,7 @@ public class ConfidenceVectorizer {
 		}
 		//#dims header: <inputDims> <outputDims>
 		//ml.DataLoader parses the #dims header on TAB (DataLoader.delimiter='\t'); space-delimited crashes it.
-		ByteBuilder hdr=new ByteBuilder().append("#dims").tab().append(VECTOR_DIMS).tab().append(1).nl();
+		ByteBuilder hdr=new ByteBuilder().append("#dims").tab().append(vdims).tab().append(1).nl();
 		for(ByteStreamWriter w : writers){w.print(hdr.toBytes());}
 
 		ByteFile bf=ByteFile.makeByteFile(ffin1);
@@ -137,6 +140,7 @@ public class ConfidenceVectorizer {
 			line=bf.nextLine();
 		}
 		assert(parsedHeader) : "No '#'-header line found in "+in1;
+		assert(!ranking || cRank>=0) : "ranking=t but no RankingScore column (regenerate hits with printcomposite=t)";
 
 		ArrayList<Hit> group=new ArrayList<Hit>();
 		String curQuery=null;
@@ -187,6 +191,7 @@ public class ConfidenceVectorizer {
 			else if(name.equals("WKID")){cWKID=i;}
 			else if(name.equals("KID")){cKID=i;}
 			else if(name.equals("Sketch_LCA")){cSketchLCA=i;}
+			else if(name.equals("RankingScore")){cRank=i;}
 		}
 		assert(cQName>=0 && cQBases>=0 && cRTid>=0 && cGC>=0 && cK5>=0)
 			: "Machine header missing required columns.";
@@ -210,6 +215,7 @@ public class ConfidenceVectorizer {
 		h.wkid=(cWKID>=0 ? lp.parseFloat(cWKID) : -1);
 		h.kid=(cKID>=0 ? lp.parseFloat(cKID) : -1);
 		h.sketchLCALevel=(cSketchLCA>=0 ? levelFromString(lp.parseString(cSketchLCA)) : -1);
+		h.rankingScore=(cRank>=0 ? lp.parseFloat(cRank) : 0);
 		return h;
 	}
 
@@ -244,7 +250,7 @@ public class ConfidenceVectorizer {
 	/** Assemble the 48-dim input vector for hit i. */
 	private float[] buildVector(int i, ArrayList<Hit> hits){
 		Hit h=hits.get(i);
-		float[] v=new float[VECTOR_DIMS];
+		float[] v=new float[vdims];
 		int p=0;
 		//Per-hit validity of the two composition/sketch methods.
 		boolean spectraValid=spectraPresent(h);
@@ -277,7 +283,8 @@ public class ConfidenceVectorizer {
 		p=smallVector(altTopOther(i, hits), h, hits, v, p);
 		//--- small #2: most taxonomically remote hit among the top TOP_EXAMINE ---
 		p=smallVector(altMostRemote(i, hits), h, hits, v, p);
-		assert(p==VECTOR_DIMS) : p+" != "+VECTOR_DIMS;
+		if(ranking){v[p++]=h.rankingScore;}             //49 raw NN ranking score (rslog; net learns the mapping)
+		assert(p==vdims) : p+" != "+vdims;
 		return v;
 	}
 
@@ -416,6 +423,7 @@ public class ConfidenceVectorizer {
 		int rtid;
 		float gcdif, strdif, hhdif, cagadif, k3dif, k4dif, k5dif;
 		float ssuID=-1, wkid=-1, kid=-1;
+		float rankingScore=0;
 		int sketchLCALevel=-1;
 	}
 
@@ -426,6 +434,8 @@ public class ConfidenceVectorizer {
 	private String in1=null, out1=null, treeFile=null;
 	private int buckets=0;
 	private boolean continuous=false;
+	private boolean ranking=false;
+	private int vdims=48;
 	private float log2buckets=0;
 
 	private TaxTree tree;
@@ -435,7 +445,7 @@ public class ConfidenceVectorizer {
 	private boolean parsedHeader=false;
 	//Column indices (by header name); -1 = absent.
 	private int cQName=-1, cQBases=-1, cRTid=-1, cGC=-1, cSTR=-1, cHH=-1, cCAGA=-1,
-			cK3=-1, cK4=-1, cK5=-1, cSSU=-1, cWKID=-1, cKID=-1, cSketchLCA=-1;
+			cK3=-1, cK4=-1, cK5=-1, cSSU=-1, cWKID=-1, cKID=-1, cSketchLCA=-1, cRank=-1;
 
 	private long queries=0, hitsIn=0, vectorsOut=0, badRows=0, noLabelQueries=0;
 

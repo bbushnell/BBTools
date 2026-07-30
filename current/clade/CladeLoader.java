@@ -30,6 +30,7 @@ import stream.Streamer;
 import stream.StreamerFactory;
 import structures.ByteBuilder;
 import structures.ListNum;
+import tax.TaxNode;
 import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;
@@ -200,8 +201,12 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				Clade.DDL_K=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("ddlbuckets")){
 				Clade.DDL_BUCKETS=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("adddomain") || a.equals("domain")){
+				addDomain=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("relineage") || a.equalsIgnoreCase("regenlineage")){
+				reLineage=Parse.parseBoolean(b);
 			}
-			
+
 			else if(b==null && new File(arg).isFile()){
 				in.add(arg);
 			}else if(b==null && new File(arg).isDirectory()){
@@ -674,12 +679,39 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		ByteBuilder bb=new ByteBuilder(1024);
 		for(Clade c : list) {
 			bb.clear();
+			if(reLineage){c.lineage=null;} //force regeneration from the tree (with the DOMAIN_E limit) in toBytes
+			if(addDomain){c.domain=domainCategory(c.taxID, tree);}
 			c.toBytes(bb);
 			bsw.print(bb);
 			bytesOut+=bb.length;
 			linesOut++;//Actually, clades out
 		}
 		bsw.poison();
+	}
+
+	/**
+	 * Domain category 0-6 (0 bacteria,1 archaea,2 virus,3 animal,4 plant,5 fungi,6 other-euk) for a taxID from
+	 * the tree, or -1 when the tree is absent or the superkingdom is unclassified. Computed ONCE here at DB build
+	 * (adddomain=t) and stored on each record via Clade.domain, so runtime confidence/ranking read the field and
+	 * load no TaxTree. Mirrors the historical CladeConfidence/CladeRanking domainOneHot logic EXACTLY, so the
+	 * embedded value reproduces the tree-derived 1-hot the nets were trained on.
+	 */
+	static int domainCategory(int taxID, TaxTree tree){
+		if(tree==null || taxID<1){return -1;}
+		final TaxNode sk=tree.getNodeAtLevel(taxID, TaxTree.SUPERKINGDOM);
+		final String skn=(sk!=null && sk.name!=null) ? sk.name.toLowerCase() : "";
+		if(skn.contains("bacteria")){return 0;}
+		if(skn.contains("archaea")){return 1;}
+		if(skn.contains("virus") || skn.contains("viroid") || skn.contains("viria")){return 2;}
+		if(skn.contains("eukaryota")){
+			final TaxNode k=tree.getNodeAtLevel(taxID, TaxTree.KINGDOM);
+			final String kn=(k!=null && k.name!=null) ? k.name.toLowerCase() : "";
+			if(kn.contains("metazoa")){return 3;}
+			if(kn.contains("viridiplantae")){return 4;}
+			if(kn.contains("fungi")){return 5;}
+			return 6;
+		}
+		return -1;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1007,6 +1039,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	
 	/** Whether to replace existing ribosomal RNA sequences */
 	static boolean replaceRibo=false;
+
+	/** adddomain=t: embed the domain category (0-6) in each record, computed from the tree at build time, so
+	 *  runtime confidence/ranking need no TaxTree. Requires the tree to be loaded (the default). */
+	static boolean addDomain=false;
+
+	/** relineage=t: regenerate each record's lineage string from the tree (with the current DOMAIN_E walk limit),
+	 *  replacing any stored lineage -- e.g. to enrich an existing DB's lineages with d__/sk__. Requires the tree. */
+	static boolean reLineage=false;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

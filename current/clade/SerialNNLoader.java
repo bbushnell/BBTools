@@ -21,6 +21,7 @@ public class SerialNNLoader {
 		if(allLines==null || allLines.isEmpty()){return null;}
 
 		int levels=-1, bins=-1;
+		boolean multiout=false;
 
 		int pos=0;
 		while(pos<allLines.size()) {
@@ -29,6 +30,8 @@ public class SerialNNLoader {
 				levels=Integer.parseInt(line.substring(8).trim());
 			}else if(line.startsWith("#bins ")){
 				bins=Integer.parseInt(line.substring(6).trim());
+			}else if(line.startsWith("#multioutput ")){
+				multiout=Integer.parseInt(line.substring(13).trim())==1;
 			}else if(line.startsWith("##network ")){
 				break;
 			}
@@ -36,6 +39,8 @@ public class SerialNNLoader {
 		}
 
 		if(levels<1){return null;}
+		//Single multi-output net bundle: one net with N output heads + N per-output calibrations.
+		if(multiout){return loadMultiOutput(allLines, pos, levels);}
 		if(bins<1){bins=1;}
 		CellNet[] allLenNets=new CellNet[levels];
 		float[][] allLenCal=new float[levels][4];
@@ -122,6 +127,58 @@ public class SerialNNLoader {
 		return result;
 	}
 
+	/**
+	 * Parses a SINGLE multi-output net bundle: `#multioutput 1`, one `##network` block whose net has N
+	 * output heads, followed by N (`#label`, `#lut`|`#cal`) calibration sets in output order. One forward
+	 * pass replaces the N per-level nets. pos is at the `##network` line.
+	 */
+	private static LoadedNets loadMultiOutput(ArrayList<byte[]> allLines, int pos, int levels){
+		pos++; //past "##network ..."
+		ArrayList<byte[]> netLines=new ArrayList<>();
+		while(pos<allLines.size()){ //collect net lines until the first calibration marker
+			String s=new String(allLines.get(pos));
+			if(s.startsWith("#label") || s.startsWith("#cal ") || s.startsWith("#lut ")){break;}
+			netLines.add(allLines.get(pos));
+			pos++;
+		}
+		CellNet net=netLines.isEmpty() ? null : CellNetParser.loadFromLines(netLines);
+		if(net==null){return null;}
+
+		String[] labels=new String[levels];
+		float[][] cal=new float[levels][4];
+		float[][] lutX=new float[levels][], lutY=new float[levels][];
+		int idx=-1;
+		while(pos<allLines.size()){
+			String s=new String(allLines.get(pos));
+			if(s.startsWith("#label")){
+				idx++;
+				if(idx<levels){labels[idx]=s.substring(6).trim();}
+			}else if(s.startsWith("#cal ")){
+				String[] cp=s.substring(5).trim().split("\\s+");
+				if(idx>=0 && idx<levels){cal[idx]=new float[]{
+					Float.parseFloat(cp[0]), Float.parseFloat(cp[1]),
+					Float.parseFloat(cp[2]), Float.parseFloat(cp[3])};}
+			}else if(s.startsWith("#lut ")){
+				int n=Integer.parseInt(s.substring(5).trim());
+				assert(n>0 && pos+n<allLines.size()) : "#lut "+n+" overruns the file at line "+pos;
+				float[] x=new float[n], y=new float[n];
+				for(int i=0; i<n; i++){
+					pos++;
+					String[] xy=new String(allLines.get(pos)).trim().split("\\s+");
+					x[i]=Float.parseFloat(xy[0]); y[i]=Float.parseFloat(xy[1]);
+				}
+				if(idx>=0 && idx<levels){lutX[idx]=x; lutY[idx]=y;}
+			}
+			pos++;
+		}
+
+		LoadedNets r=new LoadedNets();
+		r.levels=levels; r.bins=1;
+		r.multioutput=true; r.multiNet=net; r.multiLabels=labels;
+		r.multiCal=cal; r.multiLutX=lutX; r.multiLutY=lutY;
+		return r;
+	}
+
 	public static class LoadedNets {
 		public CellNet[] allLenNets;
 		public float[][] allLenCal;
@@ -134,6 +191,12 @@ public class SerialNNLoader {
 		public float[][][] binLutX, binLutY;
 		public int levels;
 		public int bins;
+		/** Single multi-output net path: one net, N output heads, N per-output calibrations. */
+		public boolean multioutput=false;
+		public CellNet multiNet;
+		public String[] multiLabels;
+		public float[][] multiCal;
+		public float[][] multiLutX, multiLutY;
 	}
 
 }

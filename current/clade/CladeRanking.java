@@ -5,7 +5,6 @@ import java.util.ArrayList;
 import ml.CellNet;
 import ml.CellNetParser;
 import dna.Data;
-import tax.TaxNode;
 import tax.TaxTree;
 
 /**
@@ -14,8 +13,11 @@ import tax.TaxTree;
  * compositeScore ordering is retained (graceful degradation).
  *
  * The net takes a 35-dim input vector per hit (same as RankingVectorizer)
- * and outputs a single score. Higher = better match. Hits are re-sorted
- * by this score AFTER confidence has been scored on the heuristic order.
+ * and outputs a single score. Higher = better match. Ranking builds its vector
+ * on the composite (heuristic) order it was trained on, then re-sorts the
+ * display. Confidence is cached AFTERWARD, on this ranking-sorted order -- the
+ * order the ranking-regenerated confidence bundle was trained on, and the order
+ * whose ranking score its slow (49-dim) variant reads as an input dimension.
  *
  * Not used in fast mode (no DDL sketch data).
  *
@@ -24,18 +26,21 @@ import tax.TaxTree;
  */
 public class CladeRanking{
 
-	public static boolean ready(){return net!=null;}
+	/** Runtime on/off for the ranking net (set via useranking=t/f). ready() also requires a loaded net. */
+	public static boolean enabled=true;
+	public static boolean ready(){return net!=null && enabled;}
 
 	/**
 	 * Score each hit in the display list with the ranking net, then re-sort
-	 * by ranking score (descending). Called AFTER composite sort and AFTER
-	 * confidence caching, so both see the heuristic order they were trained on.
+	 * by ranking score (descending). Called AFTER the composite sort (so the
+	 * ranking vector sees the heuristic order it was trained on) and BEFORE
+	 * confidence caching (so confidence sees this ranking-sorted order, which
+	 * its bundle was trained on, and its slow variant can read rankingScore).
 	 *
 	 * @param display The composite-sorted hit list for one query
 	 * @param buckets The DDL bucket count (4096 or 32768)
-	 * @param tree The taxonomy tree
 	 */
-	public static void scoreAndResort(ArrayList<Comparison> display, int buckets, TaxTree tree){
+	public static void scoreAndResort(ArrayList<Comparison> display, int buckets){
 		if(!ready() || display.size()<2){return;}
 		final CellNet cn=getThreadNet();
 		final int n=display.size();
@@ -45,17 +50,20 @@ public class CladeRanking{
 		final float spread=m-t;
 		final float log2b=(float)(Math.log(Math.max(buckets, 1))/LN2/16.0);
 
-		// Precompute ancestors for sharing counts
-		final int[][] anc=new int[n][SHARE_LEVELS.length];
+		// Precompute ancestor KEYS for sharing counts, from the lineage STRING (no TaxTree). Each key is the FULL
+		// lineage prefix up to a SHARE_LEVEL, so homonyms (same rank name under different ancestors) never collide
+		// -- matching the global uniqueness of the node IDs this replaces.
+		final String[][] anc=new String[n][SHARE_LEVELS.length];
 		for(int i=0; i<n; i++){
+			final CharSequence lin=display.get(i).ref.lineage();
 			for(int L=0; L<SHARE_LEVELS.length; L++){
-				anc[i][L]=ancestorId(display.get(i).ref.taxID, SHARE_LEVELS[L], tree);
+				anc[i][L]=ancestorKey(lin, SHARE_LEVELS[L]);
 			}
 		}
 
 		// Score each hit
 		for(int i=0; i<n; i++){
-			float[] v=buildVector(i, display, m, t, spread, anc, top, log2b, tree);
+			float[] v=buildVector(i, display, m, t, spread, anc, top, log2b);
 			cn.applyInput(v);
 			display.get(i).rankingScore=(float)cn.feedForward();
 		}
@@ -70,7 +78,7 @@ public class CladeRanking{
 
 	/** Build the 35-dim ranking vector for hit i. Same construction as RankingVectorizer.buildVector. */
 	private static float[] buildVector(int i, ArrayList<Comparison> display,
-			float m, float t, float spread, int[][] anc, int top, float log2b, TaxTree tree){
+			float m, float t, float spread, String[][] anc, int top, float log2b){
 		final Comparison h=display.get(i);
 		final float[] v=new float[VECTOR_DIMS];
 		int p=0;
@@ -97,7 +105,7 @@ public class CladeRanking{
 		final boolean ssuValid=(ssuANI>0);
 		v[p++]=ssuValid ? r4(ssuANI) : 0;
 		v[p++]=ssuValid ? 1 : 0;
-		p=domainOneHot(h.ref.taxID, v, p, tree);
+		p=domainOneHot(h.ref.domain, v, p);
 		final boolean lcaValid=(h.sketchLCA>=0);
 		v[p++]=lcaValid ? encodeLevel9(h.sketchLCA) : 0;
 		v[p++]=lcaValid ? 1 : 0;
@@ -136,38 +144,44 @@ public class CladeRanking{
 		return x<0 ? 0 : (x>1 ? 1 : x);
 	}
 
-	private static int sharingCount(int i, int L, int[][] anc, int top){
-		final int self=anc[i][L];
-		if(self<1){return 0;}
+	private static int sharingCount(int i, int L, String[][] anc, int top){
+		final String self=anc[i][L];
+		if(self==null){return 0;}
 		int count=0;
 		for(int j=0; j<top; j++){
-			if(anc[j][L]==self){count++;}
+			if(self.equals(anc[j][L])){count++;}
 		}
 		return count;
 	}
 
-	private static int ancestorId(int tid, int level, TaxTree tree){
-		if(tid<1){return -1;}
-		TaxNode n=tree.getNodeAtLevel(tid, level);
-		return n==null ? -1 : n.id;
+	/** The FULL lineage prefix up to (and including) the token at `level` (s__/g__/f__/p__), or null when that
+	 *  rank is absent from the lineage. Uses the whole path -- not the bare name -- so a homonym (same rank name
+	 *  under a different ancestor) yields a different key, matching the global uniqueness of the tree node IDs
+	 *  this replaces. Prefixes are anchored to a ';' token boundary so e.g. k__ cannot match inside sk__. */
+	private static String ancestorKey(CharSequence lineage, int level){
+		if(lineage==null){return null;}
+		final String s=";"+lineage;
+		final String prefix=";"+levelShort(level)+"__";
+		final int pos=s.indexOf(prefix);
+		if(pos<0){return null;}
+		final int end=s.indexOf(';', pos+prefix.length());
+		return end<0 ? s : s.substring(0, end);
 	}
 
-	private static int domainOneHot(int rtid, float[] v, int p, TaxTree tree){
-		int base=p;
-		for(int k=0; k<7; k++){v[base+k]=0;}
-		TaxNode sk=tree.getNodeAtLevel(rtid, TaxTree.SUPERKINGDOM);
-		String skn=(sk!=null && sk.name!=null) ? sk.name.toLowerCase() : "";
-		if(skn.contains("bacteria")){v[base+0]=1;}
-		else if(skn.contains("archaea")){v[base+1]=1;}
-		else if(skn.contains("virus") || skn.contains("viroid") || skn.contains("viria")){v[base+2]=1;}
-		else if(skn.contains("eukaryota")){
-			TaxNode k=tree.getNodeAtLevel(rtid, TaxTree.KINGDOM);
-			String kn=(k!=null && k.name!=null) ? k.name.toLowerCase() : "";
-			if(kn.contains("metazoa")){v[base+3]=1;}
-			else if(kn.contains("viridiplantae")){v[base+4]=1;}
-			else if(kn.contains("fungi")){v[base+5]=1;}
-			else{v[base+6]=1;}
-		}
+	/** Short rank-prefix letter for the SHARE_LEVELS, matching the lineage-string tokens. */
+	private static String levelShort(int level){
+		if(level==TaxTree.SPECIES){return "s";}
+		if(level==TaxTree.GENUS){return "g";}
+		if(level==TaxTree.FAMILY){return "f";}
+		if(level==TaxTree.PHYLUM){return "p";}
+		return null;
+	}
+
+	/** 7-way domain one-hot from the record's STORED domain category (0-6); all-zero when unknown. Embedded at
+	 *  DB build (cladeloader adddomain=t) so no TaxTree is loaded at query time. Reproduces the tree-based 1-hot
+	 *  the ranking net trained on (adddomain uses the identical superkingdom/kingdom logic). */
+	private static int domainOneHot(int domain, float[] v, int p){
+		for(int k=0; k<7; k++){v[p+k]=(k==domain ? 1 : 0);}
 		return p+7;
 	}
 
