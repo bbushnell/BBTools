@@ -43,8 +43,14 @@ public class CladeConfidence {
 	/*----------------          V2 entry point      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** True when a V2 bundle is loaded and complete (per-level nets OR a single multi-output net). */
-	public static boolean v2Ready(){return v2 || multiV2 || multiV2Slow;}
+	/** Master switch for the confidence NN, wired to the quickclade confidence=/useconfidence= flag. When
+	 *  false, v2Ready() reports no NN and the NN entry points are skipped, so confidence degrades to the
+	 *  analytic sigmoid estimate -- symmetric with useranking=f falling back to the heuristic composite. */
+	public static boolean enabled=true;
+
+	/** True when the confidence NN is enabled AND a V2 bundle is loaded and complete (per-level nets OR a
+	 *  single multi-output net). Gated by {@link #enabled} so confidence=f disables the NN everywhere. */
+	public static boolean v2Ready(){return enabled && (v2 || multiV2 || multiV2Slow);}
 
 	/**
 	 * Probability that group.get(index) is correct, for all 9 levels in LEVELS
@@ -55,7 +61,7 @@ public class CladeConfidence {
 	 * hits) dominate its cost, so building it per level would be wasteful.
 	 */
 	public static float[] profile(ArrayList<Comparison> group, int index){
-		if((!v2 && !multiV2 && !multiV2Slow) || group==null || index<0 || index>=group.size()){return null;}
+		if(!v2Ready() || group==null || index<0 || index>=group.size()){return null;}
 		final Comparison self=group.get(index);
 		if(self.query==null || self.ref==null){return null;}
 		final FloatList fl=getThreadInput();
@@ -298,7 +304,7 @@ public class CladeConfidence {
 		//loaded.multiNet), and a lone hit cannot supply the alt-hit dimensions, so this legacy path
 		//degrades to the sigmoid tables rather than dereference a null allLenNets. The real V2/multi
 		//confidence is computed group-aware via profile() and cached upstream.
-		if(!v2 && !multiV2 && !multiV2Slow && USE_NN && loaded!=null && loaded.allLenNets!=null && k5dif<1.0f){
+		if(enabled && !v2 && !multiV2 && !multiV2Slow && USE_NN && loaded!=null && loaded.allLenNets!=null && k5dif<1.0f){
 			CellNet net;
 			float[] cal;
 			if(loaded.allLenNets[idx]!=null){

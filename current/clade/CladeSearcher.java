@@ -323,6 +323,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Comparison.printComposite=Parse.parseBoolean(b);
 			}else if(a.equals("useranking") || a.equals("ranking") || a.equals("rankingnet")){
 				CladeRanking.enabled=Parse.parseBoolean(b); //wires the quickclade.sh useranking= flag (was documented but unparsed)
+			}else if(a.equals("confidence") || a.equals("useconfidence") || a.equals("confidencenet") || a.equals("useconf")){
+				CladeConfidence.enabled=Parse.parseBoolean(b); //confidence=f disables the confidence NN -> analytic sigmoid fallback
 			}else if(a.equals("caprecords") || a.equals("maxrecords")){
 				caprecords=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){

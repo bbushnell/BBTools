@@ -5,16 +5,29 @@ echo "
 Written by Brian Bushnell
 Last modified July 26, 2026
 
-Description:  Loads fasta files and writes clade files.
+Description:  Loads sequence or clade files and writes clade (spectra) files.
+              Input may be fasta (tid in headers) OR existing clade/spectra
+              files, which are re-read and merged -- so this tool also rewrites
+              or augments a clade/spectra database (e.g. adddomain=t adds a field).
 
 Usage: cladeloader.sh in=contigs.fa out=clades.clade
 
 Parameters:
-in=<file,file>  Fasta files with tid in headers.  Clade files are also
-                accepted, and are merged.
-out=<file>      Output file.
+in=<file,file>  Input files: fasta with tid in headers, or clade/spectra files
+                (re-read and merged).  Mixed input is allowed.
+out=<file>      Output clade/spectra file.
+adddomain=f     Embed a domain category (0-6: bacteria,archaea,virus,animal,
+                plant,fungi,other-euk) in each output record, computed from the
+                tree at build time, so downstream tools derive the domain without
+                loading the tree.  Requires the tree (usetree=t, the default).
+relineage=f     Regenerate each record's lineage string from the tree (up to the
+                domain rank), replacing any stored lineage.  Enriches an existing
+                clade/spectra DB's lineages with d__/sk__.  Requires the tree.
 maxk=5          Limit max kmer length (range 3-5).
-a48             Output counts in ASCII-48 instead of decimal.
+a48             Output counts in ASCII-48 instead of decimal (smaller).
+a48o            Output counts in offset/delta ASCII-48 (smallest).
+deco            Output counts in offset/delta decimal.
+concise=t       Omit higher-k count arrays for records too short to use them.
 16s=<file,file> Optional tax-labeled file of 16S sequences to attach.
 18s=<file,file> Optional tax-labeled file of 18S sequences to attach.
 replaceribo=f   Replace existing ssu with the ones supplied above.
@@ -24,6 +37,11 @@ usetree=t       Use a taxonomic tree, for names, levels, and lineage strings.
 tree=auto       Tree location; auto finds it in resources, or give a path.
 ddls=t          Build a DDL sketch per clade.  Set f when sketches are kept in
                 a separate file.
+ddl=<file>      Load DDL sketches from this file and attach them to clades by
+                taxID (loaded in parallel with the main input).  Implies ddls=t.
+ddlk=25         Kmer length for DDL sketches.
+ddlbuckets=4096 Bucket count for DDL sketches.
+ordered=f       Preserve input order in the output.
 percontig=f     Emit one clade per sequence rather than per taxID.
 mergedupes=f    Merge records sharing a taxID rather than keeping the largest.
 whitelist=<file>  Keep only records whose taxID appears in this file (one

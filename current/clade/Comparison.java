@@ -335,7 +335,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	}
 
 	public float confidence(int taxLevel){
-		if(query==null){return -1;}
+		if(query==null || !CladeConfidence.enabled){return -1;}
 		if(cachedConfidence!=null){
 			final int[] lv=cachedLevels;
 			for(int i=0; i<lv.length; i++){
@@ -369,7 +369,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * no V2 model is loaded, so behavior is unchanged without the new bundle.
 	 */
 	public void cacheConfidence(ArrayList<Comparison> group, int index){
-		if(query==null){return;}
+		if(query==null || !CladeConfidence.enabled){return;}
 		float[] vals=CladeConfidence.profile(group, index);
 		int[] levels=CladeConfidence.activeLevels();
 		if(vals==null){vals=legacyProfile(); levels=CONF_LEVELS;}
@@ -390,8 +390,11 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		return vals;
 	}
 
-	/** Cached profile if present, else a freshly computed legacy one. */
+	/** Cached profile if present, else a freshly computed legacy one.
+	 *  Null when the confidence model is disabled (confidence=f), so the ConfLevel column reads
+	 *  "None" and the Confidence profile is empty -- no confidence rather than a sigmoid guess. */
 	private float[] sortedConfidence(){
+		if(!CladeConfidence.enabled){return null;}
 		if(cachedConfidence!=null){return cachedConfidence;}
 		if(query==null){return null;}
 		float[] vals=legacyProfile();

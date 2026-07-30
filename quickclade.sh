@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified June 3, 2026
+Last modified July 30, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -44,10 +44,13 @@ server          Use this flag to send kmer spectra to a remote server if you do 
                 have a local database.
 
 Presets (override individual settings; can be further overridden by later flags):
-fast            records=1, buffer=1, callssu=f, sketch=f.  Fastest mode.
-medium          records=5, buffer=20, callssu=t, sketch=t.  Default behavior.
-slow            records=10, buffer=50, callssu=t, sketch=t, index=t.
-                Automatically increases memory to 12g unless -Xmx is explicit.
+fast            (alias: quick) records=1, buffer=1, callssu=f, sketch=f.
+                Fastest mode.
+medium          (alias: normal) records=5, buffer=20, callssu=t, sketch=t.
+                Default behavior.
+slow            (alias: sensitive) records=10, buffer=50, callssu=t, sketch=t,
+                index=t.  Automatically increases memory to 12g unless -Xmx
+                is explicit.
 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
@@ -69,6 +72,15 @@ useranking=t    Use the neural-network ranker to reorder results (default: on
                 improves species-level accuracy by 3-9% over the heuristic
                 composite score.  Disabled in fast mode (no DDL data).
                 Set useranking=f to use the heuristic composite ordering.
+confidence=t    Use the neural-network confidence model to estimate, per hit,
+                the probability that the assignment is correct at each
+                taxonomic level (the ConfLevel and Confidence output columns).
+                On by default when a confidence.bbnets.gz bundle is present;
+                slow/sensitive mode additionally uses the ranking-aware net
+                (confidence49.bbnets.gz) when available.  Set confidence=f to
+                disable it: ConfLevel reads 'None' and the Confidence column is
+                left empty, rather than reporting a value.  useconfidence= is
+                an alias.
 server=f        Send spectra to server instead of using a local reference.
                 Enabled automatically if there is no local reference.
 composition=    Output a taxonomy composition report to this file.  Shows
