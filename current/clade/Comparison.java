@@ -568,7 +568,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		bb.append("\tConfLevel\tConfidence");
 		if(CladeIndex.USE_SKETCH_INDEX){bb.append("\tSketch_LCA");}
 		//Appended LAST, and only on request, so existing column positions never shift.
-		if(printComposite){bb.append("\tCompositeScore");}
+		//RankingScore (the NN ranking output) follows CompositeScore (the heuristic); both under printComposite.
+		if(printComposite){bb.append("\tCompositeScore").append("\tRankingScore");}
 		return bb;
 	}
 	
@@ -624,7 +625,10 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(CladeIndex.USE_SKETCH_INDEX){
 			bb.tab().append(sketchLCA>=0 ? TaxTree.levelToString(sketchLCA) : ".");
 		}
-		if(printComposite){bb.tab().append(composite, 6);}
+		if(printComposite){
+			bb.tab().append(composite, 6);
+			bb.tab().append(Float.isFinite(rankingScore) ? rankingScore : -1f, 6); //NN ranking score; -1 = not scored
+		}
 		return bb;
 	}
 	

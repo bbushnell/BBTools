@@ -527,6 +527,12 @@ public class CladeIndex implements Cloneable {
 			comp.sketchMatches=bestMatches;
 			if(tree!=null && bestRec.taxID>0 && comp.ref.taxID>0){
 				comp.sketchLCA=tree.commonAncestorLevel(comp.ref.taxID, bestRec.taxID);
+			}else if(comp.ref.taxID>0 && comp.ref.taxID==bestRec.taxID && comp.ref.level>=0){
+				//Exact-taxID fast path (Barbara): identity beats name parsing. commonAncestorLevel(x,x)=x's
+				//formal level, so use the stored level directly -- exact even for below-species ranks the
+				//lineage string does not encode (only subspecies+strain are emitted). Closes all self-LCAs.
+				//Guarded on level>=0: an unset (-1) level falls through to lineageLCA rather than writing -1.
+				comp.sketchLCA=comp.ref.level;
 			}else if(bestSketchClade!=null){
 				comp.sketchLCA=lineageLCA(comp.ref.lineage(), bestSketchClade.lineage());
 			}
@@ -558,6 +564,8 @@ public class CladeIndex implements Cloneable {
 						if(bestCladeRef!=null){
 							if(tree!=null && bestCladeRef.taxID>0 && refClade.taxID>0){
 								sketchComp.sketchLCA=tree.commonAncestorLevel(bestCladeRef.taxID, refClade.taxID);
+							}else if(refClade.taxID>0 && refClade.taxID==bestCladeRef.taxID && refClade.level>=0){
+								sketchComp.sketchLCA=refClade.level;//exact-taxID fast path (see above; level>=0 guard)
 							}else{
 								sketchComp.sketchLCA=lineageLCA(bestCladeRef.lineage(), refClade.lineage());
 							}
@@ -571,24 +579,37 @@ public class CladeIndex implements Cloneable {
 		}
 	}
 
-	private static final String[] LCA_PREFIXES={"s__","g__","f__","o__","c__","p__","k__","sk__"};
+	//Finest -> coarsest. st__ (strain) and ss__ (subspecies) are the two below-species rungs, both mapping to
+	//formal SUBSPECIES: tree.commonAncestorLevel returns the FORMAL level of the LCA node, and the whole 16-rank
+	//below-species band (strain, substrain, subspecies, ...) collapses to formal SUBSPECIES(1). Clade.lineage now
+	//emits ;ss__<subsp>;st__<strain> for the leaf when they exist, so a strain reference vs its own sketch anchor
+	//resolves to SUBSPECIES here (as the tree does) instead of rounding up to species -- which is what preserves
+	//its subspecies-depth bonus in Comparison.compositeScore and stops the tree-free top-hit flips. st before ss
+	//(strain is finer). d__ (domain) is the coarsest: current NCBI lineages carry d__ (superkingdom was renamed
+	//domain); sk__ is kept for when superkingdom returns.
+	private static final String[] LCA_PREFIXES={"st__","ss__","s__","g__","f__","o__","c__","p__","k__","sk__","d__"};
 	private static final int[] LCA_LEVELS={
-		TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
-		TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.SUPERKINGDOM
+		TaxTree.SUBSPECIES, TaxTree.SUBSPECIES, TaxTree.SPECIES, TaxTree.GENUS, TaxTree.FAMILY, TaxTree.ORDER,
+		TaxTree.CLASS, TaxTree.PHYLUM, TaxTree.KINGDOM, TaxTree.SUPERKINGDOM, TaxTree.DOMAIN
 	};
 
 	static int lineageLCA(CharSequence lineageA, CharSequence lineageB){
 		if(lineageA==null || lineageB==null){return -1;}
-		String a=lineageA.toString(), b=lineageB.toString();
+		//Anchor each prefix to a token boundary with a leading ';', so a prefix matches only at the START of a
+		//rank token -- never inside another token. Without this, "k__" matches inside "sk__" (and any prefix could
+		//match inside a taxon name). Superkingdom is absent from current NCBI lineages but could return, so this
+		//is a real latent-bug fix, not cosmetic.
+		String a=";"+lineageA, b=";"+lineageB;
 		for(int i=0; i<LCA_PREFIXES.length; i++){
-			String prefix=LCA_PREFIXES[i];
+			String prefix=";"+LCA_PREFIXES[i];
 			int posA=a.indexOf(prefix);
 			int posB=b.indexOf(prefix);
 			if(posA<0 || posB<0){continue;}
-			int endA=a.indexOf(';', posA);
-			int endB=b.indexOf(';', posB);
-			String nameA=a.substring(posA+prefix.length(), endA<0 ? a.length() : endA);
-			String nameB=b.substring(posB+prefix.length(), endB<0 ? b.length() : endB);
+			int startA=posA+prefix.length(), startB=posB+prefix.length();
+			int endA=a.indexOf(';', startA);
+			int endB=b.indexOf(';', startB);
+			String nameA=a.substring(startA, endA<0 ? a.length() : endA);
+			String nameB=b.substring(startB, endB<0 ? b.length() : endB);
 			if(nameA.equals(nameB)){return LCA_LEVELS[i];}
 		}
 		return -1;

@@ -102,6 +102,11 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 				c.lineage=lp.parseString(1);
 				pos++;
 			}
+			if(Tools.startsWith(list.get(pos), "domain")) {//Optional; cladeloader adddomain=t embeds the domain category (0-6)
+				lp.set(list.get(pos));
+				c.domain=lp.parseInt(1);
+				pos++;
+			}
 			if(Tools.startsWith(list.get(pos), "gc")) {pos++;}//Optional
 			if(Tools.startsWith(list.get(pos), "entropy")) {//Optional and slow, but should be in ref
 				lp.set(list.get(pos));
@@ -345,7 +350,25 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		if(tree==null || tid<1) {return "NA";}
 		TaxNode tn=tree.getNode(tid);
 		if(tn==null) {return "NA";}
-		return PrintTaxonomy.makeTaxLine(tree, tn, MIN_LINEAGE_LEVEL_E, TaxTree.SUPERKINGDOM_E, true, true);
+		//Base lineage (UNCHANGED): makeTaxLine emits every canonical/simple rank up to DOMAIN_E, INCLUDING all
+		//simple subspecies (ss__) ancestors -- a lineage can have several (e.g. Norovirus has four). Walk up to
+		//DOMAIN_E (not SUPERKINGDOM_E): current NCBI taxonomy puts the top node (e.g. Bacteria) at the DOMAIN rank,
+		//above superkingdom, so stopping at SUPERKINGDOM_E dropped it. Emitting d__/sk__ when present makes the
+		//lineage self-sufficient for domain 1-hot and cross-kingdom LCA -- no TaxTree at query time.
+		StringBuilder sb=PrintTaxonomy.makeTaxLine(tree, tn, MIN_LINEAGE_LEVEL_E, TaxTree.DOMAIN_E, true, true);
+		//Append the STRAIN token (st__), which makeTaxLine DROPS because isSimple(STRAIN_E)=false (simple
+		//subspecies ss__ ancestors are already in the base above -- do NOT re-emit them, or coarser shared ss
+		//rungs get lost). tree.commonAncestorLevel returns the FORMAL level of the LCA node, and the whole
+		//below-species band collapses to SUBSPECIES(1); a strain reference vs its own sketch anchor therefore has a
+		//subspecies-depth LCA in tree mode. Without st__, string-derived lineageLCA rounds that up to species,
+		//dropping the subspecies-depth bonus in Comparison.compositeScore and flipping the top hit from the exact
+		//strain to the species record. Strain is the finest below-species rank, so it goes last (after any ss__).
+		for(TaxNode t=tn; t!=null && t.level<TaxTree.SPECIES; ) {
+			if(t.levelExtended==TaxTree.STRAIN_E) {sb.append(";st__").append(t.name); break;}
+			if(t.id==t.pid) {break;}
+			t=tree.getNode(t.pid);
+		}
+		return sb;
 	}
 	
 	public synchronized String toString() {
@@ -360,6 +383,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		if(!finished) {finish();}
 		{//header
 			int lines=10+counts.length-1;
+			if(domain>=0){lines++;}
 			if(ddl!=null){lines++;}
 			if(r16S!=null) {lines++;}
 			if(r18S!=null) {lines++;}
@@ -373,6 +397,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		bb.append("level\t").append(level).tab().append(TaxTree.levelToString(Math.max(0, level))).nl();
 		bb.append("name\t").append(name).nl();
 		if(writeLineage && taxID>1) {bb.append("lineage\t").append(lineage()).nl();}
+		if(domain>=0) {bb.append("domain\t").append(domain).nl();}
 		bb.append("gc\t").append(gc, 4).nl();
 		bb.append("entropy\t").append(entropy, 8).nl();
 		bb.append("strandedness\t").append(strandedness, 8).nl();
@@ -403,6 +428,9 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public int level=-1;
 	public String name=null;
 	public String lineage=null;
+	/** Domain category 0-6 (0 bacteria,1 archaea,2 virus,3 animal,4 plant,5 fungi,6 other-euk); -1 = absent.
+	 *  Embedded by cladeloader adddomain=t so the runtime domain 1-hot needs no TaxTree at load. */
+	public int domain=-1;
 	public final long[][] counts;
 	public float[][] frequencies;
 

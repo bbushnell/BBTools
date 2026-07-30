@@ -321,6 +321,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				maxHitsToPrint=Integer.parseInt(b);
 			}else if(a.equals("printcomposite") || a.equals("composite")){
 				Comparison.printComposite=Parse.parseBoolean(b);
+			}else if(a.equals("useranking") || a.equals("ranking") || a.equals("rankingnet")){
+				CladeRanking.enabled=Parse.parseBoolean(b); //wires the quickclade.sh useranking= flag (was documented but unparsed)
 			}else if(a.equals("caprecords") || a.equals("maxrecords")){
 				caprecords=Integer.parseInt(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
