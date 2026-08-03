@@ -319,12 +319,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				parallelSetup=Parse.parseBoolean(b);
 			}else if(a.equals("hits") || a.equals("maxhits") || a.equals("cladehits") || a.equals("maxcladehits")){
 				maxHitsToPrint=Integer.parseInt(b);
+				recordsExplicit=true;//an explicit display count must survive a later macro flag (fast/slow/...)
 			}else if(a.equals("records")){
 				//DISPLAY ONLY. This used to also set maxSketchHits, which tied how many
 				//candidates were GENERATED to how many the user wanted PRINTED -- so
 				//records=1 quietly shrank the candidate pool that confidence is computed
 				//from. Generation is set below, from heapSize.
 				maxHitsToPrint=Integer.parseInt(b);
+				recordsExplicit=true;//an explicit display count must survive a later macro flag (fast/slow/...)
 			}else if(a.equals("printcomposite") || a.equals("composite")){
 				Comparison.printComposite=Parse.parseBoolean(b);
 			}else if(a.equals("useranking") || a.equals("ranking") || a.equals("rankingnet")){
@@ -360,8 +362,17 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				printMetrics=Parse.parseBoolean(b);
 			}else if(a.equals("usetree")){
 				useTree=Parse.parseBoolean(b);
-			}else if(a.equals("server")){
-				serverMode=Parse.parseBoolean(b);
+			}else if(a.equals("server") || a.equals("address")){
+				//server=t/f toggles server mode. server=<url> or address=<url> also SETS the target and enables
+				//server mode, so a client can hit a local/self-hosted CladeServer instead of the default JGI server.
+				boolean isBool=(b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("f")
+						|| b.equalsIgnoreCase("true") || b.equalsIgnoreCase("false"));
+				if(a.equals("server") && isBool){
+					serverMode=Parse.parseBoolean(b);
+				}else if(b!=null){
+					serverAddress=(b.startsWith("http://") || b.startsWith("https://")) ? b : "http://"+b;
+					serverMode=true;
+				}
 			}else if(a.equals("frequencies")){
 				Clade.MAKE_FREQUENCIES=Boolean.parseBoolean(b);
 			}else if(a.equals("concise")){
@@ -389,20 +400,20 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			}else if(a.equals("perfile")){
 				perContig=!Parse.parseBoolean(b);
 			}else if(a.equals("fast") || a.equals("quick")){
-				maxHitsToPrint=1;
+				if(!recordsExplicit){maxHitsToPrint=1;}//display count: don't override an explicit records=/hits=
 				CladeIndex.heapSize=1;
 				Clade.callSSU=false;
 				CladeIndex.USE_SKETCHES=false;
 				CladeIndex.USE_SKETCH_INDEX=false;
 				Clade.MAKE_DDLS=false;
 			}else if(a.equals("medium") || a.equals("normal")){
-				maxHitsToPrint=5;
+				if(!recordsExplicit){maxHitsToPrint=5;}//display count: don't override an explicit records=/hits=
 				CladeIndex.heapSize=20;
 				Clade.callSSU=true;
 				CladeIndex.USE_SKETCHES=true;
 				Clade.MAKE_DDLS=true;
 			}else if(a.equals("slow") || a.equals("sensitive")){
-				maxHitsToPrint=10;
+				if(!recordsExplicit){maxHitsToPrint=10;}//display count: don't override an explicit records=/hits=
 				CladeIndex.heapSize=50;
 				Clade.callSSU=true;
 				CladeIndex.USE_SKETCHES=true;
@@ -516,10 +527,28 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 
 		serverMode=(serverMode || ref==null || ref.isEmpty());
 		if(serverMode){
-			Clade.MAKE_DDLS=true;
+			Clade.MAKE_DDLS=true;//Always build+send a query DDL sketch so the server can do sketch comparison.
 			Clade.DDL_K=25;
-			Clade.DDL_BUCKETS=4096;
 			DynamicDemiLog.setExponent(5);
+			//Server responses are always in slow-mode column layout (CladeServer pins USE_SKETCH_INDEX/USE_SKETCHES/
+			//callSSU/MAKE_DDLS=true), so the client must build its header with the SAME columns. Otherwise the header
+			//omits Sketch_LCA while the server's rows include it, leaving a trailing unlabeled column. The client does
+			//no local sketch/index work in server mode (loadIndex/loadSketches early-return; appendResultMachine is the
+			//server's job), so these flags only affect machineHeader here.
+			Clade.callSSU=true;
+			CladeIndex.USE_SKETCHES=true;
+			CladeIndex.USE_SKETCH_INDEX=true;
+			//Build the query sketch at the server's DDL resolution (or larger). The server cannot upsize an
+			//undersized query sketch, so ask it its bucket count via the //BucketSize side channel and adopt
+			//at least that many buckets; a larger explicit ddlbuckets= is kept (oversized folds down server-side).
+			//On failure, keep the prior default (4096) rather than guessing.
+			int serverBuckets=SendClade.queryBucketSize(serverAddress);
+			if(serverBuckets>0){
+				Clade.DDL_BUCKETS=Math.max(serverBuckets, Clade.DDL_BUCKETS);
+				if(showLoading){outstream.println("Server DDL buckets="+serverBuckets+"; building query sketches at "+Clade.DDL_BUCKETS+" buckets.");}
+			}else{
+				outstream.println("Warning: could not read server bucket size (//BucketSize); using DDL_BUCKETS="+Clade.DDL_BUCKETS+".");
+			}
 		}else if(sketchesWanted && !CladeIndex.USE_SKETCHES){
 			outstream.println("\nNo DDL sketch files found.  For improved accuracy, download one from");
 			outstream.println("https://github.com/bbushnell/BBTools/releases/ and place in BBTools/resources/\n");
@@ -564,7 +593,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		
 		final int maxHits=CladeIndex.heapSize;
 		if(serverMode) {
-			String s=SendClade.sendClades(queries, SendClade.defaultAddress, format==MACHINE,
+			String s=SendClade.sendClades(queries, serverAddress, format==MACHINE,
 				maxHitsToPrint, true, CladeIndex.banSelf, CladeIndex.heapSize, false, caprecords);
 			if(format==MACHINE){
 				String header=Comparison.machineHeader(printQTID)+"\n";
@@ -1179,6 +1208,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/** Whether to operate in server mode */
 	private boolean serverMode=false;
+	/** Server URL for server mode; defaults to the public JGI QuickClade server. Override with server=/address=<url>. */
+	private String serverAddress=SendClade.defaultAddress;
 	
 	/** Override input file extension */
 	private String extin=null;
@@ -1244,6 +1275,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/** Maximum number of hits to print per query */
 	private int maxHitsToPrint=5;
+	/** True once records=/hits= was set explicitly, so a later macro flag (fast/slow/...) won't clobber it. */
+	private boolean recordsExplicit=false;
 	/** Candidates generated per query (>=CladeConfidence.TOP_EXAMINE when V2 confidence is active). */
 	private int recordsToGenerate=5;
 
