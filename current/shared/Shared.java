@@ -37,9 +37,9 @@ public class Shared {
 
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="40.01";
+	public static String BBTOOLS_VERSION_STRING="40.02";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Benthic Buddies";
+	public static String BBMAP_VERSION_NAME="Pelagic Pals";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
@@ -73,7 +73,8 @@ public class Shared {
 	/** True if running on IGB taxonomy VM */
 	public static boolean IGBVM="taxonomy-vm".equals(HOSTNAME()) || "taxonomy-vm-2".equals(HOSTNAME());
 	/** True if running on DORI partition */
-	public static boolean DORI=envContainsPair("SLURM_PARTITION", "dori", false);
+	public static boolean DORI=envContainsPair("SLURM_PARTITION", "dori", false) || envContainsPair("SLURM_PARTITION", "dori-", true)
+		|| envContainsPair("SLURM_JOB_PARTITION", "dori", false) || envContainsPair("SLURM_JOB_PARTITION", "dori-", true);
 	/** True if running on AMD64 architecture */
 	public static boolean AMD64="amd64".equalsIgnoreCase(System.getProperty("os.arch"));
 	/** True if not running in Brian's directory on Windows */

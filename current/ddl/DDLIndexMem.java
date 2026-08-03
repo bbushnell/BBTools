@@ -29,6 +29,7 @@ public class DDLIndexMem {
 			if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
+			else if(a.equals("csr2") || a.equals("index2") || a.equals("packed2")){DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(inFile==null){inFile=arg;}
 		}
@@ -51,7 +52,8 @@ public class DDLIndexMem {
 		gc();
 		final long after=rt.totalMemory()-rt.freeMemory();
 
-		System.err.println("=== csr="+DDLIndexBase.USE_CSR+"  buckets="+buckets+" ===");
+		System.err.println("=== index="+index.getClass().getSimpleName()+"  csr="+DDLIndexBase.USE_CSR
+			+"  csr2="+DDLIndexBase.USE_CSR2+"  buckets="+buckets+" ===");
 		System.err.println("populatedCells:     "+index.populatedCells());
 		System.err.println("Index build time:   "+bt);
 		System.err.println("Heap w/ records:    "+mb(before)+" MB");

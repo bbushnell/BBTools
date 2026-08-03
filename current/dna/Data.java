@@ -1347,11 +1347,20 @@ public class Data {
 					path=temp;
 				}
 			}
+			//Central shared resource dirs: local resources/ (above) -> Dori -> NERSC. Each is an absolute
+			//path that only exists on its own system, so exists() self-gates it (no host detection). A literal
+			//command-line path (no '?') returned at the top and never reaches here, so overrides always win.
 			if(!f.exists() && !path.startsWith("jar:")){
-				String hardlink="/global/cfs/cdirs/bbtools/resources/"+fname;
-				f=new File(hardlink);
-				if(f.exists()){path=hardlink;}
-				else{if(vb){System.err.println("Did not find "+fname+" at "+hardlink);}}
+				String dori=DORI_RESOURCES+fname;
+				f=new File(dori);
+				if(f.exists()){path=dori;}
+				else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
+			}
+			if(!f.exists() && !path.startsWith("jar:")){
+				String nersc=NERSC_RESOURCES+fname;
+				f=new File(nersc);
+				if(f.exists()){path=nersc;}
+				else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
 			}
 			if(!f.exists() && !path.startsWith("jar:")){
 				if(warn){
@@ -1456,6 +1465,13 @@ public class Data {
 	private static final String ROOT;
 	/** Path to /BBTools/resources/ */
 	private static final String ROOT_RESOURCES;
+
+	/** Central shared resource directory on JGI's Dori cluster, checked after local resources/ (findPath).
+	 *  Hardcoded default; an absolute path that only exists on Dori, so it self-gates via exists(). */
+	public static String DORI_RESOURCES="/clusterfs/jgi/groups/gentech/homes/bbushnell/resources/";
+	/** Central shared resource directory on NERSC, checked last (after Dori). Hardcoded default;
+	 *  self-gates via exists() (the path only exists on NERSC). */
+	public static String NERSC_RESOURCES="/global/cfs/cdirs/bbtools/resources/";
 	
 	public static String ROOT_BASE;
 	public static String ROOT_REF;

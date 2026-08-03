@@ -95,6 +95,7 @@ public class DDLCompare {
 			else if(a.equals("collisiontest")){collisionTest=true;}
 			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
 			else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
+			else if(a.equals("csr2") || a.equals("index2") || a.equals("packed2")){DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);}
 			else if(a.equals("ssu")){useSSU=Parse.parseBoolean(b);}
 			else if(a.equals("percontig") || a.equals("persequence")){perContig=Parse.parseBoolean(b);}
 			else if(a.equals("perfile")){perContig=!Parse.parseBoolean(b);}
