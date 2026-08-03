@@ -37,9 +37,9 @@ public class Shared {
 
 	// Version and identification
 	/** Version String, proper float with in XX.xx format */
-	public static String BBTOOLS_VERSION_STRING="40.00";
+	public static String BBTOOLS_VERSION_STRING="40.01";
 	/** Release name */
-	public static String BBMAP_VERSION_NAME="Barbara Intervention";
+	public static String BBMAP_VERSION_NAME="Benthic Buddies";
 	/** Main class name for current execution */
 	public static String BBMAP_CLASS=null;
 	/** Class object for main executing class */
@@ -62,12 +62,6 @@ public class Shared {
 	public static boolean LINUX=envContainsPair("OS", "nix", true) || envContainsPair("OS", "nux", true) || envContainsPair("OS", "aix", true);
 	/** True if running on Solaris OS */
 	public static boolean SOLARIS=envContainsPair("OS", "sunos", true);
-	/** True if running on NERSC Genepool system */
-	public static boolean GENEPOOL=envContainsPair("NERSC_HOST", "genepool", false);
-	/** True if running on NERSC Denovo system */
-	public static boolean DENOVO=envContainsPair("NERSC_HOST", "denovo", false);
-	/** True if running on NERSC Cori system */
-	public static boolean CORI=envContainsPair("NERSC_HOST", "cori", false);
 	/** True if running on NERSC Perlmutter system */
 	public static boolean PERLMUTTER=envContainsPair("NERSC_HOST", "perlmutter", false);
 	/** True if running on login node */
@@ -159,7 +153,7 @@ public class Shared {
 
 	// JNI and native libraries
 	/** True if JNI libraries should be used. */
-	public static boolean USE_JNI=(CORI || DENOVO || GENEPOOL || NERSC || AWS || (AMD64 && (LINUX || MAC))) && !WINDOWS;
+	public static boolean USE_JNI=(NERSC || AWS || (AMD64 && (LINUX || MAC))) && !WINDOWS;
 	/** JNI library load status (-1=unset, 0=failed, 1=success) */
 	private static int loadedJNI=-1;
 

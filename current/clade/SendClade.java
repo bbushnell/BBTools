@@ -689,6 +689,24 @@ public class SendClade extends CladeObject {
 		return null;
 	}
 	
+	/** Queries the server for the bucket count of its loaded DDL sketch database, via the
+	 *  //BucketSize side channel (the server also exposes GET /bucketsize). Lets a client build
+	 *  query sketches at a matching-or-larger resolution: the server cannot upsize an undersized
+	 *  query sketch, so it rejects one built below its bucket count. Returns the server's bucket
+	 *  count, or -1 if the server could not be reached, lacks the endpoint, or did not return a
+	 *  positive integer. Deliberately does NOT go through sendMessage(): a non-2xx there triggers
+	 *  KillSwitch.kill(), which would make server mode unusable against any server that predates
+	 *  this endpoint. Here a missing endpoint (404) or any error just yields -1 -> caller falls back. */
+	public static int queryBucketSize(String address){
+		if(address==null){address=defaultAddress;}
+		try{
+			StringNum result=ServerTools.sendAndReceive("//BucketSize\n".getBytes(), address);
+			if(result==null || result.n<200 || result.n>299 || result.s==null){return -1;}
+			int b=Integer.parseInt(result.s.trim());
+			return b>0 ? b : -1;
+		}catch(Exception e){return -1;}
+	}
+
 	private static StringNum sendAndReceive(byte[] message, String address) {
 		StringNum sn=null;
 //		assert(false) : "'"+new String(message)+"'";
