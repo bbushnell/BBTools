@@ -24,14 +24,14 @@ class CompareThread extends Thread {
 	final ArrayList<DDLComparison>[] results;
 	final int nQueries, nRefs, k, maxRecords, buffer, minHits;
 	final boolean useIndex, alignSSU, banSelf;
-	final DDLIndex idx;
+	final DDLIndexBase idx;
 	final AtomicLong totalComparisonsPerformed;
 	long alignCountT;
 
 	CompareThread(ArrayList<DDLRecord> queries, ArrayList<DDLRecord> refs,
 			AtomicLong nextQuery, ArrayList<DDLComparison>[] results,
 			int nQueries, int nRefs, int k, int maxRecords, int minHits,
-			boolean useIndex, DDLIndex idx, AtomicLong totalComparisonsPerformed,
+			boolean useIndex, DDLIndexBase idx, AtomicLong totalComparisonsPerformed,
 			boolean alignSSU){
 		this(queries, refs, nextQuery, results, nQueries, nRefs, k, maxRecords, 0,
 			minHits, useIndex, idx, totalComparisonsPerformed, alignSSU, false);
@@ -40,7 +40,7 @@ class CompareThread extends Thread {
 	CompareThread(ArrayList<DDLRecord> queries, ArrayList<DDLRecord> refs,
 			AtomicLong nextQuery, ArrayList<DDLComparison>[] results,
 			int nQueries, int nRefs, int k, int maxRecords, int buffer, int minHits,
-			boolean useIndex, DDLIndex idx, AtomicLong totalComparisonsPerformed,
+			boolean useIndex, DDLIndexBase idx, AtomicLong totalComparisonsPerformed,
 			boolean alignSSU, boolean banSelf){
 		this.queries=queries; this.refs=refs;
 		this.nextQuery=nextQuery; this.results=results;

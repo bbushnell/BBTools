@@ -3,6 +3,7 @@ package ddl;
 import java.util.ArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import cardinality.DynamicDemiLog;
+import parse.Parse;
 import shared.Timer;
 
 /**
@@ -28,6 +29,7 @@ public class DDLIndexStats {
 			if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
+				else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
 			else if(inFile==null){inFile=arg;}
 		}
 		if(inFile==null){
@@ -42,7 +44,7 @@ public class DDLIndexStats {
 
 		final int buckets=records.get(0).ddl.buckets;
 		System.err.println("Building index ("+buckets+" buckets)...");
-		DDLIndex index=new DDLIndex(buckets);
+		DDLIndexBase index=DDLIndexBase.create(buckets);
 		index.addAll(records, threads);
 		System.err.println("Index built.");
 

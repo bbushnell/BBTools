@@ -19,6 +19,7 @@ import bin.GeneTools;
 import cardinality.DynamicDemiLog;
 import fileIO.FileFormat;
 import idaligner.QuantumAligner;
+import parse.Parse;
 import prok.ProkObject;
 import server.ServerTools;
 import shared.Resources;
@@ -74,6 +75,7 @@ public class SSUServer {
 			else if(a.equals("k")){k=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 			else if(a.equals("buckets")){buckets=Integer.parseInt(b);}
+			else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
 			else if(a.equals("records") || a.equals("maxrecords")){maxRecords=Integer.parseInt(b);}
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("buffer")){buffer=Integer.parseInt(b);}
@@ -176,7 +178,7 @@ public class SSUServer {
 
 		System.err.println("Total: "+refs.size()+" reference SSU DDLs.");
 
-		index=new DDLIndex(refs.get(0).ddl.buckets);
+		index=DDLIndexBase.create(refs.get(0).ddl.buckets);
 		index.addAll(refs, threads);
 		System.err.println("Built inverted index.");
 
@@ -769,7 +771,7 @@ public class SSUServer {
 
 	/* Preloaded state (immutable after startup) */
 	private ArrayList<DDLRecord> refs;
-	private DDLIndex index;
+	private DDLIndexBase index;
 	private map.IntObjectMap<byte[]>[] maps;
 	private map.IntObjectMap<byte[]> mapITS;
 	private byte[] consensus16S;

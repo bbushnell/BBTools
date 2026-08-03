@@ -9,7 +9,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-import ddl.DDLIndex;
+import ddl.DDLIndexBase;
 import ddl.DDLRecord;
 import parse.Parse;
 import prok.GeneCaller;
@@ -128,6 +128,8 @@ public class CladeIndex implements Cloneable {
 				|| a.equalsIgnoreCase("ddlindex") || a.equals("index")){
 			USE_SKETCH_INDEX=Parse.parseBoolean(b);
 			if(USE_SKETCH_INDEX){USE_SKETCHES=true; Clade.MAKE_DDLS=true;}
+		}else if(a.equalsIgnoreCase("csr") || a.equalsIgnoreCase("ddlcsr") || a.equalsIgnoreCase("packedindex")){
+			DDLIndexBase.USE_CSR=Parse.parseBoolean(b);//CSR packed sketch index vs the matrix reference (default CSR; csr=f for matrix)
 		}else if(a.equalsIgnoreCase("sketchhits") || a.equalsIgnoreCase("maxsketchhits")){
 			maxSketchHits=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("minsketchhits") || a.equalsIgnoreCase("minsketches")){
@@ -399,7 +401,7 @@ public class CladeIndex implements Cloneable {
 		+"?refseqSketchDDL_k25e5b32768.tsv.gz,"//dense 32k DB (better accuracy); after the 4k default so zero-config stays 4k, but auto-found if 4k is absent
 		+"?refseqSketchDDL_k25e5b2048.tsv.gz,?refseqSketchDDL_k25e5b2048_merged.tsv.gz";
 
-	DDLIndex ddlIndex;
+	DDLIndexBase ddlIndex;
 	ArrayList<DDLRecord> sketchRecords;
 	ConcurrentHashMap<Integer, Clade> cladeMap;
 
@@ -493,7 +495,7 @@ public class CladeIndex implements Cloneable {
 		//Size the index to the DB's actual bucket count (as DDLCompare/SSUCompare/SSUServer do); the no-arg
 		//DDLIndex() hardcodes 4096, so a 32k-bucket sketch DB overflowed matrix[b] -> AIOOBE at DDLIndex.query.
 		final int ddlBuckets=sketchRecords.get(0).ddl.buckets;
-		ddlIndex=new DDLIndex(ddlBuckets);
+		ddlIndex=DDLIndexBase.create(ddlBuckets);
 		int it=indexThreads>0 ? indexThreads : Math.min(Shared.threads(), 32);
 		ddlIndex.addAll(sketchRecords, it);
 		long elapsed=System.nanoTime()-t0;

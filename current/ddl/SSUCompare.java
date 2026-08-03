@@ -82,6 +82,7 @@ public class SSUCompare {
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("buffer")){buffer=Integer.parseInt(b);}
 			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
+				else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
 			else if(a.equals("call") || a.equals("callssu")){callMode=Parse.parseBoolean(b); callSetByUser=true;}
 			else if(a.equals("align") || a.equals("alignssu")){alignSSU=Parse.parseBoolean(b);}
 			else if(a.equals("banself")){banSelf=Parse.parseBoolean(b);}
@@ -227,10 +228,10 @@ public class SSUCompare {
 		System.err.println("Total: "+refs.size()+" reference DDLs in "+fmt(tRefLoad)+" seconds.");
 		long tSSULoad=0;
 
-		DDLIndex index=null;
+		DDLIndexBase index=null;
 		if(useIndex){
 			ts=System.nanoTime();
-			index=new DDLIndex(refs.get(0).ddl.buckets);
+			index=DDLIndexBase.create(refs.get(0).ddl.buckets);
 			index.addAll(refs, threads);
 			long tIndex=System.nanoTime()-ts;
 			System.err.println("Built index in "+fmt(tIndex)+" seconds.");

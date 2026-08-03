@@ -94,6 +94,7 @@ public class DDLCompare {
 			else if(a.equals("minhits")){minHits=Integer.parseInt(b);}
 			else if(a.equals("collisiontest")){collisionTest=true;}
 			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
+			else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
 			else if(a.equals("ssu")){useSSU=Parse.parseBoolean(b);}
 			else if(a.equals("percontig") || a.equals("persequence")){perContig=Parse.parseBoolean(b);}
 			else if(a.equals("perfile")){perContig=!Parse.parseBoolean(b);}
@@ -168,9 +169,9 @@ public class DDLCompare {
 		return elapsed;
 	}
 
-	private DDLIndex buildIndex(ArrayList<DDLRecord> refs, int threads){
+	private DDLIndexBase buildIndex(ArrayList<DDLRecord> refs, int threads){
 		if(!useIndex){return null;}
-		DDLIndex index=new DDLIndex(refs.get(0).ddl.buckets);
+		DDLIndexBase index=DDLIndexBase.create(refs.get(0).ddl.buckets);
 		index.addAll(refs, threads);
 		return index;
 	}
@@ -200,7 +201,7 @@ public class DDLCompare {
 		long tSSULoad=loadSSURefs(refs, ssuThread);
 
 		ts=System.nanoTime();
-		DDLIndex index=buildIndex(refs, threads);
+		DDLIndexBase index=buildIndex(refs, threads);
 		long tIndex=System.nanoTime()-ts;
 		if(useIndex){outstream.println("Built inverted index in "+fmt(tIndex)+" seconds.");}
 
@@ -238,7 +239,7 @@ public class DDLCompare {
 
 	/** Single-query fast path: direct comparison loop without CompareThread.
 	 * @return long[]{tCompare, tAlign, alignCount} */
-	private long[] compareSingleQuery(DDLRecord qRec, ArrayList<DDLRecord> refs, DDLIndex index){
+	private long[] compareSingleQuery(DDLRecord qRec, ArrayList<DDLRecord> refs, DDLIndexBase index){
 		final int nRefs=refs.size();
 		DDLComparisonHeap heap=new DDLComparisonHeap(maxRecords);
 		DDLComparison working=new DDLComparison();
@@ -310,7 +311,7 @@ public class DDLCompare {
 		}
 
 		ts=System.nanoTime();
-		DDLIndex index=buildIndex(refs, threads);
+		DDLIndexBase index=buildIndex(refs, threads);
 		long tIndex=System.nanoTime()-ts;
 		if(useIndex){outstream.println("Built inverted index in "+fmt(tIndex)+" seconds.");}
 
@@ -345,7 +346,7 @@ public class DDLCompare {
 	/*--------------------------------------------------------------*/
 
 	private CompareResult gatherResults(ArrayList<DDLRecord> queries,
-			ArrayList<DDLRecord> refs, DDLIndex index, int threads){
+			ArrayList<DDLRecord> refs, DDLIndexBase index, int threads){
 		final int nQueries=queries.size(), nRefs=refs.size();
 		@SuppressWarnings("unchecked")
 		final ArrayList<DDLComparison>[] allResults=new ArrayList[nQueries];
