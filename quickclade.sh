@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified July 30, 2026
+Last modified August 3, 2026
 
 Description:  Assigns taxonomy to query sequences by comparing kmer
 frequencies to those in a reference database.  Developed for taxonomic
@@ -45,12 +45,10 @@ server          Use this flag to send kmer spectra to a remote server if you do 
 
 Presets (override individual settings; can be further overridden by later flags):
 fast            (alias: quick) records=1, buffer=1, callssu=f, sketch=f.
-                Fastest mode.
+                Fastest mode; uses 4g memory.
 medium          (alias: normal) records=5, buffer=20, callssu=t, sketch=t.
-                Default behavior.
 slow            (alias: sensitive) records=10, buffer=50, callssu=t, sketch=t,
-                index=t.  Automatically increases memory to 12g unless -Xmx
-                is explicit.
+                index=t.  THE DEFAULT.  Uses 8g memory unless -Xmx is explicit.
 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
@@ -124,7 +122,8 @@ sketch=t        Enable sketch-based matching using DDL (DynamicDemiLog)
                 refseqSketchDDL_k25e5b4096.tsv.gz).  Also builds a DDL
                 from each query for comparison.  ddl=t is an alias.
 sketchfile=     Path to a specific DDL sketch file.  Overrides the default.
-                ddlfile= and sketchref= are aliases.
+                ddlfile= and sketchref= are aliases.  The bare flags 32k and 4k
+                are shortcuts for sketchfile=32k and sketchfile=4k.
 sketchindex=f   Build an index from DDL sketches; this allows hits by 25-mer
                 matching, orthogonal to the clade index, allowing LCA
                 (lowest common ancestor) calculation.  Implies sketch=t.
@@ -210,15 +209,15 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	# Detect slow/index mode for RAM sizing
-	local DEFAULTXMX="4g"
-	local DEFAULTXMS="4g"
+	# Default mode is 'slow' (sketch index on) -> size RAM for it; 'fast' drops to 4g.
+	local DEFAULTXMX="8g"
+	local DEFAULTXMS="8g"
 	local EXPLICIT_XMX=false
 	for arg in "$@"; do
 		case "$arg" in
-			slow|sensitive) DEFAULTXMX="12g"; DEFAULTXMS="12g" ;;
-			index|index=t|index=true|sketchindex|sketchindex=t|sketchindex=true)
-				DEFAULTXMX="12g"; DEFAULTXMS="12g" ;;
+			fast|quick) DEFAULTXMX="4g"; DEFAULTXMS="4g" ;;
+			slow|sensitive|index|index=t|index=true|sketchindex|sketchindex=t|sketchindex=true)
+				DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
 			-Xmx*|--xmx=*) EXPLICIT_XMX=true ;;
 		esac
 	done

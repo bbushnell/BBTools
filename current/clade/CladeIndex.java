@@ -124,12 +124,18 @@ public class CladeIndex implements Cloneable {
 			sketchFile=ddl.DDLCompare.resolveSketchAlias(b);
 			USE_SKETCHES=true;
 			Clade.MAKE_DDLS=true;
+		}else if(a.equals("32k") || a.equals("4k")){//bare aliases for sketchfile=32k / sketchfile=4k
+			sketchFile=ddl.DDLCompare.resolveSketchAlias(a);
+			USE_SKETCHES=true;
+			Clade.MAKE_DDLS=true;
 		}else if(a.equalsIgnoreCase("sketchindex") || a.equalsIgnoreCase("sketchidx")
 				|| a.equalsIgnoreCase("ddlindex") || a.equals("index")){
 			USE_SKETCH_INDEX=Parse.parseBoolean(b);
 			if(USE_SKETCH_INDEX){USE_SKETCHES=true; Clade.MAKE_DDLS=true;}
 		}else if(a.equalsIgnoreCase("csr") || a.equalsIgnoreCase("ddlcsr") || a.equalsIgnoreCase("packedindex")){
 			DDLIndexBase.USE_CSR=Parse.parseBoolean(b);//CSR packed sketch index vs the matrix reference (default CSR; csr=f for matrix)
+		}else if(a.equalsIgnoreCase("csr2") || a.equalsIgnoreCase("index2") || a.equalsIgnoreCase("packed2")){
+			DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);//21-bit bit-packed CSR (CSRIndex2); ~1/3 smaller, ceiling 2^21-1 sketches; non-default
 		}else if(a.equalsIgnoreCase("sketchhits") || a.equalsIgnoreCase("maxsketchhits")){
 			maxSketchHits=Integer.parseInt(b);
 		}else if(a.equalsIgnoreCase("minsketchhits") || a.equalsIgnoreCase("minsketches")){
@@ -368,7 +374,7 @@ public class CladeIndex implements Cloneable {
 	long sketchComparisons=0;
 
 	/** Number of intermediate comparisons to retain in the result heap */
-	static int heapSize=20;
+	static int heapSize=50;//default 'slow' mode (was 20)
 	/** Whether to exclude Clades with the same taxonomic ID from match results */
 	static boolean banSelf=false;
 	/**
@@ -390,7 +396,7 @@ public class CladeIndex implements Cloneable {
 	static boolean showLoading=true;
 
 	static boolean USE_SKETCHES=true;
-	static boolean USE_SKETCH_INDEX=false;
+	static boolean USE_SKETCH_INDEX=true;//default 'slow' mode (was false)
 	static int maxSketchHits=5;
 	static int minSketchMatches=5;
 	static int ddlLoadThreads=0;

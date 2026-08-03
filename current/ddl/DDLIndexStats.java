@@ -30,6 +30,7 @@ public class DDLIndexStats {
 			else if(a.equals("t") || a.equals("threads")){threads=Integer.parseInt(b);}
 			else if(a.equals("exponent") || a.equals("ebits")){DynamicDemiLog.setExponent(Integer.parseInt(b));}
 				else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
+				else if(a.equals("csr2") || a.equals("index2") || a.equals("packed2")){DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);}
 			else if(inFile==null){inFile=arg;}
 		}
 		if(inFile==null){

@@ -7,10 +7,11 @@ import cardinality.DynamicDemiLog;
 import stream.Read;
 
 /**
- * Correctness gate for the CSR sketch index: builds a matrix {@link DDLIndex} and a
- * {@link DDLIndexCSR} from the same random records and verifies that populatedCells(),
- * query() (full per-clade count vector), and topHits() are IDENTICAL for every query.
- * CSR must be a drop-in replacement, so any difference is a bug.
+ * Correctness gate for the packed sketch indexes: builds a matrix {@link DDLIndex} plus a
+ * {@link DDLIndexCSR} and a {@link CSRIndex2} from the same random records and verifies that
+ * populatedCells(), query() (full per-clade count vector), and topHits() are IDENTICAL to the
+ * matrix for every query. Both packed forms must be drop-in replacements, so any difference is
+ * a bug.
  *
  * Usage: DDLIndexTest [nRecords=300] [buckets=512] [k=13] [maxHits=10]
  *
@@ -42,37 +43,52 @@ public class DDLIndexTest {
 
 		DDLIndex matrix=new DDLIndex(buckets);
 		matrix.addAll(records, threads);
+
 		DDLIndexCSR csr=new DDLIndexCSR(buckets);
 		csr.addAll(records, threads);
 
+		CSRIndex2 csr2=new CSRIndex2(buckets);
+		csr2.addAll(records, threads);
+
+		boolean ok=true;
+		ok&=checkAgainstMatrix("CSR", matrix, csr, records, maxHits);
+		ok&=checkAgainstMatrix("CSR2", matrix, csr2, records, maxHits);
+
+		System.err.println(ok ? "PASS: CSR == CSR2 == matrix" : "FAIL: a packed index != matrix");
+		if(!ok){System.exit(1);}
+	}
+
+	/** Verifies that 'other' returns identical populatedCells(), query(), and topHits() to the
+	 *  matrix reference for every record. Returns true iff fully identical. */
+	private static boolean checkAgainstMatrix(String name, DDLIndex matrix, DDLIndexBase other,
+			ArrayList<DDLRecord> records, int maxHits){
 		boolean ok=true;
 
-		long pm=matrix.populatedCells(), pc=csr.populatedCells();
-		if(pm!=pc){System.err.println("MISMATCH populatedCells: matrix="+pm+" csr="+pc); ok=false;}
-		else{System.err.println("populatedCells match: "+pm);}
+		long pm=matrix.populatedCells(), po=other.populatedCells();
+		if(pm!=po){System.err.println("["+name+"] MISMATCH populatedCells: matrix="+pm+" "+name+"="+po); ok=false;}
+		else{System.err.println("["+name+"] populatedCells match: "+pm);}
 
 		int queryFails=0, topFails=0;
 		for(int qi=0; qi<records.size(); qi++){
 			DynamicDemiLog q=records.get(qi).ddl;
 			int[] cm=matrix.query(q);
-			int[] cc=csr.query(q);
-			boolean qEq=(cm.length==cc.length);
-			for(int j=0; qEq && j<cm.length; j++){if(cm[j]!=cc[j]){qEq=false;}}
+			int[] co=other.query(q);
+			boolean qEq=(cm.length==co.length);
+			for(int j=0; qEq && j<cm.length; j++){if(cm[j]!=co[j]){qEq=false;}}
 			if(!qEq){queryFails++;}
 
 			int[][] tm=matrix.topHits(q, maxHits);
-			int[][] tc=csr.topHits(q, maxHits);
-			boolean tEq=(tm.length==tc.length);
-			for(int j=0; tEq && j<tm.length; j++){if(tm[j][0]!=tc[j][0] || tm[j][1]!=tc[j][1]){tEq=false;}}
+			int[][] to=other.topHits(q, maxHits);
+			boolean tEq=(tm.length==to.length);
+			for(int j=0; tEq && j<tm.length; j++){if(tm[j][0]!=to[j][0] || tm[j][1]!=to[j][1]){tEq=false;}}
 			if(!tEq){topFails++;}
 		}
 
-		if(queryFails>0){System.err.println("query() MISMATCH on "+queryFails+"/"+records.size()); ok=false;}
-		else{System.err.println("query() identical on all "+records.size()+" queries");}
-		if(topFails>0){System.err.println("topHits() MISMATCH on "+topFails+"/"+records.size()); ok=false;}
-		else{System.err.println("topHits() identical on all "+records.size()+" queries");}
+		if(queryFails>0){System.err.println("["+name+"] query() MISMATCH on "+queryFails+"/"+records.size()); ok=false;}
+		else{System.err.println("["+name+"] query() identical on all "+records.size()+" queries");}
+		if(topFails>0){System.err.println("["+name+"] topHits() MISMATCH on "+topFails+"/"+records.size()); ok=false;}
+		else{System.err.println("["+name+"] topHits() identical on all "+records.size()+" queries");}
 
-		System.err.println(ok ? "PASS: CSR == matrix" : "FAIL: CSR != matrix");
-		if(!ok){System.exit(1);}
+		return ok;
 	}
 }

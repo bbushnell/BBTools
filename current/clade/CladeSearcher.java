@@ -411,6 +411,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				CladeIndex.heapSize=20;
 				Clade.callSSU=true;
 				CladeIndex.USE_SKETCHES=true;
+				CladeIndex.USE_SKETCH_INDEX=false;//explicit: default is now slow (index on), so medium must turn it off
 				Clade.MAKE_DDLS=true;
 			}else if(a.equals("slow") || a.equals("sensitive")){
 				if(!recordsExplicit){maxHitsToPrint=10;}//display count: don't override an explicit records=/hits=
@@ -1274,7 +1275,7 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	private long maxReads=-1;
 	
 	/** Maximum number of hits to print per query */
-	private int maxHitsToPrint=5;
+	private int maxHitsToPrint=10;//default 'slow' mode (was 5 for 'medium')
 	/** True once records=/hits= was set explicitly, so a later macro flag (fast/slow/...) won't clobber it. */
 	private boolean recordsExplicit=false;
 	/** Candidates generated per query (>=CladeConfidence.TOP_EXAMINE when V2 confidence is active). */

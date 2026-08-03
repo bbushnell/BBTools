@@ -83,6 +83,7 @@ public class SSUCompare {
 			else if(a.equals("buffer")){buffer=Integer.parseInt(b);}
 			else if(a.equals("index")){useIndex=Parse.parseBoolean(b);}
 				else if(a.equals("csr") || a.equals("ddlcsr") || a.equals("packedindex")){DDLIndexBase.USE_CSR=Parse.parseBoolean(b);}
+				else if(a.equals("csr2") || a.equals("index2") || a.equals("packed2")){DDLIndexBase.USE_CSR2=Parse.parseBoolean(b);}
 			else if(a.equals("call") || a.equals("callssu")){callMode=Parse.parseBoolean(b); callSetByUser=true;}
 			else if(a.equals("align") || a.equals("alignssu")){alignSSU=Parse.parseBoolean(b);}
 			else if(a.equals("banself")){banSelf=Parse.parseBoolean(b);}

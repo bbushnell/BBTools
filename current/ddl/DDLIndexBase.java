@@ -17,9 +17,10 @@ import cardinality.DynamicDemiLog;
  *   accumulateCounts() -- the query inner loop, and
  *   buildBucketRange() -- the build inner loop.
  *
- * Two implementations, selectable via {@link #create(int)} / {@link #USE_CSR}:
- *   DDLIndexCSR -- packed int[] + int[] offsets per bucket; drops the per-cell object
- *                  overhead. THE DEFAULT. Must return identical query()/topHits() results.
+ * Three implementations, selectable via {@link #create(int)} / {@link #USE_CSR2} / {@link #USE_CSR}:
+ *   CSRIndex2   -- IDs and offsets packed as 21-bit fields (3 per long); ~1/3 smaller than CSR,
+ *                  bit-identical results, ceiling 2^21-1 sketches. THE DEFAULT.
+ *   DDLIndexCSR -- packed int[] + int[] offsets per bucket; drops per-cell object overhead (csr2=f).
  *   DDLIndex    -- int[bucket][value][] matrix; simple, exact; the REFERENCE/fallback (csr=f).
  *
  * @author Brian Bushnell, Noire
@@ -32,12 +33,12 @@ public abstract class DDLIndexBase {
 		this.values=values;
 	}
 
-	/** Selects the storage per {@link #USE_CSR}: CSR (default) or the matrix reference. */
-	public static DDLIndexBase create(int buckets){
-		return USE_CSR ? new DDLIndexCSR(buckets) : new DDLIndex(buckets);
-	}
+	/** Selects storage: matrix reference if csr=f, else CSRIndex2 (default) or 32-bit CSR if csr2=f. */
+	public static DDLIndexBase create(int buckets){return create(buckets, VALUES);}
 	public static DDLIndexBase create(int buckets, int values){
-		return USE_CSR ? new DDLIndexCSR(buckets, values) : new DDLIndex(buckets, values);
+		if(!USE_CSR){return new DDLIndex(buckets, values);}//csr=f -> matrix reference
+		if(USE_CSR2){return new CSRIndex2(buckets, values);}//default
+		return new DDLIndexCSR(buckets, values);//csr2=f -> 32-bit CSR
 	}
 
 	/*--------------------------------------------------------------*/
@@ -167,9 +168,14 @@ public abstract class DDLIndexBase {
 	protected final AtomicLong totalIndexWork=new AtomicLong(0);
 	protected final AtomicLong totalCandidates=new AtomicLong(0);
 
-	/** Storage selector, global. Default true = CSR (validated correct + faster + ~46% smaller at 32k).
-	 *  Set csr=f to fall back to the matrix reference. */
+	/** When false (csr=f) the matrix reference {@link DDLIndex} is used, overriding csr2. True by
+	 *  default; leave true for either packed index. */
 	public static boolean USE_CSR=true;
+
+	/** THE DEFAULT (true): the 21-bit bit-packed {@link CSRIndex2} -- validated bit-identical to the
+	 *  matrix, ~33% smaller than CSR at 32k (24.6->16.3 GB) for ~1% slower compare; ceiling 2^21-1
+	 *  sketches. Set csr2=f for the 32-bit {@link DDLIndexCSR}. */
+	public static boolean USE_CSR2=true;
 
 	public static final int BUCKETS=4096;
 	public static final int VALUES=65536;

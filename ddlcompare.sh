@@ -30,8 +30,9 @@ qf=<file>       against all references (multi-query batch mode).
 records=20      Max hits to display.
 minhits=5       Minimum matching DDL buckets to report a hit.
 index=f         Use inverted index for query acceleration.
-csr=t           Inverted-index storage: CSR packed arrays (default, far less RAM)
-                or the matrix reference (csr=f).  Results are identical either way.
+csr2=t          Inverted-index storage (default): 21-bit packed arrays, ~1/3
+                smaller than csr.  csr2=f uses the 32-bit CSR; csr=f uses the
+                matrix reference.  Results are identical for all three.
 t=auto          Number of threads (default: all available cores).
 
 Collision Test:
