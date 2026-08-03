@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Ady
-Last modified June 1, 2026
+Last modified August 3, 2026
 
 Description:  Pairwise genome comparison using DynamicDemiLog (DDL) bucket
 matching.  Creates a DDL sketch for each input, compares them, and reports
@@ -30,6 +30,8 @@ qf=<file>       against all references (multi-query batch mode).
 records=20      Max hits to display.
 minhits=5       Minimum matching DDL buckets to report a hit.
 index=f         Use inverted index for query acceleration.
+csr=t           Inverted-index storage: CSR packed arrays (default, far less RAM)
+                or the matrix reference (csr=f).  Results are identical either way.
 t=auto          Number of threads (default: all available cores).
 
 Collision Test:
