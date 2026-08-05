@@ -820,6 +820,7 @@ public class GeneModel extends ProkObject {
 		taxIds.sort();
 		
 		bb.append("#BBMap "+Shared.BBTOOLS_VERSION_STRING+" Prokaryotic Gene Model\n");
+		if(useA48){bb.append("#format\tA48\n");}
 		bb.append("#files");
 		bb.tab().append(numFiles);
 //		if(fnames.size()>5){
@@ -1064,5 +1065,9 @@ public class GeneModel extends ProkObject {
 	public static boolean verbose=false;
 	/** Tracks whether an error has occurred during processing */
 	public static boolean errorState=false;
+	/** Write PGM files using compact A48 encoding */
+	public static boolean useA48=false;
+	/** Current file being parsed uses A48 encoding */
+	static boolean readingA48=false;
 	
 }

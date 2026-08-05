@@ -5,6 +5,7 @@ import java.util.HashMap;
 
 import dna.AminoAcid;
 import gff.GffLine;
+import ml.CellNet;
 import shared.Shared;
 import shared.Tools;
 import structures.ByteBuilder;
@@ -98,6 +99,249 @@ public class Orf extends PFeature {
 		return (float)d;
 	}
 	
+	/** Adjusts the heuristic orfScore using a neural network prediction.
+	 * The NN outputs 0-1 (confidence this is a real gene). Scores above
+	 * NN_THRESHOLD boost the heuristic; below penalize it. */
+	public float calcOrfScoreHybrid(CellNet net, float gc){
+		float heuristic=calcOrfScore();
+		float[] in=new float[15];
+		in[0]=startScore;
+		in[1]=stopScore;
+		in[2]=kmerScore;
+		in[3]=averageKmerScore();
+		in[4]=(float)Math.log10(Tools.max(1, length()));
+		in[5]=gc;
+		in[6]=(frame==0 ? 1 : 0);
+		in[7]=(frame==1 ? 1 : 0);
+		in[8]=(frame==2 ? 1 : 0);
+		String sc=AminoAcid.codonToString(startCodon);
+		in[9]=("ATG".equals(sc) ? 1 : 0);
+		in[10]=("GTG".equals(sc) ? 1 : 0);
+		in[11]=("TTG".equals(sc) ? 1 : 0);
+		String ec=AminoAcid.codonToString(stopCodon);
+		in[12]=("TAG".equals(ec) ? 1 : 0);
+		in[13]=("TAA".equals(ec) ? 1 : 0);
+		in[14]=("TGA".equals(ec) ? 1 : 0);
+		net.applyInput(in);
+		float nnOut=net.feedForward();
+		float adjustment=1.0f+NN_STRENGTH*(nnOut-NN_THRESHOLD);
+		return heuristic*Tools.max(0.01f, adjustment);
+	}
+
+	/** Adjusts heuristic orfScore using a StartNet (one-hot bases around start site).
+	 * Needs access to scaffold bases for one-hot encoding. */
+	public float calcOrfScoreHybridStart(CellNet net, float gc, byte[] bases){
+		float heuristic=calcOrfScore();
+		int numInputs=net.numInputs();
+		float[] in=new float[numInputs];
+		int idx=0;
+		if(strand==Shared.PLUS){
+			for(int offset=-START_UPSTREAM; offset<START_DOWNSTREAM; offset++){
+				int pos=start+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				in[idx++]=(x==0 ? 1 : 0);
+				in[idx++]=(x==1 ? 1 : 0);
+				in[idx++]=(x==2 ? 1 : 0);
+				in[idx++]=(x==3 ? 1 : 0);
+			}
+		}else{
+			for(int offset=START_UPSTREAM-1; offset>=-START_DOWNSTREAM; offset--){
+				int pos=stop+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				if(x>=0){x=3-x;}
+				in[idx++]=(x==0 ? 1 : 0);
+				in[idx++]=(x==1 ? 1 : 0);
+				in[idx++]=(x==2 ? 1 : 0);
+				in[idx++]=(x==3 ? 1 : 0);
+			}
+		}
+		if(idx<numInputs){
+			in[idx++]=startScore;
+			in[idx++]=gc;
+			in[idx++]=(float)(0.1*Math.log(Tools.max(1, length())));
+		}
+		net.applyInput(in);
+		float nnOut=net.feedForward();
+		float threshold=(NN_THRESHOLD>=0 ? NN_THRESHOLD : net.cutoff);
+		if(threshold<0){threshold=0;}
+		float adjustment=1.0f+NN_STRENGTH*(nnOut-threshold);
+		return heuristic*Tools.max(0.01f, adjustment);
+	}
+
+	/** Adjusts heuristic orfScore using a StopNet (one-hot bases around stop site). */
+	public float calcOrfScoreHybridStop(CellNet net, float gc, byte[] bases){
+		float heuristic=calcOrfScore();
+		int numInputs=net.numInputs();
+		float[] in=new float[numInputs];
+		int idx=0;
+		int stopStart=stop-2;
+		if(strand==Shared.PLUS){
+			for(int offset=-STOP_UPSTREAM; offset<STOP_DOWNSTREAM; offset++){
+				int pos=stopStart+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+			}
+		}else{
+			int stopAnchor=start+2;
+			for(int offset=STOP_UPSTREAM-1; offset>=-STOP_DOWNSTREAM; offset--){
+				int pos=stopAnchor+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				if(x>=0){x=3-x;}
+				in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+			}
+		}
+		if(idx<numInputs){
+			in[idx++]=stopScore;
+			in[idx++]=gc;
+			in[idx++]=(float)(0.1*Math.log(Tools.max(1, length())));
+		}
+		net.applyInput(in);
+		float nnOut=net.feedForward();
+		float threshold=(NN_STOP_THRESHOLD>=0 ? NN_STOP_THRESHOLD : net.cutoff);
+		if(threshold<0){threshold=0;}
+		float adjustment=1.0f+NN_STOP_STRENGTH*(nnOut-threshold);
+		return heuristic*Tools.max(0.01f, adjustment);
+	}
+
+	/** Adjusts using both StartNet and StopNet. */
+	public float calcOrfScoreHybridBoth(CellNet startNet, CellNet stopNet, float gc, byte[] bases){
+		float startAdj=calcOrfScoreHybridStart(startNet, gc, bases);
+		float heuristic=calcOrfScore();
+		float ratio=startAdj/Tools.max(0.001f, heuristic);
+
+		int numInputs=stopNet.numInputs();
+		float[] in=new float[numInputs];
+		int idx=0;
+		int stopStart=stop-2;
+		if(strand==Shared.PLUS){
+			for(int offset=-STOP_UPSTREAM; offset<STOP_DOWNSTREAM; offset++){
+				int pos=stopStart+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+			}
+		}else{
+			int stopAnchor=start+2;
+			for(int offset=STOP_UPSTREAM-1; offset>=-STOP_DOWNSTREAM; offset--){
+				int pos=stopAnchor+offset;
+				int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+				if(x>=0){x=3-x;}
+				in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+			}
+		}
+		if(idx<numInputs){
+			in[idx++]=stopScore;
+			in[idx++]=gc;
+			in[idx++]=(float)(0.1*Math.log(Tools.max(1, length())));
+		}
+		stopNet.applyInput(in);
+		float nnOut=stopNet.feedForward();
+		float threshold=(NN_STOP_THRESHOLD>=0 ? NN_STOP_THRESHOLD : stopNet.cutoff);
+		if(threshold<0){threshold=0;}
+		float stopAdj=1.0f+NN_STOP_STRENGTH*(nnOut-threshold);
+		return startAdj*Tools.max(0.01f, stopAdj);
+	}
+
+	/** Adjusts heuristic orfScore using a MetaNet that combines StartNet+StopNet outputs
+	 * with heuristic scores, codon one-hots, length, GC, and leader distance. */
+	public float calcOrfScoreHybridMeta(CellNet startNet, CellNet stopNet, CellNet metaNet,
+			float gc, byte[] bases, int maxLenForStop){
+		float heuristic=calcOrfScore();
+
+		float startNetOut=runSubNet(startNet, true, gc, bases);
+		float stopNetOut=runSubNet(stopNet, false, gc, bases);
+
+		int numInputs=metaNet.numInputs();
+		float[] in=new float[numInputs];
+		int idx=0;
+		in[idx++]=startNetOut;
+		in[idx++]=stopNetOut;
+		in[idx++]=startScore;
+		in[idx++]=stopScore;
+		in[idx++]=kmerScore;
+		in[idx++]=averageKmerScore();
+		in[idx++]=(float)Math.log10(Tools.max(1, length()));
+		in[idx++]=gc;
+
+		if(numInputs>10){
+			for(int pos=2; pos>=0; pos--){
+				int base=(startCodon>>(pos*2))&3;
+				in[idx++]=(base==0?1:0); in[idx++]=(base==1?1:0);
+				in[idx++]=(base==2?1:0); in[idx++]=(base==3?1:0);
+			}
+			for(int pos=2; pos>=0; pos--){
+				int base=(stopCodon>>(pos*2))&3;
+				in[idx++]=(base==0?1:0); in[idx++]=(base==1?1:0);
+				in[idx++]=(base==2?1:0); in[idx++]=(base==3?1:0);
+			}
+		}
+
+		float leaderDist=(maxLenForStop>0 ? maxLenForStop : length());
+		in[idx++]=(float)Math.log10(Tools.max(1, leaderDist));
+		in[idx++]=length()/(float)Tools.max(1, leaderDist);
+
+		metaNet.applyInput(in);
+		float nnOut=metaNet.feedForward();
+		float threshold=(NN_META_THRESHOLD>=0 ? NN_META_THRESHOLD : metaNet.cutoff);
+		if(threshold<0){threshold=0;}
+		float adjustment=1.0f+NN_META_STRENGTH*(nnOut-threshold);
+		return heuristic*Tools.max(0.01f, adjustment);
+	}
+
+	private float runSubNet(CellNet net, boolean isStart, float gc, byte[] bases){
+		int numInputs=net.numInputs();
+		float[] in=new float[numInputs];
+		int idx=0;
+		if(isStart){
+			if(strand==Shared.PLUS){
+				for(int offset=-START_UPSTREAM; offset<START_DOWNSTREAM; offset++){
+					int pos=start+offset;
+					int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+					in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+				}
+			}else{
+				for(int offset=START_UPSTREAM-1; offset>=-START_DOWNSTREAM; offset--){
+					int pos=stop+offset;
+					int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+					if(x>=0){x=3-x;}
+					in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+				}
+			}
+			if(idx<numInputs){in[idx++]=startScore; in[idx++]=gc; in[idx++]=(float)(0.1*Math.log(Tools.max(1, length())));}
+		}else{
+			int stopStart=stop-2;
+			if(strand==Shared.PLUS){
+				for(int offset=-STOP_UPSTREAM; offset<STOP_DOWNSTREAM; offset++){
+					int pos=stopStart+offset;
+					int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+					in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+				}
+			}else{
+				int stopAnchor=start+2;
+				for(int offset=STOP_UPSTREAM-1; offset>=-STOP_DOWNSTREAM; offset--){
+					int pos=stopAnchor+offset;
+					int x=(pos>=0 && pos<bases.length) ? AminoAcid.baseToNumber[bases[pos]] : -1;
+					if(x>=0){x=3-x;}
+					in[idx++]=(x==0?1:0); in[idx++]=(x==1?1:0); in[idx++]=(x==2?1:0); in[idx++]=(x==3?1:0);
+				}
+			}
+			if(idx<numInputs){in[idx++]=stopScore; in[idx++]=gc; in[idx++]=(float)(0.1*Math.log(Tools.max(1, length())));}
+		}
+		net.applyInput(in);
+		return net.feedForward();
+	}
+
+	static int START_UPSTREAM=21;
+	static int START_DOWNSTREAM=9;
+	static int STOP_UPSTREAM=9;
+	static int STOP_DOWNSTREAM=21;
+	static float NN_STRENGTH=2.0f;
+	/** Negative = use net.cutoff (trained optimal crossover). Override with nnthreshold=X. */
+	static float NN_THRESHOLD=-1f;
+	static float NN_STOP_STRENGTH=0.2f;
+	static float NN_STOP_THRESHOLD=-1f;
+	static float NN_META_STRENGTH=0.05f;
+	static float NN_META_THRESHOLD=-1f;
+
 	/** Mean inner-kmer score: total kmerScore divided by the number of inner kmers spanned by the CDS.
 	 * @return kmerScore normalized by (length() - kInnerCDS - 2). */
 	public float averageKmerScore(){

@@ -16,6 +16,9 @@ import gff.GffLine;
 import jgi.BBMerge;
 import json.JsonObject;
 import parse.Parse;
+import bin.AdjustEntropy;
+import clade.Clade;
+import clade.SendClade;
 import parse.Parser;
 import parse.PreParser;
 import shared.Shared;
@@ -234,6 +237,8 @@ public class CallGenes extends ProkObject {
 				minOrfScore=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("minAvgScore")){
 				minAvgScore=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("dumporfscores")){
+				GeneCaller.dumpOrfScores=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("breakLimit")){
 				GeneCaller.breakLimit=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("clearcutoffs") || a.equalsIgnoreCase("clearfilters")){
@@ -296,9 +301,51 @@ public class CallGenes extends ProkObject {
 			else if(a.equalsIgnoreCase("compareto")){
 				compareToGff=b;
 			}
-			
+
+			else if(a.equalsIgnoreCase("orfnet") || a.equalsIgnoreCase("scorenet")){
+				orfNetPath=b;
+			}else if(a.equalsIgnoreCase("orfnetlow") || a.equalsIgnoreCase("netlow")){
+				orfNetLowPath=b;
+			}else if(a.equalsIgnoreCase("orfnetmid") || a.equalsIgnoreCase("netmid")){
+				orfNetMidPath=b;
+			}else if(a.equalsIgnoreCase("orfnethigh") || a.equalsIgnoreCase("nethigh")){
+				orfNetHighPath=b;
+			}else if(a.equalsIgnoreCase("orfnets") || a.equalsIgnoreCase("nets")){
+				orfNetPaths=b.split(",");
+			}else if(a.equalsIgnoreCase("gcmeans") || a.equalsIgnoreCase("gct") || a.equalsIgnoreCase("gcthresholds")){
+				String[] parts=b.split(",");
+				gcMeans=new float[parts.length];
+				for(int j=0; j<parts.length; j++){gcMeans[j]=Float.parseFloat(parts[j]);}
+			}else if(a.equalsIgnoreCase("stopnets")){
+				stopNetPaths=b.split(",");
+			}else if(a.equalsIgnoreCase("nnstrength")){
+				Orf.NN_STRENGTH=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("nnthreshold")){
+				Orf.NN_THRESHOLD=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("nnstopstrength")){
+				Orf.NN_STOP_STRENGTH=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("nnstopthreshold")){
+				Orf.NN_STOP_THRESHOLD=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("metanet")){
+				metaNetPath=b;
+			}else if(a.equalsIgnoreCase("metanets")){
+				metaNetPaths=b.split(",");
+			}else if(a.equalsIgnoreCase("nnmetastrength")){
+				Orf.NN_META_STRENGTH=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("nnmetathreshold")){
+				Orf.NN_META_THRESHOLD=Float.parseFloat(b);
+			}
+
+			else if(a.equalsIgnoreCase("taxonomy") || a.equalsIgnoreCase("tax")){
+				useTaxonomy=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("percontig")){
+				perContig=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("taxaddress") || a.equalsIgnoreCase("taxserver")){
+				taxAddress=b;
+			}
+
 			else if(ProkObject.parse(arg, a, b)){}
-			
+
 			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -375,9 +422,46 @@ public class CallGenes extends ProkObject {
 	
 	/** Create read streams and process all data */
 	void process(Timer t){
-		
-		final GeneModel pgm0=PGMTools.loadAndMerge(pgmList);
-		
+
+		final GeneModel pgm0;
+		if(useTaxonomy && !perContig){
+			String phylum=classifyPhylum(fnaList);
+			if(phylum!=null){
+				String path=Data.findPath("?pgm_"+phylum+".pgm");
+				if(new File(path).exists()){
+					ArrayList<String> list=new ArrayList<>();
+					list.add(path);
+					pgm0=PGMTools.loadAndMerge(list);
+					outstream.println("Taxonomy: using "+phylum+" PGM");
+				}else{
+					pgm0=PGMTools.loadAndMerge(pgmList);
+					outstream.println("Taxonomy: "+phylum+" (no PGM available, using default)");
+				}
+			}else{
+				pgm0=PGMTools.loadAndMerge(pgmList);
+				outstream.println("Taxonomy: classification failed, using default PGM");
+			}
+		}else{
+			pgm0=PGMTools.loadAndMerge(pgmList);
+		}
+
+		if(orfNetPath!=null){GeneCaller.loadOrfNet(orfNetPath);}
+		if(orfNetLowPath!=null || orfNetMidPath!=null || orfNetHighPath!=null){
+			GeneCaller.loadOrfNetsGC(orfNetLowPath, orfNetMidPath, orfNetHighPath);
+		}
+		if(gcMeans!=null){GeneCaller.gcMeans=gcMeans;}
+		if(orfNetPaths!=null){
+			GeneCaller.loadOrfNetsGCN(orfNetPaths, gcMeans);
+		}
+		if(stopNetPaths!=null){
+			GeneCaller.loadStopNetsGCN(stopNetPaths);
+		}
+		if(metaNetPaths!=null){
+			GeneCaller.loadMetaNetsGCN(metaNetPaths);
+		}else if(metaNetPath!=null){
+			GeneCaller.loadMetaNetSingle(metaNetPath);
+		}
+
 		if(call16S || call18S || call23S || calltRNA || call5S){
 			loadLongKmers();
 			loadConsensusSequenceFromFile(false, false);
@@ -458,7 +542,69 @@ public class CallGenes extends ProkObject {
 			CompareGff.main(new String[] {outGff, compareToGff});
 		}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------    Taxonomy Classification     ----------------*/
+	/*--------------------------------------------------------------*/
+
+	private static final String[] KNOWN_PHYLA={
+		"Acidobacteriota", "Actinomycetota", "Aquificota", "Bacillota", "Bacteroidota",
+		"Campylobacterota", "Chlamydiota", "Chloroflexota", "Cyanobacteriota", "Fusobacteriota",
+		"Mycoplasmatota", "Myxococcota", "Planctomycetota", "Spirochaetota",
+		"Synergistota", "Thermodesulfobacteriota", "Thermotogota", "Verrucomicrobiota",
+		"Methanobacteriota", "Nitrososphaerota", "Thermoplasmatota", "Thermoproteota"
+	};
+
+	private String classifyPhylum(ArrayList<String> inputFiles){
+		try{
+			Clade.MAKE_DDLS=true;
+			Clade.DDL_K=25;
+			Clade.DDL_BUCKETS=32768;
+			cardinality.DynamicDemiLog.setExponent(5);
+			if(AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150){
+				AdjustEntropy.load(4, 150);
+			}
+
+			String fna=inputFiles.get(0);
+			ArrayList<Read> reads=ReadInputStream.toReads(fna, FileFormat.FASTA, -1);
+			Clade clade=new Clade(0, 0, fna);
+			for(Read r : reads){clade.add(r.bases, null);}
+			clade.finish();
+
+			ArrayList<Clade> clades=new ArrayList<>();
+			clades.add(clade);
+			String response=SendClade.sendClades(clades, null, true, 1, false, false, 1, false, 1);
+
+			if(response!=null){
+				String[] lines=response.split("\n");
+				for(String line : lines){
+					if(line.contains(";")){
+						String phylum=findPhylumInLineage(line);
+						if(phylum!=null){return phylum;}
+					}
+				}
+			}
+		}catch(Exception e){
+			outstream.println("Warning: taxonomy classification failed: "+e.getMessage());
+		}
+		return null;
+	}
+
+	private static String findPhylumInLineage(String lineage){
+		for(String part : lineage.split(";")){
+			String trimmed=part.trim();
+			if(trimmed.startsWith("p:")){trimmed=trimmed.substring(2);}
+			else if(trimmed.startsWith("p__")){trimmed=trimmed.substring(3);}
+			for(String phylum : KNOWN_PHYLA){
+				if(trimmed.equals(phylum)){
+					return phylum;
+				}
+			}
+		}
+		return null;
+	}
+
+
 	/**
 	 * Writes gene calling statistics to specified file in human-readable format.
 	 * Includes gene counts by type, coding fraction estimates, and detailed
@@ -1423,6 +1569,18 @@ public class CallGenes extends ProkObject {
 	private String out18S=null;
 	/** GFF filename for comparison/validation of gene calling results */
 	private String compareToGff=null;
+	private String orfNetPath=null;
+	private String orfNetLowPath=null;
+	private String orfNetMidPath=null;
+	private String orfNetHighPath=null;
+	private String[] orfNetPaths=null;
+	private String[] stopNetPaths=null;
+	private String metaNetPath=null;
+	private String[] metaNetPaths=null;
+	private float[] gcMeans=null;
+	private boolean useTaxonomy=false;
+	private boolean perContig=false;
+	private String taxAddress="refseq";
 	/** Output filename for statistics summary */
 	private String outStats="stderr";
 	/** Output filename for gene length histogram */

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified May 4, 2025
+Last modified August 4, 2026
 
 Description:  Finds orfs and calls genes in unspliced prokaryotes.
 This includes bacteria, archaea, viruses, and mitochondria.
@@ -30,6 +30,14 @@ bins=1000       Maximum histogram bins.
 pz=f            (printzero) Print histogram lines with zero count.
 
 
+
+Taxonomy parameters:
+taxonomy=f      Use QuickClade to classify the input and select a phylum-
+                specific gene model for improved accuracy.  Requires access
+                to a QuickClade server.
+percontig=f     Classify each contig separately (for metagenomes).
+                Default is per-file (classify once for all contigs).
+taxaddress=     QuickClade server address.  Default: refseq.
 
 Other parameters:
 minlen=60       Don't call genes shorter than this.
