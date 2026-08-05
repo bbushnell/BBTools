@@ -48,7 +48,8 @@ fast            (alias: quick) records=1, buffer=1, callssu=f, sketch=f.
                 Fastest mode; uses 4g memory.
 medium          (alias: normal) records=5, buffer=20, callssu=t, sketch=t.
 slow            (alias: sensitive) records=10, buffer=50, callssu=t, sketch=t,
-                index=t.  THE DEFAULT.  Uses 8g memory unless -Xmx is explicit.
+                index=t.  THE DEFAULT.  Uses 8g memory (32g with 32k sketches)
+                unless -Xmx is explicit.
 
 Basic Parameters:
 percontig       Run one query per contig instead of per file.
@@ -213,14 +214,20 @@ setEnv(){
 	local DEFAULTXMX="8g"
 	local DEFAULTXMS="8g"
 	local EXPLICIT_XMX=false
+	local USE_32K=false
 	for arg in "$@"; do
 		case "$arg" in
 			fast|quick) DEFAULTXMX="4g"; DEFAULTXMS="4g" ;;
 			slow|sensitive|index|index=t|index=true|sketchindex|sketchindex=t|sketchindex=true)
 				DEFAULTXMX="8g"; DEFAULTXMS="8g" ;;
+			32k|sketchfile=32k|sketchfile=*b32768*|ddlfile=32k|sketchref=32k)
+				USE_32K=true ;;
 			-Xmx*|--xmx=*) EXPLICIT_XMX=true ;;
 		esac
 	done
+	if [ "$USE_32K" = true ] && [ "$EXPLICIT_XMX" = false ]; then
+		DEFAULTXMX="32g"; DEFAULTXMS="32g"
+	fi
 	if [ "$EXPLICIT_XMX" = true ]; then
 		parseJavaArgs "--mode=fixed" "$@"
 	else

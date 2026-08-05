@@ -700,14 +700,11 @@ public class CladeServer {
 				//can't know a query's true taxID, so always-false is correct) but then printqtid should not be
 				//advertised/headered in serverMode. -> #001 (DOC).
 				bb.append("#Query").append(queryNumber).append('\n');
-				int cladeCount=0, sketchCount=0, totalCount=0;
+				int totalCount=0;
 				for(Comparison comp : validResults){
-					if(totalCount>=ctx.caprecords){break;}
-					if(comp.isSketchHit){
-						if(sketchCount<ctx.hits){sketchCount++; totalCount++; comp.appendResultMachine(false, bb); bb.nl();}
-					}else if(cladeCount<ctx.hits){
-						cladeCount++; totalCount++; comp.appendResultMachine(false, bb); bb.nl();
-					}
+					if(totalCount>=ctx.hits || totalCount>=ctx.caprecords){break;}
+					comp.appendResultMachine(false, bb); bb.nl();
+					totalCount++;
 				}
 			}else{
 				bb.append("Query: ").append(query.name).nl();
@@ -716,14 +713,11 @@ public class CladeServer {
 				bb.append("Contigs: ").append(query.contigs).nl();
 				bb.nl();
 
-				int cladeCount=0, sketchCount=0, hitNum=0;
+				int hitNum=0;
 				for(Comparison comp : validResults){
-					if(hitNum>=ctx.caprecords){break;}
-					if(comp.isSketchHit){
-						if(sketchCount<ctx.hits){sketchCount++; comp.appendResultHuman(bb, hitNum); bb.nl().nl(); hitNum++;}
-					}else if(cladeCount<ctx.hits){
-						cladeCount++; comp.appendResultHuman(bb, hitNum); bb.nl().nl(); hitNum++;
-					}
+					if(hitNum>=ctx.hits || hitNum>=ctx.caprecords){break;}
+					comp.appendResultHuman(bb, hitNum); bb.nl().nl();
+					hitNum++;
 				}
 			}
 		}
