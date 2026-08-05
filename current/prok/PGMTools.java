@@ -163,8 +163,10 @@ public class PGMTools extends ProkObject {
 		
 		else if(a.equalsIgnoreCase("normalize")){
 			normalize=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("a48")){
+			GeneModel.useA48=Parse.parseBoolean(b);
 		}
-		
+
 		else{
 			return false;
 		}

@@ -254,12 +254,11 @@ public class FrameStats {
 		try {
 			final long[] row=counts[valid][frame];
 			long sum=0;
-			//TODO: Possible bug [prok/FrameStats#001] - the per-kmer assert below reuses the "Missing field 1" message
-			//(copy-pasted from the frame-field check); cosmetic - a misleading diagnostic, fires only on a malformed .pgm. LOW.
+			final boolean a48=GeneModel.readingA48;
 			for(int kmer=0; kmer<row.length; kmer++){
 				while(b<line.length && line[b]!='\t'){b++;}
-				assert(b>a) : "Missing field 1: "+new String(line);
-				long count=Parse.parseLong(line, a, b);
+				assert(b>a) : "Missing field at kmer "+kmer+": "+new String(line);
+				long count=a48 ? Parse.parseLongA48(line, a, b) : Parse.parseLong(line, a, b);
 				b++;
 				a=b;
 				row[kmer]=count;
@@ -291,8 +290,15 @@ public class FrameStats {
 			for(int b=0; b<frames; b++){
 				bb.append(a);
 				bb.tab().append(b);
-				for(int c=0; c<kMax; c++){
-					bb.tab().append(counts[a][b][c]);
+				if(GeneModel.useA48){
+					for(int c=0; c<kMax; c++){
+						bb.tab();
+						bb.appendA48(counts[a][b][c]);
+					}
+				}else{
+					for(int c=0; c<kMax; c++){
+						bb.tab().append(counts[a][b][c]);
+					}
 				}
 				bb.nl();
 			}

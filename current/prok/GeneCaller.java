@@ -11,6 +11,8 @@ import aligner.SingleStateAlignerFlatFloat;
 import dna.AminoAcid;
 import idaligner.IDAligner;
 import map.LongHashSet;
+import ml.CellNet;
+import ml.CellNetParser;
 import shared.KillSwitch;
 import shared.Tools;
 import simd.Vector;
@@ -44,20 +46,44 @@ public class GeneCaller extends ProkObject {
 	 * @param minAvgScore_ Minimum score per base
 	 * @param pgm_ Gene model containing probability matrices
 	 */
-	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_, 
+	GeneCaller(int minLen_, int maxOverlapSameStrand_, int maxOverlapOppositeStrand_,
 			float minStartScore_, float minStopScore_, float minInnerScore_,
 			float minOrfScore_, float minAvgScore_, GeneModel pgm_){
 		minLen=minLen_;
 		maxOverlapSameStrand=maxOverlapSameStrand_;
 		maxOverlapOppositeStrand=maxOverlapOppositeStrand_;
 		pgm=pgm_;
-		
+
 		minStartScore=minStartScore_;
 		minStopScore=minStopScore_;
 		minInnerScore=minInnerScore_;
 		minOrfScore=minOrfScore_;
 		minAvgScore=minAvgScore_;
 		assert(pgm!=null);
+		orfNet=(orfNetTemplate!=null ? orfNetTemplate.copy(false) : null);
+		orfNetLow=(orfNetTemplateLow!=null ? orfNetTemplateLow.copy(false) : null);
+		orfNetMid=(orfNetTemplateMid!=null ? orfNetTemplateMid.copy(false) : null);
+		orfNetHigh=(orfNetTemplateHigh!=null ? orfNetTemplateHigh.copy(false) : null);
+		if(orfNetTemplateGC!=null){
+			orfNetsGC=new CellNet[orfNetTemplateGC.length];
+			for(int i=0; i<orfNetTemplateGC.length; i++){
+				orfNetsGC[i]=(orfNetTemplateGC[i]!=null ? orfNetTemplateGC[i].copy(false) : null);
+			}
+		}else{orfNetsGC=null;}
+		if(stopNetTemplateGC!=null){
+			stopNetsGC=new CellNet[stopNetTemplateGC.length];
+			for(int i=0; i<stopNetTemplateGC.length; i++){
+				stopNetsGC[i]=(stopNetTemplateGC[i]!=null ? stopNetTemplateGC[i].copy(false) : null);
+			}
+		}else{stopNetsGC=null;}
+		if(metaNetTemplateGC!=null){
+			metaNetsGC=new CellNet[metaNetTemplateGC.length];
+			for(int i=0; i<metaNetTemplateGC.length; i++){
+				metaNetsGC[i]=(metaNetTemplateGC[i]!=null ? metaNetTemplateGC[i].copy(false) : null);
+			}
+		}else{metaNetsGC=null;}
+		metaNetInstance=(metaNetSingle!=null ? metaNetSingle.copy(false) : null);
+		gc=pgm.gc();
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -97,6 +123,22 @@ public class GeneCaller extends ProkObject {
 	public ArrayList<Orf> callGenes(Read r, boolean breakOrfs){
 		return callGenes(r, pgm, breakOrfs);
 	}
+
+	/** Returns ALL scored ORF candidates without DP path selection.
+	 * Used for generating training vectors for the NN scorer. */
+	public ArrayList<Orf> getAllScoredOrfs(Read r, GeneModel pgm_){
+		pgm=pgm_;
+		final byte[] bases=r.bases;
+		final String name=r.id;
+		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen);
+		ArrayList<Orf>[] brokenLists=breakOrfs(frameLists, bases);
+		ArrayList<Orf> all=new ArrayList<Orf>();
+		for(ArrayList<Orf> list : brokenLists){
+			if(list!=null){all.addAll(list);}
+		}
+		Collections.sort(all);
+		return all;
+	}
 	
 	/**
 	 * Main gene calling method with full parameter control.
@@ -110,9 +152,13 @@ public class GeneCaller extends ProkObject {
 	public ArrayList<Orf> callGenes(Read r, GeneModel pgm_, boolean breakOrfs){
 		pgm=pgm_;
 		assert(pgm!=null);
-		
+
 		final String name=r.id;
 		final byte[] bases=r.bases;
+		contigGC=calcContigGC(bases);
+		activeNet=selectNet(contigGC);
+		activeStopNet=selectStopNet(contigGC);
+		activeMetaNet=selectMetaNet(contigGC);
 
 		//Lists of all longest orfs per frame
 		ArrayList<Orf>[] frameLists=makeOrfs(name, bases, minLen);
@@ -1306,7 +1352,19 @@ public class GeneCaller extends ProkObject {
 			
 			//This fixes scores because they were generated together, from start to stop, to make this O(N) instead of O(N^2).
 			orf.kmerScore=currentScore-orf.kmerScore;
-			orf.orfScore=orf.calcOrfScore();
+			if(dumpOrfScores){outstream.println("ORFDUMP\t"+orf.scafName+"\t"+(orf.start+1)+"\t"+(orf.stop+1)+"\t"+orf.strand+"\t"+orf.startScore+"\t"+orf.stopScore+"\t"+orf.averageKmerScore()+"\t"+orf.length());}
+			final boolean nearEdge=(orf.start<NN_EDGE_MARGIN || orf.stop+NN_EDGE_MARGIN>=bases.length);
+			if(!nearEdge && activeMetaNet!=null && activeNet!=null && activeStopNet!=null){
+				orf.orfScore=orf.calcOrfScoreHybridMeta(activeNet, activeStopNet, activeMetaNet, contigGC, bases, longest.length());
+			}else if(!nearEdge && activeNet!=null && activeStopNet!=null){
+				orf.orfScore=orf.calcOrfScoreHybridBoth(activeNet, activeStopNet, contigGC, bases);
+			}else if(!nearEdge && activeNet!=null){
+				orf.orfScore=orf.calcOrfScoreHybridStart(activeNet, contigGC, bases);
+			}else if(!nearEdge && activeStopNet!=null){
+				orf.orfScore=orf.calcOrfScoreHybridStop(activeStopNet, contigGC, bases);
+			}else{
+				orf.orfScore=orf.calcOrfScore();
+			}
 			if(orf.orfScore>=best.orfScore){best=orf;}
 			if(orf.startScore>=bestStart.startScore){bestStart=orf;}
 			
@@ -1406,7 +1464,136 @@ public class GeneCaller extends ProkObject {
 	 * TODO: Dynamically swap this as needed for contigs with varying GC.
 	 */
 	GeneModel pgm;
-	
+
+	/** Per-instance NNs for ORF scoring (thread-safe copies). Null = use heuristic. */
+	final CellNet orfNet;
+	final CellNet orfNetLow;
+	final CellNet orfNetMid;
+	final CellNet orfNetHigh;
+	final CellNet[] orfNetsGC;
+	final CellNet[] stopNetsGC;
+	final CellNet[] metaNetsGC;
+	final CellNet metaNetInstance;
+	final float gc;
+
+	/** Shared templates loaded once; each GeneCaller copies for thread safety. */
+	public static CellNet orfNetTemplate=null;
+	public static CellNet orfNetTemplateLow=null;
+	public static CellNet orfNetTemplateMid=null;
+	public static CellNet orfNetTemplateHigh=null;
+	public static CellNet[] orfNetTemplateGC=null;
+	public static float[] gcMeans=null;
+
+	static final float GC_LOW_THRESHOLD=0.42f;
+	static final float GC_HIGH_THRESHOLD=0.58f;
+
+	public static void loadOrfNet(String path){
+		if(path!=null){
+			orfNetTemplate=CellNetParser.load(path);
+		}
+	}
+
+	public static void loadOrfNetsGC(String lowPath, String midPath, String highPath){
+		if(lowPath!=null){orfNetTemplateLow=CellNetParser.load(lowPath);}
+		if(midPath!=null){orfNetTemplateMid=CellNetParser.load(midPath);}
+		if(highPath!=null){orfNetTemplateHigh=CellNetParser.load(highPath);}
+	}
+
+	public static void loadOrfNetsGCN(String[] paths, float[] means){
+		gcMeans=means;
+		orfNetTemplateGC=new CellNet[paths.length];
+		for(int i=0; i<paths.length; i++){
+			if(paths[i]!=null){orfNetTemplateGC[i]=CellNetParser.load(paths[i]);}
+		}
+	}
+
+	public static CellNet[] stopNetTemplateGC=null;
+	public static CellNet[] metaNetTemplateGC=null;
+	public static CellNet metaNetSingle=null;
+
+	/** Skip NN scoring for ORFs within this many bases of contig ends — edge ORFs lack the upstream/downstream context the NNs need */
+	static final int NN_EDGE_MARGIN=21;
+
+	public static void loadStopNetsGCN(String[] paths){
+		stopNetTemplateGC=new CellNet[paths.length];
+		for(int i=0; i<paths.length; i++){
+			if(paths[i]!=null){stopNetTemplateGC[i]=CellNetParser.load(paths[i]);}
+		}
+	}
+
+	public static void loadMetaNetsGCN(String[] paths){
+		metaNetTemplateGC=new CellNet[paths.length];
+		for(int i=0; i<paths.length; i++){
+			if(paths[i]!=null){metaNetTemplateGC[i]=CellNetParser.load(paths[i]);}
+		}
+	}
+
+	public static void loadMetaNetSingle(String path){
+		metaNetSingle=CellNetParser.load(path);
+	}
+
+	/** Select the appropriate net based on contig GC content — picks the net whose training mean GC is closest. */
+	CellNet selectNet(float contigGC){
+		if(orfNetsGC!=null && gcMeans!=null){
+			int best=0;
+			float bestDist=Math.abs(contigGC-gcMeans[0]);
+			for(int i=1; i<gcMeans.length; i++){
+				float dist=Math.abs(contigGC-gcMeans[i]);
+				if(dist<bestDist && orfNetsGC[i]!=null){
+					bestDist=dist;
+					best=i;
+				}
+			}
+			if(orfNetsGC[best]!=null){return orfNetsGC[best];}
+		}
+		if(orfNetLow!=null && contigGC<GC_LOW_THRESHOLD){return orfNetLow;}
+		if(orfNetHigh!=null && contigGC>GC_HIGH_THRESHOLD){return orfNetHigh;}
+		if(orfNetMid!=null){return orfNetMid;}
+		return orfNet;
+	}
+
+	private static float calcContigGC(byte[] bases){
+		long gc=0, at=0;
+		for(byte b : bases){
+			int x=AminoAcid.baseToNumber[b];
+			if(x==1 || x==2){gc++;}
+			else if(x==0 || x==3){at++;}
+		}
+		return (float)(gc/(double)Tools.max(1, gc+at));
+	}
+
+	float contigGC;
+	CellNet activeNet;
+	CellNet activeStopNet;
+	CellNet activeMetaNet;
+
+	CellNet selectMetaNet(float contigGC){
+		if(metaNetsGC!=null && gcMeans!=null){
+			int best=0;
+			float bestDist=Math.abs(contigGC-gcMeans[0]);
+			for(int i=1; i<gcMeans.length; i++){
+				float dist=Math.abs(contigGC-gcMeans[i]);
+				if(dist<bestDist && metaNetsGC[i]!=null){bestDist=dist; best=i;}
+			}
+			if(metaNetsGC[best]!=null){return metaNetsGC[best];}
+		}
+		if(metaNetInstance!=null){return metaNetInstance;}
+		return null;
+	}
+
+	CellNet selectStopNet(float contigGC){
+		if(stopNetsGC!=null && gcMeans!=null){
+			int best=0;
+			float bestDist=Math.abs(contigGC-gcMeans[0]);
+			for(int i=1; i<gcMeans.length; i++){
+				float dist=Math.abs(contigGC-gcMeans[i]);
+				if(dist<bestDist && stopNetsGC[i]!=null){bestDist=dist; best=i;}
+			}
+			if(stopNetsGC[best]!=null){return stopNetsGC[best];}
+		}
+		return null;
+	}
+
 	//Gene-calling cutoffs
 	/** Minimum gene length in bases to consider */
 	final int minLen;
@@ -1673,5 +1860,6 @@ public class GeneCaller extends ProkObject {
 	private static PrintStream outstream=System.err;
 	/** Whether to print verbose debugging output */
 	static boolean verbose;
+	static boolean dumpOrfScores;
 	
 }

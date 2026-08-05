@@ -23,6 +23,7 @@ public class GeneModelParser {
 		fname=fname_;
 		lines=ByteFile.toLines(fname);
 		gm=new GeneModel(false);
+		GeneModel.readingA48=false;
 	}
 	
 	/** Checks if more lines are available for parsing.
@@ -285,9 +286,12 @@ public class GeneModelParser {
 	public boolean parseHeader(byte[] line){
 		//TODO: Possible bug [prok/GeneModelParser#001] (LOW latent) - line[0] with no empty-line guard (same pattern in parseContainer L125 / parseStats L178). toByteLines adds every nextLine() result, so a blank line in the .pgm would AIOOBE here. BBTools-generated .pgm (GeneModel.appendTo) emit no blank lines and .pgm is an internal format -> latent; a hand-edited/concatenated .pgm with a blank line crashes loud (not wrong). Cheap guard: if(line.length==0){...}.
 		if(line[0]!='#'){return false;}
-		
+
 		if(Tools.startsWith(line, "#BBMap")){
 			//ignore
+		}else if(Tools.startsWith(line, "#format")){
+			String val=parseString(line).trim();
+			GeneModel.readingA48=val.equalsIgnoreCase("A48");
 		}else if(Tools.startsWith(line, "##")){
 			//ignore
 		}else if(Tools.startsWith(line, "#files")){//Not necessary
