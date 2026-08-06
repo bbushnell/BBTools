@@ -1,6 +1,5 @@
 package ml;
 
-import java.io.File;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,7 +16,6 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
-import structures.FloatList;
 
 /**
  * Trains a feed-forward network for CONTINUOUS outputs and saves it in BBNet format
@@ -34,11 +32,12 @@ import structures.FloatList;
  * in-memory model (round-trip verification).
  * <p>
  * Input is streamed with ByteFile and parsed with LineParser1, so memory scales with
- * the sample count rather than the file text; vectors are held in one flat float array
- * of stride numInputs.
+ * the sample count rather than the file text. Each sample owns one input float array,
+ * avoiding Java's single-array length limit for large training matrices.
  *
  * Usage: java ml.RegressionTrainer in=&lt;data.tsv&gt; out=&lt;net.bbnet&gt; dims=16,32,1
  *          [epochs=60] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1] [vfraction=0.1]
+ *          [valin=&lt;heldout.tsv&gt;]
  *          [final=rslog|linear|sigmoid] [netin=&lt;start.bbnet&gt;] [hidden=tanh,swish,...]
  *
  * hidden= sets the hidden-layer activations: one name is uniform, several are drawn per cell
@@ -99,6 +98,7 @@ public class RegressionTrainer {
 		checkFileExistence();
 
 		ffin=FileFormat.testInput(in, FileFormat.TXT, null, true, true);
+		ffval=(valIn==null ? null : FileFormat.testInput(valIn, FileFormat.TXT, null, true, true));
 		ffout=FileFormat.testOutput(out, FileFormat.TXT, null, true, overwrite, false, false);
 	}
 
@@ -119,6 +119,8 @@ public class RegressionTrainer {
 
 			if(a.equals("in") || a.equals("input")){
 				in=b;
+			}else if(a.equals("valin") || a.equals("validationin")){
+				valIn=b;
 			}else if(a.equals("out") || a.equals("output")){
 				out=b;
 			}else if(a.equals("dims")){
@@ -135,6 +137,7 @@ public class RegressionTrainer {
 				seed=Long.parseLong(b);
 			}else if(a.equals("vfraction")){
 				vfraction=Double.parseDouble(b);
+				vfractionSet=true;
 			}else if(a.equals("final")){
 				finalType=parseFinalType(b);
 			}else if(a.equals("hidden") || a.equals("hiddenfunctions")){
@@ -196,15 +199,18 @@ public class RegressionTrainer {
 		if(dims==null && netIn==null){
 			throw new IllegalArgumentException("required: dims= (or netin=, which supplies them)");
 		}
+		if(vfraction<0 || vfraction>=1){
+			throw new IllegalArgumentException("vfraction must be in [0,1): "+vfraction);
+		}
+		if(valIn!=null && vfractionSet && vfraction>0){
+			throw new IllegalArgumentException("Use either valin= or vfraction>0, not both.");
+		}
 		if(dims==null){return;}//remaining checks run after the net supplies dims
 		if(dims.length<2){
 			throw new IllegalArgumentException("dims needs at least an input and output layer");
 		}
 		if(epochs<1){throw new IllegalArgumentException("epochs must be positive: "+epochs);}
 		if(batch<1){throw new IllegalArgumentException("batch must be positive: "+batch);}
-		if(vfraction<0 || vfraction>=1){
-			throw new IllegalArgumentException("vfraction must be in [0,1): "+vfraction);
-		}
 		if(padLayers){
 			//Round hidden layers up to whole SIMD lanes so the vector kernels have no scalar
 			//tail.  Input and output widths are fixed by the data and are left alone; the
@@ -234,10 +240,10 @@ public class RegressionTrainer {
 		if(!Tools.testOutputFiles(overwrite, false, false, out)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out+"\n");
 		}
-		if(!Tools.testInputFiles(false, true, in)){
-			throw new RuntimeException("\nCan't read input file "+in+"\n");
+		if(!Tools.testInputFiles(false, true, in, valIn)){
+			throw new RuntimeException("\nCan't read an input file.\n");
 		}
-		if(!Tools.testForDuplicateFiles(true, in, out)){
+		if(!Tools.testForDuplicateFiles(true, in, valIn, out)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -274,83 +280,79 @@ public class RegressionTrainer {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Streams the input file into flat float arrays.  Vectors land in one array of
-	 * stride numInputs; targets in another.  Nothing is held as text.
-	 */
+	/** Loads training data and, when supplied, a separate external validation set. */
 	private void loadData(){
 		numInputs=dims[0];
 		numOutputs=dims[dims.length-1];
-		if(!readVectors()){
-			//Parse's fast path does not support exponents: outside of assertions it reads
-			//'e' as a digit and silently returns a wrong number, so a file containing
-			//scientific notation must be re-read with exact parsing.
-			Tools.FORCE_JAVA_PARSE_DOUBLE=true;
-			outstream.println("Note: exponent notation detected; re-reading with exact float parsing.");
-			readVectors();
-		}
+		trainingData=loadData(ffin, in);
+		numSamples=trainingData.size();
+		validationData=(ffval==null ? null : loadData(ffval, valIn));
 
-		assert(vectors.length>=(long)numSamples*numInputs) :
-			vectors.length+", "+numSamples+", "+numInputs;
-		assert(targets.length>=(long)numSamples*numOutputs) :
-			targets.length+", "+numSamples+", "+numOutputs;
-
-		outstream.println("loaded "+numSamples+" samples, dims="+Arrays.toString(dims));
+		outstream.println("loaded "+numSamples+" training samples"
+			+(validationData==null ? "" : ", "+validationData.size()+" external validation samples")
+			+", dims="+Arrays.toString(dims));
 		if(numSamples<1){throw new RuntimeException("No samples were loaded from "+in);}
+		if(validationData!=null && validationData.size()<1){
+			throw new RuntimeException("No samples were loaded from "+valIn);
+		}
 	}
 
 	/**
-	 * Streams the input into the vector and target arrays.
-	 * @return false if exponent notation was found and the file must be re-read exactly
+	 * Loads one data file, retrying with exact float parsing if requested exponent
+	 * detection finds scientific notation.
+	 * @param ff Input format
+	 * @param name Input path, used in diagnostics
+	 * @return Parsed regression data
 	 */
-	private boolean readVectors(){
-		final int estimate=estimateValues();
-		final FloatList vecList=new FloatList(estimate);
-		final FloatList tgtList=new FloatList(Math.max(256, estimate/numInputs));
+	private RegressionData loadData(final FileFormat ff, final String name){
+		RegressionData data=readVectors(ff, name);
+		if(data==null){
+			//Parse's fast path does not support exponents: outside of assertions it reads
+			//'e' as a digit and silently returns a wrong number, so re-read exactly.
+			Tools.FORCE_JAVA_PARSE_DOUBLE=true;
+			outstream.println("Note: exponent notation detected in "+name
+				+"; re-reading with exact float parsing.");
+			data=readVectors(ff, name);
+		}
+		return data;
+	}
+
+	/**
+	 * Streams one input file into row-oriented input and target arrays.
+	 * @param ff Input format
+	 * @param name Input path, used in diagnostics
+	 * @return Parsed data, or null if exact parsing must be enabled and retried
+	 */
+	private RegressionData readVectors(final FileFormat ff, final String name){
+		final ArrayList<float[]> vectorList=new ArrayList<float[]>();
+		final ArrayList<float[]> targetList=new ArrayList<float[]>();
 		final LineParser1 lp=new LineParser1('\t');
 
 		//Hoisted out of the loop so the common case costs one test, not one per line
 		final boolean check=checkExponents && !Tools.FORCE_JAVA_PARSE_DOUBLE;
 
-		final ByteFile bf=ByteFile.makeByteFile(ffin);
+		final ByteFile bf=ByteFile.makeByteFile(ff);
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0){continue;}
 			if(line[0]=='#'){
-				if(Tools.startsWith(line, "#dims")){checkHeader(line, lp);}
+				if(Tools.startsWith(line, "#dims")){checkHeader(line, lp, name);}
 				continue;
 			}
 			if(check && hasExponent(line)){
-				bf.close();
-				return false;
+				errorState|=bf.close();
+				return null;
 			}
 			lp.set(line);
 			if(lp.terms()<numInputs+numOutputs){continue;}
-			for(int i=0; i<numInputs; i++){vecList.add(lp.parseFloat(i));}
-			for(int k=0; k<numOutputs; k++){tgtList.add(lp.parseFloat(numInputs+k));}
+			final float[] vector=new float[numInputs];
+			final float[] target=new float[numOutputs];
+			for(int i=0; i<numInputs; i++){vector[i]=lp.parseFloat(i);}
+			for(int k=0; k<numOutputs; k++){target[k]=lp.parseFloat(numInputs+k);}
+			vectorList.add(vector);
+			targetList.add(target);
 		}
 		errorState|=bf.close();
-
-		//Take the backing arrays as they stand.  shrink() would copy the whole vector
-		//array again purely to trim slack, briefly doubling peak memory on a big load;
-		//numSamples bounds the valid region, so the slack costs nothing but address space.
-		vectors=vecList.array;
-		targets=tgtList.array;
-		numSamples=tgtList.size/numOutputs;
-		return true;
-	}
-
-	/**
-	 * Estimates how many input values the file holds, so the list is allocated once
-	 * instead of repeatedly doubling.  A miss costs one resize, never correctness;
-	 * compressed input reports its packed size and simply underestimates.
-	 * @return A capacity estimate for the flat vector list
-	 */
-	private int estimateValues(){
-		final long bytes=new File(in).length();
-		if(bytes<1){return 1<<16;}
-		final long perRow=(long)(numInputs+1)*9;//roughly "-0.123456\t" per field
-		final long rows=Math.max(1, bytes/perRow);
-		return (int)Math.min(Math.max(1<<16, rows*numInputs), Integer.MAX_VALUE-16);
+		return new RegressionData(vectorList, targetList);
 	}
 
 	/** @param line A data line
@@ -370,20 +372,21 @@ public class RegressionTrainer {
 	 * with the wrong stride, which produces a silently wrong net.
 	 * @param line The '#dims' header line
 	 * @param lp Parser to use
+	 * @param source Input path, used in warnings
 	 */
-	private void checkHeader(byte[] line, LineParser1 lp){
+	private void checkHeader(byte[] line, LineParser1 lp, String source){
 		lp.set(line);
 		if(lp.terms()<2){return;}
 		if(lp.terms()>=3){
 			final int headerOutputs=lp.parseInt(2);
 			if(headerOutputs!=numOutputs){
-				outstream.println("WARNING: file header declares "+headerOutputs
+				outstream.println("WARNING: "+source+" header declares "+headerOutputs
 					+" outputs but dims= declares "+numOutputs+".");
 			}
 		}
 		final int headerInputs=lp.parseInt(1);
 		if(headerInputs!=numInputs){
-			outstream.println("WARNING: file header declares "+headerInputs
+			outstream.println("WARNING: "+source+" header declares "+headerInputs
 				+" inputs but dims= declares "+numInputs
 				+"; columns will be read with the dims= stride.");
 		}
@@ -404,20 +407,20 @@ public class RegressionTrainer {
 			Arrays.fill(sd, 1);
 			return;
 		}
-		for(int s=0, p=0; s<numSamples; s++){
-			for(int i=0; i<numInputs; i++, p++){mean[i]+=vectors[p];}
+		for(float[] vector : trainingData.inputs){
+			for(int i=0; i<numInputs; i++){mean[i]+=vector[i];}
 		}
 		for(int i=0; i<numInputs; i++){mean[i]/=numSamples;}
-		for(int s=0, p=0; s<numSamples; s++){
-			for(int i=0; i<numInputs; i++, p++){
-				final double d=vectors[p]-mean[i];
+		for(float[] vector : trainingData.inputs){
+			for(int i=0; i<numInputs; i++){
+				final double d=vector[i]-mean[i];
 				sd[i]+=d*d;
 			}
 		}
 		for(int i=0; i<numInputs; i++){sd[i]=Math.max(1e-9, Math.sqrt(sd[i]/numSamples));}
 	}
 
-	/** Shuffles sample indices and splits them into training and validation sets. */
+	/** Shuffles training indices and configures internal or external validation. */
 	private void shuffleAndSplit(){
 		randy=new Random(seed);
 		perm=new int[numSamples];
@@ -426,8 +429,13 @@ public class RegressionTrainer {
 			final int j=randy.nextInt(i+1);
 			final int t=perm[i]; perm[i]=perm[j]; perm[j]=t;
 		}
-		numValid=(int)(numSamples*vfraction);
-		numTrain=numSamples-numValid;
+		if(validationData==null){
+			numValid=(int)(numSamples*vfraction);
+			numTrain=numSamples-numValid;
+		}else{
+			numTrain=numSamples;
+			numValid=validationData.size();
+		}
 		if(numTrain<1){throw new RuntimeException("vfraction leaves no training samples.");}
 	}
 
@@ -569,13 +577,12 @@ public class RegressionTrainer {
 	 */
 	private void verifyLoadedNet(){
 		final int n=Math.min(1000, numSamples);
-		final float[] buffer=new float[numInputs];
 		double maxDiff=0;
 		for(int s=0; s<n; s++){
-			System.arraycopy(vectors, s*numInputs, buffer, 0, numInputs);
-			net.applyInput(buffer);
+			final float[] vector=trainingData.inputs[s];
+			net.applyInput(vector);
 			net.feedForward();
-			final double[] b=predict(s, weights, bias);
+			final double[] b=predict(vector, weights, bias);
 			for(int k=0; k<numOutputs; k++){
 				maxDiff=Math.max(maxDiff, Math.abs(net.getOutput(k)-b[k]));
 			}
@@ -861,9 +868,10 @@ public class RegressionTrainer {
 	 * @return Squared error for this sample
 	 */
 	private double accumulateGradientF(final int sample){
-		final int base=sample*numInputs;
+		final float[] vector=trainingData.inputs[sample];
+		final float[] target=trainingData.targets[sample];
 		final float[] a0=actF[0];
-		for(int i=0; i<numInputs; i++){a0[i]=(float)((vectors[base+i]-mean[i])/sd[i]);}
+		for(int i=0; i<numInputs; i++){a0[i]=(float)((vector[i]-mean[i])/sd[i]);}
 
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1];
@@ -891,7 +899,7 @@ public class RegressionTrainer {
 		double sqErr=0, absErr=0;
 		for(int k=0; k<numOutputs; k++){
 			final double outv=outs[k];
-			final double err=outv-targets[sample*numOutputs+k];
+			final double err=outv-target[k];
 			sqErr+=err*err;
 			absErr+=Math.abs(err);
 			deltaF[layers][k]=(float)(2*err*finDeriv(outv, finalType));
@@ -1055,9 +1063,10 @@ public class RegressionTrainer {
 	 * @return Squared error for this sample
 	 */
 	private double accumulateGradient(final int sample){
-		final int base=sample*numInputs;
+		final float[] vector=trainingData.inputs[sample];
+		final float[] target=trainingData.targets[sample];
 		final double[] a0=act[0];
-		for(int i=0; i<numInputs; i++){a0[i]=(vectors[base+i]-mean[i])/sd[i];}
+		for(int i=0; i<numInputs; i++){a0[i]=(vector[i]-mean[i])/sd[i];}
 
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1], cols=dims[l];
@@ -1075,7 +1084,7 @@ public class RegressionTrainer {
 		double sqErr=0, absErr=0;
 		for(int k=0; k<numOutputs; k++){
 			final double outv=outs[k];
-			final double err=outv-targets[sample*numOutputs+k];
+			final double err=outv-target[k];
 			sqErr+=err*err;
 			absErr+=Math.abs(err);
 			delta[layers][k]=2*err*finDeriv(outv, finalType);
@@ -1139,12 +1148,24 @@ public class RegressionTrainer {
 	private double validate(){
 		if(numValid<1){return Double.MAX_VALUE;}
 		double sum=0;
-		for(int s=numTrain; s<numSamples; s++){
-			final int sample=perm[s];
-			final double[] p=predict(sample, weights, bias);
-			for(int k=0; k<numOutputs; k++){
-				final double e=p[k]-targets[sample*numOutputs+k];
-				sum+=e*e;
+		if(validationData==null){
+			for(int s=numTrain; s<numSamples; s++){
+				final int sample=perm[s];
+				final double[] p=predict(trainingData.inputs[sample], weights, bias);
+				final float[] target=trainingData.targets[sample];
+				for(int k=0; k<numOutputs; k++){
+					final double e=p[k]-target[k];
+					sum+=e*e;
+				}
+			}
+		}else{
+			for(int s=0; s<validationData.size(); s++){
+				final double[] p=predict(validationData.inputs[s], weights, bias);
+				final float[] target=validationData.targets[s];
+				for(int k=0; k<numOutputs; k++){
+					final double e=p[k]-target[k];
+					sum+=e*e;
+				}
 			}
 		}
 		return sum/numValid;
@@ -1152,15 +1173,14 @@ public class RegressionTrainer {
 
 	/**
 	 * Forward pass for one sample using reusable scratch buffers.
-	 * @param sample Index of the sample
+	 * @param vector Raw input vector
 	 * @param w Weight arrays
 	 * @param b Bias arrays
 	 * @return Network output
 	 */
-	private double[] predict(final int sample, final double[][] w, final double[][] b){
-		final int base=sample*numInputs;
+	private double[] predict(final float[] vector, final double[][] w, final double[][] b){
 		double[] cur=scratchA, next=scratchB;
-		for(int i=0; i<numInputs; i++){cur[i]=(vectors[base+i]-mean[i])/sd[i];}
+		for(int i=0; i<numInputs; i++){cur[i]=(vector[i]-mean[i])/sd[i];}
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1], cols=dims[l];
 			final double[] wl=w[l], bl=b[l];
@@ -1226,13 +1246,12 @@ public class RegressionTrainer {
 	private void roundTripCheck(){
 		final CellNet check=CellNetParser.load(out);
 		final int n=Math.min(1000, numSamples);
-		final float[] buffer=new float[numInputs];
 		double maxDiff=0;
 		for(int s=0; s<n; s++){
-			System.arraycopy(vectors, s*numInputs, buffer, 0, numInputs);
-			check.applyInput(buffer);
+			final float[] vector=trainingData.inputs[s];
+			check.applyInput(vector);
 			check.feedForward();
-			final double[] b=predict(s, weights, bias);
+			final double[] b=predict(vector, weights, bias);
 			for(int k=0; k<numOutputs; k++){
 				maxDiff=Math.max(maxDiff, Math.abs(check.getOutput(k)-b[k]));
 			}
@@ -1281,11 +1300,31 @@ public class RegressionTrainer {
 		return copy;
 	}
 
+	/** Row-oriented regression inputs and targets from one source file. */
+	private static final class RegressionData {
+
+		RegressionData(ArrayList<float[]> inputList, ArrayList<float[]> targetList){
+			if(inputList.size()!=targetList.size()){
+				throw new IllegalArgumentException("Input/target row count mismatch: "
+					+inputList.size()+" != "+targetList.size());
+			}
+			inputs=inputList.toArray(new float[inputList.size()][]);
+			targets=targetList.toArray(new float[targetList.size()][]);
+		}
+
+		int size(){return inputs.length;}
+
+		final float[][] inputs;
+		final float[][] targets;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	private String in=null;
+	/** Optional external validation vectors; never included in normalization or training */
+	private String valIn=null;
 	private String out=null;
 	/** Existing .bbnet to continue training from, instead of random initialization */
 	private String netIn=null;
@@ -1303,6 +1342,8 @@ public class RegressionTrainer {
 	private double wd=1e-4;
 	private long seed=1;
 	private double vfraction=0.1;
+	/** Whether vfraction was supplied explicitly, for rejecting ambiguous valin combinations */
+	private boolean vfractionSet=false;
 	private int finalType=FINAL_RSLOG;
 	private boolean overwrite=true;
 	/** Fraction of hidden-layer edges to keep; 1 is fully connected.  The output layer is always dense. */
@@ -1349,17 +1390,17 @@ public class RegressionTrainer {
 
 	/*--------------------------------------------------------------*/
 
-	/** All input vectors, flat, stride numInputs */
-	private float[] vectors;
-	/** One target per sample */
-	private float[] targets;
+	/** Training rows; also contains the internal validation rows when valin is absent */
+	private RegressionData trainingData;
+	/** Separate held-out rows when valin is supplied */
+	private RegressionData validationData;
 	private int numSamples;
 	private int numInputs;
 	/** Output width; 1 is the classic scalar case */
 	private int numOutputs;
 	private int numTrain;
 	private int numValid;
-	/** Sample indices; [0,numTrain) train, [numTrain,numSamples) validation */
+	/** Shuffled training indices; the suffix is internal validation only when valin is absent */
 	private int[] perm;
 
 	private double[] mean;
@@ -1392,6 +1433,7 @@ public class RegressionTrainer {
 	/*--------------------------------------------------------------*/
 
 	private final FileFormat ffin;
+	private final FileFormat ffval;
 	private final FileFormat ffout;
 
 	/*--------------------------------------------------------------*/
