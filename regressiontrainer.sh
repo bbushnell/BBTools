@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell, Amber, Neptune
-Last modified July 29, 2026
+Last modified August 5, 2026
 
 Description:  Trains a feed-forward network for CONTINUOUS outputs and writes it in
 BBNet format, byte-compatible with everything that consumes BBNets.  Differs from
@@ -12,11 +12,12 @@ machinery; Adam with cosine learning-rate decay; mini-batches; and input
 standardization learned from the data and folded into the first layer at export, so
 the saved net consumes RAW inputs.  Do not standardize upstream.
 
-Input is streamed, so memory scales with the sample count rather than the file size.
+Input is streamed into one float array per sample, so memory scales with the sample
+count rather than the file size and is not limited by one giant Java array.
 After writing, the net is reloaded and checked against the in-memory model; the
 'round-trip check' line must read (OK) or the output is not trustworthy.
 
-Usage:  regressiontrainer.sh in=<data.tsv> out=<net.bbnet> dims=<16,32,1>
+Usage:  regressiontrainer.sh in=<data.tsv> out=<net.bbnet> dims=<16,32,1> [valin=<heldout.tsv>]
 
 Example:
   regressiontrainer.sh in=training.tsv out=net.bbnet dims=48,64,32,1 epochs=100 final=sigmoid
@@ -26,6 +27,9 @@ tab-delimited floats: <in> input columns followed by <out> target columns.
 
 Required parameters:
 in=<file>       Training vectors, tab-delimited with a '#dims' header.
+valin=<file>    Optional external validation vectors in the same format.  These rows
+                are never trained on and are excluded from normalization statistics.
+                Do not combine this with vfraction>0.
 out=<file>      Output network, in BBNet format.
 dims=48,64,32,1 Layer widths: inputs, hidden..., outputs.  The last entry sets the
                 output width; more than one output is supported and the loss is
@@ -38,7 +42,9 @@ lr=0.003        (alpha) Learning rate.  Set this explicitly; alpha is an alias a
                 stale alpha= in a script will silently override.
 wd=1e-4         Weight decay.
 seed=1          RNG seed; identical seeds reproduce identical nets.
-vfraction=0.1   Fraction of data held out for validation.
+vfraction=0.1   Fraction of training-file rows held out for validation.  The default
+                is unused when valin= is supplied; explicitly setting vfraction>0
+                with valin= is an error.
 
 Network shape:
 final=rslog     Output activation: linear, rslog, or sigmoid.  DEFAULT IS RSLOG,
@@ -96,8 +102,10 @@ overwrite=t     (ow) Overwrite an existing output file.
 
 Java Parameters:
 -Xmx            Set max memory.  Vectors are held in RAM: budget roughly
-                rows * inputs * 4 bytes, plus about 100 MB overhead.  Five million
-                rows of 48 inputs needs about 1 GB, so -Xmx2g is comfortable.  Do not
+                rows * 4 * (inputs + outputs) bytes, plus roughly 40-50 bytes per row
+                for array headers/references and the model/JVM overhead.  Five million
+                rows of 48 inputs needs about 1.2 GB, so -Xmx2g is
+                generally comfortable.  Do not
                 size from observed RSS under a default heap; the JVM takes far more
                 than it needs and you will over-request several-fold.
 -eoom           Exit on out-of-memory.
