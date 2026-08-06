@@ -359,6 +359,14 @@ public class CladeIndex implements Cloneable {
 		return cladesLoaded;
 	}
 
+	public ArrayList<Clade> allClades(){
+		ArrayList<Clade> list=new ArrayList<Clade>(cladesLoaded);
+		for(ArrayList<Clade> bucket : gcDex){
+			if(bucket!=null){list.addAll(bucket);}
+		}
+		return list;
+	}
+
 	@SuppressWarnings("unchecked")
 	final ArrayList<Clade>[] gcDex=new ArrayList[101];
 

@@ -240,6 +240,14 @@ public class GeneCaller extends ProkObject {
 		for(int strand=0; strand<2; strand++){
 			for(StatsContainer sc : pgm.rnaContainers){
 				if(ProkObject.callType(sc.type)){
+					if(sc.type==tRNA){
+						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);}
+						ArrayList<Orf> list=trnaCaller.callTrnas(name, bases, strand);
+						if(strand==1 && list!=null){
+							for(Orf orf : list){orf.flip();}
+						}
+						if(list!=null){array[strand].addAll(list);}
+					}else{
 					ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
 					if(strand==1 && list!=null){
 						for(Orf orf : list){
@@ -248,6 +256,7 @@ public class GeneCaller extends ProkObject {
 						}
 					}
 					if(list!=null){array[strand].addAll(list);}
+					}
 				}
 			}
 			Collections.sort(array[strand]);
@@ -1464,6 +1473,10 @@ public class GeneCaller extends ProkObject {
 	 * TODO: Dynamically swap this as needed for contigs with varying GC.
 	 */
 	GeneModel pgm;
+	private TrnaCaller trnaCaller;
+	public static byte[][] trnaLibrary;
+	public static consensus.BaseGraph[] trnaModels;
+	public static String[] trnaModelNames;
 
 	/** Per-instance NNs for ORF scoring (thread-safe copies). Null = use heuristic. */
 	final CellNet orfNet;

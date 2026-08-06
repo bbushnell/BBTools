@@ -481,6 +481,9 @@ public class Orf extends PFeature {
 			bb.append("start:").append(AminoAcid.codonToString(startCodon)).append(',');
 			bb.append("stop:").append(AminoAcid.codonToString(stopCodon));
 		}
+		if(trnaModel!=null){
+			bb.append(",model:").append(trnaModel);
+		}
 		return bb;
 	}
 	
@@ -529,6 +532,7 @@ public class Orf extends PFeature {
 	public Orf prevMinus;
 	
 	public final int type;
+	public String trnaModel;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
