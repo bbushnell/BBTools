@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell, Amber, Neptune
-Last modified August 5, 2026
+Last modified August 6, 2026
 
 Description:  Trains a feed-forward network for CONTINUOUS outputs and writes it in
 BBNet format, byte-compatible with everything that consumes BBNets.  Differs from
@@ -68,6 +68,12 @@ simd=f          Train in float using vectorized kernels.  Measured 1.46x on a na
                 net and 3.39x on a wide one, with no quality difference; benefit
                 scales with layer width.  Results are close to but not bit-identical
                 to the scalar path, so it is off by default.
+threads=1       SIMD gradient workers.  Values above 1 require simd=t.  Each worker
+                owns a full gradient copy; ranges and reduction order are fixed and
+                reproducible, while gradient reduction and Adam remain serial.
+                threads=1 preserves the historical SIMD accumulation path exactly.
+                More workers are not automatically faster; benchmark the intended
+                network and batch size before relying on them.
 pad8=f          Round hidden layers up to a multiple of 8.  Not a speedup: wall time
                 is unchanged while the net does about 11% more arithmetic, so it buys
                 capacity rather than time.
