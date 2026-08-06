@@ -3,7 +3,13 @@ package ml;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Random;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
@@ -37,7 +43,7 @@ import structures.ByteBuilder;
  *
  * Usage: java ml.RegressionTrainer in=&lt;data.tsv&gt; out=&lt;net.bbnet&gt; dims=16,32,1
  *          [epochs=60] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1] [vfraction=0.1]
- *          [valin=&lt;heldout.tsv&gt;]
+ *          [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1]
  *          [final=rslog|linear|sigmoid] [netin=&lt;start.bbnet&gt;] [hidden=tanh,swish,...]
  *
  * hidden= sets the hidden-layer activations: one name is uniform, several are drawn per cell
@@ -156,6 +162,8 @@ public class RegressionTrainer {
 				padLayers=(b==null || Parse.parseBoolean(b));
 			}else if(a.equals("simd")){
 				useSimd=(b==null || Parse.parseBoolean(b));
+			}else if(a.equals("threads") || a.equals("t")){
+				threads=Integer.parseInt(b);
 			}else if(a.equals("sort")){
 				sortSamples=(b==null || Parse.parseBoolean(b));
 			}else if(a.equals("setsize") || a.equals("subsetsize")){
@@ -204,6 +212,10 @@ public class RegressionTrainer {
 		}
 		if(valIn!=null && vfractionSet && vfraction>0){
 			throw new IllegalArgumentException("Use either valin= or vfraction>0, not both.");
+		}
+		if(threads<1){throw new IllegalArgumentException("threads must be positive: "+threads);}
+		if(threads>1 && !useSimd){
+			throw new IllegalArgumentException("threads>1 currently requires simd=t.");
 		}
 		if(dims==null){return;}//remaining checks run after the net supplies dims
 		if(dims.length<2){
@@ -666,6 +678,7 @@ public class RegressionTrainer {
 
 		if(useSimd){
 			setupFloat();
+			setupGradientWorkers();
 			outstream.println("simd=t: training in float (Shared.SIMD="+shared.Shared.SIMD
 				+"); results will be close to but not identical to the scalar path");
 		}
@@ -673,43 +686,58 @@ public class RegressionTrainer {
 		long step=0;
 		bestValid=Double.MAX_VALUE;
 
-		for(int ep=1; ep<=epochs; ep++){
-			final int active=(sortSamples ? prioritize(order, ep) : numTrain);
-			if(!sortSamples){
-				for(int i=numTrain-1; i>0; i--){
-					final int j=randy.nextInt(i+1);
-					final int t=order[i]; order[i]=order[j]; order[j]=t;
+		try{
+			for(int ep=1; ep<=epochs; ep++){
+				final int active=(sortSamples ? prioritize(order, ep) : numTrain);
+				if(!sortSamples){
+					for(int i=numTrain-1; i>0; i--){
+						final int j=randy.nextInt(i+1);
+						final int t=order[i]; order[i]=order[j]; order[j]=t;
+					}
+				}
+				final double lrNow=lr*0.5*(1+Math.cos(Math.PI*(ep-1)/epochs));
+				double trainMse=0;
+
+				for(int start=0; start<active; start+=batch){
+					final int end=Math.min(active, start+batch);
+					final int bs=end-start;
+					if(useSimd){
+						if(gradientPool==null){//Exact legacy order for the default one-thread path
+							zeroGradientsF();
+							for(int s=start; s<end; s++){
+								trainMse+=accumulateGradientF(order[s], actF, preActF,
+									deltaF, gwF, gbF);
+							}
+						}else{
+							trainMse+=accumulateParallelBatchF(order, start, end);
+						}
+					}else{
+						zeroGradients();
+						for(int s=start; s<end; s++){
+							trainMse+=accumulateGradient(order[s]);
+						}
+					}
+
+					step++;
+					if(useSimd){applyAdamF(bs, step, lrNow);}else{applyAdam(bs, step, lrNow);}
+					if(normalize && normFactor>1e-4f){normalizeWeights();}
+				}
+
+				if(useSimd){syncFloatToDouble();}
+				final double validMse=validate();
+				if(validMse<bestValid){
+					bestValid=validMse;
+					bestWeights=deepCopy(weights);
+					bestBias=deepCopy(bias);
+				}
+				if(ep%5==0 || ep==1 || ep==epochs){
+					outstream.println(String.format(
+						"epoch %d lr=%.5f trainMSE=%.6f valMSE=%.6f best=%.6f",
+						ep, lrNow, trainMse/Math.max(1, active), validMse, bestValid));
 				}
 			}
-			final double lrNow=lr*0.5*(1+Math.cos(Math.PI*(ep-1)/epochs));
-			double trainMse=0;
-
-			for(int start=0; start<active; start+=batch){
-				final int end=Math.min(active, start+batch);
-				final int bs=end-start;
-				if(useSimd){zeroGradientsF();}else{zeroGradients();}
-
-				for(int s=start; s<end; s++){
-					trainMse+=(useSimd ? accumulateGradientF(order[s]) : accumulateGradient(order[s]));
-				}
-
-				step++;
-				if(useSimd){applyAdamF(bs, step, lrNow);}else{applyAdam(bs, step, lrNow);}
-				if(normalize && normFactor>1e-4f){normalizeWeights();}
-			}
-
-			if(useSimd){syncFloatToDouble();}
-			final double validMse=validate();
-			if(validMse<bestValid){
-				bestValid=validMse;
-				bestWeights=deepCopy(weights);
-				bestBias=deepCopy(bias);
-			}
-			if(ep%5==0 || ep==1 || ep==epochs){
-				outstream.println(String.format(
-					"epoch %d lr=%.5f trainMSE=%.6f valMSE=%.6f best=%.6f",
-					ep, lrNow, trainMse/Math.max(1, active), validMse, bestValid));
-			}
+		}finally{
+			shutdownGradientWorkers();
 		}
 
 		if(bestWeights!=null){weights=bestWeights; bias=bestBias;}
@@ -794,6 +822,42 @@ public class RegressionTrainer {
 		if(useSparse && edgeMask!=null){buildSparse();}
 	}
 
+	/** Allocates a fixed worker pool and one private scratch/gradient set per worker. */
+	private void setupGradientWorkers(){
+		gradientThreadCount=Math.min(threads, Math.min(batch, numTrain));
+		if(gradientThreadCount<=1){return;}
+		gradientWorkers=new ArrayList<GradWorker>(gradientThreadCount);
+		gradientWorkers.add(new GradWorker(actF, preActF, deltaF, gwF, gbF));
+		for(int i=1; i<gradientThreadCount; i++){
+			gradientWorkers.add(new GradWorker(newFloatLayerBuffers(), newFloatLayerBuffers(),
+				newFloatLayerBuffers(), newFloatWeightBuffers(), newFloatBiasBuffers()));
+		}
+		gradientPool=Executors.newFixedThreadPool(gradientThreadCount);
+		outstream.println("threads="+gradientThreadCount
+			+": deterministic per-worker SIMD gradients; Adam and reduction remain serial");
+	}
+
+	/** @return Fresh per-layer activation or delta buffers. */
+	private float[][] newFloatLayerBuffers(){
+		final float[][] x=new float[dims.length][];
+		for(int i=0; i<dims.length; i++){x[i]=new float[dims[i]];}
+		return x;
+	}
+
+	/** @return Fresh per-layer weight-gradient buffers. */
+	private float[][][] newFloatWeightBuffers(){
+		final float[][][] x=new float[layers][][];
+		for(int l=0; l<layers; l++){x[l]=new float[dims[l+1]][dims[l]];}
+		return x;
+	}
+
+	/** @return Fresh per-layer bias-gradient buffers. */
+	private float[][] newFloatBiasBuffers(){
+		final float[][] x=new float[layers][];
+		for(int l=0; l<layers; l++){x[l]=new float[dims[l+1]];}
+		return x;
+	}
+
 	/**
 	 * Builds the index sets for sparse forward and backward passes, once.
 	 * Only the VALUES change as training proceeds, so the indices are built here and only
@@ -867,20 +931,22 @@ public class RegressionTrainer {
 	 * @param sample Index of the sample
 	 * @return Squared error for this sample
 	 */
-	private double accumulateGradientF(final int sample){
+	private double accumulateGradientF(final int sample, final float[][] actLocal,
+			final float[][] preActLocal, final float[][] deltaLocal,
+			final float[][][] gwLocal, final float[][] gbLocal){
 		final float[] vector=trainingData.inputs[sample];
 		final float[] target=trainingData.targets[sample];
-		final float[] a0=actF[0];
+		final float[] a0=actLocal[0];
 		for(int i=0; i<numInputs; i++){a0[i]=(float)((vector[i]-mean[i])/sd[i]);}
 
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1];
 			final float[][] w=weightsF[l];
-			final float[] b=biasF[l], prev=actF[l], next=actF[l+1];
+			final float[] b=biasF[l], prev=actLocal[l], next=actLocal[l+1];
 			if(spW==null){
 				for(int i=0; i<rows; i++){
 					final float z=b[i]+simd.Vector.fma(prev, w[i]);
-					if(hiddenFunc!=null){preActF[l+1][i]=z;}
+					if(hiddenFunc!=null){preActLocal[l+1][i]=z;}
 					next[i]=(l==layers-1) ? (float)fin(z, finalType)
 						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
 				}
@@ -888,53 +954,106 @@ public class RegressionTrainer {
 				final float[][] sw=spW[l]; final int[][] si=spWIdx[l];
 				for(int i=0; i<rows; i++){
 					final float z=b[i]+simd.Vector.fma(sw[i], prev, si[i], edgeBlockSize, true);
-					if(hiddenFunc!=null){preActF[l+1][i]=z;}
+					if(hiddenFunc!=null){preActLocal[l+1][i]=z;}
 					next[i]=(l==layers-1) ? (float)fin(z, finalType)
 						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
 				}
 			}
 		}
 
-		final float[] outs=actF[layers];
+		final float[] outs=actLocal[layers];
 		double sqErr=0, absErr=0;
 		for(int k=0; k<numOutputs; k++){
 			final double outv=outs[k];
 			final double err=outv-target[k];
 			sqErr+=err*err;
 			absErr+=Math.abs(err);
-			deltaF[layers][k]=(float)(2*err*finDeriv(outv, finalType));
+			deltaLocal[layers][k]=(float)(2*err*finDeriv(outv, finalType));
 		}
 		if(sampleError!=null){sampleError[sample]=(float)(absErr/numOutputs);}
 
 		for(int l=layers-1; l>=0; l--){
 			final int rows=dims[l+1], cols=dims[l];
-			final float[] prev=actF[l], dNext=deltaF[l+1], gb=gbF[l];
-			final float[][] gw=gwF[l];
+			final float[] prev=actLocal[l], dNext=deltaLocal[l+1], gb=gbLocal[l];
+			final float[][] gw=gwLocal[l];
 			for(int i=0; i<rows; i++){
 				final float d=dNext[i];
 				gb[i]+=d;
 				simd.Vector.addProduct(gw[i], prev, d);//gw[i] += prev*d
 			}
 			if(l>0){
-				final float[] dCur=deltaF[l];
+				final float[] dCur=deltaLocal[l];
 				if(spT==null){
 					final float[][] t=wT[l];
 					for(int j=0; j<cols; j++){
 						dCur[j]=(float)(simd.Vector.fma(dNext, t[j])*(hiddenFunc==null
 							? (1-prev[j]*prev[j])
-							: hiddenFunc[l][j].derivativeXFX(preActF[l][j], prev[j])));
+							: hiddenFunc[l][j].derivativeXFX(preActLocal[l][j], prev[j])));
 					}
 				}else{
 					final float[][] st=spT[l]; final int[][] si=spTIdx[l];
 					for(int j=0; j<cols; j++){
 						dCur[j]=(float)(simd.Vector.fma(st[j], dNext, si[j], edgeBlockSize, true)
 							*(hiddenFunc==null ? (1-prev[j]*prev[j])
-								: hiddenFunc[l][j].derivativeXFX(preActF[l][j], prev[j])));
+								: hiddenFunc[l][j].derivativeXFX(preActLocal[l][j], prev[j])));
 					}
 				}
 			}
 		}
 		return sqErr;
+	}
+
+	/** Runs one batch on fixed worker partitions and reduces gradients in worker order. */
+	private double accumulateParallelBatchF(final int[] order, final int start, final int end){
+		final int activeWorkers=Math.min(gradientThreadCount, end-start);
+		final int base=(end-start)/activeWorkers, extra=(end-start)%activeWorkers;
+		int from=start;
+		for(int i=0; i<activeWorkers; i++){
+			final int to=from+base+(i<extra ? 1 : 0);
+			gradientWorkers.get(i).prepare(order, from, to);
+			from=to;
+		}
+
+		final List<Future<Void>> futures;
+		try{
+			futures=gradientPool.invokeAll(gradientWorkers.subList(0, activeWorkers));
+		}catch(InterruptedException e){
+			Thread.currentThread().interrupt();
+			throw new RuntimeException("Interrupted while accumulating a training batch.", e);
+		}
+		for(Future<Void> future : futures){
+			try{future.get();}
+			catch(InterruptedException e){
+				Thread.currentThread().interrupt();
+				throw new RuntimeException("Interrupted while joining a training batch.", e);
+			}catch(ExecutionException e){
+				final Throwable cause=e.getCause();
+				if(cause instanceof Error){throw (Error)cause;}
+				if(cause instanceof RuntimeException){throw (RuntimeException)cause;}
+				throw new RuntimeException("Gradient worker failed.", cause);
+			}
+		}
+
+		double sqErr=0;
+		for(int i=0; i<activeWorkers; i++){sqErr+=gradientWorkers.get(i).sqErr;}
+		for(int i=1; i<activeWorkers; i++){addGradientsF(gradientWorkers.get(i));}
+		return sqErr;
+	}
+
+	/** Adds one worker's private gradients into the master accumulators. */
+	private void addGradientsF(final GradWorker worker){
+		for(int l=0; l<layers; l++){
+			for(int i=0; i<gwF[l].length; i++){simd.Vector.add(gwF[l][i], worker.gw[l][i]);}
+			simd.Vector.add(gbF[l], worker.gb[l]);
+		}
+	}
+
+	/** Stops the reusable pool on normal completion and every failure path. */
+	private void shutdownGradientWorkers(){
+		if(gradientPool!=null){
+			gradientPool.shutdownNow();
+			gradientPool=null;
+		}
 	}
 
 	/** Float Adam update, then refresh the transpose the backward pass reads.
@@ -1030,9 +1149,14 @@ public class RegressionTrainer {
 
 	/** Clears the float gradient accumulators. */
 	private void zeroGradientsF(){
+		zeroGradientsF(gwF, gbF);
+	}
+
+	/** Clears one worker's float gradient accumulators. */
+	private void zeroGradientsF(final float[][][] gw, final float[][] gb){
 		for(int l=0; l<layers; l++){
-			for(float[] row : gwF[l]){Arrays.fill(row, 0f);}
-			Arrays.fill(gbF[l], 0f);
+			for(float[] row : gw[l]){Arrays.fill(row, 0f);}
+			Arrays.fill(gb[l], 0f);
 		}
 	}
 
@@ -1224,6 +1348,11 @@ public class RegressionTrainer {
 			}
 		}
 
+		//Record the training command in the header as a #CL line, matching train.sh nets so the
+		//saved .bbnet is self-documenting; CellNetParser reads #CL back into commands, and a netin=
+		//continuation appends its command below the source net's, preserving the full history.
+		net.commands.add("#CL "+Shared.fullCommandline(false, true));
+
 		final ByteBuilder bb=net.toBytes();
 		final ByteStreamWriter bsw=new ByteStreamWriter(ffout);
 		bsw.start();
@@ -1318,6 +1447,40 @@ public class RegressionTrainer {
 		final float[][] targets;
 	}
 
+	/** Reusable task with private forward/backward scratch and gradient buffers. */
+	private final class GradWorker implements Callable<Void> {
+
+		GradWorker(float[][] act_, float[][] preAct_, float[][] delta_,
+				float[][][] gw_, float[][] gb_){
+			actLocal=act_; preActLocal=preAct_; deltaLocal=delta_; gw=gw_; gb=gb_;
+		}
+
+		void prepare(int[] order_, int start_, int end_){
+			order=order_; start=start_; end=end_; sqErr=0;
+			zeroGradientsF(gw, gb);
+		}
+
+		@Override
+		public Void call() throws Exception{
+			double sum=0;
+			for(int s=start; s<end; s++){
+				if((s&63)==0 && Thread.currentThread().isInterrupted()){
+					throw new InterruptedException("Gradient worker interrupted.");
+				}
+				sum+=accumulateGradientF(order[s], actLocal, preActLocal, deltaLocal, gw, gb);
+			}
+			sqErr=sum;
+			return null;
+		}
+
+		private final float[][] actLocal, preActLocal, deltaLocal;
+		private final float[][][] gw;
+		private final float[][] gb;
+		private int[] order;
+		private int start, end;
+		private double sqErr;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1366,6 +1529,8 @@ public class RegressionTrainer {
 	 * verification story rests on reproducing the scalar path exactly.
 	 */
 	private boolean useSimd=false;
+	/** Maximum SIMD gradient workers; one preserves the historical accumulation path */
+	private int threads=1;
 	/** Round hidden-layer widths up to a whole number of SIMD lanes */
 	private boolean padLayers=false;
 	/**
@@ -1452,6 +1617,9 @@ public class RegressionTrainer {
 	private float[][] biasF, gbF, mBF, vBF;
 	private float[][] actF, deltaF;
 	private float[][] preActF;
+	private int gradientThreadCount=1;
+	private ArrayList<GradWorker> gradientWorkers;
+	private ExecutorService gradientPool;
 
 	/** Most recent absolute error per sample; null unless sorting */
 	private float[] sampleError;
