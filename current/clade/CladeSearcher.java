@@ -420,6 +420,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				CladeIndex.USE_SKETCHES=true;
 				CladeIndex.USE_SKETCH_INDEX=true;
 				Clade.MAKE_DDLS=true;
+			}else if(a.equals("ata") || a.equals("alltoall")){
+				ata=(b==null || Parse.parseBoolean(b));
 			}else if(a.equals("ref")){
 				Tools.getFileOrFiles(b, ref, true, false, false, false);
 			}else if(a.equals("in")){
@@ -464,7 +466,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 			outstream.println((out==null)+", "+out);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out+"\n");
 		}
-		
+
+		if(ata){
+			if(ref.isEmpty() || !Tools.testInputFiles(false, true, ref)){
+				throw new RuntimeException("\nata mode requires a readable ref=<sketch DB>.\n");
+			}
+			return;
+		}
+
 		//Ensure input files can be read
 		if(!Tools.testInputFiles(false, true, in, ref)){
 			throw new RuntimeException("\nCan't read some input files.\n");  
@@ -586,8 +595,14 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 				Clade.DDL_BUCKETS=dbBuckets;
 			}
 		}
-		loadQueries(serverMode);
-		if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
+		if(ata){
+			if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
+			queries=(index==null ? new ArrayList<Clade>() : index.allClades());
+			if(showLoading){outstream.println("ata: comparing "+queries.size()+" reference clades against the reference set.");}
+		}else{
+			loadQueries(serverMode);
+			if(index!=null && sketchRecords!=null){index.finishSketches(sketchRecords);}
+		}
 		
 		ArrayList<Object> results;
 		t.start();
@@ -1137,31 +1152,16 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		 */
 		@Override
 		public synchronized void run(){
-			//Do anything necessary prior to processing
 			IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
-			//Run queries
-			//NN-INPUT comprehension (HIGH-NN-risk file): the trained features (k3/k4/k5dif, gcdif, strdif, hhdif...)
-			//and CladeConfidence.predictNN are NOT computed here -- they are produced DOWNSTREAM inside
-			//QueryResult.build -> index.findBest -> Comparison (which calls CladeConfidence). This class only
-			//orchestrates the search and later CONSUMES results read-only (evaluate() metrics; confidence() display).
-			//So per the NN-input constraint there is nothing in the freq->difference->predictNN chain to patch in
-			//CladeSearcher, and none was. (synchronized(clade) below is uncontended: the strided loop gives each
-			//thread a DISJOINT set of queries, so no other thread touches this clade -- it's defensive, not the guard.)
 			for(int i=tid; i<queries.size(); i+=threads) {
 				Clade clade=queries.get(i);
-				synchronized(clade) {
-					clade.finish();
-					readsProcessedT+=clade.contigs;
-					basesProcessedT+=clade.bases;
-					QueryResult qr=QueryResult.build(clade, index, maxHits,
-						recordsToGenerate, recordsToDisplay, showRecords, ssa);
-					results.add(qr.displayList);
-				}
+				clade.finish();
+				readsProcessedT+=clade.contigs;
+				basesProcessedT+=clade.bases;
+				QueryResult qr=QueryResult.build(clade, index, maxHits,
+					recordsToGenerate, recordsToDisplay, showRecords, ssa);
+				results.add(qr.displayList);
 			}
-			
-			//Do anything necessary after processing
-			
-			//Indicate successful exit status
 			success=true;
 		}
 		
@@ -1209,6 +1209,8 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	
 	/** Whether to operate in server mode */
 	private boolean serverMode=false;
+	/** All-to-all: compare the reference set against itself */
+	private boolean ata=false;
 	/** Server URL for server mode; defaults to the public JGI QuickClade server. Override with server=/address=<url>. */
 	private String serverAddress=SendClade.defaultAddress;
 	

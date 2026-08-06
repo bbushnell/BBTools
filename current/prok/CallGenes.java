@@ -342,6 +342,25 @@ public class CallGenes extends ProkObject {
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("taxaddress") || a.equalsIgnoreCase("taxserver")){
 				taxAddress=b;
+			}else if(a.equalsIgnoreCase("trnalib")){
+				GeneCaller.trnaLibrary=TrnaConsensusBuilder.loadLibrary(b);
+				GeneCaller.trnaModelNames=TrnaConsensusBuilder.lastLoadedNames;
+			}else if(a.equalsIgnoreCase("trnamodel")){
+				GeneCaller.trnaModels=TrnaConsensusBuilder.loadModels(b);
+			}else if(a.equalsIgnoreCase("idpass")){
+				prok.TrnaCaller.ID_PASS=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("idborderline")){
+				prok.TrnaCaller.ID_BORDERLINE=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("hbmpass")){
+				prok.TrnaCaller.HBM_PASS=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("indextopn")){
+				prok.TrnaCaller.INDEX_TOP_N_OVERRIDE=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("indexminhits")){
+				prok.TrnaCaller.INDEX_MINHITS_OVERRIDE=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("earlyexit")){
+				prok.TrnaCaller.earlyExit=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("patience")){
+				prok.TrnaCaller.earlyExitPatience=Integer.parseInt(b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -631,7 +650,8 @@ public class CallGenes extends ProkObject {
 		if(call18S){bsw.println("18S Out:              \t "+Tools.padLeft(r18SOut, 12));}
 		if(call23S){bsw.println("23S Out:              \t "+Tools.padLeft(r23SOut, 12));}
 		if(call5S){bsw.println("5S Out:               \t "+Tools.padLeft(r5SOut, 12));}
-		if(calltRNA){bsw.println("tRNA Out:             \t "+Tools.padLeft(tRNAOut, 12));}
+		if(calltRNA){bsw.println("tRNA Alignments:  \t "+Tools.padLeft(prok.TrnaCaller.alignmentCount(), 12));}
+			if(calltRNA){bsw.println("tRNA Out:             \t "+Tools.padLeft(tRNAOut, 12));}
 		
 		if(extendedStats || verbose) {
 			if(callCDS){

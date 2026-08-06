@@ -537,7 +537,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		return bb;
 	}
 	
-	public synchronized boolean finished() {return finished;}
+	public boolean finished() {return finished;}
 	
 	public int taxID=-1;
 	public int level=-1;
@@ -570,7 +570,7 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 	public float strandedness;
 	public float hh;
 	public float caga;
-	private boolean finished=false;
+	private volatile boolean finished=false;
 	
 	//CLEVER [verified in-file]: 4 pluggable serialization codings, dispatched symmetrically in toBytes (L352-355) and parseClade (L135-138), with the active coding selected from the header token so old+new DBs both load. A48 packs longs as base-48 ASCII; OFFSET_* additionally offset/delta-encode (per appendOffsetDec/parseLongArrayOffsetDec; impl in structures/parse, not verified here) -- both shrink the millions of refseq k-mer counts on disk vs plain DECIMAL.
 	public static final int DECIMAL=0, A48=1, OFFSET_DEC=2, OFFSET_A48=3;
