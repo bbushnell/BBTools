@@ -85,7 +85,13 @@ public class GeneCaller extends ProkObject {
 		metaNetInstance=(metaNetSingle!=null ? metaNetSingle.copy(false) : null);
 		gc=pgm.gc();
 	}
-	
+
+	public void setPGM(GeneModel pgm_){
+		pgm=pgm_;
+		gc=pgm.gc();
+		trnaCaller=null;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -240,7 +246,7 @@ public class GeneCaller extends ProkObject {
 		for(int strand=0; strand<2; strand++){
 			for(StatsContainer sc : pgm.rnaContainers){
 				if(ProkObject.callType(sc.type)){
-					if(sc.type==tRNA){
+					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
 						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);}
 						ArrayList<Orf> list=trnaCaller.callTrnas(name, bases, strand);
 						if(strand==1 && list!=null){
@@ -1487,7 +1493,7 @@ public class GeneCaller extends ProkObject {
 	final CellNet[] stopNetsGC;
 	final CellNet[] metaNetsGC;
 	final CellNet metaNetInstance;
-	final float gc;
+	float gc;
 
 	/** Shared templates loaded once; each GeneCaller copies for thread safety. */
 	public static CellNet orfNetTemplate=null;

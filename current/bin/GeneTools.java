@@ -34,6 +34,17 @@ public class GeneTools {
 		if(pgm==null) {loadPGM();}
 		return CallGenes.makeGeneCaller(pgm);
 	}
+
+	public static synchronized GeneCaller makeGeneCaller(String phylum) {
+		if(!trnaLoaded){loadTrna();}
+		return CallGenes.makeGeneCallerForPhylum(phylum);
+	}
+
+	public static synchronized void loadTrna() {
+		if(trnaLoaded){return;}
+		CallGenes.loadTrnaResources();
+		trnaLoaded=true;
+	}
 	
 	/**
 	 * Loads the prokaryotic gene model (PGM) from disk if not already loaded.
@@ -43,11 +54,12 @@ public class GeneTools {
 	public static synchronized void loadPGM() {
 		if(pgm!=null) {return;}
 		if(pgmFile==null){pgmFile=Data.findPath("?model.pgm");}
-		
+
 		if(!quiet) {System.err.println("Loading "+pgmFile);}
 		CallGenes.call16S=CallGenes.call18S=true;
 		CallGenes.loadLongKmers();
 		CallGenes.loadConsensusSequenceFromFile(true, true);
+		CallGenes.loadTrnaResources();
 		pgm=GeneModelParser.loadModel(pgmFile);
 		gCaller=(pgm==null && gCaller!=null ? null : CallGenes.makeGeneCaller(pgm));
 	}
@@ -82,5 +94,6 @@ public class GeneTools {
 	static GeneCaller gCaller;
 	/** Controls whether model loading progress messages are printed to stderr */
 	static boolean quiet=false;
-	
+	static boolean trnaLoaded=false;
+
 }

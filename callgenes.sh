@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 4, 2026
+Last modified August 6, 2026
 
 Description:  Finds orfs and calls genes in unspliced prokaryotes.
 This includes bacteria, archaea, viruses, and mitochondria.
@@ -38,6 +38,14 @@ taxonomy=f      Use QuickClade to classify the input and select a phylum-
 percontig=f     Classify each contig separately (for metagenomes).
                 Default is per-file (classify once for all contigs).
 taxaddress=     QuickClade server address.  Default: refseq.
+
+tRNA alignment parameters:
+trnaalign=t     Align predicted tRNAs to a consensus library to verify
+                and annotate them.  Reduces false positives and adds
+                anticodon/amino-acid annotation.  Uses built-in library
+                by default; override with trnalib= and trnamodel=.
+trnalib=<file>  Custom tRNA consensus library (fasta).
+trnamodel=<file> Custom tRNA HBM model file.
 
 Other parameters:
 minlen=60       Don't call genes shorter than this.
