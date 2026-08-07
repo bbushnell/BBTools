@@ -333,8 +333,10 @@ public class GradeBins {
 				System.err.println("Reading from "+taxIn+" instead of "+ref);
 			}
 			sizeMap=loadTaxIn(taxIn);
-		}else {
+		}else if(ref!=null){
 			sizeMap=makeSizeMap(ref);
+		}else{
+			throw new RuntimeException("Error: ref= flag is required (path to reference assembly).");
 		}
 		System.err.println("Made size map.");
 		if(taxOut!=null) {

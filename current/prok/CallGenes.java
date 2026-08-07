@@ -342,11 +342,15 @@ public class CallGenes extends ProkObject {
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("taxaddress") || a.equalsIgnoreCase("taxserver")){
 				taxAddress=b;
+			}else if(a.equalsIgnoreCase("trnaalign") || a.equalsIgnoreCase("aligntrna")){
+				trnaAlign=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("trnalib")){
 				GeneCaller.trnaLibrary=TrnaConsensusBuilder.loadLibrary(b);
 				GeneCaller.trnaModelNames=TrnaConsensusBuilder.lastLoadedNames;
+				trnaLibExplicit=true;
 			}else if(a.equalsIgnoreCase("trnamodel")){
 				GeneCaller.trnaModels=TrnaConsensusBuilder.loadModels(b);
+				trnaLibExplicit=true;
 			}else if(a.equalsIgnoreCase("idpass")){
 				prok.TrnaCaller.ID_PASS=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("idborderline")){
@@ -385,6 +389,14 @@ public class CallGenes extends ProkObject {
 			}
 		}
 		
+		if(trnaAlign && !trnaLibExplicit){
+			loadTrnaResources();
+		}else if(!trnaAlign){
+			GeneCaller.trnaLibrary=null;
+			GeneCaller.trnaModels=null;
+			GeneCaller.trnaModelNames=null;
+		}
+
 		if(Shared.threads()<2){ordered=false;}
 		assert(!fnaList.isEmpty()) : "At least 1 fasta file is required.";
 		assert(!pgmList.isEmpty()) : "At least 1 pgm file is required.";
@@ -446,8 +458,8 @@ public class CallGenes extends ProkObject {
 		if(useTaxonomy && !perContig){
 			String phylum=classifyPhylum(fnaList);
 			if(phylum!=null){
-				String path=Data.findPath("?pgm_"+phylum+".pgm");
-				if(new File(path).exists()){
+				String path=Data.findPath("?pgm_"+phylum+".pgm", false);
+				if(path!=null && new File(path).exists()){
 					ArrayList<String> list=new ArrayList<>();
 					list.add(path);
 					pgm0=PGMTools.loadAndMerge(list);
@@ -566,14 +578,6 @@ public class CallGenes extends ProkObject {
 	/*----------------    Taxonomy Classification     ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private static final String[] KNOWN_PHYLA={
-		"Acidobacteriota", "Actinomycetota", "Aquificota", "Bacillota", "Bacteroidota",
-		"Campylobacterota", "Chlamydiota", "Chloroflexota", "Cyanobacteriota", "Fusobacteriota",
-		"Mycoplasmatota", "Myxococcota", "Planctomycetota", "Spirochaetota",
-		"Synergistota", "Thermodesulfobacteriota", "Thermotogota", "Verrucomicrobiota",
-		"Methanobacteriota", "Nitrososphaerota", "Thermoplasmatota", "Thermoproteota"
-	};
-
 	private String classifyPhylum(ArrayList<String> inputFiles){
 		try{
 			Clade.MAKE_DDLS=true;
@@ -612,13 +616,8 @@ public class CallGenes extends ProkObject {
 	private static String findPhylumInLineage(String lineage){
 		for(String part : lineage.split(";")){
 			String trimmed=part.trim();
-			if(trimmed.startsWith("p:")){trimmed=trimmed.substring(2);}
-			else if(trimmed.startsWith("p__")){trimmed=trimmed.substring(3);}
-			for(String phylum : KNOWN_PHYLA){
-				if(trimmed.equals(phylum)){
-					return phylum;
-				}
-			}
+			if(trimmed.startsWith("p:")){return trimmed.substring(2);}
+			else if(trimmed.startsWith("p__")){return trimmed.substring(3);}
 		}
 		return null;
 	}
@@ -1471,9 +1470,47 @@ public class CallGenes extends ProkObject {
 	 * @return Configured GeneCaller instance
 	 */
 	public static GeneCaller makeGeneCaller(GeneModel pgm){
-		GeneCaller caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
+		GeneCaller caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand,
 				minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm);
 		return caller;
+	}
+
+	public static GeneCaller makeGeneCallerForPhylum(String phylum){
+		GeneModel pgm=getPhylumPGM(phylum);
+		return makeGeneCaller(pgm);
+	}
+
+	public static synchronized GeneModel getPhylumPGM(String phylum){
+		if(defaultPGM==null){
+			defaultPGM=GeneModelParser.loadModel(Data.findPath("?model.pgm"));
+		}
+		if(phylum==null){return defaultPGM;}
+		GeneModel cached=pgmCache.get(phylum);
+		if(cached!=null){return cached;}
+		String path=Data.findPath("?pgm_"+phylum+".pgm", false);
+		if(path!=null && new java.io.File(path).exists()){
+			GeneModel pgm=GeneModelParser.loadModel(path);
+			pgmCache.put(phylum, pgm);
+			return pgm;
+		}
+		pgmCache.put(phylum, defaultPGM);
+		return defaultPGM;
+	}
+
+	private static final java.util.HashMap<String, GeneModel> pgmCache=new java.util.HashMap<>();
+	private static GeneModel defaultPGM;
+
+	public static synchronized void loadTrnaResources(){
+		if(GeneCaller.trnaLibrary!=null){return;}
+		String libPath=Data.findPath("?trna_consensus.fa");
+		String modelPath=Data.findPath("?trna_models.hbm");
+		if(libPath!=null && new java.io.File(libPath).exists()){
+			GeneCaller.trnaLibrary=TrnaConsensusBuilder.loadLibrary(libPath);
+			GeneCaller.trnaModelNames=TrnaConsensusBuilder.lastLoadedNames;
+		}
+		if(modelPath!=null && new java.io.File(modelPath).exists()){
+			GeneCaller.trnaModels=TrnaConsensusBuilder.loadModels(modelPath);
+		}
 	}
 	
 	/** Maximum number of reads to process, or -1 for no limit */
@@ -1601,6 +1638,8 @@ public class CallGenes extends ProkObject {
 	private boolean useTaxonomy=false;
 	private boolean perContig=false;
 	private String taxAddress="refseq";
+	private boolean trnaAlign=true;
+	private boolean trnaLibExplicit=false;
 	/** Output filename for statistics summary */
 	private String outStats="stderr";
 	/** Output filename for gene length histogram */

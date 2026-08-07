@@ -144,18 +144,22 @@ public class TrnaConsensusBuilder {
 				outstream.println(anticodon+": "+group.size()+" seqs -> "+clusters.size()+" clusters, "+kept+" kept");
 				totalClusters+=clusters.size();
 			}else{
-				byte[] consensus=buildConsensus(group);
-				if(consensus!=null && consensus.length>=MIN_CONSENSUS_LEN){
-					String label="tRNA_consensus_"+anticodon+" n="+group.size();
-					Read r=new Read(consensus, null, label, num);
-					consensusList.add(r);
-					if(modelList!=null && group.size()>=minClusterSize){
-						BaseGraph bg=buildBaseGraph(group, label);
-						modelList.add(bg);
+				if(group.size()>=minClusterSize){
+					byte[] consensus=buildConsensus(group);
+					if(consensus!=null && consensus.length>=MIN_CONSENSUS_LEN){
+						String label="tRNA_consensus_"+anticodon+" n="+group.size();
+						Read r=new Read(consensus, null, label, num);
+						consensusList.add(r);
+						if(modelList!=null){
+							BaseGraph bg=buildBaseGraph(group, label);
+							modelList.add(bg);
+						}
+						num++;
 					}
-					num++;
+					outstream.println(anticodon+": "+group.size()+" seqs -> len "+(consensus==null ? 0 : consensus.length));
+				}else{
+					outstream.println(anticodon+": "+group.size()+" seqs (below minClusterSize="+minClusterSize+")");
 				}
-				outstream.println(anticodon+": "+group.size()+" seqs -> len "+(consensus==null ? 0 : consensus.length));
 				totalClusters++;
 			}
 		}
@@ -304,9 +308,11 @@ public class TrnaConsensusBuilder {
 		}
 
 		// Step 2: Build consensus for each cluster (optimal centroid)
+		// Build consensus for ALL clusters, even small ones — they may
+		// grow during reassignment. Size filter applied at final output.
 		byte[][] consensusSeqs=new byte[clusters.size()][];
 		for(int i=0; i<clusters.size(); i++){
-			if(clusters.get(i).size()>=minClusterSize){
+			if(clusters.get(i).size()>=1){
 				consensusSeqs[i]=buildConsensus(clusters.get(i));
 			}
 		}
@@ -341,9 +347,10 @@ public class TrnaConsensusBuilder {
 
 		// Step 4: Recruit orphans using k-mer index
 		if(doRecruit && !orphans.isEmpty()){
-			// Rebuild consensus after reassignment
+			// Rebuild consensus after reassignment — include all clusters
+			// so small ones can recruit orphans and potentially grow
 			for(int i=0; i<clusters.size(); i++){
-				if(clusters.get(i).size()>=minClusterSize){
+				if(!clusters.get(i).isEmpty()){
 					consensusSeqs[i]=buildConsensus(clusters.get(i));
 				}else{
 					consensusSeqs[i]=null;
@@ -542,11 +549,7 @@ public class TrnaConsensusBuilder {
 		r.start=stats.rStart;
 		r.stop=stats.rStop;
 		r.setMapped(true);
-		try{
-			return model.score(r, false, true);
-		}catch(AssertionError e){
-			return id;
-		}
+		return model.score(r, false, true);
 	}
 
 	/**
