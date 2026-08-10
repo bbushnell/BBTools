@@ -1827,10 +1827,10 @@ public class RQCFilter3 {
 					filterstats.readsIn=KmerSort.lastReadsIn;
 					filterstats.basesIn=KmerSort.lastBasesIn;
 				}
-				filterstats.readsOut=KmerSort.lastReadsOut;
-				filterstats.basesOut=KmerSort.lastBasesOut;
-				filterstats.readsDuplicate=KmerSort.lastReadsIn-KmerSort.lastReadsOut;
-				filterstats.basesDuplicate=KmerSort.lastBasesIn-KmerSort.lastBasesOut;
+				filterstats.readsOut=KmerSort.lastReadsIn-(KmerSort.duplicatesTotal+KmerSort.entryFiltered);
+				filterstats.basesOut=KmerSort.lastBasesIn-(KmerSort.basesDuplicatesTotal+KmerSort.basesEntryFiltered);
+				filterstats.readsDuplicate=KmerSort.duplicatesTotal+KmerSort.entryFiltered;
+				filterstats.basesDuplicate=KmerSort.basesDuplicatesTotal+KmerSort.basesEntryFiltered;
 				
 				assert(filterstats.toString()!=null); //123
 				
