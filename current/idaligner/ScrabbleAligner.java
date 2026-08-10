@@ -136,6 +136,8 @@ public class ScrabbleAligner implements IDAligner{
 		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen-1;
 		int center=0;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 
 		// Best scoring position
 		int maxPos=0;
@@ -165,6 +167,11 @@ public class ScrabbleAligner implements IDAligner{
 			center=center+1+drift;
 			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
 			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering). If the band re-widened, clear exactly
+			//those stale cells before the inner loop reads them; free when narrowing.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 
 			//Clear stale data to the left of the band
 			curr[bandStart-1]=BAD;
@@ -211,6 +218,7 @@ public class ScrabbleAligner implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 		}
 		if(viz!=null){viz.shutdown();}// Terminate visualizer
 		if(GLOBAL){maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}//The last cell may be empty 
@@ -304,6 +312,8 @@ public class ScrabbleAligner implements IDAligner{
 
 		int bandStart=1, bandEnd=rLen-1;
 		int center=0;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 		int maxPos=0;
 		long maxScore=2*SUB;
 		int dynamicBW=0;
@@ -323,6 +333,9 @@ public class ScrabbleAligner implements IDAligner{
 			center=center+1+drift;
 			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
 			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+
+			//Correctness: clear re-exposed stale prev[] cells (see alignStatic).
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 
 			if(doTrace){
 				final int dist=trace.size-lastHeaderIdx;
@@ -357,6 +370,7 @@ public class ScrabbleAligner implements IDAligner{
 			}
 			if(doTrace) {trace.add(curr, bandStart, bandEnd+1);}
 			long[] temp=prev; prev=curr; curr=temp;
+			prevBandEnd=bandEnd;
 		}
 
 		if(GLOBAL){maxPos=rLen;}

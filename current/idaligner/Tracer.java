@@ -37,9 +37,12 @@ public class Tracer{
 
 		// Cache pointers to current and previous row headers
 		int prevHeaderIdx=currHeaderIdx-((int)(trace.get(currHeaderIdx)&POSITION_MASK));
-		
+		//Exclusive end of the current row's stored block: the final row's block ends at
+		//trace.size; each earlier row's block ends at the following row's header.
+		int currBlockEnd=trace.size;
+
 		while(r>0 && c>0){
-			final long currVal=getTraceScore(trace, currHeaderIdx, c);
+			final long currVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c);
 			
 			final byte q=query[r-1];
 			final byte refBase=ref[c-1];
@@ -52,16 +55,22 @@ public class Tracer{
 			// Up(r-1, c): Previous header(prevHeaderIdx)
 			// Diag(r-1, c-1): Previous header(prevHeaderIdx)
 			
-			final long leftVal=getTraceScore(trace, currHeaderIdx, c-1);
-			final long upVal=getTraceScore(trace, prevHeaderIdx, c);
-			final long diagVal=getTraceScore(trace, prevHeaderIdx, c-1);
-			
+			final long leftVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c-1);
+			final long upVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c);
+			final long diagVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c-1);
+
 			final long fromLeft=leftVal+DEL_INCREMENT;
 			final long fromUp=upVal+INS;
 			final long fromDiag=diagVal+scoreAdd;
 			final long maxDiagUp=Math.max(fromDiag, fromUp);
-			
-			if(currVal==maxDiagUp &&(maxDiagUp&SCORE_MASK)>=(fromLeft&SCORE_MASK)){
+
+			//Replicate the fill's decision EXACTLY: the fill stores fromLeft unless
+			//(maxDiagUp&SCORE_MASK)>=fromLeft, comparing the MASKED diag/up candidate
+			//against the FULL packed left value (low position/del bits included). On
+			//full-value ties that chooses LEFT; the old masked-vs-masked test here chose
+			//diag/up instead, desynchronizing the walk and emitting non-optimal ops
+			//(e.g. adjacent D,I - impossible under +-1 scoring).
+			if((maxDiagUp&SCORE_MASK)>=fromLeft && currVal==maxDiagUp){
 				if(fromDiag>=fromUp){
 					bb.append(match ? 'm' : hasN ? 'N' : 'S');
 					r--; c--;
@@ -73,12 +82,16 @@ public class Tracer{
 				bb.append('D');
 				c--;
 			}else{
+				//No predecessor reproduces the stored value; the trace is corrupt.
+				assert(false) : "Traceback desync at r="+r+", c="+c+": curr="+currVal+
+					", diag="+diagVal+", up="+upVal+", left="+leftVal;
 				if(r>c){bb.append('I'); r--;}
 				else{bb.append('D'); c--;}
 			}
 			
 			// If we moved up a row, shift the header pointers
 			if(r < ((trace.get(currHeaderIdx)>>>42)&POSITION_MASK)){
+				currBlockEnd=currHeaderIdx;
 				currHeaderIdx=prevHeaderIdx;
 				// Decode the 'dist' from the new current header to find the new previous
 				int dist=(int)(trace.get(currHeaderIdx)&POSITION_MASK);
@@ -87,7 +100,11 @@ public class Tracer{
 		}
 		
 		while(r>0){bb.append('I'); r--;}
-		while(c>0){bb.append('D'); c--;}
+		//Remaining columns are unaligned reference PREFIX. Row 0's glocal init makes the
+		//prefix free and rStart already records it, so padding 'D' here double-counts it
+		//(and a leading D-run followed by I is non-canonical). Only GLOBAL alignments,
+		//whose row-0 init charges DEL per column, encode the prefix as real deletions.
+		if(GLOBAL){while(c>0){bb.append('D'); c--;}}
 		return bb.reverse().toBytes();
 	}
 	
@@ -135,44 +152,54 @@ public class Tracer{
 			bb.ensureExtra(refLen+queryLen+8);
 		}
 
+		//Exclusive end of the current row's stored block (see sequence-aware version).
+		int currBlockEnd=trace.size;
+
 		// 2. The Loop
 		while(r>0 && c>0){
-			final long currVal=getTraceScore(trace, currHeaderIdx, c);
-			final long diagVal=getTraceScore(trace, prevHeaderIdx, c-1);
-			final long upVal=getTraceScore(trace, prevHeaderIdx, c);
-			final long leftVal=getTraceScore(trace, currHeaderIdx, c-1);
+			final long currVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c);
+			final long diagVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c-1);
+			final long upVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c);
+			final long leftVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c-1);
 			
-			final long fromLeft=leftVal+DEL_INCREMENT; // Unmasked check
+			final long fromLeft=leftVal+DEL_INCREMENT;
 			final long fromUp=upVal+INS;
-			
-			// Calculate the derivative to check if Diag is valid
+
+			// Calculate the derivative to check if Diag could have produced this cell
 			final long delta=currVal-diagVal;
-			final boolean isDiagValid=(delta==MATCH || delta==SUB || delta==N_SCORE);
+			final boolean diagValid=(delta==MATCH || delta==SUB || delta==N_SCORE);
+			final boolean upValid=(currVal==fromUp);
 
-			// Replicate Priority: (Diag/Up) >= Left
-			if((currVal&SCORE_MASK)>=(fromLeft&SCORE_MASK)){
-
-				// Tie-break: Diag >= Up
-				// If Diag is valid and score is sufficient, take it.
-				// Note: If we went Diag, currVal IS fromDiag, so currVal >= fromUp is the check.
-				if(isDiagValid && currVal>=fromUp){
+			//Replicate the fill's decision EXACTLY (see sequence-aware traceback above):
+			//if diag or up produced this cell then maxDiagUp==currVal, so the fill's
+			//(maxDiagUp&SCORE_MASK)>=fromLeft test (masked candidate vs FULL left value)
+			//reduces to the test below. The old version compared masked-vs-masked (wrong
+			//tie direction) and claimed Up without verifying currVal==fromUp, fabricating
+			//insertions when the true move was a deletion.
+			if((diagValid || upValid) && (currVal&SCORE_MASK)>=fromLeft){
+				if(diagValid){
 					if(delta==MATCH){bb.append('m');}
 					else if(delta==N_SCORE){bb.append('N');}
 					else{bb.append('S');} // delta == SUB
 					r--; c--;
 				}else{
-					// Must have been Up
 					bb.append('I');
 					r--;
 				}
-			}else{
-				// Must have been Left
+			}else if(currVal==fromLeft){
 				bb.append('D');
 				c--;
+			}else{
+				//No predecessor reproduces the stored value; the trace is corrupt.
+				assert(false) : "Blind traceback desync at r="+r+", c="+c+": curr="+currVal+
+					", diag="+diagVal+", up="+upVal+", left="+leftVal;
+				if(r>c){bb.append('I'); r--;}
+				else{bb.append('D'); c--;}
 			}
 			
 			// Move headers if we went up a row
 			if(r < ((trace.get(currHeaderIdx)>>>42)&POSITION_MASK)){
+				currBlockEnd=currHeaderIdx;
 				currHeaderIdx=prevHeaderIdx;
 				if(currHeaderIdx < 0) break;
 				int dist=(int)(trace.get(currHeaderIdx)&POSITION_MASK);
@@ -181,16 +208,29 @@ public class Tracer{
 		}
 		
 		while(r>0){bb.append('I'); r--;}
-		while(c>0){bb.append('D'); c--;}
+		//Remaining columns are unaligned reference PREFIX. Row 0's glocal init makes the
+		//prefix free and rStart already records it, so padding 'D' here double-counts it
+		//(and a leading D-run followed by I is non-canonical). Only GLOBAL alignments,
+		//whose row-0 init charges DEL per column, encode the prefix as real deletions.
+		if(GLOBAL){while(c>0){bb.append('D'); c--;}}
 		
 		return bb.reverse().toBytes();
 	}
 	
-	private static long getTraceScore(LongList trace, int headerIdx, int c){
+	private static long getTraceScore(LongList trace, int headerIdx, int blockEnd, int c){
 		long header=trace.get(headerIdx);
 		int startCol=(int)((header>>>21)&POSITION_MASK);
 		int relativeCol=c-startCol;
-		if(relativeCol<0){return BAD;}
+		if(relativeCol<0){
+			//Column 0 is the fill's boundary cell (curr[0]=i*INS): read every row but
+			//never stored (bands start at column 1). Synthesize it so paths with leading
+			//query overhang, which enter via column 0, remain reconstructible.
+			if(c==0){
+				int row=(int)((header>>>42)&POSITION_MASK);
+				return row*INS;
+			}
+			return BAD;
+		}
 		
 		// Bounds check: don't read past the block.
 		// Next header is at headerIdx + scoreCount + 1.
@@ -201,7 +241,10 @@ public class Tracer{
 		// For safety, checking if we hit the next header(which is negative) is good.
 		
 		int idx=headerIdx+1+relativeCol;
-		if(idx>=trace.size){return BAD;}
+		//Columns beyond this row's stored band were never written: reading past blockEnd
+		//(the next row's header) returns another row's cells - foreign values that
+		//desynchronize the walk. Out-of-band means the fill never connected this cell.
+		if(idx>=blockEnd || idx>=trace.size){return BAD;}
 		long val=trace.get(idx);
 		if(val<0 && (val&0x4000000000000000L)==0){
 			return BAD;// Hit a header (Header starts 10..., Neg Score 11...)

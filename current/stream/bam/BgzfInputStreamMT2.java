@@ -371,11 +371,10 @@ public class BgzfInputStreamMT2 extends InputStream {
 	}
 
 	private void closePlainStream() throws IOException{
-		if(plainGzipStream!=null){
-			plainGzipStream.close();
-			plainGzipStream=null;
-		}
+		GZIPInputStream s=plainGzipStream;
+		plainGzipStream=null;
 		readingPlainGzip=false;
+		if(s!=null){s.close();}
 	}
 
 	private static final class PrefixedInputStream extends InputStream{
