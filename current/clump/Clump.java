@@ -189,7 +189,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	public int removeDuplicates(){
 		assert(KmerComparator.compareSequence);
 		if(size()<2){return 0;}
-		
+		basesRemoved=0;
 		int removedTotal=0, removed=0;
 		
 		final boolean sortXY=(forceSortXY || sortYEarly() || (opticalOnly && (sortX || sortY) && size()>=sortXYSize));
@@ -331,11 +331,13 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									assert(!a.discarded() || markAll);
 									dupePairs++;
 									dupeReads+=1+b.mateCount();
+									basesRemoved+=b.length()+b.mateLength();
 									unequals=0;
 									if(!a.discarded()){
 										a.setDiscarded(true);
 										dupePairs++;
 										dupeReads+=1+a.mateCount();
+										basesRemoved+=a.length()+a.mateLength();
 									}
 								}else if(containment || errB>=errA){
 									b.setDiscarded(true);
@@ -343,6 +345,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									a.copies+=b.copies+parseExtraCopies(b);
 									dupePairs++;
 									dupeReads+=1+b.mateCount();
+									basesRemoved+=b.length()+b.mateLength();
 									unequals=0;
 								}else{
 									a.setDiscarded(true);
@@ -350,6 +353,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									b.copies+=a.copies+parseExtraCopies(a);
 									dupePairs++;
 									dupeReads+=1+a.mateCount();
+									basesRemoved+=a.length()+a.mateLength();
 								}
 							}
 						}else{
@@ -382,7 +386,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 				assert((size()>0 || markAll) && size()==size-dupePairs) : size()+", "+size+", "+dupePairs;
 			}
 		}
-		
+
 		//CLEVER [verified]: containment is ASYMMETRIC (a-contains-b != b-contains-a) and reads aren't length-sorted,
 		//so one forward scan catches only "earlier contains later". The backward pass catches "later contains
 		//earlier" - together they cover both directions. Plain dedup (exact equality, symmetric) needs only forward.
@@ -458,11 +462,13 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									assert(!a.discarded() || markAll);
 									dupePairs++;
 									dupeReads+=1+b.mateCount();
+									basesRemoved+=b.length()+b.mateLength();
 									unequals=0;
 									if(!a.discarded()){
 										a.setDiscarded(true);
 										dupePairs++;
 										dupeReads+=1+a.mateCount();
+										basesRemoved+=a.length()+a.mateLength();
 									}
 								}else if(containment || errB>=errA){
 									b.setDiscarded(true);
@@ -470,6 +476,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									a.copies+=b.copies+parseExtraCopies(b);
 									dupePairs++;
 									dupeReads+=1+b.mateCount();
+									basesRemoved+=b.length()+b.mateLength();
 									unequals=0;
 								}else{
 									a.setDiscarded(true);
@@ -477,6 +484,7 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 									b.copies+=a.copies+parseExtraCopies(a);
 									dupePairs++;
 									dupeReads+=1+a.mateCount();
+									basesRemoved+=a.length()+a.mateLength();
 								}
 							}
 						}else{
@@ -1181,6 +1189,8 @@ public class Clump extends ArrayList<Read> implements Comparable<Clump> {
 	/** Whether to use quality scores in consensus and error correction */
 	private boolean useQuality=true;
 	
+	/** Bases of duplicate reads identified in the last removeDuplicates() call. */
+	public long basesRemoved=0;
 	/** Flag indicating whether this clump has been added to processing queue */
 	boolean added=false;
 	

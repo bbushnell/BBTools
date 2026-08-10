@@ -274,12 +274,13 @@ public abstract class KmerSort {
 	 * @return Processed reads after clump operations
 	 */
 	public final ArrayList<Read> processClumps(ClumpList cl, int mode){
-		long[] rvector=KillSwitch.allocLong1D(2);
+		long[] rvector=KillSwitch.allocLong1D(3);
 		ArrayList<Read> out=cl.process(Shared.threads(), mode, rvector);
 		correctionsThisPass=rvector[0];
 		correctionsTotal+=correctionsThisPass;
 		duplicatesThisPass=rvector[1];
 		duplicatesTotal+=duplicatesThisPass;
+		basesDuplicatesTotal+=rvector[2];
 		cl.clear();
 		return out;
 	}
@@ -354,6 +355,7 @@ public abstract class KmerSort {
 				}
 			}
 			entryFilteredThisPass+=ht.entryFilteredT;
+			basesEntryFiltered+=ht.basesEntryFilteredT;
 			readsThisPass+=ht.readsProcessedT;
 			basesProcessed+=ht.basesProcessedT;
 			diskProcessed+=ht.diskProcessedT;
@@ -472,6 +474,7 @@ public abstract class KmerSort {
 							if(same){
 								removed++;
 								entryFilteredT+=r.pairCount();
+								basesEntryFilteredT+=r.length()+r.mateLength();
 								reads.set(i, null);
 							}
 						}
@@ -530,6 +533,8 @@ public abstract class KmerSort {
 		final HashMap<Long, Read> entryFilterTable;
 		/** Number of entries filtered by this thread. */
 		public long entryFilteredT=0;
+		/** Bases of entries filtered by this thread. */
+		public long basesEntryFilteredT=0;
 		
 		/** Number of reads processed by this thread. */
 		protected long readsProcessedT=0;
@@ -642,7 +647,9 @@ public abstract class KmerSort {
 	//`new Clumpify()`, see Clumpify#001) a later run's printStats would report stale-inflated totals. Stats only
 	//(not read output), same deferred concern as Clumpify#001; flagged, not changed.
 	/** Total reads filtered out due to entry filtering (duplicate detection). */
-	protected static long entryFiltered=0;
+	public static long entryFiltered=0;
+	/** Total bases of entry-filtered reads. */
+	public static long basesEntryFiltered=0;
 
 	/** Total number of reads written to output files. */
 	protected long readsOut=0;
@@ -666,7 +673,9 @@ public abstract class KmerSort {
 	/** Number of duplicates found during current pass. */
 	protected long duplicatesThisPass=0;
 	/** Total number of duplicates found across all passes. */
-	protected static long duplicatesTotal=0;
+	public static long duplicatesTotal=0;
+	/** Total bases of duplicate reads found across all passes. */
+	public static long basesDuplicatesTotal=0;
 	
 	/** Total number of clumps processed across all passes. */
 	protected long clumpsProcessedTotal=0;

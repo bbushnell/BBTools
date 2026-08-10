@@ -231,9 +231,10 @@ public class ClumpList extends ArrayList<Clump> {
 		long readsThisPass=0;
 		long corrections=0;
 		long duplicates=0;
+		long basesDup=0;
 		/* Wait for threads to die */
 		for(ProcessThread ct : alct){
-			
+
 			/* Wait for a thread to die */
 			while(ct.getState()!=Thread.State.TERMINATED){
 				try {
@@ -245,6 +246,7 @@ public class ClumpList extends ArrayList<Clump> {
 			readsThisPass+=ct.storage.size();
 			corrections+=ct.corrections;
 			duplicates+=ct.duplicates;
+			basesDup+=ct.basesDuplicated;
 		}
 		
 		if(verbose){outstream.println("Gathering reads.");}
@@ -256,6 +258,7 @@ public class ClumpList extends ArrayList<Clump> {
 
 		rvector[0]+=corrections;
 		rvector[1]+=duplicates;
+		rvector[2]+=basesDup;
 //		assert(false) : duplicates+", "+Arrays.toString(rvector);
 		assert(list.size()==readsThisPass);
 		return list;
@@ -370,6 +373,7 @@ public class ClumpList extends ArrayList<Clump> {
 					storage.addAll(c);
 				}else if(mode==DEDUPE){
 					duplicates+=c.removeDuplicates();
+					basesDuplicated+=c.basesRemoved;
 					storage.addAll(c);
 				}else{
 					throw new RuntimeException("Unknown mode "+mode);
@@ -381,6 +385,7 @@ public class ClumpList extends ArrayList<Clump> {
 		
 		public long corrections=0;
 		public long duplicates=0;
+		public long basesDuplicated=0;
 		ArrayList<Read> storage=new ArrayList<Read>();
 		private final int mode;
 	}
