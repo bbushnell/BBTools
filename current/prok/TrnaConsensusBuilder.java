@@ -2,6 +2,7 @@ package prok;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map.Entry;
 
@@ -497,6 +498,31 @@ public class TrnaConsensusBuilder {
 	}
 
 	/**
+	 * Builds a mapped Read from an alignment for BaseGraph consumption.
+	 * Terminal insertions (unaligned query overhang, emitted by honest glocal
+	 * traceback) are trimmed: BaseGraph.add cannot represent an alignment
+	 * starting with I, and overhang should not contribute counts or scores.
+	 * @return The aligned Read, or null if nothing aligned.
+	 */
+	static Read toAlignedRead(byte[] bases, AlignmentStats stats, String id, long numericID){
+		byte[] match=stats.matchString;
+		int lead=0, tail=0;
+		while(lead<match.length && match[lead]=='I'){lead++;}
+		while(tail<match.length-lead && match[match.length-1-tail]=='I'){tail++;}
+		if(lead+tail>0){
+			if(match.length-lead-tail<=0){return null;}
+			match=Arrays.copyOfRange(match, lead, match.length-tail);
+			bases=Arrays.copyOfRange(bases, lead, bases.length-tail);
+		}
+		Read aligned=new Read(bases, null, id, numericID);
+		aligned.match=match;
+		aligned.start=stats.rStart;
+		aligned.stop=stats.rStop;
+		aligned.setMapped(true);
+		return aligned;
+	}
+
+	/**
 	 * Builds a BaseGraph (HBM) from a cluster of tRNA sequences.
 	 * Picks pivot as reference, aligns all others with traceback,
 	 * and adds each alignment to the graph.
@@ -521,11 +547,8 @@ public class TrnaConsensusBuilder {
 			float id=ScrabbleAligner.alignAndTraceStatic(r.bases, pivotBases, stats);
 			if(stats.matchString==null || id<0.3f){continue;}
 
-			Read aligned=new Read(r.bases, null, r.id, r.numericID);
-			aligned.match=stats.matchString;
-			aligned.start=stats.rStart;
-			aligned.stop=stats.rStop;
-			aligned.setMapped(true);
+			Read aligned=toAlignedRead(r.bases, stats, r.id, r.numericID);
+			if(aligned==null){continue;}
 			bg.add(aligned);
 		}
 		consensus.BaseGraphHelper.initForScoring(bg);
@@ -544,11 +567,8 @@ public class TrnaConsensusBuilder {
 		float id=ScrabbleAligner.alignAndTraceStatic(candidate, model.original, stats);
 		if(stats.matchString==null || id<0.2f){return -999;}
 
-		Read r=new Read(candidate, null, "candidate", 0);
-		r.match=stats.matchString;
-		r.start=stats.rStart;
-		r.stop=stats.rStop;
-		r.setMapped(true);
+		Read r=toAlignedRead(candidate, stats, "candidate", 0);
+		if(r==null){return -999;}
 		return model.score(r, false, true);
 	}
 

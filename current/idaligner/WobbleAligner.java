@@ -121,6 +121,8 @@ public class WobbleAligner implements IDAligner{
 
 		int bandStart=1, bandEnd=rLen-1;
 		int center=bwPos[0];
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 
 		int maxPos=0;
 		long maxScore=2*SUB;
@@ -137,6 +139,11 @@ public class WobbleAligner implements IDAligner{
 			center=center+1+drift;
 			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
 			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering). If the band re-widened, clear exactly
+			//those stale cells before the inner loop reads them; free when narrowing.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 
 			if(doTrace){
 				final int dist=trace.size-lastHeaderIdx;
@@ -182,6 +189,7 @@ public class WobbleAligner implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 			ring.add(maxScore);
 		}
 		if(viz!=null) {viz.shutdown();}

@@ -76,9 +76,12 @@ public class BandedAlignerConcise implements IDAligner{
 		Arrays.fill(curr, BAD); // Create current row to BAD
 		final int bandWidth=decideBandwidth(query, ref);
 		int bandStart=0, bandEnd=rLen-1; // Initialize band limits outside main loop
+		int prevBandEnd=rLen;// Band end of the row currently in prev[] (row 0 is full-width)
 		for(int i=1; i<=qLen; i++){// Fill alignment matrix
-			bandEnd=Math.min(rLen, i+bandWidth);// Calculate band boundaries 
+			bandEnd=Math.min(rLen, i+bandWidth);// Calculate band boundaries
 			bandStart=Math.max(1, Math.min(i-bandWidth, rLen-bandWidth));
+			// Clear stale two-row-old cells beyond the previous row's band end (double buffering)
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			curr[bandStart-1]=BAD; curr[0]=i*INS;// Clear stale data to the left of the band
 			final byte q=query[i-1];//Cache the query
 			// Process only cells within the band
@@ -100,7 +103,7 @@ public class BandedAlignerConcise implements IDAligner{
 				final long maxValue=(maxDiagUp&SCORE_MASK)>=leftScore ? maxDiagUp : leftScore;
 				curr[j]=maxValue;// Store the maximum score
 			}
-			long[] temp=prev; prev=curr; curr=temp;// Swap rows
+			long[] temp=prev; prev=curr; curr=temp; prevBandEnd=bandEnd;// Swap rows
 		}
 		return postprocess(prev, qLen, bandStart, bandEnd, posVector);
 	}

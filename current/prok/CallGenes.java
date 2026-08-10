@@ -365,6 +365,12 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.earlyExit=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("patience")){
 				prok.TrnaCaller.earlyExitPatience=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("acextract") || a.equalsIgnoreCase("anticodonextract")){
+				prok.TrnaCaller.extractAnticodons=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("acvalidate") || a.equalsIgnoreCase("acthresh")){
+				prok.TrnaCaller.AC_VALIDATE=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("acmargin")){
+				prok.TrnaCaller.AC_MARGIN=Integer.parseInt(b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}

@@ -100,6 +100,8 @@ public class BandedPlusAligner implements IDAligner{
 		final int bandWidth=decideBandwidth(query0, ref0);
 		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen-1;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 
 		// Create arrays for current and previous rows
 		long[] prev=new long[rLen+1], curr=new long[rLen+1];
@@ -115,6 +117,11 @@ public class BandedPlusAligner implements IDAligner{
 			// Calculate band boundaries 
 			bandStart=Math.max(1, Math.min(i-bandWidth, rLen-bandWidth));
 			bandEnd=Math.min(rLen, i+bandWidth);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering); the advancing right edge exposes them.
+			//Clearing before the SIMD/scalar dispatch covers both paths.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			
 			//Clear stale data to the left of the band
 			curr[bandStart-1]=BAD;
@@ -169,6 +176,7 @@ public class BandedPlusAligner implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 		}
 		if(viz!=null) {viz.shutdown();}
 		loops.addAndGet(mloops);

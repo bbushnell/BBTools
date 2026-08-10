@@ -46,6 +46,14 @@ trnaalign=t     Align predicted tRNAs to a consensus library to verify
                 by default; override with trnalib= and trnamodel=.
 trnalib=<file>  Custom tRNA consensus library (fasta).
 trnamodel=<file> Custom tRNA HBM model file.
+acextract=t     Extract the anticodon directly from each verified tRNA's
+                structure (anticodon loop position projected through the
+                alignment).  Adds an anticodon: attribute to the GFF.
+acvalidate=10   Min structural score (anticodon stem + U33 + purine-37,
+                max 15) to trust an extracted anticodon; failures fall
+                back to model-name annotation.
+acmargin=2      Min score margin between the best and runner-up anticodon
+                register; ambiguous positions fall back to the model name.
 
 Other parameters:
 minlen=60       Don't call genes shorter than this.

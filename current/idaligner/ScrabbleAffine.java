@@ -176,6 +176,11 @@ public class ScrabbleAffine implements IDAligner{
 		long[] prevM=new long[rLen+1], currM=new long[rLen+1];
 		long[] prevI=new long[rLen+1], currI=new long[rLen+1];
 		long[] prevD=new long[rLen+1], currD=new long[rLen+1];
+		//Unwritten cells must read as BAD: a packed zero decodes as score 0 / start 0,
+		//a fake fresh alignment start, if a band edge ever exposes it.
+		java.util.Arrays.fill(currM, BAD);
+		java.util.Arrays.fill(currI, BAD);
+		java.util.Arrays.fill(currD, BAD);
 
 		// Row 0: the alignment may BEGIN at any ref column (glocal) -> score 0, start=j.
 		// Time=1 so that the first match scores MATCH_FIRST (70), not MATCH (100).
@@ -189,6 +194,8 @@ public class ScrabbleAffine implements IDAligner{
 
 		long bestScore=BAD; int bestPos=0; long bestWord=BAD;
 		int bandStart=1, bandEnd=rLen;
+		// Band extent of the row currently in prev* (row 0 is initialized through rLen)
+		int prevBandStart=1, prevBandEnd=rLen;
 
 		for(int i=1; i<=qLen; i++){
 			final byte q=query[i-1];
@@ -208,6 +215,21 @@ public class ScrabbleAffine implements IDAligner{
 				center=center+1+drift;
 				bandStart=Math.max(1, center-bandWidth+quarterBand);
 				bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+
+				//Correctness: prev* cells beyond the previous row's band hold stale or
+				//never-written data (this bandStart is not monotonic, so BOTH edges can
+				//re-expose). Clear exactly the newly exposed cells in all three states.
+				if(bandEnd>prevBandEnd){
+					java.util.Arrays.fill(prevM, prevBandEnd+1, bandEnd+1, BAD);
+					java.util.Arrays.fill(prevI, prevBandEnd+1, bandEnd+1, BAD);
+					java.util.Arrays.fill(prevD, prevBandEnd+1, bandEnd+1, BAD);
+				}
+				final int loClear=Math.max(1, bandStart-1);
+				if(loClear<prevBandStart-1){
+					java.util.Arrays.fill(prevM, loClear, prevBandStart-1, BAD);
+					java.util.Arrays.fill(prevI, loClear, prevBandStart-1, BAD);
+					java.util.Arrays.fill(prevD, loClear, prevBandStart-1, BAD);
+				}
 			}
 
 			// Column 0: leading query bases with no ref consumed are insertions.
@@ -311,6 +333,7 @@ public class ScrabbleAffine implements IDAligner{
 			t=prevM; prevM=currM; currM=t;
 			t=prevI; prevI=currI; currI=t;
 			t=prevD; prevD=currD; currD=t;
+			prevBandStart=bandStart; prevBandEnd=bandEnd;
 		}
 		loops.addAndGet(mloops);
 

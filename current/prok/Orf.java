@@ -484,6 +484,9 @@ public class Orf extends PFeature {
 		if(trnaModel!=null){
 			bb.append(",model:").append(trnaModel);
 		}
+		if(trnaAnticodon!=null){
+			bb.append(",anticodon:").append(trnaAnticodon);
+		}
 		return bb;
 	}
 	
@@ -533,6 +536,8 @@ public class Orf extends PFeature {
 	
 	public final int type;
 	public String trnaModel;
+	/** Anticodon triplet extracted structurally from the called sequence, or null */
+	public String trnaAnticodon;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/

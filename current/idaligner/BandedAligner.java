@@ -127,11 +127,19 @@ public class BandedAligner implements IDAligner{
 		long maxScore=2*SUB;
 
 		int bandStart=1, bandEnd=rLen-1;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 
 		for(int i=1; i<=qLen; i++){
 			final int center=i+offset;
 			bandStart=Math.max(1, Math.min(rLen, center-bandWidth));
 			bandEnd=Math.min(rLen, center+bandWidth);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering); with this fixed-width band the right
+			//edge advances every row, so the newest column is always exposed. Clear the
+			//stale cells before the inner loop reads them.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 
 			if(doTrace){
 				final int dist=trace.size-lastHeaderIdx;
@@ -177,6 +185,7 @@ public class BandedAligner implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 		}
 		if(viz!=null) {viz.shutdown();}
 		if(GLOBAL){maxPos=rLen;maxScore=prev[rLen-1]+DEL_INCREMENT;}

@@ -100,6 +100,8 @@ public class BandedByteAligner implements IDAligner{
 		final int bandWidth=decideBandwidth(query, ref);
 		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen;
+		// Band end of the row currently in prev[] (row 0 is initialized full-width)
+		int prevBandEnd=rLen;
 
 		// Create arrays for current and previous rows
 		byte[] prev=new byte[rLen+1], curr=new byte[rLen+1];
@@ -114,6 +116,12 @@ public class BandedByteAligner implements IDAligner{
 			// Calculate band boundaries 
 			bandStart=Math.max(1, Math.min(i-bandWidth, rLen-bandWidth));
 			bandEnd=Math.min(rLen, i+bandWidth);
+
+			//Correctness: prev[] cells beyond the previous row's band hold two-row-old
+			//values in a possibly different REBALANCING frame, yet look like plausible
+			//scores (flat-60 init). Clear the newly exposed cells before either the
+			//SIMD or scalar path reads them.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			
             if(debug) {
                 System.err.println("\nRow "+i+": bw="+bandWidth+"; j is "+bandStart+" to "+bandEnd);
@@ -200,6 +208,7 @@ public class BandedByteAligner implements IDAligner{
 			byte[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 		}
 		if(viz!=null) {viz.shutdown();}
 		loops.addAndGet(mloops);

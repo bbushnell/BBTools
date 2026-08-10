@@ -68,6 +68,7 @@ public class DriftingAlignerConcise implements IDAligner{
 		Arrays.fill(curr, BAD); // Initialize current row to BAD
 		final int bandWidth0=decideBandwidth(query, ref), maxDrift=2;// Banding parameters
 		int center=0, maxPos=0, missingScore=0;// Initialize center-tracking variables outside the loop
+		int prevBandEnd=rLen;// Band end of the row currently in prev[] (row 0 is full-width)
 		long maxScore=BAD;// Best scoring position
 		for(int i=1; i<=qLen; i++){// Fill alignment matrix
 			// Bonus bandwidth from low total alignment quality
@@ -79,6 +80,8 @@ public class DriftingAlignerConcise implements IDAligner{
 			center=center+1+drift;// New band center
 			final int bandStart=Math.max(1, center-bandWidth+rShift);
 			final int bandEnd=Math.min(rLen, center+bandWidth+rShift);
+			// Clear stale two-row-old cells if the band re-widened past the previous row's end
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			curr[bandStart-1]=BAD; curr[0]=i*INS;// Clear stale data to the left of the band
 			maxScore=BAD; maxPos=0;// Reset max score
 			final byte q=query[i-1];// Cache the query
@@ -102,7 +105,7 @@ public class DriftingAlignerConcise implements IDAligner{
 				maxPos=better ? j : maxPos;
 			}
 			missingScore=i-(int)(maxScore>>SCORE_SHIFT);//How much score is missing vs a perfect match
-			long[] temp=prev; prev=curr; curr=temp;// Swap rows
+			long[] temp=prev; prev=curr; curr=temp; prevBandEnd=bandEnd;// Swap rows
 		}
 		return postprocess(maxScore, maxPos, qLen, rLen, posVector);// Calculate identity and rStart
 	}
