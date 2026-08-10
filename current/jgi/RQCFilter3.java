@@ -4365,11 +4365,14 @@ public class RQCFilter3 {
 		return s;
 	}
 	
+	private static final String DORI_RQCFILTER_PATH="/clusterfs/jgi/groups/gentech/genome_analysis/ref/RQCFilterData";
 	private static String getRQCPath() {
 		if(Shared.PERLMUTTER) {
 			return "/global/cfs/cdirs/bbtools/RQCFilterData_Local";
 		}else if(Shared.DORI) {
-			return "/clusterfs/jgi/groups/gentech/genome_analysis/ref/RQCFilterData";
+			return DORI_RQCFILTER_PATH;
+		}else if(new java.io.File(DORI_RQCFILTER_PATH).isDirectory()){
+			return DORI_RQCFILTER_PATH;
 		}else if(Shared.AWS) {
 			return "";
 		}else {
