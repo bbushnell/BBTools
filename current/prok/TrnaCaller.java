@@ -5,6 +5,7 @@ import java.util.Arrays;
 
 import consensus.BaseGraph;
 import dna.AminoAcid;
+import idaligner.AlignmentStats;
 import idaligner.ScrabbleAligner;
 import shared.Tools;
 import structures.FloatList;
@@ -42,6 +43,7 @@ public class TrnaCaller extends ProkObject {
 		modelNames=modelNames_;
 		annotate=(modelNames!=null);
 		kmerIndex=(trnaLibrary!=null ? buildKmerIndex(trnaLibrary) : null);
+		acPositions=(annotate && trnaLibrary!=null ? findAnticodonPositions(trnaLibrary, modelNames) : null);
 	}
 
 	public static long alignmentCount(){return alignmentCount;}
@@ -261,6 +263,7 @@ public class TrnaCaller extends ProkObject {
 			if(passed){
 				if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){
 					orf.trnaModel=modelNames[bestModel];
+					if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestModel);}
 				}
 				verified.add(orf);
 			}else if(bestId>=ID_BORDERLINE && trnaModels!=null && borderlineCount>0){
@@ -276,12 +279,155 @@ public class TrnaCaller extends ProkObject {
 				if(bestHbm>=HBM_PASS){
 					if(annotate && bestHbmModel>=0 && modelNames!=null && bestHbmModel<modelNames.length){
 						orf.trnaModel=modelNames[bestHbmModel];
+						if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestHbmModel);}
 					}
 					verified.add(orf);
 				}
 			}
 		}
 		return verified;
+	}
+
+	/**
+	 * Precomputes the anticodon position of each library consensus via structural scan,
+	 * constrained to the triplet parsed from the model name when available.
+	 * @return Per-model 0-based anticodon start positions; -1 where none was confidently found.
+	 */
+	public static int[] findAnticodonPositions(byte[][] library, String[] names){
+		int[] positions=new int[library.length];
+		for(int i=0; i<library.length; i++){
+			byte[] ac=(names!=null && i<names.length ? parseLibraryAnticodon(names[i]) : null);
+			positions[i]=findAnticodonPosition(library[i], ac);
+		}
+		return positions;
+	}
+
+	/**
+	 * Parses the anticodon triplet from a consensus name like "tRNA_consensus_UCC_c2 n=5",
+	 * falling back to RefSeq-style parsing for custom libraries.
+	 * @return Uppercase DNA-alphabet triplet, or null if unavailable (e.g. UNK groups).
+	 */
+	public static byte[] parseLibraryAnticodon(String name){
+		if(name==null){return null;}
+		String token;
+		int idx=name.indexOf("tRNA_consensus_");
+		if(idx>=0){
+			int start=idx+15;
+			int end=start;
+			while(end<name.length() && name.charAt(end)!='_' && name.charAt(end)!=' '){end++;}
+			token=name.substring(start, end);
+		}else{
+			token=TrnaConsensusBuilder.parseAnticodon(name);
+		}
+		if(token==null || token.length()!=3){return null;}
+		byte[] ac=new byte[3];
+		for(int i=0; i<3; i++){
+			int x=AminoAcid.baseToNumber[token.charAt(i)];//handles lowercase and U->T
+			if(x<0){return null;}//amino-acid names and UNK land here
+			ac[i]=AminoAcid.numberToBase[x];
+		}
+		return ac;
+	}
+
+	/**
+	 * Structural plausibility score for an anticodon loop with the anticodon at position t.
+	 * Scores the 5bp anticodon stem (WC pair=2, GU wobble=1), U33 immediately 5' (+3),
+	 * and purine 37 immediately 3' of the triplet (+2); max 15.
+	 * @return Score, or -1 if t is too close to the sequence ends to have a full arm.
+	 */
+	public static int scoreAnticodonLoop(byte[] seq, int t){
+		if(t<7 || t+9>=seq.length){return -1;}
+		final byte[] bton=AminoAcid.baseToNumber;
+		int score=0;
+		for(int d=3; d<=7; d++){//stem pairs (t-3,t+5)..(t-7,t+9) around the 7nt loop
+			int x=bton[seq[t-d]], y=bton[seq[t+2+d]];
+			if(x<0 || y<0){continue;}
+			if(x+y==3){score+=2;}
+			else if((x==2 && y==3) || (x==3 && y==2)){score+=1;}
+		}
+		if(bton[seq[t-1]]==3){score+=3;}//U33
+		int p=bton[seq[t+3]];
+		if(p==0 || p==2){score+=2;}//purine 37
+		return score;
+	}
+
+	/**
+	 * Locates the anticodon in a consensus sequence.  When the triplet is known from
+	 * the model name, only matching positions are considered; otherwise pure structure
+	 * is used with a stricter threshold.
+	 * @return 0-based anticodon start position, or -1 if no confident position exists.
+	 */
+	public static int findAnticodonPosition(byte[] seq, byte[] ac){
+		final byte[] bton=AminoAcid.baseToNumber;
+		final int thresh=(ac!=null ? AC_FIND_MATCH : AC_FIND_BLIND);
+		final int minT=15, maxT=Tools.min(60, seq.length-10);//anticodon sits ~27-40 from the 5' end
+		int best=-1, bestScore=-1;
+		for(int t=minT; t<=maxT; t++){
+			if(ac!=null && (bton[seq[t]]!=bton[ac[0]] || bton[seq[t+1]]!=bton[ac[1]] || bton[seq[t+2]]!=bton[ac[2]])){continue;}
+			int s=scoreAnticodonLoop(seq, t);
+			if(s<thresh){continue;}
+			if(s>bestScore || (s==bestScore && Tools.absdif(t, 34)<Tools.absdif(best, 34))){bestScore=s; best=t;}
+		}
+		return best;
+	}
+
+	/**
+	 * Extracts the anticodon triplet from a verified candidate by projecting the model's
+	 * anticodon position through a traceback alignment, then validating anticodon-loop
+	 * structure on the candidate itself.  Any failure returns null, which leaves the
+	 * model-name annotation as the sole source (identical to pre-extraction behavior).
+	 * @return Uppercase DNA triplet, or null if extraction failed validation.
+	 */
+	private String extractAnticodon(byte[] seq, int model){
+		if(acPositions==null || model<0 || model>=acPositions.length){return null;}
+		final int acPos=acPositions[model];
+		if(acPos<0){return null;}
+		final byte[] cons=trnaLibrary[model];
+		//The aligner requires query<=ref (glocal: the full query must fit within the ref),
+		//so align whichever sequence is shorter as the query.
+		final boolean consIsQuery=(seq.length>=cons.length);
+		AlignmentStats stats=new AlignmentStats(true);
+		stats.doTrace=true;
+		if(consIsQuery){ScrabbleAligner.alignAndTraceStatic(cons, seq, stats);}
+		else{ScrabbleAligner.alignAndTraceStatic(seq, cons, stats);}
+		alignmentCount++;
+		if(stats.matchString==null){return null;}
+		//Walk the match string (aligned region only; ref-consuming ops start at rStart),
+		//projecting consensus positions acPos..acPos+2 onto the candidate.
+		int consPos=(consIsQuery ? 0 : stats.rStart), candPos=(consIsQuery ? stats.rStart : 0);
+		int qa=-1, qc=-1;
+		for(byte b : stats.matchString){
+			switch(b){
+				case 'm': case 'S': case 'N':
+					if(consPos==acPos){qa=candPos;}
+					else if(consPos==acPos+2){qc=candPos;}
+					consPos++; candPos++;
+					break;
+				case 'D': if(consIsQuery){candPos++;}else{consPos++;} break;
+				case 'I': if(consIsQuery){consPos++;}else{candPos++;} break;
+			}
+			if(consPos>acPos+2){break;}
+		}
+		if(qa<0 || qc!=qa+2){return null;}//anticodon not cleanly aligned (indel or clipped)
+		//Local refinement: projection locates the anticodon to ~+-1 (banded-path wobble);
+		//the loop structure resolves the exact register.  Without this, anticodons starting
+		//with U produce shifted extractions whose stolen U34 passes the U33 check.
+		int bestT=qa, bestScore=scoreAnticodonLoop(seq, qa), secondScore=-1;
+		for(int t=qa-1; t<=qa+1; t+=2){
+			int s=scoreAnticodonLoop(seq, t);
+			if(s>bestScore){secondScore=bestScore; bestScore=s; bestT=t;}
+			else if(s>secondScore){secondScore=s;}
+		}
+		if(bestScore<AC_VALIDATE){return null;}
+		if(bestScore-secondScore<AC_MARGIN){return null;}//ambiguous register: decline, keep model annotation
+		final byte[] bton=AminoAcid.baseToNumber;
+		byte[] triplet=new byte[3];
+		for(int i=0; i<3; i++){
+			int x=bton[seq[bestT+i]];
+			if(x<0){return null;}
+			triplet[i]=AminoAcid.numberToBase[x];
+		}
+		return new String(triplet);
 	}
 
 	private static int[][] buildKmerIndex(byte[][] library){
@@ -375,6 +521,8 @@ public class TrnaCaller extends ProkObject {
 	private final String[] modelNames;
 	private final boolean annotate;
 	private final int[][] kmerIndex;
+	/** Per-model anticodon start position in the consensus, or -1; null when not annotating */
+	private final int[] acPositions;
 
 	private static final int MIN_TRNA=40;
 	private static final int MAX_TRNA=120;
@@ -393,4 +541,14 @@ public class TrnaCaller extends ProkObject {
 	static boolean earlyExit=true;
 	static int earlyExitPatience=10;
 	static long alignmentCount=0;
+	/** Master switch for structural anticodon extraction */
+	static boolean extractAnticodons=true;
+	/** Min structural score to accept a projected anticodon on a candidate */
+	static int AC_VALIDATE=10;
+	/** Min score margin between best and runner-up register; smaller = ambiguous, decline */
+	static int AC_MARGIN=2;
+	/** Min structural score for a name-matched anticodon position in a consensus */
+	static int AC_FIND_MATCH=5;
+	/** Min structural score for a structure-only anticodon position (UNK groups) */
+	static int AC_FIND_BLIND=12;
 }

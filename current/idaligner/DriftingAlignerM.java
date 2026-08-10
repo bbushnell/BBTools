@@ -149,6 +149,10 @@ public class DriftingAlignerM implements IDAligner{
 		// Initialize band limits for use outside main loop
 		int bandStart=0, bandEnd=rLen-1;
 		int center=0;
+		// Band extent of the row currently in prev[] (row 0 is initialized through rLen).
+		// This variant's center can drift LEFT (drift >= -maxDrift), so both edges can
+		// re-expose stale two-row-old cells.
+		int prevBandStart=1, prevBandEnd=rLen;
 		
 		// Best scoring position
 		int maxPos=0;
@@ -169,6 +173,11 @@ public class DriftingAlignerM implements IDAligner{
 			center=center+1+drift;
 			bandStart=Math.max(1, center-bandWidth);
 			bandEnd=Math.min(rLen, center+bandWidth);
+
+			//Correctness: clear stale cells the band newly re-exposed on either edge.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
+			final int loClear=Math.max(1, bandStart-1);
+			if(loClear<prevBandStart-1){Arrays.fill(prev, loClear, prevBandStart-1, BAD);}
 			
 			//Clear stale data to the left of the band
 			curr[bandStart-1]=BAD;
@@ -222,6 +231,7 @@ public class DriftingAlignerM implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandStart=bandStart; prevBandEnd=bandEnd;
 		}
 		if(viz!=null) {viz.shutdown();}
 		loops.addAndGet(mloops);

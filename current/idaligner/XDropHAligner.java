@@ -118,6 +118,13 @@ public class XDropHAligner implements IDAligner{
 	 * @param posVector Optional array for returning reference start/stop coordinates
 	 * @return Identity score from 0.0 to 1.0
 	 */
+	//TODO: [stale-cell bug, postponed 2026-08-10] Mitigation here is PARTIAL: the
+	//per-cell prev[j-1]=BAD clear (line ~242) and the prev[rLen] guard cover most
+	//cells, but when a processed cell j propagates j+1/j+2 into the next row's list
+	//without curr[j+1]/curr[j+2] being written this row (add==false, or beyond the
+	//last processed cell), the next row reads two-row-old values at those columns.
+	//A full fix must clear based on the true prior-row write extent; see the fixed
+	//contiguous-band aligners (e.g. ScrabbleAligner's prevBandEnd clear).
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 		// Swap to ensure query is not longer than ref
 		if(posVector==null && query.length>ref.length) {

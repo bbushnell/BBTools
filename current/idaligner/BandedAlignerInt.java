@@ -136,12 +136,18 @@ public class BandedAlignerInt implements IDAligner{
 
 		// Initialize band limits for use outside main loop
 		int bandStart=0, bandEnd=rLen-1;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 		
 		// Fill alignment matrix
 		for(int i=1; i<=qLen; i++){
 			// Calculate band boundaries 
 			bandStart=Tools.max(1, Tools.min(i-bandWidth, rLen-bandWidth));
 			bandEnd=Math.min(rLen, i+bandWidth);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering); the advancing right edge exposes them.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			
 			//Clear stale data to the left of the band
 			curr[bandStart-1]=BAD;
@@ -181,6 +187,7 @@ public class BandedAlignerInt implements IDAligner{
 			int[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 		}
 		if(viz!=null) {viz.shutdown();}
 		loops.addAndGet(mloops);

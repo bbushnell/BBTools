@@ -167,6 +167,8 @@ public class WobblePlusAligner5 implements IDAligner{
 		// Initialize band limits for use outside main loop
 		int bandStart=1, bandEnd=rLen-1;
 		int center=0;
+		// Band end of the row currently in prev[] (row 0 is initialized through rLen)
+		int prevBandEnd=rLen;
 		
 		// Best scoring position
 		int maxPos=0;
@@ -188,6 +190,11 @@ public class WobblePlusAligner5 implements IDAligner{
 			center=center+1+drift;
 			bandStart=Math.max(bandStart, center-bandWidth+quarterBand);
 			bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+
+			//Correctness: prev[] cells beyond the previous row's band still hold values
+			//from two rows ago (double buffering); a re-widened band exposes them.
+			//Clearing before the SIMD/scalar dispatch covers both paths.
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
 			
 			//Clear stale data to the left of the band
 			curr[bandStart-1]=BAD;
@@ -263,6 +270,7 @@ public class WobblePlusAligner5 implements IDAligner{
 			long[] temp=prev;
 			prev=curr;
 			curr=temp;
+			prevBandEnd=bandEnd;
 			ring.add(maxScore);
 		}
 		if(viz!=null) {viz.shutdown();}// Terminate visualizer

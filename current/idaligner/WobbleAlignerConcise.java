@@ -72,6 +72,7 @@ public class WobbleAlignerConcise implements IDAligner{
 		final int ringSize=(bandWidth0*5)/4; // Adjustable local max score history
 		final RingBuffer ring=new RingBuffer(ringSize); //RingBuffer tracks the last ringSize max scores
 		int center=0, maxPos=0; // Initialize center-tracking variables outside the loop
+		int prevBandStart=1, prevBandEnd=rLen;// Band extent of the row in prev[] (row 0 is full-width)
 		long maxScore=2*SUB; // Initial maxScore is reasonable to prevent a large scoreBonus
 		for(int i=1; i<=qLen; i++){// Fill alignment matrix
 			// Calculate bonus bandwidth due to low local alignment quality
@@ -85,6 +86,10 @@ public class WobbleAlignerConcise implements IDAligner{
 			center=center+1+drift;// New band center
 			final int bandStart=Math.max(1, center-bandWidth+rShift);
 			final int bandEnd=Math.min(rLen, center+bandWidth+rShift);
+			// Clear stale two-row-old cells the band re-exposed on either edge (double buffering)
+			if(bandEnd>prevBandEnd){Arrays.fill(prev, prevBandEnd+1, bandEnd+1, BAD);}
+			final int loClear=Math.max(1, bandStart-1);
+			if(loClear<prevBandStart-1){Arrays.fill(prev, loClear, prevBandStart-1, BAD);}
 			curr[bandStart-1]=BAD; curr[0]=i*INS;// Clear stale data to the left of the band
 			maxScore=BAD; maxPos=0;// Reset max score
 			final byte q=query[i-1];// Cache the query
@@ -108,7 +113,7 @@ public class WobbleAlignerConcise implements IDAligner{
 				maxPos=better ? j : maxPos;
 			}
 			ring.add(maxScore);
-			long[] temp=prev; prev=curr; curr=temp;// Swap rows
+			long[] temp=prev; prev=curr; curr=temp; prevBandStart=bandStart; prevBandEnd=bandEnd;// Swap rows
 		}
 		return postprocess(maxScore, maxPos, qLen, rLen, posVector);// Calculate identity and rStart
 	}

@@ -90,6 +90,14 @@ public class IntListAligner implements IDAligner{
 	 * If null, sequences may be swapped to ensure query is shorter
 	 * @return Identity score (matches/(matches+mismatches+insertions+deletions))
 	 */
+	//TODO: [stale-cell bug, postponed 2026-08-10] This sparse active-list fill never
+	//clears skipped cells: curr[] is written only for active-list members, prev[] cells
+	//outside the previous row's active set retain two-row-old values (the BAD constant
+	//is declared but never assigned to any cell), and the frontier propagates j-1/j+1
+	//into the next row's list without writing curr there - so stale reads occur whenever
+	//the frontier grows. A fix must clear based on the true prior-row write extent
+	//(activePositions, not the pruned proposal list); see the fixed contiguous-band
+	//aligners (e.g. ScrabbleAligner's prevBandEnd clear) for the analogous repair.
 	public static final float alignStatic(byte[] query, byte[] ref, int[] posVector) {
 	    // Swap to ensure query is not longer than ref
 	    if(posVector==null && query.length>ref.length) {
