@@ -72,6 +72,15 @@ public class MagQCVectorMaker {
 			else if(a.equals("multicontamprob")){multiContamProb=Double.parseDouble(b);}
 			else if(a.equals("samefamprob")){sameFamProb=Double.parseDouble(b);}
 			else if(a.equals("enc")){enc=parseEnc(b);}
+			else if(a.equals("subnet")){subnetName=b.toLowerCase();}
+			else if(a.equals("subnetout")){subnetOut=b;}
+			else if(a.equals("subnetvalout")){subnetValOut=b;}
+			else if(a.equals("sncodingaffine")){snCodingAffine=parseBool(b);}
+			else if(a.equals("snbinscaled")){snBinScaled=parseBool(b);}
+			else if(a.equals("sndomain")){snDomain=parseBool(b);}
+			else if(a.equals("snhhcaga")){snHHCAGA=parseBool(b);}
+			else if(a.equals("sngenelen")){snGeneLen=parseBool(b);}
+			else if(a.equals("kmerfile")){kmerFile=b;}
 			else{System.err.println("Warning: unknown arg "+arg);}
 		}
 		if(cacheFile==null || sizemapFile==null || taxpgmFile==null || out==null){
@@ -85,7 +94,7 @@ public class MagQCVectorMaker {
 
 	/** One cached contig's sufficient statistics; family counts stored sparsely. */
 	static final class Contig {
-		int tid, length, gc, acgt, cds, mapped, coding, r16, r23, r5, trna;
+		int tid, length, gc, acgt, cds, mapped, coding, r16, r23, r5, rother, trna;
 		long glenSum, glenSq;
 		int[] famRank, famCount;
 	}
@@ -149,6 +158,7 @@ public class MagQCVectorMaker {
 				c.r16=Integer.parseInt(f[11]);
 				c.r23=Integer.parseInt(f[12]);
 				c.r5=Integer.parseInt(f[13]);
+				c.rother=Integer.parseInt(f[14]);
 				c.trna=Integer.parseInt(f[15]);
 				String fc=f[16];
 				if(fc.length()>0){
@@ -164,6 +174,7 @@ public class MagQCVectorMaker {
 				ArrayList<Contig> list=byTid.get(c.tid);
 				if(list==null){byTid.put(c.tid, list=new ArrayList<Contig>());}
 				list.add(c);
+				if(!tid2domainIdx.containsKey(c.tid)){tid2domainIdx.put(c.tid, domainIndex(f[2]));}
 			}
 			br.close();
 		}catch(Exception e){throw new RuntimeException(e);}
@@ -223,6 +234,16 @@ public class MagQCVectorMaker {
 			recoverable.put(tid, sum);
 		}
 
+		// precompute each organism's NATIVE ncRNA complement (the subnet denominator):
+		// {r16,r23,r5,rother,trna} summed over ALL of the tid's contigs.
+		for(Integer tid : usable){
+			int[] nc=new int[5];
+			for(Contig c : byTid.get(tid)){
+				nc[0]+=c.r16; nc[1]+=c.r23; nc[2]+=c.r5; nc[3]+=c.rother; nc[4]+=c.trna;
+			}
+			nativeNc.put(tid, nc);
+		}
+
 		if(enc==ENC_NORM){
 			avgCopy=computeAvgCopy(usable);
 			System.err.println("enc=norm: computed avgCopyWhenPresent over "+usable.size()+" orgs");
@@ -233,9 +254,18 @@ public class MagQCVectorMaker {
 		final int baseFam=(keptRanks!=null ? keptRanks.length : numFam);
 		final int famCols=baseFam*(enc==ENC_TWO ? 2 : 1);
 		numInputs=famCols+NUM_GLOBALS+numPhyla;
-		writeSet(out, trainTids, n, new Random(seed*2+1), "train");
+		// ncRNA subnet input width: 5 obs + phylum one-hot + 5 context (+ optional blocks).
+		subnetInputs=NCRNA_OBS+numPhyla+NCRNA_CONTEXT
+			+(snDomain?DOMAINS:0)+(snHHCAGA?2:0)+(snGeneLen?2:0);
+		final boolean subnet=("ncrna".equals(subnetName));
+		if(subnetName!=null && !subnet){throw new RuntimeException("Unknown subnet="+subnetName+" (only ncrna)");}
+		if(subnet && snHHCAGA){
+			if(kmerFile==null){throw new RuntimeException("snhhcaga=t requires kmerfile=<tid HH CAGA>");}
+			loadKmerFile(kmerFile);
+		}
+		writeSet(out, (subnet ? subnetOut : null), trainTids, n, new Random(seed*2+1), "train");
 		if(outval!=null && valn>0 && !valTids.isEmpty()){
-			writeSet(outval, valTids, valn, new Random(seed*2+2), "val");
+			writeSet(outval, (subnet ? subnetValOut : null), valTids, valn, new Random(seed*2+2), "val");
 		}
 		System.err.println("done.");
 	}
@@ -252,11 +282,18 @@ public class MagQCVectorMaker {
 		return m;
 	}
 
-	private void writeSet(String file, ArrayList<Integer> pool, long count, Random rnd, String tag){
+	private void writeSet(String file, String subnetFile, ArrayList<Integer> pool, long count, Random rnd, String tag){
 		HashMap<Integer,ArrayList<Integer>> famIdx=familyIndex(pool);
 		try{
 			BufferedWriter bw=new BufferedWriter(new FileWriter(file), 1<<20);
 			bw.write("#dims\t"+numInputs+"\t2\t0\n");
+			BufferedWriter sbw=null;
+			StringBuilder sb2=null;
+			if(subnetFile!=null){
+				sbw=new BufferedWriter(new FileWriter(subnetFile), 1<<20);
+				sbw.write("#dims\t"+subnetInputs+"\t1\t0\n");
+				sb2=new StringBuilder(subnetInputs*4);
+			}
 			long made=0, tries=0;
 			StringBuilder sb=new StringBuilder(numInputs*4);
 			while(made<count && tries<count*20+1000){
@@ -269,10 +306,16 @@ public class MagQCVectorMaker {
 				formatRow(sb, fam, glob, targetPhylumIdx, labels);
 				bw.write(sb.toString());
 				sb.setLength(0);
+				if(sbw!=null){
+					formatNcrnaRow(sb2, glob, targetPhylumIdx);
+					sbw.write(sb2.toString());
+					sb2.setLength(0);
+				}
 				made++;
 				if((made%50000)==0){System.err.println(tag+": "+made+"/"+count);}
 			}
 			bw.close();
+			if(sbw!=null){sbw.close(); System.err.println(tag+": wrote "+made+" ncRNA-subnet rows to "+subnetFile);}
 			System.err.println(tag+": wrote "+made+" rows to "+file+" (tries="+tries+")");
 		}catch(Exception e){throw new RuntimeException(e);}
 	}
@@ -298,6 +341,12 @@ public class MagQCVectorMaker {
 		Agg agg=new Agg(fam);
 		long cleanBp=selectContigs(byTid.get(target), targetBp, rnd, agg);
 		if(cleanBp<=0){return -1;}
+		// Snapshot the TARGET's observed ncRNA (before contaminants are added) and its id, so a
+		// subnet emitter can pair this bin's observed ncRNA with the target's native complement.
+		// Read-only w.r.t. the global vector (agg is only inspected).
+		lastTarget=target;
+		lastNcObs[0]=agg.r16; lastNcObs[1]=agg.r23; lastNcObs[2]=agg.r5;
+		lastNcObs[3]=agg.rother; lastNcObs[4]=agg.trna;
 
 		// sampled contamination (clean spike, else flat + square-low mixture)
 		double cont=(rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd));
@@ -318,6 +367,7 @@ public class MagQCVectorMaker {
 
 		long totalBp=cleanBp+foreignBp;
 		if(totalBp<=0 || agg.contigs<=0){return -1;}
+		lastTotalBp=totalBp;
 
 		// achieved labels from the explicit target
 		labels[0]=Math.min(1.0, cleanBp/(double)gsize);      // completeness
@@ -383,7 +433,7 @@ public class MagQCVectorMaker {
 	final class Agg {
 		final int[] fam;
 		long gc, acgt, coding, glenSum, glenSq;
-		int contigs, cds, mapped, r16, r23, r5, trna;
+		int contigs, cds, mapped, r16, r23, r5, rother, trna;
 		int[] lens=new int[64]; int nlens=0;
 		int[] scratchArr;
 		Agg(int[] fam){this.fam=fam;}
@@ -393,7 +443,7 @@ public class MagQCVectorMaker {
 		}
 		void add(Contig c){
 			contigs++; gc+=c.gc; acgt+=c.acgt; coding+=c.coding; cds+=c.cds; mapped+=c.mapped;
-			glenSum+=c.glenSum; glenSq+=c.glenSq; r16+=c.r16; r23+=c.r23; r5+=c.r5; trna+=c.trna;
+			glenSum+=c.glenSum; glenSq+=c.glenSq; r16+=c.r16; r23+=c.r23; r5+=c.r5; rother+=c.rother; trna+=c.trna;
 			for(int i=0; i<c.famRank.length; i++){fam[c.famRank[i]]+=c.famCount[i];}
 			if(nlens>=lens.length){lens=Arrays.copyOf(lens, lens.length*2);}
 			lens[nlens++]=c.length;
@@ -478,6 +528,41 @@ public class MagQCVectorMaker {
 		throw new RuntimeException("Unknown enc="+s+" (ratio|raw|log|two|norm)");
 	}
 
+	private static boolean parseBool(String s){
+		return s==null || s.equals("t") || s.equals("true") || s.equals("1") || s.equals("yes");
+	}
+
+	/** Maps a domain string to the 8-way one-hot index [bact,arch,fungi,plant,animal,protist,virus,other]. */
+	private static int domainIndex(String d){
+		if(d==null){return DOMAIN_OTHER;}
+		final String s=d.toLowerCase();
+		if(s.startsWith("bacteri")){return 0;}
+		if(s.startsWith("archae")){return 1;}
+		if(s.startsWith("fung")){return 2;}
+		if(s.contains("viridiplant") || s.startsWith("plant")){return 3;}
+		if(s.startsWith("metazoa") || s.startsWith("animal")){return 4;}
+		if(s.startsWith("protist")){return 5;}
+		if(s.startsWith("vir")){return 6;}
+		return DOMAIN_OTHER;//incl. bare "eukaryota" (subkingdom needs tax lineage)
+	}
+
+	/** Loads per-organism scaled HH/CAGA (tid&lt;TAB&gt;HH&lt;TAB&gt;CAGA) for the ncRNA subnet. */
+	private void loadKmerFile(String file){
+		try{
+			tidKmer=new HashMap<Integer,float[]>();
+			BufferedReader br=new BufferedReader(new FileReader(file));
+			String line;
+			while((line=br.readLine())!=null){
+				if(line.length()==0 || line.charAt(0)=='#'){continue;}
+				String[] p=line.split("\t");
+				if(p.length>=3){tidKmer.put(Integer.parseInt(p[0]),
+					new float[]{Float.parseFloat(p[1]), Float.parseFloat(p[2])});}
+			}
+			br.close();
+			System.err.println("loaded HH/CAGA for "+tidKmer.size()+" orgs");
+		}catch(Exception e){throw new RuntimeException(e);}
+	}
+
 	/**
 	 * Per-family expected copy number WHEN PRESENT, over the reference organisms:
 	 * for each family, the mean of the organism-level count across the organisms where
@@ -534,6 +619,48 @@ public class MagQCVectorMaker {
 		sb.append(fmt(labels[1])); sb.append('\n');
 	}
 
+	/**
+	 * Emits one ncRNA-subnet training row for the current bin: the target organism's
+	 * observed ncRNA counts (r16,r23,r5,rother,trna) plus a shared context block (phylum
+	 * one-hot and size/composition globals) as inputs, and the target's NATIVE ncRNA
+	 * complement (summed over its whole genome) as the single regression target. The
+	 * subnet thus learns the EXPECTED denominator; completeness = observed/expected is
+	 * derived downstream (Barbara's refinement of the subset-relative-label design).
+	 */
+	private void formatNcrnaRow(StringBuilder sb, double[] glob, int phylumIdx){
+		int obsTotal=0;
+		for(int i=0; i<NCRNA_OBS; i++){sb.append(lastNcObs[i]); sb.append('\t'); obsTotal+=lastNcObs[i];}
+		for(int i=0; i<numPhyla; i++){sb.append(i==phylumIdx ? '1' : '0'); sb.append('\t');}
+		if(snDomain){//domain one-hot (forward-infra; constant for a bacteria-only corpus)
+			final int di=tid2domainIdx.getOrDefault(lastTarget, DOMAIN_OTHER);
+			for(int i=0; i<DOMAINS; i++){sb.append(i==di ? '1' : '0'); sb.append('\t');}
+		}
+		// context block (5 columns; values may be transformed): bin size, GC, coding density,
+		// log2(contigs), log2(richness). F2/F3 rescale for the weight-decay-regularized optimizer.
+		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
+		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
+		sb.append(fmt(binSize)); sb.append('\t');
+		sb.append(fmt(glob[3])); sb.append('\t');
+		sb.append(fmt(coding)); sb.append('\t');
+		sb.append(fmt(glob[1])); sb.append('\t');
+		sb.append(fmt(glob[8])); sb.append('\t');
+		if(snHHCAGA){//per-org HH, CAGA (min-max scaled over training orgs), from kmerfile
+			final float[] hc=tidKmer.get(lastTarget);
+			sb.append(fmt(hc==null ? 0 : hc[0])); sb.append('\t');
+			sb.append(fmt(hc==null ? 0 : hc[1])); sb.append('\t');
+		}
+		if(snGeneLen){//mean gene length + gene-length stddev (cache-derived globals)
+			sb.append(fmt(glob[5])); sb.append('\t');
+			sb.append(fmt(glob[6])); sb.append('\t');
+		}
+		final int[] nc=nativeNc.get(lastTarget);
+		int nativeTotal=0;
+		for(int v : nc){nativeTotal+=v;}
+		// The bin's target contigs are a subset of the genome, so observed<=native always.
+		assert(obsTotal<=nativeTotal) : "ncRNA observed "+obsTotal+" > native "+nativeTotal+" (tid "+lastTarget+")";
+		sb.append(nativeTotal); sb.append('\n');
+	}
+
 	private static double log2(double v){return v<=1 ? 0 : Math.log(v)/LOG2;}
 
 	/*--------------------------------------------------------------*/
@@ -541,6 +668,12 @@ public class MagQCVectorMaker {
 	/*--------------------------------------------------------------*/
 
 	private String cacheFile, sizemapFile, familyFile, taxpgmFile, treeFile, out, outval, featuresFile;
+	private String subnetName, subnetOut, subnetValOut, kmerFile;
+	private boolean snCodingAffine=false, snBinScaled=false, snDomain=false, snHHCAGA=false, snGeneLen=false;
+	private int subnetInputs;
+	private int lastTarget;
+	private long lastTotalBp;
+	private final int[] lastNcObs=new int[5];
 	private int[] keptRanks;
 	private long n=400000, valn=40000, seed=1;
 	private double valfrac=0.10, mixComp=0.5, mixCont=0.5, cleanSpike=0.15, multiContamProb=0.15, sameFamProb=0.70;
@@ -553,6 +686,9 @@ public class MagQCVectorMaker {
 	private final HashMap<Integer,ArrayList<Contig>> byTid=new HashMap<Integer,ArrayList<Contig>>();
 	private final HashMap<Integer,Long> genomeSize=new HashMap<Integer,Long>();
 	private final HashMap<Integer,Long> recoverable=new HashMap<Integer,Long>();
+	private final HashMap<Integer,int[]> nativeNc=new HashMap<Integer,int[]>();
+	private final HashMap<Integer,Integer> tid2domainIdx=new HashMap<Integer,Integer>();
+	private HashMap<Integer,float[]> tidKmer;
 	private final HashMap<Integer,String> tid2phylum=new HashMap<Integer,String>();
 	private final HashMap<Integer,Integer> tid2family=new HashMap<Integer,Integer>();
 	private final HashMap<String,Integer> phylumIndex=new HashMap<String,Integer>();
@@ -562,6 +698,8 @@ public class MagQCVectorMaker {
 	private double[] avgCopy;
 
 	private static final int NUM_GLOBALS=13;
+	private static final int NCRNA_OBS=5, NCRNA_CONTEXT=5;
+	private static final int DOMAINS=8, DOMAIN_OTHER=7;
 	private static final int N_STR_MAX=4096;
 	private static final int ENC_RATIO=0, ENC_LOG=1, ENC_RAW=2, ENC_TWO=3, ENC_NORM=4;
 	private static final int RAW_CAP=32, LOG_CAP=64, EXC_CAP=16;

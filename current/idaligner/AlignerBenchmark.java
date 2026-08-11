@@ -227,7 +227,7 @@ public class AlignerBenchmark{
 	/*----------------      Reference loading      ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static byte[] loadReference(String path){
+	public static byte[] loadReference(String path){
 		TextFile tf=new TextFile(path);
 		ByteBuilder bb=new ByteBuilder(8192);
 		String line;
