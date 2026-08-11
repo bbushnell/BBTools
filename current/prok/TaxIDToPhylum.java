@@ -22,7 +22,7 @@ public class TaxIDToPhylum {
 			if(line.isEmpty()){continue;}
 			try{
 				int tid=Integer.parseInt(line);
-				TaxNode node=tree.getNode(tid);
+				TaxNode node=tree.getNode(tid, true);//skipAssertion: tids newer than the tree dump yield null, not a crash
 				if(node==null){continue;}
 				int phylumTid=tree.getIdAtLevelExtended(tid, TaxTree.PHYLUM_E);
 				TaxNode phylumNode=(phylumTid>0 ? tree.getNode(phylumTid) : null);

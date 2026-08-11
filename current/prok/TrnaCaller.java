@@ -60,10 +60,6 @@ public class TrnaCaller extends ProkObject {
 			results.addAll(found);
 		}
 
-		if(trnaLibrary!=null && trnaLibrary.length>0){
-			results=verifyByAlignment(results, bases);
-		}
-
 		return results;
 	}
 
@@ -188,6 +184,10 @@ public class TrnaCaller extends ProkObject {
 		if(candidates.isEmpty()){return results;}
 		candidates.sort((x, y)->Float.compare(y[2], x[2]));
 
+		//Verify DURING greedy selection: a candidate that fails alignment verification
+		//does not block the overlapping candidates it outscored, so a valid suppressed
+		//tRNA still gets its chance.  Verification cost only rises on the failure path.
+		final boolean verify=(trnaLibrary!=null && trnaLibrary.length>0);
 		ArrayList<int[]> accepted=new ArrayList<>();
 		for(float[] cand : candidates){
 			final int cStart=(int)cand[0], cStop=(int)cand[1];
@@ -202,6 +202,8 @@ public class TrnaCaller extends ProkObject {
 			orf.startScore=cand[3];
 			orf.stopScore=cand[4];
 			orf.kmerScore=cand[5];
+
+			if(verify && !verifyOrf(orf, bases)){continue;}
 
 			accepted.add(new int[]{cStart, cStop});
 			results.add(orf);
@@ -228,64 +230,66 @@ public class TrnaCaller extends ProkObject {
 		}
 	}
 
-	private ArrayList<Orf> verifyByAlignment(ArrayList<Orf> candidates, byte[] bases){
-		ArrayList<Orf> verified=new ArrayList<>();
+	/**
+	 * Verifies a single tRNA candidate by alignment against the library,
+	 * annotating it (model name, extracted anticodon) on success.
+	 * @return True if the candidate passed verification.
+	 */
+	private boolean verifyOrf(Orf orf, byte[] bases){
 		final int topN=INDEX_TOP_N_OVERRIDE>0 ? INDEX_TOP_N_OVERRIDE : INDEX_TOP_N_DEFAULT;
-		for(Orf orf : candidates){
-			byte[] seq=Arrays.copyOfRange(bases, orf.start, orf.stop+1);
+		byte[] seq=Arrays.copyOfRange(bases, orf.start, orf.stop+1);
 
-			// Get shortlist via k-mer index, sorted by hit count descending
-			int[] shortlist=shortlistByKmer(seq, topN);
+		// Get shortlist via k-mer index, sorted by hit count descending
+		int[] shortlist=shortlistByKmer(seq, topN);
 
-			// Fast pass: align in order, with patience-based early exit
-			float bestId=0;
-			int bestModel=-1;
-			int[] borderlineModels=new int[shortlist.length];
-			int borderlineCount=0;
-			boolean passed=false;
-			int sinceImproved=0;
+		// Fast pass: align in order, with patience-based early exit
+		float bestId=0;
+		int bestModel=-1;
+		int[] borderlineModels=new int[shortlist.length];
+		int borderlineCount=0;
+		boolean passed=false;
+		int sinceImproved=0;
 
-			for(int j=0; j<shortlist.length; j++){
-				int i=shortlist[j];
-				float id=ScrabbleAligner.alignStatic(seq, trnaLibrary[i], null);
-				alignmentCount++;
-				if(id>bestId){bestId=id; bestModel=i; sinceImproved=0;}
-				else{sinceImproved++;}
-				if(id>=ID_PASS){
-					passed=true;
-					if(earlyExit && sinceImproved>=earlyExitPatience){break;}
-				}
-				if(trnaModels!=null && id>=ID_BORDERLINE){
-					borderlineModels[borderlineCount++]=i;
-				}
+		for(int j=0; j<shortlist.length; j++){
+			int i=shortlist[j];
+			float id=ScrabbleAligner.alignStatic(seq, trnaLibrary[i], null);
+			alignmentCount++;
+			if(id>bestId){bestId=id; bestModel=i; sinceImproved=0;}
+			else{sinceImproved++;}
+			if(id>=ID_PASS){
+				passed=true;
+				if(earlyExit && sinceImproved>=earlyExitPatience){break;}
 			}
-
-			if(passed){
-				if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){
-					orf.trnaModel=modelNames[bestModel];
-					if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestModel);}
-				}
-				verified.add(orf);
-			}else if(bestId>=ID_BORDERLINE && trnaModels!=null && borderlineCount>0){
-				float bestHbm=-999;
-				int bestHbmModel=-1;
-				for(int j=0; j<borderlineCount; j++){
-					int idx=borderlineModels[j];
-					if(idx<trnaModels.length){
-						float score=TrnaConsensusBuilder.scoreAgainstModel(seq, trnaModels[idx]);
-						if(score>bestHbm){bestHbm=score; bestHbmModel=idx;}
-					}
-				}
-				if(bestHbm>=HBM_PASS){
-					if(annotate && bestHbmModel>=0 && modelNames!=null && bestHbmModel<modelNames.length){
-						orf.trnaModel=modelNames[bestHbmModel];
-						if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestHbmModel);}
-					}
-					verified.add(orf);
-				}
+			if(trnaModels!=null && id>=ID_BORDERLINE){
+				borderlineModels[borderlineCount++]=i;
 			}
 		}
-		return verified;
+
+		if(passed){
+			if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){
+				orf.trnaModel=modelNames[bestModel];
+				if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestModel);}
+			}
+			return true;
+		}else if(bestId>=ID_BORDERLINE && trnaModels!=null && borderlineCount>0){
+			float bestHbm=-999;
+			int bestHbmModel=-1;
+			for(int j=0; j<borderlineCount; j++){
+				int idx=borderlineModels[j];
+				if(idx<trnaModels.length){
+					float score=TrnaConsensusBuilder.scoreAgainstModel(seq, trnaModels[idx]);
+					if(score>bestHbm){bestHbm=score; bestHbmModel=idx;}
+				}
+			}
+			if(bestHbm>=HBM_PASS){
+				if(annotate && bestHbmModel>=0 && modelNames!=null && bestHbmModel<modelNames.length){
+					orf.trnaModel=modelNames[bestHbmModel];
+					if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seq, bestHbmModel);}
+				}
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -537,16 +541,16 @@ public class TrnaCaller extends ProkObject {
 	private static final float CANDIDATE_THRESH=GeneCaller.cutoff2[tRNA];
 	static float ID_PASS=0.75f;
 	static float ID_BORDERLINE=0.65f;
-	static float HBM_PASS=0.70f;
+	static float HBM_PASS=0.75f;
 	static boolean earlyExit=true;
 	static int earlyExitPatience=10;
 	static long alignmentCount=0;
 	/** Master switch for structural anticodon extraction */
 	static boolean extractAnticodons=true;
 	/** Min structural score to accept a projected anticodon on a candidate */
-	static int AC_VALIDATE=10;
+	static int AC_VALIDATE=12;
 	/** Min score margin between best and runner-up register; smaller = ambiguous, decline */
-	static int AC_MARGIN=2;
+	static int AC_MARGIN=3;
 	/** Min structural score for a name-matched anticodon position in a consensus */
 	static int AC_FIND_MATCH=5;
 	/** Min structural score for a structure-only anticodon position (UNK groups) */
