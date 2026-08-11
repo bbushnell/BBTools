@@ -26,7 +26,7 @@ public class TracerAffine{
 	private static final int HEADER_POS_BITS=21;
 	private static final long HEADER_POS_MASK=(1L<<HEADER_POS_BITS)-1;
 
-	static long packHeader(int row, int startCol, int distToPrev){
+	public static long packHeader(int row, int startCol, int distToPrev){
 		return (1L<<63)
 			|((long)row<<42)
 			|((long)startCol<<21)

@@ -29,6 +29,14 @@ public final class AAAlignment {
 	public final int gapOpens;
 	/** Alignment length: total columns, including gap columns. */
 	public final int length;
+	/**
+	 * Per-column operations, left-to-right over the aligned region: 'm' = match/substitution
+	 * (consumes a query and a reference residue), 'D' = deletion (reference residue vs a gap in
+	 * the query), 'I' = insertion (query residue vs a gap in the reference). Null unless the
+	 * alignment was requested with path recording ({@link AAAligner#align(byte[],byte[],boolean)});
+	 * this is what an alignment/consensus graph needs to add a member.
+	 */
+	public final byte[] match;
 
 	/**
 	 * Constructs an immutable alignment result.
@@ -41,9 +49,10 @@ public final class AAAlignment {
 	 * @param mismatches Non-identical non-gap column count.
 	 * @param gapOpens Gap-run count.
 	 * @param length Total alignment columns.
+	 * @param match Per-column m/D/I op string, or null if path recording was not requested.
 	 */
 	public AAAlignment(int rawScore, int qStart, int qStop, int tStart, int tStop,
-			int identities, int mismatches, int gapOpens, int length){
+			int identities, int mismatches, int gapOpens, int length, byte[] match){
 		this.rawScore=rawScore;
 		this.qStart=qStart;
 		this.qStop=qStop;
@@ -53,6 +62,7 @@ public final class AAAlignment {
 		this.mismatches=mismatches;
 		this.gapOpens=gapOpens;
 		this.length=length;
+		this.match=match;
 	}
 
 	/**

@@ -21,7 +21,8 @@ import structures.LongList;
  * cost functions -- the recurrence never hardcodes a penalty.
  *
  * v1 scope (deliberately simplified -- see inline NOTEs):
- *  - FULL DP, not yet banded (ScrabbleAligner's adaptive band ports on top later).
+ *  - Adaptive band (from ScrabbleAligner) in both alignStatic (Mode 1) and
+ *    alignWithTrace (Mode 2); USE_BANDING / TRACE_BANDING toggle full DP.
  *  - Affine 2-tier costs: open=2, extend=1, via subCost/insCost/delCost(timeInState).
  *  - Returns correct score + rStart/rStop. identity() is a STUB pending a decision
  *    (parallel match/length counters, vs packing one) -- exact affine identity
@@ -99,7 +100,7 @@ public class ScrabbleAffine implements IDAligner{
 
 	private static long subCost(int timeInState){
 		if(timeInState==0) return POINTS_SUB;
-		if(timeInState==1) return POINTS_SUB2;
+		if(timeInState<5) return POINTS_SUB2;
 		return POINTS_SUB3;
 	}
 	private static long subCostAfterShortMatch(int timeInState){
@@ -130,7 +131,9 @@ public class ScrabbleAffine implements IDAligner{
 
 	/** Cost for traversing a gap symbol (representing GAPLEN deleted bases). Nearly free. */
 	private static long gapSymbolCost(){return GAP_SYMBOL_PENALTY;}
-	private static final long GAP_SYMBOL_PENALTY=2;
+	// Public so bbmap2's startup cross-assert (verifyConstants) can pin all four homes of
+	// this value together; scoreFromMatch's gap-aware recomputation went stale once already.
+	public static final long GAP_SYMBOL_PENALTY=2;
 
 	/** The gap symbol byte used by GappedReference. */
 	public static final byte GAP_SYMBOL='-';
@@ -142,14 +145,44 @@ public class ScrabbleAffine implements IDAligner{
 	/** Whether to use adaptive banding. Off = full DP (for verification). */
 	public static boolean USE_BANDING=true;
 
+	/** Band-growth tunables (see alignStatic): the initial band shrinks over rows as
+	 *  bandWidth0 + max(BAND_CONST + bandWidth0*BAND_MULT - maxDrift*i, dynamicBW). The default
+	 *  BAND_MULT=12 makes the early band ~157 wide (near-full DP for the first ~74 rows) — the
+	 *  dominant CPU cost. Lowering these tightens the band (faster) at the risk of missing indels
+	 *  whose path drifts outside it; sweep against the accuracy guard before committing a change. */
+	public static int BAND_CONST=16, BAND_MULT=4;
+
+	/** Diagnostic counters (DB_PROFILE): decideBandwidth call count + total iterations. */
+	public static boolean DB_PROFILE=false;
+	public static final AtomicLong DB_CALLS=new AtomicLong(), DB_ITERS=new AtomicLong();
+
+	/** Band the trace-recording DP (Mode 2), mirroring alignStatic's adaptive band. Default OFF:
+	 *  the full-DP winner alignment is load-bearing for INDEL RECOVERY — when the gap-array heuristic
+	 *  misses a large deletion, full DP still finds it by searching the whole window, but a narrow band
+	 *  soft-clips it (VERIFY_TRACE: lambda deletion reads 91.8%->57.9%, 95% of divergences band-WORSE).
+	 *  Banding is only safe with a full-DP fallback for deficient reads (see plan). Keep off pending that. */
+	public static boolean TRACE_BANDING=false;
+
+	/** Diagnostic (VERIFY_TRACE): run the UNBANDED trace DP alongside the banded one and count how
+	 *  often their (start,stop,score) disagree — i.e. how often the band misses the full-DP optimum.
+	 *  Doubles Mode 2 cost; off by default. A divergence is an accepted band/DP tradeoff, NOT a bug:
+	 *  the same band already scored this window in alignStatic (scoreOnly) during candidate selection. */
+	public static boolean VERIFY_TRACE=false;
+	public static final AtomicLong VT_TOTAL=new AtomicLong(), VT_DIVERGENCES=new AtomicLong();
+	/** Divergence breakdown: banded score strictly WORSE than full-DP (band missed the optimum)
+	 *  vs equal score but different start/stop (tie-break / traceback edge). */
+	public static final AtomicLong VT_WORSE=new AtomicLong(), VT_TIE_DIFFPOS=new AtomicLong();
+
 	/** Decide initial bandwidth from sequence lengths + a quick identity scan. */
 	private static int decideBandwidth(byte[] query, byte[] ref){
 		final int qLen=query.length, rLen=ref.length;
 		int bandwidth=shared.Tools.mid(7, 1+Math.max(qLen, rLen)/32, 20+(int)Math.sqrt(rLen)/8);
 		int subs=0;
-		for(int i=0, minlen=Math.min(qLen, rLen); i<minlen && subs<bandwidth; i++){
+		int i=0, minlen=Math.min(qLen, rLen);
+		for(; i<minlen && subs<bandwidth; i++){
 			if(query[i]!=ref[i]){subs++;}
 		}
+		if(DB_PROFILE){DB_CALLS.incrementAndGet(); DB_ITERS.addAndGet(i);}
 		return Math.min(subs+1, bandwidth);
 	}
 
@@ -170,17 +203,14 @@ public class ScrabbleAffine implements IDAligner{
 		final boolean banded=USE_BANDING;
 		final int bandWidth0=banded ? decideBandwidth(query, ref) : 0;
 		final int maxDrift=2, maxDynamic=banded ? (bandWidth0*12)/4 : 0;
-		int center=0, dynamicBW=0, deltaBW=0;
+		// Use posVector[0] as an alignment hint if provided (expected start in ref window)
+		int center=(posVector!=null && posVector[0]>0) ? posVector[0] : 0;
+		int dynamicBW=0, deltaBW=0;
 
 		// 6 rolling arrays: 3 states x {prev,curr}
 		long[] prevM=new long[rLen+1], currM=new long[rLen+1];
 		long[] prevI=new long[rLen+1], currI=new long[rLen+1];
 		long[] prevD=new long[rLen+1], currD=new long[rLen+1];
-		//Unwritten cells must read as BAD: a packed zero decodes as score 0 / start 0,
-		//a fake fresh alignment start, if a band edge ever exposes it.
-		java.util.Arrays.fill(currM, BAD);
-		java.util.Arrays.fill(currI, BAD);
-		java.util.Arrays.fill(currD, BAD);
 
 		// Row 0: the alignment may BEGIN at any ref column (glocal) -> score 0, start=j.
 		// Time=1 so that the first match scores MATCH_FIRST (70), not MATCH (100).
@@ -194,14 +224,22 @@ public class ScrabbleAffine implements IDAligner{
 
 		long bestScore=BAD; int bestPos=0; long bestWord=BAD;
 		int bandStart=1, bandEnd=rLen;
-		// Band extent of the row currently in prev* (row 0 is initialized through rLen)
-		int prevBandStart=1, prevBandEnd=rLen;
+		long col0InsCost=0;
+		// Valid range of the prev arrays: {0} union [prevLo,prevHi] was written by the
+		// previous row (row 0 wrote everything). Cells OUTSIDE it hold garbage: two-rows-ago
+		// values, row-0 free-start words, or unpacked-zero phantom match-streak cells. The
+		// band is not monotonic (dynamicBW can outgrow center drift on either edge), so each
+		// row must BAD-clear the part of its read range [bandStart-1,bandEnd] the previous
+		// row never wrote. ScrabbleAffineSP clears both edges for the same reason.
+		int prevLo=0, prevHi=rLen;
 
 		for(int i=1; i<=qLen; i++){
 			final byte q=query[i-1];
 
 			// Adaptive band: widen on mismatches, narrow on matches
 			if(banded){
+				assert(bandEnd<=rLen) : "Pre-band bandEnd="+bandEnd+", rLen="+rLen+
+					", center="+center+", i="+i+", qLen="+qLen;
 				final boolean nextMatch=(bestPos>=0 && bestPos<rLen && q==ref[Math.min(rLen-1, bestPos)]);
 				if(nextMatch){
 					deltaBW=(deltaBW<0 ? Math.max(-maxDynamic, deltaBW*2) : -2);
@@ -209,33 +247,30 @@ public class ScrabbleAffine implements IDAligner{
 					deltaBW=shared.Tools.mid(1, (maxDynamic-dynamicBW)/2, 8);
 				}
 				dynamicBW=shared.Tools.mid(0, dynamicBW+deltaBW, maxDynamic);
-				final int bandWidth=bandWidth0+Math.max(16+bandWidth0*12-maxDrift*i, dynamicBW);
+				final int bandWidth=bandWidth0+Math.max(BAND_CONST+bandWidth0*BAND_MULT-maxDrift*i, dynamicBW);
 				final int quarterBand=bandWidth/4;
 				final int drift=shared.Tools.mid(-1, bestPos-center, maxDrift);
-				center=center+1+drift;
+				center=shared.Tools.mid(1, center+1+drift, rLen);
 				bandStart=Math.max(1, center-bandWidth+quarterBand);
 				bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
-
-				//Correctness: prev* cells beyond the previous row's band hold stale or
-				//never-written data (this bandStart is not monotonic, so BOTH edges can
-				//re-expose). Clear exactly the newly exposed cells in all three states.
-				if(bandEnd>prevBandEnd){
-					java.util.Arrays.fill(prevM, prevBandEnd+1, bandEnd+1, BAD);
-					java.util.Arrays.fill(prevI, prevBandEnd+1, bandEnd+1, BAD);
-					java.util.Arrays.fill(prevD, prevBandEnd+1, bandEnd+1, BAD);
-				}
-				final int loClear=Math.max(1, bandStart-1);
-				if(loClear<prevBandStart-1){
-					java.util.Arrays.fill(prevM, loClear, prevBandStart-1, BAD);
-					java.util.Arrays.fill(prevI, loClear, prevBandStart-1, BAD);
-					java.util.Arrays.fill(prevD, loClear, prevBandStart-1, BAD);
-				}
+				assert(bandEnd<=rLen) : "bandEnd="+bandEnd+", rLen="+rLen+", center="+center;
 			}
 
 			// Column 0: leading query bases with no ref consumed are insertions.
+			col0InsCost-=insCost(i-1);
 			currM[0]=BAD;
 			currD[0]=BAD;
-			currI[0]=pack(0 - insCost(0) - (long)(i-1)*insCost(1), i, 0); // open + (i-1) extends
+			currI[0]=pack(col0InsCost, i, 0);
+
+			// Clear stale prev cells this row can read but the previous row never wrote:
+			// left exposure (band moved left past the old bandStart-1 clear) and right
+			// exposure (band grew right past the old bandEnd). Col 0 is always valid.
+			for(int j=Math.max(1, bandStart-1); j<prevLo; j++){
+				prevM[j]=BAD; prevI[j]=BAD; prevD[j]=BAD;
+			}
+			for(int j=prevHi+1; j<=bandEnd; j++){
+				prevM[j]=BAD; prevI[j]=BAD; prevD[j]=BAD;
+			}
 
 			// Clear stale data at band edges
 			if(banded && bandStart>1){
@@ -274,9 +309,11 @@ public class ScrabbleAffine implements IDAligner{
 				if(scoreOf(dD)>scoreOf(diag)){diag=dD; diagState=2;}
 				final long mWord;
 				if(isMatch){
-					// Consecutive match (came from M and prev was also a match = time 0) gets +100.
-					// First match (from I/D, or from M after a sub run = time>0) gets +70.
-					final boolean consecutiveMatch=(diagState==0 && timeOf(diag)==0);
+					// Consecutive match: came from M, prev was also a match (time 0), and prev wasn't N.
+					// N sets time=0 (to preserve sub-run mapping) but shouldn't start a match streak.
+					final boolean prevWasN=(diagState==0 && timeOf(diag)==0 && i>=2 && j>=2
+						&& (query[i-2]=='N' || ref[j-2]=='N'));
+					final boolean consecutiveMatch=(diagState==0 && timeOf(diag)==0 && !prevWasN);
 					final long matchPts=consecutiveMatch ? MATCH : MATCH_FIRST;
 					mWord=pack(scoreOf(diag)+matchPts, 0, startOf(diag));
 				}else if(hasN){
@@ -333,7 +370,8 @@ public class ScrabbleAffine implements IDAligner{
 			t=prevM; prevM=currM; currM=t;
 			t=prevI; prevI=currI; currI=t;
 			t=prevD; prevD=currD; currD=t;
-			prevBandStart=bandStart; prevBandEnd=bandEnd;
+			// This row wrote col 0, the bandStart-1 BAD clear, and [bandStart,bandEnd].
+			prevLo=bandStart-1; prevHi=bandEnd;
 		}
 		loops.addAndGet(mloops);
 
@@ -348,19 +386,77 @@ public class ScrabbleAffine implements IDAligner{
 	}
 
 	/*--------------------------------------------------------------*/
-	/*----  Mode 2: trace-recording DP (cold path, no banding)  ----*/
+	/*----  Mode 2: trace-recording DP (cold path, banded)  --------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Same DP as alignStatic but stores every row's M/I/D cells into an
-	 * interleaved LongList for TracerAffine to walk backward through.
-	 * Full DP (no adaptive banding) for correctness; only called for the
-	 * 1-2 winning candidates that need a match string.
+	 * Trace-recording DP that produces a match string via TracerAffine. Banded by
+	 * default (TRACE_BANDING), using the SAME adaptive band as alignStatic so the
+	 * traced alignment matches the score alignStatic (scoreOnly) used to pick this
+	 * winner. Only called for the 1-2 winning candidates that need a match string,
+	 * so ~once per read. When VERIFY_TRACE is on, also runs the unbanded DP and
+	 * counts (start,stop,score) divergences — an accepted band/DP tradeoff, not a bug.
+	 * Reads posVector[0] as the band-center hint (expected read-start in the window).
 	 */
 	public static final float alignWithTrace(byte[] query, byte[] ref,
 			int[] posVector, LongList trace){
+		if(VERIFY_TRACE){
+			// Unbanded reference run first (trace overwritten by the banded run below).
+			int[] refPos=new int[3];
+			if(posVector!=null && posVector.length>0){refPos[0]=posVector[0];}
+			alignWithTraceImpl(query, ref, refPos, trace, false, null);
+			float id=bandedTraceWithFallback(query, ref, posVector, trace);
+			VT_TOTAL.incrementAndGet();
+			if(posVector!=null && posVector.length>2 &&
+					(refPos[0]!=posVector[0] || refPos[1]!=posVector[1] || refPos[2]!=posVector[2])){
+				VT_DIVERGENCES.incrementAndGet();
+				if(posVector[2]<refPos[2]){VT_WORSE.incrementAndGet();}
+				else if(posVector[2]==refPos[2]){VT_TIE_DIFFPOS.incrementAndGet();}
+			}
+			return id;
+		}
+		return bandedTraceWithFallback(query, ref, posVector, trace);
+	}
+
+	/** Diagnostic: reads whose banded trace pressed the band edge and fell back to full DP. */
+	public static final AtomicLong VT_FALLBACKS=new AtomicLong();
+
+	/**
+	 * Banded trace with a full-DP safety net (BBMap's recipe): run the banded DP; if the best
+	 * path pressed a real band edge, the band may have clipped the true alignment (typically a
+	 * large indel the gap-array heuristic missed), so re-run unbanded. Clean diagonal reads never
+	 * touch the edge and pay only the cheap banded pass; only edge-touching reads pay full DP.
+	 * When TRACE_BANDING is off, always full DP.
+	 */
+	private static final float bandedTraceWithFallback(byte[] query, byte[] ref,
+			int[] posVector, LongList trace){
+		if(!TRACE_BANDING){return alignWithTraceImpl(query, ref, posVector, trace, false, null);}
+		boolean[] edge={false};
+		float id=alignWithTraceImpl(query, ref, posVector, trace, true, edge);
+		if(edge[0]){
+			if(DB_PROFILE){VT_FALLBACKS.incrementAndGet();}
+			id=alignWithTraceImpl(query, ref, posVector, trace, false, null);
+		}
+		return id;
+	}
+
+	/**
+	 * Same DP as alignStatic (identical recurrence and adaptive band) but stores each
+	 * row's M/I/D cells into an interleaved LongList for TracerAffine. When banded, only
+	 * the [bandStart,bandEnd] block of each row is stored, and the header records
+	 * startCol=bandStart so TracerAffine indexes cells relative to it (BAD outside the
+	 * band). Row 0 is stored full so row 1's band can read its diagonal predecessors.
+	 */
+	private static final float alignWithTraceImpl(byte[] query, byte[] ref,
+			int[] posVector, LongList trace, final boolean banded, final boolean[] edgeFlag){
 		final int qLen=query.length, rLen=ref.length;
 		assert(rLen<=POSITION_MASK) : "Ref too long: "+rLen+">"+POSITION_MASK;
+
+		// Banding parameters (mirror alignStatic exactly).
+		final int bandWidth0=banded ? decideBandwidth(query, ref) : 0;
+		final int maxDrift=2, maxDynamic=banded ? (bandWidth0*12)/4 : 0;
+		int center=(posVector!=null && posVector[0]>0) ? posVector[0] : 0;
+		int dynamicBW=0, deltaBW=0;
 
 		// 6 rolling arrays: 3 states x {prev,curr}
 		long[] prevM=new long[rLen+1], currM=new long[rLen+1];
@@ -375,7 +471,7 @@ public class ScrabbleAffine implements IDAligner{
 			prevD[j]=BAD;
 		}
 
-		// Store row 0 in trace
+		// Store row 0 in trace (full width — one row, cheap; row 1's band reads into it).
 		trace.clear();
 		int lastHeaderIdx=0;
 		trace.add(TracerAffine.packHeader(0, 0, 0));
@@ -386,18 +482,58 @@ public class ScrabbleAffine implements IDAligner{
 		}
 
 		long bestScore=BAD; int bestPos=0; long bestWord=BAD;
+		int bandStart=1, bandEnd=rLen;
+		long col0InsCost=0;
+		// Valid range of the prev arrays (same stale-fill guard as alignStatic).
+		int prevLo=0, prevHi=rLen;
 
 		for(int i=1; i<=qLen; i++){
 			final byte q=query[i-1];
 
+			// Adaptive band: widen on mismatches, narrow on matches (mirrors alignStatic).
+			if(banded){
+				final boolean nextMatch=(bestPos>=0 && bestPos<rLen && q==ref[Math.min(rLen-1, bestPos)]);
+				if(nextMatch){
+					deltaBW=(deltaBW<0 ? Math.max(-maxDynamic, deltaBW*2) : -2);
+				}else{
+					deltaBW=shared.Tools.mid(1, (maxDynamic-dynamicBW)/2, 8);
+				}
+				dynamicBW=shared.Tools.mid(0, dynamicBW+deltaBW, maxDynamic);
+				final int bandWidth=bandWidth0+Math.max(BAND_CONST+bandWidth0*BAND_MULT-maxDrift*i, dynamicBW);
+				final int quarterBand=bandWidth/4;
+				final int drift=shared.Tools.mid(-1, bestPos-center, maxDrift);
+				center=shared.Tools.mid(1, center+1+drift, rLen);
+				bandStart=Math.max(1, center-bandWidth+quarterBand);
+				bandEnd=Math.min(rLen, center+bandWidth+quarterBand);
+			}else{
+				bandStart=1; bandEnd=rLen;
+			}
+
 			// Column 0: leading query bases with no ref consumed are insertions.
+			col0InsCost-=insCost(i-1);
 			currM[0]=BAD;
 			currD[0]=BAD;
-			currI[0]=pack(0-insCost(0)-(long)(i-1)*insCost(1), i, 0);
+			currI[0]=pack(col0InsCost, i, 0);
+
+			// Clear stale prev cells this row can read but the previous row never wrote
+			// (same guard as alignStatic; no-op when unbanded).
+			for(int j=Math.max(1, bandStart-1); j<prevLo; j++){
+				prevM[j]=BAD; prevI[j]=BAD; prevD[j]=BAD;
+			}
+			for(int j=prevHi+1; j<=bandEnd; j++){
+				prevM[j]=BAD; prevI[j]=BAD; prevD[j]=BAD;
+			}
+
+			// Clear stale rolling-array data at the left band edge.
+			if(banded && bandStart>1){
+				currM[bandStart-1]=BAD;
+				currI[bandStart-1]=BAD;
+				currD[bandStart-1]=BAD;
+			}
 
 			long rowBestScore=BAD; int rowBestPos=0; long rowBestWord=BAD;
 
-			for(int j=1; j<=rLen; j++){
+			for(int j=bandStart; j<=bandEnd; j++){
 				final byte r=ref[j-1];
 				final boolean isGap=(r==GAP_SYMBOL);
 
@@ -421,7 +557,9 @@ public class ScrabbleAffine implements IDAligner{
 				if(scoreOf(dD)>scoreOf(diag)){diag=dD; diagState=2;}
 				final long mWord;
 				if(isMatch){
-					final boolean consecutiveMatch=(diagState==0 && timeOf(diag)==0);
+					final boolean prevWasN=(diagState==0 && timeOf(diag)==0 && i>=2 && j>=2
+						&& (query[i-2]=='N' || ref[j-2]=='N'));
+					final boolean consecutiveMatch=(diagState==0 && timeOf(diag)==0 && !prevWasN);
 					final long matchPts=consecutiveMatch ? MATCH : MATCH_FIRST;
 					mWord=pack(scoreOf(diag)+matchPts, 0, startOf(diag));
 				}else if(hasN){
@@ -458,24 +596,41 @@ public class ScrabbleAffine implements IDAligner{
 				}
 			}
 
-			// Store row i in trace (before swap)
+			// Edge-touch detection (fallback trigger): the row's best cell pressed a REAL band
+			// edge (not the ref boundary), so the true path may want to leave the band.
+			if(banded && edgeFlag!=null && rowBestPos>0 &&
+					((bandStart>1 && rowBestPos<=bandStart) || (bandEnd<rLen && rowBestPos>=bandEnd))){
+				edgeFlag[0]=true;
+			}
+
+			// Store row i in trace (before swap). Banded: only [bandStart,bandEnd],
+			// header startCol=bandStart. Unbanded: full [0,rLen], startCol=0.
+			final int storeStart=banded ? bandStart : 0;
 			int newHeaderIdx=trace.size;
 			int dist=newHeaderIdx-lastHeaderIdx;
-			trace.add(TracerAffine.packHeader(i, 0, dist));
-			for(int j=0; j<=rLen; j++){
+			trace.add(TracerAffine.packHeader(i, storeStart, dist));
+			for(int j=storeStart; j<=bandEnd; j++){
 				trace.add(currM[j]);
 				trace.add(currI[j]);
 				trace.add(currD[j]);
 			}
 			lastHeaderIdx=newHeaderIdx;
 
-			if(i==qLen){bestScore=rowBestScore; bestWord=rowBestWord; bestPos=rowBestPos;}
+			// Track the best cell for band centering EVERY row (mirrors alignStatic). The
+			// final answer is the best cell of the last row (glocal: query fully consumed).
+			if(scoreOf(rowBestWord)>scoreOf(bestWord) || i==qLen){
+				bestScore=rowBestScore; bestWord=rowBestWord;
+			}
+			bestPos=rowBestPos; // ALWAYS: the band re-centers on this next row (drift=bestPos-center)
+			if(i==qLen){bestScore=rowBestScore; bestWord=rowBestWord;}
 
 			// Swap all three states' rows
 			long[] t;
 			t=prevM; prevM=currM; currM=t;
 			t=prevI; prevI=currI; currI=t;
 			t=prevD; prevD=currD; currD=t;
+			// This row wrote col 0, the bandStart-1 BAD clear, and [bandStart,bandEnd].
+			prevLo=bandStart-1; prevHi=bandEnd;
 		}
 
 		final int rStart=startOf(bestWord);
@@ -515,16 +670,16 @@ public class ScrabbleAffine implements IDAligner{
 	private static final long MATCH=100;
 	private static final long MATCH_FIRST=70;
 	private static final long N_SCORE=0;
-	static final long BAD=Long.MIN_VALUE/2;
+	public static final long BAD=Long.MIN_VALUE/2;
 
 	/** Pack a raw (unshifted) score, timeInState, and start into one cell word. */
-	static long pack(long score, int timeInState, int start){
+	public static long pack(long score, int timeInState, int start){
 		return (score<<SCORE_SHIFT)
 			| (((long)timeInState & POSITION_MASK)<<POSITION_BITS)
 			| (start & POSITION_MASK);
 	}
-	static long scoreOf(long w){return w>>SCORE_SHIFT;}                       // arithmetic; sign-extends
-	static int timeOf(long w){return (int)((w>>>POSITION_BITS) & TIME_MASK);}
-	static int startOf(long w){return (int)(w & POSITION_MASK);}
+	public static long scoreOf(long w){return w>>SCORE_SHIFT;}
+	public static int timeOf(long w){return (int)((w>>>POSITION_BITS) & TIME_MASK);}
+	public static int startOf(long w){return (int)(w & POSITION_MASK);}
 
 }
