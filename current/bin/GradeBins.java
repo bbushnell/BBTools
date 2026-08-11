@@ -1478,10 +1478,33 @@ public class GradeBins {
 			bs.contigName=b.name();
 			if(fname!=null) {bs.filename=new java.io.File(fname).getName();}
 
-			if(callGenes && call) {callGenes(b, gCallerT, bs);}
+			if(callGenes && call) {
+				setPhylumPGM(b);
+				callGenes(b, gCallerT, bs);
+			}
 			else if(gffMap!=null && annot) {annotate(b, gffMap, bs);}
 			return bs;
 		}
+
+		/**
+		 * Switches this thread's GeneCaller to the bin's phylum-specific PGM when
+		 * taxonomy is available (clade from QuickClade, or a labeled taxid), for
+		 * more accurate gene calling — especially tRNAs.  Falls back to the current
+		 * PGM when the phylum is unknown; PGMs are loaded once and cached globally.
+		 */
+		private void setPhylumPGM(Bin b) {
+			if(gCallerT==null || BinObject.tree==null) {return;}
+			final int tid=(b.clade!=null && b.clade.taxID>0 ? b.clade.taxID : b.taxid);
+			if(tid<1) {return;}
+			tax.TaxNode pn=BinObject.tree.getNodeAtLevel(tid, TaxTree.PHYLUM);
+			String phylum=(pn==null ? null : pn.name);
+			if(phylum==null || phylum.equals(lastPhylum)) {return;}
+			gCallerT.setPGM(prok.CallGenes.getPhylumPGM(phylum));
+			lastPhylum=phylum;
+		}
+
+		/** Phylum of the PGM currently loaded in gCallerT */
+		private String lastPhylum=null;
 		
 		/** List of input filenames to process */
 		private final List<String> fnames;
