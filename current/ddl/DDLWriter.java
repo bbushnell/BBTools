@@ -90,6 +90,8 @@ public class DDLWriter {
 				DynamicDemiLog.setExponent(Integer.parseInt(b));
 			}else if(a.equals("lineage") || a.equals("writelineage")){
 				writeLineage=Parse.parseBoolean(b);
+			}else if(a.equals("usetree") || a.equals("canonicalize") || a.equals("canonicalizetaxid")){
+				useTree=Parse.parseBoolean(b);
 			}else if(a.equals("kmers") || a.equals("storekmers")){
 				storeKmers=Parse.parseBoolean(b);
 			}else if(a.equals("blacklist")){
@@ -140,7 +142,7 @@ public class DDLWriter {
 			DDLRecord rec=processOneFile(f);
 			if(rec!=null){records.add(rec);}
 		}
-		if(writeLineage){attachLineage(records);}
+		if(writeLineage || useTree){attachLineage(records, writeLineage, useTree);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
@@ -174,7 +176,7 @@ public class DDLWriter {
 		//Sort by id (load order) for deterministic output
 		ArrayList<DDLRecord> records=new ArrayList<>(allRecords);
 		records.sort((a, b) -> Long.compare(a.id, b.id));
-		if(writeLineage){attachLineage(records);}
+		if(writeLineage || useTree){attachLineage(records, writeLineage, useTree);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
@@ -285,7 +287,7 @@ public class DDLWriter {
 			ReadWrite.closeStreams(cris);
 		}
 
-		if(writeLineage){attachLineage(records);}
+		if(writeLineage || useTree){attachLineage(records, writeLineage, useTree);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
@@ -364,7 +366,7 @@ public class DDLWriter {
 			records.add(rec);
 		}
 		Collections.sort(records);
-		if(writeLineage){attachLineage(records);}
+		if(writeLineage || useTree){attachLineage(records, writeLineage, useTree);}
 		DDLLoader.writeFile(records, out, overwrite, k, seed, blacklistFile);
 
 		t.stop();
@@ -426,24 +428,31 @@ public class DDLWriter {
 	/*----------------        Helper Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	static void attachLineage(ArrayList<DDLRecord> records){
+	static void attachLineage(ArrayList<DDLRecord> records, boolean writeLineage, boolean canonicalize){
 		TaxTree tree=TaxTree.sharedTree();
 		if(tree==null){
-			outstream.println("WARNING: Could not load TaxTree; lineage will not be written.");
+			if(writeLineage){outstream.println("WARNING: Could not load TaxTree; lineage will not be written.");}
+			else if(canonicalize){outstream.println("WARNING: Could not load TaxTree; taxIDs will not be canonicalized.");}
 			return;
 		}
-		int attached=0;
+		int attached=0, remapped=0;
 		for(DDLRecord rec : records){
 			if(rec.taxID>0){
 				TaxNode tn=tree.getNode(rec.taxID);
 				if(tn!=null){
-					rec.lineage=PrintTaxonomy.makeTaxLine(tree, tn, 0, TaxTree.SUPERKINGDOM_E, true, true).toString();
-					rec.name=tn.name;
-					attached++;
+					//Resolve merged/synonym taxIDs to the current node id, exactly as
+					//CladeLoader.remapKeptTids does, so sketch and spectra DBs agree.
+					if(canonicalize && rec.taxID!=tn.id){rec.taxID=tn.id; remapped++;}
+					if(writeLineage){
+						rec.lineage=PrintTaxonomy.makeTaxLine(tree, tn, 0, TaxTree.SUPERKINGDOM_E, true, true).toString();
+						rec.name=tn.name;
+						attached++;
+					}
 				}
 			}
 		}
-		outstream.println("Attached lineage to "+attached+"/"+records.size()+" records.");
+		if(writeLineage){outstream.println("Attached lineage to "+attached+"/"+records.size()+" records.");}
+		if(canonicalize){outstream.println("Canonicalized "+remapped+"/"+records.size()+" taxIDs via tree.");}
 	}
 
 	/** Extracts base filename without path or extensions. */
@@ -473,6 +482,11 @@ public class DDLWriter {
 	private boolean verbose=false;
 	private boolean parseTaxid=true;
 	private boolean writeLineage=true;
+	/** Canonicalize each record's taxID to the tree's current node id, resolving
+	 * merged/synonym NCBI taxIDs (getNode follows mergedMap).  Matches
+	 * CladeLoader.remapKeptTids so the sketch and spectra DBs agree on taxID.
+	 * Requires the tree; a no-op when the tree is absent. */
+	private boolean useTree=true;
 	private boolean storeKmers=false;
 	private String blacklistFile=null;
 
