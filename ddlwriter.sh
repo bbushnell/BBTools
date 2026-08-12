@@ -26,6 +26,11 @@ parsetaxid=t    Extract taxonomy IDs from filenames (tid_NNNN) or
 lineage=t       Attach a taxonomic lineage string to each record, using
                 the tax tree.  Costs a one-time tree load here, but saves
                 every downstream reader from loading the tree at all.
+usetree=t       Canonicalize each record's taxID to the tree's current node,
+                resolving merged/synonym NCBI taxIDs to their current ID (the
+                same remap CladeLoader applies).  Keeps sketch and spectra
+                databases agreeing on taxID so per-taxID records pair correctly.
+                Requires the tree (shares the lineage= load); a no-op without it.
 kmers=f         Also store the source kmers, one per bucket, in the
                 output.  Adds a data line per record; readers restore them.
 blacklist=<file>  Ignore kmers present in this file while sketching.  The
