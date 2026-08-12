@@ -54,6 +54,12 @@ acvalidate=12   Min structural score (anticodon stem + U33 + purine-37,
                 back to model-name annotation.
 acmargin=3      Min score margin between the best and runner-up anticodon
                 register; ambiguous positions fall back to the model name.
+trimtrna=t      Trim verified tRNA boundaries to the consensus alignment
+                extent, removing scanner slop for accurate coordinates.
+maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
+                relaxed length scoring for over-length candidates such as
+                intron-containing archaeal tRNAs.  Measured neutral: unspliced
+                candidates still fail alignment verification.
 
 Other parameters:
 minlen=60       Don't call genes shorter than this.

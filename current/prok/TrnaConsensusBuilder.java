@@ -3,8 +3,12 @@ package prok;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import consensus.BaseGraph;
 import dna.AminoAcid;
@@ -80,6 +84,14 @@ public class TrnaConsensusBuilder {
 				recruitIdentity=Float.parseFloat(b);
 			}else if(a.equals("outmodel") || a.equals("model")){
 				outModel=b;
+			}else if(a.equals("endtrim") || a.equals("endtrimfrac")){
+				endTrimFrac=Float.parseFloat(b);
+			}else if(a.equals("lentilt") || a.equals("lengthtilt")){
+				lenTilt=Float.parseFloat(b);
+			}else if(a.equals("reassignrounds") || a.equals("rounds")){
+				reassignRounds=Integer.parseInt(b);
+			}else if(a.equals("census")){
+				census=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
 				//handled
 			}else{
@@ -124,23 +136,43 @@ public class TrnaConsensusBuilder {
 			}
 
 			if(doClustering && group.size()>1){
-				ArrayList<ArrayList<Read>> clusters=clusterSequences(group);
+				final ArrayList<ArrayList<Read>> clusters=clusterSequences(group);
+				//Per-cluster consensus+HBM+census are independent: compute in
+				//parallel, then assemble serially in cluster order so output
+				//(labels, numericIDs, census lines) is deterministic.
+				final byte[][] consensi=new byte[clusters.size()][];
+				final BaseGraph[] graphs=new BaseGraph[clusters.size()];
+				final String[] censusLines=new String[clusters.size()];
+				final String[] labels=new String[clusters.size()];
+				final String anticodonF=anticodon;
+				ArrayList<Future<?>> futures=new ArrayList<>();
+				for(int ci=0; ci<clusters.size(); ci++){
+					final int fci=ci;
+					final ArrayList<Read> cluster=clusters.get(ci);
+					if(cluster.size()<minClusterSize){continue;}
+					futures.add(pool().submit(new Runnable(){
+						@Override
+						public void run(){
+							byte[] consensus=buildConsensus(cluster);
+							if(consensus==null || consensus.length<MIN_CONSENSUS_LEN){return;}
+							String label="tRNA_consensus_"+anticodonF+"_c"+fci+" n="+cluster.size();
+							consensi[fci]=consensus;
+							labels[fci]=label;
+							if(census){censusLines[fci]=censusString(cluster, consensus, label);}
+							if(outModel!=null){graphs[fci]=buildBaseGraph(cluster, label);}
+						}
+					}));
+				}
+				waitAll(futures);
 				int kept=0;
 				for(int ci=0; ci<clusters.size(); ci++){
-					ArrayList<Read> cluster=clusters.get(ci);
-					if(cluster.size()<minClusterSize){continue;}
-					byte[] consensus=buildConsensus(cluster);
-					if(consensus!=null && consensus.length>=MIN_CONSENSUS_LEN){
-						String label="tRNA_consensus_"+anticodon+"_c"+ci+" n="+cluster.size();
-						Read r=new Read(consensus, null, label, num);
-						consensusList.add(r);
-						if(modelList!=null){
-							BaseGraph bg=buildBaseGraph(cluster, label);
-							modelList.add(bg);
-						}
-						num++;
-						kept++;
-					}
+					if(consensi[ci]==null){continue;}
+					if(censusLines[ci]!=null){outstream.println(censusLines[ci]);}
+					Read r=new Read(consensi[ci], null, labels[ci], num);
+					consensusList.add(r);
+					if(modelList!=null){modelList.add(graphs[ci]);}
+					num++;
+					kept++;
 				}
 				outstream.println(anticodon+": "+group.size()+" seqs -> "+clusters.size()+" clusters, "+kept+" kept");
 				totalClusters+=clusters.size();
@@ -180,6 +212,8 @@ public class TrnaConsensusBuilder {
 				ReadWrite.writeObjectInThread(modelList, outModel, false);
 			}
 		}
+
+		if(pool!=null){pool.shutdown();}
 
 		t.stop();
 		outstream.println();
@@ -234,7 +268,6 @@ public class TrnaConsensusBuilder {
 		if(header==null){return null;}
 		// Try Note=tRNA-Xxx(YYY) first (RefSeq format)
 		int idx=header.indexOf("Note=tRNA-");
-		if(idx<0){idx=header.indexOf("Note=tRNA-");}
 		if(idx>=0){
 			int paren=header.indexOf('(', idx);
 			if(paren>=0){
@@ -247,7 +280,6 @@ public class TrnaConsensusBuilder {
 		}
 		// Try product=tRNA-Xxx (tRNAscan-SE format) -> amino acid
 		idx=header.indexOf("product=tRNA-");
-		if(idx<0){idx=header.indexOf("product=tRNA-");}
 		if(idx>=0){
 			int start=idx+13;
 			int end=start;
@@ -312,51 +344,87 @@ public class TrnaConsensusBuilder {
 		// Build consensus for ALL clusters, even small ones — they may
 		// grow during reassignment. Size filter applied at final output.
 		byte[][] consensusSeqs=new byte[clusters.size()][];
-		for(int i=0; i<clusters.size(); i++){
-			if(clusters.get(i).size()>=1){
-				consensusSeqs[i]=buildConsensus(clusters.get(i));
-			}
-		}
+		rebuildConsensi(clusters, consensusSeqs);
 
-		// Step 3: Reassign all sequences to best-matching consensus
-		ArrayList<ArrayList<Read>> newClusters=new ArrayList<>();
-		for(int i=0; i<clusters.size(); i++){
-			newClusters.add(new ArrayList<>());
+		// Step 3: Iteratively reassign all sequences to the best-matching consensus.
+		// Cluster choice gets a slight tilt toward the cluster whose median member
+		// length is closest to the sequence's own; the pass/fail gate stays on raw
+		// identity so the tilt only breaks near-ties, digging length-homogeneous
+		// clusters (flush termini at birth) one sand grain at a time.
+		HashMap<Read,Integer> assign=new HashMap<>();
+		for(int ci=0; ci<clusters.size(); ci++){
+			for(Read r : clusters.get(ci)){assign.put(r, ci);}
 		}
 		ArrayList<Read> orphans=new ArrayList<>();
-		int moved=0;
+		for(int round=0; round<reassignRounds; round++){
+			if(round>0){//Round 0 uses the consensuses from Step 2
+				rebuildConsensi(clusters, consensusSeqs);
+			}
+			final int[] medians=new int[clusters.size()];
+			for(int i=0; i<clusters.size(); i++){medians[i]=medianLength(clusters.get(i));}
 
-		for(int ci=0; ci<clusters.size(); ci++){
-			for(Read r : clusters.get(ci)){
-				float bestId=0;
-				int bestTarget=-1;
-				for(int ti=0; ti<consensusSeqs.length; ti++){
-					if(consensusSeqs[ti]==null){continue;}
-					float id=ScrabbleAligner.alignStatic(r.bases, consensusSeqs[ti], null);
-					if(id>bestId){bestId=id; bestTarget=ti;}
-				}
-				if(bestId>=recruitIdentity && bestTarget>=0){
-					newClusters.get(bestTarget).add(r);
-					if(bestTarget!=ci){moved++;}
+			//Score all reads against all consensuses in parallel (pure per-read
+			//function of the frozen consensusSeqs/medians), then apply serially.
+			final byte[][] consensiF=consensusSeqs;
+			final int[] targets=new int[group.size()];
+			final float[] bestIds=new float[group.size()];
+			final ArrayList<Read> groupF=group;
+			ArrayList<Future<?>> futures=new ArrayList<>();
+			final int chunk=Tools.max(16, group.size()/(8*Tools.max(1, Shared.threads()))+1);
+			for(int start=0; start<group.size(); start+=chunk){
+				final int from=start, to=Tools.min(group.size(), start+chunk);
+				futures.add(pool().submit(new Runnable(){
+					@Override
+					public void run(){
+						for(int ri=from; ri<to; ri++){
+							final Read r=groupF.get(ri);
+							float bestScore=0, bestId=0;
+							int bestTarget=-1;
+							for(int ti=0; ti<consensiF.length; ti++){
+								if(consensiF[ti]==null){continue;}
+								float id=ScrabbleAligner.alignStatic(r.bases, consensiF[ti], null);
+								float score=id;
+								if(lenTilt>0 && medians[ti]>0){
+									float lenSim=Tools.min(r.length(), medians[ti])/(float)Tools.max(r.length(), medians[ti]);
+									score=id*(1-lenTilt*(1-lenSim));
+								}
+								if(score>bestScore){bestScore=score; bestId=id; bestTarget=ti;}
+							}
+							targets[ri]=bestTarget;
+							bestIds[ri]=bestId;
+						}
+					}
+				}));
+			}
+			waitAll(futures);
+
+			ArrayList<ArrayList<Read>> newClusters=new ArrayList<>();
+			for(int i=0; i<clusters.size(); i++){newClusters.add(new ArrayList<>());}
+			orphans.clear();
+			int moved=0;
+			for(int ri=0; ri<group.size(); ri++){
+				final Read r=group.get(ri);
+				final Integer prev=assign.get(r);
+				if(bestIds[ri]>=recruitIdentity && targets[ri]>=0){
+					newClusters.get(targets[ri]).add(r);
+					if(prev==null || prev.intValue()!=targets[ri]){moved++;}
+					assign.put(r, targets[ri]);
 				}else{
 					orphans.add(r);
+					if(prev!=null){moved++;}
+					assign.remove(r);
 				}
 			}
+			clusters=newClusters;
+			if(verbose){outstream.println("  Round "+(round+1)+": "+moved+" moved, "+orphans.size()+" orphaned");}
+			if(moved==0){break;}
 		}
-		clusters=newClusters;
-		if(verbose){outstream.println("  Reassigned: "+moved+" moved, "+orphans.size()+" orphaned");}
 
 		// Step 4: Recruit orphans using k-mer index
 		if(doRecruit && !orphans.isEmpty()){
 			// Rebuild consensus after reassignment — include all clusters
 			// so small ones can recruit orphans and potentially grow
-			for(int i=0; i<clusters.size(); i++){
-				if(!clusters.get(i).isEmpty()){
-					consensusSeqs[i]=buildConsensus(clusters.get(i));
-				}else{
-					consensusSeqs[i]=null;
-				}
-			}
+			rebuildConsensi(clusters, consensusSeqs);
 
 			int numKmers=1<<(2*RECRUIT_K);
 			@SuppressWarnings("unchecked")
@@ -427,12 +495,96 @@ public class TrnaConsensusBuilder {
 		return consensus;
 	}
 
-	static byte[] pickPivot(ArrayList<byte[]> seqs){
-		byte[] best=seqs.get(0);
-		for(int i=1; i<seqs.size(); i++){
-			if(seqs.get(i).length>best.length){
-				best=seqs.get(i);
+	/**
+	 * Flushness census for one kept cluster: how many nt of member 5' sequence
+	 * does the final model MISS?  Members longer than the model are aligned
+	 * model-into-member; rStart of that alignment is the model's observable 5'
+	 * deficit.  Members that fit inside the model cannot expose a deficit and
+	 * count as 0.  Caveat: rStart inherits the fill tie-break's late-origin
+	 * bias, so absolute deficits are overstated, but comparisons between
+	 * libraries censused the same way are valid.
+	 */
+	private String censusString(ArrayList<Read> cluster, byte[] cons, String label){
+		AlignmentStats stats=new AlignmentStats(true);
+		int[] deficit=new int[8];//index=nt of missing model 5'; [7] means >=7
+		int aligned=0, longer=0;
+		for(Read r : cluster){
+			stats.clear();
+			stats.doTrace=true;
+			if(r.length()<=cons.length){
+				float id=ScrabbleAligner.alignAndTraceStatic(r.bases, cons, stats);
+				if(stats.matchString==null || id<minIdentity){continue;}
+				aligned++;
+				//KNOWN LIMITATION: a member that fits inside the model cannot expose a
+				//model deficit, so it counts as 0 even if the member itself is truncated.
+				//This mildly understates deficits but is consistent across all libraries
+				//censused with this method — do not change without re-censusing the series.
+				deficit[0]++;
+			}else{
+				float id=ScrabbleAligner.alignAndTraceStatic(cons, r.bases, stats);
+				if(stats.matchString==null || id<minIdentity){continue;}
+				aligned++; longer++;
+				deficit[Tools.min(Tools.max(stats.rStart, 0), 7)]++;
 			}
+		}
+		int modal=0;
+		for(int i=1; i<deficit.length; i++){
+			if(deficit[i]>deficit[modal]){modal=i;}
+		}
+		return "CENSUS\t"+label+"\taligned="+aligned+"\tlonger="+longer
+			+"\tmodalDeficit="+modal+"\tdeficitHist="+Arrays.toString(deficit);
+	}
+
+	/** Rebuilds each cluster's consensus in parallel; empty clusters get null. */
+	private void rebuildConsensi(final ArrayList<ArrayList<Read>> clusters, final byte[][] consensusSeqs){
+		ArrayList<Future<?>> futures=new ArrayList<>();
+		for(int i=0; i<clusters.size(); i++){
+			final int fi=i;
+			futures.add(pool().submit(new Runnable(){
+				@Override
+				public void run(){
+					consensusSeqs[fi]=(clusters.get(fi).isEmpty() ? null : buildConsensus(clusters.get(fi)));
+				}
+			}));
+		}
+		waitAll(futures);
+	}
+
+	private ExecutorService pool(){
+		if(pool==null){pool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()));}
+		return pool;
+	}
+
+	private static void waitAll(ArrayList<Future<?>> futures){
+		for(Future<?> f : futures){
+			try{f.get();}catch(Exception e){throw new RuntimeException(e);}
+		}
+	}
+
+	/** Median member length of a cluster; 0 if empty. */
+	static int medianLength(ArrayList<Read> list){
+		if(list.isEmpty()){return 0;}
+		int[] lens=new int[list.size()];
+		for(int i=0; i<lens.length; i++){lens[i]=list.get(i).length();}
+		Arrays.sort(lens);
+		return lens[lens.length/2];
+	}
+
+	static byte[] pickPivot(ArrayList<byte[]> seqs){
+		//90th-percentile length rather than max: the longest members are exactly
+		//the intron-bearing outliers, so max-length selection picks the worst
+		//possible pivot in intron families.  Only the first pass is affected;
+		//later passes align to the consensus, which is pivot-insensitive.
+		int[] lens=new int[seqs.size()];
+		for(int i=0; i<lens.length; i++){lens[i]=seqs.get(i).length;}
+		int[] sorted=lens.clone();
+		Arrays.sort(sorted);
+		final int target=sorted[(int)(0.9f*(sorted.length-1))];
+		byte[] best=seqs.get(0);
+		int bestDif=Integer.MAX_VALUE;
+		for(byte[] s : seqs){
+			final int dif=Tools.absdif(s.length, target);
+			if(dif<bestDif){bestDif=dif; best=s;}
 		}
 		return best;
 	}
@@ -440,6 +592,9 @@ public class TrnaConsensusBuilder {
 	byte[] buildFromAlignments(byte[] ref, ArrayList<byte[]> queries){
 		final int refLen=ref.length;
 		int[][] counts=new int[refLen][5];
+		//Each member's base 0/last base IS its annotated tRNA boundary, so the modal
+		//alignment start/stop in ref frame votes for the family's true termini.
+		int[] startVotes=new int[refLen], endVotes=new int[refLen];
 
 		AlignmentStats stats=new AlignmentStats(true);
 		int aligned=0;
@@ -450,6 +605,8 @@ public class TrnaConsensusBuilder {
 
 			if(stats.matchString==null || identity<minIdentity){continue;}
 			aligned++;
+			if(stats.rStart>=0 && stats.rStart<refLen){startVotes[stats.rStart]++;}
+			if(stats.rStop>=0 && stats.rStop<refLen){endVotes[stats.rStop]++;}
 
 			int refPos=stats.rStart;
 			int queryPos=0;
@@ -475,8 +632,22 @@ public class TrnaConsensusBuilder {
 
 		if(aligned<1){return null;}
 
+		//Truncate the consensus at the modal member boundaries: a depth-fraction cliff
+		//proved unreliable (ragged member alignment left ~half of all models 1-4nt
+		//5'-truncated), but the members themselves carry the annotated termini, so the
+		//most-voted start/stop columns are the family's true ends.
+		int first=0, last=refLen-1;
+		if(endTrimFrac>0){
+			int bs=0, be=refLen-1;
+			for(int i=0; i<refLen; i++){
+				if(startVotes[i]>startVotes[bs]){bs=i;}
+				if(endVotes[i]>endVotes[be]){be=i;}
+			}
+			if(bs<be){first=bs; last=be;}
+		}
+
 		ByteBuilder bb=new ByteBuilder(refLen);
-		for(int i=0; i<refLen; i++){
+		for(int i=first; i<=last; i++){
 			int total=counts[i][0]+counts[i][1]+counts[i][2]+counts[i][3]+counts[i][4];
 			if(total==0){bb.append(ref[i]); continue;}
 
@@ -502,6 +673,9 @@ public class TrnaConsensusBuilder {
 	 * Terminal insertions (unaligned query overhang, emitted by honest glocal
 	 * traceback) are trimmed: BaseGraph.add cannot represent an alignment
 	 * starting with I, and overhang should not contribute counts or scores.
+	 * Terminal D is deliberately NOT stripped here (unlike invertToModelFrame):
+	 * in this orientation the glocal traceback never ends in D, and D does not
+	 * advance qpos, so no out-of-bounds read is possible.
 	 * @return The aligned Read, or null if nothing aligned.
 	 */
 	static Read toAlignedRead(byte[] bases, AlignmentStats stats, String id, long numericID){
@@ -558,18 +732,73 @@ public class TrnaConsensusBuilder {
 	/**
 	 * Scores a candidate sequence against a BaseGraph model.
 	 * Aligns with traceback, then uses BaseGraph.score() for
-	 * position-weighted likelihood.
+	 * position-weighted likelihood.  The glocal aligner requires query<=ref,
+	 * so a candidate longer than the model reference is aligned in the swapped
+	 * orientation and the traceback inverted back to model coordinates.
 	 */
 	public static float scoreAgainstModel(byte[] candidate, BaseGraph model){
 		if(model==null || candidate==null){return -999;}
+		final byte[] cons=model.original;
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
-		float id=ScrabbleAligner.alignAndTraceStatic(candidate, model.original, stats);
-		if(stats.matchString==null || id<0.2f){return -999;}
-
-		Read r=toAlignedRead(candidate, stats, "candidate", 0);
+		final Read r;
+		if(candidate.length<=cons.length){
+			float id=ScrabbleAligner.alignAndTraceStatic(candidate, cons, stats);
+			if(stats.matchString==null || id<0.2f){return -999;}
+			r=toAlignedRead(candidate, stats, "candidate", 0);
+		}else{
+			float id=ScrabbleAligner.alignAndTraceStatic(cons, candidate, stats);
+			if(stats.matchString==null || id<0.2f){return -999;}
+			r=invertToModelFrame(candidate, stats);
+		}
 		if(r==null){return -999;}
 		return model.score(r, false, true);
+	}
+
+	/**
+	 * Converts a consensus-as-query alignment (candidate as the reference) into
+	 * a candidate-as-query Read in model coordinates for BaseGraph scoring.
+	 * I and D swap roles, the candidate span rStart..rStop supplies the bases,
+	 * and terminal insertions the inversion exposes are trimmed (BaseGraph
+	 * alignments cannot start with I).  The consensus is consumed fully by the
+	 * glocal alignment, so model coverage always spans the whole model.
+	 * @return The inverted Read, or null if the alignment is unusable.
+	 */
+	static Read invertToModelFrame(byte[] candidate, AlignmentStats stats){
+		final byte[] match=stats.matchString;
+		if(stats.rStart<0 || stats.rStop<stats.rStart || stats.rStop>=candidate.length){return null;}
+		byte[] inv=new byte[match.length];
+		for(int i=0; i<match.length; i++){
+			final byte b=match[i];
+			inv[i]=(b=='D' ? (byte)'I' : b=='I' ? (byte)'D' : b);
+		}
+		byte[] bases=Arrays.copyOfRange(candidate, stats.rStart, stats.rStop+1);
+		//Strip terminal indels: terminal I is candidate overhang (consumes a base),
+		//terminal D is model overhang the candidate never spans (advances the model
+		//coordinate).  Neither should contribute counts or scores, and BaseGraph's
+		//walk reads bases[qpos] on EVERY op, so a trailing D after the last base
+		//would read past the end.  The first/last kept op is always m/S/N.
+		int from=0, to=inv.length, bFrom=0, bTo=bases.length, startPos=0;
+		while(from<to && (inv[from]=='I' || inv[from]=='D')){
+			if(inv[from]=='I'){bFrom++;}else{startPos++;}
+			from++;
+		}
+		while(to>from && (inv[to-1]=='I' || inv[to-1]=='D')){
+			if(inv[to-1]=='I'){bTo--;}
+			to--;
+		}
+		if(to-from<1 || bTo-bFrom<1){return null;}
+		if(from>0 || to<inv.length){inv=Arrays.copyOfRange(inv, from, to);}
+		if(bFrom>0 || bTo<bases.length){bases=Arrays.copyOfRange(bases, bFrom, bTo);}
+		int modelSpan=0;
+		for(byte b : inv){if(b!='I'){modelSpan++;}}
+		if(modelSpan<1){return null;}
+		Read aligned=new Read(bases, null, "candidate", 0);
+		aligned.match=inv;
+		aligned.start=startPos;
+		aligned.stop=startPos+modelSpan-1;
+		aligned.setMapped(true);
+		return aligned;
 	}
 
 	/**
@@ -703,6 +932,17 @@ public class TrnaConsensusBuilder {
 	private boolean doRecruit=true;
 	private int minClusterSize=3;
 	private float recruitIdentity=0.70f;
+	/** Truncate consensus at the modal member start/stop boundaries; 0 disables */
+	private float endTrimFrac=0.3f;
+	/** Slight reassignment incentive toward the cluster with the closest median
+	 * member length; multiplies identity by (1-lenTilt*(1-lenSim)). 0 disables. */
+	private float lenTilt=0.03f;
+	/** Reassignment iterations, rebuilding consensus between rounds; early exit when no moves */
+	private int reassignRounds=2;
+	/** Print a per-cluster 5'-flushness census line for each kept model */
+	private boolean census=false;
+	/** Worker pool for per-cluster consensus/HBM/census tasks; sized by Shared.threads() */
+	private ExecutorService pool;
 	private String outModel;
 	private PrintStream outstream=System.err;
 

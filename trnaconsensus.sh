@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Neptune
-Last modified August 6, 2026
+Last modified August 11, 2026
 
 Description:  Builds per-anticodon tRNA consensus sequences and HBM
 (Hidden Brian Model) profiles from a collection of tRNA sequences.
@@ -23,6 +23,10 @@ cluster=t       Enable clustering (default true).
 clusterid=0.75  Clustering identity threshold.
 mincluster=3    Minimum cluster size to keep.
 mingroup=10     Minimum sequences per anticodon group.
+reassignrounds=2  Reassignment iterations; consensus is rebuilt between
+                rounds, with early exit when no sequences move.
+lentilt=0.03    Slight reassignment incentive toward the cluster whose median
+                member length is closest to the sequence's own; 0 disables.
 
 Recruitment parameters:
 recruit=t       Recruit orphans into clusters via consensus alignment.
@@ -31,6 +35,13 @@ recruitid=0.70  Minimum identity to consensus for recruitment.
 Consensus parameters:
 passes=2        Number of consensus refinement passes.
 minid=0.3       Minimum alignment identity for consensus building.
+endtrim=0.3     Truncate consensus termini at the modal member start/stop
+                boundaries; 0 disables.
+census=f        Print a per-model 5'-flushness census line (aligns members
+                back to the final consensus; diagnostic).
+
+Processing parameters:
+t=              Worker threads for parallel cluster building (autodetected).
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
