@@ -417,7 +417,16 @@ public class CladeObject {
 	}
 	
 	public static int resolveTaxID(Read r) {
-		if(perSequence) {return (int)(r.numericID+1);}
+		if(perSequence) {
+			final int syn=(int)(r.numericID+1);
+			if(keepTid) {
+				//Stash the header taxID for post-load relabeling (CladeLoader.remapKeptTids).
+				//The synthetic ID stays the working/map ID so same-taxID sequences never merge.
+				final int real=resolveTaxID(r.name());
+				if(real>0) {seqTidMap.put(syn, real);}
+			}
+			return syn;
+		}
 		return resolveTaxID(r.name());
 	}
 	
@@ -490,6 +499,12 @@ public class CladeObject {
 	static boolean printStepwiseCC=false;
 	
 	static boolean perSequence=false;
+	/** perSequence only: label each output record with the taxID parsed from its header,
+	 * rather than the synthetic sequence-index ID.  The synthetic ID remains the map key,
+	 * so sequences sharing a header taxID stay separate records instead of merging. */
+	static boolean keepTid=false;
+	/** perSequence+keepTid: synthetic ID (numericID+1) -> taxID parsed from that sequence's header. */
+	static java.util.concurrent.ConcurrentHashMap<Integer,Integer> seqTidMap=null;
 	
 	static boolean validation=false;
 	static boolean grading=false;

@@ -43,6 +43,12 @@ ddlk=25         Kmer length for DDL sketches.
 ddlbuckets=4096 Bucket count for DDL sketches.
 ordered=f       Preserve input order in the output.
 percontig=f     Emit one clade per sequence rather than per taxID.
+keeptid=f       With percontig: label each record with the taxID parsed from its
+                header (tid|NNN| or tid_NNN) instead of the sequence index, while
+                still emitting one record per sequence -- sequences sharing a
+                taxID stay separate records.  Headers with no parsable taxID
+                keep the sequence-index label.  16s=/18s= attachment is by
+                taxID and thus ambiguous here; attach ribo in a later pass.
 mergedupes=f    Merge records sharing a taxID rather than keeping the largest.
 whitelist=<file>  Keep only records whose taxID appears in this file (one
                 integer per line; '#' comments and blanks ignored).  Everything

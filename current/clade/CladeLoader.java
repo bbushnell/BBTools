@@ -192,6 +192,9 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				replaceRibo=Parse.parseBoolean(b);
 			}else if(a.equals("percontig") || a.equals("persequence")){
 				perSequence=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("keeptid")){
+				keepTid=Parse.parseBoolean(b);
+				if(keepTid && seqTidMap==null){seqTidMap=new ConcurrentHashMap<Integer,Integer>();}
 			}else if(a.equalsIgnoreCase("makeddls") || a.equals("ddls")){
 				Clade.MAKE_DDLS=Parse.parseBoolean(b);
 			}else if(a.equals("ddl") || a.equals("ddlfile") || a.equals("ddlref")){
@@ -317,10 +320,11 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			}
 			System.err.println("Added "+r18sAdded+" 18S.");
 		}
+		if(perSequence && keepTid){remapKeptTids(map);}
 		if(ffout!=null) {
 			write(ffout, map.values());
 		}
-		
+
 		//Report timing and results
 		t.stop();
 		outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
@@ -473,6 +477,33 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	 * @param bf ByteFile containing clade data
 	 * @param map Map to store clades in
 	 */
+	/**
+	 * keeptid=t: relabel each per-sequence record with the taxID parsed from its header
+	 * (stashed in seqTidMap during loading), re-deriving level and name from the tree.
+	 * The lineage is nulled so it regenerates from the real node at write time, and the
+	 * domain field (adddomain=t) likewise derives from the new taxID downstream.  Records
+	 * whose headers had no parsable taxID keep their synthetic sequence-index label.  The
+	 * clade map stays keyed by synthetic IDs, so sequences sharing a real taxID remain
+	 * separate records; consequently 16s=/18s= attachment (which looks records up by
+	 * taxID) is ambiguous in this mode and belongs in a later per-record pass instead.
+	 */
+	private static void remapKeptTids(ConcurrentHashMap<Integer, Clade> map){
+		int remapped=0;
+		for(Clade c : map.values()){
+			final Integer real=seqTidMap.get(c.taxID);
+			if(real==null){continue;}
+			final int tid=real.intValue();
+			if(useTree && tree!=null){
+				TaxNode tn=tree.getNode(tid);
+				if(tn!=null){c.taxID=tn.id; c.level=tn.level; c.name=tn.name;}
+				else{c.taxID=tid;}
+			}else{c.taxID=tid;}
+			c.lineage=null;
+			remapped++;
+		}
+		System.err.println("Relabeled "+remapped+" per-sequence records with header taxIDs.");
+	}
+
 	static void loadClades(ByteFile bf, ConcurrentHashMap<Integer, Clade> map) {
 		LineParser1 lp=new LineParser1('\t');
 		final ArrayList<byte[]> set=new ArrayList<byte[]>(20); //Should be 13 lines
