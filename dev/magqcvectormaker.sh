@@ -43,6 +43,23 @@ cleanspike=0.15 Probability a bin is drawn with zero contamination.
 multicontamprob=0.15  Probability of 2-3 contaminants instead of 1.
 samefamprob=0.70      Probability a contaminant is from the target's family.
 
+Subnet emission (composite architecture; emits an ALIGNED per-bin subnet file
+alongside the global vectors, same bins, global output byte-identical):
+subnet=<name>   ncrna (observed ncRNA counts) or famset (observed counts of an
+                arbitrary family-rank subset).  Target = the organism's NATIVE
+                subset complement (the denominator; completeness is derived
+                downstream as observed/predicted, see subnetratioscore.sh).
+subnetout=<f>   Subnet training-row output TSV.
+subnetvalout=<f>  Subnet validation-row output TSV.
+subsetfile=<f>  famset only: the subset definition, one family rank per line
+                (e.g. a per-phylum marker set or a co-occurrence module).
+snbinscaled=f   Context: reparameterize bin size as log2(1+bp/2048)/16.
+sndomain=f      Context: add an 8-way domain one-hot.
+snhhcaga=f      Context: add per-organism HH/CAGA dimer features (needs kmerfile=).
+sngenelen=f     Context: add mean gene length + gene-length stddev.
+sncodingaffine=f  Context: affine-rescale coding density (no-op without wd).
+kmerfile=<f>    tid<TAB>HH<TAB>CAGA table from genomedimerfeatures.sh.
+
 Java Parameters:
 -Xmx            Set Java heap (overrides autodetection); the cache is held in RAM.
 -eoom           Exit if an out-of-memory exception occurs.

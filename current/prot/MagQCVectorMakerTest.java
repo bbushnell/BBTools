@@ -106,9 +106,49 @@ public class MagQCVectorMakerTest {
 		for(java.util.HashSet<Integer> set : obsByTarget.values()){if(set.size()>=2){cruxSeen=true; break;}}
 		assertTrue(cruxSeen, "crux not demonstrated: no organism appeared at >=2 completeness levels");
 
-		System.out.println("MagQCVectorMakerTest PASS: global byte-identical; "+rows.size()+
-			" ncRNA-subnet rows; observed<=native on all; targets in "+obsByTarget.keySet()+
-			"; crux (same denominator, varied observed) demonstrated.");
+		// --- famset subnet: subset ranks {0,2,5}; native subset totals hand-computed from the
+		// fixture famcounts: 100 -> f0(c1)+f2(c1)=2; 200 -> f0+f2+f5(c1)=3; 300 -> f0(c1)+f2(c2)=2;
+		// 400 -> f0+f5(c1)+f2(c2)=3.
+		write(new File(dir, "subset.txt"), "0\n2\n5\n");
+		final File gC=new File(dir, "gC.tsv"), fs=new File(dir, "famset.tsv");
+		MagQCVectorMaker.main(concat(common, new String[]{"out="+gC.getAbsolutePath(),
+			"subnet=famset", "subsetfile="+p(dir, "subset.txt"), "subnetout="+fs.getAbsolutePath()}));
+
+		// (5) Global output still byte-identical with the famset subnet enabled.
+		final byte[] bc=Files.readAllBytes(gC.toPath());
+		assertTrue(java.util.Arrays.equals(ba, bc),
+			"global vector changed when the famset subnet was enabled ("+ba.length+" vs "+bc.length+" bytes)");
+
+		// (6) famset rows: header 3 obs + 3 phyla + 5 context = 11 inputs; obs<=native; targets valid.
+		final ArrayList<String[]> frows=new ArrayList<String[]>();
+		String fheader=null;
+		for(String line : Files.readAllLines(fs.toPath())){
+			if(line.length()==0){continue;}
+			if(fheader==null){fheader=line; continue;}
+			frows.add(line.split("\t"));
+		}
+		assertTrue("#dims\t11\t1\t0".equals(fheader), "bad famset header: "+fheader);
+		assertTrue(frows.size()==200, "expected 200 famset rows, got "+frows.size());
+		final HashMap<Integer,java.util.HashSet<Integer>> fObsByTarget=new HashMap<Integer,java.util.HashSet<Integer>>();
+		for(String[] r : frows){
+			assertTrue(r.length==12, "famset row width "+r.length+" != 12");
+			int obsTotal=0;
+			for(int i=0; i<3; i++){obsTotal+=Integer.parseInt(r[i]);}
+			final int target=Integer.parseInt(r[11]);
+			assertTrue(obsTotal<=target, "famset observed "+obsTotal+" > target "+target);
+			assertTrue(target==2 || target==3, "famset target "+target+" is not a fixture native subset total");
+			java.util.HashSet<Integer> set=fObsByTarget.get(target);
+			if(set==null){fObsByTarget.put(target, set=new java.util.HashSet<Integer>());}
+			set.add(obsTotal);
+		}
+		boolean fCrux=false;
+		for(java.util.HashSet<Integer> set : fObsByTarget.values()){if(set.size()>=2){fCrux=true; break;}}
+		assertTrue(fCrux, "famset crux not demonstrated: no denominator appeared with >=2 observed totals");
+
+		System.out.println("MagQCVectorMakerTest PASS: global byte-identical (ncrna AND famset); "+rows.size()+
+			" ncRNA-subnet rows + "+frows.size()+" famset rows; observed<=native on all; ncRNA targets in "
+			+obsByTarget.keySet()+", famset targets in "+fObsByTarget.keySet()+
+			"; crux (same denominator, varied observed) demonstrated for both.");
 	}
 
 	private static void write(File f, String content) throws Exception{

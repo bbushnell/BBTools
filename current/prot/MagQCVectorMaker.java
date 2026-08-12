@@ -75,6 +75,7 @@ public class MagQCVectorMaker {
 			else if(a.equals("subnet")){subnetName=b.toLowerCase();}
 			else if(a.equals("subnetout")){subnetOut=b;}
 			else if(a.equals("subnetvalout")){subnetValOut=b;}
+			else if(a.equals("subsetfile")){subsetFile=b;}
 			else if(a.equals("sncodingaffine")){snCodingAffine=parseBool(b);}
 			else if(a.equals("snbinscaled")){snBinScaled=parseBool(b);}
 			else if(a.equals("sndomain")){snDomain=parseBool(b);}
@@ -254,11 +255,32 @@ public class MagQCVectorMaker {
 		final int baseFam=(keptRanks!=null ? keptRanks.length : numFam);
 		final int famCols=baseFam*(enc==ENC_TWO ? 2 : 1);
 		numInputs=famCols+NUM_GLOBALS+numPhyla;
-		// ncRNA subnet input width: 5 obs + phylum one-hot + 5 context (+ optional blocks).
-		subnetInputs=NCRNA_OBS+numPhyla+NCRNA_CONTEXT
+		final boolean subnetNcrna=("ncrna".equals(subnetName));
+		subnetFamset=("famset".equals(subnetName));
+		if(subnetName!=null && !subnetNcrna && !subnetFamset){
+			throw new RuntimeException("Unknown subnet="+subnetName+" (ncrna|famset)");
+		}
+		final boolean subnet=subnetNcrna || subnetFamset;
+		if(subnetFamset){
+			if(subsetFile==null){throw new RuntimeException("subnet=famset requires subsetfile=<one rank per line>");}
+			subsetRanks=loadRanks(subsetFile);
+			subsetMask=new boolean[numFam];
+			for(int r : subsetRanks){subsetMask[r]=true;}
+			lastFamObs=new int[subsetRanks.length];
+			// Native subset complement per organism: the subset families' counts summed over
+			// ALL the tid's contigs (the famset subnet's denominator target).
+			for(Integer tid : usable){
+				int sum=0;
+				for(Contig c : byTid.get(tid)){
+					for(int i=0; i<c.famRank.length; i++){if(subsetMask[c.famRank[i]]){sum+=c.famCount[i];}}
+				}
+				nativeFamTotal.put(tid, sum);
+			}
+		}
+		// Subnet input width: obs block + phylum one-hot + 5 context (+ optional blocks).
+		final int obsCols=(subnetFamset ? subsetRanks.length : NCRNA_OBS);
+		subnetInputs=obsCols+numPhyla+NCRNA_CONTEXT
 			+(snDomain?DOMAINS:0)+(snHHCAGA?2:0)+(snGeneLen?2:0);
-		final boolean subnet=("ncrna".equals(subnetName));
-		if(subnetName!=null && !subnet){throw new RuntimeException("Unknown subnet="+subnetName+" (only ncrna)");}
 		if(subnet && snHHCAGA){
 			if(kmerFile==null){throw new RuntimeException("snhhcaga=t requires kmerfile=<tid HH CAGA>");}
 			loadKmerFile(kmerFile);
@@ -307,7 +329,8 @@ public class MagQCVectorMaker {
 				bw.write(sb.toString());
 				sb.setLength(0);
 				if(sbw!=null){
-					formatNcrnaRow(sb2, glob, targetPhylumIdx);
+					if(subnetFamset){formatFamsetRow(sb2, glob, targetPhylumIdx);}
+					else{formatNcrnaRow(sb2, glob, targetPhylumIdx);}
 					sbw.write(sb2.toString());
 					sb2.setLength(0);
 				}
@@ -347,6 +370,11 @@ public class MagQCVectorMaker {
 		lastTarget=target;
 		lastNcObs[0]=agg.r16; lastNcObs[1]=agg.r23; lastNcObs[2]=agg.r5;
 		lastNcObs[3]=agg.rother; lastNcObs[4]=agg.trna;
+		// Same snapshot for a famset subnet: the subset families' observed counts, target-only
+		// (fam[] holds only target contributions here; contaminants are added below).
+		if(subsetRanks!=null){
+			for(int i=0; i<subsetRanks.length; i++){lastFamObs[i]=fam[subsetRanks[i]];}
+		}
 
 		// sampled contamination (clean spike, else flat + square-low mixture)
 		double cont=(rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd));
@@ -661,6 +689,45 @@ public class MagQCVectorMaker {
 		sb.append(nativeTotal); sb.append('\n');
 	}
 
+	/**
+	 * Emits one famset-subnet training row for the current bin: the subset families'
+	 * observed counts (target organism only, snapshotted before contaminants) plus the
+	 * SAME shared context block as the ncRNA subnet, and the target's NATIVE subset
+	 * total (the subset families' counts over its whole genome) as the single
+	 * regression target. The subset is defined by subsetfile= (one family rank per
+	 * line), so per-phylum marker sets and co-occurrence modules train with identical
+	 * machinery; evaluate with SubnetRatioScore numobs=(subset size).
+	 */
+	private void formatFamsetRow(StringBuilder sb, double[] glob, int phylumIdx){
+		int obsTotal=0;
+		for(int i=0; i<lastFamObs.length; i++){sb.append(lastFamObs[i]); sb.append('\t'); obsTotal+=lastFamObs[i];}
+		for(int i=0; i<numPhyla; i++){sb.append(i==phylumIdx ? '1' : '0'); sb.append('\t');}
+		if(snDomain){
+			final int di=tid2domainIdx.getOrDefault(lastTarget, DOMAIN_OTHER);
+			for(int i=0; i<DOMAINS; i++){sb.append(i==di ? '1' : '0'); sb.append('\t');}
+		}
+		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
+		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
+		sb.append(fmt(binSize)); sb.append('\t');
+		sb.append(fmt(glob[3])); sb.append('\t');
+		sb.append(fmt(coding)); sb.append('\t');
+		sb.append(fmt(glob[1])); sb.append('\t');
+		sb.append(fmt(glob[8])); sb.append('\t');
+		if(snHHCAGA){
+			final float[] hc=tidKmer.get(lastTarget);
+			sb.append(fmt(hc==null ? 0 : hc[0])); sb.append('\t');
+			sb.append(fmt(hc==null ? 0 : hc[1])); sb.append('\t');
+		}
+		if(snGeneLen){
+			sb.append(fmt(glob[5])); sb.append('\t');
+			sb.append(fmt(glob[6])); sb.append('\t');
+		}
+		final int nativeTotal=nativeFamTotal.get(lastTarget);
+		// The bin's target contigs are a subset of the genome, so observed<=native always.
+		assert(obsTotal<=nativeTotal) : "famset observed "+obsTotal+" > native "+nativeTotal+" (tid "+lastTarget+")";
+		sb.append(nativeTotal); sb.append('\n');
+	}
+
 	private static double log2(double v){return v<=1 ? 0 : Math.log(v)/LOG2;}
 
 	/*--------------------------------------------------------------*/
@@ -668,8 +735,13 @@ public class MagQCVectorMaker {
 	/*--------------------------------------------------------------*/
 
 	private String cacheFile, sizemapFile, familyFile, taxpgmFile, treeFile, out, outval, featuresFile;
-	private String subnetName, subnetOut, subnetValOut, kmerFile;
+	private String subnetName, subnetOut, subnetValOut, kmerFile, subsetFile;
 	private boolean snCodingAffine=false, snBinScaled=false, snDomain=false, snHHCAGA=false, snGeneLen=false;
+	private boolean subnetFamset=false;
+	private int[] subsetRanks;
+	private boolean[] subsetMask;
+	private int[] lastFamObs;
+	private final HashMap<Integer,Integer> nativeFamTotal=new HashMap<Integer,Integer>();
 	private int subnetInputs;
 	private int lastTarget;
 	private long lastTotalBp;

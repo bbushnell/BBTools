@@ -371,6 +371,10 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.AC_VALIDATE=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("acmargin")){
 				prok.TrnaCaller.AC_MARGIN=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("trimtrna") || a.equalsIgnoreCase("trnatrim")){
+				prok.TrnaCaller.trimToAlignment=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("maxtrna") || a.equalsIgnoreCase("maxtrnalen")){
+				prok.TrnaCaller.MAX_TRNA_OVERRIDE=Integer.parseInt(b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}

@@ -142,7 +142,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			final BaseNode next;
 			final int q;
 			assert(qpos<bases.length) : "\n"+r+"\n"+r.samline+"\n"+r.length()+", "+r.start+", "+r.stop+", "+
-				r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false);
+				(r.samline==null ? "no-SAM" : r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false));
 			final byte b=bases[qpos];
 			
 //			System.err.println("mpos="+mpos+", qpos="+qpos+", rpos="+rpos+", b="+Character.toString((char)b)+", m="+Character.toString((char)m)+", prev="+prevNode);
@@ -255,7 +255,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			final byte m=match[mpos];
 			final BaseNode next;
 			assert(qpos<bases.length) : "\n"+r+"\n"+r.samline+"\n"+r.length()+", "+r.start+", "+r.stop+", "+
-				r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false);
+				(r.samline==null ? "no-SAM" : r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false));
 			final byte b=bases[qpos];
 
 //			System.err.println("mpos="+mpos+", qpos="+qpos+", rpos="+rpos+", b="+Character.toString((char)b)+", m="+Character.toString((char)m)+", prev="+prevNode);
@@ -430,7 +430,7 @@ public class BaseGraph extends ConsensusObject implements Serializable {
 			final byte m=match[mpos];
 			final BaseNode next;
 			assert(qpos<bases.length) : "\n"+r+"\n"+r.samline+"\n"+r.length()+", "+r.start+", "+r.stop+", "+
-				r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false);
+				(r.samline==null ? "no-SAM" : r.samline.calcCigarLength(true, false)+", "+r.samline.calcCigarReadLength(true, false));
 			final byte b=bases[qpos];
 
 //			System.err.println("mpos="+mpos+", qpos="+qpos+", rpos="+rpos+", b="+Character.toString((char)b)+", m="+Character.toString((char)m)+", prev="+prevNode);
