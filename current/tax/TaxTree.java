@@ -1217,36 +1217,60 @@ public class TaxTree implements Serializable{
 	
 	/** New and improved.  Tree is optional. */
 	public static int parseHeaderStatic2(String header, TaxTree tree) {
-		int tid=-1;
 		if(header==null) {return -1;}
-		if(tid<0) {tid=parseTaxID(header, "tid");}
-		if(tid<0) {tid=parseTaxID(header, "ncbi");}
+		int tid=parseTaxID(header);
 		if(tid>=0 || tree==null) {return tid;}
 		TaxNode tn=tree.parseNodeFromHeader(header, true);
 		return tn==null ? tid : tn.id;
 	}
 	
-	/** Header should contain something like "tid|1234" somewhere; 
+	/**
+	 * Parse a taxonomic ID from a header or filename string.
+	 * Recognizes "tid|N", "tid_N", "ncbi|N", and "ncbi_N" formats.
+	 * Returns -1 if no valid (positive) taxid is found.
+	 * Retries on false substring matches (e.g. "plastid_" contains "tid_").
+	 */
+	public static int parseTaxID(String s){
+		if(s==null){return -1;}
+		int tid=parseTaxIDPrefix(s, "tid|");
+		if(tid<1){tid=parseTaxIDPrefix(s, "tid_");}
+		if(tid<1){tid=parseTaxIDPrefix(s, "ncbi|");}
+		if(tid<1){tid=parseTaxIDPrefix(s, "ncbi_");}
+		return tid;
+	}
+
+	private static int parseTaxIDPrefix(String s, String prefix){
+		int pos=s.indexOf(prefix);
+		while(pos>=0){
+			int start=pos+prefix.length();
+			long id=0;
+			boolean found=false;
+			for(int i=start; i<s.length(); i++){
+				char c=s.charAt(i);
+				if(c<'0' || c>'9'){break;}
+				id=id*10+(c-'0');
+				found=true;
+			}
+			if(found && id>0 && id<Integer.MAX_VALUE){return (int)id;}
+			pos=s.indexOf(prefix, pos+1);
+		}
+		return -1;
+	}
+
+	/** Header should contain something like "tid|1234" somewhere;
 	 * delimiter is autodetected. */
-	private static int parseTaxID(String header, String term) {
+	private static int parseTaxIDLegacy(String header, String term) {
 		int loc=header.indexOf(term);
-//		System.err.println("a) loc="+loc+", term="+term+", header="+header);
 		if(loc<0) {return -1;}
 		int start=loc+term.length();
-//		System.err.println("b) start="+start);
 		if(header.length()<start+2) {return -1;}
 		final char c=header.charAt(start);
-//		System.err.println("c) c="+c);
 		if(Tools.isDigitOrSign(c)) {return -1;}
 		start++;
 		final char d=header.charAt(start);
-//		System.err.println("d) d="+d);
 		if(!Tools.isDigitOrSign(d)) {return -1;}
 		int stop=start+1;
-//		System.err.println("e) stop="+stop);
 		while(stop<header.length() && Tools.isDigitOrSign(header.charAt(stop))) {stop++;}
-//		System.err.println("f) stop="+stop);
-//		System.err.println("g) start="+start+", stop="+stop+", int="+Parse.parseInt(header, start, stop));
 		return Parse.parseInt(header, start, stop);
 	}
 	
@@ -1294,10 +1318,14 @@ public class TaxTree implements Serializable{
 				}
 			}
 		}
+		if(tn==null){
+			int tid=parseTaxID(header);
+			if(tid>0){tn=getNode(tid);}
+		}
 		return tn;
 	}
-	
-	/** 
+
+	/**
 	 * Guess the delimiter character in a String;
 	 * typically assumed to be '|', '~', or ' '.
 	 */
