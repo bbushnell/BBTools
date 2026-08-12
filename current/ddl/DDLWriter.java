@@ -455,19 +455,8 @@ public class DDLWriter {
 		return name;
 	}
 
-	/** Parse TID from header or filename like "tid|504728|..." or "tid_504728_..." */
 	static int parseTID(String s){
-		if(s==null){return -1;}
-		int pos=s.indexOf("tid|");
-		if(pos<0){pos=s.indexOf("tid_");}
-		if(pos<0){return -1;}
-		long id=0;
-		for(int i=pos+4; i<s.length(); i++){
-			char c=s.charAt(i);
-			if(c<'0' || c>'9'){break;}
-			id=id*10+(c-'0');
-		}
-		return (id>0 && id<Integer.MAX_VALUE) ? (int)id : -1;
+		return TaxTree.parseTaxID(s);
 	}
 
 	/*--------------------------------------------------------------*/

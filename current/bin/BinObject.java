@@ -446,32 +446,8 @@ public class BinObject {
 		return tree;
 	}
 	
-	/**
-	 * Parses taxonomic ID from a sequence header line.
-	 * Looks for patterns like "tid_1234" or "tid|1234" with any delimiters.
-	 * @param line Sequence header line to parse
-	 * @return Taxonomic ID if found, -1 otherwise
-	 */
 	public static int parseTaxID(String line) {
-		if(!parseTaxid) {return -1;}
-		String term="tid_";
-		int pos=line.indexOf(term);
-		if(pos<0) {pos=line.indexOf("tid|");}
-		if(pos<0) {return -1;}
-		long id=0;
-		for(int i=pos+4; i<line.length(); i++) {
-			char c=line.charAt(i);
-			if(c<'0' || c>'9') {break;}
-			id=id*10+(c-'0');
-		}
-		//TODO: Possible bug [bin/BinObject#002] LOW/QUESTION (documented) - this assert turns a header that CONTAINS
-		//"tid_"/"tid|" but is followed by a non-digit (or zero) into a hard AssertionError under -ea (id stays 0 ->
-		//id>0 fails). Benign in benchmark data (tid_NNN is always well-formed) and headers with no "tid" return -1
-		//cleanly above; but a real assembly contig whose name happens to contain "tid_<nondigit>" would crash rather
-		//than degrade. Graceful "return -1" (treat an unparseable marker as no-tid) would be safer. Borderline per
-		//input-validity (synthetic-marker convention) -> flag, not patched.
-		assert(id>0 && id<Integer.MAX_VALUE) : id+"\n"+line+"\n";
-		return (int)id;
+		return parseTaxid ? TaxTree.parseTaxID(line) : -1;
 	}
 	
 	public static int resolveTaxID(String s) {
