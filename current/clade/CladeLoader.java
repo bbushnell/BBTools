@@ -157,6 +157,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				whitelistFile=b;
 			}else if(a.equals("mergedupes")){
 				mergeDuplicateTaxIDs=Parse.parseBoolean(b);
+			}else if(a.equals("addnovelonly") || a.equals("keepexisting")){
+				addNovelOnly=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("ordered")){
@@ -548,7 +550,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 //			System.err.println("Duplicate tid "+c.taxID);
 			if(mergeDuplicateTaxIDs) {
 				old.add(c);
-			}else if(c.bases>old.bases) {
+			}else if(!addNovelOnly && c.bases>old.bases) {
 				map.put(c.taxID, c);
 			}
 		}
@@ -1059,6 +1061,11 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	
 	/** Whether to merge duplicate tax IDs */
 	static boolean mergeDuplicateTaxIDs=false;
+	/** Add a record only if its taxID is not already present; on a duplicate, KEEP the
+	 * existing record (never merge, never replace-if-larger).  For unioning a trusted base
+	 * DB with best-effort additions: list the base file(s) FIRST (load is sequential), so the
+	 * base always wins.  Mutually exclusive in intent with mergeDuplicateTaxIDs. */
+	static boolean addNovelOnly=false;
 
 	/** Path given by whitelist=; null disables filtering entirely. */
 	private String whitelistFile=null;

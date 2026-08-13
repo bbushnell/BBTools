@@ -83,7 +83,7 @@ public class CladeLoaderMT {
 				}else if(c.bases>0){
 					if(CladeLoader.mergeDuplicateTaxIDs){
 						old.add(c);
-					}else if(c.bases>old.bases){
+					}else if(!CladeLoader.addNovelOnly && c.bases>old.bases){
 						map.put(c.taxID, c);
 					}
 				}
