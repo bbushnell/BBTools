@@ -50,6 +50,10 @@ keeptid=f       With percontig: label each record with the taxID parsed from its
                 keep the sequence-index label.  16s=/18s= attachment is by
                 taxID and thus ambiguous here; attach ribo in a later pass.
 mergedupes=f    Merge records sharing a taxID rather than keeping the largest.
+addnovelonly=f  Add a record only if its taxID is not already present; on a
+                duplicate, keep the EXISTING record (never merge or replace).
+                For unioning a trusted base DB with best-effort additions, list
+                the base file(s) first (files load in order).  Alias: keepexisting.
 whitelist=<file>  Keep only records whose taxID appears in this file (one
                 integer per line; '#' comments and blanks ignored).  Everything
                 else is dropped at load, so it never enters the output.

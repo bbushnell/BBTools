@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.TreeSet;
 
 import cardinality.DynamicDemiLog;
+import map.IntHashSet;
 import map.IntObjectMap;
 import parse.Parse;
 import parse.Parser;
@@ -75,6 +76,8 @@ public class DDLMerger {
 				mergePlasmid=Parse.parseBoolean(b);
 			}else if(a.equals("merge") || a.equals("mergeall")){
 				mergeMain=mergeMito=mergePlastid=mergePlasmid=Parse.parseBoolean(b);
+			}else if(a.equals("base") || a.equals("basedb") || a.equals("addnovelto")){
+				baseFile=b;
 			}else if(a.equals("minsize") || a.equals("originfileminsizefilter")){
 				parseMinSize(b);
 			}else if(a.equals("tidsout") || a.equals("outtids")){
@@ -113,6 +116,8 @@ public class DDLMerger {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
+		//addnovelonly: keep the base DB whole, add only novel-tid records from in=.
+		if(baseFile!=null){processAddNovel(t); return;}
 		//Load all records from all files, tagged with source category
 		final ArrayList<TaggedRecord> all=new ArrayList<TaggedRecord>();
 		int condensed=0;
@@ -216,7 +221,53 @@ public class DDLMerger {
 			results.add(rec);
 		}
 
-		//Sort: taxID, then name, then cardinality
+		int merged=all.size()-results.size();
+		if(merged>0){outstream.println("Merged "+merged+" duplicate-tid records.");}
+		finishAndWrite(results, t);
+	}
+
+	/** addnovelonly: keep the base DB whole (every record, including the duplicate-tid mito/
+	 * chloroplast/plasmid records), then add from in= only records whose taxID is ABSENT from
+	 * the base.  Duplicates within the additions collapse to the first seen. */
+	private void processAddNovel(Timer t){
+		int inputK=DDLLoader.peekK(baseFile);
+		assert(inputK>0) : KillSwitch.assertDie("No #k header in base="+baseFile+"; specify k= explicitly.");
+		assert(k<0 || k==inputK) : KillSwitch.assertDie("Requested k="+k+" but base "+baseFile+" has k="+inputK+".");
+		k=inputK;
+		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
+
+		//Phase 1: the base is kept whole; collect its taxID set.
+		final IntHashSet baseTids=new IntHashSet(1<<20);
+		final ArrayList<DDLRecord> results=new ArrayList<DDLRecord>();
+		for(DDLRecord rec : DDLLoaderMT.loadFile(baseFile, k)){
+			if(rec.origin==null){rec.origin=originFromFilename(baseFile);}
+			rec.cardinality=rec.ddl.cardinality();
+			results.add(rec);
+			if(rec.taxID>=0){baseTids.add(rec.taxID);}
+		}
+		final int baseCount=results.size();
+
+		//Phase 2: in= additions contribute only tids absent from the base.
+		final IntHashSet addedTids=new IntHashSet(1<<20);
+		int droppedInBase=0, droppedDup=0;
+		for(String path : inFiles){
+			for(DDLRecord rec : DDLLoaderMT.loadFile(path, k)){
+				final int tid=rec.taxID;
+				if(rec.origin==null){rec.origin=originFromFilename(path);}
+				if(tid>=0 && baseTids.contains(tid)){droppedInBase++; continue;}
+				if(tid>=0 && !addedTids.add(tid)){droppedDup++; continue;}
+				rec.cardinality=rec.ddl.cardinality();
+				results.add(rec);
+			}
+		}
+		outstream.println("addnovelonly: base kept "+baseCount+" records; added "+(results.size()-baseCount)
+			+" novel tids; dropped "+droppedInBase+" (tid already in base) + "+droppedDup+" (dup within additions).");
+		finishAndWrite(results, t);
+	}
+
+	/** Sorts (taxID, name, cardinality), renumbers #id sequentially, writes the DDL file and the
+	 * tids file, and reports.  Shared by the merge path and the addnovelonly path. */
+	private void finishAndWrite(ArrayList<DDLRecord> results, Timer t){
 		Collections.sort(results, (a, b) -> {
 			int x=a.taxID-b.taxID;
 			if(x!=0){return x;}
@@ -245,9 +296,7 @@ public class DDLMerger {
 		writeTids(numbered);
 
 		t.stop();
-		int merged=all.size()-numbered.size();
-		outstream.println("Wrote "+numbered.size()+" DDL records to "+out
-			+(merged>0 ? " (merged "+merged+" duplicates)" : ""));
+		outstream.println("Wrote "+numbered.size()+" DDL records to "+out);
 		outstream.println("Time: \t"+t);
 	}
 
@@ -480,6 +529,10 @@ public class DDLMerger {
 	private String[] inFiles;
 	private String out;
 	private int k=-1;//-1 = adopt from input #k headers (all inputs must agree); k= forces/validates it
+	/** addnovelonly mode: the trusted base DB, kept WHOLE (every record, including the
+	 * duplicate-tid mito/chloroplast/plasmid records that share a host tid).  in= additions
+	 * then contribute only records whose taxID is ABSENT from the base.  null = normal merge. */
+	private String baseFile=null;
 	private int targetBuckets=-1;
 	private boolean overwrite=false;
 	private boolean verbose=false;

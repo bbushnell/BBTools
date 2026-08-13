@@ -29,6 +29,10 @@ buckets=-1          Target bucket count.  Input DDLs with more buckets
                     will be condensed by folding (taking max per bucket).
                     -1 disables condensing.
 merge=t             Merge all categories with matching TIDs.
+base=<file>         Add-novel mode: keep this base DB WHOLE (every record, including
+                    the duplicate-TID mito/chloroplast/plasmid records that share a
+                    host TID), then from in= add only records whose TID is ABSENT
+                    from the base.  Output = base + novel additions.
 mergemito=t         Merge mitochondrial records into host genome.
 mergeplastid=t      Merge plastid records into host genome.
 mergeplasmid=t      Merge plasmid records into host genome.

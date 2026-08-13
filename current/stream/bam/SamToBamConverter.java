@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import dna.AminoAcid;
 import map.ObjectIntMap;
 import parse.Parse;
+import shared.Tools;
 import stream.SamLine;
 import structures.ByteBuilder;
 
@@ -44,11 +45,32 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	public SamToBamConverter(String[] refNames){
-		//Build reference name to ID map
-		refMap=new ObjectIntMap<String>(512, String.class);
+		this(refNames, null);
+	}
+
+	public SamToBamConverter(String[] refNames, String[] refAliases){
+		//Build reference name to ID map.  The emitted BAM dictionary is authoritative.
+		refMap=new ObjectIntMap<String>(Math.max(512, refNames.length*2), String.class);
 		for(int i=0; i<refNames.length; i++){
-			refMap.put(refNames[i], i);
+			putRefName(refNames[i], i, "BAM dictionary");
 		}
+		//Aliases are populated once so alignment conversion remains an exact hot-path lookup.
+		if(refAliases!=null){
+			for(String alias : refAliases){
+				final String dictionaryName=Tools.trimToWhitespace(alias);
+				final int id=refMap.get(dictionaryName);
+				if(id>=0){putRefName(alias, id, "reference alias");}
+			}
+		}
+	}
+
+	private void putRefName(String name, int id, String source){
+		final int old=refMap.get(name);
+		if(old>=0 && old!=id){
+			throw new IllegalArgumentException("Ambiguous "+source+" name '"+name+
+				"' identifies BAM reference IDs "+old+" and "+id+".");
+		}
+		if(old<0){refMap.put(name, id);}
 	}
 	
 	/**
@@ -178,8 +200,12 @@ public class SamToBamConverter implements Cloneable {
 		if(rname == null || rname.equals("*")){
 			return -1;
 		}
-		Integer id=refMap.get(rname);
-		return (id != null) ? id : -1;
+		final int id=refMap.get(rname);
+		if(id<0){
+			throw new IllegalArgumentException("Reference name '"+rname+
+				"' is absent from the BAM header dictionary.");
+		}
+		return id;
 	}
 
 	/**

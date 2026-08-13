@@ -6,6 +6,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
+import dna.Data;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import shared.Shared;
@@ -131,6 +132,16 @@ public class BamWriter implements Writer {
 				}
 			}
 		}
+		//Validate dictionary and aliases before emitting any header bytes.
+		final SamToBamConverter converter;
+		try{
+			converter=new SamToBamConverter(refNames.toArray(new String[0]),
+					collectReferenceAliases());
+		}catch(RuntimeException|Error e){
+			failHeader();
+			throw e;
+		}
+
 		// Write BAM header using helper
 		stream.bam.BamWriterHelper writer = new stream.bam.BamWriterHelper(outstream);
 		try{
@@ -140,15 +151,37 @@ public class BamWriter implements Writer {
 			//is set + notifyAll -> workers would block forever in getConverter(). Set headerFailed + notifyAll so those workers
 			//wake and abort loudly instead of hanging, THEN crash loud. (setFinished(true) alone cannot wake them: getConverter
 			//waits on the BamWriter monitor, not the OQS2 monitor that setFinished notifies.)
-			headerFailed=true;
-			this.notifyAll();
+			failHeader();
 			throw new RuntimeException(e);
 		}
 
 		// Create converter for workers
-		sharedConverter=new SamToBamConverter(refNames.toArray(new String[0]));
+		sharedConverter=converter;
 		headerWritten=true;
 		this.notifyAll();
+	}
+
+	/** Releases waiting workers and closes BGZF infrastructure after pre-record failure. */
+	private void failHeader(){
+		headerFailed=true;
+		setErrorState(true);
+		this.notifyAll();
+		ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
+	}
+
+	/** Collects full FASTA names once; the converter associates them with emitted short SN keys. */
+	private static String[] collectReferenceAliases(){
+		if(!Shared.TRIM_RNAME || Data.scaffoldNames==null){return null;}
+		final ArrayList<String> aliases=new ArrayList<String>();
+		for(byte[][] names : Data.scaffoldNames){
+			if(names==null){continue;}
+			for(byte[] name : names){
+				if(name!=null && Tools.indexOfWhitespace(name)>=0){
+					aliases.add(new String(name, StandardCharsets.US_ASCII));
+				}
+			}
+		}
+		return aliases.isEmpty() ? null : aliases.toArray(new String[0]);
 	}
 	
 	private SamToBamConverter getConverter() {
