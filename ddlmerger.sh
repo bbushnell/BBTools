@@ -21,7 +21,10 @@ Parameters:
 in=<file>           Input DDL file(s), comma-delimited.
                     Can also be given as bare arguments.
 out=<file>          Output combined DDL file.
-k=31                K-mer length (for validation).
+k=                  K-mer length.  Default: adopt from the input files' #k
+                    headers (all inputs must share one k, else it is a fatal
+                    error).  Setting k= forces a value and validates the inputs
+                    against it.  The chosen k is written to the output #k header.
 buckets=-1          Target bucket count.  Input DDLs with more buckets
                     will be condensed by folding (taking max per bucket).
                     -1 disables condensing.

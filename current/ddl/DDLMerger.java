@@ -12,6 +12,7 @@ import cardinality.DynamicDemiLog;
 import map.IntObjectMap;
 import parse.Parse;
 import parse.Parser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -115,6 +116,16 @@ public class DDLMerger {
 		//Load all records from all files, tagged with source category
 		final ArrayList<TaggedRecord> all=new ArrayList<TaggedRecord>();
 		int condensed=0;
+		//Establish the authoritative k from the inputs before anything uses it (blacklist load,
+		//record parsing, output header): k PROPAGATES from the input #k headers, and setFileK
+		//(called per file during load) fails loud if the inputs disagree.  An explicit k= must
+		//match the inputs.
+		{
+			int inputK=DDLLoader.peekK(inFiles[0]);
+			assert(inputK>0) : KillSwitch.assertDie("No #k header in "+inFiles[0]+"; specify k= explicitly.");
+			assert(k<0 || k==inputK) : KillSwitch.assertDie("Requested k="+k+" but input "+inFiles[0]+" has k="+inputK+".");
+			k=inputK;
+		}
 		//Load the blacklist once so condense can prefer non-blacklisted kmers (bake the blacklist
 		//into the condensed DB, equivalent to re-sketching with blacklist= but without reading genomes).
 		if(blacklistFile!=null){DynamicDemiLog.loadBlacklist(blacklistFile, k);}
@@ -468,7 +479,7 @@ public class DDLMerger {
 	private final ArrayList<String> inList=new ArrayList<String>();
 	private String[] inFiles;
 	private String out;
-	private int k=31;
+	private int k=-1;//-1 = adopt from input #k headers (all inputs must agree); k= forces/validates it
 	private int targetBuckets=-1;
 	private boolean overwrite=false;
 	private boolean verbose=false;
