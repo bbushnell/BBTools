@@ -9,6 +9,7 @@ import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import parse.LineParser1;
+import shared.KillSwitch;
 import structures.ByteBuilder;
 
 /**
@@ -101,10 +102,7 @@ public class DDLLoader {
 				lp.set(line);
 				if(lp.terms()<2){continue;}
 				if(lp.termEquals("#k", 0)){
-					int fileK=(int)lp.parseLong(1);
-					if(fileK!=k){
-						outstream.println("WARNING: DDL file k="+fileK+" does not match expected k="+k);
-					}
+					setFileK((int)lp.parseLong(1), path);
 				}
 				else if(lp.termEquals("#seed", 0)){/*file-level, informational*/}
 				else if(lp.termEquals("#exponent", 0)){DynamicDemiLog.setExponent((int)lp.parseLong(1), true, path);}
@@ -150,6 +148,45 @@ public class DDLLoader {
 		}
 		bf.close();
 		return records;
+	}
+
+	/** Record a file's #k, dying loudly if a previously-seen file used a different k.
+	 * Mirrors DynamicDemiLog.setExponent's cross-file validation: k-mer length is a
+	 * per-sketch property, so sketches written at different k cannot be merged or
+	 * compared.  The established value is readable via fileK() (e.g. by DDLMerger, to
+	 * propagate the correct k to its output). */
+	public static synchronized void setFileK(int k, String source){
+		if(k<=0){return;}
+		assert(fileK<0 || fileK==k) : KillSwitch.assertDie(
+			"k mismatch: "+fileKSource+" set k="+fileK+", but "
+			+(source==null ? "a later file" : source)+" has k="+k+".\n"
+			+"K-mer length is a per-sketch property; sketches written at different k cannot "
+			+"be merged or compared.  Rebuild one side at the other's k, or process separately.");
+		fileK=k;
+		fileKSource=(source==null ? "a sketch file" : source);
+	}
+
+	/** The k established from #k headers during loadFile/peekK, or -1 if none seen. */
+	public static int fileK(){return fileK;}
+
+	/** Reads only the file-level #k header without loading records, returning -1 if no #k
+	 * precedes the first record.  Cheap (stops at the first record boundary); does not
+	 * touch the validated fileK() global. */
+	public static int peekK(String path){
+		final FileFormat ff=FileFormat.testInput(path, FileFormat.TEXT, null, false, true);
+		final ByteFile bf=ByteFile.makeByteFile(ff);
+		final LineParser1 lp=new LineParser1('\t');
+		int result=-1;
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length<1){continue;}
+			if(line[0]!='#'){break;}
+			lp.set(line);
+			if(lp.terms()<2){continue;}
+			if(lp.termEquals("#k", 0)){result=(int)lp.parseLong(1); break;}
+			if(lp.termEquals("#id", 0) || lp.termEquals("#tid", 0)){break;}//reached records
+		}
+		bf.close();
+		return result;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -227,6 +264,11 @@ public class DDLLoader {
 	/** Last #blacklist header value seen during loadFile(). Set during parsing,
 	 * readable by callers (e.g., DDLMerger) to propagate to output. */
 	public static String lastBlacklistHeader;
+
+	/** File-level k established from a #k header, validated across all files in a process
+	 * (see setFileK).  -1 = unset. */
+	private static int fileK=-1;
+	private static String fileKSource=null;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/
