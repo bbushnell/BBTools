@@ -94,7 +94,7 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 
 	/**
 	 * Parses command line arguments into configuration parameters.
-	 * Supports verbose mode and line processing limits.
+	 * Supports verbose mode and standard Parser options.
 	 *
 	 * @param args Command line arguments array
 	 * @return Configured Parser object with parsed settings
@@ -121,9 +121,6 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("lines")){
-				maxLines=Long.parseLong(b);
-				if(maxLines<0){maxLines=Long.MAX_VALUE;}
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -146,7 +143,8 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	 */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
-		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
+		in2=Tools.fixExtension(in2);
+		if(in1==null || in2==null){throw new RuntimeException("Error - two input files are required.");}
 	}
 
 	/**
@@ -156,18 +154,18 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	 */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, out1)){
+		if(!Tools.testOutputFiles(overwrite, append, false, out1, outInvalid)){
 			outstream.println((out1==null)+", "+out1);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output file "+out1+"\n");
 		}
 
 		//Ensure input files can be read
-		if(!Tools.testInputFiles(false, true, in1)){
+		if(!Tools.testInputFiles(false, true, in1, in2)){
 			throw new RuntimeException("\nCan't read some input files.\n");  
 		}
 
 		//Ensure that no file was specified multiple times
-		if(!Tools.testForDuplicateFiles(true, in1, out1)){
+		if(!Tools.testForDuplicateFiles(true, in1, in2, out1, outInvalid)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
 	}
@@ -304,7 +302,6 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 
 		while(line!=null){
 			if(line.length>0){
-				if(maxLines>0 && linesProcessed>=maxLines){break;}
 				linesProcessed++;
 				bytesProcessed+=(line.length+1);
 
@@ -364,7 +361,6 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 		/**
 		 * Iterates through input file lines and processes valid entries.
 		 * Reads lines from ByteFile, applies validation, and delegates to processLine().
-		 * Respects maxLines limit if configured.
 		 */
 		void processInner(){
 
@@ -372,14 +368,16 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 			for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()){
 				for(byte[] line : ln){
 					if(line!=null && line.length>0){
-						if(maxLines>0 && linesProcessedT>=maxLines){break;}
 						linesProcessedT++;
 						bytesProcessedT+=(line.length+1);
 
 						final boolean valid=(line[0]!='#');
-						if(valid){processLine(line);}
+						if(valid){
+							linesOutT++;
+							bytesOutT+=(line.length+1);
+							processLine(line);
+						}
 					}
-					line=bf.nextLine();
 				}
 			}
 		}
@@ -446,7 +444,6 @@ public class A_SampleByteFileMT implements Accumulator<A_SampleByteFileMT.Proces
 	private long bytesProcessed=0;
 	private long bytesOut=0;
 
-	private static long maxLines=Long.MAX_VALUE;//TODO: Static to compile; make non-static if threads are non-static
 	private static byte delimiter='\t';
 
 	/*--------------------------------------------------------------*/
