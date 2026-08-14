@@ -144,13 +144,7 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 			
 			if(a.equals("tree")){
-				if(b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true")) {
-					treePath="auto";
-				}else if(b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false")) {
-					treePath=null;
-				}else {
-					treePath=b;
-				}
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(a.equals("whitelist") || a.equals("tids") || a.equals("tidlist")){
@@ -268,6 +262,9 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
+		if((addDomain || reLineage) && !useTree){
+			throw new IllegalArgumentException("adddomain=t and relineage=t require a taxonomy tree; tree=f/usetree=f disables the tree.");
+		}
 		return true;
 	}
 	
@@ -410,11 +407,14 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, extin, true, true);
 		//Process the reads in separate threads
 //		assert(ff.clade()) : ff.rawExtension()+", "+ff.type();
+		final boolean requiresTree=addDomain || reLineage;
 		if(ff.clade() || ff.extensionEquals("tsv")) {
 			loadTree();
+			if(requiresTree && tree==null){throw new RuntimeException("adddomain=t/relineage=t requires a loadable taxonomy tree; treefile="+TaxTree.treeFile);}
 			map=loadFromClade(ff, map);
 		}else {
 			loadTree();
+			if(requiresTree && tree==null){throw new RuntimeException("adddomain=t/relineage=t requires a loadable taxonomy tree; treefile="+TaxTree.treeFile);}
 			map=loadFromSequence(ff, map);
 		}
 		return map;

@@ -21,7 +21,10 @@ Additional file parameters (optional):
 18S=<file>      A fasta file of 18S sequences.  These should be renamed
                 so that they start with tid|# where # is the taxID.
                 Should not contain organelle rRNA.
-tree=auto       Path to TaxTree, if performing prok/euk-specific operations.
+tree=t          Use a TaxTree for prok/euk-specific operations (default).
+usetree=t       Alias for tree=t/f.
+treefile=auto   Select the TaxTree source without changing the local gate.
+tree=<path>     Legacy form that selects the path and enables loading.
 
 Processing parameters:
 preferSSUMap=f

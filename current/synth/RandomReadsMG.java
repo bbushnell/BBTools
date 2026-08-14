@@ -156,8 +156,7 @@ public class RandomReadsMG{
 		final boolean ordered=(out2!=null && !"null".equalsIgnoreCase(out2));
 		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
 		ffout2=FileFormat.testOutput(out2, FileFormat.FASTQ, extout, true, overwrite, append, ordered);
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
-		tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, false);
+		tree=useTree ? TaxTree.loadTaxTree(outstream, true, false) : null;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -193,8 +192,8 @@ public class RandomReadsMG{
 
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("tree")){
-				taxTreeFile=b;
+			}else if(a.equals("tree") || a.equals("usetree")){
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(a.equals("in") || a.equals("ref")){
 				Tools.getFileOrFiles(b, inputFiles, true, false, false, false);
 			}else if(a.equals("depth") || a.equals("cov")){
@@ -1533,7 +1532,7 @@ public class RandomReadsMG{
 	/** Override output file extension */
 	private String extout=null;
 	/** Path to taxonomic tree file for species classification */
-	private String taxTreeFile=null;
+	private boolean useTree=false;
 	
 	private final AtomicLong nextListID=new AtomicLong(0);
 	/*--------------------------------------------------------------*/

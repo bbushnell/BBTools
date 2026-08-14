@@ -58,13 +58,16 @@ public class SummarizeContamReport {
 		ReadWrite.setZipThreads(Shared.threads());
 		
 		Parser parser=new Parser();
+		boolean useTree=true;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
-			if(a.equals("verbose")){
+			if(a.equals("tree") || a.equals("usetree")){
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				ReadWrite.verbose=verbose;
 			}else if(a.equals("minreads")){
@@ -75,8 +78,6 @@ public class SummarizeContamReport {
 				for(String term : b.split(",")){
 					in.add(term);
 				}
-			}else if(a.equals("tree")){
-				treeFile=b;
 			}else if(b==null && new File(arg).exists()){
 				in.add(arg);
 			}else if(parser.parse(arg, a, b)){
@@ -115,8 +116,14 @@ public class SummarizeContamReport {
 			ffinArray[i]=FileFormat.testInput(in.get(i), FileFormat.TEXT, null, false, false);
 		}
 		
-		tree=TaxTree.loadTaxTree(treeFile, System.err, true, false);
-		if(tree!=null){tree.loadSizeFile(sizeFile);}
+		if(!useTree){
+			throw new RuntimeException("SummarizeContamReport requires a taxonomy tree; tree=f is not supported.");
+		}
+		tree=TaxTree.loadTaxTree(System.err, true, false);
+		if(tree==null){
+			throw new RuntimeException("SummarizeContamReport requires a taxonomy tree; none could be loaded.");
+		}
+		tree.loadSizeFile(sizeFile);
 	}
 	
 	void process(Timer t){
@@ -293,7 +300,6 @@ public class SummarizeContamReport {
 	
 	private ArrayList<String> in=new ArrayList<String>();
 	private String out1=null;
-	private String treeFile="auto";
 	private String sizeFile="auto";
 	
 	TaxTree tree=null;

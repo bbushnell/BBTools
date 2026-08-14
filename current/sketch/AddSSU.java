@@ -84,11 +84,12 @@ public class AddSSU {
 			System.err.println("Set r18SFile="+r18SFile);
 		}
 		
-		tree=(treeFile!=null && (preferSSUMapEuks || preferSSUMapProks || clear16SEuks || clear18SEuks || 
-				clear16SProks || clear18SProks || useSSUMapOnlyEuks || useSSUMapOnlyProks) ? TaxTree.loadTaxTree(treeFile, outstream, false, false) : null);
+		final boolean taxonomyRequired=(preferSSUMapEuks || preferSSUMapProks || clear16SEuks || clear18SEuks || 
+				clear16SProks || clear18SProks || useSSUMapOnlyEuks || useSSUMapOnlyProks);
+		tree=(useTree && taxonomyRequired) ? TaxTree.loadTaxTree(outstream, false, false) : null;
 		
-		if(preferSSUMapEuks || preferSSUMapProks || clear16SEuks || clear18SEuks || clear16SProks || clear18SProks || useSSUMapOnlyEuks || useSSUMapOnlyProks){
-			assert(tree!=null) : "preferSSUMapForEuks, clear16SEuks, and clear18SEuks require a TaxTree.";
+		if(taxonomyRequired && tree==null){
+			throw new RuntimeException("Taxonomy-dependent AddSSU options require a TaxTree; use tree=t and provide treefile=<file>.");
 		}
 	}
 	
@@ -111,8 +112,6 @@ public class AddSSU {
 				r16SFile=b;
 			}else if(a.equalsIgnoreCase("18S") || a.equalsIgnoreCase("18Sfile")){
 				r18SFile=b;
-			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("treefile")){
-				treeFile=b;
 			}else if(a.equals("lines")){
 				maxLines=Long.parseLong(b);
 				if(maxLines<0){maxLines=Long.MAX_VALUE;}
@@ -151,6 +150,8 @@ public class AddSSU {
 				clear16SProks=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("clear18SProks")){
 				clear18SProks=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree")){
+				useTree=TaxTree.parseTreeFlag(b);
 			}
 			
 			else if(parser.parse(arg, a, b)){
@@ -558,8 +559,6 @@ public class AddSSU {
 	private String r16SFile="auto";
 	/** 18S rRNA reference file path */
 	private String r18SFile="auto";
-	/** Taxonomic tree file path for organism classification */
-	private String treeFile="auto";
 
 	/** Prefer SSU sequences from reference map over existing sequences */
 	boolean preferSSUMap=false;
@@ -585,6 +584,8 @@ public class AddSSU {
 	boolean clear16SProks=false;
 	/** Remove 18S sequences specifically from prokaryotic organisms */
 	boolean clear18SProks=false;
+	/** Whether taxonomy-dependent operations may load a taxonomic tree */
+	private boolean useTree=true;
 	
 	/*--------------------------------------------------------------*/
 	

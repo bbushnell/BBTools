@@ -34,6 +34,7 @@ import tax.TaxTree;
  *
  * <p>Usage: java prok.FetchGenomes summary=bacteria.txt,archaea.txt tree=auto
  *   out=fetch.sh [maxperspecies=1] [maxpergenus=2] [maxperfamily=0] [skip=tids.txt]
+ *   Tree loading is off by default; omit tree for name-token fallback.
  *
  * <p>Get the summaries with:
  *   curl -O https://ftp.ncbi.nlm.nih.gov/genomes/refseq/bacteria/assembly_summary.txt
@@ -44,7 +45,8 @@ import tax.TaxTree;
 public class FetchGenomes {
 
 	public static void main(String[] args){
-		String summaryFiles=null, treeFile=null, out=null, skipFile=null;
+		String summaryFiles=null, out=null, skipFile=null;
+		boolean useTree=false;
 		int maxPerSpecies=1, maxPerGenus=2, maxPerFamily=0;
 		boolean allowExcluded=false, rename=true;
 		long minSize=0;
@@ -53,7 +55,10 @@ public class FetchGenomes {
 			if(eq<0){continue;}
 			String a=arg.substring(0, eq).toLowerCase(), b=arg.substring(eq+1);
 			if(a.equals("summary") || a.equals("in")){summaryFiles=b;}
-			else if(a.equals("tree")){treeFile=b;}
+			else if(a.equals("tree") || a.equals("usetree")){useTree=TaxTree.parseTreeFlag(b);}
+			else if(a.equals("treefile")){
+				TaxTree.treeFile=(b==null || "null".equalsIgnoreCase(b) || "none".equalsIgnoreCase(b)) ? null : b;
+			}
 			else if(a.equals("out")){out=b;}
 			else if(a.equals("skip")){skipFile=b;}
 			else if(a.equals("maxperspecies")){maxPerSpecies=Integer.parseInt(b);}
@@ -66,13 +71,12 @@ public class FetchGenomes {
 		}
 		if(summaryFiles==null || out==null){
 			throw new RuntimeException("Required: summary=<assembly_summary.txt[,file2]> out=<script.sh> "
-				+"[tree=auto] [maxperspecies=1] [maxpergenus=2] [maxperfamily=0] [skip=tids.txt]");
+				+"[tree=f] [maxperspecies=1] [maxpergenus=2] [maxperfamily=0] [skip=tids.txt]");
 		}
 
 		TaxTree tree=null;
-		if(treeFile!=null){
-			if(treeFile.equalsIgnoreCase("auto")){treeFile=TaxTree.defaultTreeFile();}
-			tree=TaxTree.loadTaxTree(treeFile, System.err, false, false);
+		if(useTree){
+			tree=TaxTree.loadTaxTree(System.err, false, false);
 		}
 
 		final HashSet<Integer> skip=new HashSet<Integer>();

@@ -34,9 +34,11 @@ import structures.ByteBuilder;
  * annotated GFF flows through cutgff -&gt; TrnaConsensusBuilder with zero downstream code changes.
  *
  * All input lines pass through UNCHANGED except tRNA lines, which gain the Note= attribute. tRNA
- * features already carrying Note=tRNA-Xxx(YYY) are left untouched (idempotent). This is the Java
- * reimplementation of scripts/extract_trnas.py's extraction logic (lines 104-115); it matches that
- * behavior, including skipping (not annotating) a feature whose seqid is absent from the FASTA.
+ * features already carrying Note=tRNA-Xxx(YYY) are left untouched (idempotent). A tRNA with no
+ * anticodon position is labeled Note=tRNA-Xxx(UNK) (not skipped), matching extract_trnas.py's ac='UNK'
+ * fallback so all such tRNAs cluster under one UNK group. This is the Java reimplementation of
+ * scripts/extract_trnas.py's extraction logic (lines 104-115); it matches that behavior, including
+ * skipping (not annotating) only a feature whose seqid is absent from the FASTA.
  *
  * Usage: annotateanticodon.sh in=genome.fna.gz gff=genome.gff.gz out=annotated.gff.gz
  *   Batch: in=a.fna.gz,b.fna.gz gff=a.gff.gz,b.gff.gz outdir=staging/  (gff= inferred if omitted)
@@ -254,26 +256,29 @@ public class AnnotateAnticodon {
 
 		if(NOTE_PAT.matcher(attrs).find()){alreadyAnnotated++; return line;}//idempotent
 
-		final Matcher posM=ANTICODON_POS_PAT.matcher(attrs);
-		if(!posM.find()){noAnticodonPos++; return line;}//nothing to compute from
-		final int acStart=Integer.parseInt(posM.group(1));
-		final int acStop=Integer.parseInt(posM.group(2));
-
-		byte[] bases=genome.get(seqid);
-		if(bases==null){bases=genome.get(stripTid(seqid));}
-		if(bases==null){scaffoldNotFound++; return line;}//match extract_trnas.py: skip, don't crash
-
-		final String triplet=tripletRNA(bases, acStart, acStop, "-".equals(strand));
-		if(triplet==null){badAnticodonPos++; return line;}
-
 		final Matcher aaM=PRODUCT_PAT.matcher(attrs);
 		final String amino=(aaM.find() ? aaM.group(1) : "Unk");
+
+		//Determine the anticodon triplet. A tRNA with no genomic anticodon position (or an out-of-bounds
+		//one) is labeled (UNK) rather than skipped, matching extract_trnas.py's ac='UNK' fallback, so the
+		//consensus builder groups them together under one UNK key instead of scattering them by amino acid.
+		String triplet;
+		final Matcher posM=ANTICODON_POS_PAT.matcher(attrs);
+		if(!posM.find()){
+			triplet="UNK"; noAnticodonPos++;
+		}else{
+			byte[] bases=genome.get(seqid);
+			if(bases==null){bases=genome.get(stripTid(seqid));}
+			if(bases==null){scaffoldNotFound++; return line;}//can't resolve scaffold; skip (post-repair this is 0)
+			triplet=tripletRNA(bases, Integer.parseInt(posM.group(1)), Integer.parseInt(posM.group(2)), "-".equals(strand));
+			if(triplet==null){triplet="UNK"; badAnticodonPos++;}
+			else{annotated++;}
+		}
 
 		bb.clear();
 		for(int i=0; i<8; i++){bb.append(f[i]).tab();}
 		if(".".equals(attrs) || attrs.isEmpty()){bb.append("Note=tRNA-").append(amino).append('(').append(triplet).append(')');}
 		else{bb.append(attrs).append(";Note=tRNA-").append(amino).append('(').append(triplet).append(')');}
-		annotated++;
 		return bb.toString();
 	}
 

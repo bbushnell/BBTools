@@ -19,7 +19,7 @@ public class RenameRefseqFiles {
 	 * @param args Command-line arguments where args[0] is the base directory path
 	 */
 	public static void main(String[] args){
-		TaxTree tree=TaxTree.loadTaxTree(TaxTree.defaultTreeFile(), System.err, false, false);
+		TaxTree tree=TaxTree.loadTaxTree(System.err, false, false);
 		for(TaxNode tn : tree.nodes){
 			if(tn!=null){
 				String dir=tree.toDir(tn, args[0]);

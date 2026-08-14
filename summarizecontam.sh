@@ -15,7 +15,10 @@ in=<file,file>  Input contam summary files, comma-delimited.
                 Alternately, file arguments (from a * expansion) will be 
                 considered input files.
 out=<file>      Output.
-tree=auto       Taxtree file location (optional).
+tree=t          Enable the bundled taxtree (default).  tree=f is not supported;
+                this tool requires a taxonomy tree.  A legacy tree=<file> path
+                is also accepted.
+treefile=auto   Select the taxonomy tree source without changing the local gate.
 overwrite=t     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 

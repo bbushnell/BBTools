@@ -52,7 +52,10 @@ delete=t        Delete temporary files.
 allowtemp=t     Allow writing temporary files.
 
 Taxonomy-sorting parameters (for taxa mode only):
-tree=           Specify a taxtree file.  On Genepool, use 'auto'.
+tree=t          Use a TaxTree for taxa sorting (default; required in taxa mode).
+usetree=t       Alias for tree=t/f.
+treefile=auto   Select the TaxTree source without changing the local gate.
+tree=<path>     Legacy form that selects the path and enables loading.
 gi=             Specify a gitable file.  On Genepool, use 'auto'.
 accession=      Specify one or more comma-delimited NCBI accession to
                 taxid files.  On Dori/NERSC, use 'auto'.

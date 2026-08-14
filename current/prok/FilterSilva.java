@@ -89,8 +89,8 @@ public class FilterSilva {
 				ConcurrentGenericReadInputStream.verbose=verbose;
 				stream.FastqReadInputStream.verbose=verbose;
 				ReadWrite.verbose=verbose;
-			}else if(a.equals("tree") || a.equals("treefile")){
-				treeFile=b;
+			}else if(a.equals("tree") || a.equals("usetree")){
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}
@@ -121,6 +121,10 @@ public class FilterSilva {
 			extin=parser.extin;
 			extout=parser.extout;
 		}
+
+		if(!useTree){
+			throw new RuntimeException("Error: FilterSilva requires a taxonomic tree; tree=f/usetree=f is not supported.");
+		}
 		
 		assert(FastaReadInputStream.settingsOK());
 		
@@ -141,7 +145,10 @@ public class FilterSilva {
 
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		
-		tree=TaxTree.loadTaxTree(treeFile, outstream, true, false);
+		tree=TaxTree.loadTaxTree(outstream, true, false);
+		if(tree==null){
+			throw new RuntimeException("Error: FilterSilva requires a taxonomic tree, but none was loaded.");
+		}
 	}
 	
 	/**
@@ -259,8 +266,6 @@ public class FilterSilva {
 	private String extin=null;
 	private String extout=null;
 	
-	private String treeFile="auto";
-	
 	/*--------------------------------------------------------------*/
 
 	private long maxReads=-1;
@@ -272,6 +277,8 @@ public class FilterSilva {
 	private final FileFormat ffout1;
 	
 	private final TaxTree tree;
+	/** Whether the required taxonomic tree is enabled for this tool. */
+	private boolean useTree=true;
 	
 	/*--------------------------------------------------------------*/
 	

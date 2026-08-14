@@ -92,7 +92,7 @@ public class RenameGiToTaxid {
 			}else if(a.equals("pattern")){
 				patternFile=b;
 			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(a.equals("invalid")){
 				outInvalid=b;
 			}else if(a.equals("deleteinvalid")){
@@ -166,7 +166,7 @@ public class RenameGiToTaxid {
 			giTableFile=null;
 			accessionFile=null;
 			patternFile=null;
-			if(mode!=UNITE_MODE){taxTreeFile=null;}
+			if(mode!=UNITE_MODE){useTree=false;}
 		}//else if taxpath!=null... set them
 		
 		{//Process parser fields
@@ -180,7 +180,6 @@ public class RenameGiToTaxid {
 			out1=parser.out1;
 		}
 		
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		if("auto".equalsIgnoreCase(patternFile)){patternFile=TaxTree.defaultPatternFile();}
@@ -216,8 +215,8 @@ public class RenameGiToTaxid {
 		
 		assert(giTableFile!=null || accessionFile!=null || TaxTree.SILVA_MODE || useServer) : "No gi or accession information loaded.";
 		
-		if(taxTreeFile!=null){
-			tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, false);
+		if(useTree){
+			tree=TaxTree.loadTaxTree(outstream, true, false);
 			assert(tree.nameMap!=null);
 		}else{
 			tree=null;
@@ -966,8 +965,8 @@ public class RenameGiToTaxid {
 	 */
 	private String badHeaders=null;
 
-	/** Path to taxonomy tree file for taxonomic hierarchy information */
-	private String taxTreeFile=null;
+	/** Use tree file for taxonomic hierarchy information */
+	private boolean useTree=false;
 	/** Path to GI-to-taxonomy ID mapping table file */
 	private String giTableFile=null;
 	/** Path to accession-to-taxonomy ID mapping file */

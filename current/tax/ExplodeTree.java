@@ -66,6 +66,7 @@ public class ExplodeTree {
 		Parser parser=new Parser();
 		
 		//Parse each argument
+		boolean useTree=true;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			
@@ -74,7 +75,9 @@ public class ExplodeTree {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(a.equals("verbose")){
+			if(a.equals("tree") || a.equals("usetree") || a.equals("taxtree")){
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(a.equals("out") || a.equals("path") || a.equals("outpath")){
 				outPath=b;
@@ -84,8 +87,6 @@ public class ExplodeTree {
 				resultsFile=b;
 			}else if(a.equals("makedirectories") || a.equals("mkdirs") || a.equals("mkdir")){
 				makeDirectories=Parse.parseBoolean(b);
-			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
 			}else if(parser.parse(arg, a, b)){//Parse standard flags in the parser
 				//do nothing
 			}else{
@@ -95,7 +96,6 @@ public class ExplodeTree {
 			}
 		}
 		if(prefix==null){prefix="";}
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		
 		{//Process parser fields
 			Parser.processQuality();
@@ -144,7 +144,13 @@ public class ExplodeTree {
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTA, extin, true, true);
 		
-		tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, false);
+		if(!useTree){
+			throw new RuntimeException("ExplodeTree requires a taxonomy tree; tree=f is not supported.");
+		}
+		tree=TaxTree.loadTaxTree(outstream, true, false);
+		if(tree==null){
+			throw new RuntimeException("ExplodeTree requires a taxonomy tree; none could be loaded.");
+		}
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -312,8 +318,6 @@ public class ExplodeTree {
 	private String extin=null;
 	
 	public String resultsFile=null;
-	
-	public String taxTreeFile=null;
 	
 	public boolean makeDirectories=true;
 	

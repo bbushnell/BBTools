@@ -172,14 +172,14 @@ public class SortByName {
 				}else{giTableFile=b;}
 			}else if(a.equals("accession")){
 				accessionFile=b;
-			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
 			}else if(a.equals("maxfiles") || a.equals("files")){
 				maxFiles=Integer.parseInt(b);
 				assert(maxFiles>1 && maxFiles<=10000000) : "Invalid value for maxfiles: "+maxFiles+"; range is 2-10000000";
 				setMaxFiles=true;
 			}else if(a.equals("genkmer")){
 				genKmer=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree") || a.equalsIgnoreCase("taxtree")){
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(i==0 && !arg.contains("=") && parser.in1==null &&
 				FileFormat.isSequence(arg) && new File(arg).isFile()){
 				parser.in1=arg;
@@ -196,7 +196,6 @@ public class SortByName {
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		
@@ -314,6 +313,9 @@ public class SortByName {
 		tempExt=Tools.getTempExt(ffin1, ffout1, extout);
 		
 		if((comparator.getClass()==ReadComparatorTaxa.class)){
+			if(!useTree){
+				throw new RuntimeException("Taxa sorting requires a TaxTree; tree=f disables the required loader.");
+			}
 			if(giTableFile!=null){
 				outstream.println("Loading gi table.");
 				GiToTaxid.initialize(giTableFile);
@@ -322,11 +324,12 @@ public class SortByName {
 				outstream.println("Loading accession table.");
 				AccessionToTaxid.load(accessionFile);
 			}
-			if(taxTreeFile!=null){
-				ReadComparatorTaxa.tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, false);
+			if(useTree){
+				ReadComparatorTaxa.tree=TaxTree.loadTaxTree(outstream, true, false);
+				if(ReadComparatorTaxa.tree==null){
+					throw new RuntimeException("Taxa sorting requires a TaxTree; use tree=t and provide treefile=<file>.");
+				}
 				assert(ReadComparatorTaxa.tree.nameMap()!=null);
-			}else{
-				throw new RuntimeException("No tree specified.");
 			}
 		}
 		
@@ -1282,10 +1285,10 @@ public class SortByName {
 
 	/** Path to GI to taxonomy ID mapping table file */
 	private String giTableFile=null;;
-	/** Path to taxonomic tree file */
-	private String taxTreeFile=null;
 	/** Path to accession to taxonomy ID mapping file */
 	private String accessionFile=null;
+	/** Whether taxa sorting may load a taxonomic tree */
+	private boolean useTree=true;
 	
 	/*--------------------------------------------------------------*/
 
