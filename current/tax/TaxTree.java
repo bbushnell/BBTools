@@ -191,43 +191,55 @@ public class TaxTree implements Serializable{
 			System.err.println("Found "+errors+" errors in tree.");
 		}
 		
-		for(TaxNode n : nodes){
+		nodeCount=populateLevelData();
+
+	}
+
+	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
+			boolean reassign_, boolean skipNorank_, int inferRankLimit_){
+		nodes=nodes_;
+		mergedMap=mergedMap_;
+		minValidTaxa=minValidTaxa_;
+		simplify=simplify_;
+		reassign=reassign_;
+		skipNorank=skipNorank_;
+		inferRankLimit=inferRankLimit_;
+		nodeCount=populateLevelData();
+	}
+
+	private int populateLevelData(){
+		int count=0;
+		for(int i=0; i<nodes.length; i++){
+			TaxNode n=nodes[i];
 			if(n!=null){
+				if(n.id!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
+				if(n.level<0 || n.level>=nodesPerLevel.length){
+					throw new IllegalArgumentException("Invalid taxonomic level "+n.level+" for TaxID "+n.id);
+				}
+				if(n.levelExtended<0 || n.levelExtended>=nodesPerLevelExtended.length){
+					throw new IllegalArgumentException("Invalid extended taxonomic level "+n.levelExtended+" for TaxID "+n.id);
+				}
 				nodesPerLevel[n.level]++;
 				nodesPerLevelExtended[n.levelExtended]++;
+				count++;
 			}
 		}
-		
-//		for(int i=0; i<nodesPerLevel.length; i++){
-//			treeLevels[i]=new TaxNode[nodesPerLevel[i]];
-//		}
 		for(int i=0; i<nodesPerLevelExtended.length; i++){
 			treeLevelsExtended[i]=new TaxNode[nodesPerLevelExtended[i]];
 		}
-		
-//		{
-//			int[] temp=new int[nodesPerLevel.length];
-//			for(TaxNode n : nodes){
-//				if(n!=null){
-//					int level=n.level;
-//					treeLevels[level][temp[level]]=n;
-//					temp[level]++;
-//				}
-//			}
-//		}
-		
-		{
-			int[] temp=new int[nodesPerLevelExtended.length];
-			for(TaxNode n : nodes){
-				if(n!=null){
-					int level=n.levelExtended;
-					treeLevelsExtended[level][temp[level]]=n;
-					temp[level]++;
-				}
+		int[] temp=new int[nodesPerLevelExtended.length];
+		for(TaxNode n : nodes){
+			if(n!=null){
+				int level=n.levelExtended;
+				treeLevelsExtended[level][temp[level]++]=n;
 			}
 		}
-		nodeCount=(int)simd.Vector.sum(nodesPerLevelExtended);
-		
+		return count;
+	}
+
+	final boolean hasTextExcludedState(){
+		return nameMap!=null || nameMapLower!=null || childMap!=null || refseqSizeMap!=null
+				|| refseqSizeMapC!=null || refseqSeqMap!=null || refseqSeqMapC!=null || nodeMapC!=null;
 	}
 	
 	/*--------------------------------------------------------------*/
