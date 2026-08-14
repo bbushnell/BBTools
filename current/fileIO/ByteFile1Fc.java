@@ -156,7 +156,7 @@ public final class ByteFile1Fc extends ByteFile {
 	}
 	
 	@Override
-	public final ListNum<byte[]> nextList(){
+	public final ListNum<byte[]> nextListAsync(){
 		return nextList(new IntList());
 	}
 	

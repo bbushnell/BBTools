@@ -263,7 +263,7 @@ public final class ByteFile1old extends ByteFile {
 	}
 
 	@Override
-	public final ListNum<byte[]> nextList(){
+	public final ListNum<byte[]> nextListAsync(){
 		if(!open || is==null){
 			if(Shared.WINDOWS){System.err.println("Attempting to read from a closed file: "+name());}
 			return null;

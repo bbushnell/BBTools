@@ -17,7 +17,12 @@ import shared.Tools;
 import structures.ByteBuilder;
 import structures.IntHashMap;
 
-/** Converts serialized TaxTree files to a compact, versioned A48 text format. */
+/** 
+ * Converts serialized TaxTree files to a compact, versioned A48 text format.
+ * Loads TaxTree objects from text format.
+ * @author Brian Bushnell, Barbara
+ * @date August 13, 2026
+ */
 public final class TaxTreeText {
 
 	public static void main(String[] args){
