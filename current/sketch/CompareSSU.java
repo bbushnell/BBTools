@@ -101,7 +101,10 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 		//Create output FileFormat objects
 		ffout1=FileFormat.testOutput(out1, FileFormat.TXT, null, true, overwrite, append, ordered);
 		
-		tree=(treeFile==null) ? null : TaxTree.loadTaxTree(treeFile, outstream, true, false);
+		tree=useTree ? TaxTree.loadTaxTree(outstream, true, false) : null;
+		if(tree==null){
+			throw new RuntimeException("CompareSSU requires a TaxTree; use tree=t and provide treefile=<file>.");
+		}
 		
 		SSUMap.r16SFile=in1;
 		if(SSUMap.r16SFile!=null){
@@ -155,8 +158,6 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 			
 			if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
-			}else if(a.equals("tree")){
-				treeFile=b;
 			}else if(a.equals("ordered")){
 				ordered=Parse.parseBoolean(b);
 			}else if(a.equals("ata") || a.equals("alltoall")){
@@ -169,6 +170,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 				maxlen=Parse.parseIntKMG(b);
 			}else if(a.equalsIgnoreCase("maxns")){
 				maxns=Parse.parseIntKMG(b);
+			}else if(a.equalsIgnoreCase("tree") || a.equalsIgnoreCase("usetree")){
+				useTree=TaxTree.parseTreeFlag(b);
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -474,8 +477,6 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 
 	/** Primary input file path for SSU sequences */
 	private String in1=null;
-	
-	private String treeFile="auto";
 
 	/** Primary output file path for comparison results */
 	private String out1=null;
@@ -519,6 +520,8 @@ public class CompareSSU implements Accumulator<CompareSSU.ProcessThread> {
 
 	private boolean allToAll=false;
 	private boolean storeResults=false;
+	/** Whether this required taxonomy-dependent tool may load a taxonomic tree */
+	private boolean useTree=true;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/

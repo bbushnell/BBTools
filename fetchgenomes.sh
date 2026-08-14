@@ -19,7 +19,9 @@ Usage:  fetchgenomes.sh summary=<file[,file2]> out=<script.sh> [options]
 Parameters:
 summary=<file>      Comma-list of assembly_summary.txt files (required).
 out=<file>          Output download script (required).
-tree=auto           TaxTree for lineage-aware quotas; omit for name-token fallback.
+tree=f              Load TaxTree for lineage-aware quotas (default f); tree=t, tree=auto,
+                   or tree=<path> enables it.  treefile=<path> selects the source only.
+usetree=f           Alias for tree=f.
 maxperspecies=1     Assemblies kept per species (best-ranked first).
 maxpergenus=2       Species kept per genus (0=unlimited).
 maxperfamily=0      Species kept per family (0=unlimited).

@@ -34,7 +34,9 @@ replaceribo=f   Replace existing ssu with the ones supplied above.
 callssu=t       Gene-call sequences over 900bp to find 16S/18S.  Slow on large
                 inputs; set f when ssu is supplied via 16s= and 18s= instead.
 usetree=t       Use a taxonomic tree, for names, levels, and lineage strings.
-tree=auto       Tree location; auto finds it in resources, or give a path.
+tree=auto       Legacy tree flag; t/f enables/disables the tree, and tree=<path>
+                selects that tree and enables it.  treefile=<file> selects the
+                source without changing usetree.
 ddls=t          Build a DDL sketch per clade.  Set f when sketches are kept in
                 a separate file.
 ddl=<file>      Load DDL sketches from this file and attach them to clades by

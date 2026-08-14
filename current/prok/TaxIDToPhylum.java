@@ -14,7 +14,7 @@ import tax.TaxTree;
 public class TaxIDToPhylum {
 
 	public static void main(String[] args) throws Exception{
-		TaxTree tree=TaxTree.loadTaxTree(TaxTree.defaultTreeFile(), System.err, false, false);
+		TaxTree tree=TaxTree.loadTaxTree(System.err, false, false);
 		BufferedReader br=new BufferedReader(new InputStreamReader(System.in));
 		String line;
 		while((line=br.readLine())!=null){

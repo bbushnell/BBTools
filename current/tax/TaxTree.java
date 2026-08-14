@@ -249,15 +249,27 @@ public class TaxTree implements Serializable{
 
 	/**
 	 * Load a tax tree from disk.
+	 * @param hashNames Hash nodes using names as keys
+	 * @param hashDotFormat Hash nodes using abbreviations, e.g. H.sapiens
+	 * @return
+	 */
+	public static final TaxTree loadTaxTree(PrintStream outstream, boolean hashNames, 
+			boolean hashDotFormat){
+		if(treeFile==null){return null;}
+		return loadTaxTree(treeFile, null, null, null, outstream, hashNames, hashDotFormat);
+	}
+
+	/**
+	 * Load a tax tree from disk.
 	 * @param taxTreeFile Serialized TaxTree.
 	 * @param hashNames Hash nodes using names as keys
 	 * @param hashDotFormat Hash nodes using abbreviations, e.g. H.sapiens
 	 * @return
 	 */
-	public static final TaxTree loadTaxTree(String taxTreeFile, PrintStream outstream, boolean hashNames, 
+	public static final TaxTree loadTaxTree(String treeFile, PrintStream outstream, boolean hashNames, 
 			boolean hashDotFormat){
-		if(taxTreeFile==null){return null;}
-		return loadTaxTree(taxTreeFile, null, null, null, outstream, hashNames, hashDotFormat);
+		if(treeFile==null){return null;}
+		return loadTaxTree(treeFile, null, null, null, outstream, hashNames, hashDotFormat);
 	}
 	
 	/**
@@ -273,17 +285,18 @@ public class TaxTree implements Serializable{
 	 */
 	public static final TaxTree loadTaxTree(String taxTreeFile, String taxNameFile, String taxNodeFile, 
 			String taxMergedFile, PrintStream outstream, boolean hashNames, boolean hashDotFormat){
+		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=defaultTreeFile();}
 		if(taxTreeFile!=null || taxNodeFile==null){
 			TaxTree tree=sharedTree(taxTreeFile, hashNames, hashDotFormat, outstream);
 			if(tree!=null){return tree;}
 		}
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=defaultTreeFile();}
-		assert(taxTreeFile!=null || (taxNameFile!=null && taxNodeFile!=null)) : "Must specify both taxname and taxnode files.";
+		assert(taxTreeFile!=null || (taxNameFile!=null && taxNodeFile!=null)) : 
+			"Must specify both taxname and taxnode files.";
 		Timer t=new Timer();
 		if(outstream!=null){outstream.print("\nLoading tax tree; ");}
 		final TaxTree tree;
 		if(taxTreeFile!=null){
-			tree=ReadWrite.read(TaxTree.class, taxTreeFile, true);
+			tree=loadTaxTreeFile(taxTreeFile);
 		}else{
 			tree=new TaxTree(taxNameFile, taxNodeFile, taxMergedFile, null);
 		}
@@ -299,6 +312,28 @@ public class TaxTree implements Serializable{
 		}
 		if(ALLOW_SHARED_TREE){sharedTree=tree;}
 		return tree;
+	}
+
+	/** Load either the portable TSV representation or legacy Java serialization. */
+	private static TaxTree loadTaxTreeFile(String fname){
+		if(fname.endsWith(".tsv") || fname.endsWith(".tsv.gz")){
+			return TaxTreeText.load(fname);
+		}
+		return ReadWrite.read(TaxTree.class, fname, true);
+	}
+
+	/**
+	 * Parse a component-local tree flag while preserving legacy tree=path syntax.
+	 * Boolean values only control the caller; a path selects the shared source and enables the caller.
+	 */
+	public static boolean parseTreeFlag(String value){
+		if(value==null || value.isEmpty()){return true;}
+		if(Parse.isBoolean(value) || "1".equals(value) || "0".equals(value)
+				|| "null".equalsIgnoreCase(value) || "none".equalsIgnoreCase(value)){
+			return Parse.parseBoolean(value);
+		}
+		treeFile=value;
+		return true;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -2557,12 +2592,12 @@ public class TaxTree implements Serializable{
 //					if(outstream!=null){outstream.println("Loading tax tree.");}
 					if(outstream!=null){outstream.println("Loading tax tree from "+fname);} //Useful for debugging
 					Timer t=new Timer(outstream, false);
-					setSharedTree(ReadWrite.read(TaxTree.class, fname, true), hashNames, hashDotFormat);
+					setSharedTree(loadTaxTreeFile(fname), hashNames, hashDotFormat);
 					t.stopAndPrint();
 				}
 			}
 		}
-		if(hashNames && sharedTree.nameMap==null){
+		if(sharedTree!=null && hashNames && sharedTree.nameMap==null){
 			synchronized(sharedTree){
 				if(sharedTree.nameMap==null){
 					if(outstream!=null){outstream.println("Hashing names.");}
@@ -2798,6 +2833,7 @@ public class TaxTree implements Serializable{
 	private static final Pattern delimiter2 = Pattern.compile("[\\s_]+");
 	
 	public static boolean IMG_HQ=false;
+	public static String treeFile="auto";
 	
 	/* For these fields, see the corresponding functions, below.
 	 * They define the default paths to various data on NERSC. */
@@ -2874,21 +2910,16 @@ public class TaxTree implements Serializable{
 	
 	/** Location of gitable.int2d.gz for gi lookups */
 	public static final String defaultTableFile(){return defaultTableFile.replaceAll("TAX_PATH", TAX_PATH);}
-	/** Location of tree.taxtree.gz.
+	
+	/** Location of taxtree.tsv.gz.
 	 * The tree now ships with BBTools, so resources/ wins; TAX_PATH is only a legacy fallback for
 	 * installations that predate the bundled tree.  The other taxonomy files (gitable, accession2taxid,
 	 * imgDump, ...) are far too large to bundle and still live under TAX_PATH -- this priority applies
-	 * to the TREE ALONE.
-	 *
-	 * TAX_PATH used to be checked first, which silently won on any host where TAX_PATH held a tree
-	 * (e.g. Dori, whose TAX_PATH is a hardcoded personal directory selected by the SLURM_PARTITION
-	 * env var).  Two jobs on the same cluster could then load DIFFERENT taxonomy snapshots depending
-	 * on the environment they inherited, with no error and no warning -- only different results.
-	 * Rank assignments differ between snapshots, so this silently changes output. */
+	 * to the TREE ALONE.*/
 	public static final String defaultTreeFile(){
-		String s2=Data.RESOURCES()+"tree.taxtree.gz";
+		String s2=Data.RESOURCES()+"taxtree.tsv.gz";
 		if(new File(s2).exists()) {return s2;}
-		s2=Data.ROOT()+"tree.taxtree.gz";
+		s2=Data.ROOT()+"taxtree.tsv.gz";
 		if(new File(s2).exists()) {return s2;}
 		String s=defaultTreeFile.replaceAll("TAX_PATH", TAX_PATH);
 		if(new File(s).exists()) {return s;}

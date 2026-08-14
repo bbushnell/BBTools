@@ -71,7 +71,6 @@ public class ConfidenceVectorizer {
 		vdims=ranking ? (MAIN_DIMS+2*SMALL_DIMS+1) : (MAIN_DIMS+2*SMALL_DIMS); //49 with ranking dim, else 48
 		assert(in1!=null) : "No input (in=machine.tsv).";
 		assert(out1!=null) : "No output (out=vectors.tsv or a prefix for mode=binary).";
-		assert(treeFile!=null) : "No taxonomy tree (tree=tree.taxtree.gz).";
 		assert(buckets>=0) : "buckets must be >=0 (0 = fast/no-sketch mode; else the DB bucket count, e.g. 4096, 32768).";
 
 		ffin1=FileFormat.testInput(in1, FileFormat.TXT, null, true, true);
@@ -86,10 +85,12 @@ public class ConfidenceVectorizer {
 			String b=split.length>1 ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
-			if(a.equals("tree") || a.equals("taxtree")){
-				treeFile=b;
-			}else if(a.equals("buckets") || a.equals("ddlbuckets")){
+			if(a.equals("buckets") || a.equals("ddlbuckets")){
 				buckets=Integer.parseInt(b);
+			}else if(a.equals("tree") || a.equals("taxtree")){
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(a.equals("usetree")){
+				useTree=Parse.parseBoolean(b);
 			}else if(a.equals("mode")){
 				continuous=(b!=null && (b.startsWith("cont")||b.equals("c")||b.equals("regression")||b.equals("reg")));
 			}else if(a.equals("ranking") || a.equals("rank")){
@@ -111,8 +112,14 @@ public class ConfidenceVectorizer {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
-		outstream.println("Loading tree: "+treeFile);
-		tree=TaxTree.loadTaxTree(treeFile, outstream, true, false);
+		if(!useTree){
+			throw new IllegalArgumentException("ConfidenceVectorizer requires a taxonomy tree; tree=f/usetree=f disables the tree.");
+		}
+		outstream.println("Loading tree: "+TaxTree.treeFile);
+		tree=TaxTree.loadTaxTree(outstream, true, false);
+		if(tree==null){
+			throw new RuntimeException("ConfidenceVectorizer requires a loadable taxonomy tree; treefile="+TaxTree.treeFile);
+		}
 		log2buckets=(float)(Math.log(Math.max(buckets,1))/Math.log(2)/16.0);
 		outstream.println("featureVersion=2 mode="+(continuous?"continuous":"binary")+" buckets="+buckets+" ranking="+ranking+" dims="+vdims);
 
@@ -431,7 +438,7 @@ public class ConfidenceVectorizer {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private String in1=null, out1=null, treeFile=null;
+	private String in1=null, out1=null;
 	private int buckets=0;
 	private boolean continuous=false;
 	private boolean ranking=false;
@@ -453,6 +460,7 @@ public class ConfidenceVectorizer {
 	public static boolean verbose=false;
 	public boolean errorState=false;
 	private boolean overwrite=true, append=false;
+	private boolean useTree=true;
 
 	/*--------------------------------------------------------------*/
 	/*----------------           Constants          ----------------*/

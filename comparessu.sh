@@ -31,6 +31,12 @@ minlen=0        Ignore sequences shorter than this.
 maxlen=BIG      Ignore sequences longer than this.
 maxns=-1        If positive, ignore sequences with more than this many Ns.
 
+Taxonomy parameters:
+tree=t          Use a TaxTree (default; required for this tool).
+usetree=t       Alias for tree=t/f.
+treefile=auto   Select the TaxTree source without changing the local gate.
+tree=<path>     Legacy form that selects the path and enables loading.
+
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

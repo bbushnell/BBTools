@@ -49,18 +49,19 @@ public class FindAncestor {
 		ReadWrite.setZipThreads(Shared.threads());
 		
 		Parser parser=new Parser();
+		boolean useTree=true;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 
-			if(parser.parse(arg, a, b)){
+			if(a.equals("tree") || a.equals("usetree") || a.equals("taxtree")){
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else if(a.equals("table") || a.equals("gi") || a.equals("gitable")){
 				giTableFile=b;
-			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
 			}else if(a.equals("invalid")){
 				outInvalid=b;
 			}else if(a.equals("lines")){
@@ -80,7 +81,6 @@ public class FindAncestor {
 				//				throw new RuntimeException("Unknown parameter "+args[i]);
 			}
 		}
-		if("auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		
 		{//Process parser fields
@@ -116,13 +116,14 @@ public class FindAncestor {
 			outstream.println("Loading gi table.");
 			GiToTaxid.initialize(giTableFile);
 		}
-		if(taxTreeFile!=null){
-			tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, true);
-			assert(tree.nameMap!=null);
-		}else{
-			tree=null;
-			throw new RuntimeException("No tree specified.");
+		if(!useTree){
+			throw new RuntimeException("FindAncestor requires a taxonomy tree; tree=f is not supported.");
 		}
+		tree=TaxTree.loadTaxTree(outstream, true, true);
+		if(tree==null){
+			throw new RuntimeException("FindAncestor requires a taxonomy tree; none could be loaded.");
+		}
+		assert(tree.nameMap!=null);
 		lifeNode=tree.getNodeByName("life");
 	}
 	
@@ -351,7 +352,6 @@ public class FindAncestor {
 	private String outInvalid=null;
 
 	private String giTableFile=null;
-	private String taxTreeFile=null;
 	
 	private final TaxTree tree;
 	

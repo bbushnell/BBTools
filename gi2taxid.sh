@@ -15,7 +15,7 @@ Parameters:
 in=<file>       Input sequences; required parameter.  Must be fasta.
                 This can alternatively be a comma-delimited list,
                 or just a bunch of space-delimited filenames, e.g.:
-                gi2taxid.sh x.fa y.fa z.fa out=tid.fa tree=auto table=auto
+                gi2taxid.sh x.fa y.fa z.fa out=tid.fa tree=t table=auto
 out=<file>      Destination for renamed sequences.
 invalid=<file>  Destination for headers with no taxid.
 keepall=t       Keep sequences with no taxid in normal output.
@@ -32,7 +32,8 @@ deleteinvalid=f Delete the output file if there are any invalid headers.
 Taxonomy File Parameters:
 server=f        Use the taxonomy server instead of local files.
                 Server mode only works for accessions (like RefSeq).
-tree=           Specify a taxtree file.  On Genepool, use 'auto'.
+tree=f          Enable taxonomy-tree loading (default f; set t to load).
+treefile=auto   Select the taxonomy tree file.  A path may be used instead.
 gi=             Specify a gitable file.  On Genepool, use 'auto'.
 accession=      Specify one or more comma-delimited NCBI accession to
                 taxid files.  On Genepool, use 'auto'.

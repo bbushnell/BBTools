@@ -65,6 +65,7 @@ public class PrintTaxonomy {
 		
 		//Create a parser object
 		Parser parser=new Parser();
+		boolean useTree=true;
 		
 		int taxLevel=0, minLevel=0, maxLevel=TaxTree.LIFE;
 		
@@ -77,7 +78,9 @@ public class PrintTaxonomy {
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
 			
-			if(a.equals("out")){
+			if(a.equals("tree") || a.equals("usetree") || a.equals("taxtree")){
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(a.equals("out")){
 				out1=b;
 			}else if(a.equals("counts")){
 				countFile=b;
@@ -89,8 +92,6 @@ public class PrintTaxonomy {
 				giTableFile=b;
 			}else if(a.equals("accession")){
 				accessionFile=b;
-			}else if(a.equals("tree") || a.equals("taxtree")){
-				taxTreeFile=b;
 			}else if(a.equals("level") || a.equals("lv") || a.equals("taxlevel") || a.equals("tl")){
 				taxLevel=TaxTree.parseLevel(b);
 			}else if(a.equals("minlevel")){
@@ -118,7 +119,6 @@ public class PrintTaxonomy {
 			}
 		}
 		
-		if(taxTreeFile==null || "auto".equalsIgnoreCase(taxTreeFile)){taxTreeFile=TaxTree.defaultTreeFile();}
 		if("auto".equalsIgnoreCase(giTableFile)){giTableFile=TaxTree.defaultTableFile();}
 		if("auto".equalsIgnoreCase(accessionFile)){accessionFile=TaxTree.defaultAccessionFile();}
 		
@@ -156,13 +156,14 @@ public class PrintTaxonomy {
 			outstream.println("Loading accession table.");
 			AccessionToTaxid.load(accessionFile);
 		}
-		if(taxTreeFile!=null){
-			tree=TaxTree.loadTaxTree(taxTreeFile, outstream, true, true);
-			assert(tree.nameMap!=null);
-		}else{
-			tree=null;
-			throw new RuntimeException("No tree specified.");
+		if(!useTree){
+			throw new RuntimeException("PrintTaxonomy requires a taxonomy tree; tree=f is not supported.");
 		}
+		tree=TaxTree.loadTaxTree(outstream, true, true);
+		if(tree==null){
+			throw new RuntimeException("PrintTaxonomy requires a taxonomy tree; none could be loaded.");
+		}
+		assert(tree.nameMap!=null);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -555,8 +556,6 @@ public class PrintTaxonomy {
 
 	/** Source file for gi-to-taxid mappings (auto uses TaxTree defaults) */
 	private String giTableFile=null;
-	/** Raw taxonomy tree file to load when constructing the TaxTree */
-	private String taxTreeFile=null;
 	/** Source file for accession-to-taxid mappings (optional) */
 	private String accessionFile=null;
 	

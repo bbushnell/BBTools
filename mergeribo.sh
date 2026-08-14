@@ -46,6 +46,9 @@ maxlen=4000     Ignore sequences longer than this.
 level=          If specified with a term like 'species' or 'genus', nodes
                 will be promoted to that level, minimum, before consensus.
 dada2=f         Output headers in dada2 format.
+tree=f          Load a TaxTree (default f); tree=t, tree=auto, or tree=<path> enables it.
+usetree=f       Alias for tree=f.  dada2=t or level=<level> requires a tree; explicit f fails.
+treefile=auto   Select the TaxTree source without changing the local gate.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

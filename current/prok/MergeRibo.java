@@ -106,6 +106,7 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			extout=parser.extout;
 		}
 
+		validateTreeRequirement();
 		validateParams();
 		adjustInterleaving(); //Make sure interleaving agrees with number of input and output files
 		checkFileExistence(); //Ensure files can be read and written
@@ -124,7 +125,6 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		
 		//Determine how many threads may be used
 		threads=Shared.threads();
-		useTree|=(dada2 || taxLevelE>0);
 		if(useTree) {loadTree();}
 	}
 	
@@ -173,16 +173,13 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 				Tools.addFiles(b, in);
 			}else if(a.equals("alt")){
 				alt=b;
-			}else if(a.equals("tree")){
-				treePath=b;
-				useTree=(treePath!=null);
-			}else if(a.equals("usetree")){
-				useTree=Parse.parseBoolean(b);
+			}else if(a.equals("usetree") || a.equals("tree")){
+				useTree=TaxTree.parseTreeFlag(b);
+				treeFlagSet=true;
 			}else if(a.equalsIgnoreCase("dada2")){
 				dada2=Parse.parseBoolean(b);
 			}else if(a.equals("level") || a.equals("taxlevel")){
 				taxLevelE=TaxTree.parseLevelExtended(b);
-				if(taxLevelE>0) {useTree=true;}
 			}else if(a.equalsIgnoreCase("process16S") || a.equalsIgnoreCase("16S")){
 				process16S=Parse.parseBoolean(b);
 				if(process16S){process18S=false; processITS=false;}
@@ -206,6 +203,17 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 		}
 		assert(!in.isEmpty()) : "No input file.";
 		return parser;
+	}
+
+	/** Enable the historical implicit tree load unless the caller explicitly disabled it. */
+	private void validateTreeRequirement(){
+		if(!dada2 && taxLevelE<=0){return;}
+		if(!useTree){
+			if(treeFlagSet){
+				throw new RuntimeException("Error: dada2 or taxlevel requires a taxonomic tree; explicit tree=f/usetree=f disables loading.");
+			}
+			useTree=true;
+		}
 	}
 	
 	/** Ensure files can be read and written */
@@ -782,10 +790,7 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	 * @return Loaded TaxTree object
 	 */
 	private TaxTree loadTree() {
-		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
-		if(treePath!=null) {
-			tree=TaxTree.loadTaxTree(treePath, System.err, false, false);
-		}
+		tree=TaxTree.loadTaxTree(System.err, false, false);
 		return tree;
 	}
 	
@@ -816,10 +821,10 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	
 	/** Taxonomic tree for taxon resolution and lineage generation */
 	private TaxTree tree=null;
-	/** Path to taxonomic tree file, defaults to automatic detection */
-	private String treePath="auto";
 	/** Whether to use taxonomic tree for taxon resolution */
 	private boolean useTree=false;
+	/** Whether tree/usetree was explicitly set on the command line. */
+	private boolean treeFlagSet=false;
 	/** Extended taxonomic level for grouping sequences (-1 for no grouping) */
 	private int taxLevelE=-1;
 	/** Whether to generate DADA2-compatible output with taxonomic lineages */

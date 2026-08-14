@@ -28,6 +28,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
 import structures.ListNum;
+import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.EntropyTracker;
@@ -146,13 +147,9 @@ public class CladeLoaderMF extends CladeObject implements Accumulator<CladeLoade
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 			
 			if(a.equals("tree")){
-				if(b==null || b.equalsIgnoreCase("t") || b.equalsIgnoreCase("true")) {
-					treePath="auto";
-				}else if(b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false")) {
-					treePath=null;
-				}else {
-					treePath=b;
-				}
+				useTree=TaxTree.parseTreeFlag(b);
+			}else if(a.equals("usetree")){
+				useTree=Parse.parseBoolean(b);
 			}else if(a.equals("in")){
 				Tools.getFileOrFiles(b, in, true, false, false, false);
 			}else if(a.equals("verbose")){

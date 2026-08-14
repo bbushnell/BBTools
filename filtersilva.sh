@@ -14,7 +14,9 @@ in=<file>       Input file.
 out=<file>      Output file.
 
 Additional file parameters:
-tree=auto       Path to TaxTree.
+tree=t          TaxTree is required (default t); tree=f/usetree=f is an error.
+tree=<path>     Legacy form that enables the tree and selects its source.
+treefile=auto   Select the TaxTree source without changing the local gate.
 
 
 Java Parameters:

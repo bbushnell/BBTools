@@ -999,6 +999,10 @@ public class Parser {
 			if(x){Shared.LOW_MEMORY=true;}
 		}
 		
+		else if(a.equals("treefile")){
+			TaxTree.treeFile=(b==null || "null".equalsIgnoreCase(b) || "none".equalsIgnoreCase(b)) ? null : b;
+		}
+		
 //		else if(a.equalsIgnoreCase("sortserial")){
 //			KmerCountAbstract.SORT_SERIAL=Parse.parseBoolean(b);
 //		}

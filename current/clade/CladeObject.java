@@ -381,12 +381,9 @@ public class CladeObject {
 	static TaxTree loadTree(){return loadTree(false);}
 
 	static TaxTree loadTree(boolean force) {
+		if(!useTree){return null;}
 		if(!force && parallelLoadTree){return tree;}
-		if(!useTree || tree!=null) {return null;}
-		if("auto".equals(treePath)){treePath=TaxTree.defaultTreeFile();}
-		if(treePath!=null) {
-			tree=TaxTree.loadTaxTree(treePath, System.err, false, false);
-		}
+		if(tree==null){tree=TaxTree.loadTaxTree(System.err, false, false);}
 		return tree;
 	}
 	
@@ -439,7 +436,6 @@ public class CladeObject {
 	/** Print status messages to this output stream */
 	static PrintStream outstream=System.err;
 	public static TaxTree tree=null;
-	static String treePath="auto";
 	static boolean useTree=true;
 	static boolean parallelLoadTree=false;
 	

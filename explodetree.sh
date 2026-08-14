@@ -8,13 +8,16 @@ Last modified December 13, 2017
 Description:   Constructs a directory and file tree of sequences
 corresponding to a taxonomic tree.
 
-Usage:  explodetree.sh in=<file> out=<path> tree=<file>
+Usage:  explodetree.sh in=<file> out=<path> [tree=t]
 
 Parameters:
 in=             A fasta file annotated with taxonomic data in headers,
                 such as modified RefSeq.
 out=            (path) Location to write the tree.
-tree=           Location of taxtree file.
+tree=t           Enable the bundled taxtree (default).  tree=f is not supported;
+                this tool requires a taxonomy tree.  A legacy tree=<file> path
+                is also accepted.
+treefile=auto    Select the taxonomy tree source without changing the local gate.
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

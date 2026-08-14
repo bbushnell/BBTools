@@ -12,8 +12,8 @@ A gi number should be gi|number.
 Please read bbmap/docs/guides/TaxonomyGuide.txt for more information.
 Not: It is more convenient to use taxonomy.jgi-psf.org.
 
-Usage:  taxonomy.sh tree=<tree file> <identifier>
-Alternate usage: taxonomy.sh tree=<tree file> in=<file>
+Usage:  taxonomy.sh [tree=t] <identifier>
+Alternate usage: taxonomy.sh [tree=t] in=<file>
 
 Usage examples:
 taxonomy.sh tree=tree.taxtree.gz homo_sapiens canis_lupus 9606
@@ -22,8 +22,10 @@ taxonomy.sh tree=tree.taxtree.gz gi=gitable.int1.d.gz in=refseq.fasta
 Processing parameters:
 in=<file>       A file containing named sequences, or just the names.
 out=<file>      Output file.  If blank, use stdout.
-tree=<file>     Specify a TaxTree file like tree.taxtree.gz.
-                On Genepool, use 'auto'.
+tree=t          Enable the bundled TaxTree (default).  tree=f is not supported;
+                this tool requires a taxonomy tree.  A legacy tree=<file> path
+                is also accepted.
+treefile=auto   Select the taxonomy tree source without changing the local gate.
 gi=<file>       Specify a gitable file like gitable.int1d.gz. Only needed
                 if gi numbers will be used.  On Genepool, use 'auto'.
 accession=      Specify one or more comma-delimited NCBI accession to taxid
