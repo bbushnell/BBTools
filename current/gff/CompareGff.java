@@ -2,8 +2,11 @@ package gff;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map.Entry;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import fileIO.ByteFile;
 import fileIO.FileFormat;
@@ -112,6 +115,8 @@ public class CompareGff {
 //				ByteFile1.verbose=verbose;
 //				ByteFile2.verbose=verbose;
 //				ReadWrite.verbose=verbose;
+			}else if(a.equals("ncrna") || a.equals("overlap")){
+				ncrna=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else if(i==0 && arg.indexOf('=')<0){
@@ -198,7 +203,9 @@ public class CompareGff {
 		
 		outstream.println();
 		outstream.println("SNR: \t"+Tools.format("%.4f", 10*Math.log10((truePositiveStart2+truePositiveStop2+0.1)/(falsePositiveStart2+falsePositiveStop2+0.1))));
-		
+
+		if(ncrna){processNcRNA();}
+
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state; the output may be corrupt.");
 		}
@@ -313,7 +320,214 @@ public class CompareGff {
 			}
 		}
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------      ncRNA Overlap Metrics   ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Overlap-based accuracy for ncRNA feature types (tRNA, rRNA), reported IN ADDITION to
+	 * the exact-match counts above (which stay unchanged). A called feature is a true positive
+	 * if it overlaps a reference feature of the same type, on the same seqid, by more than half
+	 * of BOTH features' lengths (reciprocal 50% overlap == overlap &gt; 0.5*max(refLen, qryLen),
+	 * using the eval_anticodon3 no-+1 length convention). For matched pairs it also reports
+	 * 5'/3' boundary-exactness and offsets (strand-aware), and for tRNA the anticodon/amino-acid
+	 * accuracy of the call by two paths -- model-name annotation and structural anticodon
+	 * extraction -- against the reference product/Note annotation.
+	 *
+	 * Two deliberate deviations from the eval_anticodon3.sh reference:
+	 * (1) RECIPROCAL overlap -- the script gates on the reference side only (overlap &gt; 0.5*refLen);
+	 *     a one-sided gate lets a single genome-spanning prediction trivially match every reference,
+	 *     so a general-purpose tool requires overlap on the query side too. The script gets away with
+	 *     it because callgenes tRNA predictions are always ~70-120 bp, never genome-spanning.
+	 * (2) SEQID-AWARE -- a call only matches a reference on the SAME contig, mandatory when the
+	 *     query/ref hold many concatenated genomes; the per-genome python ignores seqid.
+	 * Numbers match the reference for single-contig genomes whose calls are near reference length,
+	 * and diverge only where a call is much longer/shorter than its reference (reciprocal rejects it)
+	 * or on coincidental cross-contig overlap (seqid-awareness rejects it).
+	 */
+	private void processNcRNA(){
+		overlapMetrics("tRNA", true);
+		overlapMetrics("rRNA", false);
+	}
+
+	/** Computes and prints overlap-based metrics for one ncRNA feature type.
+	 * @param type GFF feature type to score ("tRNA" or "rRNA")
+	 * @param isTrna If true, also computes anticodon/amino-acid accuracy */
+	private void overlapMetrics(String type, boolean isTrna){
+		final ArrayList<GffLine> refList=GffLine.loadGffFile(ffref, type, false);
+		final ArrayList<GffLine> qryList=GffLine.loadGffFile(ffin, type, false);
+
+		//Index reference features per seqid, sorted by start, for fast overlap lookup
+		final HashMap<String, ArrayList<GffLine>> refBySeqid=new HashMap<String, ArrayList<GffLine>>();
+		for(GffLine r : refList){
+			ArrayList<GffLine> list=refBySeqid.get(r.seqid);
+			if(list==null){list=new ArrayList<GffLine>(); refBySeqid.put(r.seqid, list);}
+			list.add(r);
+		}
+		for(ArrayList<GffLine> list : refBySeqid.values()){Collections.sort(list, START_COMP);}
+
+		final int refCount=refList.size(), qryCount=qryList.size();
+		long tp=0, fp=0;
+		//Boundary tallies over matched pairs
+		long bothExact=0, startExact=0, stopExact=0;
+		long sumDs=0, sumDe=0, absDs=0, absDe=0;
+		//Anticodon tallies (tRNA only)
+		long extracted=0, skipUnk=0;
+		long mAaC=0, mAaW=0, mAcC=0, mAcW=0;//model-name path: amino/anticodon correct/wrong
+		long eAaC=0, eAaW=0, eAcC=0, eAcW=0;//structural-extraction path
+
+		for(GffLine q : qryList){
+			final int qs=q.start, qe=q.stop;
+			String[] call=null;
+			if(isTrna){
+				call=calledAmino(q.attributes);
+				if("1".equals(call[4])){extracted++;}//extraction coverage counts EVERY call, matched or not
+			}
+
+			//First reference on the same seqid overlapping by >50% of its own length wins
+			GffLine match=null;
+			final ArrayList<GffLine> candidates=refBySeqid.get(q.seqid);
+			if(candidates!=null){
+				for(GffLine r : candidates){
+					if(r.start>qe){break;}//sorted by start: no later ref can overlap
+					final int ov=Math.min(qe, r.stop)-Math.max(qs, r.start);//no-+1 length convention
+					final int refLen=r.stop-r.start, qryLen=qe-qs;//no-+1 length convention
+					//RECIPROCAL 50%: overlap must exceed half of BOTH features' lengths (== half of the
+					//longer). This deviates from eval_anticodon3 (which gates on the reference side only)
+					//per Brian: a one-sided gate lets one genome-spanning prediction trivially match every
+					//reference. A general-purpose tool must require overlap on the query side too.
+					if(2*ov>Math.max(refLen, qryLen)){match=r; break;}
+				}
+			}
+			if(match==null){fp++; continue;}
+			tp++;
+
+			//Boundary accuracy (strand-aware: for minus strand, swap which end is 5'/3')
+			int ds=qs-match.start, de=qe-match.stop;
+			if(q.strand==GffLine.MINUS){final int tmp=ds; ds=-de; de=-tmp;}
+			if(ds==0){startExact++;}
+			if(de==0){stopExact++;}
+			if(ds==0 && de==0){bothExact++;}
+			sumDs+=ds; sumDe+=de; absDs+=Math.abs(ds); absDe+=Math.abs(de);
+
+			if(isTrna){
+				final String[] refAA=refAmino(match.attributes);//[aa, ac-or-null]
+				final String raa=refAA[0], rac=refAA[1];
+				if("UNK".equals(raa)){
+					skipUnk++;
+				}else{
+					final String maa=call[0], mac=call[1], eaa=call[2], eac=call[3];
+					if(aaMatch(maa, raa)){mAaC++;}else{mAaW++;}
+					if(aaMatch(eaa, raa)){eAaC++;}else{eAaW++;}
+					if(rac!=null){
+						if(rac.equals(mac)){mAcC++;}else{mAcW++;}
+						if(rac.equals(eac)){eAcC++;}else{eAcW++;}
+					}
+				}
+			}
+		}
+
+		final long fn=refCount-tp;//oracle convention: unconsumed refs (may be <0 in pathological cases)
+		outstream.println();
+		outstream.println("=== "+type+" overlap-based metrics (reciprocal >50% overlap) ===");
+		outstream.println("Overlap: \t"+tp+"tp\t"+fp+"fp\t"+fn+"fn\tprec="
+			+Tools.format("%.1f%%", tp*100.0/Math.max(1, tp+fp))+"\trecall="
+			+Tools.format("%.1f%%", tp*100.0/Math.max(1, refCount)));
+		outstream.println("Boundary: \tboth-exact "+bothExact+"/"+tp+" ("
+			+Tools.format("%.1f%%", bothExact*100.0/Math.max(1, tp))+"); 5p-exact "
+			+Tools.format("%.1f%%", startExact*100.0/Math.max(1, tp))+", 3p-exact "
+			+Tools.format("%.1f%%", stopExact*100.0/Math.max(1, tp)));
+		outstream.println("Offsets: \t5p mean "+Tools.format("%+.2f", sumDs*1.0/Math.max(1, tp))
+			+" |"+Tools.format("%.2f", absDs*1.0/Math.max(1, tp))+"|, 3p mean "
+			+Tools.format("%+.2f", sumDe*1.0/Math.max(1, tp))+" |"+Tools.format("%.2f", absDe*1.0/Math.max(1, tp))+"|");
+		if(isTrna){
+			outstream.println("Extraction coverage: \t"+extracted+"/"+qryCount+" calls ("
+				+Tools.format("%.1f%%", extracted*100.0/Math.max(1, qryCount))+")");
+			outstream.println("Model-only AA: \t"+mAaC+"/"+(mAaC+mAaW)+" ("
+				+Tools.format("%.2f%%", mAaC*100.0/Math.max(1, mAaC+mAaW))+")\tanticodon: "
+				+mAcC+"/"+(mAcC+mAcW)+" ("+Tools.format("%.2f%%", mAcC*100.0/Math.max(1, mAcC+mAcW))+")");
+			outstream.println("Extraction AA: \t"+eAaC+"/"+(eAaC+eAaW)+" ("
+				+Tools.format("%.2f%%", eAaC*100.0/Math.max(1, eAaC+eAaW))+")\tanticodon: "
+				+eAcC+"/"+(eAcC+eAcW)+" ("+Tools.format("%.2f%%", eAcC*100.0/Math.max(1, eAcC+eAcW))+")");
+			outstream.println("Skipped (UNK ref): \t"+skipUnk);
+		}
+	}
+
+	/** Amino-acid match with fMet credit (a Met call satisfies an fMet reference). */
+	private static boolean aaMatch(String called, String ref){
+		return called.equals(ref) || ("Met".equals(called) && "fMet".equals(ref));
+	}
+
+	/** Parses reference amino acid and (optional) anticodon triplet from a tRNA attribute string.
+	 * Prefers the Note=tRNA-AA(ANTICODON) form (carries the triplet), else product=tRNA-AA.
+	 * @return [aminoAcid, anticodonTripletOrNull]; aminoAcid is "UNK" if unrecognized */
+	private static String[] refAmino(String attr){
+		if(attr!=null){
+			Matcher m=REF_NOTE.matcher(attr);
+			if(m.find()){return new String[]{m.group(1), m.group(2)};}
+			m=REF_PRODUCT.matcher(attr);
+			if(m.find()){return new String[]{m.group(1), null};}
+		}
+		return new String[]{"UNK", null};
+	}
+
+	/** Parses the called anticodon/amino acid two ways: (a) model-name annotation
+	 * (model:tRNA_consensus_XXX_c...) and (b) structural extraction (anticodon:XXX, DNA-&gt;RNA),
+	 * falling back to the model name when no extraction attribute is present.
+	 * @return [modelAA, modelAC, extractAA, extractAC, hasExtract("1"/"0")] */
+	private static String[] calledAmino(String attr){
+		String mac="NONE";
+		if(attr!=null){
+			Matcher m=CALL_MODEL.matcher(attr);
+			if(m.find()){mac=m.group(1);}
+		}
+		final String maa=AC.getOrDefault(mac, mac);
+		String eac, eaa, hasExtract;
+		final Matcher e=(attr==null ? null : CALL_ANTI.matcher(attr));
+		if(e!=null && e.find()){
+			eac=e.group(1).replace('T', 'U');//DNA alphabet -> RNA
+			eaa=AC.getOrDefault(eac, eac);
+			hasExtract="1";
+		}else{
+			eac=mac; eaa=maa; hasExtract="0";
+		}
+		return new String[]{maa, mac, eaa, eac, hasExtract};
+	}
+
+	/** Builds the anticodon(RNA triplet)-&gt;amino-acid table verbatim from eval_anticodon3.sh
+	 * (Aug 10 2026 revision). First writer wins on any duplicate triplet. */
+	private static HashMap<String, String> buildAC(){
+		HashMap<String, String> ac=new HashMap<String, String>();
+		putAC(ac, "Phe", "AAA","GAA");
+		putAC(ac, "Leu", "AAG","GAG","UAA","UAG","CAA","CAG");
+		putAC(ac, "Ile", "AAU","GAU","UAU");
+		putAC(ac, "Met", "CAU");
+		putAC(ac, "Val", "AAC","GAC","UAC","CAC");
+		putAC(ac, "Ser", "AGA","GGA","UGA","CGA","GCU","ACU");
+		putAC(ac, "Pro", "AGG","GGG","UGG","CGG");
+		putAC(ac, "Thr", "AGU","GGU","UGU","CGU");
+		putAC(ac, "Ala", "AGC","GGC","UGC","CGC");
+		putAC(ac, "Tyr", "AUA","GUA");
+		putAC(ac, "His", "AUG","GUG");
+		putAC(ac, "Gln", "UUG","CUG");
+		putAC(ac, "Asn", "AUU","GUU");
+		putAC(ac, "Lys", "UUU","CUU");
+		putAC(ac, "Asp", "AUC","GUC");
+		putAC(ac, "Glu", "UUC","CUC");
+		putAC(ac, "Cys", "ACA","GCA");
+		putAC(ac, "Trp", "CCA");
+		putAC(ac, "Arg", "ACG","GCG","UCG","CCG","UCU","CCU");
+		putAC(ac, "Gly", "ACC","GCC","UCC","CCC");
+		putAC(ac, "Sec", "UCA");
+		return ac;
+	}
+
+	/** Adds each anticodon triplet under an amino acid, keeping the first assignment. */
+	private static void putAC(HashMap<String, String> map, String aa, String... acs){
+		for(String a : acs){if(!map.containsKey(a)){map.put(a, aa);}}
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -372,5 +586,26 @@ public class CompareGff {
 	public boolean errorState=false;
 	private boolean overwrite=true;
 	private boolean append=false;
-	
+
+	/** If true, print the additional overlap-based ncRNA (tRNA/rRNA) metrics after the exact-match output. */
+	private boolean ncrna=true;
+
+	/** Anticodon(RNA triplet)->amino-acid table (see {@link #buildAC}). */
+	private static final HashMap<String, String> AC=buildAC();
+
+	/** Reference tRNA amino acid + anticodon triplet: Note=tRNA-AA(ANTICODON). */
+	private static final Pattern REF_NOTE=Pattern.compile("Note=tRNA-(\\w+)\\((\\w+)\\)");
+	/** Reference tRNA amino acid only: product=tRNA-AA. */
+	private static final Pattern REF_PRODUCT=Pattern.compile("product=tRNA-(\\w+)");
+	/** Called tRNA model-name anticodon: model:tRNA_consensus_XXX_c. */
+	private static final Pattern CALL_MODEL=Pattern.compile("model:tRNA_consensus_(\\w+)_c");
+	/** Called tRNA structural anticodon (DNA alphabet): anticodon:XXX. */
+	private static final Pattern CALL_ANTI=Pattern.compile("anticodon:([ACGT]+)");
+
+	/** Orders GffLines by ascending start (col4) for per-seqid overlap scans. */
+	private static final java.util.Comparator<GffLine> START_COMP=new java.util.Comparator<GffLine>(){
+		@Override
+		public int compare(GffLine x, GffLine y){return Integer.compare(x.start, y.start);}
+	};
+
 }

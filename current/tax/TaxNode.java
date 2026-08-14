@@ -149,6 +149,8 @@ public class TaxNode implements Serializable{
 		int x=(int)(flag&ORIGINAL_LEVEL_MASK);
 		return x==ORIGINAL_LEVEL_MASK ? -1 : x;
 	}
+
+	final long rawFlag(){return flag;}
 	
 	public boolean cellularOrganisms(){
 		return id==TaxTree.CELLULAR_ORGANISMS_ID;
@@ -206,6 +208,8 @@ public class TaxNode implements Serializable{
 	public void setOriginalLevel(int x){
 		flag=(flag&~ORIGINAL_LEVEL_MASK)|(x&ORIGINAL_LEVEL_MASK);
 	}
+
+	final void setRawFlag(long flag_){flag=flag_;}
 	
 	boolean discussWithParent(TaxNode parent){
 		final int oldChildLevel=parent.maxChildLevelExtended;
