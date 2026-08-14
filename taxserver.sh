@@ -2,33 +2,44 @@
 
 usage(){
 echo "
-Written by Brian Bushnell and Shijie Yao
-Last modified December 2, 2025
+Written by Brian Bushnell, Shijie Yao, and Chloe
+Last modified August 14, 2026
 
 Description:   Starts a server that translates NCBI taxonomy.
+Two modes are supported: in-memory (traditional) and disk-backed.
 
-Usage:  taxserver.sh tree=<taxtree file> table=<gitable file> port=<number>
+--- In-memory mode (traditional) ---
+
+Loads all accession data into RAM.  Fast queries but requires ~175GB heap.
+
+Usage:  taxserver.sh -Xmx175g tree=<taxtree file> table=<gitable file> accession=<files> port=<number>
 
 Usage examples:
-taxserver.sh tree=tree.taxtree.gz table=gitable.int1d.gz port=1234
+taxserver.sh -Xmx175g tree=tree.taxtree.gz table=gitable.int1d.gz accession=prot.accession2taxid.gz,nucl_wgs.accession2taxid.gz port=1234
 
 At LBL:
-taxserver.sh tree=auto table=auto port=1234
+taxserver.sh -Xmx175g tree=auto table=auto accession=auto port=1234
 
-For accession number support, add accession=<file,file>  E.g.:
+--- Disk-backed mode ---
 
-External:
-taxserver.sh -Xmx45g tree=tree.taxtree.gz table=gitable.int1d.gz accession=prot.accession2taxid.gz,nucl_wgs.accession2taxid.gz port=1234
+Memory-maps a prebuilt binary hash table from disk.  Starts in seconds
+and uses ~4GB heap instead of ~175GB.  Requires a prebuilt disk table
+(see BuildDiskTables) and a pattern file.
 
-At LBL:
-taxserver.sh tree=auto table=auto accession=auto port=1234
+Usage:  taxserver.sh -Xmx4g tree=<taxtree file> diskmode=t diskaccession=<disk table> pattern=<pattern file> port=<number>
+
+Usage examples:
+taxserver.sh -Xmx4g tree=tree.taxtree.gz diskmode=t diskaccession=accession_disk.bin pattern=patterns_nz.txt port=1234
+taxserver.sh -Xmx4g tree=tree.taxtree.gz diskmode=t diskaccession=accession_disk.bin diskgi=gi_disk.bin pattern=patterns_nz.txt port=1234
+
+---
 
 If all expected files are in some specific location, you can also do this:
 taxserver.sh -Xmx45g tree=auto table=auto accession=auto port=1234 taxpath=/path/to/files
 
 To kill remotely, launch with the flag kill=password, then access /kill/password
 
-Parameters:
+Parameters (in-memory mode):
 
 tree=auto           taxtree path.  Always necessary.
 table=auto          gitable path.  Necessary for gi number support.
@@ -46,6 +57,17 @@ sketchonly=f        Don't hash taxa names.
 k=31                Kmer length, 1-32.  To maximize sensitivity and
                     specificity, dual kmer lengths may be used:  k=31,24
 prealloc=f          Preallocate some data structures for faster loading.
+
+Parameters (disk-backed mode):
+
+diskmode=f          Enable disk-backed mode.
+diskaccession=null  Path to binary disk accession table (built by
+                    BuildDiskTables).
+diskgi=null         Path to binary disk GI table (optional; for legacy
+                    gi number support).
+pattern=<file>      Pattern file matching the disk accession table.
+                    Must be from the same build as diskaccession.
+tree=<file>         taxtree path.  Must match the disk table build.
 
 Security parameters:
 

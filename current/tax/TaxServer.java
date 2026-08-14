@@ -156,6 +156,12 @@ public class TaxServer {
 				oldKillCode=b;
 			}else if(a.equals("oldaddress")){
 				oldAddress=b;
+			}else if(a.equals("diskmode")){
+				diskMode=Parse.parseBoolean(b);
+			}else if(a.equals("diskaccession") || a.equals("accdisk")){
+				diskAccessionFile=b;
+			}else if(a.equals("diskgi") || a.equals("gidisk")){
+				diskGiFile=b;
 			}else if(a.equals("sketchonly")){
 				sketchOnly=Parse.parseBoolean(b);
 			}else if(a.equals("sketchreads")){
@@ -269,7 +275,10 @@ public class TaxServer {
 		commonMap=makeCommonMap();
 		
 		//Load the GI table
-		if(giTableFile!=null){
+		if(diskMode && diskGiFile!=null){
+			outstream.println("Loading disk-backed gi table.");
+			GiToTaxid.initializeDisk(diskGiFile);
+		}else if(giTableFile!=null){
 			outstream.println("Loading gi table.");
 			GiToTaxid.initialize(giTableFile);
 		}
@@ -305,7 +314,12 @@ public class TaxServer {
 		}
 		
 		//Load accession files
-		if(accessionFile!=null){
+		if(diskMode && diskAccessionFile!=null){
+			Timer t=new Timer();
+			outstream.println("Loading disk-backed accession table.");
+			AccessionToTaxid.loadDisk(diskAccessionFile);
+			t.stopAndPrint();
+		}else if(accessionFile!=null){
 			Timer t=new Timer();
 			AccessionToTaxid.tree=tree;
 			AccessionToTaxid.prealloc=prealloc;
@@ -2474,7 +2488,14 @@ public class TaxServer {
 	private String imgFile=null;
 	/** Location of accession pattern file */
 	private String patternFile=null;
-	
+
+	/** Whether to use disk-backed (memory-mapped) tables instead of in-memory */
+	private boolean diskMode=false;
+	/** Path to disk-backed accession binary table */
+	private String diskAccessionFile=null;
+	/** Path to disk-backed GI binary table */
+	private String diskGiFile=null;
+
 	/** Path to taxonomic size information file */
 	private String sizeFile=null;
 

@@ -1,6 +1,7 @@
 package tax;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -379,6 +380,21 @@ public class AccessionToTaxid {
 	/*--------------------------------------------------------------*/
 	
 	/**
+	 * Loads disk-backed accession table for low-memory server mode.
+	 * @param path Path to the binary accession table file
+	 */
+	public static void loadDisk(String path){
+		try{
+			diskTable=new DiskAccessionTable(path);
+			DISK_MODE=true;
+			LOADED=true;
+			System.err.println("Loaded disk accession table: "+path);
+		}catch(IOException e){
+			throw new RuntimeException("Failed to load disk accession table: "+path, e);
+		}
+	}
+
+	/**
 	 * Retrieves taxonomic ID for the given accession string.
 	 * Strips version suffixes and uses hash tables or maps for lookup.
 	 * @param accession Sequence accession to look up
@@ -397,7 +413,26 @@ public class AccessionToTaxid {
 				len=i; break;
 			}
 		}
-		
+
+		if(DISK_MODE){
+			if(AnalyzeAccession.codeMap!=null){
+				final long number=AnalyzeAccession.digitize(accession);
+				if(number>=0){
+					int value=diskTable.get(number);
+					return value;
+				}
+			}
+			//Non-digitizable accessions fall through to maps if loaded
+			if(maps!=null){
+				if(len<accession.length()){accession=accession.substring(0, len);}
+				if(accession.length()<1){return -1;}
+				int way=accession.charAt(0);
+				Integer value=maps[way].get(accession);
+				return value==null ? -1 : value.intValue();
+			}
+			return -1;
+		}
+
 		if(USE_TABLES){
 			if(AnalyzeAccession.codeMap!=null){
 //				if(dot>AnalyzeAccession.longestPattern){return false;}
@@ -413,7 +448,7 @@ public class AccessionToTaxid {
 				return value<1 ? -1 : value;
 			}
 		}
-		
+
 		if(len<accession.length()){accession=accession.substring(0, len);}
 		if(accession.length()<1){return -1;}
 		int way=accession.charAt(0);
@@ -1005,6 +1040,10 @@ public class AccessionToTaxid {
 	
 	/** Flag indicating whether mapping data has been successfully loaded */
 	private static boolean LOADED=false;
+	/** Flag indicating disk-backed mode (memory-mapped hash table) */
+	public static boolean DISK_MODE=false;
+	/** Disk-backed accession table (used when DISK_MODE=true) */
+	private static DiskAccessionTable diskTable=null;
 	/** Hash map for storing accession-to-taxid mappings */
 	private static ObjectIntMap<String>[] maps=null;
 	/** Hash table set for storing short accession mappings efficiently */
