@@ -1,6 +1,7 @@
 package tax;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 
 import fileIO.ByteFile;
@@ -225,6 +226,21 @@ public class GiToTaxid {
 	}
 	
 	/**
+	 * Loads disk-backed GI table for low-memory server mode.
+	 * @param path Path to the binary GI table file
+	 */
+	public static void initializeDisk(String path){
+		try{
+			diskTable=new DiskGiTable(path);
+			DISK_MODE=true;
+			initialized=true;
+			System.err.println("Loaded disk GI table: "+path);
+		}catch(IOException e){
+			throw new RuntimeException("Failed to load disk GI table: "+path, e);
+		}
+	}
+
+	/**
 	 * Looks up taxonomy ID for a gi number in the loaded mapping table.
 	 * @param gi GenInfo identifier to look up
 	 * @return Taxonomy ID; 0 if not present, -1 if invalid (negative), -2 if out of range
@@ -232,9 +248,9 @@ public class GiToTaxid {
 	public static int getID(long gi){
 		return getID(gi, true);
 	}
-	
+
 	/**
-	 * Looks up taxonomy ID for a gi number using 2D array storage.
+	 * Looks up taxonomy ID for a gi number using 2D array storage or disk table.
 	 * Uses bit-shifting to split gi into upper array index and lower position.
 	 * Upper 34 bits select array slice, lower 30 bits select position within slice.
 	 * @param gi GenInfo identifier to look up
@@ -243,8 +259,9 @@ public class GiToTaxid {
 	 */
 	public static int getID(long gi, boolean assertInRange){
 		assert(initialized) : "To use gi numbers, you must load a gi table.";
+		if(DISK_MODE){return diskTable.get(gi);}
 		if(gi<0 || gi>maxGiLoaded){
-			assert(!assertInRange) : gi<0 ? "gi number "+gi+" is invalid." : 
+			assert(!assertInRange) : gi<0 ? "gi number "+gi+" is invalid." :
 				"The gi number "+gi+" is too big: Max loaded gi number is "+maxGiLoaded+".\n"
 				+ "Please update the gi table with the latest version from NCBI"
 				+ " as per the instructions in gitable.sh.\n"
@@ -416,6 +433,8 @@ public class GiToTaxid {
 		return old;
 	}
 	
+	public static boolean DISK_MODE=false;
+	private static DiskGiTable diskTable=null;
 	private static long contradictions=0;
 	private static long maxGiLoaded=-1;
 	private static int[][] array;

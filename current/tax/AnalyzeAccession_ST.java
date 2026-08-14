@@ -200,6 +200,13 @@ public class AnalyzeAccession_ST {
 			if(b==' ' || b=='\t' || b=='.'){break;}
 			buffer.append((char)remap[b]);
 		}
+		if(buffer.length()>=3 && line.length>=3
+				&& (line[0]=='N' || line[0]=='n') && (line[1]=='Z' || line[1]=='z')
+				&& (line[2]=='_' || line[2]=='-')
+				&& buffer.charAt(0)=='L' && buffer.charAt(1)=='L' && buffer.charAt(2)=='-'){
+			buffer.setCharAt(0, 'N');
+			buffer.setCharAt(1, 'Z');
+		}
 		String key=buffer.toString();
 		StringNum value=countMap.get(key);
 		if(value!=null){value.increment();}
@@ -238,33 +245,85 @@ public class AnalyzeAccession_ST {
 				list.add(split[0]);
 			}
 		}
-		HashMap<String, Integer> map=new HashMap<String, Integer>(list.size()*3);
-		codeBits=(int)Math.ceil(Tools.log2(list.size()));
-		final int patternBits=63-codeBits;
-		final long maxCombos=((1L<<(patternBits-1))-1);
-		for(int i=0; i<list.size(); i++){
+
+		final int numPatterns=list.size();
+		long[] combosArr=new long[numPatterns];
+		for(int i=0; i<numPatterns; i++){
 			String s=list.get(i);
 			longestPattern=Tools.max(longestPattern, s.length());
-			long combos=combos(s);
-			if(combos<0 || combos>=maxCombos){map.put(s, -1);}
-			else{map.put(s, i);}
+			combosArr[i]=combos(s);
 		}
+
+		boolean[] isTable1=new boolean[numPatterns];
+		boolean changed=true;
+		while(changed){
+			changed=false;
+			int count0=0;
+			for(int i=0; i<numPatterns; i++){
+				if(!isTable1[i]){count0++;}
+			}
+			if(count0==0){break;}
+			int cb=Math.max(1, (int)Math.ceil(Tools.log2(count0)));
+			long maxCombos0=(1L<<(62-cb));
+			for(int i=0; i<numPatterns; i++){
+				if(!isTable1[i] && (combosArr[i]<0 || combosArr[i]>=maxCombos0)){
+					isTable1[i]=true;
+					changed=true;
+				}
+			}
+		}
+
+		int count0=0, count1=0;
+		for(int i=0; i<numPatterns; i++){
+			if(isTable1[i]){count1++;}
+			else{count0++;}
+		}
+
+		codeBits0=(count0>0) ? Math.max(1, (int)Math.ceil(Tools.log2(count0))) : 1;
+		codeBits1=(count1>0) ? Math.max(1, (int)Math.ceil(Tools.log2(count1))) : 1;
+		long maxCombos1=(1L<<(62-codeBits1));
+
+		HashMap<String, Integer> map=new HashMap<String, Integer>(numPatterns*3);
+		patternShift=new int[numPatterns];
+		patternLowBits=new int[numPatterns];
+
+		int code0=0, code1=0;
+		for(int i=0; i<numPatterns; i++){
+			String s=list.get(i);
+			if(isTable1[i]){
+				if(combosArr[i]<0 || combosArr[i]>=maxCombos1){
+					map.put(s, -1);
+					patternShift[i]=-1;
+				}else{
+					int pc=code1++;
+					patternShift[i]=codeBits1+1;
+					patternLowBits[i]=(pc<<1)|1;
+					map.put(s, i);
+				}
+			}else{
+				int pc=code0++;
+				patternShift[i]=codeBits0+1;
+				patternLowBits[i]=(pc<<1)|0;
+				map.put(s, i);
+			}
+		}
+
 		codeMap=map;
 		return map;
 	}
 	
 	public static long digitize(String s){
 		String pattern=remap(s);
-		Integer code=codeMap.get(pattern);
-		if(code==null){return -2;}
-		if(code.intValue()<0){return -1;}
-		
+		Integer idx=codeMap.get(pattern);
+		if(idx==null){return -2;}
+		if(idx.intValue()<0){return -1;}
+
 		long number=0;
 		for(int i=0; i<pattern.length(); i++){
 			char c=s.charAt(i);
 			char p=pattern.charAt(i);
-			if(p=='-'){
-				//do nothing
+			if(p=='-' || p=='?' || p=='N' || p=='Z'){
+				//do nothing - constant symbols, zero bits
 			}else if(p=='D'){
 				number=(number*10)+(c-'0');
 			}else if(p=='L'){
@@ -273,31 +332,31 @@ public class AnalyzeAccession_ST {
 				assert(false) : s;
 			}
 		}
-		number=(number<<codeBits)+code;
+		number=((number+1)<<patternShift[idx])|patternLowBits[idx];
 		return number;
 	}
-	
+
 	public static long digitize(byte[] s){
 		String pattern=remap(s);
-		Integer code=codeMap.get(pattern);
-		if(code==null){return -2;}
-		if(code.intValue()<0){return -1;}
-		
+		Integer idx=codeMap.get(pattern);
+		if(idx==null){return -2;}
+		if(idx.intValue()<0){return -1;}
+
 		long number=0;
 		for(int i=0; i<pattern.length(); i++){
 			byte c=s[i];
 			char p=pattern.charAt(i);
-			if(p=='-'){
-				//do nothing
+			if(p=='-' || p=='?' || p=='N' || p=='Z'){
+				//do nothing - constant symbols, zero bits
 			}else if(p=='D'){
 				number=(number*10)+(c-'0');
 			}else if(p=='L'){
 				number=(number*26)+(Tools.toUpperCase(c)-'A');
 			}else{
-				assert(false) : s;
+				assert(false) : new String(s);
 			}
 		}
-		number=(number<<codeBits)+code;
+		number=((number+1)<<patternShift[idx])|patternLowBits[idx];
 		return number;
 	}
 	
@@ -308,9 +367,17 @@ public class AnalyzeAccession_ST {
 			if(b==' ' || b=='\t' || b=='.'){break;}
 			buffer.append((char)remap[b]);
 		}
-		return buffer.toString();
+		String result=buffer.toString();
+		if(result.length()>=3 && s.length()>=3
+				&& (s.charAt(0)=='N' || s.charAt(0)=='n')
+				&& (s.charAt(1)=='Z' || s.charAt(1)=='z')
+				&& (s.charAt(2)=='_' || s.charAt(2)=='-')
+				&& result.startsWith("LL-")){
+			result="NZ"+result.substring(2);
+		}
+		return result;
 	}
-	
+
 	public static String remap(byte[] s){
 		ByteBuilder buffer=new ByteBuilder(s.length);
 		for(int i=0; i<s.length; i++){
@@ -318,7 +385,15 @@ public class AnalyzeAccession_ST {
 			if(b==' ' || b=='\t' || b=='.'){break;}
 			buffer.append((char)remap[b]);
 		}
-		return buffer.toString();
+		String result=buffer.toString();
+		if(result.length()>=3 && s.length>=3
+				&& (s[0]=='N' || s[0]=='n')
+				&& (s[1]=='Z' || s[1]=='z')
+				&& (s[2]=='_' || s[2]=='-')
+				&& result.startsWith("LL-")){
+			result="NZ"+result.substring(2);
+		}
+		return result;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -330,7 +405,10 @@ public class AnalyzeAccession_ST {
 
 	private HashMap<String, StringNum> countMap=new HashMap<String, StringNum>();
 	public static HashMap<String, Integer> codeMap;
-	private static int codeBits=-1;
+	static int codeBits0=-1;
+	static int codeBits1=-1;
+	static int[] patternShift;
+	static int[] patternLowBits;
 	private static int longestPattern=-1;
 	
 	private long linesProcessed=0;
