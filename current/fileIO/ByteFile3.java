@@ -220,7 +220,7 @@ public final class ByteFile3 extends ByteFile {
 	}
 	
 	@Override
-	public final ListNum<byte[]> nextList(){
+	public final ListNum<byte[]> nextListAsync(){
 		ListNum<byte[]> ln=oqs.getOutput();
 		if(ln==null || ln.last()){
 			oqs.setFinished(true);

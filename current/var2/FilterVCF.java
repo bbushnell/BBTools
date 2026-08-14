@@ -799,38 +799,19 @@ public class FilterVCF {
 		 * Processes batches of lines from the ByteFile until exhausted.
 		 */
 		@Override
-		/**
-		* Main thread execution loop.
-		* Processes batches of lines from the ByteFile until exhausted.
-		*/
 		public void run(){
 			net=(net0==null ? null : net0.copy(false));
-			ListNum<byte[]> ln=nextListSync();
+			ListNum<byte[]> ln=bf.nextList();
 			while(ln!=null && ln!=POISON_BYTES){
 				ByteBuilder bb=new ByteBuilder(4096);
 				for(byte[] line : ln){
 					processLine(line, bb);//[var2/FilterVCF#001] removed duplicate linesProcessedT++ here — processLine() already counts each line, so the lines/sec summary was 2x in MT mode
 				}
 				if(bsw!=null){bsw.add(bb, ln.id+offset);}
-				ln=nextListSync();
+				ln=bf.nextList();
 			}
 			success=true;
 			synchronized(this){notify();}
-		}
-
-		/**
-		 * Reads the next batch from the shared input ByteFile under a lock.
-		 * ByteFile1.nextList() is NOT thread-safe (it mutates shared buffer offsets), so
-		 * multiple worker threads calling it concurrently corrupt the buffer and drop lines.
-		 * Serializing only the read is cheap (decompression runs in parallel via pigz) while
-		 * the expensive per-line work (split, left-align, filtering, NN scoring) stays parallel.
-		 *
-		 * @return Next batch of lines, or null at end of input
-		 */
-		private ListNum<byte[]> nextListSync(){
-			synchronized(bf){
-				return bf.nextList();
-			}
 		}
 
 		/**

@@ -224,7 +224,7 @@ public final class ByteFile4 extends ByteFile{
 	}
 
 	@Override
-	public final ListNum<byte[]> nextList(){
+	public final ListNum<byte[]> nextListAsync(){
 		ListNum<byte[]> list=oqs.getOutput();
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
