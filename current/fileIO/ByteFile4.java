@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLong;
 
 import parse.Parse;
 import parse.Parser;
@@ -118,7 +119,7 @@ public final class ByteFile4 extends ByteFile{
 				e.printStackTrace();
 			}
 		}else{
-			for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()){
+			for(ListNum<byte[]> ln=bf.nextListAsync(); ln!=null; ln=bf.nextListAsync()){
 				for(byte[] line : ln.list){
 					lines++;
 					bytes+=line.length+1;
@@ -199,7 +200,7 @@ public final class ByteFile4 extends ByteFile{
 		
 		oqs.setFinished(true);
 
-		lineNum=-1;
+		lineNum.set(-1);
 		if(verbose){System.err.println("Closed "+this.getClass().getName()+" for "+name());}
 		return errorState;
 	}
@@ -219,8 +220,13 @@ public final class ByteFile4 extends ByteFile{
 			}
 		}
 
-		lineNum++;
+		lineNum.incrementAndGet();
 		return currentList.get(listPos++);
+	}
+
+	@Override
+	public final ListNum<byte[]> nextList(){
+		return nextListAsync();//This class does not need sync
 	}
 
 	@Override
@@ -232,7 +238,7 @@ public final class ByteFile4 extends ByteFile{
 			}
 			return null;
 		}
-		lineNum+=list.size();
+		lineNum.addAndGet(list.size());
 		return list;
 	}
 
@@ -289,7 +295,7 @@ public final class ByteFile4 extends ByteFile{
 	public final InputStream is(){return is;}
 
 	@Override
-	public final long lineNum(){return lineNum;}
+	public final long lineNum(){return lineNum.longValue();}
 
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
@@ -505,7 +511,7 @@ public final class ByteFile4 extends ByteFile{
 
 	private boolean open=false;
 	private InputStream is;
-	private long lineNum=-1;
+	private AtomicLong lineNum=new AtomicLong(-1);
 
 	private ListNum<byte[]> currentList=null;
 	private int listPos=0;

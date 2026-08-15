@@ -98,8 +98,17 @@ public abstract class ByteFile {
 		byte[] s=null;
 		ArrayList<byte[]> list=new ArrayList<byte[]>(4096);
 		
-		for(s=nextLine(); s!=null; s=nextLine()){
-			list.add(s);
+		for(s=nextLine(); s!=null; s=nextLine()){list.add(s);}
+		
+		return list;
+	}
+	
+	/** Uses nextList instead of nextLine, may be faster in some cases */
+	public final ArrayList<byte[]> toByteLinesList(){
+		
+		ArrayList<byte[]> list=new ArrayList<byte[]>(TARGET_LIST_SIZE*8);
+		for(ListNum<byte[]> ln=nextListAsync(); ln!=null; ln=nextListAsync()){
+			list.addAll(ln.list);
 		}
 		
 		return list;
@@ -162,8 +171,10 @@ public abstract class ByteFile {
 	 * Each ListNum carries a unique sequential ID.
 	 * @return ListNum of byte-array lines (up to the size/byte cap), or null if EOF
 	 */
-	public final synchronized ListNum<byte[]> nextList(){
-		return nextListAsync();
+	public ListNum<byte[]> nextList(){
+		synchronized(nlSync) {
+			return nextListAsync();
+		}
 	}
 	
 	/**
@@ -274,6 +285,8 @@ public abstract class ByteFile {
 	
 	/** The FileFormat describing this file's characteristics and location */
 	public final FileFormat ff;
+	/** Experimental alternate sync object to this */
+	private final String nlSync=new String(hashCode()+"");
 	
 	/** Force usage of ByteFile1 */
 	public static boolean FORCE_MODE_BF1=false;

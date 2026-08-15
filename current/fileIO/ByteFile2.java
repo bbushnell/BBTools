@@ -77,7 +77,7 @@ public final class ByteFile2 extends ByteFile {
 //				lines++;
 //				bytes+=s.length+1;
 //			}
-			for(ListNum<byte[]> ln=bf.nextList(); ln!=null; ln=bf.nextList()){
+			for(ListNum<byte[]> ln=bf.nextListAsync(); ln!=null; ln=bf.nextListAsync()){
 				for(byte[] line : ln.list) {
 					lines++;
 					bytes+=line.length+1;
