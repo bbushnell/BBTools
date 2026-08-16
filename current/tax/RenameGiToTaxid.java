@@ -747,10 +747,21 @@ public class RenameGiToTaxid {
 	 */
 	private void updateHeadersFromServer_gff(ArrayList<byte[]> lines, HashArray1D counts, ByteStreamWriter bswBadHeaders){
 		ByteBuilder bb=new ByteBuilder();
-		ArrayList<String> names=new ArrayList<String>();
 		int terms=0;
+		//[tax/RenameGiToTaxid#004] Query seqids from BOTH feature lines (column 1) AND ##sequence-region
+		//pragmas, so the pragma seqids get renamed identically to the features (and thus to the paired fna
+		//headers). Without this, a renamed gff keeps stale accession-named ##sequence-region lines that
+		//disagree with its own features and with the fna, breaking any tool that reads the pragma's seqid.
 		for(byte[] line : lines){
-			if(line[0]!='#' && !Tools.startsWith(line, "tid")){
+			if(line.length==0){continue;}
+			if(Tools.startsWith(line, SEQREGION_PRAGMA)){
+				String sid=sequenceRegionId(line);
+				if(sid!=null && !sid.startsWith("tid|")){
+					terms++;
+					if(bb.length()>0){bb.append(',');}
+					bb.append(sid);
+				}
+			}else if(line[0]!='#' && !Tools.startsWith(line, "tid")){
 				terms++;
 				if(bb.length()>0){bb.append(',');}
 				for(byte b : line){
@@ -761,39 +772,26 @@ public class RenameGiToTaxid {
 		}
 		if(bb.length()<1){return;}
 
-//		assert(false) : bb;
-
-//		System.err.println("Sending '"+bb+"'");
-
 		//HARDENED [tax/RenameGiToTaxid#002]: was a single direct TaxClient.*ToTaxidArray with NO retry on a wrong-LENGTH server response (only null was handled) → a corrupt-length array would silently misalign every subsequent header. The FASTA path already retries via translateToTaxIDs; the taxserver goes flaky under load (Cloudflare) and returns corrupt-length responses, so route GFF through the same retry (same mode-dispatch). Persistent failure still returns null -> KillSwitch (loud).
 		int[] serverIds=translateToTaxIDs(bb, terms);
 		if(serverIds==null){
 			KillSwitch.kill("Null response for '"+bb.toString()+"'");
 		}
 		bb.clear();
-		
-		if(!names.isEmpty()){
-			assert(tree!=null) : "Need to load a TaxTree.";
-			assert(names.size()==serverIds.length);
-			for(int i=0; i<serverIds.length; i++){
-				final String name=names.get(i);
-				if(serverIds[i]<0){
-					TaxNode tn=tree.getNodeByName(name);
-					if(tn!=null){serverIds[i]=tn.id;}
-//					else {
-//						assert(false) : names.get(i);
-//					}
-				}else{
-					//Sometimes the species gets renamed.
-//					TaxNode tn=tree.getNodeByName(name);
-//					if(tn==null || tn.id==serverIds[i]) {System.err.println(name+", "+serverIds[i]+", "+tn+", "+tree.getNodesByName(name));}
-				}
-			}
-		}
-		
-		for(int lineNum=0, serverNum=0; lineNum<=lines.size(); lineNum++){
+
+		//Rewrite feature lines and ##sequence-region pragmas in the SAME order they were queried, so
+		//serverNum stays aligned to serverIds. Loop bound is strict (< size) and gated on serverNum so it
+		//can never index past either array.
+		for(int lineNum=0, serverNum=0; lineNum<lines.size() && serverNum<serverIds.length; lineNum++){
 			byte[] line=lines.get(lineNum);
-			if(line[0]!='#' && !Tools.startsWith(line, "tid")){
+			if(line.length==0){continue;}
+			if(Tools.startsWith(line, SEQREGION_PRAGMA)){
+				String sid=sequenceRegionId(line);
+				if(sid!=null && !sid.startsWith("tid|")){
+					lines.set(lineNum, renameSeqRegion(line, sid, serverIds[serverNum]));
+					serverNum++;
+				}
+			}else if(line[0]!='#' && !Tools.startsWith(line, "tid")){
 				bb.clear();
 				final int tid=serverIds[serverNum];
 				if(tid<0){
@@ -806,7 +804,7 @@ public class RenameGiToTaxid {
 						System.err.println(tid+"\t"+looksLikeRealAccession(line)+"\t"+new String(line));
 					}
 				}
-				
+
 				bb.append("tid|");
 				bb.append(tid);
 				if(prefix){
@@ -818,16 +816,38 @@ public class RenameGiToTaxid {
 					bb.append(count);
 					if(count==1){taxaCounted++;}
 				}
-				
+
 				lines.set(lineNum, bb.toBytes());
-				
 				serverNum++;
-				if(serverNum>=serverIds.length){break;}
 			}
 		}
 		if(maxInvalidHeaders>=0 && invalidReads>maxInvalidHeaders){
 			KillSwitch.kill("Maximum bad headers exceeded: "+maxInvalidHeaders);
 		}
+	}
+
+	/** Returns the seqid from a "##sequence-region <seqid> <start> <end>" pragma line, or null if absent. */
+	private static String sequenceRegionId(byte[] line){
+		int i=SEQREGION_PRAGMA.length();
+		while(i<line.length && (line[i]==' ' || line[i]=='\t')){i++;}
+		final int a=i;
+		while(i<line.length && line[i]!=' ' && line[i]!='\t'){i++;}
+		return i>a ? new String(line, a, i-a) : null;
+	}
+
+	/** Rewrites a ##sequence-region line's seqid to tid|<tid>|<seqid> (or tid|<tid> when prefix=false),
+	 * preserving the "##sequence-region" prefix and the trailing start/end coordinates. */
+	private byte[] renameSeqRegion(byte[] line, String sid, int tid){
+		int i=SEQREGION_PRAGMA.length();
+		while(i<line.length && (line[i]==' ' || line[i]=='\t')){i++;}
+		final int a=i;                       //seqid start
+		final int b=a+sid.length();          //seqid end (first whitespace after it)
+		ByteBuilder bb=new ByteBuilder(line.length+16);
+		bb.append(line, 0, a);               //"##sequence-region" + its trailing spacing
+		bb.append("tid|").append(tid);
+		if(prefix){bb.append('|').append(sid);}
+		bb.append(line, b, line.length-b);   //trailing start/end coordinates
+		return bb.toBytes();
 	}
 	
 	/**
@@ -928,6 +948,12 @@ public class RenameGiToTaxid {
 				}else{
 					invalidBases+=line.length;
 					invalidLines++;
+					//[tax/RenameGiToTaxid#003] FIXED: deleteInvalid gates on invalidReads (processInner_server + process()),
+					//but GFF invalid lines previously only bumped invalidLines -> deleteInvalid was a silent no-op for GFF.
+					//An unresolvable accession then DELETED the fna (invalidReads>0) but KEPT the gff with tid|-1 seqids ->
+					//a broken fna/gff pair that crashes downstream tools assuming matched input. Count it as an invalid read
+					//so deleteInvalid drops the gff too, keeping the pair consistent (unresolvable genome skipped entirely).
+					invalidReads++;
 				}
 			}else{
 				basesProcessed+=line.length;
@@ -1062,5 +1088,7 @@ public class RenameGiToTaxid {
 	private static byte[] invalidTitle=">tid|-1".getBytes();
 	/** Prefix used to mark GFF lines with invalid taxonomy information */
 	private static byte[] invalidGffTitle="tid|-1".getBytes();
+	/** GFF3 sequence-region pragma prefix; its seqid is renamed alongside feature seqids [#004]. */
+	private static final String SEQREGION_PRAGMA="##sequence-region";
 	
 }
