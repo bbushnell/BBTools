@@ -52,6 +52,10 @@ keeptid=f       With percontig: label each record with the taxID parsed from its
                 keep the sequence-index label.  16s=/18s= attachment is by
                 taxID and thus ambiguous here; attach ribo in a later pass.
 mergedupes=f    Merge records sharing a taxID rather than keeping the largest.
+sortbytaxa=f    Order output records by taxonomy (family, then genus, then
+                species; the same ordering as bbsort.sh taxa).  Clusters
+                taxonomically-similar records adjacently so a bgzipped spectra
+                file deflates tighter.  Requires the tree (usetree, the default).
 addnovelonly=f  Add a record only if its taxID is not already present; on a
                 duplicate, keep the EXISTING record (never merge or replace).
                 For unioning a trusted base DB with best-effort additions, list

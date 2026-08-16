@@ -37,29 +37,33 @@ public final class ReadComparatorTaxa extends ReadComparator {
 	private static int compareInner(Read r1, Read r2) {
 		final TaxNode a0=tree.parseNodeFromHeader(r1.id, true);
 		final TaxNode b0=tree.parseNodeFromHeader(r2.id, true);
+		final int x=compareNodes(a0, b0, tree);
+		//x==0 means both null or the identical taxon; reads then fall back to name order (unchanged behavior).
+		if(x!=0){return x;}
+		return ReadComparatorName.compareInner(r1, r2);
+	}
+
+	/**
+	 * Orders two taxonomic nodes exactly as this comparator orders reads: climb both to family, then
+	 * (if still equal) genus, then (from the originals) species, breaking the tie at the first
+	 * distinguishing rank by extended level and then taxID.  Returns 0 when the two resolve to the
+	 * same taxon (both null, or the identical node) so the caller can apply its own tiebreak; an
+	 * unresolvable (null) node sorts last.  This is the reusable, Read-independent core of the taxa
+	 * sort, so spectra records (clade.Clade) and DDL sketch records (ddl.DDLRecord) can sort by the
+	 * same ordering bbsort.sh taxa uses -- clustering taxonomically-similar records adjacently, which
+	 * is what lets a bgzipped per-taxID database deflate tightly.
+	 * @param a0 First node, or null if its taxID was unresolvable.
+	 * @param b0 Second node, or null.
+	 * @param tree Loaded taxonomy tree (ancestor lookups use it).
+	 * @return Negative, zero, or positive for a0 sorting before, equal to, or after b0.
+	 */
+	public static int compareNodes(final TaxNode a0, final TaxNode b0, final TaxTree tree){
+		if(a0==null || b0==null){
+			if(a0==null && b0==null){return 0;}
+			return (a0==null ? 1 : -1);
+		}
+		if(a0==b0){return 0;}
 		TaxNode a=a0, b=b0;
-
-//		if(a==null){a=tree.getNode(1);}
-//		if(b==null){b=tree.getNode(1);}
-
-		if(a==null || b==null){
-//			System.err.println("null for "+r1.id+", "+r2.id);
-			if(a==null && b==null){return ReadComparatorName.compareInner(r1, r2);}
-			return (a==null ? 1 : -1);
-		}
-
-		if(a==b){
-			return ReadComparatorName.compareInner(r1, r2);
-		}
-
-//		final TaxNode c=tree.commonAncestor(a, b);
-//		if(c==null){
-//			assert(false) : r1.id+", "+r2.id+", "+a;
-//			return compareSimple(tree.highestAncestor(a), tree.highestAncestor(b));
-//		}
-//
-//		while(a.id!=c.id && a.pid!=c.id){a=tree.getNode(a.pid);}
-//		while(b.id!=c.id && c.pid!=c.id){b=tree.getNode(b.pid);}
 
 		while(a.id!=a.pid && a.levelExtended<TaxTree.FAMILY_E){
 			TaxNode x=tree.getNode(a.pid);

@@ -32,6 +32,7 @@ import structures.ByteBuilder;
 import structures.ListNum;
 import tax.TaxNode;
 import tax.TaxTree;
+import sort.ReadComparatorTaxa;
 import template.Accumulator;
 import template.ThreadWaiter;
 import tracker.EntropyTracker;
@@ -151,6 +152,8 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 				whitelistFile=b;
 			}else if(a.equals("mergedupes")){
 				mergeDuplicateTaxIDs=Parse.parseBoolean(b);
+			}else if(a.equals("sortbytaxa") || a.equals("taxsort") || a.equals("sorttaxa")){
+				sortByTaxa=Parse.parseBoolean(b);
 			}else if(a.equals("addnovelonly") || a.equals("keepexisting")){
 				addNovelOnly=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
@@ -707,7 +710,16 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	void write(FileFormat ff, Collection<Clade> coll) {
 		if(ff==null) {return;}
 		ArrayList<Clade> list=new ArrayList<Clade>(coll);
-		Collections.sort(list);
+		if(sortByTaxa && tree!=null){
+			//Tax order clusters taxonomically-similar records adjacently so the bgzipped spectra deflates
+			//tighter (same records, better locality); equal/unresolved taxa keep the natural Clade order.
+			list.sort((a, b) -> {
+				int x=ReadComparatorTaxa.compareNodes(taxNode(a.taxID), taxNode(b.taxID), tree);
+				return x!=0 ? x : a.compareTo(b);
+			});
+		}else{
+			Collections.sort(list);
+		}
 		ByteStreamWriter bsw=ByteStreamWriter.makeBSW(ff);
 		ByteBuilder bb=new ByteBuilder(1024);
 		for(Clade c : list) {
@@ -721,6 +733,9 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 		}
 		bsw.poison();
 	}
+
+	/** Tree node for a taxID, or null when unlabeled/unresolvable (which sorts last).  Used by sortbytaxa. */
+	private TaxNode taxNode(int tid){return tid>=1 ? tree.getNode(tid, true) : null;}
 
 	/**
 	 * Domain category 0-6 (0 bacteria,1 archaea,2 virus,3 animal,4 plant,5 fungi,6 other-euk) for a taxID from
@@ -1061,6 +1076,9 @@ public class CladeLoader extends CladeObject implements Accumulator<CladeLoader.
 	
 	/** Whether to merge duplicate tax IDs */
 	static boolean mergeDuplicateTaxIDs=false;
+	/** sortbytaxa: order output records by taxonomy (bbsort taxa order) so the bgzipped spectra deflates
+	 * tighter; default false keeps the natural Clade order.  Requires the tree (useTree, the default). */
+	static boolean sortByTaxa=false;
 	/** Add a record only if its taxID is not already present; on a duplicate, KEEP the
 	 * existing record (never merge, never replace-if-larger).  For unioning a trusted base
 	 * DB with best-effort additions: list the base file(s) FIRST (load is sequential), so the

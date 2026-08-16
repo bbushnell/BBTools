@@ -44,6 +44,13 @@ blacklist=<file>    Kmer blacklist; condensing prefers non-blacklisted kmers,
                     baking the blacklist into the output.
 overwrite=f         Overwrite existing output.
 verbose=f           Print per-file load counts and categories.
+sortbytaxa=f        Order output records by taxonomy (family, then genus, then
+                    species; the same ordering as bbsort.sh taxa) instead of by
+                    numeric taxID.  Clusters taxonomically-similar records
+                    adjacently so a bgzipped per-taxID sketch deflates markedly
+                    tighter.  Requires the tree (loaded automatically).  Combine
+                    with merge=f for a pure re-sort of an existing sketch file.
+tree=auto           Taxonomy tree for sortbytaxa; auto finds it in resources.
 
 Size filtering:
 minsize=<list>      Per-source-file minimum genome size, as key,bases pairs

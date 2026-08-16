@@ -21,6 +21,9 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import structures.ByteBuilder;
+import sort.ReadComparatorTaxa;
+import tax.TaxNode;
+import tax.TaxTree;
 
 /**
  * Loads multiple DDL files, optionally merges records sharing a TID
@@ -84,6 +87,10 @@ public class DDLMerger {
 				tidsOut=b;
 			}else if(a.equals("blacklist")){
 				blacklistFile=b;
+			}else if(a.equals("sortbytaxa") || a.equals("taxsort") || a.equals("sorttaxa")){
+				sortByTaxa=Parse.parseBoolean(b);
+			}else if(a.equals("tree") || a.equals("taxtree")){
+				taxTreeFile=b;
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 			}else if(parser.parse(arg, a, b)){
@@ -268,13 +275,28 @@ public class DDLMerger {
 	/** Sorts (taxID, name, cardinality), renumbers #id sequentially, writes the DDL file and the
 	 * tids file, and reports.  Shared by the merge path and the addnovelonly path. */
 	private void finishAndWrite(ArrayList<DDLRecord> results, Timer t){
-		Collections.sort(results, (a, b) -> {
-			int x=a.taxID-b.taxID;
-			if(x!=0){return x;}
-			int y=(a.name==null ? "" : a.name).compareTo(b.name==null ? "" : b.name);
-			if(y!=0){return y;}
-			return Long.compare(a.cardinality, b.cardinality);
-		});
+		if(sortByTaxa){
+			final TaxTree tt=loadTree();
+			//Tax order clusters taxonomically-similar records adjacently so the bgzipped output deflates
+			//far tighter (same records, better locality); equal/unresolved taxa fall back to the numeric order.
+			Collections.sort(results, (a, b) -> {
+				int x=ReadComparatorTaxa.compareNodes(nodeFor(a.taxID, tt), nodeFor(b.taxID, tt), tt);
+				if(x!=0){return x;}
+				int y=a.taxID-b.taxID;
+				if(y!=0){return y;}
+				int z=(a.name==null ? "" : a.name).compareTo(b.name==null ? "" : b.name);
+				if(z!=0){return z;}
+				return Long.compare(a.cardinality, b.cardinality);
+			});
+		}else{
+			Collections.sort(results, (a, b) -> {
+				int x=a.taxID-b.taxID;
+				if(x!=0){return x;}
+				int y=(a.name==null ? "" : a.name).compareTo(b.name==null ? "" : b.name);
+				if(y!=0){return y;}
+				return Long.compare(a.cardinality, b.cardinality);
+			});
+		}
 
 		//Renumber sequentially — create new DDLRecords with final id
 		ArrayList<DDLRecord> numbered=new ArrayList<DDLRecord>(results.size());
@@ -508,6 +530,18 @@ public class DDLMerger {
 		return (long)((1f-rec.gc)*rec.bases);
 	}
 
+	/** Loads the taxonomy tree on first use for sortbytaxa; null/auto resolves the default tree. */
+	private TaxTree loadTree(){
+		if(tree==null){
+			String f=(taxTreeFile==null || "auto".equalsIgnoreCase(taxTreeFile)) ? TaxTree.defaultTreeFile() : taxTreeFile;
+			tree=TaxTree.loadTaxTree(f, outstream, true, false);
+		}
+		return tree;
+	}
+
+	/** Tree node for a taxID, or null when unlabeled/unresolvable (which sorts last). */
+	static TaxNode nodeFor(int tid, TaxTree tree){return tid>=1 ? tree.getNode(tid, true) : null;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
@@ -538,6 +572,11 @@ public class DDLMerger {
 	private boolean verbose=false;
 	private String blacklistFile=null;
 	private String tidsOut=null;
+	/** sortbytaxa: order output records by taxonomy (bbsort taxa order) so the bgzipped file deflates
+	 * tighter; default false keeps the historical numeric-taxID order. */
+	private boolean sortByTaxa=false;
+	private String taxTreeFile=null;
+	private TaxTree tree=null;
 
 	/** Per-source-file minimum genome size, from minsize=.  Insertion-ordered so the report
 	 * lists rules in the order they were given. */
