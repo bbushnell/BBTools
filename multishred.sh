@@ -43,15 +43,22 @@ if [ -z "$INDIR" ] || [ ! -d "$INDIR" ]; then
 	usage
 fi
 
-N=$(ls "$INDIR"/*."$EXT" 2>/dev/null | wc -l)
+shopt -s nullglob
+FILES=("$INDIR"/*."$EXT")
+N=${#FILES[@]}
 if [ "$N" -eq 0 ]; then
 	echo "No *.$EXT files found in $INDIR" >&2
 	exit 1
 fi
 echo "Shredding $N files from $INDIR (*.$EXT)" >&2
 
+# Bash array expansion above avoids invoking `ls`/exec on the full file list,
+# which silently truncates ("Argument list too long") once a directory holds
+# enough files to exceed ARG_MAX (observed: fine at 9,734 files, broken at
+# 35,395 -- caught 2026-08-16 when the count check exited 1 with no `set -e`
+# in the caller, so the bacteria shred step silently no-op'd).
 (
-	for f in "$INDIR"/*."$EXT"; do
+	for f in "${FILES[@]}"; do
 		[ -f "$f" ] || continue
 		case "$f" in
 			*.gz) unpigz -c "$f" 2>/dev/null || zcat "$f" ;;
