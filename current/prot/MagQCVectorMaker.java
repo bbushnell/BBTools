@@ -1,15 +1,19 @@
 package prot;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Random;
 import java.util.TreeSet;
 
+import fileIO.ByteFile;
+import fileIO.ByteStreamWriter;
+import parse.LineParser1;
+import parse.Parse;
+import structures.ByteBuilder;
+import structures.IntHashMap;
+import structures.IntList;
+import structures.IntLongHashMap;
 import tax.TaxNode;
 import tax.TaxTree;
 
@@ -40,6 +44,32 @@ import tax.TaxTree;
  * ~1.0 and duplication is &gt;1.0, calibrated to each family's natural copy number). The
  * two/norm schemes keep the duplication signal that flags contamination uncompressed
  * (CheckM2 uses raw counts for exactly this reason).
+ *
+ * <p>Idiom rewrite (2026-08): I/O runs on {@link ByteFile}/{@link ByteStreamWriter}
+ * with a reused {@link LineParser1} (byte-range parsing, zero per-field String
+ * allocation except where a value must persist as a String or is on a load-once,
+ * bounded-frequency path). Every tid-keyed lookup used inside the per-bin hot path
+ * ({@code makeBin}) is a primitive {@link structures.IntHashMap}/{@link IntLongHashMap}
+ * or a dense array (byTid's contig lists, since IntHashMap can't hold list values) -
+ * no boxed {@code HashMap<Integer,...>} on the hot path. {@code writeSet}'s per-attempt
+ * buffers ({@code fam}/{@code glob}/{@code labels}) and the per-bin {@link Agg}
+ * accumulator are now hoisted out of the attempt loop and reused (cleared, not
+ * reallocated). {@code fmt()}'s exact string representation (whole numbers print
+ * without a decimal point, everything else at 6 fixed decimals) is replicated by
+ * {@link #appendFmt(ByteBuilder, double)} for the hot output paths; the String-
+ * returning {@link #fmt(double)} is KEPT for the aggregator's roundtrip-through-string
+ * rounding (low frequency, and an actual String is what {@code Float.parseFloat} needs).
+ * {@code tidKmer} (tid-&gt;[HH,CAGA]) is deliberately left as a boxed
+ * {@code HashMap<Integer,float[]>} - it is read once per bin (not per family column),
+ * and encoding its floats as {@code IntHashMap} int-bits would make a legitimate
+ * "not found" sentinel (-1) ambiguous with the (astronomically unlikely but real)
+ * float bit pattern that also equals -1; not worth the risk for this field.
+ * NOT threaded this pass (Brian's explicit constraint): {@code makeBin} draws from
+ * one sequential {@link Random} stream per output set, and parallelizing bin synthesis
+ * would reorder those draws and change the output. Algorithm, RNG call sequence, and
+ * every output byte are UNCHANGED - see {@code MagQCVectorMakerTest}/
+ * {@code MagQCAggVectorTest} for the pinned behavioral contract, verified against the
+ * original by UMP45's differential (byte-identical across all fixture modes).
  */
 public class MagQCVectorMaker {
 
@@ -82,6 +112,12 @@ public class MagQCVectorMaker {
 			else if(a.equals("snhhcaga")){snHHCAGA=parseBool(b);}
 			else if(a.equals("sngenelen")){snGeneLen=parseBool(b);}
 			else if(a.equals("kmerfile")){kmerFile=b;}
+			else if(a.equals("aggmanifest")){aggManifestFile=b;}
+			else if(a.equals("aggout")){aggOut=b;}
+			else if(a.equals("aggvalout")){aggValOut=b;}
+			else if(a.equals("densehead")){denseHead=Integer.parseInt(b);}
+			else if(a.equals("aggobs")){aggObsServe=parseAggObs(b);}
+			else if(a.equals("poolmode")){poolMode=parsePoolMode(b);}
 			else{System.err.println("Warning: unknown arg "+arg);}
 		}
 		if(cacheFile==null || sizemapFile==null || taxpgmFile==null || out==null){
@@ -92,6 +128,24 @@ public class MagQCVectorMaker {
 	/*--------------------------------------------------------------*/
 	/*----------------          Per-contig          ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/**
+	 * One frozen subnet participating in aggregator-vector emission: its subset
+	 * definition (family ranks, or the ncRNA accessor for the special "ncrna" row),
+	 * its loaded CellNet, and an exact-width input buffer (CellNet.applyInput asserts
+	 * the width, which doubles as a wiring guard).
+	 */
+	static final class AggSubnet {
+		String name;
+		int numObs;
+		int[] ranks;//null for the ncrna row
+		ml.CellNet net;
+		boolean ncrna;
+		float[] buf;
+		//Per-net input representation (defaults = the manifest's #repflags; overridable
+		//per row for nets trained under a different rep, e.g. the base-rep ncRNA net).
+		boolean binScaled, codingAffine, domain, hhcaga, genelen;
+	}
 
 	/** One cached contig's sufficient statistics; family counts stored sparsely. */
 	static final class Contig {
@@ -105,80 +159,138 @@ public class MagQCVectorMaker {
 	/*--------------------------------------------------------------*/
 
 	private void loadAux(){
-		try{
-			// family list -> count of family columns
-			if(familyFile!=null){
-				BufferedReader br=new BufferedReader(new FileReader(familyFile));
-				String line=br.readLine();//header
-				int c=0; while((line=br.readLine())!=null){if(line.length()>0){c++;}}
-				br.close(); numFam=c;
+		// family list -> count of family columns
+		if(familyFile!=null){
+			final ByteFile bf=ByteFile.makeByteFile(familyFile, true);
+			bf.nextLine();//header
+			int c=0;
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length>0){c++;}
 			}
-			// taxpgm: tid <tab> phylum <tab> pgm  -> tid->phylum, and phylum vocabulary
-			BufferedReader br=new BufferedReader(new FileReader(taxpgmFile));
-			TreeSet<String> phyla=new TreeSet<String>();
-			String line;
-			while((line=br.readLine())!=null){
-				String[] p=line.split("\t");
-				if(p.length>=2){tid2phylum.put(Integer.parseInt(p[0]), p[1]); phyla.add(p[1]);}
+			bf.close();
+			numFam=c;
+		}
+		// taxpgm: tid <tab> phylum <tab> pgm -> tid->phylum (staged), phylum vocabulary.
+		// phylumIndex needs every distinct phylum name collected first (TreeSet, sorted
+		// deterministic order), so tid->phylum is staged in parallel primitive/String
+		// lists here and resolved to tid2phylumIdx (int->int) in a second pass below.
+		final IntList stagedTid=new IntList();
+		final ArrayList<String> stagedPhylum=new ArrayList<String>();
+		{
+			final ByteFile bf=ByteFile.makeByteFile(taxpgmFile, true);
+			final LineParser1 lp=new LineParser1((byte)'\t');
+			final TreeSet<String> phyla=new TreeSet<String>();
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length==0){continue;}
+				lp.set(line);
+				if(lp.terms()>=2){
+					final int tid=lp.parseInt(0);
+					final String phy=lp.parseString(1);
+					stagedTid.add(tid); stagedPhylum.add(phy);
+					phyla.add(phy);
+				}
 			}
-			br.close();
+			bf.close();
 			phylumList=new ArrayList<String>(phyla);
 			phylumList.add("other");
 			for(int i=0; i<phylumList.size(); i++){phylumIndex.put(phylumList.get(i), i);}
 			numPhyla=phylumList.size();
-			// sizemap: tid <tab> bp
-			br=new BufferedReader(new FileReader(sizemapFile));
-			while((line=br.readLine())!=null){
-				String[] p=line.split("\t");
-				if(p.length>=2){genomeSize.put(Integer.parseInt(p[0]), Long.parseLong(p[1]));}
+		}
+		for(int i=0; i<stagedTid.size(); i++){
+			final Integer pi=phylumIndex.get(stagedPhylum.get(i));
+			tid2phylumIdx.put(stagedTid.get(i), pi==null ? phylumIndex.get("other") : pi);
+		}
+		// sizemap: tid <tab> bp. Last row for a tid wins (matches HashMap.put's overwrite
+		// semantics) - IntLongHashMap.put() does NOT overwrite, so remove-then-put.
+		{
+			final ByteFile bf=ByteFile.makeByteFile(sizemapFile, true);
+			final LineParser1 lp=new LineParser1((byte)'\t');
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length==0){continue;}
+				lp.set(line);
+				if(lp.terms()>=2){
+					final int tid=lp.parseInt(0);
+					final long bp=lp.parseLong(1);
+					genomeSize.remove(tid);
+					genomeSize.put(tid, bp);
+				}
 			}
-			br.close();
-		}catch(Exception e){throw new RuntimeException(e);}
+			bf.close();
+		}
 	}
 
-	/** Loads the per-contig cache into per-tid contig lists. */
+	/** Loads the per-contig cache into per-tid contig lists (dense tid->index + parallel
+	 *  ArrayList<Contig>[] - IntHashMap can't hold list values, so this is the one field
+	 *  that keeps a per-tid object list rather than becoming a flat primitive map). */
 	private void loadCache(){
-		try{
-			BufferedReader br=new BufferedReader(new FileReader(cacheFile));
-			String line;
-			while((line=br.readLine())!=null){
-				if(line.length()==0 || line.charAt(0)=='#'){continue;}
-				String[] f=line.split("\t", -1);
-				if(f.length<17){continue;}
-				Contig c=new Contig();
-				c.tid=Integer.parseInt(f[1]);
-				c.length=Integer.parseInt(f[3]);
-				if(c.length<minlen){continue;}
-				c.gc=Integer.parseInt(f[4]);
-				c.acgt=Integer.parseInt(f[5]);
-				c.cds=Integer.parseInt(f[6]);
-				c.mapped=Integer.parseInt(f[7]);
-				c.glenSum=Long.parseLong(f[8]);
-				c.glenSq=Long.parseLong(f[9]);
-				c.coding=Integer.parseInt(f[10]);
-				c.r16=Integer.parseInt(f[11]);
-				c.r23=Integer.parseInt(f[12]);
-				c.r5=Integer.parseInt(f[13]);
-				c.rother=Integer.parseInt(f[14]);
-				c.trna=Integer.parseInt(f[15]);
-				String fc=f[16];
-				if(fc.length()>0){
-					String[] pairs=fc.split(";");
-					c.famRank=new int[pairs.length];
-					c.famCount=new int[pairs.length];
-					for(int i=0; i<pairs.length; i++){
-						int colon=pairs[i].indexOf(':');
-						c.famRank[i]=Integer.parseInt(pairs[i].substring(0, colon));
-						c.famCount[i]=Integer.parseInt(pairs[i].substring(colon+1));
-					}
-				}else{c.famRank=EMPTY; c.famCount=EMPTY;}
-				ArrayList<Contig> list=byTid.get(c.tid);
-				if(list==null){byTid.put(c.tid, list=new ArrayList<Contig>());}
-				list.add(c);
-				if(!tid2domainIdx.containsKey(c.tid)){tid2domainIdx.put(c.tid, domainIndex(f[2]));}
+		final ByteFile bf=ByteFile.makeByteFile(cacheFile, true);
+		final LineParser1 lp=new LineParser1((byte)'\t');
+		final IntList rankBuf=new IntList(), countBuf=new IntList();
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0 || line[0]=='#'){continue;}
+			lp.set(line);
+			final int terms=lp.terms();
+			assert(terms>=17) : "Malformed cache row: "+terms+" fields (need >=17): "+new String(line);
+			final Contig c=new Contig();
+			c.tid=lp.parseInt(1);
+			c.length=lp.parseInt(3);
+			if(c.length<minlen){continue;}
+			c.gc=lp.parseInt(4);
+			c.acgt=lp.parseInt(5);
+			c.cds=lp.parseInt(6);
+			c.mapped=lp.parseInt(7);
+			c.glenSum=lp.parseLong(8);
+			c.glenSq=lp.parseLong(9);
+			c.coding=lp.parseInt(10);
+			c.r16=lp.parseInt(11);
+			c.r23=lp.parseInt(12);
+			c.r5=lp.parseInt(13);
+			c.rother=lp.parseInt(14);
+			c.trna=lp.parseInt(15);
+			final int flen=lp.length(16);
+			if(flen==0){c.famRank=EMPTY; c.famCount=EMPTY;}
+			else{
+				rankBuf.clear(); countBuf.clear();
+				parseFamCounts(lp.line(), lp.a(), lp.b(), rankBuf, countBuf);
+				c.famRank=rankBuf.toArray();
+				c.famCount=countBuf.toArray();
 			}
-			br.close();
-		}catch(Exception e){throw new RuntimeException(e);}
+			int idx=tidToIdx.get(c.tid);
+			if(idx<0){
+				idx=contigLists.size();
+				tidToIdx.put(c.tid, idx);
+				contigLists.add(new ArrayList<Contig>());
+				if(idx>=domainIdxArr.length){domainIdxArr=Arrays.copyOf(domainIdxArr, Math.max(idx+1, domainIdxArr.length*2));}
+				domainIdxArr[idx]=domainIndex(lp.parseString(2));
+			}
+			contigLists.get(idx).add(c);
+		}
+		bf.close();
+	}
+
+	/** Parses "rank:count;rank:count;..." within [a,b) of line into the (cleared) output
+	 *  lists, in order. Zero allocation beyond the two IntList's own backing-array growth. */
+	private static void parseFamCounts(byte[] line, int a, int b, IntList outRank, IntList outCount){
+		int start=a;
+		for(int i=a; i<=b; i++){
+			if(i==b || line[i]==';'){
+				if(i>start){
+					int colon=-1;
+					for(int j=start; j<i; j++){if(line[j]==':'){colon=j; break;}}
+					assert(colon>start) : "Malformed famcounts field (missing ':' in a rank:count pair).";
+					outRank.add(Parse.parseInt(line, start, colon));
+					outCount.add(Parse.parseInt(line, colon+1, i));
+				}
+				start=i+1;
+			}
+		}
+	}
+
+	/** Returns tid's contig list, or null if tid was never seen in the cache (mirrors
+	 *  the original {@code byTid.get(tid)}'s null-on-absent contract exactly). */
+	private ArrayList<Contig> getContigs(int tid){
+		final int idx=tidToIdx.get(tid);
+		return idx<0 ? null : contigLists.get(idx);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -187,17 +299,144 @@ public class MagQCVectorMaker {
 
 	/** Loads a family-feature subset (one rank per line) for reduced-width vectors. */
 	private int[] loadRanks(String file){
-		try{
-			ArrayList<Integer> l=new ArrayList<Integer>();
-			BufferedReader br=new BufferedReader(new FileReader(file));
-			String s;
-			while((s=br.readLine())!=null){s=s.trim(); if(s.length()>0){l.add(Integer.parseInt(s));}}
-			br.close();
-			int[] a=new int[l.size()];
-			for(int i=0; i<a.length; i++){a[i]=l.get(i);}
-			System.err.println("feature subset: "+a.length+" family ranks kept");
-			return a;
-		}catch(Exception e){throw new RuntimeException(e);}
+		final IntList l=new IntList();
+		final ByteFile bf=ByteFile.makeByteFile(file, true);
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			int a=0, b=line.length;
+			while(a<b && line[a]<=' '){a++;}
+			while(b>a && line[b-1]<=' '){b--;}
+			if(b>a){l.add(Parse.parseInt(line, a, b));}
+		}
+		bf.close();
+		final int[] a=l.toArray();
+		System.err.println("feature subset: "+a.length+" family ranks kept");
+		return a;
+	}
+
+	private static boolean parseAggObs(String s){
+		s=s.toLowerCase();
+		if(s.equals("serve") || s.equals("whole") || s.equals("wholebin")){return true;}
+		if(s.equals("clean") || s.equals("target") || s.equals("targetonly")){return false;}
+		throw new RuntimeException("Unknown aggobs="+s+" (serve|clean)");
+	}
+
+	private static int parsePoolMode(String s){
+		s=s.toLowerCase();
+		if(s.equals("trainval")){return POOL_TRAINVAL;}
+		if(s.equals("valsplit")){return POOL_VALSPLIT;}
+		if(s.equals("allbutc")){return POOL_ALLBUTC;}
+		throw new RuntimeException("Unknown poolmode="+s+" (trainval|valsplit|allbutc)");
+	}
+
+	/**
+	 * Loads the aggregator manifest: tab-separated rows
+	 * base, numobs, numIn, subset_path, val_path, net_path (val_path unused here).
+	 * A "#repflags key=value..." header line sets the shared subnet input representation
+	 * (snbinscaled/snhhcaga/sngenelen/sncodingaffine/sndomain) once for all rows; other
+	 * #-lines are comments. base "ncrna" marks the special ncRNA row (subset_path "-",
+	 * observed from the Agg ncRNA fields rather than fam[] ranks). Every net's input
+	 * width is asserted against the width implied by numobs and the active flags.
+	 * Row/token parsing here stays String-based (LineParser1 for line reading only) - a
+	 * handful of manifest rows at startup, not a per-bin cost, and every field here is
+	 * matched against named flag strings anyway.
+	 */
+	private void loadAggManifest(String file){
+		aggSubnets=new ArrayList<AggSubnet>();
+		final ByteFile bf=ByteFile.makeByteFile(file, true);
+		for(byte[] lineB=bf.nextLine(); lineB!=null; lineB=bf.nextLine()){
+			String line=new String(lineB).trim();
+			if(line.length()==0){continue;}
+			if(line.charAt(0)=='#'){
+				if(line.startsWith("#repflags")){
+					for(String tok : line.substring("#repflags".length()).trim().split("\\s+")){
+						int eq=tok.indexOf('=');
+						if(eq<0){continue;}
+						String k=tok.substring(0, eq).toLowerCase(), v=tok.substring(eq+1);
+						if(k.equals("snbinscaled")){snBinScaled=parseBool(v);}
+						else if(k.equals("snhhcaga")){snHHCAGA=parseBool(v);}
+						else if(k.equals("sngenelen")){snGeneLen=parseBool(v);}
+						else if(k.equals("sncodingaffine")){snCodingAffine=parseBool(v);}
+						else if(k.equals("sndomain")){snDomain=parseBool(v);}
+						else{System.err.println("Warning: unknown repflag "+tok);}
+					}
+				}
+				continue;
+			}
+			String[] p=line.split("\t");
+			if(p.length<6){throw new RuntimeException("Manifest row needs 6 columns "
+				+"(base numobs numIn subset_path val_path net_path [flag=value ...]): "+line);}
+			AggSubnet s=new AggSubnet();
+			s.name=p[0];
+			s.numObs=Integer.parseInt(p[1]);
+			s.ncrna="ncrna".equals(s.name);
+			//Per-net rep defaults to the shared #repflags; columns past net_path override
+			//it for nets trained under a different rep. Transform flags (snbinscaled,
+			//sncodingaffine) are width-invariant, so they CANNOT be caught by the width
+			//assert below - they must be stated correctly here or the net silently runs
+			//off-distribution (the platform= lesson).
+			s.binScaled=snBinScaled; s.codingAffine=snCodingAffine; s.domain=snDomain;
+			s.hhcaga=snHHCAGA; s.genelen=snGeneLen;
+			for(int i=6; i<p.length; i++){
+				for(String tok : p[i].trim().split("\\s+")){
+					int eq=tok.indexOf('=');
+					if(eq<0){continue;}
+					String k=tok.substring(0, eq).toLowerCase(), v=tok.substring(eq+1);
+					if(k.equals("snbinscaled")){s.binScaled=parseBool(v);}
+					else if(k.equals("sncodingaffine")){s.codingAffine=parseBool(v);}
+					else if(k.equals("sndomain")){s.domain=parseBool(v);}
+					else if(k.equals("snhhcaga")){s.hhcaga=parseBool(v);}
+					else if(k.equals("sngenelen")){s.genelen=parseBool(v);}
+					else{System.err.println("Warning: unknown per-net flag "+tok+" ("+s.name+")");}
+				}
+			}
+			if(s.ncrna){
+				if(s.numObs!=NCRNA_OBS){throw new RuntimeException("ncrna row numobs must be "+NCRNA_OBS);}
+			}else{
+				s.ranks=loadRanks(p[3]);
+				if(s.ranks.length!=s.numObs){throw new RuntimeException("Subset "+s.name
+					+": "+s.ranks.length+" ranks but numobs="+s.numObs);}
+			}
+			s.net=ml.CellNetParser.load(p[5]);
+			if(s.net==null){throw new RuntimeException("Failed to load net "+p[5]);}
+			final int expected=s.numObs+numPhyla+NCRNA_CONTEXT
+				+(s.domain?DOMAINS:0)+(s.hhcaga?2:0)+(s.genelen?2:0);
+			final int manifestIn=Integer.parseInt(p[2]);
+			if(manifestIn>=0 && manifestIn!=expected){throw new RuntimeException("Subset "+s.name
+				+": manifest numIn="+manifestIn+" but flags imply "+expected);}
+			if(s.net.numInputs()!=expected){throw new RuntimeException("Subset "+s.name
+				+": net takes "+s.net.numInputs()+" inputs but flags imply "+expected
+				+" (rep-flags mismatch? width-changing flags: sndomain/snhhcaga/sngenelen)");}
+			s.buf=new float[expected];
+			aggSubnets.add(s);
+		}
+		bf.close();
+		if(aggSubnets.isEmpty()){throw new RuntimeException("Empty aggregator manifest: "+file);}
+		System.err.println("aggregator manifest: "+aggSubnets.size()+" subnets loaded");
+	}
+
+	/**
+	 * Selects the raw dense head: the K most-prevalent families (organism presence
+	 * count over all usable orgs, ties broken by rank), a reference-DB constant like
+	 * avgCopyWhenPresent. Their whole-bin counts feed the aggregator raw (enc=two
+	 * presence+excess), giving it a direct low-missingness signal alongside the
+	 * subnet summaries.
+	 */
+	private int[] computeDenseHead(IntList usable, int k){
+		final int[] present=new int[numFam];
+		final int[] orgCount=new int[numFam];
+		for(int i=0; i<usable.size(); i++){
+			Arrays.fill(orgCount, 0);
+			for(Contig c : getContigs(usable.get(i))){
+				for(int j=0; j<c.famRank.length; j++){orgCount[c.famRank[j]]+=c.famCount[j];}
+			}
+			for(int f=0; f<numFam; f++){if(orgCount[f]>0){present[f]++;}}
+		}
+		Integer[] order=new Integer[numFam];
+		for(int i=0; i<numFam; i++){order[i]=i;}
+		Arrays.sort(order, (a, b) -> (present[a]!=present[b] ? present[b]-present[a] : a-b));
+		final int[] head=new int[Math.min(k, numFam)];
+		for(int i=0; i<head.length; i++){head[i]=order[i];}
+		return head;
 	}
 
 	void process(){
@@ -205,44 +444,52 @@ public class MagQCVectorMaker {
 		loadCache();
 
 		// usable tids: present in cache + sizemap, with contigs
-		ArrayList<Integer> usable=new ArrayList<Integer>();
-		for(Integer tid : byTid.keySet()){
-			if(genomeSize.containsKey(tid) && !byTid.get(tid).isEmpty()){usable.add(tid);}
+		final IntList usable=new IntList();
+		final int[] allTids=tidToIdx.toArray();
+		for(int tid : allTids){
+			if(genomeSize.contains(tid) && !getContigs(tid).isEmpty()){usable.add(tid);}
 		}
-		java.util.Collections.sort(usable);
+		usable.sort();
 		System.err.println("usable orgs="+usable.size()+", numFam="+numFam+", numPhyla="+numPhyla);
 
 		// optional taxonomy for same-family contaminant bias
 		if(treeFile!=null){
 			tree=TaxTree.loadTaxTree(treeFile, System.err, false, false);
-			for(Integer tid : usable){
+			for(int i=0; i<usable.size(); i++){
+				final int tid=usable.get(i);
 				TaxNode fn=(tree==null ? null : tree.getNodeAtLevel(tid, TaxTree.FAMILY));
 				tid2family.put(tid, fn==null ? -1 : fn.id);
 			}
 		}
 
-		// global organism split BEFORE sampling
-		Random split=new Random(seed);
-		java.util.Collections.shuffle(usable, split);
-		int nVal=(int)Math.round(usable.size()*valfrac);
-		ArrayList<Integer> valTids=new ArrayList<Integer>(usable.subList(0, nVal));
-		ArrayList<Integer> trainTids=new ArrayList<Integer>(usable.subList(nVal, usable.size()));
+		// global organism split BEFORE sampling. shuffleInPlace replicates
+		// java.util.Collections.shuffle(List,Random)'s EXACT algorithm/call sequence -
+		// IntList's own shuffle() draws from Shared.threadLocalRandom(), NOT this seeded
+		// stream, and would silently desync the whole train/val split from the original.
+		final Random split=new Random(seed);
+		shuffleInPlace(usable, split);
+		final int nVal=(int)Math.round(usable.size()*valfrac);
+		IntList valTids=subList(usable, 0, nVal);
+		IntList trainTids=subList(usable, nVal, usable.size());
 		System.err.println("train orgs="+trainTids.size()+", val orgs="+valTids.size());
 
 		// precompute recoverable bp per tid
-		for(Integer tid : usable){
-			long sum=0; for(Contig c : byTid.get(tid)){sum+=c.length;}
+		for(int i=0; i<usable.size(); i++){
+			final int tid=usable.get(i);
+			long sum=0; for(Contig c : getContigs(tid)){sum+=c.length;}
 			recoverable.put(tid, sum);
 		}
 
 		// precompute each organism's NATIVE ncRNA complement (the subnet denominator):
 		// {r16,r23,r5,rother,trna} summed over ALL of the tid's contigs.
-		for(Integer tid : usable){
-			int[] nc=new int[5];
-			for(Contig c : byTid.get(tid)){
-				nc[0]+=c.r16; nc[1]+=c.r23; nc[2]+=c.r5; nc[3]+=c.rother; nc[4]+=c.trna;
+		for(int i=0; i<usable.size(); i++){
+			final int tid=usable.get(i);
+			int nR16=0, nR23=0, nR5=0, nRother=0, nTrna=0;
+			for(Contig c : getContigs(tid)){
+				nR16+=c.r16; nR23+=c.r23; nR5+=c.r5; nRother+=c.rother; nTrna+=c.trna;
 			}
-			nativeNc.put(tid, nc);
+			nativeNcR16.put(tid, nR16); nativeNcR23.put(tid, nR23); nativeNcR5.put(tid, nR5);
+			nativeNcRother.put(tid, nRother); nativeNcTrna.put(tid, nTrna);
 		}
 
 		if(enc==ENC_NORM){
@@ -269,10 +516,11 @@ public class MagQCVectorMaker {
 			lastFamObs=new int[subsetRanks.length];
 			// Native subset complement per organism: the subset families' counts summed over
 			// ALL the tid's contigs (the famset subnet's denominator target).
-			for(Integer tid : usable){
+			for(int i=0; i<usable.size(); i++){
+				final int tid=usable.get(i);
 				int sum=0;
-				for(Contig c : byTid.get(tid)){
-					for(int i=0; i<c.famRank.length; i++){if(subsetMask[c.famRank[i]]){sum+=c.famCount[i];}}
+				for(Contig c : getContigs(tid)){
+					for(int j=0; j<c.famRank.length; j++){if(subsetMask[c.famRank[j]]){sum+=c.famCount[j];}}
 				}
 				nativeFamTotal.put(tid, sum);
 			}
@@ -281,66 +529,146 @@ public class MagQCVectorMaker {
 		final int obsCols=(subnetFamset ? subsetRanks.length : NCRNA_OBS);
 		subnetInputs=obsCols+numPhyla+NCRNA_CONTEXT
 			+(snDomain?DOMAINS:0)+(snHHCAGA?2:0)+(snGeneLen?2:0);
-		if(subnet && snHHCAGA){
+		// Aggregator mode: load manifest (may set rep flags), then dense head + buffers.
+		// The manifest is parsed BEFORE the kmer-file check because #repflags may enable
+		// snhhcaga. Subnet input widths depend on the final flag state.
+		if(aggManifestFile!=null){
+			loadAggManifest(aggManifestFile);
+			if(aggOut==null){throw new RuntimeException("aggmanifest= requires aggout=");}
+			denseRanks=computeDenseHead(usable, denseHead);
+			cleanFamBuf=new int[numFam];
+			aggCtx=new float[CTX_N];
+			numAggInputs=aggSubnets.size()*4+1+2*denseRanks.length+numPhyla
+				+(snDomain?DOMAINS:0)+NCRNA_CONTEXT+(snHHCAGA?2:0)+(snGeneLen?2:0);
+			System.err.println("agg: "+aggSubnets.size()+" subnets, dense head "+denseRanks.length
+				+", numAggInputs="+numAggInputs+", obs="+(aggObsServe ? "serve" : "clean"));
+		}
+		boolean needKmer=(subnet && snHHCAGA) || (aggManifestFile!=null && snHHCAGA);
+		if(aggSubnets!=null){for(AggSubnet s : aggSubnets){needKmer|=s.hhcaga;}}
+		if(needKmer){
 			if(kmerFile==null){throw new RuntimeException("snhhcaga=t requires kmerfile=<tid HH CAGA>");}
 			loadKmerFile(kmerFile);
 		}
-		writeSet(out, (subnet ? subnetOut : null), trainTids, n, new Random(seed*2+1), "train");
+		// poolmode=valsplit: both output sets come from the ORIGINAL val orgs (never seen
+		// by any subnet trained on the seed-matched train side): first half = aggregator-train
+		// (B), second half = final-test (C). Stacking discipline for free (Barbara).
+		// poolmode=allbutc: train pool = EVERY usable org except C (Brian 2026-08-11: "hold out
+		// vectors, never organisms" - 49 orgs starved the aggregator; the same C stays out so the
+		// novel-org readout remains comparable across modes). C is IDENTICAL to valsplit's C.
+		if(poolMode==POOL_VALSPLIT || poolMode==POOL_ALLBUTC){
+			final int half=valTids.size()/2;
+			if(half<1){throw new RuntimeException("poolmode needs >=2 val orgs, have "+valTids.size());}
+			final IntList b=subList(valTids, 0, half);
+			final IntList c=subList(valTids, half, valTids.size());
+			if(poolMode==POOL_VALSPLIT){
+				trainTids=b;
+			}else{
+				trainTids.addAll(b);//all usable orgs except C
+			}
+			valTids=c;
+			System.err.println("poolmode="+(poolMode==POOL_VALSPLIT ? "valsplit" : "allbutc")
+				+": aggregator-train orgs="+trainTids.size()+", final-test orgs="+c.size());
+		}
+		writeSet(out, (subnet ? subnetOut : null), aggOut, trainTids, n, new Random(seed*2+1), "train");
 		if(outval!=null && valn>0 && !valTids.isEmpty()){
-			writeSet(outval, (subnet ? subnetValOut : null), valTids, valn, new Random(seed*2+2), "val");
+			writeSet(outval, (subnet ? subnetValOut : null), aggValOut, valTids, valn, new Random(seed*2+2), "val");
 		}
 		System.err.println("done.");
 	}
 
+	/** Replicates java.util.Collections.shuffle(List,Random)'s exact algorithm and RNG
+	 *  call sequence (Fisher-Yates, i from size down to 2, swap(i-1, rnd.nextInt(i))) -
+	 *  determinism-critical: the global train/val organism split depends on drawing the
+	 *  SAME sequence of rnd.nextInt() calls the original produced. */
+	private static void shuffleInPlace(IntList list, Random rnd){
+		for(int i=list.size(); i>1; i--){
+			final int j=rnd.nextInt(i);
+			final int tmp=list.get(i-1);
+			list.set(i-1, list.get(j));
+			list.set(j, tmp);
+		}
+	}
+
+	private static IntList subList(IntList src, int from, int to){
+		final IntList out=new IntList(Math.max(1, to-from));
+		for(int i=from; i<to; i++){out.add(src.get(i));}
+		return out;
+	}
+
 	/** Builds family->tids index within a pool (for same-family contaminant selection). */
-	private HashMap<Integer,ArrayList<Integer>> familyIndex(ArrayList<Integer> pool){
-		HashMap<Integer,ArrayList<Integer>> m=new HashMap<Integer,ArrayList<Integer>>();
-		for(Integer tid : pool){
-			int fam=tid2family.getOrDefault(tid, -1);
-			ArrayList<Integer> l=m.get(fam);
-			if(l==null){m.put(fam, l=new ArrayList<Integer>());}
+	private HashMap<Integer,IntList> familyIndex(IntList pool){
+		final HashMap<Integer,IntList> m=new HashMap<Integer,IntList>();
+		for(int i=0; i<pool.size(); i++){
+			final int tid=pool.get(i);
+			final int fam=tid2family.get(tid);//IntHashMap.get returns -1 when absent, matching getOrDefault(tid,-1)
+			IntList l=m.get(fam);
+			if(l==null){m.put(fam, l=new IntList());}
 			l.add(tid);
 		}
 		return m;
 	}
 
-	private void writeSet(String file, String subnetFile, ArrayList<Integer> pool, long count, Random rnd, String tag){
-		HashMap<Integer,ArrayList<Integer>> famIdx=familyIndex(pool);
-		try{
-			BufferedWriter bw=new BufferedWriter(new FileWriter(file), 1<<20);
-			bw.write("#dims\t"+numInputs+"\t2\t0\n");
-			BufferedWriter sbw=null;
-			StringBuilder sb2=null;
-			if(subnetFile!=null){
-				sbw=new BufferedWriter(new FileWriter(subnetFile), 1<<20);
-				sbw.write("#dims\t"+subnetInputs+"\t1\t0\n");
-				sb2=new StringBuilder(subnetInputs*4);
+	private void writeSet(String file, String subnetFile, String aggFile, IntList pool, long count, Random rnd, String tag){
+		final HashMap<Integer,IntList> famIdx=familyIndex(pool);
+		final ByteStreamWriter bsw=new ByteStreamWriter(file, true, false, true);
+		bsw.start();
+		final ByteBuilder bb=new ByteBuilder(numInputs*4+64);
+		bb.append("#dims\t").append(numInputs).append("\t2\t0").nl();
+		bsw.print(bb); bb.clear();
+
+		final ByteStreamWriter sbsw=(subnetFile==null ? null : new ByteStreamWriter(subnetFile, true, false, true));
+		final ByteBuilder bb2=(sbsw==null ? null : new ByteBuilder(subnetInputs*4+64));
+		if(sbsw!=null){
+			sbsw.start();
+			bb2.append("#dims\t").append(subnetInputs).append("\t1\t0").nl();
+			sbsw.print(bb2); bb2.clear();
+		}
+
+		final ByteStreamWriter absw=(aggFile==null ? null : new ByteStreamWriter(aggFile, true, false, true));
+		final ByteBuilder bb3=(absw==null ? null : new ByteBuilder(numAggInputs*4+64));
+		if(absw!=null){
+			absw.start();
+			bb3.append("#dims\t").append(numAggInputs).append("\t2\t0").nl();
+			absw.print(bb3); bb3.clear();
+		}
+
+		// Per-attempt buffers hoisted OUT of the loop and reused (S3): fam[]/glob[]/labels[]
+		// are cleared, never reallocated. fam[] must be explicitly zeroed every attempt -
+		// Agg.add() only INCREMENTS specific indices, it never zeroes the whole array, so a
+		// stale value from a REJECTED prior attempt would otherwise bleed into the next one.
+		// Agg itself (S4) is built ONCE and reset() between attempts, so its scratchArr/lens
+		// buffers (already designed to reuse-if-large-enough) actually get to amortize.
+		final double[] labels=new double[2];
+		final int[] fam=new int[numFam];
+		final double[] glob=new double[NUM_GLOBALS];
+		final Agg agg=new Agg();
+		agg.setFam(fam);
+
+		long made=0, tries=0;
+		while(made<count && tries<count*20+1000){
+			tries++;
+			Arrays.fill(fam, 0, numFam, 0);
+			agg.reset();
+			final int targetPhylumIdx=makeBin(pool, famIdx, rnd, fam, glob, labels, agg);
+			if(targetPhylumIdx<0){continue;}
+			formatRow(bb, fam, glob, targetPhylumIdx, labels);
+			bsw.print(bb); bb.clear();
+			if(sbsw!=null){
+				if(subnetFamset){formatFamsetRow(bb2, glob, targetPhylumIdx);}
+				else{formatNcrnaRow(bb2, glob, targetPhylumIdx);}
+				sbsw.print(bb2); bb2.clear();
 			}
-			long made=0, tries=0;
-			StringBuilder sb=new StringBuilder(numInputs*4);
-			while(made<count && tries<count*20+1000){
-				tries++;
-				double[] labels=new double[2];
-				int[] fam=new int[numFam];
-				double[] glob=new double[NUM_GLOBALS];
-				int targetPhylumIdx=makeBin(pool, famIdx, rnd, fam, glob, labels);
-				if(targetPhylumIdx<0){continue;}
-				formatRow(sb, fam, glob, targetPhylumIdx, labels);
-				bw.write(sb.toString());
-				sb.setLength(0);
-				if(sbw!=null){
-					if(subnetFamset){formatFamsetRow(sb2, glob, targetPhylumIdx);}
-					else{formatNcrnaRow(sb2, glob, targetPhylumIdx);}
-					sbw.write(sb2.toString());
-					sb2.setLength(0);
-				}
-				made++;
-				if((made%50000)==0){System.err.println(tag+": "+made+"/"+count);}
+			if(absw!=null){
+				formatAggRow(bb3, fam, glob, targetPhylumIdx, labels);
+				absw.print(bb3); bb3.clear();
 			}
-			bw.close();
-			if(sbw!=null){sbw.close(); System.err.println(tag+": wrote "+made+" ncRNA-subnet rows to "+subnetFile);}
-			System.err.println(tag+": wrote "+made+" rows to "+file+" (tries="+tries+")");
-		}catch(Exception e){throw new RuntimeException(e);}
+			made++;
+			if((made%50000)==0){System.err.println(tag+": "+made+"/"+count);}
+		}
+		bsw.poisonAndWait();
+		if(sbsw!=null){sbsw.poisonAndWait(); System.err.println(tag+": wrote "+made+" ncRNA-subnet rows to "+subnetFile);}
+		if(absw!=null){absw.poisonAndWait(); System.err.println(tag+": wrote "+made+" aggregator rows to "+aggFile);}
+		System.err.println(tag+": wrote "+made+" rows to "+file+" (tries="+tries+")");
 	}
 
 	/*--------------------------------------------------------------*/
@@ -351,18 +679,17 @@ public class MagQCVectorMaker {
 	 * Synthesizes one bin into the provided fam[]/glob[] accumulators and labels[].
 	 * @return the target's phylum index, or -1 if the attempt failed (retry).
 	 */
-	private int makeBin(ArrayList<Integer> pool, HashMap<Integer,ArrayList<Integer>> famIdx,
-			Random rnd, int[] fam, double[] glob, double[] labels){
-		int target=pool.get(rnd.nextInt(pool.size()));
-		long gsize=genomeSize.get(target);
-		long recov=recoverable.get(target);
+	private int makeBin(IntList pool, HashMap<Integer,IntList> famIdx,
+			Random rnd, int[] fam, double[] glob, double[] labels, Agg agg){
+		final int target=pool.get(rnd.nextInt(pool.size()));
+		final long gsize=genomeSize.get(target);
+		final long recov=recoverable.get(target);
 		if(gsize<=0 || recov<=0){return -1;}
 
 		// sampled completeness (flat + sqrt-high mixture), capped by recoverable fraction
-		double comp=sampleComp(rnd);
-		long targetBp=(long)(comp*gsize);
-		Agg agg=new Agg(fam);
-		long cleanBp=selectContigs(byTid.get(target), targetBp, rnd, agg);
+		final double comp=sampleComp(rnd);
+		final long targetBp=(long)(comp*gsize);
+		final long cleanBp=selectContigs(getContigs(target), targetBp, rnd, agg);
 		if(cleanBp<=0){return -1;}
 		// Snapshot the TARGET's observed ncRNA (before contaminants are added) and its id, so a
 		// subnet emitter can pair this bin's observed ncRNA with the target's native complement.
@@ -375,27 +702,34 @@ public class MagQCVectorMaker {
 		if(subsetRanks!=null){
 			for(int i=0; i<subsetRanks.length; i++){lastFamObs[i]=fam[subsetRanks[i]];}
 		}
+		// Full target-only fam snapshot for aggregator aggobs=clean (fam[] gains
+		// contaminant counts below; this preserves the pre-contaminant state).
+		if(cleanFamBuf!=null){System.arraycopy(fam, 0, cleanFamBuf, 0, numFam);}
 
 		// sampled contamination (clean spike, else flat + square-low mixture)
-		double cont=(rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd));
+		final double cont=(rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd));
 		long foreignBp=0;
 		if(cont>0){
-			long foreignTarget=(long)((cont/(1.0-cont))*cleanBp);
+			final long foreignTarget=(long)((cont/(1.0-cont))*cleanBp);
 			if(foreignTarget>0){
 				int nContam=1;
 				if(rnd.nextDouble()<multiContamProb){nContam=2+rnd.nextInt(2);}//2 or 3
-				long per=Math.max(1, foreignTarget/nContam);
+				final long per=Math.max(1, foreignTarget/nContam);
 				for(int k=0; k<nContam; k++){
-					int ctid=pickContaminant(pool, famIdx, target, rnd);
+					final int ctid=pickContaminant(pool, famIdx, target, rnd);
 					if(ctid<0){break;}
-					foreignBp+=selectContigs(byTid.get(ctid), per, rnd, agg);
+					foreignBp+=selectContigs(getContigs(ctid), per, rnd, agg);
 				}
 			}
 		}
 
-		long totalBp=cleanBp+foreignBp;
+		final long totalBp=cleanBp+foreignBp;
 		if(totalBp<=0 || agg.contigs<=0){return -1;}
 		lastTotalBp=totalBp;
+		// Whole-bin (serve-faithful) ncRNA observed, contaminants included - what a
+		// deployed bin actually shows. glob[] lacks rother, so capture all 5 here.
+		lastNcServe[0]=agg.r16; lastNcServe[1]=agg.r23; lastNcServe[2]=agg.r5;
+		lastNcServe[3]=agg.rother; lastNcServe[4]=agg.trna;
 
 		// achieved labels from the explicit target
 		labels[0]=Math.min(1.0, cleanBp/(double)gsize);      // completeness
@@ -417,36 +751,42 @@ public class MagQCVectorMaker {
 		glob[8]=log2(agg.richness());
 		glob[9]=agg.r16; glob[10]=agg.r23; glob[11]=agg.r5; glob[12]=agg.trna;
 
-		String phy=tid2phylum.getOrDefault(target, "other");
-		Integer pi=phylumIndex.get(phy);
+		final Integer pi=tid2phylumIdx0(target);
 		return pi==null ? phylumIndex.get("other") : pi;
 	}
 
+	/** tid2phylumIdx.get() returns int (-1 sentinel); wraps as Integer only at this one
+	 *  low-frequency (once-per-bin) call site to keep makeBin's return contract unchanged. */
+	private Integer tid2phylumIdx0(int target){
+		final int v=tid2phylumIdx.get(target);
+		return v<0 ? null : Integer.valueOf(v);
+	}
+
 	/** Picks a contaminant tid != target, favoring the target's family. */
-	private int pickContaminant(ArrayList<Integer> pool, HashMap<Integer,ArrayList<Integer>> famIdx,
+	private int pickContaminant(IntList pool, HashMap<Integer,IntList> famIdx,
 			int target, Random rnd){
 		if(!tid2family.isEmpty() && rnd.nextDouble()<sameFamProb){
-			int fam=tid2family.getOrDefault(target, -1);
-			ArrayList<Integer> l=famIdx.get(fam);
+			final int fam=tid2family.get(target);
+			final IntList l=famIdx.get(fam);
 			if(l!=null && l.size()>1){
-				for(int t=0; t<8; t++){int c=l.get(rnd.nextInt(l.size())); if(c!=target){return c;}}
+				for(int t=0; t<8; t++){final int c=l.get(rnd.nextInt(l.size())); if(c!=target){return c;}}
 			}
 		}
-		for(int t=0; t<8; t++){int c=pool.get(rnd.nextInt(pool.size())); if(c!=target){return c;}}
+		for(int t=0; t<8; t++){final int c=pool.get(rnd.nextInt(pool.size())); if(c!=target){return c;}}
 		return -1;
 	}
 
 	/** Randomly adds contigs (by shuffled draw) until reaching targetBp; returns bp added. */
 	private long selectContigs(ArrayList<Contig> contigs, long targetBp, Random rnd, Agg agg){
-		int nc=contigs.size();
-		int[] order=agg.scratch(nc);
+		final int nc=contigs.size();
+		final int[] order=agg.scratch(nc);
 		for(int i=0; i<nc; i++){order[i]=i;}
 		// partial Fisher-Yates: shuffle enough to draw without replacement
 		long added=0;
 		for(int i=0; i<nc && added<targetBp; i++){
-			int j=i+rnd.nextInt(nc-i);
-			int tmp=order[i]; order[i]=order[j]; order[j]=tmp;
-			Contig c=contigs.get(order[i]);
+			final int j=i+rnd.nextInt(nc-i);
+			final int tmp=order[i]; order[i]=order[j]; order[j]=tmp;
+			final Contig c=contigs.get(order[i]);
 			agg.add(c);
 			added+=c.length;
 		}
@@ -457,14 +797,21 @@ public class MagQCVectorMaker {
 	/*----------------          Aggregator          ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Accumulates per-bin sufficient statistics over selected contigs. */
-	final class Agg {
-		final int[] fam;
+	/** Accumulates per-bin sufficient statistics over selected contigs. Reused (S4) across
+	 *  attempts via reset() instead of being constructed fresh per makeBin() call - this is
+	 *  what lets scratch()'s reuse-if-large-enough buffer actually amortize as designed. */
+	static final class Agg {
+		int[] fam;
 		long gc, acgt, coding, glenSum, glenSq;
 		int contigs, cds, mapped, r16, r23, r5, rother, trna;
 		int[] lens=new int[64]; int nlens=0;
 		int[] scratchArr;
-		Agg(int[] fam){this.fam=fam;}
+		void setFam(int[] fam_){fam=fam_;}
+		void reset(){
+			gc=acgt=coding=glenSum=glenSq=0;
+			contigs=cds=mapped=r16=r23=r5=rother=trna=0;
+			nlens=0;
+		}
 		int[] scratch(int need){
 			if(scratchArr==null || scratchArr.length<need){scratchArr=new int[need];}
 			return scratchArr;
@@ -517,11 +864,12 @@ public class MagQCVectorMaker {
 
 	private void precomputeNStrings(){
 		nOverN1=new String[N_STR_MAX+1];
-		if(enc==ENC_TWO){excessArr=new String[N_STR_MAX+1];}
+		//The agg dense head uses the two-channel encoding regardless of the global enc mode.
+		if(enc==ENC_TWO || aggManifestFile!=null){excessArr=new String[N_STR_MAX+1];}
 		double logCap=Math.log(1+LOG_CAP)/LOG2;
 		for(int i=0; i<=N_STR_MAX; i++){
 			nOverN1[i]=fmt(encodeCount(i, logCap));
-			if(enc==ENC_TWO){int ex=Math.min(Math.max(i-1, 0), EXC_CAP); excessArr[i]=fmt(ex/(double)EXC_CAP);}
+			if(excessArr!=null){int ex=Math.min(Math.max(i-1, 0), EXC_CAP); excessArr[i]=fmt(ex/(double)EXC_CAP);}
 		}
 	}
 	/** Single-column encoding of a family's summed count under the active enc mode. */
@@ -530,21 +878,32 @@ public class MagQCVectorMaker {
 		if(enc==ENC_RAW){return Math.min(count, RAW_CAP)/(double)RAW_CAP;}
 		return count/(double)(1+count);//ENC_RATIO (ENC_TWO handles presence separately)
 	}
-	private String famStr(int count){
-		if(count<=N_STR_MAX){return nOverN1[count];}
-		return fmt(encodeCount(count, Math.log(1+LOG_CAP)/LOG2));
+	private void appendFamStr(ByteBuilder bb, int count){
+		if(count<=N_STR_MAX){bb.append(nOverN1[count]);}
+		else{appendFmt(bb, encodeCount(count, Math.log(1+LOG_CAP)/LOG2));}
 	}
 	/** Two-channel family: presence (0/1) then excess-copies min(count-1,cap)/cap. */
-	private void appendTwo(StringBuilder sb, int count){
-		sb.append(count>0 ? '1' : '0'); sb.append('\t');
-		if(count<=N_STR_MAX){sb.append(excessArr[count]);}
-		else{int ex=Math.min(count-1, EXC_CAP); sb.append(fmt(ex/(double)EXC_CAP));}
-		sb.append('\t');
+	private void appendTwo(ByteBuilder bb, int count){
+		bb.append(count>0 ? '1' : '0'); bb.tab();
+		if(count<=N_STR_MAX){bb.append(excessArr[count]);}
+		else{final int ex=Math.min(count-1, EXC_CAP); appendFmt(bb, ex/(double)EXC_CAP);}
+		bb.tab();
 	}
-	/** Fixed-notation float, no exponent (RegressionTrainer's fast parser rejects 'e'). */
+	/** Fixed-notation float, no exponent (RegressionTrainer's fast parser rejects 'e').
+	 *  String-returning form, KEPT for the aggCtx roundtrip (Float.parseFloat(fmt(v)))
+	 *  which genuinely needs a String - low frequency (once per bin, not per family). */
 	private static String fmt(double v){
 		if(v==(long)v){return Long.toString((long)v);}
 		return String.format("%.6f", v);
+	}
+	/** Zero-allocation equivalent of fmt(), appended directly - MUST replicate fmt()'s
+	 *  whole-number shortcut exactly: ByteBuilder's own fast append(double,decimals) always
+	 *  prints the requested decimals (String.format-style), but a naive append(v,6) would
+	 *  differ from fmt() on whole numbers, which appendSlow's precise-but-slow path does NOT
+	 *  special-case either - so the whole-number branch is replicated here explicitly. */
+	private static void appendFmt(ByteBuilder bb, double v){
+		if(v==(long)v){bb.append((long)v);}
+		else{bb.appendSlow(v, 6);}
 	}
 	private static int parseEnc(String s){
 		s=s.toLowerCase();
@@ -574,21 +933,22 @@ public class MagQCVectorMaker {
 		return DOMAIN_OTHER;//incl. bare "eukaryota" (subkingdom needs tax lineage)
 	}
 
-	/** Loads per-organism scaled HH/CAGA (tid&lt;TAB&gt;HH&lt;TAB&gt;CAGA) for the ncRNA subnet. */
+	/** Loads per-organism scaled HH/CAGA (tid&lt;TAB&gt;HH&lt;TAB&gt;CAGA) for the ncRNA subnet.
+	 *  Deliberately kept as a boxed HashMap<Integer,float[]> - see the class javadoc's
+	 *  note on why this one field is NOT converted to an IntHashMap bit-encoding. */
 	private void loadKmerFile(String file){
-		try{
-			tidKmer=new HashMap<Integer,float[]>();
-			BufferedReader br=new BufferedReader(new FileReader(file));
-			String line;
-			while((line=br.readLine())!=null){
-				if(line.length()==0 || line.charAt(0)=='#'){continue;}
-				String[] p=line.split("\t");
-				if(p.length>=3){tidKmer.put(Integer.parseInt(p[0]),
-					new float[]{Float.parseFloat(p[1]), Float.parseFloat(p[2])});}
+		tidKmer=new HashMap<Integer,float[]>();
+		final ByteFile bf=ByteFile.makeByteFile(file, true);
+		final LineParser1 lp=new LineParser1((byte)'\t');
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0 || line[0]=='#'){continue;}
+			lp.set(line);
+			if(lp.terms()>=3){
+				tidKmer.put(lp.parseInt(0), new float[]{lp.parseFloat(1), lp.parseFloat(2)});
 			}
-			br.close();
-			System.err.println("loaded HH/CAGA for "+tidKmer.size()+" orgs");
-		}catch(Exception e){throw new RuntimeException(e);}
+		}
+		bf.close();
+		System.err.println("loaded HH/CAGA for "+tidKmer.size()+" orgs");
 	}
 
 	/**
@@ -599,52 +959,52 @@ public class MagQCVectorMaker {
 	 * calibrated to each family's own natural copy number (Brian 2026-08-06). This is a
 	 * reference-DB constant (not a label), computed over ALL usable orgs for stability.
 	 */
-	private double[] computeAvgCopy(ArrayList<Integer> usable){
-		long[] sum=new long[numFam];
-		int[] present=new int[numFam];
-		int[] orgCount=new int[numFam];
-		for(Integer tid : usable){
+	private double[] computeAvgCopy(IntList usable){
+		final long[] sum=new long[numFam];
+		final int[] present=new int[numFam];
+		final int[] orgCount=new int[numFam];
+		for(int i=0; i<usable.size(); i++){
 			Arrays.fill(orgCount, 0);
-			for(Contig c : byTid.get(tid)){
-				for(int i=0; i<c.famRank.length; i++){orgCount[c.famRank[i]]+=c.famCount[i];}
+			for(Contig c : getContigs(usable.get(i))){
+				for(int j=0; j<c.famRank.length; j++){orgCount[c.famRank[j]]+=c.famCount[j];}
 			}
 			for(int f=0; f<numFam; f++){if(orgCount[f]>0){sum[f]+=orgCount[f]; present[f]++;}}
 		}
-		double[] avg=new double[numFam];
+		final double[] avg=new double[numFam];
 		for(int f=0; f<numFam; f++){avg[f]=present[f]>0 ? sum[f]/(double)present[f] : 1.0;}
 		return avg;
 	}
 	/** enc=norm: 0 if absent, else count / avgCopyWhenPresent[rank]. */
-	private String normStr(int count, int rank){
-		if(count==0){return "0";}
-		double a=avgCopy[rank];
-		return fmt(a>0 ? count/a : count);
+	private void appendNormStr(ByteBuilder bb, int count, int rank){
+		if(count==0){bb.append('0'); return;}
+		final double a=avgCopy[rank];
+		appendFmt(bb, a>0 ? count/a : count);
 	}
 
-	private void formatRow(StringBuilder sb, int[] fam, double[] glob, int phylumIdx, double[] labels){
+	private void formatRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels){
 		if(enc==ENC_TWO){
 			if(keptRanks!=null){
-				for(int i=0; i<keptRanks.length; i++){appendTwo(sb, fam[keptRanks[i]]);}
+				for(int i=0; i<keptRanks.length; i++){appendTwo(bb, fam[keptRanks[i]]);}
 			}else{
-				for(int i=0; i<numFam; i++){appendTwo(sb, fam[i]);}
+				for(int i=0; i<numFam; i++){appendTwo(bb, fam[i]);}
 			}
 		}else if(enc==ENC_NORM){
 			if(keptRanks!=null){
-				for(int i=0; i<keptRanks.length; i++){int r=keptRanks[i]; sb.append(normStr(fam[r], r)); sb.append('\t');}
+				for(int i=0; i<keptRanks.length; i++){final int r=keptRanks[i]; appendNormStr(bb, fam[r], r); bb.tab();}
 			}else{
-				for(int i=0; i<numFam; i++){sb.append(normStr(fam[i], i)); sb.append('\t');}
+				for(int i=0; i<numFam; i++){appendNormStr(bb, fam[i], i); bb.tab();}
 			}
 		}else{
 			if(keptRanks!=null){
-				for(int i=0; i<keptRanks.length; i++){sb.append(famStr(fam[keptRanks[i]])); sb.append('\t');}
+				for(int i=0; i<keptRanks.length; i++){appendFamStr(bb, fam[keptRanks[i]]); bb.tab();}
 			}else{
-				for(int i=0; i<numFam; i++){sb.append(famStr(fam[i])); sb.append('\t');}
+				for(int i=0; i<numFam; i++){appendFamStr(bb, fam[i]); bb.tab();}
 			}
 		}
-		for(int i=0; i<NUM_GLOBALS; i++){sb.append(fmt(glob[i])); sb.append('\t');}
-		for(int i=0; i<numPhyla; i++){sb.append(i==phylumIdx ? '1' : '0'); sb.append('\t');}
-		sb.append(fmt(labels[0])); sb.append('\t');
-		sb.append(fmt(labels[1])); sb.append('\n');
+		for(int i=0; i<NUM_GLOBALS; i++){appendFmt(bb, glob[i]); bb.tab();}
+		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
+		appendFmt(bb, labels[0]); bb.tab();
+		appendFmt(bb, labels[1]); bb.nl();
 	}
 
 	/**
@@ -655,38 +1015,37 @@ public class MagQCVectorMaker {
 	 * subnet thus learns the EXPECTED denominator; completeness = observed/expected is
 	 * derived downstream (Barbara's refinement of the subset-relative-label design).
 	 */
-	private void formatNcrnaRow(StringBuilder sb, double[] glob, int phylumIdx){
+	private void formatNcrnaRow(ByteBuilder bb, double[] glob, int phylumIdx){
 		int obsTotal=0;
-		for(int i=0; i<NCRNA_OBS; i++){sb.append(lastNcObs[i]); sb.append('\t'); obsTotal+=lastNcObs[i];}
-		for(int i=0; i<numPhyla; i++){sb.append(i==phylumIdx ? '1' : '0'); sb.append('\t');}
+		for(int i=0; i<NCRNA_OBS; i++){bb.append(lastNcObs[i]); bb.tab(); obsTotal+=lastNcObs[i];}
+		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
 		if(snDomain){//domain one-hot (forward-infra; constant for a bacteria-only corpus)
-			final int di=tid2domainIdx.getOrDefault(lastTarget, DOMAIN_OTHER);
-			for(int i=0; i<DOMAINS; i++){sb.append(i==di ? '1' : '0'); sb.append('\t');}
+			final int di=domainIdxOf(lastTarget);
+			for(int i=0; i<DOMAINS; i++){bb.append(i==di ? '1' : '0'); bb.tab();}
 		}
 		// context block (5 columns; values may be transformed): bin size, GC, coding density,
 		// log2(contigs), log2(richness). F2/F3 rescale for the weight-decay-regularized optimizer.
 		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
 		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
-		sb.append(fmt(binSize)); sb.append('\t');
-		sb.append(fmt(glob[3])); sb.append('\t');
-		sb.append(fmt(coding)); sb.append('\t');
-		sb.append(fmt(glob[1])); sb.append('\t');
-		sb.append(fmt(glob[8])); sb.append('\t');
+		appendFmt(bb, binSize); bb.tab();
+		appendFmt(bb, glob[3]); bb.tab();
+		appendFmt(bb, coding); bb.tab();
+		appendFmt(bb, glob[1]); bb.tab();
+		appendFmt(bb, glob[8]); bb.tab();
 		if(snHHCAGA){//per-org HH, CAGA (min-max scaled over training orgs), from kmerfile
-			final float[] hc=tidKmer.get(lastTarget);
-			sb.append(fmt(hc==null ? 0 : hc[0])); sb.append('\t');
-			sb.append(fmt(hc==null ? 0 : hc[1])); sb.append('\t');
+			final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
+			appendFmt(bb, hc==null ? 0 : hc[0]); bb.tab();
+			appendFmt(bb, hc==null ? 0 : hc[1]); bb.tab();
 		}
 		if(snGeneLen){//mean gene length + gene-length stddev (cache-derived globals)
-			sb.append(fmt(glob[5])); sb.append('\t');
-			sb.append(fmt(glob[6])); sb.append('\t');
+			appendFmt(bb, glob[5]); bb.tab();
+			appendFmt(bb, glob[6]); bb.tab();
 		}
-		final int[] nc=nativeNc.get(lastTarget);
-		int nativeTotal=0;
-		for(int v : nc){nativeTotal+=v;}
+		final int nativeTotal=nativeNcR16.get(lastTarget)+nativeNcR23.get(lastTarget)+nativeNcR5.get(lastTarget)
+			+nativeNcRother.get(lastTarget)+nativeNcTrna.get(lastTarget);
 		// The bin's target contigs are a subset of the genome, so observed<=native always.
 		assert(obsTotal<=nativeTotal) : "ncRNA observed "+obsTotal+" > native "+nativeTotal+" (tid "+lastTarget+")";
-		sb.append(nativeTotal); sb.append('\n');
+		bb.append(nativeTotal).nl();
 	}
 
 	/**
@@ -698,34 +1057,127 @@ public class MagQCVectorMaker {
 	 * line), so per-phylum marker sets and co-occurrence modules train with identical
 	 * machinery; evaluate with SubnetRatioScore numobs=(subset size).
 	 */
-	private void formatFamsetRow(StringBuilder sb, double[] glob, int phylumIdx){
+	private void formatFamsetRow(ByteBuilder bb, double[] glob, int phylumIdx){
 		int obsTotal=0;
-		for(int i=0; i<lastFamObs.length; i++){sb.append(lastFamObs[i]); sb.append('\t'); obsTotal+=lastFamObs[i];}
-		for(int i=0; i<numPhyla; i++){sb.append(i==phylumIdx ? '1' : '0'); sb.append('\t');}
+		for(int i=0; i<lastFamObs.length; i++){bb.append(lastFamObs[i]); bb.tab(); obsTotal+=lastFamObs[i];}
+		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
 		if(snDomain){
-			final int di=tid2domainIdx.getOrDefault(lastTarget, DOMAIN_OTHER);
-			for(int i=0; i<DOMAINS; i++){sb.append(i==di ? '1' : '0'); sb.append('\t');}
+			final int di=domainIdxOf(lastTarget);
+			for(int i=0; i<DOMAINS; i++){bb.append(i==di ? '1' : '0'); bb.tab();}
 		}
 		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
 		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
-		sb.append(fmt(binSize)); sb.append('\t');
-		sb.append(fmt(glob[3])); sb.append('\t');
-		sb.append(fmt(coding)); sb.append('\t');
-		sb.append(fmt(glob[1])); sb.append('\t');
-		sb.append(fmt(glob[8])); sb.append('\t');
+		appendFmt(bb, binSize); bb.tab();
+		appendFmt(bb, glob[3]); bb.tab();
+		appendFmt(bb, coding); bb.tab();
+		appendFmt(bb, glob[1]); bb.tab();
+		appendFmt(bb, glob[8]); bb.tab();
 		if(snHHCAGA){
-			final float[] hc=tidKmer.get(lastTarget);
-			sb.append(fmt(hc==null ? 0 : hc[0])); sb.append('\t');
-			sb.append(fmt(hc==null ? 0 : hc[1])); sb.append('\t');
+			final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
+			appendFmt(bb, hc==null ? 0 : hc[0]); bb.tab();
+			appendFmt(bb, hc==null ? 0 : hc[1]); bb.tab();
 		}
 		if(snGeneLen){
-			sb.append(fmt(glob[5])); sb.append('\t');
-			sb.append(fmt(glob[6])); sb.append('\t');
+			appendFmt(bb, glob[5]); bb.tab();
+			appendFmt(bb, glob[6]); bb.tab();
 		}
 		final int nativeTotal=nativeFamTotal.get(lastTarget);
+		assert(nativeTotal>=0) : "nativeFamTotal missing for tid "+lastTarget;
 		// The bin's target contigs are a subset of the genome, so observed<=native always.
 		assert(obsTotal<=nativeTotal) : "famset observed "+obsTotal+" > native "+nativeTotal+" (tid "+lastTarget+")";
-		sb.append(nativeTotal); sb.append('\n');
+		bb.append(nativeTotal).nl();
+	}
+
+	/**
+	 * Emits one aggregator training row for the current bin. For every manifest
+	 * subnet: gathers its observed counts (whole-bin by default - serve-faithful,
+	 * contaminants included; target-only under aggobs=clean), builds the subnet's
+	 * input exactly as its training rows were built (same column order, same fmt()
+	 * rounding so in-process values match what a file round-trip would deliver),
+	 * feed-forwards the frozen net, and emits [ratio, log-obs, log-pred, zero-flag].
+	 * Then the pooled ratio baseline (hand the aggregator the division), the raw
+	 * dense head (enc=two presence+excess of the top-K prevalent families), phylum
+	 * one-hot, the shared context block, and the GLOBAL comp/contam targets.
+	 */
+	private void formatAggRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels){
+		final int[] famArr=(aggObsServe ? fam : cleanFamBuf);
+		final int[] ncArr=(aggObsServe ? lastNcServe : lastNcObs);
+		// Per-bin context COMPONENTS, computed once with the emitters' fmt() rounding so the
+		// frozen nets see bit-identical inputs to a written-then-parsed subnet row. Each
+		// subnet assembles its own view from these per its rep flags (nets may be trained
+		// under different reps, e.g. the base-rep ncRNA net vs locked-rep famsets).
+		aggCtx[CTX_BS_RAW]=Float.parseFloat(fmt(glob[0]));
+		aggCtx[CTX_BS_SCALED]=Float.parseFloat(fmt(log2(1.0+lastTotalBp/2048.0)*0.0625));
+		aggCtx[CTX_GC]=Float.parseFloat(fmt(glob[3]));
+		aggCtx[CTX_COD_RAW]=Float.parseFloat(fmt(glob[4]));
+		aggCtx[CTX_COD_AFF]=Float.parseFloat(fmt(glob[4]*1.05-0.5));
+		aggCtx[CTX_L2CONTIGS]=Float.parseFloat(fmt(glob[1]));
+		aggCtx[CTX_L2RICH]=Float.parseFloat(fmt(glob[8]));
+		final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
+		aggCtx[CTX_HH]=Float.parseFloat(fmt(hc==null ? 0 : hc[0]));
+		aggCtx[CTX_CAGA]=Float.parseFloat(fmt(hc==null ? 0 : hc[1]));
+		aggCtx[CTX_GLEN]=Float.parseFloat(fmt(glob[5]));
+		aggCtx[CTX_GLENSTD]=Float.parseFloat(fmt(glob[6]));
+		final int domainIdx=domainIdxOf(lastTarget);
+
+		long sumObs=0;
+		double sumPred=0;
+		for(AggSubnet s : aggSubnets){
+			// Input layout mirrors formatFamsetRow/formatNcrnaRow exactly:
+			// obs, phylum one-hot, [domain], context 5, [HH/CAGA], [gene-len].
+			int p=0;
+			long obsTotal=0;
+			if(s.ncrna){
+				for(int i=0; i<NCRNA_OBS; i++){s.buf[p++]=ncArr[i]; obsTotal+=ncArr[i];}
+			}else{
+				for(int r : s.ranks){final int v=famArr[r]; s.buf[p++]=v; obsTotal+=v;}
+			}
+			for(int i=0; i<numPhyla; i++){s.buf[p++]=(i==phylumIdx ? 1 : 0);}
+			if(s.domain){
+				for(int i=0; i<DOMAINS; i++){s.buf[p++]=(i==domainIdx ? 1 : 0);}
+			}
+			s.buf[p++]=aggCtx[s.binScaled ? CTX_BS_SCALED : CTX_BS_RAW];
+			s.buf[p++]=aggCtx[CTX_GC];
+			s.buf[p++]=aggCtx[s.codingAffine ? CTX_COD_AFF : CTX_COD_RAW];
+			s.buf[p++]=aggCtx[CTX_L2CONTIGS];
+			s.buf[p++]=aggCtx[CTX_L2RICH];
+			if(s.hhcaga){s.buf[p++]=aggCtx[CTX_HH]; s.buf[p++]=aggCtx[CTX_CAGA];}
+			if(s.genelen){s.buf[p++]=aggCtx[CTX_GLEN]; s.buf[p++]=aggCtx[CTX_GLENSTD];}
+			assert(p==s.buf.length) : s.name+": filled "+p+" of "+s.buf.length;
+			s.net.applyInput(s.buf);
+			s.net.feedForward();
+			final double pred=s.net.getOutput(0);
+			final double ratio=Math.min(RATIO_CAP, obsTotal/Math.max(0.5, pred));
+			appendFmt(bb, ratio); bb.tab();
+			appendFmt(bb, log2(1+obsTotal)); bb.tab();
+			appendFmt(bb, log2(1+Math.max(0, pred))); bb.tab();
+			bb.append(obsTotal==0 ? '1' : '0'); bb.tab();
+			sumObs+=obsTotal;
+			sumPred+=Math.max(0, pred);
+		}
+		appendFmt(bb, Math.min(RATIO_CAP, sumObs/Math.max(1, sumPred))); bb.tab();
+		// Dense head is ALWAYS whole-bin (the aggregator's direct deployment signal, not a
+		// subnet input; aggobs= only A/Bs the subnet-obs question - settled with Eru 2026-08-11).
+		for(int r : denseRanks){appendTwo(bb, fam[r]);}
+		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
+		if(snDomain){
+			for(int i=0; i<DOMAINS; i++){bb.append(i==domainIdx ? '1' : '0'); bb.tab();}
+		}
+		// Tail context in the GLOBAL (#repflags) rep.
+		appendFmt(bb, aggCtx[snBinScaled ? CTX_BS_SCALED : CTX_BS_RAW]); bb.tab();
+		appendFmt(bb, aggCtx[CTX_GC]); bb.tab();
+		appendFmt(bb, aggCtx[snCodingAffine ? CTX_COD_AFF : CTX_COD_RAW]); bb.tab();
+		appendFmt(bb, aggCtx[CTX_L2CONTIGS]); bb.tab();
+		appendFmt(bb, aggCtx[CTX_L2RICH]); bb.tab();
+		if(snHHCAGA){appendFmt(bb, aggCtx[CTX_HH]); bb.tab(); appendFmt(bb, aggCtx[CTX_CAGA]); bb.tab();}
+		if(snGeneLen){appendFmt(bb, aggCtx[CTX_GLEN]); bb.tab(); appendFmt(bb, aggCtx[CTX_GLENSTD]); bb.tab();}
+		appendFmt(bb, labels[0]); bb.tab();
+		appendFmt(bb, labels[1]); bb.nl();
+	}
+
+	private int domainIdxOf(int tid){
+		final int v=tidToIdx.get(tid);
+		return v<0 || v>=domainIdxArr.length ? DOMAIN_OTHER : domainIdxArr[v];
 	}
 
 	private static double log2(double v){return v<=1 ? 0 : Math.log(v)/LOG2;}
@@ -736,12 +1188,23 @@ public class MagQCVectorMaker {
 
 	private String cacheFile, sizemapFile, familyFile, taxpgmFile, treeFile, out, outval, featuresFile;
 	private String subnetName, subnetOut, subnetValOut, kmerFile, subsetFile;
+	private String aggManifestFile, aggOut, aggValOut;
+	private int denseHead=100;
+	private boolean aggObsServe=true;
+	private int poolMode=POOL_TRAINVAL;
+	private static final int POOL_TRAINVAL=0, POOL_VALSPLIT=1, POOL_ALLBUTC=2;
+	private ArrayList<AggSubnet> aggSubnets;
+	private int[] denseRanks;
+	private int[] cleanFamBuf;
+	private float[] aggCtx;
+	private int numAggInputs;
+	private final int[] lastNcServe=new int[5];
 	private boolean snCodingAffine=false, snBinScaled=false, snDomain=false, snHHCAGA=false, snGeneLen=false;
 	private boolean subnetFamset=false;
 	private int[] subsetRanks;
 	private boolean[] subsetMask;
 	private int[] lastFamObs;
-	private final HashMap<Integer,Integer> nativeFamTotal=new HashMap<Integer,Integer>();
+	private final IntHashMap nativeFamTotal=new IntHashMap();
 	private int subnetInputs;
 	private int lastTarget;
 	private long lastTotalBp;
@@ -755,14 +1218,20 @@ public class MagQCVectorMaker {
 	private int numFam=8000, numPhyla, numInputs;
 	private TaxTree tree;
 
-	private final HashMap<Integer,ArrayList<Contig>> byTid=new HashMap<Integer,ArrayList<Contig>>();
-	private final HashMap<Integer,Long> genomeSize=new HashMap<Integer,Long>();
-	private final HashMap<Integer,Long> recoverable=new HashMap<Integer,Long>();
-	private final HashMap<Integer,int[]> nativeNc=new HashMap<Integer,int[]>();
-	private final HashMap<Integer,Integer> tid2domainIdx=new HashMap<Integer,Integer>();
+	// byTid replacement: dense tid->index (IntHashMap can't hold list values) + a
+	// parallel growable list-of-lists indexed by that dense int.
+	private final IntHashMap tidToIdx=new IntHashMap();
+	private final ArrayList<ArrayList<Contig>> contigLists=new ArrayList<ArrayList<Contig>>();
+	private int[] domainIdxArr=new int[64];//parallel to tidToIdx's dense index (was tid2domainIdx)
+
+	private final IntLongHashMap genomeSize=new IntLongHashMap();
+	private final IntLongHashMap recoverable=new IntLongHashMap();
+	private final IntHashMap nativeNcR16=new IntHashMap(), nativeNcR23=new IntHashMap(), nativeNcR5=new IntHashMap(),
+		nativeNcRother=new IntHashMap(), nativeNcTrna=new IntHashMap();
+	//Deliberately boxed - see the class javadoc's note on why (float-bits/-1-sentinel collision risk).
 	private HashMap<Integer,float[]> tidKmer;
-	private final HashMap<Integer,String> tid2phylum=new HashMap<Integer,String>();
-	private final HashMap<Integer,Integer> tid2family=new HashMap<Integer,Integer>();
+	private final IntHashMap tid2phylumIdx=new IntHashMap();
+	private final IntHashMap tid2family=new IntHashMap();
 	private final HashMap<String,Integer> phylumIndex=new HashMap<String,Integer>();
 	private ArrayList<String> phylumList;
 	private String[] nOverN1;
@@ -776,5 +1245,10 @@ public class MagQCVectorMaker {
 	private static final int ENC_RATIO=0, ENC_LOG=1, ENC_RAW=2, ENC_TWO=3, ENC_NORM=4;
 	private static final int RAW_CAP=32, LOG_CAP=64, EXC_CAP=16;
 	private static final double COMP_MIN=0.10, CONT_MAX=0.50, LOG2=Math.log(2);
+	/** Cap for the per-subnet and pooled obs/pred ratios (duplication saturates at 2x). */
+	private static final double RATIO_CAP=2.0;
+	/** Indices into aggCtx: per-bin context components (raw + transformed variants). */
+	private static final int CTX_BS_RAW=0, CTX_BS_SCALED=1, CTX_GC=2, CTX_COD_RAW=3, CTX_COD_AFF=4,
+		CTX_L2CONTIGS=5, CTX_L2RICH=6, CTX_HH=7, CTX_CAGA=8, CTX_GLEN=9, CTX_GLENSTD=10, CTX_N=11;
 	private static final int[] EMPTY=new int[0];
 }

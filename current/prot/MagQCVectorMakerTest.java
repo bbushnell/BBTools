@@ -26,13 +26,15 @@ import java.util.HashMap;
  *
  * Run with assertions on: {@code java -ea prot.MagQCVectorMakerTest}
  *
- * @author Eru
+ * @author Eru, UMP45
  */
 public class MagQCVectorMakerTest {
 
 	public static void main(String[] args) throws Exception{
 		final File dir=Files.createTempDirectory("magqcvm_test").toFile();
-		dir.deleteOnExit();
+		//deleteOnExit() only removes an EMPTY dir; the fixture files inside would leak.
+		//A shutdown hook recursively deletes the whole tree, even on assertion failure.
+		Runtime.getRuntime().addShutdownHook(new Thread(()->deleteRecursive(dir)));
 
 		// --- fixture: 4 organisms, 2 per phylum, with hand-computable native ncRNA totals ---
 		// cache cols: contigid tid domain len gc acgt cds mapped glenSum glenSq coding r16 r23 r5 rother trna famcounts
@@ -155,6 +157,12 @@ public class MagQCVectorMakerTest {
 		FileWriter w=new FileWriter(f); w.write(content); w.close();
 	}
 	private static String p(File dir, String name){return new File(dir, name).getAbsolutePath();}
+	/** Recursively deletes a file/directory tree; used by the shutdown hook to clean the temp fixture. */
+	private static void deleteRecursive(File f){
+		final File[] kids=f.listFiles();
+		if(kids!=null){for(File k : kids){deleteRecursive(k);}}
+		f.delete();
+	}
 	private static String[] concat(String[] a, String[] b){
 		String[] out=new String[a.length+b.length];
 		System.arraycopy(a, 0, out, 0, a.length);
