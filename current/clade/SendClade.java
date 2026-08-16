@@ -719,8 +719,8 @@ public class SendClade extends CladeObject {
 			//addAndGet(1); if the result exceeds maxConcurrency, undo (-1) and sleep, else keep the slot. A transient
 			//overshoot is immediately corrected by the -1, so at most maxConcurrency requests are ever inside
 			//ServerTools.sendAndReceive at once; the matching addAndGet(-1) after the send releases the slot. Bounds
-			//open connections to the JGI server without a lock. (Paired with MAX_CLADES_PER_BATCH=4000, which bounds
-			//per-request message size.)
+			//open connections to the JGI server without a lock. (Paired with MAX_CLADES_PER_BATCH, which bounds
+			//per-request message size -- 100 clades ~<15MB with 32k-bucket sketches, well under toMessage's 100MB cap.)
 			while(concurrency.addAndGet(1)>maxConcurrency) {
 				concurrency.addAndGet(-1);
 				try{Thread.sleep(20);}
@@ -795,7 +795,11 @@ public class SendClade extends CladeObject {
 	static final String defaultAddress="https://bbmapservers.jgi.doe.gov/quickclade";
 	/** Local server address */
 	private static final String localAddress="http://localhost:5002";
-	/** Maximum clades to send in one batch */
-	private static final int MAX_CLADES_PER_BATCH=4000;
+	/** Maximum clades to send in one batch.  Reduced 4000->100 [clade/SendClade#002]: 4000 predates attaching
+	 * 32k-bucket DDL sketches, which make each whole-genome clade serialize to ~64-135KB.  At 4000 the batch is
+	 * bounded by COUNT but toMessage() caps the message at 100MB of BYTES, so large clades overflow it (827
+	 * whole-genome clades = 111,731,689 bytes in one batch -> AssertionError "Message too large").  100 clades
+	 * keeps a batch ~<15MB, well under the cap, regardless of the count limit. */
+	private static final int MAX_CLADES_PER_BATCH=100;
 
 }
