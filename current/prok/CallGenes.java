@@ -355,6 +355,8 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.ID_PASS=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("idborderline")){
 				prok.TrnaCaller.ID_BORDERLINE=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("idborderlinelong")){
+				prok.TrnaCaller.ID_BORDERLINE_LONG=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("hbmpass")){
 				prok.TrnaCaller.HBM_PASS=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("indextopn")){
@@ -365,6 +367,12 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.earlyExit=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("patience")){
 				prok.TrnaCaller.earlyExitPatience=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("trnadebug")){
+				prok.TrnaCaller.DEBUG=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("trnaintron")){
+				prok.TrnaCaller.INTRON_PASS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("mintrnakhits") || a.equalsIgnoreCase("mintrnakmerhits")){
+				prok.TrnaCaller.MIN_TRNA_KHITS=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("acextract") || a.equalsIgnoreCase("anticodonextract")){
 				prok.TrnaCaller.extractAnticodons=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("acvalidate") || a.equalsIgnoreCase("acthresh")){

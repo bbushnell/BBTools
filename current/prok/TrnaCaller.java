@@ -55,6 +55,8 @@ public class TrnaCaller extends ProkObject {
 		float[] scores=scanInner(bases);
 		ArrayList<int[]> regions=findRegions(scores, bases);
 
+		if(DEBUG){for(int[] rg : regions){System.err.println("REGION\t"+name+"\t"+strand+"\t"+rg[0]+"\t"+rg[1]);}}
+
 		for(int[] region : regions){
 			ArrayList<Orf> found=extractTrnas(name, bases, strand, scores, region[0], region[1]);
 			results.addAll(found);
@@ -163,6 +165,18 @@ public class TrnaCaller extends ProkObject {
 
 		ArrayList<float[]> candidates=new ArrayList<>();
 
+		//Track the top-3 long (intron-suspect) start/stop pairs by inner score, for a BOUNDED intron
+		//pass below.  Splice+verify only these 3 -- NEVER every long pair -- so the added alignment
+		//cost stays negligible and tRNA calling stays <0.5s/genome.
+		//DECOUPLE the intron-span cap from the normal candidate cap: enumerate stops up to intronMax so
+		//the intron pass can SEE long spans, but form/verify NORMAL candidates only up to maxlen (the
+		//default 120).  This recovers long introns WITHOUT the cost of verifying every long unspliced
+		//candidate, so no global maxtrna= is needed and per-genome cost stays at baseline.
+		final int minLong=window+MIN_INTRON_SPLICE;
+		final int intronMax=Tools.max(maxlen, INTRON_MAX_SPAN);
+		final int[] ilStart={-1,-1,-1}, ilStop={-1,-1,-1};
+		final float[] ilInner={-1,-1,-1}, ilS=new float[3], ilP=new float[3];
+
 		for(int i=0; i<starts.size; i++){
 			final int start=starts.get(i);
 			final float sScore=startScores.get(i);
@@ -170,9 +184,18 @@ public class TrnaCaller extends ProkObject {
 				final int stop=stops.get(j);
 				final int len=stop-start+1;
 				if(len<minlen){continue;}
-				if(len>maxlen){break;}
+				if(len>intronMax){break;}
 				final float pScore=stopScores.get(j);
 				final float innerScore=(cumulative[stop]-cumulative[start])/len;
+				if(DEBUG && len>100){System.err.println("LONGPAIR\t"+name+"\t"+strand+"\t"+start+"\t"+stop
+					+"\t"+len+"\t"+String.format("%.4f", innerScore)+"\t"+(innerScore>=INNER_THRESH?"passInner":"failInner")
+					+"\tinnerThr="+String.format("%.4f", INNER_THRESH));}
+				if(len>=minLong && innerScore>ilInner[2]){//maintain top-3 by inner score (O(3), no alloc); cheap, no alignment
+					final int p=(innerScore>ilInner[0] ? 0 : innerScore>ilInner[1] ? 1 : 2);
+					for(int q=2; q>p; q--){ilInner[q]=ilInner[q-1]; ilStart[q]=ilStart[q-1]; ilStop[q]=ilStop[q-1]; ilS[q]=ilS[q-1]; ilP[q]=ilP[q-1];}
+					ilInner[p]=innerScore; ilStart[p]=start; ilStop[p]=stop; ilS[p]=sScore; ilP[p]=pScore;
+				}
+				if(len>maxlen){continue;}//normal candidates only up to the normal cap; long spans go to the intron pass
 				if(innerScore>=INNER_THRESH){
 					final float a=Tools.max(sScore+0.25f, 0.25f);
 					final float b=Tools.max(pScore+0.25f, 0.25f);
@@ -180,6 +203,9 @@ public class TrnaCaller extends ProkObject {
 					float d=(window-(2.4f*Tools.absdif(len, window)))*invWindow;
 					if(longMode && len>window){d=Tools.max(d, LONG_D_FLOOR);}
 					final float score=c*d*(float)Math.sqrt(a*b);
+					if(DEBUG && len>100){System.err.println("LONGCAND\t"+name+"\t"+strand+"\t"+start+"\t"+stop
+						+"\t"+len+"\t"+String.format("%.3f", score)+"\t"+(score>CANDIDATE_THRESH?"passCand":"failCand")
+						+"\tcandThr="+String.format("%.1f", CANDIDATE_THRESH)+"\td="+String.format("%.4f", d));}
 					if(score>CANDIDATE_THRESH){
 						candidates.add(new float[]{start, stop, score, sScore, pScore, innerScore*len});
 					}
@@ -187,37 +213,183 @@ public class TrnaCaller extends ProkObject {
 			}
 		}
 
-		if(candidates.isEmpty()){return results;}
-		candidates.sort((x, y)->Float.compare(y[2], x[2]));
-
-		//Verify DURING greedy selection: a candidate that fails alignment verification
-		//does not block the overlapping candidates it outscored, so a valid suppressed
-		//tRNA still gets its chance.  Verification cost only rises on the failure path.
 		final boolean verify=(trnaLibrary!=null && trnaLibrary.length>0);
 		ArrayList<int[]> accepted=new ArrayList<>();
-		for(float[] cand : candidates){
-			final int cStart=(int)cand[0], cStop=(int)cand[1];
-			boolean overlaps=false;
-			for(int[] prev : accepted){
-				if(cStart<=prev[1] && cStop>=prev[0]){overlaps=true; break;}
+
+		if(!candidates.isEmpty()){
+			candidates.sort((x, y)->Float.compare(y[2], x[2]));
+
+			//Verify DURING greedy selection: a candidate that fails alignment verification
+			//does not block the overlapping candidates it outscored, so a valid suppressed
+			//tRNA still gets its chance.  Verification cost only rises on the failure path.
+			for(float[] cand : candidates){
+				final int cStart=(int)cand[0], cStop=(int)cand[1];
+				boolean overlaps=false;
+				for(int[] prev : accepted){
+					if(cStart<=prev[1] && cStop>=prev[0]){overlaps=true; break;}
+				}
+				if(overlaps){continue;}
+
+				Orf orf=new Orf(name, cStart, cStop, strand, 0, bases, false, tRNA);
+				orf.orfScore=cand[2]*GeneCaller.scoreMult[tRNA];
+				orf.startScore=cand[3];
+				orf.stopScore=cand[4];
+				orf.kmerScore=cand[5];
+
+				if(verify && !verifyOrf(orf, bases)){continue;}
+
+				//Record the POST-TRIM span: bases trimmed off a verified tRNA no longer
+				//block adjacent candidates, so tightly packed neighbors (tRNA arrays)
+				//that were overlapped only by scanner slop can still be called.
+				accepted.add(new int[]{orf.start, orf.stop});
+				results.add(orf);
 			}
-			if(overlaps){continue;}
+		}
 
-			Orf orf=new Orf(name, cStart, cStop, strand, 0, bases, false, tRNA);
-			orf.orfScore=cand[2]*GeneCaller.scoreMult[tRNA];
-			orf.startScore=cand[3];
-			orf.stopScore=cand[4];
-			orf.kmerScore=cand[5];
+		//INTRON PASS (evidence recall_gap_subgate) -- BOUNDED: splice+verify only the top-3 intron-suspect
+		//long spans tracked above, never every long pair.  Recovers intron-bearing tRNAs whose unspliced
+		//span fails INNER_THRESH and/or CANDIDATE_THRESH at generation (the intron depresses the average
+		//inner score AND inflates length past the window).  Keeps tRNA calling <0.5s/genome.
+		if(verify && INTRON_PASS){
+			for(int t=0; t<ilStart.length; t++){
+				if(ilStart[t]<0){continue;}
+				intronAttempt(name, bases, strand, cumulative, ilStart[t], ilStop[t], ilS[t], ilP[t],
+					window, invWindow, accepted, results);
+			}
+		}
 
-			if(verify && !verifyOrf(orf, bases)){continue;}
+		return results;
+	}
 
-			//Record the POST-TRIM span: bases trimmed off a verified tRNA no longer
-			//block adjacent candidates, so tightly packed neighbors (tRNA arrays)
-			//that were overlapped only by scanner slop can still be called.
+	/**
+	 * INTRON PASS (single span): given one long intron-suspect (start,stop), locate the intron as the
+	 * low-inner segment, splice it out, and if the spliced product clears the generation gates
+	 * (INNER_THRESH on the all-exon average; CANDIDATE_THRESH once the length ~= window), verify the
+	 * SPLICED product against the mature library.  Accepted calls span the FULL locus (intron included,
+	 * matching the reference annotation).  Called only for a bounded number of top spans per region.
+	 */
+	private void intronAttempt(String name, byte[] bases, int strand, float[] cumulative,
+			int start, int stop, float sScore, float pScore, int window, float invWindow,
+			ArrayList<int[]> accepted, ArrayList<Orf> results){
+		for(int[] p : accepted){if(start<=p[1] && stop>=p[0]){return;}}//already called here
+		final int[] intron=findIntronByInner(cumulative, start, stop, window);
+		if(intron==null){return;}
+		final int gis=intron[0], gie=intron[1];
+		final int splicedLen=(gis-start)+(stop-gie);
+		if(splicedLen<MIN_TRNA){return;}
+		final float exon1=cumulative[gis-1]-cumulative[start];
+		final float exon2=cumulative[stop]-cumulative[gie];
+		final float splicedInner=(exon1+exon2)/splicedLen;
+		if(splicedInner<INNER_THRESH){return;}//not tRNA-like even after splicing
+		final float a=Tools.max(sScore+0.25f, 0.25f);
+		final float b=Tools.max(pScore+0.25f, 0.25f);
+		final float c=splicedInner*splicedInner;
+		final float d=(window-(2.4f*Tools.absdif(splicedLen, window)))*invWindow;
+		final float score=c*d*(float)Math.sqrt(a*b);
+		if(score<=CANDIDATE_THRESH){return;}
+		final byte[] product=spliceOut(bases, start, stop, gis, gie);
+		if(product==null || product.length<MIN_TRNA){return;}
+		if(DEBUG){System.err.println("INTRONTRY\t"+name+"\t"+strand+"\t"+start+"\t"+stop
+			+"\tintron="+gis+"-"+gie+"\tsplicedLen="+splicedLen+"\tsplicedInner="+String.format("%.3f", splicedInner)
+			+"\tscore="+String.format("%.2f", score));}
+		final Orf orf=new Orf(name, start, stop, strand, 0, bases, false, tRNA);
+		orf.orfScore=score*GeneCaller.scoreMult[tRNA];
+		orf.startScore=sScore;
+		orf.stopScore=pScore;
+		orf.kmerScore=splicedInner*splicedLen;
+		if(verifyIntronOrf(orf, product)){
+			if(DEBUG){System.err.println("INTRONHIT\t"+name+"\t"+strand+"\t"+start+"\t"+stop+"\t"+orf.trnaModel);}
 			accepted.add(new int[]{orf.start, orf.stop});
 			results.add(orf);
 		}
-		return results;
+	}
+
+	/**
+	 * Locate the intron within genomic span [start,stop] as the contiguous segment whose removal
+	 * maximizes the spliced product's average inner k-mer score, using the precomputed inner prefix
+	 * sums (cumulative).  Intron length is searched around (span - window); each side keeps at least
+	 * MIN_EXON_SPLICE of exon.  Returns {intronStart,intronEnd} (genomic, inclusive), or null.
+	 */
+	private int[] findIntronByInner(float[] cumulative, int start, int stop, int window){
+		final int span=stop-start+1;
+		final int estIntron=span-window;//mature length ~= window
+		if(estIntron<MIN_INTRON_SPLICE){return null;}
+		final int lo=start+MIN_EXON_SPLICE, hi=stop-MIN_EXON_SPLICE;
+		final int ilMin=Tools.max(MIN_INTRON_SPLICE, estIntron-INTRON_LEN_SLACK);
+		final int ilMax=Tools.min(span-2*MIN_EXON_SPLICE, estIntron+INTRON_LEN_SLACK);
+		final float total=cumulative[stop]-cumulative[start];
+		int bestGis=-1, bestGie=-1; float bestAvg=-1;
+		for(int il=ilMin; il<=ilMax; il++){
+			final int splicedLen=span-il;
+			for(int gis=lo; gis+il-1<=hi; gis++){
+				final int gie=gis+il-1;
+				final float removed=cumulative[gie]-cumulative[gis-1];
+				final float avg=(total-removed)/splicedLen;
+				if(avg>bestAvg){bestAvg=avg; bestGis=gis; bestGie=gie;}
+			}
+		}
+		return bestGis<0 ? null : new int[]{bestGis, bestGie};
+	}
+
+	/** Extract genomic span [start,stop] with the intron [gis,gie] removed (exons joined), or null. */
+	private static byte[] spliceOut(byte[] bases, int start, int stop, int gis, int gie){
+		final int e1=gis-start, e2=stop-gie;
+		if(e1<1 || e2<1){return null;}
+		final byte[] product=new byte[e1+e2];
+		System.arraycopy(bases, start, product, 0, e1);
+		System.arraycopy(bases, gie+1, product, e1, e2);
+		return product;
+	}
+
+	/**
+	 * Verify an intron-bearing candidate by aligning the SPLICED product to the library.  Uses a
+	 * reduced borderline (ID_BORDERLINE_LONG) since a few residual intron bases can still depress
+	 * identity even after splicing (guard 3), and a length-similarity floor (guard 1: a short product
+	 * cannot match a long model via free terminal deletions).  On pass, annotates the model name; the
+	 * tRNA span keeps the full locus (intron included), so no boundary trim is applied.
+	 */
+	private boolean verifyIntronOrf(Orf orf, byte[] product){
+		//Long-kmer pre-filter (Brian): the SPLICED product must carry conserved tRNA 15-mers before align.
+		final int khits=trnaKmerHits(product);
+		if(khits<MIN_TRNA_KHITS){
+			if(DEBUG){System.err.println("KFILTER_REJECT_INTRON\t"+orf.start+"\t"+orf.stop+"\t"+product.length+"\thits="+khits);}
+			return false;
+		}
+		//Cap the shortlist tightly (intron verify runs a few times per region): bounds added alignments.
+		final int topN=Tools.min(INTRON_VERIFY_TOPN, INDEX_TOP_N_OVERRIDE>0 ? INDEX_TOP_N_OVERRIDE : INDEX_TOP_N_DEFAULT);
+		final int[] shortlist=shortlistByKmer(product, topN);
+		float bestId=0; int bestModel=-1, sinceImproved=0;
+		final int[] borderlineModels=new int[shortlist.length];
+		int borderlineCount=0;
+		boolean passed=false;
+		for(int idx=0; idx<shortlist.length; idx++){
+			final int m=shortlist[idx];
+			final float lenSim=Tools.min(product.length, trnaLibrary[m].length)/(float)Tools.max(product.length, trnaLibrary[m].length);
+			if(lenSim<MIN_LEN_SIM){continue;}//coverage guard: no zero-cost-deletion match
+			final float id=ScrabbleAligner.alignStatic(product, trnaLibrary[m], null);
+			alignmentCount++;
+			if(id>bestId){bestId=id; bestModel=m; sinceImproved=0;}else{sinceImproved++;}
+			if(id>=ID_PASS){passed=true; if(earlyExit && sinceImproved>=earlyExitPatience){break;}}
+			if(trnaModels!=null && id>=ID_BORDERLINE_LONG){borderlineModels[borderlineCount++]=m;}
+		}
+		if(passed){
+			if(annotate && bestModel>=0 && modelNames!=null && bestModel<modelNames.length){orf.trnaModel=modelNames[bestModel];}
+			return true;
+		}else if(bestId>=ID_BORDERLINE_LONG && trnaModels!=null && borderlineCount>0){
+			float bestHbm=-999; int bestHbmModel=-1;
+			for(int b=0; b<borderlineCount; b++){
+				final int idx=borderlineModels[b];
+				if(idx<trnaModels.length){
+					final float sc=TrnaConsensusBuilder.scoreAgainstModel(product, trnaModels[idx]);
+					if(sc>bestHbm){bestHbm=sc; bestHbmModel=idx;}
+				}
+			}
+			if(bestHbm>=HBM_PASS){
+				if(annotate && bestHbmModel>=0 && modelNames!=null && bestHbmModel<modelNames.length){orf.trnaModel=modelNames[bestHbmModel];}
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private void fillPoints(int left, int right, byte[] bases, FrameStats fs,
@@ -247,6 +419,13 @@ public class TrnaCaller extends ProkObject {
 	private boolean verifyOrf(Orf orf, byte[] bases){
 		final int topN=INDEX_TOP_N_OVERRIDE>0 ? INDEX_TOP_N_OVERRIDE : INDEX_TOP_N_DEFAULT;
 		byte[] seq=Arrays.copyOfRange(bases, orf.start, orf.stop+1);
+
+		//Long-kmer pre-filter (Brian): never align/trim a candidate lacking conserved tRNA 15-mers.
+		final int khits=trnaKmerHits(seq);
+		if(khits<MIN_TRNA_KHITS){
+			if(DEBUG){System.err.println("KFILTER_REJECT\t"+orf.start+"\t"+orf.stop+"\t"+seq.length+"\thits="+khits);}
+			return false;
+		}
 
 		// Get shortlist via k-mer index, sorted by hit count descending
 		int[] shortlist=shortlistByKmer(seq, topN);
@@ -569,6 +748,34 @@ public class TrnaCaller extends ProkObject {
 		return index;
 	}
 
+	/**
+	 * Long-kmer pre-filter (Brian): counts how many of seq's forward k-mers (k=kLongTRna, default 15)
+	 * are in the conserved tRNA long-kmer set (ProkObject.trnaKmers, from resources/tRNA_15mers.fa).
+	 * Candidates below the threshold are never aligned -- this rejects the many non-tRNA candidates on
+	 * repetitive/GC-rich genomes cheaply, before any alignment.  Returns MAX_VALUE (filter disabled) if
+	 * the set was not loaded, so behavior is unchanged when the resource is absent.
+	 */
+	private static int trnaKmerHits(byte[] seq){
+		if(ProkObject.trnaKmers==null){return Integer.MAX_VALUE;}
+		final int k=ProkObject.kLongTRna;
+		if(k<=0 || k>31 || seq.length<k){return 0;}
+		final long kmask=~((-1L)<<(2*k));
+		final byte[] bton=AminoAcid.baseToNumber;
+		long kmer=0; int len=0, hits=0;
+		for(int i=0; i<seq.length; i++){
+			final int x=bton[seq[i]];
+			if(x>=0){
+				kmer=((kmer<<2)|x)&kmask; len++;
+				//Forward-only membership: this REQUIRES resources/tRNA_15mers.fa to be stranded (forward,
+				//rcomp=f).  The current file is canonicalized, which drops forward matching to ~87.8% (vs
+				//99.7% canonical) and caused the k-filter's net-negative recall -- regenerate the set
+				//stranded so the sense kmers match here directly (Brian, 2026-08-16).
+				if(len>=k && ProkObject.trnaKmers.contains(kmer)){hits++;}
+			}else{len=0; kmer=0;}
+		}
+		return hits;
+	}
+
 	private int[] shortlistByKmer(byte[] seq, int topN){
 		if(kmerIndex==null || trnaLibrary==null){
 			int[] all=new int[trnaLibrary.length];
@@ -648,9 +855,38 @@ public class TrnaCaller extends ProkObject {
 	static float ID_PASS=0.75f;
 	static float ID_BORDERLINE=0.65f;
 	static float HBM_PASS=0.75f;
+	/** Reduced identity borderline for SPLICED intron-bearing products: a few residual intron bases
+	 * depress identity even after splicing (guard 3). Flag: idborderlinelong= */
+	static float ID_BORDERLINE_LONG=0.55f;
+	/** Min length-similarity (spliced product vs model) to accept an intron verification -- guard 1:
+	 * a short product cannot match a long model via free terminal deletions. */
+	static final float MIN_LEN_SIM=0.70f;
+	/** Intron-splice geometry: min intron length, min exon on each side, and +/- search slack. */
+	static final int MIN_INTRON_SPLICE=10;
+	static final int MIN_EXON_SPLICE=15;
+	static final int INTRON_LEN_SLACK=20;
+	/** Max models aligned per intron verification -- caps the bounded intron pass's alignment cost. */
+	static final int INTRON_VERIFY_TOPN=12;
+	/** Master on/off for the two-half intron pass (flag trnaintron=). */
+	static boolean INTRON_PASS=true;
+	/** Intron-span tracking cap: the intron pass considers spans up to this even when the normal
+	 * candidate cap (MAX_TRNA) is lower, so long introns are found without a global maxtrna=. */
+	static final int INTRON_MAX_SPAN=260;
+	/** Long-kmer pre-filter threshold (flag mintrnakhits=): min conserved tRNA 15-mers a candidate must
+	 * carry before it is aligned.  DEFAULT 1 = ON.  Requires the STRANDED (forward, rcomp=f) set
+	 * resources/tRNA_15mers.fa -- forward-only trnaKmerHits then matches the sense kmers directly at
+	 * 99.74% coverage.  (An earlier CANONICAL set gave only 87.8% forward -> -10.7pp recall; the fix was
+	 * to regenerate the set stranded, not to canonicalize the lookup.)  Measured on the 203-genome
+	 * benchmark: recall 88.8% (baseline 88.9, neutral), precision +0.2pp, and 365x fewer tRNA alignments
+	 * on outlier genomes (Pyrodictium 9.2M -> 25.3K) -- keeps tRNA calling <0.5s/genome.  See
+	 * results/recall_gap_kfilter_intron_20260816.md. */
+	static int MIN_TRNA_KHITS=1;
 	static boolean earlyExit=true;
 	static int earlyExitPatience=10;
 	static long alignmentCount=0;
+	/** Debug trace (flag trnadebug=): dumps findRegions regions + long-candidate INNER_THRESH
+	 * decisions to stderr to pin which sub-gate rejects intron-bearing candidates. Zero-cost off. */
+	public static boolean DEBUG=false;
 	/** Master switch for structural anticodon extraction */
 	static boolean extractAnticodons=true;
 	/** Trim verified tRNA boundaries to the consensus alignment extent */

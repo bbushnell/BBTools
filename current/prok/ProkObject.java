@@ -216,9 +216,10 @@ public abstract class ProkObject {
 			}
 		}
 		LongHashSet set=loadLongKmers(fname, k);
+		if(set!=null){System.err.println("Loaded "+set.size()+" "+prefix+" "+k+"-mers from "+fname);}
 		return set;
 	}
-	
+
 	/** Streams a FASTA file and collects all length-k forward kmers into a LongHashSet. */
 	private static LongHashSet loadLongKmers(String fname, int k){//TODO: Consider making this a LongHashSet.  No reason not to...
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, false);
@@ -344,7 +345,7 @@ public abstract class ProkObject {
 	public static int kLongSSU=15;
 	public static int kLongLSU=15;
 	public static int kLong5S=15;
-	public static int kLongTRna=15;
+	public static int kLongTRna=17;//tRNA long-kmer length for the k-filter (resources/tRNA_17mers.fa); 17 halves the FP rate vs 15 at ~equal coverage (flag klongtrna=)
 	
 	public static float min16SIdentity=0.62f;
 	public static float min23SIdentity=0.60f;
