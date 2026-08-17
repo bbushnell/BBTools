@@ -824,6 +824,15 @@ public class TrnaCaller extends ProkObject {
 		return result.toArray();
 	}
 
+	/** SHORTLIST_STATS: emit the accepted model's shared-5-mer count with the query (from the last shortlist),
+	 * with qlen and the top hit, so the safe shortlist cutoff can be read off the distribution.
+	 * Columns: SLSTAT <sharedHits> <qlen> <maxHitsShared>. */
+	private void logShortlistStat(int model, int qlen){
+		if(slHits!=null && model>=0 && model<slHits.length){
+			System.err.println("SLSTAT\t"+slHits[model]+"\t"+qlen+"\t"+slMax);
+		}
+	}
+
 	private Orf alignWindow(String name, byte[] bases, int strand, int wStart, int wStop){
 		final int wLen=wStop-wStart+1;
 		if(wLen<MIN_TRNA){return null;}
@@ -856,7 +865,53 @@ public class TrnaCaller extends ProkObject {
 		if(orfStop-orfStart<MIN_TRNA){return null;}
 		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, tRNA);
 		orf.orfScore=bestId*100;
-		if(verifyOrf(orf, bases)){return orf;}
+
+		//Skip-verify-on-pass (Brian, 2026-08-16): a clear pass (bestId>=ID_PASS) trusts the window
+		//alignment's identity+coordinates -- no second alignment.  Only borderline windows (ID_BORDERLINE
+		//..ID_PASS) pay a ScrabbleAligner+HBM pass on the trimmed span.  Most tRNAs pass, so the common
+		//path adds zero aligns beyond the window search (E.coli 4934->3167 aligns).
+		if(bestId>=ID_PASS){
+			if(annotate && modelNames!=null && bestModel<modelNames.length){
+				orf.trnaModel=modelNames[bestModel];
+				annotateAndTrim(orf, bases, bestModel, bestModel);
+			}
+			if(SHORTLIST_STATS){logShortlistStat(bestModel, seq.length);}
+			return orf;
+		}else{
+			//Borderline (window bestId in [ID_BORDERLINE, ID_PASS)): re-align the trimmed span with
+			//ScrabbleAligner.  Accept if any model hits ID_PASS on the trimmed span (restores verifyOrf's
+			//recall -- a candidate whose padded window scored low but whose trimmed ORF is a clear match),
+			//else fall back to HBM.  Early-exit on the first clear pass.  (Neptune fix, 2026-08-16.)
+			byte[] orfSeq=Arrays.copyOfRange(bases, orfStart, orfStop+1);
+			float bestReId=0; int bestReModel=-1;
+			float bestHbm=-999; int bestHbmModel=-1;
+			for(int j=0; j<shortlist.length; j++){
+				final int m=shortlist[j];
+				final float id=ScrabbleAligner.alignStatic(orfSeq, trnaLibrary[m], null);
+				alignmentCount++;
+				if(id>bestReId){bestReId=id; bestReModel=m;}
+				if(id>=ID_PASS){break;}//clear pass -- stop searching
+				if(trnaModels!=null && m<trnaModels.length && id>=ID_BORDERLINE){
+					final float hbm=TrnaConsensusBuilder.scoreAgainstModel(orfSeq, trnaModels[m]);
+					if(hbm>bestHbm){bestHbm=hbm; bestHbmModel=m;}
+				}
+			}
+			if(bestReId>=ID_PASS && bestReModel>=0){
+				if(annotate && modelNames!=null && bestReModel<modelNames.length){
+					orf.trnaModel=modelNames[bestReModel];
+					annotateAndTrim(orf, bases, bestReModel, bestReModel);
+				}
+				if(SHORTLIST_STATS){logShortlistStat(bestReModel, seq.length);}
+				return orf;
+			}else if(bestHbm>=HBM_PASS && bestHbmModel>=0){
+				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
+					orf.trnaModel=modelNames[bestHbmModel];
+					annotateAndTrim(orf, bases, bestHbmModel, bestHbmModel);
+				}
+				if(SHORTLIST_STATS){logShortlistStat(bestHbmModel, seq.length);}
+				return orf;
+			}
+		}
 		return null;
 	}
 
@@ -930,7 +985,7 @@ public class TrnaCaller extends ProkObject {
 		}
 		final int numKmers=1<<(2*INDEX_K);
 		int[] hits=new int[trnaLibrary.length];
-		int kmer=0, len=0;
+		int kmer=0, len=0, distinctRefs=0;
 		for(int j=0; j<seq.length; j++){
 			int x=AminoAcid.baseToNumber[seq[j]];
 			if(x>=0){
@@ -939,7 +994,7 @@ public class TrnaCaller extends ProkObject {
 				if(len>=INDEX_K){
 					int[] refIds=kmerIndex[kmer];
 					for(int i=0; i<refIds.length; i++){
-						hits[refIds[i]]++;
+						if(hits[refIds[i]]++==0){distinctRefs++;}
 					}
 				}
 			}else{
@@ -947,14 +1002,31 @@ public class TrnaCaller extends ProkObject {
 			}
 		}
 
-		// Find top-N by hit count, cut off at minhits
-		final int minHits=INDEX_MINHITS_OVERRIDE>0 ? INDEX_MINHITS_OVERRIDE : INDEX_MINHITS_DEFAULT;
+		//REFHIST evidence: how many library refs share >=1 index-kmer with this query.  If ~all 4440 do,
+		//clearing a full direct array is unavoidable; if usually few, a sparse IntHashMap counter wins.
+		if(REFHIST){System.err.println("REFHIST\t"+distinctRefs+"\t"+Tools.max(0, seq.length-INDEX_K+1));}
 		int[][] scored=new int[trnaLibrary.length][2];
 		for(int i=0; i<trnaLibrary.length; i++){
 			scored[i][0]=i;
 			scored[i][1]=hits[i];
 		}
 		Arrays.sort(scored, (a, b)->b[1]-a[1]);
+
+		//Shortlist cutoff.  FIXED (default): flat indexminhits (INDEX_MINHITS_DEFAULT, or the override).
+		//ADAPTIVE (Brian, flag adaptiveminhits=): a model must clear the STRICTEST of an absolute floor, a
+		//fraction of the top-ranked model's shared count, and a fraction of the query's k-mers --
+		//ceil(max(ADAPT_FLOOR, ADAPT_TOPFRAC*maxShared, ADAPT_QFRAC*qKmers)).  qKmers uses the shortlist
+		//query length (the scavenger window; the mature-tRNA length is not known here).
+		final int maxShared=(scored.length>0 ? scored[0][1] : 0);
+		if(SHORTLIST_STATS){slHits=hits; slMax=maxShared;}
+		final int minHits;
+		if(ADAPTIVE_MINHITS){
+			final int qKmers=Tools.max(1, seq.length-INDEX_K+1);
+			final double v=Math.max(ADAPT_FLOOR, Math.max(ADAPT_TOPFRAC*maxShared, ADAPT_QFRAC*qKmers));
+			minHits=(int)Math.ceil(v);
+		}else{
+			minHits=INDEX_MINHITS_OVERRIDE>0 ? INDEX_MINHITS_OVERRIDE : INDEX_MINHITS_DEFAULT;
+		}
 
 		int count=0;
 		int limit=Tools.min(topN, trnaLibrary.length);
@@ -981,6 +1053,9 @@ public class TrnaCaller extends ProkObject {
 	private final int[][] kmerIndex;
 	/** Per-model anticodon start position in the consensus, or -1; null when not annotating */
 	private final int[] acPositions;
+	/** SHORTLIST_STATS scratch: last shortlist's per-model 5-mer hit counts + the max, for logging the
+	 * accepted model's shared count.  Per-instance (TrnaCaller is constructed per calling thread). */
+	private int[] slHits; private int slMax;
 
 	private static final int MIN_TRNA=40;
 	private static final int MAX_TRNA=120;
@@ -989,11 +1064,36 @@ public class TrnaCaller extends ProkObject {
 	static int MAX_TRNA_OVERRIDE=-1;
 	/** Floor for the length-deviation score term in long mode */
 	private static final float LONG_D_FLOOR=0.05f;
-	private static final int INDEX_K=5;
+	/** Shortlist index k-mer length (flag indexk=).  Longer k => more selective shortlist => fewer aligns,
+	 * at the risk of missing divergent tRNAs.  Must be set before the caller is constructed (buildKmerIndex
+	 * reads it).  numKmers=1<<(2*INDEX_K): k=5->1024, k=6->4096, k=7->16384.  (Runtime param, Brian 2026-08-17.) */
+	static int INDEX_K=7;
 	static int INDEX_TOP_N_OVERRIDE=-1;
 	static int INDEX_MINHITS_OVERRIDE=-1;
-	private static final int INDEX_TOP_N_DEFAULT=20;
-	private static final int INDEX_MINHITS_DEFAULT=3;
+	//Library-search breadth defaults raised to the measured-best scavenger eval config (Brian, 2026-08-16):
+	//align up to 60 shortlisted models per candidate (was 20), keyed on >=12 shared index k-mers (was 3).
+	//Flags indextopn=/indexminhits= still override.  Provisional -- to be re-swept after the next library.
+	private static final int INDEX_TOP_N_DEFAULT=60;
+	private static final int INDEX_MINHITS_DEFAULT=12;
+	/** Adaptive shortlist cutoff (flag adaptiveminhits=): use min(ADAPTIVE_MINHITS_CAP, qlen/2,
+	 * 0.75*maxHitsShared) instead of the flat indexminhits.  Experimental (Brian, 2026-08-17). */
+	//SHIPPED default (Brian, 2026-08-17): adaptive shortlist cutoff ON at (floor=11, topfrac=0.48, qfrac=0.072)
+	//with indexk=7.  Measured (203-bench, taxonomy=f): recall 94.6% / prec 98.1% / 334K aligns (~4.7x fewer
+	//than the pre-adaptive 1.57M; +5.7pp recall over the 88.9% baseline).  Chosen over k=8 (Pareto-dominated:
+	//k=8 needs ~37% more aligns for equal recall; its lighter index-ops don't offset that).
+	static boolean ADAPTIVE_MINHITS=true;
+	/** Adaptive-cutoff params (Brian, 2026-08-17): minHits = ceil(max(ADAPT_FLOOR, ADAPT_TOPFRAC*maxShared,
+	 * ADAPT_QFRAC*queryKmers)).  Flags: adaptfloor=/adapttopfrac=/adaptqfrac=. */
+	static float ADAPT_FLOOR=11;
+	static float ADAPT_TOPFRAC=0.48f;
+	static float ADAPT_QFRAC=0.072f;
+	/** Evidence gathering (flag shortliststats=): for each ACCEPTED tRNA, print the winning model's shared
+	 * 5-mer count with the query -- absolute, and enough to compute /qlen and /maxHitsShared -- so the safe
+	 * shortlist cutoff can be set from the distribution instead of a guessed formula (Brian, 2026-08-17). */
+	static boolean SHORTLIST_STATS=false;
+	/** Evidence (flag refhist=): per shortlist query, log how many library refs share >=1 index-kmer
+	 * (REFHIST <distinctRefs> <queryKmers>) -- direct-array vs sparse IntHashMap counter decision. */
+	static boolean REFHIST=false;
 	private static final int[] EMPTY=new int[0];
 	//Per-INSTANCE (not static) so CallGenes flags that set GeneCaller.cutoffN[tRNA] before this caller is
 	//constructed take effect.  cutoff1=region open, cutoff5=avg inner, cutoff2=composite candidate.
@@ -1030,16 +1130,21 @@ public class TrnaCaller extends ProkObject {
 	 * results/recall_gap_kfilter_intron_20260816.md. */
 	static int MIN_TRNA_KHITS=1;
 	/** tRNA scavenger pass (Neptune): recover tRNAs at conserved-kmer-hit positions the PGM-based candidate
-	 * generation missed.  SCAVENGE=augment the normal call; SCAVENGE_ONLY=replace it (diagnostic). Flags:
-	 * trnascavenge=/scavenge=, trnascavengeonly=/scavengeonly=. */
+	 * generation missed.  SCAVENGE=augment the normal call; SCAVENGE_ONLY=replace it entirely.  Flags:
+	 * trnascavenge=/scavenge=, trnascavengeonly=/scavengeonly=.  DEFAULT: SCAVENGE_ONLY=true -- the scavenger
+	 * alone measured 98% precision / 95% recall / >80% both-ends-exact on the benchmark (Neptune), matching or
+	 * beating the PGM candidate generator, so it replaces the normal tRNA path by default (Brian, 2026-08-16).
+	 * NOTE: under SCAVENGE_ONLY the normal callTrnas path (incl. the INTRON_PASS) is bypassed; the measured
+	 * recall already reflects that.  Provisional -- re-grade after the next (2.5M) library before finalizing. */
 	static boolean SCAVENGE=false;
-	static boolean SCAVENGE_ONLY=false;
+	static boolean SCAVENGE_ONLY=true;
 	static boolean SCAVENGE_PASS2=true;
 	static final int SCAV_PAD=83;
 	static final int SCAV_QUANTUM_THRESH=120;
 	static final int SCAV_NEARBY=200;
 	static boolean earlyExit=true;
-	static int earlyExitPatience=10;
+	//Raised 10->20 to the measured-best scavenger eval config (Brian, 2026-08-16); flag patience= overrides.
+	static int earlyExitPatience=20;
 	static long alignmentCount=0;
 	/** Debug trace (flag trnadebug=): dumps findRegions regions + long-candidate INNER_THRESH
 	 * decisions to stderr to pin which sub-gate rejects intron-bearing candidates. Zero-cost off. */

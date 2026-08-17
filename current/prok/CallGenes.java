@@ -363,6 +363,20 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.INDEX_TOP_N_OVERRIDE=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("indexminhits")){
 				prok.TrnaCaller.INDEX_MINHITS_OVERRIDE=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("adaptiveminhits") || a.equalsIgnoreCase("adaptiveshortlist")){
+				prok.TrnaCaller.ADAPTIVE_MINHITS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("adaptfloor")){
+				prok.TrnaCaller.ADAPT_FLOOR=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("adapttopfrac")){
+				prok.TrnaCaller.ADAPT_TOPFRAC=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("adaptqfrac")){
+				prok.TrnaCaller.ADAPT_QFRAC=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("shortliststats") || a.equalsIgnoreCase("slstats")){
+				prok.TrnaCaller.SHORTLIST_STATS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("refhist")){
+				prok.TrnaCaller.REFHIST=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("indexk") || a.equalsIgnoreCase("shortlistk")){
+				prok.TrnaCaller.INDEX_K=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("earlyexit")){
 				prok.TrnaCaller.earlyExit=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("patience")){
@@ -1674,7 +1688,11 @@ public class CallGenes extends ProkObject {
 	private String metaNetPath=null;
 	private String[] metaNetPaths=null;
 	private float[] gcMeans=null;
-	private boolean useTaxonomy=false;
+	//Default ON (Brian, 2026-08-16): classify each input via QuickClade and use the matching per-phylum PGM.
+	//Intended for ISOLATES (one organism per file) -- a metagenome would be misclassified to a single phylum,
+	//so set taxonomy=f for mixed samples.  Falls back to the general PGM (with a warning) if the clade server
+	//is unreachable, so it never hard-fails offline.  Flag taxonomy=/tax= overrides.  Provisional pending re-sweep.
+	private boolean useTaxonomy=true;
 	private boolean perContig=false;
 	private String taxAddress="refseq";
 	private boolean trnaAlign=true;

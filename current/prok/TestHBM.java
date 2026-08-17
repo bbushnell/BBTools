@@ -53,7 +53,7 @@ public class TestHBM {
 		System.err.println("Clustering at 70% identity...");
 		TrnaConsensusBuilder tcb=new TrnaConsensusBuilder(
 			new String[]{"in="+trnaFile, "out=/dev/null"});
-		ArrayList<ArrayList<Read>> clusters=tcb.clusterSequences(filtered);
+		ArrayList<ArrayList<Read>> clusters=tcb.clusterSequences(filtered, null);
 		System.err.println("Found "+clusters.size()+" clusters");
 
 		// Build BaseGraph for each cluster with >=3 members

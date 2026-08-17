@@ -92,6 +92,10 @@ public class TrnaConsensusBuilder {
 				reassignRounds=Integer.parseInt(b);
 			}else if(a.equals("census")){
 				census=Parse.parseBoolean(b);
+			}else if(a.equals("seedin") || a.equals("seed") || a.equals("seeds")){
+				seedIn=b;
+			}else if(a.equals("prunecount") || a.equals("prune")){
+				pruneCount=Integer.parseInt(b);
 			}else if(parser.parse(arg, a, b)){
 				//handled
 			}else{
@@ -120,6 +124,11 @@ public class TrnaConsensusBuilder {
 		ArrayList<Read> reads=loadReads();
 		outstream.println("Loaded "+reads.size()+" tRNA sequences.");
 
+		LinkedHashMap<String, ArrayList<byte[]>> seedMap=null;
+		if(seedIn!=null){
+			seedMap=loadSeeds(seedIn);
+		}
+
 		LinkedHashMap<String, ArrayList<Read>> groups=groupByAnticodon(reads);
 		outstream.println("Found "+groups.size()+" anticodon groups.");
 
@@ -135,8 +144,10 @@ public class TrnaConsensusBuilder {
 				continue;
 			}
 
+			ArrayList<byte[]> seeds=(seedMap!=null ? seedMap.get(anticodon) : null);
+
 			if(doClustering && group.size()>1){
-				final ArrayList<ArrayList<Read>> clusters=clusterSequences(group);
+				final ArrayList<ArrayList<Read>> clusters=clusterSequences(group, seeds);
 				//Per-cluster consensus+HBM+census are independent: compute in
 				//parallel, then assemble serially in cluster order so output
 				//(labels, numericIDs, census lines) is deterministic.
@@ -197,6 +208,32 @@ public class TrnaConsensusBuilder {
 			}
 		}
 
+		if(pruneCount>0 && consensusList.size()>pruneCount){
+			int[] sizes=new int[consensusList.size()];
+			for(int i=0; i<sizes.length; i++){
+				String id=consensusList.get(i).id;
+				int nIdx=id.lastIndexOf("n=");
+				sizes[i]=(nIdx>=0 ? Parse.parseInt(id, nIdx+2) : 0);
+			}
+			int[] sorted=sizes.clone();
+			Arrays.sort(sorted);
+			final int cutoff=sorted[Tools.min(pruneCount-1, sorted.length-1)];
+			ArrayList<Read> kept=new ArrayList<>();
+			ArrayList<BaseGraph> keptModels=(modelList!=null ? new ArrayList<>() : null);
+			int removed=0;
+			for(int i=0; i<consensusList.size(); i++){
+				if(sizes[i]<=cutoff && removed<pruneCount){
+					removed++;
+				}else{
+					kept.add(consensusList.get(i));
+					if(keptModels!=null){keptModels.add(modelList.get(i));}
+				}
+			}
+			outstream.println("Pruned "+removed+" clusters (cutoff n<="+cutoff+"), "+kept.size()+" remaining.");
+			consensusList=kept;
+			modelList=keptModels;
+		}
+
 		if(ffout!=null){
 			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ffout, null, 4, null, false);
 			ros.start();
@@ -231,6 +268,31 @@ public class TrnaConsensusBuilder {
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
+
+	private LinkedHashMap<String, ArrayList<byte[]>> loadSeeds(String fname){
+		LinkedHashMap<String, ArrayList<byte[]>> map=new LinkedHashMap<>();
+		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
+		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
+		cris.start();
+		int count=0;
+		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()){
+			for(Read r : ln){
+				if(r.bases!=null && r.length()>0){
+					Tools.toUpperCase(r.bases);
+					String ac=parseAnticodon(r.id);
+					if(ac==null){ac="unknown";}
+					ArrayList<byte[]> list=map.get(ac);
+					if(list==null){list=new ArrayList<>(); map.put(ac, list);}
+					list.add(r.bases);
+					count++;
+				}
+			}
+			cris.returnList(ln);
+		}
+		ReadWrite.closeStream(cris);
+		outstream.println("Loaded "+count+" seed consensus sequences in "+map.size()+" anticodon groups.");
+		return map;
+	}
 
 	private ArrayList<Read> loadReads(){
 		ArrayList<Read> reads=new ArrayList<>();
@@ -312,31 +374,48 @@ public class TrnaConsensusBuilder {
 		return null;
 	}
 
-	ArrayList<ArrayList<Read>> clusterSequences(ArrayList<Read> group){
-		// Step 1: Greedy initial clustering
+	ArrayList<ArrayList<Read>> clusterSequences(ArrayList<Read> group, ArrayList<byte[]> seeds){
 		ArrayList<ArrayList<Read>> clusters=new ArrayList<>();
 		ArrayList<byte[]> centroids=new ArrayList<>();
 
 		group.sort((a, b)->b.length()-a.length());
 
-		for(Read r : group){
-			byte[] seq=r.bases;
-			float bestId=0;
-			int bestCluster=-1;
-			for(int i=0; i<centroids.size(); i++){
-				float id=ScrabbleAligner.alignStatic(seq, centroids.get(i), null);
-				if(id>bestId){
-					bestId=id;
-					bestCluster=i;
+		if(seeds!=null && !seeds.isEmpty()){
+			// Seeded mode: assign reads to pre-existing centroids only
+			centroids.addAll(seeds);
+			for(int i=0; i<seeds.size(); i++){clusters.add(new ArrayList<>());}
+			for(Read r : group){
+				float bestId=0;
+				int bestCluster=-1;
+				for(int i=0; i<centroids.size(); i++){
+					float id=ScrabbleAligner.alignStatic(r.bases, centroids.get(i), null);
+					if(id>bestId){bestId=id; bestCluster=i;}
+				}
+				if(bestId>=recruitIdentity && bestCluster>=0){
+					clusters.get(bestCluster).add(r);
 				}
 			}
-			if(bestId>=clusterIdentity && bestCluster>=0){
-				clusters.get(bestCluster).add(r);
-			}else{
-				ArrayList<Read> newCluster=new ArrayList<>();
-				newCluster.add(r);
-				clusters.add(newCluster);
-				centroids.add(seq);
+		}else{
+			// Greedy initial clustering
+			for(Read r : group){
+				byte[] seq=r.bases;
+				float bestId=0;
+				int bestCluster=-1;
+				for(int i=0; i<centroids.size(); i++){
+					float id=ScrabbleAligner.alignStatic(seq, centroids.get(i), null);
+					if(id>bestId){
+						bestId=id;
+						bestCluster=i;
+					}
+				}
+				if(bestId>=clusterIdentity && bestCluster>=0){
+					clusters.get(bestCluster).add(r);
+				}else{
+					ArrayList<Read> newCluster=new ArrayList<>();
+					newCluster.add(r);
+					clusters.add(newCluster);
+					centroids.add(seq);
+				}
 			}
 		}
 
@@ -943,6 +1022,8 @@ public class TrnaConsensusBuilder {
 	private boolean census=false;
 	/** Worker pool for per-cluster consensus/HBM/census tasks; sized by Shared.threads() */
 	private ExecutorService pool;
+	private String seedIn;
+	private int pruneCount=0;
 	private String outModel;
 	private PrintStream outstream=System.err;
 

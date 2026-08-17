@@ -63,8 +63,19 @@ trnaalign=t     Align predicted tRNAs to a consensus library to verify
                 by default; override with trnalib= and trnamodel=.
 trnalib=<file>  Custom tRNA consensus library (fasta).
 trnamodel=<file> Custom tRNA HBM model file.
+indexk=7        Kmer length for the library shortlist index.  Longer is more
+                selective (fewer models aligned per candidate); shorter is more
+                permissive.  7 is the shipped default.
 indextopn=60    Max library models aligned per candidate (search breadth).
 indexminhits=12 Min shared index-kmers for a model to enter the shortlist.
+                Fixed fallback; used only when adaptiveminhits=f.
+adaptiveminhits=t  Adapt the shortlist cutoff per candidate instead of the
+                fixed indexminhits (the shipped default).  Cutoff = ceil(max(
+                adaptfloor, adapttopfrac*maxSharedKmers, adaptqfrac*queryKmers)).
+adaptfloor=11   Absolute floor for the adaptive cutoff (the constant term).
+adapttopfrac=0.48  Adaptive cutoff as a fraction of the best model's shared-
+                kmer count.
+adaptqfrac=0.072   Adaptive cutoff as a fraction of the candidate's kmer count.
 patience=20     Stop aligning after this many models without improvement
                 once a passing hit has been found (with earlyexit).
 earlyexit=t     Enable the patience-based early exit.
