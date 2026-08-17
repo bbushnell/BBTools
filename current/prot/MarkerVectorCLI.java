@@ -7,6 +7,7 @@ import java.util.List;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import parse.LineParser1;
 import parse.Parse;
 import shared.Timer;
 import structures.ByteBuilder;
@@ -147,19 +148,23 @@ public final class MarkerVectorCLI {
 			final LinkedHashMap<String, ArrayList<MarkerFamily>> fams,
 			final LinkedHashMap<String, String> versions,
 			final LinkedHashMap<String, Integer> genomeCounts){
-		final String[] tokens=header.substring(1).trim().split("\\s+");
-		if(tokens.length==0 || tokens[0].length()==0){
+		final String trimmed=header.substring(1).trim();
+		final LineParser1 lp=new LineParser1((byte)' ');
+		lp.set(trimmed.getBytes());
+		final int nTokens=lp.terms();
+		if(nTokens==0 || lp.parseString(0).length()==0){
 			throw new RuntimeException("Marker record has no representative id: "+header);
 		}
-		final String repId=tokens[0];
+		final String repId=lp.parseString(0);
 		int familyId=-1, genomes=0;
 		String domain=null, version="v1", copies=null;
 		boolean selected=false, sawSelected=false;
-		for(int i=1; i<tokens.length; i++){
-			final int eq=tokens[i].indexOf('=');
+		for(int i=1; i<nTokens; i++){
+			final String tok=lp.parseString(i);
+			final int eq=tok.indexOf('=');
 			if(eq<0){continue;}
-			final String key=tokens[i].substring(0, eq);
-			final String val=tokens[i].substring(eq+1);
+			final String key=tok.substring(0, eq);
+			final String val=tok.substring(eq+1);
 			if(key.equals("family_id")){familyId=Integer.parseInt(val);}
 			else if(key.equals("domain")){domain=val;}
 			else if(key.equals("version")){version=val;}
@@ -192,10 +197,12 @@ public final class MarkerVectorCLI {
 	private static CopyNumberDistribution parseCopies(final String copies){
 		final CopyNumberDistribution dist=new CopyNumberDistribution();
 		if(copies==null || copies.length()==0){return dist;}
-		final String[] parts=copies.split(",");
+		final LineParser1 lp=new LineParser1((byte)',');
+		lp.set(copies.getBytes());
+		final int nTerms=lp.terms();
 		//bins[c] genomes carry the family c times; replay each as add(c).
-		for(int c=0; c<parts.length && c<CopyNumberDistribution.BINS; c++){
-			final int n=Integer.parseInt(parts[c].trim());
+		for(int c=0; c<nTerms && c<CopyNumberDistribution.BINS; c++){
+			final int n=lp.parseInt(c);
 			for(int j=0; j<n; j++){dist.add(c);}
 		}
 		return dist;

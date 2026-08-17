@@ -25,11 +25,13 @@ public final class ProteinFamily {
 	/**
 	 * Constructs a family.
 	 * @param id Family id.
-	 * @param consensus The AAGraph consensus representative.
-	 * @param members The assigned member sequences.
+	 * @param consensus The AAGraph consensus representative (non-null).
+	 * @param members The assigned member sequences (non-null).
 	 */
 	public ProteinFamily(final int id, final ProteinSequence consensus,
 			final ArrayList<ProteinSequence> members){
+		if(consensus==null){throw new RuntimeException("Null consensus for family "+id+".");}
+		if(members==null){throw new RuntimeException("Null member list for family "+id+".");}
 		this.id=id;
 		this.consensus=consensus;
 		this.members=members;

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 6, 2026
+Last modified August 16, 2026
 
 Description:  Finds orfs and calls genes in unspliced prokaryotes.
 This includes bacteria, archaea, viruses, and mitochondria.
@@ -32,12 +32,29 @@ pz=f            (printzero) Print histogram lines with zero count.
 
 
 Taxonomy parameters:
-taxonomy=f      Use QuickClade to classify the input and select a phylum-
-                specific gene model for improved accuracy.  Requires access
-                to a QuickClade server.
+taxonomy=t      Use QuickClade to classify the input and select a phylum-
+                specific gene model for improved accuracy.  Intended for
+                ISOLATES (one organism per file): a metagenome would be
+                misclassified to a single phylum, so set taxonomy=f for
+                mixed samples.  Requires a QuickClade server; if it is
+                unreachable, callgenes falls back to the general model with
+                a warning (it never fails on this account).
 percontig=f     Classify each contig separately (for metagenomes).
                 Default is per-file (classify once for all contigs).
 taxaddress=     QuickClade server address.  Default: refseq.
+
+tRNA detection parameters:
+scavengeonly=t  Call tRNAs with the kmer-guided scavenger only (finds tRNAs at
+                conserved long-kmer positions).  This is the shipped default;
+                set scavengeonly=f to use the PGM candidate generator instead.
+scavenge=f      Run the scavenger IN ADDITION to the PGM candidate generator
+                (augment mode) rather than replacing it.
+trnaintron=t    Intron-aware pass: splice candidate spans before verification
+                to recover intron-containing (mainly archaeal) tRNAs.
+                (Not used while scavengeonly is on.)
+mintrnakhits=1  Min conserved tRNA long-kmers a candidate must carry before it
+                is aligned; a cheap pre-filter that rejects non-tRNA windows.
+                0 disables the pre-filter.
 
 tRNA alignment parameters:
 trnaalign=t     Align predicted tRNAs to a consensus library to verify
@@ -46,6 +63,13 @@ trnaalign=t     Align predicted tRNAs to a consensus library to verify
                 by default; override with trnalib= and trnamodel=.
 trnalib=<file>  Custom tRNA consensus library (fasta).
 trnamodel=<file> Custom tRNA HBM model file.
+indextopn=60    Max library models aligned per candidate (search breadth).
+indexminhits=12 Min shared index-kmers for a model to enter the shortlist.
+patience=20     Stop aligning after this many models without improvement
+                once a passing hit has been found (with earlyexit).
+earlyexit=t     Enable the patience-based early exit.
+idpass=0.75     Min alignment identity to accept a tRNA.
+hbmpass=0.75    Min HBM model score to accept a borderline tRNA.
 acextract=t     Extract the anticodon directly from each verified tRNA's
                 structure (anticodon loop position projected through the
                 alignment).  Adds an anticodon: attribute to the GFF.
@@ -60,6 +84,13 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
                 relaxed length scoring for over-length candidates such as
                 intron-containing archaeal tRNAs.  Measured neutral: unspliced
                 candidates still fail alignment verification.
+
+Advanced tRNA candidate-generation thresholds (rarely changed):
+trnaregion=20   Region-open score cutoff.
+trnacand=36     Composite candidate score cutoff (tRNA is very sensitive here).
+trnastart=2.4   Start point-model score cutoff.
+trnastop=1.5    Stop point-model score cutoff.
+trnainner=2.2   Average inner-kmer score cutoff.
 
 Other parameters:
 minlen=60       Don't call genes shorter than this.

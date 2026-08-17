@@ -3,11 +3,14 @@ package prot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
 import dna.AminoAcid;
+import map.LongHashSet;
+import map.LongLongListHashMap;
+import structures.IntList;
+import structures.LongList;
 
 /**
  * In-memory, blastp-style protein similarity search (Phase-1 MVP).
@@ -95,27 +98,33 @@ public final class ProteinSearcher {
 		for(ProteinSequence t : targets){totalDbResidues+=t.length();}
 
 		//Build the target k-mer index: kmer -> distinct target indices.
-		final HashMap<Long, ArrayList<Integer>> index=buildIndex(targets);
+		final LongLongListHashMap index=buildIndex(targets);
 
 		final ArrayList<ProteinHit> all=new ArrayList<ProteinHit>();
 		final int[] hitCount=new int[targets.size()];
-		final ArrayList<Integer> touched=new ArrayList<Integer>();
+		final IntList touched=new IntList();
 
 		for(ProteinSequence q : queries){
 			final double searchSpace=(double)q.length()*(double)totalDbResidues;
 
 			//Seed: tally shared k-mers per target.
-			for(Integer idx : touched){hitCount[idx]=0;}
+			for(int ti=0; ti<touched.size; ti++){hitCount[touched.get(ti)]=0;}
 			touched.clear();
-			final HashSet<Long> qkmers=kmerSet(q.enc);
+			final LongHashSet qkmers=kmerSet(q.enc);
 			if(qkmers.isEmpty()){
 				//Query too short for a k-mer: fall back to aligning against all targets.
-				for(int i=0; i<targets.size(); i++){hitCount[i]=minSeedHits;}
+				//Every touched index must be recorded so the NEXT query's reset step (line
+				//108-109) actually zeroes it -- otherwise hitCount[] stays latched at
+				//minSeedHits for every target forever, permanently defeating the seed
+				//filter (and its sensitivity trade-off) for the rest of this search() call.
+				for(int i=0; i<targets.size(); i++){hitCount[i]=minSeedHits; touched.add(i);}
 			}else{
-				for(Long km : qkmers){
-					final ArrayList<Integer> list=index.get(km);
+				final long[] kmerArray=qkmers.toArray();
+				for(long km : kmerArray){
+					final LongList list=index.get(km);
 					if(list!=null){
-						for(Integer idx : list){
+						for(int j=0; j<list.size; j++){
+							final int idx=(int)list.get(j);
 							if(hitCount[idx]==0){touched.add(idx);}
 							hitCount[idx]++;
 						}
@@ -167,14 +176,12 @@ public final class ProteinSearcher {
 	}
 
 	/** Builds the target k-mer index (kmer packed as a long -> target indices). */
-	private HashMap<Long, ArrayList<Integer>> buildIndex(final List<ProteinSequence> targets){
-		final HashMap<Long, ArrayList<Integer>> index=new HashMap<Long, ArrayList<Integer>>();
+	private LongLongListHashMap buildIndex(final List<ProteinSequence> targets){
+		final LongLongListHashMap index=new LongLongListHashMap();
 		for(int i=0; i<targets.size(); i++){
-			final Integer idx=Integer.valueOf(i);
-			for(Long km : kmerSet(targets.get(i).enc)){
-				ArrayList<Integer> list=index.get(km);
-				if(list==null){list=new ArrayList<Integer>(); index.put(km, list);}
-				list.add(idx);//distinct per target, so no duplicate index per kmer
+			final long[] kmerArray=kmerSet(targets.get(i).enc).toArray();
+			for(long km : kmerArray){
+				index.put(km, (long)i);//distinct per target, so no duplicate index per kmer
 			}
 		}
 		return index;
@@ -187,8 +194,8 @@ public final class ProteinSearcher {
 	 * @param enc Encoded residues.
 	 * @return Set of packed k-mers.
 	 */
-	private HashSet<Long> kmerSet(final byte[] enc){
-		final HashSet<Long> set=new HashSet<Long>();
+	private LongHashSet kmerSet(final byte[] enc){
+		final LongHashSet set=new LongHashSet();
 		final int bits=reducedSeed ? 3 : 5;
 		assert(bits*k<=62) : "k too large for packed k-mer: k="+k+", bits="+bits;
 		if(enc.length<k){return set;}
@@ -206,7 +213,7 @@ public final class ProteinSearcher {
 			if(code<0){kmer=0; valid=0; continue;}//reset on X/ambiguous residue
 			kmer=((kmer<<bits)|code)&mask;
 			valid++;
-			if(valid>=k){set.add(Long.valueOf(kmer));}
+			if(valid>=k){set.add(kmer);}
 		}
 		return set;
 	}

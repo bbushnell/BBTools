@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Eru
-Last modified August 10, 2026
+Last modified August 17, 2026
 
 Description:  Computes per-organism dinucleotide-composition features (HH and
 CAGA, from tracker.KmerTracker) from a contig FASTA whose headers embed the
@@ -11,23 +11,31 @@ taxon id (..._tid_<int>), then min-max scales each feature so 1 = the maximum
 and 0 = the minimum observed across the TRAINING organisms only (validation
 organisms are scaled by the same train-derived range, clamped to [0,1]).  The
 train/val split reproduces MagQCVectorMaker's split exactly (same seed and
-valfrac => same held-out organisms).  Output is consumed by
-magqcvectormaker.sh subnet=ncrna snhhcaga=t kmerfile=<output>.
+valfrac => same held-out organisms; the usable-organism set is cache tids
+AND sizemap tids, matching MagQCVectorMaker's real usable set exactly).
+Output is consumed by magqcvectormaker.sh subnet=ncrna snhhcaga=t
+kmerfile=<output>.
 
 This is a DEVELOPMENT tool (training-feature generation); it is not part of
 the end-user MAG-QC path.
 
 Usage:  genomedimerfeatures.sh in=<renamed.fa> cache=<percontig_cache.tsv> \\
-          out=<kmerfeat.tsv> [seed=1] [valfrac=0.10]
+          sizemap=<sizemap.tsv> out=<kmerfeat.tsv> [seed=1] [valfrac=0.10] \\
+          [minlen=0]
 
 Required parameters:
 in=<file>       Contig FASTA with _tid_<int> header suffixes.
 cache=<file>    Per-contig precompute cache TSV (defines the usable organisms).
+sizemap=<file>  Tid<tab>bp sizemap TSV -- the SAME file MagQCVectorMaker uses;
+                a tid in cache but absent here is excluded (matches
+                MagQCVectorMaker's real usable set, which requires both).
 out=<file>      Output tid<tab>HH<tab>CAGA TSV (train-scaled).
 
 Optional parameters (and their defaults):
 seed=1          RNG seed; MUST match the MagQCVectorMaker run it feeds.
 valfrac=0.10    Held-out organism fraction; MUST match likewise.
+minlen=0        Per-contig-row length floor (mirrors loadCache's minlen filter);
+                MUST match the MagQCVectorMaker run it feeds.
 
 Java Parameters:
 -Xmx            Set Java heap (overrides autodetection).

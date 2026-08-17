@@ -1,6 +1,7 @@
 package prot;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 
@@ -103,7 +104,7 @@ public final class ProteinFamilyClustererTest {
 		for(ProteinFamily f : fams){
 			final ArrayList<String> ids=new ArrayList<String>();
 			for(ProteinSequence m : f.members){ids.add(m.id);}
-			java.util.Collections.sort(ids);
+			Collections.sort(ids);
 			parts.add(ids.toString());
 		}
 		return parts;

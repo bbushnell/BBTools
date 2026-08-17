@@ -599,6 +599,93 @@ public final class ByteBuilder implements Serializable, CharSequence {
 		return this;
 	}
 	
+	/**
+	 * Appends {@code num} in scientific notation with {@code decimals} mantissa fraction digits,
+	 * matching the layout of {@code String.format("%."+decimals+"e", num)} (Locale.ROOT): an
+	 * optional '-', one leading digit, '.', {@code decimals} fraction digits, 'e', an always-present
+	 * exponent sign, then the exponent zero-padded to at least 2 digits. Zero-allocation,
+	 * lookup-table driven, one {@code Math.log10} — a fast drop-in for {@code String.format("%.Ne")}
+	 * on write-heavy paths, and locale-independent (always '.'). Rounding is HALF_UP in double
+	 * arithmetic (like the other fast float appenders here), so for adversarial last-digit cases it
+	 * can differ from String.format's exact decimal rounding; use {@link #appendSlow} when exactness
+	 * is required. NaN/infinities emit their Java string forms.
+	 * @param num Value to format.
+	 * @param decimals Mantissa fraction digits (0..18).
+	 * @return This ByteBuilder for chaining.
+	 */
+	public ByteBuilder appendSci(final double num, final int decimals){
+		assert(decimals>=0 && decimals<=18) : decimals;
+		if(num!=num){return append("NaN");}
+		if(num==Double.POSITIVE_INFINITY){return append("Infinity");}
+		if(num==Double.NEGATIVE_INFINITY){return append("-Infinity");}
+		{//Extreme tails: the double 10^(e-decimals) scaling can't represent the range without over/underflow
+		 //(e.g. subnormals near Double.MIN_VALUE); fall back to exact (slow) String.format there. Real data
+		 //(e-values, genomic stats) never reaches these magnitudes, so the fast path below covers all of it.
+			final double ax=(num<0 ? -num : num);
+			if(ax!=0.0 && (ax<1e-280 || ax>1e280)){return append(String.format(java.util.Locale.ROOT, "%."+decimals+"e", num));}
+		}
+		expand(decimals+24);
+		double x=num;
+		if((Double.doubleToRawLongBits(x)&0x8000000000000000L)!=0L){array[length++]='-'; x=-x;}//sign bit -> '-' even for -0.0
+
+		//Integer mantissa carries decimals+1 significant digits, in [10^decimals, 10^(decimals+1)).
+		long mant; int e;
+		if(x==0.0){e=0; mant=0;}
+		else{
+			//floor(log10(x)) ESTIMATE from the IEEE exponent (no libm log10). x is normal here (subnormals
+			//took the fallback above), so biasedExp>0. The estimate is within ~1 of the truth; the loop corrects it.
+			final int biasedExp=(int)((Double.doubleToRawLongBits(x)>>>52)&0x7FFL);
+			e=(int)Math.floor((biasedExp-1023)*0.3010299956639812);//log10(2)
+			long loBound=1; for(int i=0; i<decimals; i++){loBound*=10;}//10^decimals
+			final long hiBound=loBound*10;
+			int guard=0;
+			while(true){//corrects the log10 estimate AND rounding overflow (mantissa rounding up to 10)
+				final double scale=pow10(e-decimals);
+				mant=(long)(x/scale+0.5);//HALF_UP
+				if(mant<loBound){e--;}
+				else if(mant>=hiBound){e++;}
+				else{break;}
+				assert(++guard<8) : "appendSci did not converge: num="+num+", decimals="+decimals+", e="+e+", mant="+mant;
+			}
+		}
+
+		//Mantissa: leading digit, then '.', then the fraction digits (extract reverse via numbuffer).
+		if(mant==0){
+			array[length++]='0';
+			if(decimals>0){array[length++]='.'; for(int i=0; i<decimals; i++){array[length++]='0';}}
+		}else{
+			int pos=0; long m=mant;
+			while(m>0){numbuffer[pos++]=numbers[(int)(m%10)]; m/=10;}
+			array[length++]=numbuffer[--pos];//most-significant (leading) digit
+			if(decimals>0){array[length++]='.'; while(pos>0){array[length++]=numbuffer[--pos];}}
+		}
+
+		//Exponent: 'e', always a sign, then >=2 digits zero-padded.
+		array[length++]='e';
+		final int ea;
+		if(e<0){array[length++]='-'; ea=-e;}else{array[length++]='+'; ea=e;}
+		if(ea<10){array[length++]='0'; array[length++]=numbers[ea];}
+		else{
+			int pos=0, ee=ea;
+			while(ee>0){numbuffer[pos++]=numbers[ee%10]; ee/=10;}
+			while(pos>0){array[length++]=numbuffer[--pos];}
+		}
+		return this;
+	}
+
+	/** Precomputed 10^k for k in [POW10_MIN, POW10_MAX] (same values as Math.pow, cached to avoid the libm
+	 *  call in {@link #appendSci}). Indexed by k-POW10_MIN. */
+	private static final int POW10_MIN=-323, POW10_MAX=308;
+	private static final double[] POW10=buildPow10();
+	private static double[] buildPow10(){
+		final double[] t=new double[POW10_MAX-POW10_MIN+1];
+		for(int k=POW10_MIN; k<=POW10_MAX; k++){t[k-POW10_MIN]=Math.pow(10.0, k);}
+		return t;
+	}
+	private static double pow10(final int k){
+		return (k>=POW10_MIN && k<=POW10_MAX) ? POW10[k-POW10_MIN] : Math.pow(10.0, k);
+	}
+
 	public ByteBuilder append(String s){//Baseline
 		if(s==null){return append(nullBytes);}
 		final int len=s.length();

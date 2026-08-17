@@ -12,6 +12,7 @@ import fileIO.FileFormat;
 import parse.Parse;
 import shared.Shared;
 import shared.Timer;
+import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.Read;
 import structures.ByteBuilder;
@@ -143,44 +144,84 @@ public final class ConsensusRepBuilder {
 		}
 	}
 
+	/** Header line prefix in a familylist TSV; checked without allocating the whole line. */
+	private static final String FAMILYLIST_HEADER_PREFIX="rank\t";
+
 	/** Reads the kept representative ids from a familylist TSV (column: cluster_rep). */
 	private static HashSet<String> readKeptReps(final String file){
 		final HashSet<String> set=new HashSet<String>();
 		final ByteFile bf=ByteFile.makeByteFile(file, true);
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0 || line[0]=='#'){continue;}
-			final String s=new String(line);
-			if(s.startsWith("rank\t")){continue;}//header
-			final String[] parts=s.split("\t");
-			if(parts.length>=2){set.add(parts[1]);}//rank, cluster_rep, ...
+			if(Tools.startsWith(line, FAMILYLIST_HEADER_PREFIX)){continue;}//header
+			final int tab1=indexOf(line, (byte)'\t', 0);
+			if(tab1<0){continue;}//fewer than 2 columns -- matches original parts.length>=2 guard
+			final int tab2=indexOf(line, (byte)'\t', tab1+1);
+			final int end=(tab2<0 ? line.length : tab2);
+			set.add(new String(line, tab1+1, end-tab1-1));//column 1 (0-based): cluster_rep
 		}
 		bf.close();
 		return set;
 	}
 
-	/** Streams the cluster TSV (rep&lt;TAB&gt;member), grouping subsampled members per kept rep. */
+	/**
+	 * Streams the cluster TSV (rep&lt;TAB&gt;member), grouping subsampled members per kept rep.
+	 * A real mmseqs cluster.tsv groups all of a representative's member rows consecutively, so
+	 * this caches the previous line's rep bytes and resolved list/kept-status: a line whose rep
+	 * field byte-matches the cached one reuses that list directly, skipping both the per-line
+	 * {@code new String(rep)} allocation and the repMembers lookup that the original did on
+	 * every single row (a family with 300 members otherwise re-allocates and re-looks-up the
+	 * identical rep string 300 times). Falls back to the normal path whenever the cache misses
+	 * (including the same rep reappearing non-consecutively), so correctness never depends on
+	 * the input actually being grouped -- only the speed win does.
+	 */
 	private void readClusters(final HashSet<String> keptReps, final ArrayList<String> repOrder,
 			final HashMap<String, ArrayList<String>> repMembers, final HashSet<String> needed){
 		final ByteFile bf=ByteFile.makeByteFile(clustersFile, true);
+		byte[] lastRepBytes=null;
+		int lastRepLen=-1;
+		ArrayList<String> lastList=null;
+		boolean lastKept=false;
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0 || line[0]=='#'){continue;}
-			final int tab=indexOf(line, (byte)'\t');
+			final int tab=indexOf(line, (byte)'\t', 0);
 			if(tab<0){continue;}
-			final String rep=new String(line, 0, tab);
-			if(keptReps!=null && !keptReps.contains(rep)){continue;}
-			final String member=new String(line, tab+1, line.length-tab-1);
-			ArrayList<String> list=repMembers.get(rep);
-			if(list==null){
-				list=new ArrayList<String>();
-				repMembers.put(rep, list);
-				repOrder.add(rep);
+
+			final ArrayList<String> list;
+			if(lastRepBytes!=null && sameRegion(line, tab, lastRepBytes, lastRepLen)){
+				if(!lastKept){continue;}
+				list=lastList;
+			}else{
+				final String rep=new String(line, 0, tab);
+				final boolean kept=(keptReps==null || keptReps.contains(rep));
+				//Copy just the rep prefix (not a reference to the whole line) so the cache's
+				//correctness never depends on which ByteFile implementation's nextLine() is
+				//selected at runtime -- this runs once per distinct rep, not once per row.
+				lastRepBytes=java.util.Arrays.copyOfRange(line, 0, tab); lastRepLen=tab; lastKept=kept;
+				if(!kept){lastList=null; continue;}
+				ArrayList<String> l=repMembers.get(rep);
+				if(l==null){
+					l=new ArrayList<String>();
+					repMembers.put(rep, l);
+					repOrder.add(rep);
+				}
+				list=l; lastList=l;
 			}
+
 			if(list.size()<maxMembers){//keep-first subsample (deterministic)
+				final String member=new String(line, tab+1, line.length-tab-1);
 				list.add(member);
 				needed.add(member);
 			}
 		}
 		bf.close();
+	}
+
+	/** True if {@code a[0,aLen)} equals {@code b[0,bLen)} byte-for-byte. */
+	private static boolean sameRegion(final byte[] a, final int aLen, final byte[] b, final int bLen){
+		if(aLen!=bLen){return false;}
+		for(int i=0; i<aLen; i++){if(a[i]!=b[i]){return false;}}
+		return true;
 	}
 
 	/** Streams the member FASTA, keeping only sequences whose id is needed (encoded leniently). */
@@ -321,9 +362,9 @@ public final class ConsensusRepBuilder {
 		return header.substring(0, i);
 	}
 
-	/** Index of the first occurrence of a byte, or -1. */
-	private static int indexOf(final byte[] a, final byte b){
-		for(int i=0; i<a.length; i++){if(a[i]==b){return i;}}
+	/** Index of the first occurrence of a byte at or after fromIndex, or -1. */
+	private static int indexOf(final byte[] a, final byte b, final int fromIndex){
+		for(int i=fromIndex; i<a.length; i++){if(a[i]==b){return i;}}
 		return -1;
 	}
 

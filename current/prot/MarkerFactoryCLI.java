@@ -6,6 +6,7 @@ import java.util.List;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import parse.LineParser1;
 import parse.Parse;
 import shared.Timer;
 import structures.ByteBuilder;
@@ -107,19 +108,20 @@ public final class MarkerFactoryCLI {
 	static List<GenomeProteins> loadManifest(final String manifestFile){
 		final ArrayList<GenomeProteins> genomes=new ArrayList<GenomeProteins>();
 		final ByteFile bf=ByteFile.makeByteFile(manifestFile, false);
+		final LineParser1 lp=new LineParser1((byte)'\t');
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0 || line[0]=='#'){continue;}
 			final String s=new String(line);
 			if(s.trim().length()==0){continue;}
-			final String[] parts=s.split("\t");
-			if(parts.length<4){
+			lp.set(line);
+			if(lp.terms()<4){
 				throw new RuntimeException("Manifest line needs 4 tab-separated columns "+
 					"(genome_id domain lineage fasta): '"+s+"'");
 			}
-			final String gid=parts[0].trim();
-			final String domain=parts[1].trim();
-			final String lineage=parts[2].trim();
-			final String fasta=parts[3].trim();
+			final String gid=lp.parseString(0).trim();
+			final String domain=lp.parseString(1).trim();
+			final String lineage=lp.parseString(2).trim();
+			final String fasta=lp.parseString(3).trim();
 			final List<ProteinSequence> prots=readGenomeFasta(fasta, gid);
 			genomes.add(new GenomeProteins(gid, domain, lineage.length()==0 ? null : lineage, prots));
 		}
@@ -182,7 +184,15 @@ public final class MarkerFactoryCLI {
 			"fraction_exactly_once\tselected_single_copy";
 	}
 
-	/** Formats one marker family as a TSV row. */
+	/**
+	 * Formats one marker family as a TSV row. Kept on StringBuilder/String.format
+	 * deliberately (same finding as ClusterProteins.row()): ByteBuilder.append
+	 * (double,int) drops the decimal places for whole-number values (e.g. a
+	 * universal marker's prevalence()==1.0 would print "1" not "1.000"), which
+	 * this file's prevalence/fractionExactlyOnce columns hit routinely -- a
+	 * single-copy marker family is BY DEFINITION near-universal, so exact 1.0 is
+	 * the common case here, not an edge case.
+	 */
 	static String row(final MarkerSet ms, final MarkerFamily f){
 		final int[] bins=f.dist.bins;
 		final StringBuilder sb=new StringBuilder();

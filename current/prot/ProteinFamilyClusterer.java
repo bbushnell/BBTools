@@ -4,7 +4,6 @@ import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Consensus-reassignment protein family clustering: Neptune's 4-step tRNA
@@ -92,33 +91,41 @@ public final class ProteinFamilyClusterer {
 			consensus.add(buildConsensus(membersOf(clusters.get(i)), i));
 		}
 
-		//Step 3: global reassignment against those consensuses.
-		final HashMap<Integer, ArrayList<ProteinSequence>> groups=
-				new HashMap<Integer, ArrayList<ProteinSequence>>();
+		//Step 3: global reassignment against those consensuses. `groups` is keyed by
+		//target index, a dense 0..consensus.size()-1 space, so an array-indexed list
+		//(null = empty group) replaces the boxed HashMap<Integer,...> exactly.
+		final ArrayList<ArrayList<ProteinSequence>> groups=
+				new ArrayList<ArrayList<ProteinSequence>>(consensus.size());
+		for(int i=0; i<consensus.size(); i++){groups.add(null);}
 		ArrayList<ProteinSequence> orphans=new ArrayList<ProteinSequence>();
 		assignBySearch(seqs, consensus, groups, orphans);
-		if(verbose){log("Step 3 reassign: "+groups.size()+" groups, "+orphans.size()+" orphans.");}
+		int groupCount=0;
+		for(ArrayList<ProteinSequence> g : groups){if(g!=null){groupCount++;}}
+		if(verbose){log("Step 3 reassign: "+groupCount+" groups, "+orphans.size()+" orphans.");}
 
 		//Rebuild consensus from the reassigned groups (stable positions in memberLists).
 		final ArrayList<ProteinSequence> rebuilt=new ArrayList<ProteinSequence>();
 		final ArrayList<ArrayList<ProteinSequence>> memberLists=
 				new ArrayList<ArrayList<ProteinSequence>>();
-		for(Map.Entry<Integer, ArrayList<ProteinSequence>> e : groups.entrySet()){
-			final ArrayList<ProteinSequence> mem=e.getValue();
+		for(ArrayList<ProteinSequence> mem : groups){
+			if(mem==null){continue;}
 			rebuilt.add(buildConsensus(mem, memberLists.size()));
 			memberLists.add(mem);
 		}
 
 		//Step 4: recruit orphans against the rebuilt consensuses.
 		if(!orphans.isEmpty() && !rebuilt.isEmpty()){
-			final HashMap<Integer, ArrayList<ProteinSequence>> recruitGroups=
-					new HashMap<Integer, ArrayList<ProteinSequence>>();
+			final ArrayList<ArrayList<ProteinSequence>> recruitGroups=
+					new ArrayList<ArrayList<ProteinSequence>>(rebuilt.size());
+			for(int i=0; i<rebuilt.size(); i++){recruitGroups.add(null);}
 			final ArrayList<ProteinSequence> stillOrphan=new ArrayList<ProteinSequence>();
 			assignBySearch(orphans, rebuilt, recruitGroups, stillOrphan);
 			int recruited=0;
-			for(Map.Entry<Integer, ArrayList<ProteinSequence>> e : recruitGroups.entrySet()){
-				memberLists.get(e.getKey().intValue()).addAll(e.getValue());
-				recruited+=e.getValue().size();
+			for(int i=0; i<recruitGroups.size(); i++){
+				final ArrayList<ProteinSequence> g=recruitGroups.get(i);
+				if(g==null){continue;}
+				memberLists.get(i).addAll(g);
+				recruited+=g.size();
 			}
 			orphans=stillOrphan;
 			if(verbose){log("Step 4 recruit: "+recruited+" recruited, "+orphans.size()+" remain.");}
@@ -192,7 +199,7 @@ public final class ProteinFamilyClusterer {
 	 */
 	private void assignBySearch(final List<ProteinSequence> queries,
 			final List<ProteinSequence> targets,
-			final HashMap<Integer, ArrayList<ProteinSequence>> groups,
+			final ArrayList<ArrayList<ProteinSequence>> groups,
 			final ArrayList<ProteinSequence> orphans){
 		if(targets.isEmpty() || queries.isEmpty()){orphans.addAll(queries); return;}
 
@@ -221,9 +228,9 @@ public final class ProteinFamilyClusterer {
 			final ProteinHit h=best.get(q.id);
 			if(h==null){orphans.add(q);}
 			else{
-				final Integer idx=tIndex.get(h.target);
+				final int idx=tIndex.get(h.target).intValue();
 				ArrayList<ProteinSequence> list=groups.get(idx);
-				if(list==null){list=new ArrayList<ProteinSequence>(); groups.put(idx, list);}
+				if(list==null){list=new ArrayList<ProteinSequence>(); groups.set(idx, list);}
 				list.add(q);
 			}
 		}

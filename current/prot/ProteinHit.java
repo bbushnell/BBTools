@@ -77,6 +77,15 @@ public final class ProteinHit {
 	 * Formats this hit as a BLAST-tab {@code outfmt 6} row (no trailing newline).
 	 * Precision follows the frozen contract: pident 3 decimals, E-value 2
 	 * significant figures in scientific notation, bitscore 1 decimal.
+	 *
+	 * <p>Kept on StringBuilder/String.format deliberately (assessed for the
+	 * String.format-&gt;ByteBuilder conformance pass, not converted): pident is
+	 * 100.000 on every exact/self hit -- routine, not an edge case -- and
+	 * ByteBuilder.append(double,int)'s whole-number special-case would print "100"
+	 * there (same defect confirmed empirically on ClusterProteins.row() and
+	 * MarkerFactoryCLI.row()). {@link #formatEvalue} also has no ByteBuilder
+	 * equivalent at all (scientific notation isn't one of its numeric formatters).
+	 * Output-preservation wins over the stylistic conversion here too.</p>
 	 * @return Tab-separated row.
 	 */
 	public final String toTsv(){

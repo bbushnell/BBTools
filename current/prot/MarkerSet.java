@@ -43,11 +43,21 @@ public final class MarkerSet {
 	public MarkerSet(final String domain, final String version,
 			final MarkerSetProvenance provenance, final int genomeCount,
 			final List<MarkerFamily> families){
+		assert(isSorted(families)) : "families must be family-id ascending -- this "+
+			"class's own field contract (MarkerSet.java:32/41), previously unenforced";
 		this.domain=domain;
 		this.version=version;
 		this.provenance=provenance;
 		this.genomeCount=genomeCount;
 		this.families=families;
+	}
+
+	/** Checks the family-id-ascending invariant documented on {@link #families}. */
+	private static boolean isSorted(final List<MarkerFamily> families){
+		for(int i=1; i<families.size(); i++){
+			if(families.get(i).familyId<families.get(i-1).familyId){return false;}
+		}
+		return true;
 	}
 
 	/**

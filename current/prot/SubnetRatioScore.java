@@ -1,11 +1,11 @@
 package prot;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.util.ArrayList;
 
+import fileIO.ByteFile;
 import ml.CellNet;
 import ml.CellNetParser;
+import parse.LineParser1;
 
 /**
  * Evaluates a "denominator" subnet by the quality of the DERIVED subset-relative
@@ -43,33 +43,43 @@ public class SubnetRatioScore {
 		if(netFile==null || in==null){throw new RuntimeException("Required: net= in= [numobs=5]");}
 
 		CellNet net=CellNetParser.load(netFile);
-		BufferedReader br=new BufferedReader(new FileReader(in));
-		String[] h=br.readLine().split("\t");
-		final int numIn=Integer.parseInt(h[1]);
-		final int numOut=Integer.parseInt(h[2]);
+		final ByteFile bf=ByteFile.makeByteFile(in, true);
+		final LineParser1 lp=new LineParser1((byte)'\t');
+		lp.set(bf.nextLine());
+		final int numIn=lp.parseInt(1);
+		final int numOut=lp.parseInt(2);
 
 		ArrayList<double[]> rows=new ArrayList<double[]>();//{trueNat, predNat, trueComp, predComp}
 		float[] input=new float[numIn];
-		String line;
 		double sseN=0, sseC=0, maeC=0;
-		while((line=br.readLine())!=null){
-			if(line.length()==0){continue;}
-			String[] f=line.split("\t");
-			if(f.length<numIn+numOut){continue;}
-			double obs=0;
-			for(int i=0; i<numIn; i++){input[i]=Float.parseFloat(f[i]); if(i<numObs){obs+=input[i];}}
-			net.applyInput(input);
-			net.feedForward();
-			double pnat=net.getOutput(0);
-			double tnat=Double.parseDouble(f[numIn]);//first output column = native target
-			double tcomp=(tnat>0 ? obs/tnat : 0);
-			double pcomp=Math.min(1.0, obs/Math.max(0.5, pnat));
-			rows.add(new double[]{tnat, pnat, tcomp, pcomp});
-			sseN+=(pnat-tnat)*(pnat-tnat);
-			sseC+=(pcomp-tcomp)*(pcomp-tcomp);
-			maeC+=Math.abs(pcomp-tcomp);
+		long skipped=0;
+		try{
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				if(line.length==0){continue;}
+				lp.set(line);
+				if(lp.terms()<numIn+numOut){
+					//Malformed row: logged, not silently dropped (same fix as MagQCScore).
+					skipped++;
+					continue;
+				}
+				double obs=0;
+				for(int i=0; i<numIn; i++){input[i]=lp.parseFloat(i); if(i<numObs){obs+=input[i];}}
+				net.applyInput(input);
+				net.feedForward();
+				double pnat=net.getOutput(0);
+				double tnat=lp.parseDouble(numIn);//first output column = native target
+				double tcomp=(tnat>0 ? obs/tnat : 0);
+				double pcomp=Math.min(1.0, obs/Math.max(0.5, pnat));
+				rows.add(new double[]{tnat, pnat, tcomp, pcomp});
+				sseN+=(pnat-tnat)*(pnat-tnat);
+				sseC+=(pcomp-tcomp)*(pcomp-tcomp);
+				maeC+=Math.abs(pcomp-tcomp);
+			}
+		}finally{
+			bf.close();
 		}
-		br.close();
+		if(skipped>0){System.err.println("WARNING: skipped "+skipped+" malformed row(s) in "+in);}
+		if(rows.isEmpty()){throw new RuntimeException("No valid rows scored from "+in+" ("+skipped+" skipped).");}
 
 		final int n=rows.size();
 		double mN=0, mC=0;

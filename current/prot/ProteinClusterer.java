@@ -3,11 +3,14 @@ package prot;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
 import dna.AminoAcid;
+import map.LongArrayListHashMap;
+import map.LongHashSet;
+import structures.IntList;
+import structures.LongList;
 
 /**
  * In-memory greedy identity-threshold protein clustering (CD-HIT / linclust
@@ -40,6 +43,14 @@ import dna.AminoAcid;
  * columns). Coverage of a member is the fraction of its residues spanned by the
  * alignment; both the member's and the representative's coverage must meet the
  * threshold to guard against a high-identity hit over only a tiny region.</p>
+ *
+ * <p>The seed index (k-mer -&gt; representative indices), per-sequence k-mer
+ * membership test, and per-representative hit tally reuse instance-level
+ * primitive scratch across calls to {@link #cluster(List)} instead of boxing
+ * every k-mer/count in {@code java.util} collections -- zero heap allocation
+ * per sequence beyond growth-triggered scratch resizing. This is a storage-
+ * strategy change only: candidate order, seeding, and assignment logic are
+ * unmodified, so output is identical to the boxed-collection implementation.</p>
  *
  * <p>Deferred (reported, not built): cross-run stable ids and incremental
  * update; a substitution-aware similar-k-mer prefilter (only exact or amino8
@@ -74,6 +85,11 @@ public final class ProteinClusterer {
 		return map;
 	}
 
+	/** Reused per-sequence scratch: membership test for {@link #kmerSet}'s dedup pass. */
+	private final LongHashSet kmerSeen=new LongHashSet(64);
+	/** Reused per-sequence scratch: this sequence's distinct k-mers, first-seen order. */
+	private final LongList kmerScratch=new LongList(64);
+
 	/**
 	 * Clusters the input sequences and returns the resulting families.
 	 *
@@ -90,26 +106,29 @@ public final class ProteinClusterer {
 
 		final ArrayList<ProteinCluster> clusters=new ArrayList<ProteinCluster>();
 		//Growing seed index: k-mer -> distinct cluster indices whose rep holds it.
-		final HashMap<Long, ArrayList<Integer>> index=new HashMap<Long, ArrayList<Integer>>();
+		final LongArrayListHashMap<Integer> index=new LongArrayListHashMap<Integer>();
 		//Reusable per-sequence candidate tally over existing representatives.
-		final ArrayList<Integer> hitCounts=new ArrayList<Integer>();
-		final ArrayList<Integer> touched=new ArrayList<Integer>();
+		final IntList hitCounts=new IntList();
+		final IntList touched=new IntList();
 
 		for(final ProteinSequence s : order){
-			final HashSet<Long> kmers=kmerSet(s.enc);
+			kmerSeen.clear();
+			kmerScratch.clear();
+			kmerSet(s.enc, kmerSeen, kmerScratch);
 
 			//Tally distinct shared k-mers per existing representative.
-			for(final Integer idx : touched){hitCounts.set(idx.intValue(), Integer.valueOf(0));}
+			for(int ti=0; ti<touched.size; ti++){hitCounts.set(touched.get(ti), 0);}
 			touched.clear();
-			if(!kmers.isEmpty()){
-				for(final Long km : kmers){
+			if(kmerScratch.size>0){
+				for(int ki=0; ki<kmerScratch.size; ki++){
+					final long km=kmerScratch.get(ki);
 					final ArrayList<Integer> list=index.get(km);
 					if(list!=null){
-						for(final Integer idx : list){
-							final int i=idx.intValue();
-							final int c=hitCounts.get(i).intValue();
-							if(c==0){touched.add(idx);}
-							hitCounts.set(i, Integer.valueOf(c+1));
+						for(final Integer idxObj : list){
+							final int i=idxObj.intValue();
+							final int c=hitCounts.get(i);
+							if(c==0){touched.add(i);}
+							hitCounts.set(i, c+1);
 						}
 					}
 				}
@@ -121,7 +140,7 @@ public final class ProteinClusterer {
 			final int nClusters=clusters.size();
 			for(int i=0; i<nClusters; i++){
 				//No seeds anywhere means k-mer seeding cannot help; fall back to all reps.
-				final boolean candidate=kmers.isEmpty() || hitCounts.get(i).intValue()>=minSeedHits;
+				final boolean candidate=(kmerScratch.size==0) || hitCounts.get(i)>=minSeedHits;
 				if(!candidate){continue;}
 				final ProteinCluster c=clusters.get(i);
 				//Align member (query) to representative (target).
@@ -141,12 +160,9 @@ public final class ProteinClusterer {
 				//New representative: create a cluster and register its k-mers.
 				final int id=clusters.size();
 				clusters.add(new ProteinCluster(id, s));
-				hitCounts.add(Integer.valueOf(0));
-				final Integer idxObj=Integer.valueOf(id);
-				for(final Long km : kmers){
-					ArrayList<Integer> list=index.get(km);
-					if(list==null){list=new ArrayList<Integer>(); index.put(km, list);}
-					list.add(idxObj);//distinct per rep, so no duplicate index per k-mer
+				hitCounts.add(0);
+				for(int ki=0; ki<kmerScratch.size; ki++){
+					index.put(kmerScratch.get(ki), id);
 				}
 			}
 		}
@@ -155,17 +171,18 @@ public final class ProteinClusterer {
 	}
 
 	/**
-	 * Extracts the set of distinct k-mers from an encoded sequence. K-mers
-	 * containing X (ambiguous) are skipped. Uses the amino8 reduced alphabet
-	 * when {@link #reducedSeed} is set.
+	 * Populates {@code out} with the distinct k-mers of an encoded sequence, in
+	 * first-seen order (iteration order does not affect clustering output --
+	 * only set membership does). K-mers containing X (ambiguous) are skipped.
+	 * Uses the amino8 reduced alphabet when {@link #reducedSeed} is set.
 	 * @param enc Encoded residues.
-	 * @return Set of packed k-mers.
+	 * @param seen Reused dedup set; caller must clear before this call.
+	 * @param out Reused output list; caller must clear before this call.
 	 */
-	private HashSet<Long> kmerSet(final byte[] enc){
-		final HashSet<Long> set=new HashSet<Long>();
+	private void kmerSet(final byte[] enc, final LongHashSet seen, final LongList out){
 		final int bits=reducedSeed ? 3 : 5;
 		assert(bits*k<=62) : "k too large for packed k-mer: k="+k+", bits="+bits;
-		if(enc.length<k){return set;}
+		if(enc.length<k){return;}
 		final long mask=(1L<<(bits*k))-1;
 		long kmer=0;
 		int valid=0;
@@ -180,9 +197,8 @@ public final class ProteinClusterer {
 			if(code<0){kmer=0; valid=0; continue;}//reset on X/ambiguous residue
 			kmer=((kmer<<bits)|code)&mask;
 			valid++;
-			if(valid>=k){set.add(Long.valueOf(kmer));}
+			if(valid>=k && seen.add(kmer)){out.add(kmer);}
 		}
-		return set;
 	}
 
 	/** Fails loudly on duplicate identifiers within the input. */

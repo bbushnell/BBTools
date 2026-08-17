@@ -105,7 +105,16 @@ public final class ClusterProteins {
 		return "#cluster_id\trepresentative\tmember\tidentity\tcoverage\tis_representative";
 	}
 
-	/** Formats one member as a TSV row. */
+	/**
+	 * Formats one member as a TSV row. Kept on StringBuilder/String.format
+	 * deliberately: ByteBuilder.append(double,int) special-cases whole numbers
+	 * (returns "100" not "100.000" when x0==(long)x0, e.g. every representative's
+	 * identity/coverage), which would silently change this column's formatting --
+	 * confirmed empirically (representative rows print "100"/"1" under the
+	 * ByteBuilder append instead of the required always-3-decimals "100.000"/
+	 * "1.000") before reverting. Output-preservation wins over the stylistic
+	 * ByteBuilder-everywhere convention when the two conflict.
+	 */
 	static String row(final ProteinCluster c, final ClusterMember m){
 		final boolean isRep=m.seq==c.representative;
 		final StringBuilder sb=new StringBuilder();

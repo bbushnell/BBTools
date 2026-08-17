@@ -1,5 +1,7 @@
 package prot;
 
+import java.nio.charset.StandardCharsets;
+
 /**
  * An in-memory protein sequence: an identifier plus its validated, BBTools-encoded
  * amino-acid residues. This is the unit of input to {@link ProteinSearcher}.
@@ -40,7 +42,7 @@ public final class ProteinSequence {
 	 * @param residues Amino-acid residues as a String.
 	 */
 	public ProteinSequence(final String id, final String residues){
-		this(id, residues.getBytes());
+		this(id, residues.getBytes(StandardCharsets.US_ASCII));
 	}
 
 	/** Length in residues. @return Residue count. */

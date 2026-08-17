@@ -5,8 +5,10 @@ import java.util.ArrayList;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import parse.LineParser1;
 import parse.Parse;
 import shared.Timer;
+import structures.IntList;
 
 /**
  * Command-line front end for {@link MagQC}: reads a marker-vector TSV (as written
@@ -73,47 +75,48 @@ public final class MagQCCLI {
 	 * @return The reconstructed vector.
 	 */
 	static MarkerVector readVector(final String vectorFile){
-		final ArrayList<Integer> familyIds=new ArrayList<Integer>();
+		final IntList familyIds=new IntList();
 		final ArrayList<String> reps=new ArrayList<String>();
-		final ArrayList<Integer> counts=new ArrayList<Integer>();
+		final IntList counts=new IntList();
 		String domain="NA";
 		int matched=-1, unmatched=-1;
 
 		final ByteFile bf=ByteFile.makeByteFile(vectorFile, false);
+		final LineParser1 lp=new LineParser1((byte)'\t');
 		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 			if(line.length==0){continue;}
-			final String s=new String(line);
 			if(line[0]=='#'){
-				final String[] kv=s.split("\t");
-				if(kv.length>=2){
-					if(kv[0].equals("#domain")){domain=kv[1];}
-					else if(kv[0].equals("#proteins_matched")){matched=Integer.parseInt(kv[1].trim());}
-					else if(kv[0].equals("#proteins_unmatched")){unmatched=Integer.parseInt(kv[1].trim());}
+				lp.set(line);
+				if(lp.terms()>=2){
+					final String key=lp.parseString(0);
+					if(key.equals("#domain")){domain=lp.parseString(1);}
+					else if(key.equals("#proteins_matched")){matched=lp.parseInt(1);}
+					else if(key.equals("#proteins_unmatched")){unmatched=lp.parseInt(1);}
 				}
 				continue;//header + all scalars
 			}
-			final String[] f=s.split("\t");
-			if(f.length<3){
-				throw new RuntimeException("Malformed vector row (need 3 columns): '"+s+"'");
+			lp.set(line);
+			if(lp.terms()<3){
+				throw new RuntimeException("Malformed vector row (need 3 columns): '"+new String(line)+"'");
 			}
-			familyIds.add(Integer.valueOf(Integer.parseInt(f[0].trim())));
-			reps.add(f[1]);
-			counts.add(Integer.valueOf(Integer.parseInt(f[2].trim())));
+			familyIds.add(lp.parseInt(0));
+			reps.add(lp.parseString(1));
+			counts.add(lp.parseInt(2));
 		}
 		bf.close();
 
-		if(counts.isEmpty()){
+		if(counts.size==0){
 			throw new RuntimeException("No vector rows in "+vectorFile+
 				" (expected 'family_id<tab>representative<tab>count' rows).");
 		}
 
-		final int n=counts.size();
+		final int n=counts.size;
 		final int[] c=new int[n];
 		final int[] fid=new int[n];
 		final String[] rep=new String[n];
 		for(int i=0; i<n; i++){
-			c[i]=counts.get(i).intValue();
-			fid[i]=familyIds.get(i).intValue();
+			c[i]=counts.get(i);
+			fid[i]=familyIds.get(i);
 			rep[i]=reps.get(i);
 		}
 		//matched/unmatched are context only; default to 0 when the scalars were absent.

@@ -29,6 +29,22 @@ import stream.ReadInputStream;
  * the RNA callers with unloaded reference data. The relevant ProkObject call-flags
  * are saved and restored around each call so global state is left unchanged.</p>
  *
+ * <p><b>Thread safety:</b> {@link ProkObject}'s call-flags are shared mutable
+ * statics, read repeatedly throughout {@link GeneCaller#callGenes}'s per-contig,
+ * per-frame execution (not just once at entry) -- so two threads calling
+ * {@link #callProteins(ArrayList,GeneModel)} concurrently could interleave their
+ * save/set/restore sequences, with one call's restore firing while another is
+ * still mid-execution and expecting the CDS-only scoping to hold. Demonstrated
+ * 2026-08-16: 30 rounds of one long call racing many short calls left the global
+ * RNA-call flags permanently stuck (not restored to baseline) in 7/30 rounds.
+ * {@link #callProteins(ArrayList,GeneModel)} is therefore {@code synchronized} --
+ * the save/set/scoped-work/restore sequence is atomic with respect to any other
+ * concurrent caller of this class. This serializes concurrent callers of this
+ * adapter (a real cost if it's ever driven from a per-bin thread pool), but the
+ * underlying flags are {@link ProkObject} statics shared far beyond this class,
+ * so making them thread-local instead would be a larger, separately-scoped
+ * change to core prok/ infrastructure -- flagged, not done here.</p>
+ *
  * @author Eru
  */
 public final class GeneCallAdapter {
@@ -77,7 +93,7 @@ public final class GeneCallAdapter {
 	 * @param pgm Gene model to score ORFs against.
 	 * @return Predicted proteins as {@link ProteinSequence}; empty if no genes are called.
 	 */
-	public static ArrayList<ProteinSequence> callProteins(final ArrayList<Read> contigs, final GeneModel pgm){
+	public static synchronized ArrayList<ProteinSequence> callProteins(final ArrayList<Read> contigs, final GeneModel pgm){
 		assert(contigs!=null);
 		assert(pgm!=null);
 
