@@ -33,6 +33,12 @@ import structures.ByteBuilder;
  * branch of TrnaConsensusBuilder.parseAnticodon and is carried into FASTA headers by CutGff, so an
  * annotated GFF flows through cutgff -&gt; TrnaConsensusBuilder with zero downstream code changes.
  *
+ * tRNAscan-SE GFF3 (-j) instead states the amino acid as isotype=Xxx and the anticodon DIRECTLY as a
+ * triplet (anticodon=ACG, already in tRNA 5'-&gt;3' orientation). Those forms are also recognized: the
+ * triplet is used as-is (uppercased, T-&gt;U) with no genome lookup or strand revcomp, so tRNAscan output
+ * is normalized to the same Note=tRNA-Xxx(YYY) key and groups consistently with the position-annotated
+ * corpus. product=/anticodon=(pos:...) take priority, so mixed or NCBI-style GFFs are unaffected.
+ *
  * All input lines pass through UNCHANGED except tRNA lines, which gain the Note= attribute. tRNA
  * features already carrying Note=tRNA-Xxx(YYY) are left untouched (idempotent). A tRNA with no
  * anticodon position is labeled Note=tRNA-Xxx(UNK) (not skipped), matching extract_trnas.py's ac='UNK'
@@ -43,7 +49,7 @@ import structures.ByteBuilder;
  * Usage: annotateanticodon.sh in=genome.fna.gz gff=genome.gff.gz out=annotated.gff.gz
  *   Batch: in=a.fna.gz,b.fna.gz gff=a.gff.gz,b.gff.gz outdir=staging/  (gff= inferred if omitted)
  *
- * @author Brian Bushnell, Noire
+ * @author Brian Bushnell, Noire, Amber
  * @date August 13, 2026
  */
 public class AnnotateAnticodon {
@@ -257,28 +263,37 @@ public class AnnotateAnticodon {
 		if(NOTE_PAT.matcher(attrs).find()){alreadyAnnotated++; return line;}//idempotent
 
 		final Matcher aaM=PRODUCT_PAT.matcher(attrs);
-		final String amino=(aaM.find() ? aaM.group(1) : "Unk");
+		final String amino;
+		if(aaM.find()){amino=aaM.group(1);}
+		else{final Matcher isoM=ISOTYPE_PAT.matcher(attrs); amino=(isoM.find() ? isoM.group(1) : "Unk");}//tRNAscan-SE isotype= form
 
 		//Determine the anticodon triplet. A tRNA with no genomic anticodon position (or an out-of-bounds
 		//one) is labeled (UNK) rather than skipped, matching extract_trnas.py's ac='UNK' fallback, so the
 		//consensus builder groups them together under one UNK key instead of scattering them by amino acid.
 		String triplet;
 		final Matcher posM=ANTICODON_POS_PAT.matcher(attrs);
-		if(!posM.find()){
-			triplet="UNK"; noAnticodonPos++;
-		}else{
+		if(posM.find()){//NCBI form: anticodon given by genomic position -> read bases + revcomp-by-strand + T->U
 			byte[] bases=genome.get(seqid);
 			if(bases==null){bases=genome.get(stripTid(seqid));}
 			if(bases==null){scaffoldNotFound++; return line;}//can't resolve scaffold; skip (post-repair this is 0)
 			triplet=tripletRNA(bases, Integer.parseInt(posM.group(1)), Integer.parseInt(posM.group(2)), "-".equals(strand));
 			if(triplet==null){triplet="UNK"; badAnticodonPos++;}
 			else{annotated++;}
+		}else{
+			//tRNAscan-SE form: anticodon stated directly as a triplet (already tRNA-oriented) -> use as-is, T->U.
+			final Matcher seqM=ANTICODON_SEQ_PAT.matcher(attrs);
+			if(seqM.find()){triplet=toRNA(seqM.group(1)); annotated++;}
+			else{triplet="UNK"; noAnticodonPos++;}
 		}
 
 		bb.clear();
 		for(int i=0; i<8; i++){bb.append(f[i]).tab();}
 		if(".".equals(attrs) || attrs.isEmpty()){bb.append("Note=tRNA-").append(amino).append('(').append(triplet).append(')');}
-		else{bb.append(attrs).append(";Note=tRNA-").append(amino).append('(').append(triplet).append(')');}
+		else{//attrs already present -> add a ';' separator only if it lacks a trailing one (tRNAscan attrs end in ';')
+			bb.append(attrs);
+			if(attrs.charAt(attrs.length()-1)!=';'){bb.append(';');}
+			bb.append("Note=tRNA-").append(amino).append('(').append(triplet).append(')');
+		}
 		return bb.toString();
 	}
 
@@ -307,6 +322,19 @@ public class AnnotateAnticodon {
 			tri[i]=c;
 		}
 		return new String(tri);
+	}
+
+	/** Uppercases a DNA anticodon triplet and maps T-&gt;U, WITHOUT reverse-complementing (tRNAscan-SE
+	 * already reports the anticodon in tRNA 5'-&gt;3' orientation). @param s DNA triplet. @return RNA triplet. */
+	private static String toRNA(String s){
+		final byte[] b=s.getBytes();
+		for(int i=0; i<b.length; i++){
+			byte c=b[i];
+			if(c>='a' && c<='z'){c-=32;}
+			if(c=='T'){c='U';}
+			b[i]=c;
+		}
+		return new String(b);
 	}
 
 	/**
@@ -357,6 +385,10 @@ public class AnnotateAnticodon {
 	private static final Pattern PRODUCT_PAT=Pattern.compile("product=tRNA-(\\w+)");
 	/** Anticodon genomic position: anticodon=(pos:X..Y) or anticodon=(pos:complement(X..Y)). */
 	private static final Pattern ANTICODON_POS_PAT=Pattern.compile("anticodon=\\(pos:(?:complement\\()?(\\d+)\\.\\.(\\d+)");
+	/** Reference amino acid, tRNAscan-SE form: isotype=Xxx (fallback used when product=tRNA-Xxx is absent). */
+	private static final Pattern ISOTYPE_PAT=Pattern.compile("isotype=(\\w+)");
+	/** Anticodon stated directly as a triplet, tRNAscan-SE form: anticodon=ACG (NOT the (pos:...) form). */
+	private static final Pattern ANTICODON_SEQ_PAT=Pattern.compile("anticodon=([ACGTUacgtu]{3})(?![ACGTUacgtu])");
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
