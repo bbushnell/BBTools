@@ -371,6 +371,10 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.DEBUG=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("trnaintron")){
 				prok.TrnaCaller.INTRON_PASS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("trnascavenge") || a.equalsIgnoreCase("scavenge")){
+				prok.TrnaCaller.SCAVENGE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("trnascavengeonly") || a.equalsIgnoreCase("scavengeonly")){
+				prok.TrnaCaller.SCAVENGE_ONLY=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("mintrnakhits") || a.equalsIgnoreCase("mintrnakmerhits")){
 				prok.TrnaCaller.MIN_TRNA_KHITS=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("acextract") || a.equalsIgnoreCase("anticodonextract")){
@@ -383,6 +387,16 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.trimToAlignment=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("maxtrna") || a.equalsIgnoreCase("maxtrnalen")){
 				prok.TrnaCaller.MAX_TRNA_OVERRIDE=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("trnacutoff1") || a.equalsIgnoreCase("trnaregion")){
+				GeneCaller.cutoff1[ProkObject.tRNA]=Float.parseFloat(b);//region-open threshold
+			}else if(a.equalsIgnoreCase("trnacutoff2") || a.equalsIgnoreCase("trnacand")){
+				GeneCaller.cutoff2[ProkObject.tRNA]=Float.parseFloat(b);//composite candidate threshold
+			}else if(a.equalsIgnoreCase("trnacutoff3") || a.equalsIgnoreCase("trnastart")){
+				GeneCaller.cutoff3[ProkObject.tRNA]=Float.parseFloat(b);//start point-score threshold
+			}else if(a.equalsIgnoreCase("trnacutoff4") || a.equalsIgnoreCase("trnastop")){
+				GeneCaller.cutoff4[ProkObject.tRNA]=Float.parseFloat(b);//stop point-score threshold
+			}else if(a.equalsIgnoreCase("trnacutoff5") || a.equalsIgnoreCase("trnainner")){
+				GeneCaller.cutoff5[ProkObject.tRNA]=Float.parseFloat(b);//avg inner-score threshold
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -472,27 +486,13 @@ public class CallGenes extends ProkObject {
 	/** Create read streams and process all data */
 	void process(Timer t){
 
-		final GeneModel pgm0;
-		if(useTaxonomy && !perContig){
-			String phylum=classifyPhylum(fnaList);
-			if(phylum!=null){
-				String path=Data.findPath("?pgm_"+phylum+".pgm", false);
-				if(path!=null && new File(path).exists()){
-					ArrayList<String> list=new ArrayList<>();
-					list.add(path);
-					pgm0=PGMTools.loadAndMerge(list);
-					outstream.println("Taxonomy: using "+phylum+" PGM");
-				}else{
-					pgm0=PGMTools.loadAndMerge(pgmList);
-					outstream.println("Taxonomy: "+phylum+" (no PGM available, using default)");
-				}
-			}else{
-				pgm0=PGMTools.loadAndMerge(pgmList);
-				outstream.println("Taxonomy: classification failed, using default PGM");
-			}
-		}else{
-			pgm0=PGMTools.loadAndMerge(pgmList);
-		}
+		//Default/fallback model (respects the user pgm=/model= list).  With taxonomy=t, per-phylum PGMs are
+		//now selected PER FILE inside the processing loop (classify -> cached per-phylum PGM), so ONE JVM
+		//handles a whole multi-genome batch with correct per-genome taxonomy: the tRNA library, nets, and
+		//taxonomy client load ONCE, and each phylum's PGM loads once (cached) -- no per-genome JVM restart.
+		final GeneModel defaultPgm=PGMTools.loadAndMerge(pgmList);
+		final boolean perFileTax=(useTaxonomy && !perContig);
+		final java.util.HashMap<String,GeneModel> phylumCache=new java.util.HashMap<>();
 
 		if(orfNetPath!=null){GeneCaller.loadOrfNet(orfNetPath);}
 		if(orfNetLowPath!=null || orfNetMidPath!=null || orfNetHighPath!=null){
@@ -536,6 +536,8 @@ public class CallGenes extends ProkObject {
 		for(int fnum=0; fnum<fnaList.size(); fnum++){
 			final String fna=fnaList.get(fnum);
 			String gffIn=(inGffList!=null && !inGffList.isEmpty()) ? inGffList.set(fnum, null) : null;
+			//Per-file taxonomy: classify THIS genome, use its cached per-phylum PGM (else the default).
+			final GeneModel pgm0=(perFileTax ? pgmForPhylumCached(classifyPhylum(fna), defaultPgm, phylumCache) : defaultPgm);
 			//Create a read input stream
 			final GeneModel pgm=makeMultipassModel(pgm0, fna, gffIn, passes/*, maxReads*/);
 			
@@ -596,7 +598,28 @@ public class CallGenes extends ProkObject {
 	/*----------------    Taxonomy Classification     ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private String classifyPhylum(ArrayList<String> inputFiles){
+	/** Selects (and caches) the per-phylum PGM for one classified genome; falls back to defaultPgm when the
+	 * phylum is unknown or has no shipped pgm_<phylum>.pgm.  Prints only on a cache miss (once per phylum). */
+	private GeneModel pgmForPhylumCached(String phylum, GeneModel defaultPgm, java.util.HashMap<String,GeneModel> cache){
+		if(phylum==null){return defaultPgm;}
+		final GeneModel cached=cache.get(phylum);
+		if(cached!=null){return cached;}
+		final String path=Data.findPath("?pgm_"+phylum+".pgm", false);
+		final GeneModel gm;
+		if(path!=null && new File(path).exists()){
+			final ArrayList<String> list=new ArrayList<>();
+			list.add(path);
+			gm=PGMTools.loadAndMerge(list);
+			outstream.println("Taxonomy: using "+phylum+" PGM");
+		}else{
+			gm=defaultPgm;
+			outstream.println("Taxonomy: "+phylum+" (no PGM available, using default)");
+		}
+		cache.put(phylum, gm);
+		return gm;
+	}
+
+	private String classifyPhylum(String fna){
 		try{
 			Clade.MAKE_DDLS=true;
 			Clade.DDL_K=25;
@@ -605,8 +628,6 @@ public class CallGenes extends ProkObject {
 			if(AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150){
 				AdjustEntropy.load(4, 150);
 			}
-
-			String fna=inputFiles.get(0);
 			ArrayList<Read> reads=ReadInputStream.toReads(fna, FileFormat.FASTA, -1);
 			Clade clade=new Clade(0, 0, fna);
 			for(Read r : reads){clade.add(r.bases, null);}

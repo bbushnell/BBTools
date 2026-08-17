@@ -6,7 +6,9 @@ import java.util.Arrays;
 import consensus.BaseGraph;
 import dna.AminoAcid;
 import idaligner.AlignmentStats;
+import idaligner.QuantumAligner;
 import idaligner.ScrabbleAligner;
+import map.LongHashSet;
 import shared.Tools;
 import structures.FloatList;
 import structures.IntList;
@@ -714,6 +716,150 @@ public class TrnaCaller extends ProkObject {
 		return new String(triplet);
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------       tRNA Scavenger Pass       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	public ArrayList<Orf> scavengeTrnas(String name, byte[] bases, int strand, ArrayList<int[]> called){
+		ArrayList<Orf> results=new ArrayList<>();
+		if((!SCAVENGE && !SCAVENGE_ONLY) || bases==null || bases.length<MIN_TRNA || trnaLibrary==null || ProkObject.trnaKmers==null){return results;}
+		int[] hitPositions=findKmerHitPositions(bases);
+		if(hitPositions.length==0){return results;}
+		ArrayList<int[]> windows=buildCandidateWindows(hitPositions, bases.length);
+		windows=collapseByIntersection(windows);
+		windows=subtractClaimed(windows, called);
+		for(int[] w : windows){
+			Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
+			if(orf!=null){
+				called.add(new int[]{orf.start, orf.stop});
+				results.add(orf);
+			}
+		}
+		if(SCAVENGE_PASS2){
+			int[] nearHits=findNearbyUnclaimed(hitPositions, called, bases.length);
+			if(nearHits.length>0){
+				ArrayList<int[]> pass2Windows=buildCandidateWindows(nearHits, bases.length);
+				pass2Windows=collapseByIntersection(pass2Windows);
+				pass2Windows=subtractClaimed(pass2Windows, called);
+				for(int[] w : pass2Windows){
+					Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
+					if(orf!=null){
+						called.add(new int[]{orf.start, orf.stop});
+						results.add(orf);
+					}
+				}
+			}
+		}
+		return results;
+	}
+
+	private int[] findKmerHitPositions(byte[] bases){
+		final LongHashSet set=ProkObject.trnaKmers;
+		final int kLong=ProkObject.kLongTRna;
+		if(set==null || kLong<=0 || kLong>31 || bases.length<kLong){return EMPTY;}
+		final long kmask=~((-1L)<<(2*kLong));
+		final byte[] bton=AminoAcid.baseToNumber;
+		IntList hits=new IntList();
+		long kmer=0; int len=0;
+		for(int i=0; i<bases.length; i++){
+			final int x=bton[bases[i]];
+			if(x>=0){
+				kmer=((kmer<<2)|x)&kmask; len++;
+				if(len>=kLong && set.contains(kmer)){hits.add(i-kLong/2);}
+			}else{len=0; kmer=0;}
+		}
+		return hits.toArray();
+	}
+
+	private ArrayList<int[]> buildCandidateWindows(int[] hitPositions, int seqLen){
+		ArrayList<int[]> windows=new ArrayList<>();
+		for(int center : hitPositions){
+			int start=Tools.max(0, center-SCAV_PAD);
+			int stop=Tools.min(seqLen-1, center+SCAV_PAD+ProkObject.kLongTRna);
+			windows.add(new int[]{start, stop});
+		}
+		return windows;
+	}
+
+	private static ArrayList<int[]> collapseByIntersection(ArrayList<int[]> windows){
+		if(windows.size()<2){return windows;}
+		windows.sort((a, b)->a[0]-b[0]);
+		ArrayList<int[]> result=new ArrayList<>();
+		int[] current=windows.get(0);
+		for(int i=1; i<windows.size(); i++){
+			int[] next=windows.get(i);
+			int overlap=Tools.min(current[1], next[1])-Tools.max(current[0], next[0]);
+			int shorter=Tools.min(current[1]-current[0], next[1]-next[0]);
+			if(overlap>0 && overlap>=shorter*0.9f){
+				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1])};
+			}else{
+				if(current[1]-current[0]>=MIN_TRNA){result.add(current);}
+				current=next;
+			}
+		}
+		if(current[1]-current[0]>=MIN_TRNA){result.add(current);}
+		return result;
+	}
+
+	private static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
+		ArrayList<int[]> result=new ArrayList<>();
+		for(int[] w : windows){
+			boolean overlaps=false;
+			for(int[] c : claimed){if(w[0]<=c[1] && w[1]>=c[0]){overlaps=true; break;}}
+			if(!overlaps){result.add(w);}
+		}
+		return result;
+	}
+
+	private static int[] findNearbyUnclaimed(int[] allHits, ArrayList<int[]> claimed, int seqLen){
+		IntList result=new IntList();
+		for(int pos : allHits){
+			boolean inside=false, nearby=false;
+			for(int[] c : claimed){
+				if(pos>=c[0] && pos<=c[1]){inside=true; break;}
+				if(pos>=c[0]-SCAV_NEARBY && pos<=c[1]+SCAV_NEARBY){nearby=true;}
+			}
+			if(!inside && nearby){result.add(pos);}
+		}
+		return result.toArray();
+	}
+
+	private Orf alignWindow(String name, byte[] bases, int strand, int wStart, int wStop){
+		final int wLen=wStop-wStart+1;
+		if(wLen<MIN_TRNA){return null;}
+		byte[] seq=Arrays.copyOfRange(bases, wStart, wStop+1);
+		final int khits=trnaKmerHits(seq);
+		if(khits<MIN_TRNA_KHITS){return null;}
+		final int topN=INDEX_TOP_N_OVERRIDE>0 ? INDEX_TOP_N_OVERRIDE : INDEX_TOP_N_DEFAULT;
+		int[] shortlist=shortlistByKmer(seq, topN);
+		float bestId=0; int bestModel=-1;
+		int bestStart=0, bestStop=wLen-1;
+		if(wLen>SCAV_QUANTUM_THRESH){
+			int[] pos=new int[4];
+			for(int j=0; j<shortlist.length; j++){
+				int m=shortlist[j];
+				float id=QuantumAligner.alignStatic(trnaLibrary[m], seq, pos);
+				alignmentCount++;
+				if(id>bestId){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
+			}
+		}else{
+			for(int j=0; j<shortlist.length; j++){
+				int m=shortlist[j];
+				float id=ScrabbleAligner.alignStatic(seq, trnaLibrary[m], null);
+				alignmentCount++;
+				if(id>bestId){bestId=id; bestModel=m;}
+			}
+		}
+		if(bestId<ID_BORDERLINE || bestModel<0){return null;}
+		final int orfStart=wStart+bestStart;
+		final int orfStop=wStart+bestStop;
+		if(orfStop-orfStart<MIN_TRNA){return null;}
+		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, tRNA);
+		orf.orfScore=bestId*100;
+		if(verifyOrf(orf, bases)){return orf;}
+		return null;
+	}
+
 	private static int[][] buildKmerIndex(byte[][] library){
 		final int numKmers=1<<(2*INDEX_K);
 		@SuppressWarnings("unchecked")
@@ -849,9 +995,11 @@ public class TrnaCaller extends ProkObject {
 	private static final int INDEX_TOP_N_DEFAULT=20;
 	private static final int INDEX_MINHITS_DEFAULT=3;
 	private static final int[] EMPTY=new int[0];
-	private static final float REGION_THRESH=GeneCaller.cutoff1[tRNA];
-	private static final float INNER_THRESH=GeneCaller.cutoff5[tRNA];
-	private static final float CANDIDATE_THRESH=GeneCaller.cutoff2[tRNA];
+	//Per-INSTANCE (not static) so CallGenes flags that set GeneCaller.cutoffN[tRNA] before this caller is
+	//constructed take effect.  cutoff1=region open, cutoff5=avg inner, cutoff2=composite candidate.
+	private final float REGION_THRESH=GeneCaller.cutoff1[tRNA];
+	private final float INNER_THRESH=GeneCaller.cutoff5[tRNA];
+	private final float CANDIDATE_THRESH=GeneCaller.cutoff2[tRNA];
 	static float ID_PASS=0.75f;
 	static float ID_BORDERLINE=0.65f;
 	static float HBM_PASS=0.75f;
@@ -881,6 +1029,15 @@ public class TrnaCaller extends ProkObject {
 	 * on outlier genomes (Pyrodictium 9.2M -> 25.3K) -- keeps tRNA calling <0.5s/genome.  See
 	 * results/recall_gap_kfilter_intron_20260816.md. */
 	static int MIN_TRNA_KHITS=1;
+	/** tRNA scavenger pass (Neptune): recover tRNAs at conserved-kmer-hit positions the PGM-based candidate
+	 * generation missed.  SCAVENGE=augment the normal call; SCAVENGE_ONLY=replace it (diagnostic). Flags:
+	 * trnascavenge=/scavenge=, trnascavengeonly=/scavengeonly=. */
+	static boolean SCAVENGE=false;
+	static boolean SCAVENGE_ONLY=false;
+	static boolean SCAVENGE_PASS2=true;
+	static final int SCAV_PAD=83;
+	static final int SCAV_QUANTUM_THRESH=120;
+	static final int SCAV_NEARBY=200;
 	static boolean earlyExit=true;
 	static int earlyExitPatience=10;
 	static long alignmentCount=0;

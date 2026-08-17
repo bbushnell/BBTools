@@ -248,7 +248,19 @@ public class GeneCaller extends ProkObject {
 				if(ProkObject.callType(sc.type)){
 					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
 						if(trnaCaller==null){trnaCaller=new TrnaCaller(pgm, trnaLibrary, trnaModels, trnaModelNames);}
-						ArrayList<Orf> list=trnaCaller.callTrnas(name, bases, strand);
+						ArrayList<Orf> list;
+						if(TrnaCaller.SCAVENGE_ONLY){
+							list=new ArrayList<>();
+						}else{
+							list=trnaCaller.callTrnas(name, bases, strand);
+						}
+						//Scavenger pass: find tRNAs at kmer-hit positions missed by PGM-based candidate generation
+						if((TrnaCaller.SCAVENGE || TrnaCaller.SCAVENGE_ONLY) && list!=null){
+							ArrayList<int[]> calledPos=new ArrayList<>();
+							for(Orf orf : list){calledPos.add(new int[]{orf.start, orf.stop});}
+							ArrayList<Orf> scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
+							if(scavenged!=null){list.addAll(scavenged);}
+						}
 						if(strand==1 && list!=null){
 							for(Orf orf : list){orf.flip();}
 						}
