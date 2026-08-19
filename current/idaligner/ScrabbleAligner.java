@@ -376,7 +376,13 @@ public class ScrabbleAligner implements IDAligner{
 		if(GLOBAL){maxPos=rLen;}
 		float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
 		if(stats!=null && stats.doTrace){
-			final byte[] matchString=Tracer.traceback(trace, qLen, maxPos, null);
+			// Sequence-aware overload: the blind (byte-less) overload reconstructs ops from
+			// packed score deltas alone, which is ambiguous whenever two predecessor cells
+			// tie under uniform +-1 scoring (diag-sub and up-ins become indistinguishable).
+			// Passing the actual bases removes the ambiguity. rStart/rStop come from
+			// postprocess() above and are unaffected; identity/score/counts below are
+			// retallied from matchString by setFromMatchString, same as before this change.
+			final byte[] matchString=Tracer.traceback(trace, query, ref, qLen, maxPos, null);
 			if(swapped){Tracer.invertMatchString(matchString);}//Should never happen
 			stats.setFromMatchString(matchString);
 		}

@@ -44,7 +44,9 @@ public class TrnaCaller extends ProkObject {
 		trnaModels=trnaModels_;
 		modelNames=modelNames_;
 		annotate=(modelNames!=null);
-		kmerIndex=(trnaLibrary!=null ? buildKmerIndex(trnaLibrary) : null);
+		kmerIndex=(trnaLibrary!=null ? new TrnaKmerIndex(trnaLibrary, INDEX_K, ADAPTIVE_MINHITS,
+			ADAPT_FLOOR, ADAPT_TOPFRAC, ADAPT_QFRAC,
+			(INDEX_MINHITS_OVERRIDE>0 ? INDEX_MINHITS_OVERRIDE : INDEX_MINHITS_DEFAULT)) : null);
 		acPositions=(annotate && trnaLibrary!=null ? findAnticodonPositions(trnaLibrary, modelNames) : null);
 	}
 
@@ -804,9 +806,15 @@ public class TrnaCaller extends ProkObject {
 	private static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
-			boolean overlaps=false;
-			for(int[] c : claimed){if(w[0]<=c[1] && w[1]>=c[0]){overlaps=true; break;}}
-			if(!overlaps){result.add(w);}
+			int lo=w[0], hi=w[1];
+			for(int[] c : claimed){
+				if(lo<=c[1] && hi>=c[0]){
+					if(lo>=c[0]){lo=c[1]+1;}
+					else if(hi<=c[1]){hi=c[0]-1;}
+					else{lo=c[1]+1;}
+				}
+			}
+			if(hi-lo>=MIN_TRNA){result.add(new int[]{lo, hi});}
 		}
 		return result;
 	}
@@ -828,8 +836,8 @@ public class TrnaCaller extends ProkObject {
 	 * with qlen and the top hit, so the safe shortlist cutoff can be read off the distribution.
 	 * Columns: SLSTAT <sharedHits> <qlen> <maxHitsShared>. */
 	private void logShortlistStat(int model, int qlen){
-		if(slHits!=null && model>=0 && model<slHits.length){
-			System.err.println("SLSTAT\t"+slHits[model]+"\t"+qlen+"\t"+slMax);
+		if(kmerIndex!=null && model>=0){
+			System.err.println("SLSTAT\t"+kmerIndex.lastSharedCount(model)+"\t"+qlen+"\t"+kmerIndex.lastMaxShared());
 		}
 	}
 
@@ -915,40 +923,6 @@ public class TrnaCaller extends ProkObject {
 		return null;
 	}
 
-	private static int[][] buildKmerIndex(byte[][] library){
-		final int numKmers=1<<(2*INDEX_K);
-		@SuppressWarnings("unchecked")
-		ArrayList<Integer>[] lists=new ArrayList[numKmers];
-		for(int i=0; i<numKmers; i++){lists[i]=new ArrayList<>();}
-
-		for(int refId=0; refId<library.length; refId++){
-			byte[] seq=library[refId];
-			int kmer=0, len=0;
-			for(int j=0; j<seq.length; j++){
-				int x=AminoAcid.baseToNumber[seq[j]];
-				if(x>=0){
-					kmer=((kmer<<2)|x)&(numKmers-1);
-					len++;
-					if(len>=INDEX_K){
-						lists[kmer].add(refId);
-					}
-				}else{
-					len=0; kmer=0;
-				}
-			}
-		}
-
-		int[][] index=new int[numKmers][];
-		for(int i=0; i<numKmers; i++){
-			ArrayList<Integer> list=lists[i];
-			if(list.isEmpty()){index[i]=EMPTY; continue;}
-			int[] arr=new int[list.size()];
-			for(int j=0; j<list.size(); j++){arr[j]=list.get(j);}
-			index[i]=arr;
-		}
-		return index;
-	}
-
 	/**
 	 * Long-kmer pre-filter (Brian): counts how many of seq's forward k-mers (k=kLongTRna, default 15)
 	 * are in the conserved tRNA long-kmer set (ProkObject.trnaKmers, from resources/tRNA_15mers.fa).
@@ -983,59 +957,12 @@ public class TrnaCaller extends ProkObject {
 			for(int i=0; i<all.length; i++){all[i]=i;}
 			return all;
 		}
-		final int numKmers=1<<(2*INDEX_K);
-		int[] hits=new int[trnaLibrary.length];
-		int kmer=0, len=0, distinctRefs=0;
-		for(int j=0; j<seq.length; j++){
-			int x=AminoAcid.baseToNumber[seq[j]];
-			if(x>=0){
-				kmer=((kmer<<2)|x)&(numKmers-1);
-				len++;
-				if(len>=INDEX_K){
-					int[] refIds=kmerIndex[kmer];
-					for(int i=0; i<refIds.length; i++){
-						if(hits[refIds[i]]++==0){distinctRefs++;}
-					}
-				}
-			}else{
-				len=0; kmer=0;
-			}
-		}
-
-		//REFHIST evidence: how many library refs share >=1 index-kmer with this query.  If ~all 4440 do,
-		//clearing a full direct array is unavoidable; if usually few, a sparse IntHashMap counter wins.
-		if(REFHIST){System.err.println("REFHIST\t"+distinctRefs+"\t"+Tools.max(0, seq.length-INDEX_K+1));}
-		int[][] scored=new int[trnaLibrary.length][2];
-		for(int i=0; i<trnaLibrary.length; i++){
-			scored[i][0]=i;
-			scored[i][1]=hits[i];
-		}
-		Arrays.sort(scored, (a, b)->b[1]-a[1]);
-
-		//Shortlist cutoff.  FIXED (default): flat indexminhits (INDEX_MINHITS_DEFAULT, or the override).
-		//ADAPTIVE (Brian, flag adaptiveminhits=): a model must clear the STRICTEST of an absolute floor, a
-		//fraction of the top-ranked model's shared count, and a fraction of the query's k-mers --
-		//ceil(max(ADAPT_FLOOR, ADAPT_TOPFRAC*maxShared, ADAPT_QFRAC*qKmers)).  qKmers uses the shortlist
-		//query length (the scavenger window; the mature-tRNA length is not known here).
-		final int maxShared=(scored.length>0 ? scored[0][1] : 0);
-		if(SHORTLIST_STATS){slHits=hits; slMax=maxShared;}
-		final int minHits;
-		if(ADAPTIVE_MINHITS){
-			final int qKmers=Tools.max(1, seq.length-INDEX_K+1);
-			final double v=Math.max(ADAPT_FLOOR, Math.max(ADAPT_TOPFRAC*maxShared, ADAPT_QFRAC*qKmers));
-			minHits=(int)Math.ceil(v);
-		}else{
-			minHits=INDEX_MINHITS_OVERRIDE>0 ? INDEX_MINHITS_OVERRIDE : INDEX_MINHITS_DEFAULT;
-		}
-
-		int count=0;
-		int limit=Tools.min(topN, trnaLibrary.length);
-		while(count<limit && scored[count][1]>=minHits){count++;}
-		if(count<1 && scored[0][1]>0){count=1;}
-		int[] result=new int[Tools.max(0, count)];
-		for(int i=0; i<result.length; i++){
-			result[i]=scored[i][0];
-		}
+		//Count + counting-top-N select live in TrnaKmerIndex (reused byte[] buffer, no per-query alloc,
+		//no boxed sort).  Output order is byte-identical to the old scored-sort (count desc, id asc), so
+		//the order-sensitive borderline early-exit in alignWindow is unchanged.
+		final int[] result=kmerIndex.shortlist(seq, topN);
+		if(REFHIST){System.err.println("REFHIST\t"+kmerIndex.lastDistinctRefs()+"\t"
+			+Tools.max(0, seq.length-INDEX_K+1));}
 		return result;
 	}
 
@@ -1050,12 +977,9 @@ public class TrnaCaller extends ProkObject {
 	private final BaseGraph[] trnaModels;
 	private final String[] modelNames;
 	private final boolean annotate;
-	private final int[][] kmerIndex;
+	private final TrnaKmerIndex kmerIndex;
 	/** Per-model anticodon start position in the consensus, or -1; null when not annotating */
 	private final int[] acPositions;
-	/** SHORTLIST_STATS scratch: last shortlist's per-model 5-mer hit counts + the max, for logging the
-	 * accepted model's shared count.  Per-instance (TrnaCaller is constructed per calling thread). */
-	private int[] slHits; private int slMax;
 
 	private static final int MIN_TRNA=40;
 	private static final int MAX_TRNA=120;

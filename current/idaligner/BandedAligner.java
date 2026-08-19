@@ -193,7 +193,8 @@ public class BandedAligner implements IDAligner{
 
 		float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
 		if(stats!=null && stats.doTrace){
-			final byte[] matchString=Tracer.traceback(trace, qLen, maxPos, null);
+			// Sequence-aware overload -- see Tracer.java's disabled blind traceback for why.
+			final byte[] matchString=Tracer.traceback(trace, query, ref, qLen, maxPos, null);
 			if(swapped){Tracer.invertMatchString(matchString);}
 			stats.setFromMatchString(matchString);
 		}

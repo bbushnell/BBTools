@@ -108,114 +108,120 @@ public class Tracer{
 		return bb.reverse().toBytes();
 	}
 	
-	/**
-	 * Traceback without looking at Query or Ref. 
-	 * Deduces alignment state purely from score derivatives.
-	 */
-	public static byte[] traceback(LongList trace, int finalRow, int finalCol, ByteBuilder bb){
-		int r=finalRow, c=finalCol;
-
-		// 1. Find the header for the final row (You already have this loop)
-		int currHeaderIdx=trace.size - 1;
-		while(true){
-			long val=trace.get(currHeaderIdx);
-			if(val<0){
-				int row=(int)((val>>>42)&POSITION_MASK);
-				if(row==r){ break; }
-			}
-			currHeaderIdx--;
-		}
-		int prevHeaderIdx=currHeaderIdx-((int)(trace.get(currHeaderIdx)&POSITION_MASK));
-
-		// 2. Get the Start Column of THIS row from the header
-		long header=trace.get(currHeaderIdx);
-		int rowStartCol=(int)((header>>>21)&POSITION_MASK);
-
-		// 3. Calculate offset to the final column
-		int offset=finalCol-rowStartCol;
-
-		// 4. Retrieve the actual final score
-		long finalScoreVal=trace.get(currHeaderIdx+1+offset);
-
-		// 5. Extract the propagated rStart!
-		final int rStart=(int)(finalScoreVal & POSITION_MASK);
-
-		// 6. Size the builder
-		// Ref Length + Query Length is a safe upper bound for the Cigar string
-		int refLen=finalCol-rStart+1;
-		int queryLen=finalRow+1; 
-
-		if(bb==null) {
-			bb=new ByteBuilder(refLen+queryLen+8);
-		}else{
-			bb.clear();
-			bb.ensureExtra(refLen+queryLen+8);
-		}
-
-		//Exclusive end of the current row's stored block (see sequence-aware version).
-		int currBlockEnd=trace.size;
-
-		// 2. The Loop
-		while(r>0 && c>0){
-			final long currVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c);
-			final long diagVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c-1);
-			final long upVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c);
-			final long leftVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c-1);
-			
-			final long fromLeft=leftVal+DEL_INCREMENT;
-			final long fromUp=upVal+INS;
-
-			// Calculate the derivative to check if Diag could have produced this cell
-			final long delta=currVal-diagVal;
-			final boolean diagValid=(delta==MATCH || delta==SUB || delta==N_SCORE);
-			final boolean upValid=(currVal==fromUp);
-
-			//Replicate the fill's decision EXACTLY (see sequence-aware traceback above):
-			//if diag or up produced this cell then maxDiagUp==currVal, so the fill's
-			//(maxDiagUp&SCORE_MASK)>=fromLeft test (masked candidate vs FULL left value)
-			//reduces to the test below. The old version compared masked-vs-masked (wrong
-			//tie direction) and claimed Up without verifying currVal==fromUp, fabricating
-			//insertions when the true move was a deletion.
-			if((diagValid || upValid) && (currVal&SCORE_MASK)>=fromLeft){
-				if(diagValid){
-					if(delta==MATCH){bb.append('m');}
-					else if(delta==N_SCORE){bb.append('N');}
-					else{bb.append('S');} // delta == SUB
-					r--; c--;
-				}else{
-					bb.append('I');
-					r--;
-				}
-			}else if(currVal==fromLeft){
-				bb.append('D');
-				c--;
-			}else{
-				//No predecessor reproduces the stored value; the trace is corrupt.
-				assert(false) : "Blind traceback desync at r="+r+", c="+c+": curr="+currVal+
-					", diag="+diagVal+", up="+upVal+", left="+leftVal;
-				if(r>c){bb.append('I'); r--;}
-				else{bb.append('D'); c--;}
-			}
-			
-			// Move headers if we went up a row
-			if(r < ((trace.get(currHeaderIdx)>>>42)&POSITION_MASK)){
-				currBlockEnd=currHeaderIdx;
-				currHeaderIdx=prevHeaderIdx;
-				if(currHeaderIdx < 0) break;
-				int dist=(int)(trace.get(currHeaderIdx)&POSITION_MASK);
-				prevHeaderIdx=currHeaderIdx-dist;
-			}
-		}
-		
-		while(r>0){bb.append('I'); r--;}
-		//Remaining columns are unaligned reference PREFIX. Row 0's glocal init makes the
-		//prefix free and rStart already records it, so padding 'D' here double-counts it
-		//(and a leading D-run followed by I is non-canonical). Only GLOBAL alignments,
-		//whose row-0 init charges DEL per column, encode the prefix as real deletions.
-		if(GLOBAL){while(c>0){bb.append('D'); c--;}}
-		
-		return bb.reverse().toBytes();
-	}
+	// DISABLED (Neptune/Noire/Brian, Aug 19 2026): this blind (byte-less) traceback
+	// reconstructs ops purely from packed score deltas, which is provably non-injective
+	// under uniform +-1 scoring -- a diagonal substitution and an up insertion can
+	// produce the identical packed cell value whenever their predecessor cells' position
+	// and deletion-count fields coincide (routine once one alignment path dominates a
+	// region), making "which move happened" genuinely unrecoverable from the score alone.
+	// Confirmed on shipped ScrabbleAligner at tRNA-model scale: silently mislabeled ops,
+	// including calling a real match an insertion. All callers now use the sequence-aware
+	// overload below (lines 18-109), which uses the actual query/ref bytes and is correct
+	// by construction. Left in place, not deleted, as a documented cautionary record.
+//	public static byte[] traceback(LongList trace, int finalRow, int finalCol, ByteBuilder bb){
+//		int r=finalRow, c=finalCol;
+//
+//		// 1. Find the header for the final row (You already have this loop)
+//		int currHeaderIdx=trace.size - 1;
+//		while(true){
+//			long val=trace.get(currHeaderIdx);
+//			if(val<0){
+//				int row=(int)((val>>>42)&POSITION_MASK);
+//				if(row==r){ break; }
+//			}
+//			currHeaderIdx--;
+//		}
+//		int prevHeaderIdx=currHeaderIdx-((int)(trace.get(currHeaderIdx)&POSITION_MASK));
+//
+//		// 2. Get the Start Column of THIS row from the header
+//		long header=trace.get(currHeaderIdx);
+//		int rowStartCol=(int)((header>>>21)&POSITION_MASK);
+//
+//		// 3. Calculate offset to the final column
+//		int offset=finalCol-rowStartCol;
+//
+//		// 4. Retrieve the actual final score
+//		long finalScoreVal=trace.get(currHeaderIdx+1+offset);
+//
+//		// 5. Extract the propagated rStart!
+//		final int rStart=(int)(finalScoreVal & POSITION_MASK);
+//
+//		// 6. Size the builder
+//		// Ref Length + Query Length is a safe upper bound for the Cigar string
+//		int refLen=finalCol-rStart+1;
+//		int queryLen=finalRow+1;
+//
+//		if(bb==null) {
+//			bb=new ByteBuilder(refLen+queryLen+8);
+//		}else{
+//			bb.clear();
+//			bb.ensureExtra(refLen+queryLen+8);
+//		}
+//
+//		//Exclusive end of the current row's stored block (see sequence-aware version).
+//		int currBlockEnd=trace.size;
+//
+//		// 2. The Loop
+//		while(r>0 && c>0){
+//			final long currVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c);
+//			final long diagVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c-1);
+//			final long upVal=getTraceScore(trace, prevHeaderIdx, currHeaderIdx, c);
+//			final long leftVal=getTraceScore(trace, currHeaderIdx, currBlockEnd, c-1);
+//
+//			final long fromLeft=leftVal+DEL_INCREMENT;
+//			final long fromUp=upVal+INS;
+//
+//			// Calculate the derivative to check if Diag could have produced this cell
+//			final long delta=currVal-diagVal;
+//			final boolean diagValid=(delta==MATCH || delta==SUB || delta==N_SCORE);
+//			final boolean upValid=(currVal==fromUp);
+//
+//			//Replicate the fill's decision EXACTLY (see sequence-aware traceback above):
+//			//if diag or up produced this cell then maxDiagUp==currVal, so the fill's
+//			//(maxDiagUp&SCORE_MASK)>=fromLeft test (masked candidate vs FULL left value)
+//			//reduces to the test below. The old version compared masked-vs-masked (wrong
+//			//tie direction) and claimed Up without verifying currVal==fromUp, fabricating
+//			//insertions when the true move was a deletion.
+//			if((diagValid || upValid) && (currVal&SCORE_MASK)>=fromLeft){
+//				if(diagValid){
+//					if(delta==MATCH){bb.append('m');}
+//					else if(delta==N_SCORE){bb.append('N');}
+//					else{bb.append('S');} // delta == SUB
+//					r--; c--;
+//				}else{
+//					bb.append('I');
+//					r--;
+//				}
+//			}else if(currVal==fromLeft){
+//				bb.append('D');
+//				c--;
+//			}else{
+//				//No predecessor reproduces the stored value; the trace is corrupt.
+//				assert(false) : "Blind traceback desync at r="+r+", c="+c+": curr="+currVal+
+//					", diag="+diagVal+", up="+upVal+", left="+leftVal;
+//				if(r>c){bb.append('I'); r--;}
+//				else{bb.append('D'); c--;}
+//			}
+//
+//			// Move headers if we went up a row
+//			if(r < ((trace.get(currHeaderIdx)>>>42)&POSITION_MASK)){
+//				currBlockEnd=currHeaderIdx;
+//				currHeaderIdx=prevHeaderIdx;
+//				if(currHeaderIdx < 0) break;
+//				int dist=(int)(trace.get(currHeaderIdx)&POSITION_MASK);
+//				prevHeaderIdx=currHeaderIdx-dist;
+//			}
+//		}
+//
+//		while(r>0){bb.append('I'); r--;}
+//		//Remaining columns are unaligned reference PREFIX. Row 0's glocal init makes the
+//		//prefix free and rStart already records it, so padding 'D' here double-counts it
+//		//(and a leading D-run followed by I is non-canonical). Only GLOBAL alignments,
+//		//whose row-0 init charges DEL per column, encode the prefix as real deletions.
+//		if(GLOBAL){while(c>0){bb.append('D'); c--;}}
+//
+//		return bb.reverse().toBytes();
+//	}
 	
 	private static long getTraceScore(LongList trace, int headerIdx, int blockEnd, int c){
 		long header=trace.get(headerIdx);
