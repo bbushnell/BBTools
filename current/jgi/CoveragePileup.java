@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 
 import align2.QualityTools;
+import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
 import dna.Scaffold;
@@ -38,6 +39,7 @@ import structures.ByteBuilder;
 import structures.CoverageArray;
 import structures.CoverageArray2;
 import structures.CoverageArray3;
+import structures.FloatList;
 import structures.ListNum;
 import structures.LongList;
 import tracker.ReadStats;
@@ -750,6 +752,9 @@ public class CoveragePileup {
 		int len=0;
 		final long[] acgtn=KillSwitch.allocLong1D(8);
 		boolean addLen=false;
+		final int[] binAcgt=KillSwitch.allocInt1D(4);
+		int binPos=0;
+		final FloatList gcBinList=new FloatList();
 		for(byte[] s=bf.nextLine(); s!=null; s=bf.nextLine()){
 			if(s.length>0 && s[0]=='>'){
 				if(scaf!=null){
@@ -766,6 +771,11 @@ public class CoveragePileup {
 						addLen=false;
 					}
 					scaf.gc=(float)((acgtn[1]+acgtn[2])*1d/Data.max(1, acgtn[0]+acgtn[1]+acgtn[2]+acgtn[3]));
+					if(binPos>0){gcBinList.add(binGC(binAcgt));}
+					scaf.gcBins=gcBinList.toArray();
+					gcBinList.clear();
+					Arrays.fill(binAcgt, 0);
+					binPos=0;
 					scaf=null;
 					len=0;
 					Arrays.fill(acgtn, 0);
@@ -784,6 +794,14 @@ public class CoveragePileup {
 				len+=s.length;
 				for(int i=0; i<s.length; i++){
 					acgtn[charToNum[s[i]]]++;
+					final int num=AminoAcid.baseToNumber[s[i]];
+					if(num>=0){binAcgt[num]++;}
+					binPos++;
+					if(binPos>=binsize){
+						gcBinList.add(binGC(binAcgt));
+						Arrays.fill(binAcgt, 0);
+						binPos=0;
+					}
 				}
 			}
 		}
@@ -801,10 +819,23 @@ public class CoveragePileup {
 				addLen=false;
 			}
 			scaf.gc=(float)((acgtn[1]+acgtn[2])*1d/Data.max(1, acgtn[0]+acgtn[1]+acgtn[2]+acgtn[3]));
+			if(binPos>0){gcBinList.add(binGC(binAcgt));}
+			scaf.gcBins=gcBinList.toArray();
+			gcBinList.clear();
+			Arrays.fill(binAcgt, 0);
+			binPos=0;
 			scaf=null;
 			len=0;
 			Arrays.fill(acgtn, 0);
 		}
+	}
+
+	/** GC fraction of a 4-count [A,C,G,T] bin window, matching driver.PlotGC.toGC's convention (denominator excludes N/degenerate bases) */
+	private static float binGC(int[] acgt){
+		final int at=acgt[0]+acgt[3];
+		final int gc=acgt[1]+acgt[2];
+		final float sum=Tools.max(1, at+gc);
+		return gc/sum;
 	}
 
 	private Scaffold lookupReferenceScaffold(String name){
@@ -1982,6 +2013,7 @@ public class CoveragePileup {
 		if(fname==null || (!STRANDED && strand>0)){return;}
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, false, false);
 		tsw.start();
+		final boolean gcCol=!list.isEmpty() && list.get(0).gcBins!=null;
 		if(printHeader){
 			String pound=(headerPound ? "#" : "");
 			if(calcCovStdev){
@@ -1991,9 +2023,9 @@ public class CoveragePileup {
 					tsw.print(pound+"STDev\t"+Tools.format("%.3f", stdev[1])+"\n");
 				}
 			}
-			tsw.print(pound+"RefName\tCov\tPos\tRunningPos\n");
+			tsw.print(pound+"RefName\tCov\tPos\tRunningPos"+(gcCol ? "\tGC" : "")+"\n");
 		}
-		
+
 		long running=0;
 		final float invbin=1f/binsize;
 		for(Scaffold scaf : list){
@@ -2001,13 +2033,23 @@ public class CoveragePileup {
 				CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
 				int lastPos=-1, nextPos=binsize-1;
 				long sum=0;
+				int binIndex=0;
 				for(int i=0; i<scaf.length; i++){
 					int x=(ca==null ? 0 : ca.get(i));
 					sum+=x;
 					if(i>=nextPos){
 						if(sum>0 || !NONZERO_ONLY){
-							tsw.print(Tools.format("%s\t%.2f\t%d\t%d\n", scaf.name, sum*invbin, (i+1), running));
+							if(gcCol){
+								assert(scaf.gcBins!=null && binIndex<scaf.gcBins.length) :
+									"Missing gcBins for scaffold "+scaf.name+" bin "+binIndex+"; header promised a GC "
+									+ "column but this scaffold has no per-bin GC (CoveragePileup.processReference only "
+									+ "populates gcBins for scaffolds found in ref=)";
+								tsw.print(Tools.format("%s\t%.2f\t%d\t%d\t%.3f\n", scaf.name, sum*invbin, (i+1), running, scaf.gcBins[binIndex]));
+							}else{
+								tsw.print(Tools.format("%s\t%.2f\t%d\t%d\n", scaf.name, sum*invbin, (i+1), running));
+							}
 						}
+						binIndex++;
 						lastPos=i;
 						running+=binsize;
 						nextPos+=binsize;
@@ -2016,7 +2058,7 @@ public class CoveragePileup {
 				}
 			}
 		}
-		
+
 		tsw.poisonAndWait();
 	}
 	
@@ -2031,6 +2073,7 @@ public class CoveragePileup {
 		if(fname==null || (!STRANDED && strand>0)){return;}
 		TextStreamWriter tsw=new TextStreamWriter(fname, overwrite, false, false);
 		tsw.start();
+		final boolean gcCol=!list.isEmpty() && list.get(0).gcBins!=null;
 		if(printHeader){
 			String pound=(headerPound ? "#" : "");
 			if(calcCovStdev){
@@ -2040,14 +2083,15 @@ public class CoveragePileup {
 					tsw.print(pound+"STDev\t"+Tools.format("%.3f", stdev[1])+"\n");
 				}
 			}
-			tsw.print(pound+"RefName\tCov\tPos\tRunningPos\n");
+			tsw.print(pound+"RefName\tCov\tPos\tRunningPos"+(gcCol ? "\tGC" : "")+"\n");
 		}
-		
+
 		long running=0;
 		for(Scaffold scaf : list){
 			CoverageArray ca=(CoverageArray)(STRANDED && strand==1 ? scaf.obj1 : scaf.obj0);
 			int lastPos=-1, nextPos=binsize-1;
 			long sum=0;
+			int binIndex=0;
 			final int lim=scaf.length-1;
 			for(int i=0; i<scaf.length; i++){
 				int x=(ca==null ? 0 : ca.get(i));
@@ -2056,9 +2100,18 @@ public class CoveragePileup {
 					int bin=(i-lastPos);
 					if(scaf.length>=minscaf){
 						if(sum>0 || !NONZERO_ONLY){
-							tsw.print(Tools.format("%s\t%.2f\t%d\t%d\n", scaf.name, sum/(float)bin, (i+1), running));
+							if(gcCol){
+								assert(scaf.gcBins!=null && binIndex<scaf.gcBins.length) :
+									"Missing gcBins for scaffold "+scaf.name+" bin "+binIndex+"; header promised a GC "
+									+ "column but this scaffold has no per-bin GC (CoveragePileup.processReference only "
+									+ "populates gcBins for scaffolds found in ref=)";
+								tsw.print(Tools.format("%s\t%.2f\t%d\t%d\t%.3f\n", scaf.name, sum/(float)bin, (i+1), running, scaf.gcBins[binIndex]));
+							}else{
+								tsw.print(Tools.format("%s\t%.2f\t%d\t%d\n", scaf.name, sum/(float)bin, (i+1), running));
+							}
 						}
 					}
+					binIndex++;
 					running+=bin;
 					nextPos+=binsize;
 					lastPos=i;

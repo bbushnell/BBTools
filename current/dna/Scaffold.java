@@ -136,6 +136,8 @@ public class Scaffold implements Comparable<Scaffold> {
 	
 	public long[] basecount;
 	public float gc;
+	/** Per-bin GC fraction, computed from the reference by CoveragePileup.processReference(); null if no ref= was given */
+	public float[] gcBins;
 	
 	public Object obj0;
 	

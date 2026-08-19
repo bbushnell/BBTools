@@ -15,7 +15,8 @@ Usage:        pileup.sh in=<input> out=<output>
 
 Input Parameters:
 in=<file>           The input sam file; this is the only required parameter.
-ref=<file>          Scans a reference fasta for per-scaffold GC counts, not otherwise needed.
+ref=<file>          Scans a reference fasta for per-scaffold GC counts.
+                    Also enables per-bin GC content in bincov output.
 fastaorf=<file>     An optional fasta file with ORF header information in PRODIGAL's output format.  Must also specify 'outorf'.
 unpigz=t            Decompress with pigz for faster decompression.
 addfromref=t        Allow ref scaffolds not present in sam header to be added from the reference.
@@ -35,6 +36,7 @@ rangecov=<file>     Concise ranges where coverage depth is at least mincov.
 mincov=1            When calculating percent covered, ignore bases under this depth.
                     Also used as threshold for rangecov.
 bincov=<file>       Binned coverage per location (one line per X bases).
+                    Includes a GC column when ref= is provided.
 binsize=1000        Binsize for binned coverage output.
 keepshortbins=t     (ksb) Keep residual bins shorter than binsize.
 normcov=<file>      Normalized coverage by normalized location (X lines per scaffold).
