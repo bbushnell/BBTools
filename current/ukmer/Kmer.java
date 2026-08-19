@@ -341,7 +341,7 @@ public class Kmer implements Cloneable {
 	public static long xor(long[] key, long coreMask){
 		long xor=key[0]&coreMask;
 		for(int i=1; i<key.length; i++){
-			xor=(Long.rotateLeft(xor, 25))^(key[i]&coreMask);
+			xor=(Long.rotateLeft(xor, 25))^Tools.hash64shift(key[i]&coreMask);
 		}
 		return xor&mask63;
 	}

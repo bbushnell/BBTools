@@ -11,6 +11,7 @@ import aligner.MicroIndex3;
 import barcode.BarcodeStats;
 import bloom.BloomFilter;
 import bloom.BloomFilterCorrector;
+import bloom.BloomFilterCorrector1;
 import bloom.KmerCountAbstract;
 import dna.AminoAcid;
 import dna.Data;
@@ -315,7 +316,7 @@ public class PlotFlowCell implements Accumulator<PlotFlowCell.WorkerThread> {
 		outstream.println(t2);
 		
 		if(bloomFilter!=null) {
-			bloomCorrector=new BloomFilterCorrector(bloomFilter, k, k);
+			bloomCorrector=new BloomFilterCorrector1(bloomFilter, k, k);
 			double used=bloomFilter.filter.usedFraction();
 			long unique=(long)bloomFilter.filter.estimateUniqueKmersFromUsedFraction(hashes, used);
 			System.err.println(String.format("Bloom Occupancy:\t%.2f%%", 100*used));

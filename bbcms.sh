@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified September 20, 2022
+Last modified August 19, 2026
 
 Description:  Error corrects reads and/or filters by depth, storing
 kmer counts in a count-min sketch (a Bloom filter variant).
@@ -46,14 +46,20 @@ overwrite=t     (ow) Set to false to force the program to abort rather than
                 overwrite an existing file.
 
 Hashing parameters:
-k=31            Kmer length, currently 1-31.
-hashes=3        Number of hashes per kmer.  Higher generally reduces 
+k=31            Kmer length.  Any value 1 and up is supported; k>31 uses a
+                slower multi-word kmer representation.  Not every k>31 value
+                is exactly representable, in which case it will be silently
+                rounded down to the nearest achievable length (a note is
+                printed to stderr when this happens).
+hashes=3        Number of hashes per kmer.  Higher generally reduces
                 false positives at the expense of speed; rapidly
                 diminishing returns above 4.
-ksmall=         Optional sub-kmer length; setting to slightly lower than k 
+ksmall=         Optional sub-kmer length; setting to slightly lower than k
                 can improve memory efficiency by reducing the number of hashes
                 needed.  e.g. 'k=31 ksmall=29 hashes=2' has better speed and
                 accuracy than 'k=31 hashes=3' when the filter is very full.
+                Not supported when k>31; ignored (forced equal to k) in
+                that case.
 minprob=0.5     Ignore kmers with probability of being correct below this.
 memmult=1.0     Fraction of free memory to use for Bloom filter.  1.0 should
                 generally work; if the program crashes with an out of memory

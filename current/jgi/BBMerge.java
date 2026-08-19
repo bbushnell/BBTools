@@ -10,6 +10,7 @@ import align2.QualityTools;
 import assemble.Tadpole;
 import bloom.BloomFilter;
 import bloom.BloomFilterCorrector;
+import bloom.BloomFilterCorrector1;
 import bloom.KmerCountAbstract;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
@@ -872,7 +873,7 @@ public class BBMerge {
 			tadpole=null;
 			bloomFilter=new BloomFilter(in1, in2, extra, kmerLength, kmerLength, bloomBits, bloomHashes, 1,
 					true, false, false, 0.9f);
-			corrector=new BloomFilterCorrector(bloomFilter, kmerLength, kmerLength);
+			corrector=new BloomFilterCorrector1(bloomFilter, kmerLength, kmerLength);
 			t.stop("Filter creation: \t\t");
 			outstream.println(bloomFilter.filter.toShortString());
 		}else{

@@ -29,6 +29,7 @@ import structures.IntList;
 import structures.ListNum;
 import structures.LongList;
 import tracker.ReadStats;
+import ukmer.Kmer;
 
 /**
  * Wraps a BloomFilter to filter or correct reads.
@@ -101,8 +102,16 @@ public class BloomFilterCorrectorWrapper {
 		boolean vstrict_=true;
 		boolean ustrict_=false;
 		float highCountFraction_=1.0f;
-		corrector=new BloomFilterCorrector(null, k_, k_);
-		
+		//Buffered because the k>31 dispatch decision needs the FINAL k_ value,
+		//known only after the whole arg list is parsed -- so corrector can't be
+		//constructed (and therefore can't have these set on it directly) until
+		//after this loop, same as every other buffered `_`-suffixed local above.
+		boolean pincer_=false;
+		boolean tail_=false;
+		boolean reassemble_=true;
+		boolean smooth_=true;
+		int smoothWidth_=3;
+
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
@@ -120,7 +129,7 @@ public class BloomFilterCorrectorWrapper {
 			
 			else if(a.equalsIgnoreCase("k") || a.equalsIgnoreCase("bloomK") || a.equalsIgnoreCase("bloomFilterK") || a.equalsIgnoreCase("kbig")){
 				k_=Integer.parseInt(b);
-				assert(k_>0 && k_<=31) : "K must be between 1 and 31, inclusive.";
+				assert(k_>0) : "K must be positive.";
 			}else if(a.equalsIgnoreCase("ksmall") || a.equalsIgnoreCase("bloomKsmall") || a.equalsIgnoreCase("bloomFilterKsmall")){
 				ksmall_=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("hashes") || a.equalsIgnoreCase("bloomHashes") || a.equalsIgnoreCase("bloomFilterHashes")){
@@ -166,21 +175,20 @@ public class BloomFilterCorrectorWrapper {
 			}
 			
 			else if(a.equals("pincer")){
-				corrector.ECC_PINCER=Parse.parseBoolean(b);
+				pincer_=Parse.parseBoolean(b);
 			}else if(a.equals("tail")){
-				corrector.ECC_TAIL=Parse.parseBoolean(b);
+				tail_=Parse.parseBoolean(b);
 			}else if(a.equals("reassemble")){
-				corrector.ECC_REASSEMBLE=Parse.parseBoolean(b);
+				reassemble_=Parse.parseBoolean(b);
 			}else if(a.equals("smooth")){
 				if(b!=null && Character.isDigit(b.charAt(0))){
-					corrector.smoothWidth=Integer.parseInt(b);
-					corrector.smooth=corrector.smoothWidth>0;
+					smoothWidth_=Integer.parseInt(b);
+					smooth_=smoothWidth_>0;
 				}else{
-					corrector.smooth=Parse.parseBoolean(b);
+					smooth_=Parse.parseBoolean(b);
 				}
-//				assert(false) : corrector.smooth+", "+corrector.smoothWidth;
 			}else if(a.equals("smoothwidth")){
-				corrector.smoothWidth=Integer.parseInt(b);
+				smoothWidth_=Integer.parseInt(b);
 			}else if(a.equals("cells")){
 				BloomFilter.OVERRIDE_CELLS=Parse.parseKMG(b);
 			}else if(a.equals("seed")){
@@ -215,11 +223,30 @@ public class BloomFilterCorrectorWrapper {
 		
 		if(ksmall_<=0){ksmall_=k_;}
 		assert(ksmall_<=k_) : k_+", "+ksmall_;
-		
+
+		if(k_>31){
+			//BFC2 does not support the ksmall sliding-window trick (orthogonal to
+			//k>31 support per the plan's Gotchas) -- force ksmall=k, and normalize
+			//to the ACTUAL representable length: ukmer.Kmer's multi-word split can
+			//round kbig down (see Kmer.getKbig), and build (ReadCounter.addReadBig)
+			//and query (BFC2) must agree on the exact same k or their hashes will
+			//silently disagree -- the crux's worst failure mode.
+			final int requestedK=k_;
+			k_=Kmer.getKbig(k_);
+			ksmall_=k_;
+			if(k_!=requestedK){
+				outstream.println("Note: k="+requestedK+" is not evenly representable and was rounded down to k="+k_+".");
+			}
+		}
+
 		k=k_;
 		ksmall=Tools.min(k, ksmall_);
-		corrector.k=k_;
-		corrector.ksmall=ksmall_;
+		corrector=(k_>31 ? new BloomFilterCorrector2(null, k_, ksmall_) : new BloomFilterCorrector1(null, k_, ksmall_));
+		corrector.ECC_PINCER=pincer_;
+		corrector.ECC_TAIL=tail_;
+		corrector.ECC_REASSEMBLE=reassemble_;
+		corrector.smooth=smooth_;
+		corrector.smoothWidth=smoothWidth_;
 		bits=bits_;
 		hashes=hashes_;
 		minCount=minCount_;
