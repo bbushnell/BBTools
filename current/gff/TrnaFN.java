@@ -47,13 +47,13 @@ public class TrnaFN {
 
 		// aggregation
 		final TreeMap<String,int[]> byAmino=new TreeMap<>();      // amino -> {fn}
-		final TreeMap<String,int[]> byDomain=new TreeMap<>();     // domain -> {refTotal, fn, fnIntron, callTotal, fp}
+		final TreeMap<String,int[]> byDomain=new TreeMap<>();     // domain -> {refTotal, fn, fnIntron, callTotal, fp, tp, bothExact, fiveExact, threeExact}
 		final int[] lenBins=new int[6];                            // <70,70-79,80-89,90-99,100-119,>=120
 		int totalRef=0, totalFN=0, totalIntronFN=0, missingGenomes=0, processedGenomes=0;
 
 		for(int t=1; t+2<args.length; t+=3){
 			final String domain=args[t], benchList=args[t+1], calledDir=args[t+2];
-			byDomain.putIfAbsent(domain, new int[5]);
+			byDomain.putIfAbsent(domain, new int[9]);
 			//COMBINED mode: if calledDir is a single GFF file (one-JVM batched callgenes output over ALL
 			//genomes at once), load it once keyed by RAW seqid; else the original per-genome <name>.gff dir.
 			//seqids are globally unique, so a genome's calls are exactly the combined calls on its ref
@@ -101,7 +101,16 @@ public class TrnaFN {
 				for(GffLine r : refs){
 					totalRef++;
 					byDomain.get(domain)[0]++;
-					if(overlapsAny(r, callsBySeqid.get(r.seqid))){continue;}
+					GffLine match=bestOverlap(r, callsBySeqid.get(r.seqid));
+					if(match!=null){
+						int[] dv=byDomain.get(domain);
+						dv[5]++;
+						boolean fiveEx=(r.start==match.start), threeEx=(r.stop==match.stop);
+						if(fiveEx && threeEx){dv[6]++;}
+						if(fiveEx){dv[7]++;}
+						if(threeEx){dv[8]++;}
+						continue;
+					}
 					// FALSE NEGATIVE
 					final String[] aa=refAmino(r.attributes);
 					final String amino=aa[0], anticodon=(aa[1]==null ? "NA" : aa[1]);
@@ -125,23 +134,26 @@ public class TrnaFN {
 
 		System.err.println("=== tRNA FALSE-NEGATIVE characterization ===");
 		System.err.println("Genomes processed: "+processedGenomes+" (missing/skipped: "+missingGenomes+")");
-		System.err.printf("Total reference tRNAs: %d | FN (unmatched): %d (%.1f%% miss = recall %.1f%%)%n",
+		System.err.printf("Total reference tRNAs: %d | FN (unmatched): %d (%.2f%% miss = recall %.2f%%)%n",
 			totalRef, totalFN, 100.0*totalFN/Math.max(1,totalRef), 100.0*(totalRef-totalFN)/Math.max(1,totalRef));
 		System.err.println("FN written: "+outPrefix+"_fn.tsv");
 
-		int totalCall=0, totalFP=0;
-		System.err.println("\n-- by domain (ref / FN / recall | calls / FP / precision | FN-intron>100nt) --");
+		int totalCall=0, totalFP=0, totalTP=0, totalBoth=0, totalFive=0, totalThree=0;
+		System.err.println("\n-- by domain --");
 		for(Map.Entry<String,int[]> e : byDomain.entrySet()){
 			final int[] v=e.getValue();
-			final int tp=v[3]-v[4];
-			totalCall+=v[3]; totalFP+=v[4];
-			System.err.printf("  %-10s ref=%-5d FN=%-4d recall=%.1f%% | calls=%-5d FP=%-4d prec=%.1f%% | FN_intron=%d%n",
+			final int tp=v[5];
+			totalCall+=v[3]; totalFP+=v[4]; totalTP+=tp;
+			totalBoth+=v[6]; totalFive+=v[7]; totalThree+=v[8];
+			System.err.printf("  %-10s ref=%-5d FN=%-4d recall=%.2f%% | calls=%-5d FP=%-4d prec=%.2f%% | both-exact=%.2f%% 5p=%.2f%% 3p=%.2f%%%n",
 				e.getKey(), v[0], v[1], 100.0*(v[0]-v[1])/Math.max(1,v[0]),
-				v[3], v[4], 100.0*tp/Math.max(1,v[3]), v[2]);
+				v[3], v[4], 100.0*(v[3]-v[4])/Math.max(1,v[3]),
+				100.0*v[6]/Math.max(1,tp), 100.0*v[7]/Math.max(1,tp), 100.0*v[8]/Math.max(1,tp));
 		}
-		System.err.printf("  %-10s ref=%-5d FN=%-4d recall=%.1f%% | calls=%-5d FP=%-4d prec=%.1f%%%n",
+		System.err.printf("  %-10s ref=%-5d FN=%-4d recall=%.2f%% | calls=%-5d FP=%-4d prec=%.2f%% | both-exact=%.2f%% 5p=%.2f%% 3p=%.2f%%%n",
 			"TOTAL", totalRef, totalFN, 100.0*(totalRef-totalFN)/Math.max(1,totalRef),
-			totalCall, totalFP, 100.0*(totalCall-totalFP)/Math.max(1,totalCall));
+			totalCall, totalFP, 100.0*(totalCall-totalFP)/Math.max(1,totalCall),
+			100.0*totalBoth/Math.max(1,totalTP), 100.0*totalFive/Math.max(1,totalTP), 100.0*totalThree/Math.max(1,totalTP));
 
 		System.err.println("\n-- FN by amino acid (which families are missed) --");
 		// sort by count desc
@@ -160,18 +172,23 @@ public class TrnaFN {
 			totalIntronFN, totalFN, 100.0*totalIntronFN/Math.max(1,totalFN));
 	}
 
-	/** Ref is matched iff any call on the same seqid overlaps by reciprocal >50%
-	 * (2*overlap > max(refLen, qryLen)) — identical predicate to CompareGff.overlapMetrics. */
-	private static boolean overlapsAny(GffLine r, ArrayList<GffLine> calls){
-		if(calls==null){return false;}
-		final int rs=r.start, re=r.stop, refLen=re-rs;//no-+1 convention (matches CompareGff)
+	/** Returns the best-overlapping call (by overlap fraction), or null if no call
+	 * overlaps by reciprocal >50% (2*overlap > max(refLen, qryLen)). */
+	private static GffLine bestOverlap(GffLine r, ArrayList<GffLine> calls){
+		if(calls==null){return null;}
+		final int rs=r.start, re=r.stop, refLen=re-rs;
+		GffLine best=null; int bestOv=0;
 		for(GffLine q : calls){
-			if(q.start>re){break;}//sorted by start
+			if(q.start>re){break;}
 			final int ov=Math.min(re, q.stop)-Math.max(rs, q.start);
 			final int qryLen=q.stop-q.start;
-			if(2*ov>Math.max(refLen, qryLen)){return true;}
+			if(2*ov>Math.max(refLen, qryLen) && ov>bestOv){bestOv=ov; best=q;}
 		}
-		return false;
+		return best;
+	}
+
+	private static boolean overlapsAny(GffLine r, ArrayList<GffLine> calls){
+		return bestOverlap(r, calls)!=null;
 	}
 
 	private static String[] refAmino(String attr){

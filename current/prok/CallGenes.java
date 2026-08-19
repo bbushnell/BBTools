@@ -391,6 +391,10 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.SCAVENGE_ONLY=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("mintrnakhits") || a.equalsIgnoreCase("mintrnakmerhits")){
 				prok.TrnaCaller.MIN_TRNA_KHITS=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("scavpad") || a.equalsIgnoreCase("scavengepad")){
+				prok.TrnaCaller.SCAV_PAD=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("scavcollapse") || a.equalsIgnoreCase("collapsefrac")){
+				prok.TrnaCaller.SCAV_COLLAPSE_FRAC=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("acextract") || a.equalsIgnoreCase("anticodonextract")){
 				prok.TrnaCaller.extractAnticodons=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("acvalidate") || a.equalsIgnoreCase("acthresh")){

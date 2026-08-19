@@ -792,7 +792,7 @@ public class TrnaCaller extends ProkObject {
 			int[] next=windows.get(i);
 			int overlap=Tools.min(current[1], next[1])-Tools.max(current[0], next[0]);
 			int shorter=Tools.min(current[1]-current[0], next[1]-next[0]);
-			if(overlap>0 && overlap>=shorter*0.9f){
+			if(overlap>0 && overlap>=shorter*SCAV_COLLAPSE_FRAC){
 				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1])};
 			}else{
 				if(current[1]-current[0]>=MIN_TRNA){result.add(current);}
@@ -1063,9 +1063,10 @@ public class TrnaCaller extends ProkObject {
 	static boolean SCAVENGE=false;
 	static boolean SCAVENGE_ONLY=true;
 	static boolean SCAVENGE_PASS2=true;
-	static final int SCAV_PAD=83;
-	static final int SCAV_QUANTUM_THRESH=120;
-	static final int SCAV_NEARBY=200;
+	static int SCAV_PAD=83;
+	static int SCAV_QUANTUM_THRESH=120;
+	static int SCAV_NEARBY=200;
+	static float SCAV_COLLAPSE_FRAC=0.9f;
 	static boolean earlyExit=true;
 	//Raised 10->20 to the measured-best scavenger eval config (Brian, 2026-08-16); flag patience= overrides.
 	static int earlyExitPatience=20;
