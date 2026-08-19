@@ -385,6 +385,8 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.DEBUG=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("trnaintron")){
 				prok.TrnaCaller.INTRON_PASS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("trnaintronac") || a.equalsIgnoreCase("intronanticodon")){
+				prok.TrnaCaller.INTRON_ANTICODON_RECOVERY=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("trnascavenge") || a.equalsIgnoreCase("scavenge")){
 				prok.TrnaCaller.SCAVENGE=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("trnascavengeonly") || a.equalsIgnoreCase("scavengeonly")){

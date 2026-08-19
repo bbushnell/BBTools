@@ -752,7 +752,89 @@ public class TrnaCaller extends ProkObject {
 				}
 			}
 		}
+		if(annotate && INTRON_ANTICODON_RECOVERY && !results.isEmpty()){
+			recoverIntronAnticodons(bases, results);
+		}
 		return results;
+	}
+
+	/**
+	 * Post-hoc anticodon recovery for already-called intron-bearing tRNAs.  Archaeal tRNA introns sit in
+	 * the anticodon loop, so extractAnticodon's projection over the UNSPLICED locus fails and the anticodon
+	 * field is dropped (the intron is an insertion sitting exactly where the projection reads).  For each
+	 * accepted tRNA that has a confident model annotation but no extracted anticodon, locate the intron by
+	 * inner score, splice it out, and re-extract the anticodon on the mature product.  The call's SPAN is
+	 * unchanged (still the full genomic locus, matching the reference annotation); only the anticodon
+	 * annotation is recovered.  Cost is zero when every call already has an anticodon -- the scanInner
+	 * prefix-sum is computed lazily, only when a recovery candidate exists.
+	 */
+	private void recoverIntronAnticodons(byte[] bases, ArrayList<Orf> results){
+		//Cheap gate: pay scanInner only if at least one call is a recovery candidate (confident model, no AC).
+		boolean any=false;
+		for(Orf orf : results){
+			if(orf.trnaAnticodon==null && orf.trnaModel!=null){any=true; break;}
+		}
+		if(!any){return;}
+		final float[] cumulative=scanInner(bases);
+		for(Orf orf : results){
+			if(orf.trnaAnticodon!=null || orf.trnaModel==null){continue;}
+			final int model=modelIndexByName(orf.trnaModel);
+			if(model<0){continue;}
+			//The mature length is unknown (consensus models carry variable-arm padding, so model length != mature
+			//length), and the inner-score locator over-removes if handed a length target.  Instead SEARCH intron
+			//lengths and let extractAnticodon's own structural validation pick the splice: the correct intron is
+			//the one whose mature product reconstitutes a valid anticodon loop.  Smallest valid intron wins (least
+			//removal; archaeal introns are small).  Bounded (INTRON_AC_MIN..MAX aligns), only on null-AC loci.
+			//Precision gate: a wrong-length splice can shift the frame and pass extractAnticodon's structural
+			//check with a biologically WRONG triplet (observed: a UAA/Leu model yielding GAA/Phe when the splice
+			//ate the anticodon).  Require the recovered anticodon to be CONSISTENT with the matched model's own
+			//anticodon -- the correct splice reconstitutes the EXPECTED loop, not merely a plausible one.  Models
+			//are anticodon-grouped, so a genuine intron tRNA matching a UAA model has a UAA anticodon.
+			final byte[] wantBytes=parseLibraryAnticodon(orf.trnaModel);
+			final String wantAc=(wantBytes!=null ? new String(wantBytes) : null);
+			final int span=orf.stop-orf.start+1;
+			String ac=null; int acGis=-1, acGie=-1, acLen=0;
+			for(int il=INTRON_AC_MIN; il<=INTRON_AC_MAX; il++){
+				final int splicedLen=span-il;
+				if(splicedLen<MIN_TRNA){break;}
+				final int[] intron=bestIntronOfLength(cumulative, orf.start, orf.stop, il);
+				if(intron==null){continue;}
+				final byte[] product=spliceOut(bases, orf.start, orf.stop, intron[0], intron[1]);
+				if(product==null || product.length<MIN_TRNA){continue;}
+				final AlignmentStats stats=alignToModel(product, model);
+				final String cand=extractAnticodon(product, model, stats);
+				//wantAc==null only for UNK/unparseable models; accept any valid there (no expectation to check).
+				if(cand!=null && (wantAc==null || cand.equals(wantAc))){ac=cand; acGis=intron[0]; acGie=intron[1]; acLen=product.length; break;}
+			}
+			if(ac!=null){
+				orf.trnaAnticodon=ac;
+				if(DEBUG){System.err.println("ACRECOVER\t"+orf.start+"\t"+orf.stop+"\tintron="+acGis+"-"+acGie
+					+"\tintronLen="+(acGie-acGis+1)+"\tsplicedLen="+acLen+"\tac="+ac+"\tmodel="+orf.trnaModel);}
+			}else if(DEBUG){System.err.println("ACRECOVER_FAIL\t"+orf.start+"\t"+orf.stop+"\tspan="+span+"\tmodel="+orf.trnaModel);}
+		}
+	}
+
+	/** Best (lowest total inner-score, i.e. most intron-like) position for an intron of exactly length il
+	 * within [start,stop], keeping at least MIN_EXON_SPLICE of exon on each side.  Returns {gis,gie}
+	 * genomic-inclusive, or null if no position fits. */
+	private int[] bestIntronOfLength(float[] cumulative, int start, int stop, int il){
+		final int lo=start+MIN_EXON_SPLICE, hi=stop-MIN_EXON_SPLICE;
+		int bestGis=-1, bestGie=-1; float bestRemoved=Float.MAX_VALUE;
+		for(int gis=lo; gis+il-1<=hi; gis++){
+			final int gie=gis+il-1;
+			final float removed=cumulative[gie]-cumulative[gis-1];
+			if(removed<bestRemoved){bestRemoved=removed; bestGis=gis; bestGie=gie;}
+		}
+		return bestGis<0 ? null : new int[]{bestGis, bestGie};
+	}
+
+	/** Linear scan of modelNames for an exact match; returns the model index, or -1 if not found. */
+	private int modelIndexByName(String name){
+		if(modelNames==null || name==null){return -1;}
+		for(int i=0; i<modelNames.length; i++){
+			if(name.equals(modelNames[i])){return i;}
+		}
+		return -1;
 	}
 
 	private int[] findKmerHitPositions(byte[] bases){
@@ -1041,6 +1123,18 @@ public class TrnaCaller extends ProkObject {
 	static final int INTRON_VERIFY_TOPN=12;
 	/** Master on/off for the two-half intron pass (flag trnaintron=). */
 	static boolean INTRON_PASS=true;
+	/** Post-hoc anticodon recovery for intron-bearing tRNAs (flag trnaintronac=): for an already-called
+	 * tRNA with a confident model but no extracted anticodon, splice out the intron (inner-score located)
+	 * and re-extract the anticodon on the mature product.  Recovers the anticodon the unspliced projection
+	 * drops (archaeal introns sit in the anticodon loop); the call's span is unchanged.  DEFAULT false --
+	 * measured high-precision (10/10 correct, 0 spurious) on 3 genomes but NOT yet Dori-scale validated;
+	 * enable with trnaintronac=t.  (Noire, 2026-08-19; evidence/anticodon_splice_recovery_20260819.md.) */
+	static boolean INTRON_ANTICODON_RECOVERY=false;
+	/** Intron-length search bounds (bp) for anticodon recovery: try each length, splice, and let
+	 * extractAnticodon validate; smallest length yielding a valid anticodon wins.  Archaeal tRNA introns
+	 * are small (typically ~15-40bp), 3' of the anticodon. */
+	static int INTRON_AC_MIN=10;
+	static int INTRON_AC_MAX=45;
 	/** Intron-span tracking cap: the intron pass considers spans up to this even when the normal
 	 * candidate cap (MAX_TRNA) is lower, so long introns are found without a global maxtrna=. */
 	static final int INTRON_MAX_SPAN=260;
