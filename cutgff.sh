@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified October 15, 2019
+Last modified August 19, 2026
 
 Description:  Cuts out features defined by a gff file, and writes them
 to a new fasta.  Features are output in their sense strand.
@@ -31,6 +31,14 @@ bannedattributes=   A comma-delimited list of banned strings.
 banpartial=t        Ignore lines with 'partial=true' in attributes.
 minlen=1            Ignore lines shorter than this.
 maxlen=2147483647   Ignore lines longer than this.
+flank=0             Add this many bases of genomic flank to each side of every
+                    extracted feature (0 disables; output is byte-identical to
+                    legacy).  Useful for capturing junction/context sequence.
+                    minlen/maxlen still filter the feature length (pre-flank);
+                    the flank is clipped at contig ends, and each output header
+                    gains 'lflank=/rflank=' giving the bases actually added on
+                    the 5'/3' side (may be less than flank at a contig edge).
+                    Alias: pad=.
 renamebytaxid=f     Rename sequences with their taxID.  Input sequences
                     must be named appropriately, e.g. in NCBI format.
 taxmode=accession   Valid modes are:

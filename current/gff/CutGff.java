@@ -186,6 +186,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 				minLen=Integer.parseInt(b);
 			}else if(a.equals("maxlen")){
 				maxLen=Integer.parseInt(b);
+			}else if(a.equals("flank") || a.equals("pad")){
+				flank=Integer.parseInt(b);
 			}
 			
 			else if(ProkObject.parse(arg, a, b)){
@@ -555,11 +557,26 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 						}
 					}else{
 						if(start>=0 && stop<scaf.length()){
+							final int extStart=Tools.max(0, start-flank);
+							final int extStop=Tools.min(scaf.length()-1, stop+flank);
+							final int leftFlank=start-extStart;//genomic-left flank actually applied (may be < flank at a contig edge)
+							final int rightFlank=extStop-stop;//genomic-right flank actually applied
+							assert(leftFlank>=0 && leftFlank<=flank) : leftFlank+", "+flank;
+							assert(rightFlank>=0 && rightFlank<=flank) : rightFlank+", "+flank;
+
 							String id=gline.attributes;
 							if(renameByTaxID){
 								id="tid|"+scaf.obj+"|"+id;
 							}
-							Read r=new Read(Arrays.copyOfRange(scaf.bases, start, stop+1), null, id, 1);
+							if(flank>0){
+								//lflank/rflank describe the OUTPUT record's 5'->3' orientation: on a minus-strand
+								//feature the genomic-right flank becomes the record's 5' leader after the
+								//reverseComplement below, so left/right swap. Plus strand: no swap needed.
+								final int lflank=(gline.strand==GffLine.MINUS ? rightFlank : leftFlank);
+								final int rflank=(gline.strand==GffLine.MINUS ? leftFlank : rightFlank);
+								id=id+" lflank="+lflank+" rflank="+rflank;
+							}
+							Read r=new Read(Arrays.copyOfRange(scaf.bases, extStart, extStop+1), null, id, 1);
 							r.obj=identity;
 							
 							assert(!r.containsLowercase()) : r.toFasta()+"\n"
@@ -862,6 +879,8 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	private int minLen=1;
 	/** Maximum feature length to retain */
 	private int maxLen=Integer.MAX_VALUE;
+	/** Bases of genomic-space flank to add to each side of an extracted feature (0=off, byte-identical to legacy output) */
+	private int flank=0;
 
 	/** Array of attributes that must be present for feature retention */
 	private String[] requiredAttributes;
