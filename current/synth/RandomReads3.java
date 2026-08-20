@@ -690,7 +690,7 @@ public final class RandomReads3 {
 	private final static void addErrorsFromQuality(Read r, Random randy){
 		addErrorsFromQuality(r, randy, 0, r.length());
 	}
-	
+
 	/**
 	 * Adds sequencing errors to a specific region of a read based on quality scores.
 	 *
@@ -700,7 +700,13 @@ public final class RandomReads3 {
 	 * @param to End position for error introduction
 	 */
 	private final static void addErrorsFromQuality(Read r, Random rand, final int from, final int to){
-		final byte[] quals=r.quality, bases=r.bases;
+		addErrorsFromQuality(r.bases, r.quality, rand, from, to);
+	}
+
+	/** Raw-array form of {@link #addErrorsFromQuality(Read, Random, int, int)}, usable before a
+	 * Read object exists - needed so quality-based errors can be applied before the truth CIGAR
+	 * is built (see synth/RandomReads3#001: the CIGAR must reflect the FINAL bases). */
+	private final static void addErrorsFromQuality(byte[] bases, byte[] quals, Random rand, final int from, final int to){
 		for(int i=from; i<to; i++){
 			final byte q=(quals==null ? 30 : quals[i]);
 			if(AminoAcid.isFullyDefined(bases[i]) && rand.nextFloat()<align2.QualityTools.PROB_ERROR[q]){
@@ -2105,7 +2111,29 @@ public final class RandomReads3 {
 		}
 		final int x=locs[0], y=locs[bases.length-1];
 
-		// Build CIGAR before RC so it's in forward-ref orientation
+		// Generate quality scores now (forward orientation), before the CIGAR is built, so
+		// quality-based errors can be applied to bases first and the CIGAR reflects the truth.
+		// Fixed 2026-08-19 (synth/RandomReads3#001): this block and the addErrorsFromQuality call
+		// below used to run AFTER buildCigar (and after Read construction), so the embedded truth
+		// CIGAR went stale whenever ADD_ERRORS_FROM_QUALITY (default true) actually introduced an
+		// error - empirically confirmed with 3000 phix reads (randomreads.sh ref=phix2.fa.gz
+		// reads=3000 length=150 addcigar=t): independent bbmap.sh remapping found 1237 real
+		// substitution errors across 940/3000 reads, while every embedded CIGAR read "150="
+		// (claimed zero mismatches). Moving quality generation + error injection here, before
+		// buildCigar, closes that gap for the default path.
+		byte[] quals=null;
+		if(USE_FIXED_QUALITY){
+			quals=getFixedQualityRead(bases.length);
+		}else{
+			quals=align2.QualityTools.makeQualityArray(bases.length, randyQual, minQual, maxQual, baseQuality, slant, qVariance);
+		}
+		for(int j=0; j<quals.length; j++){
+			if(!AminoAcid.isFullyDefined(bases[j])){quals[j]=0;}
+		}
+		if(ADD_ERRORS_FROM_QUALITY && !perfect){addErrorsFromQuality(bases, quals, randyQual, 0, bases.length);}
+
+		// Build CIGAR before RC so it's in forward-ref orientation, and after quality-based
+		// errors so it reflects the actual final bases (see synth/RandomReads3#001 above).
 		final byte[] cigar=(ADD_CIGAR ? buildCigar(bases, locs, cha, bases.length) : null);
 
 		if(verbose){
@@ -2114,13 +2142,13 @@ public final class RandomReads3 {
 			outstream.println(Arrays.toString(Arrays.copyOf(locs, Tools.min(locs.length, bases.length))));
 			if(cigar!=null){outstream.println("cigar: "+new String(cigar));}
 		}
-		
+
 //		if(FORCE_LOC>=0 || FORCE_CHROM>=0){
 //			if(y<0 || y+readlen>)
 //		}
 		assert(FORCE_LOC>=0 || FORCE_CHROM>=0 || y<=cha.maxIndex) : y+", "+r0;
 		assert(FORCE_LOC>=0 || FORCE_CHROM>=0 || cha.get(y)>0) : cha.get(y);
-		
+
 		if(strand==Shared.MINUS){
 			Vector.reverseComplementInPlaceFast(bases);
 			//Reverse loc array; not really necessary
@@ -2129,13 +2157,19 @@ public final class RandomReads3 {
 				locs[i]=locs[bases.length-i-1];
 				locs[bases.length-i-1]=tmp;
 			}
+			//Reverse quals in lockstep with bases now that quals is generated pre-RC (see above).
+			for(int i=0, lim=quals.length/2; i<lim; i++){
+				byte tmp=quals[i];
+				quals[i]=quals[quals.length-i-1];
+				quals[quals.length-i-1]=tmp;
+			}
 			if(verbose){
 				outstream.println("After reverse-complement: ");
 				outstream.println(new String(bases));
 				outstream.println(Arrays.toString(Arrays.copyOf(locs, bases.length)));
 			}
 		}
-		
+
 		if(verbose){
 			outstream.println("Final lineup: ");
 			outstream.println(new String(bases));
@@ -2146,31 +2180,23 @@ public final class RandomReads3 {
 			}
 			outstream.println();
 		}
-		
-		byte[] quals=null;
-		if(USE_FIXED_QUALITY){
-			quals=getFixedQualityRead(bases.length);
-		}else{
-//			if(perfect){
-//				quals=QualityTools.makeQualityArray(bases.length, randyQual, 30, 40, baseQuality, slant, qVariance);
-//			}else{
-				quals=align2.QualityTools.makeQualityArray(bases.length, randyQual, minQual, maxQual, baseQuality, slant, qVariance);
-//			}
-		}
-		for(int j=0; j<quals.length; j++){
-			if(!AminoAcid.isFullyDefined(bases[j])){quals[j]=0;}
-		}
-		
-		
+
 //		Read r=new Read(bases, chrom, (byte)strand, loc, loc+bases.length-1, rid, quals, false);
 		Read r=new Read(bases, quals, rid, chrom, x, y, (byte)strand);
 		r.setSynthetic(true);
 		if(cigar!=null){r.match=cigar;}
 		assert(r.length()==readlen);
 
-		if(ADD_ERRORS_FROM_QUALITY && !perfect){addErrorsFromQuality(r, randyQual);}
 		if(ADD_PACBIO_ERRORS && !perfect){
 			addPacBioErrors(r, randyQual.nextFloat()*(pbMaxErrorRate-pbMinErrorRate)+pbMinErrorRate, (1+randyQual.nextFloat())*(pbMaxErrorRate-pbMinErrorRate)*0.25f);
+			//addPacBioErrors rebuilds r.bases from scratch with real insertions/deletions, completely
+			//decoupled from the locs[] array the CIGAR above was built from (see synth/RandomReads3#001).
+			//Reconstructing an accurate indel-aware CIGAR here would also require reconciling r.start/
+			//r.stop with the shifted length, which is a bigger change than this fix covers - not
+			//attempted without the same empirical verification the quality-error fix got. Null the
+			//truth CIGAR instead of shipping a wrong one: GradeSamFile already reports "no truth cigar"
+			//as a normal category (align2/GradeSamFile.java) rather than requiring one.
+			r.match=null;
 		}else{
 			assert(r.length()==readlen);
 		}
