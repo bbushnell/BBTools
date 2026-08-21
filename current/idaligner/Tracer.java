@@ -1,6 +1,5 @@
 package idaligner;
 
-import dna.AminoAcid;
 import structures.ByteBuilder;
 import structures.LongList;
 
@@ -46,15 +45,24 @@ public class Tracer{
 			
 			final byte q=query[r-1];
 			final byte refBase=ref[c-1];
-			final boolean match=(q==refBase && AminoAcid.isFullyDefined(q));
-			//FIXED (Noire, Aug 21 2026): was !(isFullyDefined(q)&&isFullyDefined(refBase)), which
-			//treats ANY non-ACGT ambiguity code (Y, R, etc.) as hasN=true. The FILL step
-			//(ScrabbleAligner hasN=(q=='N'||r=='N')) only special-cases a LITERAL 'N' -- a non-N
-			//code like Y scores SUB there, not N_SCORE. That mismatch (traceback assuming N_SCORE
-			//where the fill actually charged SUB) breaks the score-replication invariant this
-			//traceback depends on, causing a real "Traceback desync" assert at corpus scale (see
-			//the repro this replaced, above this method's history). Matching the fill's exact
-			//literal-N test here makes the two sides agree at every cell.
+			//FIXED (Noire+Neptune, Aug 21 2026), in TWO passes -- both match and hasN must mirror
+			//the fill's ScrabbleAligner isMatch=(q==r && q!='N') / hasN=(q=='N'||r=='N') EXACTLY, not
+			//an isFullyDefined-based approximation:
+			//Pass 1 (hasN): was !(isFullyDefined(q)&&isFullyDefined(refBase)), which treats ANY
+			//non-ACGT ambiguity code (Y, R, etc.) as hasN=true; the fill only special-cases a
+			//LITERAL 'N'. Fixed to q=='N'||refBase=='N'.
+			//Pass 2 (match, this line): was (q==refBase && isFullyDefined(q)), which says two
+			//IDENTICAL non-N ambiguity codes (e.g. Y==Y -- real case: a candidate that IS its own
+			//model's pivot sequence, both carrying the same ambiguous base from the source genome)
+			//are NOT a match, since isFullyDefined('Y') is false. But the fill's isMatch=(q==r &&
+			//q!='N') says Y==Y at q!='N' IS a match. That second discrepancy (traceback expecting
+			//SUB where the fill actually charged MATCH) produced a SECOND distinct "Traceback
+			//desync" repro at full-corpus scale, found the same day as pass 1 (model
+			//tRNA_consensus_GUG_c53, candidate byte-identical to its own model.original, differing
+			//only in this one 'Y'). Fixed to mirror the fill's isMatch test exactly: q==refBase &&
+			//q!='N' (not isFullyDefined). Verified against all 4 cases (match/hasN/mismatched-
+			//ambiguous/plain-sub) -- see the reasoning in the plan/slush record, not reproduced here.
+			final boolean match=(q==refBase && q!='N');
 			final boolean hasN=(q=='N' || refBase=='N');
 			final long scoreAdd=match ? MATCH : (hasN ? N_SCORE : SUB);
 			
