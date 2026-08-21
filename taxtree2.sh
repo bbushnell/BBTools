@@ -3,16 +3,17 @@
 usage(){
 echo "
 Written by Brian Bushnell.
-Last modified August 13, 2026
+Last modified August 21, 2026
 
-Description:  Converts a serialized TaxTree to the compact TaxTree2 A48 text
-format, reloads it, and validates every persisted node and tree field.
+Description:  Converts a TaxTree between portable TSV and legacy serialized
+formats according to the output extension, reloads it, and validates every
+persisted node and tree field.
 
-Usage:  taxtree2.sh in=tree.taxtree.gz out=tree.taxtree2.gz
+Usage:  taxtree2.sh in=tree.taxtree.gz out=taxtree.tsv.gz
 
 Parameters:
-in=<file>       Serialized TaxTree input.  Defaults to the bundled tree.
-out=<file>      TaxTree2 output.  Defaults to the input name with a 2 suffix.
+in=<file>       TaxTree input.  Defaults to the bundled tree.
+out=<file>      Output; .tsv[.gz] selects text, otherwise legacy serialization.
 overwrite=f     Overwrite an existing output file.
 
 Java Parameters:

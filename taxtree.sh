@@ -3,14 +3,13 @@
 usage(){
 echo "
 Written by Brian Bushnell.
-Last modified Jan 7, 2020
+Last modified August 21, 2026
 
-Description:  Creates tree.taxtree from names.dmp and nodes.dmp.
-These are in taxdmp.zip available at ftp://ftp.ncbi.nih.gov/pub/taxonomy/
-The taxtree file is needed for programs that can deal with taxonomy,
-like Seal and SortByTaxa.
+Description:  Creates a TaxTree from names.dmp, nodes.dmp, and merged.dmp.
+These are in taxdmp.zip from NCBI.  A .tsv or .tsv.gz output uses the portable
+text representation; any other extension uses legacy Java serialization.
 
-Usage:  taxtree.sh names.dmp nodes.dmp merged.dmp tree.taxtree.gz
+Usage:  taxtree.sh names.dmp nodes.dmp merged.dmp taxtree.tsv.gz
 
 Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.

@@ -160,6 +160,7 @@ public abstract class ByteFile {
 	 * Called by subclass reset() implementations. */
 	final void superReset(){
 		nextID=0;
+		nextRecordNum=0;
 	}
 	
 	/**
@@ -168,13 +169,23 @@ public abstract class ByteFile {
 	 * TARGET_LIST_SIZE lines (default 800) or TARGET_LIST_BYTES bytes
 	 * (default 262144), whichever is reached first.
 	 * Provides efficient batch processing for large files.
-	 * Each ListNum carries a unique sequential ID.
+	 * Each ListNum returned by this implementation carries a unique sequential ID
+	 * and zero-based first record number.
 	 * @return ListNum of byte-array lines (up to the size/byte cap), or null if EOF
 	 */
 	public ListNum<byte[]> nextList(){
 		synchronized(nlSync) {
-			return nextListAsync();
+			return numberList(nextListAsync());
 		}
+	}
+
+	/** Assigns the zero-based record origin for lists returned by {@link #nextList()}. */
+	private final ListNum<byte[]> numberList(ListNum<byte[]> ln){
+		if(ln!=null){
+			ln.firstRecordNum=nextRecordNum;
+			nextRecordNum+=ln.size();
+		}
+		return ln;
 	}
 	
 	/**
@@ -310,5 +321,6 @@ public abstract class ByteFile {
 	
 //	byte[] pushBack=null;
 	protected long nextID=0;
+	private long nextRecordNum=0;
 	
 }

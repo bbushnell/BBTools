@@ -24,6 +24,7 @@ import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.IntList;
+import template.ThreadWaiter;
 
 /**
  * Represents a taxonomic tree.
@@ -47,7 +48,7 @@ public class TaxTree implements Serializable{
 	/**
 	 * Code entrance from the command line.
 	 * This is not called normally, only when converting NCBI text files
-	 * into a binary representation and writing it to disk.
+	 * into a portable TSV or legacy serialized representation.
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
@@ -58,7 +59,7 @@ public class TaxTree implements Serializable{
 			outstream=pp.outstream;
 		}
 		
-		assert(args.length>=4) : "TaxTree syntax:\ntaxtree.sh names.dmp nodes.dmp merged.dmp tree.taxtree.gz\n";
+		assert(args.length>=4) : "TaxTree syntax:\ntaxtree.sh names.dmp nodes.dmp merged.dmp taxtree.tsv.gz\n";
 		ReadWrite.USE_UNPIGZ=true;
 		ReadWrite.USE_PIGZ=true;
 		ReadWrite.ZIPLEVEL=(Shared.threads()>2 ? 11 : 9);
@@ -94,7 +95,7 @@ public class TaxTree implements Serializable{
 		outstream.println("Time: \t"+t);
 		
 		if(args.length>2){//Write a tree
-			ReadWrite.write(tree, args[3], true);
+			writeTaxTree(tree, args[3], true);
 		}
 	}
 	
@@ -197,6 +198,11 @@ public class TaxTree implements Serializable{
 
 	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
 			boolean reassign_, boolean skipNorank_, int inferRankLimit_){
+		this(nodes_, mergedMap_, minValidTaxa_, simplify_, reassign_, skipNorank_, inferRankLimit_, 1);
+	}
+
+	TaxTree(TaxNode[] nodes_, IntHashMap mergedMap_, int minValidTaxa_, boolean simplify_,
+			boolean reassign_, boolean skipNorank_, int inferRankLimit_, int threads){
 		nodes=nodes_;
 		mergedMap=mergedMap_;
 		minValidTaxa=minValidTaxa_;
@@ -204,7 +210,124 @@ public class TaxTree implements Serializable{
 		reassign=reassign_;
 		skipNorank=skipNorank_;
 		inferRankLimit=inferRankLimit_;
-		nodeCount=populateLevelData();
+		nodeCount=populateLevelData(threads);
+	}
+
+	private int populateLevelData(int threads){
+		final int threadCount=Tools.max(1, threads);
+		if(threadCount<2 || nodes.length<100000){return populateLevelData();}
+
+		ArrayList<LevelCountThread> counters=new ArrayList<LevelCountThread>(threadCount);
+		for(int tid=0; tid<threadCount; tid++){
+			int from=(int)(((long)nodes.length*tid)/threadCount);
+			int to=(int)(((long)nodes.length*(tid+1))/threadCount);
+			counters.add(new LevelCountThread(nodes, from, to));
+		}
+		ThreadWaiter.startAndWait(counters);
+
+		int count=0;
+		for(LevelCountThread ct : counters){
+			rethrow(ct.failure);
+			if(!ct.success){throw new RuntimeException("TaxTree level-count thread terminated abnormally.");}
+			count+=ct.count;
+			for(int level=0; level<nodesPerLevel.length; level++){
+				nodesPerLevel[level]+=ct.counts[level];
+			}
+			for(int level=0; level<nodesPerLevelExtended.length; level++){
+				nodesPerLevelExtended[level]+=ct.countsExtended[level];
+			}
+		}
+		for(int level=0; level<nodesPerLevelExtended.length; level++){
+			treeLevelsExtended[level]=new TaxNode[nodesPerLevelExtended[level]];
+		}
+
+		int[] offsets=new int[nodesPerLevelExtended.length];
+		ArrayList<LevelFillThread> fillers=new ArrayList<LevelFillThread>(threadCount);
+		for(LevelCountThread ct : counters){
+			fillers.add(new LevelFillThread(nodes, ct.from, ct.to, treeLevelsExtended, offsets.clone()));
+			for(int level=0; level<offsets.length; level++){
+				offsets[level]+=ct.countsExtended[level];
+			}
+		}
+		ThreadWaiter.startAndWait(fillers);
+		for(LevelFillThread ft : fillers){
+			rethrow(ft.failure);
+			if(!ft.success){throw new RuntimeException("TaxTree level-fill thread terminated abnormally.");}
+		}
+		return count;
+	}
+
+	private static void rethrow(Throwable t){
+		if(t instanceof Error){throw (Error)t;}
+		if(t instanceof RuntimeException){throw (RuntimeException)t;}
+		if(t!=null){throw new RuntimeException(t);}
+	}
+
+	private static final class LevelCountThread extends Thread {
+		LevelCountThread(TaxNode[] nodes_, int from_, int to_){
+			nodes=nodes_;
+			from=from_;
+			to=to_;
+			counts=new int[taxLevelNames.length];
+			countsExtended=new int[taxLevelNamesExtended.length];
+		}
+
+		@Override
+		public void run(){
+			try{
+				for(int i=from; i<to; i++){
+					TaxNode n=nodes[i];
+					if(n!=null){
+						if(n.id!=i){throw new IllegalArgumentException("TaxNode "+n.id+" is stored at index "+i);}
+						if(n.level<0 || n.level>=counts.length){
+							throw new IllegalArgumentException("Invalid taxonomic level "+n.level+" for TaxID "+n.id);
+						}
+						if(n.levelExtended<0 || n.levelExtended>=countsExtended.length){
+							throw new IllegalArgumentException("Invalid extended taxonomic level "+n.levelExtended+" for TaxID "+n.id);
+						}
+						counts[n.level]++;
+						countsExtended[n.levelExtended]++;
+						count++;
+					}
+				}
+				success=true;
+			}catch(Throwable t){failure=t;}
+		}
+
+		final TaxNode[] nodes;
+		final int from, to;
+		final int[] counts, countsExtended;
+		int count=0;
+		Throwable failure=null;
+		boolean success=false;
+	}
+
+	private static final class LevelFillThread extends Thread {
+		LevelFillThread(TaxNode[] nodes_, int from_, int to_, TaxNode[][] levels_, int[] offsets_){
+			nodes=nodes_;
+			from=from_;
+			to=to_;
+			levels=levels_;
+			offsets=offsets_;
+		}
+
+		@Override
+		public void run(){
+			try{
+				for(int i=from; i<to; i++){
+					TaxNode n=nodes[i];
+					if(n!=null){levels[n.levelExtended][offsets[n.levelExtended]++]=n;}
+				}
+				success=true;
+			}catch(Throwable t){failure=t;}
+		}
+
+		final TaxNode[] nodes;
+		final int from, to;
+		final TaxNode[][] levels;
+		final int[] offsets;
+		Throwable failure=null;
+		boolean success=false;
 	}
 
 	private int populateLevelData(){
@@ -315,11 +438,22 @@ public class TaxTree implements Serializable{
 	}
 
 	/** Load either the portable TSV representation or legacy Java serialization. */
-	private static TaxTree loadTaxTreeFile(String fname){
-		if(fname.endsWith(".tsv") || fname.endsWith(".tsv.gz")){
+	public static TaxTree loadTaxTreeFile(String fname){
+		if(isTextTreeFile(fname)){
 			return TaxTreeText.load(fname);
 		}
 		return ReadWrite.read(TaxTree.class, fname, true);
+	}
+
+	/** Write portable TSV or legacy Java serialization according to the filename extension. */
+	public static void writeTaxTree(TaxTree tree, String fname, boolean overwrite){
+		if(isTextTreeFile(fname)){TaxTreeText.write(tree, fname, overwrite);}
+		else{ReadWrite.write(tree, fname, overwrite);}
+	}
+
+	/** True when the raw extension, after removing compression suffixes, is {@code tsv}. */
+	public static boolean isTextTreeFile(String fname){
+		return fname!=null && "tsv".equals(ReadWrite.rawExtension(fname));
 	}
 
 	/**

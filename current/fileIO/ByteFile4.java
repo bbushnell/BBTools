@@ -224,9 +224,21 @@ public final class ByteFile4 extends ByteFile{
 		return currentList.get(listPos++);
 	}
 
+	/*
+	 * Performance note (2026-08-21): Deleting this override would let ByteFile.nextList()
+	 * assign ListNum.firstRecordNum, but would also add its nlSync monitor to this hot path.
+	 * ByteFile4's normal speedtest calls nextListAsync(), so two temporary A/B builds changed
+	 * only that loop to call nextList().  On Dori ln004, using a 37,336,632,684-byte raw
+	 * FASTQ in /tmp, t=2, and five ABBA-balanced runs per build, the direct path had an
+	 * 8.795-second median (8.683-8.964) and the inherited synchronized path had an
+	 * 8.986-second median (8.826-10.345).  Node-wide load was not recorded, so the exact
+	 * slowdown is not conclusive.  The test did not establish that synchronization was free,
+	 * therefore this override remains.  Callers needing exact record origins should assign
+	 * them at an existing ordered boundary, as TaxTreeText.BatchSource does.
+	 */
 	@Override
 	public final ListNum<byte[]> nextList(){
-		return nextListAsync();//This class does not need sync
+		return nextListAsync();//Avoid synchronization in ByteFile's default implementation
 	}
 
 	@Override
