@@ -116,9 +116,18 @@ public abstract class Tadpole extends ShaveObject{
 				k=Integer.parseInt(b);
 			}else if(a.equals("tad2") || a.equals("tadpole2")){
 				FORCE_TADPOLE2=Parse.parseBoolean(b);
+			}else if(a.equals("packed")){
+				//(Nepgear, 2026-08-19) Must be parsed HERE, not only in the main arg loop:
+				//preparseK's k-normalization below is PACKED-sensitive, and the main loop
+				//runs after this method has already returned (k=64 packed=t asserted 63,64
+				//at Tadpole2:71 because the non-packed formula ran first).
+				Kmer.PACKED=Parse.parseBoolean(b);
 			}
 		}
-		return Kmer.getMult(k)*Kmer.getK(k);
+		//(Nepgear, 2026-08-19) Was Kmer.getMult(k)*Kmer.getK(k) -- non-packed rounding, and
+		//under PACKED it rounds UP to mult*FULL_WORD_K (e.g. 62->64). getKbig is the
+		//PACKED-aware normalizer (exact under packing, old rounding otherwise).
+		return Kmer.getKbig(k);
 	}
 	
 	/**
@@ -358,6 +367,13 @@ public abstract class Tadpole extends ShaveObject{
 			
 			else if(a.equals("maskcore") || a.equals("coremask")){
 				AbstractKmerTableSet.MASK_CORE=Kmer.MASK_CORE=Parse.parseBoolean(b);
+			}else if(a.equals("packed")){
+				//Item 1a/1b validation gate (2026-08-19): lets Tadpole2 be run
+				//with the packed ukmer.Kmer layout for real assemble+ECC
+				//testing on synth reads, not just isolated Kmer-class tests.
+				//Only affects ukmer.Kmer (k>31 / U-suffixed table path); the
+				//k<=31 non-U path (AbstractKmerTableSet) is untouched by 1a/1b.
+				Kmer.PACKED=Parse.parseBoolean(b);
 			}else if(a.equals("fillfast") || a.equals("fastfill")){
 				AbstractKmerTableSet.FAST_FILL=Parse.parseBoolean(b);
 			}

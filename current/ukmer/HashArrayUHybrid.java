@@ -427,7 +427,8 @@ public final class HashArrayUHybrid extends HashArrayU {
 		final Kmer kmer=new Kmer(kbig);
 		{
 			for(int i=0; i<oldk[0].length; i++){
-				if(oldk[0][i]>NOT_PRESENT){
+				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
+				if(oldk[0][i]!=NOT_PRESENT){
 					final int v=oldc[i];
 					fillKmer(i, kmer, oldk);
 					if(v>=0){
@@ -438,16 +439,16 @@ public final class HashArrayUHybrid extends HashArrayU {
 				}
 			}
 		}
-		
+
 		for(KmerNodeU n : list){
-			if(n.pivot[0]>NOT_PRESENT){
-				kmer.setFrom(n.pivot());
-				if(n.numValues()>1){
-					set(kmer, n.values(singleton));
-				}else{
-					set(kmer, n.value());
-				}
-			}else{assert(false);}
+			//Victims never hold empties (see ukmer/HashArrayU#004)
+			assert(n.pivot()!=null) : n;
+			kmer.setFrom(n.pivot());
+			if(n.numValues()>1){
+				set(kmer, n.values(singleton));
+			}else{
+				set(kmer, n.value());
+			}
 		}
 		
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size);

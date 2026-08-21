@@ -321,7 +321,8 @@ public final class HashArrayU1D extends HashArrayU {
 		{
 			for(int i=0; i<oldk[0].length; i++){
 //				assert(false) : oldk[0][i];
-				if(oldk[0][i]>NOT_PRESENT){
+				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
+				if(oldk[0][i]!=NOT_PRESENT){
 //					kmersProcessed++;
 //					assert(false) : oldk[0][i];
 					Kmer temp=fillKmer(i, kmer, oldk);
@@ -349,12 +350,12 @@ public final class HashArrayU1D extends HashArrayU {
 		}
 
 		for(KmerNodeU n : list){
-			if(n.pivot[0]>NOT_PRESENT){
-				kmer.setFrom(n.pivot());
-				set(kmer, n.value());
-//				assert(getValue(kmer)==n.value()); //123 slow
-			}
-			else{assert(false) : "pivot="+n.pivot()+", n="+n;}
+			//Victims never hold empties; the old pivot[0]>NOT_PRESENT guard dropped
+			//negative packed word0 kmers (see ukmer/HashArrayU#004)
+			assert(n.pivot()!=null && n.pivot().length==mult) : "pivot="+n.pivot()+", n="+n;
+			kmer.setFrom(n.pivot());
+			set(kmer, n.value());
+//			assert(getValue(kmer)==n.value()); //123 slow
 		}
 		
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size+"; totalSize="+totalSize+", new total="+(size+victims.size)+

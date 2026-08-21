@@ -42,13 +42,24 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		sizeLimit=(long)((schedule.length==1 ? maxLoadFactorFinal : maxLoadFactor)*prime);
 		k=k_;
 		kbig=kbig_;
-		mult=kbig/k;
+		//[ukmer/HashArrayU#003] (Amber, 2026-08-19) Was mult=kbig/k -- correct only under the
+		//symmetric layout where kbig==k*mult by construction. Under Kmer.PACKED, k=FULL_WORD_K=32
+		//and the last word is partial, so integer division rounds DOWN (62/32=1 vs true mult 2):
+		//the table then allocated/stored/compared only word[0] of every kmer, silently truncating
+		//keys. Benign-looking without coremask (unmasked hashing rarely co-locates same-word0
+		//kmers), but MASK_CORE deliberately co-locates last-base extension variants -- which are
+		//word0-identical -- so word0-only findKmer matching merged them (Tadpole2 packed=t
+		//coremask=t 6330 vs 3421 errors). getMult is PACKED-aware; identical to kbig/k for every
+		//symmetric caller. Caught by fillKey's temp.length==mult assert on the first resize.
+		mult=Kmer.getMult(kbig);
+		assert(k*mult>=kbig && mult==new Kmer(kbig).mult) :
+			"Table geometry disagrees with Kmer: k="+k+", kbig="+kbig+", mult="+mult+", Kmer.mult="+new Kmer(kbig).mult;
 		arrays=new long[mult][];
 		for(int i=0; i<mult; i++){
 			arrays[i]=allocLong1D(prime+extra);
 			Arrays.fill(arrays[i], NOT_PRESENT);
 		}
-		victims=new HashForestU(Tools.max(10, prime/victimRatio), k, autoResize, twod_);
+		victims=new HashForestU(Tools.max(10, prime/victimRatio), k, kbig, autoResize, twod_);
 		TWOD=twod_;
 	}
 	
@@ -359,7 +370,16 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	 */
 	protected final long[] fillKey(int cell, long[] temp, long[][] matrix) {
 		assert(temp.length==mult);
-		if(matrix[0][cell]<0){
+		//[ukmer/HashArrayU#004] (Amber, 2026-08-19) Occupancy must be tested as ==NOT_PRESENT,
+		//never by sign: under Kmer.PACKED a full 32-base word0 uses bit 63, so real kmers can be
+		//negative -- the old `<0` test (and its `>NOT_PRESENT` twins in each resize()) treated
+		//every leading-G/T packed kmer as an empty cell, silently dropping half the table on any
+		//resize/walk/dump. Same fix applied at HashArrayU1D/2D/Hybrid resize().
+		//TODO: Probable bug (pre-existing, much rarer) - a kmer whose word0 is EXACTLY -1L
+		//(32 T's, possible under PACKED e.g. poly-T at kbig>=32+? with canonical=unsigned-max
+		//favoring high words) is indistinguishable from the empty sentinel and would be treated
+		//as absent; needs a design decision (e.g. occupancy from the values array) -- Brian.
+		if(matrix[0][cell]==NOT_PRESENT){
 //			assert(false) : matrix[0][cell]+"\ngetKmer("+cell+", kmer, matrix)\n"+Arrays.toString(matrix[0]); //123
 			return null;
 		}
@@ -429,7 +449,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	public final int setOwner(final Kmer kmer, final int newOwner, final int cell){
 //		kmer.verify(true);
 		assert(matches(kmer.key(), cell)) : "cell="+cell+", key="+Arrays.toString(kmer.key())+", row="+Arrays.toString(cellToArray(cell))+"\n" +
-				"kmer="+kmer+", array1="+Arrays.toString(kmer.array1())+", array2="+Arrays.toString(kmer.array2())+", row="+AbstractKmerTableU.toText(cellToArray(cell), kmer.k);
+				"kmer="+kmer+", array1="+Arrays.toString(kmer.array1())+", array2="+Arrays.toString(kmer.array2())+", row="+AbstractKmerTableU.toText(cellToArray(cell), kmer.kbig);
 		final int original=owners.get(cell);
 		int current=original;
 		while(current<newOwner){

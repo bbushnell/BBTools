@@ -31,7 +31,7 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 //		this(initialSize, autoResize_, false);
 //	}
 	
-	public HashForestU(int initialSize, int k_, boolean autoResize_, boolean twod_){
+	public HashForestU(int initialSize, int k_, int kbig_, boolean autoResize_, boolean twod_){
 		if(initialSize>1){
 			initialSize=(int)Tools.min(maxPrime, Primes.primeAtLeast(initialSize));
 		}else{
@@ -41,7 +41,18 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 		sizeLimit=(long) (initialSize*resizeMult);
 		array=allocKmerNodeArray(prime);
 		k=k_;
-		coreMask=Kmer.toCoreMask(k);
+		kbig=kbig_;
+		//[ukmer/HashForestU#001] (Amber, 2026-08-19) insert() (resize rehash) must file nodes
+		//in the SAME cell get()/increment() probe: those use the Kmer instance xor, which is the
+		//dual-mask overload (first base of word[0] + last base of word[maxindex]; Kmer.xor0).
+		//The old uniform Kmer.toCoreMask(k) here masked every word's ends -- a DIFFERENT hash
+		//under multi-word packing (and toCoreMask(32) degenerates to 0, masking everything), so
+		//any forest resize under PACKED+MASK_CORE would misfile every node, making them
+		//unfindable. Masks derived exactly as Kmer's constructor derives its own.
+		final int mult=Kmer.getMult(kbig);
+		final int pwk0=Kmer.perWordK(kbig, mult, 0);
+		firstCoreMask=(Kmer.MASK_CORE ? ~(3L<<(2*pwk0-2)) : -1L);
+		lastCoreMask=(Kmer.MASK_CORE ? ~3L : -1L);
 		autoResize=autoResize_;
 		TWOD=twod_;
 	}
@@ -438,7 +449,8 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 	boolean insert(KmerNodeU n){
 		n.left=null;
 		n.right=null;
-		int cell=(int)(Kmer.xor(n.pivot(), coreMask)%prime);
+		//Must match get()'s cell = kmer.xor()%prime (see ukmer/HashForestU#001)
+		int cell=(int)(Kmer.xor(n.pivot(), firstCoreMask, lastCoreMask)%prime);
 		if(array[cell]==null){
 			array[cell]=n;
 			return true;
@@ -688,7 +700,10 @@ public final class HashForestU extends AbstractKmerTableU implements Iterable<Km
 	long size=0;
 	long sizeLimit;
 	final int k;
-	final long coreMask;
+	final int kbig;
+	/** Hash masks for the two GLOBAL kmer ends, identical to Kmer's
+	 * firstWordCoreMask/lastWordCoreMask (see ukmer/HashForestU#001). */
+	final long firstCoreMask, lastCoreMask;
 	final boolean autoResize;
 	final boolean TWOD;
 	private final Lock lock=new ReentrantLock();

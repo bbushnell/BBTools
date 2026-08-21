@@ -958,6 +958,14 @@ public class KmerCompressor {
 	 * @param kmer Kmer object to populate
 	 * @return Populated Kmer object, or null if ambiguous bases encountered
 	 */
+	//TODO: Probable bug -- this loop uses kmer.k (per-word width) as if it were
+	//the total kmer length. At k<=31 (mult=1) k==kbig so it's correct by
+	//coincidence; at real k>31 (mult>1) it would only read kmer.k bases (one
+	//word's worth, not kbig) and the assert below would fire. kcompress.sh's
+	//own usage text documents "Kmer length (1 to 31)", so no currently-
+	//documented invocation reaches this, but nothing in code enforces that
+	//bound -- found during the ukmer.Kmer packing audit (Amber, 2026-08-19),
+	//not fixed because it's unclear this tool is ever meant to run at k>31.
 	protected final static Kmer getKmer(byte[] bases, int loc, Kmer kmer){
 		kmer.clear();
 		for(int i=loc, lim=loc+kmer.k; i<lim; i++){

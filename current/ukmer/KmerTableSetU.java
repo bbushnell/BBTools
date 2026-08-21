@@ -265,9 +265,18 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		
 		mult=Kmer.getMult(kbig_);
 		k=Kmer.getK(kbig_);
-		kbig=k*mult;
+		//Was k*mult -- wrong under PACKED, where the last word can be
+		//partial so k*mult overstates kbig_ (found live via Tadpole2 crash,
+		//2026-08-19: k=62 under packed=t computed kbig=64). getKbig is
+		//already PACKED-aware (identity under packing, k*mult otherwise --
+		//the old rounding-down behavior this preserves for the symmetric
+		//path) so this is correct in both regimes.
+		kbig=Kmer.getKbig(kbig_);
 		kbig2=kbig-1;
-		assert(k<=31);
+		//k<=31 was a symmetric-layout invariant (k WAS the per-word width,
+		//always <=31 by construction); under PACKED, k=32 (FULL_WORD_K) is
+		//legitimate.
+		assert(Kmer.PACKED || k<=31) : k;
 
 		prealloc=prealloc_;
 		bytesPerKmer=4+8*mult+extraBytesPerKmer_;
@@ -449,7 +458,13 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		public LoadThread(Streamer cris_){
 			cris=cris_;
 			table=new HashBufferU(tables, buflen, kbig, false);
-			kmer=new Kmer(k, mult);
+			//Constructed via kbig (not the k,mult 2-arg form) so this Kmer picks
+			//up the PACKED layout when active -- Amber's audit found this was
+			//the only real production call site still using Kmer(k,mult)
+			//directly, which bypasses the PACKED flag. Verified k==getK(kbig)
+			//and mult==getMult(kbig) here (lines 266-267), so this is behavior-
+			//neutral today (PACKED defaults false) and only matters once it's on.
+			kmer=new Kmer(kbig);
 		}
 		
 		@Override
@@ -791,7 +806,12 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		
 		/* Loop through the bases, maintaining a forward and reverse kmer via bitshifts.
 		 * i is an index in the base array, j is an index in the count array. */
-		for(int i=firstBase, lim=Tools.min(lastBase+k-1, bases.length-1); i<=lim; i++){
+		//(Nepgear, 2026-08-19) Was lastBase+k-1: per-word k (31 symmetric / 32 packed), not the
+		//full kmer length -- a changed base at lastBase affects counts up to index lastBase,
+		//which needs bases through lastBase+kbig-1. kbig2 (=kbig-1) is the idiom used everywhere
+		//else in this file. NOTE: changes symmetric k>31 ECC behavior too (old bound was short
+		//there as well) -- baseline deltas measured and reported, Brian to ratify.
+		for(int i=firstBase, lim=Tools.min(lastBase+kbig2, bases.length-1); i<=lim; i++){
 			final byte base=bases[i];
 			final long x=AminoAcid.baseToNumber[base];
 			
@@ -1534,7 +1554,10 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
 		bsw.start();
 		for(AbstractKmerTableU set : tables){
-			set.dumpKmersAsBytes(bsw, k, mincount, maxcount, remaining);
+			//kbig, not per-word k: the dump chain's length param is the TOTAL kmer length
+			//(AbstractKmerTableU.toText/toBytes split per-word via Kmer.perWordK; identical
+			//output for symmetric where kbig/mult==k, required for PACKED partial last words)
+			set.dumpKmersAsBytes(bsw, kbig, mincount, maxcount, remaining);
 		}
 		bsw.poisonAndWait();
 		
@@ -1554,7 +1577,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		
 		ByteStreamWriter bsw=new ByteStreamWriter(fname, overwrite, append, true);
 		bsw.start();
-		DumpThreadU.dump(k, mincount, maxcount, tables, bsw, remaining);
+		//kbig, not per-word k (see dumpKmersAsBytes above)
+		DumpThreadU.dump(kbig, mincount, maxcount, tables, bsw, remaining);
 		bsw.poisonAndWait();
 		
 		t.stop();
@@ -1571,7 +1595,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	 * @param kmer K-mer data as long array
 	 * @return StringBuilder containing DNA sequence representation
 	 */
-	private final StringBuilder toText(long[] kmer){return AbstractKmerTableU.toText(kmer, k);}
+	private final StringBuilder toText(long[] kmer){return AbstractKmerTableU.toText(kmer, kbig);}
 	
 	/*--------------------------------------------------------------*/
 	/*----------------       Final Primitives       ----------------*/

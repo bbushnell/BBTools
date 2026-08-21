@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 19, 2026
+Last modified August 21, 2026
 
 Description:  Error corrects reads and/or filters by depth, storing
 kmer counts in a count-min sketch (a Bloom filter variant).
@@ -47,10 +47,20 @@ overwrite=t     (ow) Set to false to force the program to abort rather than
 
 Hashing parameters:
 k=31            Kmer length.  Any value 1 and up is supported; k>31 uses a
-                slower multi-word kmer representation.  Not every k>31 value
-                is exactly representable, in which case it will be silently
-                rounded down to the nearest achievable length (a note is
-                printed to stderr when this happens).
+                slower multi-word kmer representation.  By default, not
+                every k>31 value is exactly representable, in which case it
+                will be silently rounded down to the nearest achievable
+                length (a note is printed to stderr when this happens);
+                set packed=t for exact representation of any k>31.
+packed=f        For k>31, use a fully-packed multi-word kmer representation
+                (non-symmetric: leading words are completely full and only
+                the last word is partial) instead of the default even-split
+                layout.  Allows any k>31 to be represented exactly, with no
+                rounding.  Slightly slower.
+fullmix=f       For k>31, fully mix every word of the kmer, including the
+                first, into the hash function; improves Bloom-filter
+                collision resistance at k>31.  No effect at k<=31.
+                Recommended in combination with packed=t.
 hashes=3        Number of hashes per kmer.  Higher generally reduces
                 false positives at the expense of speed; rapidly
                 diminishing returns above 4.

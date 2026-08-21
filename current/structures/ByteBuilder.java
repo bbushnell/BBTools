@@ -294,7 +294,14 @@ public final class ByteBuilder implements Serializable, CharSequence {
 	 * @return This ByteBuilder for chaining
 	 */
 	public ByteBuilder appendKmer(Kmer kmer) {
-		return appendKmer(kmer.array1(), kmer.k);
+		long[] array=kmer.array1();
+		//Per-word, not delegated to appendKmer(long[],int) -- that assumes a
+		//uniform k across every word, which stops holding once Item 1a's
+		//packed layout lands (leading words 32 bases, last word partial).
+		for(int i=0; i<array.length; i++){
+			appendKmer(array[i], kmer.perWordK(i));
+		}
+		return this;
 	}
 	
 	/**

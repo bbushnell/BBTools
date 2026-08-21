@@ -498,13 +498,24 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 						v.add(r, bpos, bpos+1);
 						list.add(v);
 
-						// Validate substitution against reference if available
-						if(TEST_REF_VARIANTS && v.type()==SUB && v.allele.length==1){
+						// Validate substitution against reference if available. This used to be gated
+						// behind TEST_REF_VARIANTS (a `private static final false` - compiled out of
+						// every build, permanently), so it never ran in production. Made unconditional
+						// 2026-08-19 after a user report that CallVariants2 sometimes reports the ref
+						// allele as the variant - a SUB whose called base equals the reference would be
+						// exactly that. Investigated with ~40k synthetic phix reads across single- and
+						// multi-sample runs, SNPs, indels, adjacent/overlapping variants between samples,
+						// and with realign=t: didn't reproduce it, but this check is the one place that
+						// would catch it directly at the point of construction, and it's cheap (one
+						// scaffold lookup + byte compare per detected SUB, not per base) with zero cost
+						// on the happy path since -da or -ea-without-failure both skip the getSequence()
+						// call in the message. Guard scaf!=null defensively: ScafMap.defaultScafMap() is
+						// null in some contexts (e.g. CompareVCF.getSet before a default map is set).
+						if(v.type()==SUB && v.allele.length==1){
 							final byte call=v.allele[0];
-							final Scaffold scaf=ScafMap.defaultScafMap().getScaffold(scafnum);
-							final byte ref=scaf.bases[v.start];
-							assert(ref!=call) : (char)call+"="+(char)ref+" at scaf "+scafnum+" pos "+v.start+"\n"
-							+sl+"\n"+ScafMap.defaultScafMap().getScaffold(scafnum).getSequence(sl)+"\n";
+							final Scaffold scaf=ScafMap.defaultScafMap()==null ? null : ScafMap.defaultScafMap().getScaffold(scafnum);
+							assert(scaf==null || scaf.bases[v.start]!=call) : (char)call+"="+(char)scaf.bases[v.start]+
+							" at scaf "+scafnum+" pos "+v.start+"\n"+sl+"\n"+scaf.getSequence(sl)+"\n";
 						}
 					}
 				}
@@ -2167,8 +2178,6 @@ public class Var implements Comparable<Var>, Serializable, Cloneable {
 
 	/** Convert allele sequences to uppercase in output */
 	public static final boolean UPPER_CASE_ALLELES=true;
-	/** Verify that variants don't match reference (debugging) */
-	private static final boolean TEST_REF_VARIANTS=false;
 
 	/** Semicolon character for VCF INFO field separation */
 	private static final byte colon=';';

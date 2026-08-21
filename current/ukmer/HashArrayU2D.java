@@ -297,18 +297,18 @@ public final class HashArrayU2D extends HashArrayU {
 		final Kmer kmer=new Kmer(kbig);
 		{
 			for(int i=0; i<oldk[0].length; i++){
-				if(oldk[0][i]>NOT_PRESENT){
+				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
+				if(oldk[0][i]!=NOT_PRESENT){
 					set(fillKmer(i, kmer, oldk), oldc[i]);
 				}
 			}
 		}
-		
+
 		for(KmerNodeU n : list){
-			if(n.pivot[0]>NOT_PRESENT){
-				kmer.setFrom(n.pivot());
-				set(kmer, n.values(singleton));
-			}
-			else{assert(false);}
+			//Victims never hold empties (see ukmer/HashArrayU#004)
+			assert(n.pivot()!=null) : n;
+			kmer.setFrom(n.pivot());
+			set(kmer, n.values(singleton));
 		}
 		
 		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;

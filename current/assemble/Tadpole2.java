@@ -315,7 +315,7 @@ public class Tadpole2 extends Tadpole {
 			final int count=kn.getValue(key);
 			if(count<minCountSeedCurrent){return 0;}
 
-			if(verbose){outstream.println("id="+id+" processing KmerNodeU; \tkmer="+Arrays.toString(key)+"\t"+toText(key, ksmall));}
+			if(verbose){outstream.println("id="+id+" processing KmerNodeU; \tkmer="+Arrays.toString(key)+"\t"+toText(key, kbig));}
 			if(useOwnership){
 				int owner=kn.getOwner(key);
 				if(verbose){outstream.println("Owner is initially "+owner);}

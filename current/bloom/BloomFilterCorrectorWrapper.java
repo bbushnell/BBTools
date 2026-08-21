@@ -193,6 +193,10 @@ public class BloomFilterCorrectorWrapper {
 				BloomFilter.OVERRIDE_CELLS=Parse.parseKMG(b);
 			}else if(a.equals("seed")){
 				KCountArray7MTA.setSeed(Parse.parseKMG(b));
+			}else if(a.equals("fullmix")){
+				Kmer.FULL_MIX=Parse.parseBoolean(b);
+			}else if(a.equals("packed")){
+				Kmer.PACKED=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equals("ref")){

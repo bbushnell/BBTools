@@ -87,6 +87,15 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @return Negative, zero, or positive value indicating relative ordering
 	 */
 	public static final int compare(long[] key1, long[] key2){
+		//TODO: Probable bug (latent) - signed subtraction gives the wrong SIGN when words span
+		//the signed-long boundary, which packed word[0] (32 bases, bit 63 live) can do; the
+		//induced order is circular/non-transitive. Currently harmless: equality (dif==0) is
+		//exact, and every BST consumer (HashForestU/KmerNodeU insert+find+resize-reinsert)
+		//navigates with THIS same deterministic comparator, so paths stay self-consistent.
+		//It becomes REAL if anything assumes a true total order: KmerNodeU.rebalance() (rebuilds
+		//assuming sorted inorder; currently uncalled on these paths) or any sorted dump/merge.
+		//Fix would be Long.compareUnsigned per word (matches Kmer.setKey0's convention) -- not
+		//changed now to avoid altering tree shapes mid-validation. (Amber, 2026-08-19)
 		for(int i=0; i<key1.length; i++){
 			long dif=key1[i]-key2[i];
 			if(dif!=0){return (int)Tools.mid(-1, dif, 1);}
@@ -411,7 +420,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @return StringBuilder containing the k-mer sequence
 	 */
 	public static final StringBuilder toText(Kmer kmer){
-		return toText(kmer.key(), kmer.k);
+		return toText(kmer.key(), kmer.kbig);
 	}
 	
 	/**
@@ -420,11 +429,18 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	 * @param k K-mer length
 	 * @return StringBuilder containing the k-mer sequence
 	 */
-	public static final StringBuilder toText(long[] array, int k){
-		StringBuilder sb=new StringBuilder(k*array.length);
+	//Gate-1 packed routing (Amber, 2026-08-19): the length parameter of every multi-word
+	//toText/toBytes below is the TOTAL kmer length (kbig), and each word is decoded at its own
+	//width via Kmer.perWordK(kbig, array.length, i) -- under the symmetric layout
+	//perWordK==kbig/mult==the per-word k these methods used to receive, so output is
+	//byte-identical for every pre-packing caller; under PACKED the last word is partial and a
+	//uniform width would emit phantom leading bases. Callers updated to pass kbig
+	//(KmerTableSetU dump entry points, toText(Kmer) above).
+	public static final StringBuilder toText(long[] array, int kbig){
+		StringBuilder sb=new StringBuilder(kbig+2);
 		for(int pos=0; pos<array.length; pos++){
 			long kmer=array[pos];
-			for(int i=k-1; i>=0; i--){
+			for(int i=Kmer.perWordK(kbig, array.length, pos)-1; i>=0; i--){
 				int x=(int)((kmer>>(2*i))&3);
 				sb.append((char)AminoAcid.numberToBase[x]);
 			}
@@ -500,11 +516,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			sb.append(count);
 			sb.append('\n');
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 		}else{
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 			sb.append('\t');
 			sb.append(count);
@@ -533,11 +549,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			}
 			sb.append('\n');
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 		}else{
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 			sb.append('\t');
 			for(int i=0; i<values.length; i++){
@@ -581,11 +597,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			sb.append(count);
 			sb.append('\n');
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 		}else{
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 			sb.append('\t');
 			sb.append(count);
@@ -614,11 +630,11 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 			}
 			sb.append('\n');
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 		}else{
 			for(int i=0; i<array.length; i++){
-				append(array[i], k, sb);
+				append(array[i], Kmer.perWordK(k, array.length, i), sb);//k here is kbig; see toText header comment
 			}
 			sb.append('\t');
 			for(int i=0; i<values.length; i++){
@@ -757,7 +773,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 //				System.err.println("T"+i+" allocating "+i);
 				final AbstractKmerTableU akt;
 				if(type==FOREST1D){
-					akt=new HashForestU(size, k, growable, false);
+					akt=new HashForestU(size, k, kbig, growable, false);
 				}else if(type==ARRAY1D){
 					akt=new HashArrayU1D(schedule, k, kbig);
 //					akt=new HashArrayU1D(size, k, kbig, growable);
@@ -765,7 +781,7 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 					throw new RuntimeException("Must use forest, table, or array data structure. Type="+type);
 //					akt=new KmerNode2(-1, 0);
 				}else if(type==FOREST2D){
-					akt=new HashForestU(size, k, growable, true);
+					akt=new HashForestU(size, k, kbig, growable, true);
 				}else if(type==ARRAY2D){
 					akt=new HashArrayU2D(schedule, k, kbig);
 //					akt=new HashArrayU2D(size, k, kbig, growable);
