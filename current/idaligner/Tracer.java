@@ -47,7 +47,15 @@ public class Tracer{
 			final byte q=query[r-1];
 			final byte refBase=ref[c-1];
 			final boolean match=(q==refBase && AminoAcid.isFullyDefined(q));
-			final boolean hasN=!(AminoAcid.isFullyDefined(q) && AminoAcid.isFullyDefined(refBase));
+			//FIXED (Noire, Aug 21 2026): was !(isFullyDefined(q)&&isFullyDefined(refBase)), which
+			//treats ANY non-ACGT ambiguity code (Y, R, etc.) as hasN=true. The FILL step
+			//(ScrabbleAligner hasN=(q=='N'||r=='N')) only special-cases a LITERAL 'N' -- a non-N
+			//code like Y scores SUB there, not N_SCORE. That mismatch (traceback assuming N_SCORE
+			//where the fill actually charged SUB) breaks the score-replication invariant this
+			//traceback depends on, causing a real "Traceback desync" assert at corpus scale (see
+			//the repro this replaced, above this method's history). Matching the fill's exact
+			//literal-N test here makes the two sides agree at every cell.
+			final boolean hasN=(q=='N' || refBase=='N');
 			final long scoreAdd=match ? MATCH : (hasN ? N_SCORE : SUB);
 			
 			// To find neighbors, we need:
@@ -83,6 +91,11 @@ public class Tracer{
 				c--;
 			}else{
 				//No predecessor reproduces the stored value; the trace is corrupt.
+				//FIXED (Neptune/Noire, Aug 21 2026): this fired for real on production-realistic
+				//data (a non-N IUPAC ambiguity code near a mismatch) -- root cause and fix are at
+				//this method's hasN computation above (see its comment). Left as a permanent
+				//sentry per the assertions skill: the fix removes the KNOWN trigger, not the
+				//possibility of some other desync class existing.
 				assert(false) : "Traceback desync at r="+r+", c="+c+": curr="+currVal+
 					", diag="+diagVal+", up="+upVal+", left="+leftVal;
 				if(r>c){bb.append('I'); r--;}
