@@ -569,8 +569,9 @@ public class Kmer implements Cloneable {
 	 * bit -- the same reasoning already applied to words 1+ when the k>31
 	 * BloomFilterCorrector2 weak-hash-fold theory was confirmed (small but
 	 * real effect, see bloomfiltercorrector_ukmer_k31.plan).
-	 */
-	public static boolean FULL_MIX=false;
+	 * Default flipped to true 2026-08-21 (Brian) -- the more accurate mode,
+	 * pending a k=64 regression check confirming results barely change. */
+	public static boolean FULL_MIX=true;
 	
 	/**
 	 * Returns the cached XOR hash value for this k-mer.
@@ -672,12 +673,13 @@ public class Kmer implements Cloneable {
 	public static boolean MASK_CORE=false;
 	/** Item 1a (2026-08-19): when true, Kmer(int kbig_) uses the packed
 	 * layout (leading words full at 32 bases, last word partial) instead
-	 * of the old symmetric even-split. Default false preserves exact
-	 * current behavior. Only Kmer(int kbig_) consults this directly --
-	 * every other method derives its per-word geometry from
-	 * lastWordK/lastShift2/lastMask, which are set correctly for either
-	 * regime at construction time. */
-	public static boolean PACKED=false;
+	 * of the old symmetric even-split. Default flipped to true 2026-08-21
+	 * (Brian), pending a k=64 regression check confirming results barely
+	 * change. Only Kmer(int kbig_) consults this directly -- every other
+	 * method derives its per-word geometry from lastWordK/lastShift2/
+	 * lastMask, which are set correctly for either regime at construction
+	 * time. */
+	public static boolean PACKED=true;
 	/** Base count of a full leading word under the packed layout (64 bits
 	 * / 2 bits-per-base). */
 	private static final int FULL_WORD_K=32;

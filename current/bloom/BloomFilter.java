@@ -10,6 +10,7 @@ import fileIO.ReadWrite;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -17,6 +18,7 @@ import stream.FastaReadInputStream;
 import stream.Read;
 import structures.IntList;
 import structures.LongList;
+import ukmer.Kmer;
 
 /**
  * Wraps a KCountArray and provides multithreaded reference loading.
@@ -357,6 +359,7 @@ public class BloomFilter implements Serializable {
 	 * @return Average k-mer count, or 0 if sequence too short
 	 */
 	public float averageCount(final byte[] bases) {
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.averageCount is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(bases==null || bases.length<k-1){return 0;}
 
 		long kmer=0;
@@ -398,6 +401,7 @@ public class BloomFilter implements Serializable {
 	 * @return Minimum k-mer count, or -1 if read too short
 	 */
 	public int minCount(Read r) {
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.minCount is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k-1){return -1;}
 		final byte[] bases=r.bases;
 
@@ -439,6 +443,10 @@ public class BloomFilter implements Serializable {
 	 */
 	public boolean hasHighCountFraction(Read r, final int thresh, final float fraction) {
 		if(r==null || r.length()<k-1){return false;}
+		//k>31 primitive-long rolling would silently truncate the kmer to its last 32
+		//bases and query a key the filter was never built with (the filter is built via
+		//ukmer.Kmer.xor(); see ReadCounter.addReadBig). Roll a real ukmer.Kmer instead.
+		if(k>31){return hasHighCountFractionBig(r, thresh, fraction);}
 		final byte[] bases=r.bases;
 		final int kmers=r.length()-k+1;
 		
@@ -502,6 +510,7 @@ public class BloomFilter implements Serializable {
 	 * @return High count fraction, or zero if no valid kmers.
 	 */
 	public float highCountFraction(final byte[] bases, final int thresh, boolean smooth) {
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.highCountFraction is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(bases==null || bases.length<k-1){return 0;}
 
 		long kmer=0;
@@ -572,6 +581,7 @@ public class BloomFilter implements Serializable {
 	private int getLeftCount(byte[] bases, int range){
 		assert(range>0) : range;
 		if(bases.length<k){return -1;}
+		if(k>31){return getLeftCountBig(bases, range);}//See hasHighCountFraction for why.
 		long kmer=0, rkmer=0;
 		int len=0;
 		final int stop=Tools.min(bases.length, k+range-1);
@@ -607,6 +617,7 @@ public class BloomFilter implements Serializable {
 	private int getRightCount(byte[] bases, int range){
 		assert(range>0) : range;
 		if(bases.length<k){return -1;}
+		if(k>31){return getRightCountBig(bases, range);}//See hasHighCountFraction for why.
 		long kmer=0, rkmer=0;
 		int len=0;
 		final int start=Tools.max(0, bases.length-k-range+1);
@@ -630,7 +641,76 @@ public class BloomFilter implements Serializable {
 		}
 		return counted>0 ? min : -1;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------      k>31 depth queries      ----------------*/
+	/*--------------------------------------------------------------*/
+	//These mirror getLeftCount/getRightCount/hasHighCountFraction, but roll a real
+	//ukmer.Kmer and look up filter.read(kmer.xor()) -- the exact key the filter was
+	//built with (ReadCounter.addReadBig) -- instead of a bit-packed long, which cannot
+	//represent a k>31 kmer and would silently query the last-32-base truncation. Used
+	//only when this BloomFilter's k>31 (the BBCMS k>31 path, where ksmall==k); the
+	//small-k/kbig min-combine mechanism keeps its own k<=31 primitive path unchanged.
+	//A fresh Kmer is allocated per call (these run once per read on the filtering path,
+	//so the allocation is negligible, and it sidesteps thread-safety on a shared filter
+	//and the transient-field/serialization concerns of a ThreadLocal). new Kmer(k) picks
+	//up the same process-global PACKED/FULL_MIX/MASK_CORE statics the build used.
+
+	/** k>31 counterpart of {@link #getLeftCount}. */
+	private int getLeftCountBig(byte[] bases, int range){
+		final Kmer kmer=new Kmer(k);
+		final int stop=Tools.min(bases.length, k+range-1);
+		int min=Integer.MAX_VALUE;
+		int counted=0;
+		for(int i=0; i<stop; i++){
+			kmer.addRight(bases[i]);
+			if(kmer.len>=k){
+				counted++;
+				int count=filter.read(kmer.xor());
+				min=Tools.min(min, count);
+			}
+		}
+		return counted>0 ? min : -1;
+	}
+
+	/** k>31 counterpart of {@link #getRightCount}. */
+	private int getRightCountBig(byte[] bases, int range){
+		final Kmer kmer=new Kmer(k);
+		final int start=Tools.max(0, bases.length-k-range+1);
+		int min=Integer.MAX_VALUE;
+		int counted=0;
+		for(int i=start; i<bases.length; i++){
+			kmer.addRight(bases[i]);
+			if(kmer.len>=k){
+				counted++;
+				int count=filter.read(kmer.xor());
+				min=Tools.min(min, count);
+			}
+		}
+		return counted>0 ? min : -1;
+	}
+
+	/** k>31 counterpart of {@link #hasHighCountFraction}. */
+	private boolean hasHighCountFractionBig(Read r, final int thresh, final float fraction){
+		final byte[] bases=r.bases;
+		final int kmers=r.length()-k+1;
+		final int minHigh=Math.round(fraction*kmers);
+		final int maxLow=kmers-minHigh;
+		final Kmer kmer=new Kmer(k);
+		int low=0;
+		for(int i=0; i<bases.length; i++){
+			kmer.addRight(bases[i]);
+			if(kmer.len>=k){
+				int count=filter.read(kmer.xor());
+				if(count<thresh){
+					low++;
+					if(low>maxLow){return false;}
+				}
+			}
+		}
+		return true;
+	}
+
 	/**
 	 * Determines if a read passes the consecutive k-mer match filter.
 	 * Rejects reads with too many consecutive high-count k-mers.
@@ -640,6 +720,7 @@ public class BloomFilter implements Serializable {
 	 * @return true if read passes (not contaminated), false if rejected
 	 */
 	public boolean passes(Read r, final int thresh) {
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.passes is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		final byte[] bases=r.bases;
 
@@ -719,6 +800,7 @@ public class BloomFilter implements Serializable {
 	 * @return true if read passes consecutive match filter
 	 */
 	public boolean passes(Read r, LongList keys, final int thresh) {
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.passes is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path.");
 		if(r==null || r.length()<k+minConsecutiveMatches-1){return true;}
 		if(minConsecutiveMatches<2){return passes(r, thresh);}
 		keys.clear();
@@ -792,6 +874,7 @@ public class BloomFilter implements Serializable {
 	
 	/** Returns number of counts */
 	public int fillCounts(byte[] bases, IntList counts){
+		assert(k<=31) : KillSwitch.assertDie("BloomFilter.fillCounts is k<=31 only (primitive-long rolling); k="+k+" needs a ukmer.Kmer path. (k>31 counts go through fillCountsFromKmers in the corrector.)");
 		final int blen=bases.length;
 		if(blen<k){return 0;}
 		final int min=k-1;

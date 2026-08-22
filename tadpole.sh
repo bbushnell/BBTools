@@ -7,11 +7,12 @@ Last modified August 21, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
-By default, some values are not supported: specifically, it allows 1-31,
-multiples of 2 from 32-62, multiples of 3 from 63-93, etc.  Setting
-packed=t enables a fully-packed, non-symmetric multi-word kmer
-representation for k>31 (leading words full, only the last word partial),
-allowing any k>31 to be used exactly, with no rounding.
+By default, a fully-packed, non-symmetric multi-word kmer representation
+is used for k>31 (leading words full, only the last word partial),
+allowing any k>31 to be used exactly, with no rounding.  Set packed=f to
+fall back to the legacy even-split layout, which only supports specific
+k>31 values (1-31, multiples of 2 from 32-62, multiples of 3 from 63-93,
+etc.) and silently rounds down otherwise.
 Please read bbmap/docs/guides/TadpoleGuide.txt for more information.
 
 Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
@@ -80,10 +81,11 @@ buildthreads=X      Spawn X contig-building threads. If not set, defaults to the
                     as threads.  Setting this to 1 will make contigs deterministic.
 rcomp=t             Store and count each kmer together and its reverse-complement.
 coremask=t          All kmer extensions share the same hashcode.
-packed=f            For k>31, use a fully-packed, non-symmetric multi-word
-                    kmer representation instead of the default even-split
-                    layout, allowing any k>31 to be represented exactly
-                    (no rounding to the nearest supported length).
+packed=t            For k>31, use a fully-packed, non-symmetric multi-word
+                    kmer representation, allowing any k>31 to be
+                    represented exactly (no rounding to the nearest
+                    supported length).  Set to f for the legacy
+                    even-split layout.
 fillfast=t          Speed up kmer extension lookups.
 
 Assembly parameters:

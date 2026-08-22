@@ -16,10 +16,11 @@ by running out of memory, even with the prefilter flag.  But if there is
 sufficient memory to use Tadpole, then Tadpole is more desirable.
 
 Because accuracy declines with an increasing number of unique kmers, it can
-be useful with very large datasets to run this in 2 passes, with the first 
-pass for filtering only using a 2-bit filter with the flags tossjunk=t and 
-ecc=f (and possibly mincount=2 and hcf=0.4), and the second pass using a 
-4-bit filter for the actual error correction.
+be useful with very large datasets to run this in 2 passes, with the first
+pass for filtering only using a 2-bit filter with the flags tossjunk=t and
+ecc=f (and possibly mincount=2 and hcf=0.4), and the second pass using a
+4-bit filter for the actual error correction.  Set passes=2 to do this
+internally in a single invocation; see the Multipass parameters below.
 
 Usage:  bbcms.sh in=<input file> out=<output> outb=<reads failing filters>
 
@@ -30,6 +31,16 @@ Example of use in depth filtering:
 bbcms.sh in=reads.fq out=high.fq outb=low.fq k=31 mincount=2 ecc=f hcf=0.4
 
 Error correction and depth filtering can be done simultaneously.
+
+Multipass parameters:
+passes=1        Set to 2 to run an internal 2-pass pipeline: pass 1 builds a
+                cheap K=31 2-bit filter and discards junk reads (tossjunk=t,
+                mincount=2, hcf=0.4, ecc=f), then pass 2 runs your full
+                command line (k=, bits=, ecc=, etc., unchanged) on the
+                survivors.  Pass 2 is the normal pass; passes= only controls
+                whether a cheap pre-filtering pass runs first.  Recommended
+                for huge, low-depth metagenomes with heavy depth-1 junk,
+                where it is both faster and more accurate than one pass.
 
 File parameters:
 in=<file>       Primary input, or read 1 input.
@@ -47,20 +58,20 @@ overwrite=t     (ow) Set to false to force the program to abort rather than
 
 Hashing parameters:
 k=31            Kmer length.  Any value 1 and up is supported; k>31 uses a
-                slower multi-word kmer representation.  By default, not
-                every k>31 value is exactly representable, in which case it
-                will be silently rounded down to the nearest achievable
-                length (a note is printed to stderr when this happens);
-                set packed=t for exact representation of any k>31.
-packed=f        For k>31, use a fully-packed multi-word kmer representation
+                slower multi-word kmer representation, exactly representable
+                by default (see packed= below); set packed=f to fall back
+                to the legacy even-split layout, which silently rounds some
+                k>31 values down to the nearest achievable length (a note is
+                printed to stderr when this happens).
+packed=t        For k>31, use a fully-packed multi-word kmer representation
                 (non-symmetric: leading words are completely full and only
-                the last word is partial) instead of the default even-split
-                layout.  Allows any k>31 to be represented exactly, with no
-                rounding.  Slightly slower.
-fullmix=f       For k>31, fully mix every word of the kmer, including the
+                the last word is partial).  Allows any k>31 to be
+                represented exactly, with no rounding.  Slightly slower.
+                Set to f for the legacy even-split layout.
+fullmix=t       For k>31, fully mix every word of the kmer, including the
                 first, into the hash function; improves Bloom-filter
-                collision resistance at k>31.  No effect at k<=31.
-                Recommended in combination with packed=t.
+                collision resistance at k>31.  No effect at k<=31.  Set to
+                f to disable (not recommended in combination with packed=t).
 hashes=3        Number of hashes per kmer.  Higher generally reduces
                 false positives at the expense of speed; rapidly
                 diminishing returns above 4.
@@ -153,7 +164,7 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bloom.BloomFilterCorrectorWrapper $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bloom.BloomFilterCorrectorMultipass $@"
 	echo "$CMD" >&2
 	eval $CMD
 }

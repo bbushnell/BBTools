@@ -462,6 +462,7 @@ public class ReadCounter extends KmerCountAbstract {
 			cta[i].start();
 		}
 //		System.out.println("~1");
+		boolean errorState=false;
 		for(int i=0; i<cta.length; i++){
 //			System.out.println("~2");
 			CountThread ct=cta[i];
@@ -478,14 +479,17 @@ public class ReadCounter extends KmerCountAbstract {
 //					System.out.println("~5");
 				}
 			}
+			errorState|=ct.errorState;
 		}
 //		System.out.println("~6");
-		
+
 		ReadWrite.closeStream(cris);
 		if(verbose){System.err.println("Closed stream");}
 		if(verbose){System.err.println("Processed "+readsProcessed+" reads.");}
 
-		
+		if(errorState){
+			throw new RuntimeException("A CountThread failed while counting "+reads1+"; kmer counts are incomplete.");
+		}
 		return counts;
 	}
 	
@@ -541,6 +545,7 @@ public class ReadCounter extends KmerCountAbstract {
 			cta[i].start();
 		}
 		
+		boolean errorState=false;
 		for(int i=0; i<cta.length; i++){
 			CountThread ct=cta[i];
 			synchronized(ct){
@@ -553,11 +558,15 @@ public class ReadCounter extends KmerCountAbstract {
 					}
 				}
 			}
+			errorState|=ct.errorState;
 		}
-		
+
 		cris.close();
 		if(verbose){System.err.println("Closed stream");}
-		
+
+		if(errorState){
+			throw new RuntimeException("A CountThread failed while counting "+reads1+"; kmer counts are incomplete.");
+		}
 //		System.out.println("*** after ***");
 //		System.out.println("\ntrusted=\n"+trusted);
 //		System.out.println("\ncount=\n"+count);
@@ -621,11 +630,24 @@ public class ReadCounter extends KmerCountAbstract {
 		@Override
 		public void run(){
 //			System.out.println("Running");
-			count(cris);
+			//2026-08-21 (Nepgear+Amber): count(cris) used to be able to throw an uncaught
+			//AssertionError from PairStreamer (a genuine R1/R2 desync bug, now fixed at its
+			//source -- see PairStreamer's carry-over buffer) and silently drop this thread's
+			//contribution to the shared totals with no error visible to the caller. Same
+			//try/catch+error-flag shape as BloomFilterCorrectorWrapper$ProcessThread and
+			//FastqScanStreamer$ReaderRunnable: catch Throwable (assertions are Errors, not
+			//Exceptions), record it, and let makeKca/count's caller-side check turn it into a
+			//loud, reported failure instead of quietly-wrong counts.
+			try{
+				count(cris);
+			}catch(Throwable e){
+				e.printStackTrace();
+				errorState=true;
+			}
 //			System.out.println("Finished: "+readsProcessedLocal);
-			
+
 			if(BUFFERED){dumpBufferT();}
-			
+
 			synchronized(getClass()){
 				keysCounted+=keysCountedLocal;
 				increments+=incrementsLocal;
@@ -635,6 +657,9 @@ public class ReadCounter extends KmerCountAbstract {
 				if(verbose){System.err.println(readsProcessed+", "+readsProcessedLocal);}
 			}
 		}
+
+		/** Set if count(cris) threw; checked by the caller after join() so a failure is reported, not silently dropped. */
+		boolean errorState=false;
 		
 		private void increment(final long key){
 			if(BUFFERED){

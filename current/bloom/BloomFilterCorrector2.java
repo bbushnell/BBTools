@@ -475,7 +475,15 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final Kmer kmer=localKmer.get();
 		kmer.clear();
 		for(int i=pos; i<pos+k; i++){kmer.addRight(bases[i]);}
-		assert(kmer.len==k) : "expected a fully valid kmer at pos="+pos;
+		//2026-08-21 (Nepgear+Amber): an N anywhere in bases[pos..pos+k-1] is a legitimate
+		//condition, not a bug -- addRightNumeric resets len on an invalid base, so the
+		//window can finish with kmer.len<k even though exactly k in-bounds bases were fed
+		//in. Real Illumina data has N-calls, especially near read ends, which is exactly
+		//where smooth() calls this (the read's own edges) -- confirmed live on real data
+		//(BFC2, k=62), previously unexercised because all prior testing (Item 1 and Item
+		//3a) used only randomreads.sh-generated data, which never inserts N's. Treat a
+		//short window the same as fillKmers already does for one (no valid extension).
+		if(kmer.len<k){return 0;}
 
 		final Kmer scratch=localKmer2.get();
 		int max=-1;
@@ -497,7 +505,8 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final Kmer kmer=localKmer.get();
 		kmer.clear();
 		for(int i=pos; i<pos+k; i++){kmer.addRight(bases[i]);}
-		assert(kmer.len==k) : "expected a fully valid kmer at pos="+pos;
+		//See maxLeftCount's comment above -- same N-at-the-edge condition, same fix.
+		if(kmer.len<k){return 0;}
 
 		final Kmer scratch=localKmer2.get();
 		int max=-1;
