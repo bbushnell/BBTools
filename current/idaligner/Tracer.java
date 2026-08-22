@@ -372,7 +372,40 @@ public class Tracer{
 			else if(ops[i]=='D'){ops[i]='I';}
 		}
 	}
-	
+
+	/** Adds a compact ancestry node for sparse fills that cannot retain score rows.
+	 * The high 32 bits hold the parent node, followed by a 24-bit run length and 8-bit op. */
+	static int addTraceNode(LongList trace, int parent, int run, byte op){
+		assert(trace!=null);
+		assert(parent<trace.size) : parent+", "+trace.size;
+		assert(run>0 && run<=POSITION_MASK) : run;
+		assert(op=='m' || op=='S' || op=='N' || op=='I' || op=='D') : (char)op;
+		final int node=trace.size;
+		trace.add(((long)parent<<32)|((long)run<<8)|(op&0xFFL));
+		return node;
+	}
+
+	/** Reconstructs a match string from compact ancestry nodes.
+	 * Quantum deletion jumps are stored as one node with run greater than one. */
+	static byte[] tracebackNodes(LongList trace, int finalNode, ByteBuilder bb){
+		if(bb==null){bb=new ByteBuilder();}
+		else{bb.clear();}
+		int node=finalNode, remaining=trace.size+1;
+		while(node>=0){
+			assert(node<trace.size) : node+", "+trace.size;
+			final long packed=trace.get(node);
+			final int parent=(int)(packed>>32);
+			final int run=(int)((packed>>>8)&0xFFFFFFL);
+			final byte op=(byte)packed;
+			assert(parent<node) : parent+", "+node;
+			assert(run>0) : run;
+			for(int i=0; i<run; i++){bb.append(op);}
+			node=parent;
+			assert(remaining-->0) : "Cycle in sparse traceback";
+		}
+		return bb.reverse().toBytes();
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------           Statics            ----------------*/
 	/*--------------------------------------------------------------*/

@@ -9,10 +9,11 @@ import java.util.*;
  * and an up insertion could produce the identical packed cell value whenever their
  * predecessor cells' position/deletion-count fields coincided, making the emitted
  * matchString silently wrong -- e.g. claiming a real 'C'/'A' mismatch was a match).
- * All seven idaligner aligners with a traceback path (ScrabbleAligner, BandedAligner,
- * DriftingAligner, GlocalAligner, ScrabbleAligner2, WobbleAligner, GlocalPlusAligner6)
- * were switched to Tracer's sequence-aware overload. This harness re-proves, on every
- * push, that the reconstruction invariant holds for all seven: for a synthetic
+ * Seven idaligner aligners use Tracer's sequence-aware matrix overload (ScrabbleAligner,
+ * BandedAligner, DriftingAligner, GlocalAligner, ScrabbleAligner2, WobbleAligner,
+ * GlocalPlusAligner6); QuantumAligner records compact ancestry nodes during its sparse
+ * fill. This harness re-proves, on every
+ * push, that the reconstruction invariant holds for all eight: for a synthetic
  * (query, ref) pair with KNOWN true bytes, walking stats.matchString against the real
  * query/ref must be self-consistent -- 'm' only where query[qi]==ref[r], 'S' only
  * where they differ, total query bases consumed == query.length, and the final
@@ -30,16 +31,17 @@ import java.util.*;
  * COULD reach into Tracer's package-private internals (getTraceScore, header/trace
  * format) if one is ever needed, without another relocation.
  *
- * TODO (Noire, Aug 19 2026 review): test data here is pure uppercase ACGT only -- no
- * N, no lowercase/soft-masked bases, no other IUPAC codes. This guard does NOT exercise
+ * TODO (Noire, Aug 19 2026 review): the shared cross-aligner sweep is pure uppercase
+ * ACGT only; Quantum's additional cases cover N and other uppercase IUPAC codes, but
+ * there are still no lowercase/soft-masked cases. This guard does NOT exercise
  * the GlocalPlusAligner6 wire-time gate flagged in #18 (its fill encodes to long[] via
  * Factory.encodeLong while the sequence-aware traceback reads the raw byte[] directly --
  * possible desync on lowercase/masked input). When #18 closes that gate, add lowercase/
  * soft-masked/N-bearing cases HERE and this same harness will guard both concerns.
  *
  * STRICTNESS NOTE: the r-1==rStop check assumes matchString never ends on a trailing
- * 'I' past rStop (i.e. the last op is ref-consuming). Empirically true for all 7
- * aligners across all 1946 cases (0 failures) -- documented here as an assumption, not
+ * 'I' past rStop (i.e. the last op is ref-consuming). Empirically true for all 8
+ * aligners across the current suite -- documented here as an assumption, not
  * a proven invariant, in case a future aligner's fill legitimately violates it.
  *
  * USAGE: java -cp <BBTOOLS_CURRENT_DIR> idaligner.TracerReconstructionGuard
@@ -62,6 +64,7 @@ public class TracerReconstructionGuard {
 		ALIGNERS.put("ScrabbleAligner2", (q, r, s) -> ScrabbleAligner2.alignAndTraceStatic(q, r, s));
 		ALIGNERS.put("WobbleAligner", (q, r, s) -> WobbleAligner.alignAndTraceStatic(q, r, s));
 		ALIGNERS.put("GlocalPlusAligner6", (q, r, s) -> GlocalPlusAligner6.alignAndTraceStatic(q, r, s));
+		ALIGNERS.put("QuantumAligner", (q, r, s) -> new QuantumAligner().align(q, r, s));
 	}
 
 	static byte[] randomSeq(int len, long seed){
@@ -100,7 +103,9 @@ public class TracerReconstructionGuard {
 					if(r<0||r>=ref.length||qi<0||qi>=query.length){return "'S' out of bounds at qi="+qi+" r="+r;}
 					if(query[qi]==ref[r]){return "'S' claimed but query["+qi+"]==ref["+r+"]=="+(char)query[qi]+" (should be 'm')";}
 					qi++; r++; break;
-				case 'N': qi++; r++; break;
+				case 'N':
+					if(r<0||r>=ref.length||qi<0||qi>=query.length){return "'N' out of bounds at qi="+qi+" r="+r;}
+					qi++; r++; break;
 				case 'D': if(r<0||r>=ref.length){return "'D' out of bounds at r="+r;} r++; break;
 				case 'I': if(qi<0||qi>=query.length){return "'I' out of bounds at qi="+qi;} qi++; break;
 				default: return "unknown op '"+(char)op+"'";
@@ -131,8 +136,21 @@ public class TracerReconstructionGuard {
 		cases++;
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
-		fn.run(query, ref, stats);
+		float identity=fn.run(query, ref, stats);
 		String problem=checkReconstruction(stats, query, ref);
+		if(problem==null && aligner.equals("QuantumAligner")){
+			int[] pos=new int[4];
+			float plainIdentity=QuantumAligner.alignStatic(query, ref, pos);
+			if(Float.floatToIntBits(identity)!=Float.floatToIntBits(plainIdentity)){
+				problem="trace identity "+identity+" != non-trace identity "+plainIdentity;
+			}else if(stats.rStart!=pos[0] || stats.rStop!=pos[1]){
+				problem="trace coordinates "+stats.rStart+"-"+stats.rStop+
+						" != non-trace coordinates "+pos[0]+"-"+pos[1];
+			}else if(stats.score!=pos[2] || stats.dels!=pos[3]){
+				problem="trace score/dels "+stats.score+"/"+stats.dels+
+						" != non-trace score/dels "+pos[2]+"/"+pos[3];
+			}
+		}
 		if(problem!=null){
 			failures++;
 			failuresByAligner.merge(aligner, 1, Integer::sum);
@@ -195,6 +213,22 @@ public class TracerReconstructionGuard {
 				byte[] a=randomSeq(60, seed);
 				byte[] b=randomSeq(80, seed+1);
 				runCase(aligner, fn, "unrelated random pair seed="+seed, a, b);
+			}
+
+			if(aligner.equals("QuantumAligner")){
+				int[][] lengths={{1,1},{1,2},{7,31},{76,512},{511,700}};
+				for(int[] pair : lengths){
+					byte[] a=randomSeq(pair[0], 7001+pair[0]);
+					byte[] b=randomSeq(pair[1], 8001+pair[1]);
+					runCase(aligner, fn, "sparse dimensions "+pair[0]+"x"+pair[1], a, b);
+				}
+				byte[] iupac="ACGTRYKMSWBDHVNACGTNNRY".getBytes();
+				runCase(aligner, fn, "uppercase IUPAC exact", iupac.clone(), iupac.clone());
+				byte[] iupacQuery=iupac.clone();
+				iupacQuery[5]='A';
+				iupacQuery[13]='C';
+				iupacQuery[19]='G';
+				runCase(aligner, fn, "uppercase IUPAC mixed", iupacQuery, iupac.clone());
 			}
 		}
 

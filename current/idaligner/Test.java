@@ -337,6 +337,7 @@ public class Test {
 		if(global) {setOrCatch(c, "GLOBAL", global);}
 		if(printOps) {setOrCatch(c, "PRINT_OPS", printOps);}
 		if(output!=null) {setOrCatch(c, "output", output);}
+		//TODO: These raw args ignore parsed query/ref when named query= and ref= parameters are used.
 		if(statsmode){testAndPrintStats(ida, args[0], args[1], iters);}
 		else{testAndPrintPos(ida, args[0], args[1], iters);}
 	}
