@@ -7,7 +7,7 @@ echo "
 Written by Neptune
 
 Description: Regression guard for the idaligner Tracer traceback-reconstruction bug
-(fixed Aug 19 2026). Sweeps all 7 idaligner aligners with a traceback path across a
+(fixed Aug 19 2026). Sweeps all 8 idaligner aligners with a traceback path across a
 substitution/indel case set and asserts the reconstructed matchString is
 byte-for-byte consistent with the real query/ref sequences. Takes no arguments.
 
