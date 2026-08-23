@@ -53,7 +53,7 @@ public class BubblePopper {
 			while(popDirect && expandRightSimple()){count++;}
 		}
 		
-		if((popDirect && center.leftCode!=Tadpole.LOOP && center.leftCode!=Tadpole.DEAD_END && center.leftEdges!=null)
+		if((popDirect && (crossKMerge || (center.leftCode!=Tadpole.LOOP && center.leftCode!=Tadpole.DEAD_END)) && center.leftEdges!=null)
 				|| (popIndirect && center.leftForwardBranch())){
 			center.flip(destMap.get(center.id));
 			while(popDirect && expandRightSimple()){count++;}
@@ -241,13 +241,19 @@ public class BubblePopper {
 		dest=allContigs.get(leftEdge.destination);
 		
 		if(dest.used() || dest==center){return false;}
+		if(crossKMerge && crossKMaxDepthRatio>0){
+			final float maxFlank=Tools.max(center.coverage, dest.coverage);
+			if(maxFlank>0 && leftEdge.depth>maxFlank*crossKMaxDepthRatio){return false;}
+		}
 		ArrayList<Edge> outboundRight=(leftEdge.destRight() ? dest.rightEdges : dest.leftEdges);
 		int rightCode=leftEdge.destRight() ? dest.rightCode : dest.leftCode;
 		
 		if(rightCode==Tadpole.LOOP){return false;}
 		
 //		if(outboundRight==null || outboundRight.size()>1){return false;}
-		if(outboundRight==null) {
+		if(crossKMerge && (outboundRight==null || outboundRight.size()!=1 || outboundRight.get(0).destination!=center.id)){
+			return false;
+		}else if(outboundRight==null) {
 			//do nothing
 		}else if(outboundRight.size()>1){
 			return false;
@@ -257,10 +263,10 @@ public class BubblePopper {
 		
 		int inbound=countInbound(center.id, true);
 //		if(inbound==null || inbound.size()>1){return false;}
-		if(inbound>1){return false;}
+		if(crossKMerge ? inbound!=1 : inbound>1){return false;}
 		
 		int inboundRight=countInbound(dest.id, leftEdge.destRight());
-		if(inboundRight>1){return false;}
+		if(crossKMerge ? inboundRight!=1 : inboundRight>1){return false;}
 		
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
@@ -268,6 +274,10 @@ public class BubblePopper {
 		//assert(validate(center));
 		//assert(validate(dest));
 		
+		if(crossKMerge){
+			System.err.println("Cross-k merge: left="+center.name()+", right="+dest.name()+
+					", bridge="+leftEdge.length+", depth="+leftEdge.depth+", orientation="+leftEdge.orientation);
+		}
 		return merge(center, dest, leftEdge);
 	}
 	
@@ -482,8 +492,15 @@ public class BubblePopper {
 		left.minCov=Tools.min(left.minCov, right.minCov, mid.minCov);
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
-		double coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
-		left.coverage=(float)(coverageSum/(left.length()-kbig+1));
+		left.rightBridgeEndpoint=right.rightBridgeEndpoint;
+		final double coverageSum;
+		if(crossKMerge){
+			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
+			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
+		}else{
+			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
+			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
+		}
 		
 		expansions++;
 		contigsAbsorbed+=(1+midNodes.size());
@@ -491,6 +508,7 @@ public class BubblePopper {
 		if(isLoop(left)){
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
+			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
 			left.removeAllEdges(destMap.get(left.id), allContigs);
 		}
 		
@@ -590,12 +608,17 @@ public class BubblePopper {
 		
 		//Append path
 		bb.append(left.bases);
-		if(leftEdge.bases!=null){
-			for(int i=0; i<leftEdge.bases.length-1; i++){
-				bb.append(leftEdge.bases[i]);
+		if(crossKMerge){
+			if(leftEdge.bases!=null){bb.append(leftEdge.bases);}
+			for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
+		}else{
+			if(leftEdge.bases!=null){
+				for(int i=0; i<leftEdge.bases.length-1; i++){
+					bb.append(leftEdge.bases[i]);
+				}
 			}
+			bb.append(right.bases);
 		}
-		bb.append(right.bases);
 		left.bases=bb.toBytes();
 		
 		//Cleanup
@@ -622,12 +645,20 @@ public class BubblePopper {
 		left.minCov=Tools.min(left.minCov, right.minCov);
 		left.rightCode=right.rightCode;
 		left.rightRatio=right.rightRatio;
-		double coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
-		left.coverage=(float)(coverageSum/(left.length()-kbig+1));
+		left.rightBridgeEndpoint=right.rightBridgeEndpoint;
+		final double coverageSum;
+		if(crossKMerge){
+			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
+			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
+		}else{
+			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
+			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
+		}
 		
 		if(isLoop(left)){
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
+			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
 			left.removeAllEdges(destMap.get(left.id), allContigs);
 		}
 		
@@ -1027,6 +1058,10 @@ public class BubblePopper {
 	static boolean popDirect=true;
 	/** Whether indirect bubble popping is enabled */
 	static boolean popIndirect=true;
+	/** Whether direct merges join contigs built at a longer kmer length. */
+	static boolean crossKMerge=false;
+	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */
+	static float crossKMaxDepthRatio=3;
 	/** Whether debranching of dead ends is enabled */
 	static boolean debranch=false;
 }

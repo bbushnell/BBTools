@@ -310,6 +310,11 @@ public class Contig {
 			rightRatio=temp;
 		}
 		{
+			boolean temp=leftBridgeEndpoint;
+			leftBridgeEndpoint=rightBridgeEndpoint;
+			rightBridgeEndpoint=temp;
+		}
+		{
 			ArrayList<Edge> temp=leftEdges;
 			leftEdges=rightEdges;
 			rightEdges=temp;
@@ -462,6 +467,11 @@ public class Contig {
 			rightRatio=temp;
 		}
 		{
+			boolean temp=leftBridgeEndpoint;
+			leftBridgeEndpoint=rightBridgeEndpoint;
+			rightBridgeEndpoint=temp;
+		}
+		{
 			ArrayList<Edge> temp=leftEdges;
 			leftEdges=rightEdges;
 			rightEdges=temp;
@@ -580,6 +590,8 @@ public class Contig {
 	int rightCode;
 	float leftRatio;
 	float rightRatio;
+	boolean leftBridgeEndpoint;
+	boolean rightBridgeEndpoint;
 	public int id;
 	public int tid=-1;
 	float gc=-1, hh=-1, caga=-1;

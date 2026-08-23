@@ -133,8 +133,8 @@ ecc=f               Error correct via kmer counts.
 reassemble=t        If ecc is enabled, use the reassemble algorithm.
 pincer=f            If ecc is enabled, use the pincer algorithm.
 tail=f              If ecc is enabled, use the tail algorithm.
-mutate=f            (Experimental) If ecc is enabled, use the mutate algorithm:
-                    a substitution-confirmation cleanup pass, run after
+substitute=f        (Experimental) If ecc is enabled, use the substitute algorithm:
+                    an alternate-confirmation cleanup pass, run after
                     reassemble, for errors too dense or close together for
                     reassemble to resolve.  Works at all k.
 eccfull=f           If ecc is enabled, use tail over the entire read.

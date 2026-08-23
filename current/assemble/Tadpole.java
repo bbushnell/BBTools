@@ -433,8 +433,8 @@ public abstract class Tadpole extends ShaveObject{
 				ECC_PINCER=Parse.parseBoolean(b);
 			}else if(a.equals("reassemble") || a.equals("eccreassemble")){
 				ECC_REASSEMBLE=Parse.parseBoolean(b);
-			}else if(a.equals("mutate") || a.equals("eccmutate")){
-				ECC_MUTATE=Parse.parseBoolean(b);
+			}else if(a.equals("substitute") || a.equals("eccsubstitute") || a.equals("mutate")){
+				ECC_SUBSTITUTE=Parse.parseBoolean(b);
 			}else if(a.equals("rollback") || a.equals("eccrollback")){
 				ECC_ROLLBACK=Parse.parseBoolean(b);
 			}else if(a.equals("bidirectional") || a.equals("requirebidirectional") || a.equals("eccbidirectional") || a.equals("rbi") || a.equals("rb")){
@@ -841,6 +841,29 @@ public abstract class Tadpole extends ShaveObject{
 		allContigs=null;
 		tables().clear();
 	}
+
+	/** Detaches the current contigs so another kmer pass can consume them. */
+	final ArrayList<Contig> detachContigs(){
+		final ArrayList<Contig> list=allContigs;
+		allContigs=null;
+		return list;
+	}
+
+	/** Installs externally built contigs for graph processing. */
+	final void setContigs(ArrayList<Contig> contigs){allContigs=contigs;}
+
+	/** Marks graph-disconnected, non-loop ends as candidates for shorter-k bridging. */
+	final void markBridgeEndpoints(){
+		for(Contig c : allContigs){
+			c.leftBridgeEndpoint=(c.leftCode!=LOOP && c.leftEdgeCount()==0);
+			c.rightBridgeEndpoint=(c.rightCode!=LOOP && c.rightEdgeCount()==0);
+		}
+	}
+
+	/** Clears graph edges while retaining bridge-end eligibility for the next kmer pass. */
+	final void clearContigEdges(){
+		for(Contig c : allContigs){c.leftEdges=c.rightEdges=null;}
+	}
 	
 	/**
 	 * Core processing method implementing mode-specific assembly operations.
@@ -897,7 +920,7 @@ public abstract class Tadpole extends ShaveObject{
 				long partial=(readsCorrected-readsFullyCorrected);
 				outstream.println("Errors detected:            \t"+(basesDetected+basesCorrectedEcco));
 				{
-					final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedMutate+basesCorrectedEcco);
+					final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedSubstitute+basesCorrectedEcco);
 					StringBuilder sb=new StringBuilder();
 					sb.append("Errors corrected:           \t"+Tools.padRight(corrected, 7)+" \t(");
 					
@@ -914,8 +937,8 @@ public abstract class Tadpole extends ShaveObject{
 						sb.append(comma).append(basesCorrectedReassemble+" reassemble");
 						comma=", ";
 					}
-					if(ECC_MUTATE){
-						sb.append(comma).append(basesCorrectedMutate+" mutate");
+					if(ECC_SUBSTITUTE){
+						sb.append(comma).append(basesCorrectedSubstitute+" substitute");
 						comma=", ";
 					}
 					if(ecco || merge){
@@ -938,10 +961,10 @@ public abstract class Tadpole extends ShaveObject{
 				if(ECC_ROLLBACK || rollbacks>0){
 					outstream.println("Rollbacks:                  \t"+Tools.padRight(rollbacks, 7)+
 							Tools.format(" \t(%.2f%% of detected)", rollbacks*100.0/readsDetected));
-					//Item 3c: mutate-attribution and trigger diagnostics, only shown when mutate
-					//is enabled (keeps default non-mutate output unchanged).
-					if(ECC_MUTATE && rollbacks>0){
-						outstream.println("Rollbacks (mutate):         \t"+rollbackMutate);
+					//Item 3c: substitute attribution and trigger diagnostics, only shown when substitute
+					//is enabled (keeps default output unchanged).
+					if(ECC_SUBSTITUTE && rollbacks>0){
+						outstream.println("Rollbacks (substitute):     \t"+rollbackSubstitute);
 						outstream.println("Rollback triggers:          \tover-correction="+rollbackTrigger1+", contradiction="+rollbackTrigger2);
 						if(PRINT_ROLLBACK_HIST){
 							StringBuilder histSb=new StringBuilder("Rollback corrected-count hist:\t");
@@ -1290,7 +1313,8 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		
 		for(Contig c : allContigs){
-			if(!c.used() && (c.leftForwardBranch() || c.rightForwardBranch())) {
+			if(!c.used() && (BubblePopper.crossKMerge ? c.leftEdgeCount()>0 || c.rightEdgeCount()>0 :
+					c.leftForwardBranch() || c.rightForwardBranch())) {
 				bubblesPoppedThisPass+=bp.expand(c);
 			}
 		}
@@ -1451,10 +1475,10 @@ public abstract class Tadpole extends ShaveObject{
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
 			basesCorrectedReassemble+=pt.basesCorrectedReassembleT;
-			basesCorrectedMutate+=pt.basesCorrectedMutateT;
+			basesCorrectedSubstitute+=pt.basesCorrectedSubstituteT;
 			readsFullyCorrected+=pt.readsFullyCorrectedT;
 			rollbacks+=pt.rollbacksT;
-			rollbackMutate+=pt.rollbackMutateT;
+			rollbackSubstitute+=pt.rollbackSubstituteT;
 			rollbackTrigger1+=pt.rollbackTrigger1T;
 			rollbackTrigger2+=pt.rollbackTrigger2T;
 			for(int rbi=0; rbi<rollbackCorrectedHist.length; rbi++){rollbackCorrectedHist[rbi]+=pt.rollbackCorrectedHistT[rbi];}
@@ -1847,16 +1871,16 @@ public abstract class Tadpole extends ShaveObject{
 				final int correctedPincer=trackerT.correctedPincer;
 				final int correctedTail=trackerT.correctedTail;
 				final int correctedReassemble=trackerT.correctedReassemble();
-				final int correctedMutate=trackerT.correctedMutate;
+				final int correctedSubstitute=trackerT.correctedSubstitute;
 				final int marked=trackerT.marked;
-				assert(corrected==correctedPincer+correctedTail+correctedReassemble+correctedMutate) : corrected+", "+trackerT;
+				assert(corrected==correctedPincer+correctedTail+correctedReassemble+correctedSubstitute) : corrected+", "+trackerT;
 				if(marked>0){
 					readsMarkedT++;
 					basesMarkedT+=marked;
 				}
 				if(trackerT.rollback){
 					rollbacksT++;
-					if(trackerT.rollbackMutate){rollbackMutateT++;}
+					if(trackerT.rollbackSubstitute){rollbackSubstituteT++;}
 					if(trackerT.rollbackTrigger==1){rollbackTrigger1T++;}
 					else if(trackerT.rollbackTrigger==2){rollbackTrigger2T++;}
 					final int histIdx=Tools.mid(0, trackerT.rollbackCorrectedSnapshot, rollbackCorrectedHistT.length-1);
@@ -1870,7 +1894,7 @@ public abstract class Tadpole extends ShaveObject{
 						basesCorrectedPincerT+=correctedPincer;
 						basesCorrectedTailT+=correctedTail;
 						basesCorrectedReassembleT+=correctedReassemble;
-						basesCorrectedMutateT+=correctedMutate;
+						basesCorrectedSubstituteT+=correctedSubstitute;
 					}
 					if(corrected==detected || (corrected>0 && countErrors(countList, r.quality)==0)){
 						readsFullyCorrectedT++;
@@ -1953,10 +1977,10 @@ public abstract class Tadpole extends ShaveObject{
 		long basesCorrectedPincerT=0;
 		long basesCorrectedTailT=0;
 		long basesCorrectedReassembleT=0;
-		long basesCorrectedMutateT=0;
+		long basesCorrectedSubstituteT=0;
 		long readsFullyCorrectedT=0;
 		long rollbacksT=0;
-		long rollbackMutateT=0;
+		long rollbackSubstituteT=0;
 		long rollbackTrigger1T=0;
 		long rollbackTrigger2T=0;
 		final long[] rollbackCorrectedHistT=new long[128];
@@ -2747,20 +2771,23 @@ public abstract class Tadpole extends ShaveObject{
 	/** Item 3c: true iff at least one kmer count is below minCountCorrect -- catches the
 	 * zero-clean-kmer case (densely packed errors, or a large k with errors ~k bases apart) a
 	 * transition detector (countErrors) structurally can't see. Shared by Tadpole1 and Tadpole2's
-	 * mutate gate. */
+	 * substitute gate. */
 	protected final boolean hasLowCount(final IntList counts){
 		for(int i=0; i<counts.size; i++){
 			if(counts.get(i)<minCountCorrect){return true;}
 		}
 		return false;
 	}
-	/** Item 3c: mutate's bounded re-pass cap, matching reassemble's convention. Shared by Tadpole1
+	/** Item 3c: substitute's bounded re-pass cap, matching reassemble's convention. Shared by Tadpole1
 	 * and Tadpole2. */
-	protected static final int MUTATE_MAX_PASSES=6;
-	/** Gate for the experimental mutate rollback corrected-count histogram (printed in the summary,
-	 * only when ECC_MUTATE is on). Kept non-final and true DURING mutate development so the
+	//TODO: Probable bug - immediate left-to-right edits plus this pass cap are strand-order
+	//dependent; the single-span repeat control makes 43 false edits forward but only 6 after
+	//reverse-complementing the same reads and restoring their orientation.
+	protected static final int SUBSTITUTE_MAX_PASSES=6;
+	/** Gate for the experimental substitute rollback corrected-count histogram (printed in the summary,
+	 * only when ECC_SUBSTITUTE is on). Kept non-final and true during substitute development so the
 	 * distribution stays visible for heuristic tuning; make it 'static final boolean ...=false' once
-	 * mutate development is done, which lets the compiler eliminate the histogram block entirely
+	 * substitute development is done, which lets the compiler eliminate the histogram block entirely
 	 * (assertions-skill dead-code pattern). Brian's call, 2026-08-23. */
 	static boolean PRINT_ROLLBACK_HIST=true;
 	private int pathSimilarityConstant=3;
@@ -2839,11 +2866,11 @@ public abstract class Tadpole extends ShaveObject{
 	long basesCorrectedPincer=0;
 	long basesCorrectedTail=0;
 	long basesCorrectedReassemble=0;
-	long basesCorrectedMutate=0;
+	long basesCorrectedSubstitute=0;
 	long readsFullyCorrected=0;
 	long rollbacks=0;
-	/** Item 3c: rollbacks that discarded at least one mutate correction. */
-	long rollbackMutate=0;
+	/** Item 3c: rollbacks that discarded at least one substitute correction. */
+	long rollbackSubstitute=0;
 	/** Item 3c (diagnostic): rollback counts by trigger (1=over-correction, 2=contradiction). */
 	long rollbackTrigger1=0;
 	long rollbackTrigger2=0;
@@ -2864,12 +2891,15 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean ECC_TAIL=false;
 	protected boolean ECC_ALL=false;
 	protected boolean ECC_REASSEMBLE=true;
-	/** Item 3b: mutate-ECC, cleanup pass after reassemble (Tadpole1 only; k&lt;=31 exact table) */
-	protected boolean ECC_MUTATE=false;
-	/** Item 3b: number of independently-confirming spans required to accept a mutate correction;
-	 * also the number of distinct alt bases that must clear this bar for exactly one to be
+	/** Item 3b: substitute ECC, cleanup pass after reassemble. */
+	protected boolean ECC_SUBSTITUTE=false;
+	/** Item 3b: number of independently-confirming spans required to accept a substitute correction;
+	 * also the number of distinct alternate bases that must clear this bar for exactly one to be
 	 * accepted. 1 is safe for Tadpole1's exact table (no collision risk), unlike BBCMS's Bloom
 	 * filter which needs 2. */
+	//TODO: Probable bug - exact lookup prevents hash collisions but not biological repeat matches;
+	//CONFIRM_MIN=1 can seed iterative conversion of a true read into a repeat-supported decoy
+	//across substitute passes (testdata/noelle_substitute_review/single_span_repeat_k95.fa: 43 false edits).
 	protected int CONFIRM_MIN=1;
 	protected boolean ECC_AGGRESSIVE=false;
 	protected boolean ECC_CONSERVATIVE=false;

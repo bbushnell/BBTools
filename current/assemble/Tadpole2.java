@@ -674,6 +674,10 @@ public class Tadpole2 extends Tadpole {
 		tables.clearOwnership();
 		tables.initializeOwnership();
 		final Kmer kmer=new Kmer(kbig);
+		if(crossKGraph){
+			initializeCrossKContigs(contigs, kmer);
+			return;
+		}
 		{
 			int cnum=0;
 			for(Contig c : contigs){
@@ -693,6 +697,42 @@ public class Tadpole2 extends Tadpole {
 		}
 	}
 
+	/** Marks assembled short kmers invalid, then claims only unique eligible contig tips. */
+	private void initializeCrossKContigs(ArrayList<Contig> contigs, Kmer kmer){
+		final int invalidOwner=contigs.size();
+		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
+		for(Contig c : contigs){invalidateCrossKInternal(c.bases, invalidOwner, kmer);}
+		for(Contig c : contigs){
+			c.leftKmer(kmer);
+			claimCrossKEnd(kmer, c.leftBridgeEndpoint, c.id, invalidOwner);
+			c.rightKmer(kmer);
+			claimCrossKEnd(kmer, c.rightBridgeEndpoint, c.id, invalidOwner);
+		}
+		for(Contig c : contigs){
+			c.leftKmer(kmer);
+			c.leftBridgeEndpoint&=(tables.findOwner(kmer)==c.id);
+			c.rightKmer(kmer);
+			c.rightBridgeEndpoint&=(tables.findOwner(kmer)==c.id);
+		}
+	}
+
+	/** Marks every short kmer except the two terminal positions as assembled and untraversable. */
+	private void invalidateCrossKInternal(final byte[] bases, final int invalidOwner, final Kmer kmer){
+		if(bases.length<=kbig+1){return;}
+		kmer.clearFast();
+		for(int i=0; i<bases.length; i++){
+			kmer.addRight(bases[i]);
+			final int start=i-kbig+1;
+			if(kmer.len>=kbig && start>0 && start<bases.length-kbig){tables.claim(kmer, invalidOwner);}
+		}
+	}
+
+	/** Claims one endpoint, invalidating it if ineligible or already seen anywhere. */
+	private void claimCrossKEnd(final Kmer kmer, final boolean eligible, final int owner, final int invalidOwner){
+		final int old=tables.findOwner(kmer);
+		tables.claim(kmer, eligible && old<0 ? owner : invalidOwner);
+	}
+
 	/**
 	 * Worker thread for processing contigs to find connecting edges.
 	 * Explores potential connections between contigs by following k-mer paths
@@ -710,13 +750,14 @@ public class Tadpole2 extends Tadpole {
 			kmerA=new Kmer(kbig);
 			kmerB=new Kmer(kbig);
 			kmerC=new Kmer(kbig);
+			visited=KillSwitch.allocLong1D(500*kmerA.array1().length);
 			lastExitCondition=BAD_SEED;
 		}
 
 		@Override
 		public void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
 //			System.err.println("processContigLeft: "+c.id+", "+c.leftCode+", "+c.leftEdges);
-			if(c.leftCode==DEAD_END){return;}
+			if(crossKGraph ? !c.leftBridgeEndpoint : c.leftCode==DEAD_END){return;}
 			
 			final Kmer kmer0=c.leftKmer(kmerA);
 			final Kmer kmer=kmerB;
@@ -738,7 +779,7 @@ public class Tadpole2 extends Tadpole {
 					kmer.addLeftNumeric(x);
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
 					bb.append(AminoAcid.numberToBase[x]);
-					target=exploreRight(kmer, extraCounts, rightCounts, bb);
+					target=exploreRight(kmer, extraCounts, rightCounts, bb, c.id);
 					if(verbose){
 						outstream.println(c.id+"L_F: x="+x+", cnt="+count+", dest="+target
 								+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
@@ -756,7 +797,7 @@ public class Tadpole2 extends Tadpole {
 		@Override
 		public void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
 //			System.err.println("processContigRight: "+c.id+", "+c.rightCode);
-			if(c.rightCode==DEAD_END){return;}
+			if(crossKGraph ? !c.rightBridgeEndpoint : c.rightCode==DEAD_END){return;}
 
 			final Kmer kmer0=c.rightKmer(kmerA);
 			final Kmer kmer=kmerB;
@@ -775,7 +816,7 @@ public class Tadpole2 extends Tadpole {
 					kmer.addRightNumeric(x);
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
 					bb.append(AminoAcid.numberToBase[x]);
-					target=exploreRight(kmer, leftCounts, extraCounts, bb);
+					target=exploreRight(kmer, leftCounts, extraCounts, bb, c.id);
 					if(verbose){
 						outstream.println(c.id+"R_F: x="+x+", cnt="+count+", dest="+target+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
 					}
@@ -799,14 +840,30 @@ public class Tadpole2 extends Tadpole {
 		 * @param bb ByteBuilder for path sequence
 		 * @return Owner ID of target contig, or -1 if no valid connection
 		 */
-		private int exploreRight(Kmer kmer, int[] leftCounts, int[] rightCounts, ByteBuilder bb){
+		private int exploreRight(Kmer kmer, int[] leftCounts, int[] rightCounts,
+				ByteBuilder bb, final int source){
 			final Kmer temp=kmerC;
 			int length=1;
 			int owner=-1;
+			int visitedSize=0;
 			lastTarget=-1;
 			for(; length<500; length++){
+				if(crossKGraph && !addVisited(kmer, visitedSize++)){
+					lastExitCondition=LOOP;
+					lastLength=length;
+					return -1;
+				}
 				owner=tables.findOwner(kmer);
-				if(owner>=0){break;}
+				if(crossKGraph && owner==source){
+					lastExitCondition=LOOP;
+					lastLength=length;
+					return -1;
+				}else if(owner>=contigs.size()){
+					lastExitCondition=D_BRANCH;
+					lastLength=length;
+					return -1;
+				}
+				if(owner>=0 && !crossKGraph){break;}
 
 				final int leftMaxPos=fillLeftCounts(kmer, leftCounts);
 				final int leftMax=leftCounts[leftMaxPos];
@@ -817,6 +874,7 @@ public class Tadpole2 extends Tadpole {
 					lastLength=length;
 					return -1;
 				}
+				if(owner>=0){break;}
 				
 				final int rightMaxPos=fillRightCounts(kmer, rightCounts);
 				final int rightMax=rightCounts[rightMaxPos];
@@ -871,7 +929,23 @@ public class Tadpole2 extends Tadpole {
 			return owner;
 		}
 
+		/** Adds one exact oriented kmer state; returns false if it was already visited. */
+		private boolean addVisited(final Kmer kmer, final int size){
+			final long[] array=kmer.array1();
+			final int mult=array.length;
+			for(int old=0; old<size; old++){
+				final int offset=old*mult;
+				int word=0;
+				while(word<mult && visited[offset+word]==array[word]){word++;}
+				if(word==mult){return false;}
+			}
+			final int offset=size*mult;
+			for(int word=0; word<mult; word++){visited[offset+word]=array[word];}
+			return true;
+		}
+
 		final Kmer kmerA, kmerB, kmerC;
+		final long[] visited;
 
 	}
 	
@@ -1492,7 +1566,7 @@ public class Tadpole2 extends Tadpole {
 		int correctedTail=0;
 		int correctedBrute=0;
 		int correctedReassemble=0;
-		int correctedMutate=0;
+		int correctedSubstitute=0;
 
 		if(ECC_PINCER){
 			correctedPincer+=errorCorrectPincer(bases, quals, leftCounts, rightCounts, counts, bb, tracker, errorExtensionPincer, kmer);
@@ -1516,14 +1590,14 @@ public class Tadpole2 extends Tadpole {
 			}
 		}
 
-		//Item 3c (Tadpole2 port): mutate runs strictly after reassemble, only as cleanup for
+		//Item 3c (Tadpole2 port): substitute runs strictly after reassemble, only as cleanup for
 		//errors reassemble left behind -- mirrors Tadpole1.errorCorrect exactly.
-		if(ECC_MUTATE && hasLowCount(counts)){
-			correctedMutate=errorCorrectMutate(bases, quals, counts, tracker, kmer, regenKmer);
+		if(ECC_SUBSTITUTE && hasLowCount(counts)){
+			correctedSubstitute=errorCorrectSubstitute(bases, quals, counts, tracker, kmer, regenKmer);
 		}
 
-		assert(correctedPincer+correctedTail+correctedReassemble+correctedBrute+correctedMutate==tracker.corrected())
-			: correctedPincer+", "+correctedTail+", "+correctedReassemble+", "+correctedBrute+", "+correctedMutate+", "+tracker;
+		assert(correctedPincer+correctedTail+correctedReassemble+correctedBrute+correctedSubstitute==tracker.corrected())
+			: correctedPincer+", "+correctedTail+", "+correctedReassemble+", "+correctedBrute+", "+correctedSubstitute+", "+tracker;
 
 		if(ECC_ROLLBACK && (tracker.corrected()>0 || tracker.rollback)){
 			
@@ -1551,6 +1625,9 @@ public class Tadpole2 extends Tadpole {
 //				}
 			}
 			
+			//TODO: Probable bug - unlike Tadpole1, this path never sets rollbackTrigger,
+			//rollbackCorrectedSnapshot, or rollbackSubstitute before clearCorrected(); shared k>31
+			//substitute diagnostics therefore report trigger 0, histogram bucket 0, and no substitute attribution.
 			if(tracker.rollback){
 				roll.rollback(r, counts);
 				tracker.clearCorrected();
@@ -1597,17 +1674,17 @@ public class Tadpole2 extends Tadpole {
 	}
 
 	/** Item 3c (Tadpole2 port): builds the kmer spanning bases[windowStart..windowStart+kbig-1]
-	 * with bases[subPos] replaced by altBase, and looks it up in the exact table. Lifts the
+	 * with bases[subPos] replaced by alternateBase, and looks it up in the exact table. Lifts the
 	 * roll-then-hash technique from bloom.BloomFilterCorrector2#getCountWithSubstitution
 	 * (validated at k=62) -- builds the FULL window fresh via addRight since the substitution can
 	 * sit at an arbitrary offset. Uses the passed-in scratch Kmer (the caller's `kmer`, safe to
-	 * reuse here since errorCorrectMutate runs strictly after reassemble has finished with it --
-	 * NOT `regenKmer`, which errorCorrectMutate's own regenerateCounts calls still need live; see
+	 * reuse here since errorCorrectSubstitute runs strictly after reassemble has finished with it --
+	 * NOT `regenKmer`, which errorCorrectSubstitute's own regenerateCounts calls still need live; see
 	 * the BFC2 localKmer/localKmer2 aliasing bug this mirrors the fix for). */
-	private int getCountWithSubstitution(final byte[] bases, final int windowStart, final int subPos, final int altBase, final Kmer scratch){
+	private int getCountWithSubstitution(final byte[] bases, final int windowStart, final int subPos, final int alternateBase, final Kmer scratch){
 		scratch.clear();
 		for(int i=windowStart; i<windowStart+kbig; i++){
-			final byte b=(i==subPos ? AminoAcid.numberToBase[altBase] : bases[i]);
+			final byte b=(i==subPos ? AminoAcid.numberToBase[alternateBase] : bases[i]);
 			scratch.addRight(b);
 		}
 		if(scratch.len<kbig){return 0;}
@@ -1615,22 +1692,22 @@ public class Tadpole2 extends Tadpole {
 	}
 
 	/** Item 3c (Tadpole2 port, 2026-08-23, Brian green-lit, Amber directing, Nepgear
-	 * implementing): mutate-ECC for k&gt;31. Faithful mechanism port of
-	 * {@link Tadpole1#errorCorrectMutate} -- NO new heuristics or threshold tuning (Brian's
+	 * implementing): substitute ECC for k&gt;31. Faithful mechanism port of
+	 * {@link Tadpole1#errorCorrectSubstitute} -- NO new heuristics or threshold tuning (Brian's
 	 * explicit scope boundary; ratio-threshold work is his to do). Same algorithm: for each
 	 * error-covered position, test all 3 single-base substitutions against up to 3
-	 * geometrically-spanning kmers, accept a correction only if exactly one alt base is
+	 * geometrically-spanning kmers, accept a correction only if exactly one alternate base is
 	 * independently confirmed (count &gt;= minCountCorrect) by at least CONFIRM_MIN spans (1
 	 * here -- exact table, no collision risk), 0 or &gt;1 clearing the bar means skip as
-	 * ambiguous. detectedMutate counts positions where some alt base's confirmed depth exceeds
+	 * ambiguous. detectedSubstitute counts positions where some alternate base's confirmed depth exceeds
 	 * the original's at the same window (Brian's ruling, ported verbatim from Tadpole1). Bounded
-	 * re-pass (MUTATE_MAX_PASSES) resolves the "trapped" two-close-errors case.
-	 * @see Tadpole1#errorCorrectMutate */
-	private int errorCorrectMutate(final byte[] bases, final byte[] quals, final IntList counts, final ErrorTracker tracker, final Kmer kmer, final Kmer regenKmer){
+	 * re-pass (SUBSTITUTE_MAX_PASSES) resolves the "trapped" two-close-errors case.
+	 * @see Tadpole1#errorCorrectSubstitute */
+	private int errorCorrectSubstitute(final byte[] bases, final byte[] quals, final IntList counts, final ErrorTracker tracker, final Kmer kmer, final Kmer regenKmer){
 		int totalCorrected=0;
 		final int readLen=bases.length;
 
-		for(int pass=0; pass<MUTATE_MAX_PASSES; pass++){
+		for(int pass=0; pass<SUBSTITUTE_MAX_PASSES; pass++){
 			int passCorrected=0;
 
 			for(int p=0; p<readLen; p++){
@@ -1642,12 +1719,12 @@ public class Tadpole2 extends Tadpole {
 				final int origBase=AminoAcid.baseToNumber[bases[p]];
 				int bestBase=-1, bestConfirmations=0, clearedCount=0;
 				boolean anyIncrease=false;
-				for(int altBase=0; altBase<4; altBase++){
-					if(altBase==origBase){continue;}
+				for(int alternateBase=0; alternateBase<4; alternateBase++){
+					if(alternateBase==origBase){continue;}
 					int confirmations=0;
 					for(int si=0; si<spans.size; si++){
 						final int s=spans.get(si);
-						final int count=getCountWithSubstitution(bases, s, p, altBase, kmer);
+						final int count=getCountWithSubstitution(bases, s, p, alternateBase, kmer);
 						if(count>=minCountCorrect()){confirmations++;}
 						//Original base's depth at window s is already in counts.get(s) (kept in
 						//sync by regenerateCounts after every correction) -- no need to rebuild.
@@ -1656,14 +1733,14 @@ public class Tadpole2 extends Tadpole {
 					if(confirmations>=CONFIRM_MIN){
 						clearedCount++;
 						if(confirmations>bestConfirmations){
-							bestBase=altBase;
+							bestBase=alternateBase;
 							bestConfirmations=confirmations;
 						}
 					}
 				}
-				if(anyIncrease){tracker.detectedMutate++;}
+				if(anyIncrease){tracker.detectedSubstitute++;}
 
-				if(clearedCount==1){//Exactly one alt base confirmed; 0 or >1 is ambiguous, skip
+				if(clearedCount==1){//Exactly one alternate base confirmed; 0 or >1 is ambiguous, skip
 					bases[p]=AminoAcid.numberToBase[bestBase];
 					byte q=(quals==null ? 30 : quals[p]);
 					q=(byte)Tools.mid(q+qIncreasePincer, qMinPincer, qMaxPincer);
@@ -1677,7 +1754,7 @@ public class Tadpole2 extends Tadpole {
 						//counts[ca+1] (KmerTableSetU:730), so clamping ca to 0 leaves counts[0]
 						//stale (blinds the Trigger-2 rollback check to a window-0 count drop).
 						//reassemble never corrects p<kbig (its ca=a-kbig+1 stays >=0) so it never hits
-						//this; mutate targets exactly this regime at large k. Full refresh instead.
+						//this; substitute targets exactly this regime at large k. Full refresh instead.
 						//(Tadpole1's regenerateCounts is ca-inclusive and needs no such branch.)
 						tables.fillCounts(bases, counts, regenKmer);
 					}
@@ -1688,7 +1765,7 @@ public class Tadpole2 extends Tadpole {
 			if(passCorrected<1){break;}//No progress this pass -- later passes can't help either
 		}
 
-		tracker.correctedMutate+=totalCorrected;
+		tracker.correctedSubstitute+=totalCorrected;
 		return totalCorrected;
 	}
 
@@ -2057,5 +2134,8 @@ public class Tadpole2 extends Tadpole {
 	
 	/** Normal kmer length */
 	final int ksmall;
+
+	/** Experimental: short-k ownership represents longer-k assembled contigs. */
+	boolean crossKGraph=false;
 	
 }
