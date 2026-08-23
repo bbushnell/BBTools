@@ -1492,7 +1492,8 @@ public class Tadpole2 extends Tadpole {
 		int correctedTail=0;
 		int correctedBrute=0;
 		int correctedReassemble=0;
-		
+		int correctedMutate=0;
+
 		if(ECC_PINCER){
 			correctedPincer+=errorCorrectPincer(bases, quals, leftCounts, rightCounts, counts, bb, tracker, errorExtensionPincer, kmer);
 		}
@@ -1514,9 +1515,15 @@ public class Tadpole2 extends Tadpole {
 				correctedReassemble=reassemble(bases, quals, rightCounts, counts, counts2, tracker, errorExtensionReassemble, bb, bb2, kmer, regenKmer, bs);
 			}
 		}
-		
-		assert(correctedPincer+correctedTail+correctedReassemble+correctedBrute==tracker.corrected())
-			: correctedPincer+", "+correctedTail+", "+correctedReassemble+", "+correctedBrute+", "+tracker;
+
+		//Item 3c (Tadpole2 port): mutate runs strictly after reassemble, only as cleanup for
+		//errors reassemble left behind -- mirrors Tadpole1.errorCorrect exactly.
+		if(ECC_MUTATE && hasLowCount(counts)){
+			correctedMutate=errorCorrectMutate(bases, quals, counts, tracker, kmer, regenKmer);
+		}
+
+		assert(correctedPincer+correctedTail+correctedReassemble+correctedBrute+correctedMutate==tracker.corrected())
+			: correctedPincer+", "+correctedTail+", "+correctedReassemble+", "+correctedBrute+", "+correctedMutate+", "+tracker;
 
 		if(ECC_ROLLBACK && (tracker.corrected()>0 || tracker.rollback)){
 			
@@ -1558,6 +1565,131 @@ public class Tadpole2 extends Tadpole {
 		}
 		
 		return tracker.corrected();
+	}
+
+	/** Item 3c (Tadpole2 port): true iff every kmer spanning base position p has a low count
+	 * (below minCountCorrect). Mirrors Tadpole1's version, using kbig instead of k.
+	 * @see assemble.Tadpole1#isErrorCovered */
+	private boolean isErrorCovered(final int p, final IntList counts){
+		final int lo=Tools.max(0, p-kbig+1);
+		final int hi=Tools.min(p, counts.size-1);
+		for(int i=lo; i<=hi; i++){
+			if(counts.get(i)>=minCountCorrect()){return false;}
+		}
+		return true;
+	}
+
+	/** Item 3c (Tadpole2 port): plain geometric span selection, identical rationale to Tadpole1's
+	 * -- Tadpole2 is also an exact table (CONFIRM_MIN=1), so no span-scoring is needed.
+	 * @see assemble.Tadpole1#selectSpanPositions */
+	private IntList selectSpanPositions(final int p, final int readLen){
+		final int lo=Tools.max(0, p-kbig+1);
+		final int hi=Tools.min(p, readLen-kbig);
+		IntList spans=new IntList(3);
+		if(hi<=lo){
+			spans.add(lo);
+			return spans;
+		}
+		spans.add(lo);
+		spans.add(hi);
+		if(hi-lo>=4){spans.add((lo+hi)/2);}
+		return spans;
+	}
+
+	/** Item 3c (Tadpole2 port): builds the kmer spanning bases[windowStart..windowStart+kbig-1]
+	 * with bases[subPos] replaced by altBase, and looks it up in the exact table. Lifts the
+	 * roll-then-hash technique from bloom.BloomFilterCorrector2#getCountWithSubstitution
+	 * (validated at k=62) -- builds the FULL window fresh via addRight since the substitution can
+	 * sit at an arbitrary offset. Uses the passed-in scratch Kmer (the caller's `kmer`, safe to
+	 * reuse here since errorCorrectMutate runs strictly after reassemble has finished with it --
+	 * NOT `regenKmer`, which errorCorrectMutate's own regenerateCounts calls still need live; see
+	 * the BFC2 localKmer/localKmer2 aliasing bug this mirrors the fix for). */
+	private int getCountWithSubstitution(final byte[] bases, final int windowStart, final int subPos, final int altBase, final Kmer scratch){
+		scratch.clear();
+		for(int i=windowStart; i<windowStart+kbig; i++){
+			final byte b=(i==subPos ? AminoAcid.numberToBase[altBase] : bases[i]);
+			scratch.addRight(b);
+		}
+		if(scratch.len<kbig){return 0;}
+		return Tools.max(0, getCount(scratch));
+	}
+
+	/** Item 3c (Tadpole2 port, 2026-08-23, Brian green-lit, Amber directing, Nepgear
+	 * implementing): mutate-ECC for k&gt;31. Faithful mechanism port of
+	 * {@link Tadpole1#errorCorrectMutate} -- NO new heuristics or threshold tuning (Brian's
+	 * explicit scope boundary; ratio-threshold work is his to do). Same algorithm: for each
+	 * error-covered position, test all 3 single-base substitutions against up to 3
+	 * geometrically-spanning kmers, accept a correction only if exactly one alt base is
+	 * independently confirmed (count &gt;= minCountCorrect) by at least CONFIRM_MIN spans (1
+	 * here -- exact table, no collision risk), 0 or &gt;1 clearing the bar means skip as
+	 * ambiguous. detectedMutate counts positions where some alt base's confirmed depth exceeds
+	 * the original's at the same window (Brian's ruling, ported verbatim from Tadpole1). Bounded
+	 * re-pass (MUTATE_MAX_PASSES) resolves the "trapped" two-close-errors case.
+	 * @see Tadpole1#errorCorrectMutate */
+	private int errorCorrectMutate(final byte[] bases, final byte[] quals, final IntList counts, final ErrorTracker tracker, final Kmer kmer, final Kmer regenKmer){
+		int totalCorrected=0;
+		final int readLen=bases.length;
+
+		for(int pass=0; pass<MUTATE_MAX_PASSES; pass++){
+			int passCorrected=0;
+
+			for(int p=0; p<readLen; p++){
+				if(!isErrorCovered(p, counts)){continue;}
+
+				final IntList spans=selectSpanPositions(p, readLen);
+				if(spans.size<2){continue;}//Can't confirm with fewer than 2 spanning kmers
+
+				final int origBase=AminoAcid.baseToNumber[bases[p]];
+				int bestBase=-1, bestConfirmations=0, clearedCount=0;
+				boolean anyIncrease=false;
+				for(int altBase=0; altBase<4; altBase++){
+					if(altBase==origBase){continue;}
+					int confirmations=0;
+					for(int si=0; si<spans.size; si++){
+						final int s=spans.get(si);
+						final int count=getCountWithSubstitution(bases, s, p, altBase, kmer);
+						if(count>=minCountCorrect()){confirmations++;}
+						//Original base's depth at window s is already in counts.get(s) (kept in
+						//sync by regenerateCounts after every correction) -- no need to rebuild.
+						if(!anyIncrease && count>Tools.max(0, counts.get(s))){anyIncrease=true;}
+					}
+					if(confirmations>=CONFIRM_MIN){
+						clearedCount++;
+						if(confirmations>bestConfirmations){
+							bestBase=altBase;
+							bestConfirmations=confirmations;
+						}
+					}
+				}
+				if(anyIncrease){tracker.detectedMutate++;}
+
+				if(clearedCount==1){//Exactly one alt base confirmed; 0 or >1 is ambiguous, skip
+					bases[p]=AminoAcid.numberToBase[bestBase];
+					byte q=(quals==null ? 30 : quals[p]);
+					q=(byte)Tools.mid(q+qIncreasePincer, qMinPincer, qMaxPincer);
+					if(quals!=null){quals[p]=q;}
+					passCorrected++;
+					if(p>=kbig){
+						tables.regenerateCounts(bases, counts, p-kbig, regenKmer);
+					}else{
+						//Early-read correction (p<kbig) changes count window 0, which the ukmer
+						//regenerateCounts(ca) interface cannot refresh: it writes only from
+						//counts[ca+1] (KmerTableSetU:730), so clamping ca to 0 leaves counts[0]
+						//stale (blinds the Trigger-2 rollback check to a window-0 count drop).
+						//reassemble never corrects p<kbig (its ca=a-kbig+1 stays >=0) so it never hits
+						//this; mutate targets exactly this regime at large k. Full refresh instead.
+						//(Tadpole1's regenerateCounts is ca-inclusive and needs no such branch.)
+						tables.fillCounts(bases, counts, regenKmer);
+					}
+				}
+			}
+
+			totalCorrected+=passCorrected;
+			if(passCorrected<1){break;}//No progress this pass -- later passes can't help either
+		}
+
+		tracker.correctedMutate+=totalCorrected;
+		return totalCorrected;
 	}
 
 	/**

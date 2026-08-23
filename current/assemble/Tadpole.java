@@ -433,6 +433,8 @@ public abstract class Tadpole extends ShaveObject{
 				ECC_PINCER=Parse.parseBoolean(b);
 			}else if(a.equals("reassemble") || a.equals("eccreassemble")){
 				ECC_REASSEMBLE=Parse.parseBoolean(b);
+			}else if(a.equals("mutate") || a.equals("eccmutate")){
+				ECC_MUTATE=Parse.parseBoolean(b);
 			}else if(a.equals("rollback") || a.equals("eccrollback")){
 				ECC_ROLLBACK=Parse.parseBoolean(b);
 			}else if(a.equals("bidirectional") || a.equals("requirebidirectional") || a.equals("eccbidirectional") || a.equals("rbi") || a.equals("rb")){
@@ -895,7 +897,7 @@ public abstract class Tadpole extends ShaveObject{
 				long partial=(readsCorrected-readsFullyCorrected);
 				outstream.println("Errors detected:            \t"+(basesDetected+basesCorrectedEcco));
 				{
-					final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedEcco);
+					final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedMutate+basesCorrectedEcco);
 					StringBuilder sb=new StringBuilder();
 					sb.append("Errors corrected:           \t"+Tools.padRight(corrected, 7)+" \t(");
 					
@@ -910,6 +912,10 @@ public abstract class Tadpole extends ShaveObject{
 					}
 					if(ECC_REASSEMBLE){
 						sb.append(comma).append(basesCorrectedReassemble+" reassemble");
+						comma=", ";
+					}
+					if(ECC_MUTATE){
+						sb.append(comma).append(basesCorrectedMutate+" mutate");
 						comma=", ";
 					}
 					if(ecco || merge){
@@ -932,8 +938,25 @@ public abstract class Tadpole extends ShaveObject{
 				if(ECC_ROLLBACK || rollbacks>0){
 					outstream.println("Rollbacks:                  \t"+Tools.padRight(rollbacks, 7)+
 							Tools.format(" \t(%.2f%% of detected)", rollbacks*100.0/readsDetected));
+					//Item 3c: mutate-attribution and trigger diagnostics, only shown when mutate
+					//is enabled (keeps default non-mutate output unchanged).
+					if(ECC_MUTATE && rollbacks>0){
+						outstream.println("Rollbacks (mutate):         \t"+rollbackMutate);
+						outstream.println("Rollback triggers:          \tover-correction="+rollbackTrigger1+", contradiction="+rollbackTrigger2);
+						if(PRINT_ROLLBACK_HIST){
+							StringBuilder histSb=new StringBuilder("Rollback corrected-count hist:\t");
+							String histComma="";
+							for(int hi=0; hi<rollbackCorrectedHist.length; hi++){
+								if(rollbackCorrectedHist[hi]>0){
+									histSb.append(histComma).append(hi==rollbackCorrectedHist.length-1 ? ">="+hi : ""+hi).append(":").append(rollbackCorrectedHist[hi]);
+									histComma=", ";
+								}
+							}
+							outstream.println(histSb);
+						}
+					}
 				}
-				
+
 			}
 			if(tossJunk || discardLowDepthReads>=0 || discardUncorrectable){
 				outstream.println("Reads discarded:            \t"+readsDiscarded+Tools.format(" \t(%.2f%%)", readsDiscarded*100.0/readsIn));
@@ -1428,8 +1451,13 @@ public abstract class Tadpole extends ShaveObject{
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
 			basesCorrectedReassemble+=pt.basesCorrectedReassembleT;
+			basesCorrectedMutate+=pt.basesCorrectedMutateT;
 			readsFullyCorrected+=pt.readsFullyCorrectedT;
 			rollbacks+=pt.rollbacksT;
+			rollbackMutate+=pt.rollbackMutateT;
+			rollbackTrigger1+=pt.rollbackTrigger1T;
+			rollbackTrigger2+=pt.rollbackTrigger2T;
+			for(int rbi=0; rbi<rollbackCorrectedHist.length; rbi++){rollbackCorrectedHist[rbi]+=pt.rollbackCorrectedHistT[rbi];}
 			readsDetected+=pt.readsDetectedT;
 			basesDetected+=pt.basesDetectedT;
 			readsMarked+=pt.readsMarkedT;
@@ -1819,13 +1847,21 @@ public abstract class Tadpole extends ShaveObject{
 				final int correctedPincer=trackerT.correctedPincer;
 				final int correctedTail=trackerT.correctedTail;
 				final int correctedReassemble=trackerT.correctedReassemble();
+				final int correctedMutate=trackerT.correctedMutate;
 				final int marked=trackerT.marked;
-				assert(corrected==correctedPincer+correctedTail+correctedReassemble) : corrected+", "+trackerT;
+				assert(corrected==correctedPincer+correctedTail+correctedReassemble+correctedMutate) : corrected+", "+trackerT;
 				if(marked>0){
 					readsMarkedT++;
 					basesMarkedT+=marked;
 				}
-				if(trackerT.rollback){rollbacksT++;}
+				if(trackerT.rollback){
+					rollbacksT++;
+					if(trackerT.rollbackMutate){rollbackMutateT++;}
+					if(trackerT.rollbackTrigger==1){rollbackTrigger1T++;}
+					else if(trackerT.rollbackTrigger==2){rollbackTrigger2T++;}
+					final int histIdx=Tools.mid(0, trackerT.rollbackCorrectedSnapshot, rollbackCorrectedHistT.length-1);
+					rollbackCorrectedHistT[histIdx]++;
+				}
 				if(detected>0){
 					readsDetectedT++;
 					basesDetectedT+=detected;
@@ -1834,6 +1870,7 @@ public abstract class Tadpole extends ShaveObject{
 						basesCorrectedPincerT+=correctedPincer;
 						basesCorrectedTailT+=correctedTail;
 						basesCorrectedReassembleT+=correctedReassemble;
+						basesCorrectedMutateT+=correctedMutate;
 					}
 					if(corrected==detected || (corrected>0 && countErrors(countList, r.quality)==0)){
 						readsFullyCorrectedT++;
@@ -1916,8 +1953,13 @@ public abstract class Tadpole extends ShaveObject{
 		long basesCorrectedPincerT=0;
 		long basesCorrectedTailT=0;
 		long basesCorrectedReassembleT=0;
+		long basesCorrectedMutateT=0;
 		long readsFullyCorrectedT=0;
 		long rollbacksT=0;
+		long rollbackMutateT=0;
+		long rollbackTrigger1T=0;
+		long rollbackTrigger2T=0;
+		final long[] rollbackCorrectedHistT=new long[128];
 		long readsDetectedT=0;
 		long basesDetectedT=0;
 		long readsMarkedT=0;
@@ -2702,6 +2744,25 @@ public abstract class Tadpole extends ShaveObject{
 	private int errorLowerConst=4;//3 seems fine
 	private int minCountCorrect=3;//5 is more conservative...
 	int minCountCorrect(){return minCountCorrect;}
+	/** Item 3c: true iff at least one kmer count is below minCountCorrect -- catches the
+	 * zero-clean-kmer case (densely packed errors, or a large k with errors ~k bases apart) a
+	 * transition detector (countErrors) structurally can't see. Shared by Tadpole1 and Tadpole2's
+	 * mutate gate. */
+	protected final boolean hasLowCount(final IntList counts){
+		for(int i=0; i<counts.size; i++){
+			if(counts.get(i)<minCountCorrect){return true;}
+		}
+		return false;
+	}
+	/** Item 3c: mutate's bounded re-pass cap, matching reassemble's convention. Shared by Tadpole1
+	 * and Tadpole2. */
+	protected static final int MUTATE_MAX_PASSES=6;
+	/** Gate for the experimental mutate rollback corrected-count histogram (printed in the summary,
+	 * only when ECC_MUTATE is on). Kept non-final and true DURING mutate development so the
+	 * distribution stays visible for heuristic tuning; make it 'static final boolean ...=false' once
+	 * mutate development is done, which lets the compiler eliminate the histogram block entirely
+	 * (assertions-skill dead-code pattern). Brian's call, 2026-08-23. */
+	static boolean PRINT_ROLLBACK_HIST=true;
 	private int pathSimilarityConstant=3;
 	private float pathSimilarityFraction=0.45f;//0.3
 	protected int errorExtensionReassemble=5;//default 2; higher is more conservative
@@ -2778,8 +2839,16 @@ public abstract class Tadpole extends ShaveObject{
 	long basesCorrectedPincer=0;
 	long basesCorrectedTail=0;
 	long basesCorrectedReassemble=0;
+	long basesCorrectedMutate=0;
 	long readsFullyCorrected=0;
 	long rollbacks=0;
+	/** Item 3c: rollbacks that discarded at least one mutate correction. */
+	long rollbackMutate=0;
+	/** Item 3c (diagnostic): rollback counts by trigger (1=over-correction, 2=contradiction). */
+	long rollbackTrigger1=0;
+	long rollbackTrigger2=0;
+	/** Item 3c (diagnostic): histogram of corrected-count for rolled-back reads, index=min(count,127). */
+	final long[] rollbackCorrectedHist=new long[128];
 	long readsDetected=0;
 	long basesDetected=0;
 	long readsMarked=0;
@@ -2795,6 +2864,13 @@ public abstract class Tadpole extends ShaveObject{
 	protected boolean ECC_TAIL=false;
 	protected boolean ECC_ALL=false;
 	protected boolean ECC_REASSEMBLE=true;
+	/** Item 3b: mutate-ECC, cleanup pass after reassemble (Tadpole1 only; k&lt;=31 exact table) */
+	protected boolean ECC_MUTATE=false;
+	/** Item 3b: number of independently-confirming spans required to accept a mutate correction;
+	 * also the number of distinct alt bases that must clear this bar for exactly one to be
+	 * accepted. 1 is safe for Tadpole1's exact table (no collision risk), unlike BBCMS's Bloom
+	 * filter which needs 2. */
+	protected int CONFIRM_MIN=1;
 	protected boolean ECC_AGGRESSIVE=false;
 	protected boolean ECC_CONSERVATIVE=false;
 	protected boolean ECC_ROLLBACK=true;

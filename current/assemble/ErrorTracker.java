@@ -24,6 +24,9 @@ public class ErrorTracker {
 		clearCorrected();
 		
 		rollback=false;
+		rollbackMutate=false;
+		rollbackTrigger=0;
+		rollbackCorrectedSnapshot=0;
 		suspected=0;
 		marked=0;
 	}
@@ -35,6 +38,7 @@ public class ErrorTracker {
 		detectedTail=0;
 		detectedBrute=0;
 		detectedReassemble=0;
+		detectedMutate=0;
 	}
 
 	/** Resets all error correction counters to zero.
@@ -45,26 +49,27 @@ public class ErrorTracker {
 		correctedBrute=0;
 		correctedReassembleInner=0;
 		correctedReassembleOuter=0;
+		correctedMutate=0;
 	}
-	
+
 	/**
 	 * Returns the total number of errors corrected across all methods.
-	 * Sums correction counts from pincer, tail, brute-force, and both reassembly types.
+	 * Sums correction counts from pincer, tail, brute-force, both reassembly types, and mutate.
 	 * @return Total count of corrected errors
 	 */
 	public int corrected(){
-		return correctedPincer+correctedTail+correctedBrute+correctedReassembleInner+correctedReassembleOuter; //Sum all correction counts
+		return correctedPincer+correctedTail+correctedBrute+correctedReassembleInner+correctedReassembleOuter+correctedMutate; //Sum all correction counts
 	}
 	
 	//TODO: POSSIBLE BUG - uses correctedTail instead of detectedTail
 	/**
 	 * Returns the total number of errors detected across methods.
-	 * Sums detection counts from pincer, tail, and reassembly methods.
+	 * Sums detection counts from pincer, tail, reassembly, and mutate methods.
 	 * Note: Does not include brute-force detection count.
 	 * @return Total count of detected errors
 	 */
 	public int detected(){
-		return detectedPincer+detectedTail+detectedReassemble;
+		return detectedPincer+detectedTail+detectedReassemble+detectedMutate;
 	}
 	
 	/**
@@ -89,11 +94,13 @@ public class ErrorTracker {
 		sb.append("detectedTail      \t").append(detectedTail).nl();
 //		sb.append("detectedBrute     \t").append(detectedBrute).nl();
 		sb.append("detectedReassemble\t").append(detectedReassemble).nl();
+		sb.append("detectedMutate    \t").append(detectedMutate).nl();
 		sb.append("correctedPincer   \t").append(correctedPincer).nl();
 		sb.append("correctedTail     \t").append(correctedTail).nl();
 //		sb.append("correctedBrute    \t").append(correctedBrute).nl();
 		sb.append("correctedReassembleInner\t").append(correctedReassembleInner).nl();
 		sb.append("correctedReassembleOuter\t").append(correctedReassembleOuter).nl();
+		sb.append("correctedMutate   \t").append(correctedMutate).nl();
 		sb.append("marked            \t").append(marked);
 		return sb.toString();
 	}
@@ -104,15 +111,32 @@ public class ErrorTracker {
 	public int detectedTail;
 	public int detectedBrute;
 	public int detectedReassemble;
+	/** Item 3c: positions where some alternate base yields a higher-confirmed depth than the
+	 * current base (evidence of an error), independent of whether the position was actually
+	 * corrected -- so detected&gt;=corrected always holds. Same window basis as the confirmation
+	 * counts in {@link assemble.Tadpole1#errorCorrectMutate}. */
+	public int detectedMutate;
 	
 	public int correctedPincer;
 	public int correctedTail;
 	public int correctedBrute;
 	public int correctedReassembleInner;
 	public int correctedReassembleOuter;
-	
+	public int correctedMutate;
+
 	public int marked;
-	
+
 	public boolean rollback=false;
-	
+	/** Item 3c: true if this read's rollback (if any) discarded at least one mutate correction --
+	 * lets "both" mode (reassemble+mutate) distinguish mutate's rollbacks from reassemble's. */
+	public boolean rollbackMutate=false;
+	/** Item 3c: which rollback trigger fired for this read (0=no rollback yet/none,
+	 * 1=over-correction heuristic, 2=count-contradiction check). Diagnostic only -- set inside
+	 * {@link assemble.Tadpole1#errorCorrect}, read back out by the per-thread accounting in
+	 * {@link assemble.Tadpole}. */
+	public int rollbackTrigger=0;
+	/** Item 3c: snapshot of {@link #corrected()} taken immediately before a rollback clears it --
+	 * feeds the rolled-back-reads corrected-count histogram. */
+	public int rollbackCorrectedSnapshot=0;
+
 }
