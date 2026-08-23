@@ -417,6 +417,33 @@ public class CallGenes extends ProkObject {
 				GeneCaller.cutoff4[ProkObject.tRNA]=Float.parseFloat(b);//stop point-score threshold
 			}else if(a.equalsIgnoreCase("trnacutoff5") || a.equalsIgnoreCase("trnainner")){
 				GeneCaller.cutoff5[ProkObject.tRNA]=Float.parseFloat(b);//avg inner-score threshold
+			}else if(a.equalsIgnoreCase("trnaboundarynet")){
+				//DEFAULT-ON (Brian, Aug 22 2026, via Noire): the boundary refiner ships ACTIVE
+				//by default (see the post-parse resolution block below) -- trnaboundarynet=f/
+				//false is now the OPT-OUT switch, not "not given." Any other value is a path
+				//override (matches the existing pgm=auto/default convention's spirit, inverted).
+				if(b!=null && (b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false"))){
+					trnaBoundaryDisabled=true;
+				}else{
+					trnaBoundaryNetPath=b;
+				}
+			}else if(a.equalsIgnoreCase("trnaboundary5net")){
+				trnaBoundary5NetPath=b;
+			}else if(a.equalsIgnoreCase("trnaboundary3net")){
+				trnaBoundary3NetPath=b;
+			}else if(a.equalsIgnoreCase("trnaboundarystarttable")){
+				trnaBoundaryStartTablePath=b;
+			}else if(a.equalsIgnoreCase("trnaboundarystoptable")){
+				trnaBoundaryStopTablePath=b;
+			}else if(a.equalsIgnoreCase("trnaboundarymargin")){
+				prok.TrnaBoundaryScorer.MARGIN_THRESHOLD_START=Float.parseFloat(b);
+				prok.TrnaBoundaryScorer.MARGIN_THRESHOLD_STOP=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("trnaboundarymarginstart")){
+				prok.TrnaBoundaryScorer.MARGIN_THRESHOLD_START=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("trnaboundarymarginstop")){
+				prok.TrnaBoundaryScorer.MARGIN_THRESHOLD_STOP=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("trnaboundarycrossenrichment")){
+				prok.TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=Parse.parseBoolean(b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -447,6 +474,37 @@ public class CallGenes extends ProkObject {
 			GeneCaller.trnaLibrary=null;
 			GeneCaller.trnaModels=null;
 			GeneCaller.trnaModelNames=null;
+		}
+		//Boundary-precision NN -- SHIPPED, DEFAULT ON (Brian, Aug 22 2026, via Noire): a
+		//bare callgenes invocation (no tRNA boundary flags at all) now includes the refiner
+		//automatically, matching the trna skill's "bare invocation IS the tuned config"
+		//convention that already governs every other tRNA default. trnaboundarynet=f (or
+		//=false) is the opt-out switch (parsed above). Explicit trnaboundarynet=/5net=/3net=
+		//paths still override the shipped default when given, exactly as before.
+		//TWO-NET RESOLUTION (Noire's spec, Aug 22 2026): trnaboundary5net=/trnaboundary3net=
+		//each fall back to trnaboundarynet= when not individually given -- so trnaboundarynet=
+		//alone still fully specifies both, while either 5net=/3net= alone requires
+		//trnaboundarynet= as the fallback for the other side (asserted below, not silently
+		//left half-specified).
+		if(!trnaBoundaryDisabled){
+			if(trnaBoundaryNetPath==null && trnaBoundary5NetPath==null && trnaBoundary3NetPath==null){
+				trnaBoundaryNetPath=Data.findPath("?trna_boundary_net.bbnet");
+			}
+			if(trnaBoundaryStartTablePath==null){trnaBoundaryStartTablePath=Data.findPath("?trna_boundary_start_table.tsv");}
+			if(trnaBoundaryStopTablePath==null){trnaBoundaryStopTablePath=Data.findPath("?trna_boundary_stop_table.tsv");}
+		}
+		final boolean boundaryNetGiven=(trnaBoundaryNetPath!=null || trnaBoundary5NetPath!=null || trnaBoundary3NetPath!=null);
+		final String trnaBoundaryNet5Resolved=(trnaBoundary5NetPath!=null ? trnaBoundary5NetPath : trnaBoundaryNetPath);
+		final String trnaBoundaryNet3Resolved=(trnaBoundary3NetPath!=null ? trnaBoundary3NetPath : trnaBoundaryNetPath);
+		assert(boundaryNetGiven==(trnaBoundaryStartTablePath!=null) && boundaryNetGiven==(trnaBoundaryStopTablePath!=null))
+			: "trnaboundarynet=/trnaboundary5net=/trnaboundary3net= must be given (at least one) together with "
+			+"trnaboundarystarttable=/trnaboundarystoptable=, or none of them at all.";
+		assert(!boundaryNetGiven || (trnaBoundaryNet5Resolved!=null && trnaBoundaryNet3Resolved!=null))
+			: "trnaboundary5net= or trnaboundary3net= was given alone without trnaboundarynet= to supply the "
+			+"other side -- give trnaboundarynet= as the shared fallback, or specify both 5net=/3net= explicitly.";
+		if(boundaryNetGiven){
+			prok.TrnaCaller.loadBoundaryNet(trnaBoundaryNet5Resolved, trnaBoundaryNet3Resolved,
+				trnaBoundaryStartTablePath, trnaBoundaryStopTablePath);
 		}
 
 		if(Shared.threads()<2){ordered=false;}
@@ -1703,6 +1761,21 @@ public class CallGenes extends ProkObject {
 	private String taxAddress="refseq";
 	private boolean trnaAlign=true;
 	private boolean trnaLibExplicit=false;
+	/** Boundary-precision NN paths (trnaboundarynet=/trnaboundarystarttable=/
+	 * trnaboundarystoptable=). SHIPPED, DEFAULT ON (Brian, Aug 22 2026, via Noire): left null
+	 * here means "not explicitly overridden," NOT "off" -- the post-parse resolution block in
+	 * parse() fills these in from the shipped resources (?trna_boundary_net.bbnet etc.) unless
+	 * trnaBoundaryDisabled is set. See prok.TrnaCaller.loadBoundaryNet. */
+	private String trnaBoundaryNetPath=null, trnaBoundaryStartTablePath=null, trnaBoundaryStopTablePath=null;
+	/** Opt-out switch (Brian, Aug 22 2026, via Noire): trnaboundarynet=f/false sets this,
+	 * skipping the shipped-default resolution entirely -- the only way to get the pre-Aug-22
+	 * no-refiner behavior back. */
+	private boolean trnaBoundaryDisabled=false;
+	/** Two-net dispatch (Noire's spec, Aug 22 2026, queued directive #2/#3 infrastructure):
+	 * trnaboundary5net=/trnaboundary3net= override trnaBoundaryNetPath for just the 5' or 3'
+	 * dispatch; whichever of the two is left null falls back to trnaBoundaryNetPath (backward
+	 * compatible with the single-shared-net configuration). See the resolution in parse(). */
+	private String trnaBoundary5NetPath=null, trnaBoundary3NetPath=null;
 	/** Output filename for statistics summary */
 	private String outStats="stderr";
 	/** Output filename for gene length histogram */

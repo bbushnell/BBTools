@@ -56,6 +56,12 @@ maxns=-1            If non-negative, ignore features with more than this many
 maxnfraction=-1.0   If non-negative, ignore features with more than this
                     fraction of undefined bases (Ns or IUPAC symbols).
                     Should be 0.0 to 1.0.
+gccontig=f          Append 'contig_gc=X.XXXX' to each output header: the GC
+                    fraction of the FULL source contig, computed before any
+                    trimming or flanking (not local to the extracted feature).
+filename=f          Append 'source=<name>' to each output header, where <name>
+                    is the basename of the input fna file. Useful for recovering
+                    the source genome/tid when the contig seqid alone doesn't.
 "
 }
 

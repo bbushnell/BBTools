@@ -188,6 +188,10 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 				maxLen=Integer.parseInt(b);
 			}else if(a.equals("flank") || a.equals("pad")){
 				flank=Integer.parseInt(b);
+			}else if(a.equalsIgnoreCase("gccontig")){
+				appendGC=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("filename")){
+				appendFilename=Parse.parseBoolean(b);
 			}
 			
 			else if(ProkObject.parse(arg, a, b)){
@@ -417,9 +421,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		if(renameByTaxID){//Note this must be AFTER adding to the hashmap.
 			renameByTaxID(list);
 		}
-		
-		ArrayList<Read> outList=processLines(lines, map, invert);
-		
+
+		HashMap<String, Float> gcCache=appendGC ? new HashMap<String, Float>() : null;
+		String sourceBasename=appendFilename ? new File(fna).getName() : null;
+		ArrayList<Read> outList=processLines(lines, map, invert, gcCache, sourceBasename);
+
 		if(invert){
 			for(Read r : list){
 				readsOut++;
@@ -436,7 +442,7 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 			return outList;
 		}
 	}
-	
+
 	/**
 	 * Renames reads using taxonomic identifiers based on configured mode.
 	 * Supports accession, GI, header, and taxid parsing modes.
@@ -527,9 +533,12 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	 * @param lines List of GFF annotation lines to process
 	 * @param map HashMap mapping sequence IDs to Read objects
 	 * @param invertSelection If true, mask regions instead of extracting them
+	 * @param gcCache Per-contig-id GC-fraction cache (lazily filled), or null if gccontig= is off
+	 * @param sourceBasename Basename of the input fna to stamp as source=, or null if filename= is off
 	 * @return List of extracted reads or null if none match criteria
 	 */
-	private ArrayList<Read> processLines(ArrayList<GffLine> lines, HashMap<String, Read> map, boolean invertSelection){
+	private ArrayList<Read> processLines(ArrayList<GffLine> lines, HashMap<String, Read> map, boolean invertSelection,
+			HashMap<String, Float> gcCache, String sourceBasename){
 		ArrayList<Read> list=null; 
 		for(GffLine gline : lines){
 			if(hasAttributes(gline)){
@@ -576,6 +585,12 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 								final int rflank=(gline.strand==GffLine.MINUS ? leftFlank : rightFlank);
 								id=id+" lflank="+lflank+" rflank="+rflank;
 							}
+							if(appendGC){
+								id=id+" contig_gc="+String.format("%.4f", contigGC(scaf, gcCache));
+							}
+							if(appendFilename){
+								id=id+" source="+sourceBasename;
+							}
 							Read r=new Read(Arrays.copyOfRange(scaf.bases, extStart, extStop+1), null, id, 1);
 							r.obj=identity;
 							
@@ -614,6 +629,23 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 		return list;
 	}
 	
+	/**
+	 * Returns the GC fraction of a scaffold's FULL bases (pre-trim/flank), computed once
+	 * per contig id and cached — a contig may host many features, and this must reflect
+	 * the whole source contig, not the extracted/flanked region.
+	 * @param scaf Full scaffold Read (its .bases is the untrimmed contig)
+	 * @param cache Per-contig-id cache, filled lazily
+	 * @return GC fraction (0.0 to 1.0)
+	 */
+	private static float contigGC(Read scaf, HashMap<String, Float> cache){
+		Float f=cache.get(scaf.id);
+		if(f==null){
+			f=Tools.calcGC(scaf.bases);
+			cache.put(scaf.id, f);
+		}
+		return f;
+	}
+
 	/**
 	 * Performs sequence alignment against consensus rRNA sequences.
 	 * Validates feature annotation by aligning extracted sequence against
@@ -818,9 +850,11 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 				renameByTaxID(list);
 			}
 //			assert(false) : renameByTaxID+", "+list.size();
-			
-			ArrayList<Read> outList=processLines(lines, map, invert);
-			
+
+			HashMap<String, Float> gcCache=appendGC ? new HashMap<String, Float>() : null;
+			String sourceBasename=appendFilename ? new File(fna).getName() : null;
+			ArrayList<Read> outList=processLines(lines, map, invert, gcCache, sourceBasename);
+
 			if(invert){
 				for(Read r : list){
 					readsOutT++;
@@ -881,6 +915,10 @@ public class CutGff implements Accumulator<CutGff.ProcessThread>  {
 	private int maxLen=Integer.MAX_VALUE;
 	/** Bases of genomic-space flank to add to each side of an extracted feature (0=off, byte-identical to legacy output) */
 	private int flank=0;
+	/** If true, append contig_gc=X.XXXX (GC fraction of the FULL source contig, pre-trim/flank) to each output record's header */
+	private boolean appendGC=false;
+	/** If true, append source=<basename of input fna> to each output record's header (recovers tid without requiring seqid to carry it) */
+	private boolean appendFilename=false;
 
 	/** Array of attributes that must be present for feature retention */
 	private String[] requiredAttributes;

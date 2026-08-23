@@ -48,6 +48,19 @@ public class TrnaCaller extends ProkObject {
 			ADAPT_FLOOR, ADAPT_TOPFRAC, ADAPT_QFRAC,
 			(INDEX_MINHITS_OVERRIDE>0 ? INDEX_MINHITS_OVERRIDE : INDEX_MINHITS_DEFAULT)) : null);
 		acPositions=(annotate && trnaLibrary!=null ? findAnticodonPositions(trnaLibrary, modelNames) : null);
+		//Per-instance clone, NOT the shared static template (Brian, Aug 22 2026, found via a
+		//real AssertionError at corpus scale): CellNet.feedForward mutates per-Cell sum/value
+		//state during the forward pass, so querying the SAME CellNet instance concurrently
+		//from multiple threads corrupts it. TrnaCaller instances are already one-per-thread
+		//(GeneCaller.trnaCaller is a per-instance field, lazily constructed), so cloning here
+		//gives each thread its own working copy -- the exact pattern GeneCaller.orfNetsGC
+		//already uses for its own per-thread net copies (.copy(false), same call).
+		//TWO-NET (Noire's spec, Aug 22 2026): separate clones for the 5'/3' dispatch --
+		//BOUNDARY_5_NET_TEMPLATE==BOUNDARY_3_NET_TEMPLATE (same object) in the single-shared-net
+		//configuration, so boundary5Net/boundary3Net are independent per-thread clones of the
+		//SAME source net in that case -- no behavior change, just two clones instead of one.
+		boundary5Net=(REFINE_BOUNDARIES && BOUNDARY_5_NET_TEMPLATE!=null ? BOUNDARY_5_NET_TEMPLATE.copy(false) : null);
+		boundary3Net=(REFINE_BOUNDARIES && BOUNDARY_3_NET_TEMPLATE!=null ? BOUNDARY_3_NET_TEMPLATE.copy(false) : null);
 	}
 
 	public static long alignmentCount(){return alignmentCount;}
@@ -612,7 +625,48 @@ public class TrnaCaller extends ProkObject {
 			else{trimOrf(orf, seqX, xFrom, trimModel, alignToModel(seqX, trimModel));}
 		}
 		if(extractAnticodons){orf.trnaAnticodon=extractAnticodon(seqX, nameModel, stats);}
+		//Boundary-precision NN refinement (Brian's idea #3, Aug 22 2026): a further small
+		//adjustment on top of the acceptor-stem trim above, using the trained net. OFF by
+		//default (REFINE_BOUNDARIES only true once trnaboundarynet=/starttable=/stoptable=
+		//are given) -- this is the with/without grading toggle, not a shipped default yet.
+		if(boundary5Net!=null && boundary3Net!=null && trnaModels!=null){
+			final int modelIdx=(trimModel>=0 ? trimModel : nameModel);
+			if(modelIdx>=0 && modelIdx<trnaModels.length){refineBoundaryNN(orf, bases, modelIdx);}
+		}
 	}
+
+	/** Applies the boundary-precision NN's refinement to an already-trimmed, already-verified
+	 * Orf. Builds a padded window around the current [orf.start,orf.stop] (PAD=10, matching
+	 * TrnaBoundaryVectorGen's single-genome-mode convention -- comfortably covers the +-3/+-4
+	 * search ranges), then defers to TrnaBoundaryScorer.refineBoundaries for the one-alignment-
+	 * per-locus hybrid scoring. No-op (leaves orf untouched) if no confident model alignment
+	 * exists for the base candidate -- refineBoundaries returns null in that case. */
+	private void refineBoundaryNN(Orf orf, byte[] bases, int modelIdx){
+		final int PAD=10;
+		final int winStart=Tools.max(0, orf.start-PAD);
+		final int winStop=Tools.min(bases.length-1, orf.stop+PAD);
+		final byte[] window=Arrays.copyOfRange(bases, winStart, winStop+1);
+		final int s=orf.start-winStart, e=orf.stop-winStart;
+		if(s<0 || e>=window.length || e-s<15){return;}
+		final float contigGC=contigGC(bases);
+		final int[] offsets=TrnaBoundaryScorer.refineBoundaries(boundary5Net, boundary3Net, window, s, e, trnaModels[modelIdx],
+			BOUNDARY_START_TABLE, BOUNDARY_STOP_TABLE, BOUNDARY_START_INSIDE, BOUNDARY_START_OUTSIDE,
+			BOUNDARY_STOP_INSIDE, BOUNDARY_STOP_OUTSIDE, contigGC);
+		if(offsets==null){return;}
+		orf.start+=offsets[0];
+		orf.stop+=offsets[1];
+	}
+
+	/** Per-contig GC cache (identity-keyed on the bases[] reference): a TrnaCaller instance
+	 * processes one contig/strand's bases[] across many calls within one callTrnas/scavengeTrnas
+	 * invocation, so recomputing GC from scratch per tRNA call would rescan the whole contig
+	 * once per locus. Same formula gff.CutGff's gccontig= flag and shared.Tools.calcGC use. */
+	private float contigGC(byte[] bases){
+		if(bases!=gcCacheBases){gcCacheValue=shared.Tools.calcGC(bases); gcCacheBases=bases;}
+		return gcCacheValue;
+	}
+	private byte[] gcCacheBases=null;
+	private float gcCacheValue=0;
 
 	private void trimOrf(Orf orf, byte[] seqX, int xFrom, int model, AlignmentStats stats){
 		if(stats.matchString==null){return;}
@@ -1062,6 +1116,10 @@ public class TrnaCaller extends ProkObject {
 	private final TrnaKmerIndex kmerIndex;
 	/** Per-model anticodon start position in the consensus, or -1; null when not annotating */
 	private final int[] acPositions;
+	/** This instance's own working copy of BOUNDARY_5_NET_TEMPLATE/BOUNDARY_3_NET_TEMPLATE
+	 * (null if the feature is off), cloned once in the constructor -- see the constructor
+	 * comment for why a shared static net cannot be queried concurrently. */
+	private final ml.CellNet boundary5Net, boundary3Net;
 
 	private static final int MIN_TRNA=40;
 	private static final int MAX_TRNA=120;
@@ -1154,6 +1212,75 @@ public class TrnaCaller extends ProkObject {
 	 * beating the PGM candidate generator, so it replaces the normal tRNA path by default (Brian, 2026-08-16).
 	 * NOTE: under SCAVENGE_ONLY the normal callTrnas path (incl. the INTRON_PASS) is bypassed; the measured
 	 * recall already reflects that.  Provisional -- re-grade after the next (2.5M) library before finalizing. */
+	/** Boundary-precision NN (Brian's idea #3): OFF (null/false) until trnaboundarynet=
+	 * (or trnaboundary5net=/trnaboundary3net=) plus trnaboundarystarttable=/
+	 * trnaboundarystoptable= are all given (CallGenes flag parsing) -- this is the
+	 * experimental with/without grading toggle for Part 3's integration decision, not a
+	 * shipped default. loadBoundaryNet is the only writer; all fields are set together so a
+	 * caller never observes a partially-loaded state.
+	 *
+	 * <p>TWO-NET (Noire's spec, Aug 22 2026, queued directive #2/#3 infrastructure):
+	 * BOUNDARY_5_NET_TEMPLATE/BOUNDARY_3_NET_TEMPLATE are SEPARATE templates so a future
+	 * per-boundary-specialized net can be dispatched by boundary type. The single-shared-net
+	 * configuration (current shipped default) sets both to the SAME CellNet object -- no
+	 * behavior change from before this split, just two identical-object clones per instance
+	 * instead of one.
+	 *
+	 * <p>BOUNDARY_5_NET_TEMPLATE/BOUNDARY_3_NET_TEMPLATE are shared READ-ONLY templates
+	 * loaded once from disk -- never call feedForward on either directly (see the per-instance
+	 * `boundary5Net`/`boundary3Net` fields and the constructor comment for why:
+	 * CellNet.feedForward mutates per-Cell state, so concurrent use of ONE instance across
+	 * threads corrupts it -- found via a real AssertionError in ml.Cell.setValue at
+	 * 203-genome-bench scale under t=16). Tables and their insideCount/outsideCount ARE
+	 * safely shared (read-only lookups, no mutable per-query state), matching
+	 * TrnaBoundaryVectorGen/TrnaBoundaryScorer's own usage. */
+	static ml.CellNet BOUNDARY_5_NET_TEMPLATE=null, BOUNDARY_3_NET_TEMPLATE=null;
+	static TrnaBoundaryFeatures.NinemerTable BOUNDARY_START_TABLE=null, BOUNDARY_STOP_TABLE=null;
+	static int BOUNDARY_START_INSIDE=-1, BOUNDARY_START_OUTSIDE=-1, BOUNDARY_STOP_INSIDE=-1, BOUNDARY_STOP_OUTSIDE=-1;
+	static boolean REFINE_BOUNDARIES=false;
+
+	/** Loads the boundary-precision net template(s) and the two enrichment tables together
+	 * (CallGenes flag parsing calls this once all required paths are given, BEFORE any
+	 * TrnaCaller instance is constructed -- each instance clones its own working copy of
+	 * each template in its constructor). Asserts table type/boundary-type agreement the same
+	 * way TrnaBoundaryVectorGen does, so a swapped start/stop table argument fails loudly
+	 * here rather than silently scoring against the wrong table at inference time.
+	 * @param net5Path Net for START (5') moves. Always loaded.
+	 * @param net3Path Net for STOP (3') moves. If null or equal to net5Path, REUSES the
+	 *   already-loaded net5 object instead of loading it again -- the backward-compatible
+	 *   single-shared-net configuration (CallGenes' trnaboundarynet= sets both paths equal). */
+	static synchronized void loadBoundaryNet(String net5Path, String net3Path, String startTablePath, String stopTablePath){
+		final ml.CellNet net5=TrnaBoundaryScorer.load(net5Path);
+		final ml.CellNet net3=(net3Path==null || net3Path.equals(net5Path)) ? net5 : TrnaBoundaryScorer.load(net3Path);
+		//Cross-boundary-enrichment dims are AUTO-DETECTED from the net's own declared input
+		//count (Brian, Aug 22 2026, via Noire, default-on ship): the vector format a net expects
+		//is a property of that net, not a separately-set flag that can silently drift out of
+		//sync with it -- deriving it here makes a dims mismatch structurally impossible instead
+		//of a maybe-remembered flag. Overrides whatever trnaboundarycrossenrichment= set.
+		final int inputDims=net5.numInputs();
+		assert(inputDims==11 || inputDims==14) : "Boundary net '"+net5Path+"' has "+inputDims
+			+" inputs; the boundary-precision feature vector is always 11 dims (no cross-"
+			+"enrichment) or 14 dims (with cross-enrichment) -- this net matches neither, so it "
+			+"was not trained by TrnaBoundaryVectorGen or is corrupt.";
+		if(net3!=net5){
+			assert(net3.numInputs()==inputDims) : "Boundary nets have mismatched input dims: "
+				+net5Path+" has "+inputDims+", "+net3Path+" has "+net3.numInputs()+" -- both "
+				+"nets in a two-net dispatch must use the SAME feature-vector format.";
+		}
+		TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=(inputDims==14);
+		final TrnaNinemerTableBuilder.LoadedTable lt1=TrnaNinemerTableBuilder.loadTable(startTablePath);
+		final TrnaNinemerTableBuilder.LoadedTable lt2=TrnaNinemerTableBuilder.loadTable(stopTablePath);
+		assert(lt1.type==TrnaBoundaryFeatures.BoundaryType.START) : "trnaboundarystarttable= ("+startTablePath
+			+") is not labeled a start-boundary table -- wrong file, or start/stop tables swapped.";
+		assert(lt2.type==TrnaBoundaryFeatures.BoundaryType.STOP) : "trnaboundarystoptable= ("+stopTablePath
+			+") is not labeled a stop-boundary table -- wrong file, or start/stop tables swapped.";
+		BOUNDARY_5_NET_TEMPLATE=net5;
+		BOUNDARY_3_NET_TEMPLATE=net3;
+		BOUNDARY_START_TABLE=lt1.table; BOUNDARY_START_INSIDE=lt1.insideCount; BOUNDARY_START_OUTSIDE=lt1.outsideCount;
+		BOUNDARY_STOP_TABLE=lt2.table; BOUNDARY_STOP_INSIDE=lt2.insideCount; BOUNDARY_STOP_OUTSIDE=lt2.outsideCount;
+		REFINE_BOUNDARIES=true;
+	}
+
 	static boolean SCAVENGE=false;
 	static boolean SCAVENGE_ONLY=true;
 	static boolean SCAVENGE_PASS2=true;

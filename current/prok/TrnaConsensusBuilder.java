@@ -164,13 +164,26 @@ public class TrnaConsensusBuilder {
 					futures.add(pool().submit(new Runnable(){
 						@Override
 						public void run(){
-							byte[] consensus=buildConsensus(cluster);
-							if(consensus==null || consensus.length<MIN_CONSENSUS_LEN){return;}
-							String label="tRNA_consensus_"+anticodonF+"_c"+fci+" n="+cluster.size();
+							final String label="tRNA_consensus_"+anticodonF+"_c"+fci+" n="+cluster.size();
+							final byte[] consensus;
+							if(outModel!=null){
+								//Consensus and HBM built TOGETHER, from alignments to the SAME stabilized
+								//reference (Brian's ruling, Aug 22 2026, via Noire) -- see
+								//buildConsensusAndGraph's javadoc for why the old separate buildConsensus()+
+								//buildBaseGraph() calls produced two DIFFERENT, coordinate-incompatible
+								//reference sequences.
+								final Object[] pair=buildConsensusAndGraph(cluster, label);
+								if(pair==null || ((byte[])pair[0]).length<MIN_CONSENSUS_LEN){return;}
+								consensus=(byte[])pair[0];
+								graphs[fci]=(BaseGraph)pair[1];
+							}else{
+								final byte[] c=buildConsensus(cluster);
+								if(c==null || c.length<MIN_CONSENSUS_LEN){return;}
+								consensus=c;
+							}
 							consensi[fci]=consensus;
 							labels[fci]=label;
 							if(census){censusLines[fci]=censusString(cluster, consensus, label);}
-							if(outModel!=null){graphs[fci]=buildBaseGraph(cluster, label);}
 						}
 					}));
 				}
@@ -189,15 +202,21 @@ public class TrnaConsensusBuilder {
 				totalClusters+=clusters.size();
 			}else{
 				if(group.size()>=minClusterSize){
-					byte[] consensus=buildConsensus(group);
+					final String label="tRNA_consensus_"+anticodon+" n="+group.size();
+					final byte[] consensus;
+					BaseGraph bg=null;
+					if(modelList!=null){
+						//Consensus and HBM built TOGETHER -- see buildConsensusAndGraph's javadoc.
+						final Object[] pair=buildConsensusAndGraph(group, label);
+						consensus=(pair==null ? null : (byte[])pair[0]);
+						if(pair!=null){bg=(BaseGraph)pair[1];}
+					}else{
+						consensus=buildConsensus(group);
+					}
 					if(consensus!=null && consensus.length>=MIN_CONSENSUS_LEN){
-						String label="tRNA_consensus_"+anticodon+" n="+group.size();
 						Read r=new Read(consensus, null, label, num);
 						consensusList.add(r);
-						if(modelList!=null){
-							BaseGraph bg=buildBaseGraph(group, label);
-							modelList.add(bg);
-						}
+						if(modelList!=null){modelList.add(bg);}
 						num++;
 					}
 					outstream.println(anticodon+": "+group.size()+" seqs -> len "+(consensus==null ? 0 : consensus.length));
@@ -801,6 +820,96 @@ public class TrnaConsensusBuilder {
 			if(stats.matchString==null || id<0.3f){continue;}
 
 			Read aligned=toAlignedRead(r.bases, stats, r.id, r.numericID);
+			if(aligned==null){continue;}
+			bg.add(aligned);
+		}
+		consensus.BaseGraphHelper.initForScoring(bg);
+		return bg;
+	}
+
+	/** Iteration cap for buildConsensusAndGraph's align-to-consensus/rebuild-HBM fixed-point
+	 * loop -- a safety bound, not a target; converges in 1-2 iterations in practice for
+	 * tRNA-scale clusters (bounded by the same identity/majority-vote dynamics buildConsensus's
+	 * own `passes` refinement already exhibits). */
+	private static final int MAX_GRAPH_ITERS=5;
+
+	/**
+	 * Builds the FINAL consensus AND its BaseGraph (HBM) together, from alignments to the SAME
+	 * reference (Brian's ruling, Aug 22 2026, via Noire): the HBM must be built from alignments
+	 * to the consensus, not the bootstrap pivot and not (the pre-fix bug) a separately-chosen
+	 * "longest member" pivot -- otherwise model.original and the shipped consensus fasta entry
+	 * are DIFFERENT sequences in DIFFERENT coordinate frames. Measured on the shipped library
+	 * before this fix: only 20.4% of 4,474 models had matching length between
+	 * trna_consensus.fa and trna_models.hbm, mean diff 5.98bp, max 202bp -- this caused a real
+	 * downstream bug in the boundary-precision NN's fuzziness feature (see
+	 * plans/hybrid_two_net_result_20260822.md, Neptune's bedroom).
+	 *
+	 * <p>Bootstraps from pickPivot() exactly like buildConsensus() (first pass only -- the
+	 * pivot itself never appears in the output, per Brian's "pivots don't appear in the
+	 * output"). Then iterates: align every cluster member to the CURRENT reference, rebuild the
+	 * HBM from those alignments (buildGraphFromReference), and separately rebuild the consensus
+	 * from the SAME alignments (buildFromAlignments); if the consensus text changed, the new
+	 * consensus becomes next iteration's reference and the HBM is rebuilt again. Stops when the
+	 * consensus stabilizes (byte-identical to the previous iteration) or MAX_GRAPH_ITERS is hit.
+	 * @return {consensus (byte[]), graph (BaseGraph)}, or null if the cluster produced no usable
+	 *   consensus (mirrors buildConsensus's own null case).
+	 */
+	Object[] buildConsensusAndGraph(ArrayList<Read> cluster, String name){
+		if(cluster.isEmpty()){return null;}
+		if(cluster.size()==1){
+			final byte[] only=cluster.get(0).bases.clone();
+			final BaseGraph bg0=new BaseGraph(name, only, null, 0, 0);//degenerate 1-member cluster: nothing to align
+			consensus.BaseGraphHelper.initForScoring(bg0);
+			return new Object[]{only, bg0};
+		}
+
+		final ArrayList<byte[]> seqs=new ArrayList<>(cluster.size());
+		for(Read r : cluster){seqs.add(r.bases);}
+
+		byte[] ref=pickPivot(seqs);//bootstrap only -- discarded once the loop below produces a consensus
+		byte[] cons=buildFromAlignments(ref, seqs);
+		if(cons==null){cons=ref.clone();}//nothing aligned even to the pivot: degenerate, mirrors buildConsensus's own fallback
+
+		//Refine the CONSENSUS ALONE to a fixed point first (cheap -- no graph building per
+		//iteration); build the HBM exactly ONCE at the end, from the final stabilized cons.
+		//CAUGHT BY TESTING (Aug 22 2026, not by inspection): an earlier version of this loop
+		//rebuilt the graph EVERY iteration from the CURRENT cons, then updated cons to the
+		//newly-refined value for the NEXT iteration -- so whenever the loop exited by hitting
+		//MAX_GRAPH_ITERS (rather than by convergence), the returned bg was built from the
+		//SECOND-TO-LAST cons while the returned cons was the LAST (one iteration newer),
+		//silently reintroducing exactly the coordinate-frame mismatch this method exists to
+		//fix. Verified on a real 2,000-sequence smoke corpus: only 2/33 clusters had
+		//byte-identical consensus/model sequences under the buggy version (the 2 that happened
+		//to converge before hitting the cap); this version fixes that by building the graph
+		//only after the consensus loop is fully done, so bg and cons can never desync.
+		int iter=0;
+		for(; iter<MAX_GRAPH_ITERS; iter++){
+			final byte[] refined=buildFromAlignments(cons, seqs);
+			if(refined==null || Arrays.equals(refined, cons)){break;}//stable, or nothing aligned this round
+			cons=refined;
+		}
+		if(verbose && iter>=MAX_GRAPH_ITERS){
+			outstream.println("WARNING: "+name+" did not stabilize within "+MAX_GRAPH_ITERS+" iterations -- "
+				+"using the last computed consensus; the HBM below is still built to MATCH it exactly.");
+		}
+		final BaseGraph bg=buildGraphFromReference(cluster, cons, name);
+		return new Object[]{cons, bg};
+	}
+
+	/** Builds a BaseGraph from alignments of every cluster member to the given EXTERNAL
+	 * reference (the consensus, once buildConsensusAndGraph has one) -- the fixed-reference-vs-
+	 * longest-member-as-its-own-pivot distinction is exactly the fix buildConsensusAndGraph
+	 * exists for. Mirrors buildBaseGraph's own alignment/add loop exactly, parameterized by ref
+	 * instead of internally picking the longest member as its own pivot. */
+	private static BaseGraph buildGraphFromReference(ArrayList<Read> cluster, byte[] ref, String name){
+		final BaseGraph bg=new BaseGraph(name, ref, null, 0, 0);
+		final AlignmentStats stats=new AlignmentStats(true);
+		for(Read r : cluster){
+			stats.clear();
+			stats.doTrace=true;
+			final float id=ScrabbleAligner.alignAndTraceStatic(r.bases, ref, stats);
+			if(stats.matchString==null || id<0.3f){continue;}
+			final Read aligned=toAlignedRead(r.bases, stats, r.id, r.numericID);
 			if(aligned==null){continue;}
 			bg.add(aligned);
 		}
