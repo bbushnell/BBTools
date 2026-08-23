@@ -180,7 +180,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		
 		assert(cell>=0);
 		
-		final boolean notpresent=(arrays[0][cell]==NOT_PRESENT);
+		final boolean notpresent=cellEmpty(cell);
 		if(notpresent){
 			if(verbose){System.err.println("B2: Setting cell "+cell+" to kmer "+kmer);}
 			setKmer(kmer.key(), cell);
@@ -228,7 +228,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		assert(cell>=0);
 		final long[] key=kmer.key();
 		
-		final boolean notpresent=(arrays[0][cell]==NOT_PRESENT);
+		final boolean notpresent=cellEmpty(cell);
 		if(notpresent){
 			if(verbose){System.err.println("B2: Setting cell "+cell+" to kmer "+kmer);}
 			setKmer(key, cell);
@@ -267,8 +267,8 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		//findKmerOrEmpty returns a valid index (>=0), or HASH_COLLISION (handled above) - it NEVER
 		//returns the NOT_PRESENT (-1) sentinel. With the assert(cell>=0) above, 'cell==NOT_PRESENT'
 		//was always false, so the insert branch was dead and this method never stored anything
-		//(always returned 0). Fixed to mirror set()'s notpresent=(arrays[0][cell]==NOT_PRESENT).
-		if(arrays[0][cell]==NOT_PRESENT){
+		//(always returned 0). Occupancy is value-backed because every 64-bit key word is valid.
+		if(cellEmpty(cell)){
 			setKmer(key, cell);
 			insertValue(key, value, cell);
 			size++;
@@ -328,6 +328,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	 * @return Filled key array, or null if cell is empty
 	 */
 	protected final long[] fillKey(int cell, long[] temp) {
+		if(cellEmpty(cell)){return null;}
 		return fillKey(cell, temp, arrays);
 	}
 	
@@ -338,6 +339,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	 * @return Filled Kmer object, or null if cell is empty
 	 */
 	public final Kmer fillKmer(int cell, Kmer kmer) {
+		if(cellEmpty(cell)){return null;}
 		return fillKmer(cell, kmer, arrays);
 	}
 	
@@ -366,23 +368,13 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	 * @param cell Cell index to read from
 	 * @param temp Temporary array to fill
 	 * @param matrix Matrix to read from
-	 * @return Filled key array, or null if cell is empty
+	 * @return Filled key array
 	 */
 	protected final long[] fillKey(int cell, long[] temp, long[][] matrix) {
 		assert(temp.length==mult);
-		//[ukmer/HashArrayU#004] (Amber, 2026-08-19) Occupancy must be tested as ==NOT_PRESENT,
-		//never by sign: under Kmer.PACKED a full 32-base word0 uses bit 63, so real kmers can be
-		//negative -- the old `<0` test (and its `>NOT_PRESENT` twins in each resize()) treated
-		//every leading-G/T packed kmer as an empty cell, silently dropping half the table on any
-		//resize/walk/dump. Same fix applied at HashArrayU1D/2D/Hybrid resize().
-		//TODO: Probable bug (pre-existing, much rarer) - a kmer whose word0 is EXACTLY -1L
-		//(32 T's, possible under PACKED e.g. poly-T at kbig>=32+? with canonical=unsigned-max
-		//favoring high words) is indistinguishable from the empty sentinel and would be treated
-		//as absent; needs a design decision (e.g. occupancy from the values array) -- Brian.
-		if(matrix[0][cell]==NOT_PRESENT){
-//			assert(false) : matrix[0][cell]+"\ngetKmer("+cell+", kmer, matrix)\n"+Arrays.toString(matrix[0]); //123
-			return null;
-		}
+		//[ukmer/HashArrayU#004] Every 64-bit word is a valid packed key, including -1L
+		//(32 T bases), so key data cannot encode occupancy.  Public/current-table callers
+		//check cellEmpty(); resize callers use their saved value arrays before calling here.
 		for(int i=0; i<temp.length; i++){
 			temp[i]=matrix[i][cell];
 		}
@@ -540,6 +532,8 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	 * @return Array of values from cell
 	 */
 	protected abstract int[] readCellValues(int cell, int[] singleton);
+	/** Returns true when the subclass's value storage marks this cell unused. */
+	protected abstract boolean cellEmpty(int cell);
 
 	@Override
 	final Object get(long[] kmer){
@@ -601,13 +595,14 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		final long key0=key[0];
 		for(final int max=cell+extra; cell<max; cell++){
 			final long n=array0[cell];
-			if(n==key0){
+			if(cellEmpty(cell)){return NOT_PRESENT;}
+			else if(n==key0){
 				boolean success=true;
 				for(int i=1; i<mult && success; i++){
 					if(key[i]!=arrays[i][cell]){success=false;}
 				}
 				if(success){return cell;}
-			}else if(n==NOT_PRESENT){return NOT_PRESENT;}
+			}
 		}
 		return HASH_COLLISION;
 	}
@@ -627,7 +622,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		final long key0=key[0];
 		for(final int max=cell+extra; cell<max; cell++){
 			final long n=array0[cell];
-			if(n==NOT_PRESENT){
+			if(cellEmpty(cell)){
 				if(verbose){System.err.println("Chose empty cell "+cell+" for "+kmer);}
 				return cell;
 			}else if(n==key0){
@@ -787,10 +782,8 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	@Override
 	public final void fillHistogram(long[] ca, int max){
 		final int alen=arrays[0].length;
-		final long[] array0=arrays[0];
 		for(int i=0; i<alen; i++){
-			long kmer=array0[i];
-			if(kmer!=NOT_PRESENT){
+			if(!cellEmpty(i)){
 				int count=Tools.min(readCellValue(i), max);
 				ca[count]++;
 			}
@@ -803,10 +796,8 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 	@Override
 	public void fillHistogram(SuperLongList sll){
 		final int alen=arrays[0].length;
-		final long[] array0=arrays[0];
 		for(int i=0; i<alen; i++){
-			long kmer=array0[i];
-			if(kmer!=NOT_PRESENT){
+			if(!cellEmpty(i)){
 				int count=readCellValue(i);
 				sll.add(count);
 			}
@@ -821,8 +812,7 @@ public abstract class HashArrayU extends AbstractKmerTableU {
 		final int alen0=arrays.length;
 		final int alen=arrays[0].length;
 		for(int i=0; i<alen; i++){
-			long kmer0=arrays[0][i];
-			if(kmer0!=NOT_PRESENT){
+			if(!cellEmpty(i)){
 				int count=Tools.min(readCellValue(i), max);
 				for(int j=0; j<alen0; j++){
 					gcCounts[count]+=gc(arrays[j][i]);

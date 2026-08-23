@@ -93,6 +93,9 @@ public final class HashArrayU2D extends HashArrayU {
 	protected final int[] readCellValues(int cell, int[] singleton) {
 		return values[cell];
 	}
+
+	@Override
+	protected final boolean cellEmpty(int cell){return values[cell]==null;}
 	
 	/**
 	 * Inserts a single value into the hash table at the specified cell.
@@ -297,8 +300,8 @@ public final class HashArrayU2D extends HashArrayU {
 		final Kmer kmer=new Kmer(kbig);
 		{
 			for(int i=0; i<oldk[0].length; i++){
-				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
-				if(oldk[0][i]!=NOT_PRESENT){
+				//Values, not key bits, authoritatively encode occupancy; -1L is a valid packed word.
+				if(oldc[i]!=null){
 					set(fillKmer(i, kmer, oldk), oldc[i]);
 				}
 			}
@@ -311,7 +314,7 @@ public final class HashArrayU2D extends HashArrayU {
 			set(kmer, n.values(singleton));
 		}
 		
-		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size;
+		assert(oldSize+oldVSize==size+victims.size) : KillSwitch.assertDie(oldSize+", "+oldVSize+" -> "+size+", "+victims.size);
 	}
 	
 	/**

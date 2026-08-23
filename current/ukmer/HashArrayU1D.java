@@ -43,7 +43,7 @@ public final class HashArrayU1D extends HashArrayU {
 			int x=victims.increment(kmer);
 			if(autoResize && size+victims.size>sizeLimit){resize();}
 			return x;
-		}else if(arrays[0][cell]==NOT_PRESENT){
+		}else if(cellEmpty(cell)){
 			setKmer(kmer.key(), cell);
 			size++;
 			values[cell]=1;
@@ -93,7 +93,7 @@ public final class HashArrayU1D extends HashArrayU {
 				assert(!autoResize || size+victims.size<=sizeLimit+1) : sizeLimit+"<"+(size+victims.size)+", size="+size+", victims="+victims.size+", prime="+prime;
 //			}
 			return x;
-		}else if(arrays[0][cell]==NOT_PRESENT){
+		}else if(cellEmpty(cell)){
 			setKmer(kmer.key(), cell);
 			size++;
 			values[cell]=1;
@@ -159,6 +159,9 @@ public final class HashArrayU1D extends HashArrayU {
 		singleton[0]=values[cell];
 		return singleton;
 	}
+
+	@Override
+	protected final boolean cellEmpty(int cell){return values[cell]==0;}
 	
 	/**
 	 * Inserts a single count value at the specified cell.
@@ -170,6 +173,7 @@ public final class HashArrayU1D extends HashArrayU {
 	@Override
 	protected final void insertValue(long[] kmer, int v, int cell) {
 		assert(matches(kmer, cell));
+		assert(v>0) : "HashArrayU1D reserves value 0 for empty cells: "+v;
 		values[cell]=v;
 	}
 	
@@ -184,6 +188,7 @@ public final class HashArrayU1D extends HashArrayU {
 	protected final void insertValue(long[] kmer, int[] vals, int cell) {
 		assert(matches(kmer, cell));
 		assert(vals.length==1);
+		assert(vals[0]>0) : "HashArrayU1D reserves value 0 for empty cells: "+vals[0];
 		values[cell]=vals[0];
 	}
 	
@@ -321,8 +326,8 @@ public final class HashArrayU1D extends HashArrayU {
 		{
 			for(int i=0; i<oldk[0].length; i++){
 //				assert(false) : oldk[0][i];
-				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
-				if(oldk[0][i]!=NOT_PRESENT){
+				//Values, not key bits, authoritatively encode occupancy; -1L is a valid packed word.
+				if(oldc[i]!=0){
 //					kmersProcessed++;
 //					assert(false) : oldk[0][i];
 					Kmer temp=fillKmer(i, kmer, oldk);
@@ -358,11 +363,11 @@ public final class HashArrayU1D extends HashArrayU {
 //			assert(getValue(kmer)==n.value()); //123 slow
 		}
 		
-		assert(oldSize+oldVSize==size+victims.size) : oldSize+", "+oldVSize+" -> "+size+", "+victims.size+"; totalSize="+totalSize+", new total="+(size+victims.size)+
+		assert(oldSize+oldVSize==size+victims.size) : KillSwitch.assertDie(oldSize+", "+oldVSize+" -> "+size+", "+victims.size+"; totalSize="+totalSize+", new total="+(size+victims.size)+
 			"\noldPrime="+oldPrime+", prime="+prime+(prime<1000 ? (
 			"\noldArray:"+Arrays.toString(oldk[0])+
 			"\nnewArray:"+Arrays.toString(arrays[0])
-			) : "");
+			) : ""));
 	}
 	
 	/**
@@ -391,7 +396,7 @@ public final class HashArrayU1D extends HashArrayU {
 			Kmer key=fillKmer(pos, kmer);
 			if(key!=null){
 				final int value=values[pos];
-				values[pos]=NOT_PRESENT;
+				values[pos]=0;
 				arrays[0][pos]=NOT_PRESENT;
 				size--;
 				if(value>limit){
@@ -433,9 +438,6 @@ public final class HashArrayU1D extends HashArrayU {
 	/*----------------            Walker            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	//TODO
-	//Arrays are initialized to 0 instead of NOT_PRESENT
-	
 	/**
 	 * Iterator for traversing all k-mer entries in the hash array.
 	 * Walks through both main arrays and victim cache sequentially.
@@ -450,13 +452,13 @@ public final class HashArrayU1D extends HashArrayU {
 		}
 		
 		public boolean next(){
-			while(i<values.length && values[i]<=NOT_XPRESENT){i++;}
+			while(i<values.length && values[i]<=EMPTY_VALUE){i++;}
 			if(i<values.length){
 				fillKmer(i, kmer);
 				value=values[i];
-				assert(value!=NOT_XPRESENT);
+				assert(value!=EMPTY_VALUE);
 				assert(kmer.len()>0) : kmer.len()+", "+value+", "+i+", "+values.length+"\n"
-						+ "NOT_XPRESENT="+NOT_XPRESENT+", values[0]="+values[0]+", values[1]="+values[1];
+						+ "EMPTY_VALUE="+EMPTY_VALUE+", values[0]="+values[0]+", values[1]="+values[1];
 				i++;
 //				System.err.println("Y: "+kmer.len());
 				return true;
@@ -465,7 +467,7 @@ public final class HashArrayU1D extends HashArrayU {
 				KmerNodeU kn=victims.get(i2);
 				kn.fillKmer(kmer);
 				value=kn.value();
-				assert(value!=NOT_XPRESENT);
+				assert(value!=EMPTY_VALUE);
 				i2++;
 //				System.err.print("Z: "+kmer.len());
 				return true;
@@ -473,7 +475,7 @@ public final class HashArrayU1D extends HashArrayU {
 //			System.err.print("X: "+kmer.len());
 			kmer.clearFast();
 //			System.err.print("X2: "+kmer.len());
-			value=NOT_XPRESENT;
+			value=EMPTY_VALUE;
 			return false;
 		}
 		
@@ -491,6 +493,6 @@ public final class HashArrayU1D extends HashArrayU {
 		private int i2=0;
 	}
 	
-	//TODO: Remove after fixing array initialization
-	private static final int NOT_XPRESENT=0;
+	/** Value arrays use zero as the authoritative empty-cell marker. */
+	private static final int EMPTY_VALUE=0;
 }

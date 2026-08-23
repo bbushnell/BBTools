@@ -59,7 +59,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 			int x=victims.increment(kmer);
 			if(autoResize && size+victims.size>sizeLimit){resize();}
 			return x;
-		}else if(arrays[0][cell]==NOT_PRESENT){
+		}else if(cellEmpty(cell)){
 			setKmer(kmer.key(), cell);
 			size++;
 			values[cell]=1;
@@ -88,7 +88,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 			int x=victims.incrementAndReturnNumCreated(kmer);
 			if(autoResize && size+victims.size>sizeLimit){resize();}
 			return x;
-		}else if(arrays[0][cell]==NOT_PRESENT){
+		}else if(cellEmpty(cell)){
 			setKmer(kmer.key(), cell);
 			size++;
 			values[cell]=1;
@@ -138,6 +138,9 @@ public final class HashArrayUHybrid extends HashArrayU {
 		}
 		return setList.get(0-x);
 	}
+
+	@Override
+	protected final boolean cellEmpty(int cell){return values[cell]==0;}
 	
 	/**
 	 * Inserts multiple values into a hash table cell for a k-mer.
@@ -427,8 +430,8 @@ public final class HashArrayUHybrid extends HashArrayU {
 		final Kmer kmer=new Kmer(kbig);
 		{
 			for(int i=0; i<oldk[0].length; i++){
-				//Sign-safe occupancy: packed word0 can be negative (see ukmer/HashArrayU#004)
-				if(oldk[0][i]!=NOT_PRESENT){
+				//Values, not key bits, authoritatively encode occupancy; -1L is a valid packed word.
+				if(oldc[i]!=0){
 					final int v=oldc[i];
 					fillKmer(i, kmer, oldk);
 					if(v>=0){
@@ -451,7 +454,7 @@ public final class HashArrayUHybrid extends HashArrayU {
 			}
 		}
 		
-		assert(oldSize+oldVSize==size+victims.size) : oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size);
+		assert(oldSize+oldVSize==size+victims.size) : KillSwitch.assertDie(oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size));
 		
 		if(verbose){System.err.println("Resized to "+prime+". "+oldSize+" + "+oldVSize+" = "+(oldSize+oldVSize)+" -> "+size+" + "+victims.size+" = "+(size+victims.size));}
 		
