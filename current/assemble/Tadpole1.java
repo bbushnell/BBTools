@@ -1827,7 +1827,7 @@ public class Tadpole1 extends Tadpole {
 		//left behind. hasLowCount catches the zero-clean-kmer case (densely packed errors, or a
 		//large k with errors ~k bases apart) that a transition detector structurally can't see.
 		if(ECC_SUBSTITUTE && hasLowCount(counts)){
-			correctedSubstitute=errorCorrectSubstitute(bases, quals, counts, tracker);
+			correctedSubstitute=errorCorrectSubstitute(bases, quals, counts, counts2, bb, tracker, bs);
 		}
 		assert(counts.size>0);
 
@@ -1900,24 +1900,6 @@ public class Tadpole1 extends Tadpole {
 		return true;
 	}
 
-	/** Item 3b (Tadpole1 port): plain geometric span selection -- NOT the BBCMS "smart"
-	 * errPrefix-scored version (that one was found broken; it degenerates to this anyway in
-	 * every zero-clean-kmer read). Tadpole doesn't need span-scoring at all: with an exact table
-	 * and CONFIRM_MIN=1, one clean confirming window is a real fix, not a collision artifact. */
-	private IntList selectSpanPositions(final int p, final int readLen){
-		final int lo=Tools.max(0, p-k+1);
-		final int hi=Tools.min(p, readLen-k);
-		IntList spans=new IntList(3);
-		if(hi<=lo){
-			spans.add(lo);
-			return spans;
-		}
-		spans.add(lo);
-		spans.add(hi);
-		if(hi-lo>=4){spans.add((lo+hi)/2);}
-		return spans;
-	}
-
 	/** Item 3b (Tadpole1 port): builds the k-mer spanning bases[windowStart..windowStart+k-1]
 	 * with bases[subPos] replaced by alternateBase, and looks it up in the exact table. Mirrors
 	 * bloom.BloomFilterCorrector1#getCountWithSubstitution but via Tadpole1's own getCount. */
@@ -1932,51 +1914,101 @@ public class Tadpole1 extends Tadpole {
 		return Tools.max(0, getCount(kmer, rkmer));
 	}
 
+	/** Item 3c (Fix #4): tests `testBase` at one span window. Returns a packed int: bit0 set
+	 * if the count clears minCountCorrect() (a "confirmation"), bit1 set if the count exceeds
+	 * the position's original depth (Brian's detectedSubstitute rule). Shared by both the
+	 * per-position scan (called once per alternate base) and the post-batch validation (called
+	 * once for the already-chosen base) so the two phases can never silently diverge in how a
+	 * span is scored. Unlike Tadpole2's version, no separate "valid" flag or build/restore
+	 * dance is needed -- getCountWithSubstitution already handles an N-in-window by returning
+	 * 0 directly (Tadpole1's k&lt;=31 plain-long build is already O(1)-ish per call; Fix #3's
+	 * build-once optimization was never needed here). */
+	private int confirmSpan(final byte[] bases, final int windowStart, final int subPos, final int testBase, final IntList counts){
+		final int count=getCountWithSubstitution(bases, windowStart, subPos, testBase);
+		int r=0;
+		if(count>=minCountCorrect()){r|=1;}
+		if(count>Tools.max(0, counts.get(windowStart))){r|=2;}
+		return r;
+	}
+
 	/** Item 3b (Tadpole1 port, 2026-08-22, Amber directing, Nepgear implementing): substitute ECC.
 	 * For each error-covered position, generates all 3 single-base alternates from up
-	 * to 3 geometrically-spanning k-mers ({@link #selectSpanPositions}) and accepts a correction
-	 * only if exactly one alternate base is independently confirmed (count &gt;= minCountCorrect)
-	 * by at least CONFIRM_MIN spans; 0 or &gt;1 alternate bases clearing that bar means skip as
-	 * ambiguous (never resolved by picking the argmax).
+	 * to 4 reflection-closed spanning k-mers (lo/hi/floorMid/ceilMid, computed inline below)
+	 * and accepts a correction only if exactly one alternate base is independently confirmed
+	 * (count &gt;= minCountCorrect) by at least CONFIRM_MIN spans; 0 or &gt;1 alternate bases
+	 * clearing that bar means skip as ambiguous (never resolved by picking the argmax).
 	 *
 	 * Runs as up to {@link #SUBSTITUTE_MAX_PASSES} left-to-right passes, stopping as soon as a pass
 	 * makes zero corrections -- resolves the "trapped" case where two errors are close enough
 	 * that one's spanning windows all still contain the other, still-wrong base on pass 1; pass 2
-	 * sees the partner already fixed. */
-	private int errorCorrectSubstitute(final byte[] bases, final byte[] quals, final IntList counts, final ErrorTracker tracker){
+	 * sees the partner already fixed.
+	 *
+	 * Fix #2 (Noelle's perf review, Amber directing): span selection is inlined here as
+	 * scalar locals instead of allocating a fresh IntList per position per pass -- the old
+	 * selectSpanPositions helper method is gone. Zero allocation.
+	 *
+	 * Fix #4 (Noelle's finding: forward vs reverse-complement of the same read produced
+	 * different corrections at k&lt;=31 too, not just k&gt;31; Amber directing; design
+	 * reviewed by both before implementation): two independent RC-dependence sources, both
+	 * fixed here, mirroring {@link Tadpole2#errorCorrectSubstitute}'s Fix #4 exactly (same
+	 * mechanism, this file's simpler plain-long substitution primitive underneath).
+	 * (a) Reflection-closed span selection: `d=hi-lo` (still gated `d>=4`); `d` even keeps the
+	 *     single center `lo+d/2` (self-symmetric, unchanged); `d` odd uses BOTH `lo+d/2`
+	 *     (floor) and `lo+d/2+1` (ceil) -- exact reflections of each other, so the span SET is
+	 *     closed under reversal even though neither member is.
+	 * (b) Snapshot pass, batched proposal application: the scan is non-mutating; accepted
+	 *     positions are staged in `bs` (position) and `counts2` (chosen base, repurposed as a
+	 *     per-BASE-position buffer, verified free -- reassemble is done with both by the time
+	 *     substitute runs). Empty `bs` after the scan means break immediately. Otherwise:
+	 *     snapshot `bases` into the already-per-thread `ByteBuilder bb` (reassemble is
+	 *     finished with it too -- no new state needed; quals need no snapshot since they're
+	 *     never written before validation succeeds), apply every staged proposal, regenerate
+	 *     counts ONCE via the batch BitSet form (passing `null` for the genuinely-unused dummy
+	 *     Kmer parameter -- `kmer/KmerTableSet.java`'s overload never references it), then
+	 *     re-validate ONLY the already-chosen base per proposed position. All valid: apply
+	 *     qualities, keep the batch. Any invalid: restore every touched base from the `bb`
+	 *     snapshot (byte-exact, preserves N/case), regenerate counts again, stop this read's
+	 *     substitute pass entirely (whole-pass revert, Option A). */
+	private int errorCorrectSubstitute(final byte[] bases, final byte[] quals, final IntList counts, final IntList counts2, final ByteBuilder bb, final ErrorTracker tracker, final BitSet bs){
 		int totalCorrected=0;
 		final int readLen=bases.length;
+		bs.clear();
+		counts2.clear();
 
 		for(int pass=0; pass<SUBSTITUTE_MAX_PASSES; pass++){
-			int passCorrected=0;
 
 			for(int p=0; p<readLen; p++){
 				if(!isErrorCovered(p, counts)){continue;}
 
-				final IntList spans=selectSpanPositions(p, readLen);
-				if(spans.size<2){continue;}//Can't confirm with fewer than 2 spanning kmers
+				final int lo=Tools.max(0, p-k+1);
+				final int hi=Tools.min(p, readLen-k);
+				if(hi<=lo){continue;}//Can't confirm with fewer than 2 spanning kmers
+				final int d=hi-lo;
+				final int floorMid=(d>=4) ? lo+d/2 : -1;
+				final int ceilMid=(d>=4 && (d&1)!=0) ? floorMid+1 : -1;
 
 				final int origBase=AminoAcid.baseToNumber[bases[p]];
 				int bestBase=-1, bestConfirmations=0, clearedCount=0;
 				boolean anyIncrease=false;
 				for(int alternateBase=0; alternateBase<4; alternateBase++){
 					if(alternateBase==origBase){continue;}
-					int confirmations=0;
-					for(int si=0; si<spans.size; si++){
-						final int s=spans.get(si);
-						final int count=getCountWithSubstitution(bases, s, p, alternateBase);
-						if(count>=minCountCorrect()){confirmations++;}
-						//Item 3c (Brian's ruling): detectedSubstitute counts positions where some alternate
-						//base's depth exceeds the ORIGINAL base's depth, at the same window --
-						//independent of whether the position gets corrected. Since isErrorCovered
-						//already guarantees the original's depth is <minCountCorrect at every span
-						//in range, any span clearing the confirmation bar here automatically also
-						//clears this bar, but this stays a separate check for correctness/clarity.
-						//Perf (Amber's review catch): the original base's depth at window s is
-						//already sitting in counts.get(s) (kept in sync by regenerateCounts after
-						//every correction) -- no need to rebuild+relookup the unsubstituted kmer.
-						if(!anyIncrease && count>Tools.max(0, counts.get(s))){anyIncrease=true;}
+					int confirmations=0, r;
+
+					r=confirmSpan(bases, lo, p, alternateBase, counts);
+					confirmations+=(r&1); if((r&2)!=0){anyIncrease=true;}
+
+					r=confirmSpan(bases, hi, p, alternateBase, counts);
+					confirmations+=(r&1); if((r&2)!=0){anyIncrease=true;}
+
+					if(floorMid>=0){
+						r=confirmSpan(bases, floorMid, p, alternateBase, counts);
+						confirmations+=(r&1); if((r&2)!=0){anyIncrease=true;}
 					}
+					if(ceilMid>=0){
+						r=confirmSpan(bases, ceilMid, p, alternateBase, counts);
+						confirmations+=(r&1); if((r&2)!=0){anyIncrease=true;}
+					}
+
 					if(confirmations>=CONFIRM_MIN){
 						clearedCount++;
 						if(confirmations>bestConfirmations){
@@ -1988,17 +2020,56 @@ public class Tadpole1 extends Tadpole {
 				if(anyIncrease){tracker.detectedSubstitute++;}
 
 				if(clearedCount==1){//Exactly one alternate base confirmed; 0 or >1 is ambiguous, skip
-					bases[p]=AminoAcid.numberToBase[bestBase];
+					bs.set(p);
+					counts2.set(p, bestBase);
+				}
+			}
+
+			if(bs.isEmpty()){break;}//No proposals this pass -- later passes can't help either
+
+			bb.clear();
+			bb.append(bases);
+			for(int p=bs.nextSetBit(0); p>=0; p=bs.nextSetBit(p+1)){
+				bases[p]=AminoAcid.numberToBase[counts2.get(p)];
+			}
+			tables.regenerateCounts(bases, counts, null, bs);
+
+			boolean allValid=true;
+			for(int p=bs.nextSetBit(0); allValid && p>=0; p=bs.nextSetBit(p+1)){
+				final int lo=Tools.max(0, p-k+1);
+				final int hi=Tools.min(p, readLen-k);
+				final int d=hi-lo;
+				final int floorMid=(d>=4) ? lo+d/2 : -1;
+				final int ceilMid=(d>=4 && (d&1)!=0) ? floorMid+1 : -1;
+
+				final int chosenBase=counts2.get(p);
+				int confirmations=0, r;
+				r=confirmSpan(bases, lo, p, chosenBase, counts); confirmations+=(r&1);
+				r=confirmSpan(bases, hi, p, chosenBase, counts); confirmations+=(r&1);
+				if(floorMid>=0){ r=confirmSpan(bases, floorMid, p, chosenBase, counts); confirmations+=(r&1); }
+				if(ceilMid>=0){ r=confirmSpan(bases, ceilMid, p, chosenBase, counts); confirmations+=(r&1); }
+
+				if(confirmations<CONFIRM_MIN){allValid=false;}
+			}
+
+			if(allValid){
+				int passCorrected=0;
+				for(int p=bs.nextSetBit(0); p>=0; p=bs.nextSetBit(p+1)){
 					byte q=(quals==null ? 30 : quals[p]);
 					q=(byte)Tools.mid(q+qIncreasePincer, qMinPincer, qMaxPincer);
 					if(quals!=null){quals[p]=q;}
 					passCorrected++;
-					tables.regenerateCounts(bases, counts, Tools.max(0, p-k));
 				}
+				totalCorrected+=passCorrected;
+				bs.clear();
+			}else{
+				for(int p=bs.nextSetBit(0); p>=0; p=bs.nextSetBit(p+1)){
+					bases[p]=bb.array[p];
+				}
+				tables.regenerateCounts(bases, counts, null, bs);
+				bs.clear();
+				break;
 			}
-
-			totalCorrected+=passCorrected;
-			if(passCorrected<1){break;}//No progress this pass -- later passes can't help either
 		}
 
 		tracker.correctedSubstitute+=totalCorrected;

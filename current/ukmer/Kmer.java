@@ -293,7 +293,52 @@ public class Kmer implements Cloneable {
 		long x=AminoAcid.baseToNumber[b];
 		return AminoAcid.numberToBase[(int)addLeftNumeric(x)];
 	}
-	
+
+	/** Item 3c (Fix #3, Noelle's perf review, Amber directing): substitutes the base at
+	 * position `pos` (0-indexed from array1's own 5' end -- word[0]'s first base is
+	 * position 0, same convention forwardSequence()/toString() decode) with `newBase`
+	 * (numeric, 0-3), updating BOTH array1 (F) and array2 (R=RC(F), at the mirrored
+	 * position kbig-1-pos with complement(newBase), same leading-full/partial-last
+	 * packing convention as array1 per this class's own doc) in place -- no O(kbig)
+	 * rebuild via repeated addRight calls. Only the single affected word in each array
+	 * is touched; word index and within-word bit offset are computed directly since
+	 * every word except word[maxindex] holds exactly k=FULL_WORD_K bases under PACKED.
+	 * <p>
+	 * Bumps incarnation so the next key()/xor() call's update() recomputes lazily --
+	 * same invalidation contract as addRightNumeric/addLeftNumeric/fillArray2/setFrom.
+	 * len is untouched (this pokes an already-built kmer; it is not a roll/extend).
+	 * <p>
+	 * Substitution is its own inverse: to restore the original base, call this again
+	 * with the value this call returns. The caller MUST restore before reusing this
+	 * Kmer for anything else that assumes the original content -- same "temporarily
+	 * mutated" contract as any other in-place Kmer op.
+	 * @param pos Absolute base position, 0-indexed from the 5' end (array1's word[0] start)
+	 * @param newBase Numeric base (0-3) to place at that position
+	 * @return The numeric base (0-3) previously at that position, for restoration */
+	public long substituteBase(final int pos, final long newBase){
+		assert(pos>=0 && pos<kbig) : "pos="+pos+", kbig="+kbig;
+		assert(newBase>=0 && newBase<4) : newBase;
+		assert(len>=kbig) : "Kmer must be fully built before an in-place substitution; len="+len+", kbig="+kbig;
+
+		final int wi=pos/k;
+		final int w=perWordK(wi);
+		final int withinWordIndex=pos-wi*k;
+		final int shiftAmt=2*(w-1-withinWordIndex);
+		final long oldBase=(array1[wi]>>>shiftAmt)&3L;
+		array1[wi]=(array1[wi]&~(3L<<shiftAmt))|(newBase<<shiftAmt);
+
+		final int qPos=kbig-1-pos;
+		final int wi2=qPos/k;
+		final int w2=perWordK(wi2);
+		final int withinWordIndex2=qPos-wi2*k;
+		final int shiftAmt2=2*(w2-1-withinWordIndex2);
+		final long newComp=AminoAcid.numberToComplement[(int)newBase];
+		array2[wi2]=(array2[wi2]&~(3L<<shiftAmt2))|(newComp<<shiftAmt2);
+
+		incarnation++;
+		return oldBase;
+	}
+
 	/**
 	 * Brian's design (2026-08-19): array2 is NOT a per-word mirror of
 	 * array1 -- it is F's reverse-complement, maintained as its OWN
