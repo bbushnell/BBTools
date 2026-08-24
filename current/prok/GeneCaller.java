@@ -180,6 +180,14 @@ public class GeneCaller extends ProkObject {
 		final int rlen=r.length();
 		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000)){
 			rnaLists=makeRnas(name, bases);
+			if(NcrnaScavenger.DEBUG){
+				for(ArrayList<Orf> list : rnaLists){for(Orf o : list){
+					System.err.println("DEBUG rnaList candidate: "+o.start+"-"+o.stop+" strand="+o.strand+" type="+o.type+" score="+o.orfScore);
+				}}
+				for(Orf o : brokenLists[0]){
+					if(o.stop>=100 && o.start<=400){System.err.println("DEBUG brokenLists[0] near locus: "+o.start+"-"+o.stop+" score="+o.orfScore+" type="+o.type);}
+				}
+			}
 			if(rnaLists[0]!=null && !rnaLists[0].isEmpty()) {
 				brokenLists[0].addAll(rnaLists[0]);
 				Collections.sort(brokenLists[0]);
@@ -187,6 +195,12 @@ public class GeneCaller extends ProkObject {
 			if(rnaLists[1]!=null && !rnaLists[1].isEmpty()) {
 				brokenLists[3].addAll(rnaLists[1]);
 				Collections.sort(brokenLists[3]);
+			}
+			if(NcrnaScavenger.DEBUG){
+				System.err.println("DEBUG brokenLists[0] AFTER merge, near locus:");
+				for(Orf o : brokenLists[0]){
+					if(o.stop>=100 && o.start<=400){System.err.println("DEBUG   "+o.start+"-"+o.stop+" score="+o.orfScore+" type="+o.type);}
+				}
 			}
 		}
 		
@@ -243,7 +257,29 @@ public class GeneCaller extends ProkObject {
 		array[1]=new ArrayList<Orf>();
 		final float[] scores=new float[bases.length];
 		final int[] kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
+		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
+			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
+			for(NcrnaFamily fam : ncrnaFamilies){
+				ncrnaScavengers.add(new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
+					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
+					fam.indexK, fam.indexTopN, fam.adaptive,
+					fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits));
+			}
+		}
 		for(int strand=0; strand<2; strand++){
+			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
+			//independent claimed-region list per family per strand -- these families don't
+			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
+			if(ncrnaScavengers!=null){
+				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
+					ArrayList<int[]> calledPos=new ArrayList<>();
+					ArrayList<Orf> found=ncrnaScavengers.get(fi).scavenge(name, bases, strand, calledPos);
+					if(strand==1 && found!=null){
+						for(Orf orf : found){orf.flip();}
+					}
+					if(found!=null){array[strand].addAll(found);}
+				}
+			}
 			for(StatsContainer sc : pgm.rnaContainers){
 				if(ProkObject.callType(sc.type)){
 					if(sc.type==tRNA && trnaLibrary!=null && trnaLibrary.length>0){
@@ -420,6 +456,7 @@ public class GeneCaller extends ProkObject {
 			else if(orf.type==r23S){r23SOut++;}
 			else if(orf.type==r5S){r5SOut++;}
 			else if(orf.type==r18S){r18SOut++;}
+			else if(orf.type==RNA){rnaOut++;}
 		}
 		Collections.sort(bestPath);
 		return bestPath;
@@ -1496,6 +1533,16 @@ public class GeneCaller extends ProkObject {
 	public static consensus.BaseGraph[] trnaModels;
 	public static String[] trnaModelNames;
 
+	/** Shared (read-only after CallGenes.loadNcrnaResources), one entry per generic
+	 * ncRNA family with staged resources. Empty if none are staged -- makeRnas skips
+	 * the ncRNA loop entirely in that case. */
+	public static final ArrayList<NcrnaFamily> ncrnaFamilies=new ArrayList<>();
+	/** Per-instance scavengers, one per ncrnaFamilies entry, lazily built (mirrors
+	 * trnaCaller's own per-instance-per-thread construction -- NcrnaScavenger's
+	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
+	 * built from the SHARED read-only family bundle). Null until first use. */
+	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+
 	/** Per-instance NNs for ORF scoring (thread-safe copies). Null = use heuristic. */
 	final CellNet orfNet;
 	final CellNet orfNetLow;
@@ -1752,8 +1799,10 @@ public class GeneCaller extends ProkObject {
 	/** Counter for 5S rRNA features in final output */
 	long r5SOut=0;
 	/** Counter for 18S rRNA features in final output */
-	long r18SOut=0;	
-	
+	long r18SOut=0;
+	/** Counter for generic ncRNA (RNase P, SRP, ...) features in final output */
+	long rnaOut=0;
+
 	/** Score tracker for CDS features during processing */
 	ScoreTracker stCds=new ScoreTracker(CDS);
 	/** Secondary score tracker for CDS features */
