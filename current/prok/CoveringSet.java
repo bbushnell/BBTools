@@ -127,17 +127,27 @@ public class CoveringSet {
 		Arrays.fill(alive, true);
 		int aliveCount=totalSeqs;
 		int round=0;
+		int currentStep=step;
 
 		while(aliveCount>0){
 			if(maxKmers>0 && selectedKmers.size>=maxKmers){break;}
 			float covFrac=1f-(aliveCount/(float)totalSeqs);
 			if(covFrac>=minCovFraction){break;}
 
+			//Halve step when remaining gap is within 2x of the target gap
+			final float gap=aliveCount/(float)totalSeqs;
+			final float targetGap=1f-minCovFraction;
+			if(gap<=2*targetGap && currentStep>Math.max(1, step/2)){
+				currentStep=Math.max(1, step/2);
+				outstream.println("  Step reduced to "+currentStep+" (approaching target, gap="+
+						String.format("%.4f", gap)+", targetGap="+String.format("%.4f", targetGap)+")");
+			}
+
 			LongIntMap currentCounts=countKmersAlive(pool, alive, kDesign, designMask);
 			if(currentCounts.isEmpty()){break;}
 
-			long[] candidates=topNByCount(currentCounts, step*2);
-			long[] ranked=rankByOriginal(candidates, originalCounts, step);
+			long[] candidates=topNByCount(currentCounts, currentStep*2);
+			long[] ranked=rankByOriginal(candidates, originalCounts, currentStep);
 
 			int added=0;
 			for(long kmer : ranked){
