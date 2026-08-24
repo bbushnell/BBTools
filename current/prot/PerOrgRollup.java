@@ -30,7 +30,17 @@ import structures.IntList;
  * weighted average given the new cache's gc/acgt are raw INT COUNTS, not a pre-computed per-shred
  * fraction (which is what the old dense-format input carried and length-weighted-averaged).
  *
- * <p>Usage: perorgrollup.sh in=percontig_cache.tsv out=perorg_cache.tsv [topn=8000]
+ * <p>OPTIONAL SPARSE OUTPUT ({@code out2=}, added for Tier B / MANIFEST "TIER_B_DESIGN.md"): a
+ * SECOND per-organism file in the 16-field format {@code marker_select.py} (the pre-Java marker
+ * precompute) and {@link AntiSetMiner#loadPresence} both parse — {@code tid domain length gc acgt
+ * cds mapped glenSum glenSq coding r16 r23 r5 rother trna families}, families as sparse
+ * "rank:count;..." (only nonzero ranks), gc/length/etc. as raw SUMMED counts (not the dense path's
+ * gc fraction) — verified against both consumers' field indices (domain@1, families@15) before
+ * adding this. Written from the SAME per-org accumulation pass as the dense output (one read of
+ * the (large) input cache serves both), so out1= behavior is completely unaffected when out2= is
+ * omitted — differential-verified byte-identical against the pre-out2 version.
+ *
+ * <p>Usage: perorgrollup.sh in=percontig_cache.tsv out=perorg_cache.tsv [topn=8000] [out2=perorg_sparse.tsv]
  *
  * @author Brian Bushnell, Eru
  */
@@ -57,6 +67,7 @@ public class PerOrgRollup {
 			String b=split.length>1 ? split[1] : null;
 
 			if(a.equals("topn") || a.equals("top")){topN=Integer.parseInt(b);}
+			else if(a.equals("out2")){out2=b;}
 			else if(parser.parse(arg, a, b)){
 				//do nothing
 			}else{
@@ -74,10 +85,15 @@ public class PerOrgRollup {
 		assert(out1!=null) : "No output file specified.";
 	}
 
-	/** Per-organism accumulator: gene-structure sums + dense family copy-counts (indexed by rank). */
+	/** Per-organism accumulator: gene-structure sums + dense family copy-counts (indexed by rank).
+	 *  The cds..trna fields exist only to feed the optional sparse (out2=) output — they cost one
+	 *  extra int-parse and add per shred regardless, since tracking them unconditionally is simpler
+	 *  and cheaper than a branch on whether out2 was requested. */
 	static final class Org {
 		long length, gc, acgt;
+		long cds, mapped, glenSum, glenSq, coding, r16, r23, r5, rother, trna;
 		int nshreds;
+		String domain;
 		final long[] fams;
 		Org(int topN){fams=new long[topN];}
 	}
@@ -101,9 +117,24 @@ public class PerOrgRollup {
 			Org o=orgs.get(tid);
 			if(o==null){o=new Org(topN); orgs.put(tid, o);}
 
+			final String domain=lp.parseString(2);
+			if(o.domain==null){o.domain=domain;}
+			else{assert(o.domain.equals(domain)) : "Domain changed mid-organism (tid "+tid+"): "
+				+o.domain+" -> "+domain+" -- CacheBuilder assigns domain per-tid, this should never vary.";}
+
 			o.length+=lp.parseInt(3);
 			o.gc+=lp.parseInt(4);
 			o.acgt+=lp.parseInt(5);
+			o.cds+=lp.parseInt(6);
+			o.mapped+=lp.parseInt(7);
+			o.glenSum+=lp.parseLong(8);
+			o.glenSq+=lp.parseLong(9);
+			o.coding+=lp.parseInt(10);
+			o.r16+=lp.parseInt(11);
+			o.r23+=lp.parseInt(12);
+			o.r5+=lp.parseInt(13);
+			o.rother+=lp.parseInt(14);
+			o.trna+=lp.parseInt(15);
 			o.nshreds++;
 
 			final int flen=lp.length(16);
@@ -155,6 +186,46 @@ public class PerOrgRollup {
 		}
 
 		outstream.println("Wrote "+written+" organisms to "+out1);
+
+		if(out2!=null){
+			FileFormat ffout2=FileFormat.testOutput(out2, FileFormat.TXT, null, true, overwrite, false, false);
+			ByteStreamWriter bsw2=new ByteStreamWriter(ffout2);
+			bsw2.start();
+			int written2=0;
+			try{
+				ByteBuilder bb=new ByteBuilder(1<<16);
+				bb.append("#tid\tdomain\tlength\tgc\tacgt\tcds\tmapped\tglenSum\tglenSq\tcoding"
+					+"\tr16\tr23\tr5\trother\ttrna\tfamilies").nl();
+				bsw2.print(bb);
+				bb.clear();
+
+				for(java.util.Map.Entry<Integer, Org> e : orgs.entrySet()){
+					final Org o=e.getValue();
+					bb.append(e.getKey().intValue()).append('\t').append(o.domain).append('\t')
+						.append(o.length).append('\t').append(o.gc).append('\t').append(o.acgt).append('\t')
+						.append(o.cds).append('\t').append(o.mapped).append('\t').append(o.glenSum).append('\t')
+						.append(o.glenSq).append('\t').append(o.coding).append('\t').append(o.r16).append('\t')
+						.append(o.r23).append('\t').append(o.r5).append('\t').append(o.rother).append('\t')
+						.append(o.trna).append('\t');
+					boolean first=true;
+					for(int i=0; i<topN; i++){
+						if(o.fams[i]!=0){
+							if(!first){bb.append(';');}
+							bb.append(i).append(':').append(o.fams[i]);
+							first=false;
+						}
+					}
+					bb.nl();
+					bsw2.print(bb);
+					bb.clear();
+					written2++;
+				}
+			}finally{
+				bsw2.poisonAndWait();
+			}
+			outstream.println("Wrote "+written2+" organisms (sparse) to "+out2);
+		}
+
 		t.stop();
 		outstream.println("Time: \t"+t);
 	}
@@ -180,6 +251,7 @@ public class PerOrgRollup {
 
 	private String in1=null;
 	private String out1=null;
+	private String out2=null;
 	private int topN=8000;
 	private boolean overwrite=true;
 	private java.io.PrintStream outstream=System.err;

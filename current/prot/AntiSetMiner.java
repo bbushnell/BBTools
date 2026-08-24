@@ -65,7 +65,15 @@ import template.ThreadWaiter;
  * Usage: java prot.AntiSetMiner cache=perorg_cache.tsv familylist=familylist.tsv
  *   out=anti_groups.tsv subsetprefix=anti [domain=bacteria minprev=0.02 maxprev=0.90
  *   uniontarget=0.98 unionmin=0.95 lambda=1.0 mingain=0.005 maxmembers=30
- *   maxgroups=1000 groupsperset=50 controls=t seed=1]
+ *   maxgroups=1000 groupsperset=50 controls=t seed=1 patience=20]
+ *
+ * <p>{@code patience} (added 2026-08-22, default 20 preserves prior behavior exactly): the
+ * consecutive-rejected-seeds limit before {@code mine()} gives up. A seed that grows a group
+ * failing to reach {@code unionmin} is marked used and never retried regardless of patience --
+ * patience only controls how many DIFFERENT (lower-prevalence) seeds get a chance before the
+ * miner stops looking for more groups. Tune this before lowering unionMin if groups aren't
+ * forming: a low patience can exhaust the budget on high-prevalence seeds that can't reach the
+ * union target, before ever trying a seed/path that could.
  *
  * @author UMP45, Eru
  */
@@ -98,6 +106,7 @@ public class AntiSetMiner implements Accumulator<AntiSetMiner.FillThread> {
 			else if(a.equals("controls")){controls=parseBool(b);}
 			else if(a.equals("exclude")){excludeFile=b;}
 			else if(a.equals("seed")){seed=Long.parseLong(b);}
+			else if(a.equals("patience")){patience=Integer.parseInt(b);}
 			else{System.err.println("Warning: unknown arg "+arg);}
 		}
 		if(cacheFile==null || familyFile==null || out==null || subsetPrefix==null){
@@ -266,7 +275,7 @@ public class AntiSetMiner implements Accumulator<AntiSetMiner.FillThread> {
 		final long[] covered=new long[words];
 		final int minGainOrgs=Math.max(1, (int)Math.ceil(minGain*nOrgs));
 		int consecutiveFails=0;
-		while(groups.size()<maxGroups && consecutiveFails<20){
+		while(groups.size()<maxGroups && consecutiveFails<patience){
 			//Seed: highest-prevalence unused candidate.
 			int seedFam=-1;
 			for(int f=0; f<numFam; f++){
@@ -505,7 +514,7 @@ public class AntiSetMiner implements Accumulator<AntiSetMiner.FillThread> {
 	private String domain="bacteria";
 	private double minPrev=0.02, maxPrev=0.90, unionTarget=0.98, unionMin=0.95;
 	private double lambda=1.0, minGain=0.005;
-	private int maxMembers=30, maxGroups=1000, groupsPerSet=50;
+	private int maxMembers=30, maxGroups=1000, groupsPerSet=50, patience=20;
 	private boolean controls=true;
 	private long seed=1;
 

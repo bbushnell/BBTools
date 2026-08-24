@@ -18,46 +18,61 @@ import structures.ByteBuilder;
 import tax.TaxTree;
 
 /**
- * Builds a per-phylum-selected family list from mmseqs cluster output (STEP 1
- * of the v3 net-derivation rebuild, replacing the old flat top-N-by-global-
- * prevalence selection).
+ * Builds a per-phylum-selected family list from mmseqs cluster output (v4 of
+ * the net-derivation family selection, replacing v3's top-100-plus-global-
+ * padding scheme).
  *
- * <p>Selection method (Brian, 2026-08-17; spec locked with UMP45):
+ * <p>Selection method (Brian, 2026-08-18; spec locked with UMP45):
  * <ul>
  * <li><b>occ</b> (prevalence) = count of DISTINCT tids with &gt;=1 member in
- *     the family -- genome count, NOT copy count. A genome contributing 3
- *     members to one family still counts once.
- * <li>Every EXCLUDED tid (corpus tid-collision casualties this session found
- *     in the foundation cache -- see records/EXCLUDED_TIDS.tsv /
- *     records/TIDCOLLISION_RECONCILIATION.md) is dropped from ALL occ
- *     counting: it never contributes a member, never counts toward a
- *     phylum's genome total.
- * <li>For each phylum with &gt;=MINPHYLUMGENOMES (default 3) non-excluded
- *     genomes: rank its candidate families (any family with &gt;=1 member of
- *     that phylum) by (occ_in_phylum desc, occ_total desc, rep_id asc), take
- *     the top PERPHYLUMTOP (default 100).
- * <li>Union every qualifying phylum's top-N set (a family can qualify via
- *     multiple phyla; dedup by rep_id).
- * <li>FLOOR, not a cap: if the union already has &gt;=FLOOR (default 6000)
- *     families, keep it whole -- no trimming. Otherwise pad with the
- *     globally-most-prevalent (occ_total desc) families not already in the
- *     union until reaching FLOOR exactly.
+ *     the family -- genome count, NOT copy count.
+ * <li>Every EXCLUDED tid is dropped from ALL occ counting (see
+ *     records/EXCLUDED_TIDS.tsv / records/TIDCOLLISION_RECONCILIATION.md).
+ * <li>For each phylum P with &gt;=MINPHYLUMGENOMES (default 3) non-excluded
+ *     genomes: candidate pool = families with &gt;=1 member in P AND
+ *     occ_in_phylum(F,P) &gt;= MINOCCFRAC (default 0.50) * genomes_in_P --
+ *     this floor keeps the "phylum-specific" half from degenerating into
+ *     1-2-genome noise.
+ * <li>TOP_N (default 100, the "universal backbone" half) = the pool's HIGHEST
+ *     occ_single members -- <b>occ_single(F) = count of genomes where F
+ *     appears as EXACTLY ONE copy</b> (per-(family,genome) member count==1),
+ *     NOT occ_total. Tiebreak (occ_total desc, occ_in_phylum desc, rep asc).
+ *     Rationale (Brian, 2026-08-18): a family with copy&gt;1 in many genomes
+ *     only signals contamination risk if it is NATIVELY single-copy, so the
+ *     backbone marker set must itself be built from clean single-copy
+ *     families, not merely globally-prevalent ones. BOT_N (default 100, the
+ *     "phylum-specific" half, UNCHANGED from the original design) = the
+ *     pool's LOWEST occ_total members (tiebreak occ_in_phylum desc, rep asc)
+ *     -- multi-copy is fine here, this half is not a copy-number reference.
+ *     If the pool is smaller than TOP_N+BOT_N, the two halves overlap and P
+ *     simply contributes its whole (smaller) pool.
+ * <li>P's contribution = TOP_N union BOT_N (dedup within P). Union every
+ *     qualifying phylum's contribution across phyla (dedup by rep_id) --
+ *     THIS UNION IS THE FINAL SET, no padding to any target count.
  * </ul>
  *
- * <p>Output familylist.tsv now contains ONLY the selected set -- a change
- * from the old all-clusters-ranked contract, where familylist.tsv held every
- * cluster and a separate topn= cutoff (applied by both this tool's repsout
- * and by CacheBuilder) picked the top slice. Rank 0..K-1, ordered by
- * occ_total descending (rep_id ascending tiebreak -- this final ordering is
- * otherwise arbitrary for training, it only needs to be deterministic). K may
- * exceed FLOOR if the per-phylum union alone already did.
- * <b>CacheBuilder's topn= must be set to the actual K this run reports, not
- * assumed to equal FLOOR.</b>
+ * <p>Output familylist.tsv contains ONLY the selected set, rank 0..K-1,
+ * ordered by occ_total descending (rep_id ascending tiebreak for
+ * determinism). K is whatever the union naturally comes out to (expected
+ * ~4000, NOT a fixed target). <b>Downstream topn= (CacheBuilder etc.) must be
+ * set to the actual K this run reports.</b>
+ *
+ * <p>sweep= mode: given a comma-separated list of ntop:nbot:minoccfrac
+ * triples, computes and prints the resulting union size + per-phylum
+ * contribution distribution for EACH combo from a single pass over
+ * cluster.tsv (no output files written) -- lets Brian/UMP45 pick a
+ * (ntop,nbot,minoccfrac) that lands near a target size without re-scanning
+ * the 10.5GB cluster file once per candidate. <b>Sweep mode ranks BOTH halves
+ * by occ_total</b> (the original, cheaper metric) -- it is a coarse union-
+ * SIZE estimator only, used to pick the (ntop,nbot,minoccfrac) triple before
+ * the occ_single refinement was added; a real build (this class run without
+ * sweep=) always uses the occ_single-ranked backbone half described above.
  *
  * <p>Usage: familylistbuilder.sh cluster=families_cluster.tsv reps=families_rep_seq.fasta
  *        taxpgm=taxpgm.tsv excluded=EXCLUDED_TIDS.tsv out=familylist.tsv
- *        repsout=consensus_reps.fasta [perphylumtop=100] [floor=6000]
+ *        repsout=consensus_reps.fasta [ntop=100] [nbot=100] [minoccfrac=0.50]
  *        [minphylumgenomes=3] [tidsout=tids.txt]
+ *    OR: sweep=100:100:0.50,100:100:0.70,150:150:0.50,150:150:0.70 (report-only, no output files)
  *
  * @author Brian Bushnell, Eru
  */
@@ -87,10 +102,12 @@ public class FamilyListBuilder {
 			else if(a.equals("excluded") || a.equals("excludedtids")){excludedFile=b;}
 			else if(a.equals("out") || a.equals("familylist")){outFile=b;}
 			else if(a.equals("repsout") || a.equals("topreps")){repsOutFile=b;}
-			else if(a.equals("perphylumtop") || a.equals("topx")){perPhylumTop=Integer.parseInt(b);}
-			else if(a.equals("floor") || a.equals("targety")){floor=Integer.parseInt(b);}
+			else if(a.equals("ntop") || a.equals("topn")){nTop=Integer.parseInt(b);}
+			else if(a.equals("nbot") || a.equals("bottomn")){nBot=Integer.parseInt(b);}
+			else if(a.equals("minoccfrac") || a.equals("occfloor")){minOccFrac=Double.parseDouble(b);}
 			else if(a.equals("minphylumgenomes") || a.equals("minphylum")){minPhylumGenomes=Integer.parseInt(b);}
 			else if(a.equals("tidsout") || a.equals("tidsfile")){tidsOutFile=b;}
+			else if(a.equals("sweep")){sweepSpec=b;}
 			else if(a.equals("ow") || a.equals("overwrite")){overwrite=Parse.parseBoolean(b);}
 			else{outstream.println("Unknown parameter "+arg); assert(false) : "Unknown parameter "+arg;}
 		}
@@ -98,7 +115,7 @@ public class FamilyListBuilder {
 		assert(repFastaFile!=null) : "reps= is required.";
 		assert(taxpgmFile!=null) : "taxpgm= is required.";
 		assert(excludedFile!=null) : "excluded= is required.";
-		assert(outFile!=null) : "out= is required.";
+		if(sweepSpec==null){assert(outFile!=null) : "out= is required (unless sweep= is used).";}
 	}
 
 	void process(Timer t){
@@ -115,7 +132,6 @@ public class FamilyListBuilder {
 
 		HashMap<String, HashSet<Integer>> familyTids=loadClusterMembership(excluded, tid2phylum);
 
-		// occ_total per family, and a global rank-by-prevalence array (also used for padding).
 		ArrayList<String> allReps=new ArrayList<String>(familyTids.size());
 		ArrayList<Integer> allOccTotal=new ArrayList<Integer>(familyTids.size());
 		for(HashMap.Entry<String, HashSet<Integer>> e : familyTids.entrySet()){
@@ -124,78 +140,43 @@ public class FamilyListBuilder {
 		}
 		outstream.println("Total families (non-excluded members only): "+allReps.size());
 
-		// Per-phylum candidate lists: for every family, break its tid set down by
-		// phylum once, and register it as a candidate for each phylum it touches.
-		HashMap<String, ArrayList<int[]>> candidatesByPhylum=new HashMap<String, ArrayList<int[]>>(); // phylum -> [repIndex, occInPhylum]
-		for(int i=0; i<allReps.size(); i++){
-			HashSet<Integer> tids=familyTids.get(allReps.get(i));
-			HashMap<String, Integer> perPhylum=new HashMap<String, Integer>(4);
-			for(int tid : tids){
-				String phy=tid2phylum.get(tid);
-				assert(phy!=null) : "tid "+tid+" has no taxpgm phylum entry and is not excluded -- corpus/taxpgm mismatch";
-				Integer cur=perPhylum.get(phy);
-				perPhylum.put(phy, cur==null ? 1 : cur+1);
-			}
-			for(HashMap.Entry<String, Integer> e : perPhylum.entrySet()){
-				String phy=e.getKey();
-				if(phylumGenomeCount.get(phy)<minPhylumGenomes){continue;}
-				ArrayList<int[]> list=candidatesByPhylum.get(phy);
-				if(list==null){list=new ArrayList<int[]>(); candidatesByPhylum.put(phy, list);}
-				list.add(new int[]{i, e.getValue()});
-			}
+		// Per-phylum candidate lists: family -> occ_in_phylum, for every qualifying
+		// phylum it touches. Independent of ntop/nbot/minoccfrac -- computed once,
+		// reused by every sweep combo.
+		HashMap<String, ArrayList<int[]>> candidatesByPhylum=
+			buildCandidatesByPhylum(allReps, familyTids, tid2phylum, phylumGenomeCount);
+
+		if(sweepSpec!=null){
+			runSweep(candidatesByPhylum, allReps, allOccTotal, phylumGenomeCount);
+			t.stop();
+			outstream.println("Time: \t"+t);
+			return;
 		}
 
-		// Rank each qualifying phylum's candidates by (occ_in_phylum desc, occ_total desc, rep asc); take top X.
-		HashSet<String> selected=new HashSet<String>();
-		for(HashMap.Entry<String, ArrayList<int[]>> e : candidatesByPhylum.entrySet()){
-			ArrayList<int[]> list=e.getValue();
-			list.sort((a, b) -> {
-				int c=Integer.compare(b[1], a[1]); // occ_in_phylum desc
-				if(c!=0){return c;}
-				c=Integer.compare(allOccTotal.get(b[0]), allOccTotal.get(a[0])); // occ_total desc
-				if(c!=0){return c;}
-				return allReps.get(a[0]).compareTo(allReps.get(b[0])); // rep asc
-			});
-			int take=Tools.min(perPhylumTop, list.size());
-			for(int i=0; i<take; i++){selected.add(allReps.get(list.get(i)[0]));}
-		}
-		outstream.println("Union of per-phylum top-"+perPhylumTop+" sets: "+selected.size()+" families ("+qualifyingPhyla+" phyla)");
+		// BUILD mode: the backbone (TOP_N) half is ranked by occ_single, which
+		// needs per-(family,genome) copy counts -- a heavier structure than the
+		// presence-only familyTids above. Bound the cost by computing it ONLY
+		// for families that actually pass some qualifying phylum's gate (the
+		// candidate universe), via a second pass over cluster.tsv.
+		Combo combo=new Combo(nTop, nBot, minOccFrac);
+		HashMap<String, ArrayList<int[]>> pools=gatePools(combo, candidatesByPhylum, phylumGenomeCount);
+		HashSet<String> candidateReps=collectCandidateReps(pools, allReps);
+		outstream.println("Candidate universe (pre top/bot truncation, needs occ_single): "
+			+candidateReps.size()+" families across "+pools.size()+" qualifying phyla");
 
-		// Global rank order (by occ_total desc, rep asc) -- used both for padding
-		// (walk it in order, skip already-selected) and for the final output order.
-		Integer[] globalOrder=new Integer[allReps.size()];
-		for(int i=0; i<globalOrder.length; i++){globalOrder[i]=i;}
-		Arrays.sort(globalOrder, (a, b) -> {
-			int c=Integer.compare(allOccTotal.get(b), allOccTotal.get(a));
-			if(c!=0){return c;}
-			return allReps.get(a).compareTo(allReps.get(b));
-		});
+		HashMap<String, HashMap<Integer, Integer>> memberCounts=loadCandidateMemberCounts(candidateReps, excluded);
+		HashMap<String, Integer> occSingle=deriveOccSingle(memberCounts);
+		checkOccSingleCoverage(pools, allReps, occSingle);
 
-		int paddedIn=0;
-		if(selected.size()<floor){
-			for(int idx : globalOrder){
-				if(selected.size()>=floor){break;}
-				String rep=allReps.get(idx);
-				if(selected.add(rep)){paddedIn++;}
-			}
-		}
-		outstream.println("Padded in "+paddedIn+" additional globally-prevalent families (floor="+floor+")");
-		outstream.println("FINAL selected family count: "+selected.size());
+		SelectionResult result=selectWithOccSingle(combo, pools, allReps, allOccTotal, occSingle);
+		outstream.println("Qualifying phyla contributing: "+result.phylaContributing
+			+"; hit full "+(nTop+nBot)+": "+result.phylaFull);
+		outstream.println("FINAL selected family count: "+result.selected.size());
+		printPerPhylumDistribution(result);
 
-		// Final output order: walk globalOrder (already occ_total desc / rep asc),
-		// emit only the ones actually selected -- guarantees the union members
-		// (which may not be globally top-ranked) still sort correctly relative to
-		// each other and to the padding.
-		ArrayList<String> finalReps=new ArrayList<String>(selected.size());
-		ArrayList<Integer> finalOcc=new ArrayList<Integer>(selected.size());
-		for(int idx : globalOrder){
-			String rep=allReps.get(idx);
-			if(selected.contains(rep)){
-				finalReps.add(rep);
-				finalOcc.add(allOccTotal.get(idx));
-			}
-		}
-		assert(finalReps.size()==selected.size());
+		ArrayList<String> finalReps=new ArrayList<String>(result.selected.size());
+		ArrayList<Integer> finalOcc=new ArrayList<Integer>(result.selected.size());
+		orderFinal(result.selected, allReps, allOccTotal, finalReps, finalOcc);
 
 		writeFamilyList(finalReps, finalOcc);
 		if(repsOutFile!=null){writeRepsOut(new HashSet<String>(finalReps));}
@@ -209,8 +190,298 @@ public class FamilyListBuilder {
 			outstream.println("  occ_total>="+thresh+": "+count);
 		}
 
+		outstream.println("occ_single sanity (top of final list, occ_total-desc order, for independent spot-check):");
+		int showTop=Tools.min(5, finalReps.size());
+		for(int i=0; i<showTop; i++){
+			String rep=finalReps.get(i);
+			outstream.println("  rank "+i+"\t"+rep+"\tocc_total="+finalOcc.get(i)
+				+"\tocc_single="+occSingle.get(rep));
+		}
+
 		t.stop();
 		outstream.println("Time: \t"+t);
+	}
+
+	/** phylum -> list of [repIndex, occ_in_phylum] for every family with >=1
+	 *  member in that phylum, restricted to phyla meeting minPhylumGenomes. */
+	HashMap<String, ArrayList<int[]>> buildCandidatesByPhylum(ArrayList<String> allReps,
+			HashMap<String, HashSet<Integer>> familyTids, HashMap<Integer, String> tid2phylum,
+			HashMap<String, Integer> phylumGenomeCount){
+		HashMap<String, ArrayList<int[]>> candidatesByPhylum=new HashMap<String, ArrayList<int[]>>();
+		for(int i=0; i<allReps.size(); i++){
+			HashSet<Integer> tids=familyTids.get(allReps.get(i));
+			HashMap<String, Integer> perPhylum=new HashMap<String, Integer>(4);
+			for(int tid : tids){
+				String phy=tid2phylum.get(tid);
+				assert(phy!=null) : "tid "+tid+" has no taxpgm phylum entry and is not excluded -- corpus/taxpgm mismatch";
+				Integer cur=perPhylum.get(phy);
+				perPhylum.put(phy, cur==null ? 1 : cur+1);
+			}
+			for(HashMap.Entry<String, Integer> e : perPhylum.entrySet()){
+				String phy=e.getKey();
+				Integer genomeCount=phylumGenomeCount.get(phy);
+				if(genomeCount==null || genomeCount<minPhylumGenomes){continue;}
+				ArrayList<int[]> list=candidatesByPhylum.get(phy);
+				if(list==null){list=new ArrayList<int[]>(); candidatesByPhylum.put(phy, list);}
+				list.add(new int[]{i, e.getValue()});
+			}
+		}
+		return candidatesByPhylum;
+	}
+
+	/** Applies one (ntop, nbot, minoccfrac) combo to the precomputed per-phylum
+	 *  candidate lists. No file IO -- pure in-memory selection, safe to call
+	 *  repeatedly per sweep combo. */
+	SelectionResult select(Combo combo, HashMap<String, ArrayList<int[]>> candidatesByPhylum,
+			ArrayList<String> allReps, ArrayList<Integer> allOccTotal, HashMap<String, Integer> phylumGenomeCount){
+		SelectionResult result=new SelectionResult();
+		for(HashMap.Entry<String, ArrayList<int[]>> e : candidatesByPhylum.entrySet()){
+			String phy=e.getKey();
+			int genomesInP=phylumGenomeCount.get(phy);
+			double gate=combo.minOccFrac*genomesInP;
+
+			ArrayList<int[]> pool=new ArrayList<int[]>();
+			for(int[] cand : e.getValue()){
+				if(cand[1]>=gate){pool.add(cand);}
+			}
+			if(pool.isEmpty()){continue;}
+			result.phylaContributing++;
+
+			ArrayList<int[]> topSorted=new ArrayList<int[]>(pool);
+			topSorted.sort((a, b) -> {
+				int c=Integer.compare(allOccTotal.get(b[0]), allOccTotal.get(a[0])); // occ_total desc
+				if(c!=0){return c;}
+				c=Integer.compare(b[1], a[1]); // occ_in_phylum desc
+				if(c!=0){return c;}
+				return allReps.get(a[0]).compareTo(allReps.get(b[0])); // rep asc
+			});
+			ArrayList<int[]> botSorted=new ArrayList<int[]>(pool);
+			botSorted.sort((a, b) -> {
+				int c=Integer.compare(allOccTotal.get(a[0]), allOccTotal.get(b[0])); // occ_total asc
+				if(c!=0){return c;}
+				c=Integer.compare(b[1], a[1]); // occ_in_phylum desc
+				if(c!=0){return c;}
+				return allReps.get(a[0]).compareTo(allReps.get(b[0])); // rep asc
+			});
+
+			HashSet<String> contribution=new HashSet<String>();
+			int takeTop=Tools.min(combo.nTop, topSorted.size());
+			for(int i=0; i<takeTop; i++){contribution.add(allReps.get(topSorted.get(i)[0]));}
+			int takeBot=Tools.min(combo.nBot, botSorted.size());
+			for(int i=0; i<takeBot; i++){contribution.add(allReps.get(botSorted.get(i)[0]));}
+
+			if(contribution.size()>=combo.nTop+combo.nBot){result.phylaFull++;}
+			result.selected.addAll(contribution);
+			result.perPhylumCount.put(phy, contribution.size());
+		}
+		return result;
+	}
+
+	void runSweep(HashMap<String, ArrayList<int[]>> candidatesByPhylum, ArrayList<String> allReps,
+			ArrayList<Integer> allOccTotal, HashMap<String, Integer> phylumGenomeCount){
+		outstream.println("SWEEP MODE -- report-only, no output files written.");
+		outstream.println("ntop\tnbot\tminoccfrac\tunion_size\tphyla_contributing\tphyla_full");
+		for(String token : sweepSpec.split(",")){
+			String[] parts=token.split(":");
+			assert(parts.length==3) : "sweep combo must be ntop:nbot:minoccfrac, got "+token;
+			int nt=Integer.parseInt(parts[0]);
+			int nb=Integer.parseInt(parts[1]);
+			double frac=Double.parseDouble(parts[2]);
+			Combo combo=new Combo(nt, nb, frac);
+			SelectionResult result=select(combo, candidatesByPhylum, allReps, allOccTotal, phylumGenomeCount);
+			outstream.println(nt+"\t"+nb+"\t"+frac+"\t"+result.selected.size()+"\t"
+				+result.phylaContributing+"\t"+result.phylaFull);
+		}
+	}
+
+	/** Filters each qualifying phylum's candidate list down to the gate
+	 *  (occ_in_phylum &gt;= minoccfrac*genomes_in_P), WITHOUT taking top/bot yet
+	 *  -- exposes the raw pool so its membership can be unioned into the
+	 *  occ_single candidate universe before ranking. */
+	HashMap<String, ArrayList<int[]>> gatePools(Combo combo, HashMap<String, ArrayList<int[]>> candidatesByPhylum,
+			HashMap<String, Integer> phylumGenomeCount){
+		HashMap<String, ArrayList<int[]>> pools=new HashMap<String, ArrayList<int[]>>();
+		for(HashMap.Entry<String, ArrayList<int[]>> e : candidatesByPhylum.entrySet()){
+			String phy=e.getKey();
+			int genomesInP=phylumGenomeCount.get(phy);
+			double gate=combo.minOccFrac*genomesInP;
+			ArrayList<int[]> pool=new ArrayList<int[]>();
+			for(int[] cand : e.getValue()){
+				if(cand[1]>=gate){pool.add(cand);}
+			}
+			if(!pool.isEmpty()){pools.put(phy, pool);}
+		}
+		return pools;
+	}
+
+	static HashSet<String> collectCandidateReps(HashMap<String, ArrayList<int[]>> pools, ArrayList<String> allReps){
+		HashSet<String> reps=new HashSet<String>();
+		for(ArrayList<int[]> pool : pools.values()){
+			for(int[] cand : pool){reps.add(allReps.get(cand[0]));}
+		}
+		return reps;
+	}
+
+	/** Second pass over cluster.tsv, restricted to candidateReps (bounds memory
+	 *  -- see class javadoc): rep -> {tid -> member count for that genome}.
+	 *  Needed because familyTids/occ_total only recorded PRESENCE, not the
+	 *  per-genome copy count occ_single requires. */
+	HashMap<String, HashMap<Integer, Integer>> loadCandidateMemberCounts(HashSet<String> candidateReps, HashSet<Integer> excluded){
+		outstream.println("Second pass: counting per-(family,genome) copies for "
+			+candidateReps.size()+" candidate families...");
+		HashMap<String, HashMap<Integer, Integer>> counts=new HashMap<String, HashMap<Integer, Integer>>(candidateReps.size()*2);
+		long totalLines=0, matched=0;
+		final ByteFile bf=ByteFile.makeByteFile(clusterFile, true);
+		final LineParser1 lp=new LineParser1((byte)'\t');
+		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+			if(line.length==0){continue;}
+			lp.set(line);
+			if(lp.terms()<2){continue;}
+			totalLines++;
+			String rep=lp.parseString(0);
+			if(candidateReps.contains(rep)){
+				String member=lp.parseString(1);
+				int tid=parseTid(member);
+				if(!excluded.contains(tid)){
+					matched++;
+					HashMap<Integer, Integer> tidCounts=counts.get(rep);
+					if(tidCounts==null){tidCounts=new HashMap<Integer, Integer>(); counts.put(rep, tidCounts);}
+					Integer cur=tidCounts.get(tid);
+					tidCounts.put(tid, cur==null ? 1 : cur+1);
+				}
+			}
+			if(totalLines%20000000==0){
+				outstream.println("  "+totalLines/1000000+"M lines scanned, "+matched+" matched candidate families");
+			}
+		}
+		bf.close();
+		outstream.println("Second pass done: "+matched+" matching members, "+counts.size()+" candidate families with data");
+		return counts;
+	}
+
+	static HashMap<String, Integer> deriveOccSingle(HashMap<String, HashMap<Integer, Integer>> memberCounts){
+		HashMap<String, Integer> occSingle=new HashMap<String, Integer>(memberCounts.size()*2);
+		for(HashMap.Entry<String, HashMap<Integer, Integer>> e : memberCounts.entrySet()){
+			int single=0;
+			for(int c : e.getValue().values()){if(c==1){single++;}}
+			occSingle.put(e.getKey(), single);
+		}
+		return occSingle;
+	}
+
+	/** Every family in every gated pool MUST have an occ_single entry -- pass 1
+	 *  and pass 2 read the identical file, so a miss here means the two passes
+	 *  disagreed (a real bug), not a data-coverage gap. */
+	static void checkOccSingleCoverage(HashMap<String, ArrayList<int[]>> pools, ArrayList<String> allReps,
+			HashMap<String, Integer> occSingle){
+		for(ArrayList<int[]> pool : pools.values()){
+			for(int[] cand : pool){
+				String rep=allReps.get(cand[0]);
+				assert(occSingle.containsKey(rep)) : "Candidate family "+rep+" missing from pass-2 "
+					+"occ_single map -- pass 1/2 file read mismatch (should be impossible, same file)";
+			}
+		}
+	}
+
+	/** BUILD-mode selection: TOP_N ranked by occ_single desc (tiebreak occ_total
+	 *  desc, occ_in_phylum desc, rep asc) -- the clean single-copy backbone.
+	 *  BOT_N ranked by occ_total asc (tiebreak occ_in_phylum desc, rep asc),
+	 *  UNCHANGED from the original design. Pools are pre-gated (see gatePools). */
+	SelectionResult selectWithOccSingle(Combo combo, HashMap<String, ArrayList<int[]>> pools,
+			ArrayList<String> allReps, ArrayList<Integer> allOccTotal, HashMap<String, Integer> occSingle){
+		SelectionResult result=new SelectionResult();
+		for(HashMap.Entry<String, ArrayList<int[]>> e : pools.entrySet()){
+			String phy=e.getKey();
+			ArrayList<int[]> pool=e.getValue();
+			result.phylaContributing++;
+
+			ArrayList<int[]> topSorted=new ArrayList<int[]>(pool);
+			topSorted.sort((a, b) -> {
+				String repA=allReps.get(a[0]), repB=allReps.get(b[0]);
+				int c=Integer.compare(occSingle.get(repB), occSingle.get(repA)); // occ_single desc
+				if(c!=0){return c;}
+				c=Integer.compare(allOccTotal.get(b[0]), allOccTotal.get(a[0])); // occ_total desc
+				if(c!=0){return c;}
+				c=Integer.compare(b[1], a[1]); // occ_in_phylum desc
+				if(c!=0){return c;}
+				return repA.compareTo(repB); // rep asc
+			});
+			ArrayList<int[]> botSorted=new ArrayList<int[]>(pool);
+			botSorted.sort((a, b) -> {
+				int c=Integer.compare(allOccTotal.get(a[0]), allOccTotal.get(b[0])); // occ_total asc
+				if(c!=0){return c;}
+				c=Integer.compare(b[1], a[1]); // occ_in_phylum desc
+				if(c!=0){return c;}
+				return allReps.get(a[0]).compareTo(allReps.get(b[0])); // rep asc
+			});
+
+			HashSet<String> contribution=new HashSet<String>();
+			int takeTop=Tools.min(combo.nTop, topSorted.size());
+			for(int i=0; i<takeTop; i++){contribution.add(allReps.get(topSorted.get(i)[0]));}
+			int takeBot=Tools.min(combo.nBot, botSorted.size());
+			for(int i=0; i<takeBot; i++){contribution.add(allReps.get(botSorted.get(i)[0]));}
+
+			if(contribution.size()>=combo.nTop+combo.nBot){result.phylaFull++;}
+			result.selected.addAll(contribution);
+			result.perPhylumCount.put(phy, contribution.size());
+		}
+		return result;
+	}
+
+	/** min/median/max markers-per-phylum + the most-truncated phyla -- the
+	 *  starvation check UMP45 gates a high floor on (a phylum with very few
+	 *  contributed markers gives a coarse completeness estimate). */
+	void printPerPhylumDistribution(SelectionResult result){
+		ArrayList<HashMap.Entry<String, Integer>> entries=
+			new ArrayList<HashMap.Entry<String, Integer>>(result.perPhylumCount.entrySet());
+		entries.sort((a, b) -> Integer.compare(a.getValue(), b.getValue()));
+		int n=entries.size();
+		outstream.println("Per-phylum contribution distribution ("+n+" phyla):");
+		if(n==0){outstream.println("  (no contributing phyla)"); return;}
+		int min=entries.get(0).getValue();
+		int max=entries.get(n-1).getValue();
+		double median=(n%2==1) ? entries.get(n/2).getValue()
+			: (entries.get(n/2-1).getValue()+entries.get(n/2).getValue())/2.0;
+		outstream.println("  min="+min+" median="+median+" max="+max);
+		int showN=Tools.min(10, n);
+		outstream.println("  "+showN+" most-truncated phyla:");
+		for(int i=0; i<showN; i++){
+			outstream.println("    "+entries.get(i).getKey()+"\t"+entries.get(i).getValue());
+		}
+	}
+
+	void orderFinal(HashSet<String> selected, ArrayList<String> allReps, ArrayList<Integer> allOccTotal,
+			ArrayList<String> finalReps, ArrayList<Integer> finalOcc){
+		Integer[] order=new Integer[allReps.size()];
+		for(int i=0; i<order.length; i++){order[i]=i;}
+		Arrays.sort(order, (a, b) -> {
+			int c=Integer.compare(allOccTotal.get(b), allOccTotal.get(a)); // occ_total desc
+			if(c!=0){return c;}
+			return allReps.get(a).compareTo(allReps.get(b)); // rep asc
+		});
+		for(int idx : order){
+			String rep=allReps.get(idx);
+			if(selected.contains(rep)){
+				finalReps.add(rep);
+				finalOcc.add(allOccTotal.get(idx));
+			}
+		}
+		assert(finalReps.size()==selected.size());
+	}
+
+	static class Combo {
+		Combo(int nTop_, int nBot_, double minOccFrac_){nTop=nTop_; nBot=nBot_; minOccFrac=minOccFrac_;}
+		final int nTop, nBot;
+		final double minOccFrac;
+	}
+
+	static class SelectionResult {
+		HashSet<String> selected=new HashSet<String>();
+		int phylaContributing=0;
+		int phylaFull=0;
+		/** phylum -> count of families it contributed to the union (its TOP_N/BOT_N
+		 *  overlap-deduped size) -- for the min/median starvation-check UMP45 gates on. */
+		HashMap<String, Integer> perPhylumCount=new HashMap<String, Integer>();
 	}
 
 	/** excluded_tid<TAB>class<TAB>reason, header starts with '#'. Only column 0 matters. */
@@ -366,8 +637,10 @@ public class FamilyListBuilder {
 	private String outFile=null;
 	private String repsOutFile=null;
 	private String tidsOutFile=null;
-	private int perPhylumTop=100;
-	private int floor=6000;
+	private String sweepSpec=null;
+	private int nTop=100;
+	private int nBot=100;
+	private double minOccFrac=0.50;
 	private int minPhylumGenomes=3;
 	private boolean overwrite=true;
 	private java.io.PrintStream outstream=System.err;

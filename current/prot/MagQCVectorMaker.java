@@ -100,6 +100,12 @@ public class MagQCVectorMaker {
 			else if(a.equals("mixcont")){mixCont=Double.parseDouble(b);}
 			else if(a.equals("cleanspike")){cleanSpike=Double.parseDouble(b);}
 			else if(a.equals("multicontamprob")){multiContamProb=Double.parseDouble(b);}
+			else if(a.equals("perfectfrac")){perfectFrac=Double.parseDouble(b);}
+			else if(a.equals("nearperfectfrac")){nearPerfectFrac=Double.parseDouble(b);}
+			else if(a.equals("benchtruth")){benchTruthFile=b; benchMode=true;}
+			else if(a.equals("benchmanifest")){benchManifestFile=b; benchMode=true;}
+			else if(a.equals("benchvec")){benchVecFile=b; benchMode=true;}
+			else if(a.equals("benchbins")){benchBins=Long.parseLong(b);}
 			else if(a.equals("samefamprob")){sameFamProb=Double.parseDouble(b);}
 			else if(a.equals("enc")){enc=parseEnc(b);}
 			else if(a.equals("subnet")){subnetName=b.toLowerCase();}
@@ -152,6 +158,7 @@ public class MagQCVectorMaker {
 		int tid, length, gc, acgt, cds, mapped, coding, r16, r23, r5, rother, trna;
 		long glenSum, glenSq;
 		int[] famRank, famCount;
+		String name;//contig_id (cache field 0); populated only in benchmark mode, for the FASTA manifest
 	}
 
 	/*--------------------------------------------------------------*/
@@ -235,6 +242,7 @@ public class MagQCVectorMaker {
 			c.tid=lp.parseInt(1);
 			c.length=lp.parseInt(3);
 			if(c.length<minlen){continue;}
+			if(benchMode){c.name=lp.parseString(0);}//retain contig_id only when a benchmark manifest is needed
 			c.gc=lp.parseInt(4);
 			c.acgt=lp.parseInt(5);
 			c.cds=lp.parseInt(6);
@@ -569,6 +577,17 @@ public class MagQCVectorMaker {
 			System.err.println("poolmode="+(poolMode==POOL_VALSPLIT ? "valsplit" : "allbutc")
 				+": aggregator-train orgs="+trainTids.size()+", final-test orgs="+c.size());
 		}
+		if(benchMode){
+			if(benchTruthFile==null || benchManifestFile==null){
+				throw new RuntimeException("benchmark mode needs benchtruth= and benchmanifest=");
+			}
+			if(poolMode!=POOL_ALLBUTC && poolMode!=POOL_VALSPLIT){
+				throw new RuntimeException("benchmark mode requires poolmode=allbutc (a defined held-out pool C)");
+			}
+			writeBench(valTids, benchBins, new Random(seed*3+7));
+			System.err.println("done (benchmark).");
+			return;
+		}
 		writeSet(out, (subnet ? subnetOut : null), aggOut, trainTids, n, new Random(seed*2+1), "train");
 		if(outval!=null && valn>0 && !valTids.isEmpty()){
 			writeSet(outval, (subnet ? subnetValOut : null), aggValOut, valTids, valn, new Random(seed*2+2), "val");
@@ -671,6 +690,57 @@ public class MagQCVectorMaker {
 		System.err.println(tag+": wrote "+made+" rows to "+file+" (tries="+tries+")");
 	}
 
+	/** Benchmark generation: draws {@code count} synthetic bins from the held-out pool (C in allbutc
+	 *  mode) using the SAME makeBin sampler as training, and emits (1) a truth table
+	 *  (binID, tid, completeness, contamination, totalBp, nContigs, nForeign), (2) a contig-name
+	 *  manifest (binID, contig, native|foreign) for splitting the shred FASTA into per-bin FASTAs,
+	 *  and (3) optional aggregator vectors so our net scores the IDENTICAL bins CheckM does. The
+	 *  truth labels are the makeBin achieved labels (completeness=cleanBp/gsize, contamination=
+	 *  foreignBp/totalBp) - exact ground truth by construction. */
+	private void writeBench(IntList pool, long count, Random rnd){
+		assert(benchMode) : "writeBench called outside benchmark mode";
+		assert(pool!=null && !pool.isEmpty()) : "benchmark pool empty (need held-out orgs; use poolmode=allbutc)";
+		final HashMap<Integer,IntList> famIdx=familyIndex(pool);
+		final ByteStreamWriter tsw=new ByteStreamWriter(benchTruthFile, true, false, true); tsw.start();
+		final ByteStreamWriter msw=new ByteStreamWriter(benchManifestFile, true, false, true); msw.start();
+		final ByteStreamWriter vsw=(benchVecFile==null ? null : new ByteStreamWriter(benchVecFile, true, false, true));
+		final ByteBuilder tb=new ByteBuilder(256), mb=new ByteBuilder(256);
+		final ByteBuilder vb=(vsw==null ? null : new ByteBuilder(numAggInputs*4+64));
+		tb.append("#binID\ttid\tcompleteness\tcontamination\ttotalBp\tnContigs\tnForeign").nl(); tsw.print(tb); tb.clear();
+		mb.append("#binID\tcontig\trole").nl(); msw.print(mb); mb.clear();
+		if(vsw!=null){vsw.start(); vb.append("#dims\t").append(numAggInputs).append("\t2\t0").nl(); vsw.print(vb); vb.clear();}
+
+		final double[] labels=new double[2];
+		final int[] fam=new int[numFam];
+		final double[] glob=new double[NUM_GLOBALS];
+		final Agg agg=new Agg(); agg.setFam(fam);
+		long made=0, tries=0;
+		while(made<count && tries<count*20+1000){
+			tries++;
+			Arrays.fill(fam, 0, numFam, 0); agg.reset();
+			benchNative.clear(); benchForeign.clear();
+			final int targetPhylumIdx=makeBin(pool, famIdx, rnd, fam, glob, labels, agg);
+			if(targetPhylumIdx<0){continue;}
+			final int nContigs=benchNative.size()+benchForeign.size();
+			assert(nContigs>0) : "bin passed makeBin with 0 collected contigs (bin"+made+", tid "+lastTarget+")";
+			assert(labels[0]>=0 && labels[0]<=1.0001) : "completeness out of range: "+labels[0];
+			assert(labels[1]>=0 && labels[1]<=CONT_MAX+1e-9) : "contamination "+labels[1]+" > CONT_MAX "+CONT_MAX;
+			final String binID="bin"+made;
+			tb.append(binID).tab().append(lastTarget).tab();
+			appendFmt(tb, labels[0]); tb.tab(); appendFmt(tb, labels[1]); tb.tab();
+			tb.append(lastTotalBp).tab().append(nContigs).tab().append(benchForeign.size()).nl();
+			tsw.print(tb); tb.clear();
+			for(final Contig c : benchNative){mb.append(binID).tab().append(c.name).append("\tnative").nl();}
+			for(final Contig c : benchForeign){mb.append(binID).tab().append(c.name).append("\tforeign").nl();}
+			msw.print(mb); mb.clear();
+			if(vsw!=null){formatAggRow(vb, fam, glob, targetPhylumIdx, labels); vsw.print(vb); vb.clear();}
+			made++;
+		}
+		tsw.poisonAndWait(); msw.poisonAndWait(); if(vsw!=null){vsw.poisonAndWait();}
+		System.err.println("bench: wrote "+made+" bins (tries="+tries+") to "+benchTruthFile+" + "+benchManifestFile
+			+(benchVecFile==null ? "" : " + "+benchVecFile));
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------          Bin sampler         ----------------*/
 	/*--------------------------------------------------------------*/
@@ -686,10 +756,18 @@ public class MagQCVectorMaker {
 		final long recov=recoverable.get(target);
 		if(gsize<=0 || recov<=0){return -1;}
 
-		// sampled completeness (flat + sqrt-high mixture), capped by recoverable fraction
-		final double comp=sampleComp(rnd);
+		// Bin-type mixture (isolate/high-quality spike, Brian 2026-08-24): a fraction of bins are drawn
+		// PERFECT (comp=1, contam=0) or NEAR-PERFECT (comp 0.90-1.0, contam 0-0.05) so the net gets sharp at
+		// the low-contamination/high-completeness end (where CheckM2 beats us; the isolate-QC regime). When
+		// both fracs are 0 the roll is skipped, so the RNG sequence - and all existing output - is unchanged.
+		final boolean spike=(perfectFrac>0 || nearPerfectFrac>0);
+		final double binTypeRoll=(spike ? rnd.nextDouble() : 1.0);
+		final boolean perfectBin=(binTypeRoll<perfectFrac);
+		final boolean nearPerfectBin=(!perfectBin && binTypeRoll<perfectFrac+nearPerfectFrac);
+		// sampled completeness (flat + sqrt-high mixture), or the spiked high-completeness box
+		final double comp=perfectBin ? 1.0 : (nearPerfectBin ? 0.90+0.10*rnd.nextDouble() : sampleComp(rnd));
 		final long targetBp=(long)(comp*gsize);
-		final long cleanBp=selectContigs(getContigs(target), targetBp, rnd, agg);
+		final long cleanBp=selectContigs(getContigs(target), targetBp, rnd, agg, benchMode?benchNative:null);
 		if(cleanBp<=0){return -1;}
 		// Snapshot the TARGET's observed ncRNA (before contaminants are added) and its id, so a
 		// subnet emitter can pair this bin's observed ncRNA with the target's native complement.
@@ -706,8 +784,9 @@ public class MagQCVectorMaker {
 		// contaminant counts below; this preserves the pre-contaminant state).
 		if(cleanFamBuf!=null){System.arraycopy(fam, 0, cleanFamBuf, 0, numFam);}
 
-		// sampled contamination (clean spike, else flat + square-low mixture)
-		final double cont=(rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd));
+		// sampled contamination: 0 for perfect bins, U[0,0.05] for near-perfect, else clean-spike/square-low
+		final double cont=perfectBin ? 0.0 : (nearPerfectBin ? 0.05*rnd.nextDouble()
+			: (rnd.nextDouble()<cleanSpike ? 0.0 : sampleCont(rnd)));
 		long foreignBp=0;
 		if(cont>0){
 			final long foreignTarget=(long)((cont/(1.0-cont))*cleanBp);
@@ -718,7 +797,7 @@ public class MagQCVectorMaker {
 				for(int k=0; k<nContam; k++){
 					final int ctid=pickContaminant(pool, famIdx, target, rnd);
 					if(ctid<0){break;}
-					foreignBp+=selectContigs(getContigs(ctid), per, rnd, agg);
+					foreignBp+=selectContigs(getContigs(ctid), per, rnd, agg, benchMode?benchForeign:null);
 				}
 			}
 		}
@@ -776,8 +855,10 @@ public class MagQCVectorMaker {
 		return -1;
 	}
 
-	/** Randomly adds contigs (by shuffled draw) until reaching targetBp; returns bp added. */
-	private long selectContigs(ArrayList<Contig> contigs, long targetBp, Random rnd, Agg agg){
+	/** Randomly adds contigs (by shuffled draw) until reaching targetBp; returns bp added.
+	 *  When {@code collect!=null} (benchmark mode), the selected Contigs are appended to it so a
+	 *  FASTA manifest can be emitted - the sampling itself is unchanged (collect is inspect-only). */
+	private long selectContigs(ArrayList<Contig> contigs, long targetBp, Random rnd, Agg agg, ArrayList<Contig> collect){
 		final int nc=contigs.size();
 		final int[] order=agg.scratch(nc);
 		for(int i=0; i<nc; i++){order[i]=i;}
@@ -788,6 +869,7 @@ public class MagQCVectorMaker {
 			final int tmp=order[i]; order[i]=order[j]; order[j]=tmp;
 			final Contig c=contigs.get(order[i]);
 			agg.add(c);
+			if(collect!=null){collect.add(c);}
 			added+=c.length;
 		}
 		return added;
@@ -1225,6 +1307,16 @@ public class MagQCVectorMaker {
 	private int[] domainIdxArr=new int[64];//parallel to tidToIdx's dense index (was tid2domainIdx)
 
 	private final IntLongHashMap genomeSize=new IntLongHashMap();
+	// Benchmark mode (off unless benchtruth=/benchmanifest= given): emit held-out synthetic bins as a
+	// truth table + contig-name manifest (+ optional aggregator vectors) so CheckM1/CheckM2 and our net
+	// score the IDENTICAL bins. Additive - existing output paths and the differential gate are untouched.
+	private boolean benchMode=false;
+	private String benchManifestFile=null, benchTruthFile=null, benchVecFile=null;
+	private long benchBins=500;
+	private final ArrayList<Contig> benchNative=new ArrayList<Contig>();
+	private final ArrayList<Contig> benchForeign=new ArrayList<Contig>();
+	// Isolate/high-quality training spike (Brian 2026-08-24): fraction of bins drawn perfect / near-perfect.
+	private double perfectFrac=0.0, nearPerfectFrac=0.0;
 	private final IntLongHashMap recoverable=new IntLongHashMap();
 	private final IntHashMap nativeNcR16=new IntHashMap(), nativeNcR23=new IntHashMap(), nativeNcR5=new IntHashMap(),
 		nativeNcRother=new IntHashMap(), nativeNcTrna=new IntHashMap();
