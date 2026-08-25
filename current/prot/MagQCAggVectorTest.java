@@ -12,9 +12,12 @@ import ml.Function;
 
 /**
  * Self-contained test for {@link MagQCVectorMaker}'s aggregator-vector emission
- * (composite architecture, Brian's step 4). Reuses the MagQCVectorMakerTest fixture
- * (tiny synthetic cache, hand-computable complements), builds two tiny REAL CellNets
- * (a famset subnet and the special ncRNA subnet), writes a manifest, and verifies:
+ * (composite architecture, Brian's step 4; re-baselined 2026-08-25 for the FROZEN
+ * shared-context vector-layout rebuild, magqc_rebuild_20260824.plan). Reuses the
+ * MagQCVectorMakerTest fixture (tiny synthetic cache, hand-computable complements),
+ * builds three tiny REAL CellNets (two famset subnets and the special ncRNA subnet,
+ * all under the identical standard shared-context width now that the old per-net rep
+ * flags are retired), writes a manifest, and verifies:
  *
  * <ul>
  * <li><b>Global output unaffected:</b> the global training vector is byte-identical
@@ -75,40 +78,42 @@ public class MagQCAggVectorTest {
 		write(new File(dir, "subset.txt"), "0\n2\n5\n");
 		write(new File(dir, "subsetB.txt"), "1\n3\n");
 
-		// --- three tiny real nets: famset_a (3 obs + 3 phyla + 5 ctx = 11 in), ncrna (13 in),
-		// famset_b (2 obs + 3 phyla + 5 ctx + 2 gene-len = 12 in — exercises a PER-ROW rep
-		// override: its manifest row carries sngenelen=t while the shared #repflags say f).
+		// --- three tiny real nets, all under the FROZEN shared-context width (17 = 9 scalars +
+		// domain one-hot(8), magqc_rebuild_20260824.plan "FROZEN VECTOR LAYOUT" - the old per-net
+		// rep-override flags (sngenelen= etc) are RETIRED, every net now gets the identical
+		// standard context): famset_a (3 obs + 3 phyla + 17 ctx = 23 in), ncrna (5+3+17=25 in),
+		// famset_b (2 obs + 3 phyla + 17 ctx = 22 in - a plain third subnet, proving the
+		// aggregator handles >2 subnets correctly).
 		// TYPE_RATES defaults are nonzero but unnormalized, which trips CellNet's constructor
 		// assert; zero them like RegressionTrainer.buildNetAndMask does (cells then keep their
 		// constructor-assigned activation, which serializes and reloads consistently).
 		Arrays.fill(Function.TYPE_RATES, 0f);
 		final File netA=new File(dir, "netA.bbnet"), netN=new File(dir, "netN.bbnet");
 		final File netB=new File(dir, "netB.bbnet");
-		makeNet(netA, new int[]{11, 4, 1}, 5);
-		makeNet(netN, new int[]{13, 4, 1}, 7);
-		makeNet(netB, new int[]{12, 3, 1}, 9);
+		makeNet(netA, new int[]{23, 4, 1}, 5);
+		makeNet(netN, new int[]{25, 4, 1}, 7);
+		makeNet(netB, new int[]{22, 3, 1}, 9);
 
 		final File manifest=new File(dir, "manifest.tsv");
 		write(manifest,
-			"#repflags snbinscaled=f snhhcaga=f sngenelen=f\n"+
-			"famset_a\t3\t11\t"+p(dir, "subset.txt")+"\t-\t"+netA.getAbsolutePath()+"\n"+
-			"ncrna\t5\t13\t-\t-\t"+netN.getAbsolutePath()+"\n"+
-			"famset_b\t2\t12\t"+p(dir, "subsetB.txt")+"\t-\t"+netB.getAbsolutePath()+"\tsngenelen=t\n");
+			"famset_a\t3\t23\t"+p(dir, "subset.txt")+"\t-\t"+netA.getAbsolutePath()+"\n"+
+			"ncrna\t5\t25\t-\t-\t"+netN.getAbsolutePath()+"\n"+
+			"famset_b\t2\t22\t"+p(dir, "subsetB.txt")+"\t-\t"+netB.getAbsolutePath()+"\n");
 
 		final String[] common={"cache="+p(dir, "cache.tsv"), "sizemap="+p(dir, "sizemap.tsv"),
 			"taxpgm="+p(dir, "taxpgm.tsv"), "familylist="+p(dir, "familylist.tsv"),
 			"n=200", "valn=0", "valfrac=0.5", "enc=two", "seed=1", "cleanspike=1.0"};
 
-		// Run 1: famset_a subnet rows. Run 1b: famset_b rows (with its override rep, so its
-		// emitted inputs include gene-len). Run 2: ncrna subnet + aggregator. All runs
-		// synthesize IDENTICAL bins (byte-identical global proves it), so rows align.
+		// Run 1: famset_a subnet rows. Run 1b: famset_b rows (a second, plain famset subnet).
+		// Run 2: ncrna subnet + aggregator. All runs synthesize IDENTICAL bins (byte-identical
+		// global proves it), so rows align.
 		final File g1=new File(dir, "g1.tsv"), g1b=new File(dir, "g1b.tsv"), g2=new File(dir, "g2.tsv");
 		final File fRows=new File(dir, "frows.tsv"), fbRows=new File(dir, "fbrows.tsv"), nRows=new File(dir, "nrows.tsv");
 		final File agg=new File(dir, "agg.tsv");
 		MagQCVectorMaker.main(concat(common, new String[]{"out="+g1.getAbsolutePath(),
 			"subnet=famset", "subsetfile="+p(dir, "subset.txt"), "subnetout="+fRows.getAbsolutePath()}));
 		MagQCVectorMaker.main(concat(common, new String[]{"out="+g1b.getAbsolutePath(),
-			"subnet=famset", "subsetfile="+p(dir, "subsetB.txt"), "sngenelen=t",
+			"subnet=famset", "subsetfile="+p(dir, "subsetB.txt"),
 			"subnetout="+fbRows.getAbsolutePath()}));
 		MagQCVectorMaker.main(concat(common, new String[]{"out="+g2.getAbsolutePath(),
 			"subnet=ncrna", "subnetout="+nRows.getAbsolutePath(),
@@ -123,26 +128,30 @@ public class MagQCAggVectorTest {
 		final ArrayList<String[]> F=parse(fRows), FB=parse(fbRows), N=parse(nRows), A=parse(agg), G=parse(g1);
 		assertTrue(A.size()==200 && F.size()==200 && FB.size()==200 && N.size()==200 && G.size()==200,
 			"row counts: agg="+A.size()+" F="+F.size()+" FB="+FB.size()+" N="+N.size()+" G="+G.size());
-		// Header: 3 subnets*4 + pooled + 2*8 head + 3 phyla + 5 ctx = 37 inputs, 2 outputs.
-		assertTrue("#dims\t37\t2\t0".equals(header(agg)), "bad agg header: "+header(agg));
+		// Header: 3 subnets*4 + pooled + 2*8 head + 3 phyla + 17 shared context + 2*5 raw ncRNA
+		// + 1 mapped-fraction = 60 inputs, 2 outputs.
+		assertTrue("#dims\t60\t2\t0".equals(header(agg)), "bad agg header: "+header(agg));
 
 		// (2)+(3) per-row recomputation, exact strings.
 		final CellNet cnA=CellNetParser.load(netA.getAbsolutePath());
 		final CellNet cnN=CellNetParser.load(netN.getAbsolutePath());
 		final CellNet cnB=CellNetParser.load(netB.getAbsolutePath());
 		final int[] headOrder={0, 2, 1, 3, 5, 6, 7, 4};//prevalence f0=4,f2=4,then rank order among 2s, f4=1
+		// g (the global/monolith row) layout under the FROZEN rewrite: [16 fam cols (enc=two,
+		// 8 fams)] + [17 shared context] + [3 phylum] + [2 labels] = 38 wide. Named so the offsets
+		// below read as arithmetic, not magic numbers.
+		final int G_CTX_START=16, G_PHYLUM=G_CTX_START+17, G_LABELS=G_PHYLUM+3;
 		for(int i=0; i<200; i++){
 			final String[] f=F.get(i), fb=FB.get(i), nr=N.get(i), a=A.get(i), g=G.get(i);
-			assertTrue(a.length==39, "agg row width "+a.length+" != 39");
+			assertTrue(a.length==62, "agg row width "+a.length+" != 62");
 			// famset_a block (cols 0-3)
-			double obsF=feed(cnA, f, 11, 3);
+			double obsF=feed(cnA, f, 23, 3);
 			checkBlock(a, 0, obsF, predOf(cnA), "famset_a", i);
 			// ncrna block (cols 4-7)
-			double obsN=feed(cnN, nr, 13, 5);
+			double obsN=feed(cnN, nr, 25, 5);
 			checkBlock(a, 4, obsN, predOf(cnN), "ncrna", i);
-			// famset_b block (cols 8-11): its inputs come from the OVERRIDE-rep run (gene-len
-			// columns included), proving the per-row rep override feeds the net correctly.
-			double obsB=feed(cnB, fb, 12, 2);
+			// famset_b block (cols 8-11)
+			double obsB=feed(cnB, fb, 22, 2);
 			checkBlock(a, 8, obsB, predOf(cnB), "famset_b", i);
 			// pooled (col 12)
 			final double pooled=Math.min(2.0, (obsF+obsN+obsB)
@@ -154,14 +163,27 @@ public class MagQCAggVectorTest {
 				assertTrue(a[13+2*j].equals(g[2*r]) && a[14+2*j].equals(g[2*r+1]),
 					"row "+i+" head["+j+"] rank "+r+": ("+a[13+2*j]+","+a[14+2*j]+") != ("+g[2*r]+","+g[2*r+1]+")");
 			}
-			// phylum one-hot (cols 29-31) == global cols 29-31; targets (37-38) == global (32-33).
-			for(int j=0; j<3; j++){assertTrue(a[29+j].equals(g[29+j]), "row "+i+" phylum "+j);}
-			assertTrue(a[37].equals(g[32]) && a[38].equals(g[33]), "row "+i+" targets");
-			// context (cols 32-36) ~= famset_a row cols 6-10 (fmt round-trips through float can
-			// flip the last printed digit, so numeric tolerance instead of string equality).
-			for(int j=0; j<5; j++){
+			// phylum one-hot (cols 29-31) == global's phylum block; targets (60-61) == global's labels.
+			for(int j=0; j<3; j++){assertTrue(a[29+j].equals(g[G_PHYLUM+j]), "row "+i+" phylum "+j);}
+			assertTrue(a[60].equals(g[G_LABELS]) && a[61].equals(g[G_LABELS+1]), "row "+i+" targets");
+			// shared context (cols 32-48, 17 wide) ~= famset_a row cols 6-22 (fmt round-trips
+			// through float can flip the last printed digit, so numeric tolerance not string eq).
+			for(int j=0; j<17; j++){
 				final double d=Math.abs(Double.parseDouble(a[32+j])-Double.parseDouble(f[6+j]));
 				assertTrue(d<=1e-5, "row "+i+" ctx "+j+": "+a[32+j]+" vs "+f[6+j]);
+			}
+			// raw ncRNA two-channel (cols 49-58) + mapped-fraction (col 59): aggregator-only
+			// direct inputs, new in the FROZEN rebuild. Under cleanspike=1.0 every bin is
+			// contamination-free, so aggObsServe's default whole-bin source (lastNcServe)
+			// equals the ncrna subnet's own target-only obs (lastNcObs) - nr's obs columns are
+			// a valid ground truth here (same reasoning the test uses elsewhere for this fixture).
+			for(int t=0; t<5; t++){
+				final int obsCount=Integer.parseInt(nr[t]);
+				final String expCount=fmt(obsCount/(double)(1+obsCount));//encodeCount under enc=two
+				assertTrue(a[49+2*t].equals(obsCount>0 ? "1" : "0"),
+					"row "+i+" ncRNA presence "+t+": "+a[49+2*t]+" for obs "+obsCount);
+				assertTrue(a[50+2*t].equals(expCount),
+					"row "+i+" ncRNA count "+t+": "+a[50+2*t]+" != "+expCount+" for obs "+obsCount);
 			}
 		}
 
@@ -185,10 +207,10 @@ public class MagQCAggVectorTest {
 			"valsplit runs are not deterministic");
 
 		System.out.println("MagQCAggVectorTest PASS: bins aligned (global byte-identical x3), 200 agg rows, "
-			+"per-subnet [ratio,lobs,lpred,zero] + pooled recomputed exactly for all 3 subnets (incl. the "
-			+"per-row sngenelen=t rep override on famset_b), dense head == global enc=two columns in "
-			+"prevalence order "+Arrays.toString(headOrder)
-			+", phylum/targets == global, valsplit deterministic (200 B + 50 C rows).");
+			+"per-subnet [ratio,lobs,lpred,zero] + pooled recomputed exactly for all 3 subnets, "
+			+"dense head == global enc=two columns in prevalence order "+Arrays.toString(headOrder)
+			+", phylum/targets == global, raw ncRNA two-channel + mapped-fraction verified, "
+			+"valsplit deterministic (200 B + 50 C rows).");
 
 		// (5) aggobs=serve vs aggobs=clean: closes the REAL coverage gap for formatAggRow's
 		// observed-count source switch (famArr=(aggObsServe?fam:cleanFamBuf), ncArr likewise).
@@ -250,16 +272,19 @@ public class MagQCAggVectorTest {
 		int diffRows=0, ncDiffRows=0;
 		for(int i=0; i<200; i++){
 			final String[] s=A5S.get(i), c=A5C.get(i), f=F5.get(i);
-			assertTrue(s.length==39 && c.length==39, "row "+i+" agg width");
+			assertTrue(s.length==62 && c.length==62, "row "+i+" agg width");
 			if(!(s[4].equals(c[4]) && s[5].equals(c[5]) && s[6].equals(c[6]) && s[7].equals(c[7]))){ncDiffRows++;}
 
-			final double obsClean=feed(cnA, f, 11, 3);
+			final double obsClean=feed(cnA, f, 23, 3);
 			checkBlock(c, 0, obsClean, predOf(cnA), "famset_a-clean", i);
 
 			final int serve0=decodeTwo(s, j0), serve2=decodeTwo(s, j2), serve5=decodeTwo(s, j5);
-			final String[] fServe={String.valueOf(serve0), String.valueOf(serve2), String.valueOf(serve5),
-				f[3], f[4], f[5], f[6], f[7], f[8], f[9], f[10]};
-			final double obsServe=feed(cnA, fServe, 11, 3);
+			// phylum(3) + shared context(17) = 20 more columns, unchanged by aggobs (only the 3
+			// obs columns need swapping for serve - see the class javadoc's reasoning above).
+			final String[] fServe=new String[23];
+			fServe[0]=String.valueOf(serve0); fServe[1]=String.valueOf(serve2); fServe[2]=String.valueOf(serve5);
+			System.arraycopy(f, 3, fServe, 3, 20);
+			final double obsServe=feed(cnA, fServe, 23, 3);
 			checkBlock(s, 0, obsServe, predOf(cnA), "famset_a-serve", i);
 
 			assertTrue(obsClean<=obsServe, "row "+i+" clean obs "+obsClean+" > serve obs "+obsServe

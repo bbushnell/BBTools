@@ -3,6 +3,7 @@ package prot;
 import java.io.File;
 import java.util.HashMap;
 
+import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -16,18 +17,22 @@ import structures.ByteBuilder;
 import structures.IntHashMap;
 import structures.IntList;
 import tax.TaxTree;
+import tracker.KmerTracker;
 
 /**
  * Builds the per-shred MAG-QC feature cache consumed by {@link MagQCVectorMaker#loadCache}.
- * Emits one tab-separated row per shred with the exact 17-field contract that loadCache reads:
+ * Emits one tab-separated row per shred with the 19-field contract that loadCache reads:
  *
  * <p>contig_id, tid, domain, length, gc, acgt, cds, mapped, glenSum, glenSq, coding,
- * r16, r23, r5, rother, trna, families
+ * r16, r23, r5, rother, trna, families, anticodon, dimers
  *
  * <p>FIELD SOURCES (three buckets):
  * <ul>
  * <li><b>shred sequence/name</b> (all_shreds.fa): contig_id (first token), tid (parsed from name),
- *     length (bp), gc (G+C count), acgt (A/C/G/T count, excl N).
+ *     length (bp), gc (G+C count), acgt (A/C/G/T count, excl N), dimers (16 raw dinucleotide
+ *     counts, dense CSV, KmerTracker(k=2) native index order 0=AA..15=TT — ADDITIVE components
+ *     only; HH/CAGA are ratios and must be derived downstream from SUMMED counts, never averaged
+ *     per-contig, same discipline gc/acgt already use for GC).
  * <li><b>archaea4/bacteria4 filename sets</b>: domain. NOT a taxtree lookup — the previous
  *     generic-Java CacheBuilder called {@code tree.getNodeAtLevel(tid, SUPERKINGDOM)}, which threw
  *     an uncaught AssertionError on a tid missing from tree.taxtree.gz (job 25081829 crash-hung 90+
@@ -42,7 +47,10 @@ import tax.TaxTree;
  *     defaulting to a domain.
  * <li><b>callgenes GFF</b> (shred_gff/*.gff.gz, from step 02b): cds (# CDS features), glenSum/glenSq
  *     (Sum and Sum-of-squares of CDS length = end-start+1), coding (Sum CDS bp), r16/r23/r5/rother
- *     (rRNA by attributes[0] subtype), trna (# tRNA features).
+ *     (rRNA by attributes[0] subtype), trna (# tRNA features), anticodon (sparse packed-code:count
+ *     pairs, from the tRNA attributes' literal {@code anticodon:XXX} tag, mirroring the rRNA
+ *     subtype scan — ~31% of tRNA lines carry none; code=(b0&lt;&lt;4)|(b1&lt;&lt;2)|b2, 2 bits/base
+ *     via {@link AminoAcid#baseToNumber}, 0-63, absent/ambiguous -&gt; not recorded).
  * <li><b>re-searched hits.m8</b> (per-gene query IDs shredname_gN, step 05 @ --max-seqs 25): families
  *     (sparse "rank:count;..." gene-copies per family, BEST-hit-per-gene mapped to its familylist rank),
  *     mapped (# distinct genes of the shred with a top-N-family best hit).
@@ -108,6 +116,9 @@ public class CacheBuilder {
 		int cds, coding, r16, r23, r5, rother, trna, mapped;
 		long glenSum, glenSq;
 		IntHashMap fam=new IntHashMap(4);
+		/** Packed-anticodon-code (0-63, 2 bits/base, A=0/C=1/G=2/T=3) -&gt; tRNA count with that
+		 *  anticodon. At most 64 distinct keys, so the default capacity is never grown. */
+		IntHashMap anticodon=new IntHashMap(4);
 	}
 
 	/** Xanthomonas albilineans plasmid trio (NC_017555/6/7): multishred embeds this per-contig
@@ -221,6 +232,13 @@ public class CacheBuilder {
 					a.cds++; a.glenSum+=len; a.glenSq+=len*len; a.coding+=(int)len;
 				}else if(regionEqualsString(line, typeA, typeLen, "tRNA")){
 					a.trna++;
+					final int attrLen=lp.length(8);
+					final int attrA=lp.a();
+					final int code=parseAnticodonCode(line, attrA, attrLen);
+					if(code>=0){
+						final int cur=a.anticodon.get(code);
+						a.anticodon.put(code, (cur<0 ? 1 : cur+1));
+					}
 				}else if(regionEqualsString(line, typeA, typeLen, "rRNA")){
 					final int attrLen=lp.length(8);
 					final int attrA=lp.a();
@@ -308,9 +326,38 @@ public class CacheBuilder {
 		return true;
 	}
 
-	/** Streams all_shreds.fa; for each shred computes f0-f5 from the sequence/name, resolves domain
-	 *  from the archaea/bacteria tid sets, pulls f6-f16 from the accumulators (zeros if absent), and
-	 *  writes the 17-field row. Reports aggregate gates. The ByteStreamWriter's writer thread is a
+	/** Byte form of "anticodon:", scanned for literally within a tRNA feature's attributes column
+	 *  (primary-byte-confirmed 2026-08-24: real shred_gff carries a literal {@code ,anticodon:XXX}
+	 *  tag at the end of tRNA attributes, XXX a 3-letter DNA code). */
+	static final byte[] ANTICODON_TAG={'a','n','t','i','c','o','d','o','n',':'};
+
+	/** Scans attrs[attrA, attrA+attrLen) for a literal "anticodon:" tag and returns the packed
+	 *  2-bit-per-base code (0-63) of the 3 letters that follow, or -1 if the tag is absent or any
+	 *  of the 3 letters isn't A/C/G/T. ~31% of real tRNA lines carry no tag at all (TrnaCaller's
+	 *  structural extraction can fail) — callers must treat -1 as "not recorded", not an error. */
+	static int parseAnticodonCode(byte[] line, int attrA, int attrLen){
+		final int tagLen=ANTICODON_TAG.length;
+		for(int i=0; i+tagLen+3<=attrLen; i++){
+			boolean match=true;
+			for(int j=0; j<tagLen; j++){
+				if(line[attrA+i+j]!=ANTICODON_TAG[j]){match=false; break;}
+			}
+			if(match){
+				final int p=attrA+i+tagLen;
+				final int b0=AminoAcid.baseToNumber[line[p]];
+				final int b1=AminoAcid.baseToNumber[line[p+1]];
+				final int b2=AminoAcid.baseToNumber[line[p+2]];
+				if(b0<0 || b1<0 || b2<0){return -1;}
+				return (b0<<4)|(b1<<2)|b2;
+			}
+		}
+		return -1;
+	}
+
+	/** Streams all_shreds.fa; for each shred computes f0-f5 and the dimers field from the
+	 *  sequence/name, resolves domain from the archaea/bacteria tid sets, pulls f6-f17 from the
+	 *  accumulators (zeros if absent), and writes the 19-field row. Reports aggregate gates. The
+	 *  ByteStreamWriter's writer thread is a
 	 *  non-daemon Thread that runs regardless of whether the calling algorithm is threaded — an
 	 *  uncaught throw anywhere in this method, single-threaded or not, would otherwise leave it
 	 *  un-poisoned and keep the JVM alive doing nothing (the exact class that hung job 25081829 for
@@ -326,16 +373,21 @@ public class CacheBuilder {
 		try{
 			ByteBuilder bb=new ByteBuilder(1<<16);
 			bb.append("#contig_id\ttid\tdomain\tlength\tgc\tacgt\tcds\tmapped\tglenSum\tglenSq\tcoding"
-				+"\tr16\tr23\tr5\trother\ttrna\tfamilies").nl();
+				+"\tr16\tr23\tr5\trother\ttrna\tfamilies\tanticodon\tdimers").nl();
 			bsw.print(bb); bb.clear();
 
 			final IntList rankBuf=new IntList(64), countBuf=new IntList(64);
+			// Reused across every shred (cleared, not reallocated) - additive dimer counts for
+			// bin-faithful HH/CAGA (IMPLEMENTATION CORRECTNESS NOTE #1, magqc_rebuild_20260824.plan):
+			// GC/ACGT stay as the existing hand-tallied fields above; this is purely for HH/CAGA.
+			final KmerTracker dimerTracker=new KmerTracker(2);
 			final ByteFile bf=ByteFile.makeByteFile(shredsFile, true);
 			String name=null; int length=0, gc=0, acgt=0;
 			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
 				if(line.length>0 && line[0]=='>'){
 					if(name!=null){
-						long[] agg=writeRow(bsw, bb, accs, archaeaSet, bacteriaSet, name, length, gc, acgt, rankBuf, countBuf);
+						long[] agg=writeRow(bsw, bb, accs, archaeaSet, bacteriaSet, name, length, gc, acgt,
+							dimerTracker.counts, rankBuf, countBuf);
 						rows++; withGenes+=agg[0];
 						aCds+=agg[1]; aMapped+=agg[2]; aFamCopies+=agg[3];
 						aR16+=agg[4]; aR23+=agg[5]; aR5+=agg[6]; aRother+=agg[7]; aTrna+=agg[8];
@@ -353,6 +405,7 @@ public class CacheBuilder {
 					}
 					name=sb.toString();
 					length=0; gc=0; acgt=0;
+					dimerTracker.clearAll();//safe: the prior shred's counts were already read by writeRow above
 				}else{
 					for(int i=0; i<line.length; i++){
 						byte ch=line[i];
@@ -362,12 +415,14 @@ public class CacheBuilder {
 							case 'A': case 'a': case 'T': case 't': acgt++; break;
 							default: break;
 						}
+						dimerTracker.add(ch);
 					}
 				}
 			}
 			bf.close();
 			if(name!=null){
-				long[] agg=writeRow(bsw, bb, accs, archaeaSet, bacteriaSet, name, length, gc, acgt, rankBuf, countBuf);
+				long[] agg=writeRow(bsw, bb, accs, archaeaSet, bacteriaSet, name, length, gc, acgt,
+					dimerTracker.counts, rankBuf, countBuf);
 				rows++; withGenes+=agg[0];
 				aCds+=agg[1]; aMapped+=agg[2]; aFamCopies+=agg[3];
 				aR16+=agg[4]; aR23+=agg[5]; aR5+=agg[6]; aRother+=agg[7]; aTrna+=agg[8];
@@ -386,13 +441,15 @@ public class CacheBuilder {
 		outstream.println("aggregate tRNA:        "+aTrna);
 	}
 
-	/** Writes one 17-field row; returns aggregate counters
+	/** Writes one 19-field row; returns aggregate counters
 	 *  [withGene, cds, mapped, famCopies, r16, r23, r5, rother, trna]. rankBuf/countBuf are caller-owned
 	 *  reused scratch buffers (cleared each call) — the only per-row allocation avoided this way is the
-	 *  family list, which can otherwise run to dozens of entries per shred across 2.3M shreds. */
+	 *  family list, which can otherwise run to dozens of entries per shred across 2.3M shreds. dimers is
+	 *  the CALLER's reused KmerTracker.counts snapshot for exactly this shred (read here synchronously,
+	 *  before the caller clears it for the next shred — never retained past this call). */
 	long[] writeRow(ByteStreamWriter bsw, ByteBuilder bb, HashMap<String, Acc> accs,
 			IntHashMap archaeaSet, IntHashMap bacteriaSet, String name, int length, int gc, int acgt,
-			IntList rankBuf, IntList countBuf){
+			long[] dimers, IntList rankBuf, IntList countBuf){
 		int tid=TaxTree.parseTaxID(name);
 		assert(tid>0) : "Non-positive tid parsed from shred name (corpus should carry only "
 			+"valid tids after the source fix): "+name;
@@ -438,6 +495,29 @@ public class CacheBuilder {
 		for(int i=0; i<rankBuf.size(); i++){
 			if(i>0){bb.append(';');}
 			bb.append(rankBuf.array[i]).append(':').append(countBuf.array[i]);
+		}
+
+		// anticodon (sparse, packed-code:count;..., sorted by code for reproducible regen)
+		bb.append('\t');
+		rankBuf.clear(); countBuf.clear();
+		if(a!=null && a.anticodon.size()>0){
+			final int[] keys=a.anticodon.keys(), vals=a.anticodon.values();
+			final int invalid=a.anticodon.invalid();
+			for(int i=0; i<keys.length; i++){
+				if(keys[i]!=invalid){rankBuf.add(keys[i]); countBuf.add(vals[i]);}
+			}
+			sortParallel(rankBuf.array, countBuf.array, rankBuf.size());
+		}
+		for(int i=0; i<rankBuf.size(); i++){
+			if(i>0){bb.append(';');}
+			bb.append(rankBuf.array[i]).append(':').append(countBuf.array[i]);
+		}
+
+		// dimers (dense, 16 raw additive counts, KmerTracker native index order 0=AA..15=TT)
+		bb.append('\t');
+		for(int i=0; i<16; i++){
+			if(i>0){bb.append(',');}
+			bb.append(dimers[i]);
 		}
 		bb.nl();
 		bsw.print(bb); bb.clear();

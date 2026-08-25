@@ -75,6 +75,13 @@ public class MagQCVectorMakerTest {
 		assertTrue(java.util.Arrays.equals(ba, bb),
 			"global vector changed when the subnet was enabled ("+ba.length+" vs "+bb.length+" bytes)");
 
+		// (1b) The #dims header must match the ACTUAL row width - a real bug this session:
+		// numInputs's own formula went stale when formatRow's emitted content changed (still said
+		// NUM_GLOBALS=13 after the FROZEN 17-wide shared-context rewrite), so the header claimed
+		// fewer inputs than every row actually had. Neither this test nor MagQCAggVectorTest
+		// caught it until checked by hand - closing that gap here.
+		checkDimsHeader(gA);
+
 		// Parse the subnet file.
 		final ArrayList<String[]> rows=new ArrayList<String[]>();
 		String header=null;
@@ -83,17 +90,18 @@ public class MagQCVectorMakerTest {
 			if(header==null){header=line; continue;}
 			rows.add(line.split("\t"));
 		}
-		// (2) Header: 5 obs + 3 phyla + 5 context = 13 inputs, 1 output.
-		assertTrue("#dims\t13\t1\t0".equals(header), "bad subnet header: "+header);
+		// (2) Header: 5 obs + 3 phyla + 17 shared context (9 scalars + domain one-hot(8),
+		// magqc_rebuild_20260824.plan FROZEN VECTOR LAYOUT) = 25 inputs, 1 output.
+		assertTrue("#dims\t25\t1\t0".equals(header), "bad subnet header: "+header);
 		assertTrue(rows.size()==200, "expected 200 subnet rows, got "+rows.size());
 
 		// (3)+(4): invariants + crux.
 		final HashMap<Integer,java.util.HashSet<Integer>> obsByTarget=new HashMap<Integer,java.util.HashSet<Integer>>();
 		for(String[] r : rows){
-			assertTrue(r.length==14, "row width "+r.length+" != 14");
+			assertTrue(r.length==26, "row width "+r.length+" != 26");
 			int obsTotal=0;
 			for(int i=0; i<5; i++){obsTotal+=Integer.parseInt(r[i]);}
-			final int target=Integer.parseInt(r[13]);
+			final int target=Integer.parseInt(r[25]);
 			// (2-invariant) observed can never exceed the native complement.
 			assertTrue(obsTotal<=target, "observed "+obsTotal+" > target "+target);
 			// (3) target must be some fixture organism's true native total.
@@ -121,7 +129,7 @@ public class MagQCVectorMakerTest {
 		assertTrue(java.util.Arrays.equals(ba, bc),
 			"global vector changed when the famset subnet was enabled ("+ba.length+" vs "+bc.length+" bytes)");
 
-		// (6) famset rows: header 3 obs + 3 phyla + 5 context = 11 inputs; obs<=native; targets valid.
+		// (6) famset rows: header 3 obs + 3 phyla + 17 shared context = 23 inputs; obs<=native; targets valid.
 		final ArrayList<String[]> frows=new ArrayList<String[]>();
 		String fheader=null;
 		for(String line : Files.readAllLines(fs.toPath())){
@@ -129,14 +137,14 @@ public class MagQCVectorMakerTest {
 			if(fheader==null){fheader=line; continue;}
 			frows.add(line.split("\t"));
 		}
-		assertTrue("#dims\t11\t1\t0".equals(fheader), "bad famset header: "+fheader);
+		assertTrue("#dims\t23\t1\t0".equals(fheader), "bad famset header: "+fheader);
 		assertTrue(frows.size()==200, "expected 200 famset rows, got "+frows.size());
 		final HashMap<Integer,java.util.HashSet<Integer>> fObsByTarget=new HashMap<Integer,java.util.HashSet<Integer>>();
 		for(String[] r : frows){
-			assertTrue(r.length==12, "famset row width "+r.length+" != 12");
+			assertTrue(r.length==24, "famset row width "+r.length+" != 24");
 			int obsTotal=0;
 			for(int i=0; i<3; i++){obsTotal+=Integer.parseInt(r[i]);}
-			final int target=Integer.parseInt(r[11]);
+			final int target=Integer.parseInt(r[23]);
 			assertTrue(obsTotal<=target, "famset observed "+obsTotal+" > target "+target);
 			assertTrue(target==2 || target==3, "famset target "+target+" is not a fixture native subset total");
 			java.util.HashSet<Integer> set=fObsByTarget.get(target);
@@ -171,5 +179,18 @@ public class MagQCVectorMakerTest {
 	}
 	private static void assertTrue(boolean cond, String msg){
 		if(!cond){throw new AssertionError(msg);}
+	}
+	/** Parses a "#dims\tN\tnumOutputs\t0" header and asserts N matches the first data row's
+	 *  actual field count minus numOutputs - catches a header/row-width formula going stale
+	 *  independently of any invariant check on the row's VALUES. */
+	private static void checkDimsHeader(File f) throws Exception{
+		final java.util.List<String> lines=Files.readAllLines(f.toPath());
+		final String[] h=lines.get(0).split("\t");
+		assertTrue(h.length>=3 && h[0].equals("#dims"), "malformed #dims header: "+lines.get(0));
+		final int claimedInputs=Integer.parseInt(h[1]), numOutputs=Integer.parseInt(h[2]);
+		final int actualCols=lines.get(1).split("\t").length;
+		assertTrue(claimedInputs+numOutputs==actualCols, "#dims header claims "+claimedInputs
+			+" inputs + "+numOutputs+" outputs = "+(claimedInputs+numOutputs)
+			+" but the first data row has "+actualCols+" columns ("+f+")");
 	}
 }

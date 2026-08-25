@@ -16,6 +16,7 @@ import structures.IntList;
 import structures.IntLongHashMap;
 import tax.TaxNode;
 import tax.TaxTree;
+import tracker.KmerTracker;
 
 /**
  * Generates MAG-QC training vectors by synthesizing bins from the per-contig
@@ -59,11 +60,6 @@ import tax.TaxTree;
  * {@link #appendFmt(ByteBuilder, double)} for the hot output paths; the String-
  * returning {@link #fmt(double)} is KEPT for the aggregator's roundtrip-through-string
  * rounding (low frequency, and an actual String is what {@code Float.parseFloat} needs).
- * {@code tidKmer} (tid-&gt;[HH,CAGA]) is deliberately left as a boxed
- * {@code HashMap<Integer,float[]>} - it is read once per bin (not per family column),
- * and encoding its floats as {@code IntHashMap} int-bits would make a legitimate
- * "not found" sentinel (-1) ambiguous with the (astronomically unlikely but real)
- * float bit pattern that also equals -1; not worth the risk for this field.
  * NOT threaded this pass (Brian's explicit constraint): {@code makeBin} draws from
  * one sequential {@link Random} stream per output set, and parallelizing bin synthesis
  * would reorder those draws and change the output. Algorithm, RNG call sequence, and
@@ -112,12 +108,6 @@ public class MagQCVectorMaker {
 			else if(a.equals("subnetout")){subnetOut=b;}
 			else if(a.equals("subnetvalout")){subnetValOut=b;}
 			else if(a.equals("subsetfile")){subsetFile=b;}
-			else if(a.equals("sncodingaffine")){snCodingAffine=parseBool(b);}
-			else if(a.equals("snbinscaled")){snBinScaled=parseBool(b);}
-			else if(a.equals("sndomain")){snDomain=parseBool(b);}
-			else if(a.equals("snhhcaga")){snHHCAGA=parseBool(b);}
-			else if(a.equals("sngenelen")){snGeneLen=parseBool(b);}
-			else if(a.equals("kmerfile")){kmerFile=b;}
 			else if(a.equals("aggmanifest")){aggManifestFile=b;}
 			else if(a.equals("aggout")){aggOut=b;}
 			else if(a.equals("aggvalout")){aggValOut=b;}
@@ -148,9 +138,6 @@ public class MagQCVectorMaker {
 		ml.CellNet net;
 		boolean ncrna;
 		float[] buf;
-		//Per-net input representation (defaults = the manifest's #repflags; overridable
-		//per row for nets trained under a different rep, e.g. the base-rep ncRNA net).
-		boolean binScaled, codingAffine, domain, hhcaga, genelen;
 	}
 
 	/** One cached contig's sufficient statistics; family counts stored sparsely. */
@@ -158,6 +145,8 @@ public class MagQCVectorMaker {
 		int tid, length, gc, acgt, cds, mapped, coding, r16, r23, r5, rother, trna;
 		long glenSum, glenSq;
 		int[] famRank, famCount;
+		int[] dimer;//16 dinucleotide counts (KmerTracker k=2 native index), cache field 18; null on pre-rebuild caches
+		int[] antiRank, antiCount;//sparse tRNA anticodon code(0-63)->count, cache field 17; EMPTY if absent
 		String name;//contig_id (cache field 0); populated only in benchmark mode, for the FASTA manifest
 	}
 
@@ -263,6 +252,22 @@ public class MagQCVectorMaker {
 				c.famRank=rankBuf.toArray();
 				c.famCount=countBuf.toArray();
 			}
+			// Rebuild fields (backward-compatible): field 17 = tRNA anticodon sparse code:count; field 18 = 16
+			// dinucleotide counts (dense CSV). Absent on pre-rebuild 17-field caches -> anti EMPTY, dimer null.
+			if(terms>=18){
+				final int alen=lp.length(17);
+				if(alen==0){c.antiRank=EMPTY; c.antiCount=EMPTY;}
+				else{
+					rankBuf.clear(); countBuf.clear();
+					parseFamCounts(lp.line(), lp.a(), lp.b(), rankBuf, countBuf);
+					c.antiRank=rankBuf.toArray();
+					c.antiCount=countBuf.toArray();
+				}
+			}else{c.antiRank=EMPTY; c.antiCount=EMPTY;}
+			if(terms>=19){
+				lp.length(18);
+				c.dimer=parseDimers(lp.line(), lp.a(), lp.b());
+			}
 			int idx=tidToIdx.get(c.tid);
 			if(idx<0){
 				idx=contigLists.size();
@@ -292,6 +297,22 @@ public class MagQCVectorMaker {
 				start=i+1;
 			}
 		}
+	}
+
+	/** Parses exactly 16 comma-separated ints within [a,b) into a new int[16] (dense dinucleotide
+	 *  counts, KmerTracker native index order). Zero-alloc beyond the returned array. */
+	private static int[] parseDimers(byte[] line, int a, int b){
+		final int[] out=new int[16];
+		int idx=0, start=a;
+		for(int i=a; i<=b; i++){
+			if(i==b || line[i]==','){
+				if(i>start && idx<16){out[idx]=Parse.parseInt(line, start, i);}
+				idx++;
+				start=i+1;
+			}
+		}
+		assert(idx==16) : "dimer field expected 16 comma-separated counts, got "+idx+": "+new String(line, a, b-a);
+		return out;
 	}
 
 	/** Returns tid's contig list, or null if tid was never seen in the cache (mirrors
@@ -339,64 +360,26 @@ public class MagQCVectorMaker {
 	/**
 	 * Loads the aggregator manifest: tab-separated rows
 	 * base, numobs, numIn, subset_path, val_path, net_path (val_path unused here).
-	 * A "#repflags key=value..." header line sets the shared subnet input representation
-	 * (snbinscaled/snhhcaga/sngenelen/sncodingaffine/sndomain) once for all rows; other
-	 * #-lines are comments. base "ncrna" marks the special ncRNA row (subset_path "-",
-	 * observed from the Agg ncRNA fields rather than fam[] ranks). Every net's input
-	 * width is asserted against the width implied by numobs and the active flags.
-	 * Row/token parsing here stays String-based (LineParser1 for line reading only) - a
-	 * handful of manifest rows at startup, not a per-bin cost, and every field here is
-	 * matched against named flag strings anyway.
+	 * base "ncrna" marks the special ncRNA row (subset_path "-", observed from the Agg
+	 * ncRNA fields rather than fam[] ranks). Every net's input width is asserted against
+	 * obs+phylum+SHARED_CONTEXT_WIDTH - the FROZEN 2026-08-24 vector-layout rebuild
+	 * retired the old per-net representation flags (sndomain/snhhcaga/sngenelen/
+	 * snbinscaled/sncodingaffine): every subnet now gets the identical standard context,
+	 * so there is nothing left to override per row. #-lines are comments.
 	 */
 	private void loadAggManifest(String file){
 		aggSubnets=new ArrayList<AggSubnet>();
 		final ByteFile bf=ByteFile.makeByteFile(file, true);
 		for(byte[] lineB=bf.nextLine(); lineB!=null; lineB=bf.nextLine()){
 			String line=new String(lineB).trim();
-			if(line.length()==0){continue;}
-			if(line.charAt(0)=='#'){
-				if(line.startsWith("#repflags")){
-					for(String tok : line.substring("#repflags".length()).trim().split("\\s+")){
-						int eq=tok.indexOf('=');
-						if(eq<0){continue;}
-						String k=tok.substring(0, eq).toLowerCase(), v=tok.substring(eq+1);
-						if(k.equals("snbinscaled")){snBinScaled=parseBool(v);}
-						else if(k.equals("snhhcaga")){snHHCAGA=parseBool(v);}
-						else if(k.equals("sngenelen")){snGeneLen=parseBool(v);}
-						else if(k.equals("sncodingaffine")){snCodingAffine=parseBool(v);}
-						else if(k.equals("sndomain")){snDomain=parseBool(v);}
-						else{System.err.println("Warning: unknown repflag "+tok);}
-					}
-				}
-				continue;
-			}
+			if(line.length()==0 || line.charAt(0)=='#'){continue;}
 			String[] p=line.split("\t");
 			if(p.length<6){throw new RuntimeException("Manifest row needs 6 columns "
-				+"(base numobs numIn subset_path val_path net_path [flag=value ...]): "+line);}
+				+"(base numobs numIn subset_path val_path net_path): "+line);}
 			AggSubnet s=new AggSubnet();
 			s.name=p[0];
 			s.numObs=Integer.parseInt(p[1]);
 			s.ncrna="ncrna".equals(s.name);
-			//Per-net rep defaults to the shared #repflags; columns past net_path override
-			//it for nets trained under a different rep. Transform flags (snbinscaled,
-			//sncodingaffine) are width-invariant, so they CANNOT be caught by the width
-			//assert below - they must be stated correctly here or the net silently runs
-			//off-distribution (the platform= lesson).
-			s.binScaled=snBinScaled; s.codingAffine=snCodingAffine; s.domain=snDomain;
-			s.hhcaga=snHHCAGA; s.genelen=snGeneLen;
-			for(int i=6; i<p.length; i++){
-				for(String tok : p[i].trim().split("\\s+")){
-					int eq=tok.indexOf('=');
-					if(eq<0){continue;}
-					String k=tok.substring(0, eq).toLowerCase(), v=tok.substring(eq+1);
-					if(k.equals("snbinscaled")){s.binScaled=parseBool(v);}
-					else if(k.equals("sncodingaffine")){s.codingAffine=parseBool(v);}
-					else if(k.equals("sndomain")){s.domain=parseBool(v);}
-					else if(k.equals("snhhcaga")){s.hhcaga=parseBool(v);}
-					else if(k.equals("sngenelen")){s.genelen=parseBool(v);}
-					else{System.err.println("Warning: unknown per-net flag "+tok+" ("+s.name+")");}
-				}
-			}
 			if(s.ncrna){
 				if(s.numObs!=NCRNA_OBS){throw new RuntimeException("ncrna row numobs must be "+NCRNA_OBS);}
 			}else{
@@ -406,14 +389,13 @@ public class MagQCVectorMaker {
 			}
 			s.net=ml.CellNetParser.load(p[5]);
 			if(s.net==null){throw new RuntimeException("Failed to load net "+p[5]);}
-			final int expected=s.numObs+numPhyla+NCRNA_CONTEXT
-				+(s.domain?DOMAINS:0)+(s.hhcaga?2:0)+(s.genelen?2:0);
+			final int expected=s.numObs+numPhyla+SHARED_CONTEXT_WIDTH;
 			final int manifestIn=Integer.parseInt(p[2]);
 			if(manifestIn>=0 && manifestIn!=expected){throw new RuntimeException("Subset "+s.name
-				+": manifest numIn="+manifestIn+" but flags imply "+expected);}
+				+": manifest numIn="+manifestIn+" but expected "+expected);}
 			if(s.net.numInputs()!=expected){throw new RuntimeException("Subset "+s.name
-				+": net takes "+s.net.numInputs()+" inputs but flags imply "+expected
-				+" (rep-flags mismatch? width-changing flags: sndomain/snhhcaga/sngenelen)");}
+				+": net takes "+s.net.numInputs()+" inputs but expected "+expected
+				+" (this net predates the FROZEN vector-layout rebuild and must be retrained)");}
 			s.buf=new float[expected];
 			aggSubnets.add(s);
 		}
@@ -459,6 +441,11 @@ public class MagQCVectorMaker {
 		}
 		usable.sort();
 		System.err.println("usable orgs="+usable.size()+", numFam="+numFam+", numPhyla="+numPhyla);
+
+		// avg~0.5 normalization scales (Brian 2026-08-24): corpus reference for the size/#genes/gene-length
+		// context features. Computed now (layout-independent); WIRED INTO the emit methods in the one-pass
+		// vector-layout rewrite. Currently compute-and-log only, so all existing output is byte-identical.
+		computeNormScales(usable);
 
 		// optional taxonomy for same-family contaminant bias
 		if(treeFile!=null){
@@ -509,7 +496,7 @@ public class MagQCVectorMaker {
 
 		final int baseFam=(keptRanks!=null ? keptRanks.length : numFam);
 		final int famCols=baseFam*(enc==ENC_TWO ? 2 : 1);
-		numInputs=famCols+NUM_GLOBALS+numPhyla;
+		numInputs=famCols+SHARED_CONTEXT_WIDTH+numPhyla;//formatRow's new context block, not the old raw NUM_GLOBALS dump
 		final boolean subnetNcrna=("ncrna".equals(subnetName));
 		subnetFamset=("famset".equals(subnetName));
 		if(subnetName!=null && !subnetNcrna && !subnetFamset){
@@ -533,30 +520,24 @@ public class MagQCVectorMaker {
 				nativeFamTotal.put(tid, sum);
 			}
 		}
-		// Subnet input width: obs block + phylum one-hot + 5 context (+ optional blocks).
+		// Subnet input width: obs block + phylum one-hot + shared context (FROZEN, standard on
+		// every net - the old optional domain/hhcaga/genelen blocks are retired, see CTX_N above).
 		final int obsCols=(subnetFamset ? subsetRanks.length : NCRNA_OBS);
-		subnetInputs=obsCols+numPhyla+NCRNA_CONTEXT
-			+(snDomain?DOMAINS:0)+(snHHCAGA?2:0)+(snGeneLen?2:0);
-		// Aggregator mode: load manifest (may set rep flags), then dense head + buffers.
-		// The manifest is parsed BEFORE the kmer-file check because #repflags may enable
-		// snhhcaga. Subnet input widths depend on the final flag state.
+		subnetInputs=obsCols+numPhyla+SHARED_CONTEXT_WIDTH;
+		// Aggregator mode: load manifest, then dense head + buffers.
 		if(aggManifestFile!=null){
 			loadAggManifest(aggManifestFile);
 			if(aggOut==null){throw new RuntimeException("aggmanifest= requires aggout=");}
 			denseRanks=computeDenseHead(usable, denseHead);
 			cleanFamBuf=new int[numFam];
-			aggCtx=new float[CTX_N];
+			rowCtx=new double[CTX_N];
+			// dense head(2x) + phylum + shared context + raw ncRNA two-channel(2x5) + mapped-fraction(1)
 			numAggInputs=aggSubnets.size()*4+1+2*denseRanks.length+numPhyla
-				+(snDomain?DOMAINS:0)+NCRNA_CONTEXT+(snHHCAGA?2:0)+(snGeneLen?2:0);
+				+SHARED_CONTEXT_WIDTH+2*NCRNA_OBS+1;
 			System.err.println("agg: "+aggSubnets.size()+" subnets, dense head "+denseRanks.length
 				+", numAggInputs="+numAggInputs+", obs="+(aggObsServe ? "serve" : "clean"));
 		}
-		boolean needKmer=(subnet && snHHCAGA) || (aggManifestFile!=null && snHHCAGA);
-		if(aggSubnets!=null){for(AggSubnet s : aggSubnets){needKmer|=s.hhcaga;}}
-		if(needKmer){
-			if(kmerFile==null){throw new RuntimeException("snhhcaga=t requires kmerfile=<tid HH CAGA>");}
-			loadKmerFile(kmerFile);
-		}
+		if(rowCtx==null){rowCtx=new double[CTX_N];}//non-aggregator runs still need it for formatRow/subnet rows
 		// poolmode=valsplit: both output sets come from the ORIGINAL val orgs (never seen
 		// by any subnet trained on the seed-matched train side): first half = aggregator-train
 		// (B), second half = final-test (C). Stacking discipline for free (Barbara).
@@ -670,15 +651,15 @@ public class MagQCVectorMaker {
 			agg.reset();
 			final int targetPhylumIdx=makeBin(pool, famIdx, rnd, fam, glob, labels, agg);
 			if(targetPhylumIdx<0){continue;}
-			formatRow(bb, fam, glob, targetPhylumIdx, labels);
+			formatRow(bb, fam, glob, targetPhylumIdx, labels, agg);
 			bsw.print(bb); bb.clear();
 			if(sbsw!=null){
-				if(subnetFamset){formatFamsetRow(bb2, glob, targetPhylumIdx);}
-				else{formatNcrnaRow(bb2, glob, targetPhylumIdx);}
+				if(subnetFamset){formatFamsetRow(bb2, glob, targetPhylumIdx, agg);}
+				else{formatNcrnaRow(bb2, glob, targetPhylumIdx, agg);}
 				sbsw.print(bb2); bb2.clear();
 			}
 			if(absw!=null){
-				formatAggRow(bb3, fam, glob, targetPhylumIdx, labels);
+				formatAggRow(bb3, fam, glob, targetPhylumIdx, labels, agg);
 				absw.print(bb3); bb3.clear();
 			}
 			made++;
@@ -733,7 +714,7 @@ public class MagQCVectorMaker {
 			for(final Contig c : benchNative){mb.append(binID).tab().append(c.name).append("\tnative").nl();}
 			for(final Contig c : benchForeign){mb.append(binID).tab().append(c.name).append("\tforeign").nl();}
 			msw.print(mb); mb.clear();
-			if(vsw!=null){formatAggRow(vb, fam, glob, targetPhylumIdx, labels); vsw.print(vb); vb.clear();}
+			if(vsw!=null){formatAggRow(vb, fam, glob, targetPhylumIdx, labels, agg); vsw.print(vb); vb.clear();}
 			made++;
 		}
 		tsw.poisonAndWait(); msw.poisonAndWait(); if(vsw!=null){vsw.poisonAndWait();}
@@ -887,12 +868,14 @@ public class MagQCVectorMaker {
 		long gc, acgt, coding, glenSum, glenSq;
 		int contigs, cds, mapped, r16, r23, r5, rother, trna;
 		int[] lens=new int[64]; int nlens=0;
+		final int[] dimer=new int[16];//summed dinucleotide counts -> bin-faithful HH/CAGA (null-dimer contigs skipped)
 		int[] scratchArr;
 		void setFam(int[] fam_){fam=fam_;}
 		void reset(){
 			gc=acgt=coding=glenSum=glenSq=0;
 			contigs=cds=mapped=r16=r23=r5=rother=trna=0;
 			nlens=0;
+			Arrays.fill(dimer, 0);
 		}
 		int[] scratch(int need){
 			if(scratchArr==null || scratchArr.length<need){scratchArr=new int[need];}
@@ -902,6 +885,7 @@ public class MagQCVectorMaker {
 			contigs++; gc+=c.gc; acgt+=c.acgt; coding+=c.coding; cds+=c.cds; mapped+=c.mapped;
 			glenSum+=c.glenSum; glenSq+=c.glenSq; r16+=c.r16; r23+=c.r23; r5+=c.r5; rother+=c.rother; trna+=c.trna;
 			for(int i=0; i<c.famRank.length; i++){fam[c.famRank[i]]+=c.famCount[i];}
+			if(c.dimer!=null){for(int i=0; i<16; i++){dimer[i]+=c.dimer[i];}}
 			if(nlens>=lens.length){lens=Arrays.copyOf(lens, lens.length*2);}
 			lens[nlens++]=c.length;
 		}
@@ -911,6 +895,11 @@ public class MagQCVectorMaker {
 			double var=glenSq/(double)cds-mean*mean;
 			return var>0 ? Math.sqrt(var) : 0;
 		}
+		/** Bin-faithful homopolymer-dimer fraction from the SUMMED dinucleotide counts (additive; never
+		 *  average per-contig ratios). Zero when no dimer data is present (KmerTracker guards the denominator). */
+		float hh(){return KmerTracker.HH(dimer);}
+		/** Bin-faithful CAGA strand-skew metric from the summed dinucleotide counts. */
+		float caga(){return KmerTracker.CAGA(dimer);}
 		int richness(){int r=0; for(int v : fam){if(v>0){r++;}} return r;}
 		long l50(){
 			if(nlens<=0){return 1;}
@@ -972,7 +961,7 @@ public class MagQCVectorMaker {
 		bb.tab();
 	}
 	/** Fixed-notation float, no exponent (RegressionTrainer's fast parser rejects 'e').
-	 *  String-returning form, KEPT for the aggCtx roundtrip (Float.parseFloat(fmt(v)))
+	 *  String-returning form, KEPT for the aggregator's per-subnet context roundtrip (Float.parseFloat(fmt(v)))
 	 *  which genuinely needs a String - low frequency (once per bin, not per family). */
 	private static String fmt(double v){
 		if(v==(long)v){return Long.toString((long)v);}
@@ -1015,23 +1004,6 @@ public class MagQCVectorMaker {
 		return DOMAIN_OTHER;//incl. bare "eukaryota" (subkingdom needs tax lineage)
 	}
 
-	/** Loads per-organism scaled HH/CAGA (tid&lt;TAB&gt;HH&lt;TAB&gt;CAGA) for the ncRNA subnet.
-	 *  Deliberately kept as a boxed HashMap<Integer,float[]> - see the class javadoc's
-	 *  note on why this one field is NOT converted to an IntHashMap bit-encoding. */
-	private void loadKmerFile(String file){
-		tidKmer=new HashMap<Integer,float[]>();
-		final ByteFile bf=ByteFile.makeByteFile(file, true);
-		final LineParser1 lp=new LineParser1((byte)'\t');
-		for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
-			if(line.length==0 || line[0]=='#'){continue;}
-			lp.set(line);
-			if(lp.terms()>=3){
-				tidKmer.put(lp.parseInt(0), new float[]{lp.parseFloat(1), lp.parseFloat(2)});
-			}
-		}
-		bf.close();
-		System.err.println("loaded HH/CAGA for "+tidKmer.size()+" orgs");
-	}
 
 	/**
 	 * Per-family expected copy number WHEN PRESENT, over the reference organisms:
@@ -1063,7 +1035,42 @@ public class MagQCVectorMaker {
 		appendFmt(bb, a>0 ? count/a : count);
 	}
 
-	private void formatRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels){
+	/**
+	 * Corpus-scale reference for the avg~0.5 normalized context features (Brian 2026-08-24). Over the
+	 * usable orgs, computes the mean of log2(genome bp), log2(1+total CDS), mean gene length, and
+	 * gene-length std; each such feature is later emitted as {@code 0.5*value/mean} so the population
+	 * centers near 0.5 (bounded, well-scaled net inputs instead of huge raw magnitudes). This is an
+	 * ORG-level reference (stable and deterministic); partial bins center a little below 0.5, which is
+	 * fine - the goal is bounded scaling, not exact 0.5. These 4 scales are PERSISTED with the trained
+	 * nets so MagQCScore and the production tool reproduce the identical encoding (persistence added in
+	 * the one-pass emit rewrite). size/#genes are scaled on log2 (wide dynamic range); gene-length
+	 * mean/std on the raw value.
+	 */
+	private void computeNormScales(IntList usable){
+		double sumLogBp=0, sumLogCds=0, sumGlen=0, sumGlenStd=0;
+		int nBp=0, nCds=0, nGlen=0;
+		for(int i=0; i<usable.size(); i++){
+			final int tid=usable.get(i);
+			final long bp=genomeSize.get(tid);
+			if(bp>0){sumLogBp+=log2(bp); nBp++;}
+			long cds=0, glenSum=0, glenSq=0;
+			for(Contig c : getContigs(tid)){cds+=c.cds; glenSum+=c.glenSum; glenSq+=c.glenSq;}
+			sumLogCds+=log2(1+cds); nCds++;
+			if(cds>0){
+				final double mean=glenSum/(double)cds;
+				final double var=glenSq/(double)cds-mean*mean;
+				sumGlen+=mean; sumGlenStd+=(var>0 ? Math.sqrt(var) : 0); nGlen++;
+			}
+		}
+		scaleLogBp=(nBp>0 && sumLogBp>0 ? sumLogBp/nBp : 1);
+		scaleLogCds=(nCds>0 && sumLogCds>0 ? sumLogCds/nCds : 1);
+		scaleGlen=(nGlen>0 && sumGlen>0 ? sumGlen/nGlen : 1);
+		scaleGlenStd=(nGlen>0 && sumGlenStd>0 ? sumGlenStd/nGlen : 1);
+		System.err.println("normScales (avg~0.5 reference): mean_log2bp="+scaleLogBp+" mean_log2cds="+scaleLogCds
+			+" mean_glen="+scaleGlen+" mean_glenStd="+scaleGlenStd);
+	}
+
+	private void formatRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels, Agg agg){
 		if(enc==ENC_TWO){
 			if(keptRanks!=null){
 				for(int i=0; i<keptRanks.length; i++){appendTwo(bb, fam[keptRanks[i]]);}
@@ -1083,46 +1090,65 @@ public class MagQCVectorMaker {
 				for(int i=0; i<numFam; i++){appendFamStr(bb, fam[i]); bb.tab();}
 			}
 		}
-		for(int i=0; i<NUM_GLOBALS; i++){appendFmt(bb, glob[i]); bb.tab();}
+		computeContext(rowCtx, glob, agg);
+		appendContext(bb, rowCtx, lastTarget);
 		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
 		appendFmt(bb, labels[0]); bb.tab();
 		appendFmt(bb, labels[1]); bb.nl();
 	}
 
 	/**
+	 * Fills ctx[0..CTX_N) with the FROZEN shared-context scalar block for the current bin
+	 * (magqc_rebuild_20260824.plan "FROZEN VECTOR LAYOUT", Brian-confirmed 2026-08-24):
+	 * size/#genes/gene-length mean+std at the persisted avg~0.5 corpus scale (computeNormScales),
+	 * GC/coding-fraction/log2(richness) unchanged, HH/CAGA BIN-FAITHFUL from agg's SUMMED
+	 * dinucleotide counts (additive discipline - never averaged per-contig; KmerTracker.HH/CAGA
+	 * guard the zero-denominator case). Shared by every emit method so every net - subnets,
+	 * aggregator, and the Tier-A monolith - sees byte-identical context.
+	 */
+	private void computeContext(double[] ctx, double[] glob, Agg agg){
+		ctx[CTX_SIZE]=0.5*glob[0]/scaleLogBp;
+		ctx[CTX_GC]=glob[3];
+		ctx[CTX_CODING]=glob[4];
+		ctx[CTX_GENES]=0.5*log2(1+agg.cds)/scaleLogCds;
+		ctx[CTX_L2RICH]=glob[8];
+		ctx[CTX_GLEN]=0.5*glob[5]/scaleGlen;
+		ctx[CTX_GLENSTD]=0.5*glob[6]/scaleGlenStd;
+		ctx[CTX_HH]=agg.hh();
+		ctx[CTX_CAGA]=agg.caga();
+	}
+
+	/** Appends the FROZEN shared-context block for tid: the CTX_N scalars (already computed
+	 *  into ctx by {@link #computeContext}) followed by the domain one-hot(8) - shared-context
+	 *  item 10, categorical so it isn't part of the scalar array. */
+	private void appendContext(ByteBuilder bb, double[] ctx, int tid){
+		for(int i=0; i<CTX_N; i++){appendFmt(bb, ctx[i]); bb.tab();}
+		final int di=domainIdxOf(tid);
+		for(int i=0; i<DOMAINS; i++){bb.append(i==di ? '1' : '0'); bb.tab();}
+	}
+
+	/** Two-channel encoding for an aggregator-direct raw count (ncRNA types): presence(0/1)
+	 *  then encodeCount(count) under the active enc mode - distinct from the family two-channel
+	 *  {@link #appendTwo} (presence+excess-copies), since these aren't duplication-flag counts. */
+	private void appendCountTwo(ByteBuilder bb, int count){
+		bb.append(count>0 ? '1' : '0'); bb.tab();
+		appendFmt(bb, encodeCount(count, Math.log(1+LOG_CAP)/LOG2)); bb.tab();
+	}
+
+	/**
 	 * Emits one ncRNA-subnet training row for the current bin: the target organism's
-	 * observed ncRNA counts (r16,r23,r5,rother,trna) plus a shared context block (phylum
-	 * one-hot and size/composition globals) as inputs, and the target's NATIVE ncRNA
+	 * observed ncRNA counts (r16,r23,r5,rother,trna) plus the FROZEN shared context (phylum
+	 * one-hot + the standard context block) as inputs, and the target's NATIVE ncRNA
 	 * complement (summed over its whole genome) as the single regression target. The
 	 * subnet thus learns the EXPECTED denominator; completeness = observed/expected is
 	 * derived downstream (Barbara's refinement of the subset-relative-label design).
 	 */
-	private void formatNcrnaRow(ByteBuilder bb, double[] glob, int phylumIdx){
+	private void formatNcrnaRow(ByteBuilder bb, double[] glob, int phylumIdx, Agg agg){
 		int obsTotal=0;
 		for(int i=0; i<NCRNA_OBS; i++){bb.append(lastNcObs[i]); bb.tab(); obsTotal+=lastNcObs[i];}
 		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
-		if(snDomain){//domain one-hot (forward-infra; constant for a bacteria-only corpus)
-			final int di=domainIdxOf(lastTarget);
-			for(int i=0; i<DOMAINS; i++){bb.append(i==di ? '1' : '0'); bb.tab();}
-		}
-		// context block (5 columns; values may be transformed): bin size, GC, coding density,
-		// log2(contigs), log2(richness). F2/F3 rescale for the weight-decay-regularized optimizer.
-		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
-		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
-		appendFmt(bb, binSize); bb.tab();
-		appendFmt(bb, glob[3]); bb.tab();
-		appendFmt(bb, coding); bb.tab();
-		appendFmt(bb, glob[1]); bb.tab();
-		appendFmt(bb, glob[8]); bb.tab();
-		if(snHHCAGA){//per-org HH, CAGA (min-max scaled over training orgs), from kmerfile
-			final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
-			appendFmt(bb, hc==null ? 0 : hc[0]); bb.tab();
-			appendFmt(bb, hc==null ? 0 : hc[1]); bb.tab();
-		}
-		if(snGeneLen){//mean gene length + gene-length stddev (cache-derived globals)
-			appendFmt(bb, glob[5]); bb.tab();
-			appendFmt(bb, glob[6]); bb.tab();
-		}
+		computeContext(rowCtx, glob, agg);
+		appendContext(bb, rowCtx, lastTarget);
 		final int nativeTotal=nativeNcR16.get(lastTarget)+nativeNcR23.get(lastTarget)+nativeNcR5.get(lastTarget)
 			+nativeNcRother.get(lastTarget)+nativeNcTrna.get(lastTarget);
 		// The bin's target contigs are a subset of the genome, so observed<=native always.
@@ -1133,36 +1159,18 @@ public class MagQCVectorMaker {
 	/**
 	 * Emits one famset-subnet training row for the current bin: the subset families'
 	 * observed counts (target organism only, snapshotted before contaminants) plus the
-	 * SAME shared context block as the ncRNA subnet, and the target's NATIVE subset
+	 * SAME FROZEN shared context as the ncRNA subnet, and the target's NATIVE subset
 	 * total (the subset families' counts over its whole genome) as the single
 	 * regression target. The subset is defined by subsetfile= (one family rank per
 	 * line), so per-phylum marker sets and co-occurrence modules train with identical
 	 * machinery; evaluate with SubnetRatioScore numobs=(subset size).
 	 */
-	private void formatFamsetRow(ByteBuilder bb, double[] glob, int phylumIdx){
+	private void formatFamsetRow(ByteBuilder bb, double[] glob, int phylumIdx, Agg agg){
 		int obsTotal=0;
 		for(int i=0; i<lastFamObs.length; i++){bb.append(lastFamObs[i]); bb.tab(); obsTotal+=lastFamObs[i];}
 		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
-		if(snDomain){
-			final int di=domainIdxOf(lastTarget);
-			for(int i=0; i<DOMAINS; i++){bb.append(i==di ? '1' : '0'); bb.tab();}
-		}
-		final double binSize=(snBinScaled ? log2(1.0+lastTotalBp/2048.0)*0.0625 : glob[0]);
-		final double coding=(snCodingAffine ? glob[4]*1.05-0.5 : glob[4]);
-		appendFmt(bb, binSize); bb.tab();
-		appendFmt(bb, glob[3]); bb.tab();
-		appendFmt(bb, coding); bb.tab();
-		appendFmt(bb, glob[1]); bb.tab();
-		appendFmt(bb, glob[8]); bb.tab();
-		if(snHHCAGA){
-			final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
-			appendFmt(bb, hc==null ? 0 : hc[0]); bb.tab();
-			appendFmt(bb, hc==null ? 0 : hc[1]); bb.tab();
-		}
-		if(snGeneLen){
-			appendFmt(bb, glob[5]); bb.tab();
-			appendFmt(bb, glob[6]); bb.tab();
-		}
+		computeContext(rowCtx, glob, agg);
+		appendContext(bb, rowCtx, lastTarget);
 		final int nativeTotal=nativeFamTotal.get(lastTarget);
 		assert(nativeTotal>=0) : "nativeFamTotal missing for tid "+lastTarget;
 		// The bin's target contigs are a subset of the genome, so observed<=native always.
@@ -1177,36 +1185,24 @@ public class MagQCVectorMaker {
 	 * input exactly as its training rows were built (same column order, same fmt()
 	 * rounding so in-process values match what a file round-trip would deliver),
 	 * feed-forwards the frozen net, and emits [ratio, log-obs, log-pred, zero-flag].
-	 * Then the pooled ratio baseline (hand the aggregator the division), the raw
-	 * dense head (enc=two presence+excess of the top-K prevalent families), phylum
-	 * one-hot, the shared context block, and the GLOBAL comp/contam targets.
+	 * Then the pooled ratio baseline, the raw dense head (enc=two presence+excess of
+	 * the top-K prevalent families), phylum one-hot, the FROZEN shared context, the
+	 * raw ncRNA two-channel(5x2) direct aggregator input, mapped-fraction, and the
+	 * GLOBAL comp/contam targets.
 	 */
-	private void formatAggRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels){
+	private void formatAggRow(ByteBuilder bb, int[] fam, double[] glob, int phylumIdx, double[] labels, Agg agg){
 		final int[] famArr=(aggObsServe ? fam : cleanFamBuf);
 		final int[] ncArr=(aggObsServe ? lastNcServe : lastNcObs);
-		// Per-bin context COMPONENTS, computed once with the emitters' fmt() rounding so the
-		// frozen nets see bit-identical inputs to a written-then-parsed subnet row. Each
-		// subnet assembles its own view from these per its rep flags (nets may be trained
-		// under different reps, e.g. the base-rep ncRNA net vs locked-rep famsets).
-		aggCtx[CTX_BS_RAW]=Float.parseFloat(fmt(glob[0]));
-		aggCtx[CTX_BS_SCALED]=Float.parseFloat(fmt(log2(1.0+lastTotalBp/2048.0)*0.0625));
-		aggCtx[CTX_GC]=Float.parseFloat(fmt(glob[3]));
-		aggCtx[CTX_COD_RAW]=Float.parseFloat(fmt(glob[4]));
-		aggCtx[CTX_COD_AFF]=Float.parseFloat(fmt(glob[4]*1.05-0.5));
-		aggCtx[CTX_L2CONTIGS]=Float.parseFloat(fmt(glob[1]));
-		aggCtx[CTX_L2RICH]=Float.parseFloat(fmt(glob[8]));
-		final float[] hc=(tidKmer==null ? null : tidKmer.get(lastTarget));
-		aggCtx[CTX_HH]=Float.parseFloat(fmt(hc==null ? 0 : hc[0]));
-		aggCtx[CTX_CAGA]=Float.parseFloat(fmt(hc==null ? 0 : hc[1]));
-		aggCtx[CTX_GLEN]=Float.parseFloat(fmt(glob[5]));
-		aggCtx[CTX_GLENSTD]=Float.parseFloat(fmt(glob[6]));
+		// Per-bin context, computed ONCE (shared by every subnet AND the aggregator tail - every
+		// net now sees the identical FROZEN context, the old per-net rep flags are retired).
+		computeContext(rowCtx, glob, agg);
 		final int domainIdx=domainIdxOf(lastTarget);
 
 		long sumObs=0;
 		double sumPred=0;
 		for(AggSubnet s : aggSubnets){
-			// Input layout mirrors formatFamsetRow/formatNcrnaRow exactly:
-			// obs, phylum one-hot, [domain], context 5, [HH/CAGA], [gene-len].
+			// Input layout mirrors formatFamsetRow/formatNcrnaRow exactly: obs, phylum one-hot,
+			// shared context (CTX_N scalars + domain one-hot).
 			int p=0;
 			long obsTotal=0;
 			if(s.ncrna){
@@ -1215,16 +1211,11 @@ public class MagQCVectorMaker {
 				for(int r : s.ranks){final int v=famArr[r]; s.buf[p++]=v; obsTotal+=v;}
 			}
 			for(int i=0; i<numPhyla; i++){s.buf[p++]=(i==phylumIdx ? 1 : 0);}
-			if(s.domain){
-				for(int i=0; i<DOMAINS; i++){s.buf[p++]=(i==domainIdx ? 1 : 0);}
-			}
-			s.buf[p++]=aggCtx[s.binScaled ? CTX_BS_SCALED : CTX_BS_RAW];
-			s.buf[p++]=aggCtx[CTX_GC];
-			s.buf[p++]=aggCtx[s.codingAffine ? CTX_COD_AFF : CTX_COD_RAW];
-			s.buf[p++]=aggCtx[CTX_L2CONTIGS];
-			s.buf[p++]=aggCtx[CTX_L2RICH];
-			if(s.hhcaga){s.buf[p++]=aggCtx[CTX_HH]; s.buf[p++]=aggCtx[CTX_CAGA];}
-			if(s.genelen){s.buf[p++]=aggCtx[CTX_GLEN]; s.buf[p++]=aggCtx[CTX_GLENSTD];}
+			// Round-trip through fmt()'s exact string representation, same as the training-file
+			// write+reparse a subnet actually saw (appendContext below writes via appendFmt) -
+			// keeps this in-process feed bit-identical to what the frozen net was trained on.
+			for(int i=0; i<CTX_N; i++){s.buf[p++]=Float.parseFloat(fmt(rowCtx[i]));}
+			for(int i=0; i<DOMAINS; i++){s.buf[p++]=(i==domainIdx ? 1 : 0);}
 			assert(p==s.buf.length) : s.name+": filled "+p+" of "+s.buf.length;
 			s.net.applyInput(s.buf);
 			s.net.feedForward();
@@ -1242,17 +1233,12 @@ public class MagQCVectorMaker {
 		// subnet input; aggobs= only A/Bs the subnet-obs question - settled with Eru 2026-08-11).
 		for(int r : denseRanks){appendTwo(bb, fam[r]);}
 		for(int i=0; i<numPhyla; i++){bb.append(i==phylumIdx ? '1' : '0'); bb.tab();}
-		if(snDomain){
-			for(int i=0; i<DOMAINS; i++){bb.append(i==domainIdx ? '1' : '0'); bb.tab();}
-		}
-		// Tail context in the GLOBAL (#repflags) rep.
-		appendFmt(bb, aggCtx[snBinScaled ? CTX_BS_SCALED : CTX_BS_RAW]); bb.tab();
-		appendFmt(bb, aggCtx[CTX_GC]); bb.tab();
-		appendFmt(bb, aggCtx[snCodingAffine ? CTX_COD_AFF : CTX_COD_RAW]); bb.tab();
-		appendFmt(bb, aggCtx[CTX_L2CONTIGS]); bb.tab();
-		appendFmt(bb, aggCtx[CTX_L2RICH]); bb.tab();
-		if(snHHCAGA){appendFmt(bb, aggCtx[CTX_HH]); bb.tab(); appendFmt(bb, aggCtx[CTX_CAGA]); bb.tab();}
-		if(snGeneLen){appendFmt(bb, aggCtx[CTX_GLEN]); bb.tab(); appendFmt(bb, aggCtx[CTX_GLENSTD]); bb.tab();}
+		appendContext(bb, rowCtx, lastTarget);
+		// Aggregator-only direct inputs (FROZEN VECTOR LAYOUT): raw ncRNA two-channel (5 types x
+		// [presence, encodeCount]) then mapped-fraction. Whole-bin/target-only follows the same
+		// aggobs= switch as the subnet inputs above (ncArr), for serve-faithfulness consistency.
+		for(int i=0; i<NCRNA_OBS; i++){appendCountTwo(bb, ncArr[i]);}
+		appendFmt(bb, glob[7]); bb.tab();
 		appendFmt(bb, labels[0]); bb.tab();
 		appendFmt(bb, labels[1]); bb.nl();
 	}
@@ -1269,7 +1255,7 @@ public class MagQCVectorMaker {
 	/*--------------------------------------------------------------*/
 
 	private String cacheFile, sizemapFile, familyFile, taxpgmFile, treeFile, out, outval, featuresFile;
-	private String subnetName, subnetOut, subnetValOut, kmerFile, subsetFile;
+	private String subnetName, subnetOut, subnetValOut, subsetFile;
 	private String aggManifestFile, aggOut, aggValOut;
 	private int denseHead=100;
 	private boolean aggObsServe=true;
@@ -1278,10 +1264,11 @@ public class MagQCVectorMaker {
 	private ArrayList<AggSubnet> aggSubnets;
 	private int[] denseRanks;
 	private int[] cleanFamBuf;
-	private float[] aggCtx;
+	// FROZEN shared-context scratch buffer (CTX_N scalars), reused across every format*Row call
+	// for the current bin - computeContext() overwrites it fully each time, no partial-update risk.
+	private double[] rowCtx;
 	private int numAggInputs;
 	private final int[] lastNcServe=new int[5];
-	private boolean snCodingAffine=false, snBinScaled=false, snDomain=false, snHHCAGA=false, snGeneLen=false;
 	private boolean subnetFamset=false;
 	private int[] subsetRanks;
 	private boolean[] subsetMask;
@@ -1320,8 +1307,6 @@ public class MagQCVectorMaker {
 	private final IntLongHashMap recoverable=new IntLongHashMap();
 	private final IntHashMap nativeNcR16=new IntHashMap(), nativeNcR23=new IntHashMap(), nativeNcR5=new IntHashMap(),
 		nativeNcRother=new IntHashMap(), nativeNcTrna=new IntHashMap();
-	//Deliberately boxed - see the class javadoc's note on why (float-bits/-1-sentinel collision risk).
-	private HashMap<Integer,float[]> tidKmer;
 	private final IntHashMap tid2phylumIdx=new IntHashMap();
 	private final IntHashMap tid2family=new IntHashMap();
 	private final HashMap<String,Integer> phylumIndex=new HashMap<String,Integer>();
@@ -1329,9 +1314,12 @@ public class MagQCVectorMaker {
 	private String[] nOverN1;
 	private String[] excessArr;
 	private double[] avgCopy;
+	// avg~0.5 normalization scales (corpus reference over usable orgs; persisted with the nets). Wired into
+	// the emit methods in the one-pass vector-layout rewrite; computed by computeNormScales().
+	private double scaleLogBp=1, scaleLogCds=1, scaleGlen=1, scaleGlenStd=1;
 
 	private static final int NUM_GLOBALS=13;
-	private static final int NCRNA_OBS=5, NCRNA_CONTEXT=5;
+	private static final int NCRNA_OBS=5;
 	private static final int DOMAINS=8, DOMAIN_OTHER=7;
 	private static final int N_STR_MAX=4096;
 	private static final int ENC_RATIO=0, ENC_LOG=1, ENC_RAW=2, ENC_TWO=3, ENC_NORM=4;
@@ -1339,8 +1327,16 @@ public class MagQCVectorMaker {
 	private static final double COMP_MIN=0.10, CONT_MAX=0.50, LOG2=Math.log(2);
 	/** Cap for the per-subnet and pooled obs/pred ratios (duplication saturates at 2x). */
 	private static final double RATIO_CAP=2.0;
-	/** Indices into aggCtx: per-bin context components (raw + transformed variants). */
-	private static final int CTX_BS_RAW=0, CTX_BS_SCALED=1, CTX_GC=2, CTX_COD_RAW=3, CTX_COD_AFF=4,
-		CTX_L2CONTIGS=5, CTX_L2RICH=6, CTX_HH=7, CTX_CAGA=8, CTX_GLEN=9, CTX_GLENSTD=10, CTX_N=11;
+	/** Indices into the FROZEN shared-context scalar block (Brian 2026-08-24 vector-layout
+	 *  rebuild, magqc_rebuild_20260824.plan "FROZEN VECTOR LAYOUT"): 9 scalars, standard on
+	 *  EVERY net (subnets + aggregator + monolith) - the old per-net optional sndomain/
+	 *  snhhcaga/sngenelen/snbinscaled/sncodingaffine representation flags are RETIRED, there
+	 *  is now exactly one encoding per feature. Domain one-hot(8) is the 10th shared-context
+	 *  item but is categorical, not scalar, so it is appended separately right after this
+	 *  block (see appendContext) rather than living in this array. */
+	private static final int CTX_SIZE=0, CTX_GC=1, CTX_CODING=2, CTX_GENES=3, CTX_L2RICH=4,
+		CTX_GLEN=5, CTX_GLENSTD=6, CTX_HH=7, CTX_CAGA=8, CTX_N=9;
+	/** Shared-context wire width: the 9 scalars above plus the domain one-hot(8). */
+	private static final int SHARED_CONTEXT_WIDTH=CTX_N+DOMAINS;
 	private static final int[] EMPTY=new int[0];
 }

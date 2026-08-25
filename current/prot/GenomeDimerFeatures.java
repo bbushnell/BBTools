@@ -15,6 +15,15 @@ import structures.IntList;
 import structures.ListNum;
 import tracker.KmerTracker;
 
+//TODO: Probable obsolescence (Eru, 2026-08-25) - this tool's entire purpose was producing a
+//per-organism min-max-scaled HH/CAGA kmerfile for MagQCVectorMaker's snhhcaga=t/kmerfile= path
+//(see the usage note below). The magqc_rebuild_20260824.plan FROZEN VECTOR LAYOUT rewrite
+//retired that entire mechanism: HH/CAGA are now computed bin-faithfully and ADDITIVELY at
+//CacheBuilder time (per-contig dinucleotide counts, cache field 18) and consumed directly via
+//Agg.hh()/Agg.caga() in MagQCVectorMaker - no external kmerfile, no per-org min-max scaling, no
+//snhhcaga= flag (retired along with sndomain/sngenelen/snbinscaled/sncodingaffine). This class
+//has no remaining consumer. Not deleted here (not this task's scope, and deletion needs the
+//project skill's absorption-proof gate) - flagging for UMP45/Brian to decide its disposition.
 /**
  * Computes per-organism dinucleotide-composition features (HH and CAGA from
  * {@link tracker.KmerTracker}) from a contig FASTA whose headers embed the taxon id

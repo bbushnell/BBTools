@@ -11,6 +11,7 @@ import fileIO.FileFormat;
 import parse.LineParser1;
 import parse.Parse;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -107,6 +108,9 @@ public class FamilyListBuilder {
 			else if(a.equals("minoccfrac") || a.equals("occfloor")){minOccFrac=Double.parseDouble(b);}
 			else if(a.equals("minphylumgenomes") || a.equals("minphylum")){minPhylumGenomes=Integer.parseInt(b);}
 			else if(a.equals("tidsout") || a.equals("tidsfile")){tidsOutFile=b;}
+			else if(a.equals("globalsingle")){globalSingle=Integer.parseInt(b);}
+			else if(a.equals("globalsinglecandidates")){globalSingleCandidates=Integer.parseInt(b);}
+			else if(a.equals("globalsingledump")){globalSingleDumpFile=b;}
 			else if(a.equals("sweep")){sweepSpec=b;}
 			else if(a.equals("ow") || a.equals("overwrite")){overwrite=Parse.parseBoolean(b);}
 			else{outstream.println("Unknown parameter "+arg); assert(false) : "Unknown parameter "+arg;}
@@ -171,8 +175,17 @@ public class FamilyListBuilder {
 		SelectionResult result=selectWithOccSingle(combo, pools, allReps, allOccTotal, occSingle);
 		outstream.println("Qualifying phyla contributing: "+result.phylaContributing
 			+"; hit full "+(nTop+nBot)+": "+result.phylaFull);
-		outstream.println("FINAL selected family count: "+result.selected.size());
+		outstream.println("Per-phylum selected family count: "+result.selected.size());
 		printPerPhylumDistribution(result);
+
+		if(globalSingle>0){
+			int before=result.selected.size();
+			HashSet<String> added=extendWithGlobalSingle(globalSingle, result.selected, allReps, allOccTotal, excluded, occSingle);
+			result.selected.addAll(added);
+			outstream.println("Global single-copy backbone: +"+added.size()+" families ("
+				+before+" -> "+result.selected.size()+")");
+		}
+		outstream.println("FINAL selected family count: "+result.selected.size());
 
 		ArrayList<String> finalReps=new ArrayList<String>(result.selected.size());
 		ArrayList<Integer> finalOcc=new ArrayList<Integer>(result.selected.size());
@@ -428,6 +441,135 @@ public class FamilyListBuilder {
 		return result;
 	}
 
+	/**
+	 * Global single-copy backbone extension (Rebuild Point 2, magqc_rebuild_20260824.plan /
+	 * records/FAMILYLIST_PLUS200_SPEC.md): the {@code n} globally-most-universal SINGLE-COPY
+	 * families NOT already in {@code selected}, ranked by GLOBAL occ_single (count of
+	 * non-excluded genomes where the family is present as EXACTLY ONE copy) -- phylum-
+	 * independent, unlike the per-phylum backbone half. Tiebreak occ_total desc, then rep_id
+	 * asc (deterministic).
+	 *
+	 * <p>THE COST BOUND (the spec's crux): global occ_single needs a third pass over
+	 * cluster.tsv, per-(family,genome) -- too expensive for all ~8.5M families. Bounded to the
+	 * top ({@code n*GLOBAL_SINGLE_CANDIDATE_MULT}, or {@code globalSingleCandidates} if set)
+	 * non-selected families BY occ_total (already known from pass 1, zero extra IO to rank
+	 * them): occ_single(F)&lt;=occ_total(F) ALWAYS, so any family excluded by this floor has
+	 * occ_total &lt; T, and T&lt;=s_n (verified below) means that excluded family's occ_single
+	 * is also &lt; s_n -- it cannot belong in the true top-n. Proven PER-RUN via a crash-loud
+	 * assert (KillSwitch.assertDie), never just argued in a comment. If it fires, T was too
+	 * high -- raise globalsinglecandidates= and re-run.
+	 *
+	 * <p>{@code occSingleOut} is the caller's per-phylum-candidate occ_single map (built for the
+	 * ORIGINAL 4232 universe only) -- this method PUTS its own computed global occ_single values
+	 * into it (for every family in the candidate pool, not just the ones added) so the caller's
+	 * final-report code can look up occ_single for ANY selected family, including a +n addition
+	 * that lands in the occ_total-desc-ordered output's head (a real gap: without this, that
+	 * report would NPE the first time an addition outranked an original by occ_total).
+	 */
+	HashSet<String> extendWithGlobalSingle(int n, HashSet<String> selected, ArrayList<String> allReps,
+			ArrayList<Integer> allOccTotal, HashSet<Integer> excluded, HashMap<String, Integer> occSingleOut){
+		final int candidatePoolSize=(globalSingleCandidates>0 ? globalSingleCandidates : n*GLOBAL_SINGLE_CANDIDATE_MULT);
+
+		// Step 1: non-selected family INDICES ranked by occ_total desc (tiebreak rep asc) --
+		// pure in-memory sort over pass-1 data already loaded, zero extra file IO.
+		ArrayList<Integer> nonSelected=new ArrayList<Integer>();
+		for(int i=0; i<allReps.size(); i++){
+			if(!selected.contains(allReps.get(i))){nonSelected.add(i);}
+		}
+		nonSelected.sort((a, b) -> {
+			int c=Integer.compare(allOccTotal.get(b), allOccTotal.get(a));//occ_total desc
+			if(c!=0){return c;}
+			return allReps.get(a).compareTo(allReps.get(b));//rep asc
+		});
+		final int poolSize=Tools.min(candidatePoolSize, nonSelected.size());
+		outstream.println("Global-single candidate pool: "+poolSize+" non-selected families "
+			+"(occ_total-ranked, of "+nonSelected.size()+" total non-selected; requested pool="+candidatePoolSize+")");
+		if(poolSize==0){return new HashSet<String>();}
+
+		final ArrayList<Integer> poolIdx=new ArrayList<Integer>(nonSelected.subList(0, poolSize));
+		final int T=allOccTotal.get(poolIdx.get(poolIdx.size()-1));//occ_total floor of the candidate pool
+		outstream.println("Global-single occ_total floor T="+T);
+
+		final HashSet<String> candidateReps=new HashSet<String>(poolSize*2);
+		for(int idx : poolIdx){candidateReps.add(allReps.get(idx));}
+
+		// Third pass over cluster.tsv, restricted to this candidate set (same method the
+		// per-phylum backbone half uses, just a different -- and here, phylum-independent --
+		// candidate universe).
+		HashMap<String, HashMap<Integer, Integer>> memberCounts=loadCandidateMemberCounts(candidateReps, excluded);
+		HashMap<String, Integer> occSingleGlobal=deriveOccSingle(memberCounts);
+		for(int idx : poolIdx){
+			assert(occSingleGlobal.containsKey(allReps.get(idx))) : "Candidate family "+allReps.get(idx)
+				+" missing from global occ_single map -- pass 1/3 file read mismatch (should be impossible, same file)";
+		}
+		occSingleOut.putAll(occSingleGlobal);//so ANY selected family (original or +n) has an occ_single entry
+
+		poolIdx.sort((a, b) -> {
+			String repA=allReps.get(a), repB=allReps.get(b);
+			int c=Integer.compare(occSingleGlobal.get(repB), occSingleGlobal.get(repA));//occ_single desc
+			if(c!=0){return c;}
+			c=Integer.compare(allOccTotal.get(b), allOccTotal.get(a));//occ_total desc
+			if(c!=0){return c;}
+			return repA.compareTo(repB);//rep asc
+		});
+
+		if(globalSingleDumpFile!=null){
+			writeGlobalSingleDump(poolIdx, allReps, allOccTotal, occSingleGlobal);
+		}
+
+		final int takeN=Tools.min(n, poolIdx.size());
+		final HashSet<String> added=new HashSet<String>(takeN*2);
+		for(int i=0; i<takeN; i++){added.add(allReps.get(poolIdx.get(i)));}
+		final int sN=occSingleGlobal.get(allReps.get(poolIdx.get(takeN-1)));
+
+		// Comparator-correctness self-check: nothing past the cut can outrank the cut (also
+		// programmatically covers the gate's "no excluded candidate beats the 200th pick" spot-check).
+		for(int i=takeN; i<poolIdx.size(); i++){
+			final int occI=occSingleGlobal.get(allReps.get(poolIdx.get(i)));
+			assert(occI<=sN) : "Sort invariant violated: candidate pool rank "+i+" has occ_single "+occI
+				+" > s"+takeN+"="+sN+" -- impossible after a correct descending sort.";
+		}
+
+		outstream.println("Global-single selection: took "+takeN+" (requested "+n+"); s"+takeN+"="+sN);
+		// THE non-negotiable safety contract (spec's crux): T<=sN proves no floored-out family
+		// (occ_total<T) could have had occ_single>=sN, i.e. could have displaced anything selected.
+		assert(T<=sN) : KillSwitch.assertDie("Global-single safety bound violated: T="+T+" > s"+takeN+"="+sN
+			+" -- the occ_total floor may have excluded a family that truly belongs in the top-"+n
+			+" (FAMILYLIST_PLUS200_SPEC.md \"cost bound\" contract). Raise globalsinglecandidates= "
+			+"(candidate pool was "+poolSize+", requested "+candidatePoolSize+") and re-run.");
+
+		return added;
+	}
+
+	/** Analysis-only dump (globalsingledump=): the FULL candidate-pool ranking (already sorted
+	 *  by occ_single desc), one row per family -- rank, rep, occ_total, occ_single, purity
+	 *  (occ_single/occ_total). Written BEFORE truncating to the production n, so the whole
+	 *  ranked curve is available for a cliff/histogram analysis independent of what n ends up
+	 *  being used in production. */
+	void writeGlobalSingleDump(ArrayList<Integer> poolIdx, ArrayList<String> allReps,
+			ArrayList<Integer> allOccTotal, HashMap<String, Integer> occSingleGlobal){
+		outstream.println("Writing global-single candidate dump ("+poolIdx.size()+" rows) to "+globalSingleDumpFile+"...");
+		FileFormat ff=FileFormat.testOutput(globalSingleDumpFile, FileFormat.TXT, null, true, overwrite, false, false);
+		ByteStreamWriter bsw=new ByteStreamWriter(ff);
+		bsw.start();
+		try{
+			ByteBuilder bb=new ByteBuilder(1<<16);
+			bb.append("#rank\trep_id\tocc_total\tocc_single\tpurity").nl();
+			bsw.print(bb); bb.clear();
+			for(int i=0; i<poolIdx.size(); i++){
+				final String rep=allReps.get(poolIdx.get(i));
+				final int occTotal=allOccTotal.get(poolIdx.get(i));
+				final int occSingle=occSingleGlobal.get(rep);
+				bb.append(i).append('\t').append(rep).append('\t').append(occTotal).append('\t').append(occSingle).append('\t');
+				bb.appendSlow(occTotal>0 ? occSingle/(double)occTotal : 0.0, 6);
+				bb.nl();
+				bsw.print(bb); bb.clear();
+			}
+		}finally{
+			bsw.poisonAndWait();
+		}
+	}
+
 	/** min/median/max markers-per-phylum + the most-truncated phyla -- the
 	 *  starvation check UMP45 gates a high floor on (a phylum with very few
 	 *  contributed markers gives a coarse completeness estimate). */
@@ -642,6 +784,23 @@ public class FamilyListBuilder {
 	private int nBot=100;
 	private double minOccFrac=0.50;
 	private int minPhylumGenomes=3;
+	/** 0=off (preserves the exact pre-rebuild set). >0 = add this many globally-most-universal
+	 *  single-copy families not already selected (magqc_rebuild_20260824.plan point 2 /
+	 *  records/FAMILYLIST_PLUS200_SPEC.md). */
+	private int globalSingle=0;
+	/** 0=default (globalSingle*GLOBAL_SINGLE_CANDIDATE_MULT). Override only to widen the
+	 *  candidate pool if extendWithGlobalSingle's safety assert ever fires. */
+	private int globalSingleCandidates=0;
+	/** Analysis-only: when set, dumps the FULL candidate-pool ranking (rank, rep, occ_total,
+	 *  occ_single, purity=occ_single/occ_total), not just the top-n actually selected -- for
+	 *  answering "is there a cliff, should n be bigger" before committing to a production n. */
+	private String globalSingleDumpFile=null;
 	private boolean overwrite=true;
 	private java.io.PrintStream outstream=System.err;
+	/** Candidate-pool multiplier for the +200 extension's cost bound (FAMILYLIST_PLUS200_SPEC.md
+	 *  "The cost bound"): occ_single(F)<=occ_total(F) always, so restricting global occ_single
+	 *  computation to the top (globalSingle*this) non-selected families BY occ_total can only ever
+	 *  OVER-include true candidates, never drop one from the real top-globalSingle-by-occ_single -
+	 *  proven per-run by the crash-loud assert in extendWithGlobalSingle, not just assumed here. */
+	private static final int GLOBAL_SINGLE_CANDIDATE_MULT=25;
 }
