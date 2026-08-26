@@ -22,7 +22,10 @@ in=<file>       Input FASTA of pool sequences (e.g. all tRNAs).
 extra=<file>    Optional: additional sequences to weight the pool.
                 Typically the consensus models; added copies= times.
 copies=10       Number of copies of extra sequences to add to the pool.
-rcomp=f         Also add reverse-complement of each input sequence.
+rcomp=f         Canonicalize kmers: build the forward kmer and its reverse
+                complement in the same rolling pass and count/select/match
+                only the canonical (max) form, so a motif and its reverse
+                complement are treated as one kmer instead of two.
 
 Kmer parameters:
 k=17            Kmer length for selection and output.

@@ -3,6 +3,10 @@ package prok;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import dna.AminoAcid;
 import fileIO.FileFormat;
@@ -118,7 +122,7 @@ public class CoveringSet {
 				", step="+step+", rcomp="+rcomp);
 
 		final long designMask=~((-1L)<<(2*kDesign));
-		final LongIntMap originalCounts=countKmers(pool, kDesign, designMask);
+		final LongIntMap originalCounts=countKmersMT(pool, null, kDesign, designMask);
 		outstream.println("Distinct "+kDesign+"-mers in pool: "+originalCounts.size());
 
 		LongList selectedKmers=new LongList();
@@ -143,7 +147,7 @@ public class CoveringSet {
 						String.format("%.4f", gap)+", targetGap="+String.format("%.4f", targetGap)+")");
 			}
 
-			LongIntMap currentCounts=countKmersAlive(pool, alive, kDesign, designMask);
+			LongIntMap currentCounts=countKmersMT(pool, alive, kDesign, designMask);
 			if(currentCounts.isEmpty()){break;}
 
 			long[] candidates=topNByCount(currentCounts, currentStep*2);
@@ -158,7 +162,7 @@ public class CoveringSet {
 			}
 			if(added==0){break;}
 
-			int evicted=evictCovered(pool, alive, selectedSet, kDesign, designMask);
+			int evicted=evictCoveredMT(pool, alive, selectedSet, kDesign, designMask);
 			aliveCount-=evicted;
 			round++;
 
@@ -189,6 +193,8 @@ public class CoveringSet {
 			ros.add(output, 0);
 			errorState|=ReadWrite.closeStream(ros);
 		}
+
+		if(execPool!=null){execPool.shutdown();}
 
 		t.stop();
 		outstream.println("Time:   "+t);
@@ -226,10 +232,6 @@ public class CoveringSet {
 				if(r.bases!=null && r.length()>0){
 					Tools.toUpperCase(r.bases);
 					dest.add(r.bases);
-					if(rcomp){
-						byte[] rc=AminoAcid.reverseComplementBases(r.bases);
-						dest.add(rc);
-					}
 				}
 			}
 			cris.returnList(ln);
@@ -237,41 +239,97 @@ public class CoveringSet {
 		ReadWrite.closeStream(cris);
 	}
 
-	private LongIntMap countKmers(ArrayList<byte[]> pool, int kLen, long mask){
-		LongIntMap map=new LongIntMap((int)Tools.min(1<<20, pool.size()*50L));
-		for(byte[] bases : pool){
-			long kmer=0;
+	/** Counts kmers in pool[from,to), or only the alive ones there if alive!=null.
+	 * Rolls a forward kmer and (when rcomp is set) a reverse-complement kmer in
+	 * lockstep and stores only the canonical (max of the two) form -- same idiom
+	 * as prok/RiboMaker.loadFilter -- so a motif and its reverse complement are
+	 * counted as the SAME kmer instead of two independent ones. Runs against a
+	 * private LongIntMap so it's safe to call from multiple threads on disjoint
+	 * ranges of the same pool/alive arrays with no external synchronization. */
+	private LongIntMap countRange(ArrayList<byte[]> pool, boolean[] alive,
+			int from, int to, int kLen, long mask){
+		LongIntMap map=new LongIntMap((int)Tools.min(1<<20, (to-from)*10L+16));
+		final int shift2=2*kLen-2;
+		for(int i=from; i<to; i++){
+			if(alive!=null && !alive[i]){continue;}
+			byte[] bases=pool.get(i);
+			long kmer=0, rkmer=0;
 			int len=0;
 			for(byte b : bases){
 				int num=AminoAcid.baseToNumber[b];
 				if(num>=0){
 					kmer=((kmer<<2)|num)&mask;
+					if(rcomp){
+						long comp=AminoAcid.baseToComplementNumber[b];
+						rkmer=((rkmer>>>2)|(comp<<shift2))&mask;
+					}
 					len++;
-					if(len>=kLen){map.increment(kmer);}
-				}else{len=0; kmer=0;}
+					if(len>=kLen){map.increment(rcomp ? Tools.max(kmer, rkmer) : kmer);}
+				}else{len=0; kmer=0; rkmer=0;}
 			}
 		}
 		return map;
 	}
 
-	private LongIntMap countKmersAlive(ArrayList<byte[]> pool, boolean[] alive,
-			int kLen, long mask){
-		LongIntMap map=new LongIntMap((int)Tools.min(1<<20, pool.size()*10L));
-		for(int i=0; i<pool.size(); i++){
-			if(!alive[i]){continue;}
-			byte[] bases=pool.get(i);
-			long kmer=0;
-			int len=0;
-			for(byte b : bases){
-				int num=AminoAcid.baseToNumber[b];
-				if(num>=0){
-					kmer=((kmer<<2)|num)&mask;
-					len++;
-					if(len>=kLen){map.increment(kmer);}
-				}else{len=0; kmer=0;}
-			}
+	/** Minimum pool size before bothering to fan out across threads -- below this,
+	 * per-task submission overhead would exceed the work being parallelized. */
+	private static final int MIN_PARALLEL_POOL=64;
+
+	/** Worker pool for the per-round count/evict fan-out, sized by Shared.threads()
+	 * and created lazily on first use. REUSED across every round of the greedy
+	 * set-cover loop -- spawning fresh Threads per round (the first version of this
+	 * fix) cost more in thread-startup overhead than it saved once the algorithm's
+	 * ~18+ rounds each got their own thread-spawn tax; a persistent pool amortizes
+	 * that cost to (effectively) once per run, matching the pool()/Future pattern
+	 * already used for the same reason in TrnaConsensusBuilder. */
+	private ExecutorService pool(){
+		if(execPool==null){execPool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()));}
+		return execPool;
+	}
+	private ExecutorService execPool;
+
+	/** Multithreaded kmer counting: splits pool into Shared.threads() contiguous
+	 * ranges, counts each range independently into its OWN LongIntMap (no shared
+	 * mutable state, so no contention or synchronization needed inside the hot
+	 * per-base loop), then merges the per-thread maps with LongIntMap.incrementAll.
+	 * alive==null counts the whole pool (the one-time full-corpus count); a
+	 * non-null alive[] counts only the currently-uncovered sequences (the
+	 * per-round recount in the greedy set-cover loop). Falls back to a single
+	 * direct countRange call when the pool is too small to be worth splitting. */
+	private LongIntMap countKmersMT(final ArrayList<byte[]> pool, final boolean[] alive,
+			final int kLen, final long mask){
+		final int n=pool.size();
+		final int threads=Tools.max(1, Shared.threads());
+		if(threads<=1 || n<MIN_PARALLEL_POOL){
+			return countRange(pool, alive, 0, n, kLen, mask);
 		}
-		return map;
+		final int chunk=(n+threads-1)/threads;
+		final ArrayList<Future<LongIntMap>> futures=new ArrayList<>(threads);
+		for(int t=0; t<threads; t++){
+			final int from=t*chunk, to=Tools.min(n, from+chunk);
+			if(from>=to){continue;}
+			futures.add(pool().submit(new Callable<LongIntMap>(){
+				@Override
+				public LongIntMap call(){return countRange(pool, alive, from, to, kLen, mask);}
+			}));
+		}
+		final ArrayList<LongIntMap> results=new ArrayList<>(futures.size());
+		long sumSizes=0;
+		for(Future<LongIntMap> f : futures){
+			LongIntMap m;
+			try{m=f.get();}catch(Exception e){throw new RuntimeException(e);}
+			results.add(m);
+			sumSizes+=m.size();
+		}
+		if(results.isEmpty()){return new LongIntMap(16);}
+		//Pre-size the merge target to the worst-case total (as if every key were
+		//distinct across threads) so incrementAll below triggers at most one resize
+		//instead of resizing repeatedly as it grows -- each resize is O(current
+		//size), so folding into an undersized map that doubles ~log2(threads) times
+		//can cost a large fraction of the whole merge.
+		final LongIntMap merged=new LongIntMap((int)Tools.min(Integer.MAX_VALUE/2, sumSizes+16));
+		for(LongIntMap m : results){merged.incrementAll(m);}
+		return merged;
 	}
 
 	/** Returns the top N kmers by count from the map, sorted descending. */
@@ -301,30 +359,65 @@ public class CoveringSet {
 		return candidates.length<=keep ? candidates : Arrays.copyOf(candidates, keep);
 	}
 
-	/** Marks sequences as not-alive if they contain any selected kmer.
-	 * Returns number of newly evicted sequences. */
-	private int evictCovered(ArrayList<byte[]> pool, boolean[] alive,
-			LongHashSet selected, int kLen, long mask){
+	/** Marks sequences as not-alive if they contain any selected (canonical) kmer,
+	 * over pool[from,to). Only reads `selected` (a fixed snapshot for the whole
+	 * round) and writes exclusively to its own index range of `alive`, so this is
+	 * safe to run from multiple threads on disjoint ranges concurrently.
+	 * Returns the number of newly evicted sequences in this range. */
+	private int evictRange(ArrayList<byte[]> pool, boolean[] alive,
+			LongHashSet selected, int from, int to, int kLen, long mask){
 		int evicted=0;
-		for(int i=0; i<pool.size(); i++){
+		final int shift2=2*kLen-2;
+		for(int i=from; i<to; i++){
 			if(!alive[i]){continue;}
 			byte[] bases=pool.get(i);
-			long kmer=0;
+			long kmer=0, rkmer=0;
 			int len=0;
 			for(byte b : bases){
 				int num=AminoAcid.baseToNumber[b];
 				if(num>=0){
 					kmer=((kmer<<2)|num)&mask;
+					if(rcomp){
+						long comp=AminoAcid.baseToComplementNumber[b];
+						rkmer=((rkmer>>>2)|(comp<<shift2))&mask;
+					}
 					len++;
-					if(len>=kLen && selected.contains(kmer)){
+					if(len>=kLen && selected.contains(rcomp ? Tools.max(kmer, rkmer) : kmer)){
 						alive[i]=false;
 						evicted++;
 						break;
 					}
-				}else{len=0; kmer=0;}
+				}else{len=0; kmer=0; rkmer=0;}
 			}
 		}
 		return evicted;
+	}
+
+	/** Multithreaded wrapper for evictRange -- same chunking/fallback/reused-pool
+	 * strategy as countKmersMT. Threads write disjoint indices of `alive`, so no
+	 * merge step is needed beyond summing the per-thread eviction counts. */
+	private int evictCoveredMT(final ArrayList<byte[]> pool, final boolean[] alive,
+			final LongHashSet selected, final int kLen, final long mask){
+		final int n=pool.size();
+		final int threads=Tools.max(1, Shared.threads());
+		if(threads<=1 || n<MIN_PARALLEL_POOL){
+			return evictRange(pool, alive, selected, 0, n, kLen, mask);
+		}
+		final int chunk=(n+threads-1)/threads;
+		final ArrayList<Future<Integer>> futures=new ArrayList<>(threads);
+		for(int t=0; t<threads; t++){
+			final int from=t*chunk, to=Tools.min(n, from+chunk);
+			if(from>=to){continue;}
+			futures.add(pool().submit(new Callable<Integer>(){
+				@Override
+				public Integer call(){return evictRange(pool, alive, selected, from, to, kLen, mask);}
+			}));
+		}
+		int total=0;
+		for(Future<Integer> f : futures){
+			try{total+=f.get();}catch(Exception e){throw new RuntimeException(e);}
+		}
+		return total;
 	}
 
 	/** Converts selected kmer longs into single-kmer FASTA reads. */
