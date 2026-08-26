@@ -59,19 +59,21 @@ public class BubblePopper {
 //		debranch(c);
 		
 		while(popDirect && expandRightSimple()){count++;}
-		while(popIndirect && center.rightForwardBranch() && expandRight()){
+		while((popIndirect || unzipBubbles) && center.rightForwardBranch() && expandRight()){
 			count++;
 			while(popDirect && expandRightSimple()){count++;}
 		}
 		
 		if((popDirect && (crossKMerge || (center.leftCode!=Tadpole.LOOP && center.leftCode!=Tadpole.DEAD_END)) && center.leftEdges!=null)
-				|| (popIndirect && center.leftForwardBranch())){
+				|| ((popIndirect || unzipBubbles) && center.leftForwardBranch())){
+			final int countBeforeFlip=count;
 			center.flip(destMap.get(center.id));
 			while(popDirect && expandRightSimple()){count++;}
-			while(popIndirect && center.rightForwardBranch() && expandRight()) {
+			while((popIndirect || unzipBubbles) && center.rightForwardBranch() && expandRight()) {
 				count++;
 				while(popDirect && expandRightSimple()){count++;}
 			}
+			if(unzipBubbles && count==countBeforeFlip){center.flip(destMap.get(center.id));}
 //			center.flip(destMap.get(center.id));
 		}
 		assert(!validateGraph || validate(c));
@@ -403,12 +405,17 @@ public class BubblePopper {
 			return false;
 		}
 		
-		ArrayList<Contig> midNodes=fetchMidNodes(outbound, true);
-		if(midNodes==null){return false;}
+		final ArrayList<Contig> flippedMids=new ArrayList<Contig>(outbound.size());
+		ArrayList<Contig> midNodes=fetchMidNodes(outbound, true, flippedMids);
+		if(midNodes==null){
+			restoreOrientation(flippedMids, false);
+			return false;
+		}
 		//Now we have all intermediate nodes, which are flipped into the correct orientation.
 		
 		if(!midNodesConcur(midNodes)){
 			if(verbose){System.err.println("Mid nodes do not concur.");}
+			restoreOrientation(flippedMids, false);
 			return false;
 		}
 		
@@ -420,12 +427,28 @@ public class BubblePopper {
 		
 		//Now the destination is also flipped into the correct orientation.
 		final Edge rightMidEdge=mid.getRightEdge(dest.id, 1);
-		if(rightMidEdge==null){return false;}
+		if(rightMidEdge==null){
+			restoreOrientation(flippedMids, mutualDestRight);
+			return false;
+		}
 
 		final ArrayList<Contig> errorMids=findErrorMids(outbound, midNodes, mid,
 				leftMidEdge, rightMidEdge);
-		if(errorMids==null || errorMids.isEmpty()){
+		if(errorMids==null){
+			if(verbose){System.err.println("Bubble could not be classified safely.");}
+			restoreOrientation(flippedMids, mutualDestRight);
+			return false;
+		}
+		if(errorMids.isEmpty()){
 			if(verbose){System.err.println("No alternate paths classified as errors.");}
+			if(unzipBubbles && unzipTrueBubble(center, dest, mid, leftMidEdge, rightMidEdge, midNodes)){
+				return true;
+			}
+			restoreOrientation(flippedMids, mutualDestRight);
+			return false;
+		}
+		if(!popIndirect){
+			restoreOrientation(flippedMids, mutualDestRight);
 			return false;
 		}
 		if(errorMids.size()<midNodes.size()-1){
@@ -436,6 +459,16 @@ public class BubblePopper {
 		if(verbose){System.err.println("Popping bubble between "+center.id+" and "+dest.id);}
 		return pop(center, dest, mid, leftMidEdge, rightMidEdge, midNodes);
 		
+	}
+
+	/** Restores orientation after a declined candidate, in reverse mutation order. */
+	private void restoreOrientation(ArrayList<Contig> flippedMids, boolean destFlipped){
+		if(!unzipBubbles){return;}
+		if(destFlipped){dest.flip(destMap.get(dest.id));}
+		for(int i=flippedMids.size()-1; i>=0; i--){
+			Contig c=flippedMids.get(i);
+			c.flip(destMap.get(c.id));
+		}
 	}
 
 	/** Returns alternate mid nodes whose entry and exit branch counts both indicate error. */
@@ -490,6 +523,161 @@ public class BubblePopper {
 		assert(!validateGraph || validate(center));
 		assert(!validateGraph || validate(dest));
 		return true;
+	}
+
+	/**
+	 * Linearizes an isolated two-arm biological bubble into two terminal products.
+	 * This deliberately declines bubbles with any exterior connectivity; duplicating
+	 * shared flanks inside a larger graph would otherwise invent unsupported phasing.
+	 */
+	private boolean unzipTrueBubble(Contig left, Contig right, Contig representative,
+			Edge representativeEntry, Edge representativeExit, ArrayList<Contig> midNodes){
+		if(midNodes.size()!=2 || left==right || left.used() || left.associate()
+				|| right.used() || right.associate()){return false;}
+		if(left.leftCode!=Tadpole.DEAD_END || right.rightCode!=Tadpole.DEAD_END){return false;}
+		if(left.leftEdgeCount()!=0 || right.rightEdgeCount()!=0){return false;}
+		if(countInbound(left.id, false)!=0 || countInbound(right.id, true)!=0){return false;}
+		if(left.rightEdgeCount()!=2 || right.leftEdgeCount()!=2){return false;}
+
+		final int representativeIndex=midNodes.indexOf(representative);
+		if(representativeIndex<0){return false;}
+		final Contig alternate=midNodes.get(1-representativeIndex);
+		if(alternate==representative || representative.used() || representative.associate()
+				|| alternate.used() || alternate.associate()){return false;}
+
+		final Edge alternateEntry=findEdge(left.rightEdges, alternate.id);
+		final Edge alternateExit=alternate.getRightEdge(right.id, 1);
+		if(alternateEntry==null || alternateExit==null){return false;}
+		if(isErrorArm(alternateEntry, alternateExit, representativeEntry, representativeExit)){return false;}
+
+		final Edge representativeBack=representative.getLeftEdge(left.id, 2);
+		final Edge alternateBack=alternate.getLeftEdge(left.id, 2);
+		final Edge rightToRepresentative=findEdge(right.leftEdges, representative.id);
+		final Edge rightToAlternate=findEdge(right.leftEdges, alternate.id);
+		if(!validBubbleArm(left, right, representative, representativeEntry, representativeBack,
+				representativeExit, rightToRepresentative)
+				|| !validBubbleArm(left, right, alternate, alternateEntry, alternateBack,
+						alternateExit, rightToAlternate)){return false;}
+
+		if(!inboundExactly(representative.id, representativeEntry, rightToRepresentative)
+				|| !inboundExactly(alternate.id, alternateEntry, rightToAlternate)
+				|| !inboundExactly(left.id, representativeBack, alternateBack)
+				|| !inboundExactly(right.id, representativeExit, alternateExit)){return false;}
+
+		final byte[] representativePath=makePath(left, representativeEntry, representative,
+				representativeExit, right);
+		final byte[] alternatePath=makePath(left, alternateEntry, alternate, alternateExit, right);
+		if(representativePath==null || alternatePath==null){return false;}
+
+		final long entryDepthSum=(long)representativeEntry.depth+alternateEntry.depth;
+		final long exitDepthSum=(long)representativeExit.depth+alternateExit.depth;
+		if(entryDepthSum<1 || exitDepthSum<1){return false;}
+		final float representativeCoverage=pathCoverage(left, representativeEntry, representative,
+				representativeExit, right, representativePath.length,
+				representativeEntry.depth/(float)entryDepthSum, representativeExit.depth/(float)exitDepthSum);
+		final float alternateCoverage=pathCoverage(left, alternateEntry, alternate,
+				alternateExit, right, alternatePath.length,
+				alternateEntry.depth/(float)entryDepthSum, alternateExit.depth/(float)exitDepthSum);
+		final int leftMin=left.minCov, leftMax=left.maxCov;
+		final int rightMin=right.minCov, rightMax=right.maxCov;
+
+		representative.setUsed(destMap, allContigs);
+		alternate.setUsed(destMap, allContigs);
+		assert(left.leftEdges==null && left.rightEdges==null);
+		assert(right.leftEdges==null && right.rightEdges==null);
+
+		setTerminalProduct(left, representativePath, representativeCoverage,
+				Tools.min(leftMin, rightMin, representative.minCov),
+				Tools.max(leftMax, rightMax, representative.maxCov));
+		setTerminalProduct(right, alternatePath, alternateCoverage,
+				Tools.min(leftMin, rightMin, alternate.minCov),
+				Tools.max(leftMax, rightMax, alternate.maxCov));
+
+		expansions++;
+		trueBubblesUnzipped++;
+		contigsAbsorbed+=2;
+		assert(!validateGraph || validate(left));
+		assert(!validateGraph || validate(right));
+		assert(!validateGraph || validate(representative));
+		assert(!validateGraph || validate(alternate));
+		return true;
+	}
+
+	/** Requires one exact reciprocal, sequence-consistent path through an arm. */
+	private boolean validBubbleArm(Contig left, Contig right, Contig mid, Edge entry,
+			Edge back, Edge exit, Edge reverseExit){
+		if(mid==left || mid==right || mid.length()<kbig){return false;}
+		if(mid.leftEdgeCount()!=1 || mid.rightEdgeCount()!=1){return false;}
+		if(entry==null || back==null || exit==null || reverseExit==null){return false;}
+		if(entry.origin!=left.id || entry.destination!=mid.id || entry.orientation!=1){return false;}
+		if(back.origin!=mid.id || back.destination!=left.id || back.orientation!=2){return false;}
+		if(exit.origin!=mid.id || exit.destination!=right.id || exit.orientation!=1){return false;}
+		if(reverseExit.origin!=right.id || reverseExit.destination!=mid.id || reverseExit.orientation!=2){return false;}
+		if(entry.depth<1 || exit.depth<1 || entry.length!=back.length || entry.depth!=back.depth
+				|| exit.length!=reverseExit.length || exit.depth!=reverseExit.depth){return false;}
+		return validForwardEdge(left, mid, entry) && validForwardEdge(mid, right, exit);
+	}
+
+	/** Validates the sequence overlap represented by an oriented forward edge. */
+	private boolean validForwardEdge(Contig source, Contig target, Edge e){
+		if(source.length()<kbig || target.length()<kbig || e.length<1
+				|| e.bases==null || e.bases.length!=e.length){return false;}
+		if(e.length<=kbig){
+			final int shared=kbig-e.length;
+			for(int i=0; i<shared; i++){
+				if(source.bases[source.length()-shared+i]!=target.bases[i]){return false;}
+			}
+			for(int i=0; i<e.length; i++){
+				if(e.bases[i]!=target.bases[shared+i]){return false;}
+			}
+		}else{
+			for(int i=0; i<kbig; i++){
+				if(e.bases[e.length-kbig+i]!=target.bases[i]){return false;}
+			}
+		}
+		return true;
+	}
+
+	/** The destination map must contain exactly these two distinct inbound edges. */
+	private boolean inboundExactly(int id, Edge a, Edge b){
+		if(a==null || b==null || a==b){return false;}
+		final ArrayList<Edge> inbound=destMap.get(id);
+		return inbound!=null && inbound.size()==2 && inbound.contains(a) && inbound.contains(b);
+	}
+
+	/** Builds one oriented left-arm-right product using ordinary exact-k joins. */
+	private byte[] makePath(Contig left, Edge entry, Contig mid, Edge exit, Contig right){
+		bb.clear();
+		bb.append(left.bases);
+		bb.append(entry.bases);
+		for(int i=kbig; i<mid.bases.length; i++){bb.append(mid.bases[i]);}
+		bb.append(exit.bases);
+		for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
+		return bb.length()>=kbig ? bb.toBytes() : null;
+	}
+
+	/** Returns span-weighted kmer coverage for one unzipped path. */
+	private float pathCoverage(Contig left, Edge entry, Contig mid, Edge exit, Contig right,
+			int pathLength, float leftFraction, float rightFraction){
+		final double sum=left.coverage*(left.length()-kbig+1)*leftFraction
+				+mid.coverage*(mid.length()-kbig+1)+right.coverage*(right.length()-kbig+1)*rightFraction
+				+entry.depth*Tools.max(0, entry.length-1)+exit.depth*Tools.max(0, exit.length-1);
+		return (float)(sum/(pathLength-kbig+1));
+	}
+
+	/** Reinitializes a reused flank contig as an edge-free linear product. */
+	private static void setTerminalProduct(Contig c, byte[] bases, float coverage, int minCov, int maxCov){
+		c.bases=bases;
+		c.coverage=coverage;
+		c.minCov=minCov;
+		c.maxCov=maxCov;
+		c.name=null;
+		c.tid=-1;
+		c.gc=c.hh=c.caga=-1;
+		c.leftCode=c.rightCode=Tadpole.DEAD_END;
+		c.leftRatio=c.rightRatio=0;
+		c.leftBridgeEndpoint=c.rightBridgeEndpoint=true;
+		c.leftEdges=c.rightEdges=null;
 	}
 	
 	/**
@@ -830,6 +1018,10 @@ public class BubblePopper {
 	 * @return The best representative edge, or null if none suitable
 	 */
 	private Edge findRepresentativeMidEdge(ArrayList<Edge> edges){
+		//TODO: Probable bug - preferring any >=minLen arm can select a long low-depth error arm
+		//over a shorter high-depth real arm.  popIndirect then compares only other arms against
+		//that low representative and can miss the error; unzipTrueBubble has a symmetric guard,
+		//but changing the destructive prune selector needs separate regression evidence.
 		Edge midEdge=null;
 		Contig mid=null;
 		for(Edge e : edges){
@@ -926,7 +1118,8 @@ public class BubblePopper {
 	 * @param flipAsNeeded Whether to flip nodes for consistent orientation
 	 * @return List of intermediate contigs, or null if invalid structure
 	 */
-	private ArrayList<Contig> fetchMidNodes(ArrayList<Edge> outbound, boolean flipAsNeeded){
+	private ArrayList<Contig> fetchMidNodes(ArrayList<Edge> outbound, boolean flipAsNeeded,
+			ArrayList<Contig> flippedMids){
 		ArrayList<Contig> midNodes=new ArrayList<Contig>(outbound.size());
 		for(Edge e : outbound){
 			Contig mid=allContigs.get(e.destination);
@@ -937,6 +1130,7 @@ public class BubblePopper {
 				midNodes.add(mid);
 				if(flipAsNeeded && e.destRight()){
 					mid.flip(destMap.get(mid.id));
+					flippedMids.add(mid);
 				}
 			}
 		}
@@ -1110,6 +1304,8 @@ public class BubblePopper {
 	int expansions=0;
 	/** Counter for contigs merged or absorbed during operations */
 	int contigsAbsorbed=0;
+	/** Counter for isolated biological bubbles unzipped into two terminal paths */
+	int trueBubblesUnzipped=0;
 	/** Counter for branches removed during debranching operations */
 	long branchesRemoved=0;
 
@@ -1119,6 +1315,8 @@ public class BubblePopper {
 	static boolean popDirect=true;
 	/** Whether depth-gated indirect error-bubble cleanup is enabled */
 	static boolean popIndirect=false;
+	/** Whether isolated two-arm biological bubbles are unzipped into two terminal paths */
+	static boolean unzipBubbles=false;
 	/** Whether direct merges join contigs built at a longer kmer length. */
 	static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */

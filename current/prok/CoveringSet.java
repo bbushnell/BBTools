@@ -87,6 +87,10 @@ public class CoveringSet {
 				copies=Integer.parseInt(b);
 			}else if(a.equals("rcomp")){
 				rcomp=Parse.parseBoolean(b);
+			}else if(a.equals("partitions") || a.equals("numpartitions")){
+				numPartitions=Integer.parseInt(b);
+			}else if(a.equals("bufsize") || a.equals("partitionbuffer")){
+				bufferSize=Integer.parseInt(b);
 			}else if(parser.parse(arg, a, b)){
 				//handled
 			}else{
@@ -117,12 +121,21 @@ public class CoveringSet {
 	void process(Timer t){
 		ArrayList<byte[]> pool=loadPool();
 		final int totalSeqs=pool.size();
+		//numPartitions unset (<=0) means "scale with available threads" -- resolved
+		//here rather than in field init since Shared.threads() reflects t= parsing
+		//that happens after this object is constructed.
+		if(numPartitions<=0){numPartitions=Tools.max(15, Shared.threads());}
 		outstream.println("Pool: "+totalSeqs+" sequences, k="+k+
 				(kDesign!=k ? " (design k="+kDesign+")" : "")+
-				", step="+step+", rcomp="+rcomp);
+				", step="+step+", rcomp="+rcomp+", partitions="+numPartitions+", bufsize="+bufferSize);
+
+		long totalBases=0;
+		for(byte[] seq : pool){totalBases+=seq.length;}
 
 		final long designMask=~((-1L)<<(2*kDesign));
-		final LongIntMap originalCounts=countKmersMT(pool, null, kDesign, designMask);
+		//totalBases is a safe (if loose) upper bound on distinct kDesign-mers -- used
+		//only to pre-size the partition shards, never a correctness constraint.
+		final PartitionedCounter originalCounts=countKmersMT(pool, null, kDesign, designMask, totalBases);
 		outstream.println("Distinct "+kDesign+"-mers in pool: "+originalCounts.size());
 
 		LongList selectedKmers=new LongList();
@@ -147,7 +160,10 @@ public class CoveringSet {
 						String.format("%.4f", gap)+", targetGap="+String.format("%.4f", targetGap)+")");
 			}
 
-			LongIntMap currentCounts=countKmersMT(pool, alive, kDesign, designMask);
+			//originalCounts.size() upper-bounds any later round's distinct count
+			//(coverage only shrinks the alive set), so it's a safe, already-known
+			//sizing hint -- no extra pool scan needed each round.
+			PartitionedCounter currentCounts=countKmersMT(pool, alive, kDesign, designMask, originalCounts.size());
 			if(currentCounts.isEmpty()){break;}
 
 			long[] candidates=topNByCount(currentCounts, currentStep*2);
@@ -239,16 +255,134 @@ public class CoveringSet {
 		ReadWrite.closeStream(cris);
 	}
 
-	/** Counts kmers in pool[from,to), or only the alive ones there if alive!=null.
-	 * Rolls a forward kmer and (when rcomp is set) a reverse-complement kmer in
-	 * lockstep and stores only the canonical (max of the two) form -- same idiom
-	 * as prok/RiboMaker.loadFilter -- so a motif and its reverse complement are
-	 * counted as the SAME kmer instead of two independent ones. Runs against a
-	 * private LongIntMap so it's safe to call from multiple threads on disjoint
-	 * ranges of the same pool/alive arrays with no external synchronization. */
-	private LongIntMap countRange(ArrayList<byte[]> pool, boolean[] alive,
-			int from, int to, int kLen, long mask){
-		LongIntMap map=new LongIntMap((int)Tools.min(1<<20, (to-from)*10L+16));
+	/** Minimum pool size before bothering to fan out across threads -- below this,
+	 * per-task submission overhead would exceed the work being parallelized. */
+	private static final int MIN_PARALLEL_POOL=64;
+
+	/** Worker pool for the per-round count/evict fan-out, sized by Shared.threads()
+	 * and created lazily on first use. REUSED across every round of the greedy
+	 * set-cover loop -- spawning fresh Threads per round cost more in thread-startup
+	 * overhead than it saved once the algorithm's ~18+ rounds each paid that tax; a
+	 * persistent pool amortizes it to (effectively) once per run, matching the
+	 * pool()/Future pattern already used for the same reason in
+	 * TrnaConsensusBuilder. */
+	private ExecutorService pool(){
+		if(execPool==null){execPool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()));}
+		return execPool;
+	}
+	private ExecutorService execPool;
+
+	/** Partitioned kmer counter (Brian's design, 2026-08-26). The previous
+	 * multithreaded version gave each thread its own private LongIntMap, then
+	 * folded all of them into one map at the end -- correct, but that final
+	 * fold is inherently serial and, measured directly, ate roughly a third of
+	 * the whole multithreaded runtime (worse the fewer times each kmer repeats,
+	 * since repeats are what the fold-by-increment amortizes over). It also caps
+	 * total distinct kmers at whatever one LongIntMap can hold.
+	 * <p>
+	 * This splits the kmer space itself across `numPartitions` independent
+	 * LongIntMap shards, each guarded by its own lock. A thread never writes a
+	 * shard directly -- it accumulates kmers into its own small per-partition
+	 * buffer (a LocalBuffer, NOT shared with other threads) and only takes a
+	 * shard's lock to flush a full batch. So lock acquisitions happen once per
+	 * `bufferSize` kmers per partition, not once per kmer, keeping contention
+	 * low even with many threads hammering the same run. Once every thread's
+	 * range is processed and its buffers flushed, the counts are already in
+	 * their final home -- there is no merge step at all. Splitting across
+	 * shards also means total capacity is N separate LongIntMaps instead of
+	 * one, so a corpus with more distinct kmers than a single table comfortably
+	 * holds (the motivating case: RefSeq Plastid, 2.4Gbp, ~500M distinct
+	 * kmers) is no longer a ceiling. */
+	private final class PartitionedCounter {
+		final LongIntMap[] shards;
+		final Object[] locks;
+
+		PartitionedCounter(long expectedDistinct){
+			shards=new LongIntMap[numPartitions];
+			locks=new Object[numPartitions];
+			final int perShard=(int)Tools.max(256, expectedDistinct/numPartitions+1);
+			for(int i=0; i<numPartitions; i++){
+				shards[i]=new LongIntMap(perShard);
+				locks[i]=new Object();
+			}
+		}
+
+		private int way(long kmer){return (int)(kmer%numPartitions);}
+
+		/** Per-thread accumulation buffer -- create one per worker via
+		 * newLocalBuffer(), never share it across threads, and call flushAll()
+		 * exactly once when that worker's assigned range is fully processed. */
+		final class LocalBuffer {
+			private final long[][] buf=new long[numPartitions][bufferSize];
+			private final int[] size=new int[numPartitions];
+
+			void add(long kmer){
+				final int w=way(kmer);
+				int s=size[w];
+				buf[w][s]=kmer;
+				s++;
+				if(s>=bufferSize){flush(w, s); s=0;}
+				size[w]=s;
+			}
+
+			private void flush(int w, int n){
+				final long[] b=buf[w];
+				final LongIntMap shard=shards[w];
+				synchronized(locks[w]){
+					for(int i=0; i<n; i++){shard.increment(b[i]);}
+				}
+			}
+
+			void flushAll(){
+				for(int w=0; w<numPartitions; w++){
+					if(size[w]>0){flush(w, size[w]); size[w]=0;}
+				}
+			}
+		}
+
+		LocalBuffer newLocalBuffer(){return new LocalBuffer();}
+
+		int get(long kmer){return shards[way(kmer)].get(kmer);}
+
+		long size(){
+			long sum=0;
+			for(LongIntMap m : shards){sum+=m.size();}
+			return sum;
+		}
+
+		boolean isEmpty(){return size()==0;}
+
+		/** All real keys across every shard. Uses each shard's toArray() (the
+		 * filtered accessor), never the raw keys() array -- found while
+		 * rewriting this that the previous single-map code path used the raw
+		 * keys() array, which includes empty-slot sentinels, and could rank or
+		 * even select a phantom sentinel "kmer" whenever a map's backing array
+		 * was small relative to the requested top-N. Not otherwise reachable
+		 * in a normal run (needs a tiny pool relative to step), but a real
+		 * latent bug, fixed here as a side effect of touching this code. */
+		long[] keys(){
+			long total=size();
+			long[] out=new long[(int)total];
+			int pos=0;
+			for(LongIntMap m : shards){
+				long[] k=m.toArray();
+				System.arraycopy(k, 0, out, pos, k.length);
+				pos+=k.length;
+			}
+			return out;
+		}
+	}
+
+	/** Fills pool[from,to) (or only the alive ones there, if alive!=null) into a
+	 * per-thread LocalBuffer. Rolls a forward kmer and (when rcomp is set) a
+	 * reverse-complement kmer in lockstep and buffers only the canonical (max
+	 * of the two) form -- same idiom as prok/RiboMaker.loadFilter -- so a motif
+	 * and its reverse complement are counted as the SAME kmer instead of two
+	 * independent ones. `buf` must be this thread's own LocalBuffer: safe to
+	 * call from multiple threads concurrently as long as each call gets a
+	 * distinct buffer and a disjoint [from,to) range of the same pool/alive. */
+	private void fillRange(ArrayList<byte[]> pool, boolean[] alive, int from, int to,
+			int kLen, long mask, PartitionedCounter.LocalBuffer buf){
 		final int shift2=2*kLen-2;
 		for(int i=from; i<to; i++){
 			if(alive!=null && !alive[i]){continue;}
@@ -264,93 +398,62 @@ public class CoveringSet {
 						rkmer=((rkmer>>>2)|(comp<<shift2))&mask;
 					}
 					len++;
-					if(len>=kLen){map.increment(rcomp ? Tools.max(kmer, rkmer) : kmer);}
+					if(len>=kLen){buf.add(rcomp ? Tools.max(kmer, rkmer) : kmer);}
 				}else{len=0; kmer=0; rkmer=0;}
 			}
 		}
-		return map;
+		buf.flushAll();
 	}
 
-	/** Minimum pool size before bothering to fan out across threads -- below this,
-	 * per-task submission overhead would exceed the work being parallelized. */
-	private static final int MIN_PARALLEL_POOL=64;
-
-	/** Worker pool for the per-round count/evict fan-out, sized by Shared.threads()
-	 * and created lazily on first use. REUSED across every round of the greedy
-	 * set-cover loop -- spawning fresh Threads per round (the first version of this
-	 * fix) cost more in thread-startup overhead than it saved once the algorithm's
-	 * ~18+ rounds each got their own thread-spawn tax; a persistent pool amortizes
-	 * that cost to (effectively) once per run, matching the pool()/Future pattern
-	 * already used for the same reason in TrnaConsensusBuilder. */
-	private ExecutorService pool(){
-		if(execPool==null){execPool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()));}
-		return execPool;
-	}
-	private ExecutorService execPool;
-
-	/** Multithreaded kmer counting: splits pool into Shared.threads() contiguous
-	 * ranges, counts each range independently into its OWN LongIntMap (no shared
-	 * mutable state, so no contention or synchronization needed inside the hot
-	 * per-base loop), then merges the per-thread maps with LongIntMap.incrementAll.
-	 * alive==null counts the whole pool (the one-time full-corpus count); a
-	 * non-null alive[] counts only the currently-uncovered sequences (the
-	 * per-round recount in the greedy set-cover loop). Falls back to a single
-	 * direct countRange call when the pool is too small to be worth splitting. */
-	private LongIntMap countKmersMT(final ArrayList<byte[]> pool, final boolean[] alive,
-			final int kLen, final long mask){
+	/** Multithreaded partitioned kmer counting -- see PartitionedCounter's own
+	 * doc for why this replaced the previous private-map-per-thread-then-merge
+	 * design. alive==null counts the whole pool (the one-time full-corpus
+	 * count); a non-null alive[] counts only the currently-uncovered sequences
+	 * (the per-round recount). expectedDistinct is only a SIZING HINT for the
+	 * shards (never a correctness constraint) -- pass the best upper-bound
+	 * estimate available; under- or over-estimating just costs a few extra
+	 * resizes or a little unused capacity. Falls back to a single-threaded fill
+	 * (still partitioned, so the return type and downstream code are uniform)
+	 * when the pool is too small to be worth splitting across threads. */
+	private PartitionedCounter countKmersMT(final ArrayList<byte[]> pool, final boolean[] alive,
+			final int kLen, final long mask, long expectedDistinct){
+		final PartitionedCounter counter=new PartitionedCounter(expectedDistinct);
 		final int n=pool.size();
 		final int threads=Tools.max(1, Shared.threads());
 		if(threads<=1 || n<MIN_PARALLEL_POOL){
-			return countRange(pool, alive, 0, n, kLen, mask);
+			fillRange(pool, alive, 0, n, kLen, mask, counter.newLocalBuffer());
+			return counter;
 		}
 		final int chunk=(n+threads-1)/threads;
-		final ArrayList<Future<LongIntMap>> futures=new ArrayList<>(threads);
+		final ArrayList<Future<?>> futures=new ArrayList<>(threads);
 		for(int t=0; t<threads; t++){
 			final int from=t*chunk, to=Tools.min(n, from+chunk);
 			if(from>=to){continue;}
-			futures.add(pool().submit(new Callable<LongIntMap>(){
+			final PartitionedCounter.LocalBuffer buf=counter.newLocalBuffer();
+			futures.add(pool().submit(new Runnable(){
 				@Override
-				public LongIntMap call(){return countRange(pool, alive, from, to, kLen, mask);}
+				public void run(){fillRange(pool, alive, from, to, kLen, mask, buf);}
 			}));
 		}
-		final ArrayList<LongIntMap> results=new ArrayList<>(futures.size());
-		long sumSizes=0;
-		for(Future<LongIntMap> f : futures){
-			LongIntMap m;
-			try{m=f.get();}catch(Exception e){throw new RuntimeException(e);}
-			results.add(m);
-			sumSizes+=m.size();
+		for(Future<?> f : futures){
+			try{f.get();}catch(Exception e){throw new RuntimeException(e);}
 		}
-		if(results.isEmpty()){return new LongIntMap(16);}
-		//Pre-size the merge target to the worst-case total (as if every key were
-		//distinct across threads) so incrementAll below triggers at most one resize
-		//instead of resizing repeatedly as it grows -- each resize is O(current
-		//size), so folding into an undersized map that doubles ~log2(threads) times
-		//can cost a large fraction of the whole merge.
-		final LongIntMap merged=new LongIntMap((int)Tools.min(Integer.MAX_VALUE/2, sumSizes+16));
-		for(LongIntMap m : results){merged.incrementAll(m);}
-		return merged;
+		return counter;
 	}
 
-	/** Returns the top N kmers by count from the map, sorted descending. */
-	private long[] topNByCount(LongIntMap map, int n){
-		long[] keys=map.keys();
+	/** Returns the top N kmers by count from the counter, sorted descending. */
+	private long[] topNByCount(PartitionedCounter counter, int n){
+		long[] keys=counter.keys();
 		int[] counts=new int[keys.length];
 		for(int i=0; i<keys.length; i++){
-			counts[i]=map.get(keys[i]);
+			counts[i]=counter.get(keys[i]);
 		}
-		//Sort by count descending: co-sort keys by counts
-		int valid=keys.length;
-		if(valid<=n){
-			coSortDescending(keys, counts, valid);
-			return keys;
-		}
-		coSortDescending(keys, counts, valid);
-		return Arrays.copyOf(keys, n);
+		coSortDescending(keys, counts, keys.length);
+		return keys.length<=n ? keys : Arrays.copyOf(keys, n);
 	}
 
 	/** From the candidate list, re-rank by original prevalence, keep top step. */
-	private long[] rankByOriginal(long[] candidates, LongIntMap originalCounts, int keep){
+	private long[] rankByOriginal(long[] candidates, PartitionedCounter originalCounts, int keep){
 		int[] origCounts=new int[candidates.length];
 		for(int i=0; i<candidates.length; i++){
 			origCounts[i]=originalCounts.get(candidates[i]);
@@ -510,6 +613,14 @@ public class CoveringSet {
 	private float minCovFraction=0.999f;
 	private int copies=10;
 	private boolean rcomp=false;
+	/** Number of PartitionedCounter shards. <=0 (default) resolves in process()
+	 * to max(15, Shared.threads()) -- Brian's illustrative N=15, scaled up so a
+	 * high-thread-count cluster node still gets enough shards to keep lock
+	 * collisions rare. */
+	private int numPartitions=-1;
+	/** Per-thread, per-partition batch size before a flush takes that
+	 * partition's lock (Brian's illustrative 200). */
+	private int bufferSize=200;
 
 	private PrintStream outstream=System.err;
 	private static boolean verbose=false;

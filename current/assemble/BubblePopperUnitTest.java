@@ -13,9 +13,11 @@ public class BubblePopperUnitTest {
 
 	public static void main(String[] args){
 		check(!BubblePopper.popIndirect, "Indirect graph cleanup must default off");
+		check(!BubblePopper.unzipBubbles, "True-bubble unzipping must default off");
 		BubblePopper.verbose=false;
 		BubblePopper.popDirect=true;
 		BubblePopper.popIndirect=true;
+		BubblePopper.unzipBubbles=false;
 		BubblePopper.crossKMerge=false;
 		BubblePopper.debranch=false;
 		BubblePopper.validateGraph=true;
@@ -24,6 +26,12 @@ public class BubblePopperUnitTest {
 		failures+=run("directMergeKmerOverlap", BubblePopperUnitTest::directMergeKmerOverlap);
 		failures+=run("soapBubbleCollapses", BubblePopperUnitTest::soapBubbleCollapses);
 		failures+=run("trueBubbleSurvives", BubblePopperUnitTest::trueBubbleSurvives);
+		failures+=run("isolatedTrueBubbleUnzips", BubblePopperUnitTest::isolatedTrueBubbleUnzips);
+		failures+=run("reverseOrientedTrueBubbleUnzips", BubblePopperUnitTest::reverseOrientedTrueBubbleUnzips);
+		failures+=run("nonterminalTrueBubbleDeclinesUnzip", BubblePopperUnitTest::nonterminalTrueBubbleDeclinesUnzip);
+		failures+=run("declinedOrientationIsRestored", BubblePopperUnitTest::declinedOrientationIsRestored);
+		failures+=run("errorBubbleDeclinesUnzip", BubblePopperUnitTest::errorBubbleDeclinesUnzip);
+		failures+=run("higherShortArmDeclinesUnzip", BubblePopperUnitTest::higherShortArmDeclinesUnzip);
 		failures+=run("multiArmPrunesOnlyError", BubblePopperUnitTest::multiArmPrunesOnlyError);
 		failures+=run("bothBoundariesMustAgree", BubblePopperUnitTest::bothBoundariesMustAgree);
 		failures+=run("reverseOrientedSoapBubbleCollapses", BubblePopperUnitTest::reverseOrientedSoapBubbleCollapses);
@@ -84,6 +92,134 @@ public class BubblePopperUnitTest {
 		check(!f.mids[0].used() && !f.mids[0].associate(), "Representative arm changed");
 		check(!f.mids[1].used() && !f.mids[1].associate(), "Alternate arm changed");
 		check(f.left.rightEdgeCount()==2 && f.right.leftEdgeCount()==2, "Bubble edges changed");
+	}
+
+	private static void isolatedTrueBubbleUnzips(){
+		BubbleFixture f=twoArmBubble(48, 45, 48, 45);
+		final float highCoverage=f.mids[0].coverage, lowCoverage=f.mids[1].coverage;
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+		int expansions=popper(f).expand(f.left);
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+
+		check(expansions==1, "Expected one isolated true-bubble unzip, got "+expansions);
+		check(sequence(f.left).equals("GGGGGAAAAATTCCCCCGGGGG"),
+				"Incorrect representative allele product: "+sequence(f.left));
+		check(sequence(f.right).equals("GGGGGAAAAAGGCCCCCGGGGG"),
+				"Incorrect alternate allele product: "+sequence(f.right));
+		check(approx(f.left.coverage, (30d*6*48/93+48d*6+50d*6*48/93)/18d),
+				"Incorrect representative product coverage: "+f.left.coverage);
+		check(approx(f.right.coverage, (30d*6*45/93+45d*6+50d*6*45/93)/18d),
+				"Incorrect alternate product coverage: "+f.right.coverage);
+		check(approx(f.left.coverage*18+f.right.coverage*18, 30d*6+48d*6+45d*6+50d*6),
+				"Unzipping did not conserve span-weighted coverage mass");
+		check(f.mids[0].used() && f.mids[1].used(), "Original allele arms were not retired");
+		check(f.mids[0].coverage==highCoverage && f.mids[1].coverage==lowCoverage,
+				"Original allele-arm coverage was mutated");
+		check(!f.left.used() && !f.right.used(), "A terminal allele product was retired");
+		check(f.left.leftEdgeCount()==0 && f.left.rightEdgeCount()==0
+				&& f.right.leftEdgeCount()==0 && f.right.rightEdgeCount()==0,
+				"An isolated allele product retained graph edges");
+		check(f.left.leftCode==Tadpole.DEAD_END && f.left.rightCode==Tadpole.DEAD_END
+				&& f.right.leftCode==Tadpole.DEAD_END && f.right.rightCode==Tadpole.DEAD_END,
+				"An unzipped allele product is not terminal");
+	}
+
+	private static void reverseOrientedTrueBubbleUnzips(){
+		BubbleFixture f=twoArmBubble(48, 45, 48, 45);
+		flipMidsAndRight(f);
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+		int expansions=popper(f).expand(f.left);
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+		check(expansions==1, "Reverse-oriented true bubble was not unzipped");
+		check(sequence(f.left).equals("GGGGGAAAAATTCCCCCGGGGG"),
+				"Reverse-oriented representative product is wrong: "+sequence(f.left));
+		check(sequence(f.right).equals("GGGGGAAAAAGGCCCCCGGGGG"),
+				"Reverse-oriented alternate product is wrong: "+sequence(f.right));
+	}
+
+	private static void nonterminalTrueBubbleDeclinesUnzip(){
+		BubbleFixture f=twoArmBubble(48, 45, 48, 45);
+		addExternalLeft(f);
+		final String leftBefore=sequence(f.left), rightBefore=sequence(f.right);
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+		int expansions=popper(f).expand(f.left);
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+		check(expansions==0, "Nonterminal true bubble was unzipped");
+		check(sequence(f.left).equals(leftBefore) && sequence(f.right).equals(rightBefore),
+				"Declined nonterminal bubble sequence changed");
+		check(!f.mids[0].used() && !f.mids[1].used(), "Declined nonterminal arms were retired");
+		check(f.left.leftEdgeCount()==1 && f.left.rightEdgeCount()==2,
+				"Declined nonterminal topology changed");
+	}
+
+	private static void declinedOrientationIsRestored(){
+		BubblePopper.popDirect=false;
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+
+		BubbleFixture innerFlipped=twoArmBubble(48, 45, 48, 45);
+		addExternalLeft(innerFlipped);
+		flipMidsAndRight(innerFlipped);
+		String innerBefore=graphSignature(innerFlipped);
+		int innerExpansions=popper(innerFlipped).expand(innerFlipped.left);
+		check(innerExpansions==0, "Reverse-oriented nonterminal bubble was modified");
+		check(graphSignature(innerFlipped).equals(innerBefore),
+				"Declined candidate did not restore mid/destination orientation exactly");
+
+		BubbleFixture centerFlipped=twoArmBubble(48, 45, 48, 45);
+		addExternalLeft(centerFlipped);
+		centerFlipped.left.flip(centerFlipped.destMap.get(centerFlipped.left.id));
+		String centerBefore=graphSignature(centerFlipped);
+		int centerExpansions=popper(centerFlipped).expand(centerFlipped.left);
+		check(centerExpansions==0, "Left-facing nonterminal bubble was modified");
+		check(graphSignature(centerFlipped).equals(centerBefore),
+				"Declined left-side attempt did not restore center orientation exactly");
+
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+		BubblePopper.popDirect=true;
+	}
+
+	private static void errorBubbleDeclinesUnzip(){
+		BubbleFixture f=twoArmBubble(75, 3, 75, 3);
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+		int expansions=popper(f).expand(f.left);
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+		check(expansions==0, "Error bubble was incorrectly unzipped into two products");
+		check(!f.mids[0].used() && !f.mids[1].used() && !f.mids[1].associate(),
+				"Declined error bubble changed ownership");
+		check(f.left.rightEdgeCount()==2 && f.right.leftEdgeCount()==2,
+				"Declined error bubble topology changed");
+	}
+
+	/** The representative selector favors a sufficiently long arm; classification must still
+	 * reject unzipping when the other, shorter arm is the high-depth biological path. */
+	private static void higherShortArmDeclinesUnzip(){
+		Contig left=contig(0, "GGGGGAAAAA", 50, Tadpole.DEAD_END, Tadpole.F_BRANCH);
+		Contig shortHigh=contig(1, "AAAATTTT", 75, Tadpole.B_BRANCH, Tadpole.B_BRANCH);
+		Contig longLow=contig(2, "AAAAGGTTTT", 3, Tadpole.B_BRANCH, Tadpole.B_BRANCH);
+		Contig right=contig(3, "TTTTTCCCCC", 50, Tadpole.F_BRANCH, Tadpole.DEAD_END);
+		ArrayList<Edge> edges=new ArrayList<Edge>();
+		connect(left, shortHigh, right, 75, 75, "T", "T", edges);
+		connect(left, longLow, right, 3, 3, "G", "T", edges);
+		BubbleFixture f=bubbleFixture(left, new Contig[]{shortHigh, longLow}, right, edges);
+		BubblePopper.popIndirect=false;
+		BubblePopper.unzipBubbles=true;
+		int expansions=popper(f).expand(left);
+		BubblePopper.unzipBubbles=false;
+		BubblePopper.popIndirect=true;
+		check(expansions==0, "High-depth short arm was misclassified as a true alternate");
+		check(!shortHigh.used() && !longLow.used(), "Declined asymmetric arms were retired");
+		check(left.rightEdgeCount()==2 && right.leftEdgeCount()==2,
+				"Declined asymmetric bubble topology changed");
 	}
 
 	private static void multiArmPrunesOnlyError(){
@@ -232,6 +368,17 @@ public class BubblePopperUnitTest {
 		return bubbleFixture(left, new Contig[]{high, low}, right, edges);
 	}
 
+	private static void addExternalLeft(BubbleFixture f){
+		Contig external=contig(f.contigs.size(), "TTTTTGGGG", 20, Tadpole.DEAD_END, Tadpole.F_BRANCH);
+		Edge externalToLeft=edge(external.id, f.left.id, 1, 20, "G");
+		Edge leftToExternal=edge(f.left.id, external.id, 2, 20, null);
+		external.rightEdges=list(externalToLeft);
+		f.left.leftEdges=append(f.left.leftEdges, leftToExternal);
+		f.contigs.add(external);
+		addDest(f.destMap, externalToLeft);
+		addDest(f.destMap, leftToExternal);
+	}
+
 	/** Adds both directed representations of a physical entry and exit connection. */
 	private static void connect(Contig left, Contig mid, Contig right, int entryDepth, int exitDepth,
 			String entryBases, String exitBases, ArrayList<Edge> allEdges){
@@ -297,6 +444,27 @@ public class BubblePopperUnitTest {
 	}
 
 	private static String sequence(Contig c){return new String(c.bases);}
+	private static String graphSignature(Fixture f){
+		StringBuilder sb=new StringBuilder();
+		for(Contig c : f.contigs){
+			sb.append(c.id).append(':').append(sequence(c)).append(':').append(c.leftCode).append(':')
+					.append(c.rightCode).append(':').append(c.coverage).append(':').append(c.used()).append(':')
+					.append(c.associate()).append('|');
+			appendEdgeSignature(sb, c.leftEdges);
+			sb.append('|');
+			appendEdgeSignature(sb, c.rightEdges);
+			sb.append('\n');
+		}
+		return sb.toString();
+	}
+	private static void appendEdgeSignature(StringBuilder sb, ArrayList<Edge> edges){
+		if(edges==null){sb.append("null"); return;}
+		for(Edge e : edges){
+			sb.append(e.origin).append('>').append(e.destination).append(':').append(e.orientation).append(':')
+					.append(e.length).append(':').append(e.depth).append(':')
+					.append(e.bases==null ? "null" : new String(e.bases)).append(';');
+		}
+	}
 	private static boolean approx(double a, double b){return Math.abs(a-b)<0.001;}
 	private static void check(boolean condition, String message){if(!condition){throw new AssertionError(message);}}
 

@@ -113,6 +113,7 @@ popbubbles=t        (pop) Pop bubbles; increases contiguity.  Requires
                     additional time and memory and forces processcontigs=t.
 popdirect=t         Merge unambiguous adjacent unitigs.
 popindirect=f       Remove depth-supported error arms from simple bubbles.
+unzipbubbles=f      Linearize isolated true bubbles into both supported paths.
 validategraph=f     Run graph consistency checks during simplification.
                     Diagnostic option; requires Java assertions (default).
 

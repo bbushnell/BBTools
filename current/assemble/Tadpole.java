@@ -233,6 +233,8 @@ public abstract class Tadpole extends ShaveObject{
 				BubblePopper.popDirect=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("popIndirect")){
 				BubblePopper.popIndirect=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("unzipBubbles") || a.equalsIgnoreCase("unzip")){
+				BubblePopper.unzipBubbles=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("debranch")){
 				BubblePopper.debranch=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("validateGraph")){
