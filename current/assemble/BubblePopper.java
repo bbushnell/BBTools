@@ -23,10 +23,21 @@ public class BubblePopper {
 	 * @param kbig_ K-mer size used in the assembly
 	 */
 	BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_){
+		this(allContigs_, destMap_, kbig_, null);
+	}
+
+	/**
+	 * Constructs a bubble popper with Tadpole's configured kmer-count error classifier.
+	 * A null classifier disables destructive indirect bubble cleanup while leaving
+	 * lossless direct unitig merging available.
+	 */
+	BubblePopper(ArrayList<Contig> allContigs_, HashMap<Integer, ArrayList<Edge>> destMap_, int kbig_,
+			ErrorClassifier errorClassifier_){
 		allContigs=allContigs_;
 		destMap=destMap_;
 		kbig=kbig_;
 		minLen=2*kbig-1;
+		errorClassifier=errorClassifier_;
 	}
 	
 	/**
@@ -38,7 +49,7 @@ public class BubblePopper {
 	 * @return Number of expansions performed
 	 */
 	int expand(Contig c) {
-		//assert(validate(c));
+		assert(!validateGraph || validate(c));
 //		if(true) {return 0;}
 		if(verbose){System.err.println("\n\n*expand: "+c.name()+"\n");}
 		assert(!c.used());
@@ -63,7 +74,7 @@ public class BubblePopper {
 			}
 //			center.flip(destMap.get(center.id));
 		}
-		//assert(validate(c));
+		assert(!validateGraph || validate(c));
 		return count;
 	}
 	
@@ -230,7 +241,7 @@ public class BubblePopper {
 	 * @return true if expansion was successful
 	 */
 	private boolean expandRightSimple(){
-		//assert(validate(center));
+		assert(!validateGraph || validate(center));
 		ArrayList<Edge> outbound=center.rightEdges;
 		if(outbound==null || center.rightCode==Tadpole.LOOP || outbound.size()>1){return false;}
 		Edge leftEdge=outbound.get(0);
@@ -271,8 +282,8 @@ public class BubblePopper {
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
 		}
-		//assert(validate(center));
-		//assert(validate(dest));
+		assert(!validateGraph || validate(center));
+		assert(!validateGraph || validate(dest));
 		
 		if(crossKMerge){
 			System.err.println("Cross-k merge: left="+center.name()+", right="+dest.name()+
@@ -326,7 +337,7 @@ public class BubblePopper {
 	 * @return true if bubble was successfully popped
 	 */
 	private boolean expandRight(){
-		//assert(validate(center));
+		assert(!validateGraph || validate(center));
 		//Reset shared state
 		dest=null;
 		lastMutualDest=-1;
@@ -411,9 +422,74 @@ public class BubblePopper {
 		final Edge rightMidEdge=mid.getRightEdge(dest.id, 1);
 		if(rightMidEdge==null){return false;}
 
+		final ArrayList<Contig> errorMids=findErrorMids(outbound, midNodes, mid,
+				leftMidEdge, rightMidEdge);
+		if(errorMids==null || errorMids.isEmpty()){
+			if(verbose){System.err.println("No alternate paths classified as errors.");}
+			return false;
+		}
+		if(errorMids.size()<midNodes.size()-1){
+			if(verbose){System.err.println("Pruning "+errorMids.size()+" error arms while preserving true alternatives.");}
+			return pruneErrorMids(errorMids);
+		}
+
 		if(verbose){System.err.println("Popping bubble between "+center.id+" and "+dest.id);}
 		return pop(center, dest, mid, leftMidEdge, rightMidEdge, midNodes);
 		
+	}
+
+	/** Returns alternate mid nodes whose entry and exit branch counts both indicate error. */
+	private ArrayList<Contig> findErrorMids(ArrayList<Edge> entryEdges, ArrayList<Contig> midNodes,
+			Contig representative, Edge representativeEntry, Edge representativeExit){
+		if(errorClassifier==null || midNodes.size()<2){return null;}
+		ArrayList<Contig> errors=new ArrayList<Contig>(midNodes.size()-1);
+		for(Contig c : midNodes){
+			if(c==representative){continue;}
+			Edge entry=findEdge(entryEdges, c.id);
+			Edge exit=c.getRightEdge(dest.id, 1);
+			if(entry==null || exit==null){return null;}
+			if(isErrorArm(representativeEntry, representativeExit, entry, exit)){
+				errors.add(c);
+			}
+		}
+		return errors;
+	}
+
+	/** Finds the unique edge to a destination in an already topology-validated edge list. */
+	private static Edge findEdge(ArrayList<Edge> edges, int destination){
+		Edge found=null;
+		for(Edge e : edges){
+			if(e.destination==destination){
+				if(found!=null){return null;}
+				found=e;
+			}
+		}
+		return found;
+	}
+
+	/** Requires the alternate to be lower and error-like at both bubble boundaries. */
+	private boolean isErrorArm(Edge representativeEntry, Edge representativeExit,
+			Edge alternateEntry, Edge alternateExit){
+		if(representativeEntry.depth<=alternateEntry.depth || representativeExit.depth<=alternateExit.depth){
+			return false;
+		}
+		return errorClassifier.isError(representativeEntry.depth, alternateEntry.depth)
+				&& errorClassifier.isError(representativeExit.depth, alternateExit.depth);
+	}
+
+	/** Detaches only error-classified arms, retaining comparable-depth biological alternatives. */
+	private boolean pruneErrorMids(ArrayList<Contig> errorMids){
+		assert(!errorMids.isEmpty());
+		for(Contig c : errorMids){
+			assert(!c.used() && !c.associate());
+			c.setAssociate(destMap, allContigs);
+			assert(!validateGraph || validate(c));
+		}
+		expansions++;
+		contigsAbsorbed+=errorMids.size();
+		assert(!validateGraph || validate(center));
+		assert(!validateGraph || validate(dest));
+		return true;
 	}
 	
 	/**
@@ -430,34 +506,25 @@ public class BubblePopper {
 	 * @return true if pop operation completed successfully
 	 */
 	private boolean pop(Contig left, Contig right, Contig mid, Edge leftMidEdge, Edge rightMidEdge, ArrayList<Contig> midNodes){
-		//assert(validate(left));
-		//assert(validate(right));
-		//assert(validate(mid));
+		assert(!validateGraph || validate(left));
+		assert(!validateGraph || validate(right));
+		assert(!validateGraph || validate(mid));
 		for(Contig c : midNodes){
 			assert(!c.used() && !c.associate());
 			assert(c!=right && c!=left);
-			//assert(validate(c));
+			assert(!validateGraph || validate(c));
 		}
 		
 		bb.clear();
 		final int originalLeftLength=left.length();
 		
-		//Append path
+		//Append the three contigs as two ordinary k-exact joins.  This form is
+		//also correct when either connecting edge spans more than one base.
 		bb.append(left.bases);
-		if(leftMidEdge.bases!=null){
-			for(int i=0; i<leftMidEdge.bases.length-1; i++){
-				bb.append(leftMidEdge.bases[i]);
-			}
-		}
-		for(int i=kbig-1, lim=mid.length()-kbig+1; i<lim; i++){
-			bb.append(mid.bases[i]);
-		}
-		if(rightMidEdge.bases!=null){
-			for(int i=0; i<rightMidEdge.bases.length-1; i++){
-				bb.append(rightMidEdge.bases[i]);
-			}
-		}
-		bb.append(right.bases);
+		if(leftMidEdge.bases!=null){bb.append(leftMidEdge.bases);}
+		for(int i=kbig; i<mid.bases.length; i++){bb.append(mid.bases[i]);}
+		if(rightMidEdge.bases!=null){bb.append(rightMidEdge.bases);}
+		for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
 		
 		//Cleanup
@@ -498,7 +565,11 @@ public class BubblePopper {
 			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
 			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
 		}else{
-			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
+			coverageSum=left.coverage*(originalLeftLength-kbig+1)
+					+mid.coverage*(mid.length()-kbig+1)
+					+right.coverage*(right.length()-kbig+1)
+					+leftMidEdge.depth*Tools.max(0, leftMidEdge.length-1)
+					+rightMidEdge.depth*Tools.max(0, rightMidEdge.length-1);
 			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
 		}
 		
@@ -516,11 +587,11 @@ public class BubblePopper {
 			System.err.println("*Result: "+center.name());
 		}
 
-		//assert(validate(left));
-		//assert(validate(right));
-		//assert(validate(mid));
+		assert(!validateGraph || validate(left));
+		assert(!validateGraph || validate(right));
+		assert(!validateGraph || validate(mid));
 		for(Contig c : midNodes){
-			//assert(validate(c));
+			assert(!validateGraph || validate(c));
 		}
 		
 		return true;
@@ -600,25 +671,16 @@ public class BubblePopper {
 	 */
 	private boolean merge(Contig left, Contig right, Edge leftEdge){
 
-		//assert(validate(left));
-		//assert(validate(right));
+		assert(!validateGraph || validate(left));
+		assert(!validateGraph || validate(right));
 		
 		bb.clear();
 		final int originalLeftLength=left.length();
 		
 		//Append path
 		bb.append(left.bases);
-		if(crossKMerge){
-			if(leftEdge.bases!=null){bb.append(leftEdge.bases);}
-			for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
-		}else{
-			if(leftEdge.bases!=null){
-				for(int i=0; i<leftEdge.bases.length-1; i++){
-					bb.append(leftEdge.bases[i]);
-				}
-			}
-			bb.append(right.bases);
-		}
+		if(leftEdge.bases!=null){bb.append(leftEdge.bases);}
+		for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
 		
 		//Cleanup
@@ -651,7 +713,8 @@ public class BubblePopper {
 			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
 			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
 		}else{
-			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1);
+			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1)
+					+leftEdge.depth*Tools.max(0, leftEdge.length-1);
 			left.coverage=(float)(coverageSum/(left.length()-kbig+1));
 		}
 		
@@ -669,8 +732,8 @@ public class BubblePopper {
 			System.err.println("*Result: "+center.name());
 		}
 
-//		//assert(validate(left));
-//		//assert(validate(right));
+		assert(!validateGraph || validate(left));
+		assert(!validateGraph || validate(right));
 		
 		return true;
 	}
@@ -709,55 +772,51 @@ public class BubblePopper {
 	 * @return true if all validation checks pass
 	 */
 	boolean validate(Contig c){
-		if(true){return true;}
+		assert(c!=null);
+		assert(c.id>=0 && c.id<allContigs.size()) : c.id+", "+allContigs.size();
+		assert(allContigs.get(c.id)==c) : c.id;
+		final ArrayList<Edge> inbound=destMap.get(c.id);
+		assert(inbound!=null || !destMap.containsKey(c.id)) : c.id;
 		if(c.used() || c.associate()){
 			assert(c.leftEdges==null);
 			assert(c.rightEdges==null);
 		}else{
-			ArrayList<Edge> inbound=destMap.get(c.id);
 			if(inbound!=null){
 				for(Edge e : inbound){
+					assert(e!=null);
+					assert(e.destination==c.id) : e+", "+c.id;
+					assert(e.origin>=0 && e.origin<allContigs.size()) : e+", "+allContigs.size();
 					Contig other=allContigs.get(e.origin);
 					if(other.used() || other.associate()){
 						//ignore
 					}else{
-						assert(e.destination==c.id) : "\nc="+c.name2()+"\nother="+other.name2()+"\ne="+e+
-							"\nid="+c.id+", origin="+e.origin+", dest="+e.destination+", size="+allContigs.size()+"\n"+inbound;
-						assert(e.origin<allContigs.size());
-						assert(e.destination<allContigs.size());
+						ArrayList<Edge> sourceEdges=e.sourceRight() ? other.rightEdges : other.leftEdges;
+						assert(sourceEdges!=null && sourceEdges.contains(e)) :
+							"Inbound edge missing from source: c="+c.name2()+"\nother="+other.name2()+"\ne="+e;
 					}
 				}
 			}
-			if(c.leftEdges!=null){
-				assert(c.leftEdges.size()>0);
-				for(Edge e : c.leftEdges){
-					assert(e.destination<allContigs.size()) : "\nc="+c.name2()+"\ne="+e+
-						"\nid="+c.id+", origin="+e.origin+", size="+allContigs.size();
-					Contig other=allContigs.get(e.destination);
-					assert(!e.sourceRight());
-					assert(e.origin==c.id);
-					assert(e.origin<allContigs.size()) : /*"\ncenter="+center.name2()+"\ndest="+dest.name2()+*/"\nc="+c.name2()+"\nother="+other.name2()+"\ne="+e+
-						"\nid="+c.id+", origin="+e.origin+", size="+allContigs.size();
-					assert(!other.used()) : "\nc="+c.name2()+"\nother="+other.name2()+"\ne="+e+
-						"\nid="+c.id+", origin="+e.origin+", size="+allContigs.size();;
-					assert(!other.associate());
-				}
-			}
-			if(c.rightEdges!=null){
-				assert(c.rightEdges.size()>0);
-				for(Edge e : c.rightEdges){
-					assert(e.destination<allContigs.size());
-					Contig other=allContigs.get(e.destination);
-					assert(other!=null) : "\ncenter="+center.name2()+"\ndest="+dest.name2()+"\nc="+c.name2()+"\ne="+e+"\nsize="+allContigs.size();
-					assert(e.sourceRight());
-					assert(e.origin==c.id);
-					assert(e.origin<allContigs.size());
-//					assert(!other.used()) : "\ncenter="+center.name2()+"\ndest="+dest.name2()+"\nc="+c.name2()+"\nother="+other.name2()+"\ne="+e;
-					assert(!other.used()) : /*"\ncenter="+center.name2()+"\ndest="+dest.name2()+*/"\nc="+c.name2()+"\nother="+other.name2()+
-						"\ne="+e+"\nsize="+allContigs.size();
-					assert(!other.associate());
-				}
-			}
+			assert(validateEdges(c, c.leftEdges, false));
+			assert(validateEdges(c, c.rightEdges, true));
+		}
+		return true;
+	}
+
+	/** Validates one side of a live contig's outbound edge list. */
+	private boolean validateEdges(Contig source, ArrayList<Edge> edges, boolean sourceRight){
+		if(edges==null){return true;}
+		assert(!edges.isEmpty());
+		for(Edge e : edges){
+			assert(e!=null);
+			assert(e.origin==source.id) : e+", "+source.id;
+			assert(e.sourceRight()==sourceRight) : e+", sourceRight="+sourceRight;
+			assert(e.destination>=0 && e.destination<allContigs.size()) : e+", "+allContigs.size();
+			Contig target=allContigs.get(e.destination);
+			assert(!target.used() && !target.associate()) :
+				"Live edge targets retired contig: source="+source.name2()+"\ntarget="+target.name2()+"\ne="+e;
+			ArrayList<Edge> inbound=destMap.get(e.destination);
+			assert(inbound!=null && inbound.contains(e)) :
+				"Outbound edge missing from destMap: source="+source.name2()+"\ntarget="+target.name2()+"\ne="+e;
 		}
 		return true;
 	}
@@ -851,7 +910,7 @@ public class BubblePopper {
 		if(leftDest>=0 && leftDest!=center.id){return false;}//workaround for actual assertion failure
 		assert(leftDest<0 || leftDest==center.id) : 
 			leftDest+", "+center.id; //TODO: This triggered once nondeterministially; determine why
-		if(rightDest>=0 && rightDest!=center.id){return false;}//workaround for potential assertion failure
+		if(rightDest>=0 && rightDest!=dest.id){return false;}//workaround for potential assertion failure
 		assert(rightDest<0 || rightDest==dest.id);
 		
 		if(verbose){System.err.println("Mid nodes concur.");}
@@ -1032,6 +1091,8 @@ public class BubblePopper {
 	final int kbig;
 	/** Minimum contig length for bubble resolution (2*kbig-1) */
 	final int minLen;
+	/** Tadpole's configured kmer-count error classifier; null preserves all indirect alternatives. */
+	final ErrorClassifier errorClassifier;
 	/** Reusable buffer for sequence concatenation operations */
 	final ByteBuilder bb=new ByteBuilder();
 	
@@ -1056,12 +1117,19 @@ public class BubblePopper {
 	static boolean verbose=false;
 	/** Whether direct path merging is enabled */
 	static boolean popDirect=true;
-	/** Whether indirect bubble popping is enabled */
-	static boolean popIndirect=true;
+	/** Whether depth-gated indirect error-bubble cleanup is enabled */
+	static boolean popIndirect=false;
 	/** Whether direct merges join contigs built at a longer kmer length. */
 	static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */
 	static float crossKMaxDepthRatio=3;
 	/** Whether debranching of dead ends is enabled */
 	static boolean debranch=false;
+	/** Whether assertion-enabled runs perform graph consistency checks */
+	static boolean validateGraph=false;
+
+	/** Minimal callback used to share Tadpole's tuned error-count heuristic without duplicating constants. */
+	interface ErrorClassifier {
+		boolean isError(int high, int low);
+	}
 }

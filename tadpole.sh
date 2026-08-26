@@ -111,6 +111,10 @@ ownership=auto      For concurrency; do not touch.
 processcontigs=f    Explore the contig connectivity graph.
 popbubbles=t        (pop) Pop bubbles; increases contiguity.  Requires 
                     additional time and memory and forces processcontigs=t.
+popdirect=t         Merge unambiguous adjacent unitigs.
+popindirect=f       Remove depth-supported error arms from simple bubbles.
+validategraph=f     Run graph consistency checks during simplification.
+                    Diagnostic option; requires Java assertions (default).
 
 Processing mode parameters:
 mode=contig         contig: Make contigs from kmers.

@@ -235,6 +235,8 @@ public abstract class Tadpole extends ShaveObject{
 				BubblePopper.popIndirect=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("debranch")){
 				BubblePopper.debranch=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("validateGraph")){
+				BubblePopper.validateGraph=Parse.parseBoolean(b);
 			}else if(a.equals("etr") || a.equalsIgnoreCase("expandTandemRepeats")){
 				expandTandemRepeats=Parse.parseBoolean(b);
 				assert(false) : "TODO";
@@ -1310,7 +1312,7 @@ public abstract class Tadpole extends ShaveObject{
 		HashMap<Integer, ArrayList<Edge>> destToEdgeMap=destToEdgeMap();
 		
 		int bubblesPoppedThisPass=0;
-		BubblePopper bp=new BubblePopper(allContigs, destToEdgeMap, kbig);
+		BubblePopper bp=new BubblePopper(allContigs, destToEdgeMap, kbig, this::isError);
 		
 		if(debranch) {
 			for(Contig c : allContigs){
@@ -1333,12 +1335,12 @@ public abstract class Tadpole extends ShaveObject{
 		
 		for(Contig c : allContigs){
 			if(c.used()){
-//				assert(bp.validate(c));
+				assert(!BubblePopper.validateGraph || bp.validate(c));
 				//Potentially do something about inbound edges...  there shouldn't be any, though.
 			}else{
 				bp.removeDeadEdges(c);//Should not be necessary but found cases where it is.
 				
-//				assert(bp.validate(c));
+				assert(!BubblePopper.validateGraph || bp.validate(c));
 				temp.add(c);
 				final int len=c.length();
 				if(len>=minContigLen){
@@ -1359,16 +1361,7 @@ public abstract class Tadpole extends ShaveObject{
 		
 		allContigs.clear();
 		allContigs.addAll(temp);
-		
-//		destToEdgeMap=destToEdgeMap();
-//		bp=new BubblePopper(allContigs, destToEdgeMap, kbig);
-//		
-//		for(int i=0; i<allContigs.size(); i++){
-////			assert(i<allContigs.size()) : i+", "+allContigs.size();
-//			Contig c=allContigs.get(i);
-//			assert(c.id==i);
-//			assert(bp.validate(c));
-//		}
+		assert(!BubblePopper.validateGraph || validateContigGraph());
 		
 //		for(Contig c : temp){
 //			if(!c.used && c.length()>minContigLen){
@@ -1385,6 +1378,18 @@ public abstract class Tadpole extends ShaveObject{
 		
 		outstream.println("Popped "+bubblesPoppedThisPass+" bubbles"+(bp.debranch ? "; removed "+bp.branchesRemoved+" branches." : "."));
 		return bubblesPoppedThisPass;
+	}
+
+	/** Assertion-only full graph consistency check after contig renumbering. */
+	private boolean validateContigGraph(){
+		HashMap<Integer, ArrayList<Edge>> map=destToEdgeMap();
+		BubblePopper checker=new BubblePopper(allContigs, map, kbig);
+		for(int i=0; i<allContigs.size(); i++){
+			Contig c=allContigs.get(i);
+			assert(c.id==i) : c.id+", "+i;
+			assert(checker.validate(c));
+		}
+		return true;
 	}
 	
 	/**
