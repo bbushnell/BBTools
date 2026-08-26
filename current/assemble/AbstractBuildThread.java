@@ -32,6 +32,7 @@ abstract class AbstractBuildThread extends Thread {
 		id=id_;
 		crisa=crisa_;
 		mode=mode_;
+		setUncaughtExceptionHandler((thread, throwable) -> failure=throwable);
 	}
 	
 	/**
@@ -55,6 +56,8 @@ abstract class AbstractBuildThread extends Thread {
 	long basesInT=0;
 	long lowqReadsT=0;
 	long lowqBasesT=0;
+	/** Uncaught worker failure, captured so the coordinating thread can propagate it. */
+	volatile Throwable failure=null;
 	final int id;
 	
 }

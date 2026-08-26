@@ -77,7 +77,7 @@ public class KmerCompressor {
 	 * proper k-mer table initialization.
 	 *
 	 * @param args Command-line arguments containing k-mer size specification
-	 * @return Calculated k-mer size using Kmer.getMult(k) * Kmer.getK(k)
+	 * @return Normalized total k-mer length
 	 */
 	public static final int preparseK(String[] args){
 		int k=31;
@@ -91,7 +91,7 @@ public class KmerCompressor {
 				k=Integer.parseInt(b);
 			}
 		}
-		return Kmer.getMult(k)*Kmer.getK(k);
+		return Kmer.getKbig(k);
 	}
 	
 	/**
@@ -248,6 +248,9 @@ public class KmerCompressor {
 		}
 		
 		tables=new KmerTableSet(args, bytesPerKmer);
+		if(k!=tables.k){
+			throw new IllegalStateException("KmerCompressor k="+k+" disagrees with table k="+tables.k);
+		}
 		k2=tables.k2;
 	}
 
@@ -357,6 +360,7 @@ public class KmerCompressor {
 		for(AbstractBuildThread pt : alpt){pt.start();}
 		
 		/* Wait for threads to die, and gather statistics */
+		Throwable workerFailure=null;
 		for(AbstractBuildThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
 				try {
@@ -366,6 +370,7 @@ public class KmerCompressor {
 					e.printStackTrace();
 				}
 			}
+			if(workerFailure==null && pt.failure!=null){workerFailure=pt.failure;}
 			for(Contig contig : pt.contigs){
 				allContigs.add(contig);
 				contigsBuilt++;
@@ -377,6 +382,10 @@ public class KmerCompressor {
 			basesIn+=pt.basesInT;
 			lowqReads+=pt.lowqReadsT;
 			lowqBases+=pt.lowqBasesT;
+		}
+		if(workerFailure!=null){
+			errorState=true;
+			throw new RuntimeException(getClass().getSimpleName()+" worker thread failed.", workerFailure);
 		}
 		
 		if(outContigs!=null){
@@ -958,23 +967,15 @@ public class KmerCompressor {
 	 * @param kmer Kmer object to populate
 	 * @return Populated Kmer object, or null if ambiguous bases encountered
 	 */
-	//TODO: Probable bug -- this loop uses kmer.k (per-word width) as if it were
-	//the total kmer length. At k<=31 (mult=1) k==kbig so it's correct by
-	//coincidence; at real k>31 (mult>1) it would only read kmer.k bases (one
-	//word's worth, not kbig) and the assert below would fire. kcompress.sh's
-	//own usage text documents "Kmer length (1 to 31)", so no currently-
-	//documented invocation reaches this, but nothing in code enforces that
-	//bound -- found during the ukmer.Kmer packing audit (Amber, 2026-08-19),
-	//not fixed because it's unclear this tool is ever meant to run at k>31.
 	protected final static Kmer getKmer(byte[] bases, int loc, Kmer kmer){
 		kmer.clear();
-		for(int i=loc, lim=loc+kmer.k; i<lim; i++){
+		for(int i=loc, lim=loc+kmer.kbig; i<lim; i++){
 			byte b=bases[i];
 			int x=AminoAcid.baseToNumber[b];
 			if(x<0){return null;}
 			kmer.addRightNumeric(x);
 		}
-		assert(kmer.len==kmer.k);
+		assert(kmer.len==kmer.kbig);
 		return kmer;
 	}
 	

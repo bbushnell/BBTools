@@ -1169,6 +1169,7 @@ public abstract class Tadpole extends ShaveObject{
 		for(AbstractBuildThread pt : alpt){pt.start();}
 		
 		/* Wait for threads to die, and gather statistics */
+		Throwable workerFailure=null;
 		for(AbstractBuildThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
 				try {
@@ -1178,6 +1179,7 @@ public abstract class Tadpole extends ShaveObject{
 					e.printStackTrace();
 				}
 			}
+			if(workerFailure==null && pt.failure!=null){workerFailure=pt.failure;}
 			for(Contig contig : pt.contigs){
 				allContigs.add(contig);
 				contigsBuilt++;
@@ -1192,6 +1194,10 @@ public abstract class Tadpole extends ShaveObject{
 			basesIn+=pt.basesInT;
 			lowqReads+=pt.lowqReadsT;
 			lowqBases+=pt.lowqBasesT;
+		}
+		if(workerFailure!=null){
+			errorState=true;
+			throw new RuntimeException(getClass().getSimpleName()+" worker thread failed.", workerFailure);
 		}
 		t.stop("Time: ");
 	}
