@@ -24,6 +24,8 @@ public class BubblePopperUnitTest {
 
 		int failures=0;
 		failures+=run("directMergeKmerOverlap", BubblePopperUnitTest::directMergeKmerOverlap);
+		failures+=run("directMergeWithoutRetainedInbound", BubblePopperUnitTest::directMergeWithoutRetainedInbound);
+		failures+=run("loopMergeRemovesInboundMapEntries", BubblePopperUnitTest::loopMergeRemovesInboundMapEntries);
 		failures+=run("soapBubbleCollapses", BubblePopperUnitTest::soapBubbleCollapses);
 		failures+=run("trueBubbleSurvives", BubblePopperUnitTest::trueBubbleSurvives);
 		failures+=run("isolatedTrueBubbleUnzips", BubblePopperUnitTest::isolatedTrueBubbleUnzips);
@@ -70,6 +72,47 @@ public class BubblePopperUnitTest {
 		check(sequence(left).equals("AAAAACCCCCGTTTTT"), "Incorrect direct merge: "+sequence(left));
 		check(approx(left.coverage, 15), "Incorrect direct coverage: "+left.coverage);
 		check(right.used(), "Destination was not retired");
+	}
+
+	/** A terminal direct merge consumes the only inbound edge and must not leave a null-valued
+	 * destination-map entry for the surviving contig. */
+	private static void directMergeWithoutRetainedInbound(){
+		Contig left=contig(0, "AAAAACCCCC", 10, Tadpole.DEAD_END, Tadpole.F_BRANCH);
+		Contig right=contig(1, "CCCCGTTTTT", 20, Tadpole.DEAD_END, Tadpole.DEAD_END);
+		Edge forward=edge(0, 1, 1, 15, "G");
+		left.rightEdges=list(forward);
+		Fixture f=fixture(left, right, forward);
+
+		int expansions=new BubblePopper(f.contigs, f.destMap, K).expand(left);
+		check(expansions==1, "Expected one terminal direct merge, got "+expansions);
+		check(!f.destMap.containsKey(left.id), "Terminal merge left a null-valued destination-map entry");
+		check(right.used(), "Terminal destination was not retired");
+	}
+
+	/** A merge that closes a loop removes external inbound edges from their sources; those
+	 * consumed edges must also disappear from the destination map. */
+	private static void loopMergeRemovesInboundMapEntries(){
+		Contig left=contig(0, "AAAAACCCCC", 10, Tadpole.LOOP, Tadpole.F_BRANCH);
+		Contig right=contig(1, "CCCCGTTTTT", 20, Tadpole.LOOP, Tadpole.DEAD_END);
+		Contig external=contig(2, "TTTTTAAAAA", 8, Tadpole.DEAD_END, Tadpole.F_BRANCH);
+		Edge forward=edge(0, 1, 3, 15, "G");
+		Edge externalInbound=edge(2, 1, 1, 4, "G");
+		left.rightEdges=list(forward);
+		external.rightEdges=list(externalInbound);
+		ArrayList<Contig> contigs=new ArrayList<Contig>();
+		contigs.add(left); contigs.add(right); contigs.add(external);
+		HashMap<Integer, ArrayList<Edge>> destMap=new HashMap<Integer, ArrayList<Edge>>();
+		addDest(destMap, forward); addDest(destMap, externalInbound);
+
+		int expansions=new BubblePopper(contigs, destMap, K).expand(left);
+		check(expansions==1, "Expected one loop-closing merge, got "+expansions);
+		check(left.leftCode==Tadpole.LOOP && left.rightCode==Tadpole.LOOP,
+				"Merged contig was not marked as a loop");
+		check(left.leftEdgeCount()==0 && left.rightEdgeCount()==0,
+				"Closed loop retained outbound edges");
+		check(external.rightEdgeCount()==0, "Closed loop retained an external inbound edge");
+		check(!destMap.containsKey(left.id), "Closed loop retained consumed destination-map entries");
+		check(right.used(), "Loop destination was not retired");
 	}
 
 	private static void soapBubbleCollapses(){
