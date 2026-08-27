@@ -16,13 +16,16 @@ import map.LongIntMap;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadInputStream;
-import stream.ConcurrentReadOutputStream;
 import stream.FASTQ;
 import stream.Read;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import structures.LongList;
 import structures.ListNum;
 
@@ -77,6 +80,14 @@ public class CoveringSet {
 				kDesign=Integer.parseInt(b);
 			}else if(a.equals("step")){
 				step=(int)Parse.parseKMG(b);
+			}else if(a.equals("stepfraction") || a.equals("stepfrac") || a.equals("adaptivefraction")){
+				stepFraction=Double.parseDouble(b);
+			}else if(a.equals("minstepmult")){
+				minStepMult=Double.parseDouble(b);
+			}else if(a.equals("maxstepmult")){
+				maxStepMult=Double.parseDouble(b);
+			}else if(a.equals("step2boost")){
+				step2Boost=Double.parseDouble(b);
 			}else if(a.equals("maxkmers") || a.equals("budget")){
 				maxKmers=(int)Parse.parseKMG(b);
 			}else if(a.equals("mincov") || a.equals("mincoverage") || a.equals("target")){
@@ -108,6 +119,14 @@ public class CoveringSet {
 		assert(kDesign>=k) : "kdesign must be >= k";
 		assert(k>0 && k<=31) : "k must be 1..31";
 		assert(kDesign<=31) : "kdesign must be <= 31";
+		if(step<1){throw new IllegalArgumentException("step must be positive: "+step);}
+		if(stepFraction<0 || stepFraction>1){
+			throw new IllegalArgumentException("stepfraction must be in [0,1]: "+stepFraction);
+		}
+		if(minStepMult<=0 || maxStepMult<minStepMult || step2Boost<=0){
+			throw new IllegalArgumentException("Require 0<minstepmult<=maxstepmult and step2boost>0: "+
+					minStepMult+", "+maxStepMult+", "+step2Boost);
+		}
 
 		overwrite=parser.overwrite;
 		ffin=FileFormat.testInput(in, FileFormat.FASTA, null, true, true);
@@ -127,7 +146,9 @@ public class CoveringSet {
 		if(numPartitions<=0){numPartitions=Tools.max(15, Shared.threads());}
 		outstream.println("Pool: "+totalSeqs+" sequences, k="+k+
 				(kDesign!=k ? " (design k="+kDesign+")" : "")+
-				", step="+step+", rcomp="+rcomp+", partitions="+numPartitions+", bufsize="+bufferSize);
+				", step="+step+(stepFraction>0 ? ", stepfraction="+stepFraction+
+				", stepbounds="+minStepMult+"-"+maxStepMult+", step2boost="+step2Boost : "")+
+				", rcomp="+rcomp+", partitions="+numPartitions+", bufsize="+bufferSize);
 
 		long totalBases=0;
 		for(byte[] seq : pool){totalBases+=seq.length;}
@@ -151,14 +172,18 @@ public class CoveringSet {
 			float covFrac=1f-(aliveCount/(float)totalSeqs);
 			if(covFrac>=minCovFraction){break;}
 
-			//Halve step when remaining gap is within 2x of the target gap
-			final float gap=aliveCount/(float)totalSeqs;
-			final float targetGap=1f-minCovFraction;
-			if(gap<=2*targetGap && currentStep>Math.max(1, step/2)){
-				currentStep=Math.max(1, step/2);
-				outstream.println("  Step reduced to "+currentStep+" (approaching target, gap="+
-						String.format("%.4f", gap)+", targetGap="+String.format("%.4f", targetGap)+")");
+			//Retain the historical near-target reduction when adaptive sizing is off.
+			if(stepFraction<=0){
+				final float gap=aliveCount/(float)totalSeqs;
+				final float targetGap=1f-minCovFraction;
+				if(gap<=2*targetGap && currentStep>Math.max(1, step/2)){
+					currentStep=Math.max(1, step/2);
+					outstream.println("  Step reduced to "+currentStep+" (approaching target, gap="+
+							String.format("%.4f", gap)+", targetGap="+String.format("%.4f", targetGap)+")");
+				}
 			}
+			final int roundStep=maxKmers>0 ? Tools.min(currentStep, maxKmers-selectedKmers.size) : currentStep;
+			if(roundStep<=0){break;}
 
 			//originalCounts.size() upper-bounds any later round's distinct count
 			//(coverage only shrinks the alive set), so it's a safe, already-known
@@ -166,8 +191,9 @@ public class CoveringSet {
 			PartitionedCounter currentCounts=countKmersMT(pool, alive, kDesign, designMask, originalCounts.size());
 			if(currentCounts.isEmpty()){break;}
 
-			long[] candidates=topNByCount(currentCounts, currentStep*2);
-			long[] ranked=rankByOriginal(candidates, originalCounts, currentStep);
+			final int candidateLimit=(int)Tools.min(Integer.MAX_VALUE, 2L*roundStep);
+			long[] candidates=topNByCount(currentCounts, candidateLimit);
+			long[] ranked=rankByOriginal(candidates, originalCounts, roundStep);
 
 			int added=0;
 			for(long kmer : ranked){
@@ -188,6 +214,14 @@ public class CoveringSet {
 						selectedKmers.size+"), evicted "+evicted+
 						", alive="+aliveCount+", coverage="+String.format("%.4f", cov));
 			}
+			if(stepFraction>0 && aliveCount>0){
+				final int nextStep=adaptiveStep(added, evicted, aliveCount, round+1);
+				if(verbose || nextStep!=currentStep){
+					outstream.println("  Next step: "+nextStep+" (previous added="+added+
+							", recovered="+evicted+", remaining="+aliveCount+")");
+				}
+				currentStep=nextStep;
+			}
 		}
 
 		float finalCov=1f-(aliveCount/(float)totalSeqs);
@@ -204,10 +238,13 @@ public class CoveringSet {
 		outstream.println("Output: "+output.size()+" "+k+"-mer sequences");
 
 		if(ffout!=null){
-			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ffout, null, 4, null, false);
-			ros.start();
-			ros.add(output, 0);
-			errorState|=ReadWrite.closeStream(ros);
+			//Writer, not ConcurrentReadOutputStream -- CRIS/CROS are being phased
+			//out in favor of Streamer/Writer (Brian, 2026-08-26), same reasoning
+			//as the loadFasta switch to Streamer above.
+			Writer writer=WriterFactory.makeWriter(ffout);
+			writer.start();
+			writer.add(output, 0);
+			errorState|=writer.poisonAndWait();
 		}
 
 		if(execPool!=null){execPool.shutdown();}
@@ -239,20 +276,42 @@ public class CoveringSet {
 		return pool;
 	}
 
+	/** Loads a FASTA file into memory via Streamer, not ConcurrentReadInputStream.
+	 * CRIS spawns exactly one ReadThread for a single unpaired file, so the whole
+	 * file's line-splitting/header-parsing/Read-construction runs on ONE core no
+	 * matter how many cores are available -- confirmed pinning a single core at
+	 * 99% for the entire load phase on a real 2.4Gbp input (Brian, 2026-08-26).
+	 * StreamerFactory.makeStreamer(ff, pairnum, ordered, maxReads) with threads
+	 * left at its default (-1, "auto") dispatches to the real parallel
+	 * FastaStreamer when Shared.threads()>=8: one I/O thread splitting on '>'
+	 * boundaries feeds an ordered queue that DEFAULT_THREADS=3 worker threads
+	 * drain concurrently, each doing the actual Read construction/validation.
+	 * (StreamerFactory.getReads(...) -- the tempting one-liner -- is NOT this:
+	 * it hardcodes threads=1, which routes to FastaStreamerST, a single dedicated
+	 * worker thread -- same one-core bottleneck as the old CRIS code, just a
+	 * newer class name. Call makeStreamer directly to actually get the parallel
+	 * path.) Below Shared.threads()<8 this transparently falls back to a
+	 * single-threaded streamer, so this is never worse than the old behavior. */
 	private void loadFasta(String fname, ArrayList<byte[]> dest){
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
-		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null);
-		cris.start();
-		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()){
+		Streamer st=StreamerFactory.makeStreamer(ff, 0, true, -1);
+		st.start();
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
 			for(Read r : ln){
 				if(r.bases!=null && r.length()>0){
 					Tools.toUpperCase(r.bases);
 					dest.add(r.bases);
 				}
 			}
-			cris.returnList(ln);
 		}
-		ReadWrite.closeStream(cris);
+		st.close();
+		//Reference-data load: a partial/corrupt read here silently produces a
+		//wrong kmer pool with no error visible downstream, so crash loud instead
+		//of continuing -- same idiom as StreamerFactory.getReads' own error path.
+		if(st.errorState()){
+			KillSwitch.kill("Error: a read error (corrupt or truncated input) occurred reading "
+				+fname+"; aborting rather than building a covering set from partial/incorrect data.");
+		}
 	}
 
 	/** Minimum pool size before bothering to fan out across threads -- below this,
@@ -351,26 +410,6 @@ public class CoveringSet {
 		}
 
 		boolean isEmpty(){return size()==0;}
-
-		/** All real keys across every shard. Uses each shard's toArray() (the
-		 * filtered accessor), never the raw keys() array -- found while
-		 * rewriting this that the previous single-map code path used the raw
-		 * keys() array, which includes empty-slot sentinels, and could rank or
-		 * even select a phantom sentinel "kmer" whenever a map's backing array
-		 * was small relative to the requested top-N. Not otherwise reachable
-		 * in a normal run (needs a tiny pool relative to step), but a real
-		 * latent bug, fixed here as a side effect of touching this code. */
-		long[] keys(){
-			long total=size();
-			long[] out=new long[(int)total];
-			int pos=0;
-			for(LongIntMap m : shards){
-				long[] k=m.toArray();
-				System.arraycopy(k, 0, out, pos, k.length);
-				pos+=k.length;
-			}
-			return out;
-		}
 	}
 
 	/** Fills pool[from,to) (or only the alive ones there, if alive!=null) into a
@@ -441,25 +480,71 @@ public class CoveringSet {
 		return counter;
 	}
 
-	/** Returns the top N kmers by count from the counter, sorted descending. */
-	private long[] topNByCount(PartitionedCounter counter, int n){
-		long[] keys=counter.keys();
-		int[] counts=new int[keys.length];
-		for(int i=0; i<keys.length; i++){
-			counts[i]=counter.get(keys[i]);
+	/** Returns the top N kmers by count without materializing or sorting the
+	 * complete kmer space. Each shard is scanned independently in parallel into
+	 * a bounded primitive heap, then the small shard results are merged. Numeric
+	 * kmer order breaks count ties reproducibly, independent of shard count. */
+	private long[] topNByCount(final PartitionedCounter counter, final int n){
+		if(n<=0 || counter.isEmpty()){return new long[0];}
+		final int limit=(int)Tools.min(n, counter.size());
+		final int ways=counter.shards.length;
+		final int threads=Tools.max(1, Shared.threads());
+		final TopKHeap merged=new TopKHeap(limit);
+		if(threads<=1 || ways<=1){
+			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit));}
+		}else{
+			final ArrayList<Future<TopKHeap>> futures=new ArrayList<>(ways);
+			for(int way=0; way<ways; way++){
+				final int w=way;
+				futures.add(pool().submit(new Callable<TopKHeap>(){
+					@Override
+					public TopKHeap call(){return topKFromShard(counter.shards[w], limit);}
+				}));
+			}
+			for(Future<TopKHeap> f : futures){
+				try{merged.add(f.get());}catch(Exception e){throw new RuntimeException(e);}
+			}
 		}
-		coSortDescending(keys, counts, keys.length);
-		return keys.length<=n ? keys : Arrays.copyOf(keys, n);
+		return merged.keysDescending();
+	}
+
+	/** Scans one immutable shard into a bounded top-K heap. */
+	private static TopKHeap topKFromShard(LongIntMap map, int limit){
+		final TopKHeap heap=new TopKHeap(Tools.min(limit, map.size()));
+		final long[] keys=map.keys();
+		final int[] counts=map.values();
+		final long invalid=map.invalid();
+		for(int cell=0; cell<keys.length; cell++){
+			final long key=keys[cell];
+			if(key!=invalid){heap.add(key, counts[cell], key);}
+		}
+		return heap;
 	}
 
 	/** From the candidate list, re-rank by original prevalence, keep top step. */
 	private long[] rankByOriginal(long[] candidates, PartitionedCounter originalCounts, int keep){
-		int[] origCounts=new int[candidates.length];
+		final TopKHeap heap=new TopKHeap(Tools.min(keep, candidates.length));
 		for(int i=0; i<candidates.length; i++){
-			origCounts[i]=originalCounts.get(candidates[i]);
+			heap.add(candidates[i], originalCounts.get(candidates[i]), candidates[i]);
 		}
-		coSortDescending(candidates, origCounts, candidates.length);
-		return candidates.length<=keep ? candidates : Arrays.copyOf(candidates, keep);
+		return heap.keysDescending();
+	}
+
+	/** Projects the next batch size from the previous round's observed
+	 * sequences-per-kmer recovery. Bounds and the optional round-2 boost are
+	 * tunable because conservation changes the useful step scale. */
+	private int adaptiveStep(int previousKmers, int previousRecovered, int remaining, int nextRound){
+		double projected=previousKmers*(stepFraction*remaining)/Tools.max(1, previousRecovered);
+		if(nextRound==2){projected*=step2Boost;}
+		final long raw=projected>=Integer.MAX_VALUE ? Integer.MAX_VALUE : (long)Math.ceil(projected);
+		final long min=scaledStep(minStepMult);
+		final long max=Tools.max(min, scaledStep(maxStepMult));
+		return (int)Tools.mid(min, max, raw);
+	}
+
+	private long scaledStep(double mult){
+		final double x=Math.ceil(step*mult);
+		return Tools.max(1L, x>=Integer.MAX_VALUE ? Integer.MAX_VALUE : (long)x);
 	}
 
 	/** Marks sequences as not-alive if they contain any selected (canonical) kmer,
@@ -572,26 +657,99 @@ public class CoveringSet {
 		return bases;
 	}
 
-	/** Co-sort keys by counts, descending, using a simple insertion sort for
-	 * small arrays or Arrays.sort on an index array for large ones. */
-	private static void coSortDescending(long[] keys, int[] counts, int len){
-		if(len<=64){
-			for(int i=1; i<len; i++){
-				long kk=keys[i]; int cc=counts[i]; int j=i;
-				while(j>0 && counts[j-1]<cc){
-					keys[j]=keys[j-1]; counts[j]=counts[j-1]; j--;
-				}
-				keys[j]=kk; counts[j]=cc;
-			}
-		}else{
-			Integer[] idx=new Integer[len];
-			for(int i=0; i<len; i++){idx[i]=i;}
-			Arrays.sort(idx, (a, b)->counts[b]-counts[a]);
-			long[] kk=new long[len]; int[] cc=new int[len];
-			for(int i=0; i<len; i++){kk[i]=keys[idx[i]]; cc[i]=counts[idx[i]];}
-			System.arraycopy(kk, 0, keys, 0, len);
-			System.arraycopy(cc, 0, counts, 0, len);
+	/** Primitive bounded min-heap. The root is the worst retained item: lower
+	 * count, then later stable order. This avoids boxed entries in the hot rank. */
+	private static final class TopKHeap {
+		TopKHeap(int capacity_){
+			capacity=capacity_;
+			keys=new long[capacity];
+			counts=new int[capacity];
+			orders=new long[capacity];
 		}
+
+		void add(TopKHeap b){
+			for(int i=0; i<b.size; i++){add(b.keys[i], b.counts[i], b.orders[i]);}
+		}
+
+		boolean add(long key, int count, long order){
+			if(capacity<=0){return false;}
+			if(size<capacity){
+				keys[size]=key;
+				counts[size]=count;
+				orders[size]=order;
+				siftUp(size);
+				size++;
+				return true;
+			}
+			if(!better(count, order, counts[0], orders[0])){return false;}
+			keys[0]=key;
+			counts[0]=count;
+			orders[0]=order;
+			siftDown(0);
+			return true;
+		}
+
+		long[] keysDescending(){
+			final long[] out=new long[size];
+			for(int i=size-1; i>=0; i--){
+				out[i]=keys[0];
+				size--;
+				if(size>0){
+					keys[0]=keys[size];
+					counts[0]=counts[size];
+					orders[0]=orders[size];
+					siftDown(0);
+				}
+			}
+			return out;
+		}
+
+		private void siftUp(int child){
+			final long key=keys[child], order=orders[child];
+			final int count=counts[child];
+			while(child>0){
+				final int parent=(child-1)>>>1;
+				if(!worse(count, order, counts[parent], orders[parent])){break;}
+				keys[child]=keys[parent];
+				counts[child]=counts[parent];
+				orders[child]=orders[parent];
+				child=parent;
+			}
+			keys[child]=key;
+			counts[child]=count;
+			orders[child]=order;
+		}
+
+		private void siftDown(int parent){
+			final long key=keys[parent], order=orders[parent];
+			final int count=counts[parent];
+			for(int child=parent*2+1; child<size; child=parent*2+1){
+				if(child+1<size && worse(counts[child+1], orders[child+1],
+						counts[child], orders[child])){child++;}
+				if(!worse(counts[child], orders[child], count, order)){break;}
+				keys[parent]=keys[child];
+				counts[parent]=counts[child];
+				orders[parent]=orders[child];
+				parent=child;
+			}
+			keys[parent]=key;
+			counts[parent]=count;
+			orders[parent]=order;
+		}
+
+		private static boolean better(int ac, long ao, int bc, long bo){
+			return ac>bc || (ac==bc && ao<bo);
+		}
+
+		private static boolean worse(int ac, long ao, int bc, long bo){
+			return ac<bc || (ac==bc && ao>bo);
+		}
+
+		private final int capacity;
+		private final long[] keys;
+		private final int[] counts;
+		private final long[] orders;
+		private int size=0;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -609,6 +767,12 @@ public class CoveringSet {
 	private int k=17;
 	private int kDesign=-1;
 	private int step=500;
+	/** Fraction of remaining sequences targeted per adaptive round; 0 keeps the
+	 * historical fixed-step behavior. */
+	private double stepFraction=0;
+	private double minStepMult=0.1;
+	private double maxStepMult=2;
+	private double step2Boost=1;
 	private int maxKmers=0;
 	private float minCovFraction=0.999f;
 	private int copies=10;

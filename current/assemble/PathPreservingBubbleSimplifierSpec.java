@@ -176,11 +176,9 @@ public class PathPreservingBubbleSimplifierSpec {
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Asymmetric/malformed edge: an arm's forward (entry) edge and its reciprocal (back) edge
-	 * disagree in depth -- a real one-sided-connection malformation, not just a missing edge
-	 * (that simpler case is already caught upstream by midNodesConcur's leftEdges-null check).
-	 * Exercises unzipTrueBubble's own validBubbleArm reciprocity check
-	 * (entry.depth!=back.depth -> decline) directly.
+	 * Malformed reciprocal edge: an arm's forward (entry) edge and its reciprocal (back) edge
+	 * disagree in path length. Directional depth measurements legitimately differ in real graphs;
+	 * path length for the two representations of one physical connection must not.
 	 */
 	static boolean rejectMalformedEdge(){
 		final int k=5;
@@ -188,9 +186,8 @@ public class PathPreservingBubbleSimplifierSpec {
 		byte[] originalLBases=fx.L.bases.clone(), originalRBases=fx.R.bases.clone();
 
 		if(fx.M1.leftEdgeCount()!=1){throw new RuntimeException("Fixture sanity failed: M1 must have exactly one back edge before corruption");}
-		// Corrupt M1's back edge (M1->L) depth so it no longer matches the entry edge (L->M1) --
-		// same claimed connection, inconsistent reciprocal record.
-		fx.M1.leftEdges.get(0).depth=24;
+		//Corrupt M1's back-edge length so it no longer matches the entry edge.
+		fx.M1.leftEdges.get(0).length=2;
 
 		configureUnzip();
 		int expansions=new BubblePopper(fx.allContigs, fx.destMap, k, DEFAULT_ERROR_CLASSIFIER).expand(fx.L);
@@ -257,7 +254,7 @@ public class PathPreservingBubbleSimplifierSpec {
 	 * Fully isolated 2-arm bubble satisfying BubblePopper.unzipTrueBubble's complete contract:
 	 * L/R have no outer edges (DEAD_END on the outside, no third-party inbound), exactly 2 arms
 	 * on the inside, each arm single-edge each side, all four junction edges reciprocal (matching
-	 * length/depth on both directions) and carrying the correct overlap byte(s) so
+	 * path length but independently measured directional depths) and carrying the correct overlap byte(s) so
 	 * validForwardEdge's sequence check passes. Same L/M1/M2/R base sequences and orientation
 	 * convention as the prior buildBubble() (verified this session against production's
 	 * validForwardEdge: shared=kbig-edge.length overlap bytes, then edge.bases must equal the
@@ -281,8 +278,8 @@ public class PathPreservingBubbleSimplifierSpec {
 		Edge lToM2=new Edge(fx.L.id, fx.M2.id, 1, orient(true,false), (int)altCov, new byte[]{'T'});
 		fx.L.addRightEdge(lToM1);
 		fx.L.addRightEdge(lToM2);
-		Edge m1Back=new Edge(fx.M1.id, fx.L.id, 1, orient(false,true), (int)repCov, null);
-		Edge m2Back=new Edge(fx.M2.id, fx.L.id, 1, orient(false,true), (int)altCov, null);
+		Edge m1Back=new Edge(fx.M1.id, fx.L.id, 1, orient(false,true), (int)repCov+1, null);
+		Edge m2Back=new Edge(fx.M2.id, fx.L.id, 1, orient(false,true), (int)altCov+1, null);
 		fx.M1.addLeftEdge(m1Back);
 		fx.M2.addLeftEdge(m2Back);
 
@@ -291,8 +288,8 @@ public class PathPreservingBubbleSimplifierSpec {
 		Edge m2ToR=new Edge(fx.M2.id, fx.R.id, 1, orient(true,false), (int)altCov, new byte[]{'G'});
 		fx.M1.addRightEdge(m1ToR);
 		fx.M2.addRightEdge(m2ToR);
-		Edge rToM1=new Edge(fx.R.id, fx.M1.id, 1, orient(false,true), (int)repCov, null);
-		Edge rToM2=new Edge(fx.R.id, fx.M2.id, 1, orient(false,true), (int)altCov, null);
+		Edge rToM1=new Edge(fx.R.id, fx.M1.id, 1, orient(false,true), (int)repCov+1, null);
+		Edge rToM2=new Edge(fx.R.id, fx.M2.id, 1, orient(false,true), (int)altCov+1, null);
 		fx.R.addLeftEdge(rToM1);
 		fx.R.addLeftEdge(rToM2);
 

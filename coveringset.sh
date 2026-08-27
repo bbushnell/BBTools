@@ -36,6 +36,12 @@ kdesign=        If set, select at this k but output at k.
 
 Selection parameters:
 step=500        Kmers to select per round.
+stepfraction=0  Adaptive sizing for rounds 2+: target this fraction of the
+                remaining sequences, projected from the previous round's
+                recovered-sequences-per-kmer rate. 0 disables adaptation.
+minstepmult=0.1 Lower bound on adaptive step, as a multiple of initial step.
+maxstepmult=2   Upper bound on adaptive step, as a multiple of initial step.
+step2boost=1    Multiplier applied only to the projected second-round step.
 maxkmers=       Maximum total kmers to select (0 = no limit).
 target=0.999    Stop when this fraction of pool sequences is covered.
 

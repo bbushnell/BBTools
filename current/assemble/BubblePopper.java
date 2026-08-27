@@ -613,8 +613,8 @@ public class BubblePopper {
 		if(back.origin!=mid.id || back.destination!=left.id || back.orientation!=2){return false;}
 		if(exit.origin!=mid.id || exit.destination!=right.id || exit.orientation!=1){return false;}
 		if(reverseExit.origin!=right.id || reverseExit.destination!=mid.id || reverseExit.orientation!=2){return false;}
-		if(entry.depth<1 || exit.depth<1 || entry.length!=back.length || entry.depth!=back.depth
-				|| exit.length!=reverseExit.length || exit.depth!=reverseExit.depth){return false;}
+		if(entry.depth<1 || back.depth<1 || exit.depth<1 || reverseExit.depth<1
+				|| entry.length!=back.length || exit.length!=reverseExit.length){return false;}
 		return validForwardEdge(left, mid, entry) && validForwardEdge(mid, right, exit);
 	}
 

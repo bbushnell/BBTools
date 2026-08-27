@@ -96,6 +96,7 @@ public class BubblePopperUnitTest {
 
 	private static void isolatedTrueBubbleUnzips(){
 		BubbleFixture f=twoArmBubble(48, 45, 48, 45);
+		checkReciprocalDepthsAsymmetric(f);
 		final float highCoverage=f.mids[0].coverage, lowCoverage=f.mids[1].coverage;
 		BubblePopper.popIndirect=false;
 		BubblePopper.unzipBubbles=true;
@@ -379,18 +380,32 @@ public class BubblePopperUnitTest {
 		addDest(f.destMap, leftToExternal);
 	}
 
-	/** Adds both directed representations of a physical entry and exit connection. */
+	/** Adds both independently measured directed representations of each physical connection. */
 	private static void connect(Contig left, Contig mid, Contig right, int entryDepth, int exitDepth,
 			String entryBases, String exitBases, ArrayList<Edge> allEdges){
 		Edge lm=edge(left.id, mid.id, 1, entryDepth, entryBases);
-		Edge ml=edge(mid.id, left.id, 2, entryDepth, null);
+		Edge ml=edge(mid.id, left.id, 2, entryDepth+1, null);
 		Edge mr=edge(mid.id, right.id, 1, exitDepth, exitBases);
-		Edge rm=edge(right.id, mid.id, 2, exitDepth, null);
+		Edge rm=edge(right.id, mid.id, 2, exitDepth+1, null);
 		left.rightEdges=append(left.rightEdges, lm);
 		mid.leftEdges=append(mid.leftEdges, ml);
 		mid.rightEdges=append(mid.rightEdges, mr);
 		right.leftEdges=append(right.leftEdges, rm);
 		allEdges.add(lm); allEdges.add(ml); allEdges.add(mr); allEdges.add(rm);
+	}
+
+	/** Real graph edge depths are directional measurements and need not match reciprocals. */
+	private static void checkReciprocalDepthsAsymmetric(BubbleFixture f){
+		for(Contig mid : f.mids){
+			Edge entry=f.left.getRightEdge(mid.id, -1);
+			Edge back=mid.getLeftEdge(f.left.id, -1);
+			Edge exit=mid.getRightEdge(f.right.id, -1);
+			Edge reverseExit=f.right.getLeftEdge(mid.id, -1);
+			check(entry!=null && back!=null && exit!=null && reverseExit!=null,
+					"Fixture is missing a reciprocal bubble edge");
+			check(entry.depth!=back.depth && exit.depth!=reverseExit.depth,
+					"Fixture did not exercise asymmetric reciprocal depths");
+		}
 	}
 
 	private static BubbleFixture bubbleFixture(Contig left, Contig[] mids, Contig right, ArrayList<Edge> edges){
