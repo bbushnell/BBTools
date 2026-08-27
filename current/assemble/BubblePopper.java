@@ -768,7 +768,7 @@ public class BubblePopper {
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
 			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
-			left.removeAllEdges(destMap.get(left.id), allContigs);
+			left.removeAllEdges(destMap.remove(left.id), allContigs); //remove, not get: also drop the stale destMap entry for this now-loop contig, else validateGraph sees a dangling inbound list (validate:983)
 		}
 		
 		if(verbose){
@@ -810,8 +810,8 @@ public class BubblePopper {
 				inboundTo.add(e);
 			}
 		}
-		if(inboundTo.isEmpty()){inboundTo=null;}
-		destMap.put(to, inboundTo);
+		if(inboundTo.isEmpty()){destMap.remove(to);} //remove, don't store null: an empty inbound list must be ABSENT from destMap, not a null value (else validateGraph fires at validate:967)
+		else{destMap.put(to, inboundTo);}
 	}
 	
 	/**
@@ -910,7 +910,7 @@ public class BubblePopper {
 			left.leftCode=Tadpole.LOOP;
 			left.rightCode=Tadpole.LOOP;
 			left.leftBridgeEndpoint=left.rightBridgeEndpoint=false;
-			left.removeAllEdges(destMap.get(left.id), allContigs);
+			left.removeAllEdges(destMap.remove(left.id), allContigs); //remove, not get: also drop the stale destMap entry for this now-loop contig, else validateGraph sees a dangling inbound list (validate:983)
 		}
 		
 		expansions++;
