@@ -97,8 +97,17 @@ class CrossKTipOverlapper {
 	}
 
 	private void consider(Tip source, Tip dest, int overlap){
-		if(source.contig==dest.contig || overlap>=source.contig.length() || overlap>=dest.contig.length()){return;}
+		if(source==dest || overlap>=source.contig.length() || overlap>=dest.contig.length()){return;}
 		if(!matches(source, dest, overlap)){return;}
+		if(source.contig==dest.contig){
+			selfMatches++;
+			if(overlap>source.bestOverlap){
+				source.best=null;
+				source.bestOverlap=overlap;
+				source.ambiguous=true;
+			}else if(overlap==source.bestOverlap){source.ambiguous=true;}
+			return;
+		}
 		exactCandidates++;
 		if(overlap>source.bestOverlap){
 			source.best=dest;
@@ -165,8 +174,10 @@ class CrossKTipOverlapper {
 	}
 
 	private void printSummary(int tips, int ambiguous, int reciprocal, int cycleRejected){
+		if(!BubblePopper.verbose){return;}
 		System.err.println((graphKEnds ? "Graph-k" : "Cross-k")+" tip overlaps: endpoints="+tips+
 				", exactCandidates="+exactCandidates+
+				", selfMatches="+selfMatches+
 				", ambiguous="+ambiguous+", reciprocal="+reciprocal+
 				", cycleRejected="+cycleRejected+", added="+(reciprocal-cycleRejected)+".");
 	}
@@ -206,6 +217,6 @@ class CrossKTipOverlapper {
 	private final ArrayList<Contig> contigs;
 	private final int minOverlap, maxOverlap;
 	private final boolean graphKEnds;
-	private long exactCandidates=0;
+	private long exactCandidates=0, selfMatches=0;
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;
 }

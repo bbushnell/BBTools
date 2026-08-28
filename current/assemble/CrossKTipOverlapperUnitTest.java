@@ -22,6 +22,7 @@ public class CrossKTipOverlapperUnitTest {
 		failures+=run("cyclicComponentRejected", CrossKTipOverlapperUnitTest::cyclicComponentRejected);
 		failures+=run("graphKUnbranchedOverlap", CrossKTipOverlapperUnitTest::graphKUnbranchedOverlap);
 		failures+=run("graphKBranchIgnored", CrossKTipOverlapperUnitTest::graphKBranchIgnored);
+		failures+=run("selfOverlapIsAmbiguous", CrossKTipOverlapperUnitTest::selfOverlapIsAmbiguous);
 		BubblePopper.crossKMerge=false;
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
@@ -106,6 +107,16 @@ public class CrossKTipOverlapperUnitTest {
 		ArrayList<Contig> contigs=list(a, b);
 		check(new CrossKTipOverlapper(contigs, 5, 9, true).addEdges()==0,
 				"Branched graph-k overlap was selected");
+	}
+
+	private static void selfOverlapIsAmbiguous(){
+		Contig a=contig(0, "AAACCCAAA", false, false);
+		Contig b=contig(1, "AAAGGG", false, false);
+		a.leftCode=a.rightCode=Tadpole.KEEP_GOING;
+		b.leftCode=Tadpole.KEEP_GOING;
+		ArrayList<Contig> contigs=list(a, b);
+		check(new CrossKTipOverlapper(contigs, 3, 3, true).addEdges()==0,
+				"A terminal self-overlap was ignored when selecting an external join");
 	}
 
 	private static BubblePopper popper(ArrayList<Contig> contigs){

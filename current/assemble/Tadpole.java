@@ -1542,7 +1542,9 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of bubbles successfully popped
 	 */
 	int popBubbles(boolean debranch){
-		outstream.println("Popping bubbles; contigs="+allContigs.size());
+		if(!BubblePopper.crossKMerge || verbose){
+			outstream.println("Popping bubbles; contigs="+allContigs.size());
+		}
 		HashMap<Integer, ArrayList<Edge>> destToEdgeMap=destToEdgeMap();
 		
 		int bubblesPoppedThisPass=0;
@@ -1560,7 +1562,7 @@ public abstract class Tadpole extends ShaveObject{
 				bubblesPoppedThisPass+=bp.expand(c);
 			}
 		}
-		if(BubblePopper.crossKMerge){
+		if(BubblePopper.crossKMerge && verbose){
 			outstream.println("Cross-k merge evaluations: "+bp.crossKMergeEvaluations+
 					", merged="+bp.crossKMerged+", sourceShape="+bp.crossKRejectedSourceShape+
 					", usedOrSelf="+bp.crossKRejectedUsedOrSelf+", depth="+bp.crossKRejectedDepth+
@@ -1688,7 +1690,7 @@ public abstract class Tadpole extends ShaveObject{
 			errorState=true;
 			throw new RuntimeException(getClass().getSimpleName()+" graph worker thread failed.", workerFailure);
 		}
-		if(refreshGraphEndpoints){
+		if(refreshGraphEndpoints && verbose){
 			outstream.println("Graph-k endpoints refreshed: "+graphEndsRefreshed+
 					"; classifications changed: "+graphEndCodesChanged+".");
 			StringBuilder sb=new StringBuilder("Graph-k endpoint topology:");
@@ -1700,7 +1702,7 @@ public abstract class Tadpole extends ShaveObject{
 			printGraphEndTopology("ambiguous", ambiguousEndCodeCounts);
 			printGraphEndTopology("missing", missingEndCodeCounts);
 		}
-		if(crossKGraph() || refreshGraphEndpoints){
+		if((crossKGraph() || refreshGraphEndpoints) && verbose){
 			final String prefix=(crossKGraph() ? "Cross-k" : "Graph-k");
 			outstream.println(prefix+" endpoint seeds: unique="+endpointSeedsUnique+
 					", missing="+endpointSeedsMissing+", ambiguous="+endpointSeedsAmbiguous+

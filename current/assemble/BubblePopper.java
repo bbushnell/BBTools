@@ -308,7 +308,7 @@ public class BubblePopper {
 		assert(!validateGraph || validate(center));
 		assert(!validateGraph || validate(dest));
 		
-		if(crossKMerge){
+		if(crossKMerge && verbose){
 			System.err.println("Cross-k merge: left="+center.name()+", right="+dest.name()+
 					", bridge="+leftEdge.length+", overlap="+(leftEdge.overlap>0 ? leftEdge.overlap : kbig)+
 					", depth="+leftEdge.depth+", orientation="+leftEdge.orientation);

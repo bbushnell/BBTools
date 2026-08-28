@@ -62,7 +62,7 @@ runUnifiedMultiGraphTest(){
 		local logtext="${rest#*:}"
 		"$DIR/tadpole.sh" in="$DIR/testdata/crossk_left_bridge_reads_k31.fa" out="$temp/$name.fa.gz" \
 			k=20,31 $grapharg simpleomnitigs=t mcs=1 mce=1 mincontig=1 prefilter=f pop=f \
-			ow=t t=1 showstats=f 1>"$temp/$name.stdout" 2>"$temp/$name.stderr"
+			ow=t t=1 showstats=f verbose=t 1>"$temp/$name.stdout" 2>"$temp/$name.stderr"
 		actual="$(zcat "$temp/$name.fa.gz" | awk '!/^>/{printf "%s", $0} END{print ""}')"
 		if [ "$actual" != "$expected" ] && [ "$actual" != "$rc" ]; then
 			echo "FAIL: unified multi-k $name graph extraction changed the expected sequence" >&2
@@ -93,6 +93,32 @@ runUnifiedMultiGraphTest(){
 	done
 }
 
+runQuietMultiGraphTest(){
+	local temp diagnostic
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_left_bridge_reads_k31.fa" out="$temp/out.fa.gz" \
+		k=20,31 graphk=20 simpleomnitigs=t resolverepeats=t mcs=1 mce=1 mincontig=1 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/stdout" 2>"$temp/stderr"
+	if ! grep -Fq "X repeats resolved:" "$temp/stderr"; then
+		echo "FAIL: unified multi-k repeat resolution did not run on the longest-k assembly" >&2
+		cat "$temp/stderr" >&2
+		exit 1
+	fi
+	for diagnostic in "Cross-k merge:" "Cross-k tip overlaps:" "Graph-k tip overlaps:" \
+		"Cross-k endpoints:" "Graph-k endpoints refreshed:" "Graph-k endpoint topology:" \
+		"Graph-k unique topology:" "Graph-k ambiguous topology:" "Graph-k missing topology:" \
+		"Graph-k endpoint seeds:" "Graph-k traversal exits:" "Cross-k merge evaluations:" \
+		"Popping bubbles; contigs="; do
+		if grep -Fq "$diagnostic" "$temp/stderr"; then
+			echo "FAIL: default multi-k output contained internal diagnostic '$diagnostic'" >&2
+			cat "$temp/stderr" >&2
+			exit 1
+		fi
+	done
+	echo "PASS: quietMultiKRepeatResolution"
+}
+
 resolveSymlinks
 runTest assemble.BubblePopperUnitTest
 runTest assemble.PathPreservingBubbleSimplifierSpec
@@ -102,3 +128,4 @@ runTest assemble.SimpleOmnitigExtractorUnitTest
 runTest assemble.TadpoleMultiUnitTest
 runCrossKLeftBridgeTest
 runUnifiedMultiGraphTest
+runQuietMultiGraphTest

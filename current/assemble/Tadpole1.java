@@ -883,9 +883,11 @@ public class Tadpole1 extends Tadpole {
 			if(c.leftBridgeEndpoint){unique++;}
 			if(c.rightBridgeEndpoint){unique++;}
 		}
-		outstream.println("Cross-k endpoints: eligible="+eligible+", unique="+unique+
-				", internal="+internalBlocked+", ineligibleTip="+tipBlocked+
-				", duplicateEligible="+(eligible-unique-internalBlocked-tipBlocked)+".");
+		if(verbose){
+			outstream.println("Cross-k endpoints: eligible="+eligible+", unique="+unique+
+					", internal="+internalBlocked+", ineligibleTip="+tipBlocked+
+					", duplicateEligible="+(eligible-unique-internalBlocked-tipBlocked)+".");
+		}
 	}
 
 	/** Marks every short kmer except the two terminal positions as assembled and untraversable. */

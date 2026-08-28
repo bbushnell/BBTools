@@ -72,7 +72,13 @@ public class TadpoleMulti {
 			checkErrorState(tad);
 			tad.setContigs(contigs);
 			tad.clearContigEdges();
-			tad.processContigs();
+			final boolean resolveRepeats=tad.resolveRepeats;
+			tad.resolveRepeats=false;
+			try{
+				tad.processContigs();
+			}finally{
+				tad.resolveRepeats=resolveRepeats;
+			}
 			mergeCrossK(tad);
 
 			contigs=tad.detachContigs();
