@@ -940,11 +940,14 @@ public class Tadpole1 extends Tadpole {
 			final long rkmer0=rcomp(kmer0);
 			final int owner=tables.findOwner(kmer0, rkmer0);
 			if(owner<0){
+				endpointSeedsMissingT++;
 				if(refreshGraphEndpoints){
 					if(c.leftCode!=DEAD_END){graphEndCodesChangedT++;}
 					c.leftCode=DEAD_END;
 					c.leftRatio=0;
 					graphEndsRefreshedT++;
+					graphEndCodeCountsT[c.leftCode]++;
+					missingEndCodeCountsT[c.leftCode]++;
 				}
 				return;
 			}
@@ -959,11 +962,18 @@ public class Tadpole1 extends Tadpole {
 				c.leftRatio=graphEndRatio(c.leftCode, rightCounts, leftCounts);
 				graphEndsRefreshedT++;
 				if(c.leftCode!=old){graphEndCodesChangedT++;}
+				graphEndCodeCountsT[c.leftCode]++;
 			}
 			//[assemble/Tadpole1#004 FIXED 2026-08-28] Post-bridge contigs can share a terminal
 			//graph-k kmer.  Such an endpoint is topologically ambiguous, so skip it instead of
 			//assigning the shared kmer to whichever contig happened to claim it last.
-			if(owner!=c.id){return;}
+			if(owner!=c.id){
+				endpointSeedsAmbiguousT++;
+				if(refreshGraphEndpoints){ambiguousEndCodeCountsT[c.leftCode]++;}
+				return;
+			}
+			endpointSeedsUniqueT++;
+			if(refreshGraphEndpoints){uniqueEndCodeCountsT[c.leftCode]++;}
 			
 			assert(tables.getCount(kmer0, rkmer0)>0);
 			assert(tables.findOwner(kmer0, rkmer0)==c.id) : tables.findOwner(kmer0, rkmer0)+", "+c.id;
@@ -974,6 +984,7 @@ public class Tadpole1 extends Tadpole {
 				final int count=leftCounts[x];
 				int target=-1;
 				if(count>0 && isJunction(leftMax, count)){
+					if(crossKGraph || refreshGraphEndpoints){traversalAttemptsT++;}
 					int x2=3-x;
 					long rkmer=((rkmer0<<2)|(long)x2)&mask;
 					long kmer=(kmer0>>>2)|(((long)x)<<shift2);
@@ -985,7 +996,7 @@ public class Tadpole1 extends Tadpole {
 					//Keep the established dense-graph representation unchanged.
 					bb.append(AminoAcid.numberToBase[crossKGraph ? x2 : x]);
 					target=exploreRight(rkmer, kmer, extraCounts, rightCounts, bb, c.id);
-					if(crossKGraph){exitCountsT[lastExitCondition]++;}
+					if(crossKGraph || refreshGraphEndpoints){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"L_F: x="+x+", cnt="+count+", dest="+target
 								+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
@@ -1008,11 +1019,14 @@ public class Tadpole1 extends Tadpole {
 			final long rkmer0=rcomp(kmer0);
 			final int owner=tables.findOwner(kmer0, rkmer0);
 			if(owner<0){
+				endpointSeedsMissingT++;
 				if(refreshGraphEndpoints){
 					if(c.rightCode!=DEAD_END){graphEndCodesChangedT++;}
 					c.rightCode=DEAD_END;
 					c.rightRatio=0;
 					graphEndsRefreshedT++;
+					graphEndCodeCountsT[c.rightCode]++;
+					missingEndCodeCountsT[c.rightCode]++;
 				}
 				return;
 			}
@@ -1027,14 +1041,22 @@ public class Tadpole1 extends Tadpole {
 				c.rightRatio=graphEndRatio(c.rightCode, leftCounts, rightCounts);
 				graphEndsRefreshedT++;
 				if(c.rightCode!=old){graphEndCodesChangedT++;}
+				graphEndCodeCountsT[c.rightCode]++;
 			}
-			if(owner!=c.id){return;}
+			if(owner!=c.id){
+				endpointSeedsAmbiguousT++;
+				if(refreshGraphEndpoints){ambiguousEndCodeCountsT[c.rightCode]++;}
+				return;
+			}
+			endpointSeedsUniqueT++;
+			if(refreshGraphEndpoints){uniqueEndCodeCountsT[c.rightCode]++;}
 
 			for(int x=0; x<rightCounts.length; x++){
 				bb.clear();
 				final int count=rightCounts[x];
 				int target=-1;
 				if(count>0 && isJunction(rightMax, count)){
+					if(crossKGraph || refreshGraphEndpoints){traversalAttemptsT++;}
 					long x2=3-x;
 					long kmer=((kmer0<<2)|(long)x)&mask;
 					long rkmer=(rkmer0>>>2)|(((long)x2)<<shift2);
@@ -1042,7 +1064,7 @@ public class Tadpole1 extends Tadpole {
 					assert(tables.getCount(kmer, rkmer)==count) : count+", "+tables.getCount(kmer, rkmer);
 					bb.append(AminoAcid.numberToBase[x]);
 					target=exploreRight(kmer, rkmer, leftCounts, extraCounts, bb, c.id);
-					if(crossKGraph){exitCountsT[lastExitCondition]++;}
+					if(crossKGraph || refreshGraphEndpoints){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"R_F: x="+x+", cnt="+count+", dest="+target+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
 					}
@@ -1076,7 +1098,7 @@ public class Tadpole1 extends Tadpole {
 			int visitedSize=0;
 			lastTarget=-1;
 			for(; length<crossKMaxLen; length++){
-				if(crossKGraph){
+				if(crossKGraph || refreshGraphEndpoints){
 					for(int i=0; i<visitedSize; i++){
 						if(visited[i]==kmer){
 							lastExitCondition=LOOP;
@@ -1092,7 +1114,7 @@ public class Tadpole1 extends Tadpole {
 					lastLength=length;
 					return -1;
 				}else if(owner>=contigs.size()){
-					lastExitCondition=D_BRANCH;
+					lastExitCondition=BAD_OWNER;
 					lastLength=length;
 					return -1;
 				}

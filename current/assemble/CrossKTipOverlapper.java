@@ -5,16 +5,21 @@ import java.util.HashMap;
 
 import dna.AminoAcid;
 
-/** Finds unique reciprocal exact overlaps between low-depth contig ends. */
+/** Finds unique reciprocal exact overlaps between selected contig ends. */
 class CrossKTipOverlapper {
 
 	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_){
+		this(contigs_, minOverlap_, maxOverlap_, false);
+	}
+
+	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_, boolean graphKEnds_){
 		if(minOverlap_<1 || maxOverlap_<minOverlap_){
 			throw new IllegalArgumentException("Invalid cross-k overlap range: "+minOverlap_+"-"+maxOverlap_);
 		}
 		contigs=contigs_;
 		minOverlap=minOverlap_;
 		maxOverlap=maxOverlap_;
+		graphKEnds=graphKEnds_;
 	}
 
 	/** Adds reciprocal overlap edges and returns the number of acyclic pairs added. */
@@ -81,8 +86,12 @@ class CrossKTipOverlapper {
 			final Contig c=contigs.get(i);
 			if(c.id!=i){throw new RuntimeException("Cross-k overlap contig index mismatch: "+c.id+" != "+i);}
 			if(c.length()<minOverlap+1){continue;}
-			if(c.leftBridgeEndpoint){tips.add(new Tip(c, false, tips.size()));}
-			if(c.rightBridgeEndpoint){tips.add(new Tip(c, true, tips.size()));}
+			if(graphKEnds ? c.leftCode==Tadpole.KEEP_GOING : c.leftBridgeEndpoint){
+				tips.add(new Tip(c, false, tips.size()));
+			}
+			if(graphKEnds ? c.rightCode==Tadpole.KEEP_GOING : c.rightBridgeEndpoint){
+				tips.add(new Tip(c, true, tips.size()));
+			}
 		}
 		return tips;
 	}
@@ -156,7 +165,8 @@ class CrossKTipOverlapper {
 	}
 
 	private void printSummary(int tips, int ambiguous, int reciprocal, int cycleRejected){
-		System.err.println("Cross-k tip overlaps: endpoints="+tips+", exactCandidates="+exactCandidates+
+		System.err.println((graphKEnds ? "Graph-k" : "Cross-k")+" tip overlaps: endpoints="+tips+
+				", exactCandidates="+exactCandidates+
 				", ambiguous="+ambiguous+", reciprocal="+reciprocal+
 				", cycleRejected="+cycleRejected+", added="+(reciprocal-cycleRejected)+".");
 	}
@@ -195,6 +205,7 @@ class CrossKTipOverlapper {
 
 	private final ArrayList<Contig> contigs;
 	private final int minOverlap, maxOverlap;
+	private final boolean graphKEnds;
 	private long exactCandidates=0;
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;
 }

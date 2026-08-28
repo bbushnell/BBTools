@@ -79,6 +79,16 @@ runUnifiedMultiGraphTest(){
 			cat "$temp/$name.stderr" >&2
 			exit 1
 		fi
+		for diagnostic in "Graph-k endpoint topology:" "Graph-k unique topology:" \
+			"Graph-k ambiguous topology:" "Graph-k missing topology:" \
+			"Graph-k endpoint seeds:" "Graph-k traversal exits:" "Graph-k tip overlaps:" \
+			"Graph-k overlaps"; do
+			if ! grep -Fq "$diagnostic" "$temp/$name.stderr"; then
+				echo "FAIL: unified multi-k $name did not report '$diagnostic'" >&2
+				cat "$temp/$name.stderr" >&2
+				exit 1
+			fi
+		done
 		echo "PASS: unifiedMultiKGraph${name^}"
 	done
 }

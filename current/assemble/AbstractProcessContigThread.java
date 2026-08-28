@@ -80,6 +80,12 @@ public abstract class AbstractProcessContigThread extends Thread {
 	ByteBuilder bb=new ByteBuilder();
 	long edgesMadeT=0;
 	long graphEndsRefreshedT=0, graphEndCodesChangedT=0;
+	long endpointSeedsUniqueT=0, endpointSeedsMissingT=0, endpointSeedsAmbiguousT=0;
+	long traversalAttemptsT=0;
+	final long[] graphEndCodeCountsT=new long[ShaveObject.MAX_CODE];
+	final long[] uniqueEndCodeCountsT=new long[ShaveObject.MAX_CODE];
+	final long[] missingEndCodeCountsT=new long[ShaveObject.MAX_CODE];
+	final long[] ambiguousEndCodeCountsT=new long[ShaveObject.MAX_CODE];
 	final long[] exitCountsT=new long[ShaveObject.MAX_CODE];
 	/** Uncaught worker failure, captured so the coordinating thread can propagate it. */
 	volatile Throwable failure=null;

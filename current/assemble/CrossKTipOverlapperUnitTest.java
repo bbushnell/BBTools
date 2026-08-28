@@ -20,6 +20,8 @@ public class CrossKTipOverlapperUnitTest {
 		failures+=run("equalBestIsAmbiguous", CrossKTipOverlapperUnitTest::equalBestIsAmbiguous);
 		failures+=run("reverseOrientedOverlap", CrossKTipOverlapperUnitTest::reverseOrientedOverlap);
 		failures+=run("cyclicComponentRejected", CrossKTipOverlapperUnitTest::cyclicComponentRejected);
+		failures+=run("graphKUnbranchedOverlap", CrossKTipOverlapperUnitTest::graphKUnbranchedOverlap);
+		failures+=run("graphKBranchIgnored", CrossKTipOverlapperUnitTest::graphKBranchIgnored);
 		BubblePopper.crossKMerge=false;
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
@@ -84,6 +86,26 @@ public class CrossKTipOverlapperUnitTest {
 		ArrayList<Contig> contigs=list(a, b, c);
 		check(new CrossKTipOverlapper(contigs, 3, 3).addEdges()==0, "Cyclic overlap component was not rejected");
 		for(Contig x : contigs){check(x.leftEdgeCount()==0 && x.rightEdgeCount()==0, "Cycle left graph edges");}
+	}
+
+	private static void graphKUnbranchedOverlap(){
+		Contig a=contig(0, "AAAACCCCGGGG", false, false);
+		Contig b=contig(1, "CCCGGGGTTTT", false, false);
+		a.rightCode=Tadpole.KEEP_GOING;
+		b.leftCode=Tadpole.KEEP_GOING;
+		ArrayList<Contig> contigs=list(a, b);
+		check(new CrossKTipOverlapper(contigs, 5, 9, true).addEdges()==1,
+				"Unbranched graph-k overlap was not selected");
+	}
+
+	private static void graphKBranchIgnored(){
+		Contig a=contig(0, "AAAACCCCGGGG", false, false);
+		Contig b=contig(1, "CCCGGGGTTTT", false, false);
+		a.rightCode=Tadpole.F_BRANCH;
+		b.leftCode=Tadpole.KEEP_GOING;
+		ArrayList<Contig> contigs=list(a, b);
+		check(new CrossKTipOverlapper(contigs, 5, 9, true).addEdges()==0,
+				"Branched graph-k overlap was selected");
 	}
 
 	private static BubblePopper popper(ArrayList<Contig> contigs){

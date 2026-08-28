@@ -108,9 +108,34 @@ public class TadpoleMulti {
 		setCrossKGraph(tad, false);
 		tad.minContigLen=minContig;
 		tad.refreshGraphEndpoints=true;
+		/* Refresh graph-k endpoint topology before resolving exact overlaps that were
+		 * ineligible under the original longest-k endpoint classifications. */
+		final boolean resolveRepeats=tad.resolveRepeats;
+		tad.resolveRepeats=false;
+		tad.simpleOmnitigs=false;
+		tad.graphCover=false;
+		tad.setContigs(contigs);
+		tad.clearContigEdges();
+		tad.processContigs();
+		tad.clearContigEdges();
+		int graphOverlapBefore=-1;
+		final Timer graphOverlapTimer=new Timer();
+		if(config.graphK<config.kmers[0]){
+			graphOverlapBefore=contigs.size();
+			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
+					config.kmers[0]-1, true);
+			if(overlapper.addEdges()>0){mergeCrossK(tad);}
+		}
+		final ArrayList<Contig> merged=tad.detachContigs();
+		graphOverlapTimer.stop();
+		if(graphOverlapBefore>=0){
+			System.err.println("Graph-k overlaps "+config.graphK+": "+graphOverlapBefore+
+					" -> "+merged.size()+" contigs; "+graphOverlapTimer);
+		}
+		tad.resolveRepeats=resolveRepeats;
 		tad.simpleOmnitigs=config.simpleOmnitigs;
 		tad.graphCover=config.graphCover;
-		tad.setContigs(contigs);
+		tad.setContigs(merged);
 		tad.clearContigEdges();
 		tad.processContigs();
 		final ArrayList<Contig> extracted=tad.detachContigs();

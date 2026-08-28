@@ -1652,7 +1652,12 @@ public abstract class Tadpole extends ShaveObject{
 		
 		/* Wait for threads to die, and gather statistics */
 		Throwable workerFailure=null;
-		long graphEndsRefreshed=0, graphEndCodesChanged=0;
+		long graphEndsRefreshed=0, graphEndCodesChanged=0, edgesMadePass=0;
+		long endpointSeedsUnique=0, endpointSeedsMissing=0, endpointSeedsAmbiguous=0;
+		long traversalAttempts=0;
+		long[] endCodeCounts=new long[MAX_CODE], exitCounts=new long[MAX_CODE];
+		long[] uniqueEndCodeCounts=new long[MAX_CODE], missingEndCodeCounts=new long[MAX_CODE];
+		long[] ambiguousEndCodeCounts=new long[MAX_CODE];
 		for(AbstractProcessContigThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
 				try {
@@ -1664,8 +1669,20 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			if(workerFailure==null && pt.failure!=null){workerFailure=pt.failure;}
 			edgesMade+=pt.edgesMadeT;
+			edgesMadePass+=pt.edgesMadeT;
 			graphEndsRefreshed+=pt.graphEndsRefreshedT;
 			graphEndCodesChanged+=pt.graphEndCodesChangedT;
+			endpointSeedsUnique+=pt.endpointSeedsUniqueT;
+			endpointSeedsMissing+=pt.endpointSeedsMissingT;
+			endpointSeedsAmbiguous+=pt.endpointSeedsAmbiguousT;
+			traversalAttempts+=pt.traversalAttemptsT;
+			for(int i=0; i<MAX_CODE; i++){
+				endCodeCounts[i]+=pt.graphEndCodeCountsT[i];
+				uniqueEndCodeCounts[i]+=pt.uniqueEndCodeCountsT[i];
+				missingEndCodeCounts[i]+=pt.missingEndCodeCountsT[i];
+				ambiguousEndCodeCounts[i]+=pt.ambiguousEndCodeCountsT[i];
+				exitCounts[i]+=pt.exitCountsT[i];
+			}
 		}
 		if(workerFailure!=null){
 			errorState=true;
@@ -1674,18 +1691,35 @@ public abstract class Tadpole extends ShaveObject{
 		if(refreshGraphEndpoints){
 			outstream.println("Graph-k endpoints refreshed: "+graphEndsRefreshed+
 					"; classifications changed: "+graphEndCodesChanged+".");
-		}
-		if(crossKGraph()){
-			long[] counts=new long[MAX_CODE];
-			for(AbstractProcessContigThread pt : alpt){
-				for(int i=0; i<counts.length; i++){counts[i]+=pt.exitCountsT[i];}
+			StringBuilder sb=new StringBuilder("Graph-k endpoint topology:");
+			for(int i=0; i<endCodeCounts.length; i++){
+				if(endCodeCounts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(endCodeCounts[i]);}
 			}
-			StringBuilder sb=new StringBuilder("Cross-k traversal exits:");
-			for(int i=0; i<counts.length; i++){
-				if(counts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(counts[i]);}
+			outstream.println(sb);
+			printGraphEndTopology("unique", uniqueEndCodeCounts);
+			printGraphEndTopology("ambiguous", ambiguousEndCodeCounts);
+			printGraphEndTopology("missing", missingEndCodeCounts);
+		}
+		if(crossKGraph() || refreshGraphEndpoints){
+			final String prefix=(crossKGraph() ? "Cross-k" : "Graph-k");
+			outstream.println(prefix+" endpoint seeds: unique="+endpointSeedsUnique+
+					", missing="+endpointSeedsMissing+", ambiguous="+endpointSeedsAmbiguous+
+					"; traversals="+traversalAttempts+", edges="+edgesMadePass+".");
+			StringBuilder sb=new StringBuilder(prefix+" traversal exits:");
+			for(int i=0; i<exitCounts.length; i++){
+				if(exitCounts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(exitCounts[i]);}
 			}
 			outstream.println(sb);
 		}
+	}
+
+	/** Prints endpoint classifications for one terminal-owner category. */
+	private void printGraphEndTopology(final String category, final long[] counts){
+		StringBuilder sb=new StringBuilder("Graph-k ").append(category).append(" topology:");
+		for(int i=0; i<counts.length; i++){
+			if(counts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(counts[i]);}
+		}
+		outstream.println(sb);
 	}
 	
 	/**

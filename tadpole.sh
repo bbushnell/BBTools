@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 27, 2026
+Last modified August 28, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -19,6 +19,12 @@ Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
 Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
+
+Multi-K assembly begins at the longest K.  At each shorter requested K,
+it joins unique reciprocal exact tip overlaps, then uses the reads to bridge
+eligible low-depth nonbranch tips through unique unbranched paths.
+It currently supports contig mode only, requires rereadable input files,
+and cannot use stdin.
 
 Recommended parameters for optimal assembly:
 tadpole.sh in=<reads> out=<contigs> shave rinse pop k=<50-70% of read length>
@@ -46,7 +52,8 @@ out=<file>          Write contigs (in contig mode) or corrected/extended
                     reads (in other modes).
 out2=<file>         Second output file for paired output.
 outd=<file>         Write discarded reads, if using junk-removal flags.
-dot=<file>          Write a contigs connectivity graph (partially implemented)
+dot=<file>          Write a contigs connectivity graph (partially implemented).
+                    Not yet supported with multi-K assembly.
 dump=<file>         Write kmers and their counts.
 fastadump=t         Write kmers and counts as fasta versus 2-column tsv.
 mincounttodump=1    Only dump kmers with at least this depth.
@@ -91,6 +98,14 @@ packed=t            For k>31, use a fully-packed, non-symmetric multi-word
                     even-split layout.
 fillfast=t          Speed up kmer extension lookups.
 
+Multi-K parameters:
+crosskmaxlen=500    (ckml) Maximum graph walk length when finding cross-K
+                    bridges or final graph edges.
+crosskmaxdepthratio=3 (ckmdr) Maximum connecting-edge depth relative to the
+                    higher-coverage flanking contig; 0 disables this filter.
+crosskpasses=10     (ckpasses) Maximum merge passes after each overlap or
+                    bridging phase.
+
 Assembly parameters:
 mincountseed=3      (mcs) Minimum kmer count to seed a new contig or begin extension.
 mincountextend=2    (mce) Minimum kmer count continue extension of a read or contig.
@@ -130,6 +145,8 @@ graphcover=f         (pathcover, nonredundantpaths) Output a deterministic graph
 graphk=auto          Multi-K only.  Build the final graph at this kmer length.
                     Defaults to the shortest requested K and reuses that table;
                     another value rereads the inputs once at the requested K.
+                    Before graph extraction, uniquely overlapping unbranched
+                    graph-k ends are joined conservatively.
 repeatminsupport=2   Minimum spanning reads required for each resolved path.
 repeatmaxnoise=0     Maximum conflicting spanning reads; zero is strictest.
 validategraph=f     Run graph consistency checks during simplification.
