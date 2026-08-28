@@ -729,6 +729,11 @@ public class RegressionTrainer {
 					bestValid=validMse;
 					bestWeights=deepCopy(weights);
 					bestBias=deepCopy(bias);
+					//Checkpoint: persist the improved net immediately, so a job killed mid-run
+					//(node failure, preemption) doesn't lose all epochs of progress -- only
+					//whatever improvement happened since the last checkpoint (Brian, 2026-08-27).
+					//weights/bias at this point ARE the just-improved values exportNet reads.
+					exportNet();
 				}
 				if(ep%5==0 || ep==1 || ep==epochs){
 					outstream.println(String.format(
@@ -1351,7 +1356,12 @@ public class RegressionTrainer {
 		//Record the training command in the header as a #CL line, matching train.sh nets so the
 		//saved .bbnet is self-documenting; CellNetParser reads #CL back into commands, and a netin=
 		//continuation appends its command below the source net's, preserving the full history.
-		net.commands.add("#CL "+Shared.fullCommandline(false, true));
+		//Guarded to run once: exportNet is now also called mid-training as a checkpoint (once per
+		//improving epoch), and would otherwise append a duplicate #CL line on every checkpoint.
+		if(!cmdLineRecorded){
+			net.commands.add("#CL "+Shared.fullCommandline(false, true));
+			cmdLineRecorded=true;
+		}
 
 		final ByteBuilder bb=net.toBytes();
 		final ByteStreamWriter bsw=new ByteStreamWriter(ffout);
@@ -1579,6 +1589,9 @@ public class RegressionTrainer {
 	private double[][] gW, gB;
 	private double[][] bestWeights, bestBias;
 	private double bestValid=Double.MAX_VALUE;
+	/** Set once exportNet's #CL line has been recorded, so mid-training checkpoint
+	 * writes (one per improving epoch) don't duplicate it on every call. */
+	private boolean cmdLineRecorded=false;
 
 	/** The net that will be exported; its topology also defines the edge mask */
 	private CellNet net;

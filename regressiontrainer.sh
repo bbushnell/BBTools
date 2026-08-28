@@ -14,6 +14,9 @@ the saved net consumes RAW inputs.  Do not standardize upstream.
 
 Input is streamed into one float array per sample, so memory scales with the sample
 count rather than the file size and is not limited by one giant Java array.
+The output file is a checkpoint: it is rewritten every time validation MSE improves
+over the previous best, not only at the end, so a job killed mid-run (node failure,
+preemption) loses at most the epochs since its last improvement, not the whole run.
 After writing, the net is reloaded and checked against the in-memory model; the
 'round-trip check' line must read (OK) or the output is not trustworthy.
 
