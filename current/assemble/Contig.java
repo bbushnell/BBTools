@@ -350,6 +350,7 @@ public class Contig {
 			if(e.depth>=old.depth && (old.depth==1 || old.length==e.length)){//Merge edges
 				old.bases=e.bases;
 				old.length=e.length;
+				old.overlap=e.overlap;
 				old.depth+=e.depth;
 				return;
 			}
@@ -370,6 +371,7 @@ public class Contig {
 			if(e.depth>=old.depth && (old.depth==1 || old.length==e.length)){//Merge edges
 				old.bases=e.bases;
 				old.length=e.length;
+				old.overlap=e.overlap;
 				old.depth+=e.depth;
 				return;
 			}

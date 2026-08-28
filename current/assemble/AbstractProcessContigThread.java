@@ -78,5 +78,6 @@ public abstract class AbstractProcessContigThread extends Thread {
 	int lastOrientation=-1;
 	ByteBuilder bb=new ByteBuilder();
 	long edgesMadeT=0;
+	final long[] exitCountsT=new long[ShaveObject.MAX_CODE];
 
 }

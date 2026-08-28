@@ -245,7 +245,12 @@ public class BubblePopper {
 	private boolean expandRightSimple(){
 		assert(!validateGraph || validate(center));
 		ArrayList<Edge> outbound=center.rightEdges;
-		if(outbound==null || center.rightCode==Tadpole.LOOP || outbound.size()>1){return false;}
+		if(outbound==null){return false;}
+		if(crossKMerge){crossKMergeEvaluations++;}
+		if(center.rightCode==Tadpole.LOOP || outbound.size()!=1){
+			if(crossKMerge){crossKRejectedSourceShape++;}
+			return false;
+		}
 		Edge leftEdge=outbound.get(0);
 		assert(leftEdge.destination<allContigs.size()) : "\n"+leftEdge.toString()+", "+center.used()+", "+center.associate()+"\n"+center.name()+"\n"+allContigs.size();
 		
@@ -253,18 +258,28 @@ public class BubblePopper {
 		
 		dest=allContigs.get(leftEdge.destination);
 		
-		if(dest.used() || dest==center){return false;}
+		if(dest.used() || dest==center){
+			if(crossKMerge){crossKRejectedUsedOrSelf++;}
+			return false;
+		}
 		if(crossKMerge && crossKMaxDepthRatio>0){
 			final float maxFlank=Tools.max(center.coverage, dest.coverage);
-			if(maxFlank>0 && leftEdge.depth>maxFlank*crossKMaxDepthRatio){return false;}
+			if(maxFlank>0 && leftEdge.depth>maxFlank*crossKMaxDepthRatio){
+				crossKRejectedDepth++;
+				return false;
+			}
 		}
 		ArrayList<Edge> outboundRight=(leftEdge.destRight() ? dest.rightEdges : dest.leftEdges);
 		int rightCode=leftEdge.destRight() ? dest.rightCode : dest.leftCode;
 		
-		if(rightCode==Tadpole.LOOP){return false;}
+		if(rightCode==Tadpole.LOOP){
+			if(crossKMerge){crossKRejectedDestLoop++;}
+			return false;
+		}
 		
 //		if(outboundRight==null || outboundRight.size()>1){return false;}
 		if(crossKMerge && (outboundRight==null || outboundRight.size()!=1 || outboundRight.get(0).destination!=center.id)){
+			crossKRejectedReciprocal++;
 			return false;
 		}else if(outboundRight==null) {
 			//do nothing
@@ -276,10 +291,16 @@ public class BubblePopper {
 		
 		int inbound=countInbound(center.id, true);
 //		if(inbound==null || inbound.size()>1){return false;}
-		if(crossKMerge ? inbound!=1 : inbound>1){return false;}
+		if(crossKMerge ? inbound!=1 : inbound>1){
+			if(crossKMerge){crossKRejectedSourceInbound++;}
+			return false;
+		}
 		
 		int inboundRight=countInbound(dest.id, leftEdge.destRight());
-		if(crossKMerge ? inboundRight!=1 : inboundRight>1){return false;}
+		if(crossKMerge ? inboundRight!=1 : inboundRight>1){
+			if(crossKMerge){crossKRejectedDestInbound++;}
+			return false;
+		}
 		
 		if(leftEdge.destRight()){
 			dest.flip(destMap.get(dest.id));
@@ -289,9 +310,12 @@ public class BubblePopper {
 		
 		if(crossKMerge){
 			System.err.println("Cross-k merge: left="+center.name()+", right="+dest.name()+
-					", bridge="+leftEdge.length+", depth="+leftEdge.depth+", orientation="+leftEdge.orientation);
+					", bridge="+leftEdge.length+", overlap="+(leftEdge.overlap>0 ? leftEdge.overlap : kbig)+
+					", depth="+leftEdge.depth+", orientation="+leftEdge.orientation);
 		}
-		return merge(center, dest, leftEdge);
+		final boolean merged=merge(center, dest, leftEdge);
+		if(crossKMerge && merged){crossKMerged++;}
+		return merged;
 	}
 	
 	/**
@@ -868,7 +892,12 @@ public class BubblePopper {
 		//Append path
 		bb.append(left.bases);
 		if(leftEdge.bases!=null){bb.append(leftEdge.bases);}
-		for(int i=kbig; i<right.bases.length; i++){bb.append(right.bases[i]);}
+		final int overlap=(leftEdge.overlap>0 ? leftEdge.overlap : kbig);
+		if(leftEdge.overlap>0 && !exactOverlap(left, right, overlap)){
+			throw new RuntimeException("Cross-k overlap changed before merge: "+left.id+" -> "+right.id+
+					", overlap="+overlap);
+		}
+		for(int i=overlap; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
 		
 		//Cleanup
@@ -923,6 +952,15 @@ public class BubblePopper {
 		assert(!validateGraph || validate(left));
 		assert(!validateGraph || validate(right));
 		
+		return true;
+	}
+
+	private static boolean exactOverlap(Contig left, Contig right, int overlap){
+		if(overlap<1 || overlap>=left.length() || overlap>=right.length()){return false;}
+		final int start=left.length()-overlap;
+		for(int i=0; i<overlap; i++){
+			if(left.bases[start+i]!=right.bases[i]){return false;}
+		}
 		return true;
 	}
 	
@@ -1321,6 +1359,15 @@ public class BubblePopper {
 	static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */
 	static float crossKMaxDepthRatio=3;
+	long crossKMergeEvaluations=0;
+	long crossKMerged=0;
+	long crossKRejectedSourceShape=0;
+	long crossKRejectedUsedOrSelf=0;
+	long crossKRejectedDepth=0;
+	long crossKRejectedDestLoop=0;
+	long crossKRejectedReciprocal=0;
+	long crossKRejectedSourceInbound=0;
+	long crossKRejectedDestInbound=0;
 	/** Whether debranching of dead ends is enabled */
 	static boolean debranch=false;
 	/** Whether assertion-enabled runs perform graph consistency checks */

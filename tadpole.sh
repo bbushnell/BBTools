@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 21, 2026
+Last modified August 27, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -114,6 +114,11 @@ popbubbles=t        (pop) Pop bubbles; increases contiguity.  Requires
 popdirect=t         Merge unambiguous adjacent unitigs.
 popindirect=f       Remove depth-supported error arms from simple bubbles.
 unzipbubbles=f      Linearize isolated true bubbles into both supported paths.
+resolverepeats=f     Resolve closed 2-by-2 repeat junctions when individual
+                    reads span both boundaries and uniquely pair both paths.
+                    Experimental; rereads primary input files and cannot use stdin.
+repeatminsupport=2   Minimum spanning reads required for each resolved path.
+repeatmaxnoise=0     Maximum conflicting spanning reads; zero is strictest.
 validategraph=f     Run graph consistency checks during simplification.
                     Diagnostic option; requires Java assertions (default).
 

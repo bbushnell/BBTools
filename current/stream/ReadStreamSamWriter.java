@@ -99,6 +99,12 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 						}
 					}
 				}
+			}else{
+				//[stream/ReadStreamSamWriter#001 FIXED 2026-08-27]
+				//SamWriterST2's ordered JobQueue requires dense IDs.  Omitting an empty outer batch
+				//left a permanent gap: its consumer waited for that ID while later producers filled
+				//the bounded queue and deadlocked.  Preserve the ID with a shared empty payload.
+				samWriter.addLines(new ListNum<SamLine>(emptyLines, listID));
 			}
 			
 			listID++;
@@ -125,6 +131,8 @@ public class ReadStreamSamWriter extends ReadStreamWriter {
 		finishedSuccessfully=!errorState;
 		return errorState;
 	}
+
+	private final ArrayList<SamLine> emptyLines=new ArrayList<SamLine>(0);
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Instance Fields       ----------------*/

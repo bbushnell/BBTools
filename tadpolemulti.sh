@@ -5,8 +5,9 @@ echo "
 Written by Brian Bushnell
 Last modified August 23, 2026
 
-Description:  Assemble at a long kmer length, then conservatively bridge
-graph-disconnected contig ends with progressively shorter kmer lengths.
+Description:  Assemble at a long kmer length, directly join unique reciprocal
+overlaps between low-depth contig ends at every requested shorter k, then load
+the short-k tables and conservatively bridge remaining gaps.
 
 Usage:  tadpolemulti.sh in=<reads> out=<contigs> k=140,75,31
 
@@ -17,6 +18,9 @@ crosskmaxdepthratio=3
                greater flank coverage.  Set to 0 to disable.
 crosskpasses=10
                Maximum direct-merge passes at each shorter kmer length.
+crosskmaxlen=500
+               Maximum unbranched short-k distance searched from a low-depth
+               contig end.  Cycles and branches terminate earlier.
 
 Other Tadpole parameters, including pop, shave, rinse, mincountseed, and
 mincountextend, are passed to the initial long-k assembly.

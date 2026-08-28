@@ -14,12 +14,18 @@ import structures.ByteBuilder;
 public class Edge {
 	
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_){
+		this(origin_, destination_, length_, orientation_, depth_, bases_, 0);
+	}
+
+	/** Constructs an edge with an explicit overlap; zero uses the graph kmer length. */
+	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_, int overlap_){
 		origin=origin_;
 		destination=destination_;
 		length=length_;
 		orientation=orientation_;
 		depth=depth_;
 		bases=bases_;
+		overlap=overlap_;
 	}
 	
 	/**
@@ -42,6 +48,7 @@ public class Edge {
 		bb.append('(');
 		bb.append(destination).append('-')/*.append(direction).append('-')*/.append(orientation);
 		bb.append('-').append(length).append('-').append(depth).append('-').append(bases);
+		if(overlap>0){bb.append("-overlap=").append(overlap);}
 		bb.append(')');
 		return bb;
 	}
@@ -111,6 +118,7 @@ public class Edge {
 			length=e.length;
 			bases=e.bases;
 			orientation=e.orientation;
+			overlap=e.overlap;
 			depth+=e.depth;
 		}else{
 			depth+=e.depth;
@@ -125,5 +133,7 @@ public class Edge {
 //	int orientation; //0 left kmer, 1 left rkmer, 2 right kmer, 3 right rkmer (of dest)
 //	final int direction; //0 forward, 1 backward //They are all forward edges now
 	int depth;
+	/** Explicit exact overlap for cross-k tip joins; zero means use the active graph k. */
+	int overlap;
 	
 }

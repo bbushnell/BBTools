@@ -820,20 +820,75 @@ public class Tadpole1 extends Tadpole {
 		}
 	}
 
+	@Override
+	void fillOwnerPath(final byte[] bases, final IntList path, final LongList seen,
+			final ReadThreadedXResolver resolver){
+		path.clear();
+		long kmer=0, rkmer=0;
+		int len=0;
+		for(byte b : bases){
+			final long x=AminoAcid.baseToNumber[b];
+			final long x2=AminoAcid.baseToComplementNumber[b];
+			kmer=((kmer<<2)|x)&mask;
+			rkmer=(rkmer>>>2)|(x2<<shift2);
+			if(x<0){
+				if(path.size>2){resolver.observePath(path, seen);}
+				path.clear();
+				kmer=rkmer=0;
+				len=0;
+			}else if(++len>=k){
+				final int owner=tables.findOwner(kmer, rkmer);
+				if(owner>=0 && owner<resolver.contigCount()
+						&& (path.size==0 || path.array[path.size-1]!=owner)){path.add(owner);}
+			}
+		}
+		if(path.size>2){resolver.observePath(path, seen);}
+		path.clear();
+	}
+
+	@Override
+	boolean crossKGraph(){return crossKGraph;}
+
 	/** Marks assembled short kmers invalid, then claims only unique eligible contig tips. */
 	private void initializeCrossKContigs(ArrayList<Contig> contigs){
 		final int invalidOwner=contigs.size();
+		int eligible=0;
 		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
 		for(Contig c : contigs){invalidateCrossKInternal(c.bases, invalidOwner);}
 		for(Contig c : contigs){
-			claimCrossKEnd(c.leftKmer(k), c.leftBridgeEndpoint, c.id, invalidOwner);
-			claimCrossKEnd(c.rightKmer(k), c.rightBridgeEndpoint, c.id, invalidOwner);
+			if(c.leftBridgeEndpoint){eligible++;}
+			if(c.rightBridgeEndpoint){eligible++;}
 		}
+		int internalBlocked=0;
+		for(Contig c : contigs){
+			if(c.leftBridgeEndpoint && tables.findOwner(c.leftKmer(k))>=0){internalBlocked++;}
+			if(c.rightBridgeEndpoint && tables.findOwner(c.rightKmer(k))>=0){internalBlocked++;}
+		}
+		for(Contig c : contigs){
+			if(!c.leftBridgeEndpoint){claimCrossKEnd(c.leftKmer(k), false, c.id, invalidOwner);}
+			if(!c.rightBridgeEndpoint){claimCrossKEnd(c.rightKmer(k), false, c.id, invalidOwner);}
+		}
+		int tipBlocked=0;
+		for(Contig c : contigs){
+			if(c.leftBridgeEndpoint && tables.findOwner(c.leftKmer(k))>=0){tipBlocked++;}
+			if(c.rightBridgeEndpoint && tables.findOwner(c.rightKmer(k))>=0){tipBlocked++;}
+		}
+		tipBlocked-=internalBlocked;
+		for(Contig c : contigs){
+			if(c.leftBridgeEndpoint){claimCrossKEnd(c.leftKmer(k), true, c.id, invalidOwner);}
+			if(c.rightBridgeEndpoint){claimCrossKEnd(c.rightKmer(k), true, c.id, invalidOwner);}
+		}
+		int unique=0;
 		for(Contig c : contigs){
 			final long left=c.leftKmer(k), right=c.rightKmer(k);
 			c.leftBridgeEndpoint&=(tables.findOwner(left)==c.id);
 			c.rightBridgeEndpoint&=(tables.findOwner(right)==c.id);
+			if(c.leftBridgeEndpoint){unique++;}
+			if(c.rightBridgeEndpoint){unique++;}
 		}
+		outstream.println("Cross-k endpoints: eligible="+eligible+", unique="+unique+
+				", internal="+internalBlocked+", ineligibleTip="+tipBlocked+
+				", duplicateEligible="+(eligible-unique-internalBlocked-tipBlocked)+".");
 	}
 
 	/** Marks every short kmer except the two terminal positions as assembled and untraversable. */
@@ -908,6 +963,7 @@ public class Tadpole1 extends Tadpole {
 					assert(tables.getCount(kmer, rkmer)==count) : count+", "+tables.getCount(kmer, rkmer);
 					bb.append(AminoAcid.numberToBase[x]);
 					target=exploreRight(rkmer, kmer, extraCounts, rightCounts, bb, c.id);
+					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"L_F: x="+x+", cnt="+count+", dest="+target
 								+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
@@ -945,6 +1001,7 @@ public class Tadpole1 extends Tadpole {
 					assert(tables.getCount(kmer, rkmer)==count) : count+", "+tables.getCount(kmer, rkmer);
 					bb.append(AminoAcid.numberToBase[x]);
 					target=exploreRight(kmer, rkmer, leftCounts, extraCounts, bb, c.id);
+					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"R_F: x="+x+", cnt="+count+", dest="+target+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
 					}
@@ -961,7 +1018,7 @@ public class Tadpole1 extends Tadpole {
 		/**
 		 * Explores rightward path from k-mer seed to identify connection targets through
 		 * graph traversal with junction detection and termination condition tracking.
-		 * Implements bounded exploration (max 500 bases) with comprehensive exit status
+		 * Implements bounded exploration with comprehensive exit status
 		 * recording for connectivity analysis.
 		 *
 		 * @param kmer Starting k-mer for exploration
@@ -977,7 +1034,7 @@ public class Tadpole1 extends Tadpole {
 			int owner=-1;
 			int visitedSize=0;
 			lastTarget=-1;
-			for(; length<500; length++){
+			for(; length<crossKMaxLen; length++){
 				if(crossKGraph){
 					for(int i=0; i<visitedSize; i++){
 						if(visited[i]==kmer){
@@ -1069,7 +1126,7 @@ public class Tadpole1 extends Tadpole {
 		}
 
 		/** Oriented traversal states for explicit cycle detection; reused for every edge. */
-		final long[] visited=KillSwitch.allocLong1D(500);
+		final long[] visited=KillSwitch.allocLong1D(crossKMaxLen);
 
 	}
 	

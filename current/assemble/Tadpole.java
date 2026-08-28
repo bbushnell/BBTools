@@ -225,6 +225,8 @@ public abstract class Tadpole extends ShaveObject{
 				BUILD_THREADS=Integer.parseInt(b);
 			}else if(a.equals("processcontigs")){
 				processContigs=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("crossKMaxLen") || a.equalsIgnoreCase("ckml")){
+				crossKMaxLen=Tools.max(1, Integer.parseInt(b));
 			}else if(a.equals("pop") || a.equalsIgnoreCase("popBubbles")){
 				popBubbles=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("bubblePasses")){
@@ -235,6 +237,12 @@ public abstract class Tadpole extends ShaveObject{
 				BubblePopper.popIndirect=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("unzipBubbles") || a.equalsIgnoreCase("unzip")){
 				BubblePopper.unzipBubbles=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("resolveRepeats") || a.equalsIgnoreCase("resolveX")){
+				resolveRepeats=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("repeatMinSupport") || a.equalsIgnoreCase("rms")){
+				repeatMinSupport=Parse.parseIntKMG(b);
+			}else if(a.equalsIgnoreCase("repeatMaxNoise") || a.equalsIgnoreCase("rmn")){
+				repeatMaxNoise=Parse.parseIntKMG(b);
 			}else if(a.equalsIgnoreCase("debranch")){
 				BubblePopper.debranch=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("validateGraph")){
@@ -564,7 +572,20 @@ public abstract class Tadpole extends ShaveObject{
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		
-		if(outDot!=null || popBubbles){processContigs=true;}
+		if(outDot!=null || popBubbles || resolveRepeats){processContigs=true;}
+		if(resolveRepeats){
+			if(repeatMinSupport<1 || repeatMaxNoise<0){
+				throw new RuntimeException("repeatMinSupport must be positive and repeatMaxNoise must be nonnegative.");
+			}
+			for(String s : in1){
+				if(FileFormat.isStdin(s)){throw new RuntimeException("resolveRepeats requires rereadable file input, not stdin.");}
+			}
+			for(String s : in2){
+				if(s!=null && !"null".equalsIgnoreCase(s) && FileFormat.isStdin(s)){
+					throw new RuntimeException("resolveRepeats requires rereadable file input, not stdin.");
+				}
+			}
+		}
 		
 		if(ECC_AGGRESSIVE){
 			ECC_REQUIRE_BIDIRECTIONAL=false;
@@ -856,11 +877,11 @@ public abstract class Tadpole extends ShaveObject{
 	/** Installs externally built contigs for graph processing. */
 	final void setContigs(ArrayList<Contig> contigs){allContigs=contigs;}
 
-	/** Marks graph-disconnected, non-loop ends as candidates for shorter-k bridging. */
+	/** Marks low-depth, graph-disconnected ends as candidates for shorter-k bridging. */
 	final void markBridgeEndpoints(){
 		for(Contig c : allContigs){
-			c.leftBridgeEndpoint=(c.leftCode!=LOOP && c.leftEdgeCount()==0);
-			c.rightBridgeEndpoint=(c.rightCode!=LOOP && c.rightEdgeCount()==0);
+			c.leftBridgeEndpoint=(c.leftCode==DEAD_END && c.leftEdgeCount()==0);
+			c.rightBridgeEndpoint=(c.rightCode==DEAD_END && c.rightEdgeCount()==0);
 		}
 	}
 
@@ -1013,6 +1034,7 @@ public abstract class Tadpole extends ShaveObject{
 			outstream.println("Contigs generated:          \t"+contigsBuilt);
 			outstream.println("Longest contig:             \t"+longestContig);
 			if(popBubbles){outstream.println("Bubbles popped:             \t"+bubblesPopped);}
+			if(resolveRepeats){outstream.println("X repeats resolved:         \t"+readThreadedRepeatsResolved);}
 			
 			outstream.println("Contig-building time:       \t"+t);
 		}
@@ -1212,6 +1234,12 @@ public abstract class Tadpole extends ShaveObject{
 	 * optionally performs bubble popping, and generates DOT format output for visualization.
 	 */
 	void processContigs(){
+		if(resolveRepeats && processingMode!=contigMode){
+			throw new RuntimeException("resolveRepeats requires mode=contig.");
+		}
+		if(resolveRepeats && crossKGraph()){
+			throw new RuntimeException("resolveRepeats is not yet supported during short-k bridging.");
+		}
 //		outstream.println("Initializing contigs.\n");
 		Timer t=new Timer(outstream, true);
 		outstream.println("Making contig graph.");
@@ -1219,6 +1247,12 @@ public abstract class Tadpole extends ShaveObject{
 		runProcessContigThreads();
 		outstream.println("Finished contig graph.");
 		t.stop("Time: ");
+
+		if(resolveRepeats){
+			t.start();
+			resolveReadThreadedRepeats();
+			t.stop("Time: ");
+		}
 		
 		if(popBubbles){
 			t.start();
@@ -1261,6 +1295,114 @@ public abstract class Tadpole extends ShaveObject{
 			bsw.print(bb);
 			bsw.poisonAndWait();
 		}
+	}
+
+	/** Collects exact read traversals through closed 2-by-2 repeats, then resolves only unique pairings. */
+	private void resolveReadThreadedRepeats(){
+		HashMap<Integer, ArrayList<Edge>> destMap=destToEdgeMap();
+		final ReadThreadedXResolver resolver=new ReadThreadedXResolver(allContigs, destMap, kbig,
+				repeatMinSupport, repeatMaxNoise);
+		final int candidates=resolver.findCandidates();
+		outstream.println("Closed X-repeat candidates:  \t"+candidates);
+		if(candidates<1){return;}
+
+		final ConcurrentReadInputStream[] crisa=makeCrisArray(in1, in2);
+		final ArrayList<RepeatEvidenceThread> threads=new ArrayList<RepeatEvidenceThread>(THREADS);
+		for(int i=0; i<THREADS; i++){
+			RepeatEvidenceThread thread=new RepeatEvidenceThread(crisa, resolver);
+			threads.add(thread);
+			thread.start();
+		}
+		Throwable failure=null;
+		for(RepeatEvidenceThread thread : threads){
+			while(thread.getState()!=Thread.State.TERMINATED){
+				try{thread.join();}
+				catch(InterruptedException e){Thread.currentThread().interrupt(); throw new RuntimeException(e);}
+			}
+			if(failure==null && thread.failure!=null){failure=thread.failure;}
+		}
+		for(ConcurrentReadInputStream cris : crisa){errorState|=ReadWrite.closeStreams(cris);}
+		if(failure!=null){errorState=true; throw new RuntimeException("Repeat-evidence thread failed.", failure);}
+		outstream.println("X traversal observations:  \t"+resolver.observations());
+		outstream.println("X candidates with evidence:\t"+resolver.candidatesWithEvidence());
+		outstream.println("Uniquely paired X repeats: \t"+resolver.resolvableCandidates());
+
+		final int resolved=resolver.resolveSupported();
+		readThreadedRepeatsResolved+=resolved;
+		if(resolved>0){compactGraph();}
+		outstream.println("Read-threaded X repeats:   \t"+resolved);
+	}
+
+	/** Removes retired graph nodes and renumbers every surviving edge consistently. */
+	private void compactGraph(){
+		final ArrayList<Contig> live=new ArrayList<Contig>(allContigs.size());
+		basesBuilt=contigsBuilt=longestContig=0;
+		for(Contig c : allContigs){
+			if(!c.used() && !c.associate()){
+				live.add(c);
+				final int len=c.length();
+				if(len>=minContigLen){
+					basesBuilt+=len;
+					contigsBuilt++;
+					longestContig=Tools.max(longestContig, len);
+				}
+			}
+		}
+		Shared.sort(live, ContigLengthComparator.comparator);
+		final HashMap<Integer, ArrayList<Edge>> destMap=destToEdgeMap();
+		final ArrayList<ArrayList<Edge>> inbound=new ArrayList<ArrayList<Edge>>(live.size());
+		for(Contig c : live){inbound.add(destMap.get(c.id));}
+		for(int i=0; i<live.size(); i++){
+			final Contig c=live.get(i);
+			c.renumber(i, inbound.get(i));
+		}
+		allContigs.clear();
+		allContigs.addAll(live);
+		assert(!BubblePopper.validateGraph || validateContigGraph());
+	}
+
+	/** Appends consecutive contig-tip owners for one read, splitting at undefined bases. */
+	abstract void fillOwnerPath(byte[] bases, IntList path, LongList seen, ReadThreadedXResolver resolver);
+	abstract boolean crossKGraph();
+
+	private final class RepeatEvidenceThread extends Thread {
+		RepeatEvidenceThread(ConcurrentReadInputStream[] crisa_, ReadThreadedXResolver resolver_){
+			crisa=crisa_;
+			resolver=resolver_;
+		}
+
+		@Override
+		public void run(){
+			try{
+				initializeThreadLocals();
+				for(ConcurrentReadInputStream cris : crisa){
+					synchronized(crisa){if(!cris.started()){cris.start();}}
+					process(cris);
+				}
+			}catch(Throwable t){failure=t;}
+		}
+
+		private void process(ConcurrentReadInputStream cris){
+			ListNum<Read> ln=cris.nextList();
+			ArrayList<Read> reads=(ln==null ? null : ln.list);
+			while(ln!=null && reads!=null && !reads.isEmpty()){
+				for(Read r1 : reads){
+					seen.clear();
+					fillOwnerPath(r1.bases, path, seen, resolver);
+					if(r1.mate!=null){fillOwnerPath(r1.mate.bases, path, seen, resolver);}
+				}
+				cris.returnList(ln);
+				ln=cris.nextList();
+				reads=(ln==null ? null : ln.list);
+			}
+			cris.returnList(ln);
+		}
+
+		final ConcurrentReadInputStream[] crisa;
+		final ReadThreadedXResolver resolver;
+		final IntList path=new IntList();
+		final LongList seen=new LongList(4);
+		volatile Throwable failure;
 	}
 	
 	/**
@@ -1328,6 +1470,14 @@ public abstract class Tadpole extends ShaveObject{
 				bubblesPoppedThisPass+=bp.expand(c);
 			}
 		}
+		if(BubblePopper.crossKMerge){
+			outstream.println("Cross-k merge evaluations: "+bp.crossKMergeEvaluations+
+					", merged="+bp.crossKMerged+", sourceShape="+bp.crossKRejectedSourceShape+
+					", usedOrSelf="+bp.crossKRejectedUsedOrSelf+", depth="+bp.crossKRejectedDepth+
+					", destLoop="+bp.crossKRejectedDestLoop+", reciprocal="+bp.crossKRejectedReciprocal+
+					", sourceInbound="+bp.crossKRejectedSourceInbound+
+					", destInbound="+bp.crossKRejectedDestInbound+".");
+		}
 		
 		ArrayList<Contig> temp=new ArrayList<Contig>(allContigs.size());
 		
@@ -1356,8 +1506,12 @@ public abstract class Tadpole extends ShaveObject{
 		
 		int newID=0;
 		destToEdgeMap=destToEdgeMap();
+		final ArrayList<ArrayList<Edge>> inbound=new ArrayList<ArrayList<Edge>>(temp.size());
+		for(Contig c : temp){inbound.add(destToEdgeMap.get(c.id));}
 		for(Contig c : temp){
-			c.renumber(newID, destToEdgeMap.get(c.id));
+			//[assemble/Tadpole#001 FIXED 2026-08-27] Cache inbound lists before renumbering:
+			//an old-ID/new-ID collision can otherwise make a later lookup return the wrong node's edges.
+			c.renumber(newID, inbound.get(newID));
 			newID++;
 		}
 		
@@ -1417,6 +1571,17 @@ public abstract class Tadpole extends ShaveObject{
 				}
 			}
 			edgesMade+=pt.edgesMadeT;
+		}
+		if(crossKGraph()){
+			long[] counts=new long[MAX_CODE];
+			for(AbstractProcessContigThread pt : alpt){
+				for(int i=0; i<counts.length; i++){counts[i]+=pt.exitCountsT[i];}
+			}
+			StringBuilder sb=new StringBuilder("Cross-k traversal exits:");
+			for(int i=0; i<counts.length; i++){
+				if(counts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(counts[i]);}
+			}
+			outstream.println(sb);
 		}
 	}
 	
@@ -2945,9 +3110,17 @@ public abstract class Tadpole extends ShaveObject{
 	
 	/** Look for contig-contig edges */
 	boolean processContigs=false;
+	/** Maximum unbranched short-k distance searched while bridging high-k contig ends. */
+	int crossKMaxLen=500;
 	
 	/** Pop simple bubbles in contig graph */
 	boolean popBubbles=true;
+
+	/** Resolve closed 2-by-2 repeats only when reads traverse both graph boundaries. */
+	boolean resolveRepeats=false;
+	int repeatMinSupport=2;
+	int repeatMaxNoise=0;
+	long readThreadedRepeatsResolved=0;
 	
 	int bubblePasses=1;
 	

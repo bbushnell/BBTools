@@ -697,23 +697,74 @@ public class Tadpole2 extends Tadpole {
 		}
 	}
 
+	@Override
+	void fillOwnerPath(final byte[] bases, final IntList path, final LongList seen,
+			final ReadThreadedXResolver resolver){
+		path.clear();
+		final Kmer kmer=getLocalKmer();
+		for(byte b : bases){
+			kmer.addRight(b);
+			if(kmer.len<1){
+				if(path.size>2){resolver.observePath(path, seen);}
+				path.clear();
+			}else if(kmer.len>=kbig){
+				final int owner=tables.findOwner(kmer);
+				if(owner>=0 && owner<resolver.contigCount()
+						&& (path.size==0 || path.array[path.size-1]!=owner)){path.add(owner);}
+			}
+		}
+		if(path.size>2){resolver.observePath(path, seen);}
+		path.clear();
+	}
+
+	@Override
+	boolean crossKGraph(){return crossKGraph;}
+
 	/** Marks assembled short kmers invalid, then claims only unique eligible contig tips. */
 	private void initializeCrossKContigs(ArrayList<Contig> contigs, Kmer kmer){
 		final int invalidOwner=contigs.size();
+		int eligible=0;
 		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
 		for(Contig c : contigs){invalidateCrossKInternal(c.bases, invalidOwner, kmer);}
 		for(Contig c : contigs){
-			c.leftKmer(kmer);
-			claimCrossKEnd(kmer, c.leftBridgeEndpoint, c.id, invalidOwner);
-			c.rightKmer(kmer);
-			claimCrossKEnd(kmer, c.rightBridgeEndpoint, c.id, invalidOwner);
+			if(c.leftBridgeEndpoint){eligible++;}
+			if(c.rightBridgeEndpoint){eligible++;}
 		}
+		int internalBlocked=0;
+		for(Contig c : contigs){
+			c.leftKmer(kmer);
+			if(c.leftBridgeEndpoint && tables.findOwner(kmer)>=0){internalBlocked++;}
+			c.rightKmer(kmer);
+			if(c.rightBridgeEndpoint && tables.findOwner(kmer)>=0){internalBlocked++;}
+		}
+		for(Contig c : contigs){
+			if(!c.leftBridgeEndpoint){c.leftKmer(kmer); claimCrossKEnd(kmer, false, c.id, invalidOwner);}
+			if(!c.rightBridgeEndpoint){c.rightKmer(kmer); claimCrossKEnd(kmer, false, c.id, invalidOwner);}
+		}
+		int tipBlocked=0;
+		for(Contig c : contigs){
+			c.leftKmer(kmer);
+			if(c.leftBridgeEndpoint && tables.findOwner(kmer)>=0){tipBlocked++;}
+			c.rightKmer(kmer);
+			if(c.rightBridgeEndpoint && tables.findOwner(kmer)>=0){tipBlocked++;}
+		}
+		tipBlocked-=internalBlocked;
+		for(Contig c : contigs){
+			if(c.leftBridgeEndpoint){c.leftKmer(kmer); claimCrossKEnd(kmer, true, c.id, invalidOwner);}
+			if(c.rightBridgeEndpoint){c.rightKmer(kmer); claimCrossKEnd(kmer, true, c.id, invalidOwner);}
+		}
+		int unique=0;
 		for(Contig c : contigs){
 			c.leftKmer(kmer);
 			c.leftBridgeEndpoint&=(tables.findOwner(kmer)==c.id);
 			c.rightKmer(kmer);
 			c.rightBridgeEndpoint&=(tables.findOwner(kmer)==c.id);
+			if(c.leftBridgeEndpoint){unique++;}
+			if(c.rightBridgeEndpoint){unique++;}
 		}
+		outstream.println("Cross-k endpoints: eligible="+eligible+", unique="+unique+
+				", internal="+internalBlocked+", ineligibleTip="+tipBlocked+
+				", duplicateEligible="+(eligible-unique-internalBlocked-tipBlocked)+".");
 	}
 
 	/** Marks every short kmer except the two terminal positions as assembled and untraversable. */
@@ -750,7 +801,7 @@ public class Tadpole2 extends Tadpole {
 			kmerA=new Kmer(kbig);
 			kmerB=new Kmer(kbig);
 			kmerC=new Kmer(kbig);
-			visited=KillSwitch.allocLong1D(500*kmerA.array1().length);
+			visited=KillSwitch.allocLong1D(Math.multiplyExact(crossKMaxLen, kmerA.array1().length));
 			lastExitCondition=BAD_SEED;
 		}
 
@@ -780,6 +831,7 @@ public class Tadpole2 extends Tadpole {
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
 					bb.append(AminoAcid.numberToBase[x]);
 					target=exploreRight(kmer, extraCounts, rightCounts, bb, c.id);
+					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"L_F: x="+x+", cnt="+count+", dest="+target
 								+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
@@ -817,6 +869,7 @@ public class Tadpole2 extends Tadpole {
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
 					bb.append(AminoAcid.numberToBase[x]);
 					target=exploreRight(kmer, leftCounts, extraCounts, bb, c.id);
+					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
 						outstream.println(c.id+"R_F: x="+x+", cnt="+count+", dest="+target+", "+codeStrings[lastExitCondition]+", len="+lastLength+", orient="+lastOrientation);
 					}
@@ -847,7 +900,7 @@ public class Tadpole2 extends Tadpole {
 			int owner=-1;
 			int visitedSize=0;
 			lastTarget=-1;
-			for(; length<500; length++){
+			for(; length<crossKMaxLen; length++){
 				if(crossKGraph && !addVisited(kmer, visitedSize++)){
 					lastExitCondition=LOOP;
 					lastLength=length;

@@ -10,8 +10,8 @@ import shared.Timer;
 import shared.Tools;
 
 /**
- * Runs a descending-k Tadpole assembly and bridges graph-disconnected contig ends
- * with progressively shorter kmer tables.
+ * Runs a long-k Tadpole assembly, exhausts exact tip overlaps at every requested
+ * shorter k, then bridges graph-disconnected ends with progressively shorter tables.
  *
  * @author Brian Bushnell, Noelle
  */
@@ -39,8 +39,29 @@ public class TadpoleMulti {
 		longest.tables().clear();
 		System.gc();
 
+		/* Exact terminal overlaps need only contig sequence; exhaust them before rereading the reads. */
 		for(int i=1; i<config.kmers.length; i++){
 			final int k=config.kmers[i], before=contigs.size();
+			final Timer timer=new Timer();
+			longest.setContigs(contigs);
+			longest.clearContigEdges();
+			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k, config.kmers[0]-1);
+			if(overlapper.addEdges()>0){mergeCrossK(longest);}
+			contigs=longest.detachContigs();
+			checkErrorState(longest);
+			timer.stop();
+			System.err.println("Cross-k overlaps "+k+": "+before+" -> "+contigs.size()+" contigs; "+timer);
+		}
+
+		/* Short-k tables are needed only for unbranched paths across actual sequence gaps. */
+		for(int i=1; i<config.kmers.length; i++){
+			final int k=config.kmers[i], before=contigs.size();
+			final int endpoints=countBridgeEndpoints(contigs);
+			if(endpoints<2){
+				System.err.println("Cross-k bridges "+k+": skipped; only "+endpoints+" eligible endpoint"+
+						(endpoints==1 ? "." : "s."));
+				break;
+			}
 			final Tadpole tad=Tadpole.makeTadpole(makeArgs(k, false), true);
 			if(tad instanceof Tadpole1){((Tadpole1)tad).crossKGraph=true;}
 			else{((Tadpole2)tad).crossKGraph=true;}
@@ -49,34 +70,49 @@ public class TadpoleMulti {
 			tad.setContigs(contigs);
 			tad.clearContigEdges();
 			tad.processContigs();
-
-			final boolean oldDirect=BubblePopper.popDirect;
-			final boolean oldIndirect=BubblePopper.popIndirect;
-			final boolean oldCrossK=BubblePopper.crossKMerge;
-			final float oldDepthRatio=BubblePopper.crossKMaxDepthRatio;
-			BubblePopper.popDirect=true;
-			BubblePopper.popIndirect=false;
-			BubblePopper.crossKMerge=true;
-			BubblePopper.crossKMaxDepthRatio=config.maxDepthRatio;
-			for(int pass=0, merged=1; pass<config.passes && merged>0; pass++){
-				merged=tad.popBubbles(false);
-			}
-			BubblePopper.popDirect=oldDirect;
-			BubblePopper.popIndirect=oldIndirect;
-			BubblePopper.crossKMerge=oldCrossK;
-			BubblePopper.crossKMaxDepthRatio=oldDepthRatio;
+			mergeCrossK(tad);
 
 			contigs=tad.detachContigs();
 			checkErrorState(tad);
 			tad.tables().clear();
 			System.gc();
-			System.err.println("Cross-k "+k+": "+before+" -> "+contigs.size()+" contigs.");
+			System.err.println("Cross-k bridges "+k+": "+before+" -> "+contigs.size()+" contigs.");
 		}
 
 		writeContigs(contigs, config.out, minContig, idOffset);
 		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
 			System.err.println();
 			jgi.AssemblyStats2.main(new String[] {"in="+config.out, "printextended"});
+		}
+	}
+
+	private static int countBridgeEndpoints(ArrayList<Contig> contigs){
+		int count=0;
+		for(Contig c : contigs){
+			if(c.leftBridgeEndpoint){count++;}
+			if(c.rightBridgeEndpoint){count++;}
+		}
+		return count;
+	}
+
+	private void mergeCrossK(Tadpole tad){
+		final boolean oldDirect=BubblePopper.popDirect;
+		final boolean oldIndirect=BubblePopper.popIndirect;
+		final boolean oldCrossK=BubblePopper.crossKMerge;
+		final float oldDepthRatio=BubblePopper.crossKMaxDepthRatio;
+		BubblePopper.popDirect=true;
+		BubblePopper.popIndirect=false;
+		BubblePopper.crossKMerge=true;
+		BubblePopper.crossKMaxDepthRatio=config.maxDepthRatio;
+		try{
+			for(int pass=0, merged=1; pass<config.passes && merged>0; pass++){
+				merged=tad.popBubbles(false);
+			}
+		}finally{
+			BubblePopper.popDirect=oldDirect;
+			BubblePopper.popIndirect=oldIndirect;
+			BubblePopper.crossKMerge=oldCrossK;
+			BubblePopper.crossKMaxDepthRatio=oldDepthRatio;
 		}
 	}
 

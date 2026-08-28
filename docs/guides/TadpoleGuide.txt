@@ -40,12 +40,24 @@ Continuity and fragmentation:
 Tadpole is designed to be conservative and avoid misassemblies in repetitive regions.  As a result, the assemblies may sometimes be more fragmented than necessary.  With sufficient coverage and read length, fragmentation can often be reduced by choosing a longer kmer.  Alternately, reducing the value of branchmult1 and branchmult2 (to, say, "bm1=8 bm2=2") can often increase the continuity of an assembly, though that does come with an increased risk of misassemblies.
 
 
+Graph simplification:
+
+Tadpole can explore the post-assembly contig graph with processcontigs=t.  Direct unitig merging is controlled by popdirect, while popindirect removes simple alternate paths only when both graph boundaries classify them as sequencing errors.  Unzipbubbles=t preserves both paths through an isolated biological bubble rather than selecting one.
+
+Resolverepeats=t experimentally resolves a different structure: a closed 2-by-2 X junction made by two paths sharing one repeat contig.  Tadpole rereads the primary input and requires individual reads to traverse the incoming contig, the repeat, and the outgoing contig.  Both inferred paths must have at least repeatminsupport spanning reads, conflicting traversals must not exceed repeatmaxnoise, and each accepted path must have more support than alternatives sharing either side.  One physical read contributes at most once to a proposed path.  The defaults require two reads per path and no conflicts.  Topology or edge depth alone never resolves an X.  The feature is disabled by default, requires named input files rather than stdin, and currently uses single-read evidence rather than mate-pair linkage.
+
+
 *Usage Examples*
 
 Assembly:
 tadpole.sh in=reads.fq out=contigs.fa k=93
 
 This will assemble the reads into contigs.  Each contig will consist of unique kmers, so contigs will not overlap by more than K-1 bases.  Contigs end when there is a branch or dead-end in the kmer graph.  The specific triggers for detecting a branch or dead-end are controlled by the flags mincountextend, branchmult1, branchmult2, and branchlower.  Contigs will only be assembled starting with kmers with depth at least mincountseed, and contigs shorter than mincontig or with average coverage lower than mincoverage will be discarded.
+
+Read-threaded repeat resolution:
+tadpole.sh in=reads.fq out=contigs.fa k=93 resolverepeats=t
+
+This performs the ordinary assembly, builds the contig graph, then rereads the input to resolve only closed 2-by-2 repeats whose two paths are directly supported by spanning reads.  Repeats too long for one read to span are left unchanged.
 
 
 Error correction:
