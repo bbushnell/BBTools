@@ -902,6 +902,24 @@ public abstract class Tadpole extends ShaveObject{
 	final void clearContigEdges(){
 		for(Contig c : allContigs){c.leftEdges=c.rightEdges=null;}
 	}
+
+	/** Classifies one contig end from graph-k counts; arrays point inward and outward. */
+	final int classifyGraphEnd(final int[] inward, final int[] outward){
+		final int outMax=outward[Tools.maxIndex(outward)];
+		final int outSecond=outward[Tools.secondHighestPosition(outward)];
+		if(outMax<minCountExtend){return DEAD_END;}
+		final boolean outBranch=isJunction(outMax, outSecond);
+		final int inMax=inward[Tools.maxIndex(inward)];
+		final int inSecond=inward[Tools.secondHighestPosition(inward)];
+		final boolean inBranch=isJunction(inMax, inSecond);
+		return outBranch ? (inBranch ? D_BRANCH : F_BRANCH) : (inBranch ? B_BRANCH : KEEP_GOING);
+	}
+
+	/** Returns the depth ratio associated with a refreshed graph-end classification. */
+	final float graphEndRatio(final int code, final int[] inward, final int[] outward){
+		return code==F_BRANCH || code==D_BRANCH ? calcRatio(outward) :
+			(code==B_BRANCH ? calcRatio(inward) : 0);
+	}
 	
 	/**
 	 * Core processing method implementing mode-specific assembly operations.
@@ -1634,6 +1652,7 @@ public abstract class Tadpole extends ShaveObject{
 		
 		/* Wait for threads to die, and gather statistics */
 		Throwable workerFailure=null;
+		long graphEndsRefreshed=0, graphEndCodesChanged=0;
 		for(AbstractProcessContigThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
 				try {
@@ -1645,10 +1664,16 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			if(workerFailure==null && pt.failure!=null){workerFailure=pt.failure;}
 			edgesMade+=pt.edgesMadeT;
+			graphEndsRefreshed+=pt.graphEndsRefreshedT;
+			graphEndCodesChanged+=pt.graphEndCodesChangedT;
 		}
 		if(workerFailure!=null){
 			errorState=true;
 			throw new RuntimeException(getClass().getSimpleName()+" graph worker thread failed.", workerFailure);
+		}
+		if(refreshGraphEndpoints){
+			outstream.println("Graph-k endpoints refreshed: "+graphEndsRefreshed+
+					"; classifications changed: "+graphEndCodesChanged+".");
 		}
 		if(crossKGraph()){
 			long[] counts=new long[MAX_CODE];
@@ -3196,6 +3221,8 @@ public abstract class Tadpole extends ShaveObject{
 
 	/** Resolve closed 2-by-2 repeats only when reads traverse both graph boundaries. */
 	boolean resolveRepeats=false;
+	/** Reclassify every final graph endpoint from the currently loaded graph-k table. */
+	boolean refreshGraphEndpoints=false;
 	/** Output maximal topology-safe overlapping walks instead of ordinary graph contigs. */
 	boolean simpleOmnitigs=false;
 	/** Output a deterministic copy-aware, non-combinatorial graph path cover. */

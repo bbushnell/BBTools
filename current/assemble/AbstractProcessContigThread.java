@@ -79,6 +79,7 @@ public abstract class AbstractProcessContigThread extends Thread {
 	int lastOrientation=-1;
 	ByteBuilder bb=new ByteBuilder();
 	long edgesMadeT=0;
+	long graphEndsRefreshedT=0, graphEndCodesChangedT=0;
 	final long[] exitCountsT=new long[ShaveObject.MAX_CODE];
 	/** Uncaught worker failure, captured so the coordinating thread can propagate it. */
 	volatile Throwable failure=null;

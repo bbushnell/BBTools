@@ -934,23 +934,40 @@ public class Tadpole1 extends Tadpole {
 		
 		@Override
 		public void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
-			if(crossKGraph ? !c.leftBridgeEndpoint : c.leftCode==DEAD_END){return;}
+			if(crossKGraph ? !c.leftBridgeEndpoint : (!refreshGraphEndpoints && c.leftCode==DEAD_END)){return;}
 			
 			final long kmer0=c.leftKmer(k);
 			final long rkmer0=rcomp(kmer0);
-			//[assemble/Tadpole1#004 FIXED 2026-08-28] Post-bridge contigs can share a terminal
-			//graph-k kmer.  Such an endpoint is topologically ambiguous, so skip it instead of
-			//assigning the shared kmer to whichever contig happened to claim it last.
-			if(tables.findOwner(kmer0, rkmer0)!=c.id){return;}
-			
-			assert(tables.getCount(kmer0, rkmer0)>0);
-			assert(tables.findOwner(kmer0, rkmer0)==c.id) : tables.findOwner(kmer0, rkmer0)+", "+c.id;
-//			System.err.println(tables.findOwner(kmer0));
-			
+			final int owner=tables.findOwner(kmer0, rkmer0);
+			if(owner<0){
+				if(refreshGraphEndpoints){
+					if(c.leftCode!=DEAD_END){graphEndCodesChangedT++;}
+					c.leftCode=DEAD_END;
+					c.leftRatio=0;
+					graphEndsRefreshedT++;
+				}
+				return;
+			}
 			int leftMaxPos=fillLeftCounts(kmer0, rkmer0, leftCounts);
 			int leftMax=leftCounts[leftMaxPos];
 			int leftSecondPos=Tools.secondHighestPosition(leftCounts);
 			int leftSecond=leftCounts[leftSecondPos];
+			if(refreshGraphEndpoints){
+				fillRightCounts(kmer0, rkmer0, rightCounts);
+				final int old=c.leftCode;
+				c.leftCode=classifyGraphEnd(rightCounts, leftCounts);
+				c.leftRatio=graphEndRatio(c.leftCode, rightCounts, leftCounts);
+				graphEndsRefreshedT++;
+				if(c.leftCode!=old){graphEndCodesChangedT++;}
+			}
+			//[assemble/Tadpole1#004 FIXED 2026-08-28] Post-bridge contigs can share a terminal
+			//graph-k kmer.  Such an endpoint is topologically ambiguous, so skip it instead of
+			//assigning the shared kmer to whichever contig happened to claim it last.
+			if(owner!=c.id){return;}
+			
+			assert(tables.getCount(kmer0, rkmer0)>0);
+			assert(tables.findOwner(kmer0, rkmer0)==c.id) : tables.findOwner(kmer0, rkmer0)+", "+c.id;
+//			System.err.println(tables.findOwner(kmer0));
 			
 			for(int x=0; x<leftCounts.length; x++){
 				bb.clear();
@@ -985,16 +1002,33 @@ public class Tadpole1 extends Tadpole {
 
 		@Override
 		public void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
-			if(crossKGraph ? !c.rightBridgeEndpoint : c.rightCode==DEAD_END){return;}
+			if(crossKGraph ? !c.rightBridgeEndpoint : (!refreshGraphEndpoints && c.rightCode==DEAD_END)){return;}
 
 			final long kmer0=c.rightKmer(k);
 			final long rkmer0=rcomp(kmer0);
-			if(tables.findOwner(kmer0, rkmer0)!=c.id){return;}
-
+			final int owner=tables.findOwner(kmer0, rkmer0);
+			if(owner<0){
+				if(refreshGraphEndpoints){
+					if(c.rightCode!=DEAD_END){graphEndCodesChangedT++;}
+					c.rightCode=DEAD_END;
+					c.rightRatio=0;
+					graphEndsRefreshedT++;
+				}
+				return;
+			}
 			int rightMaxPos=fillRightCounts(kmer0, rkmer0, rightCounts);
 			int rightMax=rightCounts[rightMaxPos];
 			int rightSecondPos=Tools.secondHighestPosition(rightCounts);
 			int rightSecond=rightCounts[rightSecondPos];
+			if(refreshGraphEndpoints){
+				fillLeftCounts(kmer0, rkmer0, leftCounts);
+				final int old=c.rightCode;
+				c.rightCode=classifyGraphEnd(leftCounts, rightCounts);
+				c.rightRatio=graphEndRatio(c.rightCode, leftCounts, rightCounts);
+				graphEndsRefreshedT++;
+				if(c.rightCode!=old){graphEndCodesChangedT++;}
+			}
+			if(owner!=c.id){return;}
 
 			for(int x=0; x<rightCounts.length; x++){
 				bb.clear();

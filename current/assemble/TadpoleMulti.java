@@ -107,6 +107,7 @@ public class TadpoleMulti {
 		}else{System.err.println("Reusing shortest-k table for final graph at k="+config.graphK+".");}
 		setCrossKGraph(tad, false);
 		tad.minContigLen=minContig;
+		tad.refreshGraphEndpoints=true;
 		tad.simpleOmnitigs=config.simpleOmnitigs;
 		tad.graphCover=config.graphCover;
 		tad.setContigs(contigs);

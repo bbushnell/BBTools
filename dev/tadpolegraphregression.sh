@@ -74,6 +74,11 @@ runUnifiedMultiGraphTest(){
 			cat "$temp/$name.stderr" >&2
 			exit 1
 		fi
+		if ! grep -Fq "Graph-k endpoints refreshed:" "$temp/$name.stderr"; then
+			echo "FAIL: unified multi-k $name did not refresh final graph-k endpoints" >&2
+			cat "$temp/$name.stderr" >&2
+			exit 1
+		fi
 		echo "PASS: unifiedMultiKGraph${name^}"
 	done
 }
