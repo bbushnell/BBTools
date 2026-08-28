@@ -22,8 +22,34 @@ runTest(){
 	java -ea --add-modules jdk.incubator.vector -cp "$CP" "$class"
 }
 
+runCrossKLeftBridgeTest(){
+	local temp expected actual rc
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	expected="CATACTCGCCTCGGCATATGTAGCCCGGAATCATCACACTCCTCAGGGAGCTCCTACTAGCTTGGAGCTCATCGCCGTTCACTCGGACTAACTCTGCAGCAAATGACGCCCGACCACGGTCCCAACTGACATCAGCCGCTTTGATGCGAAGCCAATTTCATTCCTCCTCTATCCTAAGCATCGATCTCTCCAACATCTCGACTCTTGGAG"
+	rc="$(printf '%s' "$expected" | tr ACGT TGCA | rev)"
+	for spec in "crossk_left_bridge_reads.fa:60,40:Tadpole2" \
+		"crossk_left_bridge_reads_k31.fa:31,20:Tadpole1"; do
+		local input="${spec%%:*}"
+		local rest="${spec#*:}"
+		local kmers="${rest%%:*}"
+		local implementation="${rest##*:}"
+		"$DIR/tadpolemulti.sh" in="$DIR/testdata/$input" out="$temp/out.fa.gz" \
+			k="$kmers" mcs=1 mce=1 mincontig=1 prefilter=f pop=f ow=t t=1 showstats=f \
+			1>"$temp/stdout" 2>"$temp/stderr"
+		actual="$(zcat "$temp/out.fa.gz" | awk '!/^>/{printf "%s", $0} END{print ""}')"
+		if [ "$actual" != "$expected" ] && [ "$actual" != "$rc" ]; then
+			echo "FAIL: $implementation reciprocal cross-k left bridge did not reconstruct the expected sequence" >&2
+			cat "$temp/stderr" >&2
+			exit 1
+		fi
+		echo "PASS: reciprocalCrossKLeftBridge$implementation"
+	done
+}
+
 resolveSymlinks
 runTest assemble.BubblePopperUnitTest
 runTest assemble.PathPreservingBubbleSimplifierSpec
 runTest assemble.ReadThreadedXResolverUnitTest
 runTest assemble.CrossKTipOverlapperUnitTest
+runCrossKLeftBridgeTest

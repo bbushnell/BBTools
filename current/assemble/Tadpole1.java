@@ -956,12 +956,16 @@ public class Tadpole1 extends Tadpole {
 				final int count=leftCounts[x];
 				int target=-1;
 				if(count>0 && isJunction(leftMax, count)){
-					long x2=3-x;
+					int x2=3-x;
 					long rkmer=((rkmer0<<2)|(long)x2)&mask;
 					long kmer=(kmer0>>>2)|(((long)x)<<shift2);
 					assert(kmer==rcomp(rkmer));
 					assert(tables.getCount(kmer, rkmer)==count) : count+", "+tables.getCount(kmer, rkmer);
-					bb.append(AminoAcid.numberToBase[x]);
+					//[assemble/Tadpole1#002 FIXED 2026-08-27] Cross-k leftward traversal runs on
+					//the reverse-complement seed. Store that strand; flipSource will reverse-
+					//complement the completed edge when the source contig is flipped for merging.
+					//Keep the established dense-graph representation unchanged.
+					bb.append(AminoAcid.numberToBase[crossKGraph ? x2 : x]);
 					target=exploreRight(rkmer, kmer, extraCounts, rightCounts, bb, c.id);
 					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
@@ -970,6 +974,7 @@ public class Tadpole1 extends Tadpole {
 					}
 				}
 				if(target>=0){
+					if(crossKGraph){bb.reverseComplementInPlace();}
 					Edge se=new Edge(c.id, target, lastLength, lastOrientation, count, bb.toBytes());
 					c.addLeftEdge(se);
 					edgesMadeT++;

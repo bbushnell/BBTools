@@ -828,8 +828,13 @@ public class Tadpole2 extends Tadpole {
 				if(count>0 && isJunction(leftMax, count)){
 					kmer.setFrom(kmer0);
 					kmer.addLeftNumeric(x);
+					//[assemble/Tadpole2#003 FIXED 2026-08-27] A cross-k left extension was passed
+					//directly to exploreRight, so its first step returned to the source tip. Reverse-
+					//complement the seed to traverse outward, matching Tadpole1. Keep the established
+					//dense-graph representation unchanged; changing it requires separate validation.
+					if(crossKGraph){kmer.rcomp();}
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
-					bb.append(AminoAcid.numberToBase[x]);
+					bb.append(AminoAcid.numberToBase[crossKGraph ? 3-x : x]);
 					target=exploreRight(kmer, extraCounts, rightCounts, bb, c.id);
 					if(crossKGraph){exitCountsT[lastExitCondition]++;}
 					if(verbose){
@@ -838,6 +843,7 @@ public class Tadpole2 extends Tadpole {
 					}
 				}
 				if(target>=0){
+					if(crossKGraph){bb.reverseComplementInPlace();}
 					Edge se=new Edge(c.id, target, lastLength, lastOrientation, count, bb.toBytes());
 //					System.err.println("Adding "+se+"; x="+x+"; bb="+bb);
 					c.addLeftEdge(se);
