@@ -142,8 +142,13 @@ public class CoveringSet {
 		final int totalSeqs=pool.size();
 		//numPartitions unset (<=0) means "scale with available threads" -- resolved
 		//here rather than in field init since Shared.threads() reflects t= parsing
-		//that happens after this object is constructed.
-		if(numPartitions<=0){numPartitions=Tools.max(15, Shared.threads());}
+		//that happens after this object is constructed. Default is ~2x the thread
+		//count (extra shards make it less likely two threads want to flush the same
+		//partition at once, reducing lock contention) and forced ODD, since way()'s
+		//kmer%numPartitions would otherwise alias against the structured low-bit
+		//patterns of 2-bit-packed kmers -- an even modulus can route every kmer
+		//ending in the same base to the same parity of partitions (Brian, 2026-08-28).
+		if(numPartitions<=0){numPartitions=Tools.max(15, 2*Shared.threads())|1;}
 		outstream.println("Pool: "+totalSeqs+" sequences, k="+k+
 				(kDesign!=k ? " (design k="+kDesign+")" : "")+
 				", step="+step+(stepFraction>0 ? ", stepfraction="+stepFraction+
@@ -778,9 +783,10 @@ public class CoveringSet {
 	private int copies=10;
 	private boolean rcomp=false;
 	/** Number of PartitionedCounter shards. <=0 (default) resolves in process()
-	 * to max(15, Shared.threads()) -- Brian's illustrative N=15, scaled up so a
-	 * high-thread-count cluster node still gets enough shards to keep lock
-	 * collisions rare. */
+	 * to the nearest odd value >= max(15, 2*Shared.threads()) -- Brian's
+	 * illustrative floor of 15, doubled against thread count so flush-time lock
+	 * collisions between threads stay rare, and forced odd so kmer%numPartitions
+	 * doesn't alias against 2-bit-packed kmers' structured low bits. */
 	private int numPartitions=-1;
 	/** Per-thread, per-partition batch size before a flush takes that
 	 * partition's lock (Brian's illustrative 200). */

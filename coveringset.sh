@@ -49,10 +49,12 @@ Performance parameters (kmer counting is multithreaded via a partitioned
 counter -- each thread buffers kmers per-partition and only locks a partition
 briefly to flush a batch, so there's no serial merge step and no single-table
 size ceiling; useful for large corpora, e.g. whole-domain reference sets):
-partitions=     Number of counter shards. Default: max(15, threads).
-                More shards means less lock contention between threads and
-                a higher total-distinct-kmer ceiling (each shard is its own
-                table), at the cost of a little fixed memory overhead.
+partitions=     Number of counter shards. Default: nearest odd value >=
+                max(15, 2*threads) -- odd avoids aliasing against the
+                structured low bits of 2-bit-packed kmers. More shards means
+                less lock contention between threads and a higher
+                total-distinct-kmer ceiling (each shard is its own table),
+                at the cost of a little fixed memory overhead.
 bufsize=200     Kmers a thread buffers per partition before flushing (taking
                 that partition's lock). Larger reduces lock frequency.
 

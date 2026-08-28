@@ -9,10 +9,12 @@ Description:  Assemble at a long kmer length, directly join unique reciprocal
 overlaps between low-depth contig ends at every requested shorter k, then load
 the short-k tables and conservatively bridge remaining gaps.
 
-Usage:  tadpolemulti.sh in=<reads> out=<contigs> k=140,75,31
+Usage:  tadpolemulti.sh in=<reads> out=<contigs> k=31,75,140
 
 Core parameters:
-k=             Strictly descending comma-delimited kmer lengths.
+k=             Comma-delimited kmer lengths; internally sorted descending.
+graphk=auto    Final graph K for simpleomnitigs or graphcover.  Defaults to
+               the shortest K, whose table is reused when available.
 crosskmaxdepthratio=3
                Reject a bridge whose depth exceeds this multiple of the
                greater flank coverage.  Set to 0 to disable.

@@ -53,6 +53,11 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
+		if(TadpoleMulti.hasMultipleK(args)){
+			TadpoleMulti.main(args);
+			Shared.closeStream(outstream);
+			return;
+		}
 		Timer t=new Timer(), t2=new Timer();
 		t.start();
 		t2.start();
@@ -239,6 +244,11 @@ public abstract class Tadpole extends ShaveObject{
 				BubblePopper.unzipBubbles=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("resolveRepeats") || a.equalsIgnoreCase("resolveX")){
 				resolveRepeats=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("simpleOmnitigs") || a.equalsIgnoreCase("omnitigs")){
+				simpleOmnitigs=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("graphCover") || a.equalsIgnoreCase("pathCover")
+					|| a.equalsIgnoreCase("nonredundantPaths")){
+				graphCover=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("repeatMinSupport") || a.equalsIgnoreCase("rms")){
 				repeatMinSupport=Parse.parseIntKMG(b);
 			}else if(a.equalsIgnoreCase("repeatMaxNoise") || a.equalsIgnoreCase("rmn")){
@@ -572,7 +582,10 @@ public abstract class Tadpole extends ShaveObject{
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		
-		if(outDot!=null || popBubbles || resolveRepeats){processContigs=true;}
+		if(outDot!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover){processContigs=true;}
+		if(simpleOmnitigs && graphCover){
+			throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");
+		}
 		if(resolveRepeats){
 			if(repeatMinSupport<1 || repeatMaxNoise<0){
 				throw new RuntimeException("repeatMinSupport must be positive and repeatMaxNoise must be nonnegative.");
@@ -1082,6 +1095,11 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		return removed;
 	}
+
+	/** Applies the configured shave/rinse settings to a table loaded outside process2. */
+	final long cleanLoadedKmers(){
+		return shaveAndRinse(new Timer(), removeDeadEnds, removeBubbles, true);
+	}
 	
 	/**
 	 * Performs graph shaving operations to remove spurious structures.
@@ -1237,8 +1255,20 @@ public abstract class Tadpole extends ShaveObject{
 		if(resolveRepeats && processingMode!=contigMode){
 			throw new RuntimeException("resolveRepeats requires mode=contig.");
 		}
+		if(simpleOmnitigs && processingMode!=contigMode){
+			throw new RuntimeException("simpleOmnitigs requires mode=contig.");
+		}
+		if(graphCover && processingMode!=contigMode){
+			throw new RuntimeException("graphCover requires mode=contig.");
+		}
 		if(resolveRepeats && crossKGraph()){
 			throw new RuntimeException("resolveRepeats is not yet supported during short-k bridging.");
+		}
+		if(simpleOmnitigs && crossKGraph()){
+			throw new RuntimeException("simpleOmnitigs is not supported on an intermediate short-k bridge graph.");
+		}
+		if(graphCover && crossKGraph()){
+			throw new RuntimeException("graphCover is not supported on an intermediate short-k bridge graph.");
 		}
 //		outstream.println("Initializing contigs.\n");
 		Timer t=new Timer(outstream, true);
@@ -1295,6 +1325,48 @@ public abstract class Tadpole extends ShaveObject{
 			bsw.print(bb);
 			bsw.poisonAndWait();
 		}
+
+		if(simpleOmnitigs || graphCover){
+			t.start();
+			final int before=allContigs.size();
+			final SimpleOmnitigExtractor extractor=new SimpleOmnitigExtractor(allContigs, kbig, minContigLen);
+			final ArrayList<Contig> extracted=(graphCover ? extractor.extractNonredundant() : extractor.extract());
+			installExtractedContigs(extracted);
+			outstream.println((graphCover ? "Graph path cover:            \t" : "Simple omnitigs:             \t")+
+					before+" contigs, "+extractor.inputBases()+
+					" bases -> "+allContigs.size()+" contigs, "+extractor.outputBases()+" bases.");
+			if(graphCover){
+				outstream.println("Path-cover joins:           \t"+extractor.selectedJoins()+" of "+
+						extractor.pathCandidates()+" candidates; cycles rejected: "+extractor.pathCyclesRejected()+".");
+				outstream.println("Sub-threshold joins skipped:\t"+extractor.smallOnlyJoinsDiscarded()+".");
+				outstream.println("Copy-aware X centers:       \t"+extractor.xCentersDuplicated()+
+						"; center copies emitted: "+extractor.xCopiesEmitted()+"; duplicated center bases: "+
+						extractor.xCenterBasesDuplicated()+"; net X bases: "+extractor.xNetBases()+".");
+			}else{
+				outstream.println("Extended omnitig walks:     \t"+extractor.extendedWalks()+
+						"; cycle contigs preserved: "+extractor.preservedCycleContigs()+
+						"; cycle walks truncated: "+extractor.truncatedCycleWalks()+".");
+			}
+			outstream.println("Inexact graph arcs skipped:\t"+extractor.inexactEdges()+".");
+			outstream.println("Nonreciprocal arcs skipped:\t"+extractor.nonreciprocalEdges()+".");
+			t.stop("Time: ");
+		}
+	}
+
+	/** Replaces graph contigs with terminal sequence outputs and refreshes assembly statistics. */
+	private void installExtractedContigs(final ArrayList<Contig> extracted){
+		Shared.sort(extracted, ContigLengthComparator.comparator);
+		basesBuilt=contigsBuilt=longestContig=0;
+		for(int i=0; i<extracted.size(); i++){
+			final Contig c=extracted.get(i);
+			c.id=i;
+			if(c.length()>=minContigLen){
+				basesBuilt+=c.length();
+				contigsBuilt++;
+				longestContig=Tools.max(longestContig, c.length());
+			}
+		}
+		allContigs=extracted;
 	}
 
 	/** Collects exact read traversals through closed 2-by-2 repeats, then resolves only unique pairings. */
@@ -1561,6 +1633,7 @@ public abstract class Tadpole extends ShaveObject{
 		for(AbstractProcessContigThread pt : alpt){pt.start();}
 		
 		/* Wait for threads to die, and gather statistics */
+		Throwable workerFailure=null;
 		for(AbstractProcessContigThread pt : alpt){
 			while(pt.getState()!=Thread.State.TERMINATED){
 				try {
@@ -1570,7 +1643,12 @@ public abstract class Tadpole extends ShaveObject{
 					e.printStackTrace();
 				}
 			}
+			if(workerFailure==null && pt.failure!=null){workerFailure=pt.failure;}
 			edgesMade+=pt.edgesMadeT;
+		}
+		if(workerFailure!=null){
+			errorState=true;
+			throw new RuntimeException(getClass().getSimpleName()+" graph worker thread failed.", workerFailure);
 		}
 		if(crossKGraph()){
 			long[] counts=new long[MAX_CODE];
@@ -3118,6 +3196,10 @@ public abstract class Tadpole extends ShaveObject{
 
 	/** Resolve closed 2-by-2 repeats only when reads traverse both graph boundaries. */
 	boolean resolveRepeats=false;
+	/** Output maximal topology-safe overlapping walks instead of ordinary graph contigs. */
+	boolean simpleOmnitigs=false;
+	/** Output a deterministic copy-aware, non-combinatorial graph path cover. */
+	boolean graphCover=false;
 	int repeatMinSupport=2;
 	int repeatMaxNoise=0;
 	long readThreadedRepeatsResolved=0;

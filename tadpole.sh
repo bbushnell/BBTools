@@ -16,6 +16,7 @@ etc.) and silently rounds down otherwise.
 Please read bbmap/docs/guides/TadpoleGuide.txt for more information.
 
 Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
+Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
 
@@ -71,6 +72,8 @@ filtermem=0         Allows manually specifying prefilter memory in bytes, for
 
 Hashing parameters:
 k=31                Kmer length (1 to infinity).  Memory use increases with K.
+                    A comma-delimited list enables multi-K assembly; values are
+                    internally sorted from longest to shortest.
 prealloc=t          Pre-allocate memory rather than dynamically growing; 
                     faster and more memory-efficient.  A float fraction (0-1)
                     may be specified; default is 1.
@@ -117,6 +120,16 @@ unzipbubbles=f      Linearize isolated true bubbles into both supported paths.
 resolverepeats=f     Resolve closed 2-by-2 repeat junctions when individual
                     reads span both boundaries and uniquely pair both paths.
                     Experimental; rereads primary input files and cannot use stdin.
+simpleomnitigs=f     (omnitigs) Output maximal topology-safe walks through the
+                    contig graph.  May duplicate shared sequence around branches;
+                    never selects an unsupported branch pairing.
+graphcover=f         (pathcover, nonredundantpaths) Output a deterministic graph
+                    path cover without combinatorial duplication.  A clean 2x2 X
+                    center is emitted twice on one boundary, never paired through.
+                    Joined products must contain an independently output-sized contig.
+graphk=auto          Multi-K only.  Build the final graph at this kmer length.
+                    Defaults to the shortest requested K and reuses that table;
+                    another value rereads the inputs once at the requested K.
 repeatminsupport=2   Minimum spanning reads required for each resolved path.
 repeatmaxnoise=0     Maximum conflicting spanning reads; zero is strictest.
 validategraph=f     Run graph consistency checks during simplification.

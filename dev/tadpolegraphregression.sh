@@ -47,9 +47,43 @@ runCrossKLeftBridgeTest(){
 	done
 }
 
+runUnifiedMultiGraphTest(){
+	local temp expected rc actual
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	expected="CATACTCGCCTCGGCATATGTAGCCCGGAATCATCACACTCCTCAGGGAGCTCCTACTAGCTTGGAGCTCATCGCCGTTCACTCGGACTAACTCTGCAGCAAATGACGCCCGACCACGGTCCCAACTGACATCAGCCGCTTTGATGCGAAGCCAATTTCATTCCTCCTCTATCCTAAGCATCGATCTCTCCAACATCTCGACTCTTGGAG"
+	rc="$(printf '%s' "$expected" | tr ACGT TGCA | rev)"
+	for spec in "default::Reusing shortest-k table for final graph at k=20" \
+		"intermediate:graphk=25:Loading graph-k table at k=25" \
+		"washed:wash=t:Removing dead ends and error bubbles"; do
+		local name="${spec%%:*}"
+		local rest="${spec#*:}"
+		local grapharg="${rest%%:*}"
+		local logtext="${rest#*:}"
+		"$DIR/tadpole.sh" in="$DIR/testdata/crossk_left_bridge_reads_k31.fa" out="$temp/$name.fa.gz" \
+			k=20,31 $grapharg simpleomnitigs=t mcs=1 mce=1 mincontig=1 prefilter=f pop=f \
+			ow=t t=1 showstats=f 1>"$temp/$name.stdout" 2>"$temp/$name.stderr"
+		actual="$(zcat "$temp/$name.fa.gz" | awk '!/^>/{printf "%s", $0} END{print ""}')"
+		if [ "$actual" != "$expected" ] && [ "$actual" != "$rc" ]; then
+			echo "FAIL: unified multi-k $name graph extraction changed the expected sequence" >&2
+			cat "$temp/$name.stderr" >&2
+			exit 1
+		fi
+		if ! grep -Fq "$logtext" "$temp/$name.stderr"; then
+			echo "FAIL: unified multi-k $name did not use the expected graph-k lifecycle" >&2
+			cat "$temp/$name.stderr" >&2
+			exit 1
+		fi
+		echo "PASS: unifiedMultiKGraph${name^}"
+	done
+}
+
 resolveSymlinks
 runTest assemble.BubblePopperUnitTest
 runTest assemble.PathPreservingBubbleSimplifierSpec
 runTest assemble.ReadThreadedXResolverUnitTest
 runTest assemble.CrossKTipOverlapperUnitTest
+runTest assemble.SimpleOmnitigExtractorUnitTest
+runTest assemble.TadpoleMultiUnitTest
 runCrossKLeftBridgeTest
+runUnifiedMultiGraphTest

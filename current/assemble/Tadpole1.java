@@ -801,23 +801,20 @@ public class Tadpole1 extends Tadpole {
 			initializeCrossKContigs(contigs);
 			return;
 		}
-		{
-			int cnum=0;
-			for(Contig c : contigs){
-				c.id=cnum;
-//				if(c.leftBranch()){
-				if(true){
-					long kmer=c.leftKmer(k);
-					tables.claim(kmer, rcomp(kmer), cnum);
-				}
-//				if(c.rightBranch()){
-				if(true){
-					long kmer=c.rightKmer(k);
-					tables.claim(kmer, rcomp(kmer), cnum);
-				}
-				cnum++;
-			}
+		final int invalidOwner=contigs.size();
+		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
+		for(Contig c : contigs){
+			claimGraphEnd(c.leftKmer(k), c.id, invalidOwner);
+			claimGraphEnd(c.rightKmer(k), c.id, invalidOwner);
 		}
+	}
+
+	/** Claims one full-graph endpoint, invalidating kmers shared by different contigs. */
+	private void claimGraphEnd(final long kmer, final int owner, final int invalidOwner){
+		final long rkmer=rcomp(kmer);
+		final int old=tables.findOwner(kmer, rkmer);
+		if(old<0){tables.claim(kmer, rkmer, owner);}
+		else if(old!=owner){tables.claim(kmer, rkmer, invalidOwner);}
 	}
 
 	@Override
@@ -941,9 +938,13 @@ public class Tadpole1 extends Tadpole {
 			
 			final long kmer0=c.leftKmer(k);
 			final long rkmer0=rcomp(kmer0);
+			//[assemble/Tadpole1#004 FIXED 2026-08-28] Post-bridge contigs can share a terminal
+			//graph-k kmer.  Such an endpoint is topologically ambiguous, so skip it instead of
+			//assigning the shared kmer to whichever contig happened to claim it last.
+			if(tables.findOwner(kmer0, rkmer0)!=c.id){return;}
 			
 			assert(tables.getCount(kmer0, rkmer0)>0);
-			assert(tables.findOwner(kmer0)==c.id) : tables.findOwner(kmer0)+", "+c.id;
+			assert(tables.findOwner(kmer0, rkmer0)==c.id) : tables.findOwner(kmer0, rkmer0)+", "+c.id;
 //			System.err.println(tables.findOwner(kmer0));
 			
 			int leftMaxPos=fillLeftCounts(kmer0, rkmer0, leftCounts);
@@ -988,6 +989,7 @@ public class Tadpole1 extends Tadpole {
 
 			final long kmer0=c.rightKmer(k);
 			final long rkmer0=rcomp(kmer0);
+			if(tables.findOwner(kmer0, rkmer0)!=c.id){return;}
 
 			int rightMaxPos=fillRightCounts(kmer0, rkmer0, rightCounts);
 			int rightMax=rightCounts[rightMaxPos];

@@ -678,23 +678,21 @@ public class Tadpole2 extends Tadpole {
 			initializeCrossKContigs(contigs, kmer);
 			return;
 		}
-		{
-			int cnum=0;
-			for(Contig c : contigs){
-				c.id=cnum;
-//				if(c.leftBranch()){
-				if(true){
-					c.leftKmer(kmer);
-					tables.claim(kmer, cnum);
-				}
-//				if(c.rightBranch()){
-				if(true){
-					c.rightKmer(kmer);
-					tables.claim(kmer, cnum);
-				}
-				cnum++;
-			}
+		final int invalidOwner=contigs.size();
+		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
+		for(Contig c : contigs){
+			c.leftKmer(kmer);
+			claimGraphEnd(kmer, c.id, invalidOwner);
+			c.rightKmer(kmer);
+			claimGraphEnd(kmer, c.id, invalidOwner);
 		}
+	}
+
+	/** Claims one full-graph endpoint, invalidating kmers shared by different contigs. */
+	private void claimGraphEnd(final Kmer kmer, final int owner, final int invalidOwner){
+		final int old=tables.findOwner(kmer);
+		if(old<0){tables.claim(kmer, owner);}
+		else if(old!=owner){tables.claim(kmer, invalidOwner);}
 	}
 
 	@Override
@@ -812,6 +810,10 @@ public class Tadpole2 extends Tadpole {
 			
 			final Kmer kmer0=c.leftKmer(kmerA);
 			final Kmer kmer=kmerB;
+			//[assemble/Tadpole2#004 FIXED 2026-08-28] Post-bridge contigs can share a terminal
+			//graph-k kmer.  Such an endpoint is topologically ambiguous, so skip it instead of
+			//assigning the shared kmer to whichever contig happened to claim it last.
+			if(tables.findOwner(kmer0)!=c.id){return;}
 			
 			assert(tables.getCount(kmer0)>0);
 			assert(tables.findOwner(kmer0)==c.id) : tables.findOwner(kmer0)+", "+c.id;
@@ -859,6 +861,7 @@ public class Tadpole2 extends Tadpole {
 
 			final Kmer kmer0=c.rightKmer(kmerA);
 			final Kmer kmer=kmerB;
+			if(tables.findOwner(kmer0)!=c.id){return;}
 
 			int rightMaxPos=fillRightCounts(kmer0, rightCounts);
 			int rightMax=rightCounts[rightMaxPos];

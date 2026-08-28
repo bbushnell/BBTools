@@ -20,6 +20,7 @@ public abstract class AbstractProcessContigThread extends Thread {
 	AbstractProcessContigThread(ArrayList<Contig> contigs_, AtomicInteger next_){
 		contigs=contigs_;
 		next=next_;
+		setUncaughtExceptionHandler((thread, throwable) -> failure=throwable);
 	}
 	
 	@Override
@@ -79,5 +80,7 @@ public abstract class AbstractProcessContigThread extends Thread {
 	ByteBuilder bb=new ByteBuilder();
 	long edgesMadeT=0;
 	final long[] exitCountsT=new long[ShaveObject.MAX_CODE];
+	/** Uncaught worker failure, captured so the coordinating thread can propagate it. */
+	volatile Throwable failure=null;
 
 }
