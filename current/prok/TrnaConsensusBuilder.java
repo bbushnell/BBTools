@@ -96,6 +96,16 @@ public class TrnaConsensusBuilder {
 				seedIn=b;
 			}else if(a.equals("prunecount") || a.equals("prune")){
 				pruneCount=Integer.parseInt(b);
+			}else if(a.equals("prefix") || a.equals("consensusprefix")){
+				consensusPrefix=b;
+			}else if(a.equals("stochastic") || a.equals("stochasticconsensus") || a.equals("stochastictrace")){
+				stochasticConsensus=Parse.parseBoolean(b);
+			}else if(a.equals("stochasticseed")){
+				stochasticSeed=Long.parseLong(b);
+			}else if(a.equals("outassignments")){
+				outAssignments=b;
+			}else if(a.equals("family")){
+				family=b;
 			}else if(parser.parse(arg, a, b)){
 				//handled
 			}else{
@@ -109,6 +119,23 @@ public class TrnaConsensusBuilder {
 
 		if(in==null){throw new RuntimeException("Error - an input file is required.");}
 		if(out==null){throw new RuntimeException("Error - an output file is required.");}
+		//Citan, 2026-08-28: family namespace must be explicit whenever assignments are written,
+		//so clusterKeys stay collision-free across a future joint multi-family manifest (kept
+		//clusterKey embeds modelLabel, and modelLabel's format -- consensusPrefix+anticodon+
+		//"_c"+fci (consensusPrefix defaults to "tRNA_consensus_") -- is NOT itself family-
+		//namespaced, so two different families could otherwise produce byte-identical modelLabels).
+		if(outAssignments!=null && (family==null || family.isEmpty())){
+			throw new RuntimeException("Error - a non-empty family= is required when outassignments= is set.");
+		}
+
+		//Citan, 2026-08-28, round 5: resolved ONCE here, single-threaded, before any parallel
+		//buildFromAlignments call can happen -- this is what makes the per-call local-RNG design
+		//(see buildFromAlignments/deriveLocalSeed) schedule-independent even in "random seed"
+		//mode: the ACTUAL seed driving every call in this run is fixed here, once, regardless of
+		//how many threads later consume it or in what order. Zero cost when stochasticConsensus
+		//is false (no Random ever constructed).
+		resolvedRunSeed=(!stochasticConsensus ? 0L
+			: (stochasticSeed>=0 ? stochasticSeed : new java.util.Random().nextLong()));
 
 		overwrite=parser.overwrite;
 
@@ -123,6 +150,7 @@ public class TrnaConsensusBuilder {
 	void process(Timer t){
 		ArrayList<Read> reads=loadReads();
 		outstream.println("Loaded "+reads.size()+" tRNA sequences.");
+		if(outAssignments!=null){checkNoDuplicateRecordIds(reads);}
 
 		LinkedHashMap<String, ArrayList<byte[]>> seedMap=null;
 		if(seedIn!=null){
@@ -131,6 +159,8 @@ public class TrnaConsensusBuilder {
 
 		LinkedHashMap<String, ArrayList<Read>> groups=groupByAnticodon(reads);
 		outstream.println("Found "+groups.size()+" anticodon groups.");
+
+		if(outAssignments!=null){assignmentMap=new java.util.IdentityHashMap<>();}
 
 		ArrayList<Read> consensusList=new ArrayList<>();
 		ArrayList<BaseGraph> modelList=(outModel!=null ? new ArrayList<>() : null);
@@ -141,6 +171,12 @@ public class TrnaConsensusBuilder {
 			ArrayList<Read> group=e.getValue();
 			if(group.size()<minGroupSize){
 				if(verbose){outstream.println("Skipping "+anticodon+" ("+group.size()+" sequences, below min="+minGroupSize+")");}
+				//Citan, 2026-08-28: this whole group was NEVER sequence-clustered (skipped before
+				//clusterSequences() is even called) -- there is no verified redundancy relationship
+				//among its members. Sharing one small clusterKey here would INVENT redundancy and
+				//could wrongly let a rare/unique sequence borrow another unrelated one's "K count"
+				//downstream. Each member is recorded as its own singleton orphan instead.
+				recordEachAsOrphan(group);
 				continue;
 			}
 
@@ -148,6 +184,7 @@ public class TrnaConsensusBuilder {
 
 			if(doClustering && group.size()>1){
 				final ArrayList<ArrayList<Read>> clusters=clusterSequences(group, seeds);
+				recordDroppedOrphans(group, clusters);
 				//Per-cluster consensus+HBM+census are independent: compute in
 				//parallel, then assemble serially in cluster order so output
 				//(labels, numericIDs, census lines) is deterministic.
@@ -164,7 +201,7 @@ public class TrnaConsensusBuilder {
 					futures.add(pool().submit(new Runnable(){
 						@Override
 						public void run(){
-							final String label="tRNA_consensus_"+anticodonF+"_c"+fci+" n="+cluster.size();
+							final String label=consensusPrefix+anticodonF+"_c"+fci+" n="+cluster.size();
 							final byte[] consensus;
 							if(outModel!=null){
 								//Consensus and HBM built TOGETHER, from alignments to the SAME stabilized
@@ -190,11 +227,19 @@ public class TrnaConsensusBuilder {
 				waitAll(futures);
 				int kept=0;
 				for(int ci=0; ci<clusters.size(); ci++){
-					if(consensi[ci]==null){continue;}
+					final ArrayList<Read> cluster=clusters.get(ci);
+					if(consensi[ci]==null){
+						//Either below minClusterSize (never attempted, `continue`d above) or a
+						//size-eligible cluster whose consensus build failed (line ~188/193) --
+						//both mean this cluster never became a real model.
+						recordGroupAsSmall(cluster);
+						continue;
+					}
 					if(censusLines[ci]!=null){outstream.println(censusLines[ci]);}
 					Read r=new Read(consensi[ci], null, labels[ci], num);
 					consensusList.add(r);
 					if(modelList!=null){modelList.add(graphs[ci]);}
+					recordClusterAsKept(cluster, labels[ci]);
 					num++;
 					kept++;
 				}
@@ -202,7 +247,7 @@ public class TrnaConsensusBuilder {
 				totalClusters+=clusters.size();
 			}else{
 				if(group.size()>=minClusterSize){
-					final String label="tRNA_consensus_"+anticodon+" n="+group.size();
+					final String label=consensusPrefix+anticodon+" n="+group.size();
 					final byte[] consensus;
 					BaseGraph bg=null;
 					if(modelList!=null){
@@ -217,11 +262,15 @@ public class TrnaConsensusBuilder {
 						Read r=new Read(consensus, null, label, num);
 						consensusList.add(r);
 						if(modelList!=null){modelList.add(bg);}
+						recordClusterAsKept(group, label);
 						num++;
+					}else{
+						recordGroupAsSmall(group);
 					}
 					outstream.println(anticodon+": "+group.size()+" seqs -> len "+(consensus==null ? 0 : consensus.length));
 				}else{
 					outstream.println(anticodon+": "+group.size()+" seqs (below minClusterSize="+minClusterSize+")");
+					recordGroupAsSmall(group);
 				}
 				totalClusters++;
 			}
@@ -243,6 +292,11 @@ public class TrnaConsensusBuilder {
 			for(int i=0; i<consensusList.size(); i++){
 				if(sizes[i]<=cutoff && removed<pruneCount){
 					removed++;
+					//A cluster removed here already went through recordClusterAsKept above --
+					//demote its members back to small, since it did NOT actually ship. Matched by
+					//clusterKey (family+"_kept_"+its label): assignmentMap has no reverse index
+					//from label to members, so this is a scan, only ever run when pruneCount>0.
+					demoteClusterKeyToSmall(family+"_kept_"+consensusList.get(i).id);
 				}else{
 					kept.add(consensusList.get(i));
 					if(keptModels!=null){keptModels.add(modelList.get(i));}
@@ -252,6 +306,8 @@ public class TrnaConsensusBuilder {
 			consensusList=kept;
 			modelList=keptModels;
 		}
+
+		writeAssignments(reads);
 
 		if(ffout!=null){
 			ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ffout, null, 4, null, false);
@@ -415,18 +471,15 @@ public class TrnaConsensusBuilder {
 				}
 			}
 		}else{
-			// Greedy initial clustering
+			// Greedy initial clustering. The per-read decision must stay sequential
+			// because centroids accumulate as reads are assigned. The scan over the
+			// current, frozen centroid list is independent and can be parallelized.
+			final float[] matchOut=new float[2];
 			for(Read r : group){
 				byte[] seq=r.bases;
-				float bestId=0;
-				int bestCluster=-1;
-				for(int i=0; i<centroids.size(); i++){
-					float id=ScrabbleAligner.alignStatic(seq, centroids.get(i), null);
-					if(id>bestId){
-						bestId=id;
-						bestCluster=i;
-					}
-				}
+				bestCentroidMatch(seq, centroids, matchOut);
+				final float bestId=matchOut[0];
+				final int bestCluster=(int)matchOut[1];
 				if(bestId>=clusterIdentity && bestCluster>=0){
 					clusters.get(bestCluster).add(r);
 				}else{
@@ -567,11 +620,82 @@ public class TrnaConsensusBuilder {
 					clusters.get(bestTarget).add(r);
 					recruited++;
 				}
+				//TODO: Probable bug (found during outassignments review, G11/Citan, 2026-08-28) --
+				//a Read that fails this recruit check is silently dropped: it is never added to
+				//any cluster, never returned to the caller, and has zero accounting anywhere in
+				//the pipeline (never reaches consensusList/modelList, never logged individually).
+				//Not fixed here -- process()'s new outassignments= tracking now EXPOSES these as
+				//orphan rows (one singleton per dropped Read) via a set-difference against the
+				//original group, but deliberately does NOT change which Reads end up in the
+				//returned `clusters` -- output membership (consensus.fa/model.hbm) is unchanged.
 			}
 			if(verbose){outstream.println("  Recruited "+recruited+" of "+orphans.size()+" orphans");}
 		}
 
 		return clusters;
+	}
+
+	/** Below this centroid count, scanning serially is cheaper than farming the
+	 * current centroid list across the worker pool. */
+	private static final int PARALLEL_CENTROID_THRESHOLD=200;
+
+	/**
+	 * Finds the exact same best centroid as the serial ascending-index scan.
+	 * The caller appends to centroids only after this method returns, so the
+	 * list is read-only while workers scan disjoint ranges. Chunk results are
+	 * merged in ascending order with the same strict-'&gt;' comparison, preserving
+	 * the serial first-index tie break.
+	 */
+	private void bestCentroidMatch(final byte[] seq, final ArrayList<byte[]> centroids,
+			final float[] out){
+		final int n=centroids.size();
+		if(n<PARALLEL_CENTROID_THRESHOLD){
+			float bestId=0;
+			int bestCluster=-1;
+			for(int i=0; i<n; i++){
+				float id=ScrabbleAligner.alignStatic(seq, centroids.get(i), null);
+				if(id>bestId){bestId=id; bestCluster=i;}
+			}
+			out[0]=bestId;
+			out[1]=bestCluster;
+			return;
+		}
+
+		final int nThreads=Tools.max(1, Shared.threads());
+		final int chunk=Tools.max(1, (n+nThreads-1)/nThreads);
+		final int nChunks=(n+chunk-1)/chunk;
+		final float[] chunkBestId=new float[nChunks];
+		final int[] chunkBestIdx=new int[nChunks];
+		ArrayList<Future<?>> futures=new ArrayList<>(nChunks);
+		for(int c=0; c<nChunks; c++){
+			final int from=c*chunk, to=Tools.min(n, from+chunk);
+			final int fc=c;
+			futures.add(pool().submit(new Runnable(){
+				@Override
+				public void run(){
+					float localBest=0;
+					int localIdx=-1;
+					for(int i=from; i<to; i++){
+						float id=ScrabbleAligner.alignStatic(seq, centroids.get(i), null);
+						if(id>localBest){localBest=id; localIdx=i;}
+					}
+					chunkBestId[fc]=localBest;
+					chunkBestIdx[fc]=localIdx;
+				}
+			}));
+		}
+		waitAll(futures);
+
+		float bestId=0;
+		int bestCluster=-1;
+		for(int c=0; c<nChunks; c++){
+			if(chunkBestIdx[c]>=0 && chunkBestId[c]>bestId){
+				bestId=chunkBestId[c];
+				bestCluster=chunkBestIdx[c];
+			}
+		}
+		out[0]=bestId;
+		out[1]=bestCluster;
 	}
 
 	byte[] buildConsensus(ArrayList<Read> group){
@@ -744,6 +868,19 @@ public class TrnaConsensusBuilder {
 			if(bs<be){first=bs; last=be;}
 		}
 
+		//Citan, 2026-08-28, round 5: a LOCAL Random, not a shared field -- buildFromAlignments is
+		//called from multiple threads concurrently (rebuildConsensi/the per-cluster consensus+HBM
+		//loop each submit one Runnable per cluster to the pool), and a SHARED Random's internal
+		//state gets consumed in THREAD-SCHEDULE order, not data order -- the same (ref,queries)
+		//input could draw different random values on different runs depending purely on which
+		//other clusters' Runnables happened to interleave first. Seeding this LOCAL instance from
+		//a hash of (run seed, ref, ordered query bases) instead makes the draw a pure FUNCTION of
+		//what this call is actually processing, so the output is invariant to thread count/
+		//scheduling -- see deriveLocalSeed's javadoc for the exact mixing scheme and why length
+		//prefixes (not just concatenated bytes) are required for unambiguous boundaries.
+		final java.util.Random localRandom=(stochasticConsensus
+			? new java.util.Random(deriveLocalSeed(resolvedRunSeed, ref, queries)) : null);
+
 		ByteBuilder bb=new ByteBuilder(refLen);
 		for(int i=first; i<=last; i++){
 			int total=counts[i][0]+counts[i][1]+counts[i][2]+counts[i][3]+counts[i][4];
@@ -751,6 +888,30 @@ public class TrnaConsensusBuilder {
 
 			int gapCount=counts[i][4];
 			int baseCount=total-gapCount;
+
+			if(stochasticConsensus){
+				//Proportional-weight trace (Brian, 2026-08-26, ported from Dori source
+				//ca74a17062c1988d7219aa18d33dfb778361b7617f4b90206a91ae6e62eed3dc): gap-vs-base,
+				//then which base, are both sampled by weight instead of taking the strict
+				//majority, so a near-50/50 column becomes a genuine coin flip instead of always
+				//resolving to whichever side the tie-break favors. This is what lets a cluster of
+				//2-3 sequences produce a genuinely intermediate consensus instead of collapsing to
+				//one member -- for a lopsided (near-unanimous) column it degenerates to the same
+				//base the greedy path would pick, just probabilistically instead of by comparison.
+				if(localRandom.nextInt(total)<gapCount){continue;}
+				assert(baseCount>0) : "unreachable: baseCount=0 implies gapCount==total, "
+					+"which the branch above always takes; i="+i+", gapCount="+gapCount+", total="+total;
+				int r=localRandom.nextInt(baseCount);
+				int base=0;
+				for(; base<4; base++){
+					r-=counts[i][base];
+					if(r<0){break;}
+				}
+				assert(base<4) : "weighted base sample overran counts["+i+"]="+Arrays.toString(counts[i]);
+				bb.append(AminoAcid.numberToBase[base]);
+				continue;
+			}
+
 			if(gapCount>baseCount){continue;}
 
 			int maxCount=0, maxBase=0;
@@ -764,6 +925,49 @@ public class TrnaConsensusBuilder {
 		}
 
 		return bb.toBytes();
+	}
+
+	/**
+	 * Derives a per-call local RNG seed from the run seed and this call's DATA (ref + ordered
+	 * query bases), not from thread/call-order identity -- this is what makes stochasticConsensus
+	 * schedule-independent (Citan, 2026-08-28, round 5): the same (runSeed, ref, queries) always
+	 * produces the same seed, regardless of which thread computes it or when.
+	 *
+	 * <p>FNV-1a-style byte mixing. Every length (ref.length, queries.size(), each query's own
+	 * length) is folded in explicitly BEFORE its corresponding bytes -- "unambiguous boundaries":
+	 * without an explicit length prefix, two different (ref,queries) splits that happen to
+	 * concatenate to the same raw byte stream (e.g. queries=["AB","C"] vs queries=["A","BC"])
+	 * could otherwise hash identically.
+	 */
+	static long deriveLocalSeed(long runSeed, byte[] ref, ArrayList<byte[]> queries){
+		long h=0xcbf29ce484222325L;//FNV-1a 64-bit offset basis
+		h=mixLong(h, runSeed);
+		h=mixLong(h, ref.length);
+		h=mixBytes(h, ref);
+		h=mixLong(h, queries.size());
+		for(byte[] q : queries){
+			h=mixLong(h, q.length);
+			h=mixBytes(h, q);
+		}
+		return h;
+	}
+
+	private static final long FNV_PRIME=0x100000001b3L;
+
+	private static long mixByte(long h, byte b){
+		h^=(b & 0xffL);
+		h*=FNV_PRIME;
+		return h;
+	}
+
+	private static long mixBytes(long h, byte[] arr){
+		for(byte b : arr){h=mixByte(h, b);}
+		return h;
+	}
+
+	private static long mixLong(long h, long v){
+		for(int i=0; i<8; i++){h=mixByte(h, (byte)(v>>>(i*8)));}
+		return h;
 	}
 
 	/**
@@ -1105,6 +1309,209 @@ public class TrnaConsensusBuilder {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/*--------------------------------------------------------------*/
+	/*----------------   Assignment Tracking (a)    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Records (or, for the pruneCount post-process, OVERWRITES) one Read's clusterKey/
+	 * modelLabel/status. No-op when outAssignments==null -- callers may call this
+	 * unconditionally without their own null-check.
+	 *
+	 * <p>clusterKey scheme (Citan, 2026-08-28), every branch family-namespaced so two families'
+	 * assignment files can be safely combined without collision:
+	 * <ul>
+	 * <li>kept: family+"_kept_"+modelLabel -- modelLabel itself is NOT family-namespaced
+	 *     (TrnaConsensusBuilder.java's own label format is "tRNA_consensus_"+anticodon+"_c"+fci
+	 *     regardless of family), so two different families could otherwise produce a
+	 *     byte-identical modelLabel and collide.</li>
+	 * <li>small: family+"_small_"+ the lexicographically smallest fullRecordId among that
+	 *     cluster/group's ACTUAL members (content-derived, not an iteration index -- two
+	 *     distinct clusters can never share a member, so this is collision-free by
+	 *     construction).</li>
+	 * <li>orphan: family+"_orphan_"+its own fullRecordId -- a true singleton, one per record,
+	 *     never grouped with any other orphan (an orphan's "cluster" has exactly 1 distinct
+	 *     source genome by definition, which is what correctly forces a genome carrying an
+	 *     orphan gene to stay coverage-critical under any K>=1 redundancy gate downstream).</li>
+	 * </ul>
+	 * modelLabel column is the real shipped label for kept, or an explicit EMPTY string (never
+	 * the text "null") for small/orphan.
+	 */
+	private void recordAssignment(Read r, String clusterKey, String modelLabel, String status){
+		if(assignmentMap==null){return;}
+		assignmentMap.put(r, new String[]{clusterKey, (modelLabel==null ? "" : modelLabel), status});
+	}
+
+	/** Records every member of `members` as SMALL, sharing one clusterKey derived from their own
+	 * lexicographically-smallest fullRecordId (see recordAssignment). Correction (Citan,
+	 * 2026-08-28): NOT used for the below-minGroupSize skip any more -- that case has no
+	 * verified redundancy among its members at all (the whole group was never sequence-
+	 * clustered) and now goes through recordEachAsOrphan instead. Actual call sites: (i) a
+	 * cluster clusterSequences() ACTUALLY returned that fell below minClusterSize (genuine,
+	 * algorithm-verified redundancy among its own members, just not enough of them); (ii) a
+	 * size-eligible cluster (or, in no-clustering mode, the whole builderGroup treated as its
+	 * own single build unit) whose consensus build failed despite meeting the size threshold;
+	 * (iii) in no-clustering mode, a builderGroup below minClusterSize, treated as its own build
+	 * unit since no-clustering mode never sub-clusters it in the first place. */
+	private void recordGroupAsSmall(ArrayList<Read> members){
+		if(assignmentMap==null || members.isEmpty()){return;}
+		final String minId=minRecordId(members);
+		final String clusterKey=family+"_small_"+minId;
+		for(Read r : members){recordAssignment(r, clusterKey, null, "small");}
+	}
+
+	/** Records every member of one cluster as KEPT, sharing the cluster's real shipped label
+	 * both as the modelLabel column and (family-namespaced) as its clusterKey. */
+	private void recordClusterAsKept(ArrayList<Read> members, String modelLabel){
+		if(assignmentMap==null){return;}
+		final String clusterKey=family+"_kept_"+modelLabel;
+		for(Read r : members){recordAssignment(r, clusterKey, modelLabel, "kept");}
+	}
+
+	/** Citan, 2026-08-28: fails loud before any assignment tracking begins if two different
+	 * Read objects share the same fullRecordId -- the whole clusterKey scheme (orphan
+	 * singletons, small-cluster min-id) assumes fullRecordId is a stable, collision-free
+	 * per-record identity; two different records sharing one ID would silently make an
+	 * orphan-singleton key non-unique (merging two unrelated records' redundancy under one
+	 * key) or corrupt the deterministic min-id computation for a small cluster. */
+	private void checkNoDuplicateRecordIds(ArrayList<Read> reads){
+		final java.util.HashSet<String> seen=new java.util.HashSet<>();
+		for(Read r : reads){
+			if(!seen.add(r.id)){
+				throw new RuntimeException("Error - duplicate fullRecordId found: '"+r.id+"' -- "
+					+"outassignments= requires every record's id to be unique.");
+			}
+		}
+	}
+
+	/** Records every member of a group as its OWN singleton orphan -- used where no verified
+	 * redundancy relationship exists among the members at all: specifically the below-
+	 * minGroupSize skip, where the whole group was never sequence-clustered and never even
+	 * became the no-clustering mode's own single build unit (Citan, 2026-08-28). Unlike
+	 * recordGroupAsSmall, whose 3 documented call sites (see its own javadoc) all share one
+	 * real, checked build unit -- either an actual clusterSequences() cluster or, in
+	 * no-clustering mode, the builderGroup itself treated as its own attempted build. */
+	private void recordEachAsOrphan(ArrayList<Read> members){
+		if(assignmentMap==null){return;}
+		for(Read r : members){recordAssignment(r, family+"_orphan_"+r.id, null, "orphan");}
+	}
+
+	/** Set-difference against everything clusterSequences() actually returned. Citan, 2026-08-28:
+	 * this is a GENERAL catch-all, not specific to Step 4's k-mer recruit failure (the TODO:
+	 * Probable bug comment there documents one concrete mechanism, but is not the only one this
+	 * method covers) -- any Read absent from every returned cluster is caught here regardless of
+	 * WHY, including: Step-4 k-mer-recruit failure (doRecruit=true), a Step-3 orphan when
+	 * doRecruit=false (never gets a Step-4 attempt at all, dropped immediately), and seeded mode
+	 * (clusterSequences' seeds!=null branch has no orphan bookkeeping whatsoever -- a Read that
+	 * fails every seed's recruitIdentity check is simply never added anywhere). This is the only
+	 * place that reconstructs which original group members those were, for any of these paths.
+	 * Each gets recorded as its own singleton orphan (see recordAssignment) -- deliberately does
+	 * NOT alter `clusters` or any consensus/model output. */
+	private void recordDroppedOrphans(ArrayList<Read> group, ArrayList<ArrayList<Read>> clusters){
+		if(assignmentMap==null){return;}
+		final java.util.IdentityHashMap<Read,Boolean> placed=new java.util.IdentityHashMap<>();
+		for(ArrayList<Read> cluster : clusters){
+			for(Read r : cluster){placed.put(r, Boolean.TRUE);}
+		}
+		final ArrayList<Read> dropped=new ArrayList<>();
+		for(Read r : group){
+			if(!placed.containsKey(r)){dropped.add(r);}
+		}
+		recordEachAsOrphan(dropped);
+	}
+
+	/** Demotes every record currently assigned to the given (kept-style) clusterKey back to
+	 * small -- used by process()'s pruneCount post-process, which can remove an already-built
+	 * cluster from the final shipped output after recordClusterAsKept already ran for it. Citan,
+	 * 2026-08-28: the demoted clusterKey MUST follow the declared small-key schema exactly
+	 * (family+"_small_"+lexicographically-smallest member fullRecordId) -- derived from the
+	 * matching assignmentMap entries' own Read.id fields, not a special "(pruned)" variant, so a
+	 * downstream manifest reader never needs to special-case this path. */
+	private void demoteClusterKeyToSmall(String prunedClusterKey){
+		if(assignmentMap==null){return;}
+		String minId=null;
+		for(java.util.Map.Entry<Read,String[]> e : assignmentMap.entrySet()){
+			if(e.getValue()[0].equals(prunedClusterKey)){
+				final String id=e.getKey().id;
+				if(minId==null || id.compareTo(minId)<0){minId=id;}
+			}
+		}
+		assert(minId!=null) : "demoteClusterKeyToSmall called with a clusterKey matching no "
+			+"assignmentMap entries: "+prunedClusterKey;
+		final String demotedKey=family+"_small_"+minId;
+		for(String[] a : assignmentMap.values()){
+			if(a[0].equals(prunedClusterKey)){
+				a[0]=demotedKey;
+				a[1]="";
+				a[2]="small";
+			}
+		}
+	}
+
+	private static String minRecordId(ArrayList<Read> members){
+		String min=null;
+		for(Read r : members){
+			if(min==null || r.id.compareTo(min)<0){min=r.id;}
+		}
+		return min;
+	}
+
+	/** Writes the outAssignments TSV: fullRecordId, sourceTid, builderGroup, clusterKey,
+	 * modelLabel, status. Iterates the ORIGINAL input `reads` list (not assignmentMap's own
+	 * iteration order) so row order is deterministic and independent of IdentityHashMap
+	 * internals. Asserts exactly one assignment per input record -- a gap here means a code
+	 * path added a new way to lose or duplicate a Read that this method doesn't yet know about,
+	 * and that must fail loud, not silently under- or over-count. Fails loud (not skip-and-
+	 * count, unlike this file's tolerant flank/gc conventions elsewhere -- this is the record's
+	 * whole downstream identity) on an unparseable tid or a literal tab in any written field
+	 * (which would corrupt the TSV structure). */
+	private void writeAssignments(ArrayList<Read> reads){
+		if(outAssignments==null){return;}
+		//Citan, 2026-08-28: an independent check on assignmentMap's own populated size BEFORE
+		//iterating -- the loop's own written==reads.size() (kept below) only proves the loop ran
+		//once per `reads` entry, which is tautological (the loop always does that unless it
+		//throws first) and would NOT catch assignmentMap holding extra/stale entries beyond what
+		//`reads` accounts for.
+		assert(assignmentMap.size()==reads.size()) : "assignmentMap.size()="+assignmentMap.size()
+			+" != reads.size()="+reads.size()+" -- some code path populated assignmentMap with a "
+			+"different record count than was actually loaded.";
+		final structures.ByteBuilder bb=new structures.ByteBuilder();
+		bb.append("#fullRecordId").tab().append("sourceTid").tab().append("builderGroup").tab()
+			.append("clusterKey").tab().append("modelLabel").tab().append("status").nl();
+		int written=0;
+		for(Read r : reads){
+			final String[] a=assignmentMap.get(r);
+			assert(a!=null) : "No assignment recorded for record '"+r.id+"' -- exactly one row per "
+				+"input record is required; this means a code path can lose a Read without this "
+				+"method knowing about it.";
+			final String fullRecordId=r.id;
+			final int tid=tax.TaxTree.parseTaxID(fullRecordId);
+			if(tid<1){
+				throw new RuntimeException("Error - could not parse a source tid from record '"
+					+fullRecordId+"' -- outassignments= requires every record to carry a "
+					+"parseable tid_NNNN (or tid|/ncbi|/ncbi_) token.");
+			}
+			final String builderGroup=parseAnticodon(fullRecordId);
+			final String group=(builderGroup==null ? "unknown" : builderGroup);
+			final String clusterKey=a[0], modelLabel=a[1], status=a[2];
+			for(String field : new String[]{fullRecordId, group, clusterKey, modelLabel, status}){
+				if(field.indexOf('\t')>=0){
+					throw new RuntimeException("Error - field contains a literal tab, which would "
+						+"corrupt the outassignments TSV: '"+field+"'");
+				}
+			}
+			bb.append(fullRecordId).tab().append(tid).tab().append(group).tab()
+				.append(clusterKey).tab().append(modelLabel).tab().append(status).nl();
+			written++;
+		}
+		assert(written==reads.size()) : "written="+written+" != reads.size()="+reads.size();
+		final fileIO.ByteStreamWriter bsw=new fileIO.ByteStreamWriter(outAssignments, overwrite, false, false);
+		bsw.start();
+		bsw.print(bb);
+		errorState|=bsw.poisonAndWait();
+		outstream.println("Wrote "+written+" assignment rows to "+outAssignments);
+	}
+
 	private String in;
 	private String out;
 	private final FileFormat ffin;
@@ -1134,7 +1541,35 @@ public class TrnaConsensusBuilder {
 	private String seedIn;
 	private int pruneCount=0;
 	private String outModel;
+	/** Model-label prefix (default matches the pre-existing hardcoded literal exactly, so the
+	 * default path is byte-invariant). */
+	private String consensusPrefix="tRNA_consensus_";
+	/** Proportional-weight (coin-flip) consensus trace instead of strict majority; see
+	 * buildFromAlignments. Off by default -- byte-invariant to the deterministic majority-vote
+	 * path when false. */
+	private boolean stochasticConsensus=false;
+	/** Explicit seed for stochasticConsensus; -1 (default) picks one random run seed once, at
+	 * construction time (see resolvedRunSeed). */
+	private long stochasticSeed=-1;
+	/** The ACTUAL seed driving every buildFromAlignments call this run -- resolved exactly once,
+	 * single-threaded, at construction time (Citan, 2026-08-28, round 5): either stochasticSeed
+	 * itself (if &gt;=0) or one freshly chosen random value (if &lt;0). Every call derives its own
+	 * local seed from this PLUS its own (ref,queries) content, so results are schedule-independent
+	 * even in "random seed" mode -- the run-level randomness is chosen once, not per-call. */
+	private long resolvedRunSeed;
 	private PrintStream outstream=System.err;
+
+	//Boundary-NN manifest instrumentation (Citan/Noire/Brian, 2026-08-28) -- opt-in, off by
+	//default, byte-invariant to the existing consensus.fa/model.hbm/census outputs when null
+	//(see TrnaConsensusBuilderAssignmentsTest's byte-invariance test). See recordAssignment's
+	//javadoc for the clusterKey scheme.
+	private String outAssignments=null;
+	private String family=null;
+	/** Read identity -> {clusterKey, modelLabel, status}, populated only when outAssignments!=
+	 * null. IdentityHashMap deliberately: Read has no meaningful equals/hashCode override here
+	 * and the SAME Read objects are threaded through group/cluster lists without being copied,
+	 * so identity is the correct and only correct key. */
+	private java.util.IdentityHashMap<Read, String[]> assignmentMap;
 
 	private static final int MIN_CONSENSUS_LEN=50;
 	private static final int RECRUIT_K=5;
