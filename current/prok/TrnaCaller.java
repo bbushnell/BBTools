@@ -939,18 +939,42 @@ public class TrnaCaller extends ProkObject {
 		return result;
 	}
 
-	private static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
+	/** Subtracts every claimed interval from every window, keeping BOTH surviving remainders when a
+	 * claim lands strictly inside a window (2026-08-27 fix -- the prior version kept only the right
+	 * remainder in that case via a fallthrough "else{lo=c[1]+1;}", silently discarding the left
+	 * remainder's real candidate territory. Found via a direct runtime trace: a shortlist tie-break
+	 * order flip [Citan/Noire, TrnaKmerIndex dedup change] changed which of two adjacent tied-identity
+	 * tRNAs got claimed first; whichever won left the OTHER's true region on the discarded side of this
+	 * bug, so it was only ever weakly rescued by a later pass instead of found cleanly). Carries a list
+	 * of surviving segments through every claim so a claim strictly inside a window correctly produces
+	 * TWO output windows (left + right), not zero or one. */
+	//Package-private (not private) so TrnaCallerSubtractClaimedTest can exercise it directly.
+	static ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
-			int lo=w[0], hi=w[1];
+			ArrayList<int[]> segments=new ArrayList<>();
+			segments.add(new int[]{w[0], w[1]});
 			for(int[] c : claimed){
-				if(lo<=c[1] && hi>=c[0]){
-					if(lo>=c[0]){lo=c[1]+1;}
-					else if(hi<=c[1]){hi=c[0]-1;}
-					else{lo=c[1]+1;}
+				ArrayList<int[]> next=new ArrayList<>();
+				for(int[] seg : segments){
+					final int lo=seg[0], hi=seg[1];
+					if(hi<c[0] || lo>c[1]){
+						next.add(seg);//no overlap with this claim -- unchanged
+						continue;
+					}
+					if(lo<c[0]){next.add(new int[]{lo, c[0]-1});}//left remainder survives
+					if(hi>c[1]){next.add(new int[]{c[1]+1, hi});}//right remainder survives
+					//neither branch fires -> claim fully covers this segment, it's consumed
 				}
+				segments=next;
 			}
-			if(hi-lo>=MIN_TRNA){result.add(new int[]{lo, hi});}
+			//TODO: Probable bug (pre-existing, not fixed here per Citan's explicit instruction to
+			//preserve current min-length semantics for this isolated fix) -- hi-lo>=MIN_TRNA treats an
+			//inclusive [lo,hi] range as if it had hi-lo bases, when it actually has hi-lo+1. Off by one
+			//against alignWindow's own wLen=wStop-wStart+1 convention. Not changed here; flagging only.
+			for(int[] seg : segments){
+				if(seg[1]-seg[0]>=MIN_TRNA){result.add(seg);}
+			}
 		}
 		return result;
 	}
@@ -1060,8 +1084,8 @@ public class TrnaCaller extends ProkObject {
 	}
 
 	/**
-	 * Long-kmer pre-filter (Brian): counts how many of seq's forward k-mers (k=kLongTRna, default 15)
-	 * are in the conserved tRNA long-kmer set (ProkObject.trnaKmers, from resources/tRNA_15mers.fa).
+	 * Long-kmer pre-filter (Brian): counts how many of seq's forward k-mers (k=kLongTRna, default 17)
+	 * are in the conserved tRNA long-kmer set (ProkObject.trnaKmers, from resources/tRNA_17mers.fa).
 	 * Candidates below the threshold are never aligned -- this rejects the many non-tRNA candidates on
 	 * repetitive/GC-rich genomes cheaply, before any alignment.  Returns MAX_VALUE (filter disabled) if
 	 * the set was not loaded, so behavior is unchanged when the resource is absent.
@@ -1134,23 +1158,23 @@ public class TrnaCaller extends ProkObject {
 	static int INDEX_K=7;
 	static int INDEX_TOP_N_OVERRIDE=-1;
 	static int INDEX_MINHITS_OVERRIDE=-1;
-	//Library-search breadth defaults raised to the measured-best scavenger eval config (Brian, 2026-08-16):
-	//align up to 60 shortlisted models per candidate (was 20), keyed on >=12 shared index k-mers (was 3).
-	//Flags indextopn=/indexminhits= still override.  Provisional -- to be re-swept after the next library.
-	private static final int INDEX_TOP_N_DEFAULT=60;
+	//Final measured shortlist breadth (Brian, 2026-08-27): align up to 30 models per candidate.
+	//Flags indextopn=/indexminhits= still override; indexminhits=12 is retained for adaptive=f.
+	private static final int INDEX_TOP_N_DEFAULT=30;
 	private static final int INDEX_MINHITS_DEFAULT=12;
 	/** Adaptive shortlist cutoff (flag adaptiveminhits=): use min(ADAPTIVE_MINHITS_CAP, qlen/2,
 	 * 0.75*maxHitsShared) instead of the flat indexminhits.  Experimental (Brian, 2026-08-17). */
-	//SHIPPED default (Brian, 2026-08-17): adaptive shortlist cutoff ON at (floor=11, topfrac=0.48, qfrac=0.072)
-	//with indexk=7.  Measured (203-bench, taxonomy=f): recall 94.6% / prec 98.1% / 334K aligns (~4.7x fewer
-	//than the pre-adaptive 1.57M; +5.7pp recall over the 88.9% baseline).  Chosen over k=8 (Pareto-dominated:
-	//k=8 needs ~37% more aligns for equal recall; its lighter index-ops don't offset that).
+	//FINAL default (Brian, 2026-08-27): adaptive shortlist cutoff ON at
+	//topN=30/floor=8/topfrac=0.48/qfrac=0.060 with indexk=7. Post-dedup + split-both
+	//subtractClaimed result on the canonical 203-genome corpus: FN=373 (recall=96.21%), FP=209
+	//(precision=97.84%), 279,994 alignments. Chosen as the recall/cost balance while retaining
+	//topfrac=0.48; 60,430 fewer alignments than the prior 60/11/0.48/0.072 default center.
 	static boolean ADAPTIVE_MINHITS=true;
 	/** Adaptive-cutoff params (Brian, 2026-08-17): minHits = ceil(max(ADAPT_FLOOR, ADAPT_TOPFRAC*maxShared,
 	 * ADAPT_QFRAC*queryKmers)).  Flags: adaptfloor=/adapttopfrac=/adaptqfrac=. */
-	static float ADAPT_FLOOR=11;
+	static float ADAPT_FLOOR=8;
 	static float ADAPT_TOPFRAC=0.48f;
-	static float ADAPT_QFRAC=0.072f;
+	static float ADAPT_QFRAC=0.060f;
 	/** Evidence gathering (flag shortliststats=): for each ACCEPTED tRNA, print the winning model's shared
 	 * 5-mer count with the query -- absolute, and enough to compute /qlen and /maxHitsShared -- so the safe
 	 * shortlist cutoff can be set from the distribution instead of a guessed formula (Brian, 2026-08-17). */

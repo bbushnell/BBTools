@@ -174,18 +174,37 @@ public class NcrnaScavenger {
 		return result;
 	}
 
+	/** Subtracts every claimed interval from every window, keeping BOTH surviving remainders when a
+	 * claim lands strictly inside a window (2026-08-27 fix, mirrors the identical fix in
+	 * TrnaCaller.subtractClaimed -- see that javadoc for the root-cause trace; found via the tRNA path
+	 * first, applied here because this class shares the same buggy pattern). Carries a list of
+	 * surviving segments through every claim so a claim strictly inside a window correctly produces
+	 * TWO output windows (left + right), not zero or one. */
 	private ArrayList<int[]> subtractClaimed(ArrayList<int[]> windows, ArrayList<int[]> claimed){
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
-			int lo=w[0], hi=w[1];
+			ArrayList<int[]> segments=new ArrayList<>();
+			segments.add(new int[]{w[0], w[1]});
 			for(int[] c : claimed){
-				if(lo<=c[1] && hi>=c[0]){
-					if(lo>=c[0]){lo=c[1]+1;}
-					else if(hi<=c[1]){hi=c[0]-1;}
-					else{lo=c[1]+1;}
+				ArrayList<int[]> next=new ArrayList<>();
+				for(int[] seg : segments){
+					final int lo=seg[0], hi=seg[1];
+					if(hi<c[0] || lo>c[1]){
+						next.add(seg);//no overlap with this claim -- unchanged
+						continue;
+					}
+					if(lo<c[0]){next.add(new int[]{lo, c[0]-1});}//left remainder survives
+					if(hi>c[1]){next.add(new int[]{c[1]+1, hi});}//right remainder survives
+					//neither branch fires -> claim fully covers this segment, it's consumed
 				}
+				segments=next;
 			}
-			if(hi-lo>=minLen){result.add(new int[]{lo, hi});}
+			//TODO: Probable bug (pre-existing, not fixed here -- see the matching TODO in
+			//TrnaCaller.subtractClaimed) -- hi-lo>=minLen treats an inclusive [lo,hi] range as if it
+			//had hi-lo bases, when it actually has hi-lo+1. Not changed here; flagging only.
+			for(int[] seg : segments){
+				if(seg[1]-seg[0]>=minLen){result.add(seg);}
+			}
 		}
 		return result;
 	}
