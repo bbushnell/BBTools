@@ -17,6 +17,9 @@ count rather than the file size and is not limited by one giant Java array.
 The output file is a checkpoint: it is rewritten every time validation MSE improves
 over the previous best, not only at the end, so a job killed mid-run (node failure,
 preemption) loses at most the epochs since its last improvement, not the whole run.
+Each checkpoint records its epoch in the .bbnet header, so a plain netin= resume with
+the same epochs= auto-continues the cosine LR schedule instead of restarting it at
+full strength on an already-trained net -- see netin= and startepoch= below.
 After writing, the net is reloaded and checked against the in-memory model; the
 'round-trip check' line must read (OK) or the output is not trustworthy.
 
@@ -39,7 +42,18 @@ dims=48,64,32,1 Layer widths: inputs, hidden..., outputs.  The last entry sets t
                 summed squared error across them.  Optional if netin= is given.
 
 Training parameters:
-epochs=60       Passes over the training data.
+epochs=60       Total passes over the training data.  With netin=, this is the
+                ABSOLUTE target across the whole training history, not how many more
+                epochs this run adds -- e.g. resuming a net checkpointed at epoch 12
+                needs epochs>12 to train any further.
+startepoch=0    Epoch to resume the cosine LR schedule and checkpoint numbering from;
+                0 means auto-detect from the loaded net's own recorded epoch (see
+                netin= above).  Set explicitly to override auto-detection (a
+                stale/missing header, or a deliberate LR-schedule reset).  Ignored
+                without netin=.  Note: this does not restore Adam's momentum/variance
+                state, which is not stored in the .bbnet format, so a resumed run's
+                first step is still a smaller, LR-scaled kick relative to training
+                straight through without interruption.
 batch=8192      Mini-batch size.
 lr=0.003        (alpha) Learning rate.  Set this explicitly; alpha is an alias and a
                 stale alpha= in a script will silently override.

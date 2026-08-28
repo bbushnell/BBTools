@@ -42,7 +42,7 @@ import structures.ByteBuilder;
  * avoiding Java's single-array length limit for large training matrices.
  *
  * Usage: java ml.RegressionTrainer in=&lt;data.tsv&gt; out=&lt;net.bbnet&gt; dims=16,32,1
- *          [epochs=60] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1] [vfraction=0.1]
+ *          [epochs=60] [startepoch=0] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1] [vfraction=0.1]
  *          [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1]
  *          [final=rslog|linear|sigmoid] [netin=&lt;start.bbnet&gt;] [hidden=tanh,swish,...]
  *
@@ -60,6 +60,16 @@ import structures.ByteBuilder;
  * re-standardizing would apply a second transform over one already baked in. mean=0/sd=1
  * makes both the forward transform and the export fold exact no-ops. The extraction is
  * verified against CellNet's own feedForward before training starts.
+ * <p>
+ * The output is a CHECKPOINT: it is rewritten every time validation MSE improves, not only
+ * at the end, so a job killed mid-run loses at most the epochs since its last improvement.
+ * Each checkpoint records its epoch as CellNet's #epochs header. A plain netin= resume with
+ * the SAME epochs= reads that header back and continues the cosine LR schedule from
+ * epochsTrained+1, instead of restarting it at full strength on an already-trained net (which
+ * was observed in production to knock a converged net backward for many epochs). startepoch=
+ * overrides the auto-detected value -- use it when the header is missing/stale, or to force a
+ * deliberate schedule reset. Resuming does NOT restore Adam's moment estimates (not persisted
+ * in the .bbnet format), so the first resumed step is still a smaller, LR-scaled kick.
  *
  * Input format: same as train.sh — '#dims &lt;in&gt; &lt;out&gt;' header, then tab-delimited
  * floats, inputs first, then &lt;out&gt; target columns.  MULTIPLE OUTPUTS are supported: the
@@ -133,6 +143,8 @@ public class RegressionTrainer {
 				dims=Parse.parseIntArray(b, ",", "x");
 			}else if(a.equals("epochs")){
 				epochs=Integer.parseInt(b);
+			}else if(a.equals("startepoch")){
+				startEpoch=Integer.parseInt(b);
 			}else if(a.equals("batch")){
 				batch=Integer.parseInt(b);
 			}else if(a.equals("lr") || a.equals("alpha")){
@@ -222,6 +234,8 @@ public class RegressionTrainer {
 			throw new IllegalArgumentException("dims needs at least an input and output layer");
 		}
 		if(epochs<1){throw new IllegalArgumentException("epochs must be positive: "+epochs);}
+		if(startEpoch<0){throw new IllegalArgumentException("startepoch must be >=0 (0 means "
+			+"auto-detect from netin's #epochs header): "+startEpoch);}
 		if(batch<1){throw new IllegalArgumentException("batch must be positive: "+batch);}
 		if(padLayers){
 			//Round hidden layers up to whole SIMD lanes so the vector kernels have no scalar
@@ -686,8 +700,26 @@ public class RegressionTrainer {
 		long step=0;
 		bestValid=Double.MAX_VALUE;
 
+		//Resuming from a checkpoint restarts the cosine LR schedule and Adam's moment
+		//estimates at full strength unless told otherwise -- observed in production (Brian,
+		//2026-08-28) to knock an already-converged net backward for many epochs before it
+		//recovers, if it recovers before epochs runs out. Auto-detecting startEpoch from the
+		//loaded net's own #epochs header fixes the schedule; it does not restore Adam's
+		//moments, which are not persisted in the .bbnet format -- a resumed run still takes a
+		//smaller, LR-scaled kick at its first step for that reason.
+		final int effStart=(startEpoch>0) ? startEpoch
+			: (netIn!=null && net.epochsTrained>0) ? (int)net.epochsTrained+1 : 1;
+		if(effStart>epochs){
+			throw new IllegalArgumentException("startEpoch="+effStart+" exceeds epochs="+epochs
+				+"; nothing left to train (net.epochsTrained="+net.epochsTrained+")");
+		}
+		if(effStart>1){
+			outstream.println("resuming: net.epochsTrained="+net.epochsTrained
+				+", continuing schedule at epoch "+effStart+" of "+epochs);
+		}
+
 		try{
-			for(int ep=1; ep<=epochs; ep++){
+			for(int ep=effStart; ep<=epochs; ep++){
 				final int active=(sortSamples ? prioritize(order, ep) : numTrain);
 				if(!sortSamples){
 					for(int i=numTrain-1; i>0; i--){
@@ -733,9 +765,13 @@ public class RegressionTrainer {
 					//(node failure, preemption) doesn't lose all epochs of progress -- only
 					//whatever improvement happened since the last checkpoint (Brian, 2026-08-27).
 					//weights/bias at this point ARE the just-improved values exportNet reads.
+					//Recording the epoch here (not just at loop end) is what lets a future netin=
+					//resume auto-detect the right startEpoch, even if this job dies before epochs
+					//is reached (Brian, 2026-08-28).
+					net.epochsTrained=ep;
 					exportNet();
 				}
-				if(ep%5==0 || ep==1 || ep==epochs){
+				if(ep%5==0 || ep==effStart || ep==epochs){
 					outstream.println(String.format(
 						"epoch %d lr=%.5f trainMSE=%.6f valMSE=%.6f best=%.6f",
 						ep, lrNow, trainMse/Math.max(1, active), validMse, bestValid));
@@ -1510,6 +1546,14 @@ public class RegressionTrainer {
 	private int[] dims=null;
 
 	private int epochs=60;
+	/**
+	 * Epoch to resume the cosine LR schedule and checkpoint numbering from; 0 means
+	 * auto-detect. With netin=, auto-detect reads the loaded net's own #epochs header
+	 * (CellNet.epochsTrained, set by CellNetParser) and resumes at epochsTrained+1, so a
+	 * job killed and resumed with the identical command line just continues correctly. Set
+	 * explicitly to override that (a stale/absent header, or a deliberate LR-schedule reset).
+	 */
+	private int startEpoch=0;
 	private int batch=8192;
 	private double lr=0.003;
 	private double wd=1e-4;

@@ -56,7 +56,10 @@ public class RegressionTrainerRowTest {
 		final Path continued=dir.resolve("continued.bbnet");
 		final RegressionTrainer netinTrainer=new RegressionTrainer(new String[]{
 			"in="+train, "valin="+valid, "out="+continued, "netin="+out,
-			"epochs=1", "batch=2", "seed=3", "final=sigmoid"
+			//epochs= is now an absolute target across the whole training history (auto-detected
+			//from the loaded net's epochsTrained=2), not "how many more epochs this run" -- so
+			//this must exceed 2 to actually train further.
+			"epochs=3", "batch=2", "seed=3", "final=sigmoid"
 		});
 		netinTrainer.process(new Timer());
 		if(CellNetParser.load(continued.toString())==null){
