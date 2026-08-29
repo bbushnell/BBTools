@@ -673,7 +673,45 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 		}
 		return results;
 	}
-	
+
+	/**
+	 * Classifies one query clade against the LOCAL reference database (the spectra file from
+	 * defaultRef() plus any DDL sketch files found in resources/), for callers that want QuickClade
+	 * classification in-process without a network round trip -- e.g. CallGenes's taxonomy=t local=t
+	 * mode. Mirrors the CLI's own non-server setup exactly (loadIndex/loadSketches/finishSketches),
+	 * but the loaded index+sketches are cached in a dedicated instance and reused across calls
+	 * within one JVM, since re-loading multi-GB reference files per genome would be far too slow
+	 * for a per-file classification loop.
+	 * <p>
+	 * Returns null (never throws) when no local reference is available -- callers should treat
+	 * that as "local deps missing" and fall back to the server (SendClade), matching QuickClade's
+	 * own resilience convention of never hard-failing when a database is absent.
+	 * @param query A Clade with bases already added; finish() is called here if not already done
+	 * @return The best local hit's lineage string, or null if no local database is available or no hit is found */
+	public static synchronized String classifyLocal(Clade query){
+		if(cachedLocalSearcher==null){
+			final String ref=defaultRef();
+			if(ref==null){return null;}//no local deps present anywhere findPath/DORI/PERLMUTTER checks
+			final CladeSearcher cs=new CladeSearcher();
+			cs.serverMode=false;
+			cs.ref.add(ref);
+			cs.checkSketchFile();
+			cs.loadIndex();
+			cs.loadSketches();
+			if(cs.index!=null && cs.sketchRecords!=null){cs.index.finishSketches(cs.sketchRecords);}
+			cachedLocalSearcher=cs;
+		}
+		if(cachedLocalSearcher.index==null){return null;}
+		query.finish();
+		final ArrayList<Comparison> results=cachedLocalSearcher.index.findBest(query, 1);
+		if(results==null || results.isEmpty() || results.get(0).ref==null){return null;}
+		return results.get(0).ref.lineage().toString();
+	}
+
+	/** Lazily-initialized, cached across calls: classifyLocal's whole point is to pay the
+	 * multi-GB reference-load cost once per JVM, not once per genome. */
+	private static CladeSearcher cachedLocalSearcher;
+
 	/**
 	 * Evaluates search results and prints performance metrics.
 	 * Calculates correctness statistics and taxonomic level accuracy.

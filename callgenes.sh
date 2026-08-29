@@ -42,6 +42,20 @@ taxonomy=t      Use QuickClade to classify the input and select a phylum-
 percontig=f     Classify each contig separately (for metagenomes).
                 Default is per-file (classify once for all contigs).
 taxaddress=     QuickClade server address.  Default: refseq.
+local=f         Use QuickClade's LOCAL reference database (large multi-GB
+                files under resources/) instead of the network server. This
+                is the REVERSE of QuickClade's own default (which favors
+                local, falling back to the server only if local files are
+                missing) -- callgenes stays lightweight by default, and
+                local=t opts INTO the heavy local files if present (falls
+                back to the server, with a warning, if they're not).
+server=t        Alias for local=f (server=f is the same as local=t).
+                With taxonomy=t, the detected domain, phylum, and which path
+                (local/server) served the classification are written as
+                "##Domain"/"##Phylum"/"##ClassificationSource" GFF header
+                lines, and are available to an in-process Java caller via
+                CallGenes.lastDetectedDomain()/lastDetectedPhylum()/
+                lastClassificationSource().
 
 tRNA detection parameters:
 scavengeonly=t  Call tRNAs with the kmer-guided scavenger only (finds tRNAs at

@@ -18,6 +18,7 @@ import json.JsonObject;
 import parse.Parse;
 import bin.AdjustEntropy;
 import clade.Clade;
+import clade.CladeSearcher;
 import clade.SendClade;
 import parse.Parser;
 import parse.PreParser;
@@ -338,6 +339,10 @@ public class CallGenes extends ProkObject {
 
 			else if(a.equalsIgnoreCase("taxonomy") || a.equalsIgnoreCase("tax")){
 				useTaxonomy=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("local") || a.equalsIgnoreCase("localclade")){
+				useLocalClade=(b==null || Parse.parseBoolean(b));
+			}else if(a.equalsIgnoreCase("server") || a.equalsIgnoreCase("serverclade")){
+				useLocalClade=!(b==null || Parse.parseBoolean(b));
 			}else if(a.equalsIgnoreCase("percontig")){
 				perContig=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("taxaddress") || a.equalsIgnoreCase("taxserver")){
@@ -616,6 +621,13 @@ public class CallGenes extends ProkObject {
 			String gffIn=(inGffList!=null && !inGffList.isEmpty()) ? inGffList.set(fnum, null) : null;
 			//Per-file taxonomy: classify THIS genome, use its cached per-phylum PGM (else the default).
 			final GeneModel pgm0=(perFileTax ? pgmForPhylumCached(classifyPhylum(fna), defaultPgm, phylumCache) : defaultPgm);
+			if(perFileTax && bsw!=null){
+				//GFF header provenance: what QuickClade detected for this file and how, so an
+				//in-process caller reading the GFF alone (not the Java API) still gets it.
+				bsw.forcePrint("##Domain "+(lastDetectedDomain!=null ? lastDetectedDomain : "unknown")+"\n");
+				bsw.forcePrint("##Phylum "+(lastDetectedPhylum!=null ? lastDetectedPhylum : "unknown")+"\n");
+				bsw.forcePrint("##ClassificationSource "+(lastClassificationSource!=null ? lastClassificationSource : "none")+"\n");
+			}
 			//Create a read input stream
 			final GeneModel pgm=makeMultipassModel(pgm0, fna, gffIn, passes/*, maxReads*/);
 			
@@ -697,7 +709,14 @@ public class CallGenes extends ProkObject {
 		return gm;
 	}
 
+	/** Classifies one genome's domain+phylum via QuickClade (local database if local=t and
+	 * available, else the network server), storing the full result (domain, phylum, and which
+	 * path served it) in lastDetectedDomain/lastDetectedPhylum/lastClassificationSource for an
+	 * in-process caller, and returning just the phylum for this method's original callers
+	 * (per-phylum PGM selection). Never throws; a classification failure just returns null and
+	 * leaves the per-file PGM selection to fall back to the default. */
 	private String classifyPhylum(String fna){
+		lastDetectedDomain=null; lastDetectedPhylum=null; lastClassificationSource=null;
 		try{
 			Clade.MAKE_DDLS=true;
 			Clade.DDL_K=25;
@@ -711,18 +730,47 @@ public class CallGenes extends ProkObject {
 			for(Read r : reads){clade.add(r.bases, null);}
 			clade.finish();
 
-			ArrayList<Clade> clades=new ArrayList<>();
-			clades.add(clade);
-			String response=SendClade.sendClades(clades, null, true, 1, false, false, 1, false, 1);
-
-			if(response!=null){
-				String[] lines=response.split("\n");
-				for(String line : lines){
-					if(line.contains(";")){
-						String phylum=findPhylumInLineage(line);
-						if(phylum!=null){return phylum;}
+			String lineage=null;
+			if(useLocalClade){
+				lineage=CladeSearcher.classifyLocal(clade);
+				if(lineage!=null){lastClassificationSource="local";}
+				else{outstream.println("Warning: local=t requested but no local QuickClade "
+					+"reference is available; falling back to the server.");}
+			}
+			if(lineage==null){
+				//taxAddress's "refseq" default is a sentinel meaning "use SendClade's own default
+				//address", not a literal server value -- pass null through in that case, exactly
+				//as this call always did before local= existed.
+				final String address=(taxAddress==null || taxAddress.equals("refseq")) ? null : taxAddress;
+				final ArrayList<Clade> clades=new ArrayList<>();
+				clades.add(clade);
+				final String response=SendClade.sendClades(clades, address, true, 1, false, false, 1, false, 1);
+				lastClassificationSource="server"+(address!=null ? ":"+address : "");
+				//The response is tab-delimited with TWO different semicolon-joined columns: the
+				//real lineage (d__Bacteria;k__...;p__...;...) and a separate per-rank confidence
+				//column (d:100.0;k:99.7;p:99.7;...). Splitting the WHOLE line on ';' without first
+				//isolating the right column corrupts extraction at tab boundaries -- real bug found
+				//2026-08-29 (verified against a live server response): domain came back "unknown"
+				//on every real classification because the d__ segment ran into the preceding
+				//tab-separated field and never actually started with "d__" after trim(), while
+				//phylum's p__ segment happened to land cleanly by luck. Isolate the lineage column
+				//by its double-underscore rank markers (unique to it -- the confidence column uses
+				//single colons, no "__") before splitting on ';'.
+				if(response!=null){
+					outer:
+					for(String line : response.split("\n")){
+						if(line.startsWith("#")){continue;}
+						for(String field : line.split("\t")){
+							if(field.contains("__")){lineage=field; break outer;}
+						}
 					}
 				}
+			}
+
+			if(lineage!=null){
+				lastDetectedDomain=findDomainInLineage(lineage);
+				lastDetectedPhylum=findPhylumInLineage(lineage);
+				if(lastDetectedPhylum!=null){return lastDetectedPhylum;}
 			}
 		}catch(Exception e){
 			outstream.println("Warning: taxonomy classification failed: "+e.getMessage());
@@ -738,6 +786,25 @@ public class CallGenes extends ProkObject {
 		}
 		return null;
 	}
+
+	/** Domain (superkingdom) counterpart to findPhylumInLineage -- current NCBI lineages carry
+	 * a "d:"/"d__" rank (superkingdom was renamed domain; see clade/CladeIndex.java's own
+	 * LCA_PREFIXES table, which documents the same convention for its lineage-LCA matching). */
+	private static String findDomainInLineage(String lineage){
+		for(String part : lineage.split(";")){
+			String trimmed=part.trim();
+			if(trimmed.startsWith("d:")){return trimmed.substring(2);}
+			else if(trimmed.startsWith("d__")){return trimmed.substring(3);}
+		}
+		return null;
+	}
+
+	/** @return Domain detected by the most recent classifyPhylum() call (in-process caller access) */
+	public String lastDetectedDomain(){return lastDetectedDomain;}
+	/** @return Phylum detected by the most recent classifyPhylum() call (in-process caller access) */
+	public String lastDetectedPhylum(){return lastDetectedPhylum;}
+	/** @return "local" or "server[:address]", or null if classification was never attempted */
+	public String lastClassificationSource(){return lastClassificationSource;}
 
 
 	/**
@@ -1757,6 +1824,20 @@ public class CallGenes extends ProkObject {
 	//so set taxonomy=f for mixed samples.  Falls back to the general PGM (with a warning) if the clade server
 	//is unreachable, so it never hard-fails offline.  Flag taxonomy=/tax= overrides.  Provisional pending re-sweep.
 	private boolean useTaxonomy=true;
+	/** Use the LOCAL QuickClade reference database (large multi-GB files) instead of the network
+	 * server. Default false -- the server is the lightweight default, and local=t opts INTO the
+	 * multi-GB local files if present (falls back to the server, with a warning, if they're not).
+	 * This is the REVERSE of QuickClade's own CLI default (clade.CladeSearcher favors local,
+	 * falling back to the server only when local deps are missing) -- CallGenes is meant to stay
+	 * lightweight by default; the heavy local path is opt-in. (Brian, 2026-08-29) */
+	private boolean useLocalClade=false;
+	/** Domain detected by the most recent classifyPhylum() call, or null if none/unclassified */
+	private String lastDetectedDomain=null;
+	/** Phylum detected by the most recent classifyPhylum() call, or null if none/unclassified */
+	private String lastDetectedPhylum=null;
+	/** "local" or "server[:address]" -- which QuickClade path served the most recent classification,
+	 * or null if classification was never attempted (taxonomy=f or percontig=t) */
+	private String lastClassificationSource=null;
 	private boolean perContig=false;
 	private String taxAddress="refseq";
 	private boolean trnaAlign=true;
