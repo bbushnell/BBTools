@@ -1,18 +1,23 @@
 package assemble;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 
 import dna.AminoAcid;
+import map.LongLongHashMap2;
 
 /** Finds unique reciprocal exact overlaps between selected contig ends. */
 class CrossKTipOverlapper {
 
 	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_){
-		this(contigs_, minOverlap_, maxOverlap_, false);
+		this(contigs_, minOverlap_, maxOverlap_, false, 0);
 	}
 
 	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_, boolean graphKEnds_){
+		this(contigs_, minOverlap_, maxOverlap_, graphKEnds_, 0);
+	}
+
+	CrossKTipOverlapper(ArrayList<Contig> contigs_, int minOverlap_, int maxOverlap_,
+			boolean graphKEnds_, int minContig_){
 		if(minOverlap_<1 || maxOverlap_<minOverlap_){
 			throw new IllegalArgumentException("Invalid cross-k overlap range: "+minOverlap_+"-"+maxOverlap_);
 		}
@@ -20,6 +25,7 @@ class CrossKTipOverlapper {
 		minOverlap=minOverlap_;
 		maxOverlap=maxOverlap_;
 		graphKEnds=graphKEnds_;
+		minContig=minContig_;
 	}
 
 	/** Adds reciprocal overlap edges and returns the number of acyclic pairs added. */
@@ -27,31 +33,42 @@ class CrossKTipOverlapper {
 		final ArrayList<Tip> tips=makeTips();
 		if(tips.size()<2){printSummary(tips.size(), 0, 0, 0); return 0;}
 
-		final HashMap<Long, ArrayList<Tip>> terminalMap=new HashMap<Long, ArrayList<Tip>>(tips.size()*2);
+		final int maxTrim=maxOverlap-minOverlap+1;
+		final long expected=(long)tips.size()*(maxTrim+1);
+		final int initialSize=(int)Math.min(Integer.MAX_VALUE/4, Math.max(256L, expected));
+		final LongLongHashMap2 terminalMap=new LongLongHashMap2(initialSize);
+		final LongLongHashMap2 duplicateMap=new LongLongHashMap2(Math.max(256, tips.size()));
 		final long outgoingPower=power(HASH_MULT, minOverlap-1);
 		for(Tip tip : tips){
 			final boolean reverse=!tip.right;
-			final long hash=hash(tip.contig, reverse, tip.contig.length()-minOverlap, minOverlap);
-			ArrayList<Tip> list=terminalMap.get(hash);
-			if(list==null){list=new ArrayList<Tip>(1); terminalMap.put(hash, list);}
-			list.add(tip);
+			final int trimLimit=Math.min(maxTrim, tip.contig.length()-minOverlap-1);
+			long hash=hash(tip.contig, reverse, tip.contig.length()-trimLimit-minOverlap, minOverlap);
+			for(int trim=trimLimit; trim>=0; trim--){
+				addAnchor(terminalMap, duplicateMap, hash, (((long)tip.index)<<32)|(trim&0xFFFFFFFFL));
+				if(trim>0){
+					final int start=tip.contig.length()-trim-minOverlap;
+					final int oldBase=baseAt(tip.contig, reverse, start)&0xFF;
+					final int newBase=baseAt(tip.contig, reverse, start+minOverlap)&0xFF;
+					hash=(hash-(oldBase+1)*outgoingPower)*HASH_MULT+(newBase+1);
+				}
+			}
 		}
 
 		for(Tip dest : tips){
 			final Contig c=dest.contig;
 			final boolean reverse=dest.right;
-			final int maxStart=Math.min(maxOverlap-minOverlap, c.length()-minOverlap-1);
-			if(maxStart<0){continue;}
+			final int trimLimit=Math.min(maxTrim, c.length()-minOverlap-1);
 			long hash=hash(c, reverse, 0, minOverlap);
-			for(int start=0; start<=maxStart; start++){
-				final ArrayList<Tip> sources=terminalMap.get(hash);
-				if(sources!=null){
-					final int overlap=minOverlap+start;
-					for(Tip source : sources){consider(source, dest, overlap);}
+			for(int destTrim=0; destTrim<=trimLimit; destTrim++){
+				final long code=terminalMap.get(hash);
+				if(code>0 && code!=AMBIGUOUS){
+					consider(tips, code-1, dest, destTrim);
+					final long duplicate=duplicateMap.get(hash);
+					if(duplicate>0){consider(tips, duplicate-1, dest, destTrim);}
 				}
-				if(start<maxStart){
-					final int oldBase=baseAt(c, reverse, start)&0xFF;
-					final int newBase=baseAt(c, reverse, start+minOverlap)&0xFF;
+				if(destTrim<trimLimit){
+					final int oldBase=baseAt(c, reverse, destTrim)&0xFF;
+					final int newBase=baseAt(c, reverse, destTrim+minOverlap)&0xFF;
 					hash=(hash-(oldBase+1)*outgoingPower)*HASH_MULT+(newBase+1);
 				}
 			}
@@ -63,8 +80,10 @@ class CrossKTipOverlapper {
 			if(tip.ambiguous){ambiguous++;}
 			final Tip dest=tip.best;
 			if(dest!=null && !tip.ambiguous && !dest.ambiguous && dest.best==tip
-					&& dest.bestOverlap==tip.bestOverlap && tip.index<dest.index){
-				reciprocal.add(new Pair(tip, dest, tip.bestOverlap));
+					&& dest.bestOverlap==tip.bestOverlap
+					&& tip.bestSourceTrim==dest.bestDestTrim && tip.bestDestTrim==dest.bestSourceTrim
+					&& tip.index<dest.index){
+				reciprocal.add(new Pair(tip, dest, tip.bestOverlap, tip.bestSourceTrim, tip.bestDestTrim));
 			}
 		}
 
@@ -80,12 +99,27 @@ class CrossKTipOverlapper {
 		return added;
 	}
 
+	/** Stores one anchor per tip and at most two tips per hash; repeated or third tips are ambiguous. */
+	private static void addAnchor(LongLongHashMap2 primary, LongLongHashMap2 duplicate,
+			long hash, long code){
+		final long encoded=code+1;
+		final long old=primary.get(hash);
+		if(old<0){primary.set(hash, encoded);}
+		else if(old==AMBIGUOUS || old==encoded){return;}
+		else if(((old-1)>>>32)==(code>>>32)){primary.set(hash, AMBIGUOUS);}
+		else{
+			final long old2=duplicate.get(hash);
+			if(old2<0){duplicate.set(hash, encoded);}
+			else if(old2!=encoded){primary.set(hash, AMBIGUOUS);}
+		}
+	}
+
 	private ArrayList<Tip> makeTips(){
 		final ArrayList<Tip> tips=new ArrayList<Tip>();
 		for(int i=0; i<contigs.size(); i++){
 			final Contig c=contigs.get(i);
 			if(c.id!=i){throw new RuntimeException("Cross-k overlap contig index mismatch: "+c.id+" != "+i);}
-			if(c.length()<minOverlap+1){continue;}
+			if(c.length()<Math.max(minOverlap+1, minContig)){continue;}
 			if(graphKEnds ? c.leftCode==Tadpole.KEEP_GOING : c.leftBridgeEndpoint){
 				tips.add(new Tip(c, false, tips.size()));
 			}
@@ -96,14 +130,27 @@ class CrossKTipOverlapper {
 		return tips;
 	}
 
-	private void consider(Tip source, Tip dest, int overlap){
-		if(source==dest || overlap>=source.contig.length() || overlap>=dest.contig.length()){return;}
-		if(!matches(source, dest, overlap)){return;}
+	private void consider(ArrayList<Tip> tips, long sourceCode, Tip dest, int destAnchorTrim){
+		final Tip source=tips.get((int)(sourceCode>>>32));
+		final int sourceTrim=(int)sourceCode;
+		final boolean sourceReverse=!source.right, destReverse=dest.right;
+		final int sourceStart=source.contig.length()-sourceTrim-minOverlap;
+		final int extraLimit=Math.min(maxOverlap-minOverlap, Math.min(sourceStart, destAnchorTrim));
+		int extra=0;
+		while(extra<extraLimit && baseAt(source.contig, sourceReverse, sourceStart-extra-1)
+				==baseAt(dest.contig, destReverse, destAnchorTrim-extra-1)){extra++;}
+		final int overlap=minOverlap+extra;
+		final int destTrim=destAnchorTrim-extra;
+		if(source==dest || overlap>=source.contig.length()-sourceTrim
+				|| overlap>=dest.contig.length()-destTrim){return;}
+		if(!matches(source, sourceTrim, dest, destTrim, overlap)){return;}
 		if(source.contig==dest.contig){
 			selfMatches++;
 			if(overlap>source.bestOverlap){
 				source.best=null;
 				source.bestOverlap=overlap;
+				source.bestSourceTrim=sourceTrim;
+				source.bestDestTrim=destTrim;
 				source.ambiguous=true;
 			}else if(overlap==source.bestOverlap){source.ambiguous=true;}
 			return;
@@ -112,18 +159,24 @@ class CrossKTipOverlapper {
 		if(overlap>source.bestOverlap){
 			source.best=dest;
 			source.bestOverlap=overlap;
+			source.bestSourceTrim=sourceTrim;
+			source.bestDestTrim=destTrim;
 			source.ambiguous=false;
-		}else if(overlap==source.bestOverlap && source.best!=dest){
-			source.ambiguous=true;
+		}else if(overlap==source.bestOverlap){
+			if(source.best!=dest){source.ambiguous=true;}
+			else if(sourceTrim+destTrim<source.bestSourceTrim+source.bestDestTrim){
+				source.bestSourceTrim=sourceTrim;
+				source.bestDestTrim=destTrim;
+			}
 		}
 	}
 
-	private static boolean matches(Tip source, Tip dest, int overlap){
+	private static boolean matches(Tip source, int sourceTrim, Tip dest, int destTrim, int overlap){
 		final boolean sourceReverse=!source.right;
 		final boolean destReverse=dest.right;
-		final int sourceStart=source.contig.length()-overlap;
+		final int sourceStart=source.contig.length()-sourceTrim-overlap;
 		for(int i=0; i<overlap; i++){
-			if(baseAt(source.contig, sourceReverse, sourceStart+i)!=baseAt(dest.contig, destReverse, i)){
+			if(baseAt(source.contig, sourceReverse, sourceStart+i)!=baseAt(dest.contig, destReverse, destTrim+i)){
 				return false;
 			}
 		}
@@ -135,8 +188,10 @@ class CrossKTipOverlapper {
 		final int depth=Math.max(1, (int)Math.min(a.contig.coverage, b.contig.coverage));
 		final int orientationAB=(a.right ? 1 : 0)|(b.right ? 2 : 0);
 		final int orientationBA=(b.right ? 1 : 0)|(a.right ? 2 : 0);
-		final Edge ab=new Edge(a.contig.id, b.contig.id, 0, orientationAB, depth, null, pair.overlap);
-		final Edge ba=new Edge(b.contig.id, a.contig.id, 0, orientationBA, depth, null, pair.overlap);
+		final Edge ab=new Edge(a.contig.id, b.contig.id, 0, orientationAB, depth, null,
+				pair.overlap, pair.aTrim, pair.bTrim);
+		final Edge ba=new Edge(b.contig.id, a.contig.id, 0, orientationBA, depth, null,
+				pair.overlap, pair.bTrim, pair.aTrim);
 		if(a.right){a.contig.addRightEdge(ab);}else{a.contig.addLeftEdge(ab);}
 		if(b.right){b.contig.addRightEdge(ba);}else{b.contig.addLeftEdge(ba);}
 	}
@@ -205,18 +260,22 @@ class CrossKTipOverlapper {
 		final int index;
 		Tip best;
 		int bestOverlap=0;
+		int bestSourceTrim=0, bestDestTrim=0;
 		boolean ambiguous=false;
 	}
 
 	static class Pair {
-		Pair(Tip a_, Tip b_, int overlap_){a=a_; b=b_; overlap=overlap_;}
+		Pair(Tip a_, Tip b_, int overlap_, int aTrim_, int bTrim_){
+			a=a_; b=b_; overlap=overlap_; aTrim=aTrim_; bTrim=bTrim_;
+		}
 		final Tip a, b;
-		final int overlap;
+		final int overlap, aTrim, bTrim;
 	}
 
 	private final ArrayList<Contig> contigs;
-	private final int minOverlap, maxOverlap;
+	private final int minOverlap, maxOverlap, minContig;
 	private final boolean graphKEnds;
 	private long exactCandidates=0, selfMatches=0;
+	private static final long AMBIGUOUS=Long.MAX_VALUE;
 	private static final long HASH_MULT=0x9E3779B185EBCA87L;
 }

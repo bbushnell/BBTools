@@ -19,6 +19,12 @@ public class Edge {
 
 	/** Constructs an edge with an explicit overlap; zero uses the graph kmer length. */
 	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_, int overlap_){
+		this(origin_, destination_, length_, orientation_, depth_, bases_, overlap_, 0, 0);
+	}
+
+	/** Constructs a trim-aware cross-k edge between anchors inside two long-k tip regions. */
+	public Edge(int origin_, int destination_, int length_, int orientation_, int depth_, byte[] bases_,
+			int overlap_, int sourceTrim_, int destTrim_){
 		origin=origin_;
 		destination=destination_;
 		length=length_;
@@ -26,6 +32,8 @@ public class Edge {
 		depth=depth_;
 		bases=bases_;
 		overlap=overlap_;
+		sourceTrim=sourceTrim_;
+		destTrim=destTrim_;
 	}
 	
 	/**
@@ -49,6 +57,8 @@ public class Edge {
 		bb.append(destination).append('-')/*.append(direction).append('-')*/.append(orientation);
 		bb.append('-').append(length).append('-').append(depth).append('-').append(bases);
 		if(overlap>0){bb.append("-overlap=").append(overlap);}
+		if(sourceTrim>0){bb.append("-sourceTrim=").append(sourceTrim);}
+		if(destTrim>0){bb.append("-destTrim=").append(destTrim);}
 		bb.append(')');
 		return bb;
 	}
@@ -119,6 +129,8 @@ public class Edge {
 			bases=e.bases;
 			orientation=e.orientation;
 			overlap=e.overlap;
+			sourceTrim=e.sourceTrim;
+			destTrim=e.destTrim;
 			depth+=e.depth;
 		}else{
 			depth+=e.depth;
@@ -135,5 +147,9 @@ public class Edge {
 	int depth;
 	/** Explicit exact overlap for cross-k tip joins; zero means use the active graph k. */
 	int overlap;
+	/** Bases beyond the source anchor that are replaced by the verified edge path. */
+	int sourceTrim;
+	/** Bases before the destination anchor that are omitted from the merged sequence. */
+	int destTrim;
 	
 }

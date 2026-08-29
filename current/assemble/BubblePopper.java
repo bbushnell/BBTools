@@ -311,6 +311,7 @@ public class BubblePopper {
 		if(crossKMerge && verbose){
 			System.err.println("Cross-k merge: left="+center.name()+", right="+dest.name()+
 					", bridge="+leftEdge.length+", overlap="+(leftEdge.overlap>0 ? leftEdge.overlap : kbig)+
+					", trims="+leftEdge.sourceTrim+","+leftEdge.destTrim+
 					", depth="+leftEdge.depth+", orientation="+leftEdge.orientation);
 		}
 		final boolean merged=merge(center, dest, leftEdge);
@@ -890,14 +891,16 @@ public class BubblePopper {
 		final int originalLeftLength=left.length();
 		
 		//Append path
-		bb.append(left.bases);
+		final int sourceLimit=left.length()-leftEdge.sourceTrim;
+		if(sourceLimit<1){throw new RuntimeException("Cross-k source trim consumed contig "+left.id);}
+		bb.append(left.bases, 0, sourceLimit);
 		if(leftEdge.bases!=null){bb.append(leftEdge.bases);}
 		final int overlap=(leftEdge.overlap>0 ? leftEdge.overlap : kbig);
-		if(leftEdge.overlap>0 && !exactOverlap(left, right, overlap)){
+		if(leftEdge.overlap>0 && !exactOverlap(left, right, overlap, leftEdge.sourceTrim, leftEdge.destTrim)){
 			throw new RuntimeException("Cross-k overlap changed before merge: "+left.id+" -> "+right.id+
-					", overlap="+overlap);
+					", overlap="+overlap+", trims="+leftEdge.sourceTrim+","+leftEdge.destTrim);
 		}
-		for(int i=overlap; i<right.bases.length; i++){bb.append(right.bases[i]);}
+		for(int i=leftEdge.destTrim+overlap; i<right.bases.length; i++){bb.append(right.bases[i]);}
 		left.bases=bb.toBytes();
 		
 		//Cleanup
@@ -927,8 +930,10 @@ public class BubblePopper {
 		left.rightBridgeEndpoint=right.rightBridgeEndpoint;
 		final double coverageSum;
 		if(crossKMerge){
-			coverageSum=left.coverage*originalLeftLength+right.coverage*right.length();
-			left.coverage=(float)(coverageSum/(originalLeftLength+right.length()));
+			final int retainedLeft=originalLeftLength-leftEdge.sourceTrim;
+			final int retainedRight=right.length()-leftEdge.destTrim;
+			coverageSum=left.coverage*retainedLeft+right.coverage*retainedRight;
+			left.coverage=(float)(coverageSum/(retainedLeft+retainedRight));
 		}else{
 			coverageSum=left.coverage*(originalLeftLength-kbig+1)+right.coverage*(right.length()-kbig+1)
 					+leftEdge.depth*Tools.max(0, leftEdge.length-1);
@@ -955,11 +960,11 @@ public class BubblePopper {
 		return true;
 	}
 
-	private static boolean exactOverlap(Contig left, Contig right, int overlap){
-		if(overlap<1 || overlap>=left.length() || overlap>=right.length()){return false;}
-		final int start=left.length()-overlap;
+	private static boolean exactOverlap(Contig left, Contig right, int overlap, int sourceTrim, int destTrim){
+		if(overlap<1 || overlap>=left.length()-sourceTrim || overlap>=right.length()-destTrim){return false;}
+		final int start=left.length()-sourceTrim-overlap;
 		for(int i=0; i<overlap; i++){
-			if(left.bases[start+i]!=right.bases[i]){return false;}
+			if(left.bases[start+i]!=right.bases[destTrim+i]){return false;}
 		}
 		return true;
 	}

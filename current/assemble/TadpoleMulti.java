@@ -48,7 +48,8 @@ public class TadpoleMulti {
 			final Timer timer=new Timer();
 			longest.setContigs(contigs);
 			longest.clearContigEdges();
-			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k, config.kmers[0]-1);
+			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k,
+					config.kmers[0]-1, false, minContig);
 			if(overlapper.addEdges()>0){mergeCrossK(longest);}
 			contigs=longest.detachContigs();
 			checkErrorState(longest);
@@ -129,7 +130,7 @@ public class TadpoleMulti {
 		if(config.graphK<config.kmers[0]){
 			graphOverlapBefore=contigs.size();
 			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
-					config.kmers[0]-1, true);
+					config.kmers[0]-1, true, minContig);
 			if(overlapper.addEdges()>0){mergeCrossK(tad);}
 		}
 		final ArrayList<Contig> merged=tad.detachContigs();

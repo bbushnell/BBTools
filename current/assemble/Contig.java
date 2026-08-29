@@ -351,6 +351,8 @@ public class Contig {
 				old.bases=e.bases;
 				old.length=e.length;
 				old.overlap=e.overlap;
+				old.sourceTrim=e.sourceTrim;
+				old.destTrim=e.destTrim;
 				old.depth+=e.depth;
 				return;
 			}
@@ -372,6 +374,8 @@ public class Contig {
 				old.bases=e.bases;
 				old.length=e.length;
 				old.overlap=e.overlap;
+				old.sourceTrim=e.sourceTrim;
+				old.destTrim=e.destTrim;
 				old.depth+=e.depth;
 				return;
 			}

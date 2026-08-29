@@ -16,8 +16,11 @@ public class CrossKTipOverlapperUnitTest {
 
 		int failures=0;
 		failures+=run("uniqueReciprocalOverlap", CrossKTipOverlapperUnitTest::uniqueReciprocalOverlap);
+		failures+=run("inwardTipOverlap", CrossKTipOverlapperUnitTest::inwardTipOverlap);
 		failures+=run("branchTipIgnored", CrossKTipOverlapperUnitTest::branchTipIgnored);
 		failures+=run("equalBestIsAmbiguous", CrossKTipOverlapperUnitTest::equalBestIsAmbiguous);
+		failures+=run("discardedTipDoesNotBlockJoin", CrossKTipOverlapperUnitTest::discardedTipDoesNotBlockJoin);
+		failures+=run("repeatedAnchorOnOneTipIsAmbiguous", CrossKTipOverlapperUnitTest::repeatedAnchorOnOneTipIsAmbiguous);
 		failures+=run("reverseOrientedOverlap", CrossKTipOverlapperUnitTest::reverseOrientedOverlap);
 		failures+=run("cyclicComponentRejected", CrossKTipOverlapperUnitTest::cyclicComponentRejected);
 		failures+=run("graphKUnbranchedOverlap", CrossKTipOverlapperUnitTest::graphKUnbranchedOverlap);
@@ -53,6 +56,22 @@ public class CrossKTipOverlapperUnitTest {
 		check(new String(a.bases).equals("AAAACCCCGGGGTTTT"), "Wrong merged sequence: "+new String(a.bases));
 	}
 
+	private static void inwardTipOverlap(){
+		Contig a=contig(0, "AAAACCCCGGGTT", false, true);
+		Contig b=contig(1, "TTCCCCGGGAAAA", true, false);
+		a.rightCode=Tadpole.F_BRANCH;
+		b.leftCode=Tadpole.B_BRANCH;
+		ArrayList<Contig> contigs=list(a, b);
+		int pairs=new CrossKTipOverlapper(contigs, 5, 9).addEdges();
+		check(pairs==1, "Expected one inward overlap pair, got "+pairs);
+		Edge edge=a.rightEdges.get(0);
+		check(edge.overlap==7 && edge.sourceTrim==2 && edge.destTrim==2,
+				"Wrong inward overlap geometry: "+edge);
+		int merged=popper(contigs).expand(a);
+		check(merged==1, "Expected one inward merge, got "+merged);
+		check(new String(a.bases).equals("AAAACCCCGGGAAAA"), "Wrong inward merged sequence: "+new String(a.bases));
+	}
+
 	private static void branchTipIgnored(){
 		Contig a=contig(0, "AAAACCCCGGGG", false, false);
 		Contig b=contig(1, "CCCGGGGTTTT", true, false);
@@ -66,6 +85,23 @@ public class CrossKTipOverlapperUnitTest {
 		Contig c=contig(2, "CCCGGGGAAAA", true, false);
 		ArrayList<Contig> contigs=list(a, b, c);
 		check(new CrossKTipOverlapper(contigs, 5, 9).addEdges()==0, "Equal best overlaps were not rejected");
+	}
+
+	private static void discardedTipDoesNotBlockJoin(){
+		Contig a=contig(0, "AAAACCCCGGGG", false, true);
+		Contig b=contig(1, "CCCGGGGTTTT", true, false);
+		Contig debris=contig(2, "CCCGGGGA", true, false);
+		ArrayList<Contig> contigs=list(a, b, debris);
+		check(new CrossKTipOverlapper(contigs, 5, 9, false, 10).addEdges()==1,
+				"Discarded short tip blocked a retained-contig join");
+	}
+
+	private static void repeatedAnchorOnOneTipIsAmbiguous(){
+		Contig a=contig(0, "CCCCCCCCAAAA", false, true);
+		Contig b=contig(1, "AAAGGG", true, false);
+		ArrayList<Contig> contigs=list(a, b);
+		check(new CrossKTipOverlapper(contigs, 3, 4).addEdges()==0,
+				"A repeated anchor on one tip was treated as unique");
 	}
 
 	private static void reverseOrientedOverlap(){

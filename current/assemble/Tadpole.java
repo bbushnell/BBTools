@@ -893,8 +893,8 @@ public abstract class Tadpole extends ShaveObject{
 	/** Marks low-depth, graph-disconnected ends as candidates for shorter-k bridging. */
 	final void markBridgeEndpoints(){
 		for(Contig c : allContigs){
-			c.leftBridgeEndpoint=(c.leftCode==DEAD_END && c.leftEdgeCount()==0);
-			c.rightBridgeEndpoint=(c.rightCode==DEAD_END && c.rightEdgeCount()==0);
+			c.leftBridgeEndpoint=(c.leftCode!=LOOP);
+			c.rightBridgeEndpoint=(c.rightCode!=LOOP);
 		}
 	}
 
