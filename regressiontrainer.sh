@@ -54,6 +54,10 @@ startepoch=0    Epoch to resume the cosine LR schedule and checkpoint numbering 
                 state, which is not stored in the .bbnet format, so a resumed run's
                 first step is still a smaller, LR-scaled kick relative to training
                 straight through without interruption.
+printevery=0    How often (in epochs) to print a summary line.  0 means auto:
+                min(5, max(1, epochs/20)) -- a short run (e.g. epochs=20) prints every
+                epoch, a long run stays capped at one line per 5 epochs.  Set
+                explicitly to override either way.
 batch=8192      Mini-batch size.
 lr=0.003        (alpha) Learning rate.  Set this explicitly; alpha is an alias and a
                 stale alpha= in a script will silently override.

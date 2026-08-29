@@ -42,9 +42,13 @@ import structures.ByteBuilder;
  * avoiding Java's single-array length limit for large training matrices.
  *
  * Usage: java ml.RegressionTrainer in=&lt;data.tsv&gt; out=&lt;net.bbnet&gt; dims=16,32,1
- *          [epochs=60] [startepoch=0] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1] [vfraction=0.1]
- *          [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1]
+ *          [epochs=60] [startepoch=0] [printevery=0] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1]
+ *          [vfraction=0.1] [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1]
  *          [final=rslog|linear|sigmoid] [netin=&lt;start.bbnet&gt;] [hidden=tanh,swish,...]
+ *
+ * printevery= controls how often an epoch summary is printed; 0 (default) auto-picks
+ * min(5, max(1, epochs/20)), so a short run (e.g. epochs=20) prints every epoch while a long
+ * run stays capped at one line per 5 epochs. Set explicitly to override either way.
  *
  * hidden= sets the hidden-layer activations: one name is uniform, several are drawn per cell
  * at random from that set (seeded, so reproducible). Names: tanh sig rslog msig swish esig
@@ -145,6 +149,8 @@ public class RegressionTrainer {
 				epochs=Integer.parseInt(b);
 			}else if(a.equals("startepoch")){
 				startEpoch=Integer.parseInt(b);
+			}else if(a.equals("printevery") || a.equals("printeach")){
+				printEvery=Integer.parseInt(b);
 			}else if(a.equals("batch")){
 				batch=Integer.parseInt(b);
 			}else if(a.equals("lr") || a.equals("alpha")){
@@ -236,6 +242,8 @@ public class RegressionTrainer {
 		if(epochs<1){throw new IllegalArgumentException("epochs must be positive: "+epochs);}
 		if(startEpoch<0){throw new IllegalArgumentException("startepoch must be >=0 (0 means "
 			+"auto-detect from netin's #epochs header): "+startEpoch);}
+		if(printEvery<0){throw new IllegalArgumentException("printevery must be >=0 (0 means "
+			+"auto: min(5, max(1, epochs/20))): "+printEvery);}
 		if(batch<1){throw new IllegalArgumentException("batch must be positive: "+batch);}
 		if(padLayers){
 			//Round hidden layers up to whole SIMD lanes so the vector kernels have no scalar
@@ -717,6 +725,7 @@ public class RegressionTrainer {
 			outstream.println("resuming: net.epochsTrained="+net.epochsTrained
 				+", continuing schedule at epoch "+effStart+" of "+epochs);
 		}
+		final int effPrintEvery=(printEvery>0) ? printEvery : Math.min(5, Math.max(1, epochs/20));
 
 		try{
 			for(int ep=effStart; ep<=epochs; ep++){
@@ -771,7 +780,7 @@ public class RegressionTrainer {
 					net.epochsTrained=ep;
 					exportNet();
 				}
-				if(ep%5==0 || ep==effStart || ep==epochs){
+				if(ep%effPrintEvery==0 || ep==effStart || ep==epochs){
 					outstream.println(String.format(
 						"epoch %d lr=%.5f trainMSE=%.6f valMSE=%.6f best=%.6f",
 						ep, lrNow, trainMse/Math.max(1, active), validMse, bestValid));
@@ -1554,6 +1563,14 @@ public class RegressionTrainer {
 	 * explicitly to override that (a stale/absent header, or a deliberate LR-schedule reset).
 	 */
 	private int startEpoch=0;
+	/**
+	 * Print an epoch summary every printEvery epochs; 0 means auto: min(5, max(1, epochs/20)).
+	 * The auto default gives short runs (e.g. epochs=20, common for quick hyperparameter checks)
+	 * a summary every epoch, while long runs (100s of epochs) stay capped at one per 5 so the
+	 * log doesn't flood -- the old hardcoded "every 5" under-reported short diagnostic runs,
+	 * where every epoch's trend matters and there are few enough of them that spam isn't a risk.
+	 */
+	private int printEvery=0;
 	private int batch=8192;
 	private double lr=0.003;
 	private double wd=1e-4;
