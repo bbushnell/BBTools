@@ -15,6 +15,7 @@ import gff.CompareGff;
 import gff.GffLine;
 import jgi.BBMerge;
 import json.JsonObject;
+import map.LongHashSet;
 import parse.Parse;
 import bin.AdjustEntropy;
 import clade.Clade;
@@ -402,6 +403,13 @@ public class CallGenes extends ProkObject {
 				prok.TrnaCaller.SCAV_PAD=Integer.parseInt(b);
 			}else if(a.equalsIgnoreCase("scavcollapse") || a.equalsIgnoreCase("collapsefrac")){
 				prok.TrnaCaller.SCAV_COLLAPSE_FRAC=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("scavmultilocus") || a.equalsIgnoreCase("trnamultilocus")){
+				prok.TrnaCaller.SCAV_MULTILOCUS=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("scavlocusoverlap") || a.equalsIgnoreCase("trnalocusoverlap")){
+				prok.TrnaCaller.SCAV_LOCUS_OVERLAP_FRAC=Float.parseFloat(b);
+				if(!(prok.TrnaCaller.SCAV_LOCUS_OVERLAP_FRAC>=0 && prok.TrnaCaller.SCAV_LOCUS_OVERLAP_FRAC<=1)){
+					throw new IllegalArgumentException("scavlocusoverlap must be in [0,1]: "+b);
+				}
 			}else if(a.equalsIgnoreCase("acextract") || a.equalsIgnoreCase("anticodonextract")){
 				prok.TrnaCaller.extractAnticodons=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("acvalidate") || a.equalsIgnoreCase("acthresh")){
@@ -449,6 +457,52 @@ public class CallGenes extends ProkObject {
 				prok.TrnaBoundaryScorer.MARGIN_THRESHOLD_STOP=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("trnaboundarycrossenrichment")){
 				prok.TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrna") || a.equalsIgnoreCase("generalncrna")){
+				NCRNA_FAMILIES_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
+				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnafamily")){
+				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
+			}else if(a.equalsIgnoreCase("ncrnakmers")){
+				NCRNA_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("rnasepkmers")){
+				RNASEP_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("srpsmallkmers")){
+				SRPSMALL_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("srplargekmers")){
+				SRPLARGE_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("ncrnaidpass")){
+				NCRNA_ID_PASS_OVERRIDE=parseUnitFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnaidborderline")){
+				NCRNA_ID_BORDERLINE_OVERRIDE=parseUnitFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnahbmpass")){
+				NCRNA_HBM_PASS_OVERRIDE=parseUnitFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnascorea")){
+				NCRNA_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnascoreb")){
+				NCRNA_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("rnasepscorea")){
+				RNASEP_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("rnasepscoreb")){
+				RNASEP_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("srpsmallscorea")){
+				SRPSMALL_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("srpsmallscoreb")){
+				SRPSMALL_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("srplargescorea")){
+				SRPLARGE_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("srplargescoreb")){
+				SRPLARGE_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnacollapsefrac")){
+				NCRNA_COLLAPSE_FRAC_OVERRIDE=parseUnitFloat(a, b);
+			}else if(a.equalsIgnoreCase("ncrnawindowpad") || a.equalsIgnoreCase("ncrnapad")){
+				NCRNA_WINDOW_PAD_OVERRIDE=parsePadOverride(a, b);
+			}else if(a.equalsIgnoreCase("rnaseppad")){
+				RNASEP_PAD_OVERRIDE=parsePadOverride("rnaseppad", b);
+			}else if(a.equalsIgnoreCase("srpsmallpad")){
+				SRPSMALL_PAD_OVERRIDE=parsePadOverride("srpsmallpad", b);
+			}else if(a.equalsIgnoreCase("srplargepad")){
+				SRPLARGE_PAD_OVERRIDE=parsePadOverride("srplargepad", b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -511,6 +565,21 @@ public class CallGenes extends ProkObject {
 			prok.TrnaCaller.loadBoundaryNet(trnaBoundaryNet5Resolved, trnaBoundaryNet3Resolved,
 				trnaBoundaryStartTablePath, trnaBoundaryStopTablePath);
 		}
+		//Gate A (forward-ported from Noire's tree, 2026-08-28, C3 merge): generic ncRNA family
+		//loading is OFF by default -- Noire's original call here was unconditional
+		//(`loadNcrnaResources();`); gating it behind NCRNA_FAMILIES_ENABLED is the entire
+		//difference between "ncRNAs off by default" (Citan's explicit requirement) and the
+		//shipped-default-on treatment tRNA's boundary NN got just above. When false, this line
+		//never executes and GeneCaller.ncrnaFamilies stays empty -- zero cost, zero behavior
+		//change from pre-merge master.
+		//Citan's correction (2026-08-28): ncrnaboundarynet=t with ncrna=f is a nonsensical
+		//combination (nothing to attach boundary refinement to) -- must fail loud as invalid
+		//input, not silently no-op. Factored into a small testable method (see
+		//CallGenesNcrnaGateTest); matches the existing tRNA flag-validation style (assert,
+		//always live under BBTools' always-on -ea) rather than a special-cased exception.
+		validateNcrnaGateCombo();
+		validateNcrnaSweepOverrides();
+		if(NCRNA_FAMILIES_ENABLED){loadNcrnaResources();}
 
 		if(Shared.threads()<2){ordered=false;}
 		assert(!fnaList.isEmpty()) : "At least 1 fasta file is required.";
@@ -835,6 +904,13 @@ public class CallGenes extends ProkObject {
 		if(call5S){bsw.println("5S Out:               \t "+Tools.padLeft(r5SOut, 12));}
 		if(calltRNA){bsw.println("tRNA Alignments:  \t "+Tools.padLeft(prok.TrnaCaller.alignmentCount(), 12));}
 			if(calltRNA){bsw.println("tRNA Out:             \t "+Tools.padLeft(tRNAOut, 12));}
+		if(!GeneCaller.ncrnaFamilies.isEmpty()){
+			for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){
+				NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
+				bsw.println("ncRNA Alignments ("+family.name+"):\t "+Tools.padLeft(ncrnaAlignments[i], 12));
+			}
+			bsw.println("RNA Out:              \t "+Tools.padLeft(rnaOut, 12));
+		}
 		
 		if(extendedStats || verbose) {
 			if(callCDS){
@@ -905,6 +981,13 @@ public class CallGenes extends ProkObject {
 			if(call23S){jo.add("23S Out", r23SOut);}
 			if(call5S){jo.add("5S Out", r5SOut);}
 			if(calltRNA){jo.add("tRNA Out", tRNAOut);}
+			if(!GeneCaller.ncrnaFamilies.isEmpty()){
+				for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){
+					NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
+					jo.add("ncRNA Alignments ("+family.name+")", ncrnaAlignments[i]);
+				}
+				jo.add("RNA Out", rnaOut);
+			}
 			outer.add("Overall", jo);
 		}
 		
@@ -1041,6 +1124,13 @@ public class CallGenes extends ProkObject {
 			r23SOut+=pt.caller.r23SOut;
 			r5SOut+=pt.caller.r5SOut;
 			tRNAOut+=pt.caller.tRNAOut;
+			rnaOut+=pt.caller.rnaOut;
+			long[] threadNcrnaAlignments=pt.caller.ncrnaAlignmentCounts();
+			if(ncrnaAlignments==null){ncrnaAlignments=new long[threadNcrnaAlignments.length];}
+			assert(ncrnaAlignments.length==threadNcrnaAlignments.length);
+			for(int i=0; i<threadNcrnaAlignments.length; i++){
+				ncrnaAlignments[i]+=threadNcrnaAlignments[i];
+			}
 			
 			stCds.add(pt.caller.stCds);
 			stCds2.add(pt.caller.stCds2);
@@ -1696,7 +1786,400 @@ public class CallGenes extends ProkObject {
 			GeneCaller.trnaModels=TrnaConsensusBuilder.loadModels(modelPath);
 		}
 	}
-	
+
+	/**
+	 * Loads the generic ncRNA family bundles (RNase P, SRP small/large) into
+	 * GeneCaller.ncrnaFamilies, one entry per family. Forward-ported from Noire's
+	 * ncRNA-family-loading tree (2026-08-28, C3 merge) -- see that tree's original
+	 * javadoc for the resource-naming rationale (hardcoded for now; srp_small/srp_large
+	 * share one kmer set but have separate consensus libraries). ONE difference from
+	 * Noire's original: the call site (in parse(), above) is now gated behind
+	 * NCRNA_FAMILIES_ENABLED (Gate A) instead of unconditional -- Brian shipped ncRNAs
+	 * OFF by default (Citan's explicit requirement), so this method itself stays
+	 * callable directly (e.g. by NcrnaBoundaryVectorGen's training-vector generator, or
+	 * eval scripts) but production callgenes invocations only reach it when ncrna=t.
+	 * Idempotent via GeneCaller.ncrnaFamilies being non-empty.
+	 *
+	 * <p>C3 ADDITION (G11, 2026-08-28): each family also attempts to lazy-load its own
+	 * boundary-precision-NN resources (net + start/stop tables + a matching HBM model
+	 * file) when NCRNA_BOUNDARY_NN_ENABLED (Gate B) is on -- see addNcrnaFamily. Gate B
+	 * is independent of and subordinate to Gate A: with Gate A off this method never
+	 * runs at all (and Gate B being on without Gate A is rejected loudly at parse time,
+	 * see the parse() assert); with Gate A on and Gate B off, families load with
+	 * boundary refinement structurally disabled (null templates). With BOTH on, Gate B
+	 * is STRICT, not tolerant (Citan's correction, 2026-08-28): every loaded family must
+	 * have complete, index-aligned boundary resources, or addNcrnaFamily throws --
+	 * a silent per-family skip would let a run report "boundary NN enabled" while only
+	 * a subset of families actually got refined, an invalid mixed on/off comparison.
+	 */
+	public static synchronized void loadNcrnaResources(){
+		if(!GeneCaller.ncrnaFamilies.isEmpty()){return;}
+		LongHashSet rnasepKmers=loadEffectiveNcrnaKmerSet("rnasep", "rnasep_17mers.fa", RNASEP_KMERS_OVERRIDE, 17);
+		addNcrnaFamily("rnasep", "rnasep_consensus.fa", "rnasep_models.hbm", rnasepKmers, 17, 200,
+			resolveSweepPad("rnasep", RNASEP_PAD_OVERRIDE, 320),
+			7, 60, true, 100f, 0.74f, 0.072f, 12,
+			resolveFamilyScore("rnasep", RNASEP_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
+			resolveFamilyScore("rnasep", RNASEP_SCORE_B_OVERRIDE, NCRNA_SCORE_B_OVERRIDE, 1.6f),
+			resolveSweepFloat("rnasep", NCRNA_ID_PASS_OVERRIDE, 0.65f), resolveSweepFloat("rnasep", NCRNA_ID_BORDERLINE_OVERRIDE, 0.58f),
+			resolveSweepFloat("rnasep", NCRNA_HBM_PASS_OVERRIDE, 0.62f), resolveSweepFloat("rnasep", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+			boundaryStartOffsets("rnasep"), boundaryStopOffsets("rnasep"));
+		LongHashSet srpSmallKmers=loadEffectiveNcrnaKmerSet("srp_small", "srp_17mers.fa", SRPSMALL_KMERS_OVERRIDE, 17);
+		addNcrnaFamily("srp_small", "srp_small_consensus.fa", "srp_small_models.hbm", srpSmallKmers, 17, 80,
+			resolveSweepPad("srp_small", SRPSMALL_PAD_OVERRIDE, 75),
+			7, 60, true, 23f, 0.68f, 0.072f, 12,
+			resolveFamilyScore("srp_small", SRPSMALL_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
+			resolveFamilyScore("srp_small", SRPSMALL_SCORE_B_OVERRIDE, NCRNA_SCORE_B_OVERRIDE, 1.8f),
+			resolveSweepFloat("srp_small", NCRNA_ID_PASS_OVERRIDE, 0.70f), resolveSweepFloat("srp_small", NCRNA_ID_BORDERLINE_OVERRIDE, 0.64f),
+			resolveSweepFloat("srp_small", NCRNA_HBM_PASS_OVERRIDE, 0.70f), resolveSweepFloat("srp_small", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+			boundaryStartOffsets("srp_small"), boundaryStopOffsets("srp_small"));
+		LongHashSet srpLargeKmers=loadEffectiveNcrnaKmerSet("srp_large", "srp_17mers.fa", SRPLARGE_KMERS_OVERRIDE, 17);
+		addNcrnaFamily("srp_large", "srp_large_consensus.fa", "srp_large_models.hbm", srpLargeKmers, 17, 150,
+			resolveSweepPad("srp_large", SRPLARGE_PAD_OVERRIDE, 250),
+			7, 60, true, 45f, 0.75f, 0.072f, 12,
+			resolveFamilyScore("srp_large", SRPLARGE_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 0f),
+			resolveFamilyScore("srp_large", SRPLARGE_SCORE_B_OVERRIDE, NCRNA_SCORE_B_OVERRIDE, 1.0f),
+			resolveSweepFloat("srp_large", NCRNA_ID_PASS_OVERRIDE, 0.70f), resolveSweepFloat("srp_large", NCRNA_ID_BORDERLINE_OVERRIDE, 0.64f),
+			resolveSweepFloat("srp_large", NCRNA_HBM_PASS_OVERRIDE, 0.66f), resolveSweepFloat("srp_large", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+			boundaryStartOffsets("srp_large"), boundaryStopOffsets("srp_large"));
+	}
+
+	/** Measured width-six candidate windows. Kept in one factory used by family loading;
+	 * unknown families fail loud so a future pipeline cannot silently inherit tRNA geometry. */
+	static int[] boundaryStartOffsets(String family){
+		if(family.equals("rnasep") || family.equals("srp_small") || family.equals("srp_large")){
+			return new int[]{-3,-2,-1,0,1,2};
+		}
+		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
+	}
+
+	static int[] boundaryStopOffsets(String family){
+		if(family.equals("rnasep")){return new int[]{-1,0,1,2,3,4};}
+		if(family.equals("srp_small") || family.equals("srp_large")){return new int[]{-2,-1,0,1,2,3};}
+		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
+	}
+
+	/** Parses and validates one padding-override CLI value (P1, 2026-08-28). Package-visible,
+	 * factored out of parse() for direct testability without constructing a full CallGenes
+	 * instance -- mirrors the validateNcrnaGateCombo/requireCompleteBoundaryResources pattern
+	 * already used for the other C3 gates. */
+	static int parsePadOverride(String flagName, String value){
+		final int pad=Integer.parseInt(value);
+		if(pad<0){throw new IllegalArgumentException(flagName+" must be >=0: "+value);}
+		return pad;
+	}
+
+	/** Resolves one family's effective window pad: the override if set (>=0), else the
+	 * family's shipped default. -1 is the "unset" sentinel (0 is a legitimate override
+	 * value, so it cannot double as "unset"). Package-visible for direct testability. */
+	static int resolvePad(int override, int shippedDefault){
+		return override>=0 ? override : shippedDefault;
+	}
+
+	static int resolveSweepPad(String family, int familyOverride, int shippedDefault){
+		return ncrnaSweepTarget(family) && NCRNA_WINDOW_PAD_OVERRIDE>=0
+			? NCRNA_WINDOW_PAD_OVERRIDE : resolvePad(familyOverride, shippedDefault);
+	}
+
+	static float resolveSweepFloat(String family, float override, float shippedDefault){
+		return ncrnaSweepTarget(family) && !Float.isNaN(override) ? override : shippedDefault;
+	}
+
+	/** Resolves an explicit per-family score before the legacy generic targeted-sweep
+	 * override.  This permits all families' scores to be pinned in one run, avoiding
+	 * cross-family arbitration confounding while retaining the old single-family CLI. */
+	static float resolveFamilyScore(String family, float familyOverride,
+			float genericOverride, float shippedDefault){
+		return !Float.isNaN(familyOverride) ? familyOverride
+			: resolveSweepFloat(family, genericOverride, shippedDefault);
+	}
+
+	/** Loads one family bundle from its own kmer-set resource file, with per-family index params. */
+	/** Loads one family bundle, given an ALREADY-LOADED kmer set (for families that share one,
+	 * e.g. srp_small/srp_large both seeding from srp_17mers.fa). Skips silently (no bundle added)
+	 * if the library or kmer set resource can't be found -- see loadNcrnaResources' javadoc.
+	 * C3 addition (G11, 2026-08-28): also attempts the family's boundary net/tables/models when
+	 * NCRNA_BOUNDARY_NN_ENABLED -- resource names "<name>_boundary_net.bbnet",
+	 * "<name>_boundary_start_table.tsv", "<name>_boundary_stop_table.tsv", plus the family's
+	 * existing HBM model file, mirroring the tRNA boundary resource convention
+	 * (?trna_boundary_net.bbnet etc.) one level down per family. STRICT, not tolerant, unlike
+	 * the library/kmer-set resources above (Citan's correction, 2026-08-28): once Gate B is on,
+	 * EVERY loaded family must have complete, index-aligned boundary resources or this method
+	 * throws a RuntimeException naming the family, the missing/misaligned resource, and its
+	 * path -- a silent per-family skip would let a benchmark report "boundary NN enabled" while
+	 * actually only refining a subset of families, a methodologically invalid mixed on/off
+	 * result. The library/kmer-set tolerance above is unrelated and unchanged: a family with no
+	 * consensus library at all just doesn't load (visible as a missing family, not a silent
+	 * partial-feature state). */
+	private static void addNcrnaFamily(String name, String libResource, String modelResource,
+			LongHashSet kmerSet, int kLong, int minLen, int windowPad,
+			int indexK, int indexTopN, boolean adaptive,
+			float adaptFloor, float adaptTopFrac, float adaptQFrac, int fixedMinHits,
+			float scoreA, float scoreB, float idPass, float idBorderline,
+			float hbmPass, float collapseFrac, int[] boundaryStartOffsets, int[] boundaryStopOffsets){
+		if(kmerSet==null){return;}
+		String libPath=Data.findPath("?"+libResource, false);
+		if(libPath==null || !new java.io.File(libPath).exists()){return;}
+		byte[][] library=TrnaConsensusBuilder.loadLibrary(libPath);
+		String[] modelNames=TrnaConsensusBuilder.lastLoadedNames;
+		consensus.BaseGraph[] models=null;
+		String modelPath=Data.findPath("?"+modelResource, false);
+		if(modelPath!=null && new java.io.File(modelPath).exists()){
+			models=TrnaConsensusBuilder.loadModels(modelPath);
+		}
+
+		ml.CellNet boundaryNet=null;
+		prok.TrnaBoundaryFeatures.NinemerTable boundaryStartTable=null, boundaryStopTable=null;
+		int boundaryStartInside=-1, boundaryStartOutside=-1, boundaryStopInside=-1, boundaryStopOutside=-1;
+		float boundaryMeanLen=0f;
+		//Citan's correction (2026-08-28): Gate B must NEVER silently degrade. The original
+		//version of this block tolerantly skipped boundary loading per-family when a resource
+		//was missing -- reasonable for the LIBRARY/MODEL resources above (a family with no
+		//consensus library genuinely can't be called at all, and that's already visible as a
+		//missing family), but WRONG for boundary resources under Gate B specifically: a
+		//benchmark run reports "boundary NN enabled" as a single flag, and a silent per-family
+		//skip would produce a MIXED on/off result reported as fully enabled -- exactly the kind
+		//of methodologically-invalid comparison Citan flagged. So once Gate B is on, EVERY
+		//family that loads (via Gate A) MUST get complete boundary resources, or the whole run
+		//fails loud identifying which family and which paths are missing -- not a per-family
+		//silent fallback.
+		if(NCRNA_BOUNDARY_NN_ENABLED){
+			String netPath=Data.findPath("?"+name+"_boundary_net.bbnet", false);
+			String startTablePath=Data.findPath("?"+name+"_boundary_start_table.tsv", false);
+			String stopTablePath=Data.findPath("?"+name+"_boundary_stop_table.tsv", false);
+			final boolean netOk=(netPath!=null && new java.io.File(netPath).exists());
+			final boolean startOk=(startTablePath!=null && new java.io.File(startTablePath).exists());
+			final boolean stopOk=(stopTablePath!=null && new java.io.File(stopTablePath).exists());
+			requireCompleteBoundaryResources(name, netPath, startTablePath, stopTablePath, netOk, startOk, stopOk,
+				models, library, modelNames, libPath, modelPath);
+			boundaryNet=NcrnaBoundaryScorer.load(netPath);
+			TrnaNinemerTableBuilder.LoadedTable lt1=TrnaNinemerTableBuilder.loadTable(startTablePath);
+			TrnaNinemerTableBuilder.LoadedTable lt2=TrnaNinemerTableBuilder.loadTable(stopTablePath);
+			assert(lt1.type==prok.TrnaBoundaryFeatures.BoundaryType.START) : name+"_boundary_start_table.tsv ("
+				+startTablePath+") is not labeled a start-boundary table -- wrong file, or start/stop swapped.";
+			assert(lt2.type==prok.TrnaBoundaryFeatures.BoundaryType.STOP) : name+"_boundary_stop_table.tsv ("
+				+stopTablePath+") is not labeled a stop-boundary table -- wrong file, or start/stop swapped.";
+			boundaryStartTable=lt1.table; boundaryStartInside=lt1.insideCount; boundaryStartOutside=lt1.outsideCount;
+			boundaryStopTable=lt2.table; boundaryStopInside=lt2.insideCount; boundaryStopOutside=lt2.outsideCount;
+			boundaryMeanLen=medianLength(library);
+		}
+		GeneCaller.ncrnaFamilies.add(new NcrnaFamily(name, library, models, modelNames, kmerSet, kLong, minLen, windowPad,
+			indexK, indexTopN, adaptive, adaptFloor, adaptTopFrac, adaptQFrac, fixedMinHits,
+			scoreA, scoreB, idPass, idBorderline, hbmPass, collapseFrac,
+			boundaryNet, boundaryNet, boundaryStartTable, boundaryStopTable,
+			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
+			boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets));
+	}
+
+	/** Gate B's fail-loud resource-completeness+alignment check (Citan's corrections,
+	 * 2026-08-28), factored out of addNcrnaFamily into its own package-visible, directly
+	 * testable method: given the already-resolved net/table existence flags and the loaded
+	 * library/models/modelNames, throws a RuntimeException naming the family and every
+	 * failing check if boundary resources are incomplete OR the library/model pairing is
+	 * uncheckable/misaligned; returns silently (no exception) if everything is complete and
+	 * verified aligned. Package-visible (not public) purely for CallGenesNcrnaGateTest --
+	 * not part of any public API contract.
+	 *
+	 * <p>Checks, in order: (1) net/start-table/stop-table files exist; (2) models and
+	 * modelNames are both non-null and length-matched to library (a malformed resource that
+	 * failed to parse any names/models is caught here, before touching index i); (3) neither
+	 * side's first-whitespace-token-normalized names contain an empty token or a duplicate
+	 * (Citan's uniqueness requirement -- a duplicate could hide a reorder behind a false
+	 * per-index "match"); (4) per-index normalized-name equality between the FASTA header
+	 * (modelNames[i]) and the HBM model name (models[i].name). First-token normalization
+	 * (not raw full-string equality) specifically to stay immune to the global trd=/
+	 * trimreaddescription flag, which truncates modelNames[i] (Read.id) but never touches
+	 * models[i].name (the HBM parser doesn't go through Read parsing at all) -- see the call
+	 * site's original comment history for the full trace, preserved here rather than
+	 * duplicated at both the call site and this method. */
+	static void requireCompleteBoundaryResources(String name, String netPath, String startTablePath,
+			String stopTablePath, boolean netOk, boolean startOk, boolean stopOk,
+			consensus.BaseGraph[] models, byte[][] library, String[] modelNames,
+			String libPath, String modelPath){
+		final boolean countsOk=(models!=null && models.length==library.length
+			&& modelNames!=null && modelNames.length==library.length);
+		String duplicateDetail=null;
+		if(countsOk){
+			duplicateDetail=findDuplicateOrEmptyToken("fasta", modelNames);
+			if(duplicateDetail==null){duplicateDetail=findDuplicateOrEmptyToken("hbm", modelNamesOf(models));}
+		}
+		final int[] mismatchIndex={-1};
+		if(countsOk && duplicateDetail==null){
+			for(int i=0; i<library.length; i++){
+				final String fastaTok=firstToken(modelNames[i]);
+				final String hbmTok=firstToken(models[i].name);
+				if(!fastaTok.equals(hbmTok)){mismatchIndex[0]=i; break;}
+			}
+		}
+		final boolean modelsOk=(countsOk && duplicateDetail==null && mismatchIndex[0]<0);
+		if(!netOk || !startOk || !stopOk || !modelsOk){
+			final String indexDetail=(!countsOk ? "count mismatch"
+				: duplicateDetail!=null ? "normalized-token uniqueness violated: "+duplicateDetail
+				: mismatchIndex[0]>=0 ? "index "+mismatchIndex[0]+" name mismatch: fasta='"
+					+modelNames[mismatchIndex[0]]+"' vs hbm='"+models[mismatchIndex[0]].name+"'"
+				: "ok");
+			throw new RuntimeException("ncrnaboundarynet=t is on but family '"+name+"' is missing required "
+				+"boundary resources, or its library/model pairing is invalid -- refusing to run a mixed "
+				+"on/off benchmark silently. "
+				+"net("+(name+"_boundary_net.bbnet")+")="+netPath+" exists="+netOk+"; "
+				+"startTable("+(name+"_boundary_start_table.tsv")+")="+startTablePath+" exists="+startOk+"; "
+				+"stopTable("+(name+"_boundary_stop_table.tsv")+")="+stopTablePath+" exists="+stopOk+"; "
+				+"models="+(models==null ? "null" : models.length+" entries")+" vs library="+library.length
+				+" entries; per-index name alignment ("+libPath+" vs "+modelPath+"): "+indexDetail+". "
+				+"Stage all four resources for this family (net, start table, stop table, an HBM model "
+				+"file index-aligned with the consensus library), or turn ncrnaboundarynet=f off.");
+		}
+	}
+
+	/** Resolves+loads one kmer-set resource via ProkObject's shared "?prefix_kmers.fa[.gz]"
+	 * logic, or null (with a stderr note, matching loadLongKmersByType's own behavior) if
+	 * the resource isn't staged. kmerResource already includes the "_<k>mers.fa" suffix, so
+	 * this strips it back to the bare prefix ProkObject.loadLongKmersByType expects. */
+	private static LongHashSet loadNcrnaKmerSet(String kmerResource, int kLong){
+		final String suffix="_"+kLong+"mers.fa";
+		if(!kmerResource.endsWith(suffix)){
+			throw new RuntimeException("kmerResource '"+kmerResource+"' doesn't match expected suffix '"+suffix+"'");
+		}
+		final String prefix=kmerResource.substring(0, kmerResource.length()-suffix.length());
+		return ProkObject.loadLongKmersByType(kLong, prefix);
+	}
+
+	/** Loads a sweep's explicit kmer FASTA, or the normal shipped resource when unset. */
+	private static LongHashSet loadEffectiveNcrnaKmerSet(String family, String shippedResource,
+			String familyOverride, int kLong){
+		final String path=(ncrnaSweepTarget(family) && NCRNA_KMERS_OVERRIDE!=null
+			? NCRNA_KMERS_OVERRIDE : familyOverride);
+		if(path==null){return loadNcrnaKmerSet(shippedResource, kLong);}
+		java.io.File f=new java.io.File(path);
+		if(!f.isFile()){
+			throw new IllegalArgumentException("ncRNA kmer file not found for "+family+": "+path);
+		}
+		LongHashSet set=ProkObject.loadLongKmers(path, kLong);
+		System.err.println("Loaded "+set.size()+" "+family+" "+kLong+"-mers from explicit sweep file "+path);
+		return set;
+	}
+
+	static String parseNcrnaFamily(String value){
+		if(value==null){throw new IllegalArgumentException("ncrnafamily requires a value");}
+		String s=value.toLowerCase().replace('-', '_');
+		if(s.equals("rnase_p")){s="rnasep";}
+		else if(s.equals("srpsmall")){s="srp_small";}
+		else if(s.equals("srplarge")){s="srp_large";}
+		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large")){
+			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, or srp_large: "+value);
+		}
+		return s;
+	}
+
+	static float parseFiniteFloat(String flagName, String value){
+		final float x=Float.parseFloat(value);
+		if(!Float.isFinite(x)){throw new IllegalArgumentException(flagName+" must be finite: "+value);}
+		return x;
+	}
+
+	static float parseUnitFloat(String flagName, String value){
+		final float x=parseFiniteFloat(flagName, value);
+		if(x<0 || x>1){throw new IllegalArgumentException(flagName+" must be in [0,1]: "+value);}
+		return x;
+	}
+
+	static boolean ncrnaSweepTarget(String name){
+		return NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals(name);
+	}
+
+	/** Rejects ambiguous global overrides and logically inverted identity thresholds. */
+	static void validateNcrnaSweepOverrides(){
+		final boolean anyGenericOverride=NCRNA_KMERS_OVERRIDE!=null || NCRNA_WINDOW_PAD_OVERRIDE>=0
+			|| !Float.isNaN(NCRNA_ID_PASS_OVERRIDE) || !Float.isNaN(NCRNA_ID_BORDERLINE_OVERRIDE)
+			|| !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE) || !Float.isNaN(NCRNA_SCORE_A_OVERRIDE)
+			|| !Float.isNaN(NCRNA_SCORE_B_OVERRIDE) || !Float.isNaN(NCRNA_COLLAPSE_FRAC_OVERRIDE);
+		final boolean anyFamilyKmers=RNASEP_KMERS_OVERRIDE!=null || SRPSMALL_KMERS_OVERRIDE!=null
+			|| SRPLARGE_KMERS_OVERRIDE!=null;
+		final boolean anyFamilyScores=!Float.isNaN(RNASEP_SCORE_A_OVERRIDE)
+			|| !Float.isNaN(RNASEP_SCORE_B_OVERRIDE) || !Float.isNaN(SRPSMALL_SCORE_A_OVERRIDE)
+			|| !Float.isNaN(SRPSMALL_SCORE_B_OVERRIDE) || !Float.isNaN(SRPLARGE_SCORE_A_OVERRIDE)
+			|| !Float.isNaN(SRPLARGE_SCORE_B_OVERRIDE);
+		if(NCRNA_FAMILY_FILTER!=null && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("ncrnafamily requires ncrna=t");
+		}
+		if(anyFamilyKmers && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("family ncRNA kmer overrides require ncrna=t");
+		}
+		if(anyFamilyScores && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("family ncRNA score overrides require ncrna=t");
+		}
+		if(anyGenericOverride && NCRNA_FAMILY_FILTER==null){
+			throw new IllegalArgumentException("ncRNA sweep overrides require exactly one ncrnafamily=");
+		}
+		if(NCRNA_FAMILY_FILTER!=null){
+			final float defaultPass=NCRNA_FAMILY_FILTER.equals("rnasep") ? 0.65f : 0.70f;
+			final float defaultBorder=NCRNA_FAMILY_FILTER.equals("rnasep") ? 0.58f : 0.64f;
+			final float pass=resolveSweepFloat(NCRNA_FAMILY_FILTER, NCRNA_ID_PASS_OVERRIDE, defaultPass);
+			final float borderline=resolveSweepFloat(NCRNA_FAMILY_FILTER, NCRNA_ID_BORDERLINE_OVERRIDE, defaultBorder);
+			if(borderline>pass){
+				throw new IllegalArgumentException("ncrnaidborderline ("+borderline+") must be <= ncrnaidpass ("+pass+")");
+			}
+		}
+	}
+
+	/** C3 addition (G11, 2026-08-28, Citan's per-index name-verification requirement): the
+	 * first whitespace-delimited token of a header/name string -- see the caller's comment
+	 * for why this (not raw full-string equality) is the robust comparison. Empty string
+	 * (not null) for a null input, so callers can uniformly treat "" as the empty-token
+	 * case to reject, without a separate null check. */
+	private static String firstToken(String s){
+		if(s==null){return "";}
+		final int i=s.indexOf(' ');
+		final int j=s.indexOf('\t');
+		final int cut=(i<0 ? j : (j<0 ? i : Math.min(i, j)));
+		return cut<0 ? s : s.substring(0, cut);
+	}
+
+	/** C3 addition (G11, 2026-08-28, Citan's uniqueness requirement): the model-name array
+	 * from a BaseGraph[] (for uniformly reusing findDuplicateOrEmptyToken on either side of
+	 * the fasta-vs-hbm comparison). Individual null entries map to null (firstToken treats
+	 * null as ""), so a null BaseGraph in the array surfaces as an empty-token rejection
+	 * rather than an NPE. */
+	private static String[] modelNamesOf(consensus.BaseGraph[] models){
+		String[] out=new String[models.length];
+		for(int i=0; i<models.length; i++){out[i]=(models[i]==null ? null : models[i].name);}
+		return out;
+	}
+
+	/** C3 addition (G11, 2026-08-28, Citan's uniqueness requirement): scans `names` (already
+	 * length-matched to the library by the caller), normalizing each to firstToken, and
+	 * returns a diagnostic string identifying the FIRST empty-token or duplicate-token
+	 * violation found, or null if all normalized tokens are non-empty and unique. `side` is
+	 * "fasta" or "hbm", folded into the message so a caller doesn't have to. Checked before
+	 * any per-index equality comparison -- a duplicate on either side means first-token
+	 * matching alone cannot distinguish a correct pairing from a reorder hiding behind it. */
+	private static String findDuplicateOrEmptyToken(String side, String[] names){
+		java.util.HashMap<String,Integer> seen=new java.util.HashMap<>();
+		for(int i=0; i<names.length; i++){
+			final String tok=firstToken(names[i]);
+			if(tok.isEmpty()){
+				return side+" index "+i+" has an empty/null normalized name (raw='"+names[i]+"')";
+			}
+			final Integer prior=seen.put(tok, i);
+			if(prior!=null){
+				return side+" indices "+prior+" and "+i+" both normalize to '"+tok
+					+"' (raw='"+names[prior]+"' vs '"+names[i]+"') -- normalized names must be unique "
+					+"for per-index alignment to be verifiable.";
+			}
+		}
+		return null;
+	}
+
+	/** C3 addition (G11, 2026-08-28): family-mean length for the boundary NN's lengthRatio
+	 * feature, matching NcrnaBoundaryVectorGen's own medianLength helper exactly (same
+	 * formula, duplicated rather than shared since that method is private in a different
+	 * class and this is a 4-line accessor, not worth widening NcrnaBoundaryVectorGen for). */
+	private static float medianLength(byte[][] library){
+		int[] lens=new int[library.length];
+		for(int i=0; i<library.length; i++){lens[i]=library[i].length;}
+		java.util.Arrays.sort(lens);
+		return lens[lens.length/2];
+	}
+
 	/** Maximum number of reads to process, or -1 for no limit */
 	private long maxReads=-1;
 	/** Whether to attempt merging of overlapping paired reads */
@@ -1754,6 +2237,16 @@ public class CallGenes extends ProkObject {
 
 	/** Count of tRNA genes identified and output */
 	long tRNAOut=0;
+	/** Count of generic ncRNA (RNase P, SRP, ...) genes identified and output. Forward-ported
+	 * from Noire's tree (2026-08-28, C3 merge; Citan's correction) -- GeneCaller already
+	 * increments its own per-instance rnaOut (GeneCaller.java, orf.type==RNA branch), pre-
+	 * dating this merge, but CallGenes never aggregated or reported it -- ncRNA calls were
+	 * silently invisible in the summary/JSON output even when Gate A was on. Aggregated below
+	 * alongside tRNAOut; reported only when a family actually loaded (gated on
+	 * !GeneCaller.ncrnaFamilies.isEmpty(), matching tRNAOut's own calltRNA gate). */
+	long rnaOut=0;
+	/** Completed generic-ncRNA alignments, in GeneCaller.ncrnaFamilies order. */
+	long[] ncrnaAlignments;
 	/** Count of 16S rRNA genes identified and output */
 	long r16SOut=0;
 	/** Count of 23S rRNA genes identified and output */
@@ -1857,6 +2350,72 @@ public class CallGenes extends ProkObject {
 	 * dispatch; whichever of the two is left null falls back to trnaBoundaryNetPath (backward
 	 * compatible with the single-shared-net configuration). See the resolution in parse(). */
 	private String trnaBoundary5NetPath=null, trnaBoundary3NetPath=null;
+
+	/** Gate A (Noire's ncRNA-family-loading work, forward-ported 2026-08-28, C3 merge):
+	 * generic ncRNA family loading (RNase P, SRP small/large) is OFF by default (Citan's
+	 * explicit requirement -- Brian shipped ncRNAs off; this is NOT the same shipped-default-
+	 * on treatment tRNA's boundary NN got above). ncrna=t / generalncrna=t turns it on.
+	 * When false, loadNcrnaResources() is never called at all -- zero startup cost, and
+	 * GeneCaller.ncrnaFamilies stays empty, so every ncRNA-gated code path (the
+	 * !ncrnaFamilies.isEmpty() checks in GeneCaller) is a no-op, byte-identical to before
+	 * this merge. The loader method itself stays public/callable directly (e.g. by
+	 * NcrnaBoundaryVectorGen's training-vector generator, or eval scripts) -- this flag only
+	 * gates PRODUCTION callgenes invocations. */
+	static boolean NCRNA_FAMILIES_ENABLED=false;
+	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
+	 * ncRNA boundary-precision-NN refinement, subordinate to Gate A -- ncrna=t alone gives
+	 * plain scavenger calling with no boundary refinement; ncrnaboundarynet=t additionally
+	 * attempts to lazy-load each family's boundary net/tables/model (see addNcrnaFamily).
+	 * OFF by default, matching Gate A. REQUIRES Gate A: ncrnaboundarynet=t with ncrna=f is
+	 * REJECTED LOUDLY at parse time (Citan's correction, 2026-08-28), not a silent no-op --
+	 * see the assert in parse(). */
+	static boolean NCRNA_BOUNDARY_NN_ENABLED=false;
+
+	/** P1 (Brian via Citan, 2026-08-28): per-family scavenger candidate-window padding
+	 * overrides. -1 means unset -- loadNcrnaResources() uses each family's shipped default
+	 * (rnasep 320 / srp_small 75 / srp_large 250) when the corresponding flag is absent.
+	 * A non-negative value passed via
+	 * rnaseppad=/srpsmallpad=/srplargepad= (validated >=0 in parse()) overrides ONLY that
+	 * family's windowPad argument to addNcrnaFamily; the other two families are untouched.
+	 * Deliberately narrow: does not touch NcrnaScavenger's window-construction logic itself,
+	 * only the constant CallGenes has always passed into it. */
+	static int RNASEP_PAD_OVERRIDE=-1;
+	static int SRPSMALL_PAD_OVERRIDE=-1;
+	static int SRPLARGE_PAD_OVERRIDE=-1;
+
+	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
+	 * family so a command cannot silently apply one value to biologically different callers. */
+	static String NCRNA_FAMILY_FILTER=null;
+	static String NCRNA_KMERS_OVERRIDE=null;
+	static String RNASEP_KMERS_OVERRIDE=null;
+	static String SRPSMALL_KMERS_OVERRIDE=null;
+	static String SRPLARGE_KMERS_OVERRIDE=null;
+	static int NCRNA_WINDOW_PAD_OVERRIDE=-1;
+	static float NCRNA_ID_PASS_OVERRIDE=Float.NaN;
+	static float NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
+	static float NCRNA_HBM_PASS_OVERRIDE=Float.NaN;
+	static float NCRNA_SCORE_A_OVERRIDE=Float.NaN;
+	static float NCRNA_SCORE_B_OVERRIDE=Float.NaN;
+	static float RNASEP_SCORE_A_OVERRIDE=Float.NaN;
+	static float RNASEP_SCORE_B_OVERRIDE=Float.NaN;
+	static float SRPSMALL_SCORE_A_OVERRIDE=Float.NaN;
+	static float SRPSMALL_SCORE_B_OVERRIDE=Float.NaN;
+	static float SRPLARGE_SCORE_A_OVERRIDE=Float.NaN;
+	static float SRPLARGE_SCORE_B_OVERRIDE=Float.NaN;
+	static float NCRNA_COLLAPSE_FRAC_OVERRIDE=Float.NaN;
+
+	/** Gate A/B combination validator (Citan's correction, 2026-08-28), factored out of
+	 * parse() into its own package-visible, directly testable method: ncrnaboundarynet=t
+	 * with ncrna=f is a nonsensical combination (nothing to attach boundary refinement to),
+	 * and must fail loud as invalid input rather than silently no-op. Reads the two static
+	 * gate fields directly (not parameterized) since parse() has no other state to pass and
+	 * a test can simply set the fields before calling. */
+	static void validateNcrnaGateCombo(){
+		assert(!NCRNA_BOUNDARY_NN_ENABLED || NCRNA_FAMILIES_ENABLED) : "ncrnaboundarynet=t requires "
+			+"ncrna=t (or generalncrna=t) -- boundary refinement has no families to attach to "
+			+"when generic ncRNA calling itself is off.";
+	}
+
 	/** Output filename for statistics summary */
 	private String outStats="stderr";
 	/** Output filename for gene length histogram */

@@ -2,6 +2,8 @@ package prok;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
 
 import consensus.BaseGraph;
 import dna.AminoAcid;
@@ -779,17 +781,18 @@ public class TrnaCaller extends ProkObject {
 	public ArrayList<Orf> scavengeTrnas(String name, byte[] bases, int strand, ArrayList<int[]> called){
 		ArrayList<Orf> results=new ArrayList<>();
 		if((!SCAVENGE && !SCAVENGE_ONLY) || bases==null || bases.length<MIN_TRNA || trnaLibrary==null || ProkObject.trnaKmers==null){return results;}
+		final int initialClaimCount=called.size();
 		int[] hitPositions=findKmerHitPositions(bases);
 		if(hitPositions.length==0){return results;}
 		ArrayList<int[]> windows=buildCandidateWindows(hitPositions, bases.length);
 		windows=collapseByIntersection(windows);
 		windows=subtractClaimed(windows, called);
 		for(int[] w : windows){
-			Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
-			if(orf!=null){
-				called.add(new int[]{orf.start, orf.stop});
-				results.add(orf);
-			}
+			alignWindow(name, bases, strand, w[0], w[1], results);
+		}
+		if(SCAV_MULTILOCUS){coalesceOverlapping(results);}
+		for(Orf orf : results){
+			called.add(new int[]{orf.start, orf.stop});
 		}
 		if(SCAVENGE_PASS2){
 			int[] nearHits=findNearbyUnclaimed(hitPositions, called, bases.length);
@@ -797,14 +800,20 @@ public class TrnaCaller extends ProkObject {
 				ArrayList<int[]> pass2Windows=buildCandidateWindows(nearHits, bases.length);
 				pass2Windows=collapseByIntersection(pass2Windows);
 				pass2Windows=subtractClaimed(pass2Windows, called);
+				ArrayList<Orf> pass2=new ArrayList<>();
 				for(int[] w : pass2Windows){
-					Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
-					if(orf!=null){
-						called.add(new int[]{orf.start, orf.stop});
-						results.add(orf);
-					}
+					alignWindow(name, bases, strand, w[0], w[1], pass2);
+				}
+				results.addAll(pass2);
+				if(!SCAV_MULTILOCUS){
+					for(Orf orf : pass2){called.add(new int[]{orf.start, orf.stop});}
 				}
 			}
+		}
+		if(SCAV_MULTILOCUS){
+			coalesceOverlapping(results);
+			while(called.size()>initialClaimCount){called.remove(called.size()-1);}
+			for(Orf orf : results){called.add(new int[]{orf.start, orf.stop});}
 		}
 		if(annotate && INTRON_ANTICODON_RECOVERY && !results.isEmpty()){
 			recoverIntronAnticodons(bases, results);
@@ -1001,36 +1010,83 @@ public class TrnaCaller extends ProkObject {
 		}
 	}
 
-	private Orf alignWindow(String name, byte[] bases, int strand, int wStart, int wStop){
+	void alignWindow(String name, byte[] bases, int strand, int wStart, int wStop, ArrayList<Orf> output){
 		final int wLen=wStop-wStart+1;
-		if(wLen<MIN_TRNA){return null;}
+		if(wLen<MIN_TRNA){return;}
 		byte[] seq=Arrays.copyOfRange(bases, wStart, wStop+1);
 		final int khits=trnaKmerHits(seq);
-		if(khits<MIN_TRNA_KHITS){return null;}
+		if(khits<MIN_TRNA_KHITS){return;}
 		final int topN=INDEX_TOP_N_OVERRIDE>0 ? INDEX_TOP_N_OVERRIDE : INDEX_TOP_N_DEFAULT;
 		int[] shortlist=shortlistByKmer(seq, topN);
-		float bestId=0; int bestModel=-1;
-		int bestStart=0, bestStop=wLen-1;
+		ensureCandidateCapacity(shortlist.length);
+		int candidateCount=0;
 		if(wLen>SCAV_QUANTUM_THRESH){
 			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				float id=QuantumAligner.alignStatic(trnaLibrary[m], seq, pos);
 				alignmentCount++;
-				if(id>bestId){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
+				if(id>=ID_BORDERLINE){
+					candidateModels[candidateCount]=m;
+					candidateStarts[candidateCount]=pos[0];
+					candidateStops[candidateCount]=pos[1];
+					candidateIds[candidateCount]=id;
+					candidateCount++;
+				}
 			}
 		}else{
+			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
-				float id=ScrabbleAligner.alignStatic(seq, trnaLibrary[m], null);
+				final boolean modelIsQuery=(trnaLibrary[m].length<seq.length);
+				float id=(modelIsQuery ? ScrabbleAligner.alignStatic(trnaLibrary[m], seq, pos)
+					: ScrabbleAligner.alignStatic(seq, trnaLibrary[m], null));
 				alignmentCount++;
-				if(id>bestId){bestId=id; bestModel=m;}
+				if(id>=ID_BORDERLINE){
+					candidateModels[candidateCount]=m;
+					candidateStarts[candidateCount]=(modelIsQuery ? pos[0] : 0);
+					candidateStops[candidateCount]=(modelIsQuery ? pos[1] : wLen-1);
+					candidateIds[candidateCount]=id;
+					candidateCount++;
+				}
 			}
 		}
-		if(bestId<ID_BORDERLINE || bestModel<0){return null;}
+		if(candidateCount<1){return;}
+		if(!SCAV_MULTILOCUS){
+			int best=0;
+			for(int i=1; i<candidateCount; i++){
+				if(candidateIds[i]>candidateIds[best]){best=i;}
+			}
+			addWindowCandidate(name, bases, strand, wStart, seq.length, shortlist, best, output);
+			return;
+		}
+
+		for(int i=0; i<candidateCount; i++){candidateParents[i]=i; candidateBest[i]=-1;}
+		for(int i=0; i<candidateCount; i++){
+			for(int j=i+1; j<candidateCount; j++){
+				if(sameLocus(candidateStarts[i], candidateStops[i], candidateStarts[j], candidateStops[j])){
+					unionCandidates(i, j);
+				}
+			}
+		}
+		for(int i=0; i<candidateCount; i++){
+			final int root=findCandidateRoot(i), old=candidateBest[root];
+			if(old<0 || candidateIds[i]>candidateIds[old]){candidateBest[root]=i;}
+		}
+		for(int i=0; i<candidateCount; i++){
+			final int root=findCandidateRoot(i);
+			if(candidateBest[root]==i){addWindowCandidate(name, bases, strand, wStart, seq.length, shortlist, i, output);}
+		}
+	}
+
+	private void addWindowCandidate(String name, byte[] bases, int strand, int wStart, int windowLength,
+			int[] shortlist, int candidate, ArrayList<Orf> output){
+		final float bestId=candidateIds[candidate];
+		final int bestModel=candidateModels[candidate];
+		final int bestStart=candidateStarts[candidate], bestStop=candidateStops[candidate];
 		final int orfStart=wStart+bestStart;
 		final int orfStop=wStart+bestStop;
-		if(orfStop-orfStart<MIN_TRNA){return null;}
+		if(orfStop-orfStart<MIN_TRNA){return;}
 		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, tRNA);
 		orf.orfScore=bestId*100;
 
@@ -1043,8 +1099,9 @@ public class TrnaCaller extends ProkObject {
 				orf.trnaModel=modelNames[bestModel];
 				annotateAndTrim(orf, bases, bestModel, bestModel);
 			}
-			if(SHORTLIST_STATS){logShortlistStat(bestModel, seq.length);}
-			return orf;
+			if(SHORTLIST_STATS){logShortlistStat(bestModel, windowLength);}
+			output.add(orf);
+			return;
 		}else{
 			//Borderline (window bestId in [ID_BORDERLINE, ID_PASS)): re-align the trimmed span with
 			//ScrabbleAligner.  Accept if any model hits ID_PASS on the trimmed span (restores verifyOrf's
@@ -1069,19 +1126,74 @@ public class TrnaCaller extends ProkObject {
 					orf.trnaModel=modelNames[bestReModel];
 					annotateAndTrim(orf, bases, bestReModel, bestReModel);
 				}
-				if(SHORTLIST_STATS){logShortlistStat(bestReModel, seq.length);}
-				return orf;
+				if(SHORTLIST_STATS){logShortlistStat(bestReModel, windowLength);}
+				output.add(orf);
+				return;
 			}else if(bestHbm>=HBM_PASS && bestHbmModel>=0){
 				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
 					orf.trnaModel=modelNames[bestHbmModel];
 					annotateAndTrim(orf, bases, bestHbmModel, bestHbmModel);
 				}
-				if(SHORTLIST_STATS){logShortlistStat(bestHbmModel, seq.length);}
-				return orf;
+				if(SHORTLIST_STATS){logShortlistStat(bestHbmModel, windowLength);}
+				output.add(orf);
 			}
 		}
-		return null;
 	}
+
+	private void ensureCandidateCapacity(int size){
+		if(candidateModels.length>=size){return;}
+		final int capacity=Tools.max(size, candidateModels.length*2+1);
+		candidateModels=Arrays.copyOf(candidateModels, capacity);
+		candidateStarts=Arrays.copyOf(candidateStarts, capacity);
+		candidateStops=Arrays.copyOf(candidateStops, capacity);
+		candidateParents=Arrays.copyOf(candidateParents, capacity);
+		candidateBest=Arrays.copyOf(candidateBest, capacity);
+		candidateIds=Arrays.copyOf(candidateIds, capacity);
+	}
+
+	private int findCandidateRoot(int x){
+		int root=x;
+		while(candidateParents[root]!=root){root=candidateParents[root];}
+		while(candidateParents[x]!=x){int next=candidateParents[x]; candidateParents[x]=root; x=next;}
+		return root;
+	}
+
+	private void unionCandidates(int a, int b){
+		final int rootA=findCandidateRoot(a), rootB=findCandidateRoot(b);
+		if(rootA!=rootB){candidateParents[rootB]=rootA;}
+	}
+
+	private static boolean sameLocus(int startA, int stopA, int startB, int stopB){
+		final int overlap=Tools.min(stopA, stopB)-Tools.max(startA, startB)+1;
+		if(overlap<1){return false;}
+		final int shorter=Tools.min(stopA-startA+1, stopB-startB+1);
+		return overlap>=shorter*SCAV_LOCUS_OVERLAP_FRAC;
+	}
+
+	static void coalesceOverlapping(ArrayList<Orf> list){
+		if(list.size()<2){return;}
+		Collections.sort(list, ORF_QUALITY_COMPARATOR);
+		int kept=0;
+		for(int i=0; i<list.size(); i++){
+			final Orf candidate=list.get(i);
+			boolean duplicate=false;
+			for(int j=0; j<kept && !duplicate; j++){
+				final Orf old=list.get(j);
+				duplicate=(candidate.strand==old.strand && sameLocus(candidate.start, candidate.stop, old.start, old.stop));
+			}
+			if(!duplicate){list.set(kept++, candidate);}
+		}
+		while(list.size()>kept){list.remove(list.size()-1);}
+		Collections.sort(list);
+	}
+
+	private static final Comparator<Orf> ORF_QUALITY_COMPARATOR=new Comparator<Orf>(){
+		@Override
+		public int compare(Orf a, Orf b){
+			//Collections.sort is stable: exact score ties retain established window/shortlist order.
+			return Float.compare(b.orfScore, a.orfScore);
+		}
+	};
 
 	/**
 	 * Long-kmer pre-filter (Brian): counts how many of seq's forward k-mers (k=kLongTRna, default 17)
@@ -1140,6 +1252,10 @@ public class TrnaCaller extends ProkObject {
 	private final TrnaKmerIndex kmerIndex;
 	/** Per-model anticodon start position in the consensus, or -1; null when not annotating */
 	private final int[] acPositions;
+	/** Reused primitive scratch for the per-window multi-locus shortlist scan. */
+	private int[] candidateModels=new int[0], candidateStarts=new int[0], candidateStops=new int[0];
+	private int[] candidateParents=new int[0], candidateBest=new int[0];
+	private float[] candidateIds=new float[0];
 	/** This instance's own working copy of BOUNDARY_5_NET_TEMPLATE/BOUNDARY_3_NET_TEMPLATE
 	 * (null if the feature is off), cloned once in the constructor -- see the constructor
 	 * comment for why a shared static net cannot be queried concurrently. */
@@ -1312,6 +1428,10 @@ public class TrnaCaller extends ProkObject {
 	static int SCAV_QUANTUM_THRESH=120;
 	static int SCAV_NEARBY=200;
 	static float SCAV_COLLAPSE_FRAC=0.9f;
+	/** Return independently aligned, nonoverlapping loci from one scavenger window. */
+	static boolean SCAV_MULTILOCUS=true;
+	/** Min overlap fraction of the shorter aligned span to treat two calls as one locus. */
+	static float SCAV_LOCUS_OVERLAP_FRAC=0.9f;
 	static boolean earlyExit=true;
 	//Raised 10->20 to the measured-best scavenger eval config (Brian, 2026-08-16); flag patience= overrides.
 	static int earlyExitPatience=20;

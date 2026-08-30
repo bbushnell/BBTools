@@ -9,6 +9,8 @@ import idaligner.AlignmentStats;
 import idaligner.QuantumAligner;
 import idaligner.ScrabbleAligner;
 import map.LongHashSet;
+import ml.CellNet;
+import shared.KillSwitch;
 import shared.Tools;
 import structures.IntList;
 
@@ -49,6 +51,64 @@ public class NcrnaScavenger {
 			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
 			int indexK_, int indexTopN_, boolean adaptive_,
 			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_){
+		this(library_, models_, modelNames_, kmerSet_, kLong_, minLen_, windowPad_,
+				indexK_, indexTopN_, adaptive_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_,
+				0f, 20f, 0.75f, 0.65f);
+	}
+
+	/** Forward-ported from Noire's ncRNA-family-loading tree (2026-08-28, C3 merge) -- see
+	 * NcrnaFamily's matching constructor javadoc for the scoreA/scoreB/idPass/idBorderline
+	 * rationale (Noire's #1 recall lever, +11.5pp rnasep). idPass/idBorderline are now
+	 * FINAL, set here -- previously mutable instance fields defaulted to 0.75f/0.65f
+	 * (unchanged as the fallback defaults for this overload's own delegation below). */
+	public NcrnaScavenger(byte[][] library_, BaseGraph[] models_, String[] modelNames_,
+			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
+			int indexK_, int indexTopN_, boolean adaptive_,
+			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_,
+			float scoreA_, float scoreB_, float idPass_, float idBorderline_){
+		this(library_, models_, modelNames_, kmerSet_, kLong_, minLen_, windowPad_,
+				indexK_, indexTopN_, adaptive_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_,
+				scoreA_, scoreB_, idPass_, idBorderline_,
+				null, null, null, null, -1, -1, -1, -1, 0f);
+	}
+
+	/** Full constructor, adding C3's boundary-precision-NN resources (Noire's spec,
+	 * plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28). boundary5NetTemplate==null
+	 * means OFF -- structural, matches NcrnaFamily's own default. Per-instance CLONES its
+	 * own net copies from the shared read-only templates (mirrors TrnaCaller's
+	 * boundary5Net/boundary3Net constructor-clone pattern exactly, same reason: CellNet.
+	 * feedForward mutates per-Cell state, so concurrent use of ONE net object across
+	 * per-thread NcrnaScavenger instances would corrupt it). meanLen is asserted >0
+	 * whenever a template is given -- there is no safe shared default across families of
+	 * very different length (rnasep ~380bp vs srp_small ~95bp), so a caller passing a real
+	 * net without a real meanLen is a construction-time bug, not a runtime one -- fail
+	 * loud immediately rather than silently score every candidate with lengthRatio=0. */
+	public NcrnaScavenger(byte[][] library_, BaseGraph[] models_, String[] modelNames_,
+			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
+			int indexK_, int indexTopN_, boolean adaptive_,
+			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_,
+			float scoreA_, float scoreB_, float idPass_, float idBorderline_,
+			CellNet boundary5NetTemplate, CellNet boundary3NetTemplate,
+			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
+			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
+			float boundaryMeanLen_){
+		this(library_, models_, modelNames_, kmerSet_, kLong_, minLen_, windowPad_,
+				indexK_, indexTopN_, adaptive_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_,
+				scoreA_, scoreB_, idPass_, idBorderline_, boundary5NetTemplate, boundary3NetTemplate,
+				boundaryStartTable_, boundaryStopTable_, boundaryStartInside_, boundaryStartOutside_,
+				boundaryStopInside_, boundaryStopOutside_, boundaryMeanLen_,
+				NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+	}
+
+	public NcrnaScavenger(byte[][] library_, BaseGraph[] models_, String[] modelNames_,
+			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
+			int indexK_, int indexTopN_, boolean adaptive_,
+			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_,
+			float scoreA_, float scoreB_, float idPass_, float idBorderline_,
+			CellNet boundary5NetTemplate, CellNet boundary3NetTemplate,
+			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
+			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
+			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_){
 		library=library_;
 		models=models_;
 		modelNames=modelNames_;
@@ -64,8 +124,27 @@ public class NcrnaScavenger {
 		adaptTopFrac=adaptTopFrac_;
 		adaptQFrac=adaptQFrac_;
 		indexMinHitsDefault=fixedMinHits_;
+		scoreA=scoreA_;
+		scoreB=scoreB_;
+		idPass=idPass_;
+		idBorderline=idBorderline_;
 		kmerIndex=(library!=null ? new TrnaKmerIndex(library, indexK, adaptiveMinHits,
 			adaptFloor, adaptTopFrac, adaptQFrac, indexMinHitsDefault) : null);
+		boundary5Net=(boundary5NetTemplate!=null ? boundary5NetTemplate.copy(false) : null);
+		boundary3Net=(boundary3NetTemplate!=null ? boundary3NetTemplate.copy(false) : null);
+		boundaryStartTable=boundaryStartTable_;
+		boundaryStopTable=boundaryStopTable_;
+		boundaryStartInside=boundaryStartInside_;
+		boundaryStartOutside=boundaryStartOutside_;
+		boundaryStopInside=boundaryStopInside_;
+		boundaryStopOutside=boundaryStopOutside_;
+		boundaryMeanLen=boundaryMeanLen_;
+		boundaryStartOffsets=boundaryStartOffsets_.clone();
+		boundaryStopOffsets=boundaryStopOffsets_.clone();
+		assert(boundary5Net==null || boundaryMeanLen>0) : KillSwitch.assertDie(
+			"NcrnaScavenger built with a boundary-precision net but boundaryMeanLen="+boundaryMeanLen_
+			+" (must be >0) -- lengthRatio=(e-s+1)/meanLen would silently divide by a bogus value for "
+			+"every scored candidate. Fix the caller (NcrnaFamily/CallGenes.loadNcrnaResources).");
 	}
 
 	public long alignmentCount(){return alignmentCount;}
@@ -78,6 +157,7 @@ public class NcrnaScavenger {
 		ArrayList<Orf> results=new ArrayList<>();
 		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return results;}
 		int[] hitPositions=findKmerHitPositions(bases);
+		if(workloadSink!=null){workloadSink.seedHits(name, strand, Arrays.copyOf(hitPositions, hitPositions.length));}
 		if(DEBUG){System.err.println("DEBUG scavenge name="+name+" strand="+strand+" bases.length="+bases.length
 			+" hitPositions="+Arrays.toString(hitPositions));}
 		if(hitPositions.length==0){return results;}
@@ -88,6 +168,7 @@ public class NcrnaScavenger {
 		windows=subtractClaimed(windows, called);
 		if(DEBUG){System.err.println("DEBUG windows after subtractClaimed: "+dumpWindows(windows));}
 		for(int[] w : windows){
+			if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 1, w[0], w[1]);}
 			Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
 			if(DEBUG){System.err.println("DEBUG alignWindow("+w[0]+","+w[1]+") -> "+(orf==null ? "null" : (orf.start+"-"+orf.stop+" score="+orf.orfScore)));}
 			if(orf!=null){
@@ -102,6 +183,7 @@ public class NcrnaScavenger {
 				pass2Windows=collapseByIntersection(pass2Windows);
 				pass2Windows=subtractClaimed(pass2Windows, called);
 				for(int[] w : pass2Windows){
+					if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 2, w[0], w[1]);}
 					Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
 					if(orf!=null){
 						called.add(new int[]{orf.start, orf.stop});
@@ -256,14 +338,23 @@ public class NcrnaScavenger {
 		if(bestId<idBorderline || bestModel<0){return null;}
 		final int orfStart=wStart+bestStart;
 		final int orfStop=wStart+bestStop;
-		if(orfStop-orfStart<minLen){return null;}
+		//Forward-ported from Noire's tree (2026-08-28, C3 merge): inclusive-length check (+1)
+		//alongside the scoreA/scoreB formula below -- the OLD `orfStop-orfStart<minLen` undercounted
+		//an inclusive [orfStart,orfStop] span by one base, the same off-by-one class flagged (but
+		//deliberately NOT fixed) in subtractClaimed's TODO comment; this one Noire did fix, as part
+		//of the same scoreA/scoreB commit that introduced orfLen.
+		if(orfStop-orfStart+1<minLen){return null;}
 		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, ProkObject.RNA);
-		orf.orfScore=bestId*100;
+		final int orfLen=orfStop-orfStart+1;
+		//Forward-ported from Noire's tree (2026-08-28, C3 merge): scoreA/scoreB per-family score
+		//formula replaces the flat bestId*100 -- Noire's #1 recall lever (+11.5pp rnasep).
+		//NcrnaScavenger-only; TrnaCaller's tRNA orfScore (bestId*100) is untouched.
+		orf.orfScore=scoreA+scoreB*orfLen*bestId*bestId;
 
 		if(bestId>=idPass){
 			if(annotate && modelNames!=null && bestModel<modelNames.length){
 				orf.trnaModel=modelNames[bestModel];
-				trimToAlignmentExtent(orf, bases, bestModel);
+				trimToAlignmentExtent(orf, bases, bestModel, wStart, wStop);
 			}
 			return orf;
 		}else{
@@ -290,13 +381,13 @@ public class NcrnaScavenger {
 			if(bestReId>=idPass && bestReModel>=0){
 				if(annotate && modelNames!=null && bestReModel<modelNames.length){
 					orf.trnaModel=modelNames[bestReModel];
-					trimToAlignmentExtent(orf, bases, bestReModel);
+					trimToAlignmentExtent(orf, bases, bestReModel, wStart, wStop);
 				}
 				return orf;
 			}else if(bestHbm>=hbmPass && bestHbmModel>=0){
 				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
 					orf.trnaModel=modelNames[bestHbmModel];
-					trimToAlignmentExtent(orf, bases, bestHbmModel);
+					trimToAlignmentExtent(orf, bases, bestHbmModel, wStart, wStop);
 				}
 				return orf;
 			}
@@ -312,7 +403,11 @@ public class NcrnaScavenger {
 	 * TrnaCaller). Mirrors TrnaCaller.trimOrf's "window within consensus
 	 * span" guard.
 	 */
-	private void trimToAlignmentExtent(Orf orf, byte[] bases, int model){
+	/** Package-visible (was private) so NcrnaBoundaryInstrumentSinkTest can directly construct
+	 * the trim-no-op case (extended window shorter than the model) without needing to coax it
+	 * out of the full scavenge() pipeline's alignment dynamics -- deterministic and fast versus
+	 * fragile fixture engineering for the same real code path. */
+	void trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop){
 		final int xFrom=Tools.max(0, orf.start-trimExt);
 		final int xTo=Tools.min(bases.length-1, orf.stop+trimExt);
 		byte[] seqX=Arrays.copyOfRange(bases, xFrom, xTo+1);
@@ -322,12 +417,92 @@ public class NcrnaScavenger {
 		if(seqX.length>=cons.length){ScrabbleAligner.alignAndTraceStatic(cons, seqX, stats);}
 		else{ScrabbleAligner.alignAndTraceStatic(seqX, cons, stats);}
 		alignmentCount++;
-		if(stats.matchString==null || seqX.length<cons.length){return;}
-		final int rStart=stats.rStart, rStop=stats.rStop;
-		if(rStart<0 || rStop<=rStart || rStop>=seqX.length){return;}
-		orf.start=xFrom+rStart;
-		orf.stop=xFrom+rStop;
+		//Citan, 2026-08-28: the original code `return`ed here on either guard, which ALSO
+		//skipped instrumentation capture for these loci -- silently undercounting the accepted
+		//denominator for exactly the accepted-but-unrefined cases. Restructured to a boolean so
+		//capture always fires once per accepted locus (see below). trimSucceeded is the
+		//STRUCTURAL eligibility signal for downstream bootstrap work: true means orf.start/
+		//orf.stop below are a real post-trim position (usable, pending the driver's own
+		//sweep-reachability check against truth) -- false means they are the untouched raw
+		//alignWindow span and must not be used as if they were a trim result.
+		boolean trimSucceeded=false;
+		if(stats.matchString!=null && seqX.length>=cons.length){
+			final int rStart=stats.rStart, rStop=stats.rStop;
+			if(rStart>=0 && rStop>rStart && rStop<seqX.length){
+				orf.start=xFrom+rStart;
+				orf.stop=xFrom+rStop;
+				trimSucceeded=true;
+			}
+		}
+		//C3 boundary-precision NN (Noire's spec, plans/c3_ncrnaboundaryscorer_spec.md; G11,
+		//2026-08-28): a further small adjustment on top of the alignment-extent snap above,
+		//mirroring TrnaCaller.refineBoundaryNN's placement immediately after its own trim
+		//(TrnaCaller.java:644-658). nnInvoked is EXACTLY the original condition under
+		//which refineBoundaryNN used to run (unreachable at all when either early-return guard
+		//above had fired, AND boundary5Net/boundary3Net non-null) -- boundary5Net==null (the
+		//structural off-by-default) still means this never executes and orf.start/orf.stop are
+		//exactly what the snap above left them, byte-identical to pre-C3 behavior. nnInvoked is
+		//a PRODUCTION-RUN FACT (did this exact call actually run the net), NOT a bootstrap-
+		//suitability signal -- bootstrap capture runs are intentionally NN-off (no net staged
+		//yet), so trimSucceeded=true with nnInvoked=false is the NORMAL, expected bootstrap
+		//state, not a degraded one. Citan, 2026-08-28: renamed from refinementEligible, which
+		//conflated "was the net literally invoked this run" with "is this locus structurally
+		//usable for training" -- they are different questions with different answers during
+		//bootstrap capture.
+		final boolean nnInvoked=trimSucceeded && boundary5Net!=null && boundary3Net!=null;
+		//Boundary-NN instrumentation (Citan/Brian, 2026-08-28): fires for EVERY accepted locus
+		//this method is called on -- not gated on trimSucceeded -- so the accepted denominator
+		//is never undercounted. Single null-check, off by default -- see instrumentSink's
+		//javadoc.
+		if(instrumentSink!=null){captureInstrumentation(orf, bases, model, wStart, wStop, trimSucceeded, nnInvoked);}
+		if(nnInvoked){refineBoundaryNN(orf, bases, model);}
 	}
+
+	/** Builds the private window copy (never a live bases[] reference -- see
+	 * NcrnaBoundaryInstrumentSink's thread-safety javadoc) and invokes the sink. Split out of
+	 * trimToAlignmentExtent so the hot (instrumentation-off) path is a single null-check with
+	 * no other cost. */
+	private void captureInstrumentation(Orf orf, byte[] bases, int model, int wStart, int wStop,
+			boolean trimSucceeded, boolean nnInvoked){
+		final int copyFrom=Tools.max(0, orf.start-INSTRUMENT_CAPTURE_PAD);
+		final int copyTo=Tools.min(bases.length-1, orf.stop+INSTRUMENT_CAPTURE_PAD);
+		final byte[] windowCopy=Arrays.copyOfRange(bases, copyFrom, copyTo+1);
+		instrumentSink.capture(orf.scafName, orf.strand, model, wStart, wStop,
+			orf.start, orf.stop, windowCopy, copyFrom, trimSucceeded, nnInvoked);
+	}
+
+	/** Applies the boundary-precision NN's refinement to an already-trimmed, already-verified
+	 * Orf. Builds a padded window around the current [orf.start,orf.stop] (PAD=10, matching
+	 * TrnaCaller.refineBoundaryNN's convention -- comfortably covers the current per-family
+	 * candidate ranges), then defers to NcrnaBoundaryScorer.refineBoundaries.
+	 * No-op (leaves orf untouched) if the padded window can't hold a valid base candidate. */
+	private void refineBoundaryNN(Orf orf, byte[] bases, int model){
+		final int PAD=10;
+		final int winStart=Tools.max(0, orf.start-PAD);
+		final int winStop=Tools.min(bases.length-1, orf.stop+PAD);
+		final byte[] window=Arrays.copyOfRange(bases, winStart, winStop+1);
+		final int s=orf.start-winStart, e=orf.stop-winStart;
+		if(s<0 || e>=window.length || e-s<15){return;}
+		final float contigGC=contigGC(bases);
+		final BaseGraph modelGraph=(models!=null && model<models.length ? models[model] : null);
+		final int[] offsets=NcrnaBoundaryScorer.refineBoundaries(boundary5Net, boundary3Net, window, s, e,
+			library[model], modelGraph, boundaryStartTable, boundaryStopTable,
+			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
+			contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets);
+		orf.start+=offsets[0];
+		orf.stop+=offsets[1];
+	}
+
+	/** Per-contig GC cache (identity-keyed on the bases[] reference), mirrors TrnaCaller's own
+	 * contigGC cache exactly -- a NcrnaScavenger instance processes one contig/strand's bases[]
+	 * across many calls within one scavenge() invocation, so recomputing GC from scratch per
+	 * call would rescan the whole contig once per locus. */
+	private float contigGC(byte[] bases){
+		if(bases!=gcCacheBases){gcCacheValue=shared.Tools.calcGC(bases); gcCacheBases=bases;}
+		return gcCacheValue;
+	}
+	private byte[] gcCacheBases=null;
+	private float gcCacheValue=0;
 
 	private int kmerHits(byte[] seq){
 		if(kmerSet==null){return Integer.MAX_VALUE;}
@@ -381,8 +556,17 @@ public class NcrnaScavenger {
 	float adaptTopFrac=0.48f;
 	float adaptQFrac=0.072f;
 	int minKmerHits=1;
-	float idPass=0.75f;
-	float idBorderline=0.65f;
+	//Forward-ported from Noire's tree (2026-08-28, C3 merge): idPass/idBorderline are now
+	//FINAL, set unconditionally by every constructor (0.75f/0.65f remain the fallback values
+	//for the 8-arg and 15-arg delegating overloads) -- previously mutable with the same
+	//defaults but never actually reassigned outside a constructor, so this is a safety
+	//tightening, not a behavior change for any existing caller.
+	final float idPass;
+	final float idBorderline;
+	//Forward-ported from Noire's tree (2026-08-28, C3 merge): per-family orfScore formula
+	//constants -- see the 15-arg constructor's javadoc for the full rationale.
+	final float scoreA;
+	final float scoreB;
 	float hbmPass=0.75f;
 	int quantumThresh=120;
 	int nearbyPad=200;
@@ -391,4 +575,74 @@ public class NcrnaScavenger {
 	boolean scavengePass2=true;
 
 	private long alignmentCount=0;
+
+	//C3 boundary-precision-NN resources (G11, 2026-08-28) -- boundary5Net==null (this
+	//instance's default unless the full constructor is used with real templates) means OFF,
+	//structurally: refineBoundaryNN is never called (see trimToAlignmentExtent's pre-call
+	//guard) and these fields are never read. Per-instance CLONES of the family's shared
+	//read-only templates (thread safety -- see the full constructor's javadoc).
+	private final CellNet boundary5Net, boundary3Net;
+	private final TrnaBoundaryFeatures.NinemerTable boundaryStartTable, boundaryStopTable;
+	private final int boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside;
+	private final float boundaryMeanLen;
+	private final int[] boundaryStartOffsets, boundaryStopOffsets;
+
+	//Boundary-NN instrumentation (Citan/Brian, 2026-08-28) -- opt-in, off by default. A setter
+	//rather than another constructor param: NcrnaScavenger already has 3 overloaded
+	//constructors with 8-16 params each; threading one more opt-in field through all of them
+	//would touch every call site (CallGenes/NcrnaFamily/GeneCaller) for a feature that's off in
+	//every production run. Null-checked once per ACCEPTED locus only (see
+	//trimToAlignmentExtent) -- not the per-candidate-window hot path, so this costs nothing on
+	//the scan loop either way.
+	private NcrnaBoundaryInstrumentSink instrumentSink=null;
+
+	//B4 seed-trigger/workload instrumentation (Citan/G11, 2026-08-29) -- opt-in, off by default,
+	//same cost model as instrumentSink above (single null-check per call site, zero cost when
+	//off). Separate field from instrumentSink: different question (workload/gate-metric capture
+	//on EVERY scanned strand and EVERY scheduled window, vs accepted-locus-only boundary state),
+	//different consumer (a B4/B5 family evaluator driver, not boundary-NN training).
+	private NcrnaWorkloadInstrumentSink workloadSink=null;
+
+	/** Arms (or disarms, via null) B4 workload instrumentation capture. Package-visible: only an
+	 * evaluation driver in this package should call this, mirroring setInstrumentSink's scoping
+	 * rationale (never wired to a production CallGenes flag without an explicit opt-in gate). No
+	 * arm-time validation needed here (unlike setInstrumentSink's modelNames-length assert) --
+	 * seedHits/scheduledWindow never index into modelNames, so there is no equivalent silent-skip
+	 * hazard to guard against at arm time. */
+	void setWorkloadSink(NcrnaWorkloadInstrumentSink sink){workloadSink=sink;}
+
+	/** Arms (or disarms, via null) boundary-NN instrumentation capture. Package-visible: only
+	 * an instrumentation driver in this package should call this, never production CallGenes
+	 * flag plumbing without an explicit opt-in flag gating it. */
+	/** Fail-loud arming, per Citan (2026-08-28): all 3 accepted branches in alignWindow call
+	 * trimToAlignmentExtent only inside `if(annotate && modelNames!=null && bestModel&lt;
+	 * modelNames.length)` -- if modelNames were null or shorter than library, an accepted locus
+	 * would silently skip trim AND capture entirely, undercounting the accepted denominator
+	 * again, exactly the class of bug just fixed for the trim-guard case. Validating at ARM time
+	 * (not silently at run time) guarantees that once instrumentation is successfully armed,
+	 * every accepted bestModel is GUARANTEED to be a valid modelNames index, so this specific
+	 * gate can never again be the reason a capture is skipped. A plain assert (not
+	 * KillSwitch.assertDie): this runs on the single calling thread that builds and arms an
+	 * instrumentation driver, never a producer/consumer worker thread, so an AssertionError here
+	 * cannot leave anything else silently hung -- the textbook case for a plain assert per the
+	 * assertions skill. Sink-off (sink==null) never runs this check -- zero change to production
+	 * arming behavior (there is none) or cost. */
+	void setInstrumentSink(NcrnaBoundaryInstrumentSink sink){
+		if(sink!=null){
+			assert(modelNames!=null && modelNames.length==library.length) : "Cannot arm boundary-NN "
+				+"instrumentation: modelNames is "+(modelNames==null ? "null" : "length "+modelNames.length)
+				+" but library has "+(library==null ? "null" : ""+library.length)+" models -- they must be "
+				+"non-null and equal length, or alignWindow's annotate/modelNames guard would silently skip "
+				+"trim+capture for some accepted loci (NcrnaScavenger.java, the 3 trimToAlignmentExtent call "
+				+"sites), undercounting the accepted denominator just like the trim-guard bug this replaces.";
+		}
+		instrumentSink=sink;
+	}
+
+	/** Padding beyond the post-trim [start,stop] captured into the instrumentation window copy
+	 * -- must cover both the family-configured boundary candidate arrays and the enrichment profile's own local
+	 * +-2 radius plus the widest currently-staged k-mer window (k=11, srp_small) -- 4(sweep)+
+	 * 2(local radius)+11(k)=17 is the true minimum reach past the boundary; 30 leaves real
+	 * margin without meaningfully growing the copy. */
+	static final int INSTRUMENT_CAPTURE_PAD=30;
 }

@@ -110,6 +110,30 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
                 intron-containing archaeal tRNAs.  Measured neutral: unspliced
                 candidates still fail alignment verification.
 
+Conserved ncRNA engineering parameters:
+ncrna=f         Enable generic conserved-ncRNA families (off by default).
+ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
+                    boundary networks.  Requires ncrna=t.
+ncrnafamily=    Select rnasep, srp_small, or srp_large as the target of the
+                generic sweep overrides below.  Other families remain loaded
+                and compete normally; this is not an isolation switch.
+ncrnakmers=     Explicit conserved-kmer fasta for the selected family.
+rnasepkmers=    Explicit RNase-P conserved-kmer fasta.
+srpsmallkmers=  Explicit SRP-small conserved-kmer fasta.
+srplargekmers=  Explicit SRP-large conserved-kmer fasta.
+ncrnaidpass=    Alignment identity that accepts without HBM rescue.
+ncrnaidborderline=  Lowest identity eligible for HBM rescue.
+ncrnahbmpass=   HBM score needed to rescue a borderline alignment.
+ncrnascorea=    Constant A in A+B*length*identity^2.
+ncrnascoreb=    Multiplier B in A+B*length*identity^2.
+rnasepscorea/b= Per-family A/B overrides; unlike ncrnascorea/b these do not
+srpsmallscorea/b=  require ncrnafamily= and may be combined in one run.
+srplargescorea/b=  Explicit family values take precedence over generic ones.
+ncrnacollapsefrac=  Overlap fraction used to collapse candidate windows.
+ncrnawindowpad= Candidate padding around conserved-kmer hits.
+                These are measurement controls, not additional shipped
+                defaults; run one family and one varied dimension at a time.
+
 Advanced tRNA candidate-generation thresholds (rarely changed):
 trnaregion=20   Region-open score cutoff.
 trnacand=36     Composite candidate score cutoff (tRNA is very sensitive here).

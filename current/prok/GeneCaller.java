@@ -178,7 +178,7 @@ public class GeneCaller extends ProkObject {
 		
 		ArrayList<Orf>[] rnaLists=null;
 		final int rlen=r.length();
-		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000)){
+		if(calltRNA || (call16S && rlen>800) || (call23S && rlen>1500) || call5S || (call18S && rlen>1000) || !ncrnaFamilies.isEmpty()){
 			rnaLists=makeRnas(name, bases);
 			if(NcrnaScavenger.DEBUG){
 				for(ArrayList<Orf> list : rnaLists){for(Orf o : list){
@@ -260,20 +260,36 @@ public class GeneCaller extends ProkObject {
 		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
 			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
 			for(NcrnaFamily fam : ncrnaFamilies){
-				ncrnaScavengers.add(new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
+				NcrnaScavenger scavenger=new NcrnaScavenger(fam.library, fam.models, fam.modelNames,
 					fam.kmerSet, fam.kLong, fam.minLen, fam.windowPad,
 					fam.indexK, fam.indexTopN, fam.adaptive,
-					fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits));
+					fam.adaptFloor, fam.adaptTopFrac, fam.adaptQFrac, fam.fixedMinHits,
+					fam.scoreA, fam.scoreB, fam.idPass, fam.idBorderline,
+					fam.boundary5NetTemplate, fam.boundary3NetTemplate,
+					fam.boundaryStartTable, fam.boundaryStopTable,
+					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
+					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets);
+				scavenger.hbmPass=fam.hbmPass;
+				scavenger.collapseFrac=fam.collapseFrac;
+				ncrnaScavengers.add(scavenger);
 			}
 		}
+		//Forward-ported from Noire's tree (2026-08-28, C3 merge): a REAL correctness fix,
+		//independent of scoreA/scoreB -- the strand=1 (minus-strand) scavenger pass below was
+		//being handed the SAME forward-strand `bases` as strand=0, so it never actually searched
+		//the reverse complement. Dormant today (ncrnaFamilies is empty unless Gate A is on), but
+		//a genuine bug the moment any family loads. rcBases is computed once per contig, reused
+		//for the whole strand=1 pass (not per-family), matching the cost profile of the tRNA path.
+		final byte[] rcBases=(ncrnaScavengers!=null ? AminoAcid.reverseComplementBases(bases) : null);
 		for(int strand=0; strand<2; strand++){
 			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
 			//independent claimed-region list per family per strand -- these families don't
 			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
 			if(ncrnaScavengers!=null){
+				final byte[] strandBases=(strand==0 ? bases : rcBases);
 				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
 					ArrayList<int[]> calledPos=new ArrayList<>();
-					ArrayList<Orf> found=ncrnaScavengers.get(fi).scavenge(name, bases, strand, calledPos);
+					ArrayList<Orf> found=ncrnaScavengers.get(fi).scavenge(name, strandBases, strand, calledPos);
 					if(strand==1 && found!=null){
 						for(Orf orf : found){orf.flip();}
 					}
@@ -532,7 +548,7 @@ public class GeneCaller extends ProkObject {
 //			System.err.println("Comparing to \t"+prev);
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
-				float orfScore=overlap==0 ? orf.orfScore : orf.calcOrfScore(overlap);
+				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -593,7 +609,7 @@ public class GeneCaller extends ProkObject {
 //			System.err.println("Comparing to \t"+prev);
 			if(orf.isValidPrev(prev, maxOverlap)){
 				int overlap=Tools.max(0, prev.stop-orf.start+1);
-				float orfScore=overlap==0 ? orf.orfScore : orf.calcOrfScore(overlap);
+				float orfScore=(overlap==0 || orf.type==ProkObject.RNA) ? orf.orfScore : orf.calcOrfScore(overlap);
 				
 				final float prevScore=prev.pathScore();
 				final int prevLength=prev.pathLength();
@@ -1542,6 +1558,19 @@ public class GeneCaller extends ProkObject {
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
 	 * built from the SHARED read-only family bundle). Null until first use. */
 	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+
+	/** Returns completed alignment counts in the same order as ncrnaFamilies.
+	 * Called only after this GeneCaller's worker thread has terminated. */
+	long[] ncrnaAlignmentCounts(){
+		long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length);
+			for(int i=0; i<ncrnaScavengers.size(); i++){
+				counts[i]=ncrnaScavengers.get(i).alignmentCount();
+			}
+		}
+		return counts;
+	}
 
 	/** Per-instance NNs for ORF scoring (thread-safe copies). Null = use heuristic. */
 	final CellNet orfNet;

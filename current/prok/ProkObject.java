@@ -206,7 +206,11 @@ public abstract class ProkObject {
 	
 	/** Resolves the {@code prefix}_{k}mers.fa[.gz] resource for one type and loads its kmers; returns null (with a stderr
 	 * note) if the file is absent. */
-	private static LongHashSet loadLongKmersByType(int k, String prefix){
+	//Package-visible (was private) -- forward-ported from Noire's tree (2026-08-28, C3 merge):
+	//CallGenes.loadNcrnaKmerSet needs this to load ncRNA family kmer sets (rnasep/srp_*_17mers.fa)
+	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
+	//difference for any existing caller.
+	static LongHashSet loadLongKmersByType(int k, String prefix){
 		String fname=Data.findPath("?"+prefix+"_"+k+"mers.fa", true);
 		if(!new File(fname).exists()){
 			fname=fname+".gz";
@@ -221,7 +225,15 @@ public abstract class ProkObject {
 	}
 
 	/** Streams a FASTA file and collects all length-k forward kmers into a LongHashSet. */
-	private static LongHashSet loadLongKmers(String fname, int k){//TODO: Consider making this a LongHashSet.  No reason not to...
+	//Package-visible (was private), G11 2026-08-29, Citan's requirement: NcrnaFamilyEvaluator
+	//(B4/B5 driver) needs the EXACT production kmer-loading behavior (sliding forward window,
+	//reset on invalid base -- correctly handles both raw one-kmer-per-record candidate FASTAs
+	//and npad-packed multi-kmer-per-record FASTAs the same way) against an ARBITRARY candidate
+	//file path, not the "?prefix_Nmers.fa" resource-resolution convention loadLongKmersByType
+	//is bound to. Reusing this method directly guarantees byte-for-byte parity with production
+	//loading instead of a second reimplementation that could silently drift from it.
+	//Visibility-only change, no behavior difference for any existing caller.
+	static LongHashSet loadLongKmers(String fname, int k){//TODO: Consider making this a LongHashSet.  No reason not to...
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FA, null, false, false);
 		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null);
 		cris.start(); //Start the stream
