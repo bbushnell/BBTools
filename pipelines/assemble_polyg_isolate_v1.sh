@@ -80,6 +80,8 @@ polyfilter.sh "$HIGH" "$ARGS" in=fbt_recal_tile.fq.gz out=polyfilter_fbt_recal_t
 
 
 #Error-correct phase 1
+#TODO: Probable bug - hdist2.fq.gz is produced only by the commented-out residual poly-G command above;
+#a clean run reaches this phase without creating the input.  Likely intended input is polyfilter_fbt_recal_tile.fq.gz.
 bbmerge.sh "$HIGH" "$ARGS" in=hdist2.fq.gz out=ecco.fq.gz ecco mix adapters=adapters.fa kfilter=1 k=31
 
 #Error-correct phase 3; note k has to be less than half of read length here
@@ -111,4 +113,3 @@ bbduk.sh "$LOW" "$ARGS" in=spades_out/contigs.fasta literal=GGGGGGGGGGGGGGGGGGGG
 
 #Test contiguity
 stats.sh in=spades_out/contigs.fasta
-

@@ -226,6 +226,8 @@ public abstract class Tadpole extends ShaveObject{
 				}
 			}else if(a.equals("dot") || a.equals("outdot")){
 				outDot=b;
+			}else if(a.equals("gfa") || a.equals("outgfa")){
+				outGfa=b;
 			}else if(a.equals("buildthreads") || a.equals("bt")){
 				BUILD_THREADS=Integer.parseInt(b);
 			}else if(a.equals("processcontigs")){
@@ -582,7 +584,7 @@ public abstract class Tadpole extends ShaveObject{
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		
-		if(outDot!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover){processContigs=true;}
+		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover){processContigs=true;}
 		if(simpleOmnitigs && graphCover){
 			throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");
 		}
@@ -1341,8 +1343,9 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			bb.append("}\n");
 			bsw.print(bb);
-			bsw.poisonAndWait();
+			errorState|=bsw.poisonAndWait();
 		}
+		if(outGfa!=null){writeGfa();}
 
 		if(simpleOmnitigs || graphCover){
 			t.start();
@@ -1369,6 +1372,41 @@ public abstract class Tadpole extends ShaveObject{
 			outstream.println("Nonreciprocal arcs skipped:\t"+extractor.nonreciprocalEdges()+".");
 			t.stop("Time: ");
 		}
+	}
+
+	/** Writes the post-processed contig graph in GFA 1.0 format. */
+	private void writeGfa(){
+		outstream.println("Writing GFA contig graph.");
+		FileFormat ff=FileFormat.testOutput(outGfa, FileFormat.GFA, null, true, overwrite, append, false);
+		ByteStreamWriter bsw=new ByteStreamWriter(ff);
+		bsw.start();
+		ByteBuilder bb=new ByteBuilder(1000);
+		bb.append("H\tVN:Z:1.0\tTS:Z:BBTools-Tadpole\tKS:i:").append(kbig).nl();
+		for(Contig c : allContigs){
+			final int id=c.id+contigIDOffset;
+			bb.append("S\tcontig_").append(id).tab().append(c.bases);
+			bb.append("\tLN:i:").append(c.length());
+			bb.append("\tDP:f:").append(c.coverage, 1);
+			bb.append("\tTL:Z:").append(codeStrings[c.leftCode]);
+			bb.append("\tTR:Z:").append(codeStrings[c.rightCode]).nl();
+			if(c.leftEdges!=null){
+				for(Edge e : c.leftEdges){appendGfaLink(e, bb);}
+			}
+			if(c.rightEdges!=null){
+				for(Edge e : c.rightEdges){appendGfaLink(e, bb);}
+			}
+			bsw.print(bb);
+			bb.clear();
+		}
+		errorState|=bsw.poisonAndWait();
+	}
+
+	/** Appends one oriented graph edge as a GFA link with unspecified overlap. */
+	private void appendGfaLink(final Edge e, final ByteBuilder bb){
+		bb.append("L\tcontig_").append(e.origin+contigIDOffset).tab();
+		bb.append(e.sourceRight() ? '+' : '-').append("\tcontig_").append(e.destination+contigIDOffset).tab();
+		bb.append(e.destRight() ? '-' : '+').append("\t*");
+		bb.append("\tEC:i:").append(e.depth).append("\tEL:i:").append(e.length).nl();
 	}
 
 	/** Replaces graph contigs with terminal sequence outputs and refreshes assembly statistics. */
@@ -3146,6 +3184,8 @@ public abstract class Tadpole extends ShaveObject{
 	private ArrayList<String> outd1=new ArrayList<String>(), outd2=new ArrayList<String>();
 	/** Output graph */
 	private String outDot=null;
+	/** Output graph in GFA format */
+	private String outGfa=null;
 	
 //	/** Extra reads */
 //	private ArrayList<String> extra=new ArrayList<String>();

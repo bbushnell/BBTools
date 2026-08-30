@@ -54,6 +54,7 @@ out2=<file>         Second output file for paired output.
 outd=<file>         Write discarded reads, if using junk-removal flags.
 dot=<file>          Write a contigs connectivity graph (partially implemented).
                     Not yet supported with multi-K assembly.
+gfa=<file>          Write the post-processed contig graph in GFA 1.0 format.
 dump=<file>         Write kmers and their counts.
 fastadump=t         Write kmers and counts as fasta versus 2-column tsv.
 mincounttodump=1    Only dump kmers with at least this depth.
