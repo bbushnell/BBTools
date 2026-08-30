@@ -63,6 +63,7 @@ public abstract class Tadpole extends ShaveObject{
 		t2.start();
 
 		final Tadpole x=makeTadpole(args, true);
+		x.printExecutionPlan();
 		t2.stop();
 		outstream.println("Initialization Time:      \t"+t2);
 		
@@ -1282,13 +1283,13 @@ public abstract class Tadpole extends ShaveObject{
 			throw new RuntimeException("graphCover requires mode=contig.");
 		}
 		if(resolveRepeats && crossKGraph()){
-			throw new RuntimeException("resolveRepeats is not yet supported during short-k bridging.");
+			throw new RuntimeException("resolveRepeats is not yet supported during cross-K bridging.");
 		}
 		if(simpleOmnitigs && crossKGraph()){
-			throw new RuntimeException("simpleOmnitigs is not supported on an intermediate short-k bridge graph.");
+			throw new RuntimeException("simpleOmnitigs is not supported on an intermediate cross-K bridge graph.");
 		}
 		if(graphCover && crossKGraph()){
-			throw new RuntimeException("graphCover is not supported on an intermediate short-k bridge graph.");
+			throw new RuntimeException("graphCover is not supported on an intermediate cross-K bridge graph.");
 		}
 //		outstream.println("Initializing contigs.\n");
 		Timer t=new Timer(outstream, true);
@@ -1400,6 +1401,9 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		errorState|=bsw.poisonAndWait();
 	}
+
+	/** Sets deferred GFA output for multi-k final-graph processing. */
+	void setGfaOutput(final String fname){outGfa=fname;}
 
 	/** Appends one oriented graph edge as a GFA link with unspecified overlap. */
 	private void appendGfaLink(final Edge e, final ByteBuilder bb){
@@ -3060,6 +3064,53 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return K-mer table set containing all loaded k-mers
 	 */
 	public abstract AbstractKmerTableSet tables();
+
+	/** Prints the resolved top-level operation plan. */
+	void printExecutionPlan(){
+		final ByteBuilder extras=new ByteBuilder();
+		appendExecutionPlanExtras(extras);
+		printPlanLine("mode", modeName());
+		if(extras.length()>0){printPlanLine("extra", extras.toString());}
+		printPlanLine(processingMode==contigMode ? "assemblek" : "k", kbig);
+		outstream.println();
+	}
+
+	/** Appends enabled non-default operations to a startup plan. */
+	void appendExecutionPlanExtras(final ByteBuilder bb){
+		if(removeDeadEnds){appendPlanWord(bb, "shave");}
+		if(removeBubbles){appendPlanWord(bb, "rinse");}
+		if(BubblePopper.popIndirect){appendPlanWord(bb, "popindirect");}
+		if(BubblePopper.unzipBubbles){appendPlanWord(bb, "unzipbubbles");}
+		if(resolveRepeats){appendPlanWord(bb, "resolverepeats");}
+		if(simpleOmnitigs){appendPlanWord(bb, "simpleomnitigs");}
+		if(graphCover){appendPlanWord(bb, "graphcover");}
+	}
+
+	/** Appends one space-delimited operation name. */
+	static void appendPlanWord(final ByteBuilder bb, final String word){
+		if(bb.length()>0){bb.space();}
+		bb.append(word);
+	}
+
+	/** Prints one aligned startup-plan field. */
+	static void printPlanLine(final String key, final String value){
+		outstream.println(Tools.padRight(key, 11)+value);
+	}
+
+	/** Prints one aligned numeric startup-plan field. */
+	static void printPlanLine(final String key, final int value){
+		outstream.println(Tools.padRight(key, 11)+value);
+	}
+
+	/** Returns the user-facing name of the selected processing mode. */
+	private String modeName(){
+		if(processingMode==contigMode){return "assemble";}
+		if(processingMode==extendMode){return "extend";}
+		if(processingMode==correctMode){return "correct";}
+		if(processingMode==insertMode){return "insert";}
+		if(processingMode==discardMode){return "discard";}
+		return Integer.toString(processingMode);
+	}
 
 	/** Returns the depth of a bridge-walk kmer. */
 	abstract int bridgeCount(Kmer kmer);

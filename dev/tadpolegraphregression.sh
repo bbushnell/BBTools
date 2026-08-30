@@ -47,13 +47,98 @@ runCrossKLeftBridgeTest(){
 	done
 }
 
+runLongKBridgeEligibilityTest(){
+	local temp
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_short_contig.fa" out="$temp/out.fa.gz" \
+		assemblek=31 fusek=none bridgek=60,20 mcs=1 mce=1 mincontig=1 prefilter=f pop=f \
+		ow=t t=1 showstats=f verbose=t 1>"$temp/stdout" 2>"$temp/stderr"
+	if ! grep -Fq "Cross-k endpoints: eligible=2" "$temp/stderr"; then
+		echo "FAIL: long bridge K did not exclude the short contig safely" >&2
+		cat "$temp/stderr" >&2
+		exit 1
+	fi
+	if ! grep -Fq "Cross-k endpoints: eligible=4" "$temp/stderr"; then
+		echo "FAIL: later short bridge K lost the previously ineligible endpoints" >&2
+		cat "$temp/stderr" >&2
+		exit 1
+	fi
+	echo "PASS: longKBridgeSkipsShortContigsWithoutLosingEndpoints"
+}
+
+runLongKBridgeResolutionTest(){
+	local temp before after
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/baseline.fa.gz" \
+		k=31 mcs=1 mce=1 mincontig=1 prefilter=f pop=f ow=t t=1 showstats=f \
+		1>"$temp/baseline.stdout" 2>"$temp/baseline.stderr"
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/bridged.fa.gz" \
+		assemblek=31 fusek=none bridgek=60 mcs=1 mce=1 mincontig=1 prefilter=f pop=f \
+		ow=t t=1 showstats=f 1>"$temp/bridged.stdout" 2>"$temp/bridged.stderr"
+	before="$(zgrep -c '^>' "$temp/baseline.fa.gz")"
+	after="$(zgrep -c '^>' "$temp/bridged.fa.gz")"
+	if [ "$before" != 5 ] || [ "$after" != 3 ]; then
+		echo "FAIL: long-K branch resolution produced $before -> $after contigs instead of 5 -> 3" >&2
+		cat "$temp/bridged.stderr" >&2
+		exit 1
+	fi
+	echo "PASS: longKBridgeResolvesShortKBranch"
+}
+
+runMultiKGfaTest(){
+	local temp headers writes
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/out.fa.gz" \
+		gfa="$temp/out.gfa" assemblek=31 fusek=none bridgek=60 graphk=60 \
+		mcs=1 mce=1 mincontig=1 prefilter=f pop=f ow=t t=1 showstats=f \
+		1>"$temp/stdout" 2>"$temp/stderr"
+	headers="$(grep -c '^H' "$temp/out.gfa")"
+	writes="$(grep -c 'Writing GFA contig graph' "$temp/stderr")"
+	if [ "$headers" != 1 ] || [ "$writes" != 1 ]; then
+		echo "FAIL: multi-K GFA was emitted $writes times with $headers headers" >&2
+		cat "$temp/stderr" >&2
+		exit 1
+	fi
+	echo "PASS: multiKGfaWritesFinalGraphOnce"
+}
+
+runExecutionPlanTest(){
+	local temp actual expected
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/single.fa.gz" \
+		k=31 mcs=1 mce=1 mincontig=1 prefilter=f pop=f ow=t t=1 showstats=f \
+		1>"$temp/single.stdout" 2>"$temp/single.stderr"
+	actual="$(awk '/^mode +/{p=1} p{if($0==""){exit} print}' "$temp/single.stderr")"
+	expected="$(printf 'mode       assemble\nassemblek  31')"
+	if [ "$actual" != "$expected" ]; then
+		echo "FAIL: default startup plan was not minimal" >&2
+		printf 'Expected:\n%s\nObserved:\n%s\n' "$expected" "$actual" >&2
+		exit 1
+	fi
+	"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/multi.fa.gz" \
+		k=96,64,32 wash=t simpleomnitigs=t graphk=96 mcs=1 mce=1 mincontig=1 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/multi.stdout" 2>"$temp/multi.stderr"
+	actual="$(awk '/^mode +/{p=1} p{if($0==""){exit} print}' "$temp/multi.stderr")"
+	expected="$(printf 'mode       assemble\nextra      shave rinse simpleomnitigs\nassemblek  96\nfusek      64,32\nbridgek    64,32\ngraphk     96')"
+	if [ "$actual" != "$expected" ]; then
+		echo "FAIL: multi-K startup plan did not report the resolved phases" >&2
+		printf 'Expected:\n%s\nObserved:\n%s\n' "$expected" "$actual" >&2
+		exit 1
+	fi
+	echo "PASS: startupPlanReportsOnlyRelevantPhases"
+}
+
 runUnifiedMultiGraphTest(){
 	local temp expected rc actual
 	temp="$(mktemp -d)"
 	trap 'rm -rf "$temp"' RETURN
 	expected="CATACTCGCCTCGGCATATGTAGCCCGGAATCATCACACTCCTCAGGGAGCTCCTACTAGCTTGGAGCTCATCGCCGTTCACTCGGACTAACTCTGCAGCAAATGACGCCCGACCACGGTCCCAACTGACATCAGCCGCTTTGATGCGAAGCCAATTTCATTCCTCCTCTATCCTAAGCATCGATCTCTCCAACATCTCGACTCTTGGAG"
 	rc="$(printf '%s' "$expected" | tr ACGT TGCA | rev)"
-	for spec in "default::Reusing shortest-k table for final graph at k=20" \
+	for spec in "default::Loading graph-k table at k=31" \
 		"intermediate:graphk=25:Loading graph-k table at k=25" \
 		"washed:wash=t:Removing dead ends and error bubbles"; do
 		local name="${spec%%:*}"
@@ -81,14 +166,22 @@ runUnifiedMultiGraphTest(){
 		fi
 		for diagnostic in "Graph-k endpoint topology:" "Graph-k unique topology:" \
 			"Graph-k ambiguous topology:" "Graph-k missing topology:" \
-			"Graph-k endpoint seeds:" "Graph-k traversal exits:" "Graph-k tip overlaps:" \
-			"Graph-k overlaps"; do
+			"Graph-k endpoint seeds:" "Graph-k traversal exits:"; do
 			if ! grep -Fq "$diagnostic" "$temp/$name.stderr"; then
 				echo "FAIL: unified multi-k $name did not report '$diagnostic'" >&2
 				cat "$temp/$name.stderr" >&2
 				exit 1
 			fi
 		done
+		if [ "$name" = "intermediate" ]; then
+			for diagnostic in "Graph-k tip overlaps:" "Graph-k overlaps"; do
+				if ! grep -Fq "$diagnostic" "$temp/$name.stderr"; then
+					echo "FAIL: unified multi-k $name did not report '$diagnostic'" >&2
+					cat "$temp/$name.stderr" >&2
+					exit 1
+				fi
+			done
+		fi
 		echo "PASS: unifiedMultiKGraph${name^}"
 	done
 }
@@ -127,5 +220,9 @@ runTest assemble.CrossKTipOverlapperUnitTest
 runTest assemble.SimpleOmnitigExtractorUnitTest
 runTest assemble.TadpoleMultiUnitTest
 runCrossKLeftBridgeTest
+runLongKBridgeEligibilityTest
+runLongKBridgeResolutionTest
+runMultiKGfaTest
+runExecutionPlanTest
 runUnifiedMultiGraphTest
 runQuietMultiGraphTest

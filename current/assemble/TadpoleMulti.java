@@ -9,11 +9,12 @@ import fileIO.ReadWrite;
 import parse.Parse;
 import shared.Timer;
 import shared.Tools;
+import structures.ByteBuilder;
 import ukmer.Kmer;
 
 /**
- * Runs a long-k Tadpole assembly, exhausts exact tip overlaps at every requested
- * shorter k, then bridges graph-disconnected ends with progressively shorter tables.
+ * Runs a Tadpole assembly, exhausts exact tip overlaps at requested shorter kmer
+ * lengths, then bridges graph-disconnected ends with independent kmer tables.
  *
  * @author Brian Bushnell, Noelle
  */
@@ -27,7 +28,8 @@ public class TadpoleMulti {
 	TadpoleMulti(Config config_){config=config_;}
 
 	void process(){
-		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.kmers[0], true), true);
+		final Tadpole longest=Tadpole.makeTadpole(makeArgs(config.assembleK, true), true);
+		config.printExecutionPlan(longest);
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, config.out)){
 			throw new RuntimeException("Can't write output file "+config.out+"; overwrite="+Tadpole.overwrite);
 		}
@@ -43,13 +45,13 @@ public class TadpoleMulti {
 
 		/* Exact terminal overlaps need only contig sequence; exhaust them before rereading the reads. */
 		Tadpole reusableGraphTadpole=null;
-		for(int i=1; i<config.kmers.length; i++){
-			final int k=config.kmers[i], before=contigs.size();
+		for(int i=0; i<config.fuseKs.length; i++){
+			final int k=config.fuseKs[i], before=contigs.size();
 			final Timer timer=new Timer();
 			longest.setContigs(contigs);
 			longest.clearContigEdges();
 			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, k,
-					config.kmers[0]-1, false, minContig);
+					config.assembleK-1, false, minContig);
 			if(overlapper.addEdges()>0){mergeCrossK(longest);}
 			contigs=longest.detachContigs();
 			checkErrorState(longest);
@@ -57,14 +59,14 @@ public class TadpoleMulti {
 			System.err.println("Cross-k overlaps "+k+": "+before+" -> "+contigs.size()+" contigs; "+timer);
 		}
 
-		/* Short-k tables are needed only for unbranched paths across actual sequence gaps. */
-		for(int i=1; i<config.kmers.length; i++){
-			final int k=config.kmers[i], before=contigs.size();
-			final int endpoints=countBridgeEndpoints(contigs);
+		/* Bridge tables are needed only for unbranched paths across actual sequence gaps. */
+		for(int i=0; i<config.bridgeKs.length; i++){
+			final int k=config.bridgeKs[i], before=contigs.size();
+			final int endpoints=countBridgeEndpoints(contigs, k);
 			if(endpoints<2){
 				System.err.println("Cross-k bridges "+k+": skipped; only "+endpoints+" eligible endpoint"+
 						(endpoints==1 ? "." : "s."));
-				break;
+				continue;
 			}
 			final Tadpole tad=Tadpole.makeTadpole(makeArgs(k, false), true);
 			setCrossKGraph(tad, true);
@@ -84,7 +86,7 @@ public class TadpoleMulti {
 
 			contigs=tad.detachContigs();
 			checkErrorState(tad);
-			if(config.graphOperations() && k==config.graphK && i==config.kmers.length-1){
+			if(config.graphOperations() && k==config.graphK && i==config.bridgeKs.length-1){
 				reusableGraphTadpole=tad;
 			}else{tad.tables().clear();}
 			System.gc();
@@ -111,7 +113,9 @@ public class TadpoleMulti {
 			tad.loadKmers(new Timer());
 			tad.cleanLoadedKmers();
 			checkErrorState(tad);
-		}else{System.err.println("Reusing shortest-k table for final graph at k="+config.graphK+".");}
+		}else{
+			System.err.println("Reusing bridge-k table for final graph at k="+config.graphK+".");
+		}
 		setCrossKGraph(tad, false);
 		tad.minContigLen=minContig;
 		tad.refreshGraphEndpoints=true;
@@ -127,10 +131,10 @@ public class TadpoleMulti {
 		tad.clearContigEdges();
 		int graphOverlapBefore=-1;
 		final Timer graphOverlapTimer=new Timer();
-		if(config.graphK<config.kmers[0]){
+		if(config.graphK<config.assembleK){
 			graphOverlapBefore=contigs.size();
 			final CrossKTipOverlapper overlapper=new CrossKTipOverlapper(contigs, config.graphK,
-					config.kmers[0]-1, true, minContig);
+					config.assembleK-1, true, minContig);
 			if(overlapper.addEdges()>0){mergeCrossK(tad);}
 		}
 		final ArrayList<Contig> merged=tad.detachContigs();
@@ -142,6 +146,7 @@ public class TadpoleMulti {
 		tad.resolveRepeats=resolveRepeats;
 		tad.simpleOmnitigs=config.simpleOmnitigs;
 		tad.graphCover=config.graphCover;
+		config.applyFinalGraphOutput(tad);
 		tad.setContigs(merged);
 		tad.clearContigEdges();
 		tad.processContigs();
@@ -157,9 +162,10 @@ public class TadpoleMulti {
 		else{((Tadpole2)tad).crossKGraph=value;}
 	}
 
-	private static int countBridgeEndpoints(ArrayList<Contig> contigs){
+	private static int countBridgeEndpoints(ArrayList<Contig> contigs, final int k){
 		int count=0;
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(c.leftBridgeEndpoint){count++;}
 			if(c.rightBridgeEndpoint){count++;}
 		}
@@ -228,6 +234,8 @@ public class TadpoleMulti {
 			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
 			while(a.startsWith("-")){a=a.substring(1);}
 			if(a.equals("k") && equals>=0 && arg.indexOf(',', equals+1)>=0){return true;}
+			if(a.equals("assemblek") || a.equals("fusek") || a.equals("joink")
+					|| a.equals("bridgek") || a.equals("graphk")){return true;}
 		}
 		return false;
 	}
@@ -235,7 +243,8 @@ public class TadpoleMulti {
 	static class Config {
 
 		Config(String[] args){
-			String kList=null;
+			String kList=null, assembleText=null, fuseText=null, bridgeText=null;
+			boolean assembleExplicit=false, fuseExplicit=false, bridgeExplicit=false, graphExplicit=false;
 			for(String arg : args){
 				final int equals=arg.indexOf('=');
 				String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
@@ -248,14 +257,28 @@ public class TadpoleMulti {
 				final String b=(equals<0 ? null : arg.substring(equals+1));
 				while(a.startsWith("-")){a=a.substring(1);}
 				if(a.equals("k")){kList=b;}
-				else if(a.equals("out") || a.equals("out1") || a.equals("oute") || a.equals("oute1")){out=b;}
+				else if(a.equals("assemblek")){
+					assembleText=b;
+					assembleExplicit=(b==null || !b.equalsIgnoreCase("auto"));
+				}else if(a.equals("fusek") || a.equals("joink")){
+					fuseText=b;
+					fuseExplicit=(b==null || !b.equalsIgnoreCase("auto"));
+				}else if(a.equals("bridgek")){
+					bridgeText=b;
+					bridgeExplicit=(b==null || !b.equalsIgnoreCase("auto"));
+				}else if(a.equals("out") || a.equals("out1") || a.equals("oute") || a.equals("oute1")){out=b;}
 				else if(a.equals("crosskmaxdepthratio") || a.equals("ckmdr")){maxDepthRatio=Float.parseFloat(b);}
 				else if(a.equals("crosskpasses") || a.equals("ckpasses")){passes=Integer.parseInt(b);}
-				else if(a.equals("graphk")){graphK=(b==null || b.equalsIgnoreCase("auto") ? -1 : Integer.parseInt(b));}
+				else if(a.equals("graphk")){
+					graphK=(b==null || b.equalsIgnoreCase("auto") ? -1 : parseK(b, "graphk"));
+					graphExplicit=true;
+				}
 				else if(a.equals("simpleomnitigs") || a.equals("omnitigs")){
 					simpleOmnitigs=Parse.parseBoolean(b);
 				}else if(a.equals("graphcover") || a.equals("pathcover") || a.equals("nonredundantpaths")){
 					graphCover=Parse.parseBoolean(b);
+				}else if(a.equals("gfa") || a.equals("outgfa")){
+					outGfa=b;
 				}else if(a.equals("showstats")){showStats=Parse.parseBoolean(b); common.add(arg);}
 				else if(a.equals("dot") || a.equals("outdot")){
 					throw new RuntimeException("DOT output is not yet supported by TadpoleMulti.");
@@ -263,41 +286,97 @@ public class TadpoleMulti {
 					throw new RuntimeException("TadpoleMulti requires mode=contig.");
 				}else{common.add(arg);}
 			}
-			if(kList==null || kList.indexOf(',')<0){throw new RuntimeException("TadpoleMulti requires at least two comma-delimited k values.");}
-			final String[] split=kList.split(",");
-			kmers=new int[split.length];
-			for(int i=0; i<split.length; i++){
-				final int requested=Integer.parseInt(split[i]);
-				if(requested<1){throw new RuntimeException("Kmer lengths must be positive: "+kList);}
-				kmers[i]=Kmer.getKbig(requested);
-			}
-			if(graphK>0){graphK=Kmer.getKbig(graphK);}
-			Arrays.sort(kmers);
-			for(int i=0, j=kmers.length-1; i<j; i++, j--){
-				final int temp=kmers[i];
-				kmers[i]=kmers[j];
-				kmers[j]=temp;
-			}
-			for(int i=1; i<kmers.length; i++){
-				if(kmers[i]==kmers[i-1]){throw new RuntimeException("Duplicate kmer length: "+kmers[i]);}
+			final int[] shorthand=parseKList(kList, "k", true);
+			if(assembleExplicit){assembleK=parseK(assembleText, "assemblek");}
+			else if(shorthand.length>0){assembleK=shorthand[0];}
+			else{throw new RuntimeException("TadpoleMulti requires k=<list> or assemblek=<value>.");}
+			fuseKs=(fuseExplicit ? parseKList(fuseText, "fusek", true)
+					: selectBelow(shorthand, assembleK));
+			bridgeKs=(bridgeExplicit ? parseKList(bridgeText, "bridgek", true)
+					: (assembleExplicit ? shorthand : selectBelow(shorthand, assembleK)));
+			for(int k : fuseKs){
+				if(k>=assembleK){
+					throw new RuntimeException("fusek values must be shorter than assemblek="+assembleK+": "+k);
+				}
 			}
 			if(out==null){throw new RuntimeException("TadpoleMulti requires an output file.");}
 			if(maxDepthRatio<0){throw new RuntimeException("crosskmaxdepthratio must be nonnegative.");}
 			if(passes<1){throw new RuntimeException("crosskpasses must be positive.");}
 			if(simpleOmnitigs && graphCover){throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");}
 			if(graphOperations()){
-				if(graphK<0){graphK=kmers[kmers.length-1];}
-				if(graphK<kmers[kmers.length-1] || graphK>kmers[0]){
-					throw new RuntimeException("graphk must be between the shortest and longest assembly k: "+graphK);
-				}
-			}else if(graphK>=0){throw new RuntimeException("graphk requires simpleomnitigs=t or graphcover=t.");}
+				if(graphK<0){graphK=assembleK;}
+			}else if(graphExplicit){throw new RuntimeException("graphk requires simpleomnitigs=t, graphcover=t, or graph output.");}
+			else{graphK=assembleK;}
 		}
 
-		boolean graphOperations(){return simpleOmnitigs || graphCover;}
+		private static int parseK(final String text, final String name){
+			if(text==null || text.length()<1){throw new RuntimeException(name+" requires a positive kmer length.");}
+			final int requested=Integer.parseInt(text);
+			if(requested<1){throw new RuntimeException(name+" requires a positive kmer length: "+text);}
+			return Kmer.getKbig(requested);
+		}
+
+		private static int[] parseKList(final String text, final String name, final boolean nullIsEmpty){
+			if(text==null){
+				if(nullIsEmpty){return new int[0];}
+				throw new RuntimeException(name+" requires a comma-delimited kmer list.");
+			}
+			if(text.length()<1 || text.equalsIgnoreCase("none") || text.equalsIgnoreCase("false")
+					|| text.equalsIgnoreCase("f")){return new int[0];}
+			final String[] split=text.split(",");
+			final int[] array=new int[split.length];
+			for(int i=0; i<split.length; i++){array[i]=parseK(split[i], name);}
+			Arrays.sort(array);
+			final int[] descending=new int[array.length];
+			int unique=0, last=-1;
+			for(int i=array.length-1; i>=0; i--){
+				final int value=array[i];
+				if(unique==0 || value!=last){descending[unique++]=value; last=value;}
+			}
+			return Arrays.copyOf(descending, unique);
+		}
+
+		private static int[] selectBelow(final int[] source, final int ceiling){
+			int count=0;
+			for(int k : source){if(k<ceiling){count++;}}
+			final int[] selected=new int[count];
+			int next=0;
+			for(int k : source){if(k<ceiling){selected[next++]=k;}}
+			return selected;
+		}
+
+		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
+		void applyFinalGraphOutput(final Tadpole tad){
+			if(outGfa!=null){tad.setGfaOutput(outGfa);}
+		}
+
+		void printExecutionPlan(final Tadpole tad){
+			final ByteBuilder extras=new ByteBuilder();
+			tad.appendExecutionPlanExtras(extras);
+			if(simpleOmnitigs){Tadpole.appendPlanWord(extras, "simpleomnitigs");}
+			if(graphCover){Tadpole.appendPlanWord(extras, "graphcover");}
+			Tadpole.printPlanLine("mode", "assemble");
+			if(extras.length()>0){Tadpole.printPlanLine("extra", extras.toString());}
+			Tadpole.printPlanLine("assemblek", assembleK);
+			if(fuseKs.length>0){Tadpole.printPlanLine("fusek", toKList(fuseKs));}
+			if(bridgeKs.length>0){Tadpole.printPlanLine("bridgek", toKList(bridgeKs));}
+			if(graphOperations()){Tadpole.printPlanLine("graphk", graphK);}
+			Tadpole.outstream.println();
+		}
+
+		private static String toKList(final int[] array){
+			final ByteBuilder bb=new ByteBuilder(array.length*4);
+			for(int i=0; i<array.length; i++){
+				if(i>0){bb.comma();}
+				bb.append(array[i]);
+			}
+			return bb.toString();
+		}
 
 		final ArrayList<String> common=new ArrayList<String>();
-		final int[] kmers;
-		String out;
+		final int assembleK;
+		final int[] fuseKs, bridgeKs;
+		String out, outGfa;
 		float maxDepthRatio=3;
 		int passes=10;
 		int graphK=-1;

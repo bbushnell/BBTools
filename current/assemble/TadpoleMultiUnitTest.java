@@ -5,15 +5,19 @@ public class TadpoleMultiUnitTest {
 
 	public static void main(String[] args){
 		int failures=0;
-		failures+=run("ascendingKIsSortedDescending", TadpoleMultiUnitTest::ascendingKIsSortedDescending);
-		failures+=run("arbitraryKOrderIsSortedDescending", TadpoleMultiUnitTest::arbitraryKOrderIsSortedDescending);
-		failures+=run("defaultGraphKIsShortest", TadpoleMultiUnitTest::defaultGraphKIsShortest);
-		failures+=run("explicitAutoGraphKIsShortest", TadpoleMultiUnitTest::explicitAutoGraphKIsShortest);
+		failures+=run("shorthandExpandsFromLargest", TadpoleMultiUnitTest::shorthandExpandsFromLargest);
+		failures+=run("explicitAssemblyReclassifiesShorthand", TadpoleMultiUnitTest::explicitAssemblyReclassifiesShorthand);
+		failures+=run("explicitPhaseListsOverrideShorthand", TadpoleMultiUnitTest::explicitPhaseListsOverrideShorthand);
+		failures+=run("singleKHasNoImplicitJoining", TadpoleMultiUnitTest::singleKHasNoImplicitJoining);
+		failures+=run("noneDisablesPhases", TadpoleMultiUnitTest::noneDisablesPhases);
+		failures+=run("explicitAutoUsesShorthand", TadpoleMultiUnitTest::explicitAutoUsesShorthand);
+		failures+=run("duplicateKValuesAreDeduplicated", TadpoleMultiUnitTest::duplicateKValuesAreDeduplicated);
+		failures+=run("defaultGraphKIsAssemblyK", TadpoleMultiUnitTest::defaultGraphKIsAssemblyK);
+		failures+=run("explicitAutoGraphKIsAssemblyK", TadpoleMultiUnitTest::explicitAutoGraphKIsAssemblyK);
 		failures+=run("intermediateGraphKIsAccepted", TadpoleMultiUnitTest::intermediateGraphKIsAccepted);
-		failures+=run("duplicateKIsRejected", TadpoleMultiUnitTest::duplicateKIsRejected);
-		failures+=run("outOfRangeGraphKIsRejected", TadpoleMultiUnitTest::outOfRangeGraphKIsRejected);
+		failures+=run("invalidFuseKIsRejected", TadpoleMultiUnitTest::invalidFuseKIsRejected);
 		failures+=run("unusedGraphKIsRejected", TadpoleMultiUnitTest::unusedGraphKIsRejected);
-		failures+=run("dispatcherDetectsOnlyKLists", TadpoleMultiUnitTest::dispatcherDetectsOnlyKLists);
+		failures+=run("dispatcherDetectsListsAndPhaseFlags", TadpoleMultiUnitTest::dispatcherDetectsListsAndPhaseFlags);
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
 	}
@@ -30,25 +34,65 @@ public class TadpoleMultiUnitTest {
 		}
 	}
 
-	private static void ascendingKIsSortedDescending(){
+	private static void shorthandExpandsFromLargest(){
 		final TadpoleMulti.Config c=config("k=31,63,95,127");
-		checkKmers(c, 127, 95, 63, 31);
+		check(c.assembleK==127, "Wrong assembly k: "+c.assembleK);
+		checkArray(c.fuseKs, 95, 63, 31);
+		checkArray(c.bridgeKs, 95, 63, 31);
 	}
 
-	private static void arbitraryKOrderIsSortedDescending(){
-		final TadpoleMulti.Config c=config("k=63,127,31,95");
-		checkKmers(c, 127, 95, 63, 31);
+	private static void explicitAssemblyReclassifiesShorthand(){
+		final TadpoleMulti.Config c=config("k=63,127,63,31,95", "assemblek=95");
+		check(c.assembleK==95, "Wrong assembly k: "+c.assembleK);
+		checkArray(c.fuseKs, 63, 31);
+		checkArray(c.bridgeKs, 127, 95, 63, 31);
 	}
 
-	private static void defaultGraphKIsShortest(){
+	private static void explicitPhaseListsOverrideShorthand(){
+		final TadpoleMulti.Config c=config("k=128,96,64", "assemblek=96",
+				"fusek=64", "bridgek=32,128,64,96");
+		check(c.assembleK==96, "Wrong assembly k: "+c.assembleK);
+		checkArray(c.fuseKs, 64);
+		checkArray(c.bridgeKs, 128, 96, 64, 32);
+	}
+
+	private static void singleKHasNoImplicitJoining(){
+		final TadpoleMulti.Config c=config("k=96", "graphcover=t");
+		check(c.assembleK==96, "Wrong assembly k: "+c.assembleK);
+		checkArray(c.fuseKs);
+		checkArray(c.bridgeKs);
+	}
+
+	private static void noneDisablesPhases(){
+		final TadpoleMulti.Config c=config("k=128,96,64", "fusek=none", "bridgek=f");
+		checkArray(c.fuseKs);
+		checkArray(c.bridgeKs);
+	}
+
+	private static void explicitAutoUsesShorthand(){
+		final TadpoleMulti.Config c=config("k=64,128,96", "assemblek=auto",
+				"fusek=auto", "bridgek=auto");
+		check(c.assembleK==128, "Wrong auto assembly k: "+c.assembleK);
+		checkArray(c.fuseKs, 96, 64);
+		checkArray(c.bridgeKs, 96, 64);
+	}
+
+	private static void duplicateKValuesAreDeduplicated(){
+		final TadpoleMulti.Config c=config("k=31,63,31,95,63");
+		check(c.assembleK==95, "Wrong assembly k: "+c.assembleK);
+		checkArray(c.fuseKs, 63, 31);
+		checkArray(c.bridgeKs, 63, 31);
+	}
+
+	private static void defaultGraphKIsAssemblyK(){
 		final TadpoleMulti.Config c=config("k=31,63,95", "simpleomnitigs=t");
 		check(c.simpleOmnitigs && !c.graphCover, "Wrong graph mode");
-		check(c.graphK==31, "Default graphk was not shortest: "+c.graphK);
+		check(c.graphK==95, "Default graphk was not assembly k: "+c.graphK);
 	}
 
-	private static void explicitAutoGraphKIsShortest(){
+	private static void explicitAutoGraphKIsAssemblyK(){
 		final TadpoleMulti.Config c=config("k=31,63,95", "simpleomnitigs=t", "graphk=auto");
-		check(c.graphK==31, "Explicit auto graphk was not shortest: "+c.graphK);
+		check(c.graphK==95, "Explicit auto graphk was not assembly k: "+c.graphK);
 	}
 
 	private static void intermediateGraphKIsAccepted(){
@@ -57,21 +101,21 @@ public class TadpoleMultiUnitTest {
 		check(c.graphK==63, "Intermediate graphk changed: "+c.graphK);
 	}
 
-	private static void duplicateKIsRejected(){
-		expectFailure("Duplicate kmer length", "k=31,63,31");
-	}
-
-	private static void outOfRangeGraphKIsRejected(){
-		expectFailure("graphk must be between", "k=31,63,95", "omnitigs=t", "graphk=127");
+	private static void invalidFuseKIsRejected(){
+		expectFailure("fusek values must be shorter", "assemblek=95", "fusek=127,95,63");
 	}
 
 	private static void unusedGraphKIsRejected(){
 		expectFailure("graphk requires", "k=31,63", "graphk=47");
 	}
 
-	private static void dispatcherDetectsOnlyKLists(){
+	private static void dispatcherDetectsListsAndPhaseFlags(){
 		check(TadpoleMulti.hasMultipleK(new String[] {"in=x", "K=31,63", "out=y"}),
 				"K list was not detected");
+		check(TadpoleMulti.hasMultipleK(new String[] {"in=x", "k=95", "bridgek=127,63", "out=y"}),
+				"Phase-specific K flag was not detected");
+		check(TadpoleMulti.hasMultipleK(new String[] {"in=x", "assemblek=95", "out=y"}),
+				"assemblek was not detected");
 		check(!TadpoleMulti.hasMultipleK(new String[] {"in=x", "k=63", "extra=a,b", "out=y"}),
 				"Non-k comma list triggered multi-k dispatch");
 	}
@@ -83,10 +127,10 @@ public class TadpoleMultiUnitTest {
 		return new TadpoleMulti.Config(withOut);
 	}
 
-	private static void checkKmers(final TadpoleMulti.Config c, final int... expected){
-		check(c.kmers.length==expected.length, "Wrong k count");
+	private static void checkArray(final int[] observed, final int... expected){
+		check(observed.length==expected.length, "Wrong k count: "+observed.length+" != "+expected.length);
 		for(int i=0; i<expected.length; i++){
-			check(c.kmers[i]==expected[i], "Wrong k at "+i+": "+c.kmers[i]+" != "+expected[i]);
+			check(observed[i]==expected[i], "Wrong k at "+i+": "+observed[i]+" != "+expected[i]);
 		}
 	}
 

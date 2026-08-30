@@ -808,6 +808,7 @@ public class Tadpole1 extends Tadpole {
 		final int invalidOwner=contigs.size();
 		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			claimGraphEnd(c.leftKmer(k), c.id, invalidOwner);
 			claimGraphEnd(c.rightKmer(k), c.id, invalidOwner);
 		}
@@ -850,37 +851,43 @@ public class Tadpole1 extends Tadpole {
 	@Override
 	boolean crossKGraph(){return crossKGraph;}
 
-	/** Marks assembled short kmers invalid, then claims only unique eligible contig tips. */
+	/** Marks assembled bridge-k kmers invalid, then claims only unique eligible contig tips. */
 	private void initializeCrossKContigs(ArrayList<Contig> contigs){
 		final int invalidOwner=contigs.size();
 		int eligible=0;
 		for(int i=0; i<contigs.size(); i++){contigs.get(i).id=i;}
 		for(Contig c : contigs){invalidateCrossKInternal(c.bases, invalidOwner);}
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(c.leftBridgeEndpoint){eligible++;}
 			if(c.rightBridgeEndpoint){eligible++;}
 		}
 		int internalBlocked=0;
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(c.leftBridgeEndpoint && tables.findOwner(c.leftKmer(k))>=0){internalBlocked++;}
 			if(c.rightBridgeEndpoint && tables.findOwner(c.rightKmer(k))>=0){internalBlocked++;}
 		}
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(!c.leftBridgeEndpoint){claimCrossKEnd(c.leftKmer(k), false, c.id, invalidOwner);}
 			if(!c.rightBridgeEndpoint){claimCrossKEnd(c.rightKmer(k), false, c.id, invalidOwner);}
 		}
 		int tipBlocked=0;
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(c.leftBridgeEndpoint && tables.findOwner(c.leftKmer(k))>=0){tipBlocked++;}
 			if(c.rightBridgeEndpoint && tables.findOwner(c.rightKmer(k))>=0){tipBlocked++;}
 		}
 		tipBlocked-=internalBlocked;
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			if(c.leftBridgeEndpoint){claimCrossKEnd(c.leftKmer(k), true, c.id, invalidOwner);}
 			if(c.rightBridgeEndpoint){claimCrossKEnd(c.rightKmer(k), true, c.id, invalidOwner);}
 		}
 		int unique=0;
 		for(Contig c : contigs){
+			if(c.length()<k){continue;}
 			final long left=c.leftKmer(k), right=c.rightKmer(k);
 			c.leftBridgeEndpoint&=(tables.findOwner(left)==c.id);
 			c.rightBridgeEndpoint&=(tables.findOwner(right)==c.id);
@@ -894,7 +901,7 @@ public class Tadpole1 extends Tadpole {
 		}
 	}
 
-	/** Marks every short kmer except the two terminal positions as assembled and untraversable. */
+	/** Marks every bridge-k kmer except the two terminal positions as assembled and untraversable. */
 	private void invalidateCrossKInternal(final byte[] bases, final int invalidOwner){
 		if(bases.length<=k+1){return;}
 		long kmer=0, rkmer=0;
@@ -940,6 +947,7 @@ public class Tadpole1 extends Tadpole {
 		
 		@Override
 		public void processContigLeft(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
+			if(c.length()<k){return;}
 			if(crossKGraph ? !c.leftBridgeEndpoint : (!refreshGraphEndpoints && c.leftCode==DEAD_END)){return;}
 			
 			final long kmer0=c.leftKmer(k);
@@ -1019,6 +1027,7 @@ public class Tadpole1 extends Tadpole {
 
 		@Override
 		public void processContigRight(Contig c, int[] leftCounts, int[] rightCounts, int[] extraCounts, ByteBuilder bb){
+			if(c.length()<k){return;}
 			if(crossKGraph ? !c.rightBridgeEndpoint : (!refreshGraphEndpoints && c.rightCode==DEAD_END)){return;}
 
 			final long kmer0=c.rightKmer(k);

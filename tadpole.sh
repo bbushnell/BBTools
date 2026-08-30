@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 28, 2026
+Last modified August 30, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -17,12 +17,14 @@ Please read bbmap/docs/guides/TadpoleGuide.txt for more information.
 
 Usage (Assembly):  tadpole.sh k=62 in=<reads> out=<contigs>
 Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
+Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
 
-Multi-K assembly begins at the longest K.  At each shorter requested K,
-it joins unique reciprocal exact tip overlaps, then uses the reads to bridge
-eligible low-depth nonbranch tips through unique unbranched paths.
+Multi-K shorthand assembles at the longest K, joins unique reciprocal exact
+tip overlaps at each shorter K, and uses each shorter read table to bridge
+eligible tips through unique unbranched paths.  The phases can also be set
+independently; bridge K values may be longer or shorter than the assembly K.
 It currently supports contig mode only, requires rereadable input files,
 and cannot use stdin.
 
@@ -100,6 +102,14 @@ packed=t            For k>31, use a fully-packed, non-symmetric multi-word
 fillfast=t          Speed up kmer extension lookups.
 
 Multi-K parameters:
+assemblek=auto      Kmer length used to build the initial contigs.  By default,
+                    this is the longest value in k.
+fusek=auto          (joink) Comma-delimited K values for exact reciprocal tip
+                    overlaps.  Values must be shorter than assemblek.
+bridgek=auto        Comma-delimited K values for read-supported unbranched gap
+                    walks.  Values may be above, below, or equal to assemblek.
+                    Set fusek=none or bridgek=none to disable either phase.
+                    Explicit phase lists override the values inferred from k.
 crosskmaxlen=500    (ckml) Maximum graph walk length when finding cross-K
                     bridges or final graph edges.
 crosskmaxdepthratio=3 (ckmdr) Maximum connecting-edge depth relative to the
@@ -144,8 +154,8 @@ graphcover=f         (pathcover, nonredundantpaths) Output a deterministic graph
                     center is emitted twice on one boundary, never paired through.
                     Joined products must contain an independently output-sized contig.
 graphk=auto          Multi-K only.  Build the final graph at this kmer length.
-                    Defaults to the shortest requested K and reuses that table;
-                    another value rereads the inputs once at the requested K.
+                    Defaults to assemblek and reuses a matching final bridge
+                    table when possible; another value rereads the inputs once.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
 repeatminsupport=2   Minimum spanning reads required for each resolved path.
