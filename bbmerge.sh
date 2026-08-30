@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell and Jonathan Rood
-Last modified October 8, 2024
+Last modified August 29, 2026
 
 Description:  Merges paired reads into single reads by overlap detection.
 With sufficient coverage, can merge nonoverlapping reads by kmer extension.
@@ -13,6 +13,13 @@ Please read bbmap/docs/guides/BBMergeGuide.txt for more information.
 
 Usage (interleaved):	bbmerge.sh in=<reads> out=<merged reads> outu=<unmerged reads>
 Usage (twin files):     bbmerge.sh in1=<read1> in2=<read2> out=<merged reads> outu1=<unmerged1> outu2=<unmerged2>
+
+Kmer bridge examples (use bbmerge-auto.sh for automatic memory sizing):
+bbmerge-auto.sh in=reads.fq.gz out=merged.fq.gz outu=unmerged.fq.gz k=124
+  Merge overlapping pairs normally, then bridge residual pairs at k=124.
+bbmerge-auto.sh in=reads.fq.gz out=merged.fq.gz outu=unmerged.fq.gz k=0,95,124
+  Merge overlaps at k=0, then bridge residual pairs at k=95 and k=124.
+  Reads merged in earlier passes accumulate as kmer evidence for later passes.
 
 Input may be stdin or a file, fasta or fastq, raw or gzipped.
 
@@ -151,7 +158,13 @@ Tadpole Parameters (for read extension and error-correction):
 *Note: These require more memory and should be run with bbmerge-auto.sh.*
 k=31                 Kmer length.  31 (or less) is fastest and uses the least
                      memory, but higher values may be more accurate.  
-                     60 tends to work well for 150bp reads.
+                     60 tends to work well for 150bp reads.  Specifying one
+                     positive k enables bridging unless another kmer operation
+                     is requested; bridge=f disables this behavior.
+k=0,64,96,128        Iteratively merge ordinary overlaps (k=0), then bridge
+                     each residual set at the positive kmer lengths.  Newly
+                     merged reads accumulate in out and are reused as extra.
+                     Requires named out and outu files.
 extend=0             Extend reads to the right this much before merging.
                      Requires sufficient (>5x) kmer coverage.
 extend2=0            Extend reads this much only after a failed merge attempt,
@@ -193,6 +206,14 @@ minprob=0.5          Ignore kmers with overall probability of correctness
 minapproxoverlap=26  For rem mode, do not merge reads if the extended reads
                      indicate that the raw reads should have overlapped by
                      at least this much, but no overlap was found.
+kmerbridge=auto      After overlap merging fails, join pairs connected by a
+                     reciprocal, unbranching, acyclic path to the mate's tip.
+bridgeonly=f         Use only target-kmer bridging, without overlap merging.
+bridgedistance=500   Maximum graph-walk distance for a target bridge.
+bridgetargetwindow=0 Exact-tip mode; retained for command-line compatibility.
+bridgeminhits=1      Exact-tip mode; retained for command-line compatibility.
+bridgemaxoverlap=0   Maximum implied raw-read overlap for a target bridge.
+bridgereciprocal=t   Require both walk directions to infer the same insert.
 
 
 Bloom Filter Parameters (for kmer operations with less memory than Tadpole)
@@ -246,7 +267,17 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
+	local multik=0
+	for arg in "$@"; do
+		case "$arg" in
+			[Kk]=*,*|[Kk][Mm][Ee][Rr]=*,*) multik=1 ;;
+		esac
+	done
+	if [ "$multik" = "1" ]; then
+		CMD="java $EA $EOOM $SIMD -Xmx256m -Xms64m -Dbbmerge.child.xmx=$XMX -Dbbmerge.child.xms=$XMS -cp $CP jgi.BBMergeMulti $@"
+	else
+		CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
+	fi
 	echo "$CMD" >&2
 	eval $CMD
 }

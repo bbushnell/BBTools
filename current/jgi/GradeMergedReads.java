@@ -231,7 +231,22 @@ public class GradeMergedReads {
 			CustomHeader h=new CustomHeader(s, 0);
 			return h.insert;
 		}
-		assert(s.startsWith("insert=")) : "Can't parse insert size for header "+s;
+		if(!s.startsWith("insert=")){
+			//FIXED [jgi/GradeMergedReads RandomReadsMG headers]: RandomReadsMG now emits
+			//f_<file>_c_<contig>_s_<strand>_p_<position>_i_<insert>_r_<reflen> headers.
+			final int tab=s.indexOf("\tf_");
+			final int fstart=s.startsWith("f_") ? 0 : (tab>=0 ? tab+1 : -1);
+			final int marker=fstart>=0 ? s.indexOf("_i_", fstart+2) : -1;
+			if(marker<0){throw new RuntimeException("Can't parse insert size for header "+s);}
+			int insert=0, pos=marker+3;
+			final int start=pos;
+			while(pos<s.length() && Tools.isDigit(s.charAt(pos))){
+				insert=insert*10+s.charAt(pos)-'0';
+				pos++;
+			}
+			if(pos==start || insert<1){throw new RuntimeException("Can't parse insert size for header "+s);}
+			return insert;
+		}
 		
 //		int space=s.indexOf(' ');
 //		if(space<0){space=s.length();}

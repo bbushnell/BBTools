@@ -121,6 +121,10 @@ public class Tadpole2 extends Tadpole {
 	
 	/** Gets the count/depth for the specified k-mer */
 	public final int getCount(Kmer kmer){return tables.getCount(kmer);}
+	@Override
+	final int bridgeCount(Kmer kmer){return getCount(kmer);}
+	@Override
+	final int bridgeRightCounts(Kmer kmer, int[] counts){return fillRightCounts(kmer, counts);}
 	/** Attempts to claim ownership of a k-mer for the specified thread ID */
 	final boolean claim(Kmer kmer, int id){return tables.claim(kmer, id);}
 	/**

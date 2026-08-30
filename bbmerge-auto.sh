@@ -41,7 +41,17 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
+	local multik=0
+	for arg in "$@"; do
+		case "$arg" in
+			[Kk]=*,*|[Kk][Mm][Ee][Rr]=*,*) multik=1 ;;
+		esac
+	done
+	if [ "$multik" = "1" ]; then
+		CMD="java $EA $EOOM $SIMD -Xmx256m -Xms64m -Dbbmerge.child.xmx=$XMX -Dbbmerge.child.xms=$XMS -cp $CP jgi.BBMergeMulti $@"
+	else
+		CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
+	fi
 	echo "$CMD" >&2
 	eval $CMD
 }

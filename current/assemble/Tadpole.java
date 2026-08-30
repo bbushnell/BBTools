@@ -3022,6 +3022,11 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return K-mer table set containing all loaded k-mers
 	 */
 	public abstract AbstractKmerTableSet tables();
+
+	/** Returns the depth of a bridge-walk kmer. */
+	abstract int bridgeCount(Kmer kmer);
+	/** Fills the four forward-extension depths for a bridge-walk kmer. */
+	abstract int bridgeRightCounts(Kmer kmer, int[] counts);
 	
 //	int ways; //MUST be set by subclass
 	/** Big kmer length */

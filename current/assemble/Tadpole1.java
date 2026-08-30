@@ -144,6 +144,10 @@ public class Tadpole1 extends Tadpole {
 	 * @return Frequency count of k-mer in input data
 	 */
 	public final int getCount(long kmer, long rkmer){return tables.getCount(kmer, rkmer);}
+	@Override
+	final int bridgeCount(Kmer kmer){return getCount(kmer.array1()[0], kmer.array2()[0]);}
+	@Override
+	final int bridgeRightCounts(Kmer kmer, int[] counts){return fillRightCounts(kmer.array1()[0], kmer.array2()[0], counts);}
 	/**
 	 * Claims ownership of k-mer for specified thread ID with automatic reverse
 	 * complement calculation for canonical claiming operations.

@@ -8,6 +8,7 @@ import java.util.BitSet;
 
 import align2.QualityTools;
 import assemble.Tadpole;
+import assemble.TargetKmerBridge;
 import bloom.BloomFilter;
 import bloom.BloomFilterCorrector;
 import bloom.BloomFilterCorrector1;
@@ -58,6 +59,10 @@ public class BBMerge {
 	 * @param args Command-line arguments for merge parameters
 	 */
 	public static void main(String[] args){
+		if(BBMergeMulti.isMultiK(args)){
+			BBMergeMulti.main(args);
+			return;
+		}
 //		boolean old=Shared.USE_JNI;
 //		Shared.USE_JNI=false; //TODO: This is for RQCFilter.  Can be removed.
 		
@@ -582,6 +587,7 @@ public class BBMerge {
 				filterMemoryOverride=Parse.parseKMG(b);
 			}else if(a.equals("k")){
 				kmerLength=Integer.parseInt(b);
+				setKmerLength=true;
 			}else if(a.equals("tail")){
 				eccTail=Parse.parseBoolean(b);
 			}else if(a.equals("pincer")){
@@ -697,6 +703,23 @@ public class BBMerge {
 				requireStrictExtensionMatch=Parse.parseBoolean(b);
 			}else if(a.equals("minapproxoverlaprem") || a.equals("minapproxoverlap")){
 				minApproxOverlapRem=Parse.parseIntKMG(b);
+			}else if(a.equals("kmerbridge") || a.equals("targetbridge") || a.equals("bridge")){
+				kmerBridge=Parse.parseBoolean(b);
+				setKmerBridge=true;
+			}else if(a.equals("bridgeonly") || a.equals("targetbridgeonly")){
+				kmerBridge=Parse.parseBoolean(b);
+				setKmerBridge=true;
+				if(kmerBridge){MATE_BY_OVERLAP=false;}
+			}else if(a.equals("bridgedistance") || a.equals("bridgedist") || a.equals("bridgemax")){
+				bridgeDistance=Parse.parseIntKMG(b);
+			}else if(a.equals("bridgetargetwindow") || a.equals("bridgewindow")){
+				bridgeTargetWindow=Parse.parseIntKMG(b);
+			}else if(a.equals("bridgeminhits")){
+				bridgeMinHits=Parse.parseIntKMG(b);
+			}else if(a.equals("bridgemaxoverlap")){
+				bridgeMaxOverlap=Parse.parseIntKMG(b);
+			}else if(a.equals("bridgereciprocal")){
+				bridgeReciprocal=Parse.parseBoolean(b);
 			}
 			
 			else if(a.equals("quantize") || a.equals("quantizesticky")){
@@ -727,10 +750,21 @@ public class BBMerge {
 		if(requireStrictExtensionMatch){
 			requireExtensionMatch=true;
 		}
+		if(setKmerLength && !setKmerBridge && kmerLength>0 && extendRight1<1 && extendRight2<1 &&
+				!requireExtensionMatch && !useKFilter && !eccTadpole && !eccBloom && !forceExactKmerCounts && !testMerge){
+			kmerBridge=true;
+		}
 
 		if(requireExtensionMatch && extendRight2<1){
 			outstream.println("Extend2 is defaulting to 50 because it was unset but r"+(requireStrictExtensionMatch ? "s" : "")+"em mode is being used.");
 			extendRight2=50;
+		}
+		if(kmerBridge && bridgeDistance<1){
+			bridgeDistance=(extendRight2>0 ? 2*extendRight2+kmerLength-bridgeMaxOverlap : 500);
+		}
+		if(kmerBridge && (bridgeDistance<1 || bridgeTargetWindow!=0 || bridgeMinHits!=1)){
+			throw new RuntimeException("Exact-tip kmer bridging requires distance>0, targetWindow=0, and minHits=1: distance="+
+					bridgeDistance+", targetWindow="+bridgeTargetWindow+", minHits="+bridgeMinHits);
 		}
 		
 		if(ecco && !setMix){
@@ -822,7 +856,7 @@ public class BBMerge {
 			outb1=outb1.replaceFirst("#", "1");
 		}
 		
-		if(extendRight1>0 || extendRight2>0 || useKFilter || eccTadpole || forceExactKmerCounts){
+		if(extendRight1>0 || extendRight2>0 || useKFilter || eccTadpole || forceExactKmerCounts || kmerBridge){
 			
 			final long mem=Shared.memAvailable();
 			if(Shared.memAvailable()<2000000000L){
@@ -920,10 +954,6 @@ public class BBMerge {
 		ttotal.start();
 		
 		if(tadpole!=null){
-			if(extendRight1>0 || extendRight2>0 || eccTadpole) {
-				MAKE_VECTOR=BBMergeOverlapper.MAKE_VECTOR=false;//Currently incompatible...
-			}
-			
 			Timer tload=new Timer();
 			Tadpole.showSpeed=false;
 			KmerTableSet.showSpeed=false;
@@ -979,6 +1009,16 @@ public class BBMerge {
 			outstream.println("Fully Extended:      \t"+fullyExtendedTotal+String.format((fullyExtendedTotal<10000 ? "       " : "   ")+"\t%.3f%%", fullyExtendedTotal*dive));
 			outstream.println("Partly Extended:     \t"+partlyExtendedTotal+String.format((partlyExtendedTotal<10000 ? "       " : "   ")+"\t%.3f%%", partlyExtendedTotal*dive));
 			outstream.println("Not Extended:        \t"+notExtendedTotal+String.format((notExtendedTotal<10000 ? "       " : "   ")+"\t%.3f%%", notExtendedTotal*dive));
+		}
+		if(kmerBridge){
+			outstream.println("Kmer Bridge Attempts: \t"+bridgeAttemptsTotal);
+			outstream.println("Kmer Bridges:         \t"+bridgeSuccessTotal);
+			outstream.println("Bridge No Path:       \t"+bridgeNoPathTotal);
+			outstream.println("Bridge No Target:     \t"+bridgeNoTargetTotal);
+			outstream.println("Bridge Ambiguous:     \t"+bridgeAmbiguousTotal);
+			outstream.println("Bridge Cyclic:        \t"+bridgeCycleTotal);
+			outstream.println("Bridge Nonreciprocal: \t"+bridgeNonreciprocalTotal);
+			outstream.println("Bridge Rejected:      \t"+bridgeRejectedTotal);
 		}
 		
 		if(adapterList1!=null || adapterList2!=null){
@@ -1229,6 +1269,7 @@ public class BBMerge {
 
 		resetCounters();
 		
+		Throwable threadFailure=null;
 		for(int i=0; i<pta.length; i++){
 			MateThread ct=pta[i];
 			synchronized(ct){
@@ -1240,6 +1281,7 @@ public class BBMerge {
 						e.printStackTrace();
 					}
 				}
+				if(threadFailure==null && ct.failure!=null){threadFailure=ct.failure;}
 
 				readsProcessedTotal+=ct.pairsProcessed;
 				basesProcessedTotal+=ct.basesProcessed;
@@ -1260,6 +1302,14 @@ public class BBMerge {
 				partlyExtendedTotal+=ct.partlyExtendedT;
 				notExtendedTotal+=ct.notExtendedT;
 				extensionsAttempted+=ct.extensionsAttemptedT;
+				bridgeAttemptsTotal+=ct.bridgeAttemptsT;
+				bridgeSuccessTotal+=ct.bridgeSuccessT;
+				bridgeNoPathTotal+=ct.bridgeNoPathT;
+				bridgeNoTargetTotal+=ct.bridgeNoTargetT;
+				bridgeAmbiguousTotal+=ct.bridgeAmbiguousT;
+				bridgeCycleTotal+=ct.bridgeCycleT;
+				bridgeNonreciprocalTotal+=ct.bridgeNonreciprocalT;
+				bridgeRejectedTotal+=ct.bridgeRejectedT;
 
 				adaptersExpected+=ct.adaptersExpectedT;
 				adaptersFound+=ct.adaptersFoundT;
@@ -1288,6 +1338,9 @@ public class BBMerge {
 		errorState|=ReadWrite.closeStreams(cris, rosgood, rosbad, rosinsert);
 		
 		talign.stop();
+		//FIXED [jgi/BBMerge worker failures]: uncaught MateThread exceptions previously
+		//produced partial zero/NaN statistics and a successful process exit.
+		if(threadFailure!=null){throw new RuntimeException("BBMerge worker thread failed.", threadFailure);}
 //		outstream.println("Align time: "+talign);
 	}
 	
@@ -1847,6 +1900,7 @@ public class BBMerge {
 			joinReads=joinReads_;
 			trimReadsByOverlap=trimByOverlap_;
 			kmerT=(tadpole==null || tadpole.k()<32 ? null : new Kmer(tadpole.k()));
+			bridgeT=(kmerBridge ? new TargetKmerBridge(tadpole, bridgeDistance, bridgeReciprocal) : null);
 			net=(net0==null ? null : net0.copy(false));
 			//Unique per-thread tracker, same params (seed) as the shared loglog so they merge correctly.
 			loglogT=(loglog==null ? null : CardinalityTracker.makeTracker(2048, 31, 0, 0));
@@ -1861,11 +1915,15 @@ public class BBMerge {
 		
 		@Override
 		public void run(){
-			processReads();
+			try {
+				processReads();
+			} catch (Throwable t) {
+				failure=t;
+			}
 		}
 		
 		private void processReads() {
-			assert(USE_MAPPING || MATE_BY_OVERLAP);
+			assert(USE_MAPPING || MATE_BY_OVERLAP || kmerBridge);
 			
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
@@ -2087,7 +2145,7 @@ public class BBMerge {
 				final boolean correct=(bestInsert==trueSize);
 				if(MAKE_VECTOR) {
 					FloatList fl=r2.fetchVector();
-					if(fl.size==23) {fl.add((tp || fn) ? 1 : 0);}
+					if(fl!=null && fl.size==23) {fl.add((tp || fn) ? 1 : 0);}
 //					assert(false) : fl;
 				}
 				if(TAG_CUSTOM) {
@@ -2421,9 +2479,9 @@ public class BBMerge {
 			assert(r1.fetchObject()==null);
 			final ByteBuilder bb=(TAG_CUSTOM ? new ByteBuilder(32) : null);
 			if(bb!=null) {r1.setObj(bb);}
-			if(MAKE_VECTOR && r2.obj==null) {
+			if(MAKE_VECTOR) {
 				if(r2.obj==null) {r2.setObj(new FloatList(24));}
-				else{((FloatList)r2.obj).clear();}
+				else{((FloatList)r2.obj).clear();}//FIXED: Retries after correction or extension must replace the previous candidate vector.
 			}
 			final FloatList vector=(FloatList) r2.obj;
 			
@@ -2601,10 +2659,8 @@ public class BBMerge {
 		
 		private final int parseInsert(Read r1, Read r2){
 			int trueSize=-1;
-			if(r1.id.startsWith("SYN")){
-				CustomHeader h=new CustomHeader(r1.id, 0);
-				trueSize=h.insert;
-			}else if(r1.id.startsWith("insert=")){
+			if(r1.id.startsWith("SYN") || r1.id.startsWith("insert=") ||
+					r1.id.startsWith("f_") || r1.id.indexOf("\tf_")>=0){
 				trueSize=GradeMergedReads.parseInsert(r1.id);
 			}else{
 				r1.setMapped(true);
@@ -2737,9 +2793,33 @@ public class BBMerge {
 						bestInsert=processReadPair_inner(r1, r2);
 					}
 				}
+
+				//Target-directed graph bridge.  The reads are both in forward genomic orientation here.
+				boolean bridged=false;
+				if(kmerBridge && (bestInsert==RET_AMBIG || bestInsert==RET_NO_SOLUTION)){
+					bridgeAttemptsT++;
+					final int bridgeInsert=bridgeT.find(r1, r2);
+					if(bridgeInsert>0){
+						final int rawOverlap=r1.length()+r2.length()-bridgeInsert;
+						if(bridgeInsert>=minInsert && bridgeInsert<=maxReadLength && rawOverlap<=bridgeMaxOverlap){
+							bridgeT.apply(r1);
+							bestInsert=bridgeInsert;
+							bridged=true;
+							bridgeSuccessT++;
+						}else{bridgeRejectedT++;}
+					}else{
+						final int status=bridgeT.status();
+						if(status==TargetKmerBridge.NO_PATH){bridgeNoPathT++;}
+						else if(status==TargetKmerBridge.NO_TARGET){bridgeNoTargetT++;}
+						else if(status==TargetKmerBridge.AMBIGUOUS){bridgeAmbiguousT++;}
+						else if(status==TargetKmerBridge.CYCLE){bridgeCycleT++;}
+						else if(status==TargetKmerBridge.NONRECIPROCAL){bridgeNonreciprocalT++;}
+						else{throw new RuntimeException("Unknown kmer bridge status "+status);}
+					}
+				}
 				
 				//Extension
-				if(extendRight2>0 && (requireExtensionMatch || bestInsert==RET_AMBIG || bestInsert==RET_NO_SOLUTION)
+				if(!bridged && extendRight2>0 && (requireExtensionMatch || bestInsert==RET_AMBIG || bestInsert==RET_NO_SOLUTION)
 						&& !(requireStrictExtensionMatch && bestInsert<1)){
 					final int lengthSum=r1.pairLength();
 					final int approxMaxOverlappingInsert=lengthSum-minApproxOverlapRem;
@@ -2950,6 +3030,7 @@ public class BBMerge {
 
 		private final BitSet mergeOKBitsetT=new BitSet(400);
 		private final Kmer kmerT;
+		private final TargetKmerBridge bridgeT;
 		private IntList countList=new IntList();
 		private LongList kmers=new LongList();
 		
@@ -2989,6 +3070,9 @@ public class BBMerge {
 		long partlyExtendedT=0;
 		long notExtendedT=0;
 		long extensionsAttemptedT=0;
+		long bridgeAttemptsT=0, bridgeSuccessT=0;
+		long bridgeNoPathT=0, bridgeNoTargetT=0, bridgeAmbiguousT=0, bridgeCycleT=0;
+		long bridgeNonreciprocalT=0, bridgeRejectedT=0;
 		
 		long adaptersExpectedT=0;
 		long adaptersFoundT=0;
@@ -3000,6 +3084,7 @@ public class BBMerge {
 		
 		private final boolean joinReads;
 		private final boolean trimReadsByOverlap;
+		private Throwable failure=null;
 		
 		private final CellNet net;
 	}
@@ -3026,6 +3111,9 @@ public class BBMerge {
 		partlyExtendedTotal=0;
 		notExtendedTotal=0;
 		extensionsAttempted=0;
+		bridgeAttemptsTotal=bridgeSuccessTotal=0;
+		bridgeNoPathTotal=bridgeNoTargetTotal=bridgeAmbiguousTotal=bridgeCycleTotal=0;
+		bridgeNonreciprocalTotal=bridgeRejectedTotal=0;
 		adaptersExpected=0;
 		adaptersFound=0;
 
@@ -3141,6 +3229,13 @@ public class BBMerge {
 	private boolean eccTadpole=false;
 	private boolean shave=false;
 	private boolean rinse=false;
+	private boolean kmerBridge=false;
+	private boolean setKmerLength=false, setKmerBridge=false;
+	private int bridgeDistance=0;
+	private int bridgeTargetWindow=0;
+	private int bridgeMinHits=1;
+	private int bridgeMaxOverlap=0;
+	private boolean bridgeReciprocal=true;
 
 	private final BloomFilter bloomFilter;
 	private final BloomFilterCorrector corrector;
@@ -3252,6 +3347,9 @@ public class BBMerge {
 	static long partlyExtendedTotal=0;
 	static long notExtendedTotal=0;
 	static long extensionsAttempted=0;
+	static long bridgeAttemptsTotal=0, bridgeSuccessTotal=0;
+	static long bridgeNoPathTotal=0, bridgeNoTargetTotal=0, bridgeAmbiguousTotal=0, bridgeCycleTotal=0;
+	static long bridgeNonreciprocalTotal=0, bridgeRejectedTotal=0;
 	static long adaptersExpected=0;
 	static long adaptersFound=0;
 	
