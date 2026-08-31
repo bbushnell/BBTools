@@ -15,6 +15,11 @@ import structures.LongList;
  * @date Jul 5, 2012
  */
 public abstract class KCountArray implements Serializable {
+
+	/** Independent secondary lane seed for an exact primitive kmer key; cell selection still mixes every lane. */
+	public static long secondaryHash(final long key){
+		return Tools.splitMix64(key^0x9E3779B97F4A7C15L);
+	}
 	
 	/**
 	 * 
@@ -141,6 +146,14 @@ public abstract class KCountArray implements Serializable {
 	 */
 	public abstract int read(long key);
 	/**
+	 * Reads a key using an independent secondary hash for subsequent Bloom lanes.
+	 * Implementations without dual-hash support retain their normal behavior.
+	 * @param key Primary key and first-lane placement hash
+	 * @param key2 Independent secondary hash
+	 * @return Count value stored for this key
+	 */
+	public int read(long key, long key2){return read(key);}
+	/**
 	 * Reads count for long k-mer represented as array.
 	 * Default implementation throws exception - override in subclasses supporting long k-mers.
 	 *
@@ -170,15 +183,23 @@ public abstract class KCountArray implements Serializable {
 	/** Increments the count for a k-mer by 1.
 	 * @param key K-mer encoded as long integer */
 	public final void increment(long key){increment(key, 1);}
+	/** Increments a dual-hash key by 1. Named to avoid ambiguity with increment(key, amount). */
+	public final void incrementDual(long key, long key2){increment(key, key2, 1);}
 	/** Decrements the count for a k-mer by 1.
 	 * @param key K-mer encoded as long integer */
 	public final void decrement(long key){decrement(key, 1);}
 
 	/** Returns nothing for simplicity. */
 	public abstract void increment(long key, int incr);
+	/** Increments a dual-hash key. Implementations without dual-hash support use the primary key. */
+	public void increment(long key, long key2, int incr){increment(key, incr);}
 	
 	/** Returns unincremented value */
 	public abstract int incrementAndReturnUnincremented(long key, int incr);
+	/** Returns the unincremented value for a dual-hash key. */
+	public int incrementAndReturnUnincremented(long key, long key2, int incr){
+		return incrementAndReturnUnincremented(key, incr);
+	}
 	
 //	/** Returns unincremented value */
 //	public final int incrementAndReturnUnincremented(Kmer kmer, int incr){

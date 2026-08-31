@@ -75,6 +75,13 @@ fullmix=t       For k>31, fully mix every word of the kmer, including the
 hashes=3        Number of hashes per kmer.  Higher generally reduces
                 false positives at the expense of speed; rapidly
                 diminishing returns above 4.
+dualhash=t      Use two independent hashes to select Bloom lanes.  Every lane,
+                including the first, still passes through the normal mixer.
+                For k>31, uses xor1 plus xor2; for shorter kmers, derives an
+                independent secondary hash from the exact packed key.
+                Enabled by default because BBCMS targets metagenomic datasets
+                large enough for primary 64-bit hash collisions to matter.
+                Set to f to recover the legacy single-key lane recurrence.
 ksmall=         Optional sub-kmer length; setting to slightly lower than k
                 can improve memory efficiency by reducing the number of hashes
                 needed.  e.g. 'k=31 ksmall=29 hashes=2' has better speed and

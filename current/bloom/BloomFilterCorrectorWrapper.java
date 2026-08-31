@@ -93,6 +93,7 @@ public class BloomFilterCorrectorWrapper {
 		int bits_=2;
 		int minCount_=0;
 		boolean rcomp_=true;
+		boolean dualHash_=true;
 		boolean requireBothToPass_=true;
 		boolean ecc_=true;
 		boolean ecco_=false;
@@ -195,6 +196,8 @@ public class BloomFilterCorrectorWrapper {
 				KCountArray7MTA.setSeed(Parse.parseKMG(b));
 			}else if(a.equals("fullmix")){
 				Kmer.FULL_MIX=Parse.parseBoolean(b);
+			}else if(a.equals("dualhash") || a.equals("hash2")){
+				dualHash_=Parse.parseBoolean(b);
 			}else if(a.equals("packed")){
 				Kmer.PACKED=Parse.parseBoolean(b);
 			}
@@ -386,11 +389,11 @@ public class BloomFilterCorrectorWrapper {
 			Timer t=new Timer(outstream, true);
 			if(ref.isEmpty()){
 				filter=new BloomFilter(in1, in2, extra, ksmall, k, bits, hashes, 1,
-						rcomp, ecco, merge, memFraction);
+						rcomp, ecco, merge, memFraction, dualHash_);
 			}else{
 				ref.addAll(extra);
 				filter=new BloomFilter(null, null, ref, ksmall, k, bits, hashes, 1,
-						rcomp, ecco, merge, memFraction);
+						rcomp, ecco, merge, memFraction, dualHash_);
 			}
 			t.stop("Filter creation: \t\t");
 			outstream.println(filter.filter.toShortString());

@@ -95,8 +95,7 @@ public abstract class BloomFilterCorrector {
 			if(kmer<0){
 				return true;
 			}
-			long rkmer=rcomp(kmer);
-			int count=getCount(kmer, rkmer);
+			int count=getCountAt(kmers, i);
 			final int min=Tools.min(count, prev), max=Tools.max(count, prev);
 			if(count<mcc || (i>0 && (isError(max+1, min-1)))){return true;}
 			prev=count;
@@ -104,8 +103,7 @@ public abstract class BloomFilterCorrector {
 
 		long kmer=kmers.get(kmers.size()-1);
 		if(kmer<0){return true;}
-		long rkmer=rcomp(kmer);
-		int count=getCount(kmer, rkmer);
+		int count=getCountAt(kmers, kmers.size()-1);
 		final int min=Tools.min(count, prev), max=Tools.max(count, prev);
 		return count<mcc || isError(max+1, min-1);
 	}
@@ -298,16 +296,12 @@ public abstract class BloomFilterCorrector {
 	 */
 	protected void fillCountsFromKmers(LongList kmers, IntList counts){
 		for(int i=0; i<kmers.size; i++){
-			long kmer=kmers.get(i);
-			if(kmer>=0){
-				long rkmer=rcomp(kmer);
-				int count=getCount(kmer, rkmer);
-				counts.add(count);
-			}else{
-				counts.add(0);
-			}
+			counts.add(getCountAt(kmers, i));
 		}
 	}
+
+	/** Looks up a stored kmer by position; long-k implementations may carry a parallel fingerprint list. */
+	protected int getCountAt(LongList kmers, int pos){return getCount2(kmers.get(pos));}
 
 	/**
 	 * Smooths k-mer count profiles to reduce noise and artifacts.
@@ -1170,38 +1164,38 @@ public abstract class BloomFilterCorrector {
 
 		//This is faster since fewer counts are looked up
 		if(ak-width>=0 && ak+width<len){
-			int min=getCount2(kmers.get(ak));
-			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(ak+1));
-			for(int i=ak+2; i<=ak+width; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, ak);
+			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, ak+1);
+			for(int i=ak+2; i<=ak+width; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			assert(min>=0 && min2>=0);
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 		if(ck-width>=0 && ck+width<len){
-			int min=getCount2(kmers.get(ck));
-			for(int i=ck-width+1; i<ck; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(ck+1));
-			for(int i=ck+2; i<=ck+width; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, ck);
+			for(int i=ck-width+1; i<ck; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, ck+1);
+			for(int i=ck+2; i<=ck+width; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			assert(min>=0 && min2>=0);
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 
 		if(bk-width>=0 && bk+width<len){
-			int min=getCount2(kmers.get(bk));
-			for(int i=bk+1; i<bk+width+1; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(bk-1));
-			for(int i=bk-width; i<bk-1; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, bk);
+			for(int i=bk+1; i<bk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, bk-1);
+			for(int i=bk-width; i<bk-1; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			assert(min>=0 && min2>=0);
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 		if(dk-width>=0 && dk+width<len){
-			int min=getCount2(kmers.get(dk));
-			for(int i=dk+1; i<dk+width+1; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(dk-1));
-			for(int i=dk-width; i<dk-1; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, dk);
+			for(int i=dk+1; i<dk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, dk-1);
+			for(int i=dk-width; i<dk-1; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			assert(min>=0 && min2>=0);
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}

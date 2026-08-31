@@ -16,11 +16,10 @@ import ukmer.Kmer;
  * ukmer.Kmer-based (k&gt;31) implementation of Bloom filter-based sequencing
  * error correction. Encodes kmers via {@link ukmer.Kmer}'s multi-word rolling
  * (addRight/addLeft), and stores each position's canonical xor() hash in the
- * per-position LongList in place of a bit-packed long -- the hash is already
- * strand-canonical (see {@link ukmer.Kmer#xor()}), so lookup is a single
- * filter.filter.read(xor) call; count-only orchestration in the abstract
- * superclass works unchanged (its rcomp/getCount calls become identity/
- * pass-through here). Anything that must DERIVE a new candidate kmer (not
+ * per-position LongList plus an independent xor2() in a parallel thread-local
+ * list. Both hashes are strand-canonical; the abstract superclass performs
+ * stored-position lookups through getCountAt(), overridden here to use both.
+ * Anything that must DERIVE a new candidate kmer (not
  * merely look one up) rebuilds a live Kmer from the underlying bases, since
  * xor() is a one-way hash and cannot be un-hashed -- mirrors assemble/Tadpole2,
  * which this was ported from (see the plan's Port recipe).
@@ -78,6 +77,9 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		if(blen<k){return 0;}
 		final int min=k-1;
 		kmers.clear();
+		final boolean dualHash=dualHash();
+		final LongList kmers2=(dualHash ? xor2List() : null);
+		if(dualHash){kmers2.clear();}
 		final Kmer kmer=localKmer.get();
 		kmer.clear();
 		int valid=0;
@@ -86,9 +88,11 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(i>=min){
 				if(kmer.len>=k){
 					kmers.add(kmer.xor());
+					if(dualHash){kmers2.add(kmer.xor2());}
 					valid++;
 				}else{
 					kmers.add(-1);
+					if(dualHash){kmers2.add(-1);}
 				}
 			}
 		}
@@ -105,6 +109,8 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final int loc=a+k;
 		final int lim=Tools.min(counts.size, a+k+1);
 		final Kmer kmer=localKmer.get();
+		final boolean dualHash=dualHash();
+		final LongList kmers2=(dualHash ? xor2List() : null);
 		kmer.clear();
 		for(int i=a; i<a+k; i++){kmer.addRight(bases[i]);}
 
@@ -112,11 +118,14 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			kmer.addRight(bases[i]);
 			if(kmer.len>=k){
 				final long xor=kmer.xor();
+				final long xor2=(dualHash ? kmer.xor2() : 0);
 				kmers.set(j, xor);
-				final int count=getCount(xor, xor);
+				if(dualHash){kmers2.set(j, xor2);}
+				final int count=(dualHash ? filter.filter.read(xor, xor2) : filter.filter.read(xor));
 				counts.set(j, count);
 			}else{
 				kmers.set(j, -1);
+				if(dualHash){kmers2.set(j, -1);}
 				counts.set(j, 0);
 			}
 		}
@@ -144,8 +153,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(i>=firstBase){
 				if(kmer.len>=k){
 					valid++;
-					final long xor=kmer.xor();
-					final int count=getCount(xor, xor);
+					final int count=getCount(kmer);
 					counts.set(c, count);
 				}else if(c>=0){
 					counts.set(c, 0);
@@ -192,8 +200,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			if(i>=b){
 				if(kmer.len>=k){
 					valid++;
-					final long xor=kmer.xor();
-					final int count=getCount(xor, xor);
+					final int count=getCount(kmer);
 					counts.set(i-k+1, count);
 				}else{
 					counts.set(i-k+1, 0);
@@ -259,7 +266,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 					final byte num=AminoAcid.baseToNumber[base];
 
 					if(verbose){
-						System.err.println("BFC2 kmer.xor()="+kmer.xor()+", selfCount(getCount(kmer.xor()))="+getCount(kmer.xor())+" vs aCount="+aCount+", kmer.len="+kmer.len);
+						System.err.println("BFC2 kmer.xor()="+kmer.xor()+", selfCount="+getCount(kmer)+" vs aCount="+aCount+", kmer.len="+kmer.len);
 						System.err.println("BFC2 Counts: "+aCount+", "+Arrays.toString(rightCounts));
 						System.err.println("BFC2 rightMaxPos="+rightMaxPos+", rightMax="+rightMax+", rightSecondPos="+rightSecondPos+", rightSecond="+rightSecond);
 						System.err.println("BFC2 base="+(char)base+", num="+num+"; num==rightMax? "+(num==rightMax));
@@ -343,7 +350,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			boolean includeJunctionBase, final Kmer kmer){
 		final int initialLength=bb.length();
 
-		int count=getCount(kmer.xor());
+		int count=getCount(kmer);
 		if(count<minCountCorrect){return 0;}
 
 		int leftMaxPos=0;
@@ -429,7 +436,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			scratch.setFrom(kmer);
 			final byte b=AminoAcid.numberToBase[i];
 			scratch.addLeft(b);
-			int count=Tools.max(getCount(scratch.xor()), 0);
+			int count=Tools.max(getCount(scratch), 0);
 			counts[i]=count;
 			if(count>max){
 				max=count;
@@ -451,7 +458,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 			scratch.setFrom(kmer);
 			final byte b=AminoAcid.numberToBase[i];
 			scratch.addRight(b);
-			int count=Tools.max(getCount(scratch.xor()), 0);
+			int count=Tools.max(getCount(scratch), 0);
 			counts[i]=count;
 			if(count>max){
 				max=count;
@@ -490,7 +497,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		for(int i=0; i<=3; i++){
 			scratch.setFrom(kmer);
 			scratch.addLeft(AminoAcid.numberToBase[i]);
-			int count=Tools.max(getCount2(scratch.xor()), 0);
+			int count=Tools.max(getCount(scratch), 0);
 			if(count>max){max=count;}
 		}
 		return max;
@@ -513,7 +520,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		for(int i=0; i<=3; i++){
 			scratch.setFrom(kmer);
 			scratch.addRight(AminoAcid.numberToBase[i]);
-			int count=Tools.max(getCount2(scratch.xor()), 0);
+			int count=Tools.max(getCount(scratch), 0);
 			if(count>max){max=count;}
 		}
 		return max;
@@ -548,34 +555,34 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		final int dk=d;
 
 		if(ak-width>=0 && ak+width<len){
-			int min=getCount2(kmers.get(ak));
-			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(ak+1));
-			for(int i=ak+2; i<=ak+width; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, ak);
+			for(int i=ak-width+1; i<ak; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, ak+1);
+			for(int i=ak+2; i<=ak+width; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 		if(ck-width>=0 && ck+width<len){
-			int min=getCount2(kmers.get(ck));
-			for(int i=ck-width+1; i<ck; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(ck+1));
-			for(int i=ck+2; i<=ck+width; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, ck);
+			for(int i=ck-width+1; i<ck; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, ck+1);
+			for(int i=ck+2; i<=ck+width; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 		if(bk-width>=0 && bk+width<len){
-			int min=getCount2(kmers.get(bk));
-			for(int i=bk+1; i<bk+width+1; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(bk-1));
-			for(int i=bk-width; i<bk-1; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, bk);
+			for(int i=bk+1; i<bk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, bk-1);
+			for(int i=bk-width; i<bk-1; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
 		if(dk-width>=0 && dk+width<len){
-			int min=getCount2(kmers.get(dk));
-			for(int i=dk+1; i<dk+width+1; i++){min=Tools.min(min, getCount2(kmers.get(i)));}
-			int min2=getCount2(kmers.get(dk-1));
-			for(int i=dk-width; i<dk-1; i++){min2=Tools.min(min2, getCount2(kmers.get(i)));}
+			int min=getCountAt(kmers, dk);
+			for(int i=dk+1; i<dk+width+1; i++){min=Tools.min(min, getCountAt(kmers, i));}
+			int min2=getCountAt(kmers, dk-1);
+			for(int i=dk-width; i<dk-1; i++){min2=Tools.min(min2, getCountAt(kmers, i));}
 			if(min>=thresh && min2<=1){return false;}
 			if(min2>0 && min>min2*highMult){return false;}
 		}
@@ -597,7 +604,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		assert(kmer.len==k) : "expected a fully valid kmer at a="+a;
 		kmer.addRight(newBase);
 
-		final int count=getCount(kmer.xor());
+		final int count=getCount(kmer);
 		final int aCount=counts.get(a);
 		return isSimilar(aCount, count);
 	}
@@ -605,6 +612,27 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	/*--------------------------------------------------------------*/
 	/*----------------  Abstract Seam: Primitives    ----------------*/
 	/*--------------------------------------------------------------*/
+
+	private LongList xor2List(){
+		LongList list=localXor2List.get();
+		if(list==null){
+			list=new LongList();
+			localXor2List.set(list);
+		}
+		return list;
+	}
+
+	private int getCount(final Kmer kmer){
+		return dualHash() ? filter.filter.read(kmer.xor(), kmer.xor2()) : filter.filter.read(kmer.xor());
+	}
+
+	@Override
+	protected int getCountAt(final LongList kmers, final int pos){
+		final long key=kmers.get(pos);
+		return key<0 ? 0 : (dualHash() ? filter.filter.read(key, xor2List().get(pos)) : filter.filter.read(key));
+	}
+
+	private boolean dualHash(){return filter!=null && filter.dualHash;}
 
 	/** Not a real kmer to decode (it's a hash proxy) -- formats the hash value itself, debug-only. */
 	@Override
@@ -622,11 +650,10 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 		return kmer;
 	}
 
-	/** kmer and rkmer are always equal here (rcomp is identity); either is the lookup key. */
+	/** The two arguments are the primary and secondary hashes for long kmers. */
 	@Override
 	public int getCount(long kmer, long rkmer){
-		assert(kmer==rkmer) : "BFC2's xor hash is already canonical; kmer("+kmer+") should equal rkmer("+rkmer+")";
-		return filter.filter.read(kmer);
+		return dualHash() ? filter.filter.read(kmer, rkmer) : filter.filter.read(kmer);
 	}
 
 	@Override
@@ -644,5 +671,7 @@ public class BloomFilterCorrector2 extends BloomFilterCorrector {
 	public long toValue(long kmer, long rkmer){
 		return kmer;
 	}
+
+	private final ThreadLocal<LongList> localXor2List=new ThreadLocal<LongList>();
 
 }

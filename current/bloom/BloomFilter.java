@@ -83,6 +83,7 @@ public class BloomFilter implements Serializable {
 		int minConsecutiveMatches_=3;
 		float memFraction=1;
 		boolean rcomp_=true;
+		boolean dualHash_=false;
 		
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
@@ -118,6 +119,8 @@ public class BloomFilter implements Serializable {
 				}
 			}else if(a.equals("rcomp")){
 				rcomp_=Parse.parseBoolean(b);
+			}else if(a.equals("dualhash") || a.equals("hash2")){
+				dualHash_=Parse.parseBoolean(b);
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -136,6 +139,7 @@ public class BloomFilter implements Serializable {
 		hashes=hashes_;
 		minConsecutiveMatches=minConsecutiveMatches_;
 		rcomp=rcomp_;
+		dualHash=dualHash_ && hashes>1;
 		
 
 		assert(bits==1 || bits==2 || bits==4 || bits==8 || bits==16 || bits==32) : "Bits must be a power of 2.";
@@ -190,7 +194,7 @@ public class BloomFilter implements Serializable {
 	 */
 	public BloomFilter(int k_, int kbig_, int bits_, int hashes_,
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction){
-		this(null, null, null, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction);
+		this(null, null, null, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction, false);
 	}
 	
 	/**
@@ -212,6 +216,12 @@ public class BloomFilter implements Serializable {
 	 */
 	public BloomFilter(String in1_, String in2_, ArrayList<String> extra_, int k_, int kbig_, int bits_, int hashes_,
 			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction){
+		this(in1_, in2_, extra_, k_, kbig_, bits_, hashes_, minConsecutiveMatches_, rcomp_, ecco_, merge_, memFraction, false);
+	}
+
+	/** Constructor with optional independent secondary hashes for Bloom lanes. */
+	public BloomFilter(String in1_, String in2_, ArrayList<String> extra_, int k_, int kbig_, int bits_, int hashes_,
+			int minConsecutiveMatches_, boolean rcomp_, boolean ecco_, boolean merge_, float memFraction, boolean dualHash_){
 		if(extra_!=null){
 			for(String s : extra_){extra.add(s);}
 		}
@@ -226,6 +236,7 @@ public class BloomFilter implements Serializable {
 		hashes=hashes_;
 		minConsecutiveMatches=minConsecutiveMatches_;
 		rcomp=rcomp_;
+		dualHash=dualHash_ && hashes>1;
 		ecco=ecco_;
 		merge=merge_;
 
@@ -260,6 +271,7 @@ public class BloomFilter implements Serializable {
 		hashes=hashes_;
 		minConsecutiveMatches=minConsecutiveMatches_;
 		rcomp=rcomp_;
+		dualHash=false;
 
 		shift=bitsPerBase*k;
 		shift2=shift-bitsPerBase;
@@ -308,7 +320,7 @@ public class BloomFilter implements Serializable {
 		//		System.err.println("filterMemory="+filterMemory+", cells="+cells);
 		KCountArray7MTA kca;
 		if(in1!=null || (extra!=null && extra.size()>0)) {
-			ReadCounter rc=new ReadCounter(k, rcomp, ecco, merge, Shared.AMINO_IN);
+			ReadCounter rc=new ReadCounter(k, rcomp, ecco, merge, Shared.AMINO_IN, dualHash);
 			kca=(KCountArray7MTA)rc.makeKca(in1, in2, extra==null || extra.isEmpty() ? null : extra,
 					cbits, cells, hashes, minq,
 					maxReads, 1, 1, 1, null, 0);
@@ -666,7 +678,7 @@ public class BloomFilter implements Serializable {
 			kmer.addRight(bases[i]);
 			if(kmer.len>=k){
 				counted++;
-				int count=filter.read(kmer.xor());
+				int count=readKmer(kmer);
 				min=Tools.min(min, count);
 			}
 		}
@@ -683,7 +695,7 @@ public class BloomFilter implements Serializable {
 			kmer.addRight(bases[i]);
 			if(kmer.len>=k){
 				counted++;
-				int count=filter.read(kmer.xor());
+				int count=readKmer(kmer);
 				min=Tools.min(min, count);
 			}
 		}
@@ -701,7 +713,7 @@ public class BloomFilter implements Serializable {
 		for(int i=0; i<bases.length; i++){
 			kmer.addRight(bases[i]);
 			if(kmer.len>=k){
-				int count=filter.read(kmer.xor());
+				int count=readKmer(kmer);
 				if(count<thresh){
 					low++;
 					if(low>maxLow){return false;}
@@ -848,20 +860,20 @@ public class BloomFilter implements Serializable {
 			final boolean found;
 			{
 				final long key=array[i];
-				found=(key<0 ? false : filter.read(key)>=thresh);
+				found=(key<0 ? false : readKey(key)>=thresh);
 			}
 			if(found){
 				int streak=1;
 				//array[i-j] needs no bounds check: i>=mcm-1 (loop start) and j<mcm, so i-j>=0.
 				for(int j=1; j<minConsecutiveMatches; j++){
 					final long key=array[i-j];
-					if(key<0 || filter.read(key)<thresh){break;}
+					if(key<0 || readKey(key)<thresh){break;}
 					else{streak++;}
 				}
 				if(streak>=minConsecutiveMatches){return false;}
 				for(int j=1; j<minConsecutiveMatches && j+i<len; j++){
 					final long key=array[i+j];
-					if(key<0 || filter.read(key)<thresh){break;}
+					if(key<0 || readKey(key)<thresh){break;}
 					else{streak++;}
 					if(streak>=minConsecutiveMatches){return false;}
 				}
@@ -922,7 +934,7 @@ public class BloomFilter implements Serializable {
 	 */
 	public int getCount(final long kmer, final long rkmer){
 		final long key=toKey(kmer, rkmer);
-		return filter.read(key);
+		return readKey(key);
 	}
 	
 	/**
@@ -933,7 +945,7 @@ public class BloomFilter implements Serializable {
 	 */
 	public int getCount(final long key){
 //		assert(key==toKey(key, AminoAcid.reverseComplementBinaryFast(key, k))); //slow
-		return filter.read(key);
+		return readKey(key);
 	}
 	
 	/**
@@ -947,7 +959,7 @@ public class BloomFilter implements Serializable {
 	 */
 	public boolean contains(final long kmer, final long rkmer, final int thresh){
 		final long key=toKey(kmer, rkmer);
-		return filter.read(key)>=thresh;
+		return readKey(key)>=thresh;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1045,7 +1057,15 @@ public class BloomFilter implements Serializable {
 	 */
 	public boolean containsBig(final long kmer, final long rkmer, final int thresh){
 		final long key=toKey(kmer, rkmer);
-		return filter.read(key)>=thresh;
+		return readKey(key)>=thresh;
+	}
+
+	private int readKey(final long key){
+		return dualHash ? filter.read(key, KCountArray.secondaryHash(key)) : filter.read(key);
+	}
+
+	private int readKmer(final Kmer kmer){
+		return dualHash ? filter.read(kmer.xor(), kmer.xor2()) : filter.read(kmer.xor());
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1186,6 +1206,8 @@ public class BloomFilter implements Serializable {
 	final long mask;
 	/** Whether to use reverse complement canonical k-mer representation */
 	final boolean rcomp;
+	/** Whether kmers use independent primary and secondary Bloom-lane hashes. */
+	public final boolean dualHash;
 
 //	private final long usableMemory;
 	/** Memory allocated for the k-mer count array in bytes */

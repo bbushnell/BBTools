@@ -5,12 +5,10 @@ echo "
 Written by Noelle
 Last modified August 2026
 
-Description:  Regression and distribution checks for Tools.splitMix64,
-ukmer.Kmer.xor2(), and resizable/fixed HashArrayH1D storage, including
-reverse-complement invariance, lazy invalidation, restoration, collisions,
-bit balance, resize conservation, ownership, deletion, and loud capacity failure.
+Description:  Regression checks for independent xor1/xor2 Bloom-filter lanes,
+including legacy parity, collision separation, prefilters, and canonical hashes.
 
-Usage:  kmerhash2test.sh
+Usage:  kcountdualhashtest.sh
 
 Contact: bbushnell@lbl.gov
 "
@@ -44,7 +42,7 @@ setEnv(){
 }
 
 launch(){
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP ukmer.KmerHash2Test"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bloom.KCountArrayDualHashTest"
 	echo "$CMD" >&2
 	eval $CMD
 }

@@ -172,6 +172,22 @@ public final class KCountArray7MTA extends KCountArray {
 		}
 		return min;
 	}
+
+	@Override
+	public final int read(final long rawKey, final long rawKey2){
+		if(verbose){System.err.println("Reading raw keys "+rawKey+", "+rawKey2);}
+		if(prefilter!=null){
+			int pre=prefilter.read(rawKey, rawKey2);
+			if(pre<prefilterLimit){return pre;}
+		}
+		long key=hash(rawKey, 0);
+		int min=readHashed(key);
+		for(int i=1; i<hashes && min>0; i++){
+			key=nextHash(key, rawKey2, i);
+			min=min(min, readHashed(key));
+		}
+		return min;
+	}
 	
 	@Override
 	public final int read(final long[] rawKeys){
@@ -315,6 +331,11 @@ public final class KCountArray7MTA extends KCountArray {
 //		else{incrementUnlocked(rawKey, amt);}
 		incrementAndReturnUnincremented(rawKey, amt);
 	}
+
+	@Override
+	public final void increment(final long rawKey, final long rawKey2, final int amt){
+		incrementAndReturnUnincremented(rawKey, rawKey2, amt);
+	}
 	
 	/*
 	private void incrementUnlocked(long rawKey, int amt){
@@ -388,6 +409,17 @@ public final class KCountArray7MTA extends KCountArray {
 		if(useLocks){return incrementAndReturnUnincrementedLocked(rawKey, incr);}
 		else{return incrementAndReturnUnincrementedUnlocked(rawKey, incr);}
 	}
+
+	@Override
+	public int incrementAndReturnUnincremented(final long rawKey, final long rawKey2, final int incr){
+		if(verbose){System.err.println("\n*** Incrementing raw keys "+rawKey+", "+rawKey2+" ***");}
+		if(prefilter!=null){
+			int x=prefilter.read(rawKey, rawKey2);
+			if(x<prefilterLimit){return x;}
+		}
+		if(useLocks){return incrementAndReturnUnincrementedLocked(rawKey, rawKey2, incr);}
+		return incrementAndReturnUnincrementedUnlocked(rawKey, rawKey2, incr);
+	}
 	
 	/**
 	 * Thread-safe increment using locks to ensure consistency across hash functions.
@@ -419,6 +451,26 @@ public final class KCountArray7MTA extends KCountArray {
 		lock.unlock();
 		return value;
 	}
+
+	private int incrementAndReturnUnincrementedLocked(final long rawKey, final long rawKey2, final int incr){
+		assert(incr>0) : incr;
+		final Lock lock=getLock(rawKey);
+		lock.lock();
+		final int min=read(rawKey, rawKey2);
+		if(min>=maxValue){
+			lock.unlock();
+			return min;
+		}
+		final int newMin=(int)Tools.min(min+(long)incr, maxValue);
+		long key=hash(rawKey, 0);
+		int value=incrementHashedLocalAndReturnUnincremented_toAtLeast(key, newMin);
+		for(int i=1; i<hashes; i++){
+			key=nextHash(key, rawKey2, i);
+			value=min(value, incrementHashedLocalAndReturnUnincremented_toAtLeast(key, newMin));
+		}
+		lock.unlock();
+		return value;
+	}
 	
 	/**
 	 * Unlocked increment using compare-and-swap operations for each hash position.
@@ -439,6 +491,30 @@ public final class KCountArray7MTA extends KCountArray {
 			key2=Long.rotateRight(key2, hashBits);
 		}
 		return value;
+	}
+
+	private int incrementAndReturnUnincrementedUnlocked(final long rawKey, final long rawKey2, final int incr){
+		long key=hash(rawKey, 0);
+		int value=incrementHashedLocalAndReturnUnincremented(key, incr);
+		for(int i=1; i<hashes; i++){
+			key=nextHash(key, rawKey2, i);
+			value=min(value, incrementHashedLocalAndReturnUnincremented(key, incr));
+		}
+		return value;
+	}
+
+	/** Preserves the original lane recurrence when rawKey2 is zero. */
+	private long nextHash(final long previous, final long rawKey2, final int row){
+		final long seed=Long.rotateRight(previous, hashBits)^Long.rotateLeft(rawKey2, 25*row);
+		return hash(seed, row);
+	}
+
+	/** Package-private diagnostic hook for verifying lane independence. */
+	long hashForLane(final long rawKey, final long rawKey2, final int row){
+		assert(row>=0 && row<hashes) : row;
+		long key=hash(rawKey, 0);
+		for(int i=1; i<=row; i++){key=nextHash(key, rawKey2, i);}
+		return key;
 	}
 	
 	@Override

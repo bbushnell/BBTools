@@ -127,12 +127,19 @@ public class ReadCounter extends KmerCountAbstract {
 	 */
 	public ReadCounter(final int k_, final boolean rcomp_, 
 			final boolean ecco_, final boolean merge_, final boolean amino_){
+		this(k_, rcomp_, ecco_, merge_, amino_, false);
+	}
+
+	/** Creates a ReadCounter with optional independent Bloom-lane hashes. */
+	public ReadCounter(final int k_, final boolean rcomp_, final boolean ecco_, final boolean merge_,
+			final boolean amino_, final boolean dualHash_){
 		k=k_;
 		k2=k-1;
 		rcomp=rcomp_;
 		ecco=ecco_;
 		merge=merge_;
 		amino=amino_;
+		dualHash=dualHash_;
 
 		final int bitsPerChar=(amino ? AminoAcid.AMINO_SHIFT : 2);
 		aminoShift=AminoAcid.AMINO_SHIFT;
@@ -671,6 +678,16 @@ public class ReadCounter extends KmerCountAbstract {
 				incrementByAmountT(key, 1);
 			}
 		}
+
+		private void increment(final long key, final long key2){
+			if(SKETCH_MODE){
+				incrementByAmountT(key, 1);
+			}else{
+				counts.incrementDual(key, key2);
+				keysCountedLocal++;
+				incrementsLocal++;
+			}
+		}
 		
 		private void incrementOneKmer(Read r, int knum) {
 			if(r==null || r.length()<k) {return;}
@@ -709,6 +726,8 @@ public class ReadCounter extends KmerCountAbstract {
 				final long code=SketchObject.hash(key);
 				if(code<sketchMinHashValue){return;}
 				counts.increment(STORE_HASHED ? code : key, amt);
+			}else if(dualHash){
+				counts.increment(key, KCountArray.secondaryHash(key), amt);
 			}else{
 				counts.increment(key, amt);
 			}
@@ -866,7 +885,8 @@ public class ReadCounter extends KmerCountAbstract {
 				if(verbose){System.err.println("Scanning i="+i+", len="+len+", kmer="+kmer+"\t"+new String(bases, Tools.max(0, i-k), Tools.min(i+1, k)));}
 				if(len>=k && prob>=minProb){
 //					System.err.println("Incrementing xor()="+kmer.xor());
-					increment(kmer.xor());
+					if(dualHash){increment(kmer.xor(), kmer.xor2());}
+					else{increment(kmer.xor());}
 //					counts.incrementAndReturnUnincremented(kmer.xor(), 1);
 //					keysCountedLocal++;
 				}
@@ -1093,6 +1113,8 @@ public class ReadCounter extends KmerCountAbstract {
 	private final boolean merge;
 	/** Whether processing amino acid sequences instead of nucleotides */
 	private final boolean amino;
+	/** Whether kmers use independent secondary hashes for later Bloom lanes. */
+	private final boolean dualHash;
 	
 	/**
 	 * Whether to use very strict overlap detection instead of regular strict mode
