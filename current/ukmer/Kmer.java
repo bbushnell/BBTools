@@ -226,6 +226,7 @@ public class Kmer implements Cloneable {
 			array2[i]=0;
 		}
 		lastIncarnation=-1;
+		lastXor2Incarnation=-1;
 		incarnation=0;
 		//incarnation++;
 	}
@@ -233,6 +234,7 @@ public class Kmer implements Cloneable {
 	public void clearFast() {
 		len=0;
 		lastIncarnation=-1;
+		lastXor2Incarnation=-1;
 		incarnation=0;
 		//incarnation++;
 	}
@@ -601,6 +603,22 @@ public class Kmer implements Cloneable {
 	}
 
 	/**
+	 * Independent 63-bit fingerprint for the complete canonical kmer.  Unlike
+	 * xor(), this deliberately retains both terminal bases: xor() is also the
+	 * placement hash and may mask the two ends so extensions share a probe
+	 * neighborhood, while xor2() is used to distinguish exact keys in compact
+	 * hash-only tables.  Folding right with a different rotation and mixer
+	 * makes this statistically independent of xor() without storing the kmer.
+	 */
+	public static long xor2(long[] key){
+		long xor=0;
+		for(long word : key){
+			xor=Tools.splitMix64(Long.rotateRight(xor, 23)^word);
+		}
+		return xor&mask63;
+	}
+
+	/**
 	 * When true, the first word is put through the same hash64shift mixer as
 	 * every other word before folding, instead of being used raw. Default OFF
 	 * to preserve exact prior behavior (including the mult=1 pass-through
@@ -626,6 +644,16 @@ public class Kmer implements Cloneable {
 	public long xor(){
 		update();
 		return lastXor;
+	}
+
+	/** Returns the lazily computed independent full-key fingerprint. */
+	public long xor2(){
+		update();
+		if(lastXor2Incarnation!=incarnation){
+			lastXor2=xor2(key);
+			lastXor2Incarnation=incarnation;
+		}
+		return lastXor2;
 	}
 
 	/**
@@ -684,8 +712,10 @@ public class Kmer implements Cloneable {
 	static boolean rcomp=true;
 	
 	private long lastXor=-1;
+	private long lastXor2=-1;
 	private long incarnation=0;
 	private long lastIncarnation=-1;
+	private long lastXor2Incarnation=-1;
 	private boolean corePalindrome=false;
 	private long[] key=null;
 	

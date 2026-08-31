@@ -17,6 +17,7 @@ public class TadpoleMultiUnitTest {
 		failures+=run("intermediateGraphKIsAccepted", TadpoleMultiUnitTest::intermediateGraphKIsAccepted);
 		failures+=run("invalidFuseKIsRejected", TadpoleMultiUnitTest::invalidFuseKIsRejected);
 		failures+=run("unusedGraphKIsRejected", TadpoleMultiUnitTest::unusedGraphKIsRejected);
+		failures+=run("hashBridgeSelection", TadpoleMultiUnitTest::hashBridgeSelection);
 		failures+=run("dispatcherDetectsListsAndPhaseFlags", TadpoleMultiUnitTest::dispatcherDetectsListsAndPhaseFlags);
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
 		if(failures>0){System.exit(1);}
@@ -107,6 +108,25 @@ public class TadpoleMultiUnitTest {
 
 	private static void unusedGraphKIsRejected(){
 		expectFailure("graphk requires", "k=31,63", "graphk=47");
+	}
+
+	private static void hashBridgeSelection(){
+		check(config("assemblek=95", "bridgek=127").useHashBridgeTables(),
+				"Default long-k bridge did not select compact hashes");
+		check(config("assemblek=95", "bridgek=127").bridgeHashMode()==1,
+				"Default long-k bridge did not select a resizable hash pair");
+		check(config("assemblek=95", "bridgek=127", "prealloc=t").bridgeHashMode()==2,
+				"Preallocated long-k bridge did not select a fixed fingerprint");
+		check(config("assemblek=95", "bridgek=127", "prealloc=t", "bridgehash=pair").bridgeHashMode()==1,
+				"Explicit bridgehash=pair did not override automatic fixed storage");
+		check(config("assemblek=95", "bridgek=127", "bridgehash=fixed").bridgeHashMode()==2,
+				"Explicit bridgehash=fixed was not selected");
+		check(!config("assemblek=95", "bridgek=127", "bridgehash=f").useHashBridgeTables(),
+				"bridgehash=f did not disable compact hashes");
+		check(!config("assemblek=95", "bridgek=127", "wash=t").useHashBridgeTables(),
+				"Shaving/rinsing incorrectly selected a non-enumerable table");
+		check(config("assemblek=95", "bridgek=127", "wash=f").useHashBridgeTables(),
+				"wash=f incorrectly disabled compact hashes");
 	}
 
 	private static void dispatcherDetectsListsAndPhaseFlags(){

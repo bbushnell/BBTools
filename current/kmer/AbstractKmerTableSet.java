@@ -64,6 +64,7 @@ public abstract class AbstractKmerTableSet {
 			}else if(a.equals("onepass")){
 			}else if(a.equals("passes")){
 			}else if(a.equals("rcomp")){
+			}else if(a.equals("hashonly") || a.equals("hashedkmers")){
 			}else if(a.equals("maskmiddle")){
 			}else if(a.equals("filtermemory") || a.equals("prefiltermemory") || a.equals("filtermem")){
 			}else{

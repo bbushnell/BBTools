@@ -1221,7 +1221,7 @@ public class Tadpole2 extends Tadpole {
 			outstream.println("extendToRight kmer="+kmer+", bb="+bb);
 		}
 		
-		HashArrayU1D table=tables.getTable(kmer);
+		AbstractKmerTableU table=tables.getTableAbstract(kmer);
 		int count=table.getValue(kmer);
 		if(count<minCountSeed){
 			if(verbose){outstream.println("Returning because count was too low: "+count);}
@@ -1292,7 +1292,7 @@ public class Tadpole2 extends Tadpole {
 			//Now consider the next kmer
 			final long evicted=kmer.addRightNumeric(rightMaxPos);
 			
-			table=tables.getTable(kmer);
+			table=tables.getTableAbstract(kmer);
 			
 			assert(table.getValue(kmer)==rightMax || rightMax==0);
 			count=rightMax;
@@ -1405,7 +1405,7 @@ public class Tadpole2 extends Tadpole {
 		final int initialLength=bb.length();
 		assert(kmer.len==kbig) : kmer.len+", "+kbig+", "+bb.length();
 		
-		HashArrayU1D table=tables.getTable(kmer);
+		AbstractKmerTableU table=tables.getTableAbstract(kmer);
 		int count=table.getValue(kmer);
 		if(count<minCountSeed){
 			if(verbose || verbose2){outstream.println("Returning because count was too low: "+count+"<"+minCountSeed);}
@@ -1457,7 +1457,7 @@ public class Tadpole2 extends Tadpole {
 			//Now consider the next kmer
 			final long evicted=kmer.addRightNumeric(rightMaxPos);
 			
-			table=tables.getTable(kmer);
+			table=tables.getTableAbstract(kmer);
 			
 			assert(table.getValue(kmer)==rightMax || rightMax==0);
 			count=rightMax;

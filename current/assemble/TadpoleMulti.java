@@ -202,6 +202,11 @@ public class TadpoleMulti {
 	private String[] makeArgs(final int k, final boolean longest){
 		final ArrayList<String> list=new ArrayList<String>(config.common.size()+6);
 		list.addAll(config.common);
+		final int bridgeHashMode=config.bridgeHashMode();
+		if(!longest && k>64 && bridgeHashMode>0){
+			list.add("hashonly="+(bridgeHashMode==2 ? "fixed" : "t"));
+			if(bridgeHashMode==2){list.add("prealloc=t");}
+		}
 		list.add("k="+k);
 		list.add("out=null");
 		list.add("mode=contig");
@@ -266,6 +271,8 @@ public class TadpoleMulti {
 				}else if(a.equals("bridgek")){
 					bridgeText=b;
 					bridgeExplicit=(b==null || !b.equalsIgnoreCase("auto"));
+				}else if(a.equals("bridgehash") || a.equals("hashbridges")){
+					bridgeHashMode=parseBridgeHashMode(b);
 				}else if(a.equals("out") || a.equals("out1") || a.equals("oute") || a.equals("oute1")){out=b;}
 				else if(a.equals("crosskmaxdepthratio") || a.equals("ckmdr")){maxDepthRatio=Float.parseFloat(b);}
 				else if(a.equals("crosskpasses") || a.equals("ckpasses")){passes=Integer.parseInt(b);}
@@ -284,7 +291,11 @@ public class TadpoleMulti {
 					throw new RuntimeException("DOT output is not yet supported by TadpoleMulti.");
 				}else if(a.equals("mode") && !"contig".equalsIgnoreCase(b)){
 					throw new RuntimeException("TadpoleMulti requires mode=contig.");
-				}else{common.add(arg);}
+				}else{
+					if(isCleaningArgument(a, b)){cleaningRequested=true;}
+					if(a.equals("prealloc") || a.equals("preallocate")){preallocRequested=parsePrealloc(b);}
+					common.add(arg);
+				}
 			}
 			final int[] shorthand=parseKList(kList, "k", true);
 			if(assembleExplicit){assembleK=parseK(assembleText, "assemblek");}
@@ -346,6 +357,24 @@ public class TadpoleMulti {
 		}
 
 		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
+		boolean useHashBridgeTables(){return bridgeHashMode()>0;}
+		int bridgeHashMode(){return cleaningRequested ? 0 : bridgeHashMode<0 ? (preallocRequested ? 2 : 1) : bridgeHashMode;}
+		private static int parseBridgeHashMode(String b){
+			if(b==null || b.equalsIgnoreCase("auto")){return -1;}
+			if(b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint") || b.equals("1")){return 2;}
+			if(b.equalsIgnoreCase("pair") || b.equalsIgnoreCase("two") || b.equals("2")){return 1;}
+			return Parse.parseBoolean(b) ? 1 : 0;
+		}
+		private static boolean parsePrealloc(String b){
+			if(b==null || b.length()<1 || Character.isLetter(b.charAt(0))){return Parse.parseBoolean(b);}
+			return Double.parseDouble(b)>0;
+		}
+		private static boolean isCleaningArgument(String a, String b){
+			if(!(a.equals("wash") || a.equals("shaverinse") || a.equals("shaveandrinse") || a.equals("sr")
+					|| a.equals("shave") || a.equals("removedeadends") || a.equals("rinse")
+					|| a.equals("shampoo") || a.equals("removebubbles"))){return false;}
+			return !(b!=null && (b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false") || b.equals("0")));
+		}
 		void applyFinalGraphOutput(final Tadpole tad){
 			if(outGfa!=null){tad.setGfaOutput(outGfa);}
 		}
@@ -360,6 +389,9 @@ public class TadpoleMulti {
 			Tadpole.printPlanLine("assemblek", assembleK);
 			if(fuseKs.length>0){Tadpole.printPlanLine("fusek", toKList(fuseKs));}
 			if(bridgeKs.length>0){Tadpole.printPlanLine("bridgek", toKList(bridgeKs));}
+			if(useHashBridgeTables() && containsLongK(bridgeKs)){
+				Tadpole.printPlanLine("bridgehash", bridgeHashMode()==2 ? "fixed" : "pair");
+			}
 			if(graphOperations()){Tadpole.printPlanLine("graphk", graphK);}
 			Tadpole.outstream.println();
 		}
@@ -373,6 +405,11 @@ public class TadpoleMulti {
 			return bb.toString();
 		}
 
+		private static boolean containsLongK(int[] array){
+			for(int k : array){if(k>64){return true;}}
+			return false;
+		}
+
 		final ArrayList<String> common=new ArrayList<String>();
 		final int assembleK;
 		final int[] fuseKs, bridgeKs;
@@ -381,6 +418,8 @@ public class TadpoleMulti {
 		int passes=10;
 		int graphK=-1;
 		boolean simpleOmnitigs=false, graphCover=false;
+		boolean cleaningRequested=false, preallocRequested=false;
+		int bridgeHashMode=-1;
 		boolean showStats=true;
 	}
 

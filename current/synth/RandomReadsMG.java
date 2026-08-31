@@ -684,6 +684,7 @@ public class RandomReadsMG{
 	 *@return Generated coverage depth value within the configured min/max range
 	 */
 	float randomDepth(Random randy){
+		if(minDepth==maxDepth){return minDepth;}
 		final float depth;
 		if(depthMode==MIN4){depth=depthMin4(randy);}
 		else if(depthMode==EXP){depth=depthExp(randy);}

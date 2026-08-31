@@ -269,9 +269,8 @@ public class HashBufferU extends AbstractKmerTableU {
 		if(lim<0){return 0;}
 		if(force){table.lock();}
 		else if(!table.tryLock()){return 0;}
-		final int x=dumpBuffer_inner(way);
-		table.unlock();
-		return x;
+		try{return dumpBuffer_inner(way);}
+		finally{table.unlock();}
 	}
 	
 	private int dumpBuffer_inner(final int way){

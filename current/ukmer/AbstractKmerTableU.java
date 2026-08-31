@@ -791,6 +791,10 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 				}else if(type==ARRAYH){
 					akt=new HashArrayUHybrid(schedule, k, kbig);
 //					akt=new HashArrayUHybrid(size, k, kbig, growable);
+				}else if(type==ARRAYHASH1D){
+					akt=new HashArrayH1D(schedule);
+				}else if(type==ARRAYHASH1D_FIXED){
+					akt=new HashArrayH1D(schedule, false);
 				}else{
 					throw new RuntimeException("Must use forest, table, or array data structure. Type="+type);
 				}
@@ -854,7 +858,8 @@ public abstract class AbstractKmerTableU implements KmerTableInterface {
 	/** Table type constant for one-dimensional forest implementation */
 	/** Table type constant for one-dimensional array implementation */
 	/** Table type constant for unknown table type */
-	public static final int UNKNOWN=0, ARRAY1D=1, FOREST1D=2, NODE1D=4, ARRAY2D=5, FOREST2D=6, NODE2D=8, ARRAYH=9;
+	public static final int UNKNOWN=0, ARRAY1D=1, FOREST1D=2, NODE1D=4, ARRAY2D=5, FOREST2D=6, NODE2D=8,
+			ARRAYH=9, ARRAYHASH1D=10, ARRAYHASH1D_FIXED=11;
 	
 	/** Return value indicating a hash collision occurred */
 	/** Return value indicating k-mer is not present in table */

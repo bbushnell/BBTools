@@ -18,6 +18,7 @@ import kmer.ScheduleMaker;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import shared.KillSwitch;
 import shared.Primes;
 import shared.Shared;
 import shared.Timer;
@@ -91,6 +92,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		int ways_=-1;
 		int filterMax_=2;
 		boolean ecco_=false, merge_=false;
+		int hashMode_=0;
 		boolean rcomp_=true;
 		double minProb_=defaultMinprob;
 		
@@ -209,6 +211,9 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 				onePass=(passes<2);
 			}else if(a.equals("rcomp")){
 				rcomp_=Parse.parseBoolean(b);
+			}else if(a.equals("hashonly") || a.equals("hashedkmers")){
+				if(b!=null && (b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint"))){hashMode_=2;}
+				else{hashMode_=Parse.parseBoolean(b) ? 1 : 0;}
 			}
 			
 			else if(a.equalsIgnoreCase("filterMemoryOverride") || a.equalsIgnoreCase("filterMemory") || 
@@ -279,8 +284,13 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		assert(Kmer.PACKED || k<=31) : k;
 
 		prealloc=prealloc_;
-		bytesPerKmer=4+8*mult+extraBytesPerKmer_;
-		assert(bytesPerKmer>=4+8*mult) : bytesPerKmer+", "+mult+", "+k+", "+kbig+", "+(4+8*mult)+", "+extraBytesPerKmer_;
+		hashMode=hashMode_;
+		if(hashMode==2 && !prealloc){
+			throw new RuntimeException("hashonly=fixed requires prealloc=t because placement hashes are not stored for resizing.");
+		}
+		bytesPerKmer=4+(hashMode==2 ? 8 : hashMode==1 ? 16 : 8*mult)+extraBytesPerKmer_;
+		assert(bytesPerKmer>=4+(hashMode==2 ? 8 : hashMode==1 ? 16 : 8*mult)) :
+			bytesPerKmer+", "+mult+", "+k+", "+kbig+", "+extraBytesPerKmer_;
 		if(ways_<1){
 			long maxKmers=(2*tableMemory)/bytesPerKmer;
 			long minWays=Tools.min(10000, maxKmers/Integer.MAX_VALUE);
@@ -385,7 +395,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	protected void allocateTables(){
 		assert(tables==null);
 		tables=null;
-		final int tableType=AbstractKmerTableU.ARRAY1D;
+		final int tableType=(hashMode==2 ? AbstractKmerTableU.ARRAYHASH1D_FIXED :
+			hashMode==1 ? AbstractKmerTableU.ARRAYHASH1D : AbstractKmerTableU.ARRAY1D);
 		
 		ScheduleMaker scheduleMaker=new ScheduleMaker(ways, bytesPerKmer, prealloc, 
 				(prealloc ? preallocFraction : 1.0), -1, (prefilter ? prepasses : 0), prefilterFraction, filterMemoryOverride);
@@ -412,6 +423,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 		final int THREADS=Shared.threads();
 		ArrayList<LoadThread> alpt=new ArrayList<LoadThread>(THREADS);
 		for(int i=0; i<THREADS; i++){alpt.add(new LoadThread(cris));}
+		for(LoadThread pt : alpt){pt.setUncaughtExceptionHandler((thread, throwable)->KillSwitch.throwableKill(throwable));}
 		for(LoadThread pt : alpt){pt.start();}
 		
 		long added=0;
@@ -901,11 +913,16 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	public HashArrayU1D getTable(Kmer kmer){
 		return (HashArrayU1D) tables[kmer.mod(ways)];
 	}
+
+	/** Returns the selected table without assuming explicit kmer storage. */
+	public AbstractKmerTableU getTableAbstract(Kmer kmer){return tables[kmer.mod(ways)];}
 	
 	@Override
 	public HashArrayU1D getTable(int tnum){
 		return (HashArrayU1D) tables[tnum];
 	}
+
+	public boolean hashOnly(){return hashMode>0;}
 	
 	@Override
 	public long[] fillHistogram(int histMax) {
@@ -1326,7 +1343,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	 * @return Index of extension with highest count
 	 */
 	public int fillRightCounts(Kmer kmer, int[] counts){
-		if(FAST_FILL && MASK_CORE && k>2){
+		if(FAST_FILL && MASK_CORE && k>2 && !hashOnly()){
 			return fillRightCounts_fast(kmer, counts);
 		}else{
 			return fillRightCounts_safe(kmer, counts);
@@ -1342,7 +1359,7 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	 * @return Index of extension with highest count
 	 */
 	public int fillLeftCounts(Kmer kmer, int[] counts){
-		if(FAST_FILL && MASK_CORE && k>2){
+		if(FAST_FILL && MASK_CORE && k>2 && !hashOnly()){
 			return fillLeftCounts_fast(kmer, counts);
 		}else{
 			return fillLeftCounts_safe(kmer, counts);
@@ -1644,6 +1661,8 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	
 	/** Memory usage per k-mer entry including overhead */
 	private final int bytesPerKmer;
+	/** 0=explicit kmer, 1=resizable hash pair, 2=fixed xor2 fingerprint. */
+	private final int hashMode;
 
 	/** Available system memory for k-mer storage */
 	private final long usableMemory;

@@ -720,6 +720,8 @@ public class BBMerge {
 				bridgeMaxOverlap=Parse.parseIntKMG(b);
 			}else if(a.equals("bridgereciprocal")){
 				bridgeReciprocal=Parse.parseBoolean(b);
+			}else if(a.equals("bridgehash") || a.equals("hashbridges")){
+				bridgeHashMode=parseBridgeHashMode(b);
 			}
 			
 			else if(a.equals("quantize") || a.equals("quantizesticky")){
@@ -886,7 +888,9 @@ public class BBMerge {
 			list.add("mincountextend="+minCountExtend);
 			list.add("minprob="+minProb);
 			list.add("k="+kmerLength);
-			list.add("prealloc="+prealloc);
+			final int hashMode=effectiveBridgeHashMode();
+			if(kmerBridge && hashMode>0 && kmerLength>64){list.add("hashonly="+(hashMode==2 ? "fixed" : "t"));}
+			list.add("prealloc="+(prealloc || (kmerBridge && hashMode==2 && kmerLength>64)));
 			list.add("prefilter="+prefilter);
 			if(maxReads>0 && maxReads<Long.MAX_VALUE){
 				list.add("reads="+maxReads);
@@ -3236,6 +3240,17 @@ public class BBMerge {
 	private int bridgeMinHits=1;
 	private int bridgeMaxOverlap=0;
 	private boolean bridgeReciprocal=true;
+	private static int parseBridgeHashMode(String b){
+		if(b==null || b.equalsIgnoreCase("auto")){return -1;}
+		if(b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint") || b.equals("1")){return 2;}
+		if(b.equalsIgnoreCase("pair") || b.equalsIgnoreCase("two") || b.equals("2")){return 1;}
+		return Parse.parseBoolean(b) ? 1 : 0;
+	}
+
+	private int effectiveBridgeHashMode(){return bridgeHashMode<0 ? (prealloc ? 2 : 1) : bridgeHashMode;}
+
+	/** -1=auto, 0=explicit, 1=resizable hash pair, 2=fixed xor2 fingerprint. */
+	private int bridgeHashMode=-1;
 
 	private final BloomFilter bloomFilter;
 	private final BloomFilterCorrector corrector;

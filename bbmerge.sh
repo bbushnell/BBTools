@@ -214,6 +214,10 @@ bridgetargetwindow=0 Exact-tip mode; retained for command-line compatibility.
 bridgeminhits=1      Exact-tip mode; retained for command-line compatibility.
 bridgemaxoverlap=0   Maximum implied raw-read overlap for a target bridge.
 bridgereciprocal=t   Require both walk directions to infer the same insert.
+bridgehash=auto      Kmer storage for k>64 bridging.  Auto uses one fixed
+                     64-bit fingerprint with prealloc=t, or two resizable
+                     64-bit hashes otherwise.  Set to f for explicit kmers,
+                     pair for two hashes, or fixed for one fingerprint.
 
 
 Bloom Filter Parameters (for kmer operations with less memory than Tadpole)

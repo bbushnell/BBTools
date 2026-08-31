@@ -5440,6 +5440,19 @@ public final class Tools {
 		key=key+(key<<31);
 		return key;
 	}
+
+	/**
+	 * SplitMix64 finalizer by Sebastiano Vigna.  This is the stateless mixing
+	 * step, rather than the generator's Weyl-sequence increment; callers that
+	 * need a stream are responsible for advancing their own state.
+	 * @param key Value to mix
+	 * @return Fully mixed 64-bit value
+	 */
+	public static long splitMix64(long key){
+		key=(key^(key>>>30))*0xBF58476D1CE4E5B9L;
+		key=(key^(key>>>27))*0x94D049BB133111EBL;
+		return key^(key>>>31);
+	}
 	
 	/**
 	 * Hashes a long key to a non-negative int safe for direct array indexing.

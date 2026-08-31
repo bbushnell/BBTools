@@ -87,6 +87,28 @@ runLongKBridgeResolutionTest(){
 	echo "PASS: longKBridgeResolvesShortKBranch"
 }
 
+runHashedBridgeParityTest(){
+	local temp
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	for mode in t f; do
+		"$DIR/tadpole.sh" in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/$mode.fa" \
+			assemblek=31 fusek=none bridgek=95 bridgehash=$mode maskcore=t mcs=1 mce=1 mincontig=1 \
+			prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/$mode.stdout" 2>"$temp/$mode.stderr"
+	done
+	if ! cmp -s "$temp/t.fa" "$temp/f.fa"; then
+		echo "FAIL: fixed-width and explicit k=95 bridge tables emitted different contigs" >&2
+		diff -u "$temp/f.fa" "$temp/t.fa" >&2 || true
+		exit 1
+	fi
+	if ! grep -Fq "bridgehash pair" "$temp/t.stderr"; then
+		echo "FAIL: compact bridge-table execution plan was not reported" >&2
+		cat "$temp/t.stderr" >&2
+		exit 1
+	fi
+	echo "PASS: hashedBridgeMatchesExplicitK95"
+}
+
 runMultiKGfaTest(){
 	local temp headers writes
 	temp="$(mktemp -d)"
@@ -222,6 +244,7 @@ runTest assemble.TadpoleMultiUnitTest
 runCrossKLeftBridgeTest
 runLongKBridgeEligibilityTest
 runLongKBridgeResolutionTest
+runHashedBridgeParityTest
 runMultiKGfaTest
 runExecutionPlanTest
 runUnifiedMultiGraphTest
