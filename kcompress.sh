@@ -18,8 +18,9 @@ reads=-1            Only process this number of reads, then quit (-1 means all).
 Output parameters:
 out=<file>          Write contigs (in contig mode).
 showstats=t         Print assembly statistics after writing contigs.
-fuse=0              Fuse output sequences into chunks at least this long,
-                    padded with 1 N between sequences.
+fuse=0              Pack output sequences shorter than this into chunks no
+                    longer than this.  Longer contigs remain unchanged.
+npad=1              Number of Ns between packed short sequences.
 
 Prefiltering parameters:
 prefilter=0         If set to a positive integer, use a countmin sketch

@@ -39,11 +39,14 @@ public class NcrnaBoundaryVectorGen {
 			else if(kv[0].equalsIgnoreCase("meanlen")){meanLen=Float.parseFloat(kv[1]);}
 		}
 		if(fastaPath==null || outPath==null || tableStartPath==null || tableStopPath==null || familyName==null){
-			System.err.println("Usage: family=<rnasep|srp_small|srp_large> fasta=<flanked.fa> out=<vectors.tsv>");
+			System.err.println("Usage: family=<rnasep|srp_small|srp_large|tmrna> fasta=<flanked.fa> out=<vectors.tsv>");
 			System.err.println("  tablestart=<start_table.tsv> tablestop=<stop_table.tsv> [meanlen=380]");
 			System.exit(1);
 		}
 
+		familyName=CallGenes.parseNcrnaFamily(familyName);
+		CallGenes.NCRNA_FAMILIES_ENABLED=true;
+		if(familyName.equals("tmrna")){CallGenes.TMRNA_ENABLED=true;}
 		CallGenes.loadNcrnaResources();
 		NcrnaFamily fam=null;
 		for(NcrnaFamily f : GeneCaller.ncrnaFamilies){

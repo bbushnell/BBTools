@@ -461,6 +461,8 @@ public class CallGenes extends ProkObject {
 				NCRNA_FAMILIES_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("tmrna")){
+				TMRNA_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
 			}else if(a.equalsIgnoreCase("ncrnakmers")){
@@ -471,6 +473,12 @@ public class CallGenes extends ProkObject {
 				SRPSMALL_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("srplargekmers")){
 				SRPLARGE_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("tmrnakmers")){
+				TMRNA_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("tmrnaconsensus")){
+				TMRNA_CONSENSUS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("tmrnamodels")){
+				TMRNA_MODELS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("ncrnaidpass")){
 				NCRNA_ID_PASS_OVERRIDE=parseUnitFloat(a, b);
 			}else if(a.equalsIgnoreCase("ncrnaidborderline")){
@@ -493,6 +501,10 @@ public class CallGenes extends ProkObject {
 				SRPLARGE_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
 			}else if(a.equalsIgnoreCase("srplargescoreb")){
 				SRPLARGE_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("tmrnascorea")){
+				TMRNA_SCORE_A_OVERRIDE=parseFiniteFloat(a, b);
+			}else if(a.equalsIgnoreCase("tmrnascoreb")){
+				TMRNA_SCORE_B_OVERRIDE=parseFiniteFloat(a, b);
 			}else if(a.equalsIgnoreCase("ncrnacollapsefrac")){
 				NCRNA_COLLAPSE_FRAC_OVERRIDE=parseUnitFloat(a, b);
 			}else if(a.equalsIgnoreCase("ncrnawindowpad") || a.equalsIgnoreCase("ncrnapad")){
@@ -503,6 +515,8 @@ public class CallGenes extends ProkObject {
 				SRPSMALL_PAD_OVERRIDE=parsePadOverride("srpsmallpad", b);
 			}else if(a.equalsIgnoreCase("srplargepad")){
 				SRPLARGE_PAD_OVERRIDE=parsePadOverride("srplargepad", b);
+			}else if(a.equalsIgnoreCase("tmrnapad")){
+				TMRNA_PAD_OVERRIDE=parsePadOverride("tmrnapad", b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -1788,7 +1802,8 @@ public class CallGenes extends ProkObject {
 	}
 
 	/**
-	 * Loads the generic ncRNA family bundles (RNase P, SRP small/large) into
+	 * Loads the generic ncRNA family bundles (RNase P, SRP small/large, and the
+	 * separately gated experimental tmRNA family) into
 	 * GeneCaller.ncrnaFamilies, one entry per family. Forward-ported from Noire's
 	 * ncRNA-family-loading tree (2026-08-28, C3 merge) -- see that tree's original
 	 * javadoc for the resource-naming rationale (hardcoded for now; srp_small/srp_large
@@ -1841,12 +1856,32 @@ public class CallGenes extends ProkObject {
 			resolveSweepFloat("srp_large", NCRNA_ID_PASS_OVERRIDE, 0.70f), resolveSweepFloat("srp_large", NCRNA_ID_BORDERLINE_OVERRIDE, 0.64f),
 			resolveSweepFloat("srp_large", NCRNA_HBM_PASS_OVERRIDE, 0.66f), resolveSweepFloat("srp_large", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 			boundaryStartOffsets("srp_large"), boundaryStopOffsets("srp_large"));
+		if(TMRNA_ENABLED){
+			final int before=GeneCaller.ncrnaFamilies.size();
+			LongHashSet tmrnaKmers=loadEffectiveNcrnaKmerSet("tmrna", "tmrna_17mers.fa", TMRNA_KMERS_OVERRIDE, 17);
+			addNcrnaFamily("tmrna", (TMRNA_CONSENSUS_OVERRIDE==null ? "tmrna_consensus.fa" : TMRNA_CONSENSUS_OVERRIDE),
+				(TMRNA_MODELS_OVERRIDE==null ? "tmrna_models.hbm" : TMRNA_MODELS_OVERRIDE), tmrnaKmers, 17, 180,
+				resolveSweepPad("tmrna", TMRNA_PAD_OVERRIDE, 370),
+				7, 60, true, 11f, 0.48f, 0.072f, 12,
+				resolveFamilyScore("tmrna", TMRNA_SCORE_A_OVERRIDE, NCRNA_SCORE_A_OVERRIDE, 5f),
+				resolveFamilyScore("tmrna", TMRNA_SCORE_B_OVERRIDE, NCRNA_SCORE_B_OVERRIDE, 3.0f),
+				resolveSweepFloat("tmrna", NCRNA_ID_PASS_OVERRIDE, 0.62f), resolveSweepFloat("tmrna", NCRNA_ID_BORDERLINE_OVERRIDE, 0.60f),
+				resolveSweepFloat("tmrna", NCRNA_HBM_PASS_OVERRIDE, 0.62f), resolveSweepFloat("tmrna", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+				boundaryStartOffsets("tmrna"), boundaryStopOffsets("tmrna"));
+			if(GeneCaller.ncrnaFamilies.size()!=before+1){
+				throw new RuntimeException("tmrna=t requires tmrna_17mers.fa[.gz], tmrna_consensus.fa, and tmrna_models.hbm resources");
+			}
+			final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(before);
+			if(f.models==null || f.modelNames==null || f.models.length!=f.library.length || f.modelNames.length!=f.library.length){
+				throw new RuntimeException("tmrna=t requires index-aligned tmrna_consensus.fa and tmrna_models.hbm resources");
+			}
+		}
 	}
 
 	/** Measured width-six candidate windows. Kept in one factory used by family loading;
 	 * unknown families fail loud so a future pipeline cannot silently inherit tRNA geometry. */
 	static int[] boundaryStartOffsets(String family){
-		if(family.equals("rnasep") || family.equals("srp_small") || family.equals("srp_large")){
+		if(family.equals("rnasep") || family.equals("srp_small") || family.equals("srp_large") || family.equals("tmrna")){
 			return new int[]{-3,-2,-1,0,1,2};
 		}
 		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
@@ -1855,6 +1890,7 @@ public class CallGenes extends ProkObject {
 	static int[] boundaryStopOffsets(String family){
 		if(family.equals("rnasep")){return new int[]{-1,0,1,2,3,4};}
 		if(family.equals("srp_small") || family.equals("srp_large")){return new int[]{-2,-1,0,1,2,3};}
+		if(family.equals("tmrna")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
 	}
 
@@ -1917,12 +1953,12 @@ public class CallGenes extends ProkObject {
 			float scoreA, float scoreB, float idPass, float idBorderline,
 			float hbmPass, float collapseFrac, int[] boundaryStartOffsets, int[] boundaryStopOffsets){
 		if(kmerSet==null){return;}
-		String libPath=Data.findPath("?"+libResource, false);
+		String libPath=findNcrnaResource(libResource);
 		if(libPath==null || !new java.io.File(libPath).exists()){return;}
 		byte[][] library=TrnaConsensusBuilder.loadLibrary(libPath);
 		String[] modelNames=TrnaConsensusBuilder.lastLoadedNames;
 		consensus.BaseGraph[] models=null;
-		String modelPath=Data.findPath("?"+modelResource, false);
+		String modelPath=findNcrnaResource(modelResource);
 		if(modelPath!=null && new java.io.File(modelPath).exists()){
 			models=TrnaConsensusBuilder.loadModels(modelPath);
 		}
@@ -1968,6 +2004,16 @@ public class CallGenes extends ProkObject {
 			boundaryNet, boundaryNet, boundaryStartTable, boundaryStopTable,
 			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
 			boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets));
+	}
+
+	/** Resolves a literal development/sweep path when it exists or names a path, otherwise
+	 * resolves the normal shipped resource name. This keeps production names unchanged while
+	 * making a complete consensus/HBM A/B reproducible without swapping files between runs. */
+	private static String findNcrnaResource(String pathOrResource){
+		if(pathOrResource==null){return null;}
+		final java.io.File f=new java.io.File(pathOrResource);
+		if(f.exists() || pathOrResource.indexOf('/')>=0 || pathOrResource.indexOf('\\')>=0){return pathOrResource;}
+		return Data.findPath("?"+pathOrResource, false);
 	}
 
 	/** Gate B's fail-loud resource-completeness+alignment check (Citan's corrections,
@@ -2064,10 +2110,25 @@ public class CallGenes extends ProkObject {
 		if(s.equals("rnase_p")){s="rnasep";}
 		else if(s.equals("srpsmall")){s="srp_small";}
 		else if(s.equals("srplarge")){s="srp_large";}
-		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large")){
-			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, or srp_large: "+value);
+		else if(s.equals("tm_rna") || s.equals("ssra")){s="tmrna";}
+		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")){
+			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, or tmrna: "+value);
 		}
 		return s;
+	}
+
+	static float defaultNcrnaIdPass(String family){
+		if(family.equals("rnasep")){return 0.65f;}
+		if(family.equals("srp_small") || family.equals("srp_large")){return 0.70f;}
+		if(family.equals("tmrna")){return 0.62f;}
+		throw new IllegalArgumentException("No default idpass for ncRNA family: "+family);
+	}
+
+	static float defaultNcrnaIdBorderline(String family){
+		if(family.equals("rnasep")){return 0.58f;}
+		if(family.equals("srp_small") || family.equals("srp_large")){return 0.64f;}
+		if(family.equals("tmrna")){return 0.60f;}
+		throw new IllegalArgumentException("No default idborderline for ncRNA family: "+family);
 	}
 
 	static float parseFiniteFloat(String flagName, String value){
@@ -2093,13 +2154,20 @@ public class CallGenes extends ProkObject {
 			|| !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE) || !Float.isNaN(NCRNA_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(NCRNA_SCORE_B_OVERRIDE) || !Float.isNaN(NCRNA_COLLAPSE_FRAC_OVERRIDE);
 		final boolean anyFamilyKmers=RNASEP_KMERS_OVERRIDE!=null || SRPSMALL_KMERS_OVERRIDE!=null
-			|| SRPLARGE_KMERS_OVERRIDE!=null;
+			|| SRPLARGE_KMERS_OVERRIDE!=null || TMRNA_KMERS_OVERRIDE!=null;
+		final boolean anyTmrnaModels=TMRNA_CONSENSUS_OVERRIDE!=null || TMRNA_MODELS_OVERRIDE!=null;
+		final boolean anyTmrnaOverride=TMRNA_KMERS_OVERRIDE!=null || anyTmrnaModels || TMRNA_PAD_OVERRIDE>=0
+			|| !Float.isNaN(TMRNA_SCORE_A_OVERRIDE) || !Float.isNaN(TMRNA_SCORE_B_OVERRIDE);
 		final boolean anyFamilyScores=!Float.isNaN(RNASEP_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(RNASEP_SCORE_B_OVERRIDE) || !Float.isNaN(SRPSMALL_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(SRPSMALL_SCORE_B_OVERRIDE) || !Float.isNaN(SRPLARGE_SCORE_A_OVERRIDE)
-			|| !Float.isNaN(SRPLARGE_SCORE_B_OVERRIDE);
+			|| !Float.isNaN(SRPLARGE_SCORE_B_OVERRIDE) || !Float.isNaN(TMRNA_SCORE_A_OVERRIDE)
+			|| !Float.isNaN(TMRNA_SCORE_B_OVERRIDE);
 		if(NCRNA_FAMILY_FILTER!=null && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("ncrnafamily requires ncrna=t");
+		}
+		if(NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals("tmrna") && !TMRNA_ENABLED){
+			throw new IllegalArgumentException("ncrnafamily=tmrna requires tmrna=t");
 		}
 		if(anyFamilyKmers && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA kmer overrides require ncrna=t");
@@ -2107,12 +2175,15 @@ public class CallGenes extends ProkObject {
 		if(anyFamilyScores && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA score overrides require ncrna=t");
 		}
+		if(anyTmrnaOverride && (!NCRNA_FAMILIES_ENABLED || !TMRNA_ENABLED)){
+			throw new IllegalArgumentException("tmRNA-specific overrides require ncrna=t tmrna=t");
+		}
 		if(anyGenericOverride && NCRNA_FAMILY_FILTER==null){
 			throw new IllegalArgumentException("ncRNA sweep overrides require exactly one ncrnafamily=");
 		}
 		if(NCRNA_FAMILY_FILTER!=null){
-			final float defaultPass=NCRNA_FAMILY_FILTER.equals("rnasep") ? 0.65f : 0.70f;
-			final float defaultBorder=NCRNA_FAMILY_FILTER.equals("rnasep") ? 0.58f : 0.64f;
+			final float defaultPass=defaultNcrnaIdPass(NCRNA_FAMILY_FILTER);
+			final float defaultBorder=defaultNcrnaIdBorderline(NCRNA_FAMILY_FILTER);
 			final float pass=resolveSweepFloat(NCRNA_FAMILY_FILTER, NCRNA_ID_PASS_OVERRIDE, defaultPass);
 			final float borderline=resolveSweepFloat(NCRNA_FAMILY_FILTER, NCRNA_ID_BORDERLINE_OVERRIDE, defaultBorder);
 			if(borderline>pass){
@@ -2362,6 +2433,10 @@ public class CallGenes extends ProkObject {
 	 * NcrnaBoundaryVectorGen's training-vector generator, or eval scripts) -- this flag only
 	 * gates PRODUCTION callgenes invocations. */
 	static boolean NCRNA_FAMILIES_ENABLED=false;
+	/** Experimental tmRNA bundle gate. Subordinate to ncrna=t and deliberately independent
+	 * of the existing three-family gate so adding unfinished tmRNA resources cannot change an
+	 * established ncrna=t run. */
+	static boolean TMRNA_ENABLED=false;
 	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
 	 * ncRNA boundary-precision-NN refinement, subordinate to Gate A -- ncrna=t alone gives
 	 * plain scavenger calling with no boundary refinement; ncrnaboundarynet=t additionally
@@ -2373,15 +2448,16 @@ public class CallGenes extends ProkObject {
 
 	/** P1 (Brian via Citan, 2026-08-28): per-family scavenger candidate-window padding
 	 * overrides. -1 means unset -- loadNcrnaResources() uses each family's shipped default
-	 * (rnasep 320 / srp_small 75 / srp_large 250) when the corresponding flag is absent.
+	 * (rnasep 320 / srp_small 75 / srp_large 250 / tmrna 370) when the corresponding flag is absent.
 	 * A non-negative value passed via
-	 * rnaseppad=/srpsmallpad=/srplargepad= (validated >=0 in parse()) overrides ONLY that
-	 * family's windowPad argument to addNcrnaFamily; the other two families are untouched.
+	 * rnaseppad=/srpsmallpad=/srplargepad=/tmrnapad= (validated >=0 in parse()) overrides
+	 * ONLY that family's windowPad argument to addNcrnaFamily; the other families are untouched.
 	 * Deliberately narrow: does not touch NcrnaScavenger's window-construction logic itself,
 	 * only the constant CallGenes has always passed into it. */
 	static int RNASEP_PAD_OVERRIDE=-1;
 	static int SRPSMALL_PAD_OVERRIDE=-1;
 	static int SRPLARGE_PAD_OVERRIDE=-1;
+	static int TMRNA_PAD_OVERRIDE=-1;
 
 	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
 	 * family so a command cannot silently apply one value to biologically different callers. */
@@ -2390,6 +2466,9 @@ public class CallGenes extends ProkObject {
 	static String RNASEP_KMERS_OVERRIDE=null;
 	static String SRPSMALL_KMERS_OVERRIDE=null;
 	static String SRPLARGE_KMERS_OVERRIDE=null;
+	static String TMRNA_KMERS_OVERRIDE=null;
+	static String TMRNA_CONSENSUS_OVERRIDE=null;
+	static String TMRNA_MODELS_OVERRIDE=null;
 	static int NCRNA_WINDOW_PAD_OVERRIDE=-1;
 	static float NCRNA_ID_PASS_OVERRIDE=Float.NaN;
 	static float NCRNA_ID_BORDERLINE_OVERRIDE=Float.NaN;
@@ -2402,6 +2481,8 @@ public class CallGenes extends ProkObject {
 	static float SRPSMALL_SCORE_B_OVERRIDE=Float.NaN;
 	static float SRPLARGE_SCORE_A_OVERRIDE=Float.NaN;
 	static float SRPLARGE_SCORE_B_OVERRIDE=Float.NaN;
+	static float TMRNA_SCORE_A_OVERRIDE=Float.NaN;
+	static float TMRNA_SCORE_B_OVERRIDE=Float.NaN;
 	static float NCRNA_COLLAPSE_FRAC_OVERRIDE=Float.NaN;
 
 	/** Gate A/B combination validator (Citan's correction, 2026-08-28), factored out of
@@ -2414,6 +2495,7 @@ public class CallGenes extends ProkObject {
 		assert(!NCRNA_BOUNDARY_NN_ENABLED || NCRNA_FAMILIES_ENABLED) : "ncrnaboundarynet=t requires "
 			+"ncrna=t (or generalncrna=t) -- boundary refinement has no families to attach to "
 			+"when generic ncRNA calling itself is off.";
+		assert(!TMRNA_ENABLED || NCRNA_FAMILIES_ENABLED) : "tmrna=t requires ncrna=t (or generalncrna=t)";
 	}
 
 	/** Output filename for statistics summary */

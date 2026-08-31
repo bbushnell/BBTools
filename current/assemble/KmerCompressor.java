@@ -128,6 +128,7 @@ public class KmerCompressor {
 		ArrayList<String> in1=new ArrayList<String>();
 		ArrayList<String> in2=new ArrayList<String>();
 		int fuse_=0;
+		int npad_=1;
 		
 		/* Parse arguments */
 		for(int i=0; i<args.length; i++){
@@ -177,6 +178,8 @@ public class KmerCompressor {
 				}else{
 					fuse_=Integer.parseInt(b);
 				}
+			}else if(a.equals("pad") || a.equals("npad") || a.equals("ns")){
+				npad_=Integer.parseInt(b);
 			}else if(a.equals("showstats") || a.equals("stats")){
 				showStats=Parse.parseBoolean(b);
 			}else if(a.equals("mincount") || a.equals("mincov") || a.equals("mindepth") || a.equals("min")){
@@ -215,7 +218,11 @@ public class KmerCompressor {
 			}
 		}
 		
+		if(fuse_>1 && npad_<1){
+			throw new RuntimeException("npad must be at least 1 when fuse is enabled: "+npad_);
+		}
 		fuse=fuse_;
+		npad=npad_;
 		LOAD_THREADS=Shared.threads();
 		
 		{//Process parser fields
@@ -397,7 +404,7 @@ public class KmerCompressor {
 			if(allContigs!=null){
 //				Shared.sort(allContigs, ReadComparatorID.comparator);
 				Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
-				fuse(allContigs, fuse);
+				fuse(allContigs, fuse, npad);
 				for(int i=0; i<allContigs.size(); i++){
 					Contig r=allContigs.get(i);
 					bsw.println(r);
@@ -408,33 +415,38 @@ public class KmerCompressor {
 	}
 	
 	/**
-	 * Fuses multiple short contigs into longer sequences separated by N bases.
-	 * Concatenates contigs until reaching specified minimum length threshold,
-	 * then starts a new fused contig.
+	 * Packs contigs shorter than the requested target into longer sequences
+	 * separated by N padding.  Contigs already at least as long as the target
+	 * are emitted unchanged, and a packed sequence never exceeds the target.
 	 *
 	 * @param contigs List of contigs to fuse together
-	 * @param fuse Minimum length threshold for fused contigs
+	 * @param fuse Maximum target length for packed short contigs
+	 * @param npad Number of N bases separating packed contigs
 	 */
-	private static void fuse(ArrayList<Contig> contigs, int fuse){
+	private static void fuse(ArrayList<Contig> contigs, int fuse, int npad){
 		if(fuse<2){return;}
 		ArrayList<Contig> temp=new ArrayList<Contig>();
 		ByteBuilder bb=new ByteBuilder();
 		int num=0;
+		for(Contig r : contigs){num=Math.max(num, r.id+1);}
 		for(int i=0; i<contigs.size(); i++){
 			Contig r=contigs.set(i, null);
-			if(bb.length()>0){bb.append('N');}
-			bb.append(r.bases);
-			if(bb.length()>=fuse){
-				Contig fused=new Contig(bb.toBytes(), num);
-				num++;
-				temp.add(fused);
+			if(r.length()>=fuse){
+				assert(bb.length()==0) : "Input contigs must be sorted longest-first";
+				temp.add(r);
+				continue;
+			}
+			if(bb.length()>0 && bb.length()+npad+r.length()>fuse){
+				temp.add(new Contig(bb.toBytes(), num++));
 				bb.clear();
 			}
+			if(bb.length()>0){
+				for(int j=0; j<npad; j++){bb.append('N');}
+			}
+			bb.append(r.bases);
 		}
 		if(bb.length()>0){
-			Contig fused=new Contig(bb.toBytes(), num);
-			num++;
-			temp.add(fused);
+			temp.add(new Contig(bb.toBytes(), num++));
 			bb.clear();
 		}
 		contigs.clear();
@@ -1073,6 +1085,7 @@ public class KmerCompressor {
 	final AtomicInteger nextVictims[];
 	
 	final int fuse;
+	final int npad;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/

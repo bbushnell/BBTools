@@ -112,15 +112,20 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
 
 Conserved ncRNA engineering parameters:
 ncrna=f         Enable generic conserved-ncRNA families (off by default).
+tmrna=f         Add the experimental tmRNA family; requires ncrna=t.  Endpoint
+                refinement follows the global ncrnaboundarynet flag below.
 ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
                     boundary networks.  Requires ncrna=t.
-ncrnafamily=    Select rnasep, srp_small, or srp_large as the target of the
+ncrnafamily=    Select rnasep, srp_small, srp_large, or tmrna as the target of the
                 generic sweep overrides below.  Other families remain loaded
                 and compete normally; this is not an isolation switch.
 ncrnakmers=     Explicit conserved-kmer fasta for the selected family.
 rnasepkmers=    Explicit RNase-P conserved-kmer fasta.
 srpsmallkmers=  Explicit SRP-small conserved-kmer fasta.
 srplargekmers=  Explicit SRP-large conserved-kmer fasta.
+tmrnakmers=     Explicit tmRNA conserved-kmer fasta.
+tmrnaconsensus= Explicit tmRNA consensus fasta; requires tmrna=t.
+tmrnamodels=    Explicit aligned tmRNA HBM models; requires tmrna=t.
 ncrnaidpass=    Alignment identity that accepts without HBM rescue.
 ncrnaidborderline=  Lowest identity eligible for HBM rescue.
 ncrnahbmpass=   HBM score needed to rescue a borderline alignment.
@@ -129,8 +134,10 @@ ncrnascoreb=    Multiplier B in A+B*length*identity^2.
 rnasepscorea/b= Per-family A/B overrides; unlike ncrnascorea/b these do not
 srpsmallscorea/b=  require ncrnafamily= and may be combined in one run.
 srplargescorea/b=  Explicit family values take precedence over generic ones.
+tmrnascorea/b=  Explicit tmRNA A/B values (provisional shipped default 5/3).
 ncrnacollapsefrac=  Overlap fraction used to collapse candidate windows.
 ncrnawindowpad= Candidate padding around conserved-kmer hits.
+tmrnapad=       tmRNA-only padding override (provisional shipped default 370).
                 These are measurement controls, not additional shipped
                 defaults; run one family and one varied dimension at a time.
 

@@ -211,13 +211,12 @@ public abstract class ProkObject {
 	//the same way ProkObject's own tRNA/rRNA kmer sets load. Visibility-only change, no behavior
 	//difference for any existing caller.
 	static LongHashSet loadLongKmersByType(int k, String prefix){
-		String fname=Data.findPath("?"+prefix+"_"+k+"mers.fa", true);
-		if(!new File(fname).exists()){
-			fname=fname+".gz";
-			if(!new File(fname).exists()){
-				System.err.println("Can't find "+fname);
-				return null;
-			}
+		final String stem=prefix+"_"+k+"mers.fa";
+		String fname=Data.findPath("?"+stem, false);
+		if(fname==null){fname=Data.findPath("?"+stem+".gz", false);}
+		if(fname==null){
+			System.err.println("Can't find "+stem+" or "+stem+".gz");
+			return null;
 		}
 		LongHashSet set=loadLongKmers(fname, k);
 		if(set!=null){System.err.println("Loaded "+set.size()+" "+prefix+" "+k+"-mers from "+fname);}

@@ -9,6 +9,7 @@ public class NcrnaBoundaryOffsetConfigTest {
 		check("rnasep", new int[]{-3,-2,-1,0,1,2}, new int[]{-1,0,1,2,3,4});
 		check("srp_small", new int[]{-3,-2,-1,0,1,2}, new int[]{-2,-1,0,1,2,3});
 		check("srp_large", new int[]{-3,-2,-1,0,1,2}, new int[]{-2,-1,0,1,2,3});
+		check("tmrna", new int[]{-3,-2,-1,0,1,2}, new int[]{-3,-2,-1,0,1,2});
 		testFactoryReturnsFreshArrays();
 		testFamilyClonesArrays();
 		testUnknownFamilyFailsLoud();
