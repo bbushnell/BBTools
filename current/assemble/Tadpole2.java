@@ -67,7 +67,7 @@ public class Tadpole2 extends Tadpole {
 			extraBytesPerKmer=x;
 		}
 		
-		tables=new KmerTableSetU(args, extraBytesPerKmer);
+		tables=new KmerTableSetU(tableArgs(args), extraBytesPerKmer);
 		assert(kbig==tables.kbig) : kbig+", "+tables.kbig;
 //		kbig=tables.kbig;
 		ksmall=tables.k;

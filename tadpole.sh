@@ -87,6 +87,11 @@ k=31                Kmer length (1 to infinity).  Memory use increases with K.
 prealloc=f          Pre-allocate memory rather than dynamically growing;
                     faster and more memory-efficient.  A float fraction (0-1)
                     may be specified; default is 1.
+hashkmers=auto      Compact storage for sequence-driven long-k operations.
+                    Auto uses one fixed 64-bit fingerprint with prealloc=t,
+                    or two resizable 64-bit hashes otherwise.  Initial contig
+                    construction, fusion, shaving/rinsing, and kmer dumps use
+                    explicit kmers.  Set to f, pair, or fixed to override.
 minprob=0.5         Ignore kmers with overall probability of correctness below this.
 minprobmain=t       (mpm) Use minprob for the primary kmer counts.
 threads=X           Spawn X worker threads; default is number of logical processors.
@@ -110,10 +115,7 @@ bridgek=auto        Comma-delimited K values for read-supported unbranched gap
                     walks.  Values may be above, below, or equal to assemblek.
                     Set fusek=none or bridgek=none to disable either phase.
                     Explicit phase lists override the values inferred from k.
-bridgehash=auto     Kmer storage for bridgek values above 64.  Auto uses one
-                    fixed 64-bit fingerprint with prealloc=t, or two resizable
-                    64-bit hashes otherwise.  Set to f for explicit kmers,
-                    pair for two hashes, or fixed for one fingerprint.
+bridgehash=auto     Legacy alias for hashkmers.
 crosskmaxlen=500    (ckml) Maximum graph walk length when finding cross-K
                     bridges or final graph edges.
 crosskmaxdepthratio=3 (ckmdr) Maximum connecting-edge depth relative to the

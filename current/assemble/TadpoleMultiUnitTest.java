@@ -113,20 +113,28 @@ public class TadpoleMultiUnitTest {
 	private static void hashBridgeSelection(){
 		check(config("assemblek=95", "bridgek=127").useHashBridgeTables(),
 				"Default long-k bridge did not select compact hashes");
-		check(config("assemblek=95", "bridgek=127").bridgeHashMode()==1,
+		check(config("assemblek=95", "bridgek=127").bridgeHashMode()==Tadpole.HASH_PAIR,
 				"Default long-k bridge did not select a resizable hash pair");
-		check(config("assemblek=95", "bridgek=127", "prealloc=t").bridgeHashMode()==2,
+		check(config("assemblek=95", "bridgek=127", "prealloc=t").bridgeHashMode()==Tadpole.HASH_FIXED,
 				"Preallocated long-k bridge did not select a fixed fingerprint");
-		check(config("assemblek=95", "bridgek=127", "prealloc=t", "bridgehash=pair").bridgeHashMode()==1,
-				"Explicit bridgehash=pair did not override automatic fixed storage");
-		check(config("assemblek=95", "bridgek=127", "bridgehash=fixed").bridgeHashMode()==2,
-				"Explicit bridgehash=fixed was not selected");
-		check(!config("assemblek=95", "bridgek=127", "bridgehash=f").useHashBridgeTables(),
-				"bridgehash=f did not disable compact hashes");
+		check(config("assemblek=95", "bridgek=127", "prealloc=t", "hashkmers=pair").bridgeHashMode()==Tadpole.HASH_PAIR,
+				"Explicit hashkmers=pair did not override automatic fixed storage");
+		check(config("assemblek=95", "bridgek=127", "hashkmers=fixed").bridgeHashMode()==Tadpole.HASH_FIXED,
+				"Explicit hashkmers=fixed was not selected");
+		check(!config("assemblek=95", "bridgek=127", "hashkmers=f").useHashBridgeTables(),
+				"hashkmers=f did not disable compact hashes");
+		check(config("assemblek=95", "bridgek=64", "prealloc=t").bridgeHashMode()==Tadpole.HASH_FIXED,
+				"Preallocated k=64 bridge did not select a fixed fingerprint");
+		check(!config("assemblek=95", "bridgek=64").useHashBridgeTables(),
+				"Resizable k=64 bridge selected hash storage without a memory benefit");
 		check(!config("assemblek=95", "bridgek=127", "wash=t").useHashBridgeTables(),
 				"Shaving/rinsing incorrectly selected a non-enumerable table");
 		check(config("assemblek=95", "bridgek=127", "wash=f").useHashBridgeTables(),
 				"wash=f incorrectly disabled compact hashes");
+		check(!config("assemblek=95", "bridgek=127", "maxcr=10").useHashBridgeTables(),
+				"Maximum-count pruning incorrectly selected a non-enumerable table");
+		check(config("assemblek=95", "bridgek=127", "mincr=2").useHashBridgeTables(),
+				"Minimum-count pruning incorrectly disabled compact hashes");
 	}
 
 	private static void dispatcherDetectsListsAndPhaseFlags(){

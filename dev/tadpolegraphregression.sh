@@ -101,12 +101,95 @@ runHashedBridgeParityTest(){
 		diff -u "$temp/f.fa" "$temp/t.fa" >&2 || true
 		exit 1
 	fi
-	if ! grep -Fq "bridgehash pair" "$temp/t.stderr"; then
+	if ! grep -Eq '^hashkmers[[:space:]]+pair$' "$temp/t.stderr"; then
 		echo "FAIL: compact bridge-table execution plan was not reported" >&2
 		cat "$temp/t.stderr" >&2
 		exit 1
 	fi
 	echo "PASS: hashedBridgeMatchesExplicitK95"
+}
+
+runHashedSequenceModeParityTest(){
+	local temp
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/explicit.fa" \
+		mode=extend k=95 er=10 el=10 ecc=t hashkmers=f prealloc=f mcs=1 mce=1 mincr=2 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/explicit.stdout" 2>"$temp/explicit.stderr"
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/pair.fa" \
+		mode=extend k=95 er=10 el=10 ecc=t hashkmers=pair prealloc=f mcs=1 mce=1 mincr=2 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/pair.stdout" 2>"$temp/pair.stderr"
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/fixed.fa" \
+		mode=extend k=95 er=10 el=10 ecc=t hashkmers=fixed prealloc=t mcs=1 mce=1 mincr=2 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/fixed.stdout" 2>"$temp/fixed.stderr"
+	if ! cmp -s "$temp/explicit.fa" "$temp/pair.fa" || ! cmp -s "$temp/explicit.fa" "$temp/fixed.fa"; then
+		echo "FAIL: explicit, hash-pair, and fixed-fingerprint extension/ECC outputs differed" >&2
+		diff -u "$temp/explicit.fa" "$temp/pair.fa" >&2 || true
+		diff -u "$temp/explicit.fa" "$temp/fixed.fa" >&2 || true
+		exit 1
+	fi
+	echo "PASS: hashedExtensionAndCorrectionMatchExplicitK95"
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/k64_explicit.fa" \
+		mode=correct k=64 hashkmers=f prealloc=f mcs=1 mce=1 prefilter=f pop=f ow=t t=1 showstats=f \
+		1>"$temp/k64_explicit.stdout" 2>"$temp/k64_explicit.stderr"
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/k64_fixed.fa" \
+		mode=correct k=64 hashkmers=auto prealloc=t mcs=1 mce=1 prefilter=f pop=f ow=t t=1 showstats=f \
+		1>"$temp/k64_fixed.stdout" 2>"$temp/k64_fixed.stderr"
+	if ! cmp -s "$temp/k64_explicit.fa" "$temp/k64_fixed.fa" \
+			|| ! grep -Eq '^hashkmers[[:space:]]+fixed$' "$temp/k64_fixed.stderr"; then
+		echo "FAIL: automatic preallocated k=64 fingerprint storage differed or was not selected" >&2
+		exit 1
+	fi
+	echo "PASS: preallocatedK64UsesMatchingFixedFingerprint"
+}
+
+runHashedGraphParityTest(){
+	local temp mode opts
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	for mode in explicit pair fixed; do
+		if [ "$mode" = explicit ]; then opts="hashkmers=f prealloc=f"
+		elif [ "$mode" = pair ]; then opts="hashkmers=pair prealloc=f"
+		else opts="hashkmers=fixed prealloc=t"
+		fi
+		"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/$mode.fa" \
+			gfa="$temp/$mode.gfa" assemblek=31 fusek=none bridgek=none graphk=95 $opts \
+			mcs=1 mce=1 mincr=2 mincontig=1 prefilter=f pop=f ow=t t=1 showstats=f \
+			1>"$temp/$mode.stdout" 2>"$temp/$mode.stderr"
+	done
+	if ! cmp -s "$temp/explicit.fa" "$temp/pair.fa" || ! cmp -s "$temp/explicit.fa" "$temp/fixed.fa" \
+			|| ! cmp -s "$temp/explicit.gfa" "$temp/pair.gfa" || ! cmp -s "$temp/explicit.gfa" "$temp/fixed.gfa"; then
+		echo "FAIL: explicit, hash-pair, and fixed-fingerprint graph outputs differed" >&2
+		exit 1
+	fi
+	echo "PASS: hashedPrunedGraphExplorationMatchesExplicitK95"
+}
+
+runAssemblyHashGuardTest(){
+	local temp
+	temp="$(mktemp -d)"
+	trap 'rm -rf "$temp"' RETURN
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/explicit.fa" \
+		k=95 hashkmers=f prealloc=t mcs=1 mce=1 mincontig=1 buildthreads=1 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/explicit.stdout" 2>"$temp/explicit.stderr"
+	"$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/auto.fa" \
+		k=95 hashkmers=auto prealloc=t mcs=1 mce=1 mincontig=1 buildthreads=1 \
+		prefilter=f pop=f ow=t t=1 showstats=f 1>"$temp/auto.stdout" 2>"$temp/auto.stderr"
+	if ! cmp -s "$temp/explicit.fa" "$temp/auto.fa" || grep -Eq '^hashkmers[[:space:]]' "$temp/auto.stderr"; then
+		echo "FAIL: initial contig assembly did not retain explicit kmer storage" >&2
+		exit 1
+	fi
+	if "$DIR/tadpole.sh" -Xmx400m in="$DIR/testdata/crossk_long_bridge_x.fa" out="$temp/invalid.fa" \
+			k=95 hashkmers=pair mcs=1 mce=1 mincontig=1 buildthreads=1 prefilter=f pop=f ow=t t=1 showstats=f \
+			1>"$temp/invalid.stdout" 2>"$temp/invalid.stderr"; then
+		echo "FAIL: explicit compact storage was accepted for table-seeded contig construction" >&2
+		exit 1
+	fi
+	if ! grep -Fq 'requires explicit kmer enumeration' "$temp/invalid.stderr"; then
+		echo "FAIL: incompatible compact assembly did not explain the enumeration requirement" >&2
+		exit 1
+	fi
+	echo "PASS: initialAssemblyRetainsExplicitKmers"
 }
 
 runMultiKGfaTest(){
@@ -245,6 +328,9 @@ runCrossKLeftBridgeTest
 runLongKBridgeEligibilityTest
 runLongKBridgeResolutionTest
 runHashedBridgeParityTest
+runHashedSequenceModeParityTest
+runHashedGraphParityTest
+runAssemblyHashGuardTest
 runMultiKGfaTest
 runExecutionPlanTest
 runUnifiedMultiGraphTest

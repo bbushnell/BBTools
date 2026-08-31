@@ -399,6 +399,13 @@ public abstract class Tadpole extends ShaveObject{
 				//Only affects ukmer.Kmer (k>31 / U-suffixed table path); the
 				//k<=31 non-U path (AbstractKmerTableSet) is untouched by 1a/1b.
 				Kmer.PACKED=Parse.parseBoolean(b);
+			}else if(a.equals("hashkmers") || a.equals("kmerhash")){
+				hashKmerModeRequested=parseHashMode(b);
+				hashKmerModeSpecified=true;
+			}else if(a.equals("seedfromtable")){
+				seedFromTable=Parse.parseBoolean(b);
+			}else if(a.equals("prealloc") || a.equals("preallocate")){
+				preallocRequested=parsePrealloc(b);
 			}else if(a.equals("fillfast") || a.equals("fastfill")){
 				AbstractKmerTableSet.FAST_FILL=Parse.parseBoolean(b);
 			}
@@ -690,6 +697,7 @@ public abstract class Tadpole extends ShaveObject{
 				if(!setEcc_){ecc_=false;}
 			}
 		}
+		hashKmerMode=resolveHashMode();
 		
 		{//Process parser fields
 			Parser.parseQuality("","","");
@@ -947,9 +955,7 @@ public abstract class Tadpole extends ShaveObject{
 		
 		t.start();
 		
-		if(kmerRangeMin>1 || kmerRangeMax<Integer.MAX_VALUE){
-			AbstractRemoveThread.process(THREADS, kmerRangeMin, kmerRangeMax, tables(), true);
-		}
+		pruneLoadedKmers();
 		
 		shaveAndRinse(t, removeDeadEnds, removeBubbles, true);
 		
@@ -1120,6 +1126,20 @@ public abstract class Tadpole extends ShaveObject{
 	/** Applies the configured shave/rinse settings to a table loaded outside process2. */
 	final long cleanLoadedKmers(){
 		return shaveAndRinse(new Timer(), removeDeadEnds, removeBubbles, true);
+	}
+
+	/** Applies configured count-range pruning to a table loaded outside process2. */
+	final long pruneLoadedKmers(){
+		if(kmerRangeMin<=1 && kmerRangeMax==Integer.MAX_VALUE){return 0;}
+		if(hashOnlyTables() && kmerRangeMax==Integer.MAX_VALUE){
+			final Timer t=new Timer();
+			final long removed=tables().regenerate(kmerRangeMin-1);
+			t.stop();
+			outstream.println("Removed "+removed+" kmers.");
+			outstream.println("Remove time: "+t);
+			return removed;
+		}
+		return AbstractRemoveThread.process(THREADS, kmerRangeMin, kmerRangeMax, tables(), true);
 	}
 	
 	/**
@@ -3072,7 +3092,64 @@ public abstract class Tadpole extends ShaveObject{
 		printPlanLine("mode", modeName());
 		if(extras.length()>0){printPlanLine("extra", extras.toString());}
 		printPlanLine(processingMode==contigMode ? "assemblek" : "k", kbig);
+		if(hashKmerMode>0){printPlanLine("hashkmers", hashModeName(hashKmerMode));}
 		outstream.println();
+	}
+
+	/** Adds the resolved compact-table selection to the table-loader arguments. */
+	final String[] tableArgs(final String[] args){
+		if(hashKmerMode<1){
+			if(!hashKmerModeSpecified){return args;}
+			final String[] copy=Arrays.copyOf(args, args.length+1);
+			copy[args.length]="hashonly=f";
+			return copy;
+		}
+		final int extra=(hashKmerMode==HASH_FIXED ? 2 : 1);
+		final String[] copy=Arrays.copyOf(args, args.length+extra);
+		copy[args.length]="hashonly="+(hashKmerMode==HASH_FIXED ? "fixed" : "t");
+		if(hashKmerMode==HASH_FIXED){copy[args.length+1]="prealloc=t";}
+		return copy;
+	}
+
+	/** Returns true when the selected operation never needs to reconstruct a table key. */
+	private boolean hashCompatible(){
+		if(kbig<=31 || (processingMode==contigMode && seedFromTable)){return false;}
+		if(removeDeadEnds || removeBubbles || outKmers!=null || gcHist){return false;}
+		return kmerRangeMax==Integer.MAX_VALUE;
+	}
+
+	private int resolveHashMode(){
+		final boolean compatible=hashCompatible();
+		if(!compatible){
+			if(hashKmerModeRequested>0){
+				throw new RuntimeException("hashkmers="+hashModeName(hashKmerModeRequested)+
+						" is incompatible with this operation because it requires explicit kmer enumeration.");
+			}
+			return HASH_EXPLICIT;
+		}
+		if(hashKmerModeRequested>=0){return hashKmerModeRequested;}
+		if(kbig<64 || (kbig==64 && !preallocRequested)){return HASH_EXPLICIT;}
+		return preallocRequested ? HASH_FIXED : HASH_PAIR;
+	}
+
+	static int parseHashMode(final String b){
+		if(b==null || b.equalsIgnoreCase("auto")){return HASH_AUTO;}
+		if(b.equalsIgnoreCase("fixed") || b.equalsIgnoreCase("fingerprint") || b.equals("1")){return HASH_FIXED;}
+		if(b.equalsIgnoreCase("pair") || b.equalsIgnoreCase("two") || b.equals("2")){return HASH_PAIR;}
+		return Parse.parseBoolean(b) ? HASH_PAIR : HASH_EXPLICIT;
+	}
+
+	static boolean parsePrealloc(final String b){
+		if(b==null || b.length()<1 || Character.isLetter(b.charAt(0))){return Parse.parseBoolean(b);}
+		return Double.parseDouble(b)>0;
+	}
+
+	static String hashModeName(final int mode){
+		return mode==HASH_FIXED ? "fixed" : mode==HASH_PAIR ? "pair" : mode==HASH_EXPLICIT ? "explicit" : "auto";
+	}
+
+	private boolean hashOnlyTables(){
+		return tables() instanceof KmerTableSetU && ((KmerTableSetU)tables()).hashOnly();
 	}
 
 	/** Appends enabled non-default operations to a startup plan. */
@@ -3147,6 +3224,10 @@ public abstract class Tadpole extends ShaveObject{
 	protected int kmerRangeMax=Integer.MAX_VALUE;
 	
 	protected int processingMode=-1;
+	/** Resolved compact-kmer storage: explicit, resizable hash pair, or fixed fingerprint. */
+	protected int hashKmerMode=HASH_EXPLICIT;
+	private int hashKmerModeRequested=HASH_AUTO;
+	private boolean hashKmerModeSpecified=false, preallocRequested=false, seedFromTable=true;
 	
 	protected int extendLeft=-1;
 	protected int extendRight=-1;
@@ -3501,5 +3582,6 @@ public abstract class Tadpole extends ShaveObject{
 	static boolean IGNORE_BAD_OWNER=false;
 	/** Whether to force use of Tadpole2 implementation regardless of k-mer size */
 	static boolean FORCE_TADPOLE2=false;
+	static final int HASH_AUTO=-1, HASH_EXPLICIT=0, HASH_PAIR=1, HASH_FIXED=2;
 	
 }
