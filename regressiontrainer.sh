@@ -94,7 +94,19 @@ threads=1       SIMD gradient workers.  Values above 1 require simd=t.  Each wor
                 reproducible, while gradient reduction and Adam remain serial.
                 threads=1 preserves the historical SIMD accumulation path exactly.
                 More workers are not automatically faster; benchmark the intended
-                network and batch size before relying on them.
+                network and batch size before relying on them.  As of 2026-08-31,
+                threads>1 also parallelizes validate() across the same worker pool
+                (validate() was previously single-threaded regardless of threads=,
+                and could dominate per-epoch wall time on wide nets/large validation
+                sets -- see mag-qc results/regressiontrainer_validate_singlethreaded_
+                finding_v1.md).
+vsimd=f         Run validate() through the float/SIMD forward pass instead of the
+                default double-precision scalar path.  Requires simd=t; independent
+                of, and off by default even when, threads>1 -- kept separately gated
+                so a precision change here is never confused with the threads=
+                parallelization above.  Results are close to but not bit-identical
+                to the double path (same class of difference simd=t already accepts
+                for training).
 pad8=f          Round hidden layers up to a multiple of 8.  Not a speedup: wall time
                 is unchanged while the net does about 11% more arithmetic, so it buys
                 capacity rather than time.

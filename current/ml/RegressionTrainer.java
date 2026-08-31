@@ -43,8 +43,19 @@ import structures.ByteBuilder;
  *
  * Usage: java ml.RegressionTrainer in=&lt;data.tsv&gt; out=&lt;net.bbnet&gt; dims=16,32,1
  *          [epochs=60] [startepoch=0] [printevery=0] [batch=8192] [lr=0.003] [wd=1e-4] [seed=1]
- *          [vfraction=0.1] [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1]
+ *          [vfraction=0.1] [valin=&lt;heldout.tsv&gt;] [simd=t] [threads=1] [vsimd=f]
  *          [final=rslog|linear|sigmoid] [netin=&lt;start.bbnet&gt;] [hidden=tanh,swish,...]
+ *
+ * threads=N&gt;1 (requires simd=t) parallelizes validate() across the same worker pool used for
+ * gradient computation (2026-08-31 fix for a validate() that used to be single-threaded
+ * regardless of thread count -- see mag-qc results/regressiontrainer_validate_singlethreaded_
+ * finding_v1.md). vsimd=t (requires simd=t; independent of, and off by default even when,
+ * threads&gt;1) additionally runs validate()'s forward pass through the float/SIMD path
+ * (weightsF/biasF) instead of the default double-precision scalar path -- opt-in because it is a
+ * precision change, not just a threading change; kept separately gated so a regression in one
+ * could never hide inside the other. Both keep validate()'s numerical result close to (not
+ * bit-identical to, since floating-point reduction is not associative/commutative) the original
+ * single-threaded double path.
  *
  * printevery= controls how often an epoch summary is printed; 0 (default) auto-picks
  * min(5, max(1, epochs/20)), so a short run (e.g. epochs=20) prints every epoch while a long
@@ -180,6 +191,13 @@ public class RegressionTrainer {
 				padLayers=(b==null || Parse.parseBoolean(b));
 			}else if(a.equals("simd")){
 				useSimd=(b==null || Parse.parseBoolean(b));
+			}else if(a.equals("vsimd") || a.equals("validatesimd")){
+				//Phase 2 (2026-08-31): validate() via the float/SIMD forward pass instead of the
+				//double scalar path. Independent of, and off by default even when, simd=t --
+				//kept as a separate opt-in flag so a precision regression here can never be
+				//confused with the phase-1 threading change. Requires simd=t (weightsF/biasF only
+				//exist when useSimd=true); validateParams() enforces this.
+				vsimd=(b==null || Parse.parseBoolean(b));
 			}else if(a.equals("threads") || a.equals("t")){
 				threads=Integer.parseInt(b);
 			}else if(a.equals("sort")){
@@ -234,6 +252,10 @@ public class RegressionTrainer {
 		if(threads<1){throw new IllegalArgumentException("threads must be positive: "+threads);}
 		if(threads>1 && !useSimd){
 			throw new IllegalArgumentException("threads>1 currently requires simd=t.");
+		}
+		if(vsimd && !useSimd){
+			throw new IllegalArgumentException("vsimd=t requires simd=t (weightsF/biasF are only "
+				+"populated when useSimd=true).");
 		}
 		if(dims==null){return;}//remaining checks run after the net supplies dims
 		if(dims.length<2){
@@ -870,6 +892,10 @@ public class RegressionTrainer {
 			preActF[i]=new float[dims[i]];}
 		refreshTranspose();
 		if(useSparse && edgeMask!=null){buildSparse();}
+		if(vsimd){
+			scratchActF=new float[dims.length][];
+			for(int i=0; i<dims.length; i++){scratchActF[i]=new float[dims[i]];}
+		}
 	}
 
 	/** Allocates a fixed worker pool and one private scratch/gradient set per worker. */
@@ -883,8 +909,10 @@ public class RegressionTrainer {
 				newFloatLayerBuffers(), newFloatWeightBuffers(), newFloatBiasBuffers()));
 		}
 		gradientPool=Executors.newFixedThreadPool(gradientThreadCount);
+		validateWorkers=new ArrayList<ValidateWorker>(gradientThreadCount);
+		for(int i=0; i<gradientThreadCount; i++){validateWorkers.add(new ValidateWorker());}
 		outstream.println("threads="+gradientThreadCount
-			+": deterministic per-worker SIMD gradients; Adam and reduction remain serial");
+			+": deterministic per-worker SIMD gradients and validation; Adam reduction remains serial");
 	}
 
 	/** @return Fresh per-layer activation or delta buffers. */
@@ -1318,14 +1346,71 @@ public class RegressionTrainer {
 		}
 	}
 
-	/** @return Mean squared error over the validation split */
+	/** @return Mean squared error over the validation split.
+	 * Dispatches across the existing gradient worker pool when available (phase-1 acceleration,
+	 * 2026-08-31 -- validate() was previously a single-threaded, non-SIMD bottleneck that
+	 * dominated per-epoch wall time regardless of batch/thread configuration; see
+	 * mag-qc results/regressiontrainer_validate_singlethreaded_finding_v1.md). Falls back to
+	 * sumSquaredErrorRange(0, numValid, ...) whenever no pool exists (useSimd=false or
+	 * threads<=1) -- the loop body there is a direct extraction of the original inline code (same
+	 * sample-to-index mapping, same per-sample computation, same accumulation order), so this
+	 * path preserves the original's exact behavior and numerics, though the source itself was
+	 * refactored into a separate method and is no longer byte-for-byte the same source text. */
 	private double validate(){
 		if(numValid<1){return Double.MAX_VALUE;}
+		final double sum;
+		if(gradientPool!=null && gradientThreadCount>1){
+			sum=validateParallel();
+		}else if(vsimd){
+			sum=sumSquaredErrorRangeF(0, numValid, scratchActF);
+		}else{
+			sum=sumSquaredErrorRange(0, numValid, scratchA, scratchB);
+		}
+		return sum/numValid;
+	}
+
+	/** Float/SIMD forward pass (Phase 2, 2026-08-31) -- same computation as
+	 * accumulateGradientF's forward half, using the live weightsF/biasF (no separate sync
+	 * needed, unlike the double predict() path which requires syncFloatToDouble() first). Needs
+	 * one EXACT-width buffer per layer (actBuf[l].length must equal dims[l]), not a pair of
+	 * maxDim()-sized swapped buffers like the double predict() -- simd.Vector.fma(a,b) asserts
+	 * a.length==b.length with no bound parameter, so a row of weightsF[l] (length dims[l]) can
+	 * only be matched against an activation buffer of that exact length, and that length differs
+	 * layer to layer. actBuf must have length dims.length, mirroring actLocal in GradWorker. */
+	private float[] predictF(final float[] vector, final float[][] actBuf){
+		final float[] a0=actBuf[0];
+		for(int i=0; i<numInputs; i++){a0[i]=(float)((vector[i]-mean[i])/sd[i]);}
+		for(int l=0; l<layers; l++){
+			final int rows=dims[l+1];
+			final float[][] w=weightsF[l];
+			final float[] b=biasF[l], prev=actBuf[l], next=actBuf[l+1];
+			if(spW==null){
+				for(int i=0; i<rows; i++){
+					final float z=b[i]+simd.Vector.fma(prev, w[i]);
+					next[i]=(l==layers-1) ? (float)fin(z, finalType)
+						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
+				}
+			}else{
+				final float[][] sw=spW[l]; final int[][] si=spWIdx[l];
+				for(int i=0; i<rows; i++){
+					final float z=b[i]+simd.Vector.fma(sw[i], prev, si[i], edgeBlockSize, true);
+					next[i]=(l==layers-1) ? (float)fin(z, finalType)
+						: (float)(hiddenFunc==null ? Math.tanh(z) : hiddenFunc[l+1][i].activate(z));
+				}
+			}
+		}
+		return actBuf[layers];//caller reads the first numOutputs entries
+	}
+
+	/** Float/SIMD counterpart to sumSquaredErrorRange -- same index mapping, same reduction
+	 * shape, but calling predictF against weightsF/biasF instead of predict() against
+	 * weights/bias. Targets are already float, so no cast is needed on that side. */
+	private double sumSquaredErrorRangeF(final int start, final int end, final float[][] actBuf){
 		double sum=0;
 		if(validationData==null){
-			for(int s=numTrain; s<numSamples; s++){
-				final int sample=perm[s];
-				final double[] p=predict(trainingData.inputs[sample], weights, bias);
+			for(int i=start; i<end; i++){
+				final int sample=perm[numTrain+i];
+				final float[] p=predictF(trainingData.inputs[sample], actBuf);
 				final float[] target=trainingData.targets[sample];
 				for(int k=0; k<numOutputs; k++){
 					final double e=p[k]-target[k];
@@ -1333,16 +1418,90 @@ public class RegressionTrainer {
 				}
 			}
 		}else{
-			for(int s=0; s<validationData.size(); s++){
-				final double[] p=predict(validationData.inputs[s], weights, bias);
-				final float[] target=validationData.targets[s];
+			for(int i=start; i<end; i++){
+				final float[] p=predictF(validationData.inputs[i], actBuf);
+				final float[] target=validationData.targets[i];
 				for(int k=0; k<numOutputs; k++){
 					final double e=p[k]-target[k];
 					sum+=e*e;
 				}
 			}
 		}
-		return sum/numValid;
+		return sum;
+	}
+
+	/** Sum of squared error over validation indices [start,end) using caller-supplied scratch
+	 * buffers, so this can run concurrently from multiple threads without sharing the instance's
+	 * scratchA/scratchB fields. Index i addresses the internal validation split
+	 * (perm[numTrain+i]) when validationData is null, or row i of validationData otherwise --
+	 * the same sample-to-index mapping the original serial validate() always used. */
+	private double sumSquaredErrorRange(final int start, final int end,
+			final double[] curBuf, final double[] nextBuf){
+		double sum=0;
+		if(validationData==null){
+			for(int i=start; i<end; i++){
+				final int sample=perm[numTrain+i];
+				final double[] p=predict(trainingData.inputs[sample], weights, bias, curBuf, nextBuf);
+				final float[] target=trainingData.targets[sample];
+				for(int k=0; k<numOutputs; k++){
+					final double e=p[k]-target[k];
+					sum+=e*e;
+				}
+			}
+		}else{
+			for(int i=start; i<end; i++){
+				final double[] p=predict(validationData.inputs[i], weights, bias, curBuf, nextBuf);
+				final float[] target=validationData.targets[i];
+				for(int k=0; k<numOutputs; k++){
+					final double e=p[k]-target[k];
+					sum+=e*e;
+				}
+			}
+		}
+		return sum;
+	}
+
+	/** Splits the validation range across the existing gradient worker pool, giving each worker
+	 * its own scratch buffers (never the shared scratchA/scratchB), and reduces partial sums in
+	 * FIXED worker-index order -- not completion order -- so the result is deterministic and
+	 * reproducible across runs at a given thread count. Mirrors accumulateParallelBatchF's
+	 * partition/dispatch/reduce shape. Floating-point addition is not associative, so this sum
+	 * is not bit-identical to the serial loop's sample-order accumulation, only numerically
+	 * equivalent to double precision within reordering error -- the same class of difference the
+	 * existing parallel gradient reduction already accepts. */
+	private double validateParallel(){
+		final int activeWorkers=Math.min(gradientThreadCount, numValid);
+		final int base=numValid/activeWorkers, extra=numValid%activeWorkers;
+		int from=0;
+		for(int i=0; i<activeWorkers; i++){
+			final int to=from+base+(i<extra ? 1 : 0);
+			validateWorkers.get(i).prepare(from, to);
+			from=to;
+		}
+
+		final List<Future<Void>> futures;
+		try{
+			futures=gradientPool.invokeAll(validateWorkers.subList(0, activeWorkers));
+		}catch(InterruptedException e){
+			Thread.currentThread().interrupt();
+			throw new RuntimeException("Interrupted while validating.", e);
+		}
+		for(Future<Void> future : futures){
+			try{future.get();}
+			catch(InterruptedException e){
+				Thread.currentThread().interrupt();
+				throw new RuntimeException("Interrupted while joining a validation task.", e);
+			}catch(ExecutionException e){
+				final Throwable cause=e.getCause();
+				if(cause instanceof Error){throw (Error)cause;}
+				if(cause instanceof RuntimeException){throw (RuntimeException)cause;}
+				throw new RuntimeException("Validation worker failed.", cause);
+			}
+		}
+
+		double sum=0;
+		for(int i=0; i<activeWorkers; i++){sum+=validateWorkers.get(i).sqErr;}
+		return sum;
 	}
 
 	/**
@@ -1353,7 +1512,16 @@ public class RegressionTrainer {
 	 * @return Network output
 	 */
 	private double[] predict(final float[] vector, final double[][] w, final double[][] b){
-		double[] cur=scratchA, next=scratchB;
+		return predict(vector, w, b, scratchA, scratchB);
+	}
+
+	/** Same forward pass as {@link #predict(float[], double[][], double[][])}, but with
+	 * explicit scratch buffers so multiple threads can call it concurrently without sharing
+	 * the instance's scratchA/scratchB fields (each caller must supply its own pair, each
+	 * sized at least maxDim()). */
+	private double[] predict(final float[] vector, final double[][] w, final double[][] b,
+			final double[] scratchA_, final double[] scratchB_){
+		double[] cur=scratchA_, next=scratchB_;
 		for(int i=0; i<numInputs; i++){cur[i]=(vector[i]-mean[i])/sd[i];}
 		for(int l=0; l<layers; l++){
 			final int rows=dims[l+1], cols=dims[l];
@@ -1536,6 +1704,33 @@ public class RegressionTrainer {
 		private double sqErr;
 	}
 
+	/** Reusable task with private forward-pass scratch buffers, for parallel validation. */
+	private final class ValidateWorker implements Callable<Void> {
+
+		ValidateWorker(){
+			curBuf=new double[maxDim()];
+			nextBuf=new double[maxDim()];
+			if(vsimd){
+				actBufF=new float[dims.length][];
+				for(int i=0; i<dims.length; i++){actBufF[i]=new float[dims[i]];}
+			}
+		}
+
+		void prepare(final int start_, final int end_){start=start_; end=end_; sqErr=0;}
+
+		@Override
+		public Void call() throws Exception{
+			sqErr=vsimd ? sumSquaredErrorRangeF(start, end, actBufF)
+				: sumSquaredErrorRange(start, end, curBuf, nextBuf);
+			return null;
+		}
+
+		private final double[] curBuf, nextBuf;
+		private float[][] actBufF;
+		private int start, end;
+		private double sqErr;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
@@ -1600,6 +1795,9 @@ public class RegressionTrainer {
 	 * verification story rests on reproducing the scalar path exactly.
 	 */
 	private boolean useSimd=false;
+	/** Phase 2 (2026-08-31): validate() via the float/SIMD forward pass. Independent opt-in,
+	 * requires useSimd=true; see the "vsimd" argument and validateParams(). */
+	private boolean vsimd=false;
 	/** Maximum SIMD gradient workers; one preserves the historical accumulation path */
 	private int threads=1;
 	/** Round hidden-layer widths up to a whole number of SIMD lanes */
@@ -1664,6 +1862,8 @@ public class RegressionTrainer {
 	private double[][] preAct;
 	private double[][] delta;
 	private double[] scratchA, scratchB;
+	/** Phase-2 float/SIMD validation scratch, allocated only when vsimd=true */
+	private float[][] scratchActF;
 
 	private Random randy;
 
@@ -1693,6 +1893,7 @@ public class RegressionTrainer {
 	private float[][] preActF;
 	private int gradientThreadCount=1;
 	private ArrayList<GradWorker> gradientWorkers;
+	private ArrayList<ValidateWorker> validateWorkers;
 	private ExecutorService gradientPool;
 
 	/** Most recent absolute error per sample; null unless sorting */
