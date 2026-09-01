@@ -165,6 +165,13 @@ graphk=auto          Multi-K only.  Build the final graph at this kmer length.
                     table when possible; another value rereads the inputs once.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
+lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs
+                    after all joining phases and before graph simplification.
+                    Diagnostic only; does not delete contigs.
+lowdepthcontigmaxlen=auto (ldcmaxlen) Maximum candidate length; auto is max(500,2*K).
+lowdepthcontigmaxcov=3 (ldcmaxcov) Maximum candidate average depth.
+lowdepthcontigfraction=0.2 (ldcfrac) Maximum candidate depth relative to the
+                    contig-length-weighted median depth.
 repeatminsupport=2   Minimum spanning reads required for each resolved path.
 repeatmaxnoise=0     Maximum conflicting spanning reads; zero is strictest.
 validategraph=f     Run graph consistency checks during simplification.

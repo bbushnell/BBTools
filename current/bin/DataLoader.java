@@ -1205,24 +1205,23 @@ public class DataLoader extends BinObject {
 
 		byte[] line=bf.nextLine();
 		int numDepths=0;
+		boolean looksLikeCovstats=false;
 		for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
 			if(Tools.startsWith(line, "#Depths")) {
 				numDepths=lp.set(line).parseInt(1);
+			}else if(Tools.startsWith(line, "#ID")) {
+				looksLikeCovstats=true;//e.g. pileup.sh/bbmap.sh covstats= output; wrong flag, not this method's format
 			}
 		}
-		//TODO: Probable bug [bin/DataLoader#002] - same uninformative assert(numDepths>0) as the
-		//loadCovFile(fname,contigs,maxSamples) overload below, which hung the JVM for 3 days on a
-		//JGI run (2026-08-31, fixed there with a KillSwitch.kill message + covstats-format
-		//detection) because a caller passed a pileup.sh/covstats= file under the wrong flag. This
-		//overload has a real live caller (bin/GradeBins.java:251) so the same failure is reachable
-		//here too. Not patched (separate tool/main(), out of scope for the QuickBin fix; GradeBins'
-		//own main() also has no top-level Throwable->KillSwitch guard, so the hang-on-crash half of
-		//the bug is unfixed here as well).
-		assert(numDepths>0) : numDepths;
+		assert(numDepths>0) : KillSwitch.assertDie("Coverage file "+fname+" is missing the required '#Depths' header line."+
+			(looksLikeCovstats ?
+				"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
+				"instead of cov=/covin= for this file." :
+				"\nExpected the multi-sample format written by DataLoader.writeCov, not a generic coverage file."));
 		final int edgeStart=3+numDepths;
 		final int samples=numDepths;
 		int loaded=0;
-		
+
 		HashMap<String, FloatList> map=new HashMap<String, FloatList>();
 		for(; line!=null; line=bf.nextLine()) {
 			lp.set(line);
@@ -1256,22 +1255,23 @@ public class DataLoader extends BinObject {
 
 		byte[] line=bf.nextLine();
 		int numDepths=0;
+		boolean looksLikeCovstats=false;
 		for(; Tools.startsWith(line, '#'); line=bf.nextLine()) {
 			if(Tools.startsWith(line, "#Depths")) {
 				numDepths=lp.set(line).parseInt(1);
+			}else if(Tools.startsWith(line, "#ID")) {
+				looksLikeCovstats=true;//e.g. pileup.sh/bbmap.sh covstats= output; wrong flag, not this method's format
 			}
 		}
-		//TODO: Probable bug [bin/DataLoader#003] - same class of bug as #002 above: an uninformative
-		//assert(numDepths>0) reachable from real live callers (scalar/PartitionReads.java:916,
-		//PartitionReads2.java:1011, PartitionReads3.java:1024, ScalarData.java:318) whose own main()s
-		//have no top-level Throwable->KillSwitch guard, so a malformed/wrong-format cov file here can
-		//reproduce the same 3-day-hang failure mode found in QuickBin (2026-08-31). Not patched (four
-		//separate tools, out of scope for the QuickBin fix).
-		assert(numDepths>0) : numDepths;
+		assert(numDepths>0) : KillSwitch.assertDie("Coverage file "+fname+" is missing the required '#Depths' header line."+
+			(looksLikeCovstats ?
+				"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
+				"instead of cov=/covin= for this file." :
+				"\nExpected the multi-sample format written by DataLoader.writeCov, not a generic coverage file."));
 		final int edgeStart=3+numDepths;
 		final int samples=numDepths;
 		int loaded=0;
-		
+
 		ObjectDoubleMap<String> map=new ObjectDoubleMap<String>(String.class);
 		for(; line!=null; line=bf.nextLine()) {
 			lp.set(line);
@@ -1398,14 +1398,12 @@ public class DataLoader extends BinObject {
 				looksLikeCovstats=true;//e.g. pileup.sh/bbmap.sh covstats= output; wrong flag, not this method's format
 			}
 		}
-		if(numDepths<=0) {
-			KillSwitch.kill("Coverage file "+fname+" is missing the required '#Depths' header line."+
-				(looksLikeCovstats ?
-					"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
-					"instead of cov=/covin= for this file." :
-					"\nExpected the multi-sample format written by DataLoader.writeCov (QuickBin's own "+
-					"covout= output), not a generic coverage file."));
-		}
+		assert(numDepths>0) : KillSwitch.assertDie("Coverage file "+fname+" is missing the required '#Depths' header line."+
+			(looksLikeCovstats ?
+				"\nThis looks like a covstats file (from pileup.sh/bbmap.sh covstats=); use covstats= "+
+				"instead of cov=/covin= for this file." :
+				"\nExpected the multi-sample format written by DataLoader.writeCov (QuickBin's own "+
+				"covout= output), not a generic coverage file."));
 		final int edgeStart=3+numDepths;
 		final int samples=Tools.min(numDepths, maxSamples);
 

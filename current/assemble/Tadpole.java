@@ -4,6 +4,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -233,6 +234,14 @@ public abstract class Tadpole extends ShaveObject{
 				BUILD_THREADS=Integer.parseInt(b);
 			}else if(a.equals("processcontigs")){
 				processContigs=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("lowDepthContigDiag") || a.equalsIgnoreCase("diagnoseLowDepthContigs") || a.equals("ldcd")){
+				lowDepthContigDiag=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("lowDepthContigMaxLen") || a.equals("ldcmaxlen")){
+				lowDepthContigMaxLen=(b==null || b.equalsIgnoreCase("auto") ? -1 : Parse.parseIntKMG(b));
+			}else if(a.equalsIgnoreCase("lowDepthContigMaxCov") || a.equals("ldcmaxcov")){
+				lowDepthContigMaxCov=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("lowDepthContigFraction") || a.equals("ldcfrac")){
+				lowDepthContigFraction=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("crossKMaxLen") || a.equalsIgnoreCase("ckml")){
 				crossKMaxLen=Tools.max(1, Integer.parseInt(b));
 			}else if(a.equals("pop") || a.equalsIgnoreCase("popBubbles")){
@@ -594,7 +603,10 @@ public abstract class Tadpole extends ShaveObject{
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		
-		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover){processContigs=true;}
+		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover || lowDepthContigDiag){processContigs=true;}
+		if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
+		if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
+		if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
 		if(simpleOmnitigs && graphCover){
 			throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");
 		}
@@ -1321,6 +1333,9 @@ public abstract class Tadpole extends ShaveObject{
 		if(graphCover && processingMode!=contigMode){
 			throw new RuntimeException("graphCover requires mode=contig.");
 		}
+		if(lowDepthContigDiag && processingMode!=contigMode){
+			throw new RuntimeException("lowDepthContigDiag requires mode=contig.");
+		}
 		if(resolveRepeats && crossKGraph()){
 			throw new RuntimeException("resolveRepeats is not yet supported during cross-K bridging.");
 		}
@@ -1337,6 +1352,7 @@ public abstract class Tadpole extends ShaveObject{
 		runProcessContigThreads();
 		outstream.println("Finished contig graph.");
 		t.stop("Time: ");
+		if(lowDepthContigDiag && !crossKGraph()){diagnoseLowDepthContigs();}
 
 		if(resolveRepeats){
 			t.start();
@@ -1412,6 +1428,83 @@ public abstract class Tadpole extends ShaveObject{
 			outstream.println("Nonreciprocal arcs skipped:\t"+extractor.nonreciprocalEdges()+".");
 			t.stop("Time: ");
 		}
+	}
+
+	/** Reports short low-depth isolate contigs by final endpoint topology without deleting sequence. */
+	private void diagnoseLowDepthContigs(){
+		final float mainDepth=lengthWeightedMedianCoverage();
+		if(mainDepth<=0){
+			outstream.println("Low-depth contig diagnostic: skipped; no positive contig coverage.");
+			return;
+		}
+		final int maxLen=(lowDepthContigMaxLen>0 ? lowDepthContigMaxLen : Tools.max(500, 2*kbig));
+		final float relativeCutoff=mainDepth*lowDepthContigFraction;
+		final float depthCutoff=Tools.min(lowDepthContigMaxCov, relativeCutoff);
+		final long[] counts=new long[3], bases=new long[3], lowTips=new long[3];
+		long live=0, shortCount=0, absoluteLow=0, relativeLow=0, depthLow=0, topologyEligible=0;
+		final Kmer kmer=new Kmer(kbig);
+		for(Contig c : allContigs){
+			if(c.used() || c.associate()){continue;}
+			live++;
+			final boolean shortEnough=c.length()<=maxLen;
+			final boolean absolute=c.coverage<=lowDepthContigMaxCov;
+			final boolean relative=c.coverage<=relativeCutoff;
+			if(shortEnough){shortCount++;}
+			if(absolute){absoluteLow++;}
+			if(relative){relativeLow++;}
+			if(absolute && relative){depthLow++;}
+			final int topology=lowDepthTopology(c);
+			if(topology>=0){topologyEligible++;}
+			if(!shortEnough || !absolute || !relative || topology<0){continue;}
+			counts[topology]++;
+			bases[topology]+=c.length();
+			if(c.length()>=kbig){
+				final int leftDepth=Tools.max(0, bridgeCount(c.leftKmer(kmer)));
+				final int rightDepth=Tools.max(0, bridgeCount(c.rightKmer(kmer)));
+				if(leftDepth<=depthCutoff && rightDepth<=depthCutoff){lowTips[topology]++;}
+			}
+		}
+		final long candidates=counts[0]+counts[1]+counts[2];
+		final long candidateBases=bases[0]+bases[1]+bases[2];
+		outstream.println("Low-depth contig diagnostic: mainDepth="+Tools.format("%.2f", mainDepth)+
+				", maxLen="+maxLen+", maxCov="+Tools.format("%.2f", depthCutoff)+" (absolute="+
+				Tools.format("%.2f", lowDepthContigMaxCov)+", relative="+
+				Tools.format("%.3f", lowDepthContigFraction)+").");
+		outstream.println("Candidate filters: live="+live+", short="+shortCount+", absoluteLow="+
+				absoluteLow+", relativeLow="+relativeLow+", bothLow="+depthLow+
+				", DD/DB/BB topology="+topologyEligible+".");
+		outstream.println("Low-depth candidates: "+candidates+" contigs, "+candidateBases+" bases; "+
+				"DD="+counts[0]+"/"+bases[0]+", DB="+counts[1]+"/"+bases[1]+
+				", BB="+counts[2]+"/"+bases[2]+" (count/bases).");
+		outstream.println("Candidates with two low terminal kmers: DD="+lowTips[0]+", DB="+
+				lowTips[1]+", BB="+lowTips[2]+".");
+	}
+
+	/** Returns DD=0, dead/back=1, or back/back=2; other final topologies are ineligible. */
+	private static int lowDepthTopology(final Contig c){
+		final boolean leftDead=c.leftCode==DEAD_END, rightDead=c.rightCode==DEAD_END;
+		final boolean leftBack=c.leftCode==B_BRANCH, rightBack=c.rightCode==B_BRANCH;
+		if(leftDead && rightDead){return 0;}
+		if((leftDead && rightBack) || (rightDead && leftBack)){return 1;}
+		return leftBack && rightBack ? 2 : -1;
+	}
+
+	/** Returns the contig-length-weighted median positive coverage. */
+	private float lengthWeightedMedianCoverage(){
+		final ArrayList<Contig> sorted=new ArrayList<Contig>(allContigs.size());
+		long weight=0;
+		for(Contig c : allContigs){
+			if(!c.used() && !c.associate() && c.coverage>0){sorted.add(c); weight+=c.length();}
+		}
+		if(weight<1){return 0;}
+		Shared.sort(sorted, coverageComparator);
+		final long target=(weight+1)/2;
+		long sum=0;
+		for(Contig c : sorted){
+			sum+=c.length();
+			if(sum>=target){return c.coverage;}
+		}
+		throw new RuntimeException("Failed to select a weighted-median contig depth.");
 	}
 
 	/** Writes the post-processed contig graph in GFA 1.0 format. */
@@ -3194,6 +3287,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(resolveRepeats){appendPlanWord(bb, "resolverepeats");}
 		if(simpleOmnitigs){appendPlanWord(bb, "simpleomnitigs");}
 		if(graphCover){appendPlanWord(bb, "graphcover");}
+		if(lowDepthContigDiag){appendPlanWord(bb, "lowdepthcontigdiag");}
 	}
 
 	/** Appends one space-delimited operation name. */
@@ -3473,9 +3567,19 @@ public abstract class Tadpole extends ShaveObject{
 	boolean simpleOmnitigs=false;
 	/** Output a deterministic copy-aware, non-combinatorial graph path cover. */
 	boolean graphCover=false;
+	/** Diagnose conservative isolate-only low-depth contig candidates without deleting them. */
+	boolean lowDepthContigDiag=false;
+	int lowDepthContigMaxLen=-1;
+	float lowDepthContigMaxCov=3;
+	float lowDepthContigFraction=0.2f;
 	int repeatMinSupport=2;
 	int repeatMaxNoise=0;
 	long readThreadedRepeatsResolved=0;
+
+	private static final Comparator<Contig> coverageComparator=new Comparator<Contig>(){
+		@Override
+		public int compare(final Contig a, final Contig b){return Float.compare(a.coverage, b.coverage);}
+	};
 	
 	int bubblePasses=1;
 	

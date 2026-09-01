@@ -17,6 +17,7 @@ public class TadpoleMultiUnitTest {
 		failures+=run("intermediateGraphKIsAccepted", TadpoleMultiUnitTest::intermediateGraphKIsAccepted);
 		failures+=run("invalidFuseKIsRejected", TadpoleMultiUnitTest::invalidFuseKIsRejected);
 		failures+=run("unusedGraphKIsRejected", TadpoleMultiUnitTest::unusedGraphKIsRejected);
+		failures+=run("lowDepthDiagnosticRequestsFinalGraph", TadpoleMultiUnitTest::lowDepthDiagnosticRequestsFinalGraph);
 		failures+=run("hashBridgeSelection", TadpoleMultiUnitTest::hashBridgeSelection);
 		failures+=run("dispatcherDetectsListsAndPhaseFlags", TadpoleMultiUnitTest::dispatcherDetectsListsAndPhaseFlags);
 		System.out.println(failures==0 ? "ALL TESTS PASSED" : failures+" TEST(S) FAILED");
@@ -108,6 +109,20 @@ public class TadpoleMultiUnitTest {
 
 	private static void unusedGraphKIsRejected(){
 		expectFailure("graphk requires", "k=31,63", "graphk=47");
+	}
+
+	private static void lowDepthDiagnosticRequestsFinalGraph(){
+		final TadpoleMulti.Config c=config("k=31,63,95", "ldcd=t", "graphk=63",
+				"ldcmaxlen=700", "ldcmaxcov=4", "ldcfrac=0.15");
+		check(c.finalGraphNeeded() && !c.graphOperations(), "Diagnostic did not request a final graph");
+		check(c.graphK==63, "Diagnostic graph k changed: "+c.graphK);
+		check(c.lowDepthContigMaxLen==700, "Wrong diagnostic maximum length");
+		check(c.lowDepthContigMaxCov==4, "Wrong diagnostic absolute depth");
+		check(c.lowDepthContigFraction==0.15f, "Wrong diagnostic relative depth");
+		for(String s : c.common){
+			check(!s.toLowerCase().startsWith("ldc") && !s.toLowerCase().startsWith("lowdepth"),
+					"Final-only diagnostic argument leaked into an intermediate phase: "+s);
+		}
 	}
 
 	private static void hashBridgeSelection(){

@@ -87,14 +87,14 @@ public class TadpoleMulti {
 
 			contigs=tad.detachContigs();
 			checkErrorState(tad);
-			if(config.graphOperations() && k==config.graphK && i==config.bridgeKs.length-1){
+			if(config.finalGraphNeeded() && k==config.graphK && i==config.bridgeKs.length-1){
 				reusableGraphTadpole=tad;
 			}else{tad.tables().clear();}
 			System.gc();
 			System.err.println("Cross-k bridges "+k+": "+before+" -> "+contigs.size()+" contigs.");
 		}
 
-		if(config.graphOperations()){
+		if(config.finalGraphNeeded()){
 			contigs=extractFinalGraph(contigs, reusableGraphTadpole, minContig);
 		}
 
@@ -128,6 +128,7 @@ public class TadpoleMulti {
 		tad.resolveRepeats=false;
 		tad.simpleOmnitigs=false;
 		tad.graphCover=false;
+		tad.lowDepthContigDiag=false;
 		tad.setContigs(contigs);
 		tad.clearContigEdges();
 		tad.processContigs();
@@ -149,6 +150,7 @@ public class TadpoleMulti {
 		tad.resolveRepeats=resolveRepeats;
 		tad.simpleOmnitigs=config.simpleOmnitigs;
 		tad.graphCover=config.graphCover;
+		config.applyLowDepthDiagnostic(tad);
 		config.applyFinalGraphOutput(tad);
 		tad.setContigs(merged);
 		tad.clearContigEdges();
@@ -289,6 +291,14 @@ public class TadpoleMulti {
 					graphCover=Parse.parseBoolean(b);
 				}else if(a.equals("gfa") || a.equals("outgfa")){
 					outGfa=b;
+				}else if(a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd")){
+					lowDepthContigDiag=Parse.parseBoolean(b);
+				}else if(a.equals("lowdepthcontigmaxlen") || a.equals("ldcmaxlen")){
+					lowDepthContigMaxLen=(b==null || b.equalsIgnoreCase("auto") ? -1 : Parse.parseIntKMG(b));
+				}else if(a.equals("lowdepthcontigmaxcov") || a.equals("ldcmaxcov")){
+					lowDepthContigMaxCov=Float.parseFloat(b);
+				}else if(a.equals("lowdepthcontigfraction") || a.equals("ldcfrac")){
+					lowDepthContigFraction=Float.parseFloat(b);
 				}else if(a.equals("showstats")){showStats=Parse.parseBoolean(b); common.add(arg);}
 				else if(a.equals("dot") || a.equals("outdot")){
 					throw new RuntimeException("DOT output is not yet supported by TadpoleMulti.");
@@ -317,9 +327,12 @@ public class TadpoleMulti {
 			if(maxDepthRatio<0){throw new RuntimeException("crosskmaxdepthratio must be nonnegative.");}
 			if(passes<1){throw new RuntimeException("crosskpasses must be positive.");}
 			if(simpleOmnitigs && graphCover){throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");}
-			if(graphOperations()){
+			if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
+			if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
+			if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
+			if(finalGraphNeeded()){
 				if(graphK<0){graphK=assembleK;}
-			}else if(graphExplicit){throw new RuntimeException("graphk requires simpleomnitigs=t, graphcover=t, or graph output.");}
+			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations or lowDepthContigDiag=t.");}
 			else{graphK=assembleK;}
 		}
 
@@ -360,6 +373,7 @@ public class TadpoleMulti {
 		}
 
 		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
+		boolean finalGraphNeeded(){return graphOperations() || lowDepthContigDiag;}
 		boolean useHashBridgeTables(){return hashModeForAny(bridgeKs)>0;}
 		int bridgeHashMode(){return hashModeForAny(bridgeKs);}
 		int hashMode(final int k){
@@ -390,12 +404,19 @@ public class TadpoleMulti {
 		void applyFinalGraphOutput(final Tadpole tad){
 			if(outGfa!=null){tad.setGfaOutput(outGfa);}
 		}
+		void applyLowDepthDiagnostic(final Tadpole tad){
+			tad.lowDepthContigDiag=lowDepthContigDiag;
+			tad.lowDepthContigMaxLen=lowDepthContigMaxLen;
+			tad.lowDepthContigMaxCov=lowDepthContigMaxCov;
+			tad.lowDepthContigFraction=lowDepthContigFraction;
+		}
 
 		void printExecutionPlan(final Tadpole tad){
 			final ByteBuilder extras=new ByteBuilder();
 			tad.appendExecutionPlanExtras(extras);
 			if(simpleOmnitigs){Tadpole.appendPlanWord(extras, "simpleomnitigs");}
 			if(graphCover){Tadpole.appendPlanWord(extras, "graphcover");}
+			if(lowDepthContigDiag){Tadpole.appendPlanWord(extras, "lowdepthcontigdiag");}
 			Tadpole.printPlanLine("mode", "assemble");
 			if(extras.length()>0){Tadpole.printPlanLine("extra", extras.toString());}
 			Tadpole.printPlanLine("assemblek", assembleK);
@@ -405,7 +426,7 @@ public class TadpoleMulti {
 			if(displayedHashMode>0){
 				Tadpole.printPlanLine("hashkmers", Tadpole.hashModeName(displayedHashMode));
 			}
-			if(graphOperations()){Tadpole.printPlanLine("graphk", graphK);}
+			if(finalGraphNeeded()){Tadpole.printPlanLine("graphk", graphK);}
 			Tadpole.outstream.println();
 		}
 
@@ -421,7 +442,7 @@ public class TadpoleMulti {
 		private int displayedHashMode(){
 			final int bridgeMode=hashModeForAny(bridgeKs);
 			if(bridgeMode>0){return bridgeMode;}
-			return graphOperations() ? hashMode(graphK) : Tadpole.HASH_EXPLICIT;
+			return finalGraphNeeded() ? hashMode(graphK) : Tadpole.HASH_EXPLICIT;
 		}
 
 		final ArrayList<String> common=new ArrayList<String>();
@@ -431,7 +452,9 @@ public class TadpoleMulti {
 		float maxDepthRatio=3;
 		int passes=10;
 		int graphK=-1;
-		boolean simpleOmnitigs=false, graphCover=false;
+		boolean simpleOmnitigs=false, graphCover=false, lowDepthContigDiag=false;
+		int lowDepthContigMaxLen=-1;
+		float lowDepthContigMaxCov=3, lowDepthContigFraction=0.2f;
 		boolean explicitTableRequired=false, preallocRequested=false;
 		int hashModeRequested=Tadpole.HASH_AUTO;
 		boolean showStats=true;
