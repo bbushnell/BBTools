@@ -72,9 +72,9 @@ public class TadpoleMulti {
 			setCrossKGraph(tad, true);
 			tad.loadKmers(new Timer());
 			tad.pruneLoadedKmers();
-			tad.cleanLoadedKmers();
-			checkErrorState(tad);
 			tad.setContigs(contigs);
+			tad.cleanLoadedKmers(contigs);
+			checkErrorState(tad);
 			tad.clearContigEdges();
 			final boolean resolveRepeats=tad.resolveRepeats;
 			tad.resolveRepeats=false;
@@ -113,7 +113,8 @@ public class TadpoleMulti {
 			tad=Tadpole.makeTadpole(makeArgs(config.graphK, false), true);
 			tad.loadKmers(new Timer());
 			tad.pruneLoadedKmers();
-			tad.cleanLoadedKmers();
+			tad.setContigs(contigs);
+			tad.cleanLoadedKmers(contigs);
 			checkErrorState(tad);
 		}else{
 			System.err.println("Reusing bridge-k table for final graph at k="+config.graphK+".");
@@ -207,6 +208,7 @@ public class TadpoleMulti {
 		final int hashMode=(longest ? Tadpole.HASH_EXPLICIT : config.hashMode(k));
 		list.add("hashkmers="+Tadpole.hashModeName(hashMode));
 		list.add("seedfromtable="+longest);
+		if(!longest){list.add("tipseededwash=t");}
 		list.add("k="+k);
 		list.add("out=null");
 		list.add("mode=contig");
@@ -383,10 +385,7 @@ public class TadpoleMulti {
 			}
 			if(a.equals("outkmers") || a.equals("outk") || a.equals("dump")){return b!=null && !b.equalsIgnoreCase("null");}
 			if(a.equals("gchist")){return !(b!=null && (b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false") || b.equals("0")));}
-			if(!(a.equals("wash") || a.equals("shaverinse") || a.equals("shaveandrinse") || a.equals("sr")
-					|| a.equals("shave") || a.equals("removedeadends") || a.equals("rinse")
-					|| a.equals("shampoo") || a.equals("removebubbles"))){return false;}
-			return !(b!=null && (b.equalsIgnoreCase("f") || b.equalsIgnoreCase("false") || b.equals("0")));
+			return false;
 		}
 		void applyFinalGraphOutput(final Tadpole tad){
 			if(outGfa!=null){tad.setGfaOutput(outGfa);}

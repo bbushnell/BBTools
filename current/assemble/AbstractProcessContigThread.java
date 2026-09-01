@@ -82,6 +82,7 @@ public abstract class AbstractProcessContigThread extends Thread {
 	long graphEndsRefreshedT=0, graphEndCodesChangedT=0;
 	long endpointSeedsUniqueT=0, endpointSeedsMissingT=0, endpointSeedsAmbiguousT=0;
 	long traversalAttemptsT=0;
+	long localHairsIgnoredT=0, localBubblesIgnoredT=0;
 	final long[] graphEndCodeCountsT=new long[ShaveObject.MAX_CODE];
 	final long[] uniqueEndCodeCountsT=new long[ShaveObject.MAX_CODE];
 	final long[] missingEndCodeCountsT=new long[ShaveObject.MAX_CODE];

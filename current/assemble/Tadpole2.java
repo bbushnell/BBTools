@@ -108,6 +108,22 @@ public class Tadpole2 extends Tadpole {
 		outstream.println();
 		return sum;
 	}
+
+	@Override
+	long shaveFromContigs(final ArrayList<Contig> contigs, final boolean shave, final boolean rinse){
+		long sum=0;
+		for(int i=0; i<maxShaveDepth; i++){
+			final int a=1, b=maxShaveDepth, c=i+1;
+			outstream.println("\nTipShave("+a+", "+b+", "+c+")");
+			final Shaver2 shaver=new Shaver2(tables, THREADS, a, b, c, minCountExtend, branchMult2,
+					Tools.max(minContigLen, shaveDiscardLen), shaveExploreDist, shave, rinse);
+			final long removed=shaver.shaveFromContigs(contigs, crossKGraph);
+			sum+=removed;
+			if(removed<100 || i>2){break;}
+		}
+		outstream.println();
+		return sum;
+	}
 	
 	@Override
 	public long loadKmers(Timer t){
@@ -812,6 +828,10 @@ public class Tadpole2 extends Tadpole {
 			kmerA=new Kmer(kbig);
 			kmerB=new Kmer(kbig);
 			kmerC=new Kmer(kbig);
+			kmerD=new Kmer(kbig);
+			localShaver=(compactLocalWashEnabled() ? new Shaver2(tables, 1, 1, maxShaveDepth, 1,
+					minCountExtend, branchMult2, Tools.max(minContigLen, shaveDiscardLen), shaveExploreDist,
+					shaveEnabled(), rinseEnabled()) : null);
 			visited=KillSwitch.allocLong1D(Math.multiplyExact(crossKMaxLen, kmerA.array1().length));
 			lastExitCondition=BAD_SEED;
 		}
@@ -998,10 +1018,17 @@ public class Tadpole2 extends Tadpole {
 				}
 				if(owner>=0 && !crossKGraph){break;}
 
-				final int leftMaxPos=fillLeftCounts(kmer, leftCounts);
-				final int leftMax=leftCounts[leftMaxPos];
-				final int leftSecondPos=Tools.secondHighestPosition(leftCounts);
-				final int leftSecond=leftCounts[leftSecondPos];
+				int leftMaxPos=fillLeftCounts(kmer, leftCounts);
+				int leftMax=leftCounts[leftMaxPos];
+				int leftSecondPos=Tools.secondHighestPosition(leftCounts);
+				int leftSecond=leftCounts[leftSecondPos];
+				if(localShaver!=null && isJunction(leftMax, leftSecond)){
+					ignoreLocalArtifacts(kmer, leftCounts, false);
+					leftMaxPos=Tools.maxIndex(leftCounts);
+					leftMax=leftCounts[leftMaxPos];
+					leftSecondPos=Tools.secondHighestPosition(leftCounts);
+					leftSecond=leftCounts[leftSecondPos];
+				}
 				if(isJunction(leftMax, leftSecond)){
 					lastExitCondition=B_BRANCH;
 					lastLength=length;
@@ -1009,10 +1036,17 @@ public class Tadpole2 extends Tadpole {
 				}
 				if(owner>=0){break;}
 				
-				final int rightMaxPos=fillRightCounts(kmer, rightCounts);
-				final int rightMax=rightCounts[rightMaxPos];
-				final int rightSecondPos=Tools.secondHighestPosition(rightCounts);
-				final int rightSecond=rightCounts[rightSecondPos];
+				int rightMaxPos=fillRightCounts(kmer, rightCounts);
+				int rightMax=rightCounts[rightMaxPos];
+				int rightSecondPos=Tools.secondHighestPosition(rightCounts);
+				int rightSecond=rightCounts[rightSecondPos];
+				if(localShaver!=null && isJunction(rightMax, rightSecond)){
+					ignoreLocalArtifacts(kmer, rightCounts, true);
+					rightMaxPos=Tools.maxIndex(rightCounts);
+					rightMax=rightCounts[rightMaxPos];
+					rightSecondPos=Tools.secondHighestPosition(rightCounts);
+					rightSecond=rightCounts[rightSecondPos];
+				}
 
 //				outstream.println("* "+Arrays.toString(leftCounts)+", "+Arrays.toString(rightCounts)+", "+rightMaxPos);
 				
@@ -1062,6 +1096,19 @@ public class Tadpole2 extends Tadpole {
 			return owner;
 		}
 
+		/** Suppresses only locally proven bounded hairs/bubbles for this traversal. */
+		private void ignoreLocalArtifacts(final Kmer source, final int[] counts, final boolean right){
+			for(int base=0; base<4; base++){
+				if(counts[base]<1 || counts[base]>maxShaveDepth){continue;}
+				kmerD.setFrom(source);
+				if(right){kmerD.addRightNumeric(base);}
+				else{kmerD.addLeftNumeric(base);}
+				final int type=localShaver.classifyPath(kmerD, washBuilder, washLeftCounts, washRightCounts);
+				if(type==1){counts[base]=0; localHairsIgnoredT++;}
+				else if(type==2){counts[base]=0; localBubblesIgnoredT++;}
+			}
+		}
+
 		/** Adds one exact oriented kmer state; returns false if it was already visited. */
 		private boolean addVisited(final Kmer kmer, final int size){
 			final long[] array=kmer.array1();
@@ -1077,7 +1124,10 @@ public class Tadpole2 extends Tadpole {
 			return true;
 		}
 
-		final Kmer kmerA, kmerB, kmerC;
+		final Kmer kmerA, kmerB, kmerC, kmerD;
+		final Shaver2 localShaver;
+		final int[] washLeftCounts=new int[4], washRightCounts=new int[4];
+		final ByteBuilder washBuilder=new ByteBuilder();
 		final long[] visited;
 
 	}

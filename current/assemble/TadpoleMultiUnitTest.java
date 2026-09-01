@@ -127,8 +127,8 @@ public class TadpoleMultiUnitTest {
 				"Preallocated k=64 bridge did not select a fixed fingerprint");
 		check(!config("assemblek=95", "bridgek=64").useHashBridgeTables(),
 				"Resizable k=64 bridge selected hash storage without a memory benefit");
-		check(!config("assemblek=95", "bridgek=127", "wash=t").useHashBridgeTables(),
-				"Shaving/rinsing incorrectly selected a non-enumerable table");
+		check(config("assemblek=95", "bridgek=127", "wash=t").useHashBridgeTables(),
+				"wash=t incorrectly disabled tip-seeded compact washing");
 		check(config("assemblek=95", "bridgek=127", "wash=f").useHashBridgeTables(),
 				"wash=f incorrectly disabled compact hashes");
 		check(!config("assemblek=95", "bridgek=127", "maxcr=10").useHashBridgeTables(),

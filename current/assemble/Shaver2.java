@@ -1,10 +1,13 @@
 package assemble;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 import dna.AminoAcid;
 import kmer.AbstractKmerTableSet;
+import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import ukmer.AbstractKmerTableU;
@@ -70,6 +73,143 @@ public class Shaver2 extends Shaver {
 	final AbstractExploreThread makeExploreThread(int id_){return new ExploreThread(id_);}
 	@Override
 	final AbstractShaveThread makeShaveThread(int id_){return new ShaveThread(id_);}
+
+	/** Washes a compact table from contig-tip seeds without enumerating stored keys. */
+	public long shaveFromContigs(final ArrayList<Contig> contigs, final boolean crossK){
+		if(!tables.hashOnly()){throw new IllegalStateException("Tip-seeded washing is specific to compact kmer tables.");}
+		assert(minSeed>=minCount && minSeed<=maxCount);
+		final Timer timer=new Timer();
+		tables.initializeOwnership();
+		final AtomicInteger nextTip=new AtomicInteger(0);
+		final ArrayList<CompactExploreThread> explorers=new ArrayList<CompactExploreThread>(threads);
+		for(int i=0; i<threads; i++){explorers.add(new CompactExploreThread(contigs, nextTip, crossK));}
+		for(CompactExploreThread thread : explorers){thread.start();}
+		long tested=0, paths=0;
+		Throwable failure=null;
+		for(CompactExploreThread thread : explorers){
+			while(thread.getState()!=Thread.State.TERMINATED){
+				try{thread.join();}
+				catch(InterruptedException e){Thread.currentThread().interrupt(); throw new RuntimeException(e);}
+			}
+			tested+=thread.tested;
+			paths+=thread.paths;
+			if(failure==null){failure=thread.failure;}
+		}
+		if(failure!=null){
+			tables.clearOwnership();
+			throw new RuntimeException("Compact wash exploration failed.", failure);
+		}
+		timer.stop();
+		outstream.println("Tested "+tested+" tip-seeded paths.");
+		outstream.println("Found "+paths+" removable paths.");
+		outstream.println("Search time: "+timer);
+
+		timer.start();
+		final AtomicInteger nextWay=new AtomicInteger(0);
+		final ArrayList<CompactRemoveThread> removers=new ArrayList<CompactRemoveThread>(threads);
+		for(int i=0; i<threads; i++){removers.add(new CompactRemoveThread(nextWay));}
+		for(CompactRemoveThread thread : removers){thread.start();}
+		long removed=0;
+		failure=null;
+		for(CompactRemoveThread thread : removers){
+			while(thread.getState()!=Thread.State.TERMINATED){
+				try{thread.join();}
+				catch(InterruptedException e){Thread.currentThread().interrupt(); throw new RuntimeException(e);}
+			}
+			removed+=thread.removed;
+			if(failure==null){failure=thread.failure;}
+		}
+		tables.clearOwnership();
+		if(failure!=null){throw new RuntimeException("Compact wash removal failed.", failure);}
+		timer.stop();
+		outstream.println("Kmers removed:              \t"+removed);
+		outstream.println("Removal time:               \t"+timer);
+		return removed;
+	}
+
+	/** Explores all eligible tips assigned through a shared atomic index. */
+	private class CompactExploreThread extends Thread {
+		CompactExploreThread(ArrayList<Contig> contigs_, AtomicInteger nextTip_, boolean crossK_){
+			contigs=contigs_;
+			nextTip=nextTip_;
+			crossK=crossK_;
+		}
+
+		@Override
+		public void run(){
+			try{
+				for(int x=nextTip.getAndIncrement(), limit=contigs.size()*2; x<limit; x=nextTip.getAndIncrement()){
+					final Contig c=contigs.get(x>>1);
+					final boolean right=(x&1)==1;
+					if(c.length()<kbig || (crossK && !(right ? c.rightBridgeEndpoint : c.leftBridgeEndpoint))){continue;}
+					if(right){c.rightKmer(main);}
+					else{c.leftKmer(main); main.rcomp();}
+					scanTip();
+				}
+			}catch(Throwable t){failure=t;}
+		}
+
+		/** Scans a bounded unique high-depth path and tests all adjacent low-depth paths. */
+		private void scanTip(){
+			for(int distance=0; distance<=maxDistanceToExplore; distance++){
+				if(getCount(main)<=maxCount){return;}
+				final int maxPos=fillRightCounts(main, scanCounts);
+				inspectLowNeighbors(main, scanCounts, candidate);
+				main.rcomp();
+				fillRightCounts(main, reverseCounts);
+				inspectLowNeighbors(main, reverseCounts, candidate);
+				main.rcomp();
+				int high=0;
+				for(int count : scanCounts){if(count>maxCount){high++;}}
+				if(high!=1 || distance==maxDistanceToExplore){return;}
+				main.addRightNumeric(maxPos);
+				fillLeftCounts(main, reverseCounts);
+				high=0;
+				for(int count : reverseCounts){if(count>maxCount){high++;}}
+				if(high!=1){return;}
+			}
+		}
+
+		private void inspectLowNeighbors(final Kmer source, final int[] counts, final Kmer dest){
+			for(int base=0; base<4; base++){
+				final int count=counts[base];
+				if(count<minCount || count>maxCount){continue;}
+				dest.setFrom(source);
+				dest.addRightNumeric(base);
+				if(findOwner(dest)==STATUS_KEEP){continue;}
+				tested++;
+				if(exploreAndMark(dest, builder, leftCounts, rightCounts, minCount, maxCount,
+						maxLengthToDiscard, maxDistanceToExplore, true, true, countMatrix, removeMatrix)){paths++;}
+			}
+		}
+
+		private final ArrayList<Contig> contigs;
+		private final AtomicInteger nextTip;
+		private final boolean crossK;
+		private final Kmer main=new Kmer(kbig), candidate=new Kmer(kbig);
+		private final int[] scanCounts=new int[4], reverseCounts=new int[4], leftCounts=new int[4], rightCounts=new int[4];
+		private final ByteBuilder builder=new ByteBuilder();
+		private final long[][] countMatrix=new long[MAX_CODE+1][MAX_CODE+1];
+		private final long[][] removeMatrix=new long[MAX_CODE+1][MAX_CODE+1];
+		private long tested=0, paths=0;
+		private Throwable failure;
+	}
+
+	/** Converts final compact-table REMOVE ownership states to deletion tombstones. */
+	private class CompactRemoveThread extends Thread {
+		CompactRemoveThread(AtomicInteger nextWay_){nextWay=nextWay_;}
+		@Override
+		public void run(){
+			try{
+				for(int way=nextWay.getAndIncrement(); way<tables.ways; way=nextWay.getAndIncrement()){
+					removed+=tables.removeHashEntriesByOwner(way, STATUS_REMOVE);
+				}
+			}catch(Throwable t){failure=t;}
+		}
+		private final AtomicInteger nextWay;
+		private long removed=0;
+		private Throwable failure;
+	}
 	
 	
 	/*--------------------------------------------------------------*/
@@ -118,9 +258,18 @@ public class Shaver2 extends Shaver {
 	public boolean exploreAndMark(Kmer kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount,
 			int maxLengthToDiscard, int maxDistanceToExplore, boolean prune,
 			long[][] countMatrixT, long[][] removeMatrixT){
+		return exploreAndMark(kmer, bb, leftCounts, rightCounts, minCount, maxCount,
+				maxLengthToDiscard, maxDistanceToExplore, prune, false, countMatrixT, removeMatrixT);
+	}
+
+	/** Compact-table variant can conservatively protect paths rejected by another seed. */
+	private boolean exploreAndMark(Kmer kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts, int minCount, int maxCount,
+			int maxLengthToDiscard, int maxDistanceToExplore, boolean prune, boolean protectRejected,
+			long[][] countMatrixT, long[][] removeMatrixT){
 		bb.clear();
 		assert(kmer.len>=kmer.kbig);
-		if(findOwner(kmer)>STATUS_UNEXPLORED){return false;}
+		final int initialOwner=findOwner(kmer);
+		if(initialOwner>STATUS_UNEXPLORED && (!protectRejected || initialOwner==STATUS_KEEP)){return false;}
 		
 		assert(countWithinLimits(kmer)) : "count="+getCount(kmer)+", minCount="+minCount+", maxCount="+maxCount+"\n"+kmer.toString();
 		
@@ -148,42 +297,64 @@ public class Shaver2 extends Shaver {
 		countMatrixT[min][max]++;
 		
 		if(rightCode==TOO_LONG || rightCode==TOO_DEEP || rightCode==LOOP || rightCode==F_BRANCH){
-			claim(bb, STATUS_EXPLORED, false, kmer);
+			claim(bb, protectRejected ? STATUS_KEEP : STATUS_EXPLORED, false, kmer);
 			return false;
 		}
 		
 		if(leftCode==TOO_LONG || leftCode==TOO_DEEP || leftCode==LOOP || leftCode==F_BRANCH){
-			claim(bb, STATUS_EXPLORED, false, kmer);
+			claim(bb, protectRejected ? STATUS_KEEP : STATUS_EXPLORED, false, kmer);
 			return false;
 		}
 		
 		if(bb.length()-kbig>maxLengthToDiscard){
-			claim(bb, STATUS_EXPLORED, false, kmer);
+			claim(bb, protectRejected ? STATUS_KEEP : STATUS_EXPLORED, false, kmer);
 			return false;
 		}
 		
 		if(removeHair && min==DEAD_END){
 			if(max==DEAD_END || max==B_BRANCH){
 				removeMatrixT[min][max]++;
-				boolean success=claim(bb, STATUS_REMOVE, false, kmer);
+				claim(bb, STATUS_REMOVE, false, kmer);
+				final boolean success=!protectRejected || findOwner(bb, STATUS_REMOVE, kmer)<=STATUS_REMOVE;
 				if(verbose || verbose2){System.err.println("Claiming ("+rightCode+","+leftCode+") length "+bb.length()+": "+bb);}
-				assert(success);
-				return true;
+				if(!success && protectRejected){claim(bb, STATUS_KEEP, false, kmer);}
+				else{assert(success);}
+				return success;
 			}
 		}
 		
 		if(removeBubbles){
 			if(rightCode==B_BRANCH && leftCode==B_BRANCH){
 				removeMatrixT[min][max]++;
-				boolean success=claim(bb, STATUS_REMOVE, false, kmer);
+				claim(bb, STATUS_REMOVE, false, kmer);
+				final boolean success=!protectRejected || findOwner(bb, STATUS_REMOVE, kmer)<=STATUS_REMOVE;
 				if(verbose || verbose2){System.err.println("Claiming ("+rightCode+","+leftCode+") length "+bb.length()+": "+bb);}
-				assert(success);
-				return true;
+				if(!success && protectRejected){claim(bb, STATUS_KEEP, false, kmer);}
+				else{assert(success);}
+				return success;
 			}
 		}
 		
-		claim(bb, STATUS_EXPLORED, false, kmer);
+		claim(bb, protectRejected ? STATUS_KEEP : STATUS_EXPLORED, false, kmer);
 		return false;
+	}
+
+	/** Classifies one low-depth path without changing shared counts or ownership. */
+	public int classifyPath(Kmer kmer, ByteBuilder bb, int[] leftCounts, int[] rightCounts){
+		bb.clear();
+		if(!countWithinLimits(kmer)){return 0;}
+		bb.appendKmer(kmer);
+		final int rightCode=explore(kmer, bb, leftCounts, rightCounts, minCount, maxCount, maxDistanceToExplore);
+		bb.reverseComplementInPlace();
+		kmer=tables.rightmostKmer(bb, kmer);
+		final int leftCode=explore(kmer, bb, leftCounts, rightCounts, minCount, maxCount, maxDistanceToExplore);
+		if(rightCode==TOO_LONG || rightCode==TOO_DEEP || rightCode==LOOP || rightCode==F_BRANCH
+				|| leftCode==TOO_LONG || leftCode==TOO_DEEP || leftCode==LOOP || leftCode==F_BRANCH
+				|| bb.length()-kbig>maxLengthToDiscard){return 0;}
+		final int min=Tools.min(rightCode, leftCode), max=Tools.max(rightCode, leftCode);
+		if(removeHair && min==DEAD_END && (max==DEAD_END || max==B_BRANCH)){return 1;}
+		if(removeBubbles && rightCode==B_BRANCH && leftCode==B_BRANCH){return 2;}
+		return 0;
 	}
 	
 	/** Explores a single unbranching path in the forward (right) direction.
@@ -205,8 +376,8 @@ public class Shaver2 extends Shaver {
 		final int initialLength=bb.length();
 		final int maxLength=maxLength0+kbig;
 		
-		final long firstKey=kmer.xor();
-		HashArrayU1D table=tables.getTable(kmer);
+		final long firstKey=kmer.xor(), firstKey2=kmer.xor2();
+		AbstractKmerTableU table=tables.getTableAbstract(kmer);
 		int count=table.getValue(kmer);
 //		kmer.verify(false);
 //		kmer.verify(true);
@@ -247,11 +418,11 @@ public class Shaver2 extends Shaver {
 //			assert(getCount(kmer)==rightMax); //123
 			
 			//Now consider the next kmer
-			if(kmer.xor()==firstKey){
+			if(kmer.xor()==firstKey && kmer.xor2()==firstKey2){
 				if(verbose){outstream.println("Returning LOOP");}
 				return LOOP;
 			}
-			table=tables.getTable(kmer);
+			table=tables.getTableAbstract(kmer);
 			
 			assert(table.getValue(kmer)==rightMax || rightMax==0);
 			count=rightMax;

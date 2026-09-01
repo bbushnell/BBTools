@@ -90,8 +90,9 @@ prealloc=f          Pre-allocate memory rather than dynamically growing;
 hashkmers=auto      Compact storage for sequence-driven long-k operations.
                     Auto uses one fixed 64-bit fingerprint with prealloc=t,
                     or two resizable 64-bit hashes otherwise.  Initial contig
-                    construction, fusion, shaving/rinsing, and kmer dumps use
-                    explicit kmers.  Set to f, pair, or fixed to override.
+					construction, fusion, and kmer dumps use explicit kmers.
+					Multi-K wash uses contig-tip-seeded compact cleaning.
+					Set to f, pair, or fixed to override.
 minprob=0.5         Ignore kmers with overall probability of correctness below this.
 minprobmain=t       (mpm) Use minprob for the primary kmer counts.
 threads=X           Spawn X worker threads; default is number of logical processors.
@@ -251,6 +252,8 @@ Shaving parameters:
 shave=f             Remove dead ends (aka hair).
 rinse=f             Remove bubbles.
 wash=               Set shave and rinse at the same time.
+					In compact multi-K phases, seeds from contig tips and
+					ignores proven bounded artifacts during bridge walks.
 maxshavedepth=1     (msd) Shave or rinse kmers at most this deep.
 exploredist=300     (sed) Quit after exploring this far.
 discardlength=150   (sdl) Discard shavings up to this long.

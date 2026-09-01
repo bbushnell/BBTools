@@ -174,6 +174,20 @@ public final class HashArrayH1D extends AbstractKmerTableU {
 	@Override
 	public void clearOwnership(){owners=null;}
 
+	/** Replaces entries with the requested final ownership state by tombstones. */
+	public long removeByOwner(final int owner){
+		if(owners==null){throw new IllegalStateException("Ownership was not initialized.");}
+		long removed=0;
+		for(int i=0; i<prime; i++){
+			if(values[i]>0 && owners.get(i)==owner){
+				values[i]=TOMBSTONE;
+				size--;
+				removed++;
+			}
+		}
+		return removed;
+	}
+
 	@Override
 	public void fillHistogram(long[] counts, int max){
 		for(int value : values){if(value>0){counts[Math.min(value, max)]++;}}

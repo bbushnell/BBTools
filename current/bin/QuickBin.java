@@ -15,6 +15,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import prok.GeneCaller;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -47,17 +48,27 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
-		//Start a timer immediately upon code entrance.
-		Timer t=new Timer();
-		
-		//Create an instance of this class
-		QuickBin x=new QuickBin(args);
-		
-		//Run the object
-		x.process(t);
-		
-		//Close the print stream if it was redirected
-		Shared.closeStream(BinObject.outstream);
+		try{
+			//Start a timer immediately upon code entrance.
+			Timer t=new Timer();
+
+			//Create an instance of this class
+			QuickBin x=new QuickBin(args);
+
+			//Run the object.  An uncaught exception on this (main) thread only kills
+			//main; a background producer thread (e.g. ByteFile2's async reader) can
+			//outlive it, blocked forever on a full queue since nothing calls close()
+			//on it, silently hanging the JVM for the rest of the walltime limit
+			//(JGI incident, 2026-08-31: AssertionError in DataLoader.loadCovFile hung
+			//3 days). Force a hard VM exit on any escaping Throwable so a crash is
+			//always loud and immediate, never a multi-day hang.
+			x.process(t);
+
+			//Close the print stream if it was redirected
+			Shared.closeStream(BinObject.outstream);
+		}catch(Throwable e){
+			KillSwitch.throwableKill(e);
+		}
 	}
 	
 	/**

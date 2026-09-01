@@ -404,6 +404,8 @@ public abstract class Tadpole extends ShaveObject{
 				hashKmerModeSpecified=true;
 			}else if(a.equals("seedfromtable")){
 				seedFromTable=Parse.parseBoolean(b);
+			}else if(a.equals("tipseededwash")){
+				tipSeededWash=Parse.parseBoolean(b);
 			}else if(a.equals("prealloc") || a.equals("preallocate")){
 				preallocRequested=parsePrealloc(b);
 			}else if(a.equals("fillfast") || a.equals("fastfill")){
@@ -1128,6 +1130,20 @@ public abstract class Tadpole extends ShaveObject{
 		return shaveAndRinse(new Timer(), removeDeadEnds, removeBubbles, true);
 	}
 
+	/** Applies configured cleaning using attached contigs as seeds for compact tables. */
+	final long cleanLoadedKmers(final ArrayList<Contig> contigs){
+		if(!hashOnlyTables()){return cleanLoadedKmers();}
+		if(!tipSeededWash){throw new IllegalStateException("Compact wash requires contig-tip seeding.");}
+		if(!(removeDeadEnds || removeBubbles)){return 0;}
+		outstream.println(removeDeadEnds && removeBubbles ? "\nRemoving tip-seeded dead ends and error bubbles."
+				: removeDeadEnds ? "\nRemoving tip-seeded dead ends." : "\nRemoving tip-seeded error bubbles.");
+		final Timer timer=new Timer();
+		final long removed=shaveFromContigs(contigs, removeDeadEnds, removeBubbles);
+		timer.stop();
+		outstream.println("Tip-seeded removal time:    \t"+timer);
+		return removed;
+	}
+
 	/** Applies configured count-range pruning to a table loaded outside process2. */
 	final long pruneLoadedKmers(){
 		if(kmerRangeMin<=1 && kmerRangeMax==Integer.MAX_VALUE){return 0;}
@@ -1151,6 +1167,9 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of k-mers removed
 	 */
 	abstract long shave(boolean shave, boolean rinse);
+	long shaveFromContigs(ArrayList<Contig> contigs, boolean shave, boolean rinse){
+		throw new UnsupportedOperationException("Tip-seeded compact washing is unavailable for "+getClass().getSimpleName()+".");
+	}
 	/**
 	 * Initializes thread ownership tracking for k-mers to prevent race conditions during parallel processing
 	 */
@@ -1718,7 +1737,7 @@ public abstract class Tadpole extends ShaveObject{
 		Throwable workerFailure=null;
 		long graphEndsRefreshed=0, graphEndCodesChanged=0, edgesMadePass=0;
 		long endpointSeedsUnique=0, endpointSeedsMissing=0, endpointSeedsAmbiguous=0;
-		long traversalAttempts=0;
+		long traversalAttempts=0, localHairsIgnored=0, localBubblesIgnored=0;
 		long[] endCodeCounts=new long[MAX_CODE], exitCounts=new long[MAX_CODE];
 		long[] uniqueEndCodeCounts=new long[MAX_CODE], missingEndCodeCounts=new long[MAX_CODE];
 		long[] ambiguousEndCodeCounts=new long[MAX_CODE];
@@ -1740,6 +1759,8 @@ public abstract class Tadpole extends ShaveObject{
 			endpointSeedsMissing+=pt.endpointSeedsMissingT;
 			endpointSeedsAmbiguous+=pt.endpointSeedsAmbiguousT;
 			traversalAttempts+=pt.traversalAttemptsT;
+			localHairsIgnored+=pt.localHairsIgnoredT;
+			localBubblesIgnored+=pt.localBubblesIgnoredT;
 			for(int i=0; i<MAX_CODE; i++){
 				endCodeCounts[i]+=pt.graphEndCodeCountsT[i];
 				uniqueEndCodeCounts[i]+=pt.uniqueEndCodeCountsT[i];
@@ -1774,6 +1795,10 @@ public abstract class Tadpole extends ShaveObject{
 				if(exitCounts[i]>0){sb.append(' ').append(codeStrings[i]).append('=').append(exitCounts[i]);}
 			}
 			outstream.println(sb);
+		}
+		if(localHairsIgnored+localBubblesIgnored>0){
+			outstream.println("Compact wash branches ignored: hairs="+localHairsIgnored+
+					", bubbles="+localBubblesIgnored+".");
 		}
 	}
 
@@ -3114,7 +3139,8 @@ public abstract class Tadpole extends ShaveObject{
 	/** Returns true when the selected operation never needs to reconstruct a table key. */
 	private boolean hashCompatible(){
 		if(kbig<=31 || (processingMode==contigMode && seedFromTable)){return false;}
-		if(removeDeadEnds || removeBubbles || outKmers!=null || gcHist){return false;}
+		if((removeDeadEnds || removeBubbles) && !tipSeededWash){return false;}
+		if(outKmers!=null || gcHist){return false;}
 		return kmerRangeMax==Integer.MAX_VALUE;
 	}
 
@@ -3151,6 +3177,13 @@ public abstract class Tadpole extends ShaveObject{
 	private boolean hashOnlyTables(){
 		return tables() instanceof KmerTableSetU && ((KmerTableSetU)tables()).hashOnly();
 	}
+
+	/** True when compact bridge walks may classify bounded low-depth branches locally. */
+	final boolean compactLocalWashEnabled(){
+		return tipSeededWash && hashOnlyTables() && (removeDeadEnds || removeBubbles);
+	}
+	final boolean shaveEnabled(){return removeDeadEnds;}
+	final boolean rinseEnabled(){return removeBubbles;}
 
 	/** Appends enabled non-default operations to a startup plan. */
 	void appendExecutionPlanExtras(final ByteBuilder bb){
@@ -3227,7 +3260,7 @@ public abstract class Tadpole extends ShaveObject{
 	/** Resolved compact-kmer storage: explicit, resizable hash pair, or fixed fingerprint. */
 	protected int hashKmerMode=HASH_EXPLICIT;
 	private int hashKmerModeRequested=HASH_AUTO;
-	private boolean hashKmerModeSpecified=false, preallocRequested=false, seedFromTable=true;
+	private boolean hashKmerModeSpecified=false, preallocRequested=false, seedFromTable=true, tipSeededWash=false;
 	
 	protected int extendLeft=-1;
 	protected int extendRight=-1;

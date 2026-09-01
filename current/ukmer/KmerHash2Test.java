@@ -15,6 +15,8 @@ public class KmerHash2Test {
 		testMaskedTerminalFingerprint();
 		testResizableTable();
 		testFixedTable();
+		testOwnerTombstones(true);
+		testOwnerTombstones(false);
 		System.out.println("KmerHash2Test PASS: "+checks+" checks");
 	}
 
@@ -121,6 +123,34 @@ public class KmerHash2Test {
 			failedLoudly=e.getMessage().contains("cannot resize");
 		}
 		check(failedLoudly, "Fixed table did not fail loudly when capacity was exhausted");
+	}
+
+	private static void testOwnerTombstones(final boolean storePlacementHash){
+		final HashArrayH1D table=new HashArrayH1D(new int[] {211}, storePlacementHash);
+		final Random randy=new Random(storePlacementHash ? 4 : 5);
+		final Kmer[] kmers=new Kmer[120];
+		for(int i=0; i<kmers.length; i++){
+			kmers[i]=makeKmer(randomBases(161, randy));
+			check(table.incrementAndReturnNumCreated(kmers[i])==1, "Tombstone fixture rejected a new kmer");
+		}
+		table.initializeOwnership();
+		int expected=0;
+		for(int i=0; i<kmers.length; i++){
+			if(i%3==0){table.setOwner(kmers[i], 2); expected++;}
+			else{table.setOwner(kmers[i], 3);}
+		}
+		table.setOwner(kmers[0], 3);
+		expected--;
+		check(table.removeByOwner(2)==expected, "Ownership sweep removed the wrong number of kmers");
+		table.clearOwnership();
+		check(table.size()==kmers.length-expected, "Ownership sweep left the wrong live size");
+		for(int i=0; i<kmers.length; i++){
+			check(table.getValue(kmers[i])==(i%3==0 && i>0 ? -1 : 1), "Tombstone broke a probe-chain lookup");
+		}
+		for(int i=0; i<20; i++){
+			check(table.incrementAndReturnNumCreated(makeKmer(randomBases(161, randy)))==1,
+					"Insertion failed to reuse an ownership tombstone");
+		}
 	}
 
 	private static byte[] randomBases(int length, Random randy){

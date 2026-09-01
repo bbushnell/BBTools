@@ -938,6 +938,20 @@ public class KmerTableSetU extends AbstractKmerTableSet {
 	public void clearOwnership(){
 		OwnershipThread.clear(tables);
 	}
+
+	/** Removes compact-table entries carrying a final ownership state. */
+	public long removeHashEntriesByOwner(final int owner){
+		if(!hashOnly()){throw new IllegalStateException("Ownership tombstones are specific to compact kmer tables.");}
+		long removed=0;
+		for(int i=0; i<tables.length; i++){removed+=removeHashEntriesByOwner(i, owner);}
+		return removed;
+	}
+
+	/** Removes one compact-table partition carrying a final ownership state. */
+	public long removeHashEntriesByOwner(final int tnum, final int owner){
+		if(!hashOnly()){throw new IllegalStateException("Ownership tombstones are specific to compact kmer tables.");}
+		return ((HashArrayH1D)tables[tnum]).removeByOwner(owner);
+	}
 	
 	/**
 	 * Counts k-mers by GC content across all tables.
