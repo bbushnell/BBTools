@@ -463,6 +463,8 @@ public class CallGenes extends ProkObject {
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("tmrna")){
 				TMRNA_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("sixs") || a.equalsIgnoreCase("ssrs") || a.equalsIgnoreCase("6s")){
+				SIXS_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
 			}else if(a.equalsIgnoreCase("ncrnakmers")){
@@ -475,6 +477,10 @@ public class CallGenes extends ProkObject {
 				SRPLARGE_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("tmrnakmers")){
 				TMRNA_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("sixsrf00013kmers")){
+				SIXS_RF00013_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("sixsrf01685kmers")){
+				SIXS_RF01685_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("tmrnaconsensus")){
 				TMRNA_CONSENSUS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("tmrnamodels")){
@@ -517,6 +523,10 @@ public class CallGenes extends ProkObject {
 				SRPLARGE_PAD_OVERRIDE=parsePadOverride("srplargepad", b);
 			}else if(a.equalsIgnoreCase("tmrnapad")){
 				TMRNA_PAD_OVERRIDE=parsePadOverride("tmrnapad", b);
+			}else if(a.equalsIgnoreCase("sixsrf00013pad")){
+				SIXS_RF00013_PAD_OVERRIDE=parsePadOverride("sixsrf00013pad", b);
+			}else if(a.equalsIgnoreCase("sixsrf01685pad")){
+				SIXS_RF01685_PAD_OVERRIDE=parsePadOverride("sixsrf01685pad", b);
 			}
 
 			else if(ProkObject.parse(arg, a, b)){}
@@ -1828,6 +1838,10 @@ public class CallGenes extends ProkObject {
 	 * a subset of families actually got refined, an invalid mixed on/off comparison.
 	 */
 	public static synchronized void loadNcrnaResources(){
+		//TODO: Probable bug - this production loader silently reuses an existing family set on
+		//a second call, even if the requested ncrna/tmrna/sixs configuration differs. The
+		//evaluation harness snapshots and restores this static state, but a persistent caller
+		//should fail loud rather than emit calls using a stale resource configuration.
 		if(!GeneCaller.ncrnaFamilies.isEmpty()){return;}
 		LongHashSet rnasepKmers=loadEffectiveNcrnaKmerSet("rnasep", "rnasep_17mers.fa", RNASEP_KMERS_OVERRIDE, 17);
 		addNcrnaFamily("rnasep", "rnasep_consensus.fa", "rnasep_models.hbm", rnasepKmers, 17, 200,
@@ -1876,6 +1890,36 @@ public class CallGenes extends ProkObject {
 				throw new RuntimeException("tmrna=t requires index-aligned tmrna_consensus.fa and tmrna_models.hbm resources");
 			}
 		}
+		if(SIXS_ENABLED){
+			final int before=GeneCaller.ncrnaFamilies.size();
+			LongHashSet rf00013Kmers=loadEffectiveNcrnaKmerSet("sixs_rf00013", "sixs_rf00013_16mers.fa", SIXS_RF00013_KMERS_OVERRIDE, 16);
+			addNcrnaFamily("sixs_rf00013", "sixs_rf00013_consensus.fa", "sixs_rf00013_models.hbm", rf00013Kmers, 16, 60,
+				resolveSweepPad("sixs_rf00013", SIXS_RF00013_PAD_OVERRIDE, 250),
+				7, 60, false, 0f, 0f, 0f, 1,
+				resolveSweepFloat("sixs_rf00013", NCRNA_SCORE_A_OVERRIDE, 0f),
+				resolveSweepFloat("sixs_rf00013", NCRNA_SCORE_B_OVERRIDE, 20f),
+				resolveSweepFloat("sixs_rf00013", NCRNA_ID_PASS_OVERRIDE, 0.70f), resolveSweepFloat("sixs_rf00013", NCRNA_ID_BORDERLINE_OVERRIDE, 0.60f),
+				resolveSweepFloat("sixs_rf00013", NCRNA_HBM_PASS_OVERRIDE, 0.64f), resolveSweepFloat("sixs_rf00013", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+				boundaryStartOffsets("sixs_rf00013"), boundaryStopOffsets("sixs_rf00013"));
+			LongHashSet rf01685Kmers=loadEffectiveNcrnaKmerSet("sixs_rf01685", "sixs_rf01685_17mers.fa", SIXS_RF01685_KMERS_OVERRIDE, 17);
+			addNcrnaFamily("sixs_rf01685", "sixs_rf01685_consensus.fa", "sixs_rf01685_models.hbm", rf01685Kmers, 17, 60,
+				resolveSweepPad("sixs_rf01685", SIXS_RF01685_PAD_OVERRIDE, 125),
+				7, 60, false, 0f, 0f, 0f, 1,
+				resolveSweepFloat("sixs_rf01685", NCRNA_SCORE_A_OVERRIDE, 0f),
+				resolveSweepFloat("sixs_rf01685", NCRNA_SCORE_B_OVERRIDE, 20f),
+				resolveSweepFloat("sixs_rf01685", NCRNA_ID_PASS_OVERRIDE, 0.70f), resolveSweepFloat("sixs_rf01685", NCRNA_ID_BORDERLINE_OVERRIDE, 0.70f),
+				resolveSweepFloat("sixs_rf01685", NCRNA_HBM_PASS_OVERRIDE, 0.75f), resolveSweepFloat("sixs_rf01685", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+				boundaryStartOffsets("sixs_rf01685"), boundaryStopOffsets("sixs_rf01685"));
+			if(GeneCaller.ncrnaFamilies.size()!=before+2){
+				throw new RuntimeException("sixs=t requires complete RF00013 and RF01685 consensus, HBM, and kmer resources");
+			}
+			for(int i=before; i<before+2; i++){
+				final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(i);
+				if(f.models==null || f.modelNames==null || f.models.length!=f.library.length || f.modelNames.length!=f.library.length){
+					throw new RuntimeException("sixs=t requires index-aligned consensus and HBM resources for "+f.name);
+				}
+			}
+		}
 	}
 
 	/** Measured width-six candidate windows. Kept in one factory used by family loading;
@@ -1884,6 +1928,10 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep") || family.equals("srp_small") || family.equals("srp_large") || family.equals("tmrna")){
 			return new int[]{-3,-2,-1,0,1,2};
 		}
+		// No sixS boundary models are shipped yet.  These candidate positions keep the
+		// family geometry explicit; Gate B remains strict and fails before use until its
+		// family-specific net and tables are released.
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
 	}
 
@@ -1891,6 +1939,10 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep")){return new int[]{-1,0,1,2,3,4};}
 		if(family.equals("srp_small") || family.equals("srp_large")){return new int[]{-2,-1,0,1,2,3};}
 		if(family.equals("tmrna")){return new int[]{-3,-2,-1,0,1,2};}
+		// No sixS boundary models are shipped yet.  These candidate positions keep the
+		// family geometry explicit; Gate B remains strict and fails before use until its
+		// family-specific net and tables are released.
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
 	}
 
@@ -2111,8 +2163,9 @@ public class CallGenes extends ProkObject {
 		else if(s.equals("srpsmall")){s="srp_small";}
 		else if(s.equals("srplarge")){s="srp_large";}
 		else if(s.equals("tm_rna") || s.equals("ssra")){s="tmrna";}
-		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")){
-			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, or tmrna: "+value);
+		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
+				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685")){
+			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, tmrna, sixs_rf00013, or sixs_rf01685: "+value);
 		}
 		return s;
 	}
@@ -2121,6 +2174,7 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep")){return 0.65f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.70f;}
 		if(family.equals("tmrna")){return 0.62f;}
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return 0.70f;}
 		throw new IllegalArgumentException("No default idpass for ncRNA family: "+family);
 	}
 
@@ -2128,6 +2182,8 @@ public class CallGenes extends ProkObject {
 		if(family.equals("rnasep")){return 0.58f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.64f;}
 		if(family.equals("tmrna")){return 0.60f;}
+		if(family.equals("sixs_rf00013")){return 0.60f;}
+		if(family.equals("sixs_rf01685")){return 0.70f;}
 		throw new IllegalArgumentException("No default idborderline for ncRNA family: "+family);
 	}
 
@@ -2154,10 +2210,14 @@ public class CallGenes extends ProkObject {
 			|| !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE) || !Float.isNaN(NCRNA_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(NCRNA_SCORE_B_OVERRIDE) || !Float.isNaN(NCRNA_COLLAPSE_FRAC_OVERRIDE);
 		final boolean anyFamilyKmers=RNASEP_KMERS_OVERRIDE!=null || SRPSMALL_KMERS_OVERRIDE!=null
-			|| SRPLARGE_KMERS_OVERRIDE!=null || TMRNA_KMERS_OVERRIDE!=null;
+			|| SRPLARGE_KMERS_OVERRIDE!=null || TMRNA_KMERS_OVERRIDE!=null
+			|| SIXS_RF00013_KMERS_OVERRIDE!=null || SIXS_RF01685_KMERS_OVERRIDE!=null;
+		final boolean anyFamilyPad=RNASEP_PAD_OVERRIDE>=0 || SRPSMALL_PAD_OVERRIDE>=0 || SRPLARGE_PAD_OVERRIDE>=0;
 		final boolean anyTmrnaModels=TMRNA_CONSENSUS_OVERRIDE!=null || TMRNA_MODELS_OVERRIDE!=null;
 		final boolean anyTmrnaOverride=TMRNA_KMERS_OVERRIDE!=null || anyTmrnaModels || TMRNA_PAD_OVERRIDE>=0
 			|| !Float.isNaN(TMRNA_SCORE_A_OVERRIDE) || !Float.isNaN(TMRNA_SCORE_B_OVERRIDE);
+		final boolean anySixsOverride=SIXS_RF00013_KMERS_OVERRIDE!=null || SIXS_RF01685_KMERS_OVERRIDE!=null
+			|| SIXS_RF00013_PAD_OVERRIDE>=0 || SIXS_RF01685_PAD_OVERRIDE>=0;
 		final boolean anyFamilyScores=!Float.isNaN(RNASEP_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(RNASEP_SCORE_B_OVERRIDE) || !Float.isNaN(SRPSMALL_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(SRPSMALL_SCORE_B_OVERRIDE) || !Float.isNaN(SRPLARGE_SCORE_A_OVERRIDE)
@@ -2169,14 +2229,23 @@ public class CallGenes extends ProkObject {
 		if(NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals("tmrna") && !TMRNA_ENABLED){
 			throw new IllegalArgumentException("ncrnafamily=tmrna requires tmrna=t");
 		}
+		if(NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.startsWith("sixs_") && !SIXS_ENABLED){
+			throw new IllegalArgumentException("a sixS ncrnafamily requires sixs=t");
+		}
 		if(anyFamilyKmers && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA kmer overrides require ncrna=t");
+		}
+		if(anyFamilyPad && !NCRNA_FAMILIES_ENABLED){
+			throw new IllegalArgumentException("family ncRNA pad overrides require ncrna=t");
 		}
 		if(anyFamilyScores && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA score overrides require ncrna=t");
 		}
 		if(anyTmrnaOverride && (!NCRNA_FAMILIES_ENABLED || !TMRNA_ENABLED)){
 			throw new IllegalArgumentException("tmRNA-specific overrides require ncrna=t tmrna=t");
+		}
+		if(anySixsOverride && (!NCRNA_FAMILIES_ENABLED || !SIXS_ENABLED)){
+			throw new IllegalArgumentException("sixS-specific overrides require ncrna=t sixs=t");
 		}
 		if(anyGenericOverride && NCRNA_FAMILY_FILTER==null){
 			throw new IllegalArgumentException("ncRNA sweep overrides require exactly one ncrnafamily=");
@@ -2437,6 +2506,9 @@ public class CallGenes extends ProkObject {
 	 * of the existing three-family gate so adding unfinished tmRNA resources cannot change an
 	 * established ncrna=t run. */
 	static boolean TMRNA_ENABLED=false;
+	/** Experimental 6S/ssrS bundle gate.  Both RF00013 and RF01685 are loaded together,
+	 * subordinate to ncrna=t, and OFF by default pending production-competition validation. */
+	static boolean SIXS_ENABLED=false;
 	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
 	 * ncRNA boundary-precision-NN refinement, subordinate to Gate A -- ncrna=t alone gives
 	 * plain scavenger calling with no boundary refinement; ncrnaboundarynet=t additionally
@@ -2458,6 +2530,8 @@ public class CallGenes extends ProkObject {
 	static int SRPSMALL_PAD_OVERRIDE=-1;
 	static int SRPLARGE_PAD_OVERRIDE=-1;
 	static int TMRNA_PAD_OVERRIDE=-1;
+	static int SIXS_RF00013_PAD_OVERRIDE=-1;
+	static int SIXS_RF01685_PAD_OVERRIDE=-1;
 
 	/** Engineering-sweep controls. The generic overrides deliberately require one explicit
 	 * family so a command cannot silently apply one value to biologically different callers. */
@@ -2467,6 +2541,8 @@ public class CallGenes extends ProkObject {
 	static String SRPSMALL_KMERS_OVERRIDE=null;
 	static String SRPLARGE_KMERS_OVERRIDE=null;
 	static String TMRNA_KMERS_OVERRIDE=null;
+	static String SIXS_RF00013_KMERS_OVERRIDE=null;
+	static String SIXS_RF01685_KMERS_OVERRIDE=null;
 	static String TMRNA_CONSENSUS_OVERRIDE=null;
 	static String TMRNA_MODELS_OVERRIDE=null;
 	static int NCRNA_WINDOW_PAD_OVERRIDE=-1;
@@ -2496,6 +2572,7 @@ public class CallGenes extends ProkObject {
 			+"ncrna=t (or generalncrna=t) -- boundary refinement has no families to attach to "
 			+"when generic ncRNA calling itself is off.";
 		assert(!TMRNA_ENABLED || NCRNA_FAMILIES_ENABLED) : "tmrna=t requires ncrna=t (or generalncrna=t)";
+		assert(!SIXS_ENABLED || NCRNA_FAMILIES_ENABLED) : "sixs=t requires ncrna=t (or generalncrna=t)";
 	}
 
 	/** Output filename for statistics summary */
