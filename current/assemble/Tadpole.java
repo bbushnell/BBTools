@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -16,6 +17,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import jgi.BBMerge;
+import jgi.CallPeaks;
 import kmer.AbstractKmerTableSet;
 import kmer.HashBuffer;
 import parse.Parse;
@@ -242,6 +244,66 @@ public abstract class Tadpole extends ShaveObject{
 				lowDepthContigMaxCov=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("lowDepthContigFraction") || a.equals("ldcfrac")){
 				lowDepthContigFraction=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("lowDepthContigTopology") || a.equals("ldctopology")){
+				lowDepthContigTopology=parseLowDepthTopology(b);
+			}else if(a.equalsIgnoreCase("retainShortContigs") || a.equalsIgnoreCase("retainShortGraph")){
+				if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}
+				else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
+			}else if(a.equalsIgnoreCase("sweepLen") || a.equalsIgnoreCase("graphSweepLen")){
+				sweepContigLen=Parse.parseIntKMG(b);
+			}else if(a.equalsIgnoreCase("evictLowDepthContigs") || a.equalsIgnoreCase("removeLowDepthContigs") || a.equals("ldce")){
+				evictLowDepthContigs=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("classifyGraphContigs") || a.equalsIgnoreCase("classifyContigs") || a.equalsIgnoreCase("graphClassify")){
+				classifyGraphContigs=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("graphClassLowMaxCov") || a.equals("gclmc")){
+				graphClassLowMaxCov=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("graphClassLowFraction") || a.equals("gclf")){
+				graphClassLowFraction=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("graphClassMediumFraction") || a.equals("gcmf")){
+				graphClassMediumFraction=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("graphClassHighFraction") || a.equals("gchf")){
+				graphClassHighFraction=Float.parseFloat(b);
+			}else if(a.equalsIgnoreCase("emitSuspect") || a.equals("suspect")){
+				final boolean x=Parse.parseBoolean(b);
+				emitTerminal=x; emitBranchedTerminal=x; emitUnanchored=x; emitLoopback=x;
+			}else if(a.equalsIgnoreCase("emitTerminal")){
+				emitTerminal=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitBranchedTerminal")){
+				emitBranchedTerminal=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitUnanchored")){
+				emitUnanchored=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitLoopback")){
+				emitLoopback=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitBranchedConnected")){
+				emitBranchedConnected=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitMultiConnected")){
+				emitMultiConnected=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitSelfLoop")){
+				emitSelfLoop=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("emitConnectedMax") || a.equals("ecm")){
+				emitConnectedMax=(b==null || b.equalsIgnoreCase("all") || b.equalsIgnoreCase("auto") ? -1 : Integer.parseInt(b));
+				classifyGraphContigs=true;
+			}else if(a.equalsIgnoreCase("evictSuspect") || a.equals("es")){
+				final boolean x=Parse.parseBoolean(b);
+				evictTerminal=x; evictBranchedTerminal=x; evictUnanchored=x; evictLoopback=x;
+			}else if(a.equalsIgnoreCase("evictTerminal")){
+				evictTerminal=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictBranchedTerminal")){
+				evictBranchedTerminal=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictUnanchored")){
+				evictUnanchored=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictLoopback")){
+				evictLoopback=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictBranchedConnected")){
+				evictBranchedConnected=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictMultiConnected")){
+				evictMultiConnected=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("evictGraphClass") || a.equalsIgnoreCase("evictGraphTopology")){
+				evictGraphTopologyMask=parseGraphTopologyMask(b);
+			}else if(a.equalsIgnoreCase("evictGraphDepth") || a.equalsIgnoreCase("evictDepth")){
+				evictGraphDepthMask=parseGraphDepthMask(b);
+			}else if(a.equalsIgnoreCase("evictConnectedAbove") || a.equals("eca")){
+				evictConnectedAbove=(b==null || b.equalsIgnoreCase("none") || b.equalsIgnoreCase("false") ? -1 : Integer.parseInt(b));
 			}else if(a.equalsIgnoreCase("crossKMaxLen") || a.equalsIgnoreCase("ckml")){
 				crossKMaxLen=Tools.max(1, Integer.parseInt(b));
 			}else if(a.equals("pop") || a.equalsIgnoreCase("popBubbles")){
@@ -603,10 +665,30 @@ public abstract class Tadpole extends ShaveObject{
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
 		
-		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover || lowDepthContigDiag){processContigs=true;}
+		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover
+				|| lowDepthContigDiag || graphClassificationRequested()){processContigs=true;}
+		if(processContigs && sweepContigLen>0){classifyGraphContigs=true;}
+		if(graphClassificationRequested()){classifyGraphContigs=true;}
+		if(!retainShortContigsSet){retainShortContigs=popBubbles || graphClassificationRequested();}
+		if(evictLowDepthContigs){retainShortContigs=true;}
 		if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
 		if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
 		if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
+		if(graphClassificationRequested()){
+			if(graphClassLowMaxCov<0){throw new RuntimeException("graphClassLowMaxCov must be nonnegative.");}
+			if(graphClassLowFraction<0 || graphClassLowFraction>1){throw new RuntimeException("graphClassLowFraction must be from 0 to 1.");}
+			if(graphClassMediumFraction<graphClassLowFraction){
+				throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction.");
+			}
+			if(graphClassHighFraction<graphClassMediumFraction){
+				throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction.");
+			}
+		}
+		if(evictGraphDepthMask<0 || evictGraphDepthMask>15){throw new RuntimeException("Invalid graph eviction depth mask.");}
+		if(evictGraphTopologyMask<0 || evictGraphTopologyMask>255){throw new RuntimeException("Invalid graph eviction topology mask.");}
+		if(sweepContigLen<0){throw new RuntimeException("sweeplen must be nonnegative.");}
+		if(emitConnectedMax==0 || emitConnectedMax< -1){throw new RuntimeException("emitConnectedMax must be positive or all.");}
+		if(evictConnectedAbove==0 || evictConnectedAbove< -1){throw new RuntimeException("evictConnectedAbove must be positive or none.");}
 		if(simpleOmnitigs && graphCover){
 			throw new RuntimeException("simpleOmnitigs and graphCover are mutually exclusive output modes.");
 		}
@@ -659,9 +741,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(trimEnds<0){
 			trimEnds=kbig/2;
 		}
-		if(minContigLen<0){
-			minContigLen=Tools.max(124, 2*kbig);
-		}
+		if(minContigLen<0){minContigLen=500;}
 		
 		if(verbose){
 			BubblePopper.verbose=true;
@@ -1226,6 +1306,7 @@ public abstract class Tadpole extends ShaveObject{
 		
 		if(allContigs!=null){
 			Shared.sort(allContigs, ContigLengthComparator.comparator);//longest-first (ContigLengthComparator default)
+			if(evictLowDepthContigs){evictLowDepthContigs("pre-graph");}
 			if(processContigs){
 				processContigs();
 			}
@@ -1255,7 +1336,7 @@ public abstract class Tadpole extends ShaveObject{
 				for(int i=0; i<allContigs.size(); i++){
 					Contig r=allContigs.get(i);
 					r.id+=contigIDOffset;
-					if(r.length()>=minContigLen){
+					if(emitContig(r)){
 						bsw.println(r);
 						contigsWritten++;
 						basesWritten+=r.length();
@@ -1264,6 +1345,27 @@ public abstract class Tadpole extends ShaveObject{
 			}
 			errorState|=bsw.poisonAndWait();
 		}
+	}
+
+	/** Returns whether one contig passes final length and graph-class emission policy. */
+	final boolean emitContig(final Contig c){
+		if(c.length()>=minContigLen){return true;}
+		if(!classifyGraphContigs || c.graphClass<0){return false;}
+		if(c.graphClass==Contig.GRAPH_CONNECTED){return emitConnectedMax<0 || c.graphClassHop<=emitConnectedMax;}
+		if(c.graphClass==Contig.GRAPH_TERMINAL){return emitTerminal;}
+		if(c.graphClass==Contig.GRAPH_BRANCHED_TERMINAL){return emitBranchedTerminal;}
+		if(c.graphClass==Contig.GRAPH_UNANCHORED){return emitUnanchored;}
+		if(c.graphClass==Contig.GRAPH_LOOPBACK){return emitLoopback;}
+		if(c.graphClass==Contig.GRAPH_BRANCHED_CONNECTED){return emitBranchedConnected;}
+		if(c.graphClass==Contig.GRAPH_MULTI_CONNECTED){return emitMultiConnected;}
+		if(c.graphClass==Contig.GRAPH_SELF_LOOP){return emitSelfLoop;}
+		throw new IllegalStateException("Unknown graph class "+c.graphClass+" on contig "+c.id+".");
+	}
+
+	private boolean graphClassificationRequested(){
+		return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
+				|| emitBranchedConnected || emitMultiConnected || emitSelfLoop || emitConnectedMax>0
+				|| graphTopologyEvictionRequested() || evictConnectedAbove>0 || sweepContigLen>0;
 	}
 	
 	/**
@@ -1352,7 +1454,19 @@ public abstract class Tadpole extends ShaveObject{
 		runProcessContigThreads();
 		outstream.println("Finished contig graph.");
 		t.stop("Time: ");
-		if(lowDepthContigDiag && !crossKGraph()){diagnoseLowDepthContigs();}
+		if(lowDepthContigDiag && !crossKGraph()){diagnoseLowDepthContigs("final");}
+		if(graphClassificationRequested() && !crossKGraph()){
+			t.start("Classifying pre-simplification contig graph.");
+			final ContigGraphClassifier.Result classified=classifyGraphContigs("pre-simplification");
+			t.stop("Time: ");
+			if(removeGraphClassifiedContigs(classified)>0){
+				clearContigEdges();
+				t.start("Rebuilding filtered contig graph.");
+				initializeContigs(allContigs);
+				runProcessContigThreads();
+				t.stop("Time: ");
+			}
+		}
 
 		if(resolveRepeats){
 			t.start();
@@ -1365,6 +1479,11 @@ public abstract class Tadpole extends ShaveObject{
 			for(int popped=1, i=0; popped>0 && i<bubblePasses; i++){
 				popped=popBubbles(BubblePopper.debranch && (i==bubblePasses-1));
 			}
+			t.stop("Time: ");
+		}
+		if(graphClassificationRequested() && !crossKGraph()){
+			t.start("Classifying final contig graph.");
+			classifyGraphContigs("final");
 			t.stop("Time: ");
 		}
 		
@@ -1381,7 +1500,9 @@ public abstract class Tadpole extends ShaveObject{
 				bb.append("\\nlen=").append(c.bases.length);
 				bb.append("\\ncov=").append(c.coverage, 1);
 				bb.append("\\nleft=").append(codeStrings[c.leftCode]);
-				bb.append("\\nright=").append(codeStrings[c.rightCode]).append("\"]").append('\n');
+				bb.append("\\nright=").append(codeStrings[c.rightCode]);
+				if(c.graphClass>=0){bb.append("\\nclass="); c.appendGraphClass(bb);}
+				bb.append("\"]").append('\n');
 				if(c.leftEdges!=null){
 					for(Edge e : c.leftEdges){
 						bb.tab();
@@ -1430,21 +1551,179 @@ public abstract class Tadpole extends ShaveObject{
 		}
 	}
 
-	/** Reports short low-depth isolate contigs by final endpoint topology without deleting sequence. */
-	private void diagnoseLowDepthContigs(){
-		final float mainDepth=lengthWeightedMedianCoverage();
+	/** Classifies live contigs on independent length, depth, and long-anchor topology axes. */
+	private ContigGraphClassifier.Result classifyGraphContigs(final String stage){
+		final ArrayList<Contig> live=new ArrayList<Contig>(allContigs.size());
+		for(Contig c : allContigs){if(!c.used() && !c.associate()){live.add(c);}}
+		final CoverageSummary depthSummary=coverageSummary(live, 0);
+		final int kmerPeak=(live.isEmpty() ? 0 : calledMainDepthPeak());
+		final float mainDepth=(kmerPeak>0 ? kmerPeak : depthSummary.positionMedian);
+		if(!live.isEmpty() && mainDepth<=0){
+			throw new IllegalStateException("Graph classification requires a positive main-depth estimate.");
+		}
+		final float lowCutoff=Tools.min(graphClassLowMaxCov, mainDepth*graphClassLowFraction);
+		final float mediumCutoff=mainDepth*graphClassMediumFraction;
+		final float highCutoff=mainDepth*graphClassHighFraction;
+		final int graphLength=graphClassificationLength();
+		final ContigGraphClassifier.Result result=new ContigGraphClassifier(allContigs, graphLength, kbig,
+				lowCutoff, mediumCutoff, highCutoff).classify();
+		outstream.println("Graph length classes ("+stage+"): short="+result.lengthCount[Contig.LENGTH_SHORT]+"/"+
+				result.lengthBases[Contig.LENGTH_SHORT]+", long="+result.lengthCount[Contig.LENGTH_LONG]+"/"+
+				result.lengthBases[Contig.LENGTH_LONG]+" (count/bases); minLong="+graphLength+".");
+		outstream.println("Graph depth classes ("+stage+"): low="+result.depthCount[Contig.DEPTH_LOW]+"/"+
+				result.depthBases[Contig.DEPTH_LOW]+", semilow="+result.depthCount[Contig.DEPTH_SEMILOW]+"/"+
+				result.depthBases[Contig.DEPTH_SEMILOW]+", medium="+result.depthCount[Contig.DEPTH_MEDIUM]+"/"+
+				result.depthBases[Contig.DEPTH_MEDIUM]+", high="+result.depthCount[Contig.DEPTH_HIGH]+"/"+
+				result.depthBases[Contig.DEPTH_HIGH]+" (count/bases); boundaries="+Tools.format("%.2f", lowCutoff)+"/"+
+				Tools.format("%.2f", mediumCutoff)+"/"+Tools.format("%.2f", highCutoff)+".");
+		final ByteBuilder topology=new ByteBuilder(512);
+		topology.append("Graph topology classes (").append(stage).append("): ");
+		for(int i=0; i<8; i++){
+			if(i>0){topology.append(", ");}
+			topology.append(graphTopologyName(i)).append('=').append(result.topology[i].size()).append('/').append(result.topologyBases[i]);
+			if(result.maxHop[i]>0){topology.append("@h").append(result.maxHop[i]);}
+		}
+		outstream.println(topology.append(" (count/bases)."));
+		for(int depth=0; depth<4; depth++){printShortGraphCombinations(stage, depth, result);}
+		lastGraphClassification=result;
+		return result;
+	}
+
+	private void printShortGraphCombinations(final String stage, final int depth,
+			final ContigGraphClassifier.Result result){
+		final ByteBuilder bb=new ByteBuilder(384);
+		bb.append("Short graph combinations (").append(stage).append(", ").append(graphDepthName(depth)).append("): ");
+		for(int topology=0; topology<8; topology++){
+			if(topology>0){bb.append(", ");}
+			bb.append(graphTopologyName(topology)).append('=').
+					append(result.combinationCount[Contig.LENGTH_SHORT][depth][topology]).append('/').
+					append(result.combinationBases[Contig.LENGTH_SHORT][depth][topology]);
+		}
+		outstream.println(bb.append(" (count/bases)."));
+	}
+
+	/** Removes selected graph classes after the first graph build and before simplification. */
+	private int removeGraphClassifiedContigs(final ContigGraphClassifier.Result result){
+		if(!graphTopologyEvictionRequested() && evictConnectedAbove<1 && sweepContigLen<1){return 0;}
+		final IdentityHashMap<Contig, Boolean> remove=new IdentityHashMap<Contig, Boolean>();
+		long bases=0;
+		if(sweepContigLen>0){bases+=addDefaultGraphSweepEvictions(result, remove);}
+		for(int topology=0; topology<=Contig.GRAPH_SELF_LOOP; topology++){
+			if(evictGraphTopology(topology)){bases+=addGraphEvictions(result.topology[topology], remove);}
+		}
+		if(evictConnectedAbove>0){
+			for(Contig c : result.topology[Contig.GRAPH_CONNECTED]){
+				if(c.graphClassHop>evictConnectedAbove && graphEvictionEligible(c) && !remove.containsKey(c)){
+					remove.put(c, Boolean.TRUE);
+					bases+=c.length();
+				}
+			}
+		}
+		if(remove.isEmpty()){
+			outstream.println("Graph-class contigs evicted: 0 contigs, 0 bases; cleanupMaxLen="+
+					graphCleanupMaxLen()+", cleanupDepthClasses="+graphDepthMaskName(evictGraphDepthMask)+".");
+			return 0;
+		}
+		final ArrayList<Contig> retained=new ArrayList<Contig>(allContigs.size()-remove.size());
+		for(Contig c : allContigs){if(!remove.containsKey(c)){retained.add(c);}}
+		allContigs=retained;
+		outstream.println("Graph-class contigs evicted: "+remove.size()+" contigs, "+bases+
+				" bases; retained="+allContigs.size()+", cleanupMaxLen="+graphCleanupMaxLen()+
+				", cleanupDepthClasses="+graphDepthMaskName(evictGraphDepthMask)+".");
+		return remove.size();
+	}
+
+	private long addGraphEvictions(final ArrayList<Contig> source, final IdentityHashMap<Contig, Boolean> remove){
+		long bases=0;
+		for(Contig c : source){
+			if(graphEvictionEligible(c) && !remove.containsKey(c)){
+				remove.put(c, Boolean.TRUE);
+				bases+=c.length();
+			}
+		}
+		return bases;
+	}
+
+	/** Removes the benchmark-selected short-contig artifact classes before graph simplification. */
+	private long addDefaultGraphSweepEvictions(final ContigGraphClassifier.Result result,
+			final IdentityHashMap<Contig, Boolean> remove){
+		long bases=0;
+		bases+=addDefaultGraphSweepEvictions(result.topology[Contig.GRAPH_UNANCHORED], Contig.DEPTH_MEDIUM, remove);
+		bases+=addDefaultGraphSweepEvictions(result.topology[Contig.GRAPH_TERMINAL], Contig.DEPTH_SEMILOW, remove);
+		bases+=addDefaultGraphSweepEvictions(result.topology[Contig.GRAPH_BRANCHED_TERMINAL], Contig.DEPTH_SEMILOW, remove);
+		return bases;
+	}
+
+	private long addDefaultGraphSweepEvictions(final ArrayList<Contig> source, final int maxDepth,
+			final IdentityHashMap<Contig, Boolean> remove){
+		long bases=0;
+		for(Contig c : source){
+			if(defaultGraphSweepEligible(c, sweepContigLen, maxDepth) && !remove.containsKey(c)){
+				remove.put(c, Boolean.TRUE);
+				bases+=c.length();
+			}
+		}
+		return bases;
+	}
+
+	private boolean graphEvictionEligible(final Contig c){
+		return graphEvictionEligible(c, graphCleanupMaxLen(), evictGraphDepthMask);
+	}
+
+	static boolean graphEvictionEligible(final Contig c, final int maxLen, final int depthMask){
+		return c.graphLengthClass==Contig.LENGTH_SHORT && c.length()<=maxLen &&
+				c.graphDepthClass>=0 && (depthMask&(1<<c.graphDepthClass))!=0;
+	}
+
+	/** True for one automatic sweep candidate under its topology-specific depth ceiling. */
+	static boolean defaultGraphSweepEligible(final Contig c, final int maxLen, final int maxDepth){
+		return c.graphLengthClass==Contig.LENGTH_SHORT && c.length()<=maxLen &&
+				c.graphDepthClass>=Contig.DEPTH_LOW && c.graphDepthClass<=maxDepth;
+	}
+
+	private boolean graphTopologyEvictionRequested(){
+		return evictGraphTopologyMask!=0 || evictUnanchored || evictTerminal || evictBranchedTerminal || evictLoopback ||
+				evictBranchedConnected || evictMultiConnected;
+	}
+
+	private boolean evictGraphTopology(final int topology){
+		if((evictGraphTopologyMask&(1<<topology))!=0){return true;}
+		if(topology==Contig.GRAPH_UNANCHORED){return evictUnanchored;}
+		if(topology==Contig.GRAPH_TERMINAL){return evictTerminal;}
+		if(topology==Contig.GRAPH_BRANCHED_TERMINAL){return evictBranchedTerminal;}
+		if(topology==Contig.GRAPH_LOOPBACK){return evictLoopback;}
+		if(topology==Contig.GRAPH_BRANCHED_CONNECTED){return evictBranchedConnected;}
+		if(topology==Contig.GRAPH_MULTI_CONNECTED){return evictMultiConnected;}
+		return false;
+	}
+
+	private int graphCleanupMaxLen(){
+		return sweepContigLen;
+	}
+
+	private int graphClassificationLength(){
+		return (sweepContigLen>0 ? sweepContigLen : minContigLen);
+	}
+
+	/** Reports short low-depth isolate contigs by endpoint topology without deleting sequence. */
+	LowDepthDiagnostic diagnoseLowDepthContigs(final String stage){
+		final LowDepthDiagnostic result=new LowDepthDiagnostic(stage);
+		for(Contig c : allContigs){if(!c.used() && !c.associate()){result.live.add(c);}}
+		final CoverageSummary depthSummary=coverageSummary(result.live, 0);
+		final int kmerPeak=calledMainDepthPeak();
+		final float mainDepth=(kmerPeak>0 ? kmerPeak : depthSummary.positionMedian);
 		if(mainDepth<=0){
-			outstream.println("Low-depth contig diagnostic: skipped; no positive contig coverage.");
-			return;
+			outstream.println("Low-depth contig diagnostic ("+stage+"): skipped; no positive contig coverage.");
+			lastLowDepthDiagnostic=result;
+			return result;
 		}
 		final int maxLen=(lowDepthContigMaxLen>0 ? lowDepthContigMaxLen : Tools.max(500, 2*kbig));
 		final float relativeCutoff=mainDepth*lowDepthContigFraction;
 		final float depthCutoff=Tools.min(lowDepthContigMaxCov, relativeCutoff);
-		final long[] counts=new long[3], bases=new long[3], lowTips=new long[3];
+		final long[] counts=new long[4], bases=new long[4], lowTips=new long[4];
 		long live=0, shortCount=0, absoluteLow=0, relativeLow=0, depthLow=0, topologyEligible=0;
 		final Kmer kmer=new Kmer(kbig);
-		for(Contig c : allContigs){
-			if(c.used() || c.associate()){continue;}
+		for(Contig c : result.live){
 			live++;
 			final boolean shortEnough=c.length()<=maxLen;
 			final boolean absolute=c.coverage<=lowDepthContigMaxCov;
@@ -1456,6 +1735,7 @@ public abstract class Tadpole extends ShaveObject{
 			final int topology=lowDepthTopology(c);
 			if(topology>=0){topologyEligible++;}
 			if(!shortEnough || !absolute || !relative || topology<0){continue;}
+			result.candidates.add(c);
 			counts[topology]++;
 			bases[topology]+=c.length();
 			if(c.length()>=kbig){
@@ -1464,47 +1744,200 @@ public abstract class Tadpole extends ShaveObject{
 				if(leftDepth<=depthCutoff && rightDepth<=depthCutoff){lowTips[topology]++;}
 			}
 		}
-		final long candidates=counts[0]+counts[1]+counts[2];
-		final long candidateBases=bases[0]+bases[1]+bases[2];
-		outstream.println("Low-depth contig diagnostic: mainDepth="+Tools.format("%.2f", mainDepth)+
+		final long candidates=counts[0]+counts[1]+counts[2]+counts[3];
+		final long candidateBases=bases[0]+bases[1]+bases[2]+bases[3];
+		outstream.println("Low-depth contig diagnostic ("+stage+"): mainDepth="+Tools.format("%.2f", mainDepth)+
 				", maxLen="+maxLen+", maxCov="+Tools.format("%.2f", depthCutoff)+" (absolute="+
 				Tools.format("%.2f", lowDepthContigMaxCov)+", relative="+
 				Tools.format("%.3f", lowDepthContigFraction)+").");
-		outstream.println("Candidate filters: live="+live+", short="+shortCount+", absoluteLow="+
+		outstream.println("Depth estimates ("+stage+"): positionMedian="+
+				Tools.format("%.2f", depthSummary.positionMedian)+", readMedian="+
+				Tools.format("%.2f", depthSummary.readMedian)+", positionRMS="+
+				Tools.format("%.2f", depthSummary.positionRms)+", readMean="+
+				Tools.format("%.2f", depthSummary.readMean)+", kmerPeak="+kmerPeak+".");
+		outstream.println("Candidate filters ("+stage+"): live="+live+", short="+shortCount+", absoluteLow="+
 				absoluteLow+", relativeLow="+relativeLow+", bothLow="+depthLow+
-				", DD/DB/BB topology="+topologyEligible+".");
-		outstream.println("Low-depth candidates: "+candidates+" contigs, "+candidateBases+" bases; "+
+				", topologyEligible="+topologyEligible+" (mode="+lowDepthTopologyName(lowDepthContigTopology)+").");
+		outstream.println("Low-depth candidates ("+stage+"): "+candidates+" contigs, "+candidateBases+" bases; "+
 				"DD="+counts[0]+"/"+bases[0]+", DB="+counts[1]+"/"+bases[1]+
-				", BB="+counts[2]+"/"+bases[2]+" (count/bases).");
-		outstream.println("Candidates with two low terminal kmers: DD="+lowTips[0]+", DB="+
-				lowTips[1]+", BB="+lowTips[2]+".");
+				", BB="+counts[2]+"/"+bases[2]+", other="+counts[3]+"/"+bases[3]+" (count/bases).");
+		outstream.println("Candidates with two low terminal kmers ("+stage+"): DD="+lowTips[0]+", DB="+
+				lowTips[1]+", BB="+lowTips[2]+", other="+lowTips[3]+".");
+		lastLowDepthDiagnostic=result;
+		return result;
 	}
 
-	/** Returns DD=0, dead/back=1, or back/back=2; other final topologies are ineligible. */
-	private static int lowDepthTopology(final Contig c){
+	static final class LowDepthDiagnostic {
+		LowDepthDiagnostic(final String stage_){stage=stage_;}
+		final String stage;
+		final ArrayList<Contig> live=new ArrayList<Contig>();
+		final ArrayList<Contig> candidates=new ArrayList<Contig>();
+	}
+
+	/** Removes conservative short low-depth candidates before graph construction. */
+	private void evictLowDepthContigs(final String stage){
+		final LowDepthDiagnostic diagnostic=diagnoseLowDepthContigs(stage);
+		if(diagnostic.candidates.isEmpty()){
+			outstream.println("Low-depth contigs evicted ("+stage+"): 0 contigs, 0 bases.");
+			return;
+		}
+		final IdentityHashMap<Contig, Boolean> remove=new IdentityHashMap<Contig, Boolean>(diagnostic.candidates.size()*2+1);
+		long bases=0;
+		for(Contig c : diagnostic.candidates){remove.put(c, Boolean.TRUE); bases+=c.length();}
+		final ArrayList<Contig> retained=new ArrayList<Contig>(allContigs.size()-diagnostic.candidates.size());
+		for(Contig c : allContigs){if(!remove.containsKey(c)){retained.add(c);}}
+		allContigs=retained;
+		outstream.println("Low-depth contigs evicted ("+stage+"): "+diagnostic.candidates.size()+
+				" contigs, "+bases+" bases; retained="+allContigs.size()+".");
+	}
+
+	/** Returns a reporting category, or -1 when excluded by the selected topology policy. */
+	private int lowDepthTopology(final Contig c){
 		final boolean leftDead=c.leftCode==DEAD_END, rightDead=c.rightCode==DEAD_END;
 		final boolean leftBack=c.leftCode==B_BRANCH, rightBack=c.rightCode==B_BRANCH;
 		if(leftDead && rightDead){return 0;}
 		if((leftDead && rightBack) || (rightDead && leftBack)){return 1;}
-		return leftBack && rightBack ? 2 : -1;
+		if(leftBack && rightBack){return 2;}
+		return lowDepthContigTopology==LOW_DEPTH_TOPOLOGY_NOT_LOOP
+				&& c.leftCode!=LOOP && c.rightCode!=LOOP ? 3 : -1;
 	}
 
-	/** Returns the contig-length-weighted median positive coverage. */
-	private float lengthWeightedMedianCoverage(){
-		final ArrayList<Contig> sorted=new ArrayList<Contig>(allContigs.size());
-		long weight=0;
-		for(Contig c : allContigs){
-			if(!c.used() && !c.associate() && c.coverage>0){sorted.add(c); weight+=c.length();}
+	private int calledMainDepthPeak(){
+		if(cachedMainDepthPeak!=Integer.MIN_VALUE){return cachedMainDepthPeak;}
+		final long[] khist=tables().fillHistogram(histMax);
+		return cachedMainDepthPeak=CallPeaks.mainPeak(khist, Tools.max(2, tables().filterMax()+2), histMax-1,
+				kbig, true, 0.1);
+	}
+
+	static int parseLowDepthTopology(final String s){
+		if(s==null || s.equalsIgnoreCase("conservative") || s.equalsIgnoreCase("dddbbb")){
+			return LOW_DEPTH_TOPOLOGY_CONSERVATIVE;
 		}
-		if(weight<1){return 0;}
+		if(s.equalsIgnoreCase("notloop") || s.equalsIgnoreCase("nonloop")){
+			return LOW_DEPTH_TOPOLOGY_NOT_LOOP;
+		}
+		throw new RuntimeException("lowDepthContigTopology must be conservative or notloop: "+s);
+	}
+
+	static int parseGraphDepthMask(final String s){
+		if(s==null || s.equalsIgnoreCase("low")){return 1<<Contig.DEPTH_LOW;}
+		if(s.equalsIgnoreCase("all")){return 15;}
+		if(s.equalsIgnoreCase("none") || s.equalsIgnoreCase("false")){return 0;}
+		int mask=0;
+		for(String term : s.split(",")){
+			if(term.equalsIgnoreCase("low")){mask|=1<<Contig.DEPTH_LOW;}
+			else if(term.equalsIgnoreCase("semilow") || term.equalsIgnoreCase("semi-low")){mask|=1<<Contig.DEPTH_SEMILOW;}
+			else if(term.equalsIgnoreCase("medium") || term.equalsIgnoreCase("mid")){mask|=1<<Contig.DEPTH_MEDIUM;}
+			else if(term.equalsIgnoreCase("high")){mask|=1<<Contig.DEPTH_HIGH;}
+			else{throw new RuntimeException("Unknown graph depth class: "+term);}
+		}
+		return mask;
+	}
+
+	static int parseGraphTopologyMask(final String s){
+		if(s==null || s.equalsIgnoreCase("none") || s.equalsIgnoreCase("false")){return 0;}
+		if(s.equalsIgnoreCase("all")){return 255;}
+		int mask=0;
+		for(String term : s.split(",")){
+			term=term.toLowerCase().replace("_", "-");
+			if(term.equals("unanchored")){mask|=1<<Contig.GRAPH_UNANCHORED;}
+			else if(term.equals("terminal")){
+				mask|=(1<<Contig.GRAPH_TERMINAL)|(1<<Contig.GRAPH_BRANCHED_TERMINAL);
+			}else if(term.equals("branched-terminal")){mask|=1<<Contig.GRAPH_BRANCHED_TERMINAL;}
+			else if(term.equals("loopback")){mask|=1<<Contig.GRAPH_LOOPBACK;}
+			else if(term.equals("connected")){
+				mask|=(1<<Contig.GRAPH_CONNECTED)|(1<<Contig.GRAPH_BRANCHED_CONNECTED)|
+						(1<<Contig.GRAPH_MULTI_CONNECTED);
+			}else if(term.equals("branched-connected")){mask|=1<<Contig.GRAPH_BRANCHED_CONNECTED;}
+			else if(term.equals("multi-connected")){mask|=1<<Contig.GRAPH_MULTI_CONNECTED;}
+			else if(term.equals("self-loop") || term.equals("selfloop")){mask|=1<<Contig.GRAPH_SELF_LOOP;}
+			else{throw new RuntimeException("Unknown graph topology class: "+term);}
+		}
+		return mask;
+	}
+
+	static String graphDepthMaskName(final int mask){
+		if(mask==0){return "none";}
+		if(mask==15){return "all";}
+		final StringBuilder sb=new StringBuilder();
+		for(int i=0; i<4; i++){
+			if((mask&(1<<i))==0){continue;}
+			if(sb.length()>0){sb.append(',');}
+			sb.append(graphDepthName(i));
+		}
+		return sb.toString();
+	}
+
+	static String graphTopologyMaskName(final int mask){
+		if(mask==0){return "none";}
+		if(mask==255){return "all";}
+		final StringBuilder sb=new StringBuilder();
+		for(int i=0; i<8; i++){
+			if((mask&(1<<i))==0){continue;}
+			if(sb.length()>0){sb.append(',');}
+			sb.append(graphTopologyName(i));
+		}
+		return sb.toString();
+	}
+
+	static String graphDepthName(final int depth){
+		if(depth==Contig.DEPTH_LOW){return "low";}
+		if(depth==Contig.DEPTH_SEMILOW){return "semilow";}
+		if(depth==Contig.DEPTH_MEDIUM){return "medium";}
+		if(depth==Contig.DEPTH_HIGH){return "high";}
+		return "unclassified";
+	}
+
+	static String graphTopologyName(final int topology){
+		if(topology==Contig.GRAPH_UNANCHORED){return "unanchored";}
+		if(topology==Contig.GRAPH_TERMINAL){return "terminal";}
+		if(topology==Contig.GRAPH_BRANCHED_TERMINAL){return "branched-terminal";}
+		if(topology==Contig.GRAPH_LOOPBACK){return "loopback";}
+		if(topology==Contig.GRAPH_CONNECTED){return "connected";}
+		if(topology==Contig.GRAPH_BRANCHED_CONNECTED){return "branched-connected";}
+		if(topology==Contig.GRAPH_MULTI_CONNECTED){return "multi-connected";}
+		if(topology==Contig.GRAPH_SELF_LOOP){return "self-loop";}
+		return "unclassified";
+	}
+
+	static String lowDepthTopologyName(final int mode){
+		return mode==LOW_DEPTH_TOPOLOGY_NOT_LOOP ? "notloop" : "conservative";
+	}
+
+	/** Summarizes positive contig coverage using kmer-position and read-evidence weights. */
+	private CoverageSummary coverageSummary(final ArrayList<Contig> contigs, final int minLength){
+		final CoverageSummary result=new CoverageSummary();
+		final ArrayList<Contig> sorted=new ArrayList<Contig>(contigs.size());
+		for(Contig c : contigs){
+			if(c.coverage<=0 || c.length()<minLength){continue;}
+			final long positions=Tools.max(1, c.length()-kbig+1);
+			sorted.add(c);
+			result.positionWeight+=positions;
+			result.readWeight+=positions*c.coverage;
+			result.squaredDepthSum+=positions*c.coverage*c.coverage;
+		}
+		if(result.positionWeight<1){return result;}
 		Shared.sort(sorted, coverageComparator);
-		final long target=(weight+1)/2;
-		long sum=0;
+		final double positionTarget=result.positionWeight*0.5;
+		final double readTarget=result.readWeight*0.5;
+		long positionSum=0;
+		double readSum=0;
 		for(Contig c : sorted){
-			sum+=c.length();
-			if(sum>=target){return c.coverage;}
+			final long positions=Tools.max(1, c.length()-kbig+1);
+			positionSum+=positions;
+			readSum+=positions*c.coverage;
+			if(result.positionMedian<=0 && positionSum>=positionTarget){result.positionMedian=c.coverage;}
+			if(result.readMedian<=0 && readSum>=readTarget){result.readMedian=c.coverage;}
 		}
-		throw new RuntimeException("Failed to select a weighted-median contig depth.");
+		result.positionRms=(float)Math.sqrt(result.squaredDepthSum/result.positionWeight);
+		result.readMean=(float)(result.squaredDepthSum/result.readWeight);
+		return result;
+	}
+
+	static final class CoverageSummary {
+		float positionMedian, readMedian, positionRms, readMean;
+		long positionWeight;
+		double readWeight, squaredDepthSum;
 	}
 
 	/** Writes the post-processed contig graph in GFA 1.0 format. */
@@ -1521,7 +1954,9 @@ public abstract class Tadpole extends ShaveObject{
 			bb.append("\tLN:i:").append(c.length());
 			bb.append("\tDP:f:").append(c.coverage, 1);
 			bb.append("\tTL:Z:").append(codeStrings[c.leftCode]);
-			bb.append("\tTR:Z:").append(codeStrings[c.rightCode]).nl();
+			bb.append("\tTR:Z:").append(codeStrings[c.rightCode]);
+			if(c.graphClass>=0){bb.append("\tCL:Z:"); c.appendGraphClass(bb);}
+			bb.nl();
 			if(c.leftEdges!=null){
 				for(Edge e : c.leftEdges){appendGfaLink(e, bb);}
 			}
@@ -3288,6 +3723,20 @@ public abstract class Tadpole extends ShaveObject{
 		if(simpleOmnitigs){appendPlanWord(bb, "simpleomnitigs");}
 		if(graphCover){appendPlanWord(bb, "graphcover");}
 		if(lowDepthContigDiag){appendPlanWord(bb, "lowdepthcontigdiag");}
+		if(retainShortContigs){appendPlanWord(bb, "retainshortcontigs");}
+		if(evictLowDepthContigs){appendPlanWord(bb, "evictlowdepthcontigs");}
+		if(classifyGraphContigs){appendPlanWord(bb, "classifygraphcontigs");}
+		if(evictTerminal){appendPlanWord(bb, "evictterminal");}
+		if(evictBranchedTerminal){appendPlanWord(bb, "evictbranchedterminal");}
+		if(evictUnanchored){appendPlanWord(bb, "evictunanchored");}
+		if(evictLoopback){appendPlanWord(bb, "evictloopback");}
+		if(evictBranchedConnected){appendPlanWord(bb, "evictbranchedconnected");}
+		if(evictMultiConnected){appendPlanWord(bb, "evictmulticonnected");}
+		if(evictGraphTopologyMask!=0){appendPlanWord(bb, "evictgraphclass="+graphTopologyMaskName(evictGraphTopologyMask));}
+		if(graphTopologyEvictionRequested() || evictConnectedAbove>0){
+			appendPlanWord(bb, "evictgraphdepth="+graphDepthMaskName(evictGraphDepthMask));
+		}
+		if(evictConnectedAbove>0){appendPlanWord(bb, "evictconnectedabove="+evictConnectedAbove);}
 	}
 
 	/** Appends one space-delimited operation name. */
@@ -3365,7 +3814,7 @@ public abstract class Tadpole extends ShaveObject{
 	
 	public int maxContigLen=1000000000;
 	public int minExtension=2;
-	public int minContigLen=-1;
+	public int minContigLen=500;
 	public float minCoverage=1;
 	public float maxCoverage=Float.MAX_VALUE;
 	public boolean joinContigs;
@@ -3569,12 +4018,42 @@ public abstract class Tadpole extends ShaveObject{
 	boolean graphCover=false;
 	/** Diagnose conservative isolate-only low-depth contig candidates without deleting them. */
 	boolean lowDepthContigDiag=false;
+	/** Retain sub-mincontig unitigs for graph operations; final FASTA filtering is unchanged. */
+	boolean retainShortContigs=false, retainShortContigsSet=false;
+	/** Remove conservative short low-depth isolate candidates before graph construction. */
+	boolean evictLowDepthContigs=false;
+	/** Classify final graph nodes for QC and short-contig emission. */
+	boolean classifyGraphContigs=false;
+	/** Emit selected short topology classes when graph classification is enabled. */
+	boolean emitTerminal=false, emitBranchedTerminal=false, emitUnanchored=false, emitLoopback=false;
+	boolean emitBranchedConnected=false, emitMultiConnected=false, emitSelfLoop=false;
+	/** Maximum connected-N class emitted below mincontig; negative emits all connected classes. */
+	int emitConnectedMax=-1;
+	/** Remove selected short topology classes before simplification. */
+	boolean evictTerminal=false, evictBranchedTerminal=false, evictUnanchored=false, evictLoopback=false;
+	boolean evictBranchedConnected=false, evictMultiConnected=false;
+	/** Exact topology mask populated by the five logical benchmark classes. */
+	int evictGraphTopologyMask=0;
+	/** Depth-class bitmask for graph cleanup; low only by default. */
+	int evictGraphDepthMask=1<<Contig.DEPTH_LOW;
+	/** Maximum short-contig length eligible for the default pre-graph artifact sweep; zero disables it. */
+	int sweepContigLen=500;
+	/** Remove connected-N contigs above this distance before simplification; negative disables. */
+	int evictConnectedAbove=-1;
+	float graphClassLowMaxCov=4, graphClassLowFraction=0.2f;
+	float graphClassMediumFraction=0.4f, graphClassHighFraction=2.5f;
 	int lowDepthContigMaxLen=-1;
 	float lowDepthContigMaxCov=3;
 	float lowDepthContigFraction=0.2f;
+	int lowDepthContigTopology=LOW_DEPTH_TOPOLOGY_CONSERVATIVE;
+	LowDepthDiagnostic lastLowDepthDiagnostic;
+	ContigGraphClassifier.Result lastGraphClassification;
+	int cachedMainDepthPeak=Integer.MIN_VALUE;
 	int repeatMinSupport=2;
 	int repeatMaxNoise=0;
 	long readThreadedRepeatsResolved=0;
+
+	private static final int LOW_DEPTH_TOPOLOGY_CONSERVATIVE=0, LOW_DEPTH_TOPOLOGY_NOT_LOOP=1;
 
 	private static final Comparator<Contig> coverageComparator=new Comparator<Contig>(){
 		@Override

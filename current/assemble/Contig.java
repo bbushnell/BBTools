@@ -91,11 +91,16 @@ public class Contig {
 	 * @return The ByteBuilder with header content appended
 	 */
 	private ByteBuilder toHeader(ByteBuilder bb){
-		if(name!=null){return bb.append(name);}
+		if(name!=null){
+			bb.append(name);
+			if(graphClass>=0){bb.append(",class="); appendGraphClass(bb);}
+			return bb;
+		}
 		bb.append("contig_").append(id);
 		bb.append(",len=").append(length());
 		bb.append(",cov=").append(coverage, 1);
 		bb.append(",gc=").append(gc(), 3);
+		if(graphClass>=0){bb.append(",class="); appendGraphClass(bb);}
 		if(tid>=0){bb.append(",tid_").append(tid);}
 		if(VERY_SHORT_NAMES) {return bb;}
 		bb.append(",min=").append(minCov);
@@ -121,6 +126,39 @@ public class Contig {
 			appendEdges(rightEdges, bb);
 		}
 		return bb;
+	}
+
+	/** Appends the graph-derived QC classification without allocating a String. */
+	ByteBuilder appendGraphClass(final ByteBuilder bb){
+		appendGraphLengthClass(bb).append('/');
+		appendGraphDepthClass(bb).append('/');
+		return appendGraphTopology(bb);
+	}
+
+	ByteBuilder appendGraphLengthClass(final ByteBuilder bb){
+		if(graphLengthClass==LENGTH_LONG){return bb.append("long");}
+		if(graphLengthClass==LENGTH_SHORT){return bb.append("short");}
+		return bb.append("unclassified");
+	}
+
+	ByteBuilder appendGraphDepthClass(final ByteBuilder bb){
+		if(graphDepthClass==DEPTH_LOW){return bb.append("low");}
+		if(graphDepthClass==DEPTH_SEMILOW){return bb.append("semilow");}
+		if(graphDepthClass==DEPTH_MEDIUM){return bb.append("medium");}
+		if(graphDepthClass==DEPTH_HIGH){return bb.append("high");}
+		return bb.append("unclassified");
+	}
+
+	ByteBuilder appendGraphTopology(final ByteBuilder bb){
+		if(graphClass==GRAPH_UNANCHORED){return bb.append("unanchored");}
+		if(graphClass==GRAPH_TERMINAL){return bb.append("terminal-").append(graphClassHop);}
+		if(graphClass==GRAPH_BRANCHED_TERMINAL){return bb.append("branched-terminal-").append(graphClassHop);}
+		if(graphClass==GRAPH_LOOPBACK){return bb.append("loopback-").append(graphClassHop);}
+		if(graphClass==GRAPH_CONNECTED){return bb.append("connected-").append(graphClassHop);}
+		if(graphClass==GRAPH_BRANCHED_CONNECTED){return bb.append("branched-connected-").append(graphClassHop);}
+		if(graphClass==GRAPH_MULTI_CONNECTED){return bb.append("multi-connected-").append(graphClassHop);}
+		if(graphClass==GRAPH_SELF_LOOP){return bb.append("self-loop");}
+		return bb.append("unclassified");
 	}
 	
 	int appendEdges(ArrayList<Edge> edges, ByteBuilder bb){
@@ -599,6 +637,11 @@ public class Contig {
 	boolean leftBridgeEndpoint;
 	boolean rightBridgeEndpoint;
 	public int id;
+	/** Orthogonal graph QC axes; graphClassHop stores N for anchored topology classes. */
+	public int graphClass=GRAPH_UNCLASSIFIED;
+	public int graphClassHop=0;
+	public int graphLengthClass=LENGTH_UNCLASSIFIED;
+	public int graphDepthClass=DEPTH_UNCLASSIFIED;
 	public int tid=-1;
 	float gc=-1, hh=-1, caga=-1;
 	
@@ -614,4 +657,10 @@ public class Contig {
 
 	public static boolean SHORT_NAMES=true;
 	public static boolean VERY_SHORT_NAMES=false;
+	public static final int LENGTH_UNCLASSIFIED=-1, LENGTH_SHORT=0, LENGTH_LONG=1;
+	public static final int DEPTH_UNCLASSIFIED=-1, DEPTH_LOW=0, DEPTH_SEMILOW=1,
+			DEPTH_MEDIUM=2, DEPTH_HIGH=3;
+	public static final int GRAPH_UNCLASSIFIED=-1, GRAPH_UNANCHORED=0, GRAPH_TERMINAL=1,
+			GRAPH_BRANCHED_TERMINAL=2, GRAPH_LOOPBACK=3, GRAPH_CONNECTED=4,
+			GRAPH_BRANCHED_CONNECTED=5, GRAPH_MULTI_CONNECTED=6, GRAPH_SELF_LOOP=7;
 }

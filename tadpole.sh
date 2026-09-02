@@ -134,7 +134,14 @@ branchmult1=20      (bm1) Min ratio of 1st to 2nd-greatest path depth at high de
 branchmult2=3       (bm2) Min ratio of 1st to 2nd-greatest path depth at low depth.
 branchlower=3       (blc) Max value of 2nd-greatest path depth to be considered low.
 minextension=2      (mine) Do not keep contigs that did not extend at least this much.
-mincontig=auto      (minc) Do not write contigs shorter than this.
+mincontig=500       (minc) Do not write contigs shorter than this.  This is
+                    the final-output threshold and is independent of sweeplen.
+sweeplen=500         Remove selected short artifact contigs before graph
+                    simplification.  The default removes unanchored contigs at
+                    low, semilow, or medium depth, and terminal or branched-
+                    terminal contigs at low or semilow depth.  Set to 0 to
+                    disable this automatic pre-graph sweep.  Explicit
+                    evictgraphclass/evictgraphdepth controls remain available.
 mincoverage=1       (mincov) Do not write contigs with average coverage below this.
 maxcoverage=inf     (maxcov) Do not write contigs with average coverage above this.
 trimends=0          (trim) Trim contig ends by this much.  Trimming by K/2 
@@ -165,13 +172,68 @@ graphk=auto          Multi-K only.  Build the final graph at this kmer length.
                     table when possible; another value rereads the inputs once.
                     Before graph extraction, uniquely overlapping unbranched
                     graph-k ends are joined conservatively.
-lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs
-                    after all joining phases and before graph simplification.
+lowdepthcontigdiag=f (ldcd) Report conservative short, low-depth isolate contigs.
+                    Set to early, final, or both to select the assembly-K and/or
+                    post-joining graph boundary; t means final.  With both, report
+                    how many early candidates were retired/absorbed, grown, or reclassified.
                     Diagnostic only; does not delete contigs.
+lowdepthcontigdiagstage=final (ldcdstage) Alternate stage-selection syntax;
+                    specifying it enables the diagnostic.
 lowdepthcontigmaxlen=auto (ldcmaxlen) Maximum candidate length; auto is max(500,2*K).
 lowdepthcontigmaxcov=3 (ldcmaxcov) Maximum candidate average depth.
 lowdepthcontigfraction=0.2 (ldcfrac) Maximum candidate depth relative to the
-                    contig-length-weighted median depth.
+                    called isolate kmer-depth peak (robust median fallback).
+lowdepthcontigtopology=conservative (ldctopology) Candidate endpoint policy.
+                    Conservative accepts dead/dead, dead/back-branch, and
+                    back-branch/back-branch; notloop accepts every non-loop form.
+retainshortcontigs=auto Retain sub-sweeplen unitigs through graph operations,
+                    while still suppressing them from final FASTA output.  Auto
+                    preserves the prior behavior: enabled with pop=t.
+evictlowdepthcontigs=f (ldce) Before graph construction, remove retained short
+                    low-depth isolate candidates selected by the ldc thresholds.
+                    Experimental and inappropriate for metagenomes.
+classifygraphcontigs=f Label final graph contigs on independent length, depth,
+					and topology axes.  Length is short/long at sweeplen when enabled,
+					otherwise mincontig.  Depth
+                    is low/semilow/medium/high.  Topology records 0, 1, or 2+
+                    reciprocal paths from each end to distinct long anchors,
+                    with separate loopback and self-loop classes.
+graphclasslowmaxcov=4 (gclmc) Absolute ceiling for the low-depth class.
+graphclasslowfraction=0.2 (gclf) Relative ceiling for the low-depth class.
+                    Low includes the boundary; semilow starts above it.
+graphclassmediumfraction=0.4 (gcmf) Boundary between semilow and medium depth,
+					relative to the called main-depth peak.  Medium includes it.
+graphclasshighfraction=2.5 (gchf) Upper boundary of medium depth; high is above it.
+emitconnectedmax=all (ecm) Emit connected-N contigs below mincontig through this
+                    hop class.  Classification emits all connected classes by default.
+emitterminal=f      Emit terminal-N contigs below mincontig.
+emitbranchedterminal=f Emit branched-terminal-N contigs below mincontig.
+emitunanchored=f    Emit unanchored contigs below mincontig.
+emitloopback=f      Emit loopback-N contigs below mincontig.
+emitbranchedconnected=f Emit branched-connected-N contigs below mincontig.
+emitmulticonnected=f Emit multi-connected-N contigs below mincontig.
+emitselfloop=f      Emit self-loop contigs below mincontig.
+emitsuspect=f (suspect) Alias setting terminal, branched-terminal, unanchored,
+                    and loopback emission together.
+evictterminal=f     Remove eligible terminal-N contigs before simplification.
+evictbranchedterminal=f Remove eligible branched-terminal-N contigs.
+evictunanchored=f   Remove eligible unanchored contigs before simplification.
+evictloopback=f     Remove eligible loopback-N contigs before simplification.
+evictbranchedconnected=f Remove eligible branched-connected-N contigs.
+evictmulticonnected=f Remove eligible multi-connected-N contigs.
+evictsuspect=f (es) Alias setting terminal, branched-terminal, unanchored, and
+                    loopback eviction together.
+evictgraphclass=none Select one or more logical topology groups: unanchored,
+                    terminal, connected, loopback, or self-loop.  Terminal also
+                    selects branched-terminal; connected also selects branched-
+                    connected and multi-connected.  Comma-delimited lists are
+                    accepted; granular eviction flags remain available.
+evictgraphdepth=low Select cleanup depth classes from low, semilow, medium, high,
+                    or a comma-delimited list.  Long contigs are never graph-class
+                    evicted.  Self-loops require explicit selection through
+                    evictgraphclass.  sweeplen is enforced.
+evictconnectedabove=none (eca) Also remove connected-N contigs with N above this
+                    value when eligible under the graph cleanup limits.  Experimental.
 repeatminsupport=2   Minimum spanning reads required for each resolved path.
 repeatmaxnoise=0     Maximum conflicting spanning reads; zero is strictest.
 validategraph=f     Run graph consistency checks during simplification.

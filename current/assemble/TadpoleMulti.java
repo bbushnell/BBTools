@@ -2,6 +2,7 @@ package assemble;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
@@ -35,6 +36,11 @@ public class TadpoleMulti {
 		}
 		longest.process2(Tadpole.contigMode);
 		checkErrorState(longest);
+		final EarlyLowDepthTracker earlyLowDepth;
+		if(config.earlyLowDepthDiag()){
+			config.applyLowDepthThresholds(longest);
+			earlyLowDepth=new EarlyLowDepthTracker(longest.diagnoseLowDepthContigs("assemble-k"));
+		}else{earlyLowDepth=null;}
 		longest.markBridgeEndpoints();
 		longest.clearContigEdges();
 		ArrayList<Contig> contigs=longest.detachContigs();
@@ -97,6 +103,9 @@ public class TadpoleMulti {
 		if(config.finalGraphNeeded()){
 			contigs=extractFinalGraph(contigs, reusableGraphTadpole, minContig);
 		}
+		if(earlyLowDepth!=null && finalLowDepthDiagnostic!=null){
+			earlyLowDepth.reportFates(finalLowDepthDiagnostic);
+		}
 
 		writeContigs(contigs, config.out, minContig, idOffset);
 		if(config.showStats && FileFormat.isFastaExt(ReadWrite.rawExtension(config.out)) && !FileFormat.isStdio(config.out)){
@@ -151,10 +160,12 @@ public class TadpoleMulti {
 		tad.simpleOmnitigs=config.simpleOmnitigs;
 		tad.graphCover=config.graphCover;
 		config.applyLowDepthDiagnostic(tad);
+		config.applyFinalGraphClassification(tad);
 		config.applyFinalGraphOutput(tad);
 		tad.setContigs(merged);
 		tad.clearContigEdges();
 		tad.processContigs();
+		finalLowDepthDiagnostic=tad.lastLowDepthDiagnostic;
 		final ArrayList<Contig> extracted=tad.detachContigs();
 		checkErrorState(tad);
 		tad.tables().clear();
@@ -204,7 +215,7 @@ public class TadpoleMulti {
 		}
 	}
 
-	private String[] makeArgs(final int k, final boolean longest){
+	String[] makeArgs(final int k, final boolean longest){
 		final ArrayList<String> list=new ArrayList<String>(config.common.size()+6);
 		list.addAll(config.common);
 		final int hashMode=(longest ? Tadpole.HASH_EXPLICIT : config.hashMode(k));
@@ -216,11 +227,19 @@ public class TadpoleMulti {
 		list.add("mode=contig");
 		list.add("showstats=f");
 		list.add("processcontigs="+(longest ? "t" : "f"));
+		/* Sweep once after initial contig construction; bridge tables never discard contigs. */
+		list.add("sweeplen="+(longest ? config.sweepContigLen : 0));
+		if(longest && config.evictLowDepthContigs){
+			list.add("evictlowdepthcontigs=t");
+			config.addLowDepthThresholdArgs(list);
+		}
+		if(longest && config.retainShortContigsSet){list.add("retainshortcontigs="+config.retainShortContigs);}
+		else if(longest && config.graphClassificationRequested()){list.add("retainshortcontigs=t");}
 		if(!longest){list.add("pop=f");}
 		return list.toArray(new String[list.size()]);
 	}
 
-	private static void writeContigs(ArrayList<Contig> contigs, String out, int minContig, int idOffset){
+	private void writeContigs(ArrayList<Contig> contigs, String out, int minContig, int idOffset){
 		if(out==null){return;}
 		if(!Tools.testOutputFiles(Tadpole.overwrite, Tadpole.append, false, out)){
 			throw new RuntimeException("Can't write output file "+out+"; overwrite="+Tadpole.overwrite);
@@ -232,7 +251,7 @@ public class TadpoleMulti {
 		int id=idOffset;
 		for(Contig c : contigs){
 			c.id=id++;
-			if(c.length()>=minContig){bsw.println(c);}
+			if(config.emitContig(c, minContig)){bsw.println(c);}
 		}
 		if(bsw.poisonAndWait()){throw new RuntimeException("Error writing "+out);}
 	}
@@ -242,9 +261,13 @@ public class TadpoleMulti {
 			final int equals=arg.indexOf('=');
 			String a=(equals<0 ? arg : arg.substring(0, equals)).toLowerCase();
 			while(a.startsWith("-")){a=a.substring(1);}
+			final String b=(equals<0 ? null : arg.substring(equals+1));
 			if(a.equals("k") && equals>=0 && arg.indexOf(',', equals+1)>=0){return true;}
 			if(a.equals("assemblek") || a.equals("fusek") || a.equals("joink")
 					|| a.equals("bridgek") || a.equals("graphk")){return true;}
+			if(a.equals("lowdepthcontigdiagstage") || a.equals("ldcdstage")){return true;}
+			if((a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd"))
+					&& isLowDepthDiagStage(b)){return true;}
 		}
 		return false;
 	}
@@ -289,16 +312,83 @@ public class TadpoleMulti {
 					simpleOmnitigs=Parse.parseBoolean(b);
 				}else if(a.equals("graphcover") || a.equals("pathcover") || a.equals("nonredundantpaths")){
 					graphCover=Parse.parseBoolean(b);
+				}else if(a.equals("pop") || a.equals("popbubbles")){
+					popBubbles=Parse.parseBoolean(b);
+					common.add(arg);
 				}else if(a.equals("gfa") || a.equals("outgfa")){
 					outGfa=b;
 				}else if(a.equals("lowdepthcontigdiag") || a.equals("diagnoselowdepthcontigs") || a.equals("ldcd")){
-					lowDepthContigDiag=Parse.parseBoolean(b);
+					if(isLowDepthDiagStage(b)){lowDepthContigDiag=true; lowDepthContigDiagStage=parseLowDepthDiagStage(b);}
+					else{lowDepthContigDiag=Parse.parseBoolean(b);}
+				}else if(a.equals("lowdepthcontigdiagstage") || a.equals("ldcdstage")){
+					lowDepthContigDiag=true;
+					lowDepthContigDiagStage=parseLowDepthDiagStage(b);
 				}else if(a.equals("lowdepthcontigmaxlen") || a.equals("ldcmaxlen")){
 					lowDepthContigMaxLen=(b==null || b.equalsIgnoreCase("auto") ? -1 : Parse.parseIntKMG(b));
 				}else if(a.equals("lowdepthcontigmaxcov") || a.equals("ldcmaxcov")){
 					lowDepthContigMaxCov=Float.parseFloat(b);
 				}else if(a.equals("lowdepthcontigfraction") || a.equals("ldcfrac")){
 					lowDepthContigFraction=Float.parseFloat(b);
+				}else if(a.equals("lowdepthcontigtopology") || a.equals("ldctopology")){
+					lowDepthContigTopology=Tadpole.parseLowDepthTopology(b);
+				}else if(a.equals("evictlowdepthcontigs") || a.equals("removelowdepthcontigs") || a.equals("ldce")){
+					evictLowDepthContigs=Parse.parseBoolean(b);
+				}else if(a.equals("retainshortcontigs") || a.equals("retainshortgraph")){
+					if(b==null || b.equalsIgnoreCase("auto")){retainShortContigsSet=false;}
+					else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
+				}else if(a.equals("sweeplen") || a.equals("graphsweeplen")){
+					sweepContigLen=Parse.parseIntKMG(b);
+				}else if(a.equals("classifygraphcontigs") || a.equals("classifycontigs") || a.equals("graphclassify")){
+					classifyGraphContigs=Parse.parseBoolean(b);
+				}else if(a.equals("graphclasslowmaxcov") || a.equals("gclmc")){
+					graphClassLowMaxCov=Float.parseFloat(b);
+				}else if(a.equals("graphclasslowfraction") || a.equals("gclf")){
+					graphClassLowFraction=Float.parseFloat(b);
+				}else if(a.equals("graphclassmediumfraction") || a.equals("gcmf")){
+					graphClassMediumFraction=Float.parseFloat(b);
+				}else if(a.equals("graphclasshighfraction") || a.equals("gchf")){
+					graphClassHighFraction=Float.parseFloat(b);
+				}else if(a.equals("emitsuspect") || a.equals("suspect")){
+					final boolean x=Parse.parseBoolean(b);
+					emitTerminal=x; emitBranchedTerminal=x; emitUnanchored=x; emitLoopback=x;
+				}else if(a.equals("emitterminal")){
+					emitTerminal=Parse.parseBoolean(b);
+				}else if(a.equals("emitbranchedterminal")){
+					emitBranchedTerminal=Parse.parseBoolean(b);
+				}else if(a.equals("emitunanchored")){
+					emitUnanchored=Parse.parseBoolean(b);
+				}else if(a.equals("emitloopback")){
+					emitLoopback=Parse.parseBoolean(b);
+				}else if(a.equals("emitbranchedconnected")){
+					emitBranchedConnected=Parse.parseBoolean(b);
+				}else if(a.equals("emitmulticonnected")){
+					emitMultiConnected=Parse.parseBoolean(b);
+				}else if(a.equals("emitselfloop")){
+					emitSelfLoop=Parse.parseBoolean(b);
+				}else if(a.equals("emitconnectedmax") || a.equals("ecm")){
+					emitConnectedMax=(b==null || b.equalsIgnoreCase("all") || b.equalsIgnoreCase("auto") ? -1 : Integer.parseInt(b));
+					classifyGraphContigs=true;
+				}else if(a.equals("evictsuspect") || a.equals("es")){
+					final boolean x=Parse.parseBoolean(b);
+					evictTerminal=x; evictBranchedTerminal=x; evictUnanchored=x; evictLoopback=x;
+				}else if(a.equals("evictterminal")){
+					evictTerminal=Parse.parseBoolean(b);
+				}else if(a.equals("evictbranchedterminal")){
+					evictBranchedTerminal=Parse.parseBoolean(b);
+				}else if(a.equals("evictunanchored")){
+					evictUnanchored=Parse.parseBoolean(b);
+				}else if(a.equals("evictloopback")){
+					evictLoopback=Parse.parseBoolean(b);
+				}else if(a.equals("evictbranchedconnected")){
+					evictBranchedConnected=Parse.parseBoolean(b);
+				}else if(a.equals("evictmulticonnected")){
+					evictMultiConnected=Parse.parseBoolean(b);
+				}else if(a.equals("evictgraphclass") || a.equals("evictgraphtopology")){
+					evictGraphTopologyMask=Tadpole.parseGraphTopologyMask(b);
+				}else if(a.equals("evictgraphdepth") || a.equals("evictdepth")){
+					evictGraphDepthMask=Tadpole.parseGraphDepthMask(b);
+				}else if(a.equals("evictconnectedabove") || a.equals("eca")){
+					evictConnectedAbove=(b==null || b.equalsIgnoreCase("none") || b.equalsIgnoreCase("false") ? -1 : Integer.parseInt(b));
 				}else if(a.equals("showstats")){showStats=Parse.parseBoolean(b); common.add(arg);}
 				else if(a.equals("dot") || a.equals("outdot")){
 					throw new RuntimeException("DOT output is not yet supported by TadpoleMulti.");
@@ -330,9 +420,24 @@ public class TadpoleMulti {
 			if(lowDepthContigMaxLen==0 || lowDepthContigMaxLen< -1){throw new RuntimeException("lowDepthContigMaxLen must be positive or auto.");}
 			if(lowDepthContigMaxCov<0){throw new RuntimeException("lowDepthContigMaxCov must be nonnegative.");}
 			if(lowDepthContigFraction<0 || lowDepthContigFraction>1){throw new RuntimeException("lowDepthContigFraction must be from 0 to 1.");}
+			if(graphClassificationRequested()){
+				if(graphClassLowMaxCov<0){throw new RuntimeException("graphClassLowMaxCov must be nonnegative.");}
+				if(graphClassLowFraction<0 || graphClassLowFraction>1){throw new RuntimeException("graphClassLowFraction must be from 0 to 1.");}
+				if(graphClassMediumFraction<graphClassLowFraction){
+					throw new RuntimeException("graphClassMediumFraction must be at least graphClassLowFraction.");
+				}
+				if(graphClassHighFraction<graphClassMediumFraction){
+					throw new RuntimeException("graphClassHighFraction must be at least graphClassMediumFraction.");
+				}
+			}
+			if(emitConnectedMax==0 || emitConnectedMax< -1){throw new RuntimeException("emitConnectedMax must be positive or all.");}
+			if(evictConnectedAbove==0 || evictConnectedAbove< -1){throw new RuntimeException("evictConnectedAbove must be positive or none.");}
+			if(evictGraphTopologyMask<0 || evictGraphTopologyMask>255){throw new RuntimeException("Invalid graph eviction topology mask.");}
+			if(sweepContigLen<0){throw new RuntimeException("sweeplen must be nonnegative.");}
+			if(graphClassificationRequested()){classifyGraphContigs=true;}
 			if(finalGraphNeeded()){
 				if(graphK<0){graphK=assembleK;}
-			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations or lowDepthContigDiag=t.");}
+			}else if(graphExplicit){throw new RuntimeException("graphk requires graph operations, graph classification, or lowDepthContigDiag=t.");}
 			else{graphK=assembleK;}
 		}
 
@@ -373,7 +478,21 @@ public class TadpoleMulti {
 		}
 
 		boolean graphOperations(){return simpleOmnitigs || graphCover || outGfa!=null;}
-		boolean finalGraphNeeded(){return graphOperations() || lowDepthContigDiag;}
+		boolean earlyLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_EARLY)!=0;}
+		boolean finalLowDepthDiag(){return lowDepthContigDiag && (lowDepthContigDiagStage&DIAG_FINAL)!=0;}
+		boolean finalGraphNeeded(){return graphOperations() || finalLowDepthDiag() || graphClassificationRequested();}
+		boolean explicitGraphClassificationRequested(){
+			return classifyGraphContigs || emitTerminal || emitBranchedTerminal || emitUnanchored || emitLoopback
+					|| emitBranchedConnected || emitMultiConnected || emitSelfLoop || emitConnectedMax>0
+					|| graphTopologyEvictionRequested() || evictConnectedAbove>0;
+		}
+		boolean graphClassificationRequested(){
+			return explicitGraphClassificationRequested() || sweepContigLen>0;
+		}
+		boolean graphTopologyEvictionRequested(){
+			return evictGraphTopologyMask!=0 || evictUnanchored || evictTerminal || evictBranchedTerminal || evictLoopback ||
+					evictBranchedConnected || evictMultiConnected;
+		}
 		boolean useHashBridgeTables(){return hashModeForAny(bridgeKs)>0;}
 		int bridgeHashMode(){return hashModeForAny(bridgeKs);}
 		int hashMode(final int k){
@@ -404,11 +523,62 @@ public class TadpoleMulti {
 		void applyFinalGraphOutput(final Tadpole tad){
 			if(outGfa!=null){tad.setGfaOutput(outGfa);}
 		}
-		void applyLowDepthDiagnostic(final Tadpole tad){
-			tad.lowDepthContigDiag=lowDepthContigDiag;
+		void applyLowDepthThresholds(final Tadpole tad){
 			tad.lowDepthContigMaxLen=lowDepthContigMaxLen;
 			tad.lowDepthContigMaxCov=lowDepthContigMaxCov;
 			tad.lowDepthContigFraction=lowDepthContigFraction;
+			tad.lowDepthContigTopology=lowDepthContigTopology;
+		}
+		void addLowDepthThresholdArgs(final ArrayList<String> list){
+			list.add("lowdepthcontigmaxlen="+(lowDepthContigMaxLen<0 ? "auto" : lowDepthContigMaxLen));
+			list.add("lowdepthcontigmaxcov="+lowDepthContigMaxCov);
+			list.add("lowdepthcontigfraction="+lowDepthContigFraction);
+			list.add("lowdepthcontigtopology="+Tadpole.lowDepthTopologyName(lowDepthContigTopology));
+		}
+		void applyLowDepthDiagnostic(final Tadpole tad){
+			tad.lowDepthContigDiag=finalLowDepthDiag();
+			applyLowDepthThresholds(tad);
+		}
+		void applyFinalGraphClassification(final Tadpole tad){
+			/* The automatic sweep already ran before cross-k fusion and bridging. */
+			tad.classifyGraphContigs=explicitGraphClassificationRequested();
+			tad.emitTerminal=emitTerminal;
+			tad.emitBranchedTerminal=emitBranchedTerminal;
+			tad.emitUnanchored=emitUnanchored;
+			tad.emitLoopback=emitLoopback;
+			tad.emitBranchedConnected=emitBranchedConnected;
+			tad.emitMultiConnected=emitMultiConnected;
+			tad.emitSelfLoop=emitSelfLoop;
+			tad.emitConnectedMax=emitConnectedMax;
+			tad.evictTerminal=evictTerminal;
+			tad.evictBranchedTerminal=evictBranchedTerminal;
+			tad.evictUnanchored=evictUnanchored;
+			tad.evictLoopback=evictLoopback;
+			tad.evictBranchedConnected=evictBranchedConnected;
+			tad.evictMultiConnected=evictMultiConnected;
+			tad.evictGraphTopologyMask=evictGraphTopologyMask;
+			tad.evictGraphDepthMask=evictGraphDepthMask;
+			tad.sweepContigLen=0;
+			tad.popBubbles=popBubbles;
+			tad.evictConnectedAbove=evictConnectedAbove;
+			tad.graphClassLowMaxCov=graphClassLowMaxCov;
+			tad.graphClassLowFraction=graphClassLowFraction;
+			tad.graphClassMediumFraction=graphClassMediumFraction;
+			tad.graphClassHighFraction=graphClassHighFraction;
+			applyLowDepthThresholds(tad);
+		}
+		boolean emitContig(final Contig c, final int minContig){
+			if(c.length()>=minContig){return true;}
+			if(!classifyGraphContigs || c.graphClass<0){return false;}
+			if(c.graphClass==Contig.GRAPH_CONNECTED){return emitConnectedMax<0 || c.graphClassHop<=emitConnectedMax;}
+			if(c.graphClass==Contig.GRAPH_TERMINAL){return emitTerminal;}
+			if(c.graphClass==Contig.GRAPH_BRANCHED_TERMINAL){return emitBranchedTerminal;}
+			if(c.graphClass==Contig.GRAPH_UNANCHORED){return emitUnanchored;}
+			if(c.graphClass==Contig.GRAPH_LOOPBACK){return emitLoopback;}
+			if(c.graphClass==Contig.GRAPH_BRANCHED_CONNECTED){return emitBranchedConnected;}
+			if(c.graphClass==Contig.GRAPH_MULTI_CONNECTED){return emitMultiConnected;}
+			if(c.graphClass==Contig.GRAPH_SELF_LOOP){return emitSelfLoop;}
+			throw new IllegalStateException("Unknown graph class "+c.graphClass+" on contig "+c.id+".");
 		}
 
 		void printExecutionPlan(final Tadpole tad){
@@ -417,6 +587,20 @@ public class TadpoleMulti {
 			if(simpleOmnitigs){Tadpole.appendPlanWord(extras, "simpleomnitigs");}
 			if(graphCover){Tadpole.appendPlanWord(extras, "graphcover");}
 			if(lowDepthContigDiag){Tadpole.appendPlanWord(extras, "lowdepthcontigdiag");}
+			if(classifyGraphContigs && !tad.classifyGraphContigs){Tadpole.appendPlanWord(extras, "classifygraphcontigs");}
+			if(evictTerminal){Tadpole.appendPlanWord(extras, "evictterminal");}
+			if(evictBranchedTerminal){Tadpole.appendPlanWord(extras, "evictbranchedterminal");}
+			if(evictUnanchored){Tadpole.appendPlanWord(extras, "evictunanchored");}
+			if(evictLoopback){Tadpole.appendPlanWord(extras, "evictloopback");}
+			if(evictBranchedConnected){Tadpole.appendPlanWord(extras, "evictbranchedconnected");}
+			if(evictMultiConnected){Tadpole.appendPlanWord(extras, "evictmulticonnected");}
+			if(evictGraphTopologyMask!=0){
+				Tadpole.appendPlanWord(extras, "evictgraphclass="+Tadpole.graphTopologyMaskName(evictGraphTopologyMask));
+			}
+			if(graphTopologyEvictionRequested() || evictConnectedAbove>0){
+				Tadpole.appendPlanWord(extras, "evictgraphdepth="+Tadpole.graphDepthMaskName(evictGraphDepthMask));
+			}
+			if(evictConnectedAbove>0){Tadpole.appendPlanWord(extras, "evictconnectedabove="+evictConnectedAbove);}
 			Tadpole.printPlanLine("mode", "assemble");
 			if(extras.length()>0){Tadpole.printPlanLine("extra", extras.toString());}
 			Tadpole.printPlanLine("assemblek", assembleK);
@@ -427,6 +611,7 @@ public class TadpoleMulti {
 				Tadpole.printPlanLine("hashkmers", Tadpole.hashModeName(displayedHashMode));
 			}
 			if(finalGraphNeeded()){Tadpole.printPlanLine("graphk", graphK);}
+			if(lowDepthContigDiag){Tadpole.printPlanLine("diagstage", lowDepthDiagStageName(lowDepthContigDiagStage));}
 			Tadpole.outstream.println();
 		}
 
@@ -452,13 +637,74 @@ public class TadpoleMulti {
 		float maxDepthRatio=3;
 		int passes=10;
 		int graphK=-1;
-		boolean simpleOmnitigs=false, graphCover=false, lowDepthContigDiag=false;
+		boolean simpleOmnitigs=false, graphCover=false, lowDepthContigDiag=false, evictLowDepthContigs=false, popBubbles=true;
+		boolean classifyGraphContigs=false;
+		boolean emitTerminal=false, emitBranchedTerminal=false, emitUnanchored=false, emitLoopback=false;
+		boolean emitBranchedConnected=false, emitMultiConnected=false, emitSelfLoop=false;
+		boolean evictTerminal=false, evictBranchedTerminal=false, evictUnanchored=false, evictLoopback=false;
+		boolean evictBranchedConnected=false, evictMultiConnected=false;
+		int evictGraphTopologyMask=0;
+		int lowDepthContigDiagStage=DIAG_FINAL;
 		int lowDepthContigMaxLen=-1;
 		float lowDepthContigMaxCov=3, lowDepthContigFraction=0.2f;
+		int lowDepthContigTopology=0, emitConnectedMax=-1, evictConnectedAbove=-1;
+		int evictGraphDepthMask=1<<Contig.DEPTH_LOW;
+		int sweepContigLen=500;
+		float graphClassLowMaxCov=4, graphClassLowFraction=0.2f;
+		float graphClassMediumFraction=0.4f, graphClassHighFraction=2.5f;
 		boolean explicitTableRequired=false, preallocRequested=false;
+		boolean retainShortContigs=false, retainShortContigsSet=false;
 		int hashModeRequested=Tadpole.HASH_AUTO;
 		boolean showStats=true;
 	}
 
 	private final Config config;
+	private Tadpole.LowDepthDiagnostic finalLowDepthDiagnostic;
+
+	private static boolean isLowDepthDiagStage(final String s){
+		return s!=null && (s.equalsIgnoreCase("early") || s.equalsIgnoreCase("final") || s.equalsIgnoreCase("both"));
+	}
+
+	private static int parseLowDepthDiagStage(final String s){
+		if(s==null || s.equalsIgnoreCase("final")){return DIAG_FINAL;}
+		if(s.equalsIgnoreCase("early")){return DIAG_EARLY;}
+		if(s.equalsIgnoreCase("both")){return DIAG_EARLY|DIAG_FINAL;}
+		throw new RuntimeException("lowDepthContigDiagStage must be early, final, or both: "+s);
+	}
+
+	private static String lowDepthDiagStageName(final int stage){
+		return stage==(DIAG_EARLY|DIAG_FINAL) ? "both" : stage==DIAG_EARLY ? "early" : "final";
+	}
+
+	private static final class EarlyLowDepthTracker {
+		EarlyLowDepthTracker(final Tadpole.LowDepthDiagnostic diagnostic){
+			candidates=new ArrayList<Contig>(diagnostic.candidates);
+			lengths=new int[candidates.size()];
+			for(int i=0; i<lengths.length; i++){lengths[i]=candidates.get(i).length(); bases+=lengths[i];}
+		}
+		void reportFates(final Tadpole.LowDepthDiagnostic diagnostic){
+			final IdentityHashMap<Contig, Boolean> live=new IdentityHashMap<Contig, Boolean>(diagnostic.live.size()*2+1);
+			final IdentityHashMap<Contig, Boolean> finalCandidates=new IdentityHashMap<Contig, Boolean>(diagnostic.candidates.size()*2+1);
+			for(Contig c : diagnostic.live){live.put(c, Boolean.TRUE);}
+			for(Contig c : diagnostic.candidates){finalCandidates.put(c, Boolean.TRUE);}
+			int present=0, absorbed=0, grown=0, stillCandidate=0;
+			long grownBases=0;
+			for(int i=0; i<candidates.size(); i++){
+				final Contig c=candidates.get(i);
+				if(!live.containsKey(c)){absorbed++; continue;}
+				present++;
+				if(c.length()>lengths[i]){grown++; grownBases+=c.length()-lengths[i];}
+				if(finalCandidates.containsKey(c)){stillCandidate++;}
+			}
+			Tadpole.outstream.println("Early low-depth candidate fates: initial="+candidates.size()+"/"+bases+
+					" contigs/bases, present="+present+", retiredOrAbsorbed="+absorbed+", grown="+grown+
+					"/+"+grownBases+" bases, stillCandidates="+stillCandidate+
+					", reclassified="+(present-stillCandidate)+".");
+		}
+		final ArrayList<Contig> candidates;
+		final int[] lengths;
+		long bases;
+	}
+
+	private static final int DIAG_EARLY=1, DIAG_FINAL=2;
 }
