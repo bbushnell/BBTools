@@ -176,6 +176,19 @@ public abstract class ReadStreamWriter extends Thread {
 	}
 
 	/**
+	 * Force an immediate, non-blocking shutdown after an error.  Unlike
+	 * poison(), this deliberately discards queued jobs and uses offer() rather
+	 * than the retrying, blocking addJob() path.  The consumer loop is FIFO, so
+	 * the abort marker does not need to preserve a normal list id.
+	 */
+	public final synchronized void abortNow(){
+		errorState=true;
+		finishedSuccessfully=false;
+		queue.clear();
+		queue.offer(new Job(null, false, true, nextID++));
+	}
+
+	/**
 	 * Adds a list of reads from a ListNum wrapper, preserving ordering metadata.
 	 */
 	public final synchronized void addList(ListNum<Read> ln){
