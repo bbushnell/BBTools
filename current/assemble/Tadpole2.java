@@ -560,7 +560,10 @@ public class Tadpole2 extends Tadpole {
 			
 			if(trimEnds>0){bb.trimByAmount(trimEnds, trimEnds);}
 			else if(trimCircular && leftStatus==LOOP && rightStatus==LOOP){bb.trimByAmount(0, kbig-1);}
-			if(bb.length()>=initialLength+minExtension && (bb.length()>=minContigLen || popBubbles)){
+			//TODO: Probable bug - graph-retaining builds can discard K/K+1 unitigs solely due to minExtension while
+			//leaving their successfully claimed kmers unavailable as other seeds. These may be short graph connectors;
+			//M. ruber minextension=0 showed no benefit, so changing the default needs broader validation.
+			if(bb.length()>=initialLength+minExtension && (bb.length()>=minContigLen || retainShortContigs)){
 				if(success){
 					bb.reverseComplementInPlace();
 					byte[] bases=bb.toBytes();
@@ -1664,6 +1667,16 @@ public class Tadpole2 extends Tadpole {
 		int corrected=errorCorrect(r, localLeftCounts.get(), localRightCounts.get(), localIntList.get(), localIntList2.get(),
 				localByteBuilder.get(), localByteBuilder2.get(), localTracker.get(), localBitSet.get(), getLocalKmer(), getLocalKmer2());
 		return corrected;
+	}
+
+	@Override
+	public MarkErrorStats markErrors(Read r, LongList kmers, IntList counts, Kmer kmer, ErrorTracker tracker){
+		tracker.clear();
+		final int valid=tables.fillCounts(r.bases, counts, kmer);
+		if(valid<2){return new MarkErrorStats();}
+		final MarkErrorStats result=markErrorRuns(r.bases, r.quality, counts);
+		tracker.marked=result.marked;
+		return result;
 	}
 	
 	@Override

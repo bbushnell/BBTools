@@ -6,6 +6,7 @@ import java.util.BitSet;
 import assemble.ErrorTracker;
 import assemble.Rollback;
 import shared.Tools;
+import shared.ErrorRunMarker;
 import simd.Vector;
 import stream.Read;
 import structures.ByteBuilder;
@@ -28,6 +29,16 @@ import ukmer.Kmer;
  * @date June 3, 2025
  */
 public abstract class BloomFilterCorrector {
+
+	/** Result of markerrors processing for one read. */
+	public static final class MarkErrorStats{
+		public int marked;
+		public int exactKRuns;
+		public int exactKMinus1Runs;
+		public int edgeRunsMarked;
+		public int skippedEndRuns;
+		public int skippedMergedRuns;
+	}
 
 	/**
 	 * Constructs a BloomFilterCorrector with specified parameters.
@@ -53,6 +64,32 @@ public abstract class BloomFilterCorrector {
 		int corrected=errorCorrect(r, localLeftCounts.get(), localRightCounts.get(), localLongList.get(),
 				localIntList.get(), localIntList2.get(), localByteBuilder.get(), localByteBuilder2.get(), localTracker.get(), localBitSet.get());
 		return corrected;
+	}
+
+	/** Marks bounded low-count k-mer runs instead of attempting correction. */
+	public MarkErrorStats markErrors(Read r){
+		initializeThreadLocals();
+		final ErrorTracker tracker=localTracker.get();
+		tracker.clear();
+		final LongList kmers=localLongList.get();
+		final IntList counts=localIntList.get();
+		final MarkErrorStats out=new MarkErrorStats();
+		final int valid=fillKmers(r.bases, kmers);
+		if(valid<2){return out;}
+		fillCounts(r.bases, kmers, counts);
+		final ErrorRunMarker.Result result=ErrorRunMarker.mark(r.bases, r.quality, counts.array, counts.size, k, errorMult1,
+				new ErrorRunMarker.ErrorPredicate(){
+					@Override
+					public boolean isError(final int high, final int low){return BloomFilterCorrector.this.isError(high, low);}
+				});
+		out.marked=result.marked;
+		out.exactKRuns=result.exactKRuns;
+		out.exactKMinus1Runs=result.exactKMinus1Runs;
+		out.edgeRunsMarked=result.edgeRunsMarked;
+		out.skippedEndRuns=result.skippedEndRuns;
+		out.skippedMergedRuns=result.skippedMergedRuns;
+		tracker.marked=out.marked;
+		return out;
 	}
 
 	/**

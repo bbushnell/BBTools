@@ -24,6 +24,7 @@ import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
 import shared.KillSwitch;
+import shared.ErrorRunMarker;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
@@ -166,6 +167,7 @@ public abstract class Tadpole extends ShaveObject{
 		/* Initialize local variables with defaults */
 		Parser parser=new Parser();
 		boolean ecc_=false, ecco_=false, merge_=false, testMerge_=true, vstrict_=false, setEcc_=false;
+		boolean markErrors_=false;
 		boolean useOwnership_=false, setUseOwnership_=false;
 		
 		int prefilter=0;
@@ -251,8 +253,6 @@ public abstract class Tadpole extends ShaveObject{
 				else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
 			}else if(a.equalsIgnoreCase("sweepLen") || a.equalsIgnoreCase("graphSweepLen")){
 				sweepContigLen=Parse.parseIntKMG(b);
-			}else if(a.equalsIgnoreCase("omniAnchor")){
-				omniAnchorLen=(b==null || b.equalsIgnoreCase("auto") ? -1 : Parse.parseIntKMG(b));
 			}else if(a.equalsIgnoreCase("evictLowDepthContigs") || a.equalsIgnoreCase("removeLowDepthContigs") || a.equals("ldce")){
 				evictLowDepthContigs=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("classifyGraphContigs") || a.equalsIgnoreCase("classifyContigs") || a.equalsIgnoreCase("graphClassify")){
@@ -565,6 +565,8 @@ public abstract class Tadpole extends ShaveObject{
 				setEcc_=true;
 			}else if(a.equals("ecco")){
 				ecco_=Parse.parseBoolean(b);
+			}else if(a.equals("markerrors")){
+				markErrors_=Parse.parseBoolean(b);
 			}else if(a.equals("merge")){
 				merge_=Parse.parseBoolean(b);
 			}else if(a.equals("testmerge")){
@@ -689,7 +691,6 @@ public abstract class Tadpole extends ShaveObject{
 		if(evictGraphDepthMask<0 || evictGraphDepthMask>15){throw new RuntimeException("Invalid graph eviction depth mask.");}
 		if(evictGraphTopologyMask<0 || evictGraphTopologyMask>255){throw new RuntimeException("Invalid graph eviction topology mask.");}
 		if(sweepContigLen<0){throw new RuntimeException("sweeplen must be nonnegative.");}
-		if(omniAnchorLen==0 || omniAnchorLen< -1){throw new RuntimeException("omnianchor must be positive or auto.");}
 		if(emitConnectedMax==0 || emitConnectedMax< -1){throw new RuntimeException("emitConnectedMax must be positive or all.");}
 		if(evictConnectedAbove==0 || evictConnectedAbove< -1){throw new RuntimeException("evictConnectedAbove must be positive or none.");}
 		if(simpleOmnitigs && graphCover){
@@ -745,7 +746,6 @@ public abstract class Tadpole extends ShaveObject{
 			trimEnds=kbig/2;
 		}
 		if(minContigLen<0){minContigLen=500;}
-		if(omniAnchorLen<0){omniAnchorLen=(sweepContigLen>0 ? sweepContigLen : minContigLen);}
 		
 		if(verbose){
 			BubblePopper.verbose=true;
@@ -757,7 +757,7 @@ public abstract class Tadpole extends ShaveObject{
 		assert(kmerRangeMax>=kmerRangeMin) : "kmerRangeMax must be at least kmerRangeMin: "+kmerRangeMax+", "+kmerRangeMin;
 		
 		if(processingMode<0){//unset
-			if(ecc_ || discardUncorrectable){
+			if(ecc_ || markErrors_ || discardUncorrectable){
 				processingMode=correctMode;
 				outstream.println("Switching to correct mode because ecc=t.");
 			}else if(extendLeft>0 || extendRight>0){
@@ -789,7 +789,7 @@ public abstract class Tadpole extends ShaveObject{
 				if(extendRight==-1){extendRight=100;}
 			}else if(processingMode==correctMode){
 //				extendLeft=extendRight=0;
-				if(!setEcc_){ecc_=true;}
+				if(!setEcc_){ecc_=!markErrors_;}
 			}else if(processingMode==discardMode){
 				extendLeft=extendRight=0;
 				if(!setEcc_){ecc_=false;}
@@ -819,7 +819,14 @@ public abstract class Tadpole extends ShaveObject{
 		
 		/* Set final variables; post-process and validate argument combinations */
 		
+		if(markErrors_){
+			// Marking is an alternative to correction/overlap editing on a read.
+			ecc_=false;
+			ecco_=false;
+			merge_=false;
+		}
 		ecc=ecc_;
+		markErrors=markErrors_;
 		ecco=ecco_;
 		merge=merge_;
 		testMerge=testMerge_;
@@ -1148,9 +1155,18 @@ public abstract class Tadpole extends ShaveObject{
 				outstream.println("Reads discarded:            \t"+readsDiscarded+Tools.format(" \t(%.2f%%)", readsDiscarded*100.0/readsIn));
 				outstream.println("Bases discarded:            \t"+basesDiscarded+Tools.format(" \t(%.2f%%)", basesDiscarded*100.0/basesIn));
 			}
-			if(MARK_BAD_BASES>0){
+			if(MARK_BAD_BASES>0 && !markErrors){
 				outstream.println("Reads marked:               \t"+readsMarked+Tools.format(" \t(%.2f%%)", readsMarked*100.0/readsIn));
 				outstream.println("Bases marked:               \t"+basesMarked+Tools.format(" \t(%.2f%%)", basesMarked*100.0/basesIn));
+			}
+			if(markErrors){
+				outstream.println("Reads marked:               \t"+readsMarked+Tools.format(" \t(%.2f%%)", readsMarked*100.0/readsIn));
+				outstream.println("Bases marked:               \t"+basesMarked+Tools.format(" \t(%.2f%%)", basesMarked*100.0/basesIn));
+				outstream.println("Exact-K runs marked:        \t"+markExactK);
+				outstream.println("Exact-K-minus-one runs:     \t"+markExactKMinus1);
+				outstream.println("Edge runs marked:           \t"+markEdgeRuns);
+				outstream.println("Skipped end runs:            \t"+markSkippedEnd);
+				outstream.println("Skipped merged runs:         \t"+markSkippedMerged);
 			}
 			
 			outstream.println("Extend/error-correct time:  \t"+t);
@@ -1531,7 +1547,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(simpleOmnitigs || graphCover){
 			t.start();
 			final int before=allContigs.size();
-			final SimpleOmnitigExtractor extractor=new SimpleOmnitigExtractor(allContigs, kbig, omniAnchorLen);
+			final SimpleOmnitigExtractor extractor=new SimpleOmnitigExtractor(allContigs, kbig, minContigLen);
 			final ArrayList<Contig> extracted=(graphCover ? extractor.extractNonredundant() : extractor.extract());
 			installExtractedContigs(extracted);
 			outstream.println((graphCover ? "Graph path cover:            \t" : "Simple omnitigs:             \t")+
@@ -2422,6 +2438,11 @@ public abstract class Tadpole extends ShaveObject{
 			basesDetected+=pt.basesDetectedT;
 			readsMarked+=pt.readsMarkedT;
 			basesMarked+=pt.basesMarkedT;
+			markExactK+=pt.markExactKT;
+			markExactKMinus1+=pt.markExactKMinus1T;
+			markEdgeRuns+=pt.markEdgeRunsT;
+			markSkippedEnd+=pt.markSkippedEndT;
+			markSkippedMerged+=pt.markSkippedMergedT;
 			readsDiscarded+=pt.readsDiscardedT;
 			basesDiscarded+=pt.basesDiscardedT;
 
@@ -2801,7 +2822,16 @@ public abstract class Tadpole extends ShaveObject{
 				lowqReadsT++;
 				return;
 			}
-			if(ecc || MARK_BAD_BASES>0){
+			if(markErrors){
+				final MarkErrorStats marked=markErrors(r, kmerList, countList, kmerT, trackerT);
+				if(marked.marked>0){readsMarkedT++;}
+				basesMarkedT+=marked.marked;
+				markExactKT+=marked.exactKRuns;
+				markExactKMinus1T+=marked.exactKMinus1Runs;
+				markEdgeRunsT+=marked.edgeRunsMarked;
+				markSkippedEndT+=marked.skippedEndRuns;
+				markSkippedMergedT+=marked.skippedMergedRuns;
+			}else if(ecc || MARK_BAD_BASES>0){
 				final int corrected=errorCorrect(r, leftCounts, rightCounts, kmerList, countList, countList2, builderT, builderT2, trackerT, bitsetT, kmerT, kmerT2);
 				final int detected=trackerT.detected();
 				final int correctedPincer=trackerT.correctedPincer;
@@ -2924,6 +2954,11 @@ public abstract class Tadpole extends ShaveObject{
 		long basesDetectedT=0;
 		long readsMarkedT=0;
 		long basesMarkedT=0;
+		long markExactKT=0;
+		long markExactKMinus1T=0;
+		long markEdgeRunsT=0;
+		long markSkippedEndT=0;
+		long markSkippedMergedT=0;
 		long readsDiscardedT=0;
 		long basesDiscardedT=0;
 
@@ -3001,6 +3036,33 @@ public abstract class Tadpole extends ShaveObject{
 	/*--------------------------------------------------------------*/
 	/*----------------       Error Correction       ----------------*/
 	/*--------------------------------------------------------------*/
+
+	/** Result of markerrors processing for one read. */
+	static final class MarkErrorStats{
+		int marked;
+		int exactKRuns;
+		int exactKMinus1Runs;
+		int edgeRunsMarked;
+		int skippedEndRuns;
+		int skippedMergedRuns;
+	}
+
+	/** Applies the shared bounded low-count run marker to a Tadpole count profile. */
+	final MarkErrorStats markErrorRuns(final byte[] bases, final byte[] quals, final IntList counts){
+		final ErrorRunMarker.Result result=ErrorRunMarker.mark(bases, quals, counts.array, counts.size, kbig, errorMult1,
+				new ErrorRunMarker.ErrorPredicate(){
+					@Override
+					public boolean isError(final int high, final int low){return Tadpole.this.isError(high, low);}
+				});
+		final MarkErrorStats out=new MarkErrorStats();
+		out.marked=result.marked;
+		out.exactKRuns=result.exactKRuns;
+		out.exactKMinus1Runs=result.exactKMinus1Runs;
+		out.edgeRunsMarked=result.edgeRunsMarked;
+		out.skippedEndRuns=result.skippedEndRuns;
+		out.skippedMergedRuns=result.skippedMergedRuns;
+		return out;
+	}
 	
 	/**
 	 * Counts potential errors in sequence based on k-mer coverage patterns.
@@ -3036,6 +3098,9 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Number of errors corrected
 	 */
 	public abstract int errorCorrect(Read r);
+
+	/** Marks bounded low-count runs without attempting correction. */
+	public abstract MarkErrorStats markErrors(Read r, LongList kmers, IntList counts, Kmer kmer, ErrorTracker tracker);
 	
 	/**
 	 * Performs comprehensive error correction using multiple algorithms and data structures.
@@ -3726,9 +3791,6 @@ public abstract class Tadpole extends ShaveObject{
 		if(resolveRepeats){appendPlanWord(bb, "resolverepeats");}
 		if(simpleOmnitigs){appendPlanWord(bb, "simpleomnitigs");}
 		if(graphCover){appendPlanWord(bb, "graphcover");}
-		if(omniAnchorLen!=(sweepContigLen>0 ? sweepContigLen : minContigLen)){
-			appendPlanWord(bb, "omnianchor="+omniAnchorLen);
-		}
 		if(lowDepthContigDiag){appendPlanWord(bb, "lowdepthcontigdiag");}
 		if(retainShortContigs){appendPlanWord(bb, "retainshortcontigs");}
 		if(evictLowDepthContigs){appendPlanWord(bb, "evictlowdepthcontigs");}
@@ -3822,8 +3884,6 @@ public abstract class Tadpole extends ShaveObject{
 	public int maxContigLen=1000000000;
 	public int minExtension=2;
 	public int minContigLen=500;
-	/** Minimum contig length that anchors graph-cover paths; auto follows sweeplen or mincontig. */
-	public int omniAnchorLen=-1;
 	public float minCoverage=1;
 	public float maxCoverage=Float.MAX_VALUE;
 	public boolean joinContigs;
@@ -3959,6 +4019,11 @@ public abstract class Tadpole extends ShaveObject{
 	long basesDetected=0;
 	long readsMarked=0;
 	long basesMarked=0;
+	long markExactK=0;
+	long markExactKMinus1=0;
+	long markEdgeRuns=0;
+	long markSkippedEnd=0;
+	long markSkippedMerged=0;
 	long readsDiscarded=0;
 	long basesDiscarded=0;
 	
@@ -4146,6 +4211,8 @@ public abstract class Tadpole extends ShaveObject{
 	
 	/** Correct via kmers */
 	final boolean ecc;
+	/** Mark isolated low-count kmer runs instead of correcting them */
+	final boolean markErrors;
 	
 	/** Correct via overlap */
 	final boolean ecco;

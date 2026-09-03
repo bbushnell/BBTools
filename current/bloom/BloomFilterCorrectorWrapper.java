@@ -96,6 +96,7 @@ public class BloomFilterCorrectorWrapper {
 		boolean dualHash_=true;
 		boolean requireBothToPass_=true;
 		boolean ecc_=true;
+		boolean markErrors_=false;
 		boolean ecco_=false;
 		boolean merge_=true;
 		boolean testMerge_=true;
@@ -151,6 +152,8 @@ public class BloomFilterCorrectorWrapper {
 				requireBothToPass_=Parse.parseBoolean(b);
 			}else if(a.equals("ecc")){
 				ecc_=Parse.parseBoolean(b);
+			}else if(a.equals("markerrors")){
+				markErrors_=Parse.parseBoolean(b);
 			}else if(a.equals("ecco")){
 				ecco_=Parse.parseBoolean(b);
 			}else if(a.equals("merge")){
@@ -226,7 +229,7 @@ public class BloomFilterCorrectorWrapper {
 		}
 		
 		while(minCount_>0 && (1L<<bits_)-1<minCount_){bits_*=2;}
-		if(!setBits && ecc_ && bits_<4){bits_=4;}
+		if(!setBits && (ecc_ || markErrors_) && bits_<4){bits_=4;}
 		
 		if(ksmall_<=0){ksmall_=k_;}
 		assert(ksmall_<=k_) : k_+", "+ksmall_;
@@ -259,7 +262,13 @@ public class BloomFilterCorrectorWrapper {
 		minCount=minCount_;
 		rcomp=rcomp_;
 		requireBothToPass=requireBothToPass_;
+		if(markErrors_){
+			ecc_=false;
+			ecco_=false;
+			merge_=false;
+		}
 		ecc=ecc_;
+		markErrors=markErrors_;
 		ecco=ecco_;
 		merge=merge_;
 		testMerge=testMerge_;
@@ -399,7 +408,7 @@ public class BloomFilterCorrectorWrapper {
 			outstream.println(filter.filter.toShortString());
 		}
 		
-		if(ecc){
+		if(ecc || markErrors){
 			corrector.filter=filter;
 		}
 		
@@ -554,6 +563,17 @@ public class BloomFilterCorrectorWrapper {
 						Tools.format(" \t(%.2f%% of detected)", rollbacks*100.0/readsDetected));
 			}
 			
+		}else if(markErrors){
+			outstream.println();
+			outstream.println("Reads marked:               \t"+Tools.padRight(readsMarked, 7)+
+					Tools.format(" \t(%.2f%%)", readsMarked*100.0/readsProcessed));
+			outstream.println("Bases marked:               \t"+Tools.padRight(basesMarked, 7)+
+					Tools.format(" \t(%.2f%%)", basesMarked*100.0/basesProcessed));
+			outstream.println("Exact-K runs marked:        \t"+markExactK);
+			outstream.println("Exact-K-minus-one runs:     \t"+markExactKMinus1);
+			outstream.println("Edge runs marked:           \t"+markEdgeRuns);
+			outstream.println("Skipped end runs:            \t"+markSkippedEnd);
+			outstream.println("Skipped merged runs:         \t"+markSkippedMerged);
 		}
 		
 		MetadataWriter.write(null, readsProcessed, basesProcessed, readsOut, basesOut, false);
@@ -617,6 +637,11 @@ public class BloomFilterCorrectorWrapper {
 			basesDetected+=pt.basesDetectedT;
 			readsMarked+=pt.readsMarkedT;
 			basesMarked+=pt.basesMarkedT;
+			markExactK+=pt.markExactKT;
+			markExactKMinus1+=pt.markExactKMinus1T;
+			markEdgeRuns+=pt.markEdgeRunsT;
+			markSkippedEnd+=pt.markSkippedEndT;
+			markSkippedMerged+=pt.markSkippedMergedT;
 
 			readsMerged+=pt.readsMergedT;
 			readsCorrectedEcco+=pt.readsCorrectedEccoT;
@@ -684,7 +709,7 @@ public class BloomFilterCorrectorWrapper {
 		//Called by start()
 		@Override
 		public void run(){
-			if(ecc){
+			if(ecc || markErrors){
 				corrector.initializeThreadLocals();
 				localTracker=corrector.localTracker.get();
 				kmers=corrector.localLongList.get();
@@ -799,6 +824,9 @@ public class BloomFilterCorrectorWrapper {
 								r2=r2_0;
 							}
 						}
+					}else if(markErrors){
+						markErrors(r1);
+						markErrors(r2);
 					}
 
 					boolean keep=true;
@@ -889,6 +917,19 @@ public class BloomFilterCorrectorWrapper {
 //				}
 			}
 		}
+
+		/** Marks isolated low-count k-mer runs on a single read. */
+		void markErrors(Read r){
+			if(r==null){return;}
+			final BloomFilterCorrector.MarkErrorStats stats=corrector.markErrors(r);
+			if(stats.marked>0){readsMarkedT++;}
+			basesMarkedT+=stats.marked;
+			markExactKT+=stats.exactKRuns;
+			markExactKMinus1T+=stats.exactKMinus1Runs;
+			markEdgeRunsT+=stats.edgeRunsMarked;
+			markSkippedEndT+=stats.skippedEndRuns;
+			markSkippedMergedT+=stats.skippedMergedRuns;
+		}
 		
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
@@ -936,6 +977,11 @@ public class BloomFilterCorrectorWrapper {
 		long readsMarkedT=0;
 		/** Number of bases marked by this thread */
 		long basesMarkedT=0;
+		long markExactKT=0;
+		long markExactKMinus1T=0;
+		long markEdgeRunsT=0;
+		long markSkippedEndT=0;
+		long markSkippedMergedT=0;
 
 		/** Number of read pairs merged by this thread */
 		long readsMergedT=0;
@@ -1025,6 +1071,11 @@ public class BloomFilterCorrectorWrapper {
 	long readsMarked=0;
 	/** Number of bases marked during error detection */
 	long basesMarked=0;
+	long markExactK=0;
+	long markExactKMinus1=0;
+	long markEdgeRuns=0;
+	long markSkippedEnd=0;
+	long markSkippedMerged=0;
 	
 	/** Number of read pairs successfully merged */
 	long readsMerged=0;
@@ -1087,6 +1138,8 @@ public class BloomFilterCorrectorWrapper {
 	final boolean requireBothToPass;
 	/** Enable error correction */
 	final boolean ecc;
+	/** Mark bounded low-count k-mer runs instead of correcting. */
+	final boolean markErrors;
 	/** Enable overlap-based error correction */
 	final boolean ecco;
 	/** Enable read pair merging */

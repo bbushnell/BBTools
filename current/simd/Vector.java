@@ -97,6 +97,69 @@ public final class Vector {
 		return c;
 	}
 
+	/**
+	 * Computes one query dot product against every contiguous row of a matrix.
+	 * The matrix may have padding between rows; only the first {@code q.length}
+	 * values of each row participate.  The SIMD reduction is not bit-identical
+	 * to the scalar sequential summation, and results are not bitwise
+	 * reproducible across JIT states; callers comparing results should use a
+	 * numerical tolerance.
+	 * @param q Query vector.
+	 * @param mat Row-major matrix with row {@code r} starting at {@code r*stride}.
+	 * @param stride Matrix row stride, at least {@code q.length}.
+	 * @param nRows Number of rows to score.
+	 * @param out Destination for one score per row; the first {@code nRows} entries are written.
+	 */
+	public static final void dotRows(final float[] q, final float[] mat, final int stride,
+			final int nRows, final float[] out){
+		assert(q!=null && mat!=null && out!=null);
+		assert(stride>=q.length && stride>0 && nRows>=0 && out.length>=nRows);
+		assert((long)nRows*stride<=mat.length || nRows==0);
+		if(Shared.SIMD && q.length>=MINLEN32){
+			SIMD.dotRows(q, mat, stride, nRows, out);
+			return;
+		}
+		for(int row=0; row<nRows; row++){
+			final int base=row*stride;
+			float sum=0;
+			for(int d=0; d<q.length; d++){sum+=q[d]*mat[base+d];}
+			out[row]=sum;
+		}
+	}
+
+	/**
+	 * Selects the top {@code n} score indices, sorted by score descending and
+	 * then index ascending. NaN scores sort after all non-NaN scores.
+	 * @param scores Scores indexed by family row.
+	 * @param n Number of indices to write.
+	 * @param outIdx Destination with room for at least {@code n} indices.
+	 */
+	public static final void topN(final float[] scores, final int n, final int[] outIdx){
+		if(scores==null || outIdx==null || n<0 || n>scores.length || n>outIdx.length){
+			throw new IllegalArgumentException("Invalid topN arguments: scores="+
+				(scores==null ? -1 : scores.length)+" n="+n+" outIdx="+(outIdx==null ? -1 : outIdx.length));
+		}
+		if(n==0){return;}
+		int size=0;
+		for(int idx=0; idx<scores.length; idx++){
+			if(size==n){
+				final int worst=outIdx[size-1];
+				if(!betterTop(scores[idx], idx, scores[worst], worst)){continue;}
+			}
+			int pos=(size<n ? size : size-1);
+			while(pos>0 && betterTop(scores[idx], idx, scores[outIdx[pos-1]], outIdx[pos-1])){pos--;}
+			if(size<n){size++;}
+			for(int j=size-1; j>pos; j--){outIdx[j]=outIdx[j-1];}
+			outIdx[pos]=idx;
+		}
+	}
+
+	/** True when A belongs ahead of B in the deterministic top-N order. */
+	private static boolean betterTop(final float scoreA, final int indexA, final float scoreB, final int indexB){
+		final boolean nanA=Float.isNaN(scoreA), nanB=Float.isNaN(scoreB);
+		return nanB ? !nanA : (!nanA && (scoreA>scoreB || (scoreA==scoreB && indexA<indexB)));
+	}
+
 	/** 
 	 * Returns "c+=a[i]*b[bSet[i]]".
 	 * @param a A vector to multiply.

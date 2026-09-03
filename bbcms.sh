@@ -115,6 +115,9 @@ tossjunk=f      Remove reads or pairs with outermost kmer depth below 2.
 
 Error correction parameters:
 ecc=t           Perform error correction.
+markerrors=f    Mark bounded low-count kmer runs as N instead of correcting.
+                Requires two high-depth kmers on both sides; exact K and K-1
+                runs are marked, while end/merged runs are reported and skipped.
 bits=           Bits used to store kmer counts; max count is 2^bits-1.
                 Supports 2, 4, 8, 16, or 32.  16 is best for high-depth data;
                 2 or 4 are for huge, low-depth metagenomes that saturate the 

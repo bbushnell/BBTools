@@ -86,6 +86,49 @@ final class SIMD{
 		return c;
 	}
 
+	/**
+	 * Computes dot products against a contiguous row-major matrix. Four rows are
+	 * tiled together so each query vector chunk is loaded once and reused by all
+	 * live row accumulators.
+	 */
+	static final void dotRows(final float[] q, final float[] mat, final int stride,
+			final int nRows, final float[] out){
+		assert(q!=null && mat!=null && out!=null);
+		assert(stride>=q.length && stride>0 && nRows>=0 && out.length>=nRows);
+		assert((long)nRows*stride<=mat.length || nRows==0);
+		final int limit=FSPECIES.loopBound(q.length);
+		final int fullRows=nRows&~3;
+		for(int first=0; first<fullRows; first+=4){
+			FloatVector sum0=FloatVector.zero(FSPECIES), sum1=FloatVector.zero(FSPECIES);
+			FloatVector sum2=FloatVector.zero(FSPECIES), sum3=FloatVector.zero(FSPECIES);
+			for(int d=0; d<limit; d+=FWIDTH){
+				final FloatVector vq=FloatVector.fromArray(FSPECIES, q, d);
+				sum0=vq.fma(FloatVector.fromArray(FSPECIES, mat, first*stride+d), sum0);
+				sum1=vq.fma(FloatVector.fromArray(FSPECIES, mat, (first+1)*stride+d), sum1);
+				sum2=vq.fma(FloatVector.fromArray(FSPECIES, mat, (first+2)*stride+d), sum2);
+				sum3=vq.fma(FloatVector.fromArray(FSPECIES, mat, (first+3)*stride+d), sum3);
+			}
+			out[first]=sum0.reduceLanes(VectorOperators.ADD);
+			out[first+1]=sum1.reduceLanes(VectorOperators.ADD);
+			out[first+2]=sum2.reduceLanes(VectorOperators.ADD);
+			out[first+3]=sum3.reduceLanes(VectorOperators.ADD);
+			for(int row=0; row<4; row++){
+				final int base=(first+row)*stride;
+				for(int tail=limit; tail<q.length; tail++){out[first+row]+=q[tail]*mat[base+tail];}
+			}
+		}
+		for(int row=fullRows; row<nRows; row++){
+			final int base=row*stride;
+			FloatVector sum=FloatVector.zero(FSPECIES);
+			for(int d=0; d<limit; d+=FWIDTH){
+				sum=FloatVector.fromArray(FSPECIES, q, d).fma(
+					FloatVector.fromArray(FSPECIES, mat, base+d), sum);
+			}
+			out[row]=sum.reduceLanes(VectorOperators.ADD);
+			for(int tail=limit; tail<q.length; tail++){out[row]+=q[tail]*mat[base+tail];}
+		}
+	}
+
 	
 	/**
 	 * Vectorized version of "c+=a[i]*b[bSet[i]]" where a and bSet are equal-length arrays, and bSet stores indices of b, in ascending contiguous blocks of 8.
