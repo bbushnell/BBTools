@@ -13,7 +13,7 @@ public class BubblePopperUnitTest {
 
 	public static void main(String[] args){
 		check(!BubblePopper.popIndirect, "Indirect graph cleanup must default off");
-		check(!BubblePopper.unzipBubbles, "True-bubble unzipping must default off");
+		check(BubblePopper.unzipBubbles, "True-bubble unzipping must default on");
 		BubblePopper.verbose=false;
 		BubblePopper.popDirect=true;
 		BubblePopper.popIndirect=true;

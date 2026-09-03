@@ -1359,7 +1359,7 @@ public class BubblePopper {
 	/** Whether depth-gated indirect error-bubble cleanup is enabled */
 	static boolean popIndirect=false;
 	/** Whether isolated two-arm biological bubbles are unzipped into two terminal paths */
-	static boolean unzipBubbles=false;
+	static boolean unzipBubbles=true;
 	/** Whether direct merges join contigs built at a longer kmer length. */
 	static boolean crossKMerge=false;
 	/** Maximum bridge depth divided by the greater flank coverage; nonpositive disables. */

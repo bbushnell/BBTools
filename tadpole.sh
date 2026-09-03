@@ -156,7 +156,7 @@ popbubbles=t        (pop) Pop bubbles; increases contiguity.  Requires
                     additional time and memory and forces processcontigs=t.
 popdirect=t         Merge unambiguous adjacent unitigs.
 popindirect=f       Remove depth-supported error arms from simple bubbles.
-unzipbubbles=f      Linearize isolated true bubbles into both supported paths.
+unzipbubbles=t      Linearize isolated true bubbles into both supported paths.
 resolverepeats=f     Resolve closed 2-by-2 repeat junctions when individual
                     reads span both boundaries and uniquely pair both paths.
                     Experimental; rereads primary input files and cannot use stdin.

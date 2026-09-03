@@ -1139,11 +1139,16 @@ public class Data {
 	/**
 	 * Builds and caches scaffold name lookup table for coordinate translation.
 	 * Maps scaffold names to ScafLoc objects containing chromosome and position.
-	 * Thread-safe with synchronized initialization.
+	 * Thread-safe: the fast-path read below relies on scaffoldNameTable being
+	 * `volatile` (see its declaration) for a real happens-before guarantee,
+	 * AND on this method never publishing the field until it is fully
+	 * populated (built in a local variable first) — either alone is
+	 * insufficient; both together are the fix (2026-09-02, real bug found
+	 * via bbmapnova Phase 0 testing, see the plan for the full writeup).
 	 * @return HashMap mapping scaffold names to genomic locations
 	 */
 	public static HashMap<String, ScafLoc> scafNameTable(){
-		
+
 		if(GENOME_BUILD<0){
 			assert(scaffoldNameTable==null);
 			return null;
@@ -1151,7 +1156,7 @@ public class Data {
 		if(scaffoldNameTable!=null){return scaffoldNameTable;}
 		synchronized(SCAFMAPLOCK){
 			if(scaffoldNameTable!=null){return scaffoldNameTable;}
-			scaffoldNameTable=new HashMap<String, ScafLoc>((int)Tools.min(2L*numScaffolds+10, 1000000000));
+			HashMap<String, ScafLoc> local=new HashMap<String, ScafLoc>((int)Tools.min(2L*numScaffolds+10, 1000000000));
 			for(int chrom=0; chrom<scaffoldNames.length; chrom++){
 				if(scaffoldNames[chrom]!=null){
 					for(int scafnum=0; scafnum<scaffoldNames[chrom].length; scafnum++){
@@ -1159,11 +1164,12 @@ public class Data {
 						if(name!=null){
 							int loc=scaffoldLocs[chrom][scafnum];
 							ScafLoc sc=new ScafLoc(new String(name), chrom, loc);
-							scaffoldNameTable.put(sc.name, sc);
+							local.put(sc.name, sc);
 						}
 					}
 				}
 			}
+			scaffoldNameTable=local; //Published only now that it is fully populated, into a volatile field.
 		}
 		return scaffoldNameTable;
 	}
@@ -1414,8 +1420,17 @@ public class Data {
 	/** Should be true if scaffold names have extra prefixes (for BBSplitter mode), false otherwise */
 	public static boolean scaffoldPrefixes;
 	
-	/** Allows translation of sam coordinates back to native coordinates */
-	public static HashMap<String, ScafLoc> scaffoldNameTable;
+	/** Allows translation of sam coordinates back to native coordinates.
+	 * volatile is required, not optional (2026-09-02, real bug found via
+	 * bbmapnova Phase 0 testing): scafNameTable() below publishes this
+	 * field via double-checked locking with an unsynchronized fast-path
+	 * read; without volatile, that read has no happens-before guarantee
+	 * against the write, and a racing thread can observe a non-null but
+	 * not-yet-fully-populated map. Reproduced for real (SamStreamer
+	 * workers, "Can't find scaffold in reference with name ..." on an
+	 * entry that genuinely exists) before this fix. See
+	 * /mnt/c/playground/Nowi/plans/BBMapUpgrade.plan for the full writeup. */
+	public static volatile HashMap<String, ScafLoc> scaffoldNameTable;
 	
 	public static String genomeSource;
 	public static String name;
