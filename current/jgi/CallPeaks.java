@@ -52,9 +52,14 @@ public class CallPeaks {
 	 * @param args Command-line arguments containing parameters and file paths
 	 */
 	public CallPeaks(String[] args){
+		this(args, true);
+	}
+
+	/** Constructs a peak caller, optionally suppressing the command-line invocation banner. */
+	private CallPeaks(String[] args, final boolean printInvocation){
 		
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, outstream, printClass ? getClass() : null, false);
+			PreParser pp=new PreParser(args, outstream, printInvocation && printClass ? getClass() : null, false);
 			args=pp.args;
 			outstream=pp.outstream;
 		}
@@ -209,6 +214,25 @@ public class CallPeaks {
 		ArrayList<Peak> peaks=cp.callPeaks(array, gcArray, array.length);
 		cp.printPeaks(peaks, k, simd.Vector.sum(array), array, gcArray);
 		return cp.errorState;
+	}
+
+	/** Returns the center of the largest-volume called peak without writing a report. */
+	public static int mainPeak(final long[] array, final int minPeak, final int maxPeak, final int k,
+			final boolean logScale, final double logWidth){
+		if(array==null || array.length<2){return 0;}
+		final ArrayList<String> args=new ArrayList<String>();
+		args.add("minpeak="+minPeak);
+		args.add("maxpeak="+maxPeak);
+		args.add("maxpeaks=12");
+		args.add("k="+k);
+		args.add("logscale="+logScale);
+		args.add("logwidth="+logWidth);
+		final CallPeaks cp=new CallPeaks(args.toArray(new String[0]), false);
+		final ArrayList<Peak> peaks=cp.callPeaks(array, null, array.length);
+		if(peaks.isEmpty()){return 0;}
+		Peak main=peaks.get(0);
+		for(Peak p : peaks){if(p.volume>main.volume){main=p;}}
+		return main.center;
 	}
 	
 	/*--------------------------------------------------------------*/

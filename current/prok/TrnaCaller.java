@@ -1388,8 +1388,10 @@ public class TrnaCaller extends ProkObject {
 	 * @param net5Path Net for START (5') moves. Always loaded.
 	 * @param net3Path Net for STOP (3') moves. If null or equal to net5Path, REUSES the
 	 *   already-loaded net5 object instead of loading it again -- the backward-compatible
-	 *   single-shared-net configuration (CallGenes' trnaboundarynet= sets both paths equal). */
-	static synchronized void loadBoundaryNet(String net5Path, String net3Path, String startTablePath, String stopTablePath){
+	 *   single-shared-net configuration (CallGenes' trnaboundarynet= sets both paths equal).
+	 * Public (Brian, 2026-09-02) so out-of-package in-process callers (MAG-QC's prot.FastaInCacheRowBuilder,
+	 * which must mirror CallGenes' default boundary-net load exactly) can call it directly instead of via reflection. */
+	public static synchronized void loadBoundaryNet(String net5Path, String net3Path, String startTablePath, String stopTablePath){
 		final ml.CellNet net5=TrnaBoundaryScorer.load(net5Path);
 		final ml.CellNet net3=(net3Path==null || net3Path.equals(net5Path)) ? net5 : TrnaBoundaryScorer.load(net3Path);
 		//Cross-boundary-enrichment dims are AUTO-DETECTED from the net's own declared input
