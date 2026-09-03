@@ -251,6 +251,8 @@ public abstract class Tadpole extends ShaveObject{
 				else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
 			}else if(a.equalsIgnoreCase("sweepLen") || a.equalsIgnoreCase("graphSweepLen")){
 				sweepContigLen=Parse.parseIntKMG(b);
+			}else if(a.equalsIgnoreCase("omniAnchor")){
+				omniAnchorLen=(b==null || b.equalsIgnoreCase("auto") ? -1 : Parse.parseIntKMG(b));
 			}else if(a.equalsIgnoreCase("evictLowDepthContigs") || a.equalsIgnoreCase("removeLowDepthContigs") || a.equals("ldce")){
 				evictLowDepthContigs=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("classifyGraphContigs") || a.equalsIgnoreCase("classifyContigs") || a.equalsIgnoreCase("graphClassify")){
@@ -687,6 +689,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(evictGraphDepthMask<0 || evictGraphDepthMask>15){throw new RuntimeException("Invalid graph eviction depth mask.");}
 		if(evictGraphTopologyMask<0 || evictGraphTopologyMask>255){throw new RuntimeException("Invalid graph eviction topology mask.");}
 		if(sweepContigLen<0){throw new RuntimeException("sweeplen must be nonnegative.");}
+		if(omniAnchorLen==0 || omniAnchorLen< -1){throw new RuntimeException("omnianchor must be positive or auto.");}
 		if(emitConnectedMax==0 || emitConnectedMax< -1){throw new RuntimeException("emitConnectedMax must be positive or all.");}
 		if(evictConnectedAbove==0 || evictConnectedAbove< -1){throw new RuntimeException("evictConnectedAbove must be positive or none.");}
 		if(simpleOmnitigs && graphCover){
@@ -742,6 +745,7 @@ public abstract class Tadpole extends ShaveObject{
 			trimEnds=kbig/2;
 		}
 		if(minContigLen<0){minContigLen=500;}
+		if(omniAnchorLen<0){omniAnchorLen=(sweepContigLen>0 ? sweepContigLen : minContigLen);}
 		
 		if(verbose){
 			BubblePopper.verbose=true;
@@ -1527,7 +1531,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(simpleOmnitigs || graphCover){
 			t.start();
 			final int before=allContigs.size();
-			final SimpleOmnitigExtractor extractor=new SimpleOmnitigExtractor(allContigs, kbig, minContigLen);
+			final SimpleOmnitigExtractor extractor=new SimpleOmnitigExtractor(allContigs, kbig, omniAnchorLen);
 			final ArrayList<Contig> extracted=(graphCover ? extractor.extractNonredundant() : extractor.extract());
 			installExtractedContigs(extracted);
 			outstream.println((graphCover ? "Graph path cover:            \t" : "Simple omnitigs:             \t")+
@@ -3722,6 +3726,9 @@ public abstract class Tadpole extends ShaveObject{
 		if(resolveRepeats){appendPlanWord(bb, "resolverepeats");}
 		if(simpleOmnitigs){appendPlanWord(bb, "simpleomnitigs");}
 		if(graphCover){appendPlanWord(bb, "graphcover");}
+		if(omniAnchorLen!=(sweepContigLen>0 ? sweepContigLen : minContigLen)){
+			appendPlanWord(bb, "omnianchor="+omniAnchorLen);
+		}
 		if(lowDepthContigDiag){appendPlanWord(bb, "lowdepthcontigdiag");}
 		if(retainShortContigs){appendPlanWord(bb, "retainshortcontigs");}
 		if(evictLowDepthContigs){appendPlanWord(bb, "evictlowdepthcontigs");}
@@ -3815,6 +3822,8 @@ public abstract class Tadpole extends ShaveObject{
 	public int maxContigLen=1000000000;
 	public int minExtension=2;
 	public int minContigLen=500;
+	/** Minimum contig length that anchors graph-cover paths; auto follows sweeplen or mincontig. */
+	public int omniAnchorLen=-1;
 	public float minCoverage=1;
 	public float maxCoverage=Float.MAX_VALUE;
 	public boolean joinContigs;

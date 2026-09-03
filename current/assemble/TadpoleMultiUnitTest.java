@@ -22,6 +22,7 @@ public class TadpoleMultiUnitTest {
 		failures+=run("graphClassificationOptions", TadpoleMultiUnitTest::graphClassificationOptions);
 		failures+=run("logicalGraphClasses", TadpoleMultiUnitTest::logicalGraphClasses);
 		failures+=run("sweepLengthDefaultsAndDisable", TadpoleMultiUnitTest::sweepLengthDefaultsAndDisable);
+		failures+=run("omniAnchorPassesToFinalGraph", TadpoleMultiUnitTest::omniAnchorPassesToFinalGraph);
 		failures+=run("explicitBlanketControl", TadpoleMultiUnitTest::explicitBlanketControl);
 		failures+=run("hashBridgeSelection", TadpoleMultiUnitTest::hashBridgeSelection);
 		failures+=run("dispatcherDetectsListsAndPhaseFlags", TadpoleMultiUnitTest::dispatcherDetectsListsAndPhaseFlags);
@@ -197,6 +198,12 @@ public class TadpoleMultiUnitTest {
 		final String[] bridgeArgs=new TadpoleMulti(normal).makeArgs(normal.assembleK, false);
 		check(contains(longestArgs, "sweeplen=0"), "Initial multi-k assembly enabled graph sweep");
 		check(contains(bridgeArgs, "sweeplen=0"), "Intermediate bridge phase enabled graph sweep");
+	}
+
+	private static void omniAnchorPassesToFinalGraph(){
+		final TadpoleMulti.Config c=config("k=63,95", "graphcover=t", "omnianchor=124");
+		final String[] args=new TadpoleMulti(c).makeArgs(c.assembleK, true);
+		check(contains(args, "omnianchor=124"), "Explicit omnianchor was not passed to Tadpole.");
 	}
 
 	private static void explicitBlanketControl(){

@@ -142,6 +142,9 @@ sweeplen=500         Remove selected short artifact contigs before graph
                     terminal contigs at low or semilow depth.  Set to 0 to
                     disable this automatic pre-graph sweep.  Explicit
                     evictgraphclass/evictgraphdepth controls remain available.
+omnianchor=auto      (omnianchor) Minimum contig length that anchors graph-cover
+                    paths and permits X-fan products.  Auto follows sweeplen when
+                    enabled, otherwise mincontig; it does not change final output.
 mincoverage=1       (mincov) Do not write contigs with average coverage below this.
 maxcoverage=inf     (maxcov) Do not write contigs with average coverage above this.
 trimends=0          (trim) Trim contig ends by this much.  Trimming by K/2 

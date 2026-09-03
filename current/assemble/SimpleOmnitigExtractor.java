@@ -24,10 +24,10 @@ class SimpleOmnitigExtractor {
 		this(contigs_, k_, 1);
 	}
 
-	SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_, int minOutputLen_){
+	SimpleOmnitigExtractor(ArrayList<Contig> contigs_, int k_, int minAnchorLen_){
 		contigs=contigs_;
 		k=k_;
-		minOutputLen=minOutputLen_;
+		minAnchorLen=minAnchorLen_;
 		covered=new boolean[Math.multiplyExact(2, contigs.size())];
 		visitStamp=new int[covered.length];
 	}
@@ -170,15 +170,15 @@ class SimpleOmnitigExtractor {
 
 	/** Both X-fan products must contain sequence that was independently output-worthy. */
 	private boolean fanHasOutputAnchor(final int center, final int a, final int b){
-		return contigs.get(center).length()>=minOutputLen
-				|| (contigs.get(a).length()>=minOutputLen && contigs.get(b).length()>=minOutputLen);
+		return contigs.get(center).length()>=minAnchorLen
+				|| (contigs.get(a).length()>=minAnchorLen && contigs.get(b).length()>=minAnchorLen);
 	}
 
 	/** Prevents joins among short graph debris from promoting it across the output threshold. */
 	private void discardUnanchoredPaths(final Edge[] selectedOut, final DisjointSet sets){
 		final boolean[] anchored=new boolean[contigs.size()];
 		for(Contig c : contigs){
-			if(c.length()>=minOutputLen){anchored[sets.find(c.id)]=true;}
+			if(c.length()>=minAnchorLen){anchored[sets.find(c.id)]=true;}
 		}
 		int discardedArcs=0;
 		for(int state=0; state<selectedOut.length; state++){
@@ -694,7 +694,7 @@ class SimpleOmnitigExtractor {
 	long xNetBases(){return xNetBases;}
 
 	private final ArrayList<Contig> contigs;
-	private final int k, minOutputLen;
+	private final int k, minAnchorLen;
 	private final boolean[] covered;
 	private final int[] visitStamp;
 	private final IntList states=new IntList();
