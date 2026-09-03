@@ -2,13 +2,15 @@
 
 usage(){
 echo "
-Written by Neptune and Brian Bushnell
-Last modified August 17, 2026
+Written by Neptune, Sayu, and Brian Bushnell
+Last modified September 2, 2026
 
 Description:  Greedy set-cover kmer selection for tRNA (or any short-gene)
 covering sets.  Iteratively selects the most prevalent kmers from a pool
 of sequences, evicts covered sequences, and repeats until a coverage
-target or kmer budget is reached.
+target or kmer budget is reached.  Also runs on amino-acid sequences in
+the full or a reduced alphabet (alphabet=, key=), and on many protein
+families at once (families=), one covering set per family.
 
 Two-tier ranking: each round selects the top 2*step kmers by current count
 on the remaining pool, re-sorts by original prevalence (pre-eviction),
@@ -26,6 +28,36 @@ rcomp=f         Canonicalize kmers: build the forward kmer and its reverse
                 complement in the same rolling pass and count/select/match
                 only the canonical (max) form, so a motif and its reverse
                 complement are treated as one kmer instead of two.
+
+Alphabet parameters (protein mode; default is nucleotide):
+alphabet=nt     nt (default; 2-bit, rcomp allowed), amino (the 20 amino
+                acids, 5-bit), or an explicit symbol list such as
+                alphabet=ACDFGHIW (one class per letter).  Residues outside
+                the alphabet (X, B, Z, *, gaps) reset the rolling kmer.
+key=            Translation key applied on the fly (no re-encoded FASTA):
+                slash-separated groups, e.g. key=AST/C/DEKNQR/FY/GP/H/ILMV/W
+                (each group collapses to its first letter), or a preset
+                name: legacy (amino8), c6, c7, c8, c9, c12, c14, mi7.
+                Output kmers are written in the class letters.
+
+Family-batch parameters (protein mode):
+families=       A directory of per-family protein FASTAs (family id = file
+                name without .faa/.fa/.fasta[.gz]) or a manifest TSV of
+                family_id<TAB>path.  One covering set per family, all in one
+                JVM (families in parallel).  Requires summary=.
+summary=<file>  Per-family summary TSV: members, excluded, selected kmers,
+                rounds, coverage, uncovered.  out= then receives the sets
+                TSV (family_id, kmer, selection_rank, original_count, round)
+                with #alphabet/#key/#k header lines.
+exclude=<file>  Member ids (column 1) removed from every family pool before
+                selection, e.g. a held-out query set.
+minhits=1       Evict a sequence only once it contains this many DISTINCT
+                selected kmers (minhits=2 guarantees two independent seeds
+                per covered member; kdesign=k+1 is the cheaper alternative
+                but its two kmers overlap).
+maxfamilies=0   If >0, a kmer present in more than this many families' pools
+                is ineligible for selection (cross-family specificity).
+commit=         Free-text provenance written to the output headers.
 
 Kmer parameters:
 k=17            Kmer length for selection and output.

@@ -1,8 +1,19 @@
 package prok;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.PrintStream;
+import java.io.PrintWriter;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -16,6 +27,7 @@ import map.LongIntMap;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import prot.ReducedAlphabet;
 import shared.KillSwitch;
 import shared.Shared;
 import shared.Timer;
@@ -47,10 +59,48 @@ import structures.ListNum;
 public class CoveringSet {
 
 	public static void main(String[] args){
+		if(args.length==1 && args[0].equalsIgnoreCase("selftest")){
+			selftest();
+			return;
+		}
 		Timer t=new Timer();
 		CoveringSet x=new CoveringSet(args);
 		x.process(t);
 		Shared.closeStream(x.outstream);
+	}
+
+	/** Small paper-checkable regression for the protein/family path. */
+	private static void selftest(){
+		try{
+			final java.nio.file.Path dir=java.nio.file.Files.createTempDirectory("covering-set-selftest.");
+			final java.nio.file.Path families=java.nio.file.Files.createDirectory(dir.resolve("families"));
+			final java.nio.file.Path a=families.resolve("A.faa"), b=families.resolve("B.faa");
+			final java.nio.file.Path exclude=dir.resolve("exclude.tsv");
+			java.nio.file.Files.write(a, ">a1\nACDEFG\n>a2\nACDEFW\n>a3\nWWWWAC\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+			java.nio.file.Files.write(b, ">b1\nACDEFG\n>b2\nHHHHAC\n>b3\nGGGGGG\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+			java.nio.file.Files.write(exclude, "#id\taction\na2\tholdout\n".getBytes(java.nio.charset.StandardCharsets.US_ASCII));
+			final java.nio.file.Path aaOut=dir.resolve("aa20.sets.tsv"), aaSummary=dir.resolve("aa20.summary.tsv");
+			new CoveringSet(new String[]{"families="+families, "out="+aaOut, "summary="+aaSummary,
+				"alphabet=amino", "k=2", "step=1", "target=1.0", "minhits=2", "t=1"}).process(new Timer());
+			final java.nio.file.Path c8Out=dir.resolve("c8.sets.tsv"), c8Summary=dir.resolve("c8.summary.tsv");
+			new CoveringSet(new String[]{"families="+families, "out="+c8Out, "summary="+c8Summary,
+				"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "exclude="+exclude,
+				"maxfamilies=1", "k=2", "step=1", "target=1.0", "minhits=2", "t=1"}).process(new Timer());
+			final java.nio.file.Path c8T32Out=dir.resolve("c8.t32.sets.tsv"), c8T32Summary=dir.resolve("c8.t32.summary.tsv");
+			new CoveringSet(new String[]{"families="+families, "out="+c8T32Out, "summary="+c8T32Summary,
+				"alphabet=ACDFGHIW", "key=AST/C/DEKNQR/FY/GP/H/ILMV/W", "exclude="+exclude,
+				"maxfamilies=1", "k=2", "step=1", "target=1.0", "minhits=2", "t=32"}).process(new Timer());
+			final String aa=new String(java.nio.file.Files.readAllBytes(aaOut), java.nio.charset.StandardCharsets.US_ASCII);
+			final String c8=new String(java.nio.file.Files.readAllBytes(c8Out), java.nio.charset.StandardCharsets.US_ASCII);
+			final String sum=new String(java.nio.file.Files.readAllBytes(c8Summary), java.nio.charset.StandardCharsets.US_ASCII);
+			final String c8T32=new String(java.nio.file.Files.readAllBytes(c8T32Out), java.nio.charset.StandardCharsets.US_ASCII);
+			final String sumT32=new String(java.nio.file.Files.readAllBytes(c8T32Summary), java.nio.charset.StandardCharsets.US_ASCII);
+			if(!aa.contains("#columns\tfamily_id\tkmer") || !c8.contains("#columns\tfamily_id\tkmer")){throw new RuntimeException("missing covering-set output schema");}
+			if(!sum.contains("A\t3\t1\t") || !sum.contains("B\t3\t0\t")){throw new RuntimeException("exclude/member accounting failed");}
+			if(!c8.contains("#cross_family_candidates_removed\t")){throw new RuntimeException("maxfamilies accounting missing");}
+			if(!c8.equals(c8T32) || !sum.equals(sumT32)){throw new RuntimeException("t=1 and t=32 outputs differ");}
+			System.out.println("PASS CoveringSet selftest: aa20+c8, six-sequence pool, exclude, minhits=2, maxfamilies=1, deterministic t=1/32");
+		} catch(Exception e){throw new RuntimeException("CoveringSet selftest failed", e);}
 	}
 
 	public CoveringSet(String[] args){
@@ -98,6 +148,22 @@ public class CoveringSet {
 				copies=Integer.parseInt(b);
 			}else if(a.equals("rcomp")){
 				rcomp=Parse.parseBoolean(b);
+			}else if(a.equals("alphabet")){
+				alphabetSpec=b;
+			}else if(a.equals("key")){
+				keySpec=b;
+			}else if(a.equals("minhits")){
+				minHits=Integer.parseInt(b);
+			}else if(a.equals("families") || a.equals("familydir")){
+				families=b;
+			}else if(a.equals("exclude")){
+				exclude=b;
+			}else if(a.equals("summary")){
+				summary=b;
+			}else if(a.equals("maxfamilies")){
+				maxFamilies=Integer.parseInt(b);
+			}else if(a.equals("bbtools_commit") || a.equals("commit")){
+				bbtoolsCommit=b;
 			}else if(a.equals("partitions") || a.equals("numpartitions")){
 				numPartitions=Integer.parseInt(b);
 			}else if(a.equals("bufsize") || a.equals("partitionbuffer")){
@@ -112,13 +178,31 @@ public class CoveringSet {
 
 		in=parser.in1;
 		out=parser.out1;
-		if(in==null){throw new RuntimeException("Error - an input file is required.");}
+		if(families==null && in==null){throw new RuntimeException("Error - an input file is required.");}
 		if(out==null){throw new RuntimeException("Error - an output file is required.");}
+		if(families!=null && summary==null){throw new RuntimeException("families= requires summary=");}
+		if(families!=null && out.equals(summary)){throw new IllegalArgumentException("out= and summary= must be different files");}
+		if(keySpec!=null && (alphabetSpec==null || alphabetSpec.equalsIgnoreCase("nt"))){
+			throw new IllegalArgumentException("key= requires an amino alphabet");
+		}
+		if(minHits<1){throw new IllegalArgumentException("minhits must be >=1: "+minHits);}
+		if(maxFamilies<0){throw new IllegalArgumentException("maxfamilies must be >=0: "+maxFamilies);}
+		if(alphabetSpec==null || alphabetSpec.equalsIgnoreCase("nt")){
+			proteinMode=false;
+		}else{
+			reducedAlphabet=ReducedAlphabet.parse(alphabetSpec, keySpec);
+			proteinMode=true;
+			if(rcomp){throw new IllegalArgumentException("rcomp is valid only for alphabet=nt");}
+		}
+		if(families!=null && !proteinMode){throw new IllegalArgumentException("families= requires an amino alphabet");}
 
 		if(kDesign<0){kDesign=k;}
-		assert(kDesign>=k) : "kdesign must be >= k";
-		assert(k>0 && k<=31) : "k must be 1..31";
-		assert(kDesign<=31) : "kdesign must be <= 31";
+		if(k<1 || k>31){throw new IllegalArgumentException("k must be 1..31: "+k);}
+		if(kDesign<k || kDesign>31){throw new IllegalArgumentException("kdesign must be in [k,31]: "+kDesign);}
+		if(proteinMode && (long)kDesign*reducedAlphabet.bits()>62){
+			throw new IllegalArgumentException("Packed k-mer exceeds 62 bits: k="+kDesign+
+				" bits="+reducedAlphabet.bits()+" alphabet="+reducedAlphabet.symbols());
+		}
 		if(step<1){throw new IllegalArgumentException("step must be positive: "+step);}
 		if(stepFraction<0 || stepFraction>1){
 			throw new IllegalArgumentException("stepfraction must be in [0,1]: "+stepFraction);
@@ -129,8 +213,8 @@ public class CoveringSet {
 		}
 
 		overwrite=parser.overwrite;
-		ffin=FileFormat.testInput(in, FileFormat.FASTA, null, true, true);
-		ffout=FileFormat.testOutput(out, FileFormat.FASTA, null, true, overwrite, false, false);
+		ffin=(in==null ? null : FileFormat.testInput(in, FileFormat.FASTA, null, true, true));
+		ffout=(families!=null ? null : FileFormat.testOutput(out, FileFormat.FASTA, null, true, overwrite, false, false));
 	}
 
 	/*--------------------------------------------------------------*/
@@ -138,6 +222,14 @@ public class CoveringSet {
 	/*--------------------------------------------------------------*/
 
 	void process(Timer t){
+		if(families!=null){processFamilies(t); return;}
+		if(proteinMode){processSingleProtein(t); return;}
+		processNucleotide(t);
+	}
+
+	/** Original nucleotide implementation.  This branch is intentionally kept
+	 * separate so alphabet extensions cannot perturb the accepted nt bytes. */
+	private void processNucleotide(Timer t){
 		ArrayList<byte[]> pool=loadPool();
 		final int totalSeqs=pool.size();
 		//numPartitions unset (<=0) means "scale with available threads" -- resolved
@@ -259,6 +351,343 @@ public class CoveringSet {
 		if(errorState){
 			throw new RuntimeException(getClass().getName()+" terminated in an error state.");
 		}
+	}
+
+	/** Single-pool arbitrary-alphabet mode.  The historical nt mode above remains
+	 * the byte-preserving implementation; this path is intentionally simpler and
+	 * uses the same deterministic greedy ordering as the family mode. */
+	private void processSingleProtein(Timer t){
+		final ProteinLoad loaded=loadProteinMembers(in, Collections.<String>emptySet(), "single");
+		final FamilyPool pool=new FamilyPool("single", loaded.members, in, hashFile(new File(in)), loaded.totalMembers);
+		final FamilyResult result=selectFamily(pool, null);
+		final PrintWriter pw=openTextOutput(out);
+		for(OutputKmer row : result.output){pw.println(">kmer_"+row.rank); pw.println(row.text);}
+		pw.close();
+		outstream.println("Selected "+result.output.size()+" protein kmers, coverage="+result.coverage);
+		t.stop(); outstream.println("Time:   "+t);
+	}
+
+	/** Processes all family pools in one JVM.  Pools are loaded before workers
+	 * start so malformed input fails loudly and global family-frequency limits are
+	 * computed over exactly the held-out input set. */
+	private void processFamilies(Timer t){
+		final Set<String> excluded=loadExclude(exclude);
+		final ArrayList<FamilyInput> inputs=loadFamilyInputs(families);
+		final ArrayList<FamilyPool> pools=new ArrayList<FamilyPool>(inputs.size());
+		final LongIntMap familyFrequency=new LongIntMap(1024);
+		for(FamilyInput input : inputs){
+			final ProteinLoad loaded=loadProteinMembers(input.path, excluded, input.family);
+			final ArrayList<ProteinMember> members=loaded.members;
+			if(members.isEmpty()){throw new RuntimeException("Family has no non-excluded members: "+input.family);}
+			final FamilyPool pool=new FamilyPool(input.family, members, input.path, input.sha256, loaded.totalMembers);
+			pools.add(pool);
+			final LongHashSet seen=new LongHashSet(1024);
+			for(ProteinMember member : members){for(long kmer : kmers(member.bases, kDesign)){seen.add(kmer);}}
+			if(seen.isEmpty()){throw new RuntimeException("Family has 0 valid kmers: "+input.family);}
+			for(long kmer : seen.toArray()){familyFrequency.increment(kmer);}
+		}
+		final int workers=Tools.max(1, Tools.min(Shared.threads(), pools.size()));
+		final ExecutorService familyExec=Executors.newFixedThreadPool(workers);
+		final ArrayList<Future<FamilyResult>> futures=new ArrayList<Future<FamilyResult>>(pools.size());
+		for(final FamilyPool pool : pools){
+			futures.add(familyExec.submit(new Callable<FamilyResult>(){
+				@Override public FamilyResult call(){return selectFamily(pool, familyFrequency);}
+			}));
+		}
+		final ArrayList<FamilyResult> results=new ArrayList<FamilyResult>(pools.size());
+		try{
+			for(Future<FamilyResult> future : futures){
+				try{results.add(future.get());}
+				catch(Exception e){throw new RuntimeException("Family covering-set worker failed", e);}
+			}
+		}finally{familyExec.shutdown();}
+		Collections.sort(results, new Comparator<FamilyResult>(){
+			@Override public int compare(FamilyResult a, FamilyResult b){return a.family.compareTo(b.family);}
+		});
+		writeFamilyOutputs(results);
+		t.stop(); outstream.println("Processed "+results.size()+" families in one JVM; Time:   "+t);
+	}
+
+	private FamilyResult selectFamily(final FamilyPool pool, final LongIntMap familyFrequency){
+		final int design=kDesign, use=k;
+		final int bits=reducedAlphabet.bits();
+		if((long)design*bits>62){throw new RuntimeException("Packed k-mer exceeds 62 bits: k="+design+" bits="+bits+" alphabet="+reducedAlphabet.symbols());}
+		final long[][] memberKmers=new long[pool.members.size()][];
+		final long[][] memberUniqueKmers=new long[pool.members.size()][];
+		final LongIntMap original=new LongIntMap(Math.max(16, pool.members.size()*4));
+		int memberIndex=0;
+		for(ProteinMember member : pool.members){
+			final long[] words=kmers(member.bases, design);
+			memberKmers[memberIndex]=words;
+			final LongHashSet unique=new LongHashSet(Math.max(16, words.length*2));
+			for(long word : words){original.increment(word); unique.add(word);}
+			memberUniqueKmers[memberIndex]=unique.toArray();
+			memberIndex++;
+		}
+		if(original.isEmpty()){throw new RuntimeException("Family has 0 valid kmers: "+pool.family);}
+		final boolean[] alive=new boolean[pool.members.size()]; Arrays.fill(alive, true);
+		final LongHashSet selected=new LongHashSet(Math.max(16, original.size()*2));
+		final ArrayList<Selection> selections=new ArrayList<Selection>();
+		final LongHashSet rejectedBySpecificity=new LongHashSet(1024);
+		int aliveCount=alive.length, rounds=0, currentStep=step;
+		while(aliveCount>0 && (maxKmers<=0 || selections.size()<maxKmers)){
+			final float coverage=1f-aliveCount/(float)alive.length;
+			if(coverage>=minCovFraction){break;}
+			final LongIntMap current=new LongIntMap(Math.max(16, original.size()));
+			for(int i=0; i<memberKmers.length; i++){
+				if(!alive[i]){continue;}
+				for(long word : memberKmers[i]){current.increment(word);}
+			}
+			if(current.isEmpty()){break;}
+			final int candidateLimit=Tools.min(current.size(), Tools.min(Integer.MAX_VALUE/2, 2*currentStep));
+			final TopKHeap currentHeap=new TopKHeap(candidateLimit);
+			final long[] currentKeys=current.keys(); final int[] currentValues=current.values();
+			final long currentInvalid=current.invalid();
+			for(int cell=0; cell<currentKeys.length; cell++){
+				if(currentKeys[cell]!=currentInvalid){currentHeap.add(currentKeys[cell], currentValues[cell], currentKeys[cell]);}
+			}
+			final long[] candidates=currentHeap.keysDescending();
+			final TopKHeap originalHeap=new TopKHeap(Tools.min(currentStep, candidates.length));
+			for(long candidate : candidates){originalHeap.add(candidate, original.get(candidate), candidate);}
+			final long[] rankedCandidates=originalHeap.keysDescending();
+			int added=0;
+			for(long word : rankedCandidates){
+				if(selected.contains(word)){continue;}
+				if(maxFamilies>0 && familyFrequency!=null && familyFrequency.get(word)>maxFamilies){
+					rejectedBySpecificity.add(word); continue;
+				}
+				selected.add(word); selections.add(new Selection(word, original.get(word), rounds+1));
+				if(++added>=currentStep || (maxKmers>0 && selections.size()>=maxKmers)){break;}
+			}
+			if(added==0){break;}
+			int evicted=0;
+			for(int i=0; i<memberKmers.length; i++){
+				if(!alive[i]){continue;}
+				int hits=0;
+				for(long word : memberUniqueKmers[i]){if(selected.contains(word) && ++hits>=minHits){break;}}
+				if(hits>=minHits){alive[i]=false; evicted++;}
+			}
+			aliveCount-=evicted; rounds++;
+				if(evicted==0 && selected.size()>=current.size()){break;}
+		}
+		final ArrayList<OutputKmer> output=new ArrayList<OutputKmer>();
+		final LongHashSet emitted=new LongHashSet(Math.max(16, selections.size()*2));
+		int rank=0;
+		for(Selection selection : selections){
+			final long[] words=useWords(selection.word, design, use);
+			for(long word : words){
+				if(emitted.add(word)){output.add(new OutputKmer(wordToString(word, use), ++rank, selection.originalCount, selection.round));}
+			}
+		}
+		final int excluded=pool.totalMembers-pool.members.size();
+		return new FamilyResult(pool.family, pool.path, pool.inputHash, pool.totalMembers, excluded, output, selections.size(), rounds,
+			1f-aliveCount/(float)alive.length, aliveCount, rejectedBySpecificity.size());
+	}
+
+	private long[] useWords(final long designWord, final int design, final int use){
+		final int bits=reducedAlphabet.bits(), useBits=use*bits;
+		final long mask=(1L<<useBits)-1;
+		final long[] out=new long[design-use+1];
+		for(int i=0; i<out.length; i++){out[i]=(designWord>>(bits*i))&mask;}
+		return out;
+	}
+
+	private long[] kmers(final byte[] bases, final int length){
+		final int bits=reducedAlphabet.bits();
+		if((long)length*bits>62){throw new RuntimeException("Packed k-mer exceeds 62 bits: k="+length+" bits="+bits);}
+		final long mask=(1L<<(length*bits))-1;
+		final LongList out=new LongList(); long word=0; int valid=0;
+		for(byte residue : bases){
+			final int code=reducedAlphabet.code(residue);
+			if(code<0){word=0; valid=0; continue;}
+			word=((word<<bits)|code)&mask;
+			if(++valid>=length){out.add(word);}
+		}
+		return out.toArray();
+	}
+
+	private String wordToString(long word, final int length){
+		final int bits=reducedAlphabet.bits(); final long mask=(1L<<bits)-1;
+		final char[] out=new char[length];
+		for(int i=length-1; i>=0; i--){out[i]=reducedAlphabet.symbol((int)(word&mask)); word>>>=bits;}
+		return new String(out);
+	}
+
+	private ArrayList<FamilyInput> loadFamilyInputs(final String path){
+		final ArrayList<FamilyInput> out=new ArrayList<FamilyInput>();
+		final File f=new File(path);
+		if(f.isDirectory()){
+			final File[] files=f.listFiles();
+			if(files==null){throw new RuntimeException("Cannot read families directory: "+path);}
+			Arrays.sort(files, new Comparator<File>(){@Override public int compare(File a, File b){return a.getName().compareTo(b.getName());}});
+			for(File child : files){
+				if(isProteinFile(child.getName())){
+					out.add(new FamilyInput(familyId(child.getName()), child.getPath(), hashFile(child)));
+				}
+			}
+		}else{
+			try{
+				final BufferedReader br=new BufferedReader(new FileReader(f));
+				String line;
+				while((line=br.readLine())!=null){
+					if(line.length()==0 || line.charAt(0)=='#'){continue;}
+					final String[] fields=line.split("\\t", -1);
+					if(fields.length!=2){throw new RuntimeException("Malformed family manifest row: "+line);}
+					File familyFile=new File(fields[1]);
+					if(!familyFile.isAbsolute() && f.getParentFile()!=null){familyFile=new File(f.getParentFile(), fields[1]);}
+					out.add(new FamilyInput(fields[0], familyFile.getPath(), hashFile(familyFile)));
+				}
+				br.close();
+			}catch(RuntimeException e){throw e;
+			}catch(Exception e){throw new RuntimeException("Could not read family manifest: "+path, e);}
+		}
+		if(out.isEmpty()){throw new RuntimeException("No family FASTA inputs found: "+path);}
+		final HashSet<String> seen=new HashSet<String>();
+		for(FamilyInput input : out){
+			//A family id is a TSV field and a FASTA-derived name: it may contain '|' (BBTools tid|...| headers, e.g. the mag-qc
+			//family rep ids) and any other printable byte; it must not be empty, contain whitespace (tab is the field
+			//separator), or start with '#' (a comment line to every consumer). UMP45 2026-09-02: the previous
+			//[A-Za-z0-9._-]+ check rejected every real rep id (jobs 25489956-59).
+			if(input.family.isEmpty() || input.family.charAt(0)=='#' || input.family.matches(".*\\s.*")){
+				throw new RuntimeException("Unsafe family id (empty, leading '#', or whitespace): '"+input.family+"'");
+			}
+			if(!seen.add(input.family)){throw new RuntimeException("Duplicate family id: "+input.family);}
+		}
+		return out;
+	}
+
+	private static boolean isProteinFile(final String name){
+		final String n=name.toLowerCase();
+		return n.endsWith(".faa") || n.endsWith(".faa.gz") || n.endsWith(".fa") || n.endsWith(".fa.gz") ||
+			n.endsWith(".fasta") || n.endsWith(".fasta.gz");
+	}
+
+	private static String familyId(String name){
+		final String n=name.replaceFirst("\\.gz$", "");
+		return n.replaceFirst("\\.(faa|fa|fasta)$", "");
+	}
+
+	private Set<String> loadExclude(final String path){
+		final HashSet<String> out=new HashSet<String>();
+		if(path==null){return out;}
+		try{
+			final BufferedReader br=new BufferedReader(new FileReader(path));
+			String line;
+			while((line=br.readLine())!=null){
+				if(line.length()==0 || line.charAt(0)=='#'){continue;}
+				final int tab=line.indexOf('\t');
+				final String id=(tab<0 ? line : line.substring(0, tab));
+				if(id.length()>0 && !out.add(id)){throw new RuntimeException("Duplicate exclude id: "+id);}
+			}
+			br.close();
+		}catch(RuntimeException e){throw e;
+		}catch(Exception e){throw new RuntimeException("Could not read exclude file: "+path, e);}
+		return out;
+	}
+
+	private ProteinLoad loadProteinMembers(final String path, final Set<String> excluded, final String family){
+		final File file=new File(path);
+		final File source=resolveSource(file);
+		final FileFormat ff=FileFormat.testInput(source.getPath(), FileFormat.FASTA, null, true, true);
+		final Streamer streamer=StreamerFactory.makeStreamer(ff, 0, true, -1);
+		final ArrayList<ProteinMember> out=new ArrayList<ProteinMember>();
+		final HashSet<String> ids=new HashSet<String>();
+		int total=0;
+		streamer.start();
+		for(ListNum<Read> ln=streamer.nextList(); ln!=null; ln=streamer.nextList()){
+			for(Read read : ln){
+				if(read.bases==null || read.bases.length==0){continue;}
+				total++;
+				final String id=firstToken(read.id);
+				if(!ids.add(id)){throw new RuntimeException("Duplicate member id in family "+family+": "+id);}
+				Tools.toUpperCase(read.bases);
+				if(!excluded.contains(id)){out.add(new ProteinMember(id, read.bases));}
+			}
+		}
+		streamer.close();
+		if(streamer.errorState()){throw new RuntimeException("Unreadable family FASTA: "+family+" ["+path+"]");}
+		if(total==0){throw new RuntimeException("FASTA contains no non-empty sequences: "+family+" ["+path+"]");}
+		return new ProteinLoad(out, total);
+	}
+
+	private static String firstToken(final String id){
+		int end=id.length();
+		for(int i=0; i<id.length(); i++){if(Character.isWhitespace(id.charAt(i))){end=i; break;}}
+		return id.substring(0, end);
+	}
+
+	private PrintWriter openTextOutput(final String path){
+		try{
+			final File f=new File(path); final File parent=f.getParentFile();
+			if(parent!=null){parent.mkdirs();}
+			if(f.exists() && !overwrite){throw new RuntimeException("Output exists and overwrite=f: "+path);}
+			return new PrintWriter(new FileOutputStream(f));
+		}catch(Exception e){throw new RuntimeException("Could not open output: "+path, e);}
+	}
+
+	private void writeFamilyOutputs(final ArrayList<FamilyResult> results){
+		final PrintWriter sets=openTextOutput(out);
+		sets.println("#schema_version\t1");
+		sets.println("#kind\tcovering_set");
+		sets.println("#bbtools_commit\t"+bbtoolsCommit);
+		sets.println("#alphabet\t"+reducedAlphabet.symbols());
+		sets.println("#key\t"+(keySpec==null ? "none" : keySpec));
+		sets.println("#k\t"+k+"\tkdesign\t"+kDesign+"\tminhits\t"+minHits+"\tmaxfamilies\t"+maxFamilies);
+		sets.println("#columns\tfamily_id\tkmer\tselection_rank\toriginal_count\tround");
+		long removed=0;
+		for(FamilyResult result : results){
+			removed+=result.specificityRemoved;
+			for(OutputKmer row : result.output){sets.println(result.family+'\t'+row.text+'\t'+row.rank+'\t'+row.originalCount+'\t'+row.round);}
+		}
+		sets.println("#cross_family_candidates_removed\t"+removed);
+		sets.close();
+
+		final PrintWriter sums=openTextOutput(summary);
+		sums.println("#schema_version\t1");
+		sums.println("#kind\tcovering_set_summary");
+		sums.println("#bbtools_commit\t"+bbtoolsCommit);
+		sums.println("#alphabet\t"+reducedAlphabet.symbols());
+		sums.println("#key\t"+(keySpec==null ? "none" : keySpec));
+		sums.println("#k\t"+k+"\tkdesign\t"+kDesign+"\tminhits\t"+minHits+"\tmaxfamilies\t"+maxFamilies);
+		sums.println("#input\tfamily_id\tpath\tsha256");
+		for(FamilyResult result : results){sums.println("#input\t"+result.family+'\t'+result.path+'\t'+result.inputHash);}
+		sums.println("#cross_family_candidates_removed\t"+removed);
+		sums.println("#columns\tfamily_id\tmembers\texcluded\tselected_kmers\trounds\tcoverage\tuncovered");
+		for(FamilyResult result : results){
+			sums.println(result.family+'\t'+result.members+'\t'+result.excluded+'\t'+result.selectedKmers+'\t'+result.rounds+'\t'+
+				String.format(java.util.Locale.ROOT, "%.6f", result.coverage)+'\t'+result.uncovered);
+		}
+		sums.close();
+	}
+
+	private static String hashFile(final File file){
+		try{
+			final File source=resolveSource(file);
+			final MessageDigest digest=MessageDigest.getInstance("SHA-256");
+			final FileInputStream in=new FileInputStream(source); final byte[] buffer=new byte[1<<16];
+			for(int n=in.read(buffer); n>=0; n=in.read(buffer)){if(n>0){digest.update(buffer, 0, n);}}
+			in.close(); final StringBuilder sb=new StringBuilder(64);
+			for(byte b : digest.digest()){sb.append(String.format("%02x", b&255));}
+			return sb.toString();
+		}catch(RuntimeException e){throw e;
+		}catch(Exception e){throw new RuntimeException("Could not hash input: "+file, e);}
+	}
+
+	/** Resolves a regular file or a symlink chain to its final regular target. */
+	private static File resolveSource(final File file){
+		try{
+			final java.nio.file.Path path=file.toPath();
+			if(!java.nio.file.Files.isSymbolicLink(path)){
+				if(!java.nio.file.Files.isRegularFile(path)){throw new RuntimeException("Input is not a regular file: "+file);}
+				return file;
+			}
+			final java.nio.file.Path target=path.toRealPath();
+			if(!java.nio.file.Files.isRegularFile(target)){
+				throw new RuntimeException("Symlink target is not a regular file: "+file+" -> "+target);
+			}
+			return target.toFile();
+		}catch(RuntimeException e){throw e;
+		}catch(Exception e){throw new RuntimeException("Unreadable symlink input: "+file, e);}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -764,6 +1193,14 @@ public class CoveringSet {
 	private String in;
 	private String out;
 	private String extra;
+	private String families;
+	private String exclude;
+	private String summary;
+	private String alphabetSpec;
+	private String keySpec;
+	private String bbtoolsCommit="unknown";
+	private ReducedAlphabet reducedAlphabet;
+	private boolean proteinMode=false;
 	private final FileFormat ffin;
 	private final FileFormat ffout;
 	private boolean overwrite=true;
@@ -779,6 +1216,8 @@ public class CoveringSet {
 	private double maxStepMult=2;
 	private double step2Boost=1;
 	private int maxKmers=0;
+	private int minHits=1;
+	private int maxFamilies=0;
 	private float minCovFraction=0.999f;
 	private int copies=10;
 	private boolean rcomp=false;
@@ -794,4 +1233,40 @@ public class CoveringSet {
 
 	private PrintStream outstream=System.err;
 	private static boolean verbose=false;
+
+	private static final class FamilyInput {
+		FamilyInput(String family_, String path_, String sha256_){family=family_; path=path_; sha256=sha256_;}
+		final String family, path, sha256;
+	}
+	private static final class ProteinMember {
+		ProteinMember(String id_, byte[] bases_){id=id_; bases=bases_;}
+		final String id; final byte[] bases;
+	}
+	private static final class ProteinLoad {
+		ProteinLoad(ArrayList<ProteinMember> members_, int total_){members=members_; totalMembers=total_;}
+		final ArrayList<ProteinMember> members; final int totalMembers;
+	}
+	private static final class FamilyPool {
+		FamilyPool(String family_, ArrayList<ProteinMember> members_, String path_, String hash_, int total_){
+			family=family_; members=members_; path=path_; inputHash=hash_; totalMembers=total_;
+		}
+		final String family, path, inputHash; final ArrayList<ProteinMember> members; final int totalMembers;
+	}
+	private static final class Selection {
+		Selection(long word_, int originalCount_, int round_){word=word_; originalCount=originalCount_; round=round_;}
+		final long word; final int originalCount, round;
+	}
+	private static final class OutputKmer {
+		OutputKmer(String text_, int rank_, int originalCount_, int round_){text=text_; rank=rank_; originalCount=originalCount_; round=round_;}
+		final String text; final int rank, originalCount, round;
+	}
+	private static final class FamilyResult {
+		FamilyResult(String family_, String path_, String hash_, int members_, int excluded_, ArrayList<OutputKmer> output_,
+				int selectedKmers_, int rounds_, float coverage_, int uncovered_, int specificityRemoved_){
+			family=family_; path=path_; inputHash=hash_; members=members_; excluded=excluded_; output=output_;
+			selectedKmers=selectedKmers_; rounds=rounds_; coverage=coverage_; uncovered=uncovered_; specificityRemoved=specificityRemoved_;
+		}
+		final String family, path, inputHash; final int members, excluded, selectedKmers, rounds, uncovered, specificityRemoved;
+		final float coverage; final ArrayList<OutputKmer> output;
+	}
 }
