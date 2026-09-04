@@ -233,13 +233,13 @@ public class WriterFactory {
 		}else if(ffout.header()){
 			return new FastqWriterST2(ffout, writeR1, writeR2);
 		}else if(ffout.bam() && ReadWrite.nativeBamOut()){
-			return new BamWriter(ffout, threads, header, useSharedHeader);
+			return new BamWriter(ffout, threads, header, useSharedHeader, writeR1, writeR2);
 		}else if(ffout.samOrBam()){
 			threads=(threads<0 ? SamWriter.DEFAULT_THREADS : threads);
 			if(threads>1 && Shared.threads()>=8 && !Shared.LOW_MEMORY) {
-				return new SamWriter(ffout, threads, header, useSharedHeader);
+				return new SamWriter(ffout, threads, header, useSharedHeader, writeR1, writeR2);
 			}else {
-				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5);
+				return new SamWriterST2(ffout, header, useSharedHeader, threads>0, 5, writeR1, writeR2);
 			}
 		}else if(ffout.scarf()){
 			threads=(threads<0 ? FastqWriter.DEFAULT_THREADS : threads);

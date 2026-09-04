@@ -25,7 +25,7 @@ public class SamWriterST2 implements Writer {
 
 	/** Constructor using default configuration. */
 	public SamWriterST2(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_){
-		this(ffout_, header_, useSharedHeader_, false, 3);
+		this(ffout_, header_, useSharedHeader_, false, 3, true, true);
 	}
 	
 	/**
@@ -36,13 +36,21 @@ public class SamWriterST2 implements Writer {
 	 * @param threaded_ If true, a separate thread handles writing (Producer-Consumer)
 	 * @param queueCapacity_ Size of the JobQueue buffer
 	 */
-	public SamWriterST2(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_, 
+	public SamWriterST2(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_,
 			boolean threaded_, int queueCapacity_){
+		this(ffout_, header_, useSharedHeader_, threaded_, queueCapacity_, true, true);
+	}
+
+	/** Full constructor with mate selection for separate paired output files. */
+	public SamWriterST2(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_,
+			boolean threaded_, int queueCapacity_, boolean writeR1_, boolean writeR2_){
 		
 		ffout=ffout_;
 		fname=ffout.name();
 		header=header_;
 		useSharedHeader=useSharedHeader_;
+		writeR1=writeR1_;
+		writeR2=writeR2_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 		
@@ -126,6 +134,17 @@ public class SamWriterST2 implements Writer {
 		poison();
 		return waitForFinish();
 	}
+
+	/** Force-finish without draining the queue or joining the writer thread. */
+	@Override
+	public synchronized void finishError(){
+		errorState=true;
+		if(queue!=null){
+			poisoned=true;
+			queue.poison(new ListNum<SamLine>(null, queue.maxSeen()+1, ListNum.POISON), true);
+		}
+		closed=true;
+	}
 	
 	@Override
 	public final synchronized boolean waitForFinish(){
@@ -150,7 +169,7 @@ public class SamWriterST2 implements Writer {
 	@Override
 	public final void addReads(ListNum<Read> reads){
 		if(reads==null){return;}
-		ArrayList<SamLine> lines=toSamLines(reads.list);
+		ArrayList<SamLine> lines=toSamLines(reads.list, writeR1, writeR2);
 		addLines(new ListNum<SamLine>(lines, reads.id));
 	}
 
@@ -264,6 +283,10 @@ public class SamWriterST2 implements Writer {
 
 	// (toSamLines and addSamLine methods remain unchanged)
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
+		return toSamLines(reads, true, true);
+	}
+
+	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads, boolean writeR1, boolean writeR2) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 		for(final Read r1 : reads){
 			if(r1==null) {continue;}
@@ -274,8 +297,8 @@ public class SamWriterST2 implements Writer {
 				sl2.qname=sl1.qname;
 			}
 			assert(sl1!=null) : r1;
-			addSamLine(r1, sl1, samLines);
-			addSamLine(r2, sl2, samLines);
+			if(writeR1){addSamLine(r1, sl1, samLines);}
+			if(writeR2){addSamLine(r2, sl2, samLines);}
 		}
 		return samLines;
 	}
@@ -362,6 +385,10 @@ public class SamWriterST2 implements Writer {
 	private long readsWritten=0;
 	private long basesWritten=0;
 	private boolean errorState=false;
+	/** Write R1 records (pairnum 0). */
+	private final boolean writeR1;
+	/** Write R2 records (pairnum 1). */
+	private final boolean writeR2;
 	private boolean started=false;
 	private boolean closed=false;
 	private boolean poisoned=false;

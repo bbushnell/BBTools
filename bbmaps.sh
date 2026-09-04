@@ -2,20 +2,17 @@
 
 usage(){
 echo "
-BBMapS — EXPERIMENTAL Streamer/Writer-based BBMap (bbmapnova Phase 1)
-First slice: t=1 plumbing only. RouteWriter/BBSplitterInvoker are still
-NoOp placeholders, so no real SAM/FASTQ output is written yet — this is a
-smoke-test driver for the dispatcher/worker/coordinator lifecycle, not a
-replacement for bbmap.sh. See align2/BBMapS.java and
-/mnt/c/playground/Nowi/plans/BBMapUpgrade_Phase1_CoordinatorDesign_Nowi.md.
+BBMapS — Streamer/Writer-based BBMap (bbmapnova).
+Functionally equivalent to bbmap.sh: same alignment engine (BBMapThread/
+AbstractMapThread, unchanged), same flag surface, same output. The only
+difference is internal I/O plumbing — worker threads call stream.Streamer/
+stream.Writer directly instead of the classic ConcurrentReadInputStream/
+ConcurrentReadOutputStream pair. See align2/BBMapS.java.
 
-Usage:  bbmaps.sh ref=<fasta> in=<reads> out=<sam> t=1
+Usage:  bbmaps.sh ref=<fasta> in=<reads> out=<sam> t=32
 
-Same flag surface as bbmap.sh where implemented (build=, in=, in2=, ref=,
-t=, out= — out= is accepted but not yet honored: NoOp writers discard it).
-Run bbmap.sh -h for the full flag reference; unimplemented flags here are
-silently inherited from AbstractMapper's parser but most have no effect
-until Yaoyao's real RouteWriter/BBSplitterInvoker land.
+Same flag surface as bbmap.sh (build=, in=, in2=, ref=, t=, out=, etc.).
+Run bbmap.sh -h for the full flag reference.
 "
 }
 

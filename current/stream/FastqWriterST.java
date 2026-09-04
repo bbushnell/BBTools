@@ -13,7 +13,12 @@ import structures.ListNum;
 /**
  * Single-threaded FASTQ writer with simple buffering.
  * Simpler alternative to FastqWriter for cases where threading overhead isn't worth it.
- * 
+ * NOT returned by WriterFactory -- construct directly only for a genuinely single-producer
+ * caller. UNLIKE SamWriterST/FastaQualWriterZT, addReads() here is NOT synchronized: the
+ * readsWritten/basesWritten counters are incremented without any lock, so concurrent producer
+ * calls can race and lose updates. Not suitable for multiple producer threads under any
+ * circumstance -- see addReads()'s own TODO.
+ *
  * @author Isla
  * @date November 10, 2025
  */
@@ -128,11 +133,24 @@ public class FastqWriterST implements Writer {
 	
 	@Override
 	public synchronized boolean poisonAndWait(){
-		if(poisoned)
-		poison();
+		//TODO: Probable bug - "if(poisoned) poison();" looks backwards (only re-poisons when
+		//ALREADY poisoned). Harmless today since poison() just sets a boolean idempotently, but
+		//not fixed here since it's outside this change's scope (found 2026-09-03 while adding
+		//finishError()).
+		if(poisoned){poison();}
 		return waitForFinish();
 	}
-	
+
+	/** Genuinely single-threaded (Writer.finishError() javadoc): every write already happened
+	 * synchronously on the caller's own thread before returning, so there is no background
+	 * backlog to abandon and nothing that can hang. Same as poisonAndWait(), plus marking the
+	 * error explicitly since this path exists because something ELSE failed. */
+	@Override
+	public synchronized void finishError(){
+		errorState=true;
+		poisonAndWait();
+	}
+
 	@Override
 	public boolean errorState(){return errorState;}
 	

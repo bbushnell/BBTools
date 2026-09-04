@@ -134,6 +134,15 @@ public class FastaQualWriterST implements Writer {
 		poison();
 		return waitForFinish();
 	}
+
+	/** Force-finish without draining the queue or joining the writer thread. */
+	@Override
+	public synchronized void finishError(){
+		errorState=true;
+		poisoned=true;
+		queue.poison(new ListNum<Read>(null, queue.maxSeen()+1, ListNum.POISON), true);
+		closed=true;
+	}
 	
 	private boolean setError(boolean b) {
 		if(b && !errorState) {

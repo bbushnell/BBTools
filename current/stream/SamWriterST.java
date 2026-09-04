@@ -13,7 +13,12 @@ import structures.ListNum;
 /**
  * Single-threaded SAM writer with simple buffering.
  * Simpler alternative to SamLineWriter for cases where threading overhead isn't worth it.
- * 
+ * NOT returned by WriterFactory -- construct directly only when a genuinely single-producer
+ * context is intended. addReads() is synchronized (safe from data corruption/races under
+ * concurrent calls) but has NO id-based reordering -- concurrent producers submitting batches
+ * out of arrival order will be WRITTEN in lock-acquisition order, not ascending id order. Safe
+ * for multiple producers only if the caller already guarantees in-order submission.
+ *
  * @author Isla
  * @date November 10, 2025
  */
@@ -25,10 +30,18 @@ public class SamWriterST implements Writer {
 
 	/** Constructor. */
 	public SamWriterST(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_){
+		this(ffout_, header_, useSharedHeader_, true, true);
+	}
+
+	/** Constructor with mate selection for separate paired output files. */
+	public SamWriterST(FileFormat ffout_, ArrayList<byte[]> header_, boolean useSharedHeader_,
+			boolean writeR1_, boolean writeR2_){
 		ffout=ffout_;
 		fname=ffout.name();
 		header=header_;
 		useSharedHeader=useSharedHeader_;
+		writeR1=writeR1_;
+		writeR2=writeR2_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 		
@@ -56,7 +69,7 @@ public class SamWriterST implements Writer {
 	@Override
 	public final void addReads(ListNum<Read> reads){
 		if(reads==null){return;}
-		ArrayList<SamLine> lines=toSamLines(reads.list);
+		ArrayList<SamLine> lines=toSamLines(reads.list, writeR1, writeR2);
 		writeLines(lines);
 	}
 
@@ -118,6 +131,16 @@ public class SamWriterST implements Writer {
 		return waitForFinish();
 	}
 
+	/** Genuinely single-threaded (Writer.finishError() javadoc): every write already happened
+	 * synchronously on the caller's own thread before returning, so there is no background
+	 * backlog to abandon and nothing that can hang. Same as poisonAndWait(), plus marking the
+	 * error explicitly since this path exists because something ELSE failed. */
+	@Override
+	public final synchronized void finishError(){
+		errorState=true;
+		poisonAndWait();
+	}
+
 	@Override
 	public long readsWritten(){return readsWritten;}
 
@@ -129,6 +152,10 @@ public class SamWriterST implements Writer {
 	/*--------------------------------------------------------------*/
 
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
+		return toSamLines(reads, true, true);
+	}
+
+	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads, boolean writeR1, boolean writeR2) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
@@ -145,8 +172,8 @@ public class SamWriterST implements Writer {
 				sl2.qname=sl1.qname;
 			}
 			assert(sl1!=null) : r1;
-			addSamLine(r1, sl1, samLines);
-			addSamLine(r2, sl2, samLines);
+			if(writeR1){addSamLine(r1, sl1, samLines);}
+			if(writeR2){addSamLine(r2, sl2, samLines);}
 		}
 		return samLines;
 	}
@@ -256,6 +283,10 @@ public class SamWriterST implements Writer {
 	private long basesWritten=0;
 	/** Were any errors encountered */
 	private boolean errorState=false;
+	/** Write R1 records (pairnum 0). */
+	private final boolean writeR1;
+	/** Write R2 records (pairnum 1). */
+	private final boolean writeR2;
 	/** True after start() called */
 	private boolean started=false;
 	/** True after poison() called */

@@ -83,7 +83,17 @@ public class PairedWriter implements Writer {
 		poison();
 		return waitForFinish();
 	}
-	
+
+	/** Delegates to both children. Neither call blocks on the other -- each child's own
+	 * finishError() is independently non-blocking per the Writer contract, so calling both
+	 * sequentially here is still overall non-blocking (bounded by two fast calls, not by
+	 * either child's backlog). */
+	@Override
+	public void finishError(){
+		w1.finishError();
+		w2.finishError();
+	}
+
 	@Override
 	public boolean errorState(){return w1.errorState() || w2.errorState();}
 	

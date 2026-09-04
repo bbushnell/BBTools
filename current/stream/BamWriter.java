@@ -34,11 +34,19 @@ public class BamWriter implements Writer {
 	/** Constructor. */
 	public BamWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
+		this(ffout_, threads_, header_, useSharedHeader_, true, true);
+	}
+
+	/** Constructor with mate selection for separate paired output files. */
+	public BamWriter(FileFormat ffout_, int threads_,
+		ArrayList<byte[]> header_, boolean useSharedHeader_, boolean writeR1_, boolean writeR2_){
 		ffout=ffout_;
 		fname=ffout.name();
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		header=header_;
 		useSharedHeader=useSharedHeader_;
+		writeR1=writeR1_;
+		writeR2=writeR2_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 
@@ -91,6 +99,17 @@ public class BamWriter implements Writer {
 	public final boolean poisonAndWait(){
 		poison();
 		return waitForFinish();
+	}
+
+	/** Force-finish from an external pipeline failure without waiting for output. */
+	@Override
+	public synchronized void finishError(){
+		//Workers may be parked in getConverter() on this monitor rather than in
+		//OQS2; wake them using the same header-failure condition as failHeader().
+		headerFailed=true;
+		setErrorState(true);
+		this.notifyAll();
+		oqs.setFinished(true);
 	}
 
 	@Override
@@ -192,14 +211,18 @@ public class BamWriter implements Writer {
 				try{this.wait();}
 				catch(InterruptedException e){e.printStackTrace();}
 			}
-			if(sharedConverter==null){//header write failed -> abort this worker loudly (it has not taken an input job yet, so no ordered gap)
-				throw new RuntimeException("BAM header write failed; aborting worker thread.");
+			if(sharedConverter==null){//initialization failed or an external finishError() woke this worker before conversion setup
+				throw new RuntimeException("BAM writer initialization did not complete; aborting worker thread.");
 			}
 			return (SamToBamConverter)sharedConverter.clone();
 		}
 	}
 	
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
+		return toSamLines(reads, true, true);
+	}
+
+	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads, boolean writeR1, boolean writeR2) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
@@ -216,8 +239,8 @@ public class BamWriter implements Writer {
 				sl2.qname=sl1.qname;
 			}
 			assert(sl1!=null) : r1;
-			addSamLine(r1, sl1, samLines);
-			addSamLine(r2, sl2, samLines);
+			if(writeR1){addSamLine(r1, sl1, samLines);}
+			if(writeR2){addSamLine(r2, sl2, samLines);}
 		}
 		return samLines;
 	}
@@ -436,7 +459,7 @@ public class BamWriter implements Writer {
 				if(job.lines!=null){
 					lines=job.lines.list;
 				}else{
-					lines=toSamLines(job.reads.list);
+					lines=toSamLines(job.reads.list, writeR1, writeR2);
 				}
 
 				//Format SamLines to BAM bytes and count
@@ -525,6 +548,10 @@ public class BamWriter implements Writer {
 	public long basesWritten=0;
 	/** Were any errors encountered */
 	private boolean errorState=false;
+	/** Write R1 records (pairnum 0). */
+	private final boolean writeR1;
+	/** Write R2 records (pairnum 1). */
+	private final boolean writeR2;
 	/** True if writeHeader() failed; releases getConverter() waiters to a loud abort instead of a permanent hang [#001]. */
 	private volatile boolean headerFailed=false;
 

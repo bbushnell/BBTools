@@ -34,9 +34,17 @@ public interface Streamer {
 	
 	public void setSampleRate(float rate, long seed);
 
-	/** 
+	/**
 	 * Returns next ordered batch of reads, or null when exhausted.
-	 * Blocks if data not yet ready. Thread-safe for single consumer.
+	 * Blocks if data not yet ready. Thread-safe for a single consumer, and
+	 * also safe for multiple concurrent consumer threads calling this
+	 * directly (each call atomically claims the next available batch) --
+	 * verified 2026-09-04 across every implementation reachable via
+	 * StreamerFactory: host-driven classes synchronize the whole read+advance
+	 * step, and worker-thread classes hand off through a thread-safe queue
+	 * whose terminal/poison marker is re-injected so every concurrent caller
+	 * sees end-of-stream, not just the first. See template/A_SampleStreamerMT.java
+	 * for the intended multi-consumer usage pattern.
 	 */
 	public ListNum<Read> nextList();
 	

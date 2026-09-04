@@ -14,7 +14,11 @@ import structures.ListNum;
 /**
  * Single-threaded Writer for Fasta + Quality files.
  * Writes two files in lockstep: .fa (bases) and .qual (quality scores).
- * NOT ORDERED.
+ * NOT ORDERED. NOT returned by WriterFactory -- construct directly only for a genuinely
+ * single-producer context. writeReads() is synchronized (safe from data corruption/races under
+ * concurrent calls) but has NO id-based reordering -- concurrent producers submitting out of
+ * arrival order will be WRITTEN in lock-acquisition order, matching the class's own "NOT
+ * ORDERED" contract, not ascending id order.
  * @author Collei, Brian Bushnell
  * @date November 21, 2025
  */
@@ -178,7 +182,18 @@ public class FastaQualWriterZT implements Writer {
 		poison();
 		return waitForFinish();
 	}
-	
+
+	/** Genuinely single-threaded (Writer.finishError() javadoc): every write already happened
+	 * synchronously on the caller's own thread before returning ("no producer to strand", per
+	 * this class's own write() comment), so there is no background backlog to abandon and
+	 * nothing that can hang. Same as poisonAndWait(), plus marking the error explicitly since
+	 * this path exists because something ELSE failed. */
+	@Override
+	public synchronized void finishError(){
+		setError(true);
+		poisonAndWait();
+	}
+
 	private boolean setError(boolean b) {
 		if(b && !errorState) {
 			new RuntimeException("Triggered error state. this="+toString()).printStackTrace(outstream);

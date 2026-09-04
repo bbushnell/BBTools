@@ -171,6 +171,13 @@ public class FastqWriter implements Writer {
 		poison();
 		return waitForFinish();
 	}
+
+	/** Force-finish from an external pipeline failure without waiting for output. */
+	@Override
+	public synchronized void finishError(){
+		errorState=true;
+		oqs.setFinished(true);
+	}
 	
 	@Override
 	public boolean errorState(){return errorState;}

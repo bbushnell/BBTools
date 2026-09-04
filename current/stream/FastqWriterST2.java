@@ -130,6 +130,17 @@ public class FastqWriterST2 implements Writer{
 		poison();
 		return waitForFinish();
 	}
+
+	/** Force-finish without draining the queue or joining the writer thread. */
+	@Override
+	public synchronized void finishError(){
+		errorState=true;
+		if(queue!=null){
+			poisoned=true;
+			queue.poison(new ListNum<Read>(null, queue.maxSeen()+1, ListNum.POISON), true);
+		}
+		finished=true;
+	}
 	
 	@Override
 	public final void add(ArrayList<Read> list, long id){addReads(new ListNum<Read>(list, id));}

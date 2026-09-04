@@ -1,79 +1,78 @@
 package align2;
 
+import java.io.File;
 import java.util.ArrayList;
-import java.util.TreeMap;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import bloom.BloomFilter;
 import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
+import jgi.CoveragePileup;
 import shared.Shared;
 import shared.Timer;
 import shared.Tools;
-import stream.ConcurrentReadOutputStream;
+import shared.TrimRead;
+import stream.FastaReadInputStream;
 import stream.Read;
+import stream.Streamer;
+import stream.StreamerFactory;
+import stream.Writer;
+import stream.WriterFactory;
 import stream.ReadStreamWriter;
+import stream.SamLine;
 import structures.ListNum;
+import structures.LongList;
+import template.Accumulator;
+import template.ThreadWaiter;
+import tracker.ReadStats;
 
 /**
- * BBMapS — Streamer/Writer-based entry point for BBMap, Phase 1 of the
- * bbmapnova upgrade project. Implemented ALONGSIDE align2.BBMap/bbmap.sh,
- * which are never edited (project ground rule). Extends AbstractMapper to
- * reuse its argument parsing, setup(), and loadIndex() unchanged — only
- * this class's testSpeed() override uses the new dispatcher/worker-pool/
- * coordinator architecture instead of BBMap's old N-threads-each-touch-cris
- * pattern.
+ * Main BBMap alignment engine for mapping short reads to reference genomes.
+ * Provides high-speed k-mer based alignment with configurable sensitivity modes.
+ * Supports single and paired-end reads with comprehensive output format options.
  *
- * Design: /mnt/c/playground/Nowi/plans/BBMapUpgrade_Phase1_CoordinatorDesign_Nowi.java
- * Ownership split (Yaoyao's call, 2026-09-02): Nowi owns everything in
- * this file (dispatcher, MapJob/MapResult lifecycle, worker-pool,
- * coordinator's ordering/ID-bookkeeping state machine, shutdown protocol).
- * Yaoyao owns the concrete RouteWriter/BBSplitterInvoker implementations
- * (writer-side adapters) — NOT YET WRITTEN, placeholder stubs below are
- * clearly marked and must not be mistaken for real implementations.
- *
- * §7 DECIDED (Brian, 2026-09-02): ordering is always enabled. No
- * unordered fast-path in Phase 1 — see the design doc for the mitigation
- * note (bigger buffer, not reintroducing unordered output, if this causes
- * a measurable speed regression).
- *
- * FIRST SLICE ONLY (per design §9): t=1. With exactly one worker, results
- * complete in submission order, so the coordinator's out-of-order
- * reassembly buffer never actually engages — this validates the basic
- * plumbing (dispatcher/worker/coordinator wiring, MapJob/MapResult
- * lifecycle, id bookkeeping) in isolation from the harder concurrent-
- * reordering logic, which only manifests at t>1. t>1 is NOT yet
- * implemented/tested against this file.
- *
- * @author Nowi
- * @date 2026-09-02
+ * @author Brian Bushnell
+ * @date Dec 22, 2012
  */
-public final class BBMapS extends AbstractMapper {
+public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.ProcessThread> {
+	
 
-	/*--------------------------------------------------------------*/
-	/*----------------         Entry Point          ----------------*/
-	/*--------------------------------------------------------------*/
-
+	/**
+	 * Program entry point for BBMap alignment.
+	 * Initializes mapper, loads index, processes ambiguous mappings, and executes alignment.
+	 * @param args Command-line arguments for alignment configuration
+	 */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		BBMapS mapper=new BBMapS(args);
 		args=Tools.condenseStrict(args);
 		if(!INDEX_LOADED){mapper.loadIndex();}
+		if(Data.scaffoldPrefixes){mapper.processAmbig2();}
 		mapper.testSpeed(args);
 		ReadWrite.waitForWritingToFinish();
 		t.stop();
 		outstream.println("\nTotal time:     \t"+t);
 		clearStatics();
 	}
-
+	
+	/**
+	 * Constructs BBMap instance with specified arguments.
+	 * Inherits configuration parsing and validation from AbstractMapper.
+	 * @param args Command-line arguments for mapper configuration
+	 */
 	public BBMapS(String[] args){
 		super(args);
 	}
-
-	/** Identical to BBMap.setDefaults() — same defaults, different driver. */
+	
+	/**
+	 * Sets BBMap-specific default values for alignment parameters.
+	 * Configures compression, key density, alignment scoring, and output settings.
+	 * Called during initialization to establish baseline configuration.
+	 */
 	@Override
 	public void setDefaults(){
 		ReadWrite.USE_PIGZ=ReadWrite.USE_UNPIGZ=false;
@@ -82,43 +81,300 @@ public final class BBMapS extends AbstractMapper {
 		ReadWrite.ZIPLEVEL=2;
 		MAKE_MATCH_STRING=true;
 		keylen=13;
-
+		
 		MINIMUM_ALIGNMENT_SCORE_RATIO=0.56f;
 
-		keyDensity=1.9f;
-		maxKeyDensity=3f;
-		minKeyDensity=1.5f;
+		keyDensity=1.9f;//2.3f;
+		maxKeyDensity=3f;//4f;
+		minKeyDensity=1.5f;//1.8f;
 		maxDesiredKeys=15;
-
+		
 		SLOW_ALIGN_PADDING=4;
 		SLOW_RESCUE_PADDING=4+SLOW_ALIGN_PADDING;
 		TIP_SEARCH_DIST=100;
-
+		
 		MSA_TYPE="MultiStateAligner11ts";
 		MAX_SITESCORES_TO_PRINT=5;
 		PRINT_SECONDARY_ALIGNMENTS=false;
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 	}
-
+	
+	/**
+	 * Pre-processes arguments to apply speed/accuracy mode presets.
+	 * Modifies key density, alignment strictness, and index parameters based on
+	 * fast, slow, or vslow mode selection before main argument parsing.
+	 *
+	 * @param args Original command-line arguments
+	 * @return Modified argument array with mode-specific parameters added
+	 */
 	@Override
-	public String[] preparse(String[] args){return args;} //fast/slow/vslow presets: out of scope for the t=1 first slice.
+	public String[] preparse(String[] args){
+		if(fast){
+			ArrayList<String> list=new ArrayList<String>();
+			list.add("tipsearch="+TIP_SEARCH_DIST/5);
+			list.add("maxindel=80");
+			list.add("minhits=2");
+			list.add("bwr=0.18");
+			list.add("bw=40");
+			list.add("minratio=0.65");
+			list.add("midpad=150");
+			list.add("minscaf=50");
+			list.add("quickmatch=t");
+			list.add("rescuemismatches=15");
+			list.add("rescuedist=800");
+			list.add("maxsites=3");
+			list.add("maxsites2=100");
+//			list.add("k=13");
+			
+			//TODO:  Make these adjustable.
+//			MIN_TRIM_SITES_TO_RETAIN_SINGLE
+//			MIN_TRIM_SITES_TO_RETAIN_PAIRED
+//			MAX_TRIM_SITES_TO_RETAIN
+			//TODO:  Make trimLists adjustable via an offset or multiplier
+			
+			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*1.25f);
+			
+			for(String s : args){if(s!=null){list.add(s);}}
+			args=list.toArray(new String[list.size()]);
+			
+			keyDensity*=0.9f;
+			maxKeyDensity*=0.9f;
+			minKeyDensity*=0.9f;
+		}else if(vslow){
+			ArrayList<String> list=new ArrayList<String>();
+			list.add("tipsearch="+(TIP_SEARCH_DIST*3)/2);
+			list.add("minhits=1");
+			list.add("minratio=0.22");
+			list.add("usequality=f");
+			list.add("rescuemismatches=50");
+			list.add("rescuedist=2500");
+			list.add("maxindel=100");
+			
+			BBIndex.setFractionToExclude(0);
+			
+			for(String s : args){if(s!=null){list.add(s);}}
+			args=list.toArray(new String[list.size()]);
+			
+			SLOW_ALIGN_PADDING=SLOW_ALIGN_PADDING*2+8;
+			SLOW_RESCUE_PADDING=SLOW_RESCUE_PADDING*2+2;
 
+			AbstractIndex.SLOW=true;
+			AbstractIndex.VSLOW=true;
+			keyDensity*=2.5f;
+			maxKeyDensity*=2.5f;
+			minKeyDensity*=2.5f;
+		}else if(slow){
+			ArrayList<String> list=new ArrayList<String>();
+			list.add("tipsearch="+(TIP_SEARCH_DIST*3)/2);
+//			list.add("maxindel=80");
+			list.add("minhits=1");
+//			list.add("bwr=0.18");
+//			list.add("bw=40");
+			list.add("minratio=0.45");
+//			list.add("midpad=150");
+//			list.add("minscaf=50");
+//			list.add("k=13");
+			
+			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.4f);
+			
+			for(String s : args){if(s!=null){list.add(s);}}
+			args=list.toArray(new String[list.size()]);
+			
+			AbstractIndex.SLOW=true;
+			keyDensity*=1.2f;
+			maxKeyDensity*=1.2f;
+			minKeyDensity*=1.2f;
+		}
+		
+		if(excludeFraction>=0){
+			BBIndex.setFractionToExclude(excludeFraction);
+		}
+		return args;
+	}
+	
+	/**
+	 * Post-processes parsed arguments to finalize configuration.
+	 * Applies bandwidth constraints, handles input file detection,
+	 * configures ambiguous read handling, and validates parameter combinations.
+	 * @param args Parsed command-line arguments
+	 */
 	@Override
 	void postparse(String[] args){
-		if(in1==null && args.length>0 && args[0].indexOf('=')<0){in1=args[0];}
-	}
+		
+		if(MSA.bandwidthRatio>0 && MSA.bandwidthRatio<.2){
+			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, 3);
+			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, 6);
+		}
+		
+		if(maxIndel1>-1){
+			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, maxIndel1);
+			BBIndex.MAX_INDEL=maxIndel1;
+		}
+		if(maxIndel2>-1){
+			BBIndex.MAX_INDEL2=maxIndel2;
+		}
+		
+		if(minApproxHits>-1){
+			BBIndex.MIN_APPROX_HITS_TO_KEEP=minApproxHits;
+		}
+		
+		if(expectedSites>-1){
+			BBMapThread.setExpectedSites(expectedSites);
+			outstream.println("Set EXPECTED_SITES to "+expectedSites);
+		}
+		
+		if(fractionGenomeToExclude>=0){
+			BBIndex.setFractionToExclude(fractionGenomeToExclude);
+		}
+		
+		{
+			final String a=(args.length>0 ? args[0] : null);
+			final String b=(args.length>1 ? args[1] : null);
+			if(in1==null && a!=null && a.indexOf('=')<0 && (a.startsWith("stdin") || new File(a).exists())){in1=a;}
+			if(in2==null && b!=null && b.indexOf('=')<0 && new File(b).exists()){in2=b;}
+			if(ERROR_ON_NO_OUTPUT && !OUTPUT_READS && in1!=null){throw new RuntimeException("Error: no output file, and ERROR_ON_NO_OUTPUT="+ERROR_ON_NO_OUTPUT);}
+		}
 
+		assert(synthReadlen<BBMapThread.ALIGN_ROWS);
+		
+		if(MSA.bandwidth>0){
+			int halfwidth=MSA.bandwidth/2;
+			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, halfwidth/2);
+			BBIndex.MAX_INDEL=Tools.min(BBIndex.MAX_INDEL, halfwidth/2);
+			BBIndex.MAX_INDEL2=Tools.min(BBIndex.MAX_INDEL2, halfwidth);
+			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, halfwidth/4);
+			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, halfwidth/4);
+		}
+		
+		if(PRINT_SECONDARY_ALIGNMENTS){
+			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+		}
+		
+		if(in1!=null){
+			if(ambigMode==AMBIG_BEST){
+				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+				if(!PRINT_SECONDARY_ALIGNMENTS){BBIndex.QUIT_AFTER_TWO_PERFECTS=true;}
+				outstream.println("Retaining first best site only for ambiguous mappings.");
+			}else if(ambigMode==AMBIG_ALL){
+				PRINT_SECONDARY_ALIGNMENTS=ReadStreamWriter.OUTPUT_SAM_SECONDARY_ALIGNMENTS=true;
+				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+				BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+				SamLine.MAKE_NH_TAG=true;
+				ambiguousAll=true;
+				outstream.println("Retaining all best sites for ambiguous mappings.");
+			}else if(ambigMode==AMBIG_RANDOM){
+				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+				BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+				ambiguousRandom=true;
+				outstream.println("Choosing a site randomly for ambiguous mappings.");
+			}else if(ambigMode==AMBIG_TOSS){
+				REMOVE_DUPLICATE_BEST_ALIGNMENTS=true;
+				BBIndex.QUIT_AFTER_TWO_PERFECTS=true;
+				outstream.println("Ambiguously mapped reads will be considered unmapped.");
+			}else{
+				throw new RuntimeException("Unknown ambiguous mapping mode: "+ambigMode);
+			}
+		}
+		
+	}
+	
+	/**
+	 * Performs pre-alignment setup and validation.
+	 * Configures minimum identity thresholds, output streams, blacklists,
+	 * and validates required parameters like build number and reference.
+	 */
 	@Override
 	public void setup(){
-		if(outFile==null){outstream.println("No output file."); OUTPUT_READS=false;}
-		else{OUTPUT_READS=true;}
+		
+		assert(!useRandomReads || maxReads>0 || (in1!=null && in1.equals("sequential"))) : "Please specify number of reads to use.";
+		
+		if(minid!=-1){
+			MINIMUM_ALIGNMENT_SCORE_RATIO=MSA.minIdToMinRatio(minid, MSA_TYPE);
+			outstream.println("Set MINIMUM_ALIGNMENT_SCORE_RATIO to "+Tools.format("%.3f",MINIMUM_ALIGNMENT_SCORE_RATIO));
+		}
+		
+		if(!setxs){SamLine.MAKE_XS_TAG=(SamLine.INTRON_LIMIT<1000000000);}
+		if(setxs && !setintron){SamLine.INTRON_LIMIT=10;}
+		
+		if(outFile==null && outFile2==null && outFileM==null && outFileM2==null && outFileU==null && outFileU2==null
+				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBSplitter.streamTable==null){
+			outstream.println("No output file.");
+			OUTPUT_READS=false;
+		}else{
+			OUTPUT_READS=true;
+			if(bamscript!=null){
+				BBSplitter.makeBamScript(bamscript, splitterOutputs, outFile, outFile2, outFileM, outFileM2, outFileU, outFileU2, outFileB, outFileB2);
+			}
+		}
+//		assert(false) : bamscript+", "+BBSplitter.streamTable+", "+OUTPUT_READS;
+		
+		
+		
+		FastaReadInputStream.MIN_READ_LEN=Tools.max(keylen+2, FastaReadInputStream.MIN_READ_LEN);
+		assert(FastaReadInputStream.settingsOK());
+		
 		if(build<0){throw new RuntimeException("Must specify a build number, e.g. build=1");}
 		else{Data.GENOME_BUILD=build;}
+		
+		if(blacklist!=null && blacklist.size()>0){
+			Timer t=new Timer();
+			t.start();
+			for(String s : blacklist){
+				Blacklist.addToBlacklist(s);
+			}
+			t.stop();
+			outstream.println("Created blacklist:\t"+t);
+			t.start();
+		}
+		
+		if(ziplevel!=-1){ReadWrite.ZIPLEVEL=ziplevel;}
 		if(reference!=null){RefToIndex.makeIndex(reference, build, outstream, keylen);}
 	}
+	
 
+	/**
+	 * Configures handling of reads that map to multiple references.
+	 * Sets parameters for splitting, first-reference assignment, random selection,
+	 * or discarding based on AMBIGUOUS2_MODE setting.
+	 */
+	@Override
+	void processAmbig2(){
+		assert(Data.scaffoldPrefixes) : "Only process this block if there are multiple references.";
+		if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
+			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+			outstream.println("Reads that map to multiple references will be written to special output streams.");
+		}else if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_FIRST){
+			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+			outstream.println("Reads that map to multiple references will be written to the first reference's stream only.");
+		}else if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_TOSS){
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=true;
+			outstream.println("Reads that map to multiple references will be considered unmapped.");
+		}else if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_RANDOM){
+			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+			outstream.println("Reads that map to multiple references will be written to a random stream.");
+		}else if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_ALL){
+			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
+			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
+			outstream.println("Reads that map to multiple references will be written to all relevant output streams.");
+		}else{
+			BBSplitter.AMBIGUOUS2_MODE=BBSplitter.AMBIGUOUS2_FIRST;
+		}
+	}
+	
+	/**
+	 * Loads reference genome index and prepares for alignment.
+	 * Initializes chromosome data structures, generates k-mer index,
+	 * applies genome size optimizations, and optionally creates Bloom filter.
+	 * Configures coverage analysis structures if requested.
+	 */
 	@Override
 	void loadIndex(){
+		Timer t=new Timer(outstream, true);
+		
 		if(build>-1){
 			Data.setGenome(build);
 			AbstractIndex.MINCHROM=1;
@@ -126,18 +382,37 @@ public final class BBMapS extends AbstractMapper {
 			if(minChrom<0){minChrom=1;}
 			if(maxChrom<0 || maxChrom>Data.numChroms){maxChrom=Data.numChroms;}
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
+			
+			if(RefToIndex.AUTO_CHROMBITS){
+				int maxLength=Tools.max(Data.chromLengths);
+				RefToIndex.chrombits=Integer.numberOfLeadingZeros(maxLength)-1;
+				RefToIndex.chrombits=Tools.min(RefToIndex.chrombits, 16);
+			}
+			if(RefToIndex.chrombits!=-1){
+				BBIndex.setChromBits(RefToIndex.chrombits);
+				if(verbose_stats>0){outstream.println("Set CHROMBITS to "+RefToIndex.chrombits);}
+			}
 		}
+		
+		assert(minChrom>=AbstractIndex.MINCHROM && maxChrom<=AbstractIndex.MAXCHROM) :
+			minChrom+", "+maxChrom+", "+AbstractIndex.MINCHROM+", "+AbstractIndex.MAXCHROM;
 		AbstractIndex.MINCHROM=minChrom;
 		AbstractIndex.MAXCHROM=maxChrom;
-
-		//Ported from BBMap.loadIndex() (:399-415) — real bug found smoke-testing this method
-		//2026-09-03: without this, a nodisk=t build (RefToIndex.chromlist populated in-memory,
-		//never written to disk) crashed downstream in BBIndex.loadIndex trying to read a
-		//ref/genome/<build>/chr1.chrom.gz that nodisk mode never wrote. BBMap avoids this by
-		//loading chromosomes into Data.chromosomePlusMatrix from RefToIndex.chromlist (or disk,
-		//if not nodisk) BEFORE indexing, whenever MAKE_MATCH_STRING is set — which BBMapS's own
-		//setDefaults() always sets true, so this branch always runs here.
+		
+		if(targetGenomeSize>0){
+			long bases=Data.numDefinedBases;
+			long x=Tools.max(1, Math.round(0.25f+bases*1d/targetGenomeSize));
+			BBMapThread.setExpectedSites((int)x);
+			outstream.println("Set EXPECTED_SITES to "+x);
+		}
+		
+		assert(!(PERFECTMODE && SEMIPERFECTMODE));
+		if(PERFECTMODE){setPerfectMode();}
+		if(SEMIPERFECTMODE){setSemiperfectMode();}
+		
+		//Optional section for discrete timing of chrom array loading
 		if(SLOW_ALIGN || AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
+			outstream.println();
 			if(INDEX_LOADED){
 				//do nothing
 			}else if(RefToIndex.chromlist==null){
@@ -148,192 +423,264 @@ public final class BBMapS extends AbstractMapper {
 					Data.chromosomePlusMatrix[cha.chromosome]=cha;
 				}
 			}
+			t.stop();
+			outstream.println("Loaded Reference:\t"+t);
+			t.start();
 		}
 		RefToIndex.chromlist=null;
-
+		
+		t.start();
 		BBIndex.loadIndex(minChrom, maxChrom, keylen, !RefToIndex.NODISK, RefToIndex.NODISK);
+		
+		{
+			long len=Data.numDefinedBases;
+			if(len<300000000){
+				BBIndex.MAX_HITS_REDUCTION2+=1;
+				BBIndex.MAXIMUM_MAX_HITS_REDUCTION+=1;
+				if(len<30000000){
+					BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.5f);
+					BBIndex.MAXIMUM_MAX_HITS_REDUCTION+=1;
+					BBIndex.HIT_REDUCTION_DIV=Tools.max(BBIndex.HIT_REDUCTION_DIV-1, 3);
+				}else if(len<100000000){
+					BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.6f);
+				}else{
+					BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.75f);
+				}
+			}
+		}
+		
+		t.stop();
+		outstream.println("Generated Index:\t"+t);
+		t.start();
+		
+		if(!SLOW_ALIGN && !AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
+			for(int chrom=minChrom; chrom<=maxChrom; chrom++){
+				Data.unload(chrom, true);
+			}
+		}
+		
+		if(ReadWrite.countActiveThreads()>0){
+			ReadWrite.waitForWritingToFinish();
+			t.stop();
+			outstream.println("Finished Writing:\t"+t);
+			t.start();
+		}
+		
+		if(coverageBinned!=null || coverageBase!=null || rangeCov!=null || coverageHist!=null || coverageStats!=null || coverageRPKM!=null || normcov!=null || normcovOverall!=null || calcCov){
+			String[] cvargs=("covhist="+coverageHist+"\tcovstats="+coverageStats+"\tbasecov="+coverageBase+"\trangecov="+rangeCov+"\tbincov="+coverageBinned+"\tphyscov="+coveragePhysical+
+					"\t32bit="+cov32bit+"\tnzo="+covNzo+"\ttwocolumn="+covTwocolumn+"\tsecondary="+PRINT_SECONDARY_ALIGNMENTS+"\tcovminscaf="+coverageMinScaf+
+					"\tksb="+covKsb+"\tbinsize="+covBinSize+"\tk="+covK+"\tstartcov="+covStartOnly+"\tstopcov="+covStopOnly+"\tstrandedcov="+covStranded+"\trpkm="+coverageRPKM+
+					"\tnormcov="+normcov+"\tnormcovo="+normcovOverall+(in1==null ? "" : "\tin1="+in1)+(in2==null ? "" : "\tin2="+in2)+
+					(covSetbs ? ("\tbitset="+covBitset+"\tarrays="+covArrays) : "")).split("\t");
+			pileup=new CoveragePileup(cvargs);
+			pileup.createDataStructures();
+			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
+		}
+		
+		if(!forceanalyze && (in1==null || maxReads==0)){return;}
+		
 		BBIndex.analyzeIndex(minChrom, maxChrom, BBIndex.FRACTION_GENOME_TO_EXCLUDE, keylen);
-	}
-
-	@Override void processAmbig2(){} //Multi-reference ambiguity: out of scope for the t=1 first slice.
-	@Override void setSemiperfectMode(){}
-	@Override void setPerfectMode(){}
-	@Override void printSettings(int k){}
-
-	/*--------------------------------------------------------------*/
-	/*----------------      MapJob / MapResult      ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Dispatcher -> worker envelope. See design doc §3. */
-	static final class MapJob {
-		final long id;
-		final ListNum<Read> reads; //null iff poison
-		final boolean poison;
-		MapJob(long id, ListNum<Read> reads){this.id=id; this.reads=reads; this.poison=false;}
-		private MapJob(long id){this.id=id; this.reads=null; this.poison=true;}
-		static MapJob poison(long id){return new MapJob(id);}
-	}
-
-	/**
-	 * Worker -> coordinator envelope. `primary` is the STILL-PRISTINE
-	 * readlist (not yet mutated for OUTPUT_MAPPED_ONLY/blacklist/
-	 * nullifyObject) — the coordinator does that mutation itself, AFTER
-	 * calling BBSplitterInvoker on the pristine data. See design doc's
-	 * "Worker/coordinator split" section, resolved 2026-09-02 by reading
-	 * AbstractMapThread.writeList() (:747-800) in full.
-	 * mapped/unmapped/blacklisted are filtered COPIES built by the worker,
-	 * same predicates as writeList() uses today, and are ALWAYS non-null
-	 * (empty ArrayList, never null — see design doc's "never submit null"
-	 * finding from Yaoyao: a null list can cause a route to silently skip
-	 * the id, creating a dense-ID gap downstream).
-	 */
-	static final class MapResult {
-		final long id;
-		final ArrayList<Read> primary;
-		final ArrayList<Read> mapped;
-		final ArrayList<Read> unmapped;
-		final ArrayList<Read> blacklisted;
-		final boolean poison;
-		MapResult(long id, ArrayList<Read> primary, ArrayList<Read> mapped, ArrayList<Read> unmapped, ArrayList<Read> blacklisted){
-			this.id=id; this.primary=primary; this.mapped=mapped; this.unmapped=unmapped; this.blacklisted=blacklisted; this.poison=false;
+		
+		t.stop("Analyzed Index:   ");
+		t.start();
+		
+		if(makeBloomFilter){
+			String serialPath=RefToIndex.bloomLoc(build);
+			File serialFile=new File(serialPath);
+//			System.err.println(serialPath+", "+serialFile.exists()+", "+bloomSerial+", "+RefToIndex.NODISK);
+			if(bloomSerial && !RefToIndex.NODISK && serialFile.exists()){
+				bloomFilter=ReadWrite.read(BloomFilter.class, RefToIndex.bloomLoc(build), true);
+				t.stop("Loaded Bloom Filter: ");
+			}else{
+				if(bloomSerial){System.out.println("Could not read "+serialPath+", generating filter from reference.");}
+				bloomFilter=new BloomFilter(true, bloomFilterK, bloomFilterK, 1, bloomFilterHashes, bloomFilterMinHits, true);
+				t.stop("Made Bloom Filter: ");
+				if(bloomSerial && !RefToIndex.NODISK && !RefToIndex.FORCE_READ_ONLY){
+//					 && serialFile.canWrite()
+					try {
+						ReadWrite.writeObjectInThread(bloomFilter, serialPath, true);
+						outstream.println("Writing Bloom Filter.");
+					} catch (Throwable e) {
+						e.printStackTrace();
+						outstream.println("Can't Write Bloom Filter.");
+					}
+				}
+			}
+			outstream.println(bloomFilter.filter.toShortString());
+			t.start();
 		}
-		private MapResult(long id){this.id=id; this.primary=null; this.mapped=null; this.unmapped=null; this.blacklisted=null; this.poison=true;}
-		static MapResult poison(long id){return new MapResult(id);}
+//		assert(false) : makeBloomFilter;
+//		assert(false) : RefToIndex.chrombits+", "+AbstractIndex.CHROMS_PER_BLOCK;
 	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------  Coordinator/writer boundary  ----------------*/
-	/*--------------------------------------------------------------*/
-
+		
 	/**
-	 * Coordinator -> writer-side boundary. Yaoyao owns the concrete
-	 * implementation (writer-side adapters over stream.Writer/OQS2). The
-	 * coordinator NEVER calls a raw Writer/OQS2 method directly — only
-	 * through this interface.
+	 * Executes the alignment pipeline with Streamer/Writer factories.
+	 * Each ProcessThread directly claims input lists and submits the same
+	 * dense list IDs to the shared Writer routes, following the pattern in
+	 * template/A_SampleStreamerMT.java.
 	 */
-	interface RouteWriter {
-		/** Exactly once per id, strictly ascending id order, single-threaded
-		 * (coordinator thread only). reads is NEVER null — an empty
-		 * ArrayList for a route with nothing this id, per Yaoyao's finding
-		 * that SamWriter.addReads(null) silently skips the job. */
-		void submit(long id, ArrayList<Read> reads);
-		/** Normal drain-and-close. No args — the real stream.Writer.poison()
-		 * takes none; OQS2 owns maxSeenId/LAST/POISON internally (corrected
-		 * 2026-09-02 after reading stream/Writer.java in full). */
-		void finish();
-		/** MUST be genuinely non-blocking — not implemented via
-		 * poison()/poisonAndWait() (Yaoyao's finding: those are the normal
-		 * drain path and can hang forever waiting on a pipeline that will
-		 * never finish after a crash). Must be idempotent. */
-		void finishError();
-	}
-
-	/** BBSplitter is invoked once, directly, on the PRISTINE primary list,
-	 * strictly before the primary route's in-place mutation. NOT a
-	 * RouteWriter — its contract (pristine-only, own stats tables, no
-	 * writer-style close/poison) is genuinely different. Yaoyao owns the
-	 * concrete implementation. */
-	interface BBSplitterInvoker {
-		void invoke(long id, ArrayList<Read> pristinePrimaryList);
-	}
-
-	/**
-	 * PLACEHOLDER — NOT Yaoyao's real implementation. Exists only so this
-	 * file compiles and the t=1 plumbing can be smoke-tested end-to-end
-	 * before her real RouteWriter/BBSplitterInvoker land. Does nothing
-	 * useful; must not be mistaken for shippable code.
-	 */
-	static final class NoOpRouteWriter implements RouteWriter {
-		public void submit(long id, ArrayList<Read> reads){}
-		public void finish(){}
-		public void finishError(){}
-	}
-
-	/** Concrete adapter for the legacy output-stream boundary.  BBMapS forces
-	 * the byte-writer path so finishError() can use ReadStreamWriter.abortNow()
-	 * instead of the blocking poison/close path. */
-	static final class CrosRouteWriter implements RouteWriter {
-		private final ConcurrentReadOutputStream output;
-		private boolean finished=false;
-
-		CrosRouteWriter(ConcurrentReadOutputStream output){this.output=output;}
-
-		@Override
-		public synchronized void submit(long id, ArrayList<Read> reads){
-			assert(reads!=null) : id;
-			if(finished){throw new RuntimeException("Route writer already finished: "+output.fname());}
-			output.add(reads, id);
+	@Override
+	public void testSpeed(String[] args){
+		if(in1==null || maxReads==0){
+			outstream.println("No reads to process; quitting.");
+			return;
 		}
 
-		@Override
-		public synchronized void finish(){
-			if(finished){return;}
-			finished=true;
-			output.close();
-			output.join();
-			if(output.errorState()){
-				throw new RuntimeException("Route writer failed: "+output.fname());
+		Timer t=new Timer();
+		final int threads=Tools.max(1, Shared.threads());
+		Read.VALIDATE_IN_CONSTRUCTOR=(threads<2);
+
+		final FileFormat ffIn1=FileFormat.testInput(in1, FileFormat.FASTQ, 0, 0, true, true, false);
+		final FileFormat ffIn2=FileFormat.testInput(in2, FileFormat.FASTQ, 0, 0, true, true, false);
+		final Streamer streamer=StreamerFactory.getReadInputStream(maxReads, ffIn1.samOrBam(),
+				ffIn1, ffIn2, qfin1, qfin2, threads);
+		streamer.setSampleRate(samplerate, sampleseed);
+		streamer.start();
+		final boolean paired=streamer.paired();
+		if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
+
+		final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
+		final Writer[] writers=openWriters(args, buff, paired);
+
+		AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
+		final AbstractMapThread[] mtts=new AbstractMapThread[threads];
+		final ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
+		for(int i=0; i<threads; i++){
+			final BBMapThread engine=new BBMapThread(new WorkerCrisStub(paired), keylen,
+					pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
+					maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
+					SAVE_AMBIGUOUS_XY, MINIMUM_ALIGNMENT_SCORE_RATIO, TRIM_LIST, MAKE_MATCH_STRING, QUICK_MATCH_STRINGS,
+					null, null, null, null,
+					SLOW_ALIGN_PADDING, SLOW_RESCUE_PADDING, OUTPUT_MAPPED_ONLY, DONT_OUTPUT_BLACKLISTED_READS, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS,
+					REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
+					PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
+					ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
+					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
+			engine.idmodulo=idmodulo;
+			if(verbose){
+				engine.verbose=verbose;
+				engine.index().verbose=verbose;
+			}
+			mtts[i]=engine;
+			alpt.add(new ProcessThread(streamer, writers, engine, i));
+		}
+
+		boolean success=false;
+		try{
+			success=ThreadWaiter.startAndWait(alpt, this);
+			if(success){
+				for(Writer writer : writers){
+					if(writer!=null && writer.poisonAndWait()){
+						success=false;
+					}
+				}
+			}else{
+				for(Writer writer : writers){
+					if(writer!=null){writer.finishError();}
+				}
+			}
+		}finally{
+			ReadWrite.closeStream(streamer);
+			closeSplitterStreams(!success);
+		}
+
+		t.stop();
+		if(printStats){outstream.println("\n\n   ------------------   Results   ------------------   ");}
+
+		printOutput(mtts, t, keylen, paired, false, pileup, scafNzo, sortStats, statsOutputFile);
+		if(!success || errorStateS){throw new RuntimeException("BBMapS terminated in an error state; the output may be corrupt.");}
+	}
+
+	private Writer[] openWriters(String[] args, int buff, boolean paired){
+		final Writer[] writers=new Writer[4]; // A, M, U, B
+		if(OUTPUT_READS){
+			ReadStreamWriter.MINCHROM=minChrom;
+			ReadStreamWriter.MAXCHROM=maxChrom;
+			writers[0]=makeWriter(outFile, outFile2, qfout, qfout2, buff);
+			writers[1]=makeWriter(outFileM, outFileM2, qfoutM, qfoutM2, buff);
+			writers[2]=makeWriter(outFileU, outFileU2, qfoutU, qfoutU2, buff);
+			writers[3]=Data.scaffoldPrefixes ? null : makeWriter(outFileB, outFileB2, qfoutB, qfoutB2, buff);
+		}
+		if(Data.scaffoldPrefixes){
+			BBSplitter.streamTable=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
+			if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
+				BBSplitter.streamTableAmbiguous=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
+			}
+		}else{
+			BBSplitter.TRACK_SET_STATS=false;
+		}
+		if(BBSplitter.TRACK_SET_STATS){
+			outstream.print("Creating ref-set statistics table: ");
+			BBSplitter.makeSetCountTable();
+			outstream.println("done.");
+		}
+		return writers;
+	}
+
+	private Writer makeWriter(String file1, String file2, String qf1, String qf2, int buff){
+		if(file1==null){return null;}
+		final FileFormat ff1=FileFormat.testOutput(file1, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
+		final FileFormat ff2=file2==null ? null : FileFormat.testOutput(file2, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
+		AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
+		final Writer writer=WriterFactory.getStream(ff1, ff2, qf1, qf2, buff, null, false, Shared.threads());
+		writer.start();
+		return writer;
+	}
+
+	private void closeSplitterStreams(boolean error){
+		if(BBSplitter.streamTable!=null){
+			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
+				closeSplitterStream(ros, error);
 			}
 		}
-
-		@Override
-		public synchronized void finishError(){
-			if(finished){return;}
-			finished=true;
-			abort(output.getRS1());
-			abort(output.getRS2());
-		}
-
-		private static void abort(ReadStreamWriter rsw){
-			if(rsw!=null){rsw.abortNow();}
-		}
-	}
-
-	/** Concrete BBSplitter boundary; it preserves the legacy call and its
-	 * clearzone/stats behavior while keeping it outside RouteWriter. */
-	static final class RealBBSplitterInvoker implements BBSplitterInvoker {
-		private final int clearzone;
-		RealBBSplitterInvoker(int clearzone){this.clearzone=clearzone;}
-
-		@Override
-		public void invoke(long id, ArrayList<Read> pristinePrimaryList){
-			if(BBSplitter.streamTable!=null || BBSplitter.TRACK_SET_STATS || BBSplitter.TRACK_SCAF_STATS){
-				BBSplitter.printReads(pristinePrimaryList, id, null, clearzone);
+		if(BBSplitter.streamTableAmbiguous!=null){
+			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
+				closeSplitterStream(ros, error);
 			}
 		}
 	}
 
-	static final class NoOpBBSplitterInvoker implements BBSplitterInvoker {
-		public void invoke(long id, ArrayList<Read> pristinePrimaryList){}
+	private void closeSplitterStream(stream.ConcurrentReadOutputStream ros, boolean error){
+		if(ros==null){return;}
+		if(error){
+			stream.ReadStreamWriter rs1=ros.getRS1();
+			stream.ReadStreamWriter rs2=ros.getRS2();
+			if(rs1!=null){rs1.abortNow();}
+			if(rs2!=null){rs2.abortNow();}
+		}else{
+			ReadWrite.closeStream(ros);
+		}
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------   Worker mapping-engine stub  ----------------*/
-	/*--------------------------------------------------------------*/
+	@Override
+	public final void accumulate(ProcessThread pt){
+		synchronized(pt){
+			readsProcessedS+=pt.readsProcessedT;
+			basesProcessedS+=pt.basesProcessedT;
+			errorStateS|=!pt.success;
+		}
+	}
+
+	@Override
+	public final boolean success(){return !errorStateS;}
+
+	@Override
+	public final ReadWriteLock rwlock(){return rwlockS;}
+
+	private final ReadWriteLock rwlockS=new ReentrantReadWriteLock();
+	private long readsProcessedS=0;
+	private long basesProcessedS=0;
+	private volatile boolean errorStateS=false;
 
 	/**
-	 * Minimal stub satisfying ConcurrentReadInputStream so a worker can
-	 * construct a BBMapThread purely as a mapping engine (to call its
-	 * processRead/processReadPair directly) WITHOUT ever calling .run()/
-	 * .start() on it and without a real, live CRIS.
-	 *
-	 * VERIFIED NECESSARY, not assumed (2026-09-02): read
-	 * AbstractMapThread's constructor in full — line 80 is
-	 * `PAIRED=cris.paired();`, an unsynchronized direct dereference of
-	 * cris DURING construction. A null cris there is an immediate NPE.
-	 * ConcurrentReadInputStream is `abstract class ... implements
-	 * ConcurrentReadStreamInterface` (not an interface, but subclassable
-	 * with a protected 1-arg constructor that only stores fname), so this
-	 * stub is viable — confirmed by reading the whole file
-	 * (current/stream/ConcurrentReadInputStream.java, 422 lines).
-	 * Every method here except paired() is unused by construction: a
-	 * worker never calls run()/start()/nextList() on its own engine's
-	 * cris — the dispatcher owns the real Streamer, not this stub.
+	 * Minimal input stub for the reused BBMapThread constructor.  The
+	 * ProcessThread calls BBMapThread.processRead/processReadPair directly;
+	 * it never starts or runs this stub.
 	 */
 	static final class WorkerCrisStub extends stream.ConcurrentReadInputStream {
 		private final boolean pairedFlag;
 		WorkerCrisStub(boolean pairedFlag){super("worker-stub"); this.pairedFlag=pairedFlag;}
-		@Override public ListNum<Read> nextList(){throw new UnsupportedOperationException("WorkerCrisStub: dispatcher owns the real Streamer, not this stub.");}
+		@Override public ListNum<Read> nextList(){throw new UnsupportedOperationException("WorkerCrisStub is not a live input stream.");}
 		@Override public void returnList(long listNum, boolean poison){}
 		@Override public void run(){}
 		@Override public void shutdown(){}
@@ -348,403 +695,275 @@ public final class BBMapS extends AbstractMapper {
 		@Override public boolean verbose(){return false;}
 	}
 
-	/*--------------------------------------------------------------*/
-	/*----------------           Dispatcher          ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/**
-	 * The ONLY thread that ever calls Streamer.nextList() — satisfies its
-	 * single-consumer contract by construction (design doc §2). Wraps each
-	 * batch as a MapJob and pushes to a bounded shared queue; on
-	 * exhaustion, pushes one poison MapJob per worker.
-	 */
-	final class Dispatcher implements Runnable {
-		final stream.Streamer streamer;
-		final BlockingQueue<MapJob> jobQueue;
-		final int numWorkers;
-		volatile long lastRealId=-1;
-		volatile long batchesDispatched=0; //Diagnostic only — real evidence of whether a run actually exercised >1 batch (and thus real multi-worker/reordering), not an assumption from input size.
-		volatile boolean errorState=false;
-		volatile Throwable error=null;
-
-		Dispatcher(stream.Streamer streamer, BlockingQueue<MapJob> jobQueue, int numWorkers){
-			this.streamer=streamer; this.jobQueue=jobQueue; this.numWorkers=numWorkers;
+	final class ProcessThread extends Thread {
+		ProcessThread(Streamer streamer_, Writer[] writers_, BBMapThread engine_, int tid_){
+			streamer=streamer_;
+			writers=writers_;
+			engine=engine_;
+			tid=tid_;
 		}
 
+		@Override
 		public void run(){
 			try{
 				ListNum<Read> ln=streamer.nextList();
-				while(ln!=null && ln.list!=null && !ln.list.isEmpty()){
-					lastRealId=ln.id;
-					batchesDispatched++;
-					jobQueue.put(new MapJob(ln.id, ln));
+				while(ln!=null && ln.size()>0){
+					processList(ln);
 					ln=streamer.nextList();
 				}
-				//Poison: one per worker, using DISTINCT ids past the last real one so the
-				//coordinator can tell poison jobs apart if it ever needs to (t=1 slice
-				//doesn't need this, but it costs nothing and avoids an id collision).
-				for(int i=0; i<numWorkers; i++){
-					jobQueue.put(MapJob.poison(lastRealId+1+i));
-				}
-			}catch(InterruptedException e){
-				errorState=true; error=e;
-				Thread.currentThread().interrupt();
-			}catch(Throwable e){
-				errorState=true; error=e;
-				e.printStackTrace();
-			}
-		}
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------             Worker             ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/**
-	 * Pulls MapJob from the shared queue, runs UNCHANGED per-read mapping
-	 * logic (same processRead/processReadPair calls AbstractMapThread.run()
-	 * makes — current/align2/AbstractMapThread.java:642-667 — verified by
-	 * reading that section in full), builds mapped/unmapped/blacklisted as
-	 * filtered copies (same predicates as writeList(), :748-784), and
-	 * pushes a MapResult to the result queue. primary is left PRISTINE —
-	 * the coordinator mutates it, not the worker (see the design doc's
-	 * worker/coordinator split finding).
-	 *
-	 * The mapping engine itself is a real BBMapThread instance, constructed
-	 * via WorkerCrisStub so its constructor's cris.paired() call succeeds
-	 * without a live CRIS — this worker NEVER calls .run()/.start() on it,
-	 * only .processRead()/.processReadPair() directly.
-	 */
-	final class Worker implements Runnable {
-		final BlockingQueue<MapJob> jobQueue;
-		final BlockingQueue<MapResult> resultQueue;
-		final BBMapThread engine;
-		volatile boolean errorState=false;
-		volatile Throwable error=null;
-
-		Worker(BlockingQueue<MapJob> jobQueue, BlockingQueue<MapResult> resultQueue, boolean paired){
-			this.jobQueue=jobQueue; this.resultQueue=resultQueue;
-			this.engine=new BBMapThread(new WorkerCrisStub(paired), keylen,
-					pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
-					maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
-					SAVE_AMBIGUOUS_XY, MINIMUM_ALIGNMENT_SCORE_RATIO, TRIM_LIST, MAKE_MATCH_STRING, QUICK_MATCH_STRINGS,
-					null, null, null, null, //rosA/rosM/rosU/rosB: unused by processRead/processReadPair, only by writeList() which this worker never calls
-					SLOW_ALIGN_PADDING, SLOW_RESCUE_PADDING, OUTPUT_MAPPED_ONLY, DONT_OUTPUT_BLACKLISTED_READS, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS,
-					REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
-					PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
-					ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
-					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
-		}
-
-		public void run(){
-			try{
-				while(true){
-					MapJob job=jobQueue.take();
-					if(job.poison){
-						resultQueue.put(MapResult.poison(job.id));
-						return;
-					}
-					resultQueue.put(mapOneList(job));
-				}
-			}catch(InterruptedException e){
-				errorState=true; error=e;
-				Thread.currentThread().interrupt();
-			}catch(Throwable e){
-				errorState=true; error=e;
-				e.printStackTrace();
+				success=true;
+			}catch(Throwable t){
+				error=t;
+				t.printStackTrace();
 			}
 		}
 
-		/** Same per-read work AbstractMapThread.run()'s loop body does
-		 * (:583-667: bloom-filter check, clearAnswers, trim, rcomp,
-		 * processRead/processReadPair, capSiteList) — stats/histogram
-		 * collection (readstats-based) is deliberately OMITTED from this
-		 * first slice, not silently dropped: this engine has no readstats
-		 * wired up (constructor doesn't take one), so those branches in
-		 * the original loop are all false here regardless. Revisit when
-		 * stats output is in scope. */
-		private MapResult mapOneList(MapJob job){
-			ArrayList<Read> readlist=job.reads.list;
-			final boolean black=Blacklist.hasBlacklist();
+		private void processList(ListNum<Read> ln){
+			ArrayList<Read> readlist=engine.handleLongReads(ln.list);
+			final LongList bloomBuffer=(engine.bloomFilter==null ? null : new LongList(150));
 
-			for(int i=0; i<readlist.size(); i++){
-				Read r=readlist.get(i);
-				assert(r.mate==null || (r.pairnum()==0 && r.mate.pairnum()==1)) : r.pairnum()+", "+r.mate.pairnum();
-				r.clearAnswers(true);
+			for(Read r : readlist){
+				final long startTime=AbstractMapThread.TIME_TAG ? System.nanoTime() : 0;
+				readsProcessedT+=r.pairCount();
+				basesProcessedT+=r.pairLength();
+				engine.readsIn1++;
+				engine.readsIn2+=r.mateCount();
+				engine.basesIn1+=r.length();
+				engine.basesIn2+=r.mateLength();
 				final Read r2=r.mate;
-				if(engine.RCOMP_MATE!=false){/*rcompMate handling identical to original; no change needed for t=1 single-file slice*/}
+
+				final boolean passesBloom=(engine.bloomFilter!=null && engine.bloomFilter.passes(r, r2, bloomBuffer, 1));
+				if(passesBloom){
+					engine.basesUsed1+=r.length();
+					engine.basesUsed2+=r.mateLength();
+					engine.readsPassedBloomFilter+=r.pairCount();
+					engine.basesPassedBloomFilter+=r.pairLength();
+					engine.readsUsed1++;
+					engine.readsUsed2+=r.mateCount();
+					continue;
+				}
+
+				if(r.synthetic()){
+					engine.syntheticReads++;
+					if(r.originalSite==null){r.makeOriginalSite();}
+					r.clearSite();
+					if(r2!=null){
+						assert(r2.synthetic());
+						if(r2.originalSite==null){r2.makeOriginalSite();}
+						r2.clearSite();
+					}
+				}
+				r.clearAnswers(true);
+				assert(r.bases==null || r.length()<=engine.maxReadLength()) :
+					"Read "+r.numericID+", length "+r.length()+" exceeds the limit of "+engine.maxReadLength();
+
+				if(engine.readstats!=null){
+					if(ReadStats.COLLECT_QUALITY_STATS){engine.readstats.addToQualityHistogram(r);}
+					if(ReadStats.COLLECT_BASE_STATS){engine.readstats.addToBaseHistogram(r);}
+					if(ReadStats.COLLECT_LENGTH_STATS){engine.readstats.addToLengthHistogram(r);}
+					if(ReadStats.COLLECT_GC_STATS){engine.readstats.addToGCHistogram(r);}
+				}
+				if(engine.TRIM_LEFT || engine.TRIM_RIGHT){
+					TrimRead.trim(r, engine.TRIM_LEFT, engine.TRIM_RIGHT, engine.TRIM_QUAL, engine.TRIM_ERROR_RATE, engine.TRIM_MIN_LENGTH);
+					TrimRead.trim(r2, engine.TRIM_LEFT, engine.TRIM_RIGHT, engine.TRIM_QUAL, engine.TRIM_ERROR_RATE, engine.TRIM_MIN_LENGTH);
+				}
+				if(AbstractMapThread.RCOMP){r.reverseComplementFast();}
+
 				if(r2==null){
-					final byte[] basesP=r.bases;
-					final byte[] basesM=AminoAcid.reverseComplementBases(basesP);
+					final byte[] basesM=AminoAcid.reverseComplementBases(r.bases);
+					engine.basesUsed1+=(basesM==null ? 0 : basesM.length);
 					engine.processRead(r, basesM);
-					engine.capSiteList(r, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS);
+					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					assert(Read.CHECKSITES(r, basesM));
 				}else{
-					final byte[] basesP1=r.bases;
-					final byte[] basesM1=AminoAcid.reverseComplementBases(basesP1);
-					final byte[] basesP2=r2.bases;
-					final byte[] basesM2=AminoAcid.reverseComplementBases(basesP2);
+					if(engine.RCOMP_MATE!=AbstractMapThread.RCOMP){r2.reverseComplementFast();}
+					final byte[] basesM1=AminoAcid.reverseComplementBases(r.bases);
+					final byte[] basesM2=AminoAcid.reverseComplementBases(r2.bases);
+					engine.basesUsed1+=(basesM1==null ? 0 : basesM1.length);
+					engine.basesUsed2+=(basesM2==null ? 0 : basesM2.length);
+					assert(r2.bases==null || r2.length()<=engine.maxReadLength()) :
+						"Read "+r2.numericID+" exceeds the limit of "+engine.maxReadLength();
 					engine.processReadPair(r, basesM1, basesM2);
-					engine.capSiteList(r, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS);
-					engine.capSiteList(r2, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS);
+					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					engine.capSiteList(r2, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					assert(Read.CHECKSITES(r, basesM1));
+					assert(Read.CHECKSITES(r2, basesM2));
+				}
+
+				if(engine.UNTRIM && (engine.TRIM_LEFT || engine.TRIM_RIGHT)){
+					TrimRead.untrim(r);
+					TrimRead.untrim(r2);
+				}
+				if(engine.readstats!=null){
+					if(ReadStats.COLLECT_MATCH_STATS){engine.readstats.addToMatchHistogram(r);}
+					if(ReadStats.COLLECT_INSERT_STATS && r.paired()){engine.readstats.addToInsertHistogram(r, (engine.SAME_STRAND_PAIRS || !engine.REQUIRE_CORRECT_STRANDS_PAIRS));}
+					if(ReadStats.COLLECT_QUALITY_ACCURACY){engine.readstats.addToQualityAccuracy(r);}
+					if(ReadStats.COLLECT_ERROR_STATS){engine.readstats.addToErrorHistogram(r);}
+					if(ReadStats.COLLECT_INDEL_STATS){engine.readstats.addToIndelHistogram(r);}
+					if(ReadStats.COLLECT_IDENTITY_STATS){engine.readstats.addToIdentityHistogram(r);}
+				}
+				if(AbstractMapThread.TIME_TAG){
+					final Long elapsed=(System.nanoTime()-startTime+500)/1000;
+					r.setObj(elapsed);
+					if(r2!=null){r2.setObj(elapsed);}
+					if(engine.readstats!=null && ReadStats.COLLECT_TIME_STATS){engine.readstats.addToTimeHistogram(r);}
 				}
 			}
 
-			//Filtered copies — same predicates as AbstractMapThread.writeList() (:748-784).
-			ArrayList<Read> mapped=new ArrayList<Read>();
-			ArrayList<Read> blacklisted=new ArrayList<Read>();
-			ArrayList<Read> unmapped=new ArrayList<Read>();
-			for(Read r1 : readlist){
-				if(r1==null){continue;}
-				Read r2=r1.mate;
-				boolean isMapped=(r1.mapped() || (r2!=null && r2.mapped()));
-				if(isMapped){
-					if(!black || !Blacklist.inBlacklist(r1)){mapped.add(r1);}
-				}else{
-					unmapped.add(r1);
+			if(engine.RenameByInsert){
+				final boolean ignoreStrand=(!engine.REQUIRE_CORRECT_STRANDS_PAIRS || engine.SAME_STRAND_PAIRS);
+				for(Read r : readlist){
+					if(r.mapped() && r.mateMapped() && r.paired()){
+						final int insert=Read.insertSizeMapped(r, r.mate, ignoreStrand);
+						final String s="insert="+insert;
+						r.id=s+" 1:"+r.numericID;
+						r.mate.id=s+" 2:"+r.numericID;
+					}
 				}
-				if(black && Blacklist.inBlacklist(r1)){blacklisted.add(r1);}
 			}
-
-			return new MapResult(job.id, readlist, mapped, unmapped, blacklisted);
-		}
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------          Coordinator          ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/**
-	 * The ONLY caller of RouteWriter/BBSplitterInvoker methods. Drains
-	 * MapResults strictly in ascending id order (out-of-order buffering
-	 * via TreeMap, per design doc §4) and, for each id: submits mapped/
-	 * blacklisted/unmapped, invokes BBSplitter on pristine primary, THEN
-	 * mutates primary in place (OUTPUT_MAPPED_ONLY/blacklist/nullify),
-	 * THEN submits primary — same order as writeList() (:748-799),
-	 * verified by reading it in full, not re-guessed from the design
-	 * sketch.
-	 *
-	 * §7 (Brian, 2026-09-02): always ordered, no unordered fast-path.
-	 */
-	final class Coordinator implements Runnable {
-		final BlockingQueue<MapResult> resultQueue;
-		final RouteWriter routeMapped, routeUnmapped, routeBlacklisted, routePrimary;
-		final BBSplitterInvoker splitter;
-		final int numWorkers;
-		final boolean outputMappedOnly, dontOutputBlacklisted;
-		volatile boolean errorState=false;
-		volatile Throwable error=null;
-
-		private final TreeMap<Long, MapResult> pending=new TreeMap<Long, MapResult>();
-		private long nextExpectedId=0;
-		private int poisonsSeen=0;
-		long mappedTotal=0, unmappedTotal=0; //Diagnostic only, for the t=1 smoke test — NoOp writers discard the reads themselves.
-
-		Coordinator(BlockingQueue<MapResult> resultQueue, int numWorkers,
-				RouteWriter routeMapped, RouteWriter routeUnmapped, RouteWriter routeBlacklisted, RouteWriter routePrimary,
-				BBSplitterInvoker splitter, boolean outputMappedOnly, boolean dontOutputBlacklisted){
-			this.resultQueue=resultQueue; this.numWorkers=numWorkers;
-			this.routeMapped=routeMapped; this.routeUnmapped=routeUnmapped; this.routeBlacklisted=routeBlacklisted; this.routePrimary=routePrimary;
-			this.splitter=splitter;
-			this.outputMappedOnly=outputMappedOnly; this.dontOutputBlacklisted=dontOutputBlacklisted;
-		}
-
-		public void run(){
-			try{
-				while(poisonsSeen<numWorkers){
-					MapResult r=resultQueue.take();
-					if(r.poison){poisonsSeen++; continue;}
-					pending.put(r.id, r);
-					drainReady();
+			if(engine.pileup!=null){
+				synchronized(engine.pileup){
+					for(Read r : readlist){
+						engine.pileup.processRead(r);
+						if(r.mate!=null){engine.pileup.processRead(r.mate);}
+					}
 				}
-				//Design doc §8 graceful path: coordinator has drained every id
-				//AND seen every worker's poison before finishing routes.
-				assert(pending.isEmpty()) : "Coordinator finished with "+pending.size()+" buffered results never drained — an id gap.";
-				routeMapped.finish(); routeUnmapped.finish(); routeBlacklisted.finish(); routePrimary.finish();
-			}catch(InterruptedException e){
-				errorState=true; error=e;
-				forceError();
-				Thread.currentThread().interrupt();
-			}catch(Throwable e){
-				errorState=true; error=e;
-				e.printStackTrace();
-				forceError();
+			}
+			emit(ln, readlist);
+		}
+
+		private void emit(ListNum<Read> ln, ArrayList<Read> readlist){
+			final long id=ln.id;
+			final boolean black=Blacklist.hasBlacklist();
+			if(BBSplitter.streamTable!=null || BBSplitter.TRACK_SET_STATS || BBSplitter.TRACK_SCAF_STATS){
+				BBSplitter.printReads(readlist, id, null, engine.CLEARZONE1());
+			}
+			final ArrayList<Read> mapped=new ArrayList<Read>(readlist.size());
+			final ArrayList<Read> unmapped=new ArrayList<Read>(readlist.size());
+			final ArrayList<Read> blacklisted=new ArrayList<Read>(readlist.size());
+			for(Read r : readlist){
+				if(r!=null){
+					final Read r2=r.mate;
+					final boolean isMapped=(r.mapped() || (r2!=null && r2.mapped()));
+					if(isMapped){
+						if(!black || !Blacklist.inBlacklist(r)){mapped.add(r);}
+					}else{unmapped.add(r);}
+					if(black && Blacklist.inBlacklist(r)){blacklisted.add(r);}
+				}
+			}
+			if(writers[1]!=null){writers[1].addReads(new ListNum<Read>(mapped, id));}
+			if(writers[3]!=null){writers[3].addReads(new ListNum<Read>(blacklisted, id));}
+			if(writers[2]!=null){writers[2].addReads(new ListNum<Read>(unmapped, id));}
+			if(writers[0]!=null){
+				if(engine.OUTPUT_MAPPED_ONLY){AbstractMapThread.removeUnmapped(readlist);}
+				if(engine.DONT_OUTPUT_BLACKLISTED_READS){AbstractMapThread.removeBlacklisted(readlist);}
+				for(Read r : readlist){
+					if(r!=null){
+						if(AbstractMapThread.CLEAR_ATTACHMENT){r.nullifyObject();}
+						assert(r.bases!=null);
+						if(r.sites!=null && r.sites.isEmpty()){r.sites=null;}
+					}
+				}
+				writers[0].addReads(new ListNum<Read>(readlist, id));
 			}
 		}
 
-		private void drainReady(){
-			while(true){
-				MapResult r=pending.get(nextExpectedId);
-				if(r==null){return;}
-				pending.remove(nextExpectedId);
-				emit(r);
-				nextExpectedId++;
-			}
-		}
-
-		/** submit() calls NEVER pass null — every route always gets a real,
-		 * distinct empty ArrayList when it has nothing for this id (Yaoyao's
-		 * finding: SamWriter.addReads(null) silently skips the job). */
-		private void emit(MapResult r){
-			mappedTotal+=r.mapped.size(); unmappedTotal+=r.unmapped.size();
-			routeMapped.submit(r.id, r.mapped);
-			routeBlacklisted.submit(r.id, r.blacklisted);
-			routeUnmapped.submit(r.id, r.unmapped);
-
-			splitter.invoke(r.id, r.primary); //BBSplitter on STILL-PRISTINE primary, before mutation.
-
-			ArrayList<Read> primary=r.primary;
-			if(outputMappedOnly){AbstractMapThread.removeUnmapped(primary);}
-			if(dontOutputBlacklisted){AbstractMapThread.removeBlacklisted(primary);}
-			routePrimary.submit(r.id, primary);
-		}
-
-		/** §8 forced/error path: must not block. finishError() on each
-		 * RouteWriter is Yaoyao's contract to keep genuinely non-blocking. */
-		private void forceError(){
-			routeMapped.finishError(); routeUnmapped.finishError(); routeBlacklisted.finishError(); routePrimary.finishError();
-		}
-	}
-
-	/*--------------------------------------------------------------*/
-	/*----------------             Driver             ----------------*/
-	/*--------------------------------------------------------------*/
-
-	/** Creates the same four legacy output routes as AbstractMapper.openStreams,
-	 * but leaves input ownership with the new Streamer. */
-	private void openRouteStreams(String[] args, int buff, boolean paired){
-		if(OUTPUT_READS){
-			ReadStreamWriter.MINCHROM=minChrom;
-			ReadStreamWriter.MAXCHROM=maxChrom;
-			rosA=makeRouteStream(outFile, outFile2, qfout, qfout2, buff);
-			rosM=makeRouteStream(outFileM, outFileM2, qfoutM, qfoutM2, buff);
-			rosU=makeRouteStream(outFileU, outFileU2, qfoutU, qfoutU2, buff);
-			rosB=(!Data.scaffoldPrefixes ? makeRouteStream(outFileB, outFileB2, qfoutB, qfoutB2, buff) : null);
-		}
-		if(Data.scaffoldPrefixes){
-			BBSplitter.streamTable=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
-			if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
-				BBSplitter.streamTableAmbiguous=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
-			}
-		}else{
-			BBSplitter.TRACK_SET_STATS=false;
-		}
-	}
-
-	private ConcurrentReadOutputStream makeRouteStream(String file1, String file2,
-			String qf1, String qf2, int buff){
-		if(file1==null){return null;}
-		FileFormat ff1=FileFormat.testOutput(file1, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
-		FileFormat ff2=file2==null ? null : FileFormat.testOutput(file2, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
-		ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff1, ff2, qf1, qf2, buff, null, false);
-		ros.start();
-		return ros;
-	}
-
-	private static void closeSplitterStreams(boolean error){
-		if(BBSplitter.streamTable!=null){
-			for(ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
-				if(error){abortStream(ros);}else{ReadWrite.closeStream(ros);}
-			}
-		}
-		if(BBSplitter.streamTableAmbiguous!=null){
-			for(ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
-				if(error){abortStream(ros);}else{ReadWrite.closeStream(ros);}
-			}
-		}
-	}
-
-	private static void abortStream(ConcurrentReadOutputStream ros){
-		if(ros==null){return;}
-		ReadStreamWriter rsw=ros.getRS1();
-		if(rsw!=null){rsw.abortNow();}
-		rsw=ros.getRS2();
-		if(rsw!=null){rsw.abortNow();}
+		long readsProcessedT=0;
+		long basesProcessedT=0;
+		boolean success=false;
+		Throwable error=null;
+		final Streamer streamer;
+		final Writer[] writers;
+		final BBMapThread engine;
+		final int tid;
 	}
 
 	/**
-	 * Replaces BBMap.testSpeed(). Opens a real stream.Streamer via
-	 * StreamerFactory (§7 DECIDED, Brian 2026-09-02: always ordered — the
-	 * `ordered` arg below is hardcoded true, no unordered fast-path) and
-	 * runs the dispatcher/worker-pool/coordinator lifecycle end to end.
-	 * routeMapped/routeUnmapped/routeBlacklisted/routePrimary and the
-	 * BBSplitterInvoker are still the NOOP placeholders above (Yaoyao's real
-	 * implementations not written yet) — this validates the t=1 plumbing
-	 * (Streamer open -> dispatch -> map -> coordinate -> clean shutdown)
-	 * but produces no real output file yet.
+	 * Configures parameters for semi-perfect alignment mode.
+	 * Reduces key density requirements and alignment score thresholds
+	 * to allow alignments with small numbers of mismatches.
 	 */
 	@Override
-	public void testSpeed(String[] args){
-		if(in1==null){outstream.println("No reads to process; quitting."); return;}
-
-		Timer t=new Timer();
-
-		final FileFormat ff1=FileFormat.testInput(in1, FileFormat.FASTQ, 0, 0, true, true, false);
-		final FileFormat ff2=FileFormat.testInput(in2, FileFormat.FASTQ, 0, 0, true, true, false); //null-safe: FileFormat.testInput(null,...) returns null (verified by reading fileIO/FileFormat.java:225-230)
-		final stream.Streamer streamer=stream.StreamerFactory.makeStreamer(ff1, ff2, true, maxReads, false, true);
-		streamer.start();
-		final boolean paired=streamer.paired();
-		//The legacy ReadStreamByteWriter path has a non-blocking abort hook.
-		//Its SAM conversion is equivalent to SamWriter's conversion, while the
-		//new SamWriter wrapper currently has no force-abort boundary.
-		final boolean oldSamWriter=ReadWrite.USE_READ_STREAM_SAM_WRITER;
-		ReadWrite.USE_READ_STREAM_SAM_WRITER=false;
-		
-		final int numWorkers=Shared.threads();
-		final int buff=Tools.max(32, 2*numWorkers); //Mirrors AbstractMapper.openStreams' ORDERED buffer sizing (:950)
-		openRouteStreams(args, buff, paired);
-		final BlockingQueue<MapJob> jobQueue=new ArrayBlockingQueue<MapJob>(buff);
-		final BlockingQueue<MapResult> resultQueue=new ArrayBlockingQueue<MapResult>(buff);
-
-		final RouteWriter routeA=(rosA==null ? new NoOpRouteWriter() : new CrosRouteWriter(rosA));
-		final RouteWriter routeM=(rosM==null ? new NoOpRouteWriter() : new CrosRouteWriter(rosM));
-		final RouteWriter routeU=(rosU==null ? new NoOpRouteWriter() : new CrosRouteWriter(rosU));
-		final RouteWriter routeB=(rosB==null ? new NoOpRouteWriter() : new CrosRouteWriter(rosB));
-
-		final Dispatcher dispatcher=new Dispatcher(streamer, jobQueue, numWorkers);
-		final Worker[] workers=new Worker[numWorkers];
-		for(int i=0; i<numWorkers; i++){workers[i]=new Worker(jobQueue, resultQueue, paired);}
-		final BBSplitterInvoker splitter=new RealBBSplitterInvoker(workers[0].engine.CLEARZONE1());
-		final Coordinator coordinator=new Coordinator(resultQueue, numWorkers, routeM, routeU, routeB, routeA,
-				splitter, OUTPUT_MAPPED_ONLY, DONT_OUTPUT_BLACKLISTED_READS);
-
-		final Thread dispatcherThread=new Thread(dispatcher, "BBMapS-Dispatcher");
-		final Thread[] workerThreads=new Thread[numWorkers];
-		for(int i=0; i<numWorkers; i++){workerThreads[i]=new Thread(workers[i], "BBMapS-Worker"+i);}
-		final Thread coordinatorThread=new Thread(coordinator, "BBMapS-Coordinator");
-		boolean broken=false;
-
-		dispatcherThread.start();
-		for(Thread wt : workerThreads){wt.start();}
-		coordinatorThread.start();
-
-		try{
-			dispatcherThread.join();
-			for(Thread wt : workerThreads){wt.join();}
-			coordinatorThread.join();
-		}catch(InterruptedException e){
-			broken=true;
-			Thread.currentThread().interrupt();
-			throw new RuntimeException("BBMapS.testSpeed(): interrupted while joining pipeline threads.", e);
-		}finally{
-			//Cleanup must run even when a join is interrupted; in particular, do
-			//not leak the temporary global SAM-writer setting into a later run in
-			//the same JVM.
-			streamer.close();
-			broken|=dispatcher.errorState || coordinator.errorState;
-			for(Worker w : workers){broken|=w.errorState;}
-			if(broken){
-				routeM.finishError(); routeU.finishError(); routeB.finishError(); routeA.finishError();
-			}
-			closeSplitterStreams(broken);
-			ReadWrite.USE_READ_STREAM_SAM_WRITER=oldSamWriter;
+	void setSemiperfectMode() {
+		assert(SEMIPERFECTMODE);
+		if(SEMIPERFECTMODE){
+			TRIM_LIST=false;
+			keyDensity/=2;
+			maxKeyDensity/=2;
+			minKeyDensity=1.1f;
+			maxDesiredKeys/=2;
+			MINIMUM_ALIGNMENT_SCORE_RATIO=0.45f;
+			BBIndex.setSemiperfectMode();
 		}
-		if(broken){throw new RuntimeException("BBMapS terminated in an error state; check stderr above.");}
+	}
 
-		t.stop();
-		outstream.println("BBMapS smoke test: processed "+streamer.readsProcessed()+" reads in "
-			+(paired ? "paired" : "single")+"-ended mode, t="+numWorkers+" ("+t+"). mapped="
-			+coordinator.mappedTotal+" unmapped="+coordinator.unmappedTotal+". batchesDispatched="
-			+dispatcher.batchesDispatched+".");
+	/**
+	 * Configures parameters for perfect alignment mode.
+	 * Sets maximum alignment score ratio to require exact matches
+	 * and adjusts key density for perfect-match detection.
+	 */
+	@Override
+	void setPerfectMode() {
+		assert(PERFECTMODE);
+		if(PERFECTMODE){
+			TRIM_LIST=false;
+			keyDensity/=2;
+			maxKeyDensity/=2;
+			minKeyDensity=1.1f;
+			maxDesiredKeys/=2;
+			MINIMUM_ALIGNMENT_SCORE_RATIO=1.0f;
+			BBIndex.setPerfectMode();
+		}
+	}
+	
+
+	/**
+	 * Prints current alignment configuration settings.
+	 * Displays key density, index parameters, hit filtering settings,
+	 * and other alignment options based on verbosity level.
+	 * @param k K-mer length for alignment
+	 */
+	@Override
+	void printSettings(int k){
+		
+		printSettings0(k, BBIndex.MAX_INDEL, MINIMUM_ALIGNMENT_SCORE_RATIO);
+		
+		if(verbose_stats>=2){
+			outstream.println("Key Density:          \t"+keyDensity+" ("+minKeyDensity+" ~ "+maxKeyDensity+")");
+			outstream.println("Max keys:             \t"+maxDesiredKeys);
+			
+			outstream.println("Block Subsections:     \t"+BBIndex.CHROMS_PER_BLOCK);
+			outstream.println("Fraction To Remove:    \t"+Tools.format("%.4f", (BBIndex.REMOVE_FREQUENT_GENOME_FRACTION ? BBIndex.FRACTION_GENOME_TO_EXCLUDE : 0)));
+			//		sysout.println("ADD_SCORE_Z:           \t"+Index4.ADD_SCORE_Z);
+			outstream.println("Hits To Keep:          \t"+BBIndex.MIN_APPROX_HITS_TO_KEEP);
+		}
+		
+		if(verbose_stats>=3){
+			outstream.println("Remove Clumpy:         \t"+BBIndex.REMOVE_CLUMPY);
+			if(BBIndex.REMOVE_CLUMPY){
+				outstream.println("CLUMPY_MAX_DIST:       \t"+BBIndex.CLUMPY_MAX_DIST);
+				outstream.println("CLUMPY_MIN_LENGTH:     \t"+BBIndex.CLUMPY_MIN_LENGTH_INDEX);
+				outstream.println("CLUMPY_FRACTION:       \t"+BBIndex.CLUMPY_FRACTION);
+			}
+			outstream.println("Remove Long Lists:     \t"+BBIndex.TRIM_LONG_HIT_LISTS);
+			if(BBIndex.TRIM_LONG_HIT_LISTS){
+				outstream.println("HIT_FRACTION_TO_RETAIN:\t"+BBIndex.HIT_FRACTION_TO_RETAIN);
+			}
+			outstream.println("Trim By Greedy:        \t"+BBIndex.TRIM_BY_GREEDY);
+			outstream.println("Trim By Total Sites:   \t"+BBIndex.TRIM_BY_TOTAL_SITE_COUNT);
+			if(BBIndex.TRIM_BY_TOTAL_SITE_COUNT){
+				outstream.println("MAX_AVG_SITES:         \t"+BBIndex.MAX_AVERAGE_LIST_TO_SEARCH);
+				outstream.println("MAX_AVG_SITES_2:       \t"+BBIndex.MAX_AVERAGE_LIST_TO_SEARCH2);
+				outstream.println("MAX_SHORTEST_SITE:     \t"+BBIndex.MAX_SHORTEST_LIST_TO_SEARCH);
+			}
+			outstream.println("Index Min Score:       \t"+BBIndex.MIN_SCORE_MULT);
+
+			outstream.println("Dynamic Trim:          \t"+BBIndex.DYNAMICALLY_TRIM_LOW_SCORES);
+			if(BBIndex.DYNAMICALLY_TRIM_LOW_SCORES){
+				outstream.println("DYNAMIC_SCORE_THRESH:  \t"+BBIndex.DYNAMIC_SCORE_THRESH);
+			}
+		}
+		
 	}
 
 }

@@ -31,11 +31,19 @@ public class SamWriter implements Writer {
 	/** Constructor. */
 	public SamWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_){
+		this(ffout_, threads_, header_, useSharedHeader_, true, true);
+	}
+
+	/** Constructor with mate selection for separate paired output files. */
+	public SamWriter(FileFormat ffout_, int threads_,
+		ArrayList<byte[]> header_, boolean useSharedHeader_, boolean writeR1_, boolean writeR2_){
 		ffout=ffout_;
 		fname=ffout.name();
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
 		header=header_;
 		useSharedHeader=useSharedHeader_;
+		writeR1=writeR1_;
+		writeR2=writeR2_;
 		supressHeader=(ReadStreamWriter.NO_HEADER || (ffout.append() && ffout.exists()));
 		supressHeaderSequences=(ReadStreamWriter.NO_HEADER_SEQUENCES || supressHeader);
 
@@ -97,6 +105,13 @@ public class SamWriter implements Writer {
 		return waitForFinish();
 	}
 
+	/** Force-finish from an external pipeline failure without waiting for output. */
+	@Override
+	public synchronized void finishError(){
+		setErrorState(true);
+		oqs.setFinished(true);
+	}
+
 	@Override
 	public long readsWritten(){return readsWritten;}
 
@@ -118,6 +133,10 @@ public class SamWriter implements Writer {
 	}
 	
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
+		return toSamLines(reads, true, true);
+	}
+
+	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads, boolean writeR1, boolean writeR2) {
 		ArrayList<SamLine> samLines=new ArrayList<SamLine>();
 
 		for(final Read r1 : reads){
@@ -134,8 +153,8 @@ public class SamWriter implements Writer {
 				sl2.qname=sl1.qname;
 			}
 			assert(sl1!=null) : r1;
-			addSamLine(r1, sl1, samLines);
-			addSamLine(r2, sl2, samLines);
+			if(writeR1){addSamLine(r1, sl1, samLines);}
+			if(writeR2){addSamLine(r2, sl2, samLines);}
 		}
 		return samLines;
 	}
@@ -367,7 +386,7 @@ public class SamWriter implements Writer {
 				if(job.lines!=null){
 					lines=job.lines.list;
 				}else{
-					lines=toSamLines(job.reads.list);
+					lines=toSamLines(job.reads.list, writeR1, writeR2);
 				}
 
 				//Format SamLines to bytes and count
@@ -452,6 +471,10 @@ public class SamWriter implements Writer {
 	public long basesWritten=0;
 	/** Were any errors encountered */
 	private boolean errorState=false;
+	/** Write R1 records (pairnum 0). */
+	private final boolean writeR1;
+	/** Write R2 records (pairnum 1). */
+	private final boolean writeR2;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
