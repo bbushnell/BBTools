@@ -1067,6 +1067,16 @@ public class BloomFilter implements Serializable {
 	private int readKmer(final Kmer kmer){
 		return dualHash ? filter.read(kmer.xor(), kmer.xor2()) : filter.read(kmer.xor());
 	}
+
+	/**
+	 * Gets the Bloom-filter depth for a ukmer.Kmer using this filter's exact
+	 * configured hash mode.
+	 * @param kmer K-mer to query
+	 * @return Raw Bloom-filter depth
+	 */
+	public int getCount(final Kmer kmer){
+		return readKmer(kmer);
+	}
 	
 	/*--------------------------------------------------------------*/
 	

@@ -7,10 +7,12 @@ import java.util.Arrays;
 
 import assemble.ErrorTracker;
 import cardinality.CardinalityTracker;
+import dna.AminoAcid;
 import fileIO.ByteFile;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import jgi.BBMerge;
+import map.LongHashMap;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -101,6 +103,10 @@ public class BloomFilterCorrectorWrapper {
 		boolean merge_=true;
 		boolean testMerge_=true;
 		boolean tossjunk_=false;
+		boolean pairCorroborate_=false;
+		int pairCorroborateMinSupported_=2;
+		float pairCorroborateMinFraction_=0.5f;
+		int pairCorroborateSmoothWidth_=7;
 		boolean vstrict_=true;
 		boolean ustrict_=false;
 		float highCountFraction_=1.0f;
@@ -113,6 +119,7 @@ public class BloomFilterCorrectorWrapper {
 		boolean reassemble_=true;
 		boolean smooth_=true;
 		int smoothWidth_=3;
+		int junkWidth_=5;
 
 		//Parse each argument
 		for(int i=0; i<args.length; i++){
@@ -172,6 +179,16 @@ public class BloomFilterCorrectorWrapper {
 				ustrict_=Parse.parseBoolean(b);
 			}else if(a.equals("tossjunk")){
 				tossjunk_=Parse.parseBoolean(b);
+			}else if(a.equals("junkwidth")){
+				junkWidth_=Integer.parseInt(b);
+			}else if(a.equals("paircorroborate") || a.equals("rescue")){
+				pairCorroborate_=Parse.parseBoolean(b);
+			}else if(a.equals("paircorroborateminsupported")){
+				pairCorroborateMinSupported_=Integer.parseInt(b);
+			}else if(a.equals("paircorroborateminfraction")){
+				pairCorroborateMinFraction_=Float.parseFloat(b);
+			}else if(a.equals("paircorroboratesmoothwidth")){
+				pairCorroborateSmoothWidth_=Integer.parseInt(b);
 			}else if(a.equals("memfraction") || a.equals("memmult") || a.equals("memratio")){
 				memFraction=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("highCountFraction") || a.equalsIgnoreCase("mincountfraction") || a.equals("hcf")){
@@ -233,6 +250,10 @@ public class BloomFilterCorrectorWrapper {
 		
 		if(ksmall_<=0){ksmall_=k_;}
 		assert(ksmall_<=k_) : k_+", "+ksmall_;
+		if(pairCorroborateMinSupported_<1){throw new IllegalArgumentException("paircorroborateminsupported must be positive: "+pairCorroborateMinSupported_);}
+		if(pairCorroborateMinFraction_<0 || pairCorroborateMinFraction_>1){throw new IllegalArgumentException("paircorroborateminfraction must be between 0 and 1: "+pairCorroborateMinFraction_);}
+		if(pairCorroborateSmoothWidth_<1){throw new IllegalArgumentException("paircorroboratesmoothwidth must be positive: "+pairCorroborateSmoothWidth_);}
+		if(junkWidth_<1){throw new IllegalArgumentException("junkwidth must be positive: "+junkWidth_);}
 
 		if(k_>31){
 			//BFC2 does not support the ksmall sliding-window trick (orthogonal to
@@ -275,10 +296,19 @@ public class BloomFilterCorrectorWrapper {
 		vstrict=vstrict_;
 		ustrict=ustrict_;
 		tossjunk=tossjunk_;
+		pairCorroborate=pairCorroborate_;
+		pairCorroborateMinSupported=pairCorroborateMinSupported_;
+		pairCorroborateMinFraction=pairCorroborateMinFraction_;
+		pairCorroborateSmoothWidth=pairCorroborateSmoothWidth_;
 		highCountFraction=highCountFraction_;
 		KmerCountAbstract.CANONICAL=rcomp; //rcomp, or true, perhaps...  hmmm.
 		outstream.println("Using "+bits+" bits per cell.");
-		junkWidth=Tools.max(corrector.smoothWidth, 1);
+		junkWidth=junkWidth_;
+		if(pairCorroborate){
+			outstream.println("Pair corroboration enabled: minSupported="+pairCorroborateMinSupported+
+					", minFraction="+pairCorroborateMinFraction+
+					", smoothWidth="+pairCorroborateSmoothWidth);
+		}
 		
 		{//Process parser fields
 			Parser.processQuality();
@@ -575,6 +605,15 @@ public class BloomFilterCorrectorWrapper {
 			outstream.println("Skipped end runs:            \t"+markSkippedEnd);
 			outstream.println("Skipped merged runs:         \t"+markSkippedMerged);
 		}
+		if(pairCorroborate){
+			outstream.println();
+			outstream.println("Pair corroboration candidates:\t"+pairCorroborateCandidates);
+			outstream.println("Pair corroboration rescued:   \t"+pairCorroborateRescued);
+			outstream.println("Pair corroboration local-only: \t"+pairCorroborateLocalOnly);
+			outstream.println("Pair corroboration supported:  \t"+pairCorroborateSupported);
+			outstream.println("Pair corroboration k-mers:     \t"+pairCorroborateKmers);
+			outstream.println("Pair corroboration no-valid:   \t"+pairCorroborateNoValid);
+		}
 		
 		MetadataWriter.write(null, readsProcessed, basesProcessed, readsOut, basesOut, false);
 		
@@ -642,6 +681,12 @@ public class BloomFilterCorrectorWrapper {
 			markEdgeRuns+=pt.markEdgeRunsT;
 			markSkippedEnd+=pt.markSkippedEndT;
 			markSkippedMerged+=pt.markSkippedMergedT;
+			pairCorroborateCandidates+=pt.pairCorroborateCandidatesT;
+			pairCorroborateRescued+=pt.pairCorroborateRescuedT;
+			pairCorroborateLocalOnly+=pt.pairCorroborateLocalOnlyT;
+			pairCorroborateSupported+=pt.pairCorroborateSupportedT;
+			pairCorroborateKmers+=pt.pairCorroborateKmersT;
+			pairCorroborateNoValid+=pt.pairCorroborateNoValidT;
 
 			readsMerged+=pt.readsMergedT;
 			readsCorrectedEcco+=pt.readsCorrectedEccoT;
@@ -714,6 +759,11 @@ public class BloomFilterCorrectorWrapper {
 				localTracker=corrector.localTracker.get();
 				kmers=corrector.localLongList.get();
 				counts=corrector.localIntList.get();
+			}
+			if(pairCorroborate){
+				pairLocalCounts=new LongHashMap(512);
+				pairDepths=new IntList();
+				if(k>31){pairKmer=new Kmer(k);}
 			}
 			
 			//Process the reads
@@ -840,7 +890,15 @@ public class BloomFilterCorrectorWrapper {
 						}
 					}
 					if(tossjunk && keep){
-						keep=!filter.isJunk(r1, r2, junkWidth);
+						final boolean junk=filter.isJunk(r1, r2, junkWidth);
+						if(junk){
+							if(pairCorroborate && r2!=null){
+								pairCorroborateCandidatesT++;
+								keep=pairCorroborate(r1, r2);
+							}else{
+								keep=false;
+							}
+						}
 					}
 					
 					assert(r2!=null || r2_0==null);
@@ -930,6 +988,158 @@ public class BloomFilterCorrectorWrapper {
 			markSkippedEndT+=stats.skippedEndRuns;
 			markSkippedMergedT+=stats.skippedMergedRuns;
 		}
+
+		/**
+		 * Attempts to rescue an otherwise-junk pair using pair-local k-mer
+		 * multiplicity and smoothed global Bloom depths.
+		 */
+		boolean pairCorroborate(final Read r1, final Read r2){
+			pairLocalCounts.clear();
+			pairDepths.clear();
+			addPairLocal(r1);
+			addPairLocal(r2);
+			appendPairDepths(r1);
+			appendPairDepths(r2);
+
+			final int numKmers=pairDepths.size;
+			pairCorroborateKmersT+=numKmers;
+			if(numKmers<1){
+				pairCorroborateNoValidT++;
+				return false;
+			}
+
+			final int[] depths=pairDepths.array;
+			BloomFilterCorrectorWrapper.smoothPairDepths(depths, numKmers, pairCorroborateSmoothWidth);
+			int pos=0, localOnly, supported;
+			pos=evaluatePairRead(r1, depths, pos);
+			pos=evaluatePairRead(r2, depths, pos);
+			assert(pos==numKmers) : pos+" != "+numKmers;
+			localOnly=(int)pairLocalOnlyThisPair;
+			supported=(int)pairSupportedThisPair;
+			pairCorroborateLocalOnlyT+=localOnly;
+			pairCorroborateSupportedT+=supported;
+			pairLocalOnlyThisPair=0;
+			pairSupportedThisPair=0;
+			final boolean rescue=supported>=pairCorroborateMinSupported &&
+					supported>=numKmers*pairCorroborateMinFraction;
+			if(rescue){pairCorroborateRescuedT++;}
+			return rescue;
+		}
+
+		/** Adds valid k-mer occurrences from one read to the pair-local map. */
+		private void addPairLocal(final Read r){
+			if(r==null || r.length()<k){return;}
+			final byte[] bases=r.bases;
+			if(k<=31){
+				final int shift=2*k, shift2=shift-2;
+				final long mask=~((-1L)<<shift);
+				long kmer=0, rkmer=0;
+				int len=0;
+				for(byte base : bases){
+					final long x=AminoAcid.baseToNumber[base];
+					final long x2=AminoAcid.baseToComplementNumber[base];
+					kmer=((kmer<<2)|x)&mask;
+					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+					if(x<0){len=0; kmer=rkmer=0;}
+					else{len++;}
+					if(len>=k){pairLocalCounts.increment(filter.toKey(kmer, rkmer), 1);}
+				}
+			}else{
+				pairKmer.clearFast();
+				for(byte base : bases){
+					pairKmer.addRight(base);
+					if(pairKmer.len>=k){pairLocalCounts.increment(pairKmer.xor(), 1);}
+				}
+			}
+		}
+
+		/** Appends raw global depths for valid occurrences in one read. */
+		private void appendPairDepths(final Read r){
+			if(r==null || r.length()<k){return;}
+			final byte[] bases=r.bases;
+			if(k<=31){
+				final int shift=2*k, shift2=shift-2;
+				final long mask=~((-1L)<<shift);
+				long kmer=0, rkmer=0;
+				int len=0;
+				for(byte base : bases){
+					final long x=AminoAcid.baseToNumber[base];
+					final long x2=AminoAcid.baseToComplementNumber[base];
+					kmer=((kmer<<2)|x)&mask;
+					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+					if(x<0){len=0; kmer=rkmer=0;}
+					else{len++;}
+					if(len>=k){
+						final int raw=filter.getCount(kmer, rkmer);
+						final int local=pairLocalCounts.get(filter.toKey(kmer, rkmer));
+						/*
+						 * ECC may have changed this read before corroboration.  In
+						 * that case a corrected k-mer can occur multiple times in the
+						 * pair while its original global Bloom depth is lower.  Such
+						 * an occurrence is not evidence for rescuing the pair; treating
+						 * it as zero is conservative and prevents correction-created
+						 * k-mers from becoming support.  Otherwise the local count
+						 * must be represented by the global count (except saturation).
+						 */
+						assert(local>0 && raw>=0) : "local="+local+", raw="+raw;
+						pairDepths.add(raw<local ? 0 : raw);
+					}
+				}
+			}else{
+				pairKmer.clearFast();
+				for(byte base : bases){
+					pairKmer.addRight(base);
+					if(pairKmer.len>=k){
+						final int raw=filter.getCount(pairKmer);
+						final int local=pairLocalCounts.get(pairKmer.xor());
+						assert(local>0 && raw>=0) : "local="+local+", raw="+raw;
+						pairDepths.add(raw<local ? 0 : raw);
+					}
+				}
+			}
+		}
+
+		/** Rescans one read and classifies its valid occurrences. */
+		private int evaluatePairRead(final Read r, final int[] depths, int pos){
+			if(r==null || r.length()<k){return pos;}
+			final byte[] bases=r.bases;
+			if(k<=31){
+				final int shift=2*k, shift2=shift-2;
+				final long mask=~((-1L)<<shift);
+				long kmer=0, rkmer=0;
+				int len=0;
+				for(byte base : bases){
+					final long x=AminoAcid.baseToNumber[base];
+					final long x2=AminoAcid.baseToComplementNumber[base];
+					kmer=((kmer<<2)|x)&mask;
+					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
+					if(x<0){len=0; kmer=rkmer=0;}
+					else{len++;}
+					if(len>=k){
+						final long key=filter.toKey(kmer, rkmer);
+						classifyPairOccurrence(pairLocalCounts.get(key), depths[pos]);
+						pos++;
+					}
+				}
+			}else{
+				pairKmer.clearFast();
+				for(byte base : bases){
+					pairKmer.addRight(base);
+					if(pairKmer.len>=k){
+						classifyPairOccurrence(pairLocalCounts.get(pairKmer.xor()), depths[pos]);
+						pos++;
+					}
+				}
+			}
+			return pos;
+		}
+
+		private void classifyPairOccurrence(final int local, final int smoothed){
+			if(local>=smoothed){pairLocalOnlyThisPair++;}
+			else{pairSupportedThisPair++;}
+		}
+
+		private long pairLocalOnlyThisPair=0, pairSupportedThisPair=0;
 		
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
@@ -996,6 +1206,56 @@ public class BloomFilterCorrectorWrapper {
 		LongList kmers;
 		/** Thread-local count storage for correction operations */
 		IntList counts;
+		/** Reusable pair-local multiplicity map */
+		LongHashMap pairLocalCounts;
+		/** Reusable concatenated raw Bloom-depth list */
+		IntList pairDepths;
+		/** Reusable long-k k-mer builder */
+		Kmer pairKmer;
+		long pairCorroborateCandidatesT=0;
+		long pairCorroborateRescuedT=0;
+		long pairCorroborateLocalOnlyT=0;
+		long pairCorroborateSupportedT=0;
+		long pairCorroborateKmersT=0;
+		long pairCorroborateNoValidT=0;
+	}
+
+	/**
+	 * Flattens bounded high-depth subregions to their flank level.
+	 *
+	 * An interval is eligible when the complete window, including its two
+	 * flanks, is no greater than {@code width}, and every depth in the
+	 * interior is greater than the higher flank.  The interior is then
+	 * clamped to that higher flank.  Repeating the scan to a fixed point is
+	 * important: flattening an inner interval can expose a larger adjacent
+	 * interval, such as 12342412 -> 12332212 -> 12222212 -> 11111112.
+	 * Width 1 (and 2) are intentionally treated as no smoothing; useful
+	 * smoothing begins at width 3.  The depth list is allowed to cross the
+	 * concatenated mate boundary, matching the existing rescue layout.
+	 */
+	static void smoothPairDepths(final int[] depths, final int size, final int width){
+		if(size<3 || width<3){return;}
+		boolean changed;
+		do{
+			changed=false;
+				for(int span=0; span+3<=width; span++){
+				for(int left=1, right=left+span; right<size-1; left++, right++){
+					final int cap=Tools.max(depths[left-1], depths[right+1]);
+					int min=depths[left];
+					for(int i=left+1; i<=right; i++){
+						min=Tools.min(min, depths[i]);
+					}
+					if(min>cap){
+						for(int i=left; i<=right; i++){
+							if(depths[i]>cap){
+								depths[i]=cap;
+								changed=true;
+							}
+						}
+					}
+				}
+			}
+		}while(changed);
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -1076,6 +1336,18 @@ public class BloomFilterCorrectorWrapper {
 	long markEdgeRuns=0;
 	long markSkippedEnd=0;
 	long markSkippedMerged=0;
+	/** Number of junk pairs evaluated for pair-local corroboration */
+	long pairCorroborateCandidates=0;
+	/** Number of junk pairs rescued by pair-local corroboration */
+	long pairCorroborateRescued=0;
+	/** Number of local-only valid k-mer occurrences examined */
+	long pairCorroborateLocalOnly=0;
+	/** Number of externally supported valid k-mer occurrences examined */
+	long pairCorroborateSupported=0;
+	/** Number of valid k-mer occurrences examined */
+	long pairCorroborateKmers=0;
+	/** Number of candidate pairs with no valid k-mer occurrences */
+	long pairCorroborateNoValid=0;
 	
 	/** Number of read pairs successfully merged */
 	long readsMerged=0;
@@ -1148,6 +1420,14 @@ public class BloomFilterCorrectorWrapper {
 	final boolean testMerge;
 	/** Filter out low-complexity junk sequences */
 	final boolean tossjunk;
+	/** Enable pair-local corroboration for otherwise-junk pairs */
+	final boolean pairCorroborate;
+	/** Minimum supported occurrences required for pair rescue */
+	final int pairCorroborateMinSupported;
+	/** Minimum fraction of supported occurrences required for pair rescue */
+	final float pairCorroborateMinFraction;
+	/** Total smoothing-window width, including both flanks, for pair-local corroboration */
+	final int pairCorroborateSmoothWidth;
 	/** Minimum k-mer count required for retention */
 	final int minCount;
 	/** Fraction of k-mers that must meet minimum count threshold */

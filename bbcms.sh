@@ -129,7 +129,19 @@ merge=t         Merge paired reads by overlap prior to kmer-counting, and
 smooth=3        Remove spikes from kmer counts due to hash collisions.
                 The number is the max width of peaks to be smoothed; range is
                 0-3 (3 is most aggressive; 0 disables smoothing).
-                This also affects tossjunk.
+junkwidth=5     Number of k-mers examined at each read end by tossjunk.
+paircorroborate=f
+                When tossjunk=t would reject a paired read, use pair-local
+                kmer multiplicity to rescue pairs with externally supported
+                kmers.  Requires paircorroborateminsupported occurrences and
+                paircorroborateminfraction of valid kmer occurrences.
+rescue=f
+                Alias for paircorroborate.
+paircorroborateminsupported=2
+paircorroborateminfraction=0.5
+paircorroboratesmoothwidth=7
+                Total window width, including both flanks, for pair
+                corroboration depth estimates.  Width 1 disables smoothing.
                 
 
 Java Parameters:
