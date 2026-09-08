@@ -773,7 +773,24 @@ public class TrnaConsensusBuilder {
 	}
 
 	private ExecutorService pool(){
-		if(pool==null){pool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()));}
+		if(pool==null){
+			//Daemon workers (Brian, 2026-09-08: input/compute-side threads may be daemons for
+			//stability; output-side threads must NEVER be, or main exiting first truncates files).
+			//This pool only computes consensus/HBM/census tasks in memory - MAIN writes all
+			//outputs - so daemonizing is safe and removes a crash-HANG class: an exception
+			//escaping main (e.g. writeAssignments' tid parse RuntimeException) previously left
+			//these non-daemon workers alive and the JVM never exited (observed: Dori job
+			//25705455, 2026-09-08, RUNNING post-"Exception in thread main" until scancel).
+			pool=Executors.newFixedThreadPool(Tools.max(1, Shared.threads()),
+				new java.util.concurrent.ThreadFactory(){
+					@Override
+					public Thread newThread(Runnable r){
+						Thread t=new Thread(r);
+						t.setDaemon(true);
+						return t;
+					}
+				});
+		}
 		return pool;
 	}
 
@@ -1487,6 +1504,12 @@ public class TrnaConsensusBuilder {
 			final String fullRecordId=r.id;
 			final int tid=tax.TaxTree.parseTaxID(fullRecordId);
 			if(tid<1){
+				//NOTE: this throw previously crash-HUNG the JVM (non-daemon pool workers stayed
+				//alive; observed 2026-09-08, Dori job 25705455, RUNNING post-exception until
+				//scancel). FIXED 2026-09-08 by daemonizing the compute pool (see pool()) per
+				//Brian's input-side-daemons-only guidance - the diagnostic exception is preserved
+				//and the process now exits. Optional follow-on (Brian): a KillSwitch watchdog
+				//terminating after X minutes below Y CPU load. G11.
 				throw new RuntimeException("Error - could not parse a source tid from record '"
 					+fullRecordId+"' -- outassignments= requires every record to carry a "
 					+"parseable tid_NNNN (or tid|/ncbi|/ncbi_) token.");
