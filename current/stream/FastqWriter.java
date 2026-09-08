@@ -115,7 +115,8 @@ public class FastqWriter implements Writer {
 			threads, true, inputProto, outputProto);
 		
 		// Open output stream
-		outstream=ReadWrite.getOutputStream(fname, false, true, false);
+		//ffout.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
+		outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, false);
 //		System.err.println("os class: "+outstream.getClass());
 	}
 	

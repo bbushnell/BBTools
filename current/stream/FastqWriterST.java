@@ -46,7 +46,8 @@ public class FastqWriterST implements Writer {
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
 		// Open output stream
-		outstream=ReadWrite.getOutputStream(fname, false, true, false);
+		//ffout.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
+		outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, false);
 		if(verbose){outstream2.println("Made FastqWriterST");}
 	}
 	

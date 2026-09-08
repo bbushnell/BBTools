@@ -92,6 +92,9 @@ public class FastaStreamer implements Streamer {
 	@Override
 	public void close(){
 		if(bf!=null) {bf.close(); bf=null;}
+		//Emergency-abort completeness: free blocked workers + let the input thread drain to its own
+		//poison, so an early/dying consumer cannot leave a zombie JVM (see FastqStreamer.close).
+		oqs.setFinished(true);
 	}
 
 	@Override
@@ -120,7 +123,7 @@ public class FastaStreamer implements Streamer {
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 
 	@Override
@@ -323,15 +326,19 @@ public class FastaStreamer implements Streamer {
 						if(line.length>0 && line[0]=='>'){
 							// Save previous record if exists
 							if(header!=null){
-								if(samplerate>=1f || randy.nextFloat()<samplerate){
+								//Positional sampling (Streamer.sampleKeep): thread-safe + reproducible; the shared
+								//PRNG raced across workers. readID now advances for DROPPED records too, so kept
+								//reads carry their true file position (twin-file mates then share numericID).
+								if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 									Read r=new Read(bb.toBytes(), null,
-										new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, flag, true);
+										new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID, flag, true);
 									r.setPairnum(pairnum);
 									if(!r.validated()){r.validate(true);}
 									reads.add(r);
 									readsProcessedT++;
 									basesProcessedT+=r.length();
 								}
+								readID++;
 							}
 							header=line;
 							bb.clear();
@@ -342,9 +349,9 @@ public class FastaStreamer implements Streamer {
 
 					// Save final record
 					if(header!=null){
-						if(samplerate>=1f || randy.nextFloat()<samplerate){
+						if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 							Read r=new Read(bb.toBytes(), null,
-								new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID++, flag, true);
+								new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID, flag, true);
 							r.setPairnum(pairnum);
 							if(!r.validated()){r.validate(true);}
 							reads.add(r);
@@ -425,8 +432,10 @@ public class FastaStreamer implements Streamer {
 						errorState=true;
 					}
 					final int lim=(allReads.size()|1)-1;
+					//Positional sampling by pair index; the pair is kept or dropped as a unit, and readID
+					//advances for dropped pairs too so ids reflect true file position.
 					for(int i=0; i<lim; i+=2){
-						if(samplerate>=1f || randy.nextFloat()<samplerate){
+						if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 							Read r1=allReads.get(i);
 							Read r2=allReads.get(i+1);
 							r1.setPairnum(0);
@@ -435,8 +444,9 @@ public class FastaStreamer implements Streamer {
 							r2.mate=r1;
 							reads.add(r1);
 							r1.numericID=readID;
-							r2.numericID=readID++;
+							r2.numericID=readID;
 						}
+						readID++;
 					}
 
 					oqs.addOutput(reads);
@@ -510,6 +520,7 @@ public class FastaStreamer implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private shared.Random randy=null;
+	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
+	private long sampleSeed=17;
 
 }

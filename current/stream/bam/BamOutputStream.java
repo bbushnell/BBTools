@@ -22,9 +22,21 @@ public class BamOutputStream extends OutputStream {
 	public BamOutputStream(String filename) throws IOException {
 		this(new FileOutputStream(filename), true);
 	}
-	
+
 	public BamOutputStream(String filename, int compression, int threads) throws IOException {
 		this(new FileOutputStream(filename), true, compression, threads);
+	}
+
+	/**
+	 * Append-capable constructor. When appending to an existing nonempty BAM, the stream must NOT
+	 * re-emit the BAM magic/header/ref-dict (a second header block mid-file is corrupt); incoming
+	 * @-lines are still consumed to build the SamToBamConverter ref dict so refIDs stay valid.
+	 * Mirrors stream.BamWriter's supressHeader handling. (Previously ReadWrite.getBamOutputStream's
+	 * native path ignored append entirely and truncated; 2026-09-05.)
+	 */
+	public BamOutputStream(String filename, int compression, int threads, boolean append) throws IOException {
+		this(new FileOutputStream(filename, append), true, compression, threads);
+		suppressHeaderEmit = append && appendTargetNonEmpty(filename);
 	}
 
 	public BamOutputStream(OutputStream out, boolean closeUnderlying) {
@@ -162,7 +174,9 @@ public class BamOutputStream extends OutputStream {
 		if (headerWritten) {
 			return;
 		}
-		helper.writeBytes(new byte[]{'B', 'A', 'M', 1});
+		if (!suppressHeaderEmit) {
+			helper.writeBytes(new byte[]{'B', 'A', 'M', 1});
+		}
 
 		StringBuilder textBuilder = new StringBuilder();
 		List<String> refs = new ArrayList<>();
@@ -189,17 +203,19 @@ public class BamOutputStream extends OutputStream {
 			}
 		}
 
-		byte[] headerText = textBuilder.toString().getBytes(StandardCharsets.US_ASCII);
-		helper.writeUint32(headerText.length);
-		helper.writeBytes(headerText);
+		if (!suppressHeaderEmit) {
+			byte[] headerText = textBuilder.toString().getBytes(StandardCharsets.US_ASCII);
+			helper.writeUint32(headerText.length);
+			helper.writeBytes(headerText);
 
-		helper.writeInt32(refs.size());
-		for (int i = 0; i < refs.size(); i++) {
-			byte[] nameBytes = refs.get(i).getBytes(StandardCharsets.US_ASCII);
-			helper.writeUint32(nameBytes.length + 1);
-			helper.writeBytes(nameBytes);
-			helper.writeUint8(0);
-			helper.writeUint32(refLengths.get(i));
+			helper.writeInt32(refs.size());
+			for (int i = 0; i < refs.size(); i++) {
+				byte[] nameBytes = refs.get(i).getBytes(StandardCharsets.US_ASCII);
+				helper.writeUint32(nameBytes.length + 1);
+				helper.writeBytes(nameBytes);
+				helper.writeUint8(0);
+				helper.writeUint32(refLengths.get(i));
+			}
 		}
 
 		if (converter == null) {
@@ -207,6 +223,14 @@ public class BamOutputStream extends OutputStream {
 		}
 
 		headerWritten = true;
+	}
+
+	private static boolean appendTargetNonEmpty(String filename) {
+		try {
+			return new java.io.File(filename).length() > 0;
+		} catch (Throwable t) {
+			return false;
+		}
 	}
 
 	private void ensureOpen() throws IOException {
@@ -236,4 +260,7 @@ public class BamOutputStream extends OutputStream {
 	private SamToBamConverter converter;
 	private boolean headerWritten = false;
 	private boolean closed = false;
+	/** Appending to an existing nonempty BAM: consume header lines for the ref dict but emit no
+	 * magic/header/dict (a second header block mid-file is corrupt). */
+	private boolean suppressHeaderEmit = false;
 }

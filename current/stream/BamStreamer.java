@@ -84,8 +84,13 @@ public class BamStreamer implements Streamer {
 
 	@Override
 	public synchronized void close(){
-		//TODO: Unimplemented
-		//TODO: Possible bug [stream/BamStreamer#002] - LOW/MED: close() is a no-op, so abandoning the stream before EOF leaves the non-daemon ProcessThreads (1 input + N workers) blocked forever (workers in oqs.getInput(), input in ThreadWaiter) with no termination signal. Couples with #001. Structural: close() should poison the OQS + interrupt/join the threads. Author-acknowledged TODO.
+		//[stream/BamStreamer#002 partial fix 2026-09-05] was a no-op: abandoning the stream before EOF left
+		//the non-daemon threads blocked forever (zombie JVM; jstack-proven for the sibling FastqStreamer).
+		//setFinished(true) force-poisons the outq so workers + consumer wake; the input thread then
+		//free-runs the remaining file and exits via its own poison protocol — wasteful on a huge file but
+		//bounded and zombie-free. TODO: the full structural teardown (deterministic flag-bail so input
+		//stops reading early) remains future work; couples with #001.
+		oqs.setFinished(true);
 	}
 	
 	@Override
@@ -111,7 +116,7 @@ public class BamStreamer implements Streamer {
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 
 	@Override
@@ -376,10 +381,13 @@ public class BamStreamer implements Streamer {
 				if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
 				
 				// Apply subsampling if needed
-				if(samplerate<1f && randy!=null){
+				//Positional sampling (Streamer.sampleKeep) by record index: thread-safe + reproducible
+				//across runs and thread counts; the shared PRNG raced across worker threads.
+				if(samplerate<1f){
 					int nulled=0;
+					final long firstRec=list.firstRecordNum;
 					for(int i=0; i<list.size(); i++){
-						if(randy.nextFloat()>=samplerate){
+						if(!Streamer.sampleKeep(firstRec+i, sampleSeed, samplerate)){
 							list.list.set(i, null);
 							nulled++;
 						}
@@ -481,6 +489,7 @@ public class BamStreamer implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	float samplerate=1f;
-	shared.Random randy=null;
+	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
+	long sampleSeed=17;
 	
 }

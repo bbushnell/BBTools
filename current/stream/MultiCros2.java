@@ -227,7 +227,7 @@ public class MultiCros2 extends BufferedMultiCros {
 			int count=r.pairCount();
 			currentBytes+=size;
 			bytesInFlight+=size;
-			basesIn+=size;
+			basesIn+=r.pairLength();//was +=size (countPairBytes): bytes-as-bases made DemuxByName2 subtract oversized residualBases -> negative Bases Out (replicated 2026-09-05); MultiCros4 already used pairLength
 			readsInFlight+=count;
 			readsIn+=count;
 			

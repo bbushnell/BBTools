@@ -95,11 +95,12 @@ public class SamStreamer implements Streamer {
 		if(verbose){outstream.println("Started.");}
 	}
 
-	/** Closes the streamer. Currently a placeholder for resource cleanup. */
+	/** Closes the streamer: frees blocked pipeline threads so an early/dying consumer cannot zombie the JVM. */
 	@Override
 	public synchronized void close(){
-		//TODO: Unimplemented [stream/SamStreamer#002 LOW]: close() is a no-op — an early close (before the consumer drains) does
-		//NOT stop the input/worker threads; it relies on the poison/last protocol completing naturally. Lifecycle gap; documented TODO.
+		//[stream/SamStreamer#002 partial fix 2026-09-05] was a no-op; see BamStreamer.close for the rationale.
+		//The input thread free-runs the remaining file after this and exits via its own poison protocol.
+		oqs.setFinished(true);
 	}
 	
 	/** @return Input filename being streamed. */

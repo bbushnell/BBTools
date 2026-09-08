@@ -573,7 +573,8 @@ public class ReadWrite {
 		if(nativeBamOut()) {
 			int threads=Tools.mid(1, Shared.threads(), zl>6 ? 16 : zl>4 ? 16 : zl>3 ? 8 : 4);
 			try{
-				return new BamOutputStream(fname, zl, threads);
+				//append must be forwarded: this path previously ignored it and truncated (2026-09-05)
+				return new BamOutputStream(fname, zl, threads, append);
 			}catch(IOException e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();

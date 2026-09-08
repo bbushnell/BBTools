@@ -68,4 +68,27 @@ public interface Streamer {
 	public default void returnList(ListNum<Read> ln) {}
 	public default void returnList(long id, boolean b) {}
 
+	/**
+	 * Deterministic positional subsampler: the keep/drop decision for the record at position
+	 * recordNum (0-based in the file) under the given seed and rate. A pure function of its
+	 * arguments (SplitMix64-style mix), so it is thread-safe with no shared state, reproducible
+	 * across runs and thread counts, and mate-safe: R1 and R2 streamers sampling the same
+	 * positions with the same seed keep exactly the same subset. Replaces the shared-PRNG
+	 * scheme, whose keep-decisions occurred in worker-scheduling order: under MT that desynced
+	 * twin files, broke mate pairing, and killed the consumer on PairStreamer's numericID
+	 * assert, hanging the JVM (replicated via stream.sh samplerate=0.5 threadsin=4, 2026-09-05).
+	 */
+	public static boolean sampleKeep(long recordNum, long seed, float rate){
+		long x=recordNum*0x9E3779B97F4A7C15L+seed;
+		x=(x^(x>>>30))*0xBF58476D1CE4E5B9L;
+		x=(x^(x>>>27))*0x94D049BB133111EBL;
+		x^=(x>>>31);
+		return (x>>>40)<(long)(rate*0x1p24f);//top 24 bits vs rate scaled to 2^24
+	}
+
+	/** Resolve a user-supplied sampling seed: negative means "pick a random seed". */
+	public static long resolveSampleSeed(long seed){
+		return seed>=0 ? seed : new java.util.Random().nextLong();
+	}
+
 }

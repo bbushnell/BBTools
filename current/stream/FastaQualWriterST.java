@@ -28,7 +28,8 @@ public class FastaQualWriterST implements Writer {
 	public FastaQualWriterST(FileFormat ffFa, String qf, 
 			boolean writeR1_, boolean writeR2_){
 		ffoutFa=ffFa;
-		ffoutQual=FileFormat.testOutput(qf, FileFormat.QUAL, null, true, true, false, false);
+		//Qual file must mirror the fasta's append mode or the two files desynchronize on app=t
+		ffoutQual=FileFormat.testOutput(qf, FileFormat.QUAL, null, true, true, ffFa.append(), false);
 		fnameFa=ffFa.name();
 		fnameQual=qf;
 		
@@ -47,8 +48,9 @@ public class FastaQualWriterST implements Writer {
 		queue.name="*FastaQualWriterST";
 		
 		// Open output streams
-		outstreamFa=ReadWrite.getOutputStream(fnameFa, false, true, ffFa.allowSubprocess());
-		outstreamQual=ReadWrite.getOutputStream(fnameQual, false, true, ffoutQual.allowSubprocess()); // Assuming generic handling for .qual
+		//ff.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
+		outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
+		outstreamQual=ReadWrite.getOutputStream(fnameQual, ffoutQual.append(), true, ffoutQual.allowSubprocess()); // Assuming generic handling for .qual
 		
 		if(verbose){outstream.println("Made FastaQualWriterST for "+fnameFa);}
 	}

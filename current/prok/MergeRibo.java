@@ -167,8 +167,10 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 				maxns=Integer.parseInt(b);
 			}else if(a.equals("minlen")){
 				minlen=Integer.parseInt(b);
+				minlenSet=true;
 			}else if(a.equals("maxlen")){
 				maxlen=Integer.parseInt(b);
+				maxlenSet=true;
 			}else if(a.equals("in")){
 				Tools.addFiles(b, in);
 			}else if(a.equals("alt")){
@@ -182,13 +184,23 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 				taxLevelE=TaxTree.parseLevelExtended(b);
 			}else if(a.equalsIgnoreCase("process16S") || a.equalsIgnoreCase("16S")){
 				process16S=Parse.parseBoolean(b);
-				if(process16S){process18S=false; processITS=false;}
+				if(process16S){process18S=false; processITS=false; processLSU=false; process5_8S=false;}
 			}else if(a.equalsIgnoreCase("process18S") || a.equalsIgnoreCase("18S")){
 				process18S=Parse.parseBoolean(b);
-				if(process18S){process16S=false; processITS=false;}
+				if(process18S){process16S=false; processITS=false; processLSU=false; process5_8S=false;}
 			}else if(a.equalsIgnoreCase("processITS") || a.equalsIgnoreCase("ITS")){
 				processITS=Parse.parseBoolean(b);
-				if(processITS){process16S=false; process18S=false;}
+				if(processITS){process16S=false; process18S=false; processLSU=false; process5_8S=false;}
+			}else if(a.equalsIgnoreCase("processLSU") || a.equalsIgnoreCase("LSU") || a.equalsIgnoreCase("23S")
+					|| a.equalsIgnoreCase("25S") || a.equalsIgnoreCase("26S") || a.equalsIgnoreCase("28S")){
+				//23S/25S/26S/28S all name the one large-subunit molecule; one internal mode, one reference (23S).
+				processLSU=Parse.parseBoolean(b);
+				if(processLSU){process16S=false; process18S=false; processITS=false; process5_8S=false;}
+			}else if(a.equalsIgnoreCase("process5.8S") || a.equalsIgnoreCase("5.8S") || a.equalsIgnoreCase("58S")){
+				process5_8S=Parse.parseBoolean(b);
+				if(process5_8S){process16S=false; process18S=false; processITS=false; processLSU=false;}
+			}else if(a.equals("ref")){//Caller-supplied consensus reference; required for 5.8S (no shipped resource).
+				ref=b;
 			}else if(a.equals("parse_flag_goes_here")){
 				long fake_variable=Parse.parseKMG(b);
 				//Set a variable here
@@ -202,7 +214,21 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			}
 		}
 		assert(!in.isEmpty()) : "No input file.";
+		applyModeLengthDefaults();
 		return parser;
+	}
+
+	/** Apply mode-appropriate default length bounds, but never override a value the caller set explicitly.
+	 * 16S/18S/ITS keep the historical minlen=1/maxlen=4000 defaults (unchanged). LSU (23S/25S/26S/28S) runs
+	 * longer than that ceiling (eukaryotic 28S can exceed 4000bp), so its ceiling is raised. 5.8S is ~150bp,
+	 * so its window is tightened to reject longer rRNA fragments during the length filter. */
+	private void applyModeLengthDefaults(){
+		if(processLSU){
+			if(!maxlenSet){maxlen=6000;}
+		}else if(process5_8S){
+			if(!minlenSet){minlen=50;}
+			if(!maxlenSet){maxlen=300;}
+		}
 	}
 
 	/** Enable the historical implicit tree load unless the caller explicitly disabled it. */
@@ -254,9 +280,9 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	private boolean validateParams(){
 //		assert(minfoo>0 && minfoo<=maxfoo) : minfoo+", "+maxfoo;
 //		assert(false) : "TODO";
-		assert(process16S || process18S || processITS) : "16S, 18S, or ITS must be selected.";
-		int modeCount=(process16S?1:0)+(process18S?1:0)+(processITS?1:0);
-		assert(modeCount==1) : "Exactly one of 16S, 18S, or ITS must be selected.";
+		assert(process16S || process18S || processITS || processLSU || process5_8S) : "16S, 18S, ITS, LSU, or 5.8S must be selected.";
+		int modeCount=(process16S?1:0)+(process18S?1:0)+(processITS?1:0)+(processLSU?1:0)+(process5_8S?1:0);
+		assert(modeCount==1) : "Exactly one of 16S, 18S, ITS, LSU, or 5.8S must be selected.";
 		return true;
 	}
 	
@@ -289,7 +315,29 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 			}
 			consensusITS=itsList.toArray(new byte[0][]);
 		}
-		
+		if(processLSU){
+			//LSU (23S/25S/26S/28S) defaults to the shipped 23S_consensus_sequence.fa reference. But that
+			//reference is prokaryotic, and eukaryotic LSU (25S/26S/28S) is too divergent from prok 23S to
+			//align above the identity filter -- so a caller ref= (a complete eukaryotic-LSU seed) overrides
+			//it, which is how a clade consensus is bootstrapped (members align tightly to an in-clade seed).
+			if(ref!=null){
+				consensusLSU=loadAllSequences(ref);//every record in ref= becomes a seed
+				if(consensusLSU==null || consensusLSU.length==0){throw new RuntimeException("Error: could not load any sequence from ref="+ref);}
+			}else{
+				Read[] data=ProkObject.loadConsensusSequenceType("23S", true, true);
+				consensusLSU=new byte[][]{data[0].bases};
+			}
+			if(verbose){System.err.println("processLSU: Loaded "+consensusLSU.length+" LSU reference seed(s)");}
+		}
+		if(process5_8S){
+			//No 5.8S consensus is shipped (resources/ has only 16S/18S/23S/5S), so 5.8S REQUIRES a caller ref=.
+			//Fail loud+clear if absent -- never proceed on a null reference.
+			if(ref==null){throw new RuntimeException("Error: 5.8S has no shipped consensus reference; supply ref=<fasta>.");}
+			consensus5_8S=loadFirstSequence(ref);
+			if(consensus5_8S==null){throw new RuntimeException("Error: could not load a sequence from ref="+ref);}
+			if(verbose){System.err.println("process5_8S: Loaded 5.8S consensus from ref, length "+consensus5_8S.length);}
+		}
+
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
 		Read.VALIDATE_IN_CONSTRUCTOR=Shared.threads()<4;
@@ -682,8 +730,13 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 					c=Tools.max(c, ssa.align(r.bases, con));
 				}
 			}
-			if(verbose && threadID==0){System.err.println("Aligned; a="+a+", b="+b+", c="+c);}
-			return Tools.max(a, b, c);
+			float d=0;
+			if(processLSU){
+				for(byte[] con : consensusLSU){d=Tools.max(d, ssa.align(r.bases, con));}
+			}
+			float e=(process5_8S ? ssa.align(r.bases, consensus5_8S) : 0);
+			if(verbose && threadID==0){System.err.println("Aligned; a="+a+", b="+b+", c="+c+", d="+d+", e="+e);}
+			return Tools.max(Tools.max(a, b, c), Tools.max(d, e));
 		}
 		
 		/**
@@ -839,7 +892,13 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	byte[] consensus18S;
 	/** Consensus ITS sequences for alignment reference (fungi, plant, animal, other) */
 	byte[][] consensusITS;
-	
+	/** Consensus LSU (23S/25S/26S/28S) reference SET; each input aligns to whichever seed matches best.
+	 * Multiple seeds are needed to span within-clade divergence (a single seed rejects distant members
+	 * before grouping). Defaults to the one shipped 23S consensus; ref= supplies euk-LSU seed(s) instead. */
+	byte[][] consensusLSU;
+	/** Consensus 5.8S sequence; no shipped resource, so loaded from a caller-supplied ref= fasta */
+	byte[] consensus5_8S;
+
 	/**
 	 * Gets the ideal sequence length based on the selected ribosomal RNA type.
 	 * Returns consensus sequence length for the active processing mode.
@@ -848,7 +907,31 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	int idealLength(){
 		if(process16S){return consensus16S.length;}
 		if(process18S){return consensus18S.length;}
+		if(processLSU){return consensusLSU[0].length;}
+		if(process5_8S){return consensus5_8S.length;}
 		return consensusITS[0].length;
+	}
+
+	/** Loads the first sequence's bases from a caller-supplied fasta (used for 5.8S ref=, which has no
+	 * shipped resource). Returns null if the file yields no sequence. */
+	private byte[] loadFirstSequence(String path){
+		byte[][] all=loadAllSequences(path);
+		return (all!=null && all.length>0 ? all[0] : null);
+	}
+
+	/** Loads every sequence's bases from a caller-supplied fasta (used for LSU ref=, which may hold multiple
+	 * seeds spanning within-clade divergence). Returns an empty array if the file yields no sequence. */
+	private byte[][] loadAllSequences(String path){
+		FileFormat ff=FileFormat.testInput(path, FileFormat.FASTA, null, false, false);
+		ConcurrentReadInputStream cris=ConcurrentReadInputStream.getReadInputStream(-1, false, ff, null);
+		cris.start();
+		ArrayList<byte[]> list=new ArrayList<byte[]>();
+		for(ListNum<Read> ln=cris.nextList(); ln!=null && ln.size()>0; ln=cris.nextList()){
+			for(Read r : ln){if(r.bases!=null){list.add(r.bases);}}
+			cris.returnList(ln);
+		}
+		ReadWrite.closeStream(cris);
+		return list.toArray(new byte[0][]);
 	}
 	
 	/** Whether to generate consensus sequences instead of selecting single best */
@@ -886,7 +969,17 @@ public class MergeRibo implements Accumulator<MergeRibo.ProcessThread> {
 	private boolean process18S=false;
 	/** Whether to process ITS sequences */
 	private boolean processITS=false;
-	
+	/** Whether to process LSU (23S/25S/26S/28S large-subunit) sequences */
+	private boolean processLSU=false;
+	/** Whether to process 5.8S sequences */
+	private boolean process5_8S=false;
+	/** True once the caller explicitly set minlen, so mode defaults leave it alone */
+	private boolean minlenSet=false;
+	/** True once the caller explicitly set maxlen, so mode defaults leave it alone */
+	private boolean maxlenSet=false;
+	/** Caller-supplied consensus reference fasta; required for 5.8S (no shipped resource) */
+	private String ref=null;
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Final Fields         ----------------*/
 	/*--------------------------------------------------------------*/

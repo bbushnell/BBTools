@@ -57,7 +57,9 @@ public class BamWriter implements Writer {
 		oqs=new OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob>(
 			threads, ffout.ordered(), inputProto, outputProto);
 		
-		outstream=ReadWrite.getBgzipStream(fname, false);
+		//ffout.append() must be honored: app=t previously TRUNCATED while supressHeader (line above) simultaneously
+		//suppressed the header, yielding a headerless corrupt BAM (replicated via stream.sh 2026-09-05)
+		outstream=ReadWrite.getBgzipStream(fname, ffout.append());
 		if(verbose) {System.err.println("outstream="+outstream.getClass());}
 	}
 

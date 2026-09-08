@@ -297,28 +297,38 @@ public class StreamerWrapper{
 		if(threadsIn==0 || threadsIn==1) {Read.VALIDATE_IN_CONSTRUCTOR=false;}
 		st.start();
 		if(fw!=null) {fw.start();}
-		if(readMode) {
-			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
-				if(skipreads>0) {skipReads(ln.list);}
-				for(Read r : ln) {
-					processReadPair(r, r.mate);
+		try{
+			if(readMode) {
+				for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
+					if(skipreads>0) {skipReads(ln.list);}
+					for(Read r : ln) {
+						processReadPair(r, r.mate);
+					}
+					if(fw!=null) {fw.addReads(ln);}
 				}
-				if(fw!=null) {fw.addReads(ln);}
-			}
-		}else {
-			for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
-				final ArrayList<SamLine> list=ln.list;
-				if(skipreads>0) {skipReads(list);}
-				for(int i=0, len=list.size(); i<len; i++) {
-					SamLine sl=list.get(i);
-					boolean keep=processSamLine(sl);
-					//Base-class keep is always true here (this branch only runs sam->sam/sam->null,
-					//so processSamLine's ffout1.samOrBam() guard holds); the drop-path is the override
-					//extension point (e.g. SamStreamerWrapper). NOT dead code - do not remove.
-					if(!keep) {list.set(i, null);}
+			}else {
+				for(ListNum<SamLine> ln=st.nextLines(); ln!=null; ln=st.nextLines()) {
+					final ArrayList<SamLine> list=ln.list;
+					if(skipreads>0) {skipReads(list);}
+					for(int i=0, len=list.size(); i<len; i++) {
+						SamLine sl=list.get(i);
+						boolean keep=processSamLine(sl);
+						//Base-class keep is always true here (this branch only runs sam->sam/sam->null,
+						//so processSamLine's ffout1.samOrBam() guard holds); the drop-path is the override
+						//extension point (e.g. SamStreamerWrapper). NOT dead code - do not remove.
+						if(!keep) {list.set(i, null);}
+					}
+					if(fw!=null) {fw.addLines(ln);}
 				}
-				if(fw!=null) {fw.addLines(ln);}
 			}
+		}catch(Throwable x){
+			//A consumer-side crash (e.g. an assertion on bad pairing) must not strand the pipeline:
+			//without this, the non-daemon streamer/writer threads stayed blocked on full queues and the
+			//JVM lived forever after main died (jstack-proven, 2026-09-05). Abort both sides, then
+			//rethrow so the process still exits loud and nonzero.
+			st.close();
+			if(fw!=null) {fw.finishError();}
+			throw new RuntimeException("StreamerWrapper failed mid-stream; output is incomplete.", x);
 		}
 		boolean errorState=false;
 		if(fw!=null) {

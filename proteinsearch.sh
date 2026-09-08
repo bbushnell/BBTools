@@ -18,11 +18,13 @@ query=<file>    Query protein FASTA (amino acids).
 db=<file>       Database protein FASTA (amino acids).
 
 Optional parameters (and their defaults):
-out=stdout      Output TSV (outfmt 6).  A .meta sidecar is written beside it.
+out=stdout      Output TSV (outfmt 6).  A .meta sidecar is written beside it
+                when out is a real file; no sidecar is written for stdout.
 evalue=10       E-value significance cutoff.
 minid=0         Minimum percent identity to report.
 minscore=0      Minimum raw BLOSUM62 score to report.
 k=5             Seed k-mer length.
+minseedhits=1   Minimum distinct shared k-mers for a target to be a candidate.
 reduced=f       Use amino8 reduced-alphabet seeds (more sensitive).
 mts=            max-target-seqs: cap distinct targets per query.
 ow=t            (overwrite) Overwrite existing output.

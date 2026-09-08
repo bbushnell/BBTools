@@ -29,6 +29,11 @@ binlen=21       Histogram bin length.
 bins=1000       Maximum histogram bins.
 pz=f            (printzero) Print histogram lines with zero count.
 
+rRNA alignment parameters:
+rrnafallback=f  For 16S, 18S, 23S, and 5S: after the universal rRNA consensus
+                fails alignment, try later consensuses in shipped-file order.
+                Default false preserves historical universal-only behavior.
+
 
 
 Taxonomy parameters:
@@ -123,15 +128,19 @@ sixs=f          Add the experimental paired 6S/SsrS families (RF00013 and RF0168
                 If ncrnaboundarynet=t, complete index-aligned boundary resources
                 are also required for every loaded family; missing or misaligned
                 resources fail loudly.
+r58lsu=f        Add experimental fungal R58 and pooled LSU development families;
+                requires ncrna=t and currently requires ncrnaboundarynet=f.
+                This is a sweep harness, off by default, not a release caller.
 ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
                     boundary networks.  Requires ncrna=t (or generalncrna=t).
                     When enabled, every loaded family must have complete,
                     index-aligned boundary resources; missing or misaligned
                     resources fail loudly.
-ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013, or
-                sixs_rf01685 as the target of the generic sweep overrides below;
-                requires ncrna=t (or generalncrna=t).  A tmrna target also
-                requires tmrna=t; a sixs_* target also requires sixs=t.
+ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
+                sixs_rf01685, r58, or lsu as the target of the generic sweep
+                overrides below; requires ncrna=t (or generalncrna=t).  A tmrna
+                target also requires tmrna=t; a sixs_* target also requires
+                sixs=t; an r58 or lsu target also requires r58lsu=t.
                 Accepted aliases include rnase-p, rnase_p, srp-small, srpsmall,
                 srp-large, srplarge, tm-rna, tm_rna, and ssra (case-insensitive).
                 Other resource-available families remain loaded and compete
@@ -144,6 +153,10 @@ srplargekmers=  Explicit SRP-large conserved-kmer fasta; requires ncrna=t.
 tmrnakmers=     Explicit tmRNA conserved-kmer fasta; requires ncrna=t and tmrna=t.
 sixsrf00013kmers=  Explicit RF00013 16-mer fasta; requires ncrna=t and sixs=t.
 sixsrf01685kmers=  Explicit RF01685 17-mer fasta; requires ncrna=t and sixs=t.
+r58kmers=       Explicit R58 development 17-mer fasta; requires ncrna=t and r58lsu=t.
+lsukmers=       Explicit LSU development 17-mer fasta; requires ncrna=t and r58lsu=t.
+r58consensus=/r58models=  Explicit R58 development consensus/HBM; require r58lsu=t.
+lsuconsensus=/lsumodels=  Explicit LSU development consensus/HBM; require r58lsu=t.
 tmrnaconsensus= Explicit tmRNA consensus fasta; requires ncrna=t and tmrna=t.
 tmrnamodels=    Explicit aligned tmRNA HBM models; requires ncrna=t and tmrna=t.
                 Generic sweep overrides below require exactly one ncrnafamily=;

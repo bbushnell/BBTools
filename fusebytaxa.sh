@@ -24,6 +24,7 @@ floor=1m        Only emit fused sequences at least this long.  Set 0 to emit all
 pad=10          Number of Ns inserted between fused contigs.
 maxlen=50m      Split a taxon's fused sequence into chunks no longer than this.
 overwrite=f     Overwrite existing output.
+verbose=f       Print verbose status messages.
 -Xmx            Set Java memory; streaming, so little is needed.
 "
 }

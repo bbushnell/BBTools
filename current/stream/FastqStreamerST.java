@@ -117,7 +117,7 @@ public class FastqStreamerST implements Streamer {
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 	
 	@Override
@@ -214,7 +214,8 @@ public class FastqStreamerST implements Streamer {
 
 				bytes+=2*bases.length;
 
-				if(samplerate>=1f || randy.nextFloat()<samplerate){
+				//Positional sampling (Streamer.sampleKeep): same subset as the MT streamer for the same seed
+				if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 					byte[][] quad=new byte[][]{header, bases, plus, quals};
 					Read r=quadToRead(quad, pairnum, readID);
 					ln.add(r);
@@ -277,7 +278,8 @@ public class FastqStreamerST implements Streamer {
 
 				bytes+=2*(bases1.length+bases2.length);
 
-				if(samplerate>=1f || randy.nextFloat()<samplerate){
+				//Positional sampling by pair index (Streamer.sampleKeep); the pair is a unit
+				if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 					byte[][] quad1=new byte[][]{header1, bases1, plus1, quals1};
 					byte[][] quad2=new byte[][]{header2, bases2, plus2, quals2};
 					Read r1=quadToRead(quad1, 0, readID);
@@ -374,6 +376,7 @@ public class FastqStreamerST implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private shared.Random randy=null;
+	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
+	private long sampleSeed=17;
 	
 }

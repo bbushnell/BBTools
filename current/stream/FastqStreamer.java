@@ -93,6 +93,12 @@ public class FastqStreamer implements Streamer {
 	@Override
 	public void close(){
 		if(bf!=null) {bf.close(); bf=null;}
+		//Emergency-abort completeness: also force-finish the OQS so a close() from a dying/early-exiting
+		//consumer frees blocked workers (outq capacity-wait) and lets the input thread drain to its own
+		//poison. Without this, a consumer death left every non-daemon pipeline thread blocked and the JVM
+		//alive forever (replicated + jstack-proven via the paired-sampling crash, 2026-09-05). Idempotent
+		//and harmless on the normal path (nextList already called setFinished on LAST).
+		oqs.setFinished(true);
 	}
 	
 	@Override
@@ -121,7 +127,7 @@ public class FastqStreamer implements Streamer {
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
+		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 	
 	@Override
@@ -341,11 +347,15 @@ public class FastqStreamer implements Streamer {
 							reads.add(r);
 						}
 					}else{
+						//Positional sampling (Streamer.sampleKeep): decision + numericID both come from the
+						//record's file position, so R1/R2 twins keep matching subsets with matching ids
+						//regardless of thread scheduling. The old shared-PRNG decision desynced pairs under MT.
 						for(byte[][] quad : list){
-							if(randy.nextFloat()<samplerate){
-								Read r=quadToRead(quad, pairnum, readID++);
+							if(Streamer.sampleKeep(readID, sampleSeed, samplerate)){
+								Read r=quadToRead(quad, pairnum, readID);
 								reads.add(r);
 							}
+							readID++;
 						}
 					}
 
@@ -375,7 +385,10 @@ public class FastqStreamer implements Streamer {
 					if(verbose){outstream.println("tid "+tid+" grabbed blist "+list.id());}
 
 					ListNum<Read> reads=new ListNum<Read>(new ArrayList<Read>((list.size()+1)/2), list.id());
-					long readID=list.firstRecordNum/2;
+					//firstRecordNum already counts PAIRS in interleaved mode (processBytes0 increments reads
+					//once per pair); the old /2 halved it again, giving overlapping numericID ranges between
+					//batches (batch at pair 100 restarted ids at 50).
+					long readID=list.firstRecordNum;
 					ArrayList<byte[][]> quads=list.list;
 //					assert((quads.size()&1)==0) : "Odd number of quads for interleaved list: "+quads.size();
 					if((quads.size()&1)!=0){
@@ -395,16 +408,18 @@ public class FastqStreamer implements Streamer {
 							reads.add(r1);
 						}
 					}else{
+						//Positional sampling by PAIR index; the pair is kept or dropped as a unit.
 						for(int i=0; i<lim; i+=2){
-							if(randy.nextFloat()<samplerate){
+							if(Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 								byte[][] quad1=quads.get(i);
 								byte[][] quad2=quads.get(i+1);
 								Read r1=quadToRead(quad1, 0, readID);
-								Read r2=quadToRead(quad2, 1, readID++);
+								Read r2=quadToRead(quad2, 1, readID);
 								r1.mate=r2;
 								r2.mate=r1;
 								reads.add(r1);
 							}
+							readID++;
 						}
 					}
 
@@ -493,6 +508,7 @@ public class FastqStreamer implements Streamer {
 	/** True if an error was encountered */
 	public boolean errorState=false;
 	private float samplerate=1f;
-	private shared.Random randy=null;
-	
+	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
+	private long sampleSeed=17;
+
 }

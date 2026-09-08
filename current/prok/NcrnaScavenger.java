@@ -307,7 +307,7 @@ public class NcrnaScavenger {
 	private Orf alignWindow(String name, byte[] bases, int strand, int wStart, int wStop){
 		final int wLen=wStop-wStart+1;
 		if(wLen<minLen){return null;}
-		byte[] seq=Arrays.copyOfRange(bases, wStart, wStop+1);
+		byte[] seq=copyRegionUpper(bases, wStart, wStop+1);
 		final int khits=kmerHits(seq);
 		if(DEBUG){System.err.println("DEBUG alignWindow wLen="+wLen+" khits="+khits+" minKmerHits="+minKmerHits
 			+" quantumThresh="+quantumThresh+" usingQuantum="+(wLen>quantumThresh));}
@@ -358,7 +358,7 @@ public class NcrnaScavenger {
 			}
 			return orf;
 		}else{
-			byte[] orfSeq=Arrays.copyOfRange(bases, orfStart, orfStop+1);
+			byte[] orfSeq=copyRegionUpper(bases, orfStart, orfStop+1);
 			if(DEBUG){System.err.println("DEBUG rescue orfStart="+orfStart+" orfStop="+orfStop
 				+" orfSeq.length="+orfSeq.length+" (from Quantum pos bestStart="+bestStart+" bestStop="+bestStop+")");}
 			float bestReId=0; int bestReModel=-1;
@@ -410,7 +410,7 @@ public class NcrnaScavenger {
 	void trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop){
 		final int xFrom=Tools.max(0, orf.start-trimExt);
 		final int xTo=Tools.min(bases.length-1, orf.stop+trimExt);
-		byte[] seqX=Arrays.copyOfRange(bases, xFrom, xTo+1);
+		byte[] seqX=copyRegionUpper(bases, xFrom, xTo+1);
 		final byte[] cons=library[model];
 		AlignmentStats stats=new AlignmentStats(true);
 		stats.doTrace=true;
@@ -480,7 +480,7 @@ public class NcrnaScavenger {
 		final int PAD=10;
 		final int winStart=Tools.max(0, orf.start-PAD);
 		final int winStop=Tools.min(bases.length-1, orf.stop+PAD);
-		final byte[] window=Arrays.copyOfRange(bases, winStart, winStop+1);
+		final byte[] window=copyRegionUpper(bases, winStart, winStop+1);
 		final int s=orf.start-winStart, e=orf.stop-winStart;
 		if(s<0 || e>=window.length || e-s<15){return;}
 		final float contigGC=contigGC(bases);
@@ -491,6 +491,14 @@ public class NcrnaScavenger {
 			contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets);
 		orf.start+=offsets[0];
 		orf.stop+=offsets[1];
+	}
+
+	/** Returns an uppercase private copy for ncRNA matching and refinement without
+	 * modifying the shared, potentially soft-masked genome sequence. */
+	private static byte[] copyRegionUpper(byte[] bases, int from, int to){
+		final byte[] copy=Arrays.copyOfRange(bases, from, to);
+		Tools.toUpperCase(copy);
+		return copy;
 	}
 
 	/** Per-contig GC cache (identity-keyed on the bases[] reference), mirrors TrnaCaller's own

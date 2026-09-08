@@ -242,9 +242,21 @@ public class SplitRibo implements Accumulator<SplitRibo.ProcessThread> {
 			String name=sequenceTypes[st];
 			boolean is16S=name.equalsIgnoreCase("16S");
 			boolean is18S=name.equalsIgnoreCase("18S");
-			seqs[st]=ProkObject.loadConsensusSequenceType(name, ((is16S && stripM16S) || (is18S && stripM18S)), (is16S && stripP16S));
+			//LSU-family aliases (LSU/25S/26S/28S) all reuse the shipped 23S reference; every other name is
+			//its own resource prefix (23S itself included). 5.8S resolves to null here (no shipped resource)
+			//and is skipped safely below when refs==null.
+			String resourcePrefix=resolveResourcePrefix(name);
+			seqs[st]=ProkObject.loadConsensusSequenceType(resourcePrefix, ((is16S && stripM16S) || (is18S && stripM18S)), (is16S && stripP16S));
 		}
 		return seqs;
+	}
+
+	/** Maps LSU-family labels (LSU/25S/26S/28S) to the one shipped large-subunit reference prefix, 23S.
+	 * Every other type name is returned unchanged (it is already its own resource prefix). */
+	private static String resolveResourcePrefix(String name){
+		if(name.equalsIgnoreCase("LSU") || name.equalsIgnoreCase("25S")
+				|| name.equalsIgnoreCase("26S") || name.equalsIgnoreCase("28S")){return "23S";}
+		return name;
 	}
 	
 	/*--------------------------------------------------------------*/

@@ -238,8 +238,10 @@ public final class FastqScanStreamer implements Streamer{
 	
 	private void sample(ArrayList<Read> reads) {
 		assert(samplerate<1);
+		//Positional sampling by numericID (Streamer.sampleKeep): reproducible across runs and
+		//thread counts, and pair-safe automatically since mates share a numericID.
 		for(int i=0; i<reads.size(); i++) {
-			if(randy.nextFloat()>samplerate) {
+			if(!Streamer.sampleKeep(reads.get(i).numericID, sampleSeed, samplerate)) {
 				reads.set(i, null);
 			}
 		}
@@ -362,7 +364,7 @@ public final class FastqScanStreamer implements Streamer{
 	@Override
 	public synchronized void setSampleRate(float rate, long seed){
 		samplerate=rate;
-		randy=(rate>=1f ? null : Shared.random(seed));
+		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 
 	@Override
@@ -431,7 +433,8 @@ public final class FastqScanStreamer implements Streamer{
 	private long nextLID=0;
 	
 	private float samplerate=1f;
-	private Random randy;
+	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
+	private long sampleSeed=17;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------            Stats             ----------------*/

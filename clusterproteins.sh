@@ -23,6 +23,7 @@ out=stdout      Output TSV.  A .meta sidecar is written beside it.
 minid=90        Minimum percent identity to join a cluster (0.9 also accepted).
 mincov=0.8      Minimum aligned fraction of both member and representative.
 k=5             Seed k-mer length.
+minseedhits=1   Minimum distinct shared k-mers with a representative to align against it.
 reduced=f       Use amino8 reduced-alphabet seeds (more sensitive).
 ow=t            (overwrite) Overwrite existing output.
 

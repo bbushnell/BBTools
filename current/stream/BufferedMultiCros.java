@@ -45,6 +45,8 @@ public abstract class BufferedMultiCros extends Thread {
 			mcros=new MultiCros5(out1, out2, overwrite, append, true, useSharedHeader, FileFormat.FASTQ, threaded, maxStreams);
 		}else if(mcrosType==6){//New retirement ordering by timer
 			mcros=new MultiCros6(out1, out2, overwrite, append, true, useSharedHeader, FileFormat.FASTQ, threaded, maxStreams);
+		}else if(mcrosType==7){//Writer-based; same structure as 6 with ZT Writers instead of CROS
+			mcros=new MultiWriter(out1, out2, overwrite, append, true, useSharedHeader, FileFormat.FASTQ, threaded, maxStreams);
 		}else{
 			throw new RuntimeException("Bad mcrosType: "+mcrosType);
 		}
@@ -242,11 +244,19 @@ public abstract class BufferedMultiCros extends Thread {
 				addToBuffers(list);
 				if(verbose){System.err.println("Added list; size="+transferQueue.size());}
 			}
+			closeInner();
 		} catch (InterruptedException e) {
 			//Terminate JVM if something goes wrong
 			KillSwitch.exceptionKill(e);
+		} catch (Throwable t) {
+			//An uncaught Throwable here previously just killed THIS thread; waitForFinish()'s join then
+			//saw a TERMINATED thread and treated it as success, so a failed dump (e.g. unwritable output
+			//file) reported full yield and exit 0 with NOTHING written (replicated via demuxbyname.sh,
+			//blocked-output-file injection, 2026-09-05; nonthreaded mode was already loud). Crash the
+			//whole process instead: never report success on lost output.
+			errorState=true;
+			KillSwitch.exceptionKill(t);
 		}
-		closeInner();
 	}
 	
 	/** Signals that no more reads will be sent in threaded mode.

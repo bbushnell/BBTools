@@ -87,6 +87,8 @@ public abstract class ProkObject {
 		//recommend removing one - Brian's call which. Copy-paste-drift fingerprint.
 		}else if(a.equalsIgnoreCase("klongtrna")){
 			kLongTRna=Integer.parseInt(b);
+		}else if(a.equalsIgnoreCase("rrnafallback")){
+			rrnaFallback=Parse.parseBoolean(b);
 		}
 		
 		else{
@@ -376,6 +378,8 @@ public abstract class ProkObject {
 	public static boolean call23S=true;
 	public static boolean call5S=true;
 	public static boolean call18S=false;
+	/** Retry later ordered rRNA consensuses only after the universal consensus fails. */
+	public static boolean rrnaFallback=false;
 
 	public static LongHashSet ssuKmers=null;
 	public static LongHashSet lsuKmers=null;

@@ -646,6 +646,8 @@ public class GeneCaller extends ProkObject {
 	 * */
 	static ArrayList<Orf> makeOrfsForFrame(String name, byte[] bases, int startFrame, int strand, int minlen){
 //		assert(false) : "TODO";
+		// TODO: Probable CLI-validation bug - CallGenes accepts minlen=1 or 2,
+		// then worker threads fail here instead of rejecting the parameter up front.
 		assert(minlen>=3);
 		if(bases==null || bases.length<minlen){return null;}
 		ArrayList<Orf> orfs=new ArrayList<Orf>();
@@ -835,7 +837,7 @@ public class GeneCaller extends ProkObject {
 			Orf orf=orfs.get(i);
 //			System.err.println(orf.orfScore);
 			boolean good=refineRna(orf, bases, strand, sc, scores, kmersSeen);
-			if(orf.orfScore<cutoff || !good){
+			if(!admitRnaCandidate(orf.orfScore, good, cutoff, sc.type)){
 				if(verbose){System.err.println("REJECT: "+orf.toStringFlipped());}
 				orfs.set(i, null);
 			}else{
@@ -885,6 +887,15 @@ public class GeneCaller extends ProkObject {
 		
 		return orfs;
 	}
+
+	boolean admitRnaCandidate(float orfScore, boolean good, float cutoff, int type){
+		final boolean scoreFail=orfScore<cutoff, goodFail=!good;
+		if(scoreFail){rrnaGateScoreFail[type]++;}
+		if(goodFail){rrnaGateGoodFail[type]++;}
+		if(scoreFail && goodFail){rrnaGateBothFail[type]++;}
+		if(!scoreFail && !goodFail){rrnaGateAdmitted[type]++; return true;}
+		return false;
+	}
 	
 	/**
 	 * Fills array with cumulative count of observed k-mers from reference set.
@@ -928,6 +939,7 @@ public class GeneCaller extends ProkObject {
 	 * @return true if refinement successful, false if ORF should be rejected
 	 */
 	boolean refineRna(Orf orf, byte[] bases, int strand, StatsContainer sc, float[] scores, int[] kmersSeen){
+		rrnaCandidatesGenerated[sc.type]++;
 		if(orf==null){return false;}
 		if(verbose){System.err.println("REFINE: "+orf.toStringFlipped());}
 		final int window=sc.lengthAvg;
@@ -946,6 +958,7 @@ public class GeneCaller extends ProkObject {
 		if(kmersSeen!=null){
 			if(kmersSeen[leftmost]>=kmersSeen[rightmost]){
 //				System.err.println("Bad: "+oldScore);
+				rrnaG5Reject[sc.type]++;
 				orf.orfScore=-999;
 				return false;
 			}else{
@@ -1038,6 +1051,7 @@ public class GeneCaller extends ProkObject {
 		
 		if(starts.isEmpty() || stops.isEmpty()){
 			if(verbose){System.err.println("No starts or stops.");}
+			rrnaG6Reject[sc.type]++;
 			orf.orfScore=Tools.min(-999, orf.orfScore-9999);
 			return false;
 		}
@@ -1055,20 +1069,55 @@ public class GeneCaller extends ProkObject {
 	 * @return true if successful alignment found
 	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc){
+		rrnaRefineByAlignmentCalls[sc.type]++;
 		if(verbose){System.err.println("ALIGN");}
 		Read[] consensus=ProkObject.consensusReads(sc.type);
 		if(consensus==null || consensus.length==0){return true;}
+		//Counting seam starts here, deliberately -- an empty/no-consensus candidate is
+		//explicitly NOT an alignment candidate (Citan's decision, 2026-09-02) and must
+		//return before every counter below, including rejected.
+		assert(sc.type>=0 && sc.type<rrnaCandidatesEnteringRefinement.length) : sc.type;
+		rrnaCandidatesEnteringRefinement[sc.type]++;
 		boolean refined=false;
+		int acceptedIndex=-1;
+		int attemptsMade=0;
 //		System.err.println("Initial: "+orf.start+", "+orf.stop);
-		for(Read r : consensus){
+		for(int i=0; i<consensus.length; i++){
+			Read r=consensus[i];
+			final int start0=orf.start, stop0=orf.stop;
+			final float score0=orf.orfScore;
 //			refined=refineByAlignment(orf, bases, strand, sc, r.bases, 15, 15, 2);
 			refined=refineByAlignment(orf, bases, strand, sc, r.bases, sc.startSlop(), sc.stopSlop(), 2);
-			//TODO: Possible bug [prok/GeneCaller#001] - the trailing "|| true" forces break after consensus[0], so the loop never tries a 2nd consensus and the "refined ||" (retry on failure) and "sc.type==r18S" clauses are both dead. If any type ships >1 consensus read, an RNA matching only consensus[1+] is rejected (missed call). Latent LOW today iff every type has <=1 consensus (confirm via ProkObject.consensusReads); looks like leftover debug forcing single-consensus. Flag for Brian.
-			if(refined || sc.type==r18S || true){break;}
+			if(!refined){
+				orf.start=start0;
+				orf.stop=stop0;
+				orf.orfScore=score0;
+			}
+			attemptsMade++;
+			if(i==0){rrnaUniversalAttempts[sc.type]++;}else{rrnaFallbackAttempts[sc.type]++;}
+			if(refined){acceptedIndex=i;}
+			if(attemptSink!=null){
+				assert(!"UNKNOWN".equals(lastAttemptReason));
+				// The strand-1 pass operates on an in-place reverse complement.  Emit
+				// forward-reference coordinates so diagnostic consumers can join them to
+				// the original input sequence without duplicating caller internals.
+				final int preStart=(strand==0 ? start0 : bases.length-stop0-1);
+				final int preStop=(strand==0 ? stop0 : bases.length-start0-1);
+				final int postStart=(strand==0 ? orf.start : bases.length-orf.stop-1);
+				final int postStop=(strand==0 ? orf.stop : bases.length-orf.start-1);
+				final String candidateId=System.identityHashCode(bases)+"_"+System.identityHashCode(this)+"_"+strand+"_"+preStart+"_"+preStop;
+				attemptSink.onAttempt(i, consensus.length, preStart, preStop, score0, refined, postStart, postStop, strand,
+						orf.scafName, r.id, r.bases.length, lastAttemptIdentity, lastAttemptReason, candidateId);
+			}
+			if(refined || !rrnaFallback){break;}
 		}
+		rrnaAttemptCountHist[sc.type]=growHistRow(rrnaAttemptCountHist[sc.type], attemptsMade);
+		rrnaAttemptCountHist[sc.type][attemptsMade]++;
 		if(refined){
+			if(acceptedIndex>0){rrnaFallbackOnlyRescues[sc.type]++;}
 			if(verbose){System.err.println("Aligned to: "+orf.start+", "+orf.stop);}
 		}else{
+			rrnaRejectedCandidates[sc.type]++;
 			if(verbose){System.err.println("Alignment failed.");}
 			orf.orfScore=Tools.min(-999, orf.orfScore-9999);
 		}
@@ -1091,6 +1140,7 @@ public class GeneCaller extends ProkObject {
 	 */
 	boolean refineByAlignment(Orf orf, byte[] bases, int strand, StatsContainer sc, byte[] consensus, 
 			final int startSlop, final int stopSlop, int recurLimit){
+		if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="UNKNOWN";}
 		if(useIDAligner) {
 			return refineByAlignment_IDA(orf, bases, strand, 
 					sc, consensus, startSlop, stopSlop, recurLimit);
@@ -1135,13 +1185,14 @@ public class GeneCaller extends ProkObject {
 			//TODO: Possibly change return to -1, 0, 1 ("can't align")
 			//Should be a limit on window size...
 			//Also consider shrinking matrix after jumbo alignments
+			if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="REFLEN_TOO_LARGE";}
 			return false;
 		}
 		assert(a>=0 && b<bases.length) : a+", "+b;
 		IDAligner ida=idaligner.Factory.makeIDAligner();
 		int[] pos=new int[2];
 		float id=ida.align(consensus, bases, pos, a, b);
-		if(id<minID){return false;}
+		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
 		
 		final int rstart=Tools.max(pos[0], 0);
 		final int rstop=Tools.min(pos[1], bases.length-1);
@@ -1153,6 +1204,7 @@ public class GeneCaller extends ProkObject {
 			"qlen="+consensus.length+", rlen="+bases.length+", a="+a+", b="+b+"\n"+
 			"pos="+Arrays.toString(pos)+", start0="+start0+", stop0="+stop0+"\n"+orf;
 			//+new String(consensus)+"\n"+new String(bases, a, b-a+1)+"\n";
+		if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason=(orf.length()>0 ? "ACCEPTED" : "EMPTY_RESULT");}
 		return orf.length()>0;
 	}
 	
@@ -1191,13 +1243,14 @@ public class GeneCaller extends ProkObject {
 			//TODO: Possibly change return to -1, 0, 1 ("can't align")
 			//Should be a limit on window size...
 			//Also consider shrinking matrix after jumbo alignments
+			if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="REFLEN_TOO_LARGE";}
 			return false;
 		}
 		assert(a>=0 && b<bases.length) : a+", "+b;
 		SingleStateAlignerFlat2 ssa=getSSA();
 		final int minScore=ssa.minScoreByIdentity(consensus.length, minID);
 		int[] max=ssa.fillUnlimited(consensus, bases, a, b, minScore);
-		if(max==null){return false;}
+		if(max==null){if(attemptSink!=null){lastAttemptIdentity=Float.NaN; lastAttemptReason="NO_ALIGNMENT_FOUND";} return false;}
 		
 		final int rows=max[0];
 		final int maxCol=max[1];
@@ -1240,11 +1293,12 @@ public class GeneCaller extends ProkObject {
 //		assert(score.length==3) : "TODO: Handle padding requests.";
 		
 //		System.err.println("Identity: "+String.format("%.2f", 100*id)+"; location: "+rstart+"-"+rstop);
-		if(id<minID){return false;}
+		if(id<minID){if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="IDENTITY_BELOW_THRESHOLD";} return false;}
 		
 		
 		if(Tools.absdif(rstart, start0)>startSlop){orf.start=rstart;}
 		if(Tools.absdif(rstop, stop0)>stopSlop){orf.stop=rstop;}
+		if(attemptSink!=null){lastAttemptIdentity=id; lastAttemptReason="ACCEPTED";}
 		return true;
 	}
 	
@@ -1832,6 +1886,58 @@ public class GeneCaller extends ProkObject {
 	/** Counter for generic ncRNA (RNase P, SRP, ...) features in final output */
 	long rnaOut=0;
 
+	/** rrnafallback attempt counters (Citan-authorized, 2026-09-02), indexed by
+	 * ProkObject type constant (CDS=0..RNA=7). Unconditional, always collected (same cost
+	 * class as r16SOut etc. above, none of which are opt-in gated) -- per the 203-genome
+	 * A/B benchmark contract's stratify-by-5S/16S/23S requirement. Incremented ONLY inside
+	 * the OUTER refineByAlignment(Orf,byte[],int,StatsContainer) loop -- the seam is
+	 * deliberately outer-loop-only, never inside refineByAlignment_IDA/_SSA, so a single
+	 * counting site covers both aligner modes identically.
+	 * <p>A candidate counts as "entering refinement" only once a NONEMPTY consensus array
+	 * is confirmed present (Citan's decision, 2026-09-02) -- the empty/no-consensus early
+	 * return is explicitly not an alignment candidate. Consequently
+	 * rrnaCandidatesEnteringRefinement and rrnaUniversalAttempts are always numerically
+	 * IDENTICAL under current control flow (every nonempty-consensus candidate runs
+	 * exactly one i==0 iteration, unconditionally) -- both fields are retained anyway as
+	 * explicitly equal-under-current-control-flow contract fields (Citan's decision,
+	 * 2026-09-02), matching the batch-run plan's own two separately-named counter columns,
+	 * not collapsed into one. */
+	/** Per-type candidate Orfs reaching refineRna before its internal gates. Diagnostic only. */
+	long[] rrnaCandidatesGenerated=new long[8];
+	long[] rrnaRefineByAlignmentCalls=new long[8];
+	long[] rrnaGateScoreFail=new long[8], rrnaGateGoodFail=new long[8], rrnaGateBothFail=new long[8], rrnaGateAdmitted=new long[8];
+	long[] rrnaG5Reject=new long[8], rrnaG6Reject=new long[8];
+	long[] rrnaCandidatesEnteringRefinement=new long[8];
+	/** The universal (first, i==0) consensus entry is attempted exactly once per candidate
+	 * that reaches the loop, in BOTH rrnafallback=f and =t modes. See field-group javadoc
+	 * above for why this is currently always equal to rrnaCandidatesEnteringRefinement. */
+	long[] rrnaUniversalAttempts=new long[8];
+	/** A fallback (i>0) attempt is only possible when rrnafallback=t AND the universal
+	 * attempt failed. */
+	long[] rrnaFallbackAttempts=new long[8];
+	/** Incremented once per candidate whose FINAL accepted attempt had index>0 -- i.e. the
+	 * universal entry failed but a later fallback entry rescued it. */
+	long[] rrnaFallbackOnlyRescues=new long[8];
+	/** Incremented once per candidate where every attempted consensus entry failed (the
+	 * loop exited with refined==false). */
+	long[] rrnaRejectedCandidates=new long[8];
+	/** Per-type histogram of attempts-made-per-candidate (index = attempt count) -- lets a
+	 * downstream wrapper compute EXACT mean/median/p95 attempts-per-candidate per type
+	 * from the merged histogram, not an estimate. Each row is GROWABLE, not fixed-size
+	 * (Citan's correction, 2026-09-02): a row starts null and grows via
+	 * growHistRow/Arrays.copyOf only as far as an actually-observed attempt count
+	 * requires, so a future resource with a longer consensus shortlist than any type
+	 * ships today still gets exact (not clamped/lossy) p95 data. */
+	long[][] rrnaAttemptCountHist=new long[8][];
+
+	/** Grows (never shrinks) a histogram row so index `idx` is valid, preserving existing
+	 * counts and zero-filling new slots. `row` may be null (treated as length 0). */
+	static long[] growHistRow(long[] row, int idx){
+		if(row==null){return new long[idx+1];}
+		if(row.length<=idx){return Arrays.copyOf(row, idx+1);}
+		return row;
+	}
+
 	/** Score tracker for CDS features during processing */
 	ScoreTracker stCds=new ScoreTracker(CDS);
 	/** Secondary score tracker for CDS features */
@@ -1911,6 +2017,12 @@ public class GeneCaller extends ProkObject {
 	
 	/** Whether to retain at least one ORF even if it fails quality filters */
 	public boolean keepAtLeastOneOrf=false;
+
+	/** Test-only, null-by-default observer for ordered rRNA consensus attempts. */
+	private RefinementAttemptSink attemptSink=null;
+	void setAttemptSink(RefinementAttemptSink sink){attemptSink=sink;}
+	private float lastAttemptIdentity=Float.NaN;
+	private String lastAttemptReason="UNKNOWN";
 
 	/** Thread-local storage for SingleStateAlignerFlat2 instances */
 	private static ThreadLocal<SingleStateAlignerFlat2> localSSA=new ThreadLocal<SingleStateAlignerFlat2>();

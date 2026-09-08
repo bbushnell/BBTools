@@ -43,6 +43,16 @@ minlen=1        Ignore sequences shorter than this.
 maxlen=4000     Ignore sequences longer than this.
 16S=t           Align to 16S consensus to pick the seed. Mutually exclusive.
 18S=f           Align to 18S consensus to pick the seed. Mutually exclusive.
+ITS=f           Align to ITS consensus to pick the seed. Mutually exclusive.
+LSU=f           Large-subunit mode (23S/25S/26S/28S name one molecule); aligns
+                to the prokaryotic 23S consensus, or to ref= if given (required
+                for eukaryotic LSU, which is too divergent from 23S).
+                Sets maxlen=6000 unless overridden. Mutually exclusive.
+5.8S=f          5.8S mode; requires ref= (no shipped 5.8S consensus).
+                Sets minlen=50 maxlen=300 unless overridden. Mutually exclusive.
+ref=<file>      Caller-supplied consensus reference(s) overriding the shipped
+                seed for the selected mode; every record becomes a seed
+                (alignment takes the max identity over all of them).
 level=          If specified with a term like 'species' or 'genus', nodes
                 will be promoted to that level, minimum, before consensus.
 dada2=f         Output headers in dada2 format.

@@ -41,8 +41,9 @@ public class FastaQualWriterZT implements Writer {
 		assert(writeR1 || writeR2) : "Must write at least one mate";
 		
 		// Open output streams
-		outstreamFa=ReadWrite.getOutputStream(fnameFa, false, true, ffFa.allowSubprocess());
-		outstreamQual=ReadWrite.getOutputStream(fnameQual, false, true, ffFa.allowSubprocess());
+		//ff.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
+		outstreamFa=ReadWrite.getOutputStream(fnameFa, ffFa.append(), true, ffFa.allowSubprocess());
+		outstreamQual=ReadWrite.getOutputStream(fnameQual, ffFa.append(), true, ffFa.allowSubprocess());
 		
 		if(verbose){outstream.println("Made FastaQualWriterZT for "+fnameFa);}
 	}
