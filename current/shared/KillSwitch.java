@@ -1,7 +1,6 @@
 package shared;
 
 import java.lang.management.ManagementFactory;
-import java.lang.management.OperatingSystemMXBean;
 import java.lang.management.ThreadMXBean;
 import java.lang.reflect.Array;
 import java.util.Arrays;
@@ -10,8 +9,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 
 /**
- * Monitors CPU utilization to determine if the program has crashed.
- * Also performs VM forced shutdowns and safe memory allocation.
+ * Monitors this JVM's own CPU utilization (via {@link ThreadMXBean} per-thread
+ * CPU time, summed across all live threads) to determine if the program has
+ * hung, and kills it if so.  Also performs VM forced shutdowns and safe memory
+ * allocation.
+ *
+ * <p>Deliberately measures THIS process's own CPU consumption rather than
+ * system-wide load average: on a shared/busy machine (many unrelated
+ * processes, or -- as observed during testing -- many sibling JVMs/agents
+ * on the same host) system load average can sit permanently elevated while
+ * this particular JVM is completely hung, making a system-load-based monitor
+ * never fire.  Per-process CPU time is immune to that.
+ *
  * @author Brian Bushnell
  * @date Feb 25, 2015
  *
@@ -19,7 +28,8 @@ import java.util.concurrent.atomic.AtomicIntegerArray;
 public final class KillSwitch extends Thread {
 	
 	/** Entry point for standalone execution that launches KillSwitch monitoring.
-	 * @param args Command-line arguments: seconds (max duration) and load (minimum CPU load) */
+	 * @param args Command-line arguments: seconds (max duration) and load (minimum
+	 * own-process CPU utilization, as a fraction of one core, to count as "alive") */
 	public static void main(String[] args){
 		double seconds=Double.parseDouble(args[0]);
 		double load=Double.parseDouble(args[1]);
@@ -31,34 +41,34 @@ public final class KillSwitch extends Thread {
 	
 	/**
 	 * Constructs a KillSwitch thread with specified monitoring parameters.
-	 * @param seconds Maximum duration in seconds before shutdown if load is too low
-	 * @param load Minimum system load threshold to remain active
+	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
+	 * @param load Minimum own-process CPU utilization (fraction of one core) to remain active
 	 */
 	private KillSwitch(double seconds, double load) {
 		maxSeconds=seconds;
 		minLoad=load;
 	}
 
-	/** Launches KillSwitch with default timeout of 600 seconds and load threshold 0.002.
+	/** Launches KillSwitch with default timeout of 600 seconds and CPU-utilization threshold 0.002.
 	 * @return false if already running, true if successfully started */
 	public static boolean launch(){
 		return launch(600);
 	}
 
 	/**
-	 * Launches KillSwitch with specified timeout and default load threshold 0.002.
-	 * @param seconds Maximum duration in seconds before shutdown if load is too low
+	 * Launches KillSwitch with specified timeout and default CPU-utilization threshold 0.002.
+	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
 	 * @return false if already running, true if successfully started
 	 */
 	public static boolean launch(double seconds){
 		return launch(seconds, 0.002);
 	}
-	
+
 	/**
-	 * Launches KillSwitch thread with custom timeout and load parameters.
+	 * Launches KillSwitch thread with custom timeout and CPU-utilization parameters.
 	 * Only one KillSwitch instance can run at a time.
-	 * @param seconds Maximum duration in seconds before shutdown if load is too low
-	 * @param load Minimum system load threshold to remain active
+	 * @param seconds Maximum duration in seconds before shutdown if own-process CPU usage is too low
+	 * @param load Minimum own-process CPU utilization (fraction of one core) to remain active
 	 * @return false if already running, true if successfully started
 	 */
 	public static synchronized boolean launch(double seconds, double load){
@@ -85,38 +95,49 @@ public final class KillSwitch extends Thread {
 	}
 	
 	/**
-	 * Monitors system load and returns false if load stays below threshold too long.
-	 * Uses OperatingSystemMXBean to track load average every 2000ms. Resets timeout
-	 * whenever load exceeds minimum threshold. Returns false to trigger shutdown.
-	 * @return false if timeout exceeded with low load, true for normal shutdown
+	 * Monitors this JVM's own CPU utilization and returns false if it stays below
+	 * threshold too long.  Uses {@link ThreadMXBean} per-thread CPU time (summed
+	 * across all live threads, via {@link #totalThreadCpuNanos(ThreadMXBean)}),
+	 * sampled every 2000ms, expressed as a fraction of one CPU core consumed
+	 * during that interval.  Resets the timeout whenever utilization exceeds
+	 * minLoad.  Returns false to trigger shutdown.
+	 *
+	 * <p>This measures the process itself, not the system: on a shared/busy
+	 * machine, system load average can stay elevated indefinitely from unrelated
+	 * processes even while this JVM is completely hung, which would prevent a
+	 * system-load-based monitor from ever firing.  Per-process CPU time has no
+	 * such blind spot.
+	 *
+	 * @return false if timeout exceeded with low own-process CPU usage, true for normal shutdown
 	 */
 	private boolean monitor(){
-		
-		final OperatingSystemMXBean bean=ManagementFactory.getOperatingSystemMXBean();
-		if(bean.getSystemLoadAverage()<0){
-			System.err.println("This OS does not support monitor, so monitoring was disabled.");
+
+		final ThreadMXBean tmx=ManagementFactory.getThreadMXBean();
+		if(!tmx.isThreadCpuTimeSupported()){
+			System.err.println("This JVM does not support thread CPU time measurement, so monitor was disabled.");
 			return true;
 		}
-		
-		final long start=System.currentTimeMillis();
+		if(!tmx.isThreadCpuTimeEnabled()){tmx.setThreadCpuTimeEnabled(true);}
+
+		final long pollMillis=2000;
 		final long buffer=(long)(1+maxSeconds*1000);
-		long stop=start+buffer;
-//		System.err.println("start="+start+", stop="+stop+", buffer="+buffer);
-//		System.err.println("shutdownFlag.get()="+shutdownFlag.get());
+		long stop=System.currentTimeMillis()+buffer;
+		long prevCpu=totalThreadCpuNanos(tmx);
 		while(!shutdownFlag.get()){
 			try {
-				sleep(2000);
+				sleep(pollMillis);
 			} catch (InterruptedException e) {
-				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
-			final double load=bean.getSystemLoadAverage();
+			final long curCpu=totalThreadCpuNanos(tmx);
+			final long cpuDelta=curCpu-prevCpu;
+			prevCpu=curCpu;
+			//Fraction of one CPU core consumed by this JVM's threads during the last interval.
+			final double load=cpuDelta/(double)(pollMillis*1000000L);
 			final long time=System.currentTimeMillis();
 			if(load>minLoad){stop=time+buffer;}
 			if(time>stop){return false;}
-//			System.err.println("stop-time="+(stop-time)+", load="+load);
 		}
-//		System.err.println("shutdownFlag.get()="+shutdownFlag.get());
 		return true;
 	}
 
@@ -840,7 +861,7 @@ public final class KillSwitch extends Thread {
 	 * Maximum duration in seconds before shutdown if system load stays below threshold.
 	 */
 	private final double maxSeconds;
-	/** Minimum system load average threshold to keep the program running. */
+	/** Minimum own-process CPU utilization (fraction of one core) to keep the program running. */
 	private final double minLoad;
 	
 	/** Thread-safe flag to signal graceful shutdown of monitoring thread. */
