@@ -67,7 +67,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP sketch.SubSketch $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" sketch.SubSketch "$@"
 }
 
 resolveSymlinks

@@ -89,7 +89,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.KmerCoverage prefilter=true bits=16 interleaved=false $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.KmerCoverage prefilter=true bits=16 interleaved=false "$@"
 }
 
 resolveSymlinks

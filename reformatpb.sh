@@ -121,7 +121,7 @@ launch() {
 	if [ "$silent" != "1" ]; then
 		echo "$CMD" >&2
 	fi
-	eval $CMD
+	java $EA $EOOM $SIMD $JNI $XMX $XMS -cp "$CP" icecream.ReformatPacBio "$@"
 }
 
 resolveSymlinks

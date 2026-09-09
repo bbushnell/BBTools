@@ -75,7 +75,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prot.ClusterProteins $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prot.ClusterProteins "$@"
 }
 
 resolveSymlinks

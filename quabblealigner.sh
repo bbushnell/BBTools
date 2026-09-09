@@ -58,7 +58,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.QuabbleAligner $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" idaligner.QuabbleAligner "$@"
 }
 
 resolveSymlinks

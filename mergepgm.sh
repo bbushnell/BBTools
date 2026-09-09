@@ -54,7 +54,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.PGMTools $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.PGMTools "$@"
 }
 
 resolveSymlinks

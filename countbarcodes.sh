@@ -71,7 +71,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP barcode.CountBarcodes $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" barcode.CountBarcodes "$@"
 }
 
 resolveSymlinks

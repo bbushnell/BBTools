@@ -54,7 +54,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP pacbio.RemoveAdapters2 $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" pacbio.RemoveAdapters2 "$@"
 }
 
 resolveSymlinks

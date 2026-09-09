@@ -87,7 +87,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -Xss8m -cp $CP consensus.ConsensusMaker $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -Xss8m -cp "$CP" consensus.ConsensusMaker "$@"
 }
 
 resolveSymlinks

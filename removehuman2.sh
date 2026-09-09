@@ -66,7 +66,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.BBMap minratio=0.75 maxindel=8 bwr=0.22 bw=26 minhits=1 path=/global/cfs/cdirs/bbtools/hg19 build=2 pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 maxsites=1 k=14 tipsearch=0 kfilter=25 bloomfilter $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" align2.BBMap minratio=0.75 maxindel=8 bwr=0.22 bw=26 minhits=1 path=/global/cfs/cdirs/bbtools/hg19 build=2 pigz unpigz zl=6 qtrim=r trimq=10 untrim idtag usemodulo printunmappedcount ztd=2 maxsites=1 k=14 tipsearch=0 kfilter=25 bloomfilter "$@"
 }
 
 resolveSymlinks

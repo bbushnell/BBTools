@@ -129,6 +129,9 @@ sixs=f          Add the experimental paired 6S/SsrS families (RF00013 and RF0168
                 are also required for every loaded family; missing or misaligned
                 resources fail loudly.
 r58lsu=f        Add experimental fungal R58 and pooled LSU development families;
+s18=f           Add the experimental generic 18S development family (pilot);
+                requires ncrna=t and explicit s18kmers/s18consensus/s18models.
+                Distinct from 18s=t, which enables the legacy PGM-path 18S caller.
                 requires ncrna=t and currently requires ncrnaboundarynet=f.
                 This is a sweep harness, off by default, not a release caller.
 ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
@@ -140,7 +143,8 @@ ncrnafamily=    Select rnasep, srp_small, srp_large, tmrna, sixs_rf00013,
                 sixs_rf01685, r58, or lsu as the target of the generic sweep
                 overrides below; requires ncrna=t (or generalncrna=t).  A tmrna
                 target also requires tmrna=t; a sixs_* target also requires
-                sixs=t; an r58 or lsu target also requires r58lsu=t.
+                sixs=t; an r58 or lsu target also requires r58lsu=t; an s18
+                target requires s18=t.
                 Accepted aliases include rnase-p, rnase_p, srp-small, srpsmall,
                 srp-large, srplarge, tm-rna, tm_rna, and ssra (case-insensitive).
                 Other resource-available families remain loaded and compete
@@ -157,6 +161,8 @@ r58kmers=       Explicit R58 development 17-mer fasta; requires ncrna=t and r58l
 lsukmers=       Explicit LSU development 17-mer fasta; requires ncrna=t and r58lsu=t.
 r58consensus=/r58models=  Explicit R58 development consensus/HBM; require r58lsu=t.
 lsuconsensus=/lsumodels=  Explicit LSU development consensus/HBM; require r58lsu=t.
+s18kmers=       Explicit 18S development 17-mer fasta; requires ncrna=t and s18=t.
+s18consensus=/s18models=  Explicit 18S development consensus/HBM; require s18=t.
 tmrnaconsensus= Explicit tmRNA consensus fasta; requires ncrna=t and tmrna=t.
 tmrnamodels=    Explicit aligned tmRNA HBM models; requires ncrna=t and tmrna=t.
                 Generic sweep overrides below require exactly one ncrnafamily=;
@@ -240,7 +246,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.CallGenes $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.CallGenes "$@"
 }
 
 resolveSymlinks

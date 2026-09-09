@@ -70,7 +70,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP synth.FuseSequence $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" synth.FuseSequence "$@"
 }
 
 resolveSymlinks

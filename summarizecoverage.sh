@@ -53,7 +53,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP covid.SummarizeCoverage $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" covid.SummarizeCoverage "$@"
 }
 
 resolveSymlinks

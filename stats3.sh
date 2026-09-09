@@ -52,7 +52,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.AssemblyStats3 $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.AssemblyStats3 "$@"
 }
 
 resolveSymlinks

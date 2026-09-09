@@ -100,7 +100,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prot.MagQCVectorMaker $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prot.MagQCVectorMaker "$@"
 }
 
 resolveSymlinks

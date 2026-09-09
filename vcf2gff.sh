@@ -45,7 +45,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP gff.GffLine $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" gff.GffLine "$@"
 }
 
 resolveSymlinks

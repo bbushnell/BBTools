@@ -80,7 +80,7 @@ calcXmx "$@"
 regressiontrainer() {
 	local CMD="java $EA $EOOM $z -cp $CP ml.RegressionTrainer $@"
 	echo $CMD >&2
-	eval $CMD
+	java $EA $EOOM $z -cp "$CP" ml.RegressionTrainer "$@"
 }
 
 regressiontrainer "$@"

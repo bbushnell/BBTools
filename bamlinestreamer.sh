@@ -58,7 +58,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP stream.bam.Bam2Sam $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" stream.bam.Bam2Sam "$@"
 }
 
 resolveSymlinks

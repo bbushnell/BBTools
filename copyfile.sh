@@ -46,7 +46,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP fileIO.CopyFile $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" fileIO.CopyFile "$@"
 }
 
 resolveSymlinks

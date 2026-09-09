@@ -93,9 +93,8 @@ setEnv(){
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP gff.CutGff2 $@"
-	echo "$CMD" >&2
-	eval $CMD
+	echo "java $EA $EOOM $SIMD $XMX $XMS -cp $CP gff.CutGff2 $@" >&2
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" gff.CutGff2 "$@"
 }
 
 resolveSymlinks

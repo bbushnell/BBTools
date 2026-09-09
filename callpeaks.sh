@@ -69,7 +69,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.CallPeaks $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.CallPeaks "$@"
 }
 
 resolveSymlinks

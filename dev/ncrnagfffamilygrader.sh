@@ -60,7 +60,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.NcrnaGffFamilyGrader $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.NcrnaGffFamilyGrader "$@"
 }
 
 resolveSymlinks

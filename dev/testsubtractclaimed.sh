@@ -43,7 +43,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.TrnaCallerSubtractClaimedTest $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.TrnaCallerSubtractClaimedTest "$@"
 }
 
 resolveSymlinks

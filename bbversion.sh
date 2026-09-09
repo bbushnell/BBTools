@@ -43,7 +43,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $XMX $XMS -cp $CP driver.BBVersion $@"
 	#echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $XMX $XMS -cp "$CP" driver.BBVersion "$@"
 }
 
 resolveSymlinks

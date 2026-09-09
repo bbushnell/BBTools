@@ -87,7 +87,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.RepresentativeSet $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.RepresentativeSet "$@"
 }
 
 resolveSymlinks

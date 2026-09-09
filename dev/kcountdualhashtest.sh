@@ -44,7 +44,7 @@ setEnv(){
 launch(){
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bloom.KCountArrayDualHashTest"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" bloom.KCountArrayDualHashTest
 }
 
 resolveSymlinks

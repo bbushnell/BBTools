@@ -146,7 +146,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP clade.SendClade $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp "$CP" clade.SendClade "$@"
 }
 
 resolveSymlinks

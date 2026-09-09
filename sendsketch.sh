@@ -278,7 +278,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP sketch.SendSketch $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $PROXY $XMX $XMS -cp "$CP" sketch.SendSketch "$@"
 }
 
 resolveSymlinks

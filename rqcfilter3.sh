@@ -249,7 +249,7 @@ launch() {
 	fi
 	CMD="java --enable-native-access=ALL-UNNAMED $EA $EOOM $SIMD $PROXY $XMX $XMS -cp $CP jgi.RQCFilter3 $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java --enable-native-access=ALL-UNNAMED $EA $EOOM $SIMD $PROXY $XMX $XMS -cp "$CP" jgi.RQCFilter3 "$@"
 }
 
 resolveSymlinks

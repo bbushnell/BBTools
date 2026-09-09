@@ -68,7 +68,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.KeepBestCopy $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.KeepBestCopy "$@"
 }
 
 resolveSymlinks

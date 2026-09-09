@@ -48,7 +48,7 @@ setEnv(){
 launch(){
 	if [ "$#" -eq 0 ]; then usage; return 0; fi
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.RrnaScavengerHarness $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.RrnaScavengerHarness "$@"
 }
 
 resolveSymlinks

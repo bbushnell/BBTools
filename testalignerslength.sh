@@ -56,7 +56,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.TestAlignerLength $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" idaligner.TestAlignerLength "$@"
 }
 
 resolveSymlinks

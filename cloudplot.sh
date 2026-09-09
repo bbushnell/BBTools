@@ -176,7 +176,7 @@ launch() {
 
 	CMD="java $HEADLESS $EA $EOOM $SIMD $XMX $XMS -cp $CP scalar.CloudPlot $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $HEADLESS $EA $EOOM $SIMD $XMX $XMS -cp "$CP" scalar.CloudPlot "$@"
 }
 
 resolveSymlinks

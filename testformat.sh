@@ -49,7 +49,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP fileIO.FileFormat $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" fileIO.FileFormat "$@"
 }
 
 resolveSymlinks

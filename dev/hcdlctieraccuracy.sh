@@ -72,7 +72,7 @@ calcXmx "$@"
 hcdlc() {
 	local CMD="java $EA $EOOM $z -cp $CP cardinality.HCDLCTierAccuracy $@"
 	echo $CMD >&2
-	eval $CMD
+	java $EA $EOOM $z -cp "$CP" cardinality.HCDLCTierAccuracy "$@"
 }
 
 hcdlc "$@"

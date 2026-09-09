@@ -96,7 +96,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP synth.ShredPacBio $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" synth.ShredPacBio "$@"
 }
 
 resolveSymlinks

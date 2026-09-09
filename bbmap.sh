@@ -340,7 +340,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.BBMap build=1 overwrite=true fastareadlen=500 $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" align2.BBMap build=1 overwrite=true fastareadlen=500 "$@"
 }
 
 resolveSymlinks

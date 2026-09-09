@@ -91,7 +91,8 @@ bufsize=200     Kmers a thread buffers per partition before flushing (taking
                 that partition's lock). Larger reduces lock frequency.
 
 Java Parameters:
--Xmx            Set memory usage.  Default autodetected.
+-Xmx            Set memory usage.  Default is 84% of detected available memory
+                (loads all sequences and kmers into memory rather than streaming).
 "
 }
 
@@ -109,26 +110,24 @@ popd > /dev/null
 #DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/"
 CP="$DIR""current/"
 
-z="-Xmx1g"
-z2="-Xms1g"
-set=0
-
 if [ -z "$1" ] || [[ $1 == -h ]] || [[ $1 == --help ]]; then
 	usage
 	exit
 fi
 
-calcXmx () {
-	source "$DIR""/calcmem.sh"
+setEnv(){
+	. "$DIR/javasetup.sh"
+	. "$DIR/memdetect.sh"
+
+	parseJavaArgs "--xmx=4g" "--percent=84" "--mode=auto" "$@"
 	setEnvironment
-	parseXmx "$@"
 }
-calcXmx "$@"
 
 coveringset() {
-	local CMD="java $EA $EOOM $z $z2 --add-modules jdk.incubator.vector -cp $CP prok.CoveringSet $@"
-	echo $CMD >&2
-	eval $CMD
+	local CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.CoveringSet $@"
+	echo "$CMD" >&2
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.CoveringSet "$@"
 }
 
+setEnv "$@"
 coveringset "$@"

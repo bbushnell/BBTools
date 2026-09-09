@@ -82,7 +82,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP assemble.Postfilter $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" assemble.Postfilter "$@"
 }
 
 resolveSymlinks

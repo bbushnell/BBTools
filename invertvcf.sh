@@ -76,7 +76,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP var2.InvertVCF $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" var2.InvertVCF "$@"
 }
 
 resolveSymlinks

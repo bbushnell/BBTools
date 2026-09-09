@@ -58,7 +58,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP driver.SummarizeCoverage $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" driver.SummarizeCoverage "$@"
 }
 
 resolveSymlinks

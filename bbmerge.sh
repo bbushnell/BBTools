@@ -285,7 +285,7 @@ launch() {
 		CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.BBMerge $@"
 	fi
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.BBMerge "$@"
 }
 
 resolveSymlinks

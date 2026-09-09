@@ -68,7 +68,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP align2.GradeSamFile $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" align2.GradeSamFile "$@"
 }
 
 resolveSymlinks

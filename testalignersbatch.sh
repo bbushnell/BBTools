@@ -56,7 +56,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.TestAlignerBatch $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" idaligner.TestAlignerBatch "$@"
 }
 
 resolveSymlinks

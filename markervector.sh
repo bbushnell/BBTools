@@ -80,7 +80,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prot.MarkerVectorCLI $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prot.MarkerVectorCLI "$@"
 }
 
 resolveSymlinks

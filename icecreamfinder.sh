@@ -131,7 +131,7 @@ setEnv(){
 launch() {
 	CMD="java --enable-native-access=ALL-UNNAMED $EA $EOOM $SIMD $XMX $XMS $XSS -cp $CP icecream.IceCreamFinder $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java --enable-native-access=ALL-UNNAMED $EA $EOOM $SIMD $XMX $XMS $XSS -cp "$CP" icecream.IceCreamFinder "$@"
 }
 
 resolveSymlinks

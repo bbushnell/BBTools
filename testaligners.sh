@@ -54,7 +54,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP idaligner.Test $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" idaligner.Test "$@"
 }
 
 resolveSymlinks

@@ -60,7 +60,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.SmithWaterman $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" aligner.SmithWaterman "$@"
 }
 
 resolveSymlinks

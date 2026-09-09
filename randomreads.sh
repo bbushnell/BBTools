@@ -166,7 +166,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP synth.RandomReads3 build=1 $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" synth.RandomReads3 build=1 "$@"
 }
 
 resolveSymlinks

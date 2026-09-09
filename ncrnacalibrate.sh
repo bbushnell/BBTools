@@ -87,7 +87,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.NcrnaCalibrator $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.NcrnaCalibrator "$@"
 }
 
 resolveSymlinks

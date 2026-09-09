@@ -47,7 +47,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.TrnaKmerIndexBoundTest $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.TrnaKmerIndexBoundTest "$@"
 }
 
 resolveSymlinks

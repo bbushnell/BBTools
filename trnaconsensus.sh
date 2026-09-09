@@ -81,7 +81,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP prok.TrnaConsensusBuilder $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" prok.TrnaConsensusBuilder "$@"
 }
 
 resolveSymlinks

@@ -49,7 +49,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP driver.ProcessSpeed $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" driver.ProcessSpeed "$@"
 }
 
 resolveSymlinks

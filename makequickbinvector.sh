@@ -69,7 +69,7 @@ setEnv(){
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP bin.AllToAllVectorMaker $@"
 	echo "$CMD" >&2
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" bin.AllToAllVectorMaker "$@"
 }
 
 resolveSymlinks

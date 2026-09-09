@@ -55,7 +55,7 @@ setEnv(){
 
 launch() {
 	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP aligner.VisualizationConverter $@"
-	eval $CMD
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" aligner.VisualizationConverter "$@"
 }
 
 resolveSymlinks
