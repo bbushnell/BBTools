@@ -150,7 +150,12 @@ public class PerOrgRollup {
 			rowsRead++;
 			if(rowsRead%500000==0){outstream.println("  "+rowsRead+" rows read, "+orgs.size()+" orgs");}
 		}
-		bf.close();
+		//A latched read error surfaces ONLY via close()'s return value, not via nextLine() throwing
+		//-- checking it is the established fix for this silent-drop class (Elly's review,
+		//IdentityGroupBuilder javadoc; MarkerSelector applied the same fix 2026-09-08). The loop
+		//above has already fully returned by this point (no exception in flight), so throwing here
+		//cannot mask anything.
+		if(bf.close()){throw new RuntimeException("ByteFile reported an I/O error reading "+in1);}
 
 		outstream.println("Rows read: "+rowsRead);
 		outstream.println("Orgs: "+orgs.size());
@@ -159,6 +164,7 @@ public class PerOrgRollup {
 		ByteStreamWriter bsw=new ByteStreamWriter(ffout);
 		bsw.start();
 		int written=0;
+		boolean writeTrySucceeded=false;
 		try{
 			ByteBuilder bb=new ByteBuilder(1<<16);
 			bb.append("#tid\tlength\tgc\tnshreds");
@@ -181,8 +187,17 @@ public class PerOrgRollup {
 				bb.clear();
 				written++;
 			}
+			writeTrySucceeded=true;
 		}finally{
-			bsw.poisonAndWait();
+			//poisonAndWait() must always run (it shuts the writer thread down cleanly regardless of
+			//outcome), but only THROW on its own error when the try block itself succeeded --
+			//otherwise an already-propagating exception from the try block would be masked/replaced
+			//by a new one from finally, hiding the real cause (Yoimiya's review, 2026-09-09:
+			//"preserve original exceptions").
+			final boolean writeError=bsw.poisonAndWait();
+			if(writeTrySucceeded && writeError){
+				throw new RuntimeException("ByteStreamWriter reported an I/O error writing "+out1);
+			}
 		}
 
 		outstream.println("Wrote "+written+" organisms to "+out1);
@@ -192,6 +207,7 @@ public class PerOrgRollup {
 			ByteStreamWriter bsw2=new ByteStreamWriter(ffout2);
 			bsw2.start();
 			int written2=0;
+			boolean writeTry2Succeeded=false;
 			try{
 				ByteBuilder bb=new ByteBuilder(1<<16);
 				bb.append("#tid\tdomain\tlength\tgc\tacgt\tcds\tmapped\tglenSum\tglenSq\tcoding"
@@ -220,8 +236,12 @@ public class PerOrgRollup {
 					bb.clear();
 					written2++;
 				}
+				writeTry2Succeeded=true;
 			}finally{
-				bsw2.poisonAndWait();
+				final boolean writeError2=bsw2.poisonAndWait();
+				if(writeTry2Succeeded && writeError2){
+					throw new RuntimeException("ByteStreamWriter reported an I/O error writing "+out2);
+				}
 			}
 			outstream.println("Wrote "+written2+" organisms (sparse) to "+out2);
 		}

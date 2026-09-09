@@ -102,6 +102,13 @@ public class MarkerSelector {
 
 	/** tid<TAB>phylum, matching FamilyListBuilder.loadTaxpgm / MagQCVectorMaker.loadAux exactly. */
 	HashMap<Integer, String> loadTaxpgm(){
+		return loadTaxpgm(taxpgmFile);
+	}
+
+	/** Static, reusable form of {@link #loadTaxpgm()} -- extracted so {@link MarkerSalvageDiagnostic}
+	 *  can load the same tid-&gt;phylum map without a {@link MarkerSelector} instance (Yoimiya's
+	 *  review, 2026-09-08). Body is unchanged from the original instance method. */
+	static HashMap<Integer, String> loadTaxpgm(String taxpgmFile){
 		HashMap<Integer, String> map=new HashMap<Integer, String>(1<<16);
 		final ByteFile bf=ByteFile.makeByteFile(taxpgmFile, true);
 		final LineParser1 lp=new LineParser1((byte)'\t');
@@ -111,7 +118,11 @@ public class MarkerSelector {
 			if(lp.terms()<2){continue;}
 			map.put(lp.parseInt(0), lp.parseString(1));
 		}
-		bf.close();
+		//A latched read error surfaces ONLY via close()'s return value, not via nextLine() throwing
+		//-- checking it is the established fix for this exact silent-drop class (Elly's review,
+		//IdentityGroupBuilder javadoc; applied here ahead of a real-data run, Yoimiya's review
+		//2026-09-08). Does not change output on the happy path (close() returns false).
+		if(bf.close()){throw new RuntimeException("ByteFile reported an I/O error reading "+taxpgmFile);}
 		return map;
 	}
 
@@ -119,6 +130,22 @@ public class MarkerSelector {
 		final HashMap<Integer, String> tid2phylum=loadTaxpgm();
 		outstream.println("taxpgm tids: "+tid2phylum.size());
 
+		final HashMap<String, Group> groups=accumulateGroups(perorgFile, tid2phylum, outstream);
+
+		writeMarkerSets(groups);
+
+		t.stop();
+		outstream.println("Time: \t"+t);
+	}
+
+	/** Static, reusable form of the per-org accumulation loop that used to live inline in
+	 *  {@link #process}, extracted so {@link MarkerSalvageDiagnostic} can build the identical
+	 *  group/present/single counts without duplicating this logic (Yoimiya's review, 2026-09-08).
+	 *  Behavior is byte-for-byte identical to the loop this replaced -- verified by
+	 *  {@code MarkerSalvageDiagnosticTest}'s before/after golden-hash parity check against this
+	 *  file's pre-refactor output. {@code outstream} may be null to suppress the row-count log line. */
+	static HashMap<String, Group> accumulateGroups(String perorgFile, HashMap<Integer, String> tid2phylum,
+			java.io.PrintStream outstream){
 		final HashMap<String, Group> groups=new HashMap<String, Group>();
 		final ArrayList<int[]> presRankCount=new ArrayList<int[]>();
 
@@ -146,13 +173,11 @@ public class MarkerSelector {
 
 			rowsRead++;
 		}
-		bf.close();
-		outstream.println("Rows read: "+rowsRead+", groups: "+groups.size());
-
-		writeMarkerSets(groups);
-
-		t.stop();
-		outstream.println("Time: \t"+t);
+		//Same fix as loadTaxpgm's close() check, applied here too -- ahead of running this against
+		//the real ~138MB perorg_sparse_v4b.tsv, a latched read error must crash loud, not vanish.
+		if(bf.close()){throw new RuntimeException("ByteFile reported an I/O error reading "+perorgFile);}
+		if(outstream!=null){outstream.println("Rows read: "+rowsRead+", groups: "+groups.size());}
+		return groups;
 	}
 
 	private static Group groupFor(HashMap<String, Group> groups, String name){
