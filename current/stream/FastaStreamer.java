@@ -394,6 +394,14 @@ public class FastaStreamer implements Streamer {
 					long readID=list.firstRecordNum/2;
 
 					// Parse lines into reads using ByteBuilder
+					//TODO: Probable bug - the whole Streamer family ignores Shared.TRIM_READ_DESCRIPTION
+					//for FASTA headers: the full ">header desc" line becomes r.id here, while the legacy
+					//input paths (FastaReadInputStream:9844, FASTQ:7208) trim at whitespace when the flag
+					//is set (SamStreamer honors it for @SQ at SamStreamer:33127). A tool that sets the
+					//flag and switches from toReads to a Streamer silently keys maps on untrimmed ids
+					//(found via a CutGff2 lookup-miss fixture, 2026-09-09; CutGff2 now trims its own
+					//tokens as a workaround). Not fixed here: unclear if streamers deliberately defer
+					//normalization to consumers, and a change would affect every Streamer user at once.
 					ArrayList<Read> allReads=new ArrayList<Read>();
 					byte[] header=null;
 
