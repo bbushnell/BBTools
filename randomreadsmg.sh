@@ -51,8 +51,28 @@ threads=        Set the max number of threads; default is logical core count.
                 By default each input file uses 1 thread.  This flag will
                 also force multithreaded processing when there is exactly 1
                 input file, increasing speed for a complex simulation.
-seed=-1         If positive, use the specified RNG seed.  This will cause
-                deterministic output if threads=1.
+seed=-1         If non-negative, use the specified RNG seed.  Output content is
+                then deterministic regardless of thread count: each input file's
+                reads are a pure function of (seed, seed2, filename).
+
+Multi-sample simulation parameters:
+These allow generating multiple correlated samples from one genome set, for
+testing differential-coverage binners.  Each sample is one invocation.
+depthseed=-1    Seed for per-file base depth assignment; -1 uses 'seed'.
+                Invocations sharing a depthseed (with different seeds) draw the
+                SAME base depth per genome, so samples are correlated.
+jitter=0.0      Multiply each file's depth by a random factor, symmetric in log
+                space; jitter=0.1 gives roughly +-10% per-sample variation
+                around the base depth.  With jitter=0 and a shared depthseed,
+                samples are exact-duplicate in depth (fully correlated).
+seed2=-1        Optional separate seed for the jitter stream; -1 uses 'seed'.
+                Only needed to reproduce one specific jitter pattern
+                independently of the generation seed.
+Example - four correlated samples, ~10% depth wiggle, same community:
+  for S in 1 2 3 4; do
+    randomreadsmg.sh config=genomes.txt depthseed=777 seed=\$S jitter=0.1 \\
+      out=sample\$S.fq.gz
+  done
 
 Artifact parameters
 pcr=0.0         Add PCR duplicates at this rate (0-1).

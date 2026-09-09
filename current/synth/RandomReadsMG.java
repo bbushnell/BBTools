@@ -228,6 +228,12 @@ public class RandomReadsMG{
 				paired=Parse.parseBoolean(b);
 			}else if(a.equals("seed")){
 				seed=Long.parseLong(b);
+			}else if(a.equals("depthseed")){
+				depthSeed=Long.parseLong(b);
+			}else if(a.equals("seed2") || a.equals("jitterseed")){
+				seed2=Long.parseLong(b);
+			}else if(a.equals("jitter") || a.equals("depthjitter") || a.equals("seed2variance")){
+				jitter=Float.parseFloat(b);
 			}else if(a.equals("reads")){
 				readsDesired=Parse.parseKMG(b);
 			}else if(a.equals("readspercontig")){
@@ -656,22 +662,62 @@ public class RandomReadsMG{
 			custom=depthMap.get(fname);
 			if(taxID>0 && custom==null){custom=depthMap.get(Integer.toString(taxID));}
 		}
-		final float depth;
-		if(custom!=null){depth=custom;}
-		else if(readsDesired>0){
+		final float depth0;
+		final boolean fromReads=(custom==null && readsDesired>0);
+		if(custom!=null){depth0=custom;}
+		else if(fromReads){
 			long[] data=FastqScan.countReadsAndBases(path, false, -1, -1);
 			long bases=data[2];
 			long reads=readsDesired*(paired ? 2 : 1);
 			long length=(platform==ILLUMINA ? readlen : meanLength);
-			depth=(reads*length)/Math.max(bases, 1f);
-		}else{depth=randomDepth(randy);}
+			depth0=(reads*length)/Math.max(bases, 1f);
+		}else{
+			//Base depth is a pure function of (depthSeed, filename) so that separate
+			//invocations with the same depthSeed reproduce the same community abundances
+			//regardless of thread scheduling or argument order; depthSeed<0 falls back to
+			//seed, and if that is also <0 the depth is nondeterministic as before.
+			final long ds=(depthSeed>=0 ? depthSeed : seed);
+			final Random dr=(ds>=0 ? Shared.threadLocalRandom(fileSeed(ds, fname, DEPTH_SALT)) : randy);
+			depth0=randomDepth(dr);
+		}
+		float depth=depth0;
+		if(jitter>0 && !fromReads){
+			//Per-sample multiplicative depth jitter, symmetric in log space so jitter=0.1
+			//means ~+-10% relative dispersion (the units binner covariance models use).
+			//The jitter stream is seeded from seed2 if set, else seed, so giving each
+			//sample invocation a different seed (with a shared depthSeed) yields correlated
+			//abundances with independent per-sample wiggle; seed2 exists to reproduce one
+			//specific jitter pattern independently of the generation seed.
+			final long js=(seed2>=0 ? seed2 : seed);
+			final Random jr=(js>=0 ? Shared.threadLocalRandom(fileSeed(js, fname, JITTER_SALT)) : randy);
+			final float u=(jr.nextFloat()*2-1)*jitter;
+			depth*=(float)Math.exp(u);
+		}
 		if(loud){
 			String dstring=(custom==null ? "" : " custom")+
-					String.format("depth=%.2f", depth);
+					String.format("depth=%.2f", depth)+
+					(depth!=depth0 ? String.format(" (base %.2f)", depth0) : "");
 			String idstring=taxID>0 ? ("tid "+taxID) : ("name "+fname);
 			System.err.println("File "+fnum+", "+idstring+": "+dstring);
 		}
 		return depth;
+	}
+
+	/**
+	 *Derives a deterministic per-file seed by mixing a stream seed with the file's
+	 *(path-stripped) name, so results do not depend on thread scheduling or argument
+	 *order.  The salt separates the depth, jitter, and generation streams so they are
+	 *independent even when derived from the same user seed.  The sign bit is cleared
+	 *because downstream RNG constructors treat negative seeds as requests for a
+	 *random (time-based) seed.
+	 *
+	 *@param streamSeed User seed for this stream (must be >=0)
+	 *@param fname File name with path stripped
+	 *@param salt Stream-separating constant
+	 *@return Deterministic non-negative seed for this (stream, file) pair
+	 */
+	static long fileSeed(long streamSeed, String fname, long salt){
+		return (Tools.hash64shift(streamSeed+salt)^Tools.hash64shift(fname.hashCode()))&Long.MAX_VALUE;
 	}
 
 	/**
@@ -1121,8 +1167,11 @@ public class RandomReadsMG{
 		 */
 		@Override
 		public void run(){
-			//Initialize thread-local random generator with deterministic seed
-			randy=Shared.threadLocalRandom(seed>=0 ? seed+tid : -1);
+			//Fallback generator for seed<0 (nondeterministic) mode; when seed>=0 each
+			//file gets its own generator in processFile so output is deterministic
+			//regardless of which thread processes which file.
+			threadRandy=Shared.threadLocalRandom(-1);
+			randy=threadRandy;
 
 			//Process files using atomic work distribution
 			for(int i=nextFile.getAndIncrement(); i<files.size(); i=nextFile.getAndIncrement()){
@@ -1143,6 +1192,13 @@ public class RandomReadsMG{
 		void processFile(String path, int fnum){
 			//			System.err.println("Thread "+tid+" processing file "+fnum+"; next="+nextFile);
 			final String fname=ReadWrite.stripPath(path);
+			//Deterministic per-file generation stream when a seed is set: a pure function
+			//of (seed, seed2, filename), independent of thread scheduling.  seed2 is mixed
+			//in so multi-sample runs sharing a depthSeed but differing in seed (or seed2)
+			//produce independent read positions and errors, not near-duplicate reads.
+			randy=(seed>=0 ? Shared.threadLocalRandom(
+					fileSeed(seed+(seed2>=0 ? Tools.hash64shift(seed2) : 0), fname, GEN_SALT)&Long.MAX_VALUE)
+					: threadRandy);
 			Streamer cris=makeCris(path);
 
 			//Grab the first ListNum of reads
@@ -1512,6 +1568,8 @@ public class RandomReadsMG{
 		private final ArrayList<String> files;
 		/** Thread-local random number generator for reproducible results */
 		private Random randy;
+		/** Nondeterministic fallback generator, used when seed<0 */
+		private Random threadRandy;
 		/** Coverage model for sine wave spatial bias simulation */
 		private CoverageModel covModel;
 		private ByteBuilder bb=new ByteBuilder(128);
@@ -1575,6 +1633,17 @@ public class RandomReadsMG{
 	private int maxPeriod=80000;
 	/** Random seed for reproducible generation (-1 for random) */
 	private long seed=-1;
+	/** Seed for per-file base depth assignment; -1 falls back to seed.  Sharing a
+	 * depthSeed across invocations with different seeds yields the same community
+	 * abundance profile with independent reads (correlated multi-sample simulation). */
+	private long depthSeed=-1;
+	/** Optional seed for the depth-jitter stream; -1 falls back to seed */
+	private long seed2=-1;
+	/** Per-sample multiplicative depth jitter, symmetric in log space; 0 disables.
+	 * jitter=0.1 gives each file's depth a ~+-10% per-invocation wiggle. */
+	private float jitter=0f;
+	/** Stream-separating salts for fileSeed (arbitrary odd constants) */
+	private static final long DEPTH_SALT=0x9E3779B97F4A7C15L, JITTER_SALT=0xC2B2AE3D27D4EB4FL, GEN_SALT=0;
 	/** Enable per-contig depth variation within files */
 	private boolean varyDepthPerContig=false;
 	/** Custom depth settings for specific files or taxonomy IDs */
