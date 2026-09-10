@@ -25,6 +25,17 @@ out=<file>      Output coverage file.
 Other parameters
 condense=<int>  When there are more than this many samples (sam/bam files),
                 combine some into the same logical sample to save memory.
+condense=auto   Estimate the number of logical samples from depth
+                correlations (merge-distance elbow) and condense to that.
+                Useful when many libraries are highly correlated, which
+                inflates evidence and harms binning; groups are chosen
+                by depth similarity.
+gapratio=3.0    For condense=auto: stop merging when the next merge
+                distance exceeds this ratio times the previous one.
+alwaysmerge=0.95  For condense=auto: samples correlated above this
+                always condense together.
+nevermerge=0.70   For condense=auto: samples correlated below this
+                never condense.
 reorder=t       Reorder samples by decreasing entropy to improve indexing.
 mincontig=100   Ignore contigs shorter than this.  Saves memory.
 readthreads=4   Load up to this many sam/bam files concurrently.

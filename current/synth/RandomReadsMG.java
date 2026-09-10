@@ -234,6 +234,8 @@ public class RandomReadsMG{
 				seed2=Long.parseLong(b);
 			}else if(a.equals("jitter") || a.equals("depthjitter") || a.equals("seed2variance")){
 				jitter=Float.parseFloat(b);
+			}else if(a.equals("zeroprob") || a.equals("absentprob")){
+				zeroProb=Float.parseFloat(b);
 			}else if(a.equals("reads")){
 				readsDesired=Parse.parseKMG(b);
 			}else if(a.equals("readspercontig")){
@@ -677,8 +679,19 @@ public class RandomReadsMG{
 			//regardless of thread scheduling or argument order; depthSeed<0 falls back to
 			//seed, and if that is also <0 the depth is nondeterministic as before.
 			final long ds=(depthSeed>=0 ? depthSeed : seed);
-			final Random dr=(ds>=0 ? Shared.threadLocalRandom(fileSeed(ds, fname, DEPTH_SALT)) : randy);
-			depth0=randomDepth(dr);
+			//Absence draws from its own salted stream keyed on the DEPTH seed, so samples
+			//sharing a depthSeed share their presence/absence pattern (correlated
+			//duplicates) while independent depthSeeds draw independently.  Real sparse
+			//communities (e.g. NEON soil) are mostly zeros in every library; shared
+			//absence must not read as inter-sample correlation downstream.
+			final Random zr=(zeroProb<=0 ? null : ds>=0 ?
+				Shared.threadLocalRandom(fileSeed(ds, fname, ZERO_SALT)) : randy);
+			if(zr!=null && zr.nextFloat()<zeroProb){
+				depth0=0;//Genome absent from this logical sample; generates zero reads.
+			}else{
+				final Random dr=(ds>=0 ? Shared.threadLocalRandom(fileSeed(ds, fname, DEPTH_SALT)) : randy);
+				depth0=randomDepth(dr);
+			}
 		}
 		float depth=depth0;
 		if(jitter>0 && !fromReads){
@@ -1642,8 +1655,14 @@ public class RandomReadsMG{
 	/** Per-sample multiplicative depth jitter, symmetric in log space; 0 disables.
 	 * jitter=0.1 gives each file's depth a ~+-10% per-invocation wiggle. */
 	private float jitter=0f;
+	/** Probability that a genome is ABSENT (depth 0) from this sample; 0 disables.
+	 * Keyed on the depth seed, so invocations sharing a depthSeed share their
+	 * presence pattern; applies only to randomly-chosen depths, never to custom
+	 * (depth_X=) or reads= paths. */
+	private float zeroProb=0f;
 	/** Stream-separating salts for fileSeed (arbitrary odd constants) */
-	private static final long DEPTH_SALT=0x9E3779B97F4A7C15L, JITTER_SALT=0xC2B2AE3D27D4EB4FL, GEN_SALT=0;
+	private static final long DEPTH_SALT=0x9E3779B97F4A7C15L, JITTER_SALT=0xC2B2AE3D27D4EB4FL,
+		ZERO_SALT=0xD6E8FEB86659FD93L, GEN_SALT=0;
 	/** Enable per-contig depth variation within files */
 	private boolean varyDepthPerContig=false;
 	/** Custom depth settings for specific files or taxonomy IDs */

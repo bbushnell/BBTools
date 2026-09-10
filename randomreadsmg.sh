@@ -68,6 +68,12 @@ jitter=0.0      Multiply each file's depth by a random factor, symmetric in log
 seed2=-1        Optional separate seed for the jitter stream; -1 uses 'seed'.
                 Only needed to reproduce one specific jitter pattern
                 independently of the generation seed.
+zeroprob=0      Probability that each genome is ABSENT (depth 0) from this
+                sample.  Keyed on depthseed, so samples sharing a depthseed
+                share their presence/absence pattern while independent
+                depthseeds draw independently - mimics sparse communities
+                (e.g. NEON soil) that are mostly zeros in every library.
+                Applies only to randomly-chosen depths, not custom or reads=.
 Example - four correlated samples, ~10% depth wiggle, same community:
   for S in 1 2 3 4; do
     randomreadsmg.sh config=genomes.txt depthseed=777 seed=\$S jitter=0.1 \\

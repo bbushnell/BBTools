@@ -62,7 +62,9 @@ public class CovMaker {
 				if(a.equals("verbose")){
 					verbose=Parse.parseBoolean(b);
 				}else if(a.equals("condense") || a.equals("samples")){
-					if(b!=null && Tools.startsWithLetter(b)) {
+					if(b!=null && b.equalsIgnoreCase("auto")){
+						condense=AUTO;
+					}else if(b!=null && Tools.startsWithLetter(b)) {
 						boolean x=Parse.parseBoolean(b);
 						assert(!x) : arg;
 						if(!x) {condense=-1;}
@@ -72,6 +74,12 @@ public class CovMaker {
 						//on the "f". Now guarded by else: letter -> boolean path, number -> parseInt. (Verified predict-then-run.)
 						condense=Integer.parseInt(b);
 					}
+				}else if(a.equals("gapratio")){
+					gapRatio=Float.parseFloat(b);
+				}else if(a.equals("alwaysmerge") || a.equals("alwaysmerger")){
+					alwaysMergeR=Float.parseFloat(b);
+				}else if(a.equals("nevermerge") || a.equals("nevermerger")){
+					neverMergeR=Float.parseFloat(b);
 				}else if(a.equals("minseed")){
 					Binner.minSizeToCompare=Binner.minSizeToMerge=Parse.parseIntKMG(b);
 				}else if(a.equals("permute") || a.equals("sort") || a.equals("reorder")){
@@ -155,6 +163,10 @@ public class CovMaker {
 			contigs=loader.loadDepth(contigs, false, false);
 		}
 
+		if(condense==AUTO){
+			condense=chooseCondenseTarget(contigs);
+			t.stopAndStart("Chose condense target:");
+		}
 		if(condense>0 && loader.numDepths>condense){
 			condenseSamples(contigs, condense);
 			t.stopAndStart("Condensed samples:");
@@ -295,6 +307,102 @@ public class CovMaker {
 		t.stopAndStart("Applied merges:");
 	}
 
+	/**
+	 * Estimates the number of LOGICAL samples for condense=auto: Pearson correlation
+	 * of log-depths over the proxy set, single-linkage merge distances (d=1-r), and
+	 * the largest relative jump (elbow) between within-group and between-group merges.
+	 * Guard band: pairs with r>alwaysMergeR always condense; pairs with r<neverMergeR
+	 * never do. Validated 20/20 on ground-truth grids (group structures x jitter<=0.3)
+	 * plus real correlated arms (qbwb_bench 2026-09-09); spectral alternatives (PR/erank)
+	 * rejected — they underestimate uneven group structures.
+	 * @return Target sample count in [1, numDepths]; numDepths means no condensation.
+	 */
+	private int chooseCondenseTarget(ArrayList<Contig> contigs){
+		final int n=loader.numDepths;
+		if(n<2){return n;}
+		final int proxyCount=Math.min(contigs.size(), maxContigsToCompare);
+		ArrayList<Contig> proxy=(contigs.size()>proxyCount ?
+			(ArrayList<Contig>)contigs.clone() : contigs);
+		if(contigs.size()>proxyCount){Collections.sort(proxy);}
+
+		//Log-depth matrix over the proxy set; presence tracks depth>0 because rows
+		//where BOTH samples are absent are EXCLUDED from that pair's correlation:
+		//shared absence is not evidence of similarity (NEON-like data is mostly
+		//zeros in every library, and co-absence would otherwise read as high r and
+		//wrongly condense independent sparse samples). Present-in-one-absent-in-
+		//other rows ARE included - informative discordance.
+		final double[][] x=new double[n][proxyCount];
+		final boolean[][] present=new boolean[n][proxyCount];
+		for(int c=0; c<proxyCount; c++){
+			Contig ctg=proxy.get(c);
+			for(int s=0; s<n; s++){
+				final float d=ctg.depth(s);
+				x[s][c]=Math.log(d+0.5);
+				present[s][c]=(d>0);
+			}
+		}
+		//Pairwise Pearson r on co-informative rows; single-linkage edges (distance, i, j).
+		final double[][] edges=new double[n*(n-1)/2][3];
+		int e=0;
+		for(int i=0; i<n; i++){
+			for(int j=i+1; j<n; j++){
+				double sw=0, sx=0, sy=0, sxx=0, syy=0, sxy=0;
+				for(int c=0; c<proxyCount; c++){
+					if(!present[i][c] && !present[j][c]){continue;}
+					final double xi=x[i][c], yj=x[j][c];
+					sw++; sx+=xi; sy+=yj; sxx+=xi*xi; syy+=yj*yj; sxy+=xi*yj;
+				}
+				double r=0;
+				if(sw>0){
+					double cov=sxy/sw-(sx/sw)*(sy/sw);
+					double vx=sxx/sw-(sx/sw)*(sx/sw), vy=syy/sw-(sy/sw)*(sy/sw);
+					double denom=Math.sqrt(vx*vy);
+					r=(denom>0 ? cov/denom : 0);
+				}
+				edges[e++]=new double[] {1-r, i, j};
+			}
+		}
+		Arrays.sort(edges, (p, q) -> Double.compare(p[0], q[0]));
+
+		//Kruskal-style single linkage: record the n-1 component-joining merge distances.
+		final int[] parent=new int[n];
+		for(int i=0; i<n; i++){parent[i]=i;}
+		final double[] merges=new double[n-1];
+		int m=0;
+		for(double[] ed : edges){
+			int a=findRoot(parent, (int)ed[1]), b=findRoot(parent, (int)ed[2]);
+			if(a!=b){parent[a]=b; merges[m++]=ed[0];}
+		}
+		assert(m==n-1) : m+", "+n;
+
+		//Elbow: largest relative jump; guards clamp the cut into the allowed band.
+		final double EPS=1e-4;
+		int cut=-1;
+		double best=gapRatio;
+		for(int i=0; i<m-1; i++){
+			double ratio=(merges[i+1]+EPS)/(merges[i]+EPS);
+			if(ratio>best){best=ratio; cut=i;}
+		}
+		int k=(cut<0 ? 0 : cut+1);//Number of merges accepted
+		int mandatory=0, allowed=0;
+		while(mandatory<m && merges[mandatory]<=1-alwaysMergeR){mandatory++;}
+		while(allowed<m && merges[allowed]<1-neverMergeR){allowed++;}
+		k=Tools.mid(mandatory, k, allowed);
+		final int target=n-k;
+
+		StringBuilder sb=new StringBuilder("Merge distances (1-r):");
+		for(int i=0; i<m; i++){sb.append(String.format(" %.4f", merges[i]));}
+		outstream.println(sb.toString());
+		outstream.println("Auto condense target: "+target+" of "+n+" samples"
+			+(cut<0 ? " (no elbow found)" : String.format(" (elbow ratio %.1f)", best)));
+		return target;
+	}
+
+	private static int findRoot(int[] p, int x){
+		while(p[x]!=x){p[x]=p[p[x]]; x=p[x];}
+		return x;
+	}
+
 	private float calculateCost(float[][] matrix, float[] mags, float[] ents, int i, int j){
 		//Use the pre-calculated vectors directly!
 		float cos=(useCosine ? (1.0f-Vector.cosineSimilarity(matrix[i], matrix[j])) : 1.0f);
@@ -426,6 +534,12 @@ public class CovMaker {
 	private String ref=null;
 	private String outRef=null;
 	private int condense=-1;
+	/** condense=auto sentinel; resolved to a real target by chooseCondenseTarget. */
+	private static final int AUTO=-2;
+	/** Stop merging when the next merge distance exceeds gapRatio x the previous. */
+	private float gapRatio=3.0f;
+	/** Pairs correlated above this always condense, below neverMergeR never do. */
+	private float alwaysMergeR=0.95f, neverMergeR=0.70f;
 	private int maxContigsToCompare=100000;
 	private int maxContigsToEntropy=100000;
 	private boolean reorder=true;
