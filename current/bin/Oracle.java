@@ -114,6 +114,7 @@ public class Oracle extends BinObject implements Cloneable {
 		if(a.maxDepth()==0 || b.maxDepth()==0) {
 			stringency*=0.8f;//Has no effect...?  Maybe it will on coassemblies though.
 		}
+		currentStringency=stringency;//For the covlr gate: its nats-space threshold scales additively with ln(stringency)
 		float max3merDif=max3merDif0*stringency;
 		float max4merDif=max4merDif0*stringency;
 		float max5merDif=max5merDif0*stringency;
@@ -171,15 +172,22 @@ public class Oracle extends BinObject implements Cloneable {
 		final float cagaDif=Math.abs(a.caga-b.caga)*cagaMult;
 		final float gchhDif=Tools.max(gcDif, hhDif, cagaDif);
 //		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
+		//covlrreplace (Brian, 2026-09-10): when the LR gate is on, OPTIONALLY substitute it
+		//for the hand depth cutoffs - every depthRatio/covariance/product THRESHOLD
+		//comparison is skipped and the LR alone judges depth compatibility.  The
+		//depthRatio/covariance COMPUTATIONS remain (they feed the heuristic score and the
+		//frozen NN features), and depthRatio is computed uncapped so downstream consumers
+		//see its true value for pairs the old cutoffs would have vetoed early.
+		final boolean lrReplace=(Binner.useCovLRGate && Binner.covLRReplace);
 		final float maxDepthRatio1=(maxDepthRatio*Binner.goodEdgeMult);
-		final float depthRatio=a.depthRatio1(b, maxDepthRatio1);
+		final float depthRatio=a.depthRatio1(b, lrReplace ? Float.MAX_VALUE : maxDepthRatio1);
 		final long minlen=Math.min(a.size(), b.size());
 		if(BinObject.verbose || verbose2) {
 			System.err.println("gcdif="+gcDif);
 			System.err.println("depthRatio="+depthRatio);
 		}
 		final float maxGCDifG=maxGCDif*Binner.goodEdgeMult;
-		if(gchhDif>maxGCDifG || depthRatio>maxDepthRatio1) {
+		if(gchhDif>maxGCDifG || (!lrReplace && depthRatio>maxDepthRatio1)) {
 			return -1;
 		}//Early exit before edge-tracking
 		
@@ -209,9 +217,26 @@ public class Oracle extends BinObject implements Cloneable {
 			System.err.println("C: depthRatio="+depthRatio+", max="+(maxDepthRatio*mult)+
 					", covariance="+covariance+", max="+(maxCovariance*mult));
 		}
-		if(depthRatio>maxDepthRatio*mult*Binner.cutoffMultD || 
-				covariance>maxCovariance*mult*Binner.cutoffMultD) {return -1;}
+		if(!lrReplace && (depthRatio>maxDepthRatio*mult*Binner.cutoffMultD ||
+				covariance>maxCovariance*mult*Binner.cutoffMultD)) {return -1;}
 //		if(!taxaOK(a.taxid(), b.taxid())) {return -1;}
+
+		//Coverage likelihood-ratio triage (covlr flag, default off; math cited in CovLR).
+		//Sits with the other depth tiers, before trimers: O(samples) with 2 logs per active
+		//sample, comparable to the SIMD trimer cosine.  The LR is in nats (log-space), so
+		//stringency and the edge mult enter the threshold ADDITIVELY via ln() - a
+		//multiplicative scale would flip direction on negative thresholds.  Veto-only:
+		//it can reject a merge the depth-ratio/covariance cutoffs would allow, never
+		//force one.  covLR is also reused by the covlrheur score factor below.
+		float covLR=0;
+		if(Binner.useCovLRGate || Binner.useCovLRHeuristic){
+			covLR=CovLR.lrCov(a, b);
+			if(Binner.useCovLRGate){
+				final float thresh=Binner.covLRThresh-
+					(float)(Binner.covLRSlope*Math.log(currentStringency*mult));
+				if(covLR<thresh){return -1;}
+			}
+		}
 
 		trimerComparisons++;
 		float trimerDif=(countTrimers ? 
@@ -225,15 +250,15 @@ public class Oracle extends BinObject implements Cloneable {
 		//This causes a large speedup by avoiding tetramer calculation
 		//0.75 has no effect, so 0.8 is safe (0.725 causes a slight change)
 		if(trimerDif>max3merDif*mult*Binner.cutoffMultA ||
-				trimerDif*depthRatio>maxProduct*mult*Binner.cutoffMultB*0.8f) {return -1;}
+				(!lrReplace && trimerDif*depthRatio>maxProduct*mult*Binner.cutoffMultB*0.8f)) {return -1;}
 
 		tetramerComparisons++;
 		float tetramerDif=Vector.cosineDifference(a.tetramers, b.tetramers);
 		final float product=tetramerDif*depthRatio;
 		float kmerProb=KmerProb.prob(minlen, tetramerDif);
 		kmerProb=1-(1-kmerProb)/mult;
-		if(tetramerDif>max4merDif*mult*Binner.cutoffMultA || 
-				product>maxProduct*mult*Binner.cutoffMultB || kmerProb<0.5f) {return -1;}
+		if(tetramerDif>max4merDif*mult*Binner.cutoffMultA ||
+				(!lrReplace && product>maxProduct*mult*Binner.cutoffMultB) || kmerProb<0.5f) {return -1;}
 
 		slowComparisons++;
 		float pentamerDif=(a.numPentamers<BinObject.minPentamerSizeCompare ||
@@ -277,14 +302,24 @@ public class Oracle extends BinObject implements Cloneable {
 		}
 		
 		float ret=netOutput;
-		if(trimerDif>max3merDif*mult2 || tetramerDif>max4merDif*mult2 || pentamerDif>max5merDif*mult2 || 
-				product>maxProduct*mult2 || kmerProb<minKmerProb) {ret=-1;}
+		if(trimerDif>max3merDif*mult2 || tetramerDif>max4merDif*mult2 || pentamerDif>max5merDif*mult2 ||
+				(!lrReplace && product>maxProduct*mult2) || kmerProb<minKmerProb) {ret=-1;}
 
 		float mult3=(network==null ? mult : mult2*Binner.cutoffMultC);
-		if(gcDif>maxGCDif*mult3 || depthRatio>maxDepthRatio*mult3 || covariance>maxCovariance*mult3) {
+		if(gcDif>maxGCDif*mult3 || (!lrReplace &&
+				(depthRatio>maxDepthRatio*mult3 || covariance>maxCovariance*mult3))) {
 			ret=-1;
 		}
-		
+
+		//covlrheur (default off): scale the returned merge score by a bounded logistic of the
+		//coverage LR - 2*sigmoid(scale*LR) is 1.0 at LR=0 (neutral evidence changes nothing),
+		//approaches 2 for strong same-genome evidence and 0 for strong different-genome
+		//evidence.  Applied to the RETURN value only, never inside the static similarity()
+		//product - that value feeds NN input vector[27] and is frozen (NN HARD CONSTRAINT).
+		if(Binner.useCovLRHeuristic && ret>-1){
+			ret*=(float)(2.0/(1.0+Math.exp(-Binner.covLRHeurScale*covLR)));
+		}
+
 		if(bsw!=null && canEmitVector(a, b, ret)) {
 			if(sameLabel || Math.random()<=negativeEmitProb) {emitVector(a, b, bsw);}
 		}
@@ -780,6 +815,9 @@ public class Oracle extends BinObject implements Cloneable {
 	
 	/** Base stringency level used for threshold scaling */
 	final float stringency0;
+	/** Effective stringency (stringency0*sizeMult etc.) of the current comparison, for the covlr gate.
+	 * Instance state is safe: each CompareThread works on its own Oracle clone. */
+	private float currentStringency=1f;
 	/** Reusable feature vector for neural network input */
 	private FloatList vector;
 	/** Neural network for small bin comparisons */

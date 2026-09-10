@@ -74,6 +74,13 @@ zeroprob=0      Probability that each genome is ABSENT (depth 0) from this
                 depthseeds draw independently - mimics sparse communities
                 (e.g. NEON soil) that are mostly zeros in every library.
                 Applies only to randomly-chosen depths, not custom or reads=.
+zeroprobbias=0  Bias absence probability by input-file rank: 0 gives every
+                file the flat zeroprob; 1 ramps linearly so the last file is
+                ~2x as likely to be absent as average and the first ~0x.
+                Mean absence stays at zeroprob.  Real communities concentrate
+                absence in their rare tail, so the same genomes go missing
+                from many samples; bias magnifies such shared-zero collisions
+                between independent samples.
 Example - four correlated samples, ~10% depth wiggle, same community:
   for S in 1 2 3 4; do
     randomreadsmg.sh config=genomes.txt depthseed=777 seed=\$S jitter=0.1 \\

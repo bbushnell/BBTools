@@ -91,6 +91,26 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			overrideSetSamples=Integer.parseInt(b);
 		}
 
+		else if(a.equalsIgnoreCase("covlr") || a.equalsIgnoreCase("covlrgate")){
+			useCovLRGate=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("covlrheuristic") || a.equalsIgnoreCase("covlrheur")){
+			useCovLRHeuristic=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("covlrreplace")){
+			covLRReplace=Parse.parseBoolean(b);
+		}else if(a.equalsIgnoreCase("covlrthresh")){
+			covLRThresh=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrslope")){
+			covLRSlope=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrheurscale")){
+			covLRHeurScale=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrk")){
+			CovLR.K=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrsigma")){
+			CovLR.sigma=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrdet")){
+			CovLR.DET=Float.parseFloat(b);
+		}
+
 		else if(a.equalsIgnoreCase("maxTrimerDif1") || a.equalsIgnoreCase("max3merDif1")){
 			max3merDif1=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("maxDif1") || a.equalsIgnoreCase("maxKmerDif1")){
@@ -1724,6 +1744,20 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 
 	static int overrideSetSamples=-1;
 	static int compareThreadsOverride=-1;
+
+	/** Coverage likelihood-ratio triage veto in Oracle (covlr flag, default off; math in CovLR) */
+	static boolean useCovLRGate=false;
+	/** Scale Oracle's returned merge score by a logistic of the coverage LR (covlrheur, default off) */
+	static boolean useCovLRHeuristic=false;
+	/** With the gate on, SUBSTITUTE the LR for the hand depthRatio/covariance/product cutoffs
+	 * (comparisons skipped; computations kept for the score and frozen NN features) */
+	static boolean covLRReplace=false;
+	/** covlr veto threshold in nats at stringency 1; effective thresh=covLRThresh-covLRSlope*ln(stringency*mult) */
+	static float covLRThresh=-3f;
+	/** Additive-in-nats stringency scaling for the covlr threshold */
+	static float covLRSlope=8f;
+	/** Logistic steepness of the covlrheur score factor: ret*=2/(1+e^(-scale*LR)) */
+	static float covLRHeurScale=0.1f;
 
 	//Optimal selection when forming clusters
 	/** Maximum 3-mer composition difference for initial clustering */

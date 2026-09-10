@@ -119,6 +119,29 @@ public class DataLoader extends BinObject {
 		}else if(a.equalsIgnoreCase("depthRatioMethod") || a.equalsIgnoreCase("drMethod")){
 			depthRatioMethod=Integer.parseInt(b);
 		}
+
+		else if(a.equalsIgnoreCase("autocondense")){
+			//autocondense=t/f/auto/N: t or auto -> estimate the target; N -> condense to N.
+			//Condenses correlated samples into logical samples at load time; see SampleCondenser.
+			if(b==null || b.equalsIgnoreCase("auto")){autoCondense=true; condenseTarget=-1;}
+			else if(Tools.startsWithLetter(b)){autoCondense=Parse.parseBoolean(b);}
+			else{autoCondense=true; condenseTarget=Integer.parseInt(b);}
+		}else if(a.equalsIgnoreCase("condensetarget")){
+			condenseTarget=(b==null || b.equalsIgnoreCase("auto") ? -1 : Integer.parseInt(b));
+		}else if(a.equalsIgnoreCase("condensegapratio") || a.equalsIgnoreCase("gapratio")){
+			condenseGapRatio=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("condensealwaysmerge") || a.equalsIgnoreCase("alwaysmerge")){
+			condenseAlwaysMergeR=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("condensenevermerge") || a.equalsIgnoreCase("nevermerge")){
+			condenseNeverMergeR=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("sampleestimator")){
+			//legacy (default): distinct-log-bin count; cluster: SampleCondenser correlation
+			//clustering (exact on 32/32 ground-truth grids where legacy misread jittered
+			//near-duplicates, qbwb_bench 2026-09-09).  Feeds setSamples cutoffs and NN
+			//features 19-21, hence flag-gated.
+			sampleEstimatorCluster=(b!=null &&
+				(b.equalsIgnoreCase("cluster") || b.equalsIgnoreCase("clusters")));
+		}
 		
 		else if(a.equalsIgnoreCase("flat") || a.equalsIgnoreCase("flatMode")){
 			flatMode=Parse.parseBoolean(b);
@@ -422,6 +445,60 @@ public class DataLoader extends BinObject {
 		System.err.println("Depth Entropy:      \t"+entropy);
 		System.err.println("Samples Equivalent: \t"+samplesEquivalent);
 		System.err.println("Samples:            \t"+numDepths);
+
+		//In-pipeline sample condensation (autocondense flag, default off): correlated
+		//samples inflate coverage evidence (near-duplicate libraries count one signal
+		//N times), which loosens setSamples cutoffs and violates the independence
+		//assumption of per-sample statistics.  Runs AFTER calcDepthSum (needs
+		//invSampleDepthSum) and re-runs it on the condensed columns, so normDepth,
+		//covariance, setSamples, and the NN sample-count features all see the
+		//corrected structure.  Measured on the correlation-trap benchmark
+		//(qbwb_bench 2026-09-09): trap arm 873.02 -> 888.34 Total via condense-to-2.
+		if(autoCondense && numDepths>1){
+			SampleCondenser sc=new SampleCondenser(this, System.err);
+			if(condenseGapRatio>0){sc.gapRatio=condenseGapRatio;}
+			if(condenseAlwaysMergeR>0){sc.alwaysMergeR=condenseAlwaysMergeR;}
+			if(condenseNeverMergeR>0){sc.neverMergeR=condenseNeverMergeR;}
+			final int target=(condenseTarget>0 ? Tools.min(condenseTarget, numDepths) :
+				sc.chooseTarget(contigs));
+			if(target<numDepths){
+				sc.condense(contigs, target);//Re-runs calcDepthSum and prints condensed stats
+			}else{
+				System.err.println("Autocondense: samples look independent ("+target+" of "+
+					numDepths+"); nothing condensed.");
+			}
+		}
+
+		//Optional replacement for the distinct-log-bin samplesEquivalent (sampleestimator=cluster):
+		//correlation-cluster count, clamped like the legacy formula.  Runs on the live
+		//(post-condense) columns; after condensation the two estimators usually agree.
+		if(sampleEstimatorCluster && numDepths>1){
+			SampleCondenser sc=new SampleCondenser(this, System.err);
+			final int est=Tools.mid(2, sc.chooseTarget(contigs), numDepths);
+			if(est!=samplesEquivalent){
+				System.err.println("Cluster sample estimator: samplesEquivalent "+
+					samplesEquivalent+" -> "+est);
+				samplesEquivalent=est;
+			}
+		}
+
+		//covlr support: calibrate the co-absence terms on the LIVE columns (post-condense),
+		//and warn when the gate is asked to run on columns that look correlated - its
+		//per-sample sum assumes independence, and correlated columns over-count evidence
+		//(Brian's ruling 2026-09-09: warn+document rather than per-sample weights).
+		if(Binner.useCovLRGate || Binner.useCovLRHeuristic){
+			CovLR.calibrate(contigs, numDepths);
+			if(!autoCondense && numDepths>1){
+				SampleCondenser sc=new SampleCondenser(this, System.err);
+				final int est=sc.chooseTarget(contigs);
+				if(est<numDepths){
+					System.err.println("WARNING: Samples appear correlated ("+est+" logical of "+
+						numDepths+" nominal); covlr statistics assume independent samples."+
+						"  Consider autocondense=t.");
+				}
+			}
+		}
+
 		if(streamContigs && contigs.get(0).numDepths()>1) {//Normally handled by SpectraCounter
 			for(Contig c : contigs) {
 				synchronized(c) {
@@ -775,6 +852,12 @@ public class DataLoader extends BinObject {
 //		for(int i=0; i<numDepths; i++) {
 //			BinObject.sampleDepthSum[i]/=sizeSum;//Now it is actually avg depths
 //		}
+		//TODO: Probable bug [bin/DataLoader#dsum1] - dividing by minInv makes the LARGEST library's
+		//entry 1.0 (minInv is the inverse of the largest sampleDepthSum), but the field comment at
+		//BinObject.invSampleDepthSum says values are relative to the SMALLEST sample.  Doc/code
+		//mismatch; not fixed because normDepth consumers only need cross-sample consistency, and
+		//which convention was intended is unverified.  Also: sizeSum (above) and maxInv (below) are
+		//computed but never used - leftovers of the commented-out avg-depth path.  Flagged 2026-09-09.
 		BinObject.invSampleDepthSum=new double[numDepths];
 		double maxInv=0, minInv=1;
 		for(int i=0; i<numDepths; i++) {
@@ -1682,6 +1765,14 @@ public class DataLoader extends BinObject {
 	boolean makePairGraph=true;
 	/** Number of depth profiles per contig */
 	int numDepths=0;
+	/** Condense correlated samples into logical samples at load time (default off) */
+	boolean autoCondense=false;
+	/** Manual autocondense target; <1 means estimate via SampleCondenser.chooseTarget */
+	int condenseTarget=-1;
+	/** Optional SampleCondenser knob overrides; <=0 keeps the condenser's defaults */
+	private float condenseGapRatio=-1, condenseAlwaysMergeR=-1, condenseNeverMergeR=-1;
+	/** sampleestimator=cluster: derive samplesEquivalent from correlation clustering (default legacy) */
+	private boolean sampleEstimatorCluster=false;
 	/** Whether to use streaming mode for contig processing */
 	static boolean streamContigs=true;
 	/** Flag indicating whether errors occurred during processing */

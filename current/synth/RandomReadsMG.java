@@ -236,6 +236,9 @@ public class RandomReadsMG{
 				jitter=Float.parseFloat(b);
 			}else if(a.equals("zeroprob") || a.equals("absentprob")){
 				zeroProb=Float.parseFloat(b);
+			}else if(a.equals("zeroprobbias") || a.equals("zerobias")){
+				zeroProbBias=Float.parseFloat(b);
+				assert(zeroProbBias>=0 && zeroProbBias<=1) : "zeroprobbias must be in [0,1]: "+arg;
 			}else if(a.equals("reads")){
 				readsDesired=Parse.parseKMG(b);
 			}else if(a.equals("readspercontig")){
@@ -546,6 +549,7 @@ public class RandomReadsMG{
 	private void spawnThreads(final Collection<String> files, final Writer ros){
 
 		//Do anything necessary prior to processing
+		numFiles=files.size();//Original count, before any single-file duplication below
 		ArrayList<String> flist=new ArrayList<String>(files);
 
 		if(singleFileThreads>1 && Shared.threads()>1 && seed<0 && flist.size()==1){
@@ -686,7 +690,7 @@ public class RandomReadsMG{
 			//absence must not read as inter-sample correlation downstream.
 			final Random zr=(zeroProb<=0 ? null : ds>=0 ?
 				Shared.threadLocalRandom(fileSeed(ds, fname, ZERO_SALT)) : randy);
-			if(zr!=null && zr.nextFloat()<zeroProb){
+			if(zr!=null && zr.nextFloat()<zeroProbForFile(fnum)){
 				depth0=0;//Genome absent from this logical sample; generates zero reads.
 			}else{
 				final Random dr=(ds>=0 ? Shared.threadLocalRandom(fileSeed(ds, fname, DEPTH_SALT)) : randy);
@@ -714,6 +718,22 @@ public class RandomReadsMG{
 			System.err.println("File "+fnum+", "+idstring+": "+dstring);
 		}
 		return depth;
+	}
+
+	/**
+	 *Effective absence probability for the file at 0-based argument index fnum: a linear
+	 *blend between the flat zeroProb (bias 0) and a rank ramp where later files are up to
+	 *2x as likely to be absent (bias 1), with the MEAN held at zeroProb for any bias.
+	 *Real communities concentrate absence in the rare tail, so the SAME genomes go missing
+	 *across samples; rank-biased absence reproduces that, magnifying shared-zero collisions
+	 *between independent samples - the harsh case for downstream co-absence handling
+	 *(Brian's suggestion, 2026-09-09).  Only the threshold changes with rank; the RNG
+	 *stream is untouched, so bias=0 is byte-identical to the unbiased behavior.
+	 */
+	private float zeroProbForFile(int fnum){
+		if(zeroProbBias<=0 || numFiles<2){return zeroProb;}
+		final float ramp=2f*(fnum+0.5f)/numFiles;
+		return Tools.min(0.95f, zeroProb*((1-zeroProbBias)+zeroProbBias*ramp));
 	}
 
 	/**
@@ -1660,6 +1680,10 @@ public class RandomReadsMG{
 	 * presence pattern; applies only to randomly-chosen depths, never to custom
 	 * (depth_X=) or reads= paths. */
 	private float zeroProb=0f;
+	/** Rank bias of absence probability (0=flat, 1=full ramp; see zeroProbForFile) */
+	private float zeroProbBias=0f;
+	/** Original input file count, set in spawnThreads; used by zeroProbForFile */
+	private int numFiles=0;
 	/** Stream-separating salts for fileSeed (arbitrary odd constants) */
 	private static final long DEPTH_SALT=0x9E3779B97F4A7C15L, JITTER_SALT=0xC2B2AE3D27D4EB4FL,
 		ZERO_SALT=0xD6E8FEB86659FD93L, GEN_SALT=0;

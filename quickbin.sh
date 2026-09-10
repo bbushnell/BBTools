@@ -86,6 +86,37 @@ strictness=1.0  Stringency can alternatively be set finely with this flag,
 Depth parameters:
 flat            Ignore depth; may still be used with bam files for e.g. MDA.
                 Required flag if there is no coverage information.
+autocondense=f  Condense correlated samples into logical samples at load time
+                by summing their depth columns (same machinery as CovMaker
+                condense=auto).  Correlated libraries (technical replicates,
+                resequenced samples) otherwise inflate coverage evidence and
+                loosen cutoffs.  autocondense=N condenses to exactly N.
+condensetarget=auto  Target logical sample count for autocondense;
+                'auto' estimates it from depth correlations.
+gapratio=3.0    For autocondense target estimation: stop merging when the
+                next merge distance exceeds this ratio times the previous.
+alwaysmerge=0.95  Samples correlated above this always condense together.
+nevermerge=0.70   Samples correlated below this never condense.
+sampleestimator=legacy  'cluster' estimates the effective sample count
+                (which sets cutoff stringency) from depth correlation
+                clustering instead of the distinct-log-bin heuristic.
+covlr=f         Coverage likelihood-ratio triage veto: reject a merge when a
+                calibrated length-aware statistical test (see CovLR.java,
+                math adapted with citation from NeLLi-team/warpbin) says the
+                depth profiles are confidently from different genomes.
+                Assumes independent samples - combine with autocondense=t
+                if samples may be correlated.
+covlrheur=f     Also scale the heuristic merge score by the coverage LR.
+covlrreplace=f  With covlr=t, use the LR INSTEAD OF the hand depth-ratio,
+                covariance, and product cutoffs (their threshold comparisons
+                are skipped; the values still feed the merge score and nets).
+covlrthresh=-3.0  Veto threshold in nats at normal stringency; lower values
+                veto less.  Scales with stringency and edge support.
+covlrslope=8.0  Stringency-scaling slope for covlrthresh, in nats per
+                natural-log unit of stringency.
+covlrk=350      Read-sampling noise constant of the LR model.
+covlrsigma=0.12 Relative biological depth dispersion of the LR model.
+covlrdet=0.5    Depth below which a sample counts as absent.
 
 Taxonomy parameters
 clade=t         Use QuickClade to determine taxonomy of output bins.  Fast.
