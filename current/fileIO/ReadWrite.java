@@ -414,7 +414,7 @@ public class ReadWrite {
 		if(verbose){System.err.println("finishWriting("+writer+", "+outStream+" , "+fname+", "+killProcess+")");}
 		boolean error=false;
 		if(writer!=null){writer.flush();}
-		close(outStream);
+		error|=close(outStream);
 		if(writer!=null && outStream!=System.out && outStream!=System.err){writer.close();}
 		if(killProcess && fname!=null && outStream!=System.err && outStream!=System.out){error|=ReadWrite.killProcess(fname);}
 		if(verbose){System.err.println("finishWriting("+writer+", "+outStream+" , "+fname+", "+killProcess+") returned "+error);}

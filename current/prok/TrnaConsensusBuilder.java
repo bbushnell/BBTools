@@ -635,9 +635,24 @@ public class TrnaConsensusBuilder {
 		return clusters;
 	}
 
-	/** Below this centroid count, scanning serially is cheaper than farming the
-	 * current centroid list across the worker pool. */
-	private static final int PARALLEL_CENTROID_THRESHOLD=200;
+	/** Target scan-WORK per parallel worker before another worker is added. The work of one read's centroid
+	 * scan is PROXIED by (number of centroids) * (query length) — a monotonic proxy in aligned query-base
+	 * units, NOT the exact banded-DP inner-loop cell count (that also depends on the adaptive band width and
+	 * each reference's length). bestCentroidMatch splits the scan across
+	 * desiredThreads = min(configuredThreads, n, ceil(work / WORK_PER_THREAD)) workers, so the worker count
+	 * RAMPS with the work instead of jumping serial->all. Rationale for the value: measurement on the euk LSU
+	 * build (long ~3.8kb sequences) showed all 8 configured workers beneficial once the scan reached ~51
+	 * centroids (proxy work ~194k => ~24k proxy-units/worker at 8 workers), a 6.56x speedup; setting the
+	 * per-worker target to that measured-beneficial level makes desiredThreads reach the configured cores at
+	 * about that work, while using only 1-2 workers for the cheap early-greedy scans (few centroids). Short
+	 * families (5.8S, ~150bp) stay serial FAR longer — they parallelize only if a family accrues enough
+	 * centroids to push the proxy work past the per-worker target — so in the common case they pay no dispatch
+	 * overhead. The old flat count>=200 gate left the long-LSU scan 100% serial on one core (measured: one
+	 * 84,749-seq group, 68min, jcmd pinned in bestCentroidMatch->alignStatic). DETERMINISM IS INDEPENDENT OF
+	 * THE WORKER COUNT: the ascending-chunk strict-'>' merge in bestCentroidMatch reduces to the lowest-index
+	 * max for ANY number of chunks, identical to the serial scan — a dispatch-amortization tuning constant,
+	 * not a correctness parameter. */
+	private static final long WORK_PER_THREAD=24000L;
 
 	/**
 	 * Finds the exact same best centroid as the serial ascending-index scan.
@@ -646,10 +661,24 @@ public class TrnaConsensusBuilder {
 	 * merged in ascending order with the same strict-'&gt;' comparison, preserving
 	 * the serial first-index tie break.
 	 */
-	private void bestCentroidMatch(final byte[] seq, final ArrayList<byte[]> centroids,
+	// Package-private (not private) ONLY so the adversarial tie-break fixture MtTieBreakTest can call
+	// it directly with a hand-built centroid list containing byte-identical (exact-tie) centroids —
+	// a case greedy clustering never produces (it would merge them), so it is unreachable via process().
+	// No behavioral effect.
+	void bestCentroidMatch(final byte[] seq, final ArrayList<byte[]> centroids,
 			final float[] out){
 		final int n=centroids.size();
-		if(n<PARALLEL_CENTROID_THRESHOLD){
+		final int configured=Tools.max(1, Shared.threads());
+		// Work-proportional worker count (see WORK_PER_THREAD): ramp workers with the scan's work,
+		// proxied by n * query length (aligned query-base units, not exact DP cells), rather than
+		// jumping serial->all. desiredThreads<=1 => serial, so low-work scans (few centroids, and/or
+		// short sequences) pay zero dispatch overhead; larger scans reach the configured cores.
+		// Determinism does NOT depend on the worker count — the ascending-chunk strict-'>' merge below
+		// is chunk-count-invariant.
+		final long work=(long)n*seq.length;
+		final int desiredThreads=(int)Math.min((long)configured,
+				Math.min((long)n, (work+WORK_PER_THREAD-1)/WORK_PER_THREAD));
+		if(desiredThreads<=1){
 			float bestId=0;
 			int bestCluster=-1;
 			for(int i=0; i<n; i++){
@@ -661,8 +690,7 @@ public class TrnaConsensusBuilder {
 			return;
 		}
 
-		final int nThreads=Tools.max(1, Shared.threads());
-		final int chunk=Tools.max(1, (n+nThreads-1)/nThreads);
+		final int chunk=Tools.max(1, (n+desiredThreads-1)/desiredThreads);
 		final int nChunks=(n+chunk-1)/chunk;
 		final float[] chunkBestId=new float[nChunks];
 		final int[] chunkBestIdx=new int[nChunks];

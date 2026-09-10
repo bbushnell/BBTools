@@ -470,6 +470,10 @@ public class CallGenes extends ProkObject {
 				SIXS_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("r58lsu")){
 				R58LSU_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("s18")){
+				//18S generic-family pilot gate (cont.53; distinct from the legacy "18s" flag,
+				//which PGMTools.parseStatic consumes for the PGM-path caller).
+				S18_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnafamily")){
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
 			}else if(a.equalsIgnoreCase("ncrnakmers")){
@@ -498,6 +502,12 @@ public class CallGenes extends ProkObject {
 				LSU_CONSENSUS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("lsumodels")){
 				LSU_MODELS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("s18kmers")){
+				S18_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("s18consensus")){
+				S18_CONSENSUS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("s18models")){
+				S18_MODELS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("tmrnaconsensus")){
 				TMRNA_CONSENSUS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("tmrnamodels")){
@@ -2052,6 +2062,7 @@ public class CallGenes extends ProkObject {
 			}
 		}
 		if(R58LSU_ENABLED){loadR58LsuDevelopmentResources();}
+		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
 
 	/** Loads the paired default-off 5.8S/LSU development bundles only from
@@ -2095,6 +2106,43 @@ public class CallGenes extends ProkObject {
 		}catch(RuntimeException e){
 			while(GeneCaller.ncrnaFamilies.size()>before){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
 			throw e;
+		}
+	}
+
+	/** Loads the default-off 18S generic-family pilot bundle only from explicit paths —
+	 * the r58lsu development pattern verbatim, single family. PILOT constants: the lsu row
+	 * with pad resized for ~1.8kb 18S (unmeasured for 18S; harness measurements own the
+	 * final values). */
+	private static void loadS18DevelopmentResources(){
+		requireS18Overrides();
+		final int before=GeneCaller.ncrnaFamilies.size();
+		try{
+			final LongHashSet s18Kmers=loadEffectiveNcrnaKmerSet("s18", "s18_dev_17mers.fa", S18_KMERS_OVERRIDE, 17);
+			requireNonemptyNcrnaKmerSet("s18", S18_KMERS_OVERRIDE, s18Kmers);
+			requireNcrnaResource("s18", "consensus", S18_CONSENSUS_OVERRIDE);
+			requireNcrnaResource("s18", "HBM", S18_MODELS_OVERRIDE);
+			addNcrnaFamily("s18", S18_CONSENSUS_OVERRIDE, S18_MODELS_OVERRIDE, s18Kmers, 17, 60,
+				resolveSweepPad("s18", -1, 1900), 7, 100, false, 0f, 0f, 0f, 1,
+				0f, 1f, resolveSweepFloat("s18", NCRNA_ID_PASS_OVERRIDE, 0.60f),
+				resolveSweepFloat("s18", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
+				resolveSweepFloat("s18", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
+				resolveSweepFloat("s18", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
+				boundaryStartOffsets("s18"), boundaryStopOffsets("s18"));
+			if(GeneCaller.ncrnaFamilies.size()!=before+1){
+				throw new IllegalArgumentException("s18=t requires complete explicit 18S consensus, HBM, and kmer resources");
+			}
+			final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(before);
+			requireNcrnaLibraryModelAlignment(f.name, f.library, f.models, f.modelNames,
+				S18_CONSENSUS_OVERRIDE, S18_MODELS_OVERRIDE);
+		}catch(RuntimeException e){
+			while(GeneCaller.ncrnaFamilies.size()>before){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
+			throw e;
+		}
+	}
+
+	private static void requireS18Overrides(){
+		if(S18_KMERS_OVERRIDE==null || S18_CONSENSUS_OVERRIDE==null || S18_MODELS_OVERRIDE==null){
+			throw new IllegalArgumentException("s18=t is development-only and requires explicit s18kmers/s18consensus/s18models paths");
 		}
 	}
 
@@ -2144,7 +2192,7 @@ public class CallGenes extends ProkObject {
 		// No sixS boundary models are shipped yet.  These candidate positions keep the
 		// family geometry explicit; Gate B remains strict and fails before use until its
 		// family-specific net and tables are released.
-		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu")){return new int[]{-3,-2,-1,0,1,2};}
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
 	}
 
@@ -2155,7 +2203,7 @@ public class CallGenes extends ProkObject {
 		// No sixS boundary models are shipped yet.  These candidate positions keep the
 		// family geometry explicit; Gate B remains strict and fails before use until its
 		// family-specific net and tables are released.
-		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu")){return new int[]{-3,-2,-1,0,1,2};}
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
 	}
 
@@ -2380,8 +2428,9 @@ public class CallGenes extends ProkObject {
 		else if(s.equals("srplarge")){s="srp_large";}
 		else if(s.equals("tm_rna") || s.equals("ssra")){s="tmrna";}
 		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
-				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")){
-			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, or lsu: "+value);
+				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")
+				&& !s.equals("s18")){
+			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, or s18: "+value);
 		}
 		return s;
 	}
@@ -2391,7 +2440,7 @@ public class CallGenes extends ProkObject {
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.70f;}
 		if(family.equals("tmrna")){return 0.62f;}
 		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685")){return 0.70f;}
-		if(family.equals("r58") || family.equals("lsu")){return 0.60f;}
+		if(family.equals("r58") || family.equals("lsu") || family.equals("s18")){return 0.60f;}
 		throw new IllegalArgumentException("No default idpass for ncRNA family: "+family);
 	}
 
@@ -2401,7 +2450,7 @@ public class CallGenes extends ProkObject {
 		if(family.equals("tmrna")){return 0.60f;}
 		if(family.equals("sixs_rf00013")){return 0.60f;}
 		if(family.equals("sixs_rf01685")){return 0.70f;}
-		if(family.equals("r58") || family.equals("lsu")){return 0.55f;}
+		if(family.equals("r58") || family.equals("lsu") || family.equals("s18")){return 0.55f;}
 		throw new IllegalArgumentException("No default idborderline for ncRNA family: "+family);
 	}
 
@@ -2430,7 +2479,7 @@ public class CallGenes extends ProkObject {
 		final boolean anyFamilyKmers=RNASEP_KMERS_OVERRIDE!=null || SRPSMALL_KMERS_OVERRIDE!=null
 			|| SRPLARGE_KMERS_OVERRIDE!=null || TMRNA_KMERS_OVERRIDE!=null
 			|| SIXS_RF00013_KMERS_OVERRIDE!=null || SIXS_RF01685_KMERS_OVERRIDE!=null
-			|| R58_KMERS_OVERRIDE!=null || LSU_KMERS_OVERRIDE!=null;
+			|| R58_KMERS_OVERRIDE!=null || LSU_KMERS_OVERRIDE!=null || S18_KMERS_OVERRIDE!=null;
 		final boolean anyFamilyPad=RNASEP_PAD_OVERRIDE>=0 || SRPSMALL_PAD_OVERRIDE>=0 || SRPLARGE_PAD_OVERRIDE>=0;
 		final boolean anyTmrnaModels=TMRNA_CONSENSUS_OVERRIDE!=null || TMRNA_MODELS_OVERRIDE!=null;
 		final boolean anyTmrnaOverride=TMRNA_KMERS_OVERRIDE!=null || anyTmrnaModels || TMRNA_PAD_OVERRIDE>=0
@@ -2456,6 +2505,9 @@ public class CallGenes extends ProkObject {
 		if(NCRNA_FAMILY_FILTER!=null && (NCRNA_FAMILY_FILTER.equals("r58") || NCRNA_FAMILY_FILTER.equals("lsu")) && !R58LSU_ENABLED){
 			throw new IllegalArgumentException("an r58/lsu ncrnafamily requires r58lsu=t");
 		}
+		if(NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals("s18") && !S18_ENABLED){
+			throw new IllegalArgumentException("ncrnafamily=s18 requires s18=t");
+		}
 		if(anyFamilyKmers && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("family ncRNA kmer overrides require ncrna=t");
 		}
@@ -2473,6 +2525,10 @@ public class CallGenes extends ProkObject {
 		}
 		if(anyR58LsuOverride && (!NCRNA_FAMILIES_ENABLED || !R58LSU_ENABLED)){
 			throw new IllegalArgumentException("R58/LSU-specific overrides require ncrna=t r58lsu=t");
+		}
+		final boolean anyS18Override=S18_KMERS_OVERRIDE!=null || S18_CONSENSUS_OVERRIDE!=null || S18_MODELS_OVERRIDE!=null;
+		if(anyS18Override && (!NCRNA_FAMILIES_ENABLED || !S18_ENABLED)){
+			throw new IllegalArgumentException("s18-specific overrides require ncrna=t s18=t");
 		}
 		if(anyGenericOverride && NCRNA_FAMILY_FILTER==null){
 			throw new IllegalArgumentException("ncRNA sweep overrides require exactly one ncrnafamily=");
@@ -2757,6 +2813,8 @@ public class CallGenes extends ProkObject {
 	/** Experimental paired 5.8S/LSU development bundle.  Off by default and
 	 * explicit-path-only until resources and thresholds are accepted. */
 	static boolean R58LSU_ENABLED=false;
+	/** 18S generic-family pilot gate (default OFF; cont.53). */
+	static boolean S18_ENABLED=false;
 	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
 	 * ncRNA boundary-precision-NN refinement, subordinate to Gate A -- ncrna=t alone gives
 	 * plain scavenger calling with no boundary refinement; ncrnaboundarynet=t additionally
@@ -2793,6 +2851,7 @@ public class CallGenes extends ProkObject {
 	static String SIXS_RF01685_KMERS_OVERRIDE=null;
 	static String R58_KMERS_OVERRIDE=null, R58_CONSENSUS_OVERRIDE=null, R58_MODELS_OVERRIDE=null;
 	static String LSU_KMERS_OVERRIDE=null, LSU_CONSENSUS_OVERRIDE=null, LSU_MODELS_OVERRIDE=null;
+	static String S18_KMERS_OVERRIDE=null, S18_CONSENSUS_OVERRIDE=null, S18_MODELS_OVERRIDE=null;
 	static String TMRNA_CONSENSUS_OVERRIDE=null;
 	static String TMRNA_MODELS_OVERRIDE=null;
 	static int NCRNA_WINDOW_PAD_OVERRIDE=-1;
@@ -2824,6 +2883,7 @@ public class CallGenes extends ProkObject {
 		assert(!TMRNA_ENABLED || NCRNA_FAMILIES_ENABLED) : "tmrna=t requires ncrna=t (or generalncrna=t)";
 		assert(!SIXS_ENABLED || NCRNA_FAMILIES_ENABLED) : "sixs=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || NCRNA_FAMILIES_ENABLED) : "r58lsu=t requires ncrna=t (or generalncrna=t)";
+		assert(!S18_ENABLED || NCRNA_FAMILIES_ENABLED) : "s18=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
 	}
 
