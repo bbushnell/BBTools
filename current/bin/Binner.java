@@ -96,7 +96,22 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 		}else if(a.equalsIgnoreCase("covlrheuristic") || a.equalsIgnoreCase("covlrheur")){
 			useCovLRHeuristic=Parse.parseBoolean(b);
 		}else if(a.equalsIgnoreCase("covlrreplace")){
-			covLRReplace=Parse.parseBoolean(b);
+			//Back-compat alias for depthoracle=lr (with covlr=t, skips the hand depth cutoffs)
+			depthOracleMode=(Parse.parseBoolean(b) ? DEPTH_LR : DEPTH_LEGACY);
+		}else if(a.equalsIgnoreCase("depthoracle") || a.equalsIgnoreCase("depthmode")){
+			if(b==null || b.equalsIgnoreCase("legacy") || b.equalsIgnoreCase("f") ||
+					b.equalsIgnoreCase("false") || b.equalsIgnoreCase("off")){
+				depthOracleMode=DEPTH_LEGACY;
+			}else if(b.equalsIgnoreCase("lr") || b.equalsIgnoreCase("replace")){
+				depthOracleMode=DEPTH_LR;
+				useCovLRGate=true;
+			}else if(b.equalsIgnoreCase("fused") || b.equalsIgnoreCase("hybrid")){
+				depthOracleMode=DEPTH_FUSED;
+			}else{
+				assert(false) : "Bad depthoracle mode (legacy|lr|fused): "+arg;
+			}
+		}else if(a.equalsIgnoreCase("fusedthresh") || a.equalsIgnoreCase("depththresh")){
+			fusedThresh=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("covlrthresh")){
 			covLRThresh=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("covlrslope")){
@@ -109,6 +124,14 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 			CovLR.sigma=Float.parseFloat(b);
 		}else if(a.equalsIgnoreCase("covlrdet")){
 			CovLR.DET=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrmratio") || a.equalsIgnoreCase("fmratio")){
+			CovLR.mLnRatio=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrmcov") || a.equalsIgnoreCase("fmcov")){
+			CovLR.mCov=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("covlrmlr") || a.equalsIgnoreCase("fmlr")){
+			CovLR.mLr=Float.parseFloat(b);
+		}else if(a.equalsIgnoreCase("fusedskipproduct") || a.equalsIgnoreCase("fusednoproduct")){
+			fusedSkipProduct=Parse.parseBoolean(b);
 		}
 
 		else if(a.equalsIgnoreCase("maxTrimerDif1") || a.equalsIgnoreCase("max3merDif1")){
@@ -1749,9 +1772,19 @@ public class Binner extends BinObject implements Accumulator<Binner.CompareThrea
 	static boolean useCovLRGate=false;
 	/** Scale Oracle's returned merge score by a logistic of the coverage LR (covlrheur, default off) */
 	static boolean useCovLRHeuristic=false;
-	/** With the gate on, SUBSTITUTE the LR for the hand depthRatio/covariance/product cutoffs
-	 * (comparisons skipped; computations kept for the score and frozen NN features) */
-	static boolean covLRReplace=false;
+	/** Depth sub-oracle modes: LEGACY = the original hand depthRatio/covariance/product
+	 * cutoffs (default, bitwise-old behavior); LR = the coverage LR substitutes for them
+	 * (covlrreplace semantics; effective only with covlr=t); FUSED = one combined log-odds
+	 * score from all predictors (CovLR.depthScore), thresholded once. */
+	static final int DEPTH_LEGACY=0, DEPTH_LR=1, DEPTH_FUSED=2;
+	static int depthOracleMode=DEPTH_LEGACY;
+	/** depthoracle=fused acceptance threshold in log-odds units at stringency 1;
+	 * scales additively with covLRSlope*ln(stringency*mult) like the covlr gate */
+	static float fusedThresh=0f;
+	/** When depthoracle=fused, drop the downstream product (composition x depth) veto exactly
+	 * as LR mode does, so fused vs lr differ ONLY in the depth gate (fusedskipproduct, default
+	 * off = keep the product veto, the shipped fused behavior). */
+	static boolean fusedSkipProduct=false;
 	/** covlr veto threshold in nats at stringency 1; effective thresh=covLRThresh-covLRSlope*ln(stringency*mult) */
 	static float covLRThresh=-3f;
 	/** Additive-in-nats stringency scaling for the covlr threshold */

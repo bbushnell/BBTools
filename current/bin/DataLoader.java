@@ -486,7 +486,9 @@ public class DataLoader extends BinObject {
 		//and warn when the gate is asked to run on columns that look correlated - its
 		//per-sample sum assumes independence, and correlated columns over-count evidence
 		//(Brian's ruling 2026-09-09: warn+document rather than per-sample weights).
-		if(Binner.useCovLRGate || Binner.useCovLRHeuristic){
+		//depthoracle=lr/fused also consume the LR, so they calibrate too.
+		if(Binner.useCovLRGate || Binner.useCovLRHeuristic ||
+				Binner.depthOracleMode!=Binner.DEPTH_LEGACY){
 			CovLR.calibrate(contigs, numDepths);
 			if(!autoCondense && numDepths>1){
 				SampleCondenser sc=new SampleCondenser(this, System.err);

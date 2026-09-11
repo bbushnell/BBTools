@@ -172,22 +172,25 @@ public class Oracle extends BinObject implements Cloneable {
 		final float cagaDif=Math.abs(a.caga-b.caga)*cagaMult;
 		final float gchhDif=Tools.max(gcDif, hhDif, cagaDif);
 //		assert(false) : gcDif+", "+hhDif+", "+gchhDif;
-		//covlrreplace (Brian, 2026-09-10): when the LR gate is on, OPTIONALLY substitute it
-		//for the hand depth cutoffs - every depthRatio/covariance/product THRESHOLD
-		//comparison is skipped and the LR alone judges depth compatibility.  The
-		//depthRatio/covariance COMPUTATIONS remain (they feed the heuristic score and the
-		//frozen NN features), and depthRatio is computed uncapped so downstream consumers
-		//see its true value for pairs the old cutoffs would have vetoed early.
-		final boolean lrReplace=(Binner.useCovLRGate && Binner.covLRReplace);
+		//Depth sub-oracle mode (depthoracle= flag; Brian's design 2026-09-10): LEGACY keeps
+		//every original comparison bitwise; LR substitutes the coverage LR for the hand
+		//depth cutoffs (covlrreplace semantics, effective only with covlr=t); FUSED
+		//combines all depth predictors into one log-odds score (CovLR.depthScore) with a
+		//single threshold.  In non-legacy modes the depthRatio/covariance COMPUTATIONS
+		//remain (heuristic score + frozen NN features) and depthRatio is computed uncapped
+		//so downstream consumers see true values for pairs the old cutoffs would veto.
+		final int dMode=Binner.depthOracleMode;
+		final boolean dLegacy=(dMode==Binner.DEPTH_LEGACY ||
+				(dMode==Binner.DEPTH_LR && !Binner.useCovLRGate));
 		final float maxDepthRatio1=(maxDepthRatio*Binner.goodEdgeMult);
-		final float depthRatio=a.depthRatio1(b, lrReplace ? Float.MAX_VALUE : maxDepthRatio1);
+		final float depthRatio=a.depthRatio1(b, dLegacy ? maxDepthRatio1 : Float.MAX_VALUE);
 		final long minlen=Math.min(a.size(), b.size());
 		if(BinObject.verbose || verbose2) {
 			System.err.println("gcdif="+gcDif);
 			System.err.println("depthRatio="+depthRatio);
 		}
 		final float maxGCDifG=maxGCDif*Binner.goodEdgeMult;
-		if(gchhDif>maxGCDifG || (!lrReplace && depthRatio>maxDepthRatio1)) {
+		if(gchhDif>maxGCDifG || (dLegacy && depthRatio>maxDepthRatio1)) {
 			return -1;
 		}//Early exit before edge-tracking
 		
@@ -217,26 +220,53 @@ public class Oracle extends BinObject implements Cloneable {
 			System.err.println("C: depthRatio="+depthRatio+", max="+(maxDepthRatio*mult)+
 					", covariance="+covariance+", max="+(maxCovariance*mult));
 		}
-		if(!lrReplace && (depthRatio>maxDepthRatio*mult*Binner.cutoffMultD ||
+		//Coverage likelihood-ratio (covlr flag / non-legacy modes; math cited in CovLR).
+		//Sits with the other depth tiers, before trimers: O(samples) with 2 logs per active
+		//sample, comparable to the SIMD trimer cosine.  The LR is in nats (log-space), so
+		//stringency and the edge mult enter thresholds ADDITIVELY via ln() - a
+		//multiplicative scale would flip direction on negative thresholds.
+		float covLR=0;
+		final boolean needLR=(Binner.useCovLRGate || Binner.useCovLRHeuristic ||
+				dMode==Binner.DEPTH_FUSED);
+		if(needLR){covLR=CovLR.lrCov(a, b);}
+
+		//Instrumentation (depthvectors= flag, training only): emit the raw depth predictors
+		//with the ground-truth label BEFORE any depth decision below, so vetoed pairs are
+		//captured too - a corpus filtered by the very cutoffs being fitted would be biased.
+		//Pairs vetoed at earlier tiers (gc/hh, and the ratio early-exit in legacy mode)
+		//never reach here; generate fitting corpora in a non-legacy mode so the ratio
+		//early-exit is inactive and the full depth space arrives.
+		if(dvWriter!=null && a.labelTaxid>0 && b.labelTaxid>0 && Math.random()<dvProb){
+			emitDepthVector(a, b, depthRatio, covariance, covLR, minEdges, mult);
+		}
+
+		if(dLegacy && (depthRatio>maxDepthRatio*mult*Binner.cutoffMultD ||
 				covariance>maxCovariance*mult*Binner.cutoffMultD)) {return -1;}
 //		if(!taxaOK(a.taxid(), b.taxid())) {return -1;}
 
-		//Coverage likelihood-ratio triage (covlr flag, default off; math cited in CovLR).
-		//Sits with the other depth tiers, before trimers: O(samples) with 2 logs per active
-		//sample, comparable to the SIMD trimer cosine.  The LR is in nats (log-space), so
-		//stringency and the edge mult enter the threshold ADDITIVELY via ln() - a
-		//multiplicative scale would flip direction on negative thresholds.  Veto-only:
-		//it can reject a merge the depth-ratio/covariance cutoffs would allow, never
-		//force one.  covLR is also reused by the covlrheur score factor below.
-		float covLR=0;
-		if(Binner.useCovLRGate || Binner.useCovLRHeuristic){
-			covLR=CovLR.lrCov(a, b);
-			if(Binner.useCovLRGate){
-				final float thresh=Binner.covLRThresh-
-					(float)(Binner.covLRSlope*Math.log(currentStringency*mult));
-				if(covLR<thresh){return -1;}
+		//Veto-only covlr gate: can reject a merge the other cutoffs would allow, never
+		//force one.  In LR mode this IS the depth decision (legacy comparisons above are
+		//skipped); as an add-on gate it composes with legacy or fused.
+		if(Binner.useCovLRGate){
+			final float thresh=Binner.covLRThresh-
+				(float)(Binner.covLRSlope*Math.log(currentStringency*mult));
+			if(covLR<thresh){return -1;}
+		}
+		//Fused depth sub-oracle: one combined log-odds score, one threshold.
+		if(dMode==Binner.DEPTH_FUSED){
+			final float effThresh=Binner.fusedThresh-
+				(float)(Binner.covLRSlope*Math.log(currentStringency*mult));
+			if(CovLR.depthScore(depthRatio, covariance, covLR, a.numDepths(), minlen)<effThresh){
+				return -1;
 			}
 		}
+		//Product terms downstream: LEGACY uses the raw ratio (bitwise-old); LR mode skips
+		//product checks entirely (as covlrreplace shipped); FUSED keeps them (ratio CAPPED at
+		//the legacy cutoff) UNLESS fusedskipproduct, which drops them exactly as LR does - the
+		//apples-to-apples "fused gate vs covLR gate in the same cascade" experiment (descent).
+		final boolean useProduct=(dMode!=Binner.DEPTH_LR || dLegacy)
+				&& !(dMode==Binner.DEPTH_FUSED && Binner.fusedSkipProduct);
+		final float productDR=(dLegacy ? depthRatio : Tools.min(depthRatio, maxDepthRatio*mult));
 
 		trimerComparisons++;
 		float trimerDif=(countTrimers ? 
@@ -250,15 +280,15 @@ public class Oracle extends BinObject implements Cloneable {
 		//This causes a large speedup by avoiding tetramer calculation
 		//0.75 has no effect, so 0.8 is safe (0.725 causes a slight change)
 		if(trimerDif>max3merDif*mult*Binner.cutoffMultA ||
-				(!lrReplace && trimerDif*depthRatio>maxProduct*mult*Binner.cutoffMultB*0.8f)) {return -1;}
+				(useProduct && trimerDif*productDR>maxProduct*mult*Binner.cutoffMultB*0.8f)) {return -1;}
 
 		tetramerComparisons++;
 		float tetramerDif=Vector.cosineDifference(a.tetramers, b.tetramers);
-		final float product=tetramerDif*depthRatio;
+		final float product=tetramerDif*productDR;
 		float kmerProb=KmerProb.prob(minlen, tetramerDif);
 		kmerProb=1-(1-kmerProb)/mult;
 		if(tetramerDif>max4merDif*mult*Binner.cutoffMultA ||
-				(!lrReplace && product>maxProduct*mult*Binner.cutoffMultB) || kmerProb<0.5f) {return -1;}
+				(useProduct && product>maxProduct*mult*Binner.cutoffMultB) || kmerProb<0.5f) {return -1;}
 
 		slowComparisons++;
 		float pentamerDif=(a.numPentamers<BinObject.minPentamerSizeCompare ||
@@ -303,10 +333,10 @@ public class Oracle extends BinObject implements Cloneable {
 		
 		float ret=netOutput;
 		if(trimerDif>max3merDif*mult2 || tetramerDif>max4merDif*mult2 || pentamerDif>max5merDif*mult2 ||
-				(!lrReplace && product>maxProduct*mult2) || kmerProb<minKmerProb) {ret=-1;}
+				(useProduct && product>maxProduct*mult2) || kmerProb<minKmerProb) {ret=-1;}
 
 		float mult3=(network==null ? mult : mult2*Binner.cutoffMultC);
-		if(gcDif>maxGCDif*mult3 || (!lrReplace &&
+		if(gcDif>maxGCDif*mult3 || (dLegacy &&
 				(depthRatio>maxDepthRatio*mult3 || covariance>maxCovariance*mult3))) {
 			ret=-1;
 		}
@@ -762,6 +792,34 @@ public class Oracle extends BinObject implements Cloneable {
 	}
 	
 	/**
+	 * Emits one depth-predictor training row (depthvectors= flag): the raw scalars the
+	 * depth sub-oracle decides on, plus the ground-truth label, BEFORE any depth veto -
+	 * the corpus for fitting CovLR.depthScore's calibration curves and weights offline
+	 * (ml.RegressionTrainer).  Columns:
+	 * numDepths  minSize  depthRatio  covariance  covLR  minEdges  mult  stringency  sameTax
+	 */
+	private void emitDepthVector(Bin a, Bin b, float depthRatio, float covariance,
+			float covLR, long minEdges, float mult){
+		final ByteBuilder bb=new ByteBuilder(96);
+		bb.append(a.numDepths()).tab();
+		bb.append(Math.min(a.size(), b.size())).tab();
+		bb.append(depthRatio, 5, true).tab();
+		bb.append(covariance, 6, true).tab();
+		bb.append(covLR, 4, true).tab();
+		bb.append(minEdges).tab();
+		bb.append(mult, 3, true).tab();
+		bb.append(currentStringency, 3, true).tab();
+		bb.append(a.labelTaxid==b.labelTaxid ? 1 : 0).nl();
+		synchronized(dvWriter){
+			if(!dvHeaderWritten){
+				dvWriter.print("#numDepths\tminSize\tdepthRatio\tcovariance\tcovLR\tminEdges\tmult\tstringency\tsameTax\n");
+				dvHeaderWritten=true;
+			}
+			dvWriter.print(bb);
+		}
+	}
+
+	/**
 	 * Selects appropriate neural network based on bin size.
 	 * Uses different networks optimized for small, medium, and large bins.
 	 * @param size Bin size for network selection
@@ -843,6 +901,13 @@ public class Oracle extends BinObject implements Cloneable {
 	static ByteStreamWriter bsw;
 	/** Whether the '#dims' header has been written to bsw yet; reset when a new bsw is opened. */
 	static boolean dimsHeaderWritten=false;
+	/** Depth-predictor instrumentation writer (depthvectors=); opened/closed by QuickBin
+	 * like bsw - the poisonAndWait there is load-bearing (non-daemon writer thread). */
+	static ByteStreamWriter dvWriter;
+	/** Whether the depthvectors header was written; reset when a new dvWriter is opened. */
+	static boolean dvHeaderWritten=false;
+	/** Per-comparison emission probability for depthvectors (dvprob=); controls volume. */
+	static float dvProb=0.2f;
 	/** Whether to emit true positive training vectors */
 	static boolean emitTP=true;
 	/** Whether to emit false positive training vectors */

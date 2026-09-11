@@ -110,6 +110,27 @@ covlrheur=f     Also scale the heuristic merge score by the coverage LR.
 covlrreplace=f  With covlr=t, use the LR INSTEAD OF the hand depth-ratio,
                 covariance, and product cutoffs (their threshold comparisons
                 are skipped; the values still feed the merge score and nets).
+depthoracle=legacy  Depth decision mode: 'legacy' is the original cutoffs
+                (bitwise-identical old behavior), 'lr' substitutes the
+                coverage LR for them (same as covlr=t covlrreplace=t), and
+                'fused' combines depth ratio, covariance, and the LR into
+                one calibrated log-odds score thresholded once (weights
+                depend on sample count; experimental, under tuning).
+fusedthresh=0   Acceptance threshold for depthoracle=fused, in log-odds
+                units; higher is more conservative with merges.  Scales
+                with stringency like the covlr gate.
+fusedskipproduct=f  With depthoracle=fused, drop the downstream product
+                (composition x depth) veto exactly as 'lr' mode does, so
+                the fused gate is the only depth check.  Experimental.
+covlrmratio=1   Term multipliers for the fused score (on ln(depthRatio),
+covlrmcov=1     covariance, and the coverage LR respectively).  Default 1
+covlrmlr=1      reproduces the fitted fusion; for tuning the constants.
+depthvectors=<file>  Training only: emit sampled raw depth predictors with
+                ground-truth labels (requires tid-labeled contigs) for
+                fitting the fused mode's constants.  Emitted before any
+                depth veto; generate corpora with a non-legacy depthoracle
+                so early ratio cutoffs don't bias the sample.
+dvprob=0.2      Per-comparison emission probability for depthvectors.
 covlrthresh=-3.0  Veto threshold in nats at normal stringency; lower values
                 veto less.  Scales with stringency and edge support.
 covlrslope=8.0  Stringency-scaling slope for covlrthresh, in nats per

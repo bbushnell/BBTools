@@ -150,6 +150,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			
 			else if(a.equals("vectorout")){
 				vectorOut=b;
+			}else if(a.equals("depthvectors") || a.equals("depthvectorsout")){
+				depthVectorsOut=b;
+			}else if(a.equals("dvprob") || a.equals("depthvectorprob")){
+				Oracle.dvProb=Float.parseFloat(b);
 			}else if(a.equalsIgnoreCase("emitTP")){
 				Oracle.emitTP=parseEmitFlag(a, b);
 			}else if(a.equalsIgnoreCase("emitTN")){
@@ -426,6 +430,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 //			bins=binner.clusterByTaxid(bins);
 //		}
 		
+		if(depthVectorsOut!=null) {
+			Oracle.dvWriter=ByteStreamWriter.makeBSW(depthVectorsOut, overwrite, append, true);
+			Oracle.dvHeaderWritten=false;
+		}
 		if(vectorOut!=null) {
 			Oracle.bsw=ByteStreamWriter.makeBSW(vectorOut, overwrite, append, true);
 			//The '#dims' header is written lazily by Oracle.emitVector on the first vector, because the
@@ -585,6 +593,10 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 			if(loud) {outstream.println("Clusters: "+binMap.countClusters());}
 		}
 		
+		if(Oracle.dvWriter!=null) {
+			Oracle.dvWriter.poisonAndWait();
+			Oracle.dvWriter=null;
+		}
 		if(Oracle.bsw!=null) {
 			Oracle.bsw.poisonAndWait();
 			Oracle.bsw=null;
@@ -1028,6 +1040,8 @@ public class QuickBin extends BinObject implements Accumulator<QuickBin.ProcessT
 	private String covOut=null;
 	/** Output file path for feature vectors */
 	static String vectorOut=null;
+	/** Depth-predictor instrumentation output (depthvectors=); corpus for fitting the fused depth sub-oracle */
+	static String depthVectorsOut=null;
 	/** Output file path for bin size histogram */
 	private String sizeHist=null;
 	/** Output file path for cluster quality report */
