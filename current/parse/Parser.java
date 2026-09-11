@@ -664,7 +664,7 @@ public class Parser {
 	 * @param args Original command-line arguments
 	 * @return Expanded argument array with config file contents included
 	 */
-	static String[] parseConfig(String[] args){
+	public static String[] parseConfig(String[] args){
 		boolean found=false;
 		for(String s : args){
 			if(Tools.startsWithIgnoreCase(s, "config=")){

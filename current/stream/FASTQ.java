@@ -919,7 +919,21 @@ public class FASTQ {
 		assert(quals!=null);
 		//Studied praise + claim: the Vec path DETECTS first (detectQuals only flips the static ASCII_OFFSET, sampling the first <8 reads) and then applies the offset ONCE, uniformly, here -- so it has NO retroactive per-element fixup and structurally cannot hit the quadToRead_slow#002 class (the older slow path converts per-element THEN retroactively re-corrects, which is where the quals[i]/quals[j] typo lived). Cleaner by construction.
 		if(numericID<8 && DETECT_QUALITY) {detectQuals(quals, bases, name, numericID);}
-		Vector.applyQualOffset(quals, bases, -ASCII_OFFSET);
+		applyQualityOffset(quals, bases, -ASCII_OFFSET);
+	}
+
+	/** Shared by quad and scan decoders; honor the explicit no-normalization policy. */
+	static void applyQualityOffset(final byte[] quals, final byte[] bases, final int offset){
+		assert(quals!=null && bases!=null && quals.length==bases.length) :
+			"Quality offset conversion requires a matching base for every quality; lengths must be checked before indexed normalization.";
+		if(Read.CHANGE_QUALITY){Vector.applyQualOffset(quals, bases, offset);}
+		else{
+			// Offset conversion is mandatory; normalization is not. applyQualOffset
+			// also zeros undefined-base qualities and floors called bases at Q2,
+			// which violates the explicit CHANGE_QUALITY=false preservation contract.
+			// Leave malformed values visible for the caller's validation, not clamped.
+			for(int i=0; i<quals.length; i++){quals[i]=(byte)(quals[i]+offset);}
+		}
 	}
 	
 	private static int detectQuals(final byte[] quals, final byte[] bases,
@@ -1164,7 +1178,10 @@ public class FASTQ {
 				KillSwitch.memKill(e);
 			}
 		}
-		Vector.capQuality(quals, bases);//Also caps quality
+		// The native ByteFile reader uses this slow path. Match the quad/scan
+		// decoder contract: changequality=f preserves original Phred bytes,
+		// including Q0/Q1 and values above MAX_CALLED_QUALITY (native parity IlH0vu).
+		if(Read.CHANGE_QUALITY){Vector.capQuality(quals, bases);}
 		return r;
 	}
 	

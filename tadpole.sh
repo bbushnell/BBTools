@@ -256,6 +256,31 @@ extendrollback=3    Trim a random number of bases, up to this many, on reads
                     of sharp coverage discontinuities at branches.
 
 Error-correction parameters:
+localedit=f        Experimental general substitution and 1bp indel correction
+                    from original kmer counts; unpaired, alignment-free reads only.
+                    Requires k>=5 and correct mode (selected if mode is omitted).
+                    Incompatible with ecc/ecco/merge/markerrors/hpindel, extension,
+                    or base marking. Disabled by default; validate before use.
+localeditmax=8     Maximum sequential edits per read; must be positive.
+localeditpairs=f   Also try a bounded two-edit witness; requires localedit=t.
+                    Applies only the first edit, then rescans the changed read.
+                    With qualities present, new/replaced bases get Q0;
+                    retained qualities persist.
+                    Low-coverage repeat variants can remain ambiguous; this is
+                    not a variant-preserving or exhaustive correction guarantee.
+hpindel=f           Experimental unpaired, alignment-free homopolymer +/-1 repair.
+hpmaxedits=1        Maximum complete disjoint-context edit batch per read.
+hpsingletons=f      Also allow singleton +1 proposals; requires hpindel=t.
+hpisolated=f        After existing paths reject, rescue the complete isolated
+                    candidate set only if it fits hpmaxedits. Requires hpindel=t.
+hpdeletioncompeting=f Experimental: veto HP deletions when deleting an immediately
+                    adjacent non-run base is also supported. Requires hpindel=t.
+                    Abstains only; may withhold true repairs or release other edits.
+hpcompeting=f       Experimental: veto HP insertions when a non-run base inserted
+                    strictly inside the run passes the same support/contrast
+                    gates. Boundary alternatives are excluded. Requires hpindel=t.
+                    Proposal-level filtering can change batch selection.
+                    Experimental: rare true alleles can be changed.
 ecc=f               Error correct via kmer counts.
 markerrors=f        Mark bounded low-count kmer runs as N instead of correcting.
                     Requires two high-depth kmers on both sides; exact K and K-1

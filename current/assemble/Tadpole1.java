@@ -67,7 +67,9 @@ public class Tadpole1 extends Tadpole {
 			bytesPerKmer=mult;
 		}
 		
-		tables=new KmerTableSet(args, bytesPerKmer);
+		//The active correction policy must survive the table loader's second argument parse.
+		//Keep the original inactive path unchanged (including its exact argument array).
+		tables=new KmerTableSet(localEdit ? tableArgs(args) : args, bytesPerKmer);
 		k=tables.k;
 		k2=tables.k2;
 		

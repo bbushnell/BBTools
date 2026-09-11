@@ -57,6 +57,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param args Command line arguments
 	 */
 	public static void main(String[] args){
+		args=expandConfigArgs(args);
 		if(TadpoleMulti.hasMultipleK(args)){
 			TadpoleMulti.main(args);
 			Shared.closeStream(outstream);
@@ -88,6 +89,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @return Tadpole1 for short k-mers (≤31) or Tadpole2 for long k-mers (>31)
 	 */
 	public static Tadpole makeTadpole(String[] args, boolean setDefaults){
+		args=expandConfigArgs(args);
 		final int k=preparseK(args);
 		if(k>31 || FORCE_TADPOLE2){
 			synchronized(Tadpole.class){
@@ -105,6 +107,14 @@ public abstract class Tadpole extends ShaveObject{
 		}
 	}
 	
+	/** Expands config before implementation/phase selection without opening outstream twice. */
+	static String[] expandConfigArgs(final String[] args){
+		assert(args!=null) : "Tadpole dispatch requires an argument array before selecting its kmer representation.";
+		//Preserve the original invocation for metadata; PreParser will see expanded args.
+		if(Shared.COMMAND_LINE==null){Shared.COMMAND_LINE=args.clone();}
+		return Parser.parseConfig(args);
+	}
+
 	/**
 	 * Pre-parses command line arguments to determine k-mer size.
 	 * Extracts k-mer value and FORCE_TADPOLE2 flag before full argument processing.
@@ -168,6 +178,15 @@ public abstract class Tadpole extends ShaveObject{
 		Parser parser=new Parser();
 		boolean ecc_=false, ecco_=false, merge_=false, testMerge_=true, vstrict_=false, setEcc_=false;
 		boolean markErrors_=false;
+		boolean hpIndel_=false;
+		boolean hpSingletons_=false;
+		boolean hpIsolated_=false;
+		boolean hpCompeting_=false;
+		boolean hpDeletionCompeting_=false;
+		int hpMaxEdits_=1;
+		boolean localEdit_=false;
+		boolean localEditPairs_=false;
+		int localEditMax_=8;
 		boolean useOwnership_=false, setUseOwnership_=false;
 		
 		int prefilter=0;
@@ -567,6 +586,24 @@ public abstract class Tadpole extends ShaveObject{
 				ecco_=Parse.parseBoolean(b);
 			}else if(a.equals("markerrors")){
 				markErrors_=Parse.parseBoolean(b);
+			}else if(a.equals("hpindel")){
+				hpIndel_=Parse.parseBoolean(b);
+			}else if(a.equals("hpmaxedits")){
+				hpMaxEdits_=Integer.parseInt(b);
+			}else if(a.equals("hpsingletons")){
+				hpSingletons_=Parse.parseBoolean(b);
+			}else if(a.equals("hpisolated")){
+				hpIsolated_=Parse.parseBoolean(b);
+			}else if(a.equals("hpcompeting")){
+				hpCompeting_=Parse.parseBoolean(b);
+			}else if(a.equals("hpdeletioncompeting")){
+				hpDeletionCompeting_=Parse.parseBoolean(b);
+			}else if(a.equals("localedit")){
+				localEdit_=Parse.parseBoolean(b);
+			}else if(a.equals("localeditmax")){
+				localEditMax_=Integer.parseInt(b);
+			}else if(a.equals("localeditpairs")){
+				localEditPairs_=Parse.parseBoolean(b);
 			}else if(a.equals("merge")){
 				merge_=Parse.parseBoolean(b);
 			}else if(a.equals("testmerge")){
@@ -757,9 +794,10 @@ public abstract class Tadpole extends ShaveObject{
 		assert(kmerRangeMax>=kmerRangeMin) : "kmerRangeMax must be at least kmerRangeMin: "+kmerRangeMax+", "+kmerRangeMin;
 		
 		if(processingMode<0){//unset
-			if(ecc_ || markErrors_ || discardUncorrectable){
+			if(ecc_ || markErrors_ || discardUncorrectable || hpIndel_ || localEdit_){
 				processingMode=correctMode;
-				outstream.println("Switching to correct mode because ecc=t.");
+				outstream.println(hpIndel_ ? "Switching to correct mode because hpindel=t." : localEdit_ ?
+					"Switching to correct mode because localedit=t." : "Switching to correct mode because ecc=t.");
 			}else if(extendLeft>0 || extendRight>0){
 				processingMode=extendMode;
 				outstream.println("Switching to extend mode because an extend flag was set.");
@@ -789,7 +827,7 @@ public abstract class Tadpole extends ShaveObject{
 				if(extendRight==-1){extendRight=100;}
 			}else if(processingMode==correctMode){
 //				extendLeft=extendRight=0;
-				if(!setEcc_){ecc_=!markErrors_;}
+				if(!setEcc_){ecc_=!markErrors_ && !hpIndel_ && !localEdit_;}
 			}else if(processingMode==discardMode){
 				extendLeft=extendRight=0;
 				if(!setEcc_){ecc_=false;}
@@ -819,6 +857,42 @@ public abstract class Tadpole extends ShaveObject{
 		
 		/* Set final variables; post-process and validate argument combinations */
 		
+		if(hpMaxEdits_<1){throw new IllegalArgumentException("hpmaxedits must be positive.");}
+		if(localEditMax_<1){throw new IllegalArgumentException("localeditmax must be positive.");}
+		if(localEditPairs_ && !localEdit_){throw new IllegalArgumentException("localeditpairs requires localedit=t.");}
+		if(localEdit_ && (kbig<5 || processingMode!=correctMode || ecc_ || ecco_ || merge_ || markErrors_ || hpIndel_ ||
+			extendLeft>0 || extendRight>0 || MARK_BAD_BASES>0)){
+			throw new IllegalArgumentException("Experimental localedit requires k>=5 and dedicated correct mode: ecc=f ecco=f merge=f markerrors=f hpindel=f, no extension or base marking.");
+		}
+		if(hpSingletons_ && !hpIndel_){throw new IllegalArgumentException("hpsingletons requires hpindel=t.");}
+		if(hpIsolated_ && !hpIndel_){throw new IllegalArgumentException("hpisolated requires hpindel=t.");}
+		if(hpCompeting_ && !hpIndel_){throw new IllegalArgumentException("hpcompeting requires hpindel=t.");}
+		if(hpDeletionCompeting_ && !hpIndel_){throw new IllegalArgumentException("hpdeletioncompeting requires hpindel=t.");}
+		if(hpIndel_ && (kbig<5 || processingMode!=correctMode || ecc_ || ecco_ || merge_ || markErrors_ ||
+			extendLeft>0 || extendRight>0 || MARK_BAD_BASES>0)){
+			throw new IllegalArgumentException("Experimental hpindel requires k>=5 and indel-only correct mode: ecc=f ecco=f merge=f markerrors=f, no extension or base marking.");
+		}
+		hpIndel=hpIndel_;
+		hpSingletons=hpSingletons_;
+		hpIsolated=hpIsolated_;
+		hpCompeting=hpCompeting_;
+		hpDeletionCompeting=hpDeletionCompeting_;
+		hpMaxEdits=hpMaxEdits_;
+		localEdit=localEdit_;
+		localEditMax=localEditMax_;
+		localEditPairs=localEditPairs_;
+		if(hpIndel){
+			outstream.println("EXPERIMENTAL hpindel: unpaired alignment-free reads only; support>=4, original<=2, contrast>4, maxedits="+hpMaxEdits+". Rare true alleles may be changed.");
+		}
+		if(localEdit){
+			//Read.validate otherwise caps Q0/Q1 and high qualities before counting/correction.
+			//Preserve original header/quality bytes; only approved edits may replace them.
+			Read.CHANGE_QUALITY=false;
+			Read.FIX_HEADER=false;
+			outstream.println("EXPERIMENTAL localedit: bounded worker-local single-edit correction; maxedits="+localEditMax+
+				", pair-lookahead="+localEditPairs+".");
+		}
+
 		if(markErrors_){
 			// Marking is an alternative to correction/overlap editing on a read.
 			ecc_=false;
@@ -1081,7 +1155,23 @@ public abstract class Tadpole extends ShaveObject{
 			t.stop();
 
 			outstream.println("Input:                      \t"+readsIn+" reads \t\t"+basesIn+" bases.");
-			outstream.println("Output:                     \t"+readsIn+" reads \t\t"+(basesIn+basesExtended)+" bases.");
+			//TODO: Probable bug - this existing Output summary includes discarded reads/bases;
+			//extendReads routes them to the discard stream, but these counters describe all processed reads.
+			outstream.println("Output:                     \t"+readsIn+" reads \t\t"+(basesIn+basesExtended+hpInserted-hpDeleted+localEditInsertions-localEditDeletions)+" bases.");
+			if(hpIndel){
+				outstream.println("HP_INDEL reads_changed="+hpReadsChanged+" proposals="+hpProposals+" withheld_reads="+hpWithheld+
+					" inserted="+hpInserted+" deleted="+hpDeleted+" applied_edits="+(hpInserted+hpDeleted));
+				outstream.println("HP_LOOKUPS singletons="+hpSingletons+" count="+hpLookups);
+				if(hpSingletons){outstream.println("HP_BASELINE_FALLBACK reads="+hpFallbackReads);}
+				if(hpIsolated){outstream.println("HP_ISOLATED_RESCUE reads="+hpIsolatedReads+" edits="+hpIsolatedEdits);}
+				if(hpCompeting){outstream.println("HP_COMPETING_INSERTION vetoed_proposals="+hpCompetingVetoed);}
+				if(hpDeletionCompeting){outstream.println("HP_COMPETING_DELETION vetoed_proposals="+hpDeletionVetoed);}
+			}
+			if(localEdit){
+				outstream.println("LOCAL_EDIT reads_changed="+localEditReadsChanged+" substitutions="+localEditSubstitutions+
+					" insertions="+localEditInsertions+" deletions="+localEditDeletions+" cap_hits="+localEditCapHits+
+					" pair_lookups="+localEditPairQueries);
+			}
 			if(extendLeft>0 || extendRight>0){
 				outstream.println("Bases extended:             \t"+basesExtended);
 				outstream.println("Reads extended:             \t"+readsExtended+Tools.format(" \t(%.2f%%)", readsExtended*100.0/readsIn));
@@ -2423,6 +2513,23 @@ public abstract class Tadpole extends ShaveObject{
 			lowqBases+=pt.lowqBasesT;
 			readsExtended+=pt.readsExtendedT;
 			basesExtended+=pt.basesExtendedT;
+			hpReadsChanged+=pt.hpReadsChangedT;
+			hpProposals+=pt.hpProposalsT;
+			hpLookups+=pt.hpLookupsT;
+			hpFallbackReads+=pt.hpFallbackReadsT;
+			hpIsolatedReads+=pt.hpIsolatedReadsT;
+			hpIsolatedEdits+=pt.hpIsolatedEditsT;
+			hpCompetingVetoed+=pt.hpCompetingVetoedT;
+			hpDeletionVetoed+=pt.hpDeletionVetoedT;
+			hpWithheld+=pt.hpWithheldT;
+			hpInserted+=pt.hpInsertedT;
+			hpDeleted+=pt.hpDeletedT;
+			localEditReadsChanged+=pt.localEditReadsChangedT;
+			localEditSubstitutions+=pt.localEditSubstitutionsT;
+			localEditInsertions+=pt.localEditInsertionsT;
+			localEditDeletions+=pt.localEditDeletionsT;
+			localEditCapHits+=pt.localEditCapHitsT;
+			localEditPairQueries+=pt.localEditPairQueriesT;
 			readsCorrected+=pt.readsCorrectedT;
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
@@ -2628,6 +2735,16 @@ public abstract class Tadpole extends ShaveObject{
 		
 		@Override
 		public void run(){
+			if(!hpIndel && !localEdit){runInner(); return;}
+			try{runInner();}
+			catch(Throwable failure){
+				failure.printStackTrace(outstream);
+				KillSwitch.kill(hpIndel ? "Experimental homopolymer worker failed; incomplete outputs must not be used."
+					: "Experimental localedit worker failed; incomplete outputs must not be used.");
+			}
+		}
+
+		private void runInner(){
 			initializeThreadLocals();
 			for(int i=0; i<crisa.length; i++){
 				ConcurrentReadInputStream cris=crisa[i];
@@ -2729,6 +2846,11 @@ public abstract class Tadpole extends ShaveObject{
 		 */
 		private void processReadPair(final Read r10, final Read r20){
 			Read r1=r10, r2=r20;
+			if(localEdit){
+				//Reject unsupported pair/alignment metadata before any discard or merge path can hide it.
+				HomopolymerIndelEdit.requireEditable(r1);
+				if(r2!=null){HomopolymerIndelEdit.requireEditable(r2);}
+			}
 			if(verbose){outstream.println("Considering read "+r1.id+" "+new String(r1.bases));}
 			final String r2id=r1.mateId();
 			final int initialLength1=r1.length();
@@ -2822,6 +2944,8 @@ public abstract class Tadpole extends ShaveObject{
 				lowqReadsT++;
 				return;
 			}
+			if(hpIndel){repairHomopolymers(r);}
+			if(localEdit){applyLocalEdits(r);}
 			if(markErrors){
 				final MarkErrorStats marked=markErrors(r, kmerList, countList, kmerT, trackerT);
 				if(marked.marked>0){readsMarkedT++;}
@@ -2912,6 +3036,69 @@ public abstract class Tadpole extends ShaveObject{
 			basesExtendedT+=extension;
 			readsExtendedT+=(extension>0 ? 1 : 0);
 		}
+
+		/** Applies the bounded worker-local native local-edit kernel. */
+		private void applyLocalEdits(final Read r){
+			int edits=0;
+			for(; edits<localEditMax; edits++){
+				final int corrected=localEditCorrector.correctOne(r,localEditPairs);
+				localEditPairQueriesT+=localEditCorrector.pairQueries;
+				if(corrected==0){break;}
+				assert(corrected==1) : "The local-edit kernel must apply at most one edit per call: "+corrected;
+				switch(localEditCorrector.lastOperation){
+				case SUBSTITUTION: localEditSubstitutionsT++; break;
+				case INSERTION: localEditInsertionsT++; break;
+				case DELETION: localEditDeletionsT++; break;
+				default: throw new IllegalStateException("Unknown local-edit operation: "+localEditCorrector.lastOperation);
+				}
+			}
+			if(edits>0){localEditReadsChangedT++;}
+			if(edits==localEditMax){localEditCapHitsT++;}
+		}
+
+		/** Indel-only opt-in phase; collect against original arrays before any splice.
+		 * Table values are observations after graph cleanup, not biological truth. */
+		private void repairHomopolymers(final Read r){
+			HomopolymerIndelEdit.requireEditable(r);
+			final byte[] bases=r.bases;
+			if(bases==null || (r.quality!=null && r.quality.length!=bases.length)){
+				throw new IllegalArgumentException("hpindel requires sequence and matching quality length, or null quality.");
+			}
+			hpEdits.clear();
+			boolean overlap=false;
+			int previousEnd=-1;
+			for(int start=0; start<bases.length;){
+				int end=start+1;
+				while(end<bases.length && bases[end]==bases[start]){end++;}
+				if(end-start>=2 || hpSingletons){
+					final int delta=hpKernel.propose(bases,start,end);
+					hpLookupsT+=hpKernel.queries;
+					if(hpKernel.status==HomopolymerIndelProposal.Status.COMPETING_INSERTION){hpCompetingVetoedT++;}
+					if(hpKernel.status==HomopolymerIndelProposal.Status.COMPETING_DELETION){hpDeletionVetoedT++;}
+					if(delta!=0){
+						if(previousEnd>=0 && (long)start-(kbig+1L)<(long)previousEnd+kbig+1L){overlap=true;}
+						hpEdits.add(start); hpEdits.add(end); hpEdits.add(delta);
+						previousEnd=end;
+					}
+				}
+				start=end;
+			}
+			final int proposed=hpEdits.size/3;
+			hpProposalsT+=proposed;
+			if(proposed==0){return;}
+			final int policy=hpBatch.selectAccepted(r,hpEdits,overlap,kbig,hpMaxEdits,hpIsolated,hpBaseline);
+			if(policy==HomopolymerIndelBatchEdit.WITHHELD){hpWithheldT++; return;}
+			final IntList accepted=policy==HomopolymerIndelBatchEdit.DIRECT ? hpEdits : hpBaseline;
+			final int oldLength=r.length();
+			hpBatch.apply(r,accepted,kbig);
+			if(policy==HomopolymerIndelBatchEdit.BASELINE){hpFallbackReadsT++;}
+			if(policy==HomopolymerIndelBatchEdit.ISOLATED){hpIsolatedReadsT++; hpIsolatedEditsT+=accepted.size/3;}
+			int inserted=0, deleted=0;
+			for(int i=2; i<accepted.size; i+=3){if(accepted.get(i)>0){inserted++;}else{deleted++;}}
+			assert(r.length()==oldLength+inserted-deleted && inserted+deleted==accepted.size/3) :
+				"The accepted original-coordinate batch must explain both output length and applied-event counters.";
+			hpReadsChangedT++; hpInsertedT+=inserted; hpDeletedT+=deleted;
+		}
 		
 		/*--------------------------------------------------------------*/
 		
@@ -2932,6 +3119,25 @@ public abstract class Tadpole extends ShaveObject{
 		private final LongList kmerList=new LongList();
 		private final IntList countList=new IntList();
 		private final IntList countList2=new IntList();
+		private final IntList hpEdits=hpIndel ? new IntList() : null;
+		private final IntList hpBaseline=(hpSingletons || hpIsolated) ? new IntList() : null;
+		private final HomopolymerIndelBatchEdit hpBatch=hpIndel ? new HomopolymerIndelBatchEdit(hpSingletons) : null;
+		private final HomopolymerIndelProposal hpKernel=hpIndel ? new HomopolymerIndelProposal(kbig,
+			new HomopolymerIndelProposal.CountLookup(){
+				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
+			},4,2,4,hpSingletons,hpCompeting,hpDeletionCompeting) : null;
+		long hpLookupsT=0;
+		long hpFallbackReadsT=0;
+		long hpIsolatedReadsT=0, hpIsolatedEditsT=0;
+		long hpCompetingVetoedT=0;
+		long hpDeletionVetoedT=0;
+		long hpReadsChangedT=0, hpProposalsT=0, hpWithheldT=0, hpInsertedT=0, hpDeletedT=0;
+		private final LocalEditCorrector localEditCorrector=localEdit ? new LocalEditCorrector(kbig,
+			new HomopolymerIndelProposal.CountLookup(){
+				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
+			}) : null;
+		long localEditReadsChangedT=0, localEditSubstitutionsT=0, localEditInsertionsT=0, localEditDeletionsT=0;
+		long localEditCapHitsT=0, localEditPairQueriesT=0;
 		
 		long readsInT=0;
 		long basesInT=0;
@@ -3719,7 +3925,17 @@ public abstract class Tadpole extends ShaveObject{
 	}
 
 	/** Adds the resolved compact-table selection to the table-loader arguments. */
-	final String[] tableArgs(final String[] args){
+	final String[] tableArgs(final String[] originalArgs){
+		assert(originalArgs!=null) : "Tadpole1/2 must pass their constructor arguments to the table loader.";
+		final String[] args;
+		if(localEdit){
+			//KmerTableSet/U reparses quality/header flags after this superclass constructor.
+			//Keep the correction policy authoritative for both count loading and read output.
+			args=Arrays.copyOf(originalArgs,originalArgs.length+2);
+			args[originalArgs.length]="changequality=f";
+			args[originalArgs.length+1]="fixheader=f";
+		}else{args=originalArgs;}
+		//TODO: Probable bug - outstream=file survives into KmerTableSet/U's PreParser after Tadpole's PreParser opened it; the second FileOutputStream can truncate/interleave logs. Separate from config dispatch; do not reopen streams during expansion.
 		if(hashKmerMode<1){
 			if(!hashKmerModeSpecified){return args;}
 			final String[] copy=Arrays.copyOf(args, args.length+1);
@@ -4000,6 +4216,14 @@ public abstract class Tadpole extends ShaveObject{
 	long lowqReads=0;
 	long lowqBases=0;
 	long basesExtended=0;
+	long hpReadsChanged=0, hpProposals=0, hpWithheld=0, hpInserted=0, hpDeleted=0;
+	long hpLookups=0;
+	long hpFallbackReads=0;
+	long hpIsolatedReads=0, hpIsolatedEdits=0;
+	long hpCompetingVetoed=0;
+	long hpDeletionVetoed=0;
+	long localEditReadsChanged=0, localEditSubstitutions=0, localEditInsertions=0, localEditDeletions=0;
+	long localEditCapHits=0, localEditPairQueries=0;
 	long readsExtended=0;
 	long readsCorrected=0;
 	long basesCorrectedPincer=0;
@@ -4213,6 +4437,17 @@ public abstract class Tadpole extends ShaveObject{
 	final boolean ecc;
 	/** Mark isolated low-count kmer runs instead of correcting them */
 	final boolean markErrors;
+	/** Experimental, disabled by default; initially an indel-only correction phase. */
+	final boolean hpIndel;
+	final int hpMaxEdits;
+	final boolean hpSingletons;
+	final boolean hpIsolated;
+	final boolean hpCompeting;
+	final boolean hpDeletionCompeting;
+	/** Experimental, disabled-by-default worker-local single-edit correction. */
+	final boolean localEdit;
+	final int localEditMax;
+	final boolean localEditPairs;
 	
 	/** Correct via overlap */
 	final boolean ecco;

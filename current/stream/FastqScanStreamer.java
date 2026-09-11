@@ -162,7 +162,7 @@ public final class FastqScanStreamer implements Streamer{
 			final String header=new String(buffer, recordStart+1, headerLen);
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
-			Vector.applyQualOffset(quals, bases, offset);
+			FASTQ.applyQualityOffset(quals, bases, offset);
 			final Read r=new Read(bases, quals, header, nextRID);
 			r.setPairnum(pairnum);
 			reads.add(r);
@@ -201,7 +201,7 @@ public final class FastqScanStreamer implements Streamer{
 			final String header=new String(buffer, recordStart+1, headerLen);
 			final byte[] bases=Arrays.copyOfRange(buffer, headerEnd+1, basesEnd-slashr1);
 			final byte[] quals=Arrays.copyOfRange(buffer, plusEnd+1, recordEnd-slashr2);
-			Vector.applyQualOffset(quals, bases, offset);
+			FASTQ.applyQualityOffset(quals, bases, offset);
 			final Read r=new Read(bases, quals, header, nextRID);
 			r.setPairnum(pairnum);
 			reads.add(r);

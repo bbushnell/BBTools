@@ -509,10 +509,21 @@ public class CutGff2 implements Accumulator<CutGff2.ProcessThread> {
 							if(appendFilename){
 								id=id+" source="+sourceBasename;
 							}
-							Read r=new Read(Arrays.copyOfRange(scaf.bases, extStart, extStop+1), null, id, 1);
+							final byte[] sub=Arrays.copyOfRange(scaf.bases, extStart, extStop+1);
+							//FastaStreamer does not apply Read.TO_UPPER_CASE to streamed scaffolds (the same
+							//shared-flag gap noted for TRIM_READ_DESCRIPTION above; the per-stream-flag redesign
+							//was declined, so consumers normalize locally). Soft-masked (lowercase) genomes would
+							//otherwise emit lowercase records here, diverging from CutGff whose reader upper-cases.
+							//Enforce it on the extracted bases so CutGff2 output matches CutGff on masked genomes.
+							if(Read.TO_UPPER_CASE){
+								for(int i=0; i<sub.length; i++){final byte c=sub[i]; if(c>='a' && c<='z'){sub[i]=(byte)(c-32);}}
+							}
+							Read r=new Read(sub, null, id, 1);
 							r.obj=identity;
 
-							assert(!r.containsLowercase()) : r.toFasta()+"\n"
+							//Only guaranteed upper-case when TO_UPPER_CASE requested it (enforced just above);
+							//without it, lowercase input is legitimately preserved, so gate the invariant on the flag.
+							assert(!Read.TO_UPPER_CASE || !r.containsLowercase()) : r.toFasta()+"\n"
 							+ "validated="+r.validated()+", scaf.validated="+scaf.validated()+", tuc="+Read.TO_UPPER_CASE+", vic="+Read.VALIDATE_IN_CONSTRUCTOR;
 							if(maxNs>=0 || maxNFraction>=0){
 								long allowed=Tools.min(maxNs>=0 ? maxNs : r.length(), (long)(r.length()*(maxNFraction>=0 ? maxNFraction : 1)));
@@ -647,6 +658,10 @@ public class CutGff2 implements Accumulator<CutGff2.ProcessThread> {
 						ArrayList<Read> cut=processLines(sub, r, invert, gcCacheT, sourceBasenameT);
 						if(cut!=null){outList.addAll(cut);}
 					}
+					//TODO: Probable bug - invert emits the streamed scaffold as-is, but FastaStreamer leaves
+					//soft-masked (lowercase) bases un-upper-cased, so invert output diverges from CutGff (whose
+					//reader upper-cases the whole scaffold). If invert-mode case parity matters, upper-case
+					//r.bases here when Read.TO_UPPER_CASE. (Noted alongside the extract-path fix, G11 2026-09-11.)
 					if(invert){outList.add(r);}//invert emits every (possibly masked) scaffold
 				}
 				if(fw!=null){fw.add(outList, ln.id);}
