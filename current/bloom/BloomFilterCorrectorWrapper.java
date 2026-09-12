@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import assemble.ErrorTracker;
+import assemble.LocalEditEngine;
 import cardinality.CardinalityTracker;
 import dna.AminoAcid;
 import fileIO.ByteFile;
@@ -35,6 +36,13 @@ import ukmer.Kmer;
 
 /**
  * Wraps a BloomFilter to filter or correct reads.
+ * fixindels=f is the opt-in general substitution/1bp insertion/deletion mode,
+ * not a homopolymer-only algorithm. fixindelswindows=3 controls adjacent probe
+ * windows and fixindelsmax=8 bounds sequential edits. localedit,
+ * localeditwindows and localeditmax remain compatibility aliases. This mode
+ * requires unpaired DNA FASTA/FASTQ, k>=5, ksmall=k, bits>=4, rcomp=t and
+ * ecc=f merge=f ecco=f markerrors=f mincount=0 tossjunk=f paircorroborate=f.
+ * The count table stays immutable; each accepted edit is fully verified.
  * 
  * @author Brian Bushnell
  * @date May 14, 2018
@@ -54,14 +62,17 @@ public class BloomFilterCorrectorWrapper {
 		//Start a timer immediately upon code entrance.
 		Timer t=new Timer();
 		
-		//Create an instance of this class
-		BloomFilterCorrectorWrapper x=new BloomFilterCorrectorWrapper(args);
-		
-		//Run the object
-		x.process(t);
-		
-		//Close the print stream if it was redirected
-		Shared.closeStream(x.outstream);
+		final boolean oldChangeQuality=Read.CHANGE_QUALITY,oldFixHeader=Read.FIX_HEADER;
+		BloomFilterCorrectorWrapper x=null;
+		try{
+			x=new BloomFilterCorrectorWrapper(args);
+			x.process(t);
+		}finally{
+			//Multipass invokes main repeatedly in one JVM. This mode's byte-
+			//preservation policy must not change a later ordinary invocation.
+			if(x==null || x.localEdit){Read.CHANGE_QUALITY=oldChangeQuality;Read.FIX_HEADER=oldFixHeader;}
+			if(x!=null){Shared.closeStream(x.outstream);}
+		}
 	}
 	
 	/**
@@ -99,6 +110,8 @@ public class BloomFilterCorrectorWrapper {
 		boolean requireBothToPass_=true;
 		boolean ecc_=true;
 		boolean markErrors_=false;
+		boolean localEdit_=false;
+		int localEditWindows_=3,localEditMax_=8;
 		boolean ecco_=false;
 		boolean merge_=true;
 		boolean testMerge_=true;
@@ -159,6 +172,12 @@ public class BloomFilterCorrectorWrapper {
 				requireBothToPass_=Parse.parseBoolean(b);
 			}else if(a.equals("ecc")){
 				ecc_=Parse.parseBoolean(b);
+			}else if(a.equals("fixindels") || a.equals("localedit")){
+				localEdit_=Parse.parseBoolean(b);
+			}else if(a.equals("fixindelswindows") || a.equals("localeditwindows")){
+				localEditWindows_=Integer.parseInt(b);
+			}else if(a.equals("fixindelsmax") || a.equals("localeditmax")){
+				localEditMax_=Integer.parseInt(b);
 			}else if(a.equals("markerrors")){
 				markErrors_=Parse.parseBoolean(b);
 			}else if(a.equals("ecco")){
@@ -246,9 +265,17 @@ public class BloomFilterCorrectorWrapper {
 		}
 		
 		while(minCount_>0 && (1L<<bits_)-1<minCount_){bits_*=2;}
-		if(!setBits && (ecc_ || markErrors_) && bits_<4){bits_=4;}
+		if(!setBits && (ecc_ || markErrors_ || localEdit_) && bits_<4){bits_=4;}
 		
 		if(ksmall_<=0){ksmall_=k_;}
+		if(localEditMax_<1 || localEditWindows_<1 || (localEditWindows_&1)==0 || (localEdit_ && localEditWindows_>k_)){
+			throw new IllegalArgumentException("fixindelsmax must be positive; fixindelswindows must be positive, odd and <=K.");
+		}
+		if(localEdit_ && (k_<5 || ksmall_!=k_ || bits_<4 || !rcomp_ || Shared.AMINO_IN ||
+				ecc_ || ecco_ || merge_ || markErrors_ || tossjunk_ || pairCorroborate_ || minCount_>0)){
+			throw new IllegalArgumentException("fixindels requires K>=5, ksmall=k, bits>=4, rcomp=t DNA, ecc=f ecco=f merge=f markerrors=f and no depth/junk filtering.");
+		}
+		if(localEdit_ && Kmer.getKbig(k_)!=k_){throw new IllegalArgumentException("fixindels requires exact representable K; use packed=t.");}
 		assert(ksmall_<=k_) : k_+", "+ksmall_;
 		if(pairCorroborateMinSupported_<1){throw new IllegalArgumentException("paircorroborateminsupported must be positive: "+pairCorroborateMinSupported_);}
 		if(pairCorroborateMinFraction_<0 || pairCorroborateMinFraction_>1){throw new IllegalArgumentException("paircorroborateminfraction must be between 0 and 1: "+pairCorroborateMinFraction_);}
@@ -271,6 +298,7 @@ public class BloomFilterCorrectorWrapper {
 		}
 
 		k=k_;
+		localEdit=localEdit_;localEditWindows=localEditWindows_;localEditMax=localEditMax_;
 		ksmall=Tools.min(k, ksmall_);
 		corrector=(k_>31 ? new BloomFilterCorrector2(null, k_, ksmall_) : new BloomFilterCorrector1(null, k_, ksmall_));
 		corrector.ECC_PINCER=pincer_;
@@ -423,6 +451,16 @@ public class BloomFilterCorrectorWrapper {
 		//Create input FileFormat objects
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		ffin2=FileFormat.testInput(in2, FileFormat.FASTQ, extin, true, true);
+		if(localEdit){
+			if(in2!=null || out2!=null || qfin1!=null || qfin2!=null || qfout1!=null || qfout2!=null ||
+					FASTQ.FORCE_INTERLEAVED || (!ffin1.fastq() && !ffin1.fasta()) ||
+					(ffout1!=null && !ffout1.fastq() && !ffout1.fasta())){
+				throw new IllegalArgumentException("fixindels requires unpaired FASTA/FASTQ and no separate quality files.");
+			}
+			Read.CHANGE_QUALITY=false;Read.FIX_HEADER=false;
+			outstream.println("BBCMS fixindels: windows="+localEditWindows+", maxedits="+localEditMax+
+					"; full affected-kmer verification; no pair lookahead.");
+		}
 
 		{
 			Timer t=new Timer(outstream, true);
@@ -462,12 +500,23 @@ public class BloomFilterCorrectorWrapper {
 		}
 	}
 	
-	/**
-	 * Parses file specification and adds files to the target list.
-	 * Handles both single files and comma-separated lists.
-	 * @param b File specification (single file or comma-separated list)
-	 * @param list Target list to populate with file paths
-	 */
+	/** Package-visible for real-filter contract tests. Short keys must follow
+	 * ReadCounter's primitive canonical max and secondaryHash, not Kmer.xor2. */
+	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter,final int windows){
+		if(filter==null || filter.k<5 || filter.k!=filter.kbig || filter.bits<4 || !filter.rcomp){
+			throw new IllegalArgumentException("Local-edit counts require exact K>=5, bits>=4 and canonical DNA.");
+		}
+		return new LocalEditEngine(filter.k,new LocalEditEngine.CountLookup(){
+			@Override public int count(final Kmer key){
+				assert(key.kbig==filter.k && key.len()>=filter.k) : "Correction must query the exact complete K used by ReadCounter during filter loading.";
+				return filter.k<=31 ? filter.getCount(key.array1()[0],key.array2()[0]) : filter.getCount(key);
+			}
+		//Bloom-supported substitutions must also survive competing verified indels.
+		//Existing exact-table/Tadpole callers retain their original constructor path.
+		},windows,true);
+	}
+
+	/** Parse a file specification, accepting existing paths or comma lists. */
 	private static void addFiles(String b, ArrayList<String> list){
 		if(b==null){list.clear();}
 		else{
@@ -550,7 +599,11 @@ public class BloomFilterCorrectorWrapper {
 			outstream.println("Unique "+loglogOut.k+"-mers out:     \t"+loglogOut.cardinality());
 		}
 		
-		if(ecc){
+		if(localEdit){
+			outstream.println("Local edits: S="+localSubstitutions+", I="+localInsertions+", D="+localDeletions+
+					", changedReads="+localChangedReads+", cappedReads="+localCappedReads);
+			outstream.println("Local edit queries: profile="+localProfileQueries+", probes="+localProbeQueries+", verification="+localVerificationQueries);
+		}else if(ecc){
 			final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedEcco);
 			final long partial=(readsCorrected-readsFullyCorrected);
 			outstream.println();
@@ -662,6 +715,12 @@ public class BloomFilterCorrectorWrapper {
 			basesProcessed+=pt.basesProcessedT;
 			readsOut+=pt.readsOutT;
 			basesOut+=pt.basesOutT;
+			if(localEdit && pt.localEditor!=null){
+				localSubstitutions+=pt.localEditor.substitutions;localInsertions+=pt.localEditor.insertions;
+				localDeletions+=pt.localEditor.deletions;localChangedReads+=pt.localEditor.changedReads;
+				localCappedReads+=pt.localEditor.cappedReads;localProfileQueries+=pt.localEditor.profileQueries;
+				localProbeQueries+=pt.localEditor.probeQueries;localVerificationQueries+=pt.localEditor.verificationQueries;
+			}
 			success&=pt.success;
 			
 			readsExtended+=pt.readsExtendedT;
@@ -754,6 +813,11 @@ public class BloomFilterCorrectorWrapper {
 		//Called by start()
 		@Override
 		public void run(){
+			if(localEdit){
+				try{localEditor=makeLocalEditEngine(filter,localEditWindows);processInner();success=true;}
+				catch(Throwable failure){failure.printStackTrace(outstream);KillSwitch.kill("BBCMS fixindels worker failed; incomplete outputs must not be used.");}
+				return;
+			}
 			if(ecc || markErrors){
 				corrector.initializeThreadLocals();
 				localTracker=corrector.localTracker.get();
@@ -814,7 +878,8 @@ public class BloomFilterCorrectorWrapper {
 					basesProcessedT+=initialLength1+initialLength2;
 
 					final Read r1_0=r1, r2_0=r2;
-					if(ecc){
+					if(localEdit){localEditor.correct(r1,localEditMax);}
+					else if(ecc){
 						if(r2!=null && (merge || ecco)){
 							final int insert=findOverlap(r1, r2, false);
 							if(merge){
@@ -1140,6 +1205,7 @@ public class BloomFilterCorrectorWrapper {
 		}
 
 		private long pairLocalOnlyThisPair=0, pairSupportedThisPair=0;
+		private LocalEditEngine localEditor;
 		
 		/** Number of reads processed by this thread */
 		protected long readsProcessedT=0;
@@ -1410,6 +1476,10 @@ public class BloomFilterCorrectorWrapper {
 	final boolean requireBothToPass;
 	/** Enable error correction */
 	final boolean ecc;
+	final boolean localEdit;
+	final int localEditWindows,localEditMax;
+	private long localSubstitutions,localInsertions,localDeletions,localChangedReads,localCappedReads;
+	private long localProfileQueries,localProbeQueries,localVerificationQueries;
 	/** Mark bounded low-count k-mer runs instead of correcting. */
 	final boolean markErrors;
 	/** Enable overlap-based error correction */

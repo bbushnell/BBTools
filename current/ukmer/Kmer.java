@@ -341,6 +341,92 @@ public class Kmer implements Cloneable {
 		return oldBase;
 	}
 
+	/** Delete the base at pos, shift the suffix left, and append incomingBase.
+	 * Fixed kbig and len; returns the deleted numeric base for insertBase restore.
+	 * Updates F and RC(F) in O(affected words), without allocation or base replay.
+	 * Numeric A/C/G/T=0/1/2/3 (AminoAcid.baseToNumber), so complement(x)=3-x. */
+	public long deleteBase(final int pos, final long incomingBase){
+		assert(pos>=0 && pos<kbig && incomingBase>=0 && incomingBase<4 && len>=kbig) :
+			"Fixed-window deletion needs a complete kmer, valid position and incoming base: pos="+pos+", base="+incomingBase+", len="+len+", K="+kbig;
+		final long removed=deleteAndAppend(array1,pos,incomingBase);
+		final long reverseRemoved=deleteAndPrepend(array2,kbig-1-pos,3-incomingBase);
+		assert(reverseRemoved==3-removed) : "Deleting mirrored complementary bases must preserve array2=RC(array1).";
+		incarnation++;
+		return removed;
+	}
+
+	/** Insert before pos, shift the suffix right, and drop the final base.
+	 * Fixed kbig and len; returns the dropped numeric base for deleteBase restore.
+	 * Like substituteBase, invalidates canonical/hash caches lazily. */
+	public long insertBase(final int pos, final long newBase){
+		assert(pos>=0 && pos<kbig && newBase>=0 && newBase<4 && len>=kbig) :
+			"Fixed-window insertion needs a complete kmer, valid position and base: pos="+pos+", base="+newBase+", len="+len+", K="+kbig;
+		final long dropped=insertAndDropLast(array1,pos,newBase);
+		final long reverseDropped=dropFirstAndInsert(array2,kbig-1-pos,3-newBase);
+		assert(reverseDropped==3-dropped) : "Dropping opposite complementary ends must preserve array2=RC(array1).";
+		incarnation++;
+		return dropped;
+	}
+
+	private long deleteAndAppend(final long[] a, final int pos, final long incoming){
+		assert(a.length==mult) : "Word shifts must use this kmer's leading-full/partial-last geometry.";
+		final int wi=pos/k, bit=2*(perWordK(wi)-1-pos%k);
+		final long old=a[wi], removed=(old>>>bit)&3;
+		long carry=incoming;
+		for(int i=maxindex;i>wi;i--){
+			final long word=a[i];
+			a[i]=((word<<2)|carry)&(i==maxindex ? lastMask : mask);
+			carry=(word>>>(i==maxindex ? lastShift2 : shift2))&3;
+		}
+		// Inclusive suffix mask has 2..64 bits; never shift a Java long by 64.
+		final long suffix=-1L>>>(62-bit);
+		a[wi]=(old&~suffix)|(((old<<2)|carry)&suffix);
+		return removed;
+	}
+
+	private long deleteAndPrepend(final long[] a, final int pos, final long incoming){
+		assert(a.length==mult) : "RC prefix shifts use the same word widths as F, not reversed widths.";
+		final int wi=pos/k, top=2*perWordK(wi)-2, bit=top-2*(pos%k);
+		final long old=a[wi], removed=(old>>>bit)&3;
+		long carry=incoming;
+		for(int i=0;i<wi;i++){
+			final long word=a[i];
+			a[i]=(word>>>2)|(carry<<shift2);
+			carry=word&3;
+		}
+		final long suffix=(1L<<bit)-1;
+		a[wi]=(old&suffix)|(((old>>>2)|(carry<<top))&~suffix);
+		return removed;
+	}
+
+	private long insertAndDropLast(final long[] a, final int pos, final long inserted){
+		assert(a.length==mult) : "Insertion carries propagate from the changed word into the partial last word.";
+		final int wi=pos/k, bit=2*(perWordK(wi)-1-pos%k);
+		final long old=a[wi], inclusive=-1L>>>(62-bit), suffix=(1L<<bit)-1;
+		a[wi]=(old&~inclusive)|(inserted<<bit)|((old>>>2)&suffix);
+		long carry=old&3;
+		for(int i=wi+1;i<=maxindex;i++){
+			final long word=a[i];
+			a[i]=(word>>>2)|(carry<<(i==maxindex ? lastShift2 : shift2));
+			carry=word&3;
+		}
+		return carry;
+	}
+
+	private long dropFirstAndInsert(final long[] a, final int pos, final long inserted){
+		assert(a.length==mult) : "Reverse insertion drops the global first base and retains the unchanged suffix.";
+		final int wi=pos/k, top=2*perWordK(wi)-2, bit=top-2*(pos%k);
+		final long old=a[wi], inclusive=-1L>>>(62-bit), suffix=(1L<<bit)-1;
+		a[wi]=(old&suffix)|((old<<2)&~inclusive&(wi==maxindex ? lastMask : mask))|(inserted<<bit);
+		long carry=(old>>>top)&3;
+		for(int i=wi-1;i>=0;i--){
+			final long word=a[i];
+			a[i]=((word<<2)|carry)&mask;
+			carry=(word>>>shift2)&3;
+		}
+		return carry;
+	}
+
 	/**
 	 * Brian's design (2026-08-19): array2 is NOT a per-word mirror of
 	 * array1 -- it is F's reverse-complement, maintained as its OWN

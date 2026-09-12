@@ -30,7 +30,37 @@ bbcms.sh in=reads.fq out=ecc.fq bits=4 hashes=3 k=31 merge
 Example of use in depth filtering:
 bbcms.sh in=reads.fq out=high.fq outb=low.fq k=31 mincount=2 ecc=f hcf=0.4
 
-Error correction and depth filtering can be done simultaneously.
+Standard substitution correction and depth filtering can be combined.
+The separate fixindels mode below requires depth/junk filtering to be off.
+
+General single-base correction (default off):
+fixindels=f     Correct substitutions and 1bp insertions/deletions using kmer
+                support; not restricted to homopolymers. This selects a separate
+                conservative correction algorithm, not indel-only correction.
+                Requires ecc=f merge=f ecco=f markerrors=f, unpaired FASTA/Q,
+                k>=5, ksmall=k, bits>=4, rcomp=t, mincount=0, tossjunk=f and
+                paircorroborate=f. For k>31 use packed=t for exact requested K.
+                No paired reads or separate quality files. Count pool remains
+                unchanged. With qualities present, inserted/substituted bases
+                get Q0; retained qualities and read names are preserved.
+                A competing verified indel vetoes a substitution at that locus.
+                Ambiguous edits are withheld; genuine variants are not guaranteed
+                to be preserved. Use minprob=0 to count all valid input kmers.
+                Validated with passes=1; passes=2 first filters the count pool
+                and is not equivalent. Heavy Bloom loading may prevent repair.
+fixindelswindows=3  Positive odd number of adjacent spanning candidate kmers,
+                at most K. BBCMS only; Tadpole uses one centered probe window.
+                Uses their minimum depth, then verifies all affected kmers.
+                Extra probes change screening work, not final verification.
+                Shift windows to keep them in-bounds and spanning the edit;
+                use fewer when fewer exist. Undefined bases still veto a probe.
+                These are correlated, not independent collision guarantees.
+fixindelsmax=8  Maximum sequential edits per read; positive integer. The profile
+                is rescanned after each edit. BBCMS has no pair-witness option.
+                Legacy aliases: localedit, localeditwindows, localeditmax.
+
+Example of general single-base correction:
+bbcms.sh in=reads.fq out=fixed.fq k=62 bits=4 fixindels=t ecc=f merge=f minprob=0
 
 Multipass parameters:
 passes=1        Set to 2 to run an internal 2-pass pipeline: pass 1 builds a

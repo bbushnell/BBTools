@@ -88,11 +88,17 @@ prealloc=f          Pre-allocate memory rather than dynamically growing;
                     faster and more memory-efficient.  A float fraction (0-1)
                     may be specified; default is 1.
 hashkmers=auto      Compact storage for sequence-driven long-k operations.
-                    Auto uses one fixed 64-bit fingerprint with prealloc=t,
-                    or two resizable 64-bit hashes otherwise.  Initial contig
-					construction, fusion, and kmer dumps use explicit kmers.
-					Multi-K wash uses contig-tip-seeded compact cleaning.
-					Set to f, pair, or fixed to override.
+                    For eligible operations, auto keeps explicit kmers below
+                    K=64. At K=64 it uses fixed fingerprints only with prealloc;
+                    above K=64 it uses fixed fingerprints with prealloc, or a
+                    resizable hash pair otherwise. Set f, pair, or fixed to
+                    override; explicit fixed works at K=62 and forces prealloc=t.
+                    Fixed stores one 64-bit fingerprint plus an integer count;
+                    the placement hash is not stored, so the table cannot resize.
+                    Compact modes require K>31 and sequence-driven operations:
+                    no table-seeded contigs, kmer dumps, GC histogram, bounded
+                    kmer-range enumeration, or non-tip-seeded shave/rinse.
+                    Multi-K wash uses contig-tip-seeded compact cleaning.
 minprob=0.5         Ignore kmers with overall probability of correctness below this.
 minprobmain=t       (mpm) Use minprob for the primary kmer counts.
 threads=X           Spawn X worker threads; default is number of logical processors.
@@ -255,20 +261,37 @@ extendrollback=3    Trim a random number of bases, up to this many, on reads
                     that extend only partially.  This prevents the creation
                     of sharp coverage discontinuities at branches.
 
-Error-correction parameters:
-localedit=f        Experimental general substitution and 1bp indel correction
-                    from original kmer counts; unpaired, alignment-free reads only.
+General single-base correction (default off):
+fixindels=f        Correct substitutions and 1bp insertions/deletions using kmer
+                    support; not restricted to homopolymers. Selects a separate
+                    conservative algorithm, not indel-only correction.
+                    Unpaired, alignment-free FASTA/FASTQ reads only.
                     Requires k>=5 and correct mode (selected if mode is omitted).
                     Incompatible with ecc/ecco/merge/markerrors/hpindel, extension,
-                    or base marking. Disabled by default; validate before use.
-localeditmax=8     Maximum sequential edits per read; must be positive.
-localeditpairs=f   Also try a bounded two-edit witness; requires localedit=t.
-                    Applies only the first edit, then rescans the changed read.
-                    With qualities present, new/replaced bases get Q0;
-                    retained qualities persist.
-                    Low-coverage repeat variants can remain ambiguous; this is
-                    not a variant-preserving or exhaustive correction guarantee.
+                    or base marking. Uses one centered candidate probe window,
+                    then verifies all affected kmers against the unchanged table.
+                    With qualities present, inserted/substituted bases get Q0;
+                    retained qualities and read names are preserved.
+                    Ambiguous edits are withheld; genuine variants are not
+                    guaranteed to be preserved. Use minprob=0 to count all valid
+                    input kmers. Larger indels are not the target of this mode.
+fixindelsmax=8     Maximum sequential edits per read; positive integer. The
+                    complete depth profile is rescanned after each edit.
+fixindelspairs=f   Also try a bounded two-edit witness after single-edit searches;
+                    requires fixindels=t. Applies only its first edit, then rescans.
+                    Tadpole only; BBCMS has no pair-witness option.
+                    Legacy aliases: localedit, localeditmax, localeditpairs.
+
+Example of general single-base correction:
+tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t ecc=f minprob=0
+
+Separate homopolymer-specific repair (not used by fixindels):
 hpindel=f           Experimental unpaired, alignment-free homopolymer +/-1 repair.
+                    This older specialized algorithm remains separately selectable;
+                    it does not perform general substitution correction.
+                    Requires correct mode, k>=5, ecc=f ecco=f merge=f,
+                    markerrors=f fixindels=f, no extension or base marking.
+                    All hp* options below affect ONLY this specialized path.
 hpmaxedits=1        Maximum complete disjoint-context edit batch per read.
 hpsingletons=f      Also allow singleton +1 proposals; requires hpindel=t.
 hpisolated=f        After existing paths reject, rescue the complete isolated
@@ -281,6 +304,7 @@ hpcompeting=f       Experimental: veto HP insertions when a non-run base inserte
                     gates. Boundary alternatives are excluded. Requires hpindel=t.
                     Proposal-level filtering can change batch selection.
                     Experimental: rare true alleles can be changed.
+Standard substitution correction and error marking:
 ecc=f               Error correct via kmer counts.
 markerrors=f        Mark bounded low-count kmer runs as N instead of correcting.
                     Requires two high-depth kmers on both sides; exact K and K-1

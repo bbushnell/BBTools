@@ -46,6 +46,12 @@ import ukmer.KmerTableSetU;
 
 /**
  * Short-kmer assembler based on KmerCountExact.
+ * Optional fixindels=f enables conservative general substitution and 1bp
+ * insertion/deletion correction when set to true; it is not limited to runs.
+ * fixindelsmax=8 bounds sequential edits; fixindelspairs=f enables bounded
+ * pair-witness rescue. The old localedit/localeditmax/localeditpairs names
+ * remain aliases. hpindel and its hp* controls select a separate specialized
+ * homopolymer-repair path, mutually exclusive with fixindels.
  * @author Brian Bushnell
  * @date May 15, 2015
  *
@@ -598,11 +604,11 @@ public abstract class Tadpole extends ShaveObject{
 				hpCompeting_=Parse.parseBoolean(b);
 			}else if(a.equals("hpdeletioncompeting")){
 				hpDeletionCompeting_=Parse.parseBoolean(b);
-			}else if(a.equals("localedit")){
+			}else if(a.equals("fixindels") || a.equals("localedit")){
 				localEdit_=Parse.parseBoolean(b);
-			}else if(a.equals("localeditmax")){
+			}else if(a.equals("fixindelsmax") || a.equals("localeditmax")){
 				localEditMax_=Integer.parseInt(b);
-			}else if(a.equals("localeditpairs")){
+			}else if(a.equals("fixindelspairs") || a.equals("localeditpairs")){
 				localEditPairs_=Parse.parseBoolean(b);
 			}else if(a.equals("merge")){
 				merge_=Parse.parseBoolean(b);
@@ -797,7 +803,7 @@ public abstract class Tadpole extends ShaveObject{
 			if(ecc_ || markErrors_ || discardUncorrectable || hpIndel_ || localEdit_){
 				processingMode=correctMode;
 				outstream.println(hpIndel_ ? "Switching to correct mode because hpindel=t." : localEdit_ ?
-					"Switching to correct mode because localedit=t." : "Switching to correct mode because ecc=t.");
+					"Switching to correct mode because fixindels=t." : "Switching to correct mode because ecc=t.");
 			}else if(extendLeft>0 || extendRight>0){
 				processingMode=extendMode;
 				outstream.println("Switching to extend mode because an extend flag was set.");
@@ -858,11 +864,11 @@ public abstract class Tadpole extends ShaveObject{
 		/* Set final variables; post-process and validate argument combinations */
 		
 		if(hpMaxEdits_<1){throw new IllegalArgumentException("hpmaxedits must be positive.");}
-		if(localEditMax_<1){throw new IllegalArgumentException("localeditmax must be positive.");}
-		if(localEditPairs_ && !localEdit_){throw new IllegalArgumentException("localeditpairs requires localedit=t.");}
+		if(localEditMax_<1){throw new IllegalArgumentException("fixindelsmax must be positive.");}
+		if(localEditPairs_ && !localEdit_){throw new IllegalArgumentException("fixindelspairs requires fixindels=t.");}
 		if(localEdit_ && (kbig<5 || processingMode!=correctMode || ecc_ || ecco_ || merge_ || markErrors_ || hpIndel_ ||
 			extendLeft>0 || extendRight>0 || MARK_BAD_BASES>0)){
-			throw new IllegalArgumentException("Experimental localedit requires k>=5 and dedicated correct mode: ecc=f ecco=f merge=f markerrors=f hpindel=f, no extension or base marking.");
+			throw new IllegalArgumentException("fixindels requires k>=5 and dedicated correct mode: ecc=f ecco=f merge=f markerrors=f hpindel=f, no extension or base marking.");
 		}
 		if(hpSingletons_ && !hpIndel_){throw new IllegalArgumentException("hpsingletons requires hpindel=t.");}
 		if(hpIsolated_ && !hpIndel_){throw new IllegalArgumentException("hpisolated requires hpindel=t.");}
@@ -889,7 +895,7 @@ public abstract class Tadpole extends ShaveObject{
 			//Preserve original header/quality bytes; only approved edits may replace them.
 			Read.CHANGE_QUALITY=false;
 			Read.FIX_HEADER=false;
-			outstream.println("EXPERIMENTAL localedit: bounded worker-local single-edit correction; maxedits="+localEditMax+
+			outstream.println("fixindels: bounded worker-local single-edit correction; maxedits="+localEditMax+
 				", pair-lookahead="+localEditPairs+".");
 		}
 
@@ -2740,7 +2746,7 @@ public abstract class Tadpole extends ShaveObject{
 			catch(Throwable failure){
 				failure.printStackTrace(outstream);
 				KillSwitch.kill(hpIndel ? "Experimental homopolymer worker failed; incomplete outputs must not be used."
-					: "Experimental localedit worker failed; incomplete outputs must not be used.");
+					: "Experimental fixindels worker failed; incomplete outputs must not be used.");
 			}
 		}
 

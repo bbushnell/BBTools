@@ -11,9 +11,14 @@ import ukmer.Kmer;
  * not a claim of optimal allocation or runtime. Worker-local; immutable count table.
  * @author Fischl */
 final class LocalEditCorrector {
-	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_){
+	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_){this(k_,lookup_,1);}
+	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_,final int windows){
+		this(k_,lookup_,windows,false);
+	}
+	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_,final int windows,final boolean checkIndelCompetition_){
 		if(lookup_==null || k_<5){throw new IllegalArgumentException("Corrector requires K>=5 and immutable counts.");}
-		k=k_;lookup=lookup_;key=new Kmer(k);probe=new LocalEditKmerProbe(k,lookup);locator=new LocalEditTroughLocator(k,3);
+		k=k_;lookup=lookup_;key=new Kmer(k);probe=new LocalEditKmerProbe(k,lookup,windows);locator=new LocalEditTroughLocator(k,3);
+		checkIndelCompetition=checkIndelCompetition_;
 		if(key.kbig!=k){throw new IllegalArgumentException("Correction K must equal table K.");}
 	}
 	/** Return 0 or 1 applied edits. All original arrays remain unchanged. */
@@ -39,7 +44,7 @@ final class LocalEditCorrector {
 		if(orientation==0){callStatus=CallStatus.SELF_RC;return 0;}
 		final boolean reverse=orientation>0;
 		final byte[] bases=reverse ? reverseComplement(read.bases) : read.bases;
-		fillDepths(bases);locator.reset(bases,counts);
+		fillDepths(bases);locator.reset(bases,counts);probe.beginRead(bases);
 		while(locator.next()){
 			acceptedTroughs++;final long supportedBefore=supportedCandidates;
 			chosenOperation=null;chosenPosition=-1;ambiguous=false;
@@ -51,7 +56,9 @@ final class LocalEditCorrector {
 				for(int b=0;b<4;b++){if(probe.substitutionDepth[b]>=threshold){consider(bases,LocalSingleBaseEdit.Operation.SUBSTITUTION,p,ALPHABET[b],a-1,end+k,threshold);}}
 			}
 			if(ambiguous){recordAmbiguous(a,nearbyPairs);continue;}
-			if(chosenOperation==null){
+			//Approximate counts can support a false S beside a verified indel.
+			//Opt-in callers must not hide that ambiguity through S-first ordering.
+			if(chosenOperation==null || checkIndelCompetition){
 				for(int p=locator.baseStart;p<locator.baseEnd;p++){
 					probe.indelsAt(bases,w,p);probeQueries+=probe.queries;
 					if(probe.deletionDepth>=threshold){consider(bases,LocalSingleBaseEdit.Operation.DELETION,p,(byte)0,a-1,end+k,threshold);}
@@ -183,6 +190,7 @@ final class LocalEditCorrector {
 	private LocalSingleBaseEdit.Operation chosenOperation;
 	private int chosenPosition;private byte chosenBase;private boolean ambiguous;
 	private final int k;private final HomopolymerIndelProposal.CountLookup lookup;
+	private final boolean checkIndelCompetition;
 	private final Kmer key;private final LocalEditKmerProbe probe;private final LocalEditTroughLocator locator;
 	private final IntList counts=new IntList();private final LocalSingleBaseEdit editor=new LocalSingleBaseEdit();
 	private static final byte[] ALPHABET={'A','C','G','T'};
