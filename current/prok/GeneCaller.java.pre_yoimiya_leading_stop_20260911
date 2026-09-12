@@ -677,12 +677,7 @@ public class GeneCaller extends ProkObject {
 						start=-1;
 					}
 				}else{
-					if(start==-2){
-						//At a contig edge, retain a complete first sense codon as a
-						//synthetic truncated start.  A stop or ambiguous codon cannot
-						//start a CDS; including it produces a leading '*' or X.
-						start=(validSyntheticEdgeStart(code) ? pos-2 : -1);
-					}else if(start<0 && GeneModel.isStartCodon(code)){
+					if(start==-2 || (start<0 && GeneModel.isStartCodon(code))){
 						start=pos-2;
 					}
 				}
@@ -1447,8 +1442,7 @@ public class GeneCaller extends ProkObject {
 //			outstream.println("pos="+pos+", codon="+AminoAcid.kmerToString(kmer, 3)+", frame="+currentFrame+", start="+start+", isStartCodon="+pgm.isStartCodon(codon));
 			if(currentFrame>2){
 				currentFrame=0;
-				final boolean syntheticEdgeStart=(pos==start+2 && validSyntheticEdgeStart(codon));
-				if(pos<max && created<breakLimit && (syntheticEdgeStart || pgm.isStartCodon(codon))){
+				if(pos<max && created<breakLimit && (pos==start+2 || pgm.isStartCodon(codon))){
 //					outstream.println(x);
 					int glen=stop-pos+3;
 					assert(glen>=minLen) : "glen="+glen+", minLen="+minLen+", pos="+pos+", max="+max+", start="+start;
@@ -1539,11 +1533,6 @@ public class GeneCaller extends ProkObject {
 		
 		if(flipped==1){longest.flip();}
 		return broken;
-	}
-
-	/** True when a complete first edge codon may seed a truncated CDS. */
-	static boolean validSyntheticEdgeStart(final int code){
-		return code>=0 && !GeneModel.isStopCodon(code);
 	}
 	
 	/**
