@@ -27,12 +27,18 @@ final class LocalEditCorrector {
 	}
 	/** Experimental opt-in: commit only the first edit of a verified pair witness. */
 	int correctOne(final Read read,final boolean nearbyPairs){
+		return correctOne(read,nearbyPairs,-1);
+	}
+	/** On the first read pass, estimate separated errors from depth geometry,
+	 * without probing mutations. This is a rejection heuristic, not verified repairs.
+	 * Negative initialLimit preserves the ordinary first-edit discovery path. */
+	int correctOne(final Read read,final boolean nearbyPairs,final int initialLimit){
 		HomopolymerIndelEdit.requireEditable(read);
 		if(read.bases==null || (read.quality!=null && read.quality.length!=read.bases.length)){
 			throw new IllegalArgumentException("Correction requires bases with matching or null qualities.");
 		}
 		profileQueries=probeQueries=verificationQueries=0;lastOperation=null;lastPosition=-1;
-		pairQueries=0;usedPairLookahead=false;
+		pairQueries=0;usedPairLookahead=false;initialEstimatedEdits=0;verifiedLoci=0;
 		if(pairExcludedStarts!=null){pairExcludedStarts.clear();}
 		lowRegions=skippedEdge=skippedWide=skippedUndefined=acceptedTroughs=0;
 		ambiguousLoci=noSupportedCandidateLoci=allCandidatesRejectedLoci=0;
@@ -44,12 +50,20 @@ final class LocalEditCorrector {
 		if(orientation==0){callStatus=CallStatus.SELF_RC;return 0;}
 		final boolean reverse=orientation>0;
 		final byte[] bases=reverse ? reverseComplement(read.bases) : read.bases;
-		fillDepths(bases);locator.reset(bases,counts);probe.beginRead(bases);
+		fillDepths(bases);locator.reset(bases,counts);
+		if(initialLimit>=0){
+			initialEstimatedEdits=estimateInitialEdits(initialLimit);
+			// Reuse the same depths for ordinary discovery; preflight adds no lookups.
+			locator.reset(bases,counts);
+			if(initialEstimatedEdits>initialLimit){finishScan(CallStatus.INITIAL_LIMIT);return 0;}
+		}
+		probe.beginRead(bases);
 		while(locator.next()){
 			acceptedTroughs++;final long supportedBefore=supportedCandidates;
 			chosenOperation=null;chosenPosition=-1;ambiguous=false;
 			final int a=locator.depthStart,end=locator.depthEnd,w=a+(end-a-1)/2;
 			int originalMax=0;for(int j=a;j<end;j++){originalMax=Math.max(originalMax,counts.get(j));}
+			assert(originalMax<3) : "LocalEditTroughLocator(k,3) returns only depth<3 windows; contrast multiplication is bounded.";
 			final int threshold=Math.max(4,originalMax*4+1);
 			for(int p=locator.baseStart;p<locator.baseEnd;p++){
 				probe.substitutions(bases,w,p);probeQueries+=probe.queries;
@@ -73,6 +87,7 @@ final class LocalEditCorrector {
 				else{allCandidatesRejectedLoci++;}
 				continue;
 			}
+			verifiedLoci++;
 			applyChosen(read,bases,reverse);finishScan(CallStatus.APPLIED);return 1;
 		}
 		if(nearbyPairs){
@@ -85,6 +100,29 @@ final class LocalEditCorrector {
 		}
 		finishScan(CallStatus.EXHAUSTED);
 		return 0;
+	}
+	/** Count only K-1/K-wide troughs with strong flanks and separated contexts.
+	 * An isolated missing base disrupts K-1 windows; a substitution/extra base K.
+	 * Short collision holes, edge/N regions and merged troughs are not counted.
+	 * Coverage/variants can mimic errors: this estimates burden, not biological truth.
+	 * Underestimation is handled by the engine's max+1 whole-read rollback. */
+	private long estimateInitialEdits(final int limit){
+		assert(limit>=0) : "A negative initial limit disables preflight in correctOne.";
+		long estimated=0,lastEnd=-1;
+		while(locator.next()){
+			final int a=locator.depthStart,end=locator.depthEnd;
+			if(end-a<k-1){continue;}
+			int originalMax=0;for(int j=a;j<end;j++){originalMax=Math.max(originalMax,counts.get(j));}
+			assert(originalMax<3) : "LocalEditTroughLocator(k,3) bounds low-window depth at 2, so 4*depth+1 cannot overflow.";
+			final int threshold=Math.max(4,originalMax*4+1);
+			if(counts.get(a-1)<threshold || counts.get(end)<threshold){continue;}
+			// Disjoint full flank-window spans avoid treating neighboring troughs
+			// as independent evidence. No proposed or normalized edit is needed.
+			if(a-1L<lastEnd){continue;}
+			lastEnd=(long)end+k;
+			if(++estimated>limit){break;}
+		}
+		return estimated;
 	}
 	/** Do not let lookahead reinterpret a locus with competing verified single edits. */
 	private void recordAmbiguous(final int start,final boolean nearbyPairs){
@@ -116,8 +154,8 @@ final class LocalEditCorrector {
 		skippedEdge=locator.skippedEdge;skippedWide=locator.skippedWide;skippedUndefined=locator.skippedUndefined;
 		assert(lowRegions==skippedEdge+skippedWide+skippedUndefined+acceptedTroughs) :
 			"Each encountered low region is skipped once or returned by the locator; counters must describe this call only.";
-		assert(acceptedTroughs==ambiguousLoci+noSupportedCandidateLoci+allCandidatesRejectedLoci+(status==CallStatus.APPLIED ? 1 : 0)) :
-			"Every ordinary-locator trough must be classified; APPLIED_PAIR follows an exhausted ordinary scan and does not add another ordinary trough.";
+		assert(acceptedTroughs==ambiguousLoci+noSupportedCandidateLoci+allCandidatesRejectedLoci+verifiedLoci) :
+				"Every correction-profile trough is ambiguous, unsupported, rejected or verified; depth-only preflight resets locator counters before discovery.";
 	}
 	private void fillDepths(final byte[] bases){
 		counts.clear();key.clearFast();
@@ -176,8 +214,10 @@ final class LocalEditCorrector {
 	long profileQueries,probeQueries,verificationQueries;
 	/** Per-call diagnostics; EXHAUSTED is the terminal zero call, even after earlier edits.
 	 * A runner cap has no zero call: do not label these last-success counters as terminal-zero. */
-	enum CallStatus {SHORT_READ,UNSUPPORTED_BASE,SELF_RC,EXHAUSTED,APPLIED,APPLIED_PAIR}
+	enum CallStatus {SHORT_READ,UNSUPPORTED_BASE,SELF_RC,EXHAUSTED,APPLIED,APPLIED_PAIR,INITIAL_LIMIT}
 	CallStatus callStatus;
+	long initialEstimatedEdits;
+	private int verifiedLoci;
 	int lowRegions,skippedEdge,skippedWide,skippedUndefined,acceptedTroughs;
 	int ambiguousLoci,noSupportedCandidateLoci,allCandidatesRejectedLoci;
 	long supportedCandidates,verificationRejectedCandidates;

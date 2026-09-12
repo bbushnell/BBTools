@@ -603,6 +603,7 @@ public class BloomFilterCorrectorWrapper {
 			outstream.println("Local edits: S="+localSubstitutions+", I="+localInsertions+", D="+localDeletions+
 					", changedReads="+localChangedReads+", cappedReads="+localCappedReads);
 			outstream.println("Local edit queries: profile="+localProfileQueries+", probes="+localProbeQueries+", verification="+localVerificationQueries);
+			outstream.println("Fixindels guard: initialSkipped="+localInitialSkipped+", rolledBack="+localRolledBack);
 		}else if(ecc){
 			final long corrected=(basesCorrectedTail+basesCorrectedPincer+basesCorrectedReassemble+basesCorrectedEcco);
 			final long partial=(readsCorrected-readsFullyCorrected);
@@ -720,6 +721,7 @@ public class BloomFilterCorrectorWrapper {
 				localDeletions+=pt.localEditor.deletions;localChangedReads+=pt.localEditor.changedReads;
 				localCappedReads+=pt.localEditor.cappedReads;localProfileQueries+=pt.localEditor.profileQueries;
 				localProbeQueries+=pt.localEditor.probeQueries;localVerificationQueries+=pt.localEditor.verificationQueries;
+				localInitialSkipped+=pt.localEditor.initialSkippedReads;localRolledBack+=pt.localEditor.rolledBackReads;
 			}
 			success&=pt.success;
 			
@@ -1478,6 +1480,7 @@ public class BloomFilterCorrectorWrapper {
 	final boolean ecc;
 	final boolean localEdit;
 	final int localEditWindows,localEditMax;
+	long localInitialSkipped,localRolledBack;
 	private long localSubstitutions,localInsertions,localDeletions,localChangedReads,localCappedReads;
 	private long localProfileQueries,localProbeQueries,localVerificationQueries;
 	/** Mark bounded low-count k-mer runs instead of correcting. */

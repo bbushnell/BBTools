@@ -1177,6 +1177,7 @@ public abstract class Tadpole extends ShaveObject{
 				outstream.println("LOCAL_EDIT reads_changed="+localEditReadsChanged+" substitutions="+localEditSubstitutions+
 					" insertions="+localEditInsertions+" deletions="+localEditDeletions+" cap_hits="+localEditCapHits+
 					" pair_lookups="+localEditPairQueries);
+				outstream.println("FIXINDELS_GUARD initial_skipped="+localEditInitialSkipped+" rolled_back="+localEditRolledBack);
 			}
 			if(extendLeft>0 || extendRight>0){
 				outstream.println("Bases extended:             \t"+basesExtended);
@@ -2536,6 +2537,7 @@ public abstract class Tadpole extends ShaveObject{
 			localEditDeletions+=pt.localEditDeletionsT;
 			localEditCapHits+=pt.localEditCapHitsT;
 			localEditPairQueries+=pt.localEditPairQueriesT;
+			localEditInitialSkipped+=pt.localEditInitialSkippedT;localEditRolledBack+=pt.localEditRolledBackT;
 			readsCorrected+=pt.readsCorrectedT;
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
@@ -3045,21 +3047,12 @@ public abstract class Tadpole extends ShaveObject{
 
 		/** Applies the bounded worker-local native local-edit kernel. */
 		private void applyLocalEdits(final Read r){
-			int edits=0;
-			for(; edits<localEditMax; edits++){
-				final int corrected=localEditCorrector.correctOne(r,localEditPairs);
-				localEditPairQueriesT+=localEditCorrector.pairQueries;
-				if(corrected==0){break;}
-				assert(corrected==1) : "The local-edit kernel must apply at most one edit per call: "+corrected;
-				switch(localEditCorrector.lastOperation){
-				case SUBSTITUTION: localEditSubstitutionsT++; break;
-				case INSERTION: localEditInsertionsT++; break;
-				case DELETION: localEditDeletionsT++; break;
-				default: throw new IllegalStateException("Unknown local-edit operation: "+localEditCorrector.lastOperation);
-				}
-			}
-			if(edits>0){localEditReadsChangedT++;}
-			if(edits==localEditMax){localEditCapHitsT++;}
+			assert(localEditEngine!=null) : "The dedicated correction path requires one worker-local transaction engine.";
+			localEditEngine.correct(r,localEditMax,localEditPairs);
+			localEditSubstitutionsT=localEditEngine.substitutions;localEditInsertionsT=localEditEngine.insertions;
+			localEditDeletionsT=localEditEngine.deletions;localEditReadsChangedT=localEditEngine.changedReads;
+			localEditCapHitsT=localEditEngine.cappedReads;localEditPairQueriesT=localEditEngine.pairQueries;
+			localEditInitialSkippedT=localEditEngine.initialSkippedReads;localEditRolledBackT=localEditEngine.rolledBackReads;
 		}
 
 		/** Indel-only opt-in phase; collect against original arrays before any splice.
@@ -3138,12 +3131,13 @@ public abstract class Tadpole extends ShaveObject{
 		long hpCompetingVetoedT=0;
 		long hpDeletionVetoedT=0;
 		long hpReadsChangedT=0, hpProposalsT=0, hpWithheldT=0, hpInsertedT=0, hpDeletedT=0;
-		private final LocalEditCorrector localEditCorrector=localEdit ? new LocalEditCorrector(kbig,
-			new HomopolymerIndelProposal.CountLookup(){
+		private final LocalEditEngine localEditEngine=localEdit ? new LocalEditEngine(kbig,
+			new LocalEditEngine.CountLookup(){
 				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
-			}) : null;
+			},1) : null;
 		long localEditReadsChangedT=0, localEditSubstitutionsT=0, localEditInsertionsT=0, localEditDeletionsT=0;
 		long localEditCapHitsT=0, localEditPairQueriesT=0;
+		long localEditInitialSkippedT=0,localEditRolledBackT=0;
 		
 		long readsInT=0;
 		long basesInT=0;
@@ -4230,6 +4224,7 @@ public abstract class Tadpole extends ShaveObject{
 	long hpDeletionVetoed=0;
 	long localEditReadsChanged=0, localEditSubstitutions=0, localEditInsertions=0, localEditDeletions=0;
 	long localEditCapHits=0, localEditPairQueries=0;
+	long localEditInitialSkipped=0,localEditRolledBack=0;
 	long readsExtended=0;
 	long readsCorrected=0;
 	long basesCorrectedPincer=0;

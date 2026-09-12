@@ -275,8 +275,14 @@ fixindels=f        Correct substitutions and 1bp insertions/deletions using kmer
                     Ambiguous edits are withheld; genuine variants are not
                     guaranteed to be preserved. Use minprob=0 to count all valid
                     input kmers. Larger indels are not the target of this mode.
-fixindelsmax=8     Maximum sequential edits per read; positive integer. The
-                    complete depth profile is rescanned after each edit.
+fixindelsmax=8     Maximum accepted single-base edits per read (S+I+D total).
+                    Skip unchanged if the original depth scan finds more than
+                    this many separated K-1/K-wide, strongly flanked low-depth
+                    troughs (an error estimate, not verified repairs). Otherwise,
+                    restore original bases/qualities if later correction needs
+                    an additional edit beyond the limit. Exactly-at-limit reads
+                    are retained only after no further supported edit is found.
+                    The profile is rescanned after each tentative edit.
 fixindelspairs=f   Also try a bounded two-edit witness after single-edit searches;
                     requires fixindels=t. Applies only its first edit, then rescans.
                     Tadpole only; BBCMS has no pair-witness option.

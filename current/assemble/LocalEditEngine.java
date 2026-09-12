@@ -21,31 +21,49 @@ public final class LocalEditEngine {
 		},windows,checkIndelCompetition);
 	}
 
-	/** Rescan after each edit. Hitting the cap is NOT evidence of exhaustion. */
+	/** Whole-read transaction: skip excessive initial depth-estimated burden, or
+	 * roll back if later discovery requires more than maxEdits. */
 	public int correct(final Read read,final int maxEdits){
-		if(maxEdits<1){throw new IllegalArgumentException("localeditmax must be positive.");}
-		int applied=0;
-		while(applied<maxEdits){
-			final int changed=corrector.correctOne(read);
-			profileQueries+=corrector.profileQueries;probeQueries+=corrector.probeQueries;
-			verificationQueries+=corrector.verificationQueries;
-			if(changed==0){break;}
-			assert(changed==1 && corrector.lastOperation!=null) : "The single-edit kernel commits one verified edit before recomputing its depth profile.";
-			applied++;
-			switch(corrector.lastOperation){
-				case SUBSTITUTION: substitutions++;break;
-				case INSERTION: insertions++;break;
-				case DELETION: deletions++;break;
-				default: throw new AssertionError("Unknown local-edit operation.");
+		return correct(read,maxEdits,false);
+	}
+	/** Pair witnesses concern two edits in ONE unpaired read, not paired reads. */
+	public int correct(final Read read,final int maxEdits,final boolean nearbyPairs){
+		if(maxEdits<1){throw new IllegalArgumentException("fixindelsmax must be positive.");}
+		HomopolymerIndelEdit.requireEditable(read);
+		final byte[] originalBases=read.bases,originalQuality=read.quality;
+		int applied=0;long s=0,i=0,d=0;boolean commit=false;
+		try{
+			while(true){
+				final int changed=corrector.correctOne(read,nearbyPairs,applied==0 ? maxEdits : -1);
+				profileQueries+=corrector.profileQueries;probeQueries+=corrector.probeQueries;
+				verificationQueries+=corrector.verificationQueries;pairQueries+=corrector.pairQueries;
+				if(corrector.callStatus==LocalEditCorrector.CallStatus.INITIAL_LIMIT){initialSkippedReads++;return 0;}
+				if(changed==0){
+					substitutions+=s;insertions+=i;deletions+=d;
+					if(applied>0){changedReads++;}
+					commit=true;return applied;
+				}
+				assert(changed==1 && corrector.lastOperation!=null) : "Only one verified edit per discovery pass may enter the read transaction.";
+				attemptedEdits++;
+				if(applied==maxEdits){cappedReads++;rolledBackReads++;return 0;}
+				applied++;
+				switch(corrector.lastOperation){
+					case SUBSTITUTION: s++;break;
+					case INSERTION: i++;break;
+					case DELETION: d++;break;
+					default: throw new AssertionError("Unknown local-edit operation.");
+				}
 			}
+		}finally{
+			// Editors install new arrays; original references preserve all original
+			// bases/qualities without an extra whole-read copy. Exceptions also restore.
+			if(!commit){read.bases=originalBases;read.quality=originalQuality;}
 		}
-		if(applied>0){changedReads++;}
-		if(applied==maxEdits){cappedReads++;}
-		return applied;
 	}
 
 	/** Worker-lifetime counters; merge only after the worker has joined. */
 	public long substitutions,insertions,deletions,changedReads,cappedReads;
 	public long profileQueries,probeQueries,verificationQueries;
+	public long initialSkippedReads,rolledBackReads,attemptedEdits,pairQueries;
 	private final LocalEditCorrector corrector;
 }

@@ -55,8 +55,13 @@ fixindelswindows=3  Positive odd number of adjacent spanning candidate kmers,
                 Shift windows to keep them in-bounds and spanning the edit;
                 use fewer when fewer exist. Undefined bases still veto a probe.
                 These are correlated, not independent collision guarantees.
-fixindelsmax=8  Maximum sequential edits per read; positive integer. The profile
-                is rescanned after each edit. BBCMS has no pair-witness option.
+fixindelsmax=8  Maximum accepted single-base edits per read (S+I+D total).
+                Skip unchanged if the original scan finds too many separated
+                K-1/K-wide, strongly flanked low-depth troughs (an error estimate,
+                not verified repairs). Restore original bases/qualities if
+                later correction needs more edits than allowed; reaching exactly
+                the limit requires checking that no further supported edit exists.
+                Rescan after each tentative edit. No pair-witness option in BBCMS.
                 Legacy aliases: localedit, localeditwindows, localeditmax.
 
 Example of general single-base correction:
