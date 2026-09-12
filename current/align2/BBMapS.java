@@ -707,7 +707,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		public void run(){
 			try{
 				ListNum<Read> ln=streamer.nextList();
-				while(ln!=null && ln.size()>0){
+				// Sampling can empty a data batch; Streamer.nextList() uses null for EOF.
+				// Process empty lists too so each ordered Writer receives every list ID.
+				// TODO: A_SampleStreamerMT has the same empty-list EOF predicate; audit it separately.
+				while(ln!=null){
 					processList(ln);
 					ln=streamer.nextList();
 				}
