@@ -272,8 +272,10 @@ fixindels=f        Correct substitutions and 1bp insertions/deletions using kmer
                     then verifies all affected kmers against the unchanged table.
                     With qualities present, inserted/substituted bases get Q0;
                     retained qualities and read names are preserved.
-                    Ambiguous edits are withheld; genuine variants are not
-                    guaranteed to be preserved. Use minprob=0 to count all valid
+                    Competing verified substitutions and indels are withheld,
+                    rather than preferring a substitution over a supported indel.
+                    Genuine variants are not guaranteed to be preserved.
+                    Use minprob=0 to count all valid
                     input kmers. Larger indels are not the target of this mode.
 fixindelsmax=8     Maximum accepted single-base edits per read (S+I+D total).
                     Skip unchanged if the original depth scan finds more than
@@ -282,14 +284,32 @@ fixindelsmax=8     Maximum accepted single-base edits per read (S+I+D total).
                     restore original bases/qualities if later correction needs
                     an additional edit beyond the limit. Exactly-at-limit reads
                     are retained only after no further supported edit is found.
-                    The profile is rescanned after each tentative edit.
+                    Sequential mode rescans after each tentative edit; batch
+                    mode rescans local regions and may abstain on other regions.
+fixindelsstride=8  Sample every Nth kmer when scanning a read; 1 scans densely.
+                    Fill detected low-depth patches and their flanks exactly.
+                    Short troughs between samples may be missed. Small K/short
+                    profiles and fixindelspairs=t use dense scans. Winning edits
+                    still require complete affected-context verification.
 fixindelspairs=f   Also try a bounded two-edit witness after single-edit searches;
                     requires fixindels=t. Applies only its first edit, then rescans.
                     Tadpole only; BBCMS has no pair-witness option.
                     Legacy aliases: localedit, localeditmax, localeditpairs.
+fixindelsbatch=f   Experimental local-region correction with one final read rebuild.
+                    Requires fixindels=t, fixindelsstride=1, fixindelspairs=f.
+                    Groups original-coordinate candidates, repairs each bounded
+                    region sequentially, and commits accepted regions together.
+                    Preserves the read-wide edit limit and rollback; insufficient
+                    flanks, oversized or unverified regions are left unchanged.
+                    Tadpole only. Existing sequential mode remains the default.
+fixindelspatchmax=4096 Maximum region size in bases, including context, for batch
+                    mode. Must be >=2*K+5. Oversized regions are withheld, not split.
 
 Example of general single-base correction:
 tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t ecc=f minprob=0
+
+Example of local-region correction for long reads (explicit 64-edit budget):
+tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t fixindelsbatch=t fixindelsstride=1 fixindelsmax=64 ecc=f minprob=0
 
 Separate homopolymer-specific repair (not used by fixindels):
 hpindel=f           Experimental unpaired, alignment-free homopolymer +/-1 repair.

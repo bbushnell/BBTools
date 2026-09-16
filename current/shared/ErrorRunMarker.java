@@ -37,6 +37,7 @@ public final class ErrorRunMarker {
 		final Result result=new Result();
 		if(bases==null || counts==null || countSize<1 || k<2 || bases.length<k){return result;}
 		final float safeRatio=Tools.max(1f, ratio);
+		if(!hasPotentialRun(counts,countSize,safeRatio)){return result;}
 		final BitSet marked=new BitSet(bases.length);
 
 		// First identify longer isolated runs so they are explicitly reported as merged.
@@ -117,6 +118,23 @@ public final class ErrorRunMarker {
 			}
 		}
 		return result;
+	}
+
+	/** Exact sufficient exclusion using qualifies' strict flank/highRequired bound.
+	 * This scans already-filled counts; it is not a sampled count-query shortcut.
+	 */
+	static boolean hasPotentialRun(final int[] counts,final int countSize,final float safeRatio){
+		assert(counts!=null && countSize>0 && countSize<=counts.length) : "Marker profile must contain every supplied count before testing its global bounds";
+		int low=Integer.MAX_VALUE,high=Integer.MIN_VALUE;
+		for(int i=0;i<countSize;i++){
+			low=Tools.min(low,counts[i]);high=Tools.max(high,counts[i]);
+			// Any run has lowMax>=max(0,low); every flank<=high (qualifies below).
+			// Prefix contrast cannot decrease as low falls/high rises. Returning true
+			// merely delegates to the unchanged marker; it never grants a mark.
+			final int required=Tools.max(1,(int)Math.ceil(Tools.max(0,low)*safeRatio));
+			if(high>required){return true;}
+		}
+		return false;
 	}
 
 	private static boolean qualifies(final int[] counts, final int countSize, final int s, final int e,

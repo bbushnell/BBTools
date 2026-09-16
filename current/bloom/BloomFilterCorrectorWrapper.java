@@ -111,7 +111,7 @@ public class BloomFilterCorrectorWrapper {
 		boolean ecc_=true;
 		boolean markErrors_=false;
 		boolean localEdit_=false;
-		int localEditWindows_=3,localEditMax_=8;
+		int localEditWindows_=3,localEditMax_=8,localEditStride_=1;
 		boolean ecco_=false;
 		boolean merge_=true;
 		boolean testMerge_=true;
@@ -178,6 +178,8 @@ public class BloomFilterCorrectorWrapper {
 				localEditWindows_=Integer.parseInt(b);
 			}else if(a.equals("fixindelsmax") || a.equals("localeditmax")){
 				localEditMax_=Integer.parseInt(b);
+			}else if(a.equals("fixindelsstride")){
+				localEditStride_=Integer.parseInt(b);
 			}else if(a.equals("markerrors")){
 				markErrors_=Parse.parseBoolean(b);
 			}else if(a.equals("ecco")){
@@ -268,6 +270,7 @@ public class BloomFilterCorrectorWrapper {
 		if(!setBits && (ecc_ || markErrors_ || localEdit_) && bits_<4){bits_=4;}
 		
 		if(ksmall_<=0){ksmall_=k_;}
+		if(localEditStride_<1){throw new IllegalArgumentException("fixindelsstride must be positive.");}
 		if(localEditMax_<1 || localEditWindows_<1 || (localEditWindows_&1)==0 || (localEdit_ && localEditWindows_>k_)){
 			throw new IllegalArgumentException("fixindelsmax must be positive; fixindelswindows must be positive, odd and <=K.");
 		}
@@ -299,6 +302,7 @@ public class BloomFilterCorrectorWrapper {
 
 		k=k_;
 		localEdit=localEdit_;localEditWindows=localEditWindows_;localEditMax=localEditMax_;
+		localEditStride=localEditStride_;
 		ksmall=Tools.min(k, ksmall_);
 		corrector=(k_>31 ? new BloomFilterCorrector2(null, k_, ksmall_) : new BloomFilterCorrector1(null, k_, ksmall_));
 		corrector.ECC_PINCER=pincer_;
@@ -503,6 +507,9 @@ public class BloomFilterCorrectorWrapper {
 	/** Package-visible for real-filter contract tests. Short keys must follow
 	 * ReadCounter's primitive canonical max and secondaryHash, not Kmer.xor2. */
 	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter,final int windows){
+		return makeLocalEditEngine(filter,windows,1);
+	}
+	static LocalEditEngine makeLocalEditEngine(final BloomFilter filter,final int windows,final int stride){
 		if(filter==null || filter.k<5 || filter.k!=filter.kbig || filter.bits<4 || !filter.rcomp){
 			throw new IllegalArgumentException("Local-edit counts require exact K>=5, bits>=4 and canonical DNA.");
 		}
@@ -513,7 +520,7 @@ public class BloomFilterCorrectorWrapper {
 			}
 		//Bloom-supported substitutions must also survive competing verified indels.
 		//Existing exact-table/Tadpole callers retain their original constructor path.
-		},windows,true);
+		},windows,true,stride);
 	}
 
 	/** Parse a file specification, accepting existing paths or comma lists. */
@@ -816,7 +823,7 @@ public class BloomFilterCorrectorWrapper {
 		@Override
 		public void run(){
 			if(localEdit){
-				try{localEditor=makeLocalEditEngine(filter,localEditWindows);processInner();success=true;}
+				try{localEditor=makeLocalEditEngine(filter,localEditWindows,localEditStride);processInner();success=true;}
 				catch(Throwable failure){failure.printStackTrace(outstream);KillSwitch.kill("BBCMS fixindels worker failed; incomplete outputs must not be used.");}
 				return;
 			}
@@ -1479,7 +1486,7 @@ public class BloomFilterCorrectorWrapper {
 	/** Enable error correction */
 	final boolean ecc;
 	final boolean localEdit;
-	final int localEditWindows,localEditMax;
+	final int localEditWindows,localEditMax,localEditStride;
 	long localInitialSkipped,localRolledBack;
 	private long localSubstitutions,localInsertions,localDeletions,localChangedReads,localCappedReads;
 	private long localProfileQueries,localProbeQueries,localVerificationQueries;

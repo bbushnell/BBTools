@@ -22,7 +22,7 @@ public final class LocalEditCompetitionTest {
 				}}
 			}}
 		}finally{Kmer.PACKED=packed;Kmer.MASK_CORE=core;Read.CHANGE_QUALITY=quality;}
-		System.out.println("LOCAL_EDIT_COMPETITION_OK cases="+cases);
+		System.out.println("LOCAL_EDIT_COMPETITION_OK cases="+cases+"; single-call, whole-read sequential and automatic local transactions.");
 	}
 	private static void test(final int k,final int windows,final int delta,final int support,final boolean reverse){
 		final int a=k+7,s=a+3,p=a+k/2;
@@ -57,6 +57,36 @@ public final class LocalEditCompetitionTest {
 				check(Arrays.equals(read.bases,reverse ? AminoAcid.reverseComplementBases(expected) : expected),
 					"Unique supported family must still repair; legacy policy must retain S-first behavior.");
 			}
+			transactions(k,windows,guard,counts,bases,qualities,read,ambiguous);
+		}
+	}
+	/** The same immutable support must reach both native whole-read transaction paths. */
+	private static void transactions(final int k,final int windows,final boolean guard,final Counts counts,
+		final byte[] bases,final byte[] qualities,final Read expected,final boolean ambiguous){
+		assert(bases.length==qualities.length) : "The caller fixture supplies one unchanged quality per original base.";
+		final byte[] saved=bases.clone(),savedQuality=qualities.clone();
+		for(final boolean local:new boolean[]{false,true}){
+			final Read read=new Read(bases,qualities,"competition-transaction",0,false);
+			final int applied;
+			if(local){
+				final LocalEditPatchRegions selector=new LocalEditPatchRegions(k,counts,windows,guard,1,8*k);
+				final LocalEditPatchCorrector executor=new LocalEditPatchCorrector(k,counts,windows,guard,8*k);
+				applied=executor.correctSelected(read,selector,8);
+				check(executor.substitutions+executor.insertions+executor.deletions==applied,
+					"Local committed counters must exclude withheld ambiguous candidates.");
+			}else{
+				final LocalEditEngine engine=new LocalEditEngine(k,counts::count,windows,guard,1);
+				applied=engine.correct(read,8);
+				check(engine.substitutions+engine.insertions+engine.deletions==applied,
+					"Sequential committed counters must exclude withheld ambiguous candidates.");
+			}
+			check(applied==(ambiguous ? 0 : 1),"Both transaction paths must propagate competition policy; local="+local+", k="+k+", guard="+guard);
+			check(Arrays.equals(read.bases,expected.bases) && Arrays.equals(read.quality,expected.quality),
+				"Transaction output must match the independently checked single-call bases and qualities.");
+			check(Arrays.equals(bases,saved) && Arrays.equals(qualities,savedQuality),
+				"Transaction paths must not mutate aliases of the original input arrays.");
+			if(ambiguous){check(read.bases==bases && read.quality==qualities,
+				"Withholding an ambiguous locus must retain original array identities through the whole-read path.");}
 		}
 	}
 	private static final class Counts implements HomopolymerIndelProposal.CountLookup {

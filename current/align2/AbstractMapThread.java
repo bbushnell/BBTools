@@ -28,6 +28,8 @@ import tracker.ReadStats;
  *
  */
 public abstract class AbstractMapThread extends Thread {
+	/** Effective range; subclasses may derive it from owned attempt configuration. */
+	protected int tipDeletionSearchRange(){return TIP_DELETION_SEARCH_RANGE;}
 	
 	AbstractMapThread(ConcurrentReadInputStream cris_,
 			ConcurrentReadOutputStream outStream_, ConcurrentReadOutputStream outStreamMapped_, ConcurrentReadOutputStream outStreamUnmapped_, ConcurrentReadOutputStream outStreamBlack_,
@@ -1145,6 +1147,11 @@ public abstract class AbstractMapThread extends Thread {
 	 */
 	protected final int genMatchStringForSite(final long id, final SiteScore ss, final byte[] basesP, final byte[] basesM,
 			final int maxImperfectSwScore, final int maxSwScore, final Read mate, final boolean secondary){
+		// D441: an experimental hybrid hit substitutes the complete inner call only.
+		// The outer genMatchString retains score ordering and Read-state synchronization.
+		if(hybridMatchCache!=null && hybridMatchCache.restore(id,ss,basesP,basesM,maxImperfectSwScore,maxSwScore,secondary)){
+			return ss.slowScore;
+		}
 		final byte[] bases=ss.plus() ? basesP : basesM;
 		assert(Read.CHECKSITE(ss, bases, id));
 		assert(msa!=null);
@@ -1300,9 +1307,10 @@ public abstract class AbstractMapThread extends Thread {
 		assert(TIP_DELETION_MAX_TIPLEN>2);
 		if(bases.length<=2*TIP_DELETION_MAX_TIPLEN){return false;}
 		assert(TIP_DELETION_MAX_TIPLEN<bases.length);
-		assert(TIP_DELETION_SEARCH_RANGE>0);
+		final int tipSearchRange=tipDeletionSearchRange();
+		assert(tipSearchRange>0);
 		
-		int maxSearch=TIP_DELETION_SEARCH_RANGE;
+		int maxSearch=tipSearchRange;
 		maxSearch=Tools.min(maxSearch, ALIGN_COLUMNS_ABSTRACT-(SLOW_RESCUE_PADDING+8+Tools.max(bases.length, ss.stop()-ss.start())));
 		if(maxSearch<1){return false;}
 		
@@ -3366,6 +3374,8 @@ public abstract class AbstractMapThread extends Thread {
 	protected final boolean QUICK_MATCH_STRINGS;
 	/** Whether to use site-specific match strings for primary alignments */
 	protected final boolean USE_SS_MATCH_FOR_PRIMARY=true;
+	/** Null in ordinary tools; owned and scoped by the experimental hybrid worker. */
+	protected HybridMatchCache hybridMatchCache;
 
 	/** Maximum number of alignment sites to retain for output */
 	protected final int MAX_SITESCORES_TO_PRINT;

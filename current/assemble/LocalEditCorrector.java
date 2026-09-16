@@ -4,8 +4,9 @@ import stream.Read;
 import structures.IntList;
 import ukmer.Kmer;
 
-/** Experimental integrated single-edit caller: original depths -> local probes ->
- * full winning-context verification -> transactional edit. No native CLI wiring.
+/** Worker-local single-edit caller used by native Tadpole and BBCMS:
+ * dense/sparse original depths -> local probes -> full winning-context verification
+ * -> transactional edit. Sparse scanning may miss narrow unsampled troughs.
  * One edit per call; repeated calls MUST recompute the profile (this method does).
  * Canonical whole-read orientation is a correctness-first reference implementation,
  * not a claim of optimal allocation or runtime. Worker-local; immutable count table.
@@ -16,8 +17,13 @@ final class LocalEditCorrector {
 		this(k_,lookup_,windows,false);
 	}
 	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_,final int windows,final boolean checkIndelCompetition_){
+		this(k_,lookup_,windows,checkIndelCompetition_,1);
+	}
+	LocalEditCorrector(final int k_,final HomopolymerIndelProposal.CountLookup lookup_,final int windows,final boolean checkIndelCompetition_,final int profileStride_){
 		if(lookup_==null || k_<5){throw new IllegalArgumentException("Corrector requires K>=5 and immutable counts.");}
+		if(profileStride_<1){throw new IllegalArgumentException("Profile stride must be positive.");}
 		k=k_;lookup=lookup_;key=new Kmer(k);probe=new LocalEditKmerProbe(k,lookup,windows);locator=new LocalEditTroughLocator(k,3);
+		profileStride=profileStride_;profile=new LocalEditDepthProfile(k,lookup);counts=profile.depths;
 		checkIndelCompetition=checkIndelCompetition_;
 		if(key.kbig!=k){throw new IllegalArgumentException("Correction K must equal table K.");}
 	}
@@ -33,6 +39,25 @@ final class LocalEditCorrector {
 	 * without probing mutations. This is a rejection heuristic, not verified repairs.
 	 * Negative initialLimit preserves the ordinary first-edit discovery path. */
 	int correctOne(final Read read,final boolean nearbyPairs,final int initialLimit){
+		return scan(read,nearbyPairs,initialLimit,null);
+	}
+	/** Propose against one immutable original profile without applying any edit.
+	 * Positions and dependency bounds address the supplied canonical bases.
+	 * The sink must not mutate bases or reenter this worker; false stops scanning.
+	 * Returns the number of sink invocations, including a final false response;
+	 * that is proposals delivered, not edits accepted or applied by the sink.
+	 * This is independent-locus discovery, not replay of sequential correction.
+	 * Pair witnesses are intentionally excluded from this experimental API. */
+	int collect(final Read read,final int initialLimit,final ProposalSink sink){
+		if(sink==null){throw new IllegalArgumentException("Non-mutating discovery requires a proposal sink.");}
+		return scan(read,false,initialLimit,sink);
+	}
+	interface ProposalSink {
+		boolean accept(byte[] canonicalBases,boolean reverse,LocalSingleBaseEdit.Operation operation,
+			int position,byte base,int contextFrom,int contextTo,int threshold);
+	}
+	private int scan(final Read read,final boolean nearbyPairs,final int initialLimit,final ProposalSink sink){
+		assert(sink==null || !nearbyPairs) : "Independent original-coordinate proposals do not implement pair-witness semantics.";
 		HomopolymerIndelEdit.requireEditable(read);
 		if(read.bases==null || (read.quality!=null && read.quality.length!=read.bases.length)){
 			throw new IllegalArgumentException("Correction requires bases with matching or null qualities.");
@@ -50,14 +75,16 @@ final class LocalEditCorrector {
 		if(orientation==0){callStatus=CallStatus.SELF_RC;return 0;}
 		final boolean reverse=orientation>0;
 		final byte[] bases=reverse ? reverseComplement(read.bases) : read.bases;
-		fillDepths(bases);locator.reset(bases,counts);
+		// Pair-witness code consumes a complete dense profile; preserve that contract.
+		profile.fill(bases,nearbyPairs ? 1 : profileStride);profileQueries=profile.queries;
+		locator.reset(bases,counts,profile.sparse);
 		if(initialLimit>=0){
 			initialEstimatedEdits=estimateInitialEdits(initialLimit);
 			// Reuse the same depths for ordinary discovery; preflight adds no lookups.
-			locator.reset(bases,counts);
+			locator.reset(bases,counts,profile.sparse);
 			if(initialEstimatedEdits>initialLimit){finishScan(CallStatus.INITIAL_LIMIT);return 0;}
 		}
-		probe.beginRead(bases);
+		probe.beginRead(bases);int delivered=0;
 		while(locator.next()){
 			acceptedTroughs++;final long supportedBefore=supportedCandidates;
 			chosenOperation=null;chosenPosition=-1;ambiguous=false;
@@ -70,8 +97,8 @@ final class LocalEditCorrector {
 				for(int b=0;b<4;b++){if(probe.substitutionDepth[b]>=threshold){consider(bases,LocalSingleBaseEdit.Operation.SUBSTITUTION,p,ALPHABET[b],a-1,end+k,threshold);}}
 			}
 			if(ambiguous){recordAmbiguous(a,nearbyPairs);continue;}
-			//Approximate counts can support a false S beside a verified indel.
-			//Opt-in callers must not hide that ambiguity through S-first ordering.
+			//Exact as well as approximate counts can support S beside a verified indel.
+			//Guarded callers must not hide that ambiguity through S-first ordering.
 			if(chosenOperation==null || checkIndelCompetition){
 				for(int p=locator.baseStart;p<locator.baseEnd;p++){
 					probe.indelsAt(bases,w,p);probeQueries+=probe.queries;
@@ -88,6 +115,17 @@ final class LocalEditCorrector {
 				continue;
 			}
 			verifiedLoci++;
+			if(sink!=null){
+				delivered++;
+				// Include the union of candidate verification footprints, not just
+				// the winning edit; later edits must not change competing evidence.
+				final int dependencyFrom=Math.max(0,Math.min(a-1,locator.baseStart-k+1));
+				final int dependencyTo=(int)Math.min((long)bases.length,Math.max((long)end+k,(long)locator.baseEnd+k-1));
+				if(!sink.accept(bases,reverse,chosenOperation,chosenPosition,chosenBase,dependencyFrom,dependencyTo,threshold)){
+					finishScan(CallStatus.COLLECTED);return delivered;
+				}
+				continue;
+			}
 			applyChosen(read,bases,reverse);finishScan(CallStatus.APPLIED);return 1;
 		}
 		if(nearbyPairs){
@@ -98,8 +136,8 @@ final class LocalEditCorrector {
 				applyChosen(read,bases,reverse);usedPairLookahead=true;finishScan(CallStatus.APPLIED_PAIR);return 1;
 			}
 		}
-		finishScan(CallStatus.EXHAUSTED);
-		return 0;
+		finishScan(sink==null ? CallStatus.EXHAUSTED : CallStatus.COLLECTED);
+		return delivered;
 	}
 	/** Count only K-1/K-wide troughs with strong flanks and separated contexts.
 	 * An isolated missing base disrupts K-1 windows; a substitution/extra base K.
@@ -157,14 +195,6 @@ final class LocalEditCorrector {
 		assert(acceptedTroughs==ambiguousLoci+noSupportedCandidateLoci+allCandidatesRejectedLoci+verifiedLoci) :
 				"Every correction-profile trough is ambiguous, unsupported, rejected or verified; depth-only preflight resets locator counters before discovery.";
 	}
-	private void fillDepths(final byte[] bases){
-		counts.clear();key.clearFast();
-		for(int i=0;i<bases.length;i++){
-			if(bases[i]=='N'){key.clearFast();}else{key.addRight(bases[i]);}
-			if(i>=k-1){counts.add(key.len()>=k ? count(false) : 0);}
-		}
-		assert(counts.size==bases.length-k+1) : "Locator requires one original count per kmer-start position.";
-	}
 	private void consider(final byte[] bases,final LocalSingleBaseEdit.Operation op,final int p,final byte b,final int from,final int to,final int threshold){
 		supportedCandidates++;
 		if(!verify(bases,op,p,b,from,to,threshold)){verificationRejectedCandidates++;return;}
@@ -214,7 +244,7 @@ final class LocalEditCorrector {
 	long profileQueries,probeQueries,verificationQueries;
 	/** Per-call diagnostics; EXHAUSTED is the terminal zero call, even after earlier edits.
 	 * A runner cap has no zero call: do not label these last-success counters as terminal-zero. */
-	enum CallStatus {SHORT_READ,UNSUPPORTED_BASE,SELF_RC,EXHAUSTED,APPLIED,APPLIED_PAIR,INITIAL_LIMIT}
+	enum CallStatus {SHORT_READ,UNSUPPORTED_BASE,SELF_RC,EXHAUSTED,APPLIED,APPLIED_PAIR,INITIAL_LIMIT,COLLECTED}
 	CallStatus callStatus;
 	long initialEstimatedEdits;
 	private int verifiedLoci;
@@ -232,6 +262,8 @@ final class LocalEditCorrector {
 	private final int k;private final HomopolymerIndelProposal.CountLookup lookup;
 	private final boolean checkIndelCompetition;
 	private final Kmer key;private final LocalEditKmerProbe probe;private final LocalEditTroughLocator locator;
-	private final IntList counts=new IntList();private final LocalSingleBaseEdit editor=new LocalSingleBaseEdit();
+	private final int profileStride;
+	private final LocalEditDepthProfile profile;
+	private final IntList counts;private final LocalSingleBaseEdit editor=new LocalSingleBaseEdit();
 	private static final byte[] ALPHABET={'A','C','G','T'};
 }

@@ -1047,16 +1047,19 @@ public class RandomReadsMG{
 		final float delProb=dRate/Math.max(0.000000000001f, (iRate+dRate));
 		final float errProb=sRate+iRate+dRate;
 		float bonus=0;
+		// Track source-run context, not the mutated output. Undefined bases break
+		// a run, and the existing indel branch resets its accumulated bonus.
 		byte prev=-1;
 		int changes=0;
 		ByteBuilder bb=new ByteBuilder(r.length()/8+10);
 		final byte[] bases=r.bases;
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
-			if(!AminoAcid.isFullyDefined(b)){bb.append(b);continue;}
+			if(!AminoAcid.isFullyDefined(b)){bb.append(b); prev=-1; bonus=0; continue;}
 
 			float f=randy.nextFloat();
 			bonus=(b==prev ? bonus+hRate : 0);
+			prev=b;
 			if(f>=errProb+bonus){
 				bb.append(b);
 			}else if(f<sRate){ //Substitution

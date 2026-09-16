@@ -22,6 +22,7 @@ import ukmer.Kmer;
 public class TadpoleMulti {
 
 	public static void main(String[] args){
+		args=Tadpole.expandConfigArgs(args);
 		final Config config=new Config(args);
 		new TadpoleMulti(config).process();
 	}

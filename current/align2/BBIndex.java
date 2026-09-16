@@ -89,6 +89,8 @@ public final class BBIndex extends AbstractIndex {
 	 */
 	public BBIndex(int k_, int minChrom_, int maxChrom_, int kfilter_, MSA msa_){
 		super(k_, kfilter_, BASE_HIT_SCORE, minChrom_, maxChrom_, msa_);
+		runtimeMaxIndel=MAX_INDEL;
+		runtimeMaxIndel2=MAX_INDEL2;
 		INV_BASE_KEY_HIT_SCORE=1f/BASE_KEY_HIT_SCORE;
 		INDEL_PENALTY=(BASE_KEY_HIT_SCORE/2)-1; //default (HIT_SCORE/2)-1
 		INDEL_PENALTY_MULT=20; //default 20; penalty for indel length
@@ -1001,7 +1003,7 @@ public final class BBIndex extends AbstractIndex {
 			int approxHits=0;
 			
 			{//Inner loop
-				final int minsite=site-MAX_INDEL, maxsite=site+MAX_INDEL2;
+				final int minsite=site-runtimeMaxIndel, maxsite=site+runtimeMaxIndel2;
 				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
 					final int x=values[column];
 					assert(x==triples[column].site);
@@ -1392,7 +1394,7 @@ public final class BBIndex extends AbstractIndex {
 			int approxHits=0;
 			
 			{//Inner loop
-				final int minsite=site-MAX_INDEL, maxsite=site+MAX_INDEL2;
+				final int minsite=site-runtimeMaxIndel, maxsite=site+runtimeMaxIndel2;
 				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
 					final int x=values[column];
 					assert(x==triples[column].site);
@@ -1950,7 +1952,7 @@ public final class BBIndex extends AbstractIndex {
 					t=active.peek();
 				}
 				site=t.site;
-				horizon=(int)Tools.min(Integer.MAX_VALUE, site+(long)MAX_INDEL2);
+				horizon=(int)Tools.min(Integer.MAX_VALUE, site+(long)runtimeMaxIndel2);
 				while(!heap.isEmpty() && heap.peek().site<=horizon){
 					Quad t2=heap.poll();
 					active.add(t2);
@@ -1974,7 +1976,7 @@ public final class BBIndex extends AbstractIndex {
 			
 //			approxHits=0;
 //			{//Inner loop
-//				final int minsite=site, maxsite=site+MAX_INDEL2;
+//				final int minsite=site, maxsite=site+runtimeMaxIndel2;
 //				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
 //					final int x=values[column];
 //					assert(x==triples[column].site);
@@ -2422,7 +2424,7 @@ public final class BBIndex extends AbstractIndex {
 			indelCutoff=0;
 		}else{
 			approxHitsCutoff=Tools.max(prevMaxHits, Tools.min(MIN_APPROX_HITS_TO_KEEP, numHits-1)); //Faster, same accuracy
-			indelCutoff=MAX_INDEL2;
+			indelCutoff=runtimeMaxIndel2;
 		}
 		
 		
@@ -2436,7 +2438,7 @@ public final class BBIndex extends AbstractIndex {
 
 			int approxHits=0;
 			{//Inner loop
-				final int minsite=site-Tools.min(MAX_INDEL, indelCutoff), maxsite=site+MAX_INDEL2;
+				final int minsite=site-Tools.min(runtimeMaxIndel, indelCutoff), maxsite=site+runtimeMaxIndel2;
 				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
 					final int x=values[column];
 					assert(x==triples[column].site);
@@ -2623,8 +2625,8 @@ public final class BBIndex extends AbstractIndex {
 //
 //		final int[] refLoc=new int[offsets[offsets.length-1]+CHUNKSIZE];
 //
-//		final int maxLoc=center+MAX_INDEL2;
-//		final int minLoc=Tools.max(0, center-MAX_INDEL);
+//		final int maxLoc=center+runtimeMaxIndel2;
+//		final int minLoc=Tools.max(0, center-runtimeMaxIndel);
 //
 //		int score=0;
 //
@@ -2685,13 +2687,26 @@ public final class BBIndex extends AbstractIndex {
 		final int centerVal=values[centerIndex];
 		final int centerLoc=numberToSite(centerVal);
 		
-		final int minLoc=Tools.max(0, centerLoc-MAX_INDEL); //Legacy, for assertions
-		final int maxLoc=centerLoc+MAX_INDEL2; //Legacy, for assertions
+		final int minLoc=Tools.max(0, centerLoc-runtimeMaxIndel); //Legacy, for assertions
+		final int maxLoc=centerLoc+runtimeMaxIndel2; //Legacy, for assertions
 
-		final int minVal=centerVal-MAX_INDEL;
-		final int maxVal=centerVal+MAX_INDEL2;
+		final int minVal=centerVal-runtimeMaxIndel;
+		final int maxVal=centerVal+runtimeMaxIndel2;
 		
 		final byte[] ref=Data.getChromosome(chrom).array;
+		// Bound extension by the actual seed scaffold; projected read starts can be in padding.
+		// Native scoring requires start padding longer than the read, so seed-offset stays positive.
+		int scaffoldStart=0, scaffoldEnd=ref.length;
+		if(Data.scaffoldLocs!=null && Data.scaffoldLocs[chrom]!=null){
+			final int seedLoc=centerLoc+offsets[centerIndex];
+			final int scaffold=Data.scaffoldIndex(chrom,seedLoc);
+			scaffoldStart=Data.scaffoldLocs[chrom][scaffold];
+			// Data fallback lengths include start padding; retain the physical array bound.
+			scaffoldEnd=(int)Math.min((long)ref.length, (long)scaffoldStart+Data.scaffoldLengths[chrom][scaffold]);
+			assert(seedLoc>=scaffoldStart && (long)seedLoc+KEYLEN<=scaffoldEnd) :
+				"Full indexed seed must belong to its scaffold; native scoring requires start padding longer than the read: "+
+				"seed="+seedLoc+", keyLength="+KEYLEN+", scaffoldStart="+scaffoldStart+", scaffoldEnd="+scaffoldEnd;
+		}
 		
 		if(verbose){
 			System.err.println("\n");
@@ -2726,6 +2741,8 @@ public final class BBIndex extends AbstractIndex {
 			
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
+				if((value&~SITE_MASK)!=(centerVal&~SITE_MASK) ||
+					refbase+offsets[i]<scaffoldStart || (long)refbase+offsets[i]+KEYLEN>scaffoldEnd){continue;}
 //				if(verbose){System.err.println("refbase="+refbase);}
 				
 //				Exception in thread "Thread-23" java.lang.AssertionError: 71543, 536356470, 536956470
@@ -2747,7 +2764,7 @@ public final class BBIndex extends AbstractIndex {
 				final int callbase=offsets[i];
 
 				int misses=0;
-				for(int cloc=callbase+KEYLEN-1, rloc=refbase+cloc; cloc>=0 && rloc>=0 && rloc<ref.length; cloc--, rloc--){
+				for(int cloc=callbase+KEYLEN-1, rloc=refbase+cloc; cloc>=0 && rloc>=scaffoldStart && rloc<scaffoldEnd; cloc--, rloc--){
 					int old=locArray[cloc];
 					if(old==refbase){
 //						if(verbose){System.err.println("Broke because old="+old+", refbase="+refbase);}
@@ -2788,13 +2805,15 @@ public final class BBIndex extends AbstractIndex {
 			
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
+				if((value&~SITE_MASK)!=(centerVal&~SITE_MASK) ||
+					refbase+offsets[i]<scaffoldStart || (long)refbase+offsets[i]+KEYLEN>scaffoldEnd){continue;}
 //				if(verbose){System.err.println("refbase="+refbase);}
 				//TODO - figure out why this assertion fires
 //				assert(refbase>=minLoc && refbase<=maxLoc) : refbase+", "+minLoc+", "+maxLoc; //Apparently not a correct assumption
 				final int callbase=offsets[i];
 				
 				int misses=0;
-				for(int cloc=callbase+KEYLEN, rloc=refbase+cloc; cloc<bases.length && rloc<ref.length; cloc++, rloc++){
+				for(int cloc=callbase+KEYLEN, rloc=refbase+cloc; cloc<bases.length && rloc<scaffoldEnd && rloc>=scaffoldStart; cloc++, rloc++){
 					int old=locArray[cloc];
 					if(old==refbase){break;} //Already filled with present value
 					if(misses>0 && old>=0){break;} //Already filled with something that has no errors
@@ -3020,8 +3039,8 @@ public final class BBIndex extends AbstractIndex {
 		
 		final int center=locs[centerIndex];
 
-		final int maxLoc=center+MAX_INDEL2;
-		final int minLoc=Tools.max(0, center-MAX_INDEL);
+		final int maxLoc=center+runtimeMaxIndel2;
+		final int minLoc=Tools.max(0, center-runtimeMaxIndel);
 		
 		int score=0;
 		
@@ -3053,8 +3072,8 @@ public final class BBIndex extends AbstractIndex {
 	private final int scoreZslow(int[] locs, int centerIndex, int offsets[], boolean display, int numHits){
 		final int center=locs[centerIndex];
 
-		final int maxLoc=center+MAX_INDEL2;
-		final int minLoc=Tools.max(0, center-MAX_INDEL);
+		final int maxLoc=center+runtimeMaxIndel2;
+		final int minLoc=Tools.max(0, center-runtimeMaxIndel);
 		
 		byte[] array=new byte[offsets[offsets.length-1]+KEYLEN];
 		int score=0;
@@ -3125,7 +3144,7 @@ public final class BBIndex extends AbstractIndex {
 				
 				int offset=absdif(loc, prev);
 				
-				if(offset<=MAX_INDEL){
+				if(offset<=runtimeMaxIndel){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
 					
@@ -3173,7 +3192,7 @@ public final class BBIndex extends AbstractIndex {
 				
 				int offset=absdif(loc, prev);
 				
-				if(offset<=MAX_INDEL){
+				if(offset<=runtimeMaxIndel){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
 					
@@ -3285,11 +3304,9 @@ public final class BBIndex extends AbstractIndex {
 	}
 	@Override
 	final int[] getKeyScoreArray(int len, int strand){
-		//TODO [align2/BBIndex#001]: wrong pool dimension - keyScoreArrays is int[2][256][], so `.length`==2 (strand
-		//dim) not 256 (len dim); should be keyScoreArrays[strand].length. For len>=2 this returns a fresh new int[len]
-		//instead of pooling -> a hot-path alloc every find()/strand. Sibling getBaseScoreArray (above) does it right.
-		//LOW/perf (fresh array is valid). Family-wide (BBIndexPacBio/Skimmer/Acc); deep-research AGREES, same LOW.
-		if(len>=keyScoreArrays.length){return new int[len];}
+		// Thread-confined scratch: callers fully overwrite scores before use. @author Collei
+		// Index the length dimension; retain fresh allocation beyond the cached range.
+		if(len>=keyScoreArrays[0].length){return new int[len];}
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];
 	}
@@ -3404,6 +3421,21 @@ public final class BBIndex extends AbstractIndex {
 	public static final int ALIGN_COLUMNS=3000;
 	/** Maximum indel length allowed during alignment */
 	public static int MAX_INDEL=16000; //Max indel length, min 0, default 400; longer is more accurate
+
+	// Owned by the mapping thread, configured only between attempts. Static fields remain startup defaults.
+	private int runtimeMaxIndel;
+	private int runtimeMaxIndel2;
+	public int maxIndel(){return runtimeMaxIndel;}
+	public int maxIndel2(){return runtimeMaxIndel2;}
+
+	/** Change this index only. Positive-to-positive attempts; no read/counter transaction is implied. */
+	public void setRuntimeIndelLimits(int primary, int secondary){
+		if(primary<1 || secondary<1 || runtimeMaxIndel<1 || runtimeMaxIndel2<1 || PERFECTMODE || SEMIPERFECTMODE){
+			throw new IllegalArgumentException("Runtime indel changes require positive limits outside perfect/semiperfect mode");
+		}
+		runtimeMaxIndel=primary;
+		runtimeMaxIndel2=secondary;
+	}
 	/** Double the maximum indel length for extended searches */
 	public static int MAX_INDEL2=2*MAX_INDEL;
 	

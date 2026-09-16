@@ -39,6 +39,7 @@ import tracker.ReadStats;
  * @date Dec 22, 2012
  */
 public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.ProcessThread> {
+	private int hybridTipSearchCeiling; // Assigned during superclass construction; no field initializer.
 	
 
 	/**
@@ -200,7 +201,14 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	void postparse(String[] args){
-		
+		hybridTipSearchCeiling=TIP_SEARCH_DIST; // Preserve parsed user/preset ceiling before startup indel clamp.
+		if(hybridPair && !explicitIndelBoundSet){
+			// Force the validated low-pass bound through the existing install/clamp logic below,
+			// rather than assigning BBIndex.MAX_INDEL directly, so TIP_SEARCH_DIST and any later
+			// bandwidth clamp derive from it exactly as they would for a real user maxindel= flag.
+			maxIndel1=50; maxIndel2=100;
+		}
+
 		if(MSA.bandwidthRatio>0 && MSA.bandwidthRatio<.2){
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, 3);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, 6);
@@ -240,6 +248,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		if(MSA.bandwidth>0){
 			int halfwidth=MSA.bandwidth/2;
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, halfwidth/2);
+			hybridTipSearchCeiling=Tools.min(hybridTipSearchCeiling, halfwidth/2);
 			BBIndex.MAX_INDEL=Tools.min(BBIndex.MAX_INDEL, halfwidth/2);
 			BBIndex.MAX_INDEL2=Tools.min(BBIndex.MAX_INDEL2, halfwidth);
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, halfwidth/4);
@@ -276,7 +285,22 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				throw new RuntimeException("Unknown ambiguous mapping mode: "+ambigMode);
 			}
 		}
-		
+
+		if(hybridPair){
+			// Validate the FINAL effective state, after bandwidth clamps and ambigMode derivation
+			// above -- not an early snapshot -- so a bandwidth clamp that reduces the forced/explicit
+			// 50/100 below that, or ambig=all deriving PRINT_SECONDARY_ALIGNMENTS, are both caught.
+			if(BBIndex.MAX_INDEL!=50 || BBIndex.MAX_INDEL2!=100){
+				throw new RuntimeException("hybridpair requires effective maxindel=50/100 after all "
+					+"derivations (explicit setting or bandwidth clamp may have changed this); got "
+					+BBIndex.MAX_INDEL+"/"+BBIndex.MAX_INDEL2);
+			}
+			if(QUICK_MATCH_STRINGS){throw new RuntimeException("hybridpair is incompatible with quickmatch=t");}
+			if(STRICT_MAX_INDEL){throw new RuntimeException("hybridpair is incompatible with strictmaxindel");}
+			if(PRINT_SECONDARY_ALIGNMENTS){throw new RuntimeException("hybridpair is incompatible with secondary=t");}
+			if(PERFECTMODE || SEMIPERFECTMODE){throw new RuntimeException("hybridpair is incompatible with perfectmode/semiperfectmode");}
+		}
+
 	}
 	
 	/**
@@ -538,6 +562,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		streamer.start();
 		final boolean paired=streamer.paired();
 		if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
+		if(hybridPair && !paired){
+			// Real pairedness (interleaved=t included) is only known here, not in postparse();
+			// close the just-started Streamer explicitly since the try/finally below that would
+			// otherwise cover it does not begin until after writer/engine construction.
+			ReadWrite.closeStream(streamer);
+			throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
+		}
 
 		final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
 		final Writer[] writers=openWriters(args, buff, paired);
@@ -555,7 +586,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
 					PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
 					ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
-					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
+					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter, hybridTipSearchCeiling, hybridPair);
 			engine.idmodulo=idmodulo;
 			if(verbose){
 				engine.verbose=verbose;
@@ -880,6 +911,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		final BBMapThread engine;
 		final int tid;
 	}
+
+	/** Only BBMapS wires the per-invocation hybrid controller through to BBMapThread. */
+	@Override
+	boolean supportsHybridPair(){return true;}
 
 	/**
 	 * Configures parameters for semi-perfect alignment mode.

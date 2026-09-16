@@ -15,10 +15,14 @@ public final class LocalEditEngine {
 		this(k,lookup,windows,false);
 	}
 	public LocalEditEngine(final int k,final CountLookup lookup,final int windows,final boolean checkIndelCompetition){
+		this(k,lookup,windows,checkIndelCompetition,1);
+	}
+	/** Stride1 is dense; larger strides expand sampled low-depth regions exactly. */
+	public LocalEditEngine(final int k,final CountLookup lookup,final int windows,final boolean checkIndelCompetition,final int profileStride){
 		if(lookup==null){throw new IllegalArgumentException("Local edits require immutable counts.");}
 		corrector=new LocalEditCorrector(k,new HomopolymerIndelProposal.CountLookup(){
 			@Override public int count(final Kmer key){return lookup.count(key);}
-		},windows,checkIndelCompetition);
+		},windows,checkIndelCompetition,profileStride);
 	}
 
 	/** Whole-read transaction: skip excessive initial depth-estimated burden, or

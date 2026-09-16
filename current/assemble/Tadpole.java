@@ -48,10 +48,15 @@ import ukmer.KmerTableSetU;
  * Short-kmer assembler based on KmerCountExact.
  * Optional fixindels=f enables conservative general substitution and 1bp
  * insertion/deletion correction when set to true; it is not limited to runs.
+ * Competing verified substitutions and indels are withheld in both correction
+ * paths; substitution-first discovery must not hide cross-type ambiguity.
  * fixindelsmax=8 bounds sequential edits; fixindelspairs=f enables bounded
  * pair-witness rescue. The old localedit/localeditmax/localeditpairs names
  * remain aliases. hpindel and its hp* controls select a separate specialized
  * homopolymer-repair path, mutually exclusive with fixindels.
+ * fixindelsbatch=f optionally groups verified original-coordinate candidates,
+ * repairs bounded local regions and rebuilds the read once. It requires dense
+ * fixindelsstride=1, no pair lookahead, and fixindelspatchmax>=2*K+5 (default4096).
  * @author Brian Bushnell
  * @date May 15, 2015
  *
@@ -192,7 +197,9 @@ public abstract class Tadpole extends ShaveObject{
 		int hpMaxEdits_=1;
 		boolean localEdit_=false;
 		boolean localEditPairs_=false;
-		int localEditMax_=8;
+		boolean localEditBatch_=false;
+		int localEditMax_=8,localEditStride_=8;
+		int localEditPatchMax_=4096;
 		boolean useOwnership_=false, setUseOwnership_=false;
 		
 		int prefilter=0;
@@ -608,8 +615,14 @@ public abstract class Tadpole extends ShaveObject{
 				localEdit_=Parse.parseBoolean(b);
 			}else if(a.equals("fixindelsmax") || a.equals("localeditmax")){
 				localEditMax_=Integer.parseInt(b);
+			}else if(a.equals("fixindelsstride")){
+				localEditStride_=Integer.parseInt(b);
 			}else if(a.equals("fixindelspairs") || a.equals("localeditpairs")){
 				localEditPairs_=Parse.parseBoolean(b);
+			}else if(a.equals("fixindelsbatch")){
+				localEditBatch_=Parse.parseBoolean(b);
+			}else if(a.equals("fixindelspatchmax")){
+				localEditPatchMax_=Integer.parseInt(b);
 			}else if(a.equals("merge")){
 				merge_=Parse.parseBoolean(b);
 			}else if(a.equals("testmerge")){
@@ -865,7 +878,13 @@ public abstract class Tadpole extends ShaveObject{
 		
 		if(hpMaxEdits_<1){throw new IllegalArgumentException("hpmaxedits must be positive.");}
 		if(localEditMax_<1){throw new IllegalArgumentException("fixindelsmax must be positive.");}
+		if(localEditStride_<1){throw new IllegalArgumentException("fixindelsstride must be positive.");}
 		if(localEditPairs_ && !localEdit_){throw new IllegalArgumentException("fixindelspairs requires fixindels=t.");}
+		if(localEditPatchMax_<1){throw new IllegalArgumentException("fixindelspatchmax must be positive.");}
+		if(localEditBatch_ && (!localEdit_ || localEditPairs_ || localEditStride_!=1)){
+			throw new IllegalArgumentException("fixindelsbatch=t requires fixindels=t, fixindelsstride=1 and fixindelspairs=f; sparse scanning and pair lookahead are not supported by this mode.");
+		}
+		if(localEditBatch_ && localEditPatchMax_<2L*kbig+5){throw new IllegalArgumentException("fixindelspatchmax must be at least 2*K+5 to hold a local core and two complete K-base flanks.");}
 		if(localEdit_ && (kbig<5 || processingMode!=correctMode || ecc_ || ecco_ || merge_ || markErrors_ || hpIndel_ ||
 			extendLeft>0 || extendRight>0 || MARK_BAD_BASES>0)){
 			throw new IllegalArgumentException("fixindels requires k>=5 and dedicated correct mode: ecc=f ecco=f merge=f markerrors=f hpindel=f, no extension or base marking.");
@@ -886,7 +905,10 @@ public abstract class Tadpole extends ShaveObject{
 		hpMaxEdits=hpMaxEdits_;
 		localEdit=localEdit_;
 		localEditMax=localEditMax_;
+		localEditStride=localEditStride_;
 		localEditPairs=localEditPairs_;
+		localEditBatch=localEditBatch_;
+		localEditPatchMax=localEditPatchMax_;
 		if(hpIndel){
 			outstream.println("EXPERIMENTAL hpindel: unpaired alignment-free reads only; support>=4, original<=2, contrast>4, maxedits="+hpMaxEdits+". Rare true alleles may be changed.");
 		}
@@ -896,7 +918,8 @@ public abstract class Tadpole extends ShaveObject{
 			Read.CHANGE_QUALITY=false;
 			Read.FIX_HEADER=false;
 			outstream.println("fixindels: bounded worker-local single-edit correction; maxedits="+localEditMax+
-				", pair-lookahead="+localEditPairs+".");
+				", profile-stride="+localEditStride+", pair-lookahead="+localEditPairs+".");
+			if(localEditBatch){outstream.println("fixindelsbatch: original-coordinate local regions, one final read rebuild; max-region-bases="+localEditPatchMax+".");}
 		}
 
 		if(markErrors_){
@@ -1178,6 +1201,8 @@ public abstract class Tadpole extends ShaveObject{
 					" insertions="+localEditInsertions+" deletions="+localEditDeletions+" cap_hits="+localEditCapHits+
 					" pair_lookups="+localEditPairQueries);
 				outstream.println("FIXINDELS_GUARD initial_skipped="+localEditInitialSkipped+" rolled_back="+localEditRolledBack);
+				if(localEditBatch){outstream.println("FIXINDELS_BATCH selected_regions="+localEditRegions+" edge_deferred="+localEditEdges+
+					" size_deferred="+localEditSizes+" boundary_rejected="+localEditBoundaries+" final_rejected="+localEditFinalRejected);}
 			}
 			if(extendLeft>0 || extendRight>0){
 				outstream.println("Bases extended:             \t"+basesExtended);
@@ -2538,6 +2563,8 @@ public abstract class Tadpole extends ShaveObject{
 			localEditCapHits+=pt.localEditCapHitsT;
 			localEditPairQueries+=pt.localEditPairQueriesT;
 			localEditInitialSkipped+=pt.localEditInitialSkippedT;localEditRolledBack+=pt.localEditRolledBackT;
+			localEditRegions+=pt.localEditRegionsT;localEditEdges+=pt.localEditEdgesT;localEditSizes+=pt.localEditSizesT;
+			localEditBoundaries+=pt.localEditBoundariesT;localEditFinalRejected+=pt.localEditFinalRejectedT;
 			readsCorrected+=pt.readsCorrectedT;
 			basesCorrectedPincer+=pt.basesCorrectedPincerT;
 			basesCorrectedTail+=pt.basesCorrectedTailT;
@@ -3047,6 +3074,19 @@ public abstract class Tadpole extends ShaveObject{
 
 		/** Applies the bounded worker-local native local-edit kernel. */
 		private void applyLocalEdits(final Read r){
+			if(localEditBatch){
+				assert(localEditPatch!=null && localEditRegionsWorker!=null) : "Batch correction needs one worker-owned selector/executor sharing immutable native counts.";
+				final int changed=localEditPatch.correctSelected(r,localEditRegionsWorker,localEditMax);
+				localEditSubstitutionsT+=localEditPatch.substitutions;localEditInsertionsT+=localEditPatch.insertions;
+				localEditDeletionsT+=localEditPatch.deletions;localEditReadsChangedT+=(changed>0 ? 1 : 0);
+				localEditInitialSkippedT+=(localEditPatch.initialRejected ? 1 : 0);
+				localEditCapHitsT+=(localEditPatch.budgetRejected ? 1 : 0);localEditRolledBackT+=(localEditPatch.budgetRejected ? 1 : 0);
+				localEditRegionsT+=localEditRegionsWorker.regions.finish().size/4;
+				localEditEdgesT+=localEditRegionsWorker.regions.edgeDeferred;
+				localEditSizesT+=(long)localEditRegionsWorker.regions.sizeDeferred+localEditPatch.sizeRejected;
+				localEditBoundariesT+=localEditPatch.boundaryRejected;localEditFinalRejectedT+=localEditPatch.finalRejected;
+				return;
+			}
 			assert(localEditEngine!=null) : "The dedicated correction path requires one worker-local transaction engine.";
 			localEditEngine.correct(r,localEditMax,localEditPairs);
 			localEditSubstitutionsT=localEditEngine.substitutions;localEditInsertionsT=localEditEngine.insertions;
@@ -3131,13 +3171,18 @@ public abstract class Tadpole extends ShaveObject{
 		long hpCompetingVetoedT=0;
 		long hpDeletionVetoedT=0;
 		long hpReadsChangedT=0, hpProposalsT=0, hpWithheldT=0, hpInsertedT=0, hpDeletedT=0;
-		private final LocalEditEngine localEditEngine=localEdit ? new LocalEditEngine(kbig,
+		private final LocalEditEngine localEditEngine=localEdit && !localEditBatch ? new LocalEditEngine(kbig,
 			new LocalEditEngine.CountLookup(){
 				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
-			},1) : null;
+			},1,true,localEditStride) : null;
+		private final HomopolymerIndelProposal.CountLookup localEditBatchCounts=localEditBatch ?
+			new HomopolymerIndelProposal.CountLookup(){@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}} : null;
+		private final LocalEditPatchRegions localEditRegionsWorker=localEditBatch ? new LocalEditPatchRegions(kbig,localEditBatchCounts,1,true,1,localEditPatchMax) : null;
+		private final LocalEditPatchCorrector localEditPatch=localEditBatch ? new LocalEditPatchCorrector(kbig,localEditBatchCounts,1,true,localEditPatchMax) : null;
 		long localEditReadsChangedT=0, localEditSubstitutionsT=0, localEditInsertionsT=0, localEditDeletionsT=0;
 		long localEditCapHitsT=0, localEditPairQueriesT=0;
 		long localEditInitialSkippedT=0,localEditRolledBackT=0;
+		long localEditRegionsT=0,localEditEdgesT=0,localEditSizesT=0,localEditBoundariesT=0,localEditFinalRejectedT=0;
 		
 		long readsInT=0;
 		long basesInT=0;
@@ -4225,6 +4270,7 @@ public abstract class Tadpole extends ShaveObject{
 	long localEditReadsChanged=0, localEditSubstitutions=0, localEditInsertions=0, localEditDeletions=0;
 	long localEditCapHits=0, localEditPairQueries=0;
 	long localEditInitialSkipped=0,localEditRolledBack=0;
+	long localEditRegions=0,localEditEdges=0,localEditSizes=0,localEditBoundaries=0,localEditFinalRejected=0;
 	long readsExtended=0;
 	long readsCorrected=0;
 	long basesCorrectedPincer=0;
@@ -4447,8 +4493,11 @@ public abstract class Tadpole extends ShaveObject{
 	final boolean hpDeletionCompeting;
 	/** Experimental, disabled-by-default worker-local single-edit correction. */
 	final boolean localEdit;
-	final int localEditMax;
+	final int localEditMax,localEditStride;
 	final boolean localEditPairs;
+	/** Opt-in dense local transactions; existing sequential defaults remain unchanged. */
+	final boolean localEditBatch;
+	final int localEditPatchMax;
 	
 	/** Correct via overlap */
 	final boolean ecco;

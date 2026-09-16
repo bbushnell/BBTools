@@ -12,11 +12,15 @@ final class LocalEditTroughLocator {
 		k=k_;minCount=minCount_;
 	}
 	void reset(final byte[] bases_,final IntList counts_){
+		reset(bases_,counts_,false);
+	}
+	/** Sparse profiles distinguish unmeasured windows from N-invalid windows. */
+	void reset(final byte[] bases_,final IntList counts_,final boolean sparse_){
 		bases=null;counts=null;clearResult();
 		if(bases_==null || counts_==null || counts_.size!=Math.max(0,bases_.length-k+1)){
 			throw new IllegalArgumentException("Locator needs exactly max(0,readLength-K+1) original-window depths.");
 		}
-		bases=bases_;counts=counts_;cursor=checkedBases=0;lastUndefined=-1;
+		bases=bases_;counts=counts_;sparse=sparse_;cursor=checkedBases=0;lastUndefined=-1;
 		lowRegions=skippedEdge=skippedWide=skippedUndefined=0;clearResult();
 	}
 	boolean next(){
@@ -29,6 +33,12 @@ final class LocalEditTroughLocator {
 			final int end=cursor;
 			lowRegions++;
 			if(a==0 || end==counts.size){skippedEdge++;continue;}
+			if(sparse){
+				if(counts.get(a-1)==LocalEditDepthProfile.UNKNOWN || counts.get(end)==LocalEditDepthProfile.UNKNOWN){
+					throw new IllegalStateException("Sparse low regions require measured flanks or N/edge barriers.");
+				}
+				if(counts.get(a-1)==LocalEditDepthProfile.INVALID_N || counts.get(end)==LocalEditDepthProfile.INVALID_N){skippedUndefined++;continue;}
+			}
 			if(end-a>k){skippedWide++;continue;}
 			// Include both supporting flank windows. Advance a shared validity
 			// cursor rather than rescanning their union for every trough.
@@ -53,6 +63,7 @@ final class LocalEditTroughLocator {
 	}
 	private boolean low(final int position){
 		final int depth=counts.get(position);
+		if(sparse && (depth==LocalEditDepthProfile.UNKNOWN || depth==LocalEditDepthProfile.INVALID_N)){return false;}
 		if(depth<-1){throw new IllegalArgumentException("Depth must be nonnegative or absent=-1: "+depth);}
 		return depth<minCount;
 	}
@@ -63,5 +74,6 @@ final class LocalEditTroughLocator {
 	private byte[] bases;
 	private IntList counts;
 	private int cursor,checkedBases,lastUndefined;
+	private boolean sparse;
 	private final int k,minCount;
 }

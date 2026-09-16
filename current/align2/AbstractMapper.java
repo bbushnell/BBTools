@@ -43,6 +43,12 @@ import tracker.ReadStats;
  */
 public abstract class AbstractMapper {
 
+	// No explicit initializer on either field: the constructor below calls parse()/postparse()
+	// (virtual dispatch into subclass overrides) before subclass field initializers would run;
+	// an explicit initializer here would risk being reordered incorrectly by a future edit.
+	boolean hybridPair;
+	boolean explicitIndelBoundSet;
+
 	/**
 	 * Constructs AbstractMapper and performs complete initialization sequence.
 	 * Processes command-line arguments, validates parameters, initializes I/O streams,
@@ -63,6 +69,9 @@ public abstract class AbstractMapper {
 		String[] args3=preparse(args2);
 		parse(args3);
 		postparse(args3);
+		if(hybridPair && !supportsHybridPair()){
+			throw new RuntimeException(getClass().getSimpleName()+" does not support hybridpair.");
+		}
 		setup();
 		checkFiles();
 	}
@@ -116,6 +125,10 @@ public abstract class AbstractMapper {
 	/** Performs implementation-specific post-processing after argument parsing.
 	 * @param args Parsed command-line arguments */
 	abstract void postparse(String[] args);
+
+	/** Whether this mapper variant wires the per-invocation hybrid paired controller through to
+	 * its worker threads. Default false; only BBMapS overrides this to true. */
+	boolean supportsHybridPair(){return false;}
 
 	/** Initializes implementation-specific components after parameter parsing */
 	abstract void setup();
@@ -500,22 +513,28 @@ public abstract class AbstractMapper {
 			}else if(a.equals("maxindel")){
 				maxIndel1=(int)Tools.max(0, Parse.parseKMG(b));
 				if(!setMaxIndel2){maxIndel2=2*maxIndel1;}
+				explicitIndelBoundSet=true;
 			}else if(a.equals("maxindel1") || a.equals("maxindelsingle")){
 				maxIndel1=(int)Tools.max(0, Parse.parseKMG(b));
 				maxIndel2=Tools.max(maxIndel1, maxIndel2);
 				setMaxIndel1=true;
+				explicitIndelBoundSet=true;
 			}else if(a.equals("maxindel2") || a.equals("maxindelsum")){
 				maxIndel2=(int)Tools.max(0, Parse.parseKMG(b));
 				maxIndel1=Tools.min(maxIndel1, maxIndel2);
 				setMaxIndel2=true;
+				explicitIndelBoundSet=true;
 			}else if(a.equals("strictmaxindel")){
 				if(b!=null && Tools.isDigit(b.charAt(0))){
 					maxIndel1=(int)Tools.max(0, Parse.parseKMG(b));
 					if(!setMaxIndel2){maxIndel2=2*maxIndel1;}
 					STRICT_MAX_INDEL=true;
+					explicitIndelBoundSet=true;
 				}else{
 					STRICT_MAX_INDEL=Parse.parseBoolean(b);
 				}
+			}else if(a.equals("hybridpair")){
+				hybridPair=Parse.parseBoolean(b);
 			}else if(a.equals("padding")){
 				SLOW_ALIGN_PADDING=Integer.parseInt(b);
 				SLOW_RESCUE_PADDING=SLOW_ALIGN_PADDING;

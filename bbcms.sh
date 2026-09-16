@@ -63,6 +63,12 @@ fixindelsmax=8  Maximum accepted single-base edits per read (S+I+D total).
                 the limit requires checking that no further supported edit exists.
                 Rescan after each tentative edit. No pair-witness option in BBCMS.
                 Legacy aliases: localedit, localeditwindows, localeditmax.
+fixindelsstride=1  Dense scan by default; 8 enables experimental sparse scans.
+                Sample every Nth kmer during depth scans; 1 scans densely.
+                Fill detected low-depth patches and flanks exactly. Short troughs
+                between samples may be missed; Bloom collisions may hide them.
+                Small K/short profiles use dense scans. Winning edits still need
+                complete affected-context verification. Positive integer.
 
 Example of general single-base correction:
 bbcms.sh in=reads.fq out=fixed.fq k=62 bits=4 fixindels=t ecc=f merge=f minprob=0

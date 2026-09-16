@@ -1,6 +1,7 @@
 package align2;
 
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 import dna.AminoAcid;
 import shared.KillSwitch;
@@ -10,6 +11,21 @@ import stream.SiteScore;
 /**
  * Modification of MultiStateAligner9ts to replace fixed affine steps with an array */
 public final class MultiStateAligner11ts extends MSA{
+	// Private D451 pruning candidate; no shadow matrix.
+	private final boolean pruneWide=Boolean.getBoolean("bbmap3.nativePruneWide");
+	// D515 private diagnostic mode; default behavior remains the legacy score model.
+	private final boolean nativeGaplessScore=Boolean.getBoolean("bbmap3.nativeGaplessScore");
+	// D522 bounded prototype: literal A/C/G/T/N, gapless reference, explicit MS ancestry.
+	private final boolean nativeNConsistency=Boolean.getBoolean("bbmap3.nativeNConsistency");
+	private final boolean nativeNLegacyRouting=nativeNConsistency && Boolean.getBoolean("bbmap3.nativeNLegacyRouting");
+	private static final byte INVALID_MS_PREDECESSOR=-1;
+	private final byte[][] msPredecessor;
+	// Worker-confined ownership of the latest routed fill; tuples have no generation token.
+	private boolean routedNMode, routedReady, routedGapped;
+	private byte[] routedQuery, routedReference;
+	private int routedRawStart, routedRawStop, routedDirectStart, routedDirectStop;
+	// Test driver only: trials, accepted limited, fallback, limited cells, fallback cells.
+	static volatile AtomicLongArray widePruneAudit;
 	
 	
 	/** Testing method that demonstrates deletion score calculation.
@@ -61,6 +77,7 @@ public final class MultiStateAligner11ts extends MSA{
 		super(maxRows_, maxColumns_);
 		
 		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
+		msPredecessor=nativeNConsistency ? new byte[maxRows+1][maxColumns+2] : null;
 		//TODO: Possible bug [align2/MultiStateAligner11ts#002] (latent): the fill loop's clear-ahead writes
 		//packed[..][row-1][col+1] at the colStop boundary. col runs to `columns` (for col=colStart;col<=columns),
 		//so when colStop==maxGoodCol==columns and row>1, col+1=columns+1. This matrix is only maxColumns+1 wide
@@ -109,6 +126,11 @@ public final class MultiStateAligner11ts extends MSA{
 	
 	@Override
 	public final int[] fillLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, int[] gaps){
+		if(nativeNLegacyRouting){return fillRouted(read, ref, refStartLoc, refEndLoc, minScore, gaps, true);}
+		if(nativeNConsistency){checkNConsistencyInput(read, ref, refStartLoc, refEndLoc, gaps);}
+		return fillLimitedUnrouted(read, ref, refStartLoc, refEndLoc, minScore, gaps);
+	}
+	private int[] fillLimitedUnrouted(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, int[] gaps){
 		if(gaps==null){return fillLimitedX(read, ref, refStartLoc, refEndLoc, minScore);}
 		else{
 			byte[] gref=makeGref(ref, gaps, refStartLoc, refEndLoc);
@@ -126,6 +148,10 @@ public final class MultiStateAligner11ts extends MSA{
 	/** return new int[] {rows, maxC, maxS, max};
 	 * Will not fill areas that cannot match minScore */
 	private final int[] fillLimitedX(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
+		return fillLimitedX(read, ref, refStartLoc, refEndLoc, minScore, false);
+	}
+
+	private final int[] fillLimitedX(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, boolean bypassWidth){
 		if(verbose){System.err.println("fillLimitedX");}
 //		minScore=0;
 //		assert(minScore>0);
@@ -135,7 +161,22 @@ public final class MultiStateAligner11ts extends MSA{
 		final int halfband=(bandwidth<1 && bandwidthRatio<=0) ? 0 :
 			Tools.max(Tools.min(bandwidth<1 ? 9999999 : bandwidth, bandwidthRatio<=0 ? 9999999 : 8+(int)(rows*bandwidthRatio)), (columns-rows+8))/2;
 		
-		if(minScore<1 || (columns+rows<90) || ((halfband<1 || halfband*3>columns) && (columns>read.length+Tools.min(170, read.length+20)))){
+		if(minScore<1 || (columns+rows<90) || (!bypassWidth && (halfband<1 || halfband*3>columns) && (columns>read.length+Tools.min(170, read.length+20)))){
+			if(!bypassWidth && pruneWide && minScore>=1 && columns+rows>=90 &&
+					bandwidth<1 && bandwidthRatio<=0 && wideTrialSafe(minScore)){
+				final AtomicLongArray audit=widePruneAudit;
+				final long before=iterationsLimited;
+				if(audit!=null){audit.incrementAndGet(0);}
+				int[] limited=fillLimitedX(read, ref, refStartLoc, refEndLoc, minScore, true);
+				if(audit!=null){audit.addAndGet(3,iterationsLimited-before);}
+				if(limited!=null){if(audit!=null){audit.incrementAndGet(1);}return limited;}
+				// Every null restores the original exhaustive result AND live primary matrix.
+				if(audit!=null){audit.incrementAndGet(2);}
+				final long unlimitedBefore=iterationsUnlimited;
+				int[] exhaustive=fillUnlimited(read, ref, refStartLoc, refEndLoc);
+				if(audit!=null){audit.addAndGet(4,iterationsUnlimited-unlimitedBefore);}
+				return exhaustive;
+			}
 //			assert(false) : minScore;
 //			assert(minScore>0) : minScore;
 //			assert(false) : +minScore+", "+columns+", "+read.length+", "+Tools.min(100, read.length);
@@ -147,6 +188,7 @@ public final class MultiStateAligner11ts extends MSA{
 		final int BARRIER_D2=rows-BARRIER_D1;
 		
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
+		if(nConsistentExecution()){clearMSPredecessors();}
 		
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
@@ -203,30 +245,20 @@ public final class MultiStateAligner11ts extends MSA{
 		//row/col, built backward from minScore_off by subtracting the best-case per-step gain (floored at `floor`).
 		//Per cell, limit=max(vlimit,horizLimit[col]); any state scoring below its limit2 is set to subfloor (dead),
 		//collapsing the band to the minGoodCol..maxGoodCol live range carried into the next row.
+		//D500: remaining matches may continue an existing streak, gaining MATCH2 rather than MATCH.
+		//Use optimistic gains matching the native equality test, including non-N ambiguous symbols.
+		//N/GAPC cannot earn diagonal match points; omit negative gap costs for a safe upper bound.
 		vertLimit[rows]=minScore_off;
-		boolean prevDefined=false;
 		for(int i=rows-1; i>=0; i--){
-			byte c=read[i];
-			if(AminoAcid.isFullyDefined(c)){
-				vertLimit[i]=Tools.max(vertLimit[i+1]-(prevDefined ? POINTSoff_MATCH2 : POINTSoff_MATCH), floor);
-				prevDefined=true;
-			}else{
-				vertLimit[i]=Tools.max(vertLimit[i+1]-POINTSoff_NOCALL, floor);
-				prevDefined=false;
-			}
+			final int gain=(read[i]=='N' ? POINTSoff_NOCALL : POINTSoff_MATCH2);
+			vertLimit[i]=Tools.max(vertLimit[i+1]-gain, floor);
 		}
 		
 		horizLimit[columns]=minScore_off;
-		prevDefined=false;
 		for(int i=columns-1; i>=0; i--){
-			byte c=ref[refStartLoc+i];
-			if(AminoAcid.isFullyDefined(c)){
-				horizLimit[i]=Tools.max(horizLimit[i+1]-(prevDefined ? POINTSoff_MATCH2 : POINTSoff_MATCH), floor);
-				prevDefined=true;
-			}else{
-				horizLimit[i]=Tools.max(horizLimit[i+1]-(prevDefined && c==GAPC ? POINTSoff_DEL : POINTSoff_NOREF), floor);
-				prevDefined=false;
-			}
+			final byte c=ref[refStartLoc+i];
+			final int gain=(c=='N' || c==GAPC ? POINTSoff_NOREF : POINTSoff_MATCH2);
+			horizLimit[i]=Tools.max(horizLimit[i+1]-gain, floor);
 		}
 		
 //		vertLimit[rows]=minScore_off;
@@ -263,9 +295,12 @@ public final class MultiStateAligner11ts extends MSA{
 			if(colStart>1){
 				assert(row>0);
 				packed[MODE_MS][row][colStart-1]=subfloor;
+				if(nConsistentExecution()){msPredecessor[row][colStart-1]=INVALID_MS_PREDECESSOR;}
 				packed[MODE_INS][row][colStart-1]=subfloor;
 				packed[MODE_DEL][row][colStart-1]=subfloor;
 			}
+			int leftMSScore=packed[MODE_MS][row][colStart-1]&SCOREMASK;
+			int leftDELScore=packed[MODE_DEL][row][colStart-1]&SCOREMASK;
 			
 			
 			for(int col=colStart; col<=columns; col++){
@@ -292,12 +327,13 @@ public final class MultiStateAligner11ts extends MSA{
 				
 				iterationsLimited++;
 				final int limit=Tools.max(vlimit, horizLimit[col]);
-				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-POINTSoff_SUB3));
+				//A nocall diagonal can gain0, and equality must survive because final acceptance is >=.
+				final int bestDiagGain=(match ? POINTSoff_MATCH2 : (call1=='N' || ref1=='N' ? POINTSoff_NOCALL : POINTSoff_SUB3));
+				final int limit3=Tools.max(floor, limit-bestDiagGain);
 
 				final int delNeeded=Tools.max(0, row-col-1);
 				final int insNeeded=Tools.max(0, (rows-row)-(columns-col)-1);
 
-				final int delPenalty=calcDelScoreOffset(delNeeded);
 				final int insPenalty=calcInsScoreOffset(insNeeded);
 				
 				
@@ -305,8 +341,8 @@ public final class MultiStateAligner11ts extends MSA{
 				final int scoreFromDel_MS=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
 				final int scoreFromIns_MS=packed[MODE_INS][row-1][col-1]&SCOREMASK;
 				
-				final int scoreFromDiag_DEL=packed[MODE_MS][row][col-1]&SCOREMASK;
-				final int scoreFromDel_DEL=packed[MODE_DEL][row][col-1]&SCOREMASK;
+				final int scoreFromDiag_DEL=leftMSScore;
+				final int scoreFromDel_DEL=leftDELScore;
 
 				final int scoreFromDiag_INS=packed[MODE_MS][row-1][col]&SCOREMASK;
 				final int scoreFromIns_INS=packed[MODE_INS][row-1][col]&SCOREMASK;
@@ -316,8 +352,11 @@ public final class MultiStateAligner11ts extends MSA{
 //					iterationsLimited--; //A "fast" iteration
 //				}
 				
-				if(gap || (scoreFromDiag_MS<=limit3 && scoreFromDel_MS<=limit3 && scoreFromIns_MS<=limit3)){
+				final int writtenMSScore;
+				if(gap || (scoreFromDiag_MS<limit3 && scoreFromDel_MS<limit3 && scoreFromIns_MS<limit3)){
 					packed[MODE_MS][row][col]=subfloor;
+					writtenMSScore=subfloor;
+					if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 				}else{//Calculate match and sub scores
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
@@ -327,7 +366,13 @@ public final class MultiStateAligner11ts extends MSA{
 						int time;
 						byte prevState;
 						
-						if(match){
+						if(nConsistentExecution()){
+							writeConsistentMS(row, col, call0, call1, ref0, ref1);
+							final int cell=packed[MODE_MS][row][col];
+							score=cell&SCOREMASK;
+							time=cell&TIMEMASK;
+							prevState=msPredecessor[row][col];
+						}else if(match){
 
 							int scoreMS=scoreFromDiag_MS+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel_MS+POINTSoff_MATCH;
@@ -399,7 +444,7 @@ public final class MultiStateAligner11ts extends MSA{
 						
 						final int limit2;
 						if(delNeeded>0){
-							limit2=limit-delPenalty;
+							limit2=limit; // Prefix offset alone does not require a future deletion.
 						}else if(insNeeded>0){
 							limit2=limit-insPenalty;
 						}else{
@@ -414,6 +459,7 @@ public final class MultiStateAligner11ts extends MSA{
 							if(minGoodCol<0){minGoodCol=col;}
 						}else{
 							score=subfloor;
+							if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 						}
 						
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}
@@ -424,12 +470,16 @@ public final class MultiStateAligner11ts extends MSA{
 						assert((score&SCOREMASK)==score);
 //						assert((prevState&MODEMASK)==prevState);
 						assert((time&TIMEMASK)==time);
+						writtenMSScore=score;
 					}
 				}
 				
-				if((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit) || row<BARRIER_D1 || row>BARRIER_D2){
+				//Long deletion extensions include zero-cost steps; equality can still be viable.
+				final int writtenDELScore;
+				if((scoreFromDiag_DEL<limit && scoreFromDel_DEL<limit) || row<BARRIER_D1 || row>BARRIER_D2){
 //					assert((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit)) : scoreFromDiag_DEL+", "+row;
 					packed[MODE_DEL][row][col]=subfloor;
+					writtenDELScore=subfloor;
 				}else{//Calculate DEL score
 							
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
@@ -492,7 +542,10 @@ public final class MultiStateAligner11ts extends MSA{
 					assert((score&SCOREMASK)==score);
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
+					writtenDELScore=score;
 				}
+				leftMSScore=writtenMSScore;
+				leftDELScore=writtenDELScore;
 
 //				if(gap || (scoreFromDiag_INS<=limit && scoreFromIns_INS<=limit) || col<BARRIER_I1 || col>BARRIER_I2){
 				if(gap || (scoreFromDiag_INS<=limit && scoreFromIns_INS<=limit) || (row<BARRIER_I1 && col>1) || (row>BARRIER_I2 && col<BARRIER_I2b)){
@@ -530,7 +583,7 @@ public final class MultiStateAligner11ts extends MSA{
 					
 					final int limit2;
 					if(delNeeded>0){
-						limit2=limit-delPenalty;
+						limit2=limit; // Prefix offset alone does not require a future deletion.
 					}else if(insNeeded>0){
 						limit2=limit-calcInsScoreOffset(time+insNeeded)+calcInsScoreOffset(time);
 					}else{
@@ -561,6 +614,7 @@ public final class MultiStateAligner11ts extends MSA{
 					if(col>colStop && (maxGoodCol<col || halfband>0)){break;}
 					if(row>1){
 						packed[MODE_MS][row-1][col+1]=subfloor;
+						if(nConsistentExecution()){msPredecessor[row-1][col+1]=INVALID_MS_PREDECESSOR;}
 						packed[MODE_INS][row-1][col+1]=subfloor;
 						packed[MODE_DEL][row-1][col+1]=subfloor;
 					}
@@ -610,8 +664,124 @@ public final class MultiStateAligner11ts extends MSA{
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
 	
+	/** Reject unsupported prototype inputs before modifying rows, matrices, or metadata. */
+	private void checkNConsistencyInput(byte[] read, byte[] ref, int start, int stop, int[] gaps){
+		int reason=nConsistencyRejection(read,ref,start,stop,gaps);
+		if(reason==1){throw new IllegalArgumentException("nativeNConsistency requires bounded nonempty null-gap input with a spare column");}
+		if(reason==2){throw new IllegalArgumentException("nativeNConsistency query must contain only ACGTN");}
+		if(reason==3){throw new IllegalArgumentException("nativeNConsistency reference must contain only ACGTN");}
+	}
+	private int nConsistencyRejection(byte[] read, byte[] ref, int start, int stop, int[] gaps){
+		if(gaps!=null || read==null || ref==null || read.length<1 || read.length>maxRows ||
+				start<0 || stop<start || stop>=ref.length || (long)stop-start+1>=maxColumns){
+			return 1;
+		}
+		for(byte b : read){if(!nConsistencyBase(b)){return 2;}}
+		for(int i=start; i<=stop; i++){if(!nConsistencyBase(ref[i])){return 3;}}
+		return 0;
+	}
+	private static boolean nConsistencyBase(byte b){return b=='A' || b=='C' || b=='G' || b=='T' || b=='N';}
+	private boolean nConsistentExecution(){return nativeNConsistency && (!nativeNLegacyRouting || routedNMode);}
+	private void invalidateRoutedResult(){
+		routedReady=false;routedQuery=null;routedReference=null;
+		routedRawStart=routedRawStop=routedDirectStart=routedDirectStop=-1;
+	}
+	/** One public invocation owns all private dispatch, including gref construction and fallback. */
+	private int[] fillRouted(byte[] read, byte[] ref, int start, int stop, int minimum, int[] gaps, boolean limited){
+		final boolean useN=nConsistencyRejection(read,ref,start,stop,gaps)==0;
+		invalidateRoutedResult(); // BEFORE makeGref can change buffer, origin, or caller gaps.
+		routedNMode=useN;routedGapped=gaps!=null;
+		boolean completed=false;
+		try{
+			int[] result=limited ? fillLimitedUnrouted(read,ref,start,stop,minimum,gaps) : fillUnlimitedUnrouted(read,ref,start,stop,gaps);
+			if(result!=null){
+				// Reconstruction uses translated PUBLIC bounds, not private 0..greflimit/cushion.
+				int directStart=routedGapped ? translateToGappedCoordinate(start,grefbuffer,read) : start;
+				int directStop=routedGapped ? translateToGappedCoordinate(stop,grefbuffer,read) : stop;
+				routedQuery=read;routedReference=ref;routedRawStart=start;routedRawStop=stop;
+				routedDirectStart=directStart;routedDirectStop=directStop;routedReady=true;
+			}
+			completed=true;
+			return result;
+		}finally{
+			if(!completed || !routedReady){invalidateRoutedResult();}
+		}
+	}
+	private void checkRoutedPublic(byte[] read,byte[] ref,int start,int stop,boolean gapped){
+		if(!routedReady){throw new IllegalStateException("No successful resident routed fill");}
+		if(read!=routedQuery || ref!=routedReference || start!=routedRawStart || stop!=routedRawStop || gapped!=routedGapped){
+			throw new IllegalArgumentException("Routed reconstruction does not match public fill geometry");
+		}
+	}
+	private void checkRoutedDirect(byte[] read,byte[] ref,int start,int stop){
+		if(!routedReady){throw new IllegalStateException("No successful resident routed fill");}
+		if(read!=routedQuery || ref!=(routedGapped ? grefbuffer : routedReference) || start!=routedDirectStart || stop!=routedDirectStop){
+			throw new IllegalArgumentException("Routed reconstruction does not match resident direct geometry");
+		}
+	}
+	private void clearMSPredecessors(){
+		for(int row=0; row<=rows; row++){Arrays.fill(msPredecessor[row], 0, columns+2, INVALID_MS_PREDECESSOR);}
+	}
+	/** Primitive-only MS transition. The sidecar records the actual adjusted-score winner. */
+	private void writeConsistentMS(int row, int col, byte call0, byte call1, byte ref0, byte ref1){
+		final int parent=packed[MODE_MS][row-1][col-1];
+		final int streak=parent&TIMEMASK;
+		final boolean boundary=row==1 || col==1;
+		final boolean noCall=call1=='N' || ref1=='N';
+		final boolean match=!noCall && call1==ref1;
+		final boolean previousN=!boundary && (call0=='N' || ref0=='N');
+		final boolean previousMatch=!boundary && !previousN && call0==ref0;
+		final int fromMS, otherGain, msTime;
+		if(noCall){
+			fromMS=(parent&SCOREMASK)+POINTSoff_NOCALL;
+			otherGain=POINTSoff_NOCALL;msTime=1;
+		}else if(match){
+			fromMS=(parent&SCOREMASK)+(previousMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
+			otherGain=POINTSoff_MATCH;msTime=previousMatch ? streak+1 : 1;
+		}else{
+			final int gain=boundary ? POINTSoff_SUB : previousN ? POINTSoff_SUB2 :
+				previousMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) : POINTSoff_SUB_ARRAY[streak+1];
+			fromMS=(parent&SCOREMASK)+gain;
+			otherGain=POINTSoff_SUB;msTime=boundary || previousN || previousMatch ? 1 : streak+1;
+		}
+		final int fromD=(packed[MODE_DEL][row-1][col-1]&SCOREMASK)+otherGain;
+		final int fromI=(packed[MODE_INS][row-1][col-1]&SCOREMASK)+otherGain;
+		final int score;int time;final byte previous;
+		if(fromMS>=fromD && fromMS>=fromI){score=fromMS;time=msTime;previous=MODE_MS;}
+		else if(fromD>=fromI){score=fromD;time=1;previous=MODE_DEL;}
+		else{score=fromI;time=1;previous=MODE_INS;}
+		if(time>MAX_TIME){time=MAX_TIME-MASK5;}
+		assert(score>=MINoff_SCORE && score<=MAXoff_SCORE) : "nativeNConsistency score overflow";
+		packed[MODE_MS][row][col]=score|time;
+		msPredecessor[row][col]=previous;
+	}
+	private byte consistentMSPredecessor(int row, int col){
+		final byte previous=msPredecessor[row][col];
+		if(previous<MODE_MS || previous>MODE_INS){throw new IllegalStateException("Invalid native MS predecessor at "+row+","+col);}
+		return previous;
+	}
+
+	/** Conservative trial envelope; rejected cases retain the legacy exhaustive dispatch. */
+	private boolean wideTrialSafe(int minimum){
+		// Limited clear-ahead writes col+1; the maximum allocated column must stay spare.
+		if(rows<1 || rows>300 || rows>maxRows || columns<1 || columns>1536 || columns>=maxColumns){return false;}
+		final long gain=POINTS_MATCH+(rows-1L)*POINTS_MATCH2;
+		final long adjusted=(long)minimum-MIN_SCORE_ADJUST;
+		final long subfloor=adjusted-gain-5L*POINTS_MATCH2;
+		// 512 exceeds each fixed native transition penalty. This bounds GAPC-driven
+		// horizLimit growth, remaining-indel corrections and score descent before int shifts.
+		final long margin=512L*(rows+columns+4L);
+		return adjusted<=gain && -4L*gain>BAD && subfloor>BAD &&
+			adjusted+margin<MAX_SCORE && subfloor-margin>MIN_SCORE;
+	}
+
 	@Override
 	public final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int[] gaps){
+		if(nativeNLegacyRouting){return fillRouted(read,ref,refStartLoc,refEndLoc,0,gaps,false);}
+		if(nativeNConsistency){checkNConsistencyInput(read, ref, refStartLoc, refEndLoc, gaps);}
+		return fillUnlimitedUnrouted(read,ref,refStartLoc,refEndLoc,gaps);
+	}
+	private int[] fillUnlimitedUnrouted(byte[] read,byte[] ref,int refStartLoc,int refEndLoc,int[] gaps){
 		if(gaps==null){return fillUnlimited(read, ref, refStartLoc, refEndLoc);}
 		else{
 			byte[] gref=makeGref(ref, gaps, refStartLoc, refEndLoc);
@@ -643,6 +813,7 @@ public final class MultiStateAligner11ts extends MSA{
 	private final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		rows=read.length; //Number rows to fill, equal to query length.
 		columns=refEndLoc-refStartLoc+1; //Number of columns to fill, equal to relevant portion of reference.
+		if(nConsistentExecution()){clearMSPredecessors();}
 		
 		//Ensure the required matrix size is within the preallocated matrix size
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: rows="+rows+"/"+maxRows+new String(read)+"\n";
@@ -701,6 +872,7 @@ public final class MultiStateAligner11ts extends MSA{
 				if(gap){
 					//In this case a deletion is forced, so the MS cell is marked invalid
 					packed[MODE_MS][row][col]=subfloor;
+					if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 				}else{//Calculate match and sub scores
 					
 					//In each case the previous cell is the diagonal, but it can be from any of the 3 matrices.
@@ -715,7 +887,9 @@ public final class MultiStateAligner11ts extends MSA{
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 					
 					//This block has 2 sub-blocks, on for match and one for sub.
-					if(match){
+					if(nConsistentExecution()){
+						writeConsistentMS(row, col, call0, call1, ref0, ref1);
+					}else if(match){
 						//The current symbols match, so increment using a MATCH score
 						//Consecutive matches give a slightly higher score than the initial match
 						//Only the maximum of these 3 scores will be used
@@ -943,6 +1117,7 @@ public final class MultiStateAligner11ts extends MSA{
 	@Deprecated
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public final int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc){
+		if(nativeNConsistency){throw new IllegalStateException("nativeNConsistency does not support fillQ");}
 		assert(false) : "Needs to be redone to work with score cutoffs.  Not difficult.";
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
@@ -1151,6 +1326,7 @@ public final class MultiStateAligner11ts extends MSA{
 	/** @return {score, bestRefStart, bestRefStop} */
 	/** Generates the match string */
 	public final byte[] traceback(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state, boolean gapped){
+		if(nativeNLegacyRouting){checkRoutedPublic(read,ref,refStartLoc,refEndLoc,gapped);}
 		if(gapped){
 			final byte[] gref=grefbuffer;
 			int gstart=translateToGappedCoordinate(refStartLoc, gref, read);
@@ -1165,6 +1341,7 @@ public final class MultiStateAligner11ts extends MSA{
 	@Override
 	/** Generates the match string */
 	public final byte[] traceback2(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state){
+		if(nativeNLegacyRouting){checkRoutedDirect(read,ref,refStartLoc,refEndLoc);}
 //		assert(false);
 		assert(refStartLoc<=refEndLoc) : refStartLoc+", "+refEndLoc;
 		assert(row==rows);
@@ -1188,7 +1365,8 @@ public final class MultiStateAligner11ts extends MSA{
 //			System.err.println("state="+state+", prev="+prev+", row="+row+", col="+col+", score="+scores[state][row][col]);
 			
 			if(state==MODE_MS){
-				if(time>1){prev=(byte)state;}
+				if(nConsistentExecution()){prev=consistentMSPredecessor(row, col);}
+				else if(time>1){prev=(byte)state;}
 				else{
 					final int scoreFromDiag=packed[MODE_MS][row-1][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
@@ -1200,7 +1378,8 @@ public final class MultiStateAligner11ts extends MSA{
 				
 				byte c=read[row-1];
 				byte r=ref[refStartLoc+col-1];
-				if(c==r){
+				// Equal N bases are nocalls, matching fill and the no-indel match builder.
+				if(c==r && r!='N'){
 					out[outPos]='m';
 				}else{
 					if(!AminoAcid.isFullyDefined(c)){
@@ -1301,6 +1480,7 @@ public final class MultiStateAligner11ts extends MSA{
 	/** @return {score, bestRefStart, bestRefStop} */
 	public final int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState, boolean gapped){
+		if(nativeNLegacyRouting){checkRoutedPublic(read,ref,refStartLoc,refEndLoc,gapped);}
 		if(gapped){
 			if(verbose){
 				System.err.println("score():");
@@ -1339,6 +1519,7 @@ public final class MultiStateAligner11ts extends MSA{
 	 * if more padding is needed */
 	public final int[] score2(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState){
+		if(nativeNLegacyRouting){checkRoutedDirect(read,ref,refStartLoc,refEndLoc);}
 		
 		int row=maxRow;
 		int col=maxCol;
@@ -1385,7 +1566,8 @@ public final class MultiStateAligner11ts extends MSA{
 			final byte prev;
 			
 			if(state==MODE_MS){
-				if(time>1){prev=(byte)state;}
+				if(nConsistentExecution()){prev=consistentMSPredecessor(row, col);}
+				else if(time>1){prev=(byte)state;}
 				else{
 					final int scoreFromDiag=packed[MODE_MS][row-1][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
@@ -1966,6 +2148,7 @@ public final class MultiStateAligner11ts extends MSA{
 	}
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
+		if(nativeGaplessScore){return NativeGaplessScore.score(this, read, ref, refStart);}
 		
 		int score=0;
 		int mode=-1;
@@ -2056,6 +2239,7 @@ public final class MultiStateAligner11ts extends MSA{
 	}
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
+		if(nativeGaplessScore){throw new IllegalStateException("Native gapless diagnostic mode does not support weighted scoring");}
 		
 		int score=0;
 		int mode=-1;
@@ -2125,6 +2309,7 @@ public final class MultiStateAligner11ts extends MSA{
 	
 	@Override
 	public final int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn){
+		if(nativeGaplessScore){throw new IllegalStateException("Native gapless diagnostic mode does not support weighted scoring");}
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
@@ -2276,7 +2461,8 @@ public final class MultiStateAligner11ts extends MSA{
 			}
 		}
 		
-		return score;
+		// Preserve this API's sentinel, buffer reuse and negative-base operation semantics.
+		return nativeGaplessScore ? score(match) : score;
 	}
 	
 	@Override
