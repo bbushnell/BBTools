@@ -58,6 +58,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		t.stop();
 		outstream.println("\nTotal time:     \t"+t);
 		clearStatics();
+		BBMapSplitterS.clearStatics();
 	}
 	
 	/**
@@ -322,16 +323,16 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		if(setxs && !setintron){SamLine.INTRON_LIMIT=10;}
 		
 		if(outFile==null && outFile2==null && outFileM==null && outFileM2==null && outFileU==null && outFileU2==null
-				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBSplitter.streamTable==null){
+				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBMapSplitterS.streamTable==null){
 			outstream.println("No output file.");
 			OUTPUT_READS=false;
 		}else{
 			OUTPUT_READS=true;
 			if(bamscript!=null){
-				BBSplitter.makeBamScript(bamscript, splitterOutputs, outFile, outFile2, outFileM, outFileM2, outFileU, outFileU2, outFileB, outFileB2);
+				BBMapSplitterS.makeBamScript(bamscript, splitterOutputs, outFile, outFile2, outFileM, outFileM2, outFileU, outFileU2, outFileB, outFileB2);
 			}
 		}
-//		assert(false) : bamscript+", "+BBSplitter.streamTable+", "+OUTPUT_READS;
+//		assert(false) : bamscript+", "+BBMapSplitterS.streamTable+", "+OUTPUT_READS;
 		
 		
 		
@@ -588,7 +589,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		final AbstractMapThread[] mtts=new AbstractMapThread[threads];
 		final ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			final BBMapThread engine=new BBMapThread(new WorkerCrisStub(paired), keylen,
+			final BBMapThread engine=new BBMapThread(paired, keylen,
 					pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
 					maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
 					SAVE_AMBIGUOUS_XY, MINIMUM_ALIGNMENT_SCORE_RATIO, TRIM_LIST, MAKE_MATCH_STRING, QUICK_MATCH_STRINGS,
@@ -649,9 +650,9 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			writers[3]=Data.scaffoldPrefixes ? null : makeWriter(outFileB, outFileB2, qfoutB, qfoutB2, buff);
 		}
 		if(Data.scaffoldPrefixes){
-			BBSplitter.streamTable=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
+			BBMapSplitterS.streamTable=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
 			if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
-				BBSplitter.streamTableAmbiguous=BBSplitter.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
+				BBMapSplitterS.streamTableAmbiguous=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
 			}
 		}else{
 			BBSplitter.TRACK_SET_STATS=false;
@@ -660,6 +661,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			outstream.print("Creating ref-set statistics table: ");
 			BBSplitter.makeSetCountTable();
 			outstream.println("done.");
+		}
+		// Scaffold counting requires the shared table consumed by AbstractMapper reporting.
+		if(BBSplitter.TRACK_SCAF_STATS && BBSplitter.scafCountTable==null){
+			BBSplitter.makeScafCountTable();
 		}
 		return writers;
 	}
@@ -677,13 +682,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	/** @return true on any splitter close error, including an aborted stream. */
 	private boolean closeSplitterStreams(boolean error){
 		boolean closeError=false;
-		if(BBSplitter.streamTable!=null){
-			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
+		if(BBMapSplitterS.streamTable!=null){
+			for(Writer ros : BBMapSplitterS.streamTable.values()){
 				closeError|=closeSplitterStream(ros, error);
 			}
 		}
-		if(BBSplitter.streamTableAmbiguous!=null){
-			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
+		if(BBMapSplitterS.streamTableAmbiguous!=null){
+			for(Writer ros : BBMapSplitterS.streamTableAmbiguous.values()){
 				closeError|=closeSplitterStream(ros, error);
 			}
 		}
@@ -691,22 +696,22 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	}
 
 	/** ReadWrite.closeStream folds errorState and unsuccessful writer completion. */
-	private boolean closeSplitterStream(stream.ConcurrentReadOutputStream ros, boolean error){
+	private boolean closeSplitterStream(Writer ros, boolean error){
 		if(ros==null){return false;}
-		if(error){ros.abort();}
-		return ReadWrite.closeStream(ros);
+		if(error){ros.finishError();return true;}
+		return ros.poisonAndWait() || !ros.finishedSuccessfully();
 	}
 
 	/** Abandon invalid output and wake mapper workers blocked on missing ordered lists. */
 	private void abortSplitterStreams(){
-		if(BBSplitter.streamTable!=null){
-			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
-				if(ros!=null){ros.abort();}
+		if(BBMapSplitterS.streamTable!=null){
+			for(Writer ros : BBMapSplitterS.streamTable.values()){
+				if(ros!=null){ros.finishError();}
 			}
 		}
-		if(BBSplitter.streamTableAmbiguous!=null){
-			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
-				if(ros!=null){ros.abort();}
+		if(BBMapSplitterS.streamTableAmbiguous!=null){
+			for(Writer ros : BBMapSplitterS.streamTableAmbiguous.values()){
+				if(ros!=null){ros.finishError();}
 			}
 		}
 	}
@@ -730,29 +735,6 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	private long readsProcessedS=0;
 	private long basesProcessedS=0;
 	private volatile boolean errorStateS=false;
-
-	/**
-	 * Minimal input stub for the reused BBMapThread constructor.  The
-	 * ProcessThread calls BBMapThread.processRead/processReadPair directly;
-	 * it never starts or runs this stub.
-	 */
-	static final class WorkerCrisStub extends stream.ConcurrentReadInputStream {
-		private final boolean pairedFlag;
-		WorkerCrisStub(boolean pairedFlag){super("worker-stub"); this.pairedFlag=pairedFlag;}
-		@Override public ListNum<Read> nextList(){throw new UnsupportedOperationException("WorkerCrisStub is not a live input stream.");}
-		@Override public void returnList(long listNum, boolean poison){}
-		@Override public void run(){}
-		@Override public void shutdown(){}
-		@Override public void restart(){}
-		@Override public void close(){}
-		@Override public boolean paired(){return pairedFlag;}
-		@Override public Object[] producers(){return new Object[0];}
-		@Override public boolean errorState(){return false;}
-		@Override public void setSampleRate(float rate, long seed){}
-		@Override public long basesIn(){return 0;}
-		@Override public long readsIn(){return 0;}
-		@Override public boolean verbose(){return false;}
-	}
 
 	final class ProcessThread extends Thread {
 		ProcessThread(Streamer streamer_, Writer[] writers_, BBMapThread engine_, int tid_){
@@ -915,8 +897,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		private void emit(ListNum<Read> ln, ArrayList<Read> readlist){
 			final long id=ln.id;
 			final boolean black=Blacklist.hasBlacklist();
-			if(BBSplitter.streamTable!=null || BBSplitter.TRACK_SET_STATS || BBSplitter.TRACK_SCAF_STATS){
-				BBSplitter.printReads(readlist, id, null, engine.CLEARZONE1());
+			if(BBMapSplitterS.streamTable!=null || BBSplitter.TRACK_SET_STATS || BBSplitter.TRACK_SCAF_STATS){
+				BBMapSplitterS.printReads(readlist, id, null, engine.CLEARZONE1());
 			}
 			final ArrayList<Read> mapped=new ArrayList<Read>(readlist.size());
 			final ArrayList<Read> unmapped=new ArrayList<Read>(readlist.size());

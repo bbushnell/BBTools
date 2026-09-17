@@ -3,11 +3,11 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 16, 2026
+Last modified September 17, 2026
 
 Description:  Finds orfs and calls genes in unspliced prokaryotes.
 This includes bacteria, archaea, viruses, and mitochondria.
-Can also predict 16S, 18S, 23S, 5S, and tRNAs.
+Can also predict 16S, 18S, 23S, 5S, 5.8S, LSU, ITS, and tRNAs.
 
 Usage:  callgenes.sh in=contigs.fa out=calls.gff outa=aminos.faa out16S=16S.fa
 
@@ -16,6 +16,8 @@ in=<file>       A fasta file; the only required parameter.
 out=<file>      Output gff file.
 outa=<file>     Amino acid output.
 out16s=<file>   16S output.
+out18s=<file>   18S output.
+outits=<file>   ITS1, ITS2, and combined ITS sequence output.  Implies its=t.
 model=<file>    A pgm file or comma-delimited list.
                 If unspecified a default model will be used.
 stats=stderr    Stats output (may be stderr, stdin, a file, or null).
@@ -128,11 +130,15 @@ sixs=f          Add the experimental paired 6S/SsrS families (RF00013 and RF0168
                 If ncrnaboundarynet=t, complete index-aligned boundary resources
                 are also required for every loaded family; missing or misaligned
                 resources fail loudly.
-r58lsu=f        Add experimental fungal R58 and pooled LSU development families;
+r58lsu=f        Add the bundled eukaryotic 5.8S and LSU families.  This implies
+                ncrna=t; the family remains off unless r58lsu=t is specified.
+                Explicit resource overrides below remain available.
+                Currently requires ncrnaboundarynet=f.
+its=f           Derive ITS1, ITS2, and combined ITS annotations from compatible
+                18S, 5.8S, and LSU calls.  outits=<file> also enables this.
 s18=f           Add the experimental generic 18S development family (pilot);
                 requires ncrna=t and explicit s18kmers/s18consensus/s18models.
                 Distinct from 18s=t, which enables the legacy PGM-path 18S caller.
-                requires ncrna=t and currently requires ncrnaboundarynet=f.
                 This is a sweep harness, off by default, not a release caller.
 ncrnaboundarynet=f  Refine generic ncRNA endpoints with the family-specific
                     boundary networks.  Requires ncrna=t (or generalncrna=t).
@@ -157,10 +163,10 @@ srplargekmers=  Explicit SRP-large conserved-kmer fasta; requires ncrna=t.
 tmrnakmers=     Explicit tmRNA conserved-kmer fasta; requires ncrna=t and tmrna=t.
 sixsrf00013kmers=  Explicit RF00013 16-mer fasta; requires ncrna=t and sixs=t.
 sixsrf01685kmers=  Explicit RF01685 17-mer fasta; requires ncrna=t and sixs=t.
-r58kmers=       Explicit R58 development 17-mer fasta; requires ncrna=t and r58lsu=t.
-lsukmers=       Explicit LSU development 17-mer fasta; requires ncrna=t and r58lsu=t.
-r58consensus=/r58models=  Explicit R58 development consensus/HBM; require r58lsu=t.
-lsuconsensus=/lsumodels=  Explicit LSU development consensus/HBM; require r58lsu=t.
+r58kmers=       Optional R58 17-mer fasta override; requires r58lsu=t.
+lsukmers=       Optional LSU 17-mer fasta override; requires r58lsu=t.
+r58consensus=/r58models=  Optional R58 consensus/HBM overrides; require r58lsu=t.
+lsuconsensus=/lsumodels=  Optional LSU consensus/HBM overrides; require r58lsu=t.
 s18kmers=       Explicit 18S development 17-mer fasta; requires ncrna=t and s18=t.
 s18consensus=/s18models=  Explicit 18S development consensus/HBM; require s18=t.
 tmrnaconsensus= Explicit tmRNA consensus fasta; requires ncrna=t and tmrna=t.

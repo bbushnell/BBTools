@@ -206,8 +206,55 @@ public final class BBMapThread extends AbstractMapThread{
 			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
 			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
 			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_){
+		this(cris_, cris_.paired(), keylen_, pileup_, SMITH_WATERMAN_, THRESH_, minChrom_, maxChrom_,
+				keyDensity_, maxKeyDensity_, minKeyDensity_, maxDesiredKeys_, REMOVE_DUPLICATE_BEST_ALIGNMENTS_, SAVE_AMBIGUOUS_XY_,
+				MINIMUM_ALIGNMENT_SCORE_RATIO_, TRIM_LIST_, MAKE_MATCH_STRING_, QUICK_MATCH_STRINGS_,
+				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
+				SLOW_ALIGN_PADDING_, SLOW_RESCUE_PADDING_, DONT_OUTPUT_UNMAPPED_READS_, DONT_OUTPUT_BLACKLISTED_READS_,
+				MAX_SITESCORES_TO_PRINT_, PRINT_SECONDARY_ALIGNMENTS_, REQUIRE_CORRECT_STRANDS_PAIRS_, SAME_STRAND_PAIRS_,
+				KILL_BAD_PAIRS_, RCOMP_MATE_, PERFECTMODE_, SEMIPERFECTMODE_, FORBID_SELF_MAPPING_, TIP_DELETION_SEARCH_RANGE_,
+				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, KFILTER_, IDFILTER_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, TRIM_MIN_LEN_,
+				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_);
+	}
+
+	/** Mapping engine constructor for callers that own input and output externally. */
+	BBMapThread(boolean paired_, int keylen_,
+			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
+			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,
+			boolean REMOVE_DUPLICATE_BEST_ALIGNMENTS_, boolean SAVE_AMBIGUOUS_XY_,
+			float MINIMUM_ALIGNMENT_SCORE_RATIO_, boolean TRIM_LIST_, boolean MAKE_MATCH_STRING_, boolean QUICK_MATCH_STRINGS_,
+			ConcurrentReadOutputStream outStream_, ConcurrentReadOutputStream outStreamMapped_, ConcurrentReadOutputStream outStreamUnmapped_, ConcurrentReadOutputStream outStreamBlack_,
+			int SLOW_ALIGN_PADDING_, int SLOW_RESCUE_PADDING_, boolean DONT_OUTPUT_UNMAPPED_READS_, boolean DONT_OUTPUT_BLACKLISTED_READS_,
+			int MAX_SITESCORES_TO_PRINT_, boolean PRINT_SECONDARY_ALIGNMENTS_,
+			boolean REQUIRE_CORRECT_STRANDS_PAIRS_, boolean SAME_STRAND_PAIRS_, boolean KILL_BAD_PAIRS_, boolean RCOMP_MATE_,
+			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
+			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
+			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_){
+		this(null, paired_, keylen_, pileup_, SMITH_WATERMAN_, THRESH_, minChrom_, maxChrom_,
+				keyDensity_, maxKeyDensity_, minKeyDensity_, maxDesiredKeys_, REMOVE_DUPLICATE_BEST_ALIGNMENTS_, SAVE_AMBIGUOUS_XY_,
+				MINIMUM_ALIGNMENT_SCORE_RATIO_, TRIM_LIST_, MAKE_MATCH_STRING_, QUICK_MATCH_STRINGS_,
+				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
+				SLOW_ALIGN_PADDING_, SLOW_RESCUE_PADDING_, DONT_OUTPUT_UNMAPPED_READS_, DONT_OUTPUT_BLACKLISTED_READS_,
+				MAX_SITESCORES_TO_PRINT_, PRINT_SECONDARY_ALIGNMENTS_, REQUIRE_CORRECT_STRANDS_PAIRS_, SAME_STRAND_PAIRS_,
+				KILL_BAD_PAIRS_, RCOMP_MATE_, PERFECTMODE_, SEMIPERFECTMODE_, FORBID_SELF_MAPPING_, TIP_DELETION_SEARCH_RANGE_,
+				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, KFILTER_, IDFILTER_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, TRIM_MIN_LEN_,
+				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_);
+	}
+
+	private BBMapThread(ConcurrentReadInputStream cris_, boolean paired_, int keylen_,
+			CoveragePileup pileup_, boolean SMITH_WATERMAN_, int THRESH_, int minChrom_,
+			int maxChrom_, float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,
+			boolean REMOVE_DUPLICATE_BEST_ALIGNMENTS_, boolean SAVE_AMBIGUOUS_XY_,
+			float MINIMUM_ALIGNMENT_SCORE_RATIO_, boolean TRIM_LIST_, boolean MAKE_MATCH_STRING_, boolean QUICK_MATCH_STRINGS_,
+			ConcurrentReadOutputStream outStream_, ConcurrentReadOutputStream outStreamMapped_, ConcurrentReadOutputStream outStreamUnmapped_, ConcurrentReadOutputStream outStreamBlack_,
+			int SLOW_ALIGN_PADDING_, int SLOW_RESCUE_PADDING_, boolean DONT_OUTPUT_UNMAPPED_READS_, boolean DONT_OUTPUT_BLACKLISTED_READS_,
+			int MAX_SITESCORES_TO_PRINT_, boolean PRINT_SECONDARY_ALIGNMENTS_,
+			boolean REQUIRE_CORRECT_STRANDS_PAIRS_, boolean SAME_STRAND_PAIRS_, boolean KILL_BAD_PAIRS_, boolean RCOMP_MATE_,
+			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
+			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
+			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_){
 		
-		super(cris_,
+		super(cris_, paired_,
 				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
 				pileup_, SMITH_WATERMAN_, LOCAL_ALIGN_, REMOVE_DUPLICATE_BEST_ALIGNMENTS_,
 				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, TRIM_MIN_LEN_, THRESH_,

@@ -345,6 +345,7 @@ public class NcrnaScavenger {
 		//of the same scoreA/scoreB commit that introduced orfLen.
 		if(orfStop-orfStart+1<minLen){return null;}
 		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, ProkObject.RNA);
+		orf.ncrnaFamily=family;//set once, covers the IDPASS/RESCUE/HBM accept branches below -- all reuse this same Orf instance
 		final int orfLen=orfStop-orfStart+1;
 		//Forward-ported from Noire's tree (2026-08-28, C3 merge): scoreA/scoreB per-family score
 		//formula replaces the flat bestId*100 -- Noire's #1 recall lever (+11.5pp rnasep).
@@ -581,6 +582,11 @@ public class NcrnaScavenger {
 	float collapseFrac=0.9f;
 	int trimExt=10;
 	boolean scavengePass2=true;
+	/** Explicit family identity (e.g. "s18", "r58", "lsu"), set post-construction by
+	 * GeneCaller.makeRnas() from NcrnaFamily.name -- mirrors the existing hbmPass/
+	 * collapseFrac post-construction assignment pattern above. Propagated onto every
+	 * generic ncRNA Orf this scavenger creates (Ganyu/Qiqi design, 2026-09-17). */
+	String family;
 
 	private long alignmentCount=0;
 

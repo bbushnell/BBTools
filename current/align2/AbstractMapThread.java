@@ -45,6 +45,33 @@ public abstract class AbstractMapThread extends Thread {
 			float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,
 			int MIN_APPROX_HITS_TO_KEEP_, boolean USE_EXTENDED_SCORE_, int BASE_HIT_SCORE_, boolean USE_AFFINE_SCORE_, int MAX_INDEL_,
 			boolean TRIM_LIST_, int TIP_DELETION_SEARCH_RANGE_, BloomFilter bloomFilter_){
+		this(cris_, cris_.paired(),
+				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
+				pileup_, SLOW_ALIGN_, LOCAL_ALIGN_, AMBIGUOUS_TOSS_,
+				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, MIN_TRIM_LEN_, THRESH_,
+				minChrom_, maxChrom_, KFILTER_, IDFILTER_, KILL_BAD_PAIRS_, SAVE_AMBIGUOUS_XY_,
+				REQUIRE_CORRECT_STRANDS_PAIRS_, SAME_STRAND_PAIRS_, DO_RESCUE_, STRICT_MAX_INDEL_, SLOW_ALIGN_PADDING_, SLOW_RESCUE_PADDING_,
+				MSA_TYPE_, keylen_, PERFECTMODE_, SEMIPERFECTMODE_, FORBID_SELF_MAPPING_, RCOMP_MATE_,
+				MAKE_MATCH_STRING_, OUTPUT_MAPPED_ONLY_, DONT_OUTPUT_BLACKLISTED_READS_, PRINT_SECONDARY_ALIGNMENTS_,
+				QUICK_MATCH_STRINGS_, MAX_SITESCORES_TO_PRINT_, MINIMUM_ALIGNMENT_SCORE_RATIO_,
+				keyDensity_, maxKeyDensity_, minKeyDensity_, maxDesiredKeys_,
+				MIN_APPROX_HITS_TO_KEEP_, USE_EXTENDED_SCORE_, BASE_HIT_SCORE_, USE_AFFINE_SCORE_, MAX_INDEL_,
+				TRIM_LIST_, TIP_DELETION_SEARCH_RANGE_, bloomFilter_);
+	}
+
+	AbstractMapThread(ConcurrentReadInputStream cris_, boolean paired_,
+			ConcurrentReadOutputStream outStream_, ConcurrentReadOutputStream outStreamMapped_, ConcurrentReadOutputStream outStreamUnmapped_, ConcurrentReadOutputStream outStreamBlack_,
+			CoveragePileup pileup_, boolean SLOW_ALIGN_, boolean LOCAL_ALIGN_, boolean AMBIGUOUS_TOSS_,
+			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int MIN_TRIM_LEN_, int THRESH_,
+			int minChrom_, int maxChrom_, int KFILTER_, float IDFILTER_, boolean KILL_BAD_PAIRS_, boolean SAVE_AMBIGUOUS_XY_,
+			boolean REQUIRE_CORRECT_STRANDS_PAIRS_,
+			boolean SAME_STRAND_PAIRS_, boolean DO_RESCUE_, boolean STRICT_MAX_INDEL_, int SLOW_ALIGN_PADDING_, int SLOW_RESCUE_PADDING_,
+			String MSA_TYPE_, int keylen_, boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, boolean RCOMP_MATE_,
+			boolean MAKE_MATCH_STRING_, boolean OUTPUT_MAPPED_ONLY_, boolean DONT_OUTPUT_BLACKLISTED_READS_, boolean PRINT_SECONDARY_ALIGNMENTS_,
+			boolean QUICK_MATCH_STRINGS_, int MAX_SITESCORES_TO_PRINT_, float MINIMUM_ALIGNMENT_SCORE_RATIO_,
+			float keyDensity_, float maxKeyDensity_, float minKeyDensity_, int maxDesiredKeys_,
+			int MIN_APPROX_HITS_TO_KEEP_, boolean USE_EXTENDED_SCORE_, int BASE_HIT_SCORE_, boolean USE_AFFINE_SCORE_, int MAX_INDEL_,
+			boolean TRIM_LIST_, int TIP_DELETION_SEARCH_RANGE_, BloomFilter bloomFilter_){
 		
 		
 		cris=cris_;
@@ -80,7 +107,7 @@ public abstract class AbstractMapThread extends Thread {
 		DO_RESCUE=DO_RESCUE_;
 		STRICT_MAX_INDEL=STRICT_MAX_INDEL_;
 		BANDWIDTH=MSA.bandwidth;
-		PAIRED=cris.paired();
+		PAIRED=paired_;
 		REQUIRE_CORRECT_STRANDS_PAIRS=REQUIRE_CORRECT_STRANDS_PAIRS_;
 		SAME_STRAND_PAIRS=SAME_STRAND_PAIRS_;
 		
@@ -519,6 +546,9 @@ public abstract class AbstractMapThread extends Thread {
 	 * Continues until all input is consumed.
 	 */
 	public final void run() {
+		if(cris==null){
+			throw new IllegalStateException("Detached mapping engine has no CRIS input; invoke processRead/processReadPair through its owner.");
+		}
 		//System.err.println("Waiting on a list... (initial)");
 		
 		ListNum<Read> ln=cris.nextList();

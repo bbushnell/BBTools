@@ -2,7 +2,7 @@ package prok;
 
 import java.util.ArrayList;
 
-/** Focused checks for the explicit-path, default-off 5.8S/LSU development gate. */
+/** Focused checks for the packaged-resource, default-off 5.8S/LSU gate and explicit overrides. */
 public class CallGenesR58LsuConfigTest {
 
 	private static final String ROOT="/mnt/c/codex-lbl/Citan/workspace/ribo_new_members_20260901/"
@@ -22,9 +22,36 @@ public class CallGenesR58LsuConfigTest {
 		if(CallGenes.defaultNcrnaIdPass("r58")!=0.60f || CallGenes.defaultNcrnaIdBorderline("lsu")!=0.55f){
 			throw new AssertionError("Unexpected R58/LSU default thresholds");
 		}
+		testGateImplication();
+		testBundledPair();
 		testExplicitPair();
 		testMissingLsuRollsBack();
 		System.out.println("PASS CallGenesR58LsuConfigTest");
+	}
+
+	private static void testGateImplication(){
+		final Snapshot s=new Snapshot();
+		try{
+			CallGenes.NCRNA_FAMILIES_ENABLED=false;
+			CallGenes.R58LSU_ENABLED=false;
+			CallGenes.setR58LsuEnabled(true);
+			if(!CallGenes.R58LSU_ENABLED || !CallGenes.NCRNA_FAMILIES_ENABLED){
+				throw new AssertionError("r58lsu=t did not enable the generic ncRNA machinery");
+			}
+		}finally{s.restore();}
+	}
+
+	private static void testBundledPair(){
+		final Snapshot s=new Snapshot();
+		try{
+			GeneCaller.ncrnaFamilies.clear();
+			CallGenes.NCRNA_FAMILIES_ENABLED=true; CallGenes.R58LSU_ENABLED=true;
+			setPaths(null, null, null, null, null, null);
+			CallGenes.loadNcrnaResources();
+			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Bundled R58/LSU pair did not register exactly once");}
+			check(find("r58"), 1, 500, 140, 135);
+			check(find("lsu"), 14, 500, 60, 3500);
+		}finally{s.restore();}
 	}
 
 	private static void testExplicitPair(){
@@ -34,7 +61,7 @@ public class CallGenesR58LsuConfigTest {
 			CallGenes.NCRNA_FAMILIES_ENABLED=true; CallGenes.R58LSU_ENABLED=true;
 			setPaths(R58_K, R58_C, R58_M, LSU_K, LSU_C, LSU_M);
 			CallGenes.loadNcrnaResources();
-			if(GeneCaller.ncrnaFamilies.size()!=5){throw new AssertionError("Expected three established families plus R58/LSU, found "+GeneCaller.ncrnaFamilies.size());}
+			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Explicit R58/LSU pair did not register exactly once");}
 			check(find("r58"), 2, 500, 140, 135);
 			check(find("lsu"), 11, 1000, 60, 3500);
 		}finally{s.restore();}
@@ -65,6 +92,12 @@ public class CallGenesR58LsuConfigTest {
 	private static NcrnaFamily findOrNull(String name){
 		for(NcrnaFamily f : GeneCaller.ncrnaFamilies){if(name.equals(f.name)){return f;}}
 		return null;
+	}
+
+	private static int count(String name){
+		int count=0;
+		for(NcrnaFamily f : GeneCaller.ncrnaFamilies){if(name.equals(f.name)){count++;}}
+		return count;
 	}
 
 	private static void check(NcrnaFamily f, int models, int kmers, int minLen, int pad){

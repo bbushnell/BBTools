@@ -83,13 +83,14 @@ public class CallGenes extends ProkObject {
 		{//Parse the arguments
 			final Parser parser=parse(args);
 			overwrite=parser.overwrite;
-			append=parser.append;
+				append=parser.append;
+				
+				outGff=parser.out1;
+				maxReads=parser.maxReads;
+			}
+			if(outIts!=null){callIts=true;}
 			
-			outGff=parser.out1;
-			maxReads=parser.maxReads;
-		}
-		
-		fixExtensions(); //Add or remove .gz or .bz2 as needed
+			fixExtensions(); //Add or remove .gz or .bz2 as needed
 		checkFileExistence(); //Ensure files can be read and written
 		checkStatics(); //Adjust file-related static fields as needed for this program
 		
@@ -97,6 +98,7 @@ public class CallGenes extends ProkObject {
 		ffoutAmino=FileFormat.testOutput(outAmino, FileFormat.FA, null, true, overwrite, append, ordered);
 		ffout16S=FileFormat.testOutput(out16S, FileFormat.FA, null, true, overwrite, append, ordered);
 		ffout18S=FileFormat.testOutput(out18S, FileFormat.FA, null, true, overwrite, append, ordered);
+		ffoutIts=FileFormat.testOutput(outIts, FileFormat.FA, null, true, overwrite, append, ordered);
 		
 		if(ffoutGff!=null){
 			assert(!ffoutGff.isSequence()) : "\nout is for gff files.  To output sequence, please use outa.";
@@ -111,6 +113,10 @@ public class CallGenes extends ProkObject {
 			assert(!ffout18S.gff()) : "\nout18S is for sequence data.  To output gff, please use out.";
 		}
 		
+		if(ffoutIts!=null){
+			assert(!ffoutIts.gff()) : "\noutits is for sequence data.  To output ITS sequence, please use outits.";
+		}
+
 		if(geneHistFile==null){geneHistBins=0;}
 		else{
 			assert(geneHistBins>1) : "geneHistBins="+geneHistBins+"; should be >1";
@@ -161,6 +167,11 @@ public class CallGenes extends ProkObject {
 				out16S=b;
 			}else if(a.equalsIgnoreCase("out18s") || a.equalsIgnoreCase("18sout")){
 				out18S=b;
+			}else if(a.equalsIgnoreCase("outits") || a.equalsIgnoreCase("itsout")){
+				outIts=b;
+				callIts=true;
+			}else if(a.equalsIgnoreCase("its")){
+				callIts=Parse.parseBoolean(b);
 			}else if(a.equals("verbose")){
 				verbose=Parse.parseBoolean(b);
 				//ReadWrite.verbose=verbose;
@@ -469,7 +480,7 @@ public class CallGenes extends ProkObject {
 			}else if(a.equalsIgnoreCase("sixs") || a.equalsIgnoreCase("ssrs") || a.equalsIgnoreCase("6s")){
 				SIXS_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("r58lsu")){
-				R58LSU_ENABLED=Parse.parseBoolean(b);
+				setR58LsuEnabled(Parse.parseBoolean(b));
 			}else if(a.equalsIgnoreCase("s18")){
 				//18S generic-family pilot gate (cont.53; distinct from the legacy "18s" flag,
 				//which PGMTools.parseStatic consumes for the PGM-path caller).
@@ -648,10 +659,10 @@ public class CallGenes extends ProkObject {
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outStats, geneHistFile)){
+		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile)){
 			outstream.println((outGff==null)+", "+outGff);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "
-					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outStats+", "+geneHistFile+"\n");
+					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -667,6 +678,7 @@ public class CallGenes extends ProkObject {
 		foo.add(outAmino);
 		foo.add(out16S);
 		foo.add(out18S);
+		foo.add(outIts);
 		foo.add(outStats);
 		foo.add(geneHistFile);
 		if(!Tools.testForDuplicateFiles(true, foo.toArray(new String[0]))){
@@ -735,6 +747,7 @@ public class CallGenes extends ProkObject {
 		ConcurrentReadOutputStream rosAmino=makeCros(ffoutAmino);
 		ConcurrentReadOutputStream ros16S=makeCros(ffout16S);
 		ConcurrentReadOutputStream ros18S=makeCros(ffout18S);
+		ConcurrentReadOutputStream rosIts=makeCros(ffoutIts);
 		
 		//Turn off read validation in the input threads to increase speed
 		final boolean vic=Read.VALIDATE_IN_CONSTRUCTOR;
@@ -762,14 +775,14 @@ public class CallGenes extends ProkObject {
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
 			//Process the reads in separate threads
-			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, pgm, attemptSink);
+			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink);
 			
 			//Close the input stream
 			errorState|=ReadWrite.closeStream(cris);
 		}
 		
 		//Close the input stream
-		errorState|=ReadWrite.closeStreams(null, rosAmino, ros16S, ros18S);
+		errorState|=ReadWrite.closeStreams(null, rosAmino, ros16S, ros18S, rosIts);
 		
 		if(verbose){outstream.println("Finished; closing streams.");}
 		
@@ -1197,7 +1210,7 @@ public class CallGenes extends ProkObject {
 	
 	/** Spawn process threads */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
-			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, GeneModel pgm, RefinementAttemptSink attemptSink){
+			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink){
 		
 		//Do anything necessary prior to processing
 		
@@ -1207,7 +1220,7 @@ public class CallGenes extends ProkObject {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, pgm, minLen, i, attemptSink));
+			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink));
 		}
 		
 		//Start the threads
@@ -1429,10 +1442,52 @@ public class CallGenes extends ProkObject {
 		return ros;
 	}
 	
+	/** Builds ITS anchors from this read's accepted legacy 18S and generic ncRNA Orfs and
+	 * resolves them into derived ITS1/ITS2/combined-ITS products, one strand group at a
+	 * time. Extracted as a static, instance-free method (test seam) so the exact production
+	 * anchor-building + RrnaItsDeriver.resolveGroup() path can be exercised directly with a
+	 * fabricated Orf list, without constructing a ProcessThread/CallGenes instance. */
+	static ArrayList<RrnaItsDeriver.Derived> deriveItsCore(final Read r, final ArrayList<Orf> list){
+		final ArrayList<RrnaItsDeriver.Derived> out=new ArrayList<RrnaItsDeriver.Derived>();
+		final ArrayList<RrnaItsDeriver.Anchor> plus=new ArrayList<RrnaItsDeriver.Anchor>();
+		final ArrayList<RrnaItsDeriver.Anchor> minus=new ArrayList<RrnaItsDeriver.Anchor>();
+		//Canonicalize to the first whitespace token, matching GFF seqid convention (column 1
+		//stops at the first space/tab). Bug found live on a real Dori canary run, 2026-09-17
+		//(G11+Ganyu): r.id is the FULL fasta header line (e.g. "NC_026746.1 Cryptococcus
+		//neoformans ... chromosome 2, complete sequence"); using it uncanonicalized here made
+		//the from:/to: attribute values embed spaces AND commas, corrupting the GFF's own
+		//comma-delimited attribute column, and made the outits FASTA header's contig field
+		//disagree with the GFF row's seqid column, breaking any GFF<->FASTA join by contig.
+		final int sp=r.id==null ? -1 : r.id.indexOf(' ');
+		final int tab=r.id==null ? -1 : r.id.indexOf('\t');
+		final int cut=(sp<0 ? tab : (tab<0 ? sp : Tools.min(sp, tab)));
+		final String seqid=(cut<0 ? r.id : r.id.substring(0, cut));
+		if(list!=null){
+			int ordinal=0;
+			for(Orf orf : list){
+				String family=null;
+				if(orf.type==r18S){family=RrnaItsDeriver.S18;}
+				else if(orf.ncrnaFamily!=null){
+					if(orf.ncrnaFamily.equalsIgnoreCase(RrnaItsDeriver.S18)){family=RrnaItsDeriver.S18;}
+					else if(orf.ncrnaFamily.equalsIgnoreCase(RrnaItsDeriver.R58)){family=RrnaItsDeriver.R58;}
+					else if(orf.ncrnaFamily.equalsIgnoreCase(RrnaItsDeriver.LSU)){family=RrnaItsDeriver.LSU;}
+				}
+				if(family==null){continue;}
+				RrnaItsDeriver.Anchor a=new RrnaItsDeriver.Anchor(seqid, orf.start, orf.stop, (byte)orf.strand,
+					family, seqid+"_"+family+"_"+(ordinal++), 0, orf.orfScore);
+				if(orf.strand==Shared.PLUS){plus.add(a);}
+				else if(orf.strand==Shared.MINUS){minus.add(a);}
+			}
+		}
+		if(!plus.isEmpty()){out.addAll(RrnaItsDeriver.resolveGroup(plus, r.bases, true, true, RrnaItsDeriver.DEFAULT_MAX_SPAN));}
+		if(!minus.isEmpty()){out.addAll(RrnaItsDeriver.resolveGroup(minus, r.bases, true, true, RrnaItsDeriver.DEFAULT_MAX_SPAN));}
+		return out;
+	}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** This class is static to prevent accidental writing to shared variables.
 	 * It is safe to remove the static modifier. */
 	private class ProcessThread extends Thread {
@@ -1453,13 +1508,14 @@ public class CallGenes extends ProkObject {
 		 * @param tid_ Thread identifier
 		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
-				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, 
+				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, ConcurrentReadOutputStream rosIts_, 
 				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_){
 			cris=cris_;
 			bsw=bsw_;
 			rosAmino=rosAmino_;
 			ros16S=ros16S_;
 			ros18S=ros18S_;
+			rosIts=rosIts_;
 			pgm=pgm_;
 			tid=tid_;
 			geneHistT=(geneHistBins>1 ? new long[geneHistBins] : null);
@@ -1523,6 +1579,7 @@ public class CallGenes extends ProkObject {
 //			System.err.println(reads.size());
 			
 			ArrayList<Orf> orfList=new ArrayList<Orf>();
+			ArrayList<RrnaItsDeriver.Derived> itsListAll=new ArrayList<RrnaItsDeriver.Derived>();
 			
 			//Loop through each read in the list
 			for(int idx=0; idx<reads.size(); idx++){
@@ -1557,12 +1614,16 @@ public class CallGenes extends ProkObject {
 				{
 					//Reads are processed in this block.
 					{
-						ArrayList<Orf> list=processRead(r1);
+						ArrayList<RrnaItsDeriver.Derived> itsList=new ArrayList<RrnaItsDeriver.Derived>();
+						ArrayList<Orf> list=processRead(r1, itsList);
 						if(list!=null){orfList.addAll(list);}
+						itsListAll.addAll(itsList);
 					}
 					if(r2!=null){
-						ArrayList<Orf> list=processRead(r2);
+						ArrayList<RrnaItsDeriver.Derived> itsList=new ArrayList<RrnaItsDeriver.Derived>();
+						ArrayList<Orf> list=processRead(r2, itsList);
 						if(list!=null){orfList.addAll(list);}
+						itsListAll.addAll(itsList);
 					}
 				}
 			}
@@ -1576,6 +1637,7 @@ public class CallGenes extends ProkObject {
 						orf.appendGff(bb);
 						bb.nl();
 					}
+					for(RrnaItsDeriver.Derived d : itsListAll){d.appendGff(bb); bb.nl();}
 					bsw.add(bb, ln.id);
 					bytesOutT+=bb.length();
 				}else{
@@ -1588,6 +1650,7 @@ public class CallGenes extends ProkObject {
 //							bb=new ByteBuilder();
 //						}
 					}
+					for(RrnaItsDeriver.Derived d : itsListAll){d.appendGff(bb); bb.nl();}
 					if(bb.length()>0){
 						bsw.addJob(bb);
 						bytesOutT+=bb.length();
@@ -1606,8 +1669,9 @@ public class CallGenes extends ProkObject {
 		 * @param r2 Read 2 (may be null)
 		 * @return True if the reads should be kept, false if they should be discarded.
 		 */
-		ArrayList<Orf> processRead(final Read r){
+		ArrayList<Orf> processRead(final Read r, ArrayList<RrnaItsDeriver.Derived> itsOut){
 			ArrayList<Orf> list=caller.callGenes(r, pgm, true);
+			if(callIts){deriveIts(r, list, itsOut);}
 			
 			if(geneHistT!=null && list!=null){
 				for(Orf o : list){
@@ -1633,7 +1697,6 @@ public class CallGenes extends ProkObject {
 					if(ssu!=null && !ssu.isEmpty()){ros18S.add(ssu, r.numericID);}
 				}
 			}
-			
 			if(rosAmino!=null){
 				if(mode==TRANSLATE){
 					if(list!=null && !list.isEmpty()){
@@ -1661,6 +1724,18 @@ public class CallGenes extends ProkObject {
 			
 			return list;
 		}
+
+		/** Derives ITS products from this read's accepted legacy 18S and generic ncRNA anchors.
+		 * The helper receives one strand group at a time; its Derived sequence is already in
+		 * transcript orientation and is therefore written directly to rosIts. */
+		private void deriveIts(final Read r, final ArrayList<Orf> list, final ArrayList<RrnaItsDeriver.Derived> out){
+			out.addAll(deriveItsCore(r, list));
+			if(rosIts!=null){
+				ArrayList<Read> reads=new ArrayList<Read>(out.size());
+				for(RrnaItsDeriver.Derived d : out){reads.add(d.toRead());}
+				rosIts.add(reads, r.numericID);
+			}
+		}
 		
 		/** Number of reads processed by this thread */
 		protected long readsInT=0;
@@ -1681,6 +1756,8 @@ public class CallGenes extends ProkObject {
 		protected ConcurrentReadOutputStream ros16S;
 		/** Output stream for 18S rRNA sequences */
 		protected ConcurrentReadOutputStream ros18S;
+		/** Ordered output stream for derived ITS sequences */
+		protected ConcurrentReadOutputStream rosIts;
 		
 		/** True only if this thread has completed successfully */
 		boolean success=false;
@@ -2061,33 +2138,39 @@ public class CallGenes extends ProkObject {
 				}
 			}
 		}
-		if(R58LSU_ENABLED){loadR58LsuDevelopmentResources();}
+		if(R58LSU_ENABLED){loadR58LsuResources();}
 		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
 
-	/** Loads the paired default-off 5.8S/LSU development bundles only from
-	 * explicit paths.  No provisional resource is silently promoted into the
-	 * normal resource namespace. */
-	private static void loadR58LsuDevelopmentResources(){
-		requireR58LsuOverrides();
+	/** Loads the paired, default-off 5.8S/LSU bundles. Explicit CLI paths still
+	 * override the packaged resources, but plain {@code r58lsu=t} resolves the
+	 * release-tier files from BBTools' normal resource namespace, matching the
+	 * established RNase P/SRP/tRNA loading convention. */
+	private static void loadR58LsuResources(){
 		final int before=GeneCaller.ncrnaFamilies.size();
 		try{
-			final LongHashSet r58Kmers=loadEffectiveNcrnaKmerSet("r58", "r58_dev_17mers.fa", R58_KMERS_OVERRIDE, 17);
-			requireNonemptyNcrnaKmerSet("r58", R58_KMERS_OVERRIDE, r58Kmers);
-			requireNcrnaResource("r58", "consensus", R58_CONSENSUS_OVERRIDE);
-			requireNcrnaResource("r58", "HBM", R58_MODELS_OVERRIDE);
-			addNcrnaFamily("r58", R58_CONSENSUS_OVERRIDE, R58_MODELS_OVERRIDE, r58Kmers, 17, 140,
+			final String r58KmerResource=(R58_KMERS_OVERRIDE==null ? "r58_17mers.fa" : R58_KMERS_OVERRIDE);
+			final String r58ConsensusResource=(R58_CONSENSUS_OVERRIDE==null ? "r58_consensus.fa" : R58_CONSENSUS_OVERRIDE);
+			final String r58ModelResource=(R58_MODELS_OVERRIDE==null ? "r58_models.hbm" : R58_MODELS_OVERRIDE);
+			final LongHashSet r58Kmers=loadEffectiveNcrnaKmerSet("r58", "r58_17mers.fa", R58_KMERS_OVERRIDE, 17);
+			requireNonemptyNcrnaKmerSet("r58", r58KmerResource, r58Kmers);
+			requireNcrnaResource("r58", "consensus", r58ConsensusResource);
+			requireNcrnaResource("r58", "HBM", r58ModelResource);
+			addNcrnaFamily("r58", r58ConsensusResource, r58ModelResource, r58Kmers, 17, 140,
 				resolveSweepPad("r58", -1, 135), 7, 100, false, 0f, 0f, 0f, 1,
 				0f, 1f, resolveSweepFloat("r58", NCRNA_ID_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
 				resolveSweepFloat("r58", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 				boundaryStartOffsets("r58"), boundaryStopOffsets("r58"));
-			final LongHashSet lsuKmers=loadEffectiveNcrnaKmerSet("lsu", "lsu_dev_17mers.fa", LSU_KMERS_OVERRIDE, 17);
-			requireNonemptyNcrnaKmerSet("lsu", LSU_KMERS_OVERRIDE, lsuKmers);
-			requireNcrnaResource("lsu", "consensus", LSU_CONSENSUS_OVERRIDE);
-			requireNcrnaResource("lsu", "HBM", LSU_MODELS_OVERRIDE);
-			addNcrnaFamily("lsu", LSU_CONSENSUS_OVERRIDE, LSU_MODELS_OVERRIDE, lsuKmers, 17, 60,
+			final String lsuKmerResource=(LSU_KMERS_OVERRIDE==null ? "lsu_17mers.fa" : LSU_KMERS_OVERRIDE);
+			final String lsuConsensusResource=(LSU_CONSENSUS_OVERRIDE==null ? "lsu_consensus.fa" : LSU_CONSENSUS_OVERRIDE);
+			final String lsuModelResource=(LSU_MODELS_OVERRIDE==null ? "lsu_models.hbm" : LSU_MODELS_OVERRIDE);
+			final LongHashSet lsuKmers=loadEffectiveNcrnaKmerSet("lsu", "lsu_17mers.fa", LSU_KMERS_OVERRIDE, 17);
+			requireNonemptyNcrnaKmerSet("lsu", lsuKmerResource, lsuKmers);
+			requireNcrnaResource("lsu", "consensus", lsuConsensusResource);
+			requireNcrnaResource("lsu", "HBM", lsuModelResource);
+			addNcrnaFamily("lsu", lsuConsensusResource, lsuModelResource, lsuKmers, 17, 60,
 				resolveSweepPad("lsu", -1, 3500), 7, 100, false, 0f, 0f, 0f, 1,
 				0f, 1f, resolveSweepFloat("lsu", NCRNA_ID_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("lsu", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
@@ -2095,13 +2178,13 @@ public class CallGenes extends ProkObject {
 				resolveSweepFloat("lsu", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 				boundaryStartOffsets("lsu"), boundaryStopOffsets("lsu"));
 			if(GeneCaller.ncrnaFamilies.size()!=before+2){
-				throw new IllegalArgumentException("r58lsu=t requires complete explicit 5.8S and LSU consensus, HBM, and kmer resources");
+				throw new IllegalArgumentException("r58lsu=t requires complete packaged or explicit 5.8S and LSU consensus, HBM, and kmer resources");
 			}
 			for(int i=before; i<before+2; i++){
 				final NcrnaFamily f=GeneCaller.ncrnaFamilies.get(i);
 				requireNcrnaLibraryModelAlignment(f.name, f.library, f.models, f.modelNames,
-					f.name.equals("r58") ? R58_CONSENSUS_OVERRIDE : LSU_CONSENSUS_OVERRIDE,
-					f.name.equals("r58") ? R58_MODELS_OVERRIDE : LSU_MODELS_OVERRIDE);
+					f.name.equals("r58") ? r58ConsensusResource : lsuConsensusResource,
+					f.name.equals("r58") ? r58ModelResource : lsuModelResource);
 			}
 		}catch(RuntimeException e){
 			while(GeneCaller.ncrnaFamilies.size()>before){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
@@ -2143,13 +2226,6 @@ public class CallGenes extends ProkObject {
 	private static void requireS18Overrides(){
 		if(S18_KMERS_OVERRIDE==null || S18_CONSENSUS_OVERRIDE==null || S18_MODELS_OVERRIDE==null){
 			throw new IllegalArgumentException("s18=t is development-only and requires explicit s18kmers/s18consensus/s18models paths");
-		}
-	}
-
-	private static void requireR58LsuOverrides(){
-		if(R58_KMERS_OVERRIDE==null || R58_CONSENSUS_OVERRIDE==null || R58_MODELS_OVERRIDE==null
-				|| LSU_KMERS_OVERRIDE==null || LSU_CONSENSUS_OVERRIDE==null || LSU_MODELS_OVERRIDE==null){
-			throw new IllegalArgumentException("r58lsu=t is development-only and requires explicit r58kmers/r58consensus/r58models and lsu kmers/consensus/models paths");
 		}
 	}
 
@@ -2742,6 +2818,10 @@ public class CallGenes extends ProkObject {
 	private String out16S=null;
 	/** Output filename for 18S rRNA sequences */
 	private String out18S=null;
+	/** Output filename for derived ITS sequences */
+	private String outIts=null;
+	/** Derived ITS emission gate; outits= implies true, otherwise default OFF. */
+	private boolean callIts=false;
 	/** GFF filename for comparison/validation of gene calling results */
 	private String compareToGff=null;
 	private String orfNetPath=null;
@@ -2887,6 +2967,14 @@ public class CallGenes extends ProkObject {
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
 	}
 
+	/** The family-specific opt-in is sufficient by itself; callers should not need the
+	 * redundant {@code ncrna=t} umbrella flag as well. Explicitly disabling the umbrella
+	 * after this option is still diagnosed by validateNcrnaGateCombo(). */
+	static void setR58LsuEnabled(boolean enabled){
+		R58LSU_ENABLED=enabled;
+		if(enabled){NCRNA_FAMILIES_ENABLED=true;}
+	}
+
 	/** Output filename for statistics summary */
 	private String outStats="stderr";
 	/** Optional, default-off 5S consensus-attempt TSV diagnostic. */
@@ -2908,6 +2996,8 @@ public class CallGenes extends ProkObject {
 	private final FileFormat ffout16S;
 	/** FileFormat object for 18S rRNA output configuration */
 	private final FileFormat ffout18S;
+	/** FileFormat object for derived ITS output configuration */
+	private final FileFormat ffoutIts;
 	
 	/** Determines how sequence is processed if it will be output */
 	int mode=TRANSLATE;

@@ -538,6 +538,12 @@ public class Orf extends PFeature {
 	public String trnaModel;
 	/** Anticodon triplet extracted structurally from the called sequence, or null */
 	public String trnaAnticodon;
+	/** Explicit generic-ncRNA family identity (e.g. "s18", "r58", "lsu"), set by
+	 * NcrnaScavenger from NcrnaFamily.name; null for non-ncRNA Orfs and for ncRNA Orfs
+	 * created before this field existed. NOT a substitute for trnaModel (a model label
+	 * is not a safe family identity -- Ganyu/Qiqi design note, 2026-09-17). Purely
+	 * additive: unused by appendGff() so far, does not change any existing GFF byte. */
+	public String ncrnaFamily;
 	
 	/*--------------------------------------------------------------*/
 	/*----------------         Static Fields        ----------------*/
