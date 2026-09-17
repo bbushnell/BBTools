@@ -85,7 +85,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	 */
 	@Override
 	public synchronized void add(ArrayList<Read> list, long listnum){
-		
+		if(aborted){throw abortedException(listnum);}
 		if(ordered){
 			int size=table.size();
 //			System.err.print(size+", ");
@@ -96,7 +96,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 					System.err.println("Output buffer became full; key "+listnum+" waiting on "+nextListID+".");
 					printBufferNotification=false;
 				}
-				while(listnum>nextListID && size>=HALF_LIMIT){
+				while(!aborted && listnum>nextListID && size>=HALF_LIMIT){
 					try {
 						this.wait(500);//#002 fix: 500ms (was 20000) bounds the worst-case spurious stall from the incomplete notifyAll coverage to ~0.5s instead of ~20s. Cheap: this only polls while a producer is actually blocked (active backpressure - rare).
 					} catch (InterruptedException e) {
@@ -104,6 +104,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 					}
 					size=table.size();
 				}
+				if(aborted){throw abortedException(listnum);}
 				if(printBufferNotification){
 					System.err.println("Output buffer became clear for key "+listnum+"; next="+nextListID+", size="+size);
 				}
@@ -123,7 +124,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	 */
 	@Override
 	public synchronized void close(){
-		
+		if(aborted){return;}
 		if(table!=null && !table.isEmpty()){
 			errorState=true;
 			System.err.println("Error: An unfinished ReadOutputStream was closed.");
@@ -135,6 +136,23 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 //		if(readstream2!=null){readstream2.addList(null);}
 		readstream1.poison();
 		if(readstream2!=null){readstream2.poison();}
+	}
+
+	/**
+	 * Discards invalid buffered output and wakes this stream's ordered-list waiters
+	 * after an upstream failure. Downstream writer I/O performed while another
+	 * synchronized caller holds this monitor can still delay entry into abort().
+	 */
+	@Override
+	public synchronized void abort(){
+		if(aborted){return;}
+		aborted=true;
+		errorState=true;
+		finishedSuccessfully=false;
+		if(table!=null){table.clear();}
+		if(readstream1!=null){readstream1.abortNow();}
+		if(readstream2!=null){readstream2.abortNow();}
+		notifyAll();
 	}
 	
 	/**
@@ -160,8 +178,10 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 				e.printStackTrace();
 			}
 		}
-		assert(table==null || table.isEmpty());
-		finishedSuccessfully=true;
+		synchronized(this){
+			assert(table==null || table.isEmpty());
+			finishedSuccessfully=!aborted;
+		}
 	}
 	
 	/**
@@ -204,8 +224,10 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	/** Checks if all components finished without errors.
 	 * @return true if this stream and both ReadStreamByteWriter instances completed successfully */
 	@Override
-	public boolean finishedSuccessfully(){
-		return finishedSuccessfully && (readstream1==null || readstream1.finishedSuccessfully()) && (readstream2==null || readstream2.finishedSuccessfully());
+	public synchronized boolean finishedSuccessfully(){
+		return !errorState && !aborted && finishedSuccessfully &&
+				(readstream1==null || readstream1.finishedSuccessfully()) &&
+				(readstream2==null || readstream2.finishedSuccessfully());
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -238,6 +260,10 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 		assert(list!=null);
 		assert(table==null);
 		write(new ArrayList<Read>(list));
+	}
+
+	private RuntimeException abortedException(long listnum){
+		return new RuntimeException("Cannot add list "+listnum+" to aborted output stream "+fname()+".");
 	}
 	
 	private synchronized void write(ArrayList<Read> list){
@@ -276,6 +302,7 @@ public final class ConcurrentGenericReadOutputStream extends ConcurrentReadOutpu
 	private final int HALF_LIMIT=ADD_LIMIT/2;
 	
 	private final HashMap<Long, ArrayList<Read>> table;
+	private boolean aborted=false;
 	
 	{if(HALF_LIMIT<1){throw new RuntimeException("Capacity too low.");}}
 	

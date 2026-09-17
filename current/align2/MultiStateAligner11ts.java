@@ -844,6 +844,12 @@ public final class MultiStateAligner11ts extends MSA{
 		
 		//Iterate through all rows to fill, except row 0 which is constant; query base 0 corresponds to row 1.
 		for(int row=1; row<=rows; row++){
+			final int[] currentMS=packed[MODE_MS][row];
+			final int[] previousMS=packed[MODE_MS][row-1];
+			final int[] currentD=packed[MODE_DEL][row];
+			final int[] previousD=packed[MODE_DEL][row-1];
+			final int[] currentI=packed[MODE_INS][row];
+			final int[] previousI=packed[MODE_INS][row-1];
 			
 			//Iterate through all columns to fill, except column 0 which is constant; ref base 0 corresponds to column 1.
 			for(int col=1; col<=columns; col++){
@@ -871,20 +877,20 @@ public final class MultiStateAligner11ts extends MSA{
 				//The MS matrix always comes from the diagonal.
 				if(gap){
 					//In this case a deletion is forced, so the MS cell is marked invalid
-					packed[MODE_MS][row][col]=subfloor;
+					currentMS[col]=subfloor;
 					if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 				}else{//Calculate match and sub scores
 					
 					//In each case the previous cell is the diagonal, but it can be from any of the 3 matrices.
-					final int scoreFromDiag=packed[MODE_MS][row-1][col-1]&SCOREMASK;
-					final int scoreFromDel=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
-					final int scoreFromIns=packed[MODE_INS][row-1][col-1]&SCOREMASK;
+					final int scoreFromDiag=previousMS[col-1]&SCOREMASK;
+					final int scoreFromDel=previousD[col-1]&SCOREMASK;
+					final int scoreFromIns=previousI[col-1]&SCOREMASK;
 					
 					//Time from previous state; this only matters here when coming from MS matrix
 					//It can either represent time spent in MATCH or SUB depending on whether prevMatch is true.
 					//So, it is not time spent in MS (diagonal), just consecutive match or sub.
 					//In other words, the MS matrix contains 2 states which are differentiated.
-					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
+					final int streak=(previousMS[col-1]&TIMEMASK);
 					
 					//This block has 2 sub-blocks, on for match and one for sub.
 					if(nConsistentExecution()){
@@ -925,7 +931,7 @@ public final class MultiStateAligner11ts extends MSA{
 						assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 						assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
 						//packed[MODE_MS][row][col]=(score|prevState|time);
-						packed[MODE_MS][row][col]=(score|time);
+						currentMS[col]=(score|time);
 						assert((score&SCOREMASK)==score);
 						//assert((prevState&MODEMASK)==prevState);
 						assert((time&TIMEMASK)==time);
@@ -970,7 +976,7 @@ public final class MultiStateAligner11ts extends MSA{
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}//If the time counter overflows, reset it
 						assert(score>=MINoff_SCORE && score<=MAXoff_SCORE) : "Score overflow: "+score+" "+new String(read);
 //						packed[MODE_MS][row][col]=(score|prevState|time);
-						packed[MODE_MS][row][col]=(score|time);
+						currentMS[col]=(score|time);
 						assert((score&SCOREMASK)==score);
 //						assert((prevState&MODEMASK)==prevState);
 						assert((time&TIMEMASK)==time);
@@ -982,15 +988,15 @@ public final class MultiStateAligner11ts extends MSA{
 				//The DEL matrix always comes from the left (horizontal).
 				if(row<BARRIER_D1 || row>BARRIER_D2){
 					//In these cases (at the query tips) deletions are not allowed so the DEL cell is marked invalid.
-					packed[MODE_DEL][row][col]=subfloor;
+					currentD[col]=subfloor;
 				}else{//Calculate DEL score
 					
 					//Time spent in DEL state
-					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
+					final int streak=currentD[col-1]&TIMEMASK;
 					
 					//Only 2 scores are needed since adjacent D and I operations are not allowed
-					final int scoreFromDiag=packed[MODE_MS][row][col-1]&SCOREMASK;
-					final int scoreFromDel=packed[MODE_DEL][row][col-1]&SCOREMASK;
+					final int scoreFromDiag=currentMS[col-1]&SCOREMASK;
+					final int scoreFromDel=currentD[col-1]&SCOREMASK;
 					
 					int scoreMS=scoreFromDiag+POINTSoff_DEL;
 					//This could use an array but it would be a super big array (>1 million) which is hard to cache
@@ -1031,7 +1037,7 @@ public final class MultiStateAligner11ts extends MSA{
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}//If the time counter overflows, reset it
 					assert(score>=MINoff_SCORE && score<=MAXoff_SCORE) : "Score overflow: "+score+" "+new String(read);
 //					packed[MODE_DEL][row][col]=(score|prevState|time);
-					packed[MODE_DEL][row][col]=(score|time);
+					currentD[col]=(score|time);
 					assert((score&SCOREMASK)==score);
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
@@ -1042,15 +1048,15 @@ public final class MultiStateAligner11ts extends MSA{
 				//The INS matrix always comes from above (vertical).
 				if(gap || (row<BARRIER_I1 && col>1) || (row>BARRIER_I2 && col<BARRIER_I2b)){
 					//At the query tips, or if there is a gap symbol, insertions are not usually allowed.
-					packed[MODE_INS][row][col]=subfloor;
+					currentI[col]=subfloor;
 				}else{//Calculate INS score
 					
 					//Time spent in INS state
-					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
+					final int streak=previousI[col]&TIMEMASK;
 
 					//Only 2 scores are needed since adjacent D and I operations are not allowed
-					final int scoreFromDiag=packed[MODE_MS][row-1][col]&SCOREMASK;
-					final int scoreFromIns=packed[MODE_INS][row-1][col]&SCOREMASK;
+					final int scoreFromDiag=previousMS[col]&SCOREMASK;
+					final int scoreFromIns=previousI[col]&SCOREMASK;
 					
 					int scoreMS=scoreFromDiag+POINTSoff_INS;
 					//Here an array is easy to use because insertions can't be very long
@@ -1077,7 +1083,7 @@ public final class MultiStateAligner11ts extends MSA{
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}//If the time counter overflows, reset it
 					assert(score>=MINoff_SCORE && score<=MAXoff_SCORE) : "Score overflow: "+score+" "+new String(read);
 //					packed[MODE_INS][row][col]=(score|prevState|time);
-					packed[MODE_INS][row][col]=(score|time);
+					currentI[col]=(score|time);
 					assert((score&SCOREMASK)==score);
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);

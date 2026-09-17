@@ -8,6 +8,7 @@ import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
 import jgi.CoveragePileup;
+import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import shared.TrimRead;
@@ -3215,7 +3216,31 @@ public abstract class AbstractMapThread extends Thread {
 		}
 		if(!longUnpaired){return list;}
 		final int target=Tools.max(1, (limit*5)/6);
-		Tools.breakReads(list, target, SHRED_MIN_LENGTH, verbose ? System.err : null);
+		assert(target>=SHRED_MIN_LENGTH) : "Auto-shred target must retain a minimum-length fragment: "+
+			"limit="+limit+", target="+target+", minimum="+SHRED_MIN_LENGTH;
+		// Tools.breakReads filters the whole list. Only over-limit unpaired reads
+		// belong to this transformation; unrelated short reads and mate links must survive.
+		final ArrayList<Read> shredded=new ArrayList<Read>(list.size());
+		for(Read r : list){
+			if(r==null || r.mate!=null || r.bases==null || r.length()<=limit){
+				shredded.add(r);
+			}else{
+				final int length=r.length();
+				int part=1;
+				for(int start=0; start<=length-SHRED_MIN_LENGTH; part++){
+					final int stop=start+Tools.min(target, length-start);
+					final byte[] bases=KillSwitch.copyOfRange(r.bases, start, stop);
+					final byte[] quals=(r.quality==null ? null : KillSwitch.copyOfRange(r.quality, start, stop));
+					final Read fragment=new Read(bases, quals, r.id+"_"+part, r.numericID, r.flags);
+					fragment.setMapped(false);
+					shredded.add(fragment);
+					start=stop;
+				}
+			}
+		}
+		list.clear();
+		list.ensureCapacity(shredded.size());
+		for(int i=0; i<shredded.size(); i++){list.add(shredded.get(i));}
 		return list;
 	}
 	

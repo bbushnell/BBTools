@@ -137,6 +137,12 @@ public abstract class ConcurrentReadOutputStream {
 	
 	/** Closes the output stream and releases resources. */
 	public abstract void close();
+
+	/**
+	 * Abandons buffered output after an upstream failure and wakes blocked add calls.
+	 * Implementations must mark an error and tolerate repeated calls.
+	 */
+	public abstract void abort();
 	
 	/** Waits for all writer threads to finish. */
 	public abstract void join();

@@ -75,6 +75,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	 */
 	@Override
 	public synchronized void add(ArrayList<Read> list, long listnum){
+		if(aborted){throw new RuntimeException("Cannot add list "+listnum+" to an aborted distributed output stream.");}
 		if(master){
 			dest.add(list, listnum);
 		}else{
@@ -84,6 +85,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 
 	@Override
 	public void close(){
+		if(aborted){return;}
 		if(master){
 			int count=terminatedCount.incrementAndGet();
 			//This loop blocks until every ListenThread increments terminatedCount; a ListenThread that dies WITHOUT incrementing (see #001) hangs it forever.
@@ -107,12 +109,32 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	}
 
 	/**
+	 * Aborts the wrapped destination when this wrapper monitor is available.
+	 * TODO: add() and abort() are both synchronized on this wrapper; add() can
+	 * hold the monitor while dest.add() waits, so abort() cannot then acquire it
+	 * and does not guarantee wakeup of that blocked producer. A general MPI
+	 * implementation or wrapper-lock redesign is outside this bounded port.
+	 */
+	@Override
+	public synchronized void abort(){
+		if(aborted){return;}
+		errorState=true;
+		finishedSuccessfully=false;
+		aborted=true;
+		if(master && dest!=null){dest.abort();}
+	}
+
+	/**
 	 * Waits for all processing to complete across all nodes.
 	 * Master joins the destination stream and broadcasts completion to slaves.
 	 * Slaves listen for master's join completion signal.
 	 */
 	@Override
 	public void join(){
+		if(aborted){
+			if(master && dest!=null){dest.join();}
+			return;
+		}
 		if(master){
 			dest.join();
 			broadcastJoin(true);
@@ -147,6 +169,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	 */
 	@Override
 	public boolean errorState(){
+		if(aborted){return true;}
 		if(master){
 			return errorState || dest.errorState();
 		}else{
@@ -162,10 +185,8 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	 */
 	@Override
 	public boolean finishedSuccessfully(){
-		if(finishedSuccessfully){return true;}//Benign DCL: finishedSuccessfully is monotonic (false->true only), so an unsynchronized stale-false read merely re-enters the sync block below - it can never observe true->false, so it never returns a wrong result.
-
 		synchronized(this){
-			if(finishedSuccessfully){return true;}
+			if(aborted){return false;}
 			if(master){
 				finishedSuccessfully=dest.finishedSuccessfully();
 				broadcastFinishedSuccessfully(finishedSuccessfully);
@@ -173,7 +194,7 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 				finishedSuccessfully=listenFinishedSuccessfully();
 			}
 		}
-		return finishedSuccessfully;
+		return !aborted && finishedSuccessfully;
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -357,5 +378,6 @@ public class ConcurrentReadOutputStreamD extends ConcurrentReadOutputStream{
 	protected final boolean master;
 	/** Total number of MPI ranks in the computation */
 	protected final int rank, ranks;
+	private volatile boolean aborted=false;
 	
 }

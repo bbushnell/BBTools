@@ -612,7 +612,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			success=ThreadWaiter.startAndWait(alpt, this);
 			if(success){
 				for(Writer writer : writers){
-					if(writer!=null && writer.poisonAndWait()){
+					// ReadWrite's Writer closure checks both errorState and successful completion.
+					if(writer!=null && (writer.poisonAndWait() || !writer.finishedSuccessfully())){
 						success=false;
 					}
 				}
@@ -627,7 +628,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				errorStateS=true;
 				success=false;
 			}
-			closeSplitterStreams(!success);
+			errorStateS|=closeSplitterStreams(!success);
 		}
 
 		t.stop();
@@ -673,28 +674,40 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		return writer;
 	}
 
-	private void closeSplitterStreams(boolean error){
+	/** @return true on any splitter close error, including an aborted stream. */
+	private boolean closeSplitterStreams(boolean error){
+		boolean closeError=false;
 		if(BBSplitter.streamTable!=null){
 			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
-				closeSplitterStream(ros, error);
+				closeError|=closeSplitterStream(ros, error);
 			}
 		}
 		if(BBSplitter.streamTableAmbiguous!=null){
 			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
-				closeSplitterStream(ros, error);
+				closeError|=closeSplitterStream(ros, error);
 			}
 		}
+		return closeError;
 	}
 
-	private void closeSplitterStream(stream.ConcurrentReadOutputStream ros, boolean error){
-		if(ros==null){return;}
-		if(error){
-			stream.ReadStreamWriter rs1=ros.getRS1();
-			stream.ReadStreamWriter rs2=ros.getRS2();
-			if(rs1!=null){rs1.abortNow();}
-			if(rs2!=null){rs2.abortNow();}
-		}else{
-			ReadWrite.closeStream(ros);
+	/** ReadWrite.closeStream folds errorState and unsuccessful writer completion. */
+	private boolean closeSplitterStream(stream.ConcurrentReadOutputStream ros, boolean error){
+		if(ros==null){return false;}
+		if(error){ros.abort();}
+		return ReadWrite.closeStream(ros);
+	}
+
+	/** Abandon invalid output and wake mapper workers blocked on missing ordered lists. */
+	private void abortSplitterStreams(){
+		if(BBSplitter.streamTable!=null){
+			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTable.values()){
+				if(ros!=null){ros.abort();}
+			}
+		}
+		if(BBSplitter.streamTableAmbiguous!=null){
+			for(stream.ConcurrentReadOutputStream ros : BBSplitter.streamTableAmbiguous.values()){
+				if(ros!=null){ros.abort();}
+			}
 		}
 	}
 
@@ -764,6 +777,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			}catch(Throwable t){
 				error=t;
 				t.printStackTrace();
+				// A failed worker may never submit its ordered list ID. Signal immediately:
+				// waiting for startAndWait to return would strand siblings in output backpressure.
+				// Writer.finishError is idempotent/nonblocking; CROS.abort wakes ordered add waits.
+				for(Writer writer : writers){
+					if(writer!=null){writer.finishError();}
+				}
+				abortSplitterStreams();
 			}
 		}
 
