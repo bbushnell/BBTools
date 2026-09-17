@@ -551,6 +551,17 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 
 		Timer t=new Timer();
+		// Preserve BBMap's memory-based worker limit before allocating reader/mapper workers.
+		if(Shared.USE_JNI){
+			final int requestedThreads=Shared.threads();
+			adjustThreadsforMemory(105);
+			if(Shared.threads()<requestedThreads*0.9){
+				outstream.println("Disabling JNI due to low system memory.");
+				Shared.USE_JNI=false;
+				Shared.setThreads(requestedThreads);
+			}
+		}
+		if(!Shared.USE_JNI){adjustThreadsforMemory(65);}
 		final int threads=Tools.max(1, Shared.threads());
 		Read.VALIDATE_IN_CONSTRUCTOR=(threads<2);
 
@@ -611,7 +622,11 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				}
 			}
 		}finally{
-			ReadWrite.closeStream(streamer);
+			// Some readers report malformed input through errorState rather than nextList().
+			if(ReadWrite.closeStream(streamer)){
+				errorStateS=true;
+				success=false;
+			}
 			closeSplitterStreams(!success);
 		}
 
@@ -753,6 +768,17 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 
 		private void processList(ListNum<Read> ln){
+			// Skip original input IDs before shredding, statistics, or mapping. Keep ln.id
+			// even for a wholly skipped batch so ordered output receives every list ID.
+			if(AbstractMapThread.SKIP_INITIAL>0){
+				final ArrayList<Read> input=ln.list;
+				int kept=0;
+				for(int i=0; i<input.size(); i++){
+					final Read r=input.get(i);
+					if(r.numericID>=AbstractMapThread.SKIP_INITIAL){input.set(kept++, r);}
+				}
+				input.subList(kept, input.size()).clear();
+			}
 			ArrayList<Read> readlist=engine.handleLongReads(ln.list);
 			final LongList bloomBuffer=(engine.bloomFilter==null ? null : new LongList(150));
 
