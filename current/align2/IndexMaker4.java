@@ -289,7 +289,6 @@ public class IndexMaker4 {
 			 */
 			public CountThread(int id_, int[] sizes_, int[] intercom_, Block[] indexHolder_){
 				id=id_;
-				idb=AminoAcid.numberToBase[id];
 				sizes=sizes_;
 				indexHolder=indexHolder_;
 				intercom=intercom_;
@@ -315,8 +314,6 @@ public class IndexMaker4 {
 
 			/** Thread identifier (0-3 for bases A, C, G, T) */
 			private final int id;
-			/** Byte value of the base this thread processes */
-			private final int idb;
 			/** Shared array for counting k-mer occurrences */
 			private final int[] sizes;
 			/** {sizeSum, #finishedCounting, #finishedAllocating, #finishedFilling} */
@@ -353,12 +350,20 @@ public class IndexMaker4 {
 							}
 						}
 						
-						int sum=0;
+						// Count in long so an oversized block fails before int wrap can
+						// corrupt the allocation size or strand the fill workers.
+						long sumL=0;
 						for(int i=0; i<sizes.length; i++){
 							int temp=sizes[i];
-							sizes[i]=sum;
-							sum+=temp;
+							sizes[i]=(int)sumL;
+							sumL+=temp;
 						}
+						if(sumL>Shared.MAX_ARRAY_LEN){
+							KillSwitch.kill("Block chr"+minChrom+"-"+maxChrom+" needs "+sumL+
+								" k-mer slots, exceeding MAX_ARRAY_LEN="+Shared.MAX_ARRAY_LEN+
+								". Use fewer chromosomes per block (lower chrombits) or split chromosomes shorter.");
+						}
+						final int sum=(int)sumL;
 						
 						if(USE_ALLOC_SYNC){
 							synchronized(ALLOC_SYNC){//To allow contiguous memory allocation
@@ -409,37 +414,27 @@ public class IndexMaker4 {
 					throw new RuntimeException("Chrom "+chrom+": "+ca.maxIndex+" > "+MAX_ALLOWED_CHROM_INDEX);
 				}
 
-				final int max=ca.maxIndex-KEYLEN+1;
 				final int skip=KEYLEN-1;
 				assert(skip>0) : "\n*** The key length is too short.  For the flag set 'k=X', X should be between 8 and 15; it was set to "+KEYLEN+" ***\n";
 
-
-				int start=ca.minIndex;
-				while(start<max && ca.getNumber(start+skip)==-1){start+=skip;}
-				while(start<max && ca.getNumber(start)==-1){start++;}
-
-				//			Data.sysout.println("Entering hash loop.");
-
-				// "a" is site start, "b" is site end
+				// Preserve the donor's exact window range: the old a<maxIndex-KEYLEN+1
+				// loop examined through base maxIndex-1. Rolling avoids rebuilding all
+				// KEYLEN bases at every valid start while retaining identical ownership.
 				final byte[] array=ca.array;
-				for(int a=start, b=start+skip; a<max; a++, b++){
-					if(array[a]==idb){
-						int key=ca.getNumber(a, b);
-//						if(key>=0 && (key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0)){
-//							assert(key>=minIndex && key<=maxIndex) : "\n"+id+", "+ca.getNumber(a)+", "+(char)ca.get(a)+", "+key+", "+Integer.toHexString(key)+
-//							", "+ca.getString(a, b)+"\n"+minIndex+", "+maxIndex+"\n";
-//							sizes[key]++;
-//						}
-						if(key>=0 && (key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0 || (AminoAcid.reverseComplementBinaryFast(key, KEYLEN))%MODULO==0)){
-							assert(key>=minIndex && key<=maxIndex) : "\n"+id+", "+ca.getNumber(a)+", "+(char)ca.get(a)+", "+key+", "+Integer.toHexString(key)+
-							", "+ca.getString(a, b)+"\n"+minIndex+", "+maxIndex+"\n";
-							sizes[key]++;
-						}
+				final byte[] baseToNumber=AminoAcid.baseToNumber;
+				final int mask=KEYSPACE-1;
+				int key=0, valid=0;
+				for(int b=ca.minIndex; b<ca.maxIndex; b++){
+					final int x=baseToNumber[array[b]];
+					if(x<0){key=0; valid=0; continue;}
+					key=((key<<2)|x)&mask;
+					if(valid<KEYLEN){valid++;}
+					if(valid<KEYLEN || key<minIndex || key>maxIndex){continue;}
+					if((key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0 ||
+							(AminoAcid.reverseComplementBinaryFast(key, KEYLEN))%MODULO==0)){
+						sizes[key]++;
 					}
-					//				Data.sysout.println("a="+a+", b="+b+", max="+max);
 				}
-
-				//			Data.sysout.println("Left hash loop.");
 
 			}
 
@@ -459,67 +454,34 @@ public class IndexMaker4 {
 					throw new RuntimeException("Chrom "+chrom+": "+ca.maxIndex+" > "+MAX_ALLOWED_CHROM_INDEX);
 				}
 
-				final int max=ca.maxIndex-KEYLEN+1;
 				final int skip=KEYLEN-1;
-				assert(skip>0);
+				assert(skip>0) : "fillArrays requires KEYLEN>1 because site=b-(KEYLEN-1); KEYLEN="+KEYLEN;
 
-
-				int start=ca.minIndex;
-				while(start<max && ca.getNumber(start+skip)==-1){start+=skip;}
-				while(start<max && ca.getNumber(start)==-1){start++;}
-
-
-//				//			Data.sysout.println("Entering hash loop.");
-//				// "a" is site start, "b" is site end
-//				int len=KEYLEN-1;
-//				int keyB=ca.getNumber(start, start+skip-1);
-//				final int mask=(KEYLEN==16 ? -1 : ~((-1)<<(2*KEYLEN)));
-//				final byte[] array=ca.array;
-//				final byte[] btn=AminoAcid.baseToNumber;
-//				for(int a=start, b=start+skip; a<max; a++, b++){
-//					int c=btn[array[b]];
-//					if(c>=0){
-//						keyB=((keyB<<2)|c);
-//						len++;
-//					}else{
-//						len=0;
-//					}
-//					int key=keyB&mask;
-//					if(len>=KEYLEN && /* array[a]==idb*/ key>=minIndex && key<=maxIndex){
-////						int key=keyB&mask;
-//						assert(key>=minIndex && key<=maxIndex);
-//						int number=toNumber(a, chrom);
-//						assert(numberToChrom(number, baseChrom)==chrom);
-//						assert(numberToSite(number)==a);
-//						index[key][sizes[key]]=number;
-//						sizes[key]++;
-//					}
-//					//				Data.sysout.println("a="+a+", b="+b+", max="+max);
-//				}
-
-
-				//			Data.sysout.println("Entering hash loop.");
-				// "a" is site start, "b" is site end
-				
-				int[] sites=indexHolder[0].sites;
-				
-				for(int a=start, b=start+skip; a<max; a++, b++){
-					if(ca.array[a]==idb){
-						int key=ca.getNumber(a, b);
-						if(key>=0 && (key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0 || (AminoAcid.reverseComplementBinaryFast(key, KEYLEN))%MODULO==0)){
-							assert(key>=minIndex && key<=maxIndex);
-							int number=toNumber(a, chrom);
-							assert(numberToChrom(number, baseChrom)==chrom);
-							assert(numberToSite(number)==a);
-							int loc=sizes[key];
-							assert(sites[loc]==0);
-							sites[loc]=number;
-							sizes[key]++;
-						}
+				final int[] sites=indexHolder[0].sites;
+				final byte[] array=ca.array;
+				final byte[] baseToNumber=AminoAcid.baseToNumber;
+				final int mask=KEYSPACE-1;
+				int key=0, valid=0;
+				for(int b=ca.minIndex; b<ca.maxIndex; b++){
+					final int x=baseToNumber[array[b]];
+					if(x<0){key=0; valid=0; continue;}
+					key=((key<<2)|x)&mask;
+					if(valid<KEYLEN){valid++;}
+					if(valid<KEYLEN || key<minIndex || key>maxIndex){continue;}
+					if((key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0 ||
+							(AminoAcid.reverseComplementBinaryFast(key, KEYLEN))%MODULO==0)){
+						final int a=b-skip;
+						final int number=toNumber(a, chrom);
+						assert(numberToChrom(number, baseChrom)==chrom) :
+							"packed chromosome must round-trip for BBIndex block traversal; chrom="+chrom+", site="+a;
+						assert(numberToSite(number)==a) :
+							"packed site must round-trip before entering Block.sites; site="+a+", number="+number;
+						final int loc=sizes[key];
+						assert(sites[loc]==0) : "count/fill ownership mismatch at key="+key+", loc="+loc;
+						sites[loc]=number;
+						sizes[key]++;
 					}
-					//				Data.sysout.println("a="+a+", b="+b+", max="+max);
 				}
-				//			Data.sysout.println("Left hash loop.");
 
 			}
 

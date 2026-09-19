@@ -157,6 +157,7 @@ public final class MultiStateAligner11ts extends MSA{
 //		assert(minScore>0);
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
+		final boolean nConsistent=nConsistentExecution();
 		
 		final int halfband=(bandwidth<1 && bandwidthRatio<=0) ? 0 :
 			Tools.max(Tools.min(bandwidth<1 ? 9999999 : bandwidth, bandwidthRatio<=0 ? 9999999 : 8+(int)(rows*bandwidthRatio)), (columns-rows+8))/2;
@@ -188,7 +189,7 @@ public final class MultiStateAligner11ts extends MSA{
 		final int BARRIER_D2=rows-BARRIER_D1;
 		
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
-		if(nConsistentExecution()){clearMSPredecessors();}
+		if(nConsistent){clearMSPredecessors();}
 		
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
@@ -295,7 +296,7 @@ public final class MultiStateAligner11ts extends MSA{
 			if(colStart>1){
 				assert(row>0);
 				packed[MODE_MS][row][colStart-1]=subfloor;
-				if(nConsistentExecution()){msPredecessor[row][colStart-1]=INVALID_MS_PREDECESSOR;}
+				if(nConsistent){msPredecessor[row][colStart-1]=INVALID_MS_PREDECESSOR;}
 				packed[MODE_INS][row][colStart-1]=subfloor;
 				packed[MODE_DEL][row][colStart-1]=subfloor;
 			}
@@ -356,7 +357,7 @@ public final class MultiStateAligner11ts extends MSA{
 				if(gap || (scoreFromDiag_MS<limit3 && scoreFromDel_MS<limit3 && scoreFromIns_MS<limit3)){
 					packed[MODE_MS][row][col]=subfloor;
 					writtenMSScore=subfloor;
-					if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
+					if(nConsistent){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 				}else{//Calculate match and sub scores
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
@@ -366,7 +367,7 @@ public final class MultiStateAligner11ts extends MSA{
 						int time;
 						byte prevState;
 						
-						if(nConsistentExecution()){
+						if(nConsistent){
 							writeConsistentMS(row, col, call0, call1, ref0, ref1);
 							final int cell=packed[MODE_MS][row][col];
 							score=cell&SCOREMASK;
@@ -459,7 +460,7 @@ public final class MultiStateAligner11ts extends MSA{
 							if(minGoodCol<0){minGoodCol=col;}
 						}else{
 							score=subfloor;
-							if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
+							if(nConsistent){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 						}
 						
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}
@@ -614,7 +615,7 @@ public final class MultiStateAligner11ts extends MSA{
 					if(col>colStop && (maxGoodCol<col || halfband>0)){break;}
 					if(row>1){
 						packed[MODE_MS][row-1][col+1]=subfloor;
-						if(nConsistentExecution()){msPredecessor[row-1][col+1]=INVALID_MS_PREDECESSOR;}
+						if(nConsistent){msPredecessor[row-1][col+1]=INVALID_MS_PREDECESSOR;}
 						packed[MODE_INS][row-1][col+1]=subfloor;
 						packed[MODE_DEL][row-1][col+1]=subfloor;
 					}
@@ -813,7 +814,8 @@ public final class MultiStateAligner11ts extends MSA{
 	private final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		rows=read.length; //Number rows to fill, equal to query length.
 		columns=refEndLoc-refStartLoc+1; //Number of columns to fill, equal to relevant portion of reference.
-		if(nConsistentExecution()){clearMSPredecessors();}
+		final boolean nConsistent=nConsistentExecution();
+		if(nConsistent){clearMSPredecessors();}
 		
 		//Ensure the required matrix size is within the preallocated matrix size
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: rows="+rows+"/"+maxRows+new String(read)+"\n";
@@ -878,7 +880,7 @@ public final class MultiStateAligner11ts extends MSA{
 				if(gap){
 					//In this case a deletion is forced, so the MS cell is marked invalid
 					currentMS[col]=subfloor;
-					if(nConsistentExecution()){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
+					if(nConsistent){msPredecessor[row][col]=INVALID_MS_PREDECESSOR;}
 				}else{//Calculate match and sub scores
 					
 					//In each case the previous cell is the diagonal, but it can be from any of the 3 matrices.
@@ -893,7 +895,7 @@ public final class MultiStateAligner11ts extends MSA{
 					final int streak=(previousMS[col-1]&TIMEMASK);
 					
 					//This block has 2 sub-blocks, on for match and one for sub.
-					if(nConsistentExecution()){
+					if(nConsistent){
 						writeConsistentMS(row, col, call0, call1, ref0, ref1);
 					}else if(match){
 						//The current symbols match, so increment using a MATCH score

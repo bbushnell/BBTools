@@ -304,6 +304,26 @@ fixindelsbatch=f   Experimental local-region correction with one final read rebu
                     Tadpole only. Existing sequential mode remains the default.
 fixindelspatchmax=4096 Maximum region size in bases, including context, for batch
                     mode. Must be >=2*K+5. Oversized regions are withheld, not split.
+fixindelsanchor=0  Experimental nonperiodic-context guard; 0 disables, range 0-26.
+                    Positive values require fixindels=t and fixindelspairs=f.
+                    After resolving competing edits, require at least this many
+                    unchanged six-base-spaced differences in one packed word of
+                    the central supporting kmer. Exclude pairs touching a changed
+                    base or crossing an indel; no count-table lookups are added.
+                    1 is the initial experimental setting. Larger values may
+                    withhold useful repairs. Works in sequential and batch modes;
+                    Tadpole only. Homopolymer errors with complex flanks remain
+                    eligible. Weak interrupted repeats may still pass; this does
+                    not establish genomic uniqueness or guarantee allele safety.
+fixindelsratio=17  Conservative alternative-depth ratio guard; 0 disables or use
+                    an integer >=2. After one edit wins normal competition,
+                    withhold it when all eight alternatives are measurable,
+                    exactly seven fall at least 2 below original depth, and
+                    exactly one reaches at least ratio*original depth. This
+                    repeat-risk signature does not prove biological truth.
+                    The default 17 was selected on known-clean chr21, synthetic
+                    noisy truth, and assembly/QUAST sensitivity tests. Tadpole
+                    only; fixindelspairs=t requires fixindelsratio=0.
 
 Example of general single-base correction:
 tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t ecc=f minprob=0

@@ -63,8 +63,13 @@ detectJavaVersion() {
 		return 1  # Java not found
 	fi
 	
-	# Get version string
-	local version_output=$(java --version 2>&1 | head -n 1)
+	# Get version string. JDK_JAVA_OPTIONS/_JAVA_OPTIONS/JAVA_TOOL_OPTIONS all make the JVM
+	# print a "Picked up ..." (JDK_JAVA_OPTIONS: "NOTE: Picked up ...") line to stderr before
+	# the real version line when set, so a plain `head -n 1` would capture that instead and
+	# detectJavaVersion() would always report "not found" -- silently disabling SIMD
+	# autodetection whenever any of those env vars are set. Grep for the two version-line
+	# formats this function actually parses below, so only a real version line is kept.
+	local version_output=$(java --version 2>&1 | grep -e "openjdk [0-9]" -e "java version" | head -n 1)
 	
 	# Extract major version number
 	# Handles formats like:

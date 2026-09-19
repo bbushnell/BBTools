@@ -13,6 +13,7 @@ import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
 import shared.Shared;
 import shared.Tools;
+import shared.Timer;
 import stream.Read;
 import stream.Writer;
 import stream.WriterFactory;
@@ -44,6 +45,25 @@ import align2.BBSplitter.SetCount;
  * @author Brian Bushnell, Collei
  */
 public final class BBMapSplitterS {
+	/** Prepare named reference sets with the classic parser, then map through BBMapS. */
+	public static void main(String[] args){
+		assert(args!=null) : "BBMapSplitterS requires a command-line argument array.";
+		if(Shared.COMMAND_LINE==null){
+			Shared.COMMAND_LINE=args.clone();
+			Shared.BBMAP_CLASS="BBMapSplitterS";
+		}
+		final Timer timer=new Timer();
+		final String[] mapperArgs=BBSplitter.processArgs(args);
+		if(BBSplitter.MAP_MODE!=BBSplitter.MAP_NORMAL){
+			throw new IllegalArgumentException("bbsplitS.sh supports mapmode=normal; use bbsplit.sh for other mapping modes.");
+		}
+		ReadWrite.waitForWritingToFinish();
+		timer.stop();
+		Data.sysout.println("Ref merge time:     \t"+timer);
+		Data.scaffoldPrefixes=true;
+		BBMapS.main(mapperArgs);
+	}
+
 	public static synchronized HashMap<String, Writer> makeOutputStreams(String[] args, boolean OUTPUT_READS, boolean OUTPUT_ORDERED_READS,
 			int buff, boolean paired, boolean overwrite_, boolean append_, boolean ambiguous){
 //		assert(false) : Arrays.toString(args);

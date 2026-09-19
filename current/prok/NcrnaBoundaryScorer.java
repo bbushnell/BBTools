@@ -3,7 +3,6 @@ package prok;
 import consensus.BaseGraph;
 import ml.CellNet;
 import ml.CellNetParser;
-import shared.KillSwitch;
 
 /**
  * Inference wiring for the ncRNA boundary-precision NN (C3, Noire's spec
@@ -54,11 +53,8 @@ public class NcrnaBoundaryScorer {
 	public static CellNet load(String path){
 		final CellNet net=CellNetParser.load(path);
 		final int dims=net.numInputs();
-		assert(dims==NUM_FEATURES) : KillSwitch.assertDie("Ncrna boundary net '"+path+"' has "
-			+dims+" inputs; the ncRNA boundary feature vector is always "+NUM_FEATURES
-			+" dims (ani, prof0-2, isStop, fuzz0-2, lengthRatio, contigGC -- no stem, no "
-			+"cross-boundary enrichment) -- this net was not trained by NcrnaBoundaryVectorGen's "
-			+"current format, or is corrupt.");
+		if(dims!=NUM_FEATURES){throw new IllegalArgumentException("Ncrna boundary net '"+path+"' has "
+			+dims+" inputs; expected "+NUM_FEATURES+" for the ncRNA boundary feature vector.");}
 		return net;
 	}
 
@@ -150,6 +146,19 @@ public class NcrnaBoundaryScorer {
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
 			int[] startOffsets, int[] stopOffsets){
+		return refineBoundaries(startNet, stopNet, window, s, e, modelConsensus, model,
+			startTable, stopTable, startInside, startOutside, stopInside, stopOutside,
+			contigGC, meanLen, startOffsets, stopOffsets,
+			MARGIN_THRESHOLD_START, MARGIN_THRESHOLD_STOP);
+	}
+
+	/** Family-scoped refinement. Margins travel with the family so an R58
+	 * experiment cannot alter another ncRNA family's boundary behavior. */
+	public static int[] refineBoundaries(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop){
 		final float startConf=score(startNet, window, s, e, false, modelConsensus, model,
 			startTable, startInside, startOutside, contigGC, meanLen);
 		final float stopConf=score(stopNet, window, s, e, true, modelConsensus, model,
@@ -158,14 +167,14 @@ public class NcrnaBoundaryScorer {
 		final int bestStartOffset, bestStopOffset;
 		if(startConf<=stopConf){//start is the worse (or tied) boundary -- refine it first
 			bestStartOffset=applyMargin(bestOffset(startNet, window, s, e, false, modelConsensus, model,
-				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), MARGIN_THRESHOLD_START);
+				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), marginStart);
 			bestStopOffset=applyMargin(bestOffset(stopNet, window, s+bestStartOffset, e, true, modelConsensus, model,
-				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), MARGIN_THRESHOLD_STOP);
+				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), marginStop);
 		}else{
 			bestStopOffset=applyMargin(bestOffset(stopNet, window, s, e, true, modelConsensus, model,
-				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), MARGIN_THRESHOLD_STOP);
+				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), marginStop);
 			bestStartOffset=applyMargin(bestOffset(startNet, window, s, e+bestStopOffset, false, modelConsensus, model,
-				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), MARGIN_THRESHOLD_START);
+				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), marginStart);
 		}
 		return new int[]{bestStartOffset, bestStopOffset};
 	}

@@ -95,6 +95,31 @@ public class NcrnaFamily {
 			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
 			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
 			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_){
+		this(name_, library_, models_, modelNames_, kmerSet_, kLong_, minLen_, windowPad_,
+				indexK_, indexTopN_, adaptive_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_,
+				scoreA_, scoreB_, idPass_, idBorderline_, hbmPass_, collapseFrac_,
+				boundary5NetTemplate_, boundary3NetTemplate_, boundaryStartTable_, boundaryStopTable_,
+				boundaryStartInside_, boundaryStartOutside_, boundaryStopInside_, boundaryStopOutside_,
+				boundaryMeanLen_, boundaryStartOffsets_, boundaryStopOffsets_, 0f, 0f);
+	}
+
+	/** Full family configuration with family-scoped boundary confidence margins. */
+	public NcrnaFamily(String name_, byte[][] library_, BaseGraph[] models_, String[] modelNames_,
+			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
+			int indexK_, int indexTopN_, boolean adaptive_,
+			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_,
+			float scoreA_, float scoreB_, float idPass_, float idBorderline_,
+			float hbmPass_, float collapseFrac_,
+			CellNet boundary5NetTemplate_, CellNet boundary3NetTemplate_,
+			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
+			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
+			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_,
+			float boundaryMarginStart_, float boundaryMarginStop_){
+		if(!Float.isFinite(boundaryMarginStart_) || boundaryMarginStart_<0f ||
+				!Float.isFinite(boundaryMarginStop_) || boundaryMarginStop_<0f){
+			throw new IllegalArgumentException("ncRNA boundary margins must be finite and >=0: "
+				+boundaryMarginStart_+", "+boundaryMarginStop_);
+		}
 		name=name_;
 		library=library_;
 		models=models_;
@@ -127,6 +152,8 @@ public class NcrnaFamily {
 		boundaryMeanLen=boundaryMeanLen_;
 		boundaryStartOffsets=validatedOffsets(boundaryStartOffsets_, "start");
 		boundaryStopOffsets=validatedOffsets(boundaryStopOffsets_, "stop");
+		boundaryMarginStart=boundaryMarginStart_;
+		boundaryMarginStop=boundaryMarginStop_;
 	}
 
 	/** Full family configuration including the two remaining alignment/candidate tunables. */
@@ -205,4 +232,6 @@ public class NcrnaFamily {
 	public final float boundaryMeanLen;
 	final int[] boundaryStartOffsets;
 	final int[] boundaryStopOffsets;
+	final float boundaryMarginStart;
+	final float boundaryMarginStop;
 }

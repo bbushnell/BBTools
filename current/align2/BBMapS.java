@@ -9,6 +9,7 @@ import bloom.BloomFilter;
 import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
+import dna.FastaToChromArrays2;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import jgi.CoveragePileup;
@@ -99,6 +100,11 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		MAX_SITESCORES_TO_PRINT=5;
 		PRINT_SECONDARY_ALIGNMENTS=false;
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
+
+		// Keep normal multi-scaffold packing unchanged, but allow one wheat-scale
+		// scaffold to occupy its own chromosome.  The limit stays below both the
+		// Java byte[] ceiling and BBIndex's largest v4 site field (chrombits=1).
+		FastaToChromArrays2.MAX_SINGLE_SCAFFOLD=Shared.MAX_ARRAY_LEN/2-200000;
 	}
 	
 	/**
@@ -408,11 +414,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(maxChrom<0 || maxChrom>Data.numChroms){maxChrom=Data.numChroms;}
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
 			
-			if(RefToIndex.AUTO_CHROMBITS){
-				int maxLength=Tools.max(Data.chromLengths);
-				RefToIndex.chrombits=Integer.numberOfLeadingZeros(maxLength)-1;
-				RefToIndex.chrombits=Tools.min(RefToIndex.chrombits, 16);
-			}
+			if(RefToIndex.AUTO_CHROMBITS){RefToIndex.chrombits=autoChromBits();}
 			if(RefToIndex.chrombits!=-1){
 				BBIndex.setChromBits(RefToIndex.chrombits);
 				if(verbose_stats>0){outstream.println("Set CHROMBITS to "+RefToIndex.chrombits);}
@@ -536,6 +538,34 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 //		assert(false) : makeBloomFilter;
 //		assert(false) : RefToIndex.chrombits+", "+AbstractIndex.CHROMS_PER_BLOCK;
+	}
+
+	/**
+	 * Selects the largest chromosome grouping that satisfies both packed-coordinate
+	 * capacity and the per-block {@code int[]} allocation ceiling.  The first bound
+	 * preserves BBIndex's signed-positive v4 coordinate layout; the second carries
+	 * BBMap2's independent block-budget idea into the existing compatible layout.
+	 */
+	static int autoChromBits(){
+		final int maxLength=Tools.max(Data.chromLengths);
+		int chrombits=Tools.min(Integer.numberOfLeadingZeros(maxLength)-1, 16);
+		while(chrombits>0 && maxBlockBases(chrombits)>Shared.MAX_ARRAY_LEN){chrombits--;}
+		return chrombits;
+	}
+
+	/** Conservative upper bound for the sites array in any mask-aligned block. */
+	static long maxBlockBases(int chrombits){
+		final int low=(1<<chrombits)-1;
+		long max=0;
+		for(int i=1; i<=Data.numChroms;){
+			final int a=Tools.max(1, i&~low);
+			final int b=Tools.min(Data.numChroms, i|low);
+			long sum=0;
+			for(int c=a; c<=b; c++){sum+=Data.chromLengths[c];}
+			max=Tools.max(max, sum);
+			i=b+1;
+		}
+		return max;
 	}
 		
 	/**

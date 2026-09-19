@@ -473,7 +473,13 @@ public class RegressionTrainer {
 				sd[i]+=d*d;
 			}
 		}
-		for(int i=0; i<numInputs; i++){sd[i]=Math.max(1e-9, Math.sqrt(sd[i]/numSamples));}
+		for(int i=0; i<numInputs; i++){
+			final double x=Math.sqrt(sd[i]/numSamples);
+			//A constant column standardizes to zero regardless of scale.  Using 1e-9 here
+			//makes exportNet create enormous opposing weights and bias; their float casts
+			//lose cancellation precision even though the feature carries no information.
+			sd[i]=(x<1e-9 ? 1 : x);
+		}
 	}
 
 	/** Shuffles training indices and configures internal or external validation. */

@@ -1314,7 +1314,7 @@ public final class BBIndex extends AbstractIndex {
 		
 		final int baseChrom=baseChrom(baseChrom_);
 		
-		heap.clear();
+		primitiveHeap.clear();
 		
 		final Quad[] triples=tripleStorage;
 
@@ -1373,8 +1373,9 @@ public final class BBIndex extends AbstractIndex {
 			t.list=sites;
 			values[i]=a2;
 
-			heap.add(t);
+			primitiveHeap.add(i);
 		}
+		primitiveHeap.prepare();
 
 //		System.out.println("\nEntering SS loop:");
 //		System.out.println("maxScore="+maxScore+"\tminScore="+minScore+"\tcurrentTopScore="+currentTopScore+"\n" +
@@ -1383,10 +1384,9 @@ public final class BBIndex extends AbstractIndex {
 		
 		
 		SiteScore prevSS=null;
-		while(!heap.isEmpty()){
-			Quad t=heap.peek();
-			final int site=t.site;
-			final int centerIndex=t.column;
+		while(!primitiveHeap.isEmpty()){
+			final int centerIndex=primitiveHeap.peek();
+			final int site=values[centerIndex];
 			
 			int maxNearbySite=site;
 
@@ -1568,7 +1568,7 @@ public final class BBIndex extends AbstractIndex {
 //								Arrays.toString(clone)+"\n\n"+
 								Arrays.toString(locArray)+"\n"+
 								"numHits="+numHits+", "+
-								"heap.size="+heap.size()+", "+
+								"heap.size="+primitiveHeap.size()+", "+
 								"numHits="+numHits+", "+
 								"approxHits="+approxHits+"\n";
 							gapArray[0]=Tools.min(gapArray[0], site2);
@@ -1698,9 +1698,10 @@ public final class BBIndex extends AbstractIndex {
 				}
 			}
 
-			while(heap.peek().site==site){ //Remove all identical elements, and add subsequent elements
-				final Quad t2=heap.poll();
-				final int row=t2.row+1, col=t2.column;
+			while(values[primitiveHeap.peek()]==site){ //Remove all identical elements, and add subsequent elements
+				final int col=primitiveHeap.peek();
+				final Quad t2=triples[col];
+				final int row=t2.row+1;
 				if(row<stops[col]){
 					t2.row=row;
 					
@@ -1729,22 +1730,25 @@ public final class BBIndex extends AbstractIndex {
 					
 					t2.site=a2;
 					values[col]=a2;
-					heap.add(t2);
-				}else if(heap.size()<approxHitsCutoff || PERFECTMODE){
-					assert(USE_EXTENDED_SCORE);
-					bestScores[0]=Tools.max(bestScores[0], currentTopScore);
-					bestScores[1]=Tools.max(bestScores[1], maxHits);
-					bestScores[2]=Tools.max(bestScores[2], qcutoff);
-					bestScores[3]=Tools.max(bestScores[3], bestqscore);
+					primitiveHeap.updateTop();
+				}else{
+					primitiveHeap.poll();
+					if(primitiveHeap.size()<approxHitsCutoff || PERFECTMODE){
+						assert(USE_EXTENDED_SCORE);
+						bestScores[0]=Tools.max(bestScores[0], currentTopScore);
+						bestScores[1]=Tools.max(bestScores[1], maxHits);
+						bestScores[2]=Tools.max(bestScores[2], qcutoff);
+						bestScores[3]=Tools.max(bestScores[3], bestqscore);
 					
-					bestScores[4]=maxQuickScore;
-					bestScores[5]=perfectsFound; //***$ fixed by adding this line
-					if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
+						bestScores[4]=maxQuickScore;
+						bestScores[5]=perfectsFound; //***$ fixed by adding this line
+						if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
 					
-					return ssl;
+						return ssl;
+					}
 				}
-				if(heap.isEmpty()){
-					assert(false) : heap.size()+", "+approxHitsCutoff;
+				if(primitiveHeap.isEmpty()){
+					assert(false) : primitiveHeap.size()+", "+approxHitsCutoff;
 					break;
 				}
 			}
@@ -2379,7 +2383,7 @@ public final class BBIndex extends AbstractIndex {
 		final Block b=index[baseChrom];
 		final int[] sizes=sizeArray;
 		
-		heap.clear();
+		primitiveHeap.clear();
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
@@ -2406,8 +2410,9 @@ public final class BBIndex extends AbstractIndex {
 			t.list=sites;
 			values[i]=a2;
 
-			heap.add(t);
+			primitiveHeap.add(i);
 		}
+		primitiveHeap.prepare();
 		
 		final int maxQuickScore=maxQuickScore(offsets, keyScores);
 		
@@ -2428,10 +2433,9 @@ public final class BBIndex extends AbstractIndex {
 		}
 		
 		
-		while(!heap.isEmpty()){
-			Quad t=heap.peek();
-			final int site=t.site;
-			final int centerIndex=t.column;
+		while(!primitiveHeap.isEmpty()){
+			final int centerIndex=primitiveHeap.peek();
+			final int site=values[centerIndex];
 			
 			int maxNearbySite=site;
 
@@ -2483,9 +2487,10 @@ public final class BBIndex extends AbstractIndex {
 				}
 			}
 
-			while(heap.peek().site==site){ //Remove all identical elements, and add subsequent elements
-				final Quad t2=heap.poll();
-				final int row=t2.row+1, col=t2.column;
+			while(values[primitiveHeap.peek()]==site){ //Remove all identical elements, and add subsequent elements
+				final int col=primitiveHeap.peek();
+				final Quad t2=triples[col];
+				final int row=t2.row+1;
 				if(row<stops[col]){
 					t2.row=row;
 					
@@ -2514,11 +2519,14 @@ public final class BBIndex extends AbstractIndex {
 
 					t2.site=a2;
 					values[col]=a2;
-					heap.add(t2);
-				}else if(earlyExit && (perfectOnly || heap.size()<approxHitsCutoff)){
-					return new int[] {topQscore, maxHits};
+					primitiveHeap.updateTop();
+				}else{
+					primitiveHeap.poll();
+					if(earlyExit && (perfectOnly || primitiveHeap.size()<approxHitsCutoff)){
+						return new int[] {topQscore, maxHits};
+					}
 				}
-				if(heap.isEmpty()){break;}
+				if(primitiveHeap.isEmpty()){break;}
 			}
 
 		}
@@ -3368,6 +3376,79 @@ public final class BBIndex extends AbstractIndex {
 		return r;
 	}
 	
+
+	/** Primitive winner tree for the two active k-way hit walks. Ordering exactly matches Quad.compareTo. */
+	private static final class PrimitiveColumnHeap {
+		PrimitiveColumnHeap(int capacity, int[] values_){
+			int base=1;
+			while(base<capacity){base<<=1;}
+			tree=new int[base<<1];
+			maxCapacity=capacity;
+			values=values_;
+		}
+
+		void clear(){size=0;leafBase=0;}
+		boolean isEmpty(){return size==0;}
+		int size(){return size;}
+		int peek(){assert(size>0 && leafBase>0);return tree[1];}
+
+		void add(final int column){
+			assert(column==size && size<maxCapacity);
+			size++;
+		}
+
+		/** Build once after the sequential columns and their values have been initialized. */
+		void prepare(){
+			if(size==0){leafBase=1;tree[1]=-1;return;}
+			int base=1;
+			while(base<size){base<<=1;}
+			leafBase=base;
+			for(int i=0; i<base; i++){tree[base+i]=(i<size ? i : -1);}
+			for(int node=base-1; node>0; node--){
+				tree[node]=winner(tree[node<<1], tree[(node<<1)|1]);
+			}
+		}
+
+		/** Re-establish heap order after the root column's site increased. */
+		void updateTop(){
+			assert(size>0 && leafBase>0);
+			updatePath(tree[1]);
+		}
+
+		int poll(){
+			assert(size>0 && leafBase>0);
+			final int result=tree[1];
+			tree[leafBase+result]=-1;
+			size--;
+			updatePath(result);
+			return result;
+		}
+
+		private void updatePath(final int column){
+			for(int node=(leafBase+column)>>>1; node>0; node>>>=1){
+				tree[node]=winner(tree[node<<1], tree[(node<<1)|1]);
+			}
+		}
+
+		private int winner(final int a, final int b){
+			if(a<0){return b;}
+			if(b<0){return a;}
+			return compare(a, b)<=0 ? a : b;
+		}
+
+		private int compare(final int a, final int b){
+			final int x=values[a]-values[b];
+			return x==0 ? a-b : x;
+		}
+
+		private final int[] tree;
+		private final int maxCapacity;
+		private final int[] values;
+		private int leafBase;
+		private int size;
+	}
+
+	private final PrimitiveColumnHeap primitiveHeap=new PrimitiveColumnHeap(KEY_BUFFER_LENGTH-1, valueArray);
 
 	/** Primary heap for managing k-mer hit sites during alignment */
 	private final QuadHeap heap=new QuadHeap(KEY_BUFFER_LENGTH-1);

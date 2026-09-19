@@ -7,6 +7,7 @@ import java.util.ArrayList;
 
 import consensus.BaseGraph;
 import fileIO.FileFormat;
+import parse.Parse;
 import shared.Shared;
 import stream.Read;
 import stream.ReadInputStream;
@@ -27,6 +28,10 @@ public class NcrnaBoundaryVectorGen {
 
 	public static void main(String[] args) throws IOException {
 		String fastaPath=null, outPath=null, tableStartPath=null, tableStopPath=null, familyName=null;
+		String r58Kmers=null, r58Consensus=null, r58Models=null;
+		String lsuKmers=null, lsuConsensus=null, lsuModels=null;
+		boolean stopOnly=false;
+		boolean leaveOneOut=true;
 		float meanLen=0;
 		for(String a : args){
 			String[] kv=a.split("=", 2);
@@ -37,16 +42,36 @@ public class NcrnaBoundaryVectorGen {
 			else if(kv[0].equalsIgnoreCase("tablestop")){tableStopPath=kv[1];}
 			else if(kv[0].equalsIgnoreCase("family")){familyName=kv[1];}
 			else if(kv[0].equalsIgnoreCase("meanlen")){meanLen=Float.parseFloat(kv[1]);}
+			else if(kv[0].equalsIgnoreCase("r58kmers")){r58Kmers=kv[1];}
+			else if(kv[0].equalsIgnoreCase("r58consensus")){r58Consensus=kv[1];}
+			else if(kv[0].equalsIgnoreCase("r58models")){r58Models=kv[1];}
+			else if(kv[0].equalsIgnoreCase("lsukmers")){lsuKmers=kv[1];}
+			else if(kv[0].equalsIgnoreCase("lsuconsensus")){lsuConsensus=kv[1];}
+			else if(kv[0].equalsIgnoreCase("lsumodels")){lsuModels=kv[1];}
+			else if(kv[0].equalsIgnoreCase("stoponly") || kv[0].equalsIgnoreCase("3primeonly")){
+				stopOnly=Parse.parseBoolean(kv[1]);
+			}else if(kv[0].equalsIgnoreCase("leaveoneout") || kv[0].equalsIgnoreCase("loo")){
+				leaveOneOut=Parse.parseBoolean(kv[1]);
+			}
 		}
 		if(fastaPath==null || outPath==null || tableStartPath==null || tableStopPath==null || familyName==null){
 			System.err.println("Usage: family=<rnasep|srp_small|srp_large|tmrna> fasta=<flanked.fa> out=<vectors.tsv>");
-			System.err.println("  tablestart=<start_table.tsv> tablestop=<stop_table.tsv> [meanlen=380]");
+			System.err.println("  tablestart=<start_table.tsv> tablestop=<stop_table.tsv> [meanlen=380] [stoponly=f]");
 			System.exit(1);
 		}
 
 		familyName=CallGenes.parseNcrnaFamily(familyName);
 		CallGenes.NCRNA_FAMILIES_ENABLED=true;
 		if(familyName.equals("tmrna")){CallGenes.TMRNA_ENABLED=true;}
+		if(familyName.equals("r58") || familyName.equals("lsu")){
+			CallGenes.setR58LsuEnabled(true);
+			CallGenes.R58_KMERS_OVERRIDE=r58Kmers;
+			CallGenes.R58_CONSENSUS_OVERRIDE=r58Consensus;
+			CallGenes.R58_MODELS_OVERRIDE=r58Models;
+			CallGenes.LSU_KMERS_OVERRIDE=lsuKmers;
+			CallGenes.LSU_CONSENSUS_OVERRIDE=lsuConsensus;
+			CallGenes.LSU_MODELS_OVERRIDE=lsuModels;
+		}
 		CallGenes.loadNcrnaResources();
 		NcrnaFamily fam=null;
 		for(NcrnaFamily f : GeneCaller.ncrnaFamilies){
@@ -73,7 +98,7 @@ public class NcrnaBoundaryVectorGen {
 		System.err.println("Family: "+familyName+" ("+library.length+" models, meanLen="+meanLen
 			+", indexTopN="+fam.indexTopN+")");
 		System.err.println("Tables: start inside="+startInside+" outside="+startOutside
-			+", stop inside="+stopInside+" outside="+stopOutside);
+			+", stop inside="+stopInside+" outside="+stopOutside+", leaveOneOut="+leaveOneOut);
 
 		Shared.TRIM_READ_DESCRIPTION=false;
 		Shared.TRIM_RNAME=true;
@@ -112,10 +137,14 @@ public class NcrnaBoundaryVectorGen {
 				if(bestModel<0){noModel++; continue;}
 				final BaseGraph model=(models!=null && bestModel<models.length ? models[bestModel] : null);
 
-				written+=emitVectors(out, bases, trueStart, trueStop, true, library[bestModel],
-					startTable, startInside, startOutside, model, contigGC, meanLenFinal, fam.boundaryStartOffsets);
+				if(!stopOnly){
+					written+=emitVectors(out, bases, trueStart, trueStop, true, library[bestModel],
+						startTable, startInside, startOutside, model, contigGC, meanLenFinal,
+						fam.boundaryStartOffsets, leaveOneOut);
+				}
 				written+=emitVectors(out, bases, trueStart, trueStop, false, library[bestModel],
-					stopTable, stopInside, stopOutside, model, contigGC, meanLenFinal, fam.boundaryStopOffsets);
+					stopTable, stopInside, stopOutside, model, contigGC, meanLenFinal,
+					fam.boundaryStopOffsets, leaveOneOut);
 			}
 		}
 		System.err.println("Wrote "+written+" vectors. Skipped: "+noFlank+" no-flank, "
@@ -124,7 +153,8 @@ public class NcrnaBoundaryVectorGen {
 
 	private static int emitVectors(PrintStream out, byte[] window, int trueStart, int trueStop,
 			boolean varyStart, byte[] modelConsensus, TrnaBoundaryFeatures.NinemerTable table,
-			int insideCount, int outsideCount, BaseGraph model, float contigGC, float meanLen, int[] offsets){
+			int insideCount, int outsideCount, BaseGraph model, float contigGC, float meanLen,
+			int[] offsets, boolean leaveOneOut){
 		final TrnaBoundaryFeatures.BoundaryType type=(varyStart
 			? TrnaBoundaryFeatures.BoundaryType.START : TrnaBoundaryFeatures.BoundaryType.STOP);
 		final int trueBoundaryPos=(varyStart ? trueStart : trueStop);
@@ -137,8 +167,11 @@ public class NcrnaBoundaryVectorGen {
 			int boundaryPos=(varyStart ? s : e);
 			final byte[] candSeq=java.util.Arrays.copyOfRange(window, s, e+1);
 			float ani=TrnaBoundaryFeatures.aniFeature(candSeq, modelConsensus);
-			float[] prof=TrnaBoundaryFeatures.enrichmentProfile(window, boundaryPos, trueBoundaryPos,
-				type, insideCount, outsideCount, table);
+			float[] prof=(leaveOneOut
+				? TrnaBoundaryFeatures.enrichmentProfile(window, boundaryPos, trueBoundaryPos,
+					type, insideCount, outsideCount, table)
+				: TrnaBoundaryFeatures.enrichmentProfile(window, boundaryPos,
+					type, insideCount, outsideCount, table));
 			float isStop=(varyStart ? 0f : 1f);
 			float[] fuzz=TrnaBoundaryFeatures.tipFuzzinessFeature(candSeq, model, varyStart);
 			float lengthRatio=(e-s+1)/meanLen;

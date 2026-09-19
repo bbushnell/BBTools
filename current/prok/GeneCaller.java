@@ -268,7 +268,8 @@ public class GeneCaller extends ProkObject {
 					fam.boundary5NetTemplate, fam.boundary3NetTemplate,
 					fam.boundaryStartTable, fam.boundaryStopTable,
 					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
-					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets);
+					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
+					fam.boundaryMarginStart, fam.boundaryMarginStop);
 				scavenger.hbmPass=fam.hbmPass;
 				scavenger.collapseFrac=fam.collapseFrac;
 				scavenger.family=fam.name;

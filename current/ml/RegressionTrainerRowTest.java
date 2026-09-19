@@ -23,6 +23,7 @@ public class RegressionTrainerRowTest {
 			testExternalValidation(dir, train, valid);
 			testLegacyFraction(dir, train);
 			testSimdExternalValidation(dir, train, valid);
+			testConstantFeatureScale(dir);
 			testConflictingValidationArguments(dir, train, valid);
 			System.err.println("RegressionTrainerRowTest: PASS");
 		}finally{
@@ -88,6 +89,21 @@ public class RegressionTrainerRowTest {
 		if(CellNetParser.load(out.toString())==null){
 			throw new AssertionError("SIMD external-validation output net did not load");
 		}
+	}
+
+	private static void testConstantFeatureScale(Path dir) throws Exception{
+		final Path in=dir.resolve("constant.tsv");
+		final Path out=dir.resolve("constant.bbnet");
+		Files.write(in, ("#dims\t2\t1\n"
+			+"0\t1\t0\n1\t1\t0.2\n2\t1\t0.4\n3\t1\t0.6\n"
+			+"4\t1\t0.8\n5\t1\t1\n").getBytes(StandardCharsets.US_ASCII));
+		final RegressionTrainer trainer=new RegressionTrainer(new String[]{
+			"in="+in, "out="+out, "dims=2,4,1", "vfraction=0.33",
+			"epochs=1", "batch=2", "seed=3", "final=sigmoid"
+		});
+		trainer.process(new Timer());
+		final double[] sd=(double[])getField(trainer, "sd");
+		assertClose(1.0, sd[1], "constant-feature scale");
 	}
 
 	private static void testConflictingValidationArguments(Path dir, Path train, Path valid){

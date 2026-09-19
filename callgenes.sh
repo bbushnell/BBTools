@@ -133,7 +133,16 @@ sixs=f          Add the experimental paired 6S/SsrS families (RF00013 and RF0168
 r58lsu=f        Add the bundled eukaryotic 5.8S and LSU families.  This implies
                 ncrna=t; the family remains off unless r58lsu=t is specified.
                 Explicit resource overrides below remain available.
-                Currently requires ncrnaboundarynet=f.
+                The global ncrnaboundarynet gate remains incompatible with this
+                pair; use the R58-specific endpoint gate below.
+r58ncrnaboundarynet=f  Refine only R58 endpoints with its boundary network and
+                9-mer tables.  Requires r58lsu=t; LSU remains boundary-NN-off.
+r58ncrnaboundary3primeonly=f  Hold the aligned R58 5' coordinate fixed and
+                refine only the 3' endpoint.  Requires r58ncrnaboundarynet=t.
+r58ncrnaboundarymarginstop=0  Require this confidence improvement before moving
+                the R58 3' endpoint.  The validated candidate value is 0.01.
+r58ncrnaboundarymarginstart=0  Corresponding 5' confidence margin.  The current
+                validated 3'-only configuration leaves this unused.
 its=f           Derive ITS1, ITS2, and combined ITS annotations from compatible
                 18S, 5.8S, and LSU calls.  outits=<file> also enables this.
 s18=f           Add the experimental generic 18S development family (pilot);
@@ -167,6 +176,12 @@ r58kmers=       Optional R58 17-mer fasta override; requires r58lsu=t.
 lsukmers=       Optional LSU 17-mer fasta override; requires r58lsu=t.
 r58consensus=/r58models=  Optional R58 consensus/HBM overrides; require r58lsu=t.
 lsuconsensus=/lsumodels=  Optional LSU consensus/HBM overrides; require r58lsu=t.
+r58boundarynet=           Optional R58 boundary-network override; requires
+                          r58ncrnaboundarynet=t.
+r58boundarystarttable=    Optional R58 start 9-mer table override; requires the
+                          R58-specific boundary gate.
+r58boundarystoptable=     Optional R58 stop 9-mer table override; requires the
+                          R58-specific boundary gate.
 s18kmers=       Explicit 18S development 17-mer fasta; requires ncrna=t and s18=t.
 s18consensus=/s18models=  Explicit 18S development consensus/HBM; require s18=t.
 tmrnaconsensus= Explicit tmRNA consensus fasta; requires ncrna=t and tmrna=t.

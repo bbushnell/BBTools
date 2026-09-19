@@ -10,7 +10,6 @@ import idaligner.QuantumAligner;
 import idaligner.ScrabbleAligner;
 import map.LongHashSet;
 import ml.CellNet;
-import shared.KillSwitch;
 import shared.Tools;
 import structures.IntList;
 
@@ -109,6 +108,29 @@ public class NcrnaScavenger {
 			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
 			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
 			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_){
+		this(library_, models_, modelNames_, kmerSet_, kLong_, minLen_, windowPad_,
+				indexK_, indexTopN_, adaptive_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_,
+				scoreA_, scoreB_, idPass_, idBorderline_, boundary5NetTemplate, boundary3NetTemplate,
+				boundaryStartTable_, boundaryStopTable_, boundaryStartInside_, boundaryStartOutside_,
+				boundaryStopInside_, boundaryStopOutside_, boundaryMeanLen_,
+				boundaryStartOffsets_, boundaryStopOffsets_, 0f, 0f);
+	}
+
+	public NcrnaScavenger(byte[][] library_, BaseGraph[] models_, String[] modelNames_,
+			LongHashSet kmerSet_, int kLong_, int minLen_, int windowPad_,
+			int indexK_, int indexTopN_, boolean adaptive_,
+			float adaptFloor_, float adaptTopFrac_, float adaptQFrac_, int fixedMinHits_,
+			float scoreA_, float scoreB_, float idPass_, float idBorderline_,
+			CellNet boundary5NetTemplate, CellNet boundary3NetTemplate,
+			TrnaBoundaryFeatures.NinemerTable boundaryStartTable_, TrnaBoundaryFeatures.NinemerTable boundaryStopTable_,
+			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
+			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_,
+			float boundaryMarginStart_, float boundaryMarginStop_){
+		if(!Float.isFinite(boundaryMarginStart_) || boundaryMarginStart_<0f ||
+				!Float.isFinite(boundaryMarginStop_) || boundaryMarginStop_<0f){
+			throw new IllegalArgumentException("ncRNA boundary margins must be finite and >=0: "
+				+boundaryMarginStart_+", "+boundaryMarginStop_);
+		}
 		library=library_;
 		models=models_;
 		modelNames=modelNames_;
@@ -141,10 +163,12 @@ public class NcrnaScavenger {
 		boundaryMeanLen=boundaryMeanLen_;
 		boundaryStartOffsets=boundaryStartOffsets_.clone();
 		boundaryStopOffsets=boundaryStopOffsets_.clone();
-		assert(boundary5Net==null || boundaryMeanLen>0) : KillSwitch.assertDie(
-			"NcrnaScavenger built with a boundary-precision net but boundaryMeanLen="+boundaryMeanLen_
-			+" (must be >0) -- lengthRatio=(e-s+1)/meanLen would silently divide by a bogus value for "
-			+"every scored candidate. Fix the caller (NcrnaFamily/CallGenes.loadNcrnaResources).");
+		boundaryMarginStart=boundaryMarginStart_;
+		boundaryMarginStop=boundaryMarginStop_;
+		if(boundary5Net!=null && !(boundaryMeanLen>0)){
+			throw new IllegalArgumentException("NcrnaScavenger built with a boundary-precision net but boundaryMeanLen="
+				+boundaryMeanLen_+" (must be >0).");
+		}
 	}
 
 	public long alignmentCount(){return alignmentCount;}
@@ -489,7 +513,8 @@ public class NcrnaScavenger {
 		final int[] offsets=NcrnaBoundaryScorer.refineBoundaries(boundary5Net, boundary3Net, window, s, e,
 			library[model], modelGraph, boundaryStartTable, boundaryStopTable,
 			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
-			contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets);
+			contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
+			boundaryMarginStart, boundaryMarginStop);
 		orf.start+=offsets[0];
 		orf.stop+=offsets[1];
 	}
@@ -600,6 +625,7 @@ public class NcrnaScavenger {
 	private final int boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside;
 	private final float boundaryMeanLen;
 	private final int[] boundaryStartOffsets, boundaryStopOffsets;
+	private final float boundaryMarginStart, boundaryMarginStop;
 
 	//Boundary-NN instrumentation (Citan/Brian, 2026-08-28) -- opt-in, off by default. A setter
 	//rather than another constructor param: NcrnaScavenger already has 3 overloaded

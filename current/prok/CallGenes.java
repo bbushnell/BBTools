@@ -475,6 +475,30 @@ public class CallGenes extends ProkObject {
 				NCRNA_FAMILIES_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("r58ncrnaboundarynet") || a.equalsIgnoreCase("r58boundarynn")){
+				R58_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("r58ncrnaboundary3primeonly") || a.equalsIgnoreCase("r58boundary3primeonly")){
+				R58_BOUNDARY_3PRIME_ONLY=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("r58ncrnaboundarymargin") || a.equalsIgnoreCase("r58boundarymargin")){
+				final float margin=parseR58BoundaryMargin(b);
+				R58_BOUNDARY_MARGIN_START=margin;
+				R58_BOUNDARY_MARGIN_STOP=margin;
+			}else if(a.equalsIgnoreCase("r58ncrnaboundarymarginstart") || a.equalsIgnoreCase("r58boundarymarginstart")){
+				R58_BOUNDARY_MARGIN_START=parseR58BoundaryMargin(b);
+			}else if(a.equalsIgnoreCase("r58ncrnaboundarymarginstop") || a.equalsIgnoreCase("r58boundarymarginstop")){
+				R58_BOUNDARY_MARGIN_STOP=parseR58BoundaryMargin(b);
+			}else if(a.equalsIgnoreCase("lsuncrnaboundarynet") || a.equalsIgnoreCase("lsuboundarynn")){
+				LSU_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("lsuncrnaboundary3primeonly") || a.equalsIgnoreCase("lsuboundary3primeonly")){
+				LSU_BOUNDARY_3PRIME_ONLY=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("lsuncrnaboundarymargin") || a.equalsIgnoreCase("lsuboundarymargin")){
+				final float margin=parseLsuBoundaryMargin(b);
+				LSU_BOUNDARY_MARGIN_START=margin;
+				LSU_BOUNDARY_MARGIN_STOP=margin;
+			}else if(a.equalsIgnoreCase("lsuncrnaboundarymarginstart") || a.equalsIgnoreCase("lsuboundarymarginstart")){
+				LSU_BOUNDARY_MARGIN_START=parseLsuBoundaryMargin(b);
+			}else if(a.equalsIgnoreCase("lsuncrnaboundarymarginstop") || a.equalsIgnoreCase("lsuboundarymarginstop")){
+				LSU_BOUNDARY_MARGIN_STOP=parseLsuBoundaryMargin(b);
 			}else if(a.equalsIgnoreCase("tmrna")){
 				TMRNA_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("sixs") || a.equalsIgnoreCase("ssrs") || a.equalsIgnoreCase("6s")){
@@ -513,6 +537,18 @@ public class CallGenes extends ProkObject {
 				LSU_CONSENSUS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("lsumodels")){
 				LSU_MODELS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("r58boundarynet")){
+				R58_BOUNDARY_NET_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("r58boundarystarttable")){
+				R58_BOUNDARY_START_TABLE_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("r58boundarystoptable")){
+				R58_BOUNDARY_STOP_TABLE_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("lsuboundarynet")){
+				LSU_BOUNDARY_NET_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("lsuboundarystarttable")){
+				LSU_BOUNDARY_START_TABLE_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("lsuboundarystoptable")){
+				LSU_BOUNDARY_STOP_TABLE_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("s18kmers")){
 				S18_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("s18consensus")){
@@ -2162,7 +2198,10 @@ public class CallGenes extends ProkObject {
 				resolveSweepFloat("r58", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
 				resolveSweepFloat("r58", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
-				boundaryStartOffsets("r58"), boundaryStopOffsets("r58"));
+				effectiveBoundaryStartOffsets("r58"), boundaryStopOffsets("r58"),
+				R58_BOUNDARY_NN_ENABLED, R58_BOUNDARY_NET_OVERRIDE,
+				R58_BOUNDARY_START_TABLE_OVERRIDE, R58_BOUNDARY_STOP_TABLE_OVERRIDE,
+				R58_BOUNDARY_MARGIN_START, R58_BOUNDARY_MARGIN_STOP);
 			final String lsuKmerResource=(LSU_KMERS_OVERRIDE==null ? "lsu_17mers.fa" : LSU_KMERS_OVERRIDE);
 			final String lsuConsensusResource=(LSU_CONSENSUS_OVERRIDE==null ? "lsu_consensus.fa" : LSU_CONSENSUS_OVERRIDE);
 			final String lsuModelResource=(LSU_MODELS_OVERRIDE==null ? "lsu_models.hbm" : LSU_MODELS_OVERRIDE);
@@ -2176,7 +2215,10 @@ public class CallGenes extends ProkObject {
 				resolveSweepFloat("lsu", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
 				resolveSweepFloat("lsu", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("lsu", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
-				boundaryStartOffsets("lsu"), boundaryStopOffsets("lsu"));
+				effectiveBoundaryStartOffsets("lsu"), boundaryStopOffsets("lsu"),
+				LSU_BOUNDARY_NN_ENABLED, LSU_BOUNDARY_NET_OVERRIDE,
+				LSU_BOUNDARY_START_TABLE_OVERRIDE, LSU_BOUNDARY_STOP_TABLE_OVERRIDE,
+				LSU_BOUNDARY_MARGIN_START, LSU_BOUNDARY_MARGIN_STOP);
 			if(GeneCaller.ncrnaFamilies.size()!=before+2){
 				throw new IllegalArgumentException("r58lsu=t requires complete packaged or explicit 5.8S and LSU consensus, HBM, and kmer resources");
 			}
@@ -2272,6 +2314,13 @@ public class CallGenes extends ProkObject {
 		throw new IllegalArgumentException("No boundary-start offsets configured for ncRNA family: "+family);
 	}
 
+	/** Holds a family 5' coordinate fixed while testing stop-only refinement. */
+	static int[] effectiveBoundaryStartOffsets(String family){
+		return ((family.equals("r58") && R58_BOUNDARY_3PRIME_ONLY)
+			|| (family.equals("lsu") && LSU_BOUNDARY_3PRIME_ONLY))
+			? new int[]{0} : boundaryStartOffsets(family);
+	}
+
 	static int[] boundaryStopOffsets(String family){
 		if(family.equals("rnasep")){return new int[]{-1,0,1,2,3,4};}
 		if(family.equals("srp_small") || family.equals("srp_large")){return new int[]{-2,-1,0,1,2,3};}
@@ -2279,7 +2328,8 @@ public class CallGenes extends ProkObject {
 		// No sixS boundary models are shipped yet.  These candidate positions keep the
 		// family geometry explicit; Gate B remains strict and fails before use until its
 		// family-specific net and tables are released.
-		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("lsu") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
+		if(family.equals("lsu")){return new int[]{-4,-3,-2,-1,0,1,2,3,4};}
+		if(family.equals("sixs_rf00013") || family.equals("sixs_rf01685") || family.equals("r58") || family.equals("s18")){return new int[]{-3,-2,-1,0,1,2};}
 		throw new IllegalArgumentException("No boundary-stop offsets configured for ncRNA family: "+family);
 	}
 
@@ -2341,6 +2391,23 @@ public class CallGenes extends ProkObject {
 			float adaptFloor, float adaptTopFrac, float adaptQFrac, int fixedMinHits,
 			float scoreA, float scoreB, float idPass, float idBorderline,
 			float hbmPass, float collapseFrac, int[] boundaryStartOffsets, int[] boundaryStopOffsets){
+		addNcrnaFamily(name, libResource, modelResource, kmerSet, kLong, minLen, windowPad,
+			indexK, indexTopN, adaptive, adaptFloor, adaptTopFrac, adaptQFrac, fixedMinHits,
+			scoreA, scoreB, idPass, idBorderline, hbmPass, collapseFrac,
+			boundaryStartOffsets, boundaryStopOffsets, NCRNA_BOUNDARY_NN_ENABLED,
+			null, null, null, 0f, 0f);
+	}
+
+	/** Adds one family with an explicit family-scoped boundary gate and resources. */
+	private static void addNcrnaFamily(String name, String libResource, String modelResource,
+			LongHashSet kmerSet, int kLong, int minLen, int windowPad,
+			int indexK, int indexTopN, boolean adaptive,
+			float adaptFloor, float adaptTopFrac, float adaptQFrac, int fixedMinHits,
+			float scoreA, float scoreB, float idPass, float idBorderline,
+			float hbmPass, float collapseFrac, int[] boundaryStartOffsets, int[] boundaryStopOffsets,
+			boolean boundaryEnabled, String boundaryNetOverride,
+			String boundaryStartTableOverride, String boundaryStopTableOverride,
+			float boundaryMarginStart, float boundaryMarginStop){
 		if(kmerSet==null){return;}
 		String libPath=findNcrnaResource(libResource);
 		if(libPath==null || !new java.io.File(libPath).exists()){return;}
@@ -2367,10 +2434,10 @@ public class CallGenes extends ProkObject {
 		//family that loads (via Gate A) MUST get complete boundary resources, or the whole run
 		//fails loud identifying which family and which paths are missing -- not a per-family
 		//silent fallback.
-		if(NCRNA_BOUNDARY_NN_ENABLED){
-			String netPath=Data.findPath("?"+name+"_boundary_net.bbnet", false);
-			String startTablePath=Data.findPath("?"+name+"_boundary_start_table.tsv", false);
-			String stopTablePath=Data.findPath("?"+name+"_boundary_stop_table.tsv", false);
+		if(boundaryEnabled){
+			String netPath=resolveBoundaryResource(name, "boundary_net.bbnet", boundaryNetOverride);
+			String startTablePath=resolveBoundaryResource(name, "boundary_start_table.tsv", boundaryStartTableOverride);
+			String stopTablePath=resolveBoundaryResource(name, "boundary_stop_table.tsv", boundaryStopTableOverride);
 			final boolean netOk=(netPath!=null && new java.io.File(netPath).exists());
 			final boolean startOk=(startTablePath!=null && new java.io.File(startTablePath).exists());
 			final boolean stopOk=(stopTablePath!=null && new java.io.File(stopTablePath).exists());
@@ -2379,10 +2446,12 @@ public class CallGenes extends ProkObject {
 			boundaryNet=NcrnaBoundaryScorer.load(netPath);
 			TrnaNinemerTableBuilder.LoadedTable lt1=TrnaNinemerTableBuilder.loadTable(startTablePath);
 			TrnaNinemerTableBuilder.LoadedTable lt2=TrnaNinemerTableBuilder.loadTable(stopTablePath);
-			assert(lt1.type==prok.TrnaBoundaryFeatures.BoundaryType.START) : name+"_boundary_start_table.tsv ("
-				+startTablePath+") is not labeled a start-boundary table -- wrong file, or start/stop swapped.";
-			assert(lt2.type==prok.TrnaBoundaryFeatures.BoundaryType.STOP) : name+"_boundary_stop_table.tsv ("
-				+stopTablePath+") is not labeled a stop-boundary table -- wrong file, or start/stop swapped.";
+			if(lt1.type!=prok.TrnaBoundaryFeatures.BoundaryType.START){
+				throw new IllegalArgumentException(name+" boundary start table has type "+lt1.type+": "+startTablePath);
+			}
+			if(lt2.type!=prok.TrnaBoundaryFeatures.BoundaryType.STOP){
+				throw new IllegalArgumentException(name+" boundary stop table has type "+lt2.type+": "+stopTablePath);
+			}
 			boundaryStartTable=lt1.table; boundaryStartInside=lt1.insideCount; boundaryStartOutside=lt1.outsideCount;
 			boundaryStopTable=lt2.table; boundaryStopInside=lt2.insideCount; boundaryStopOutside=lt2.outsideCount;
 			boundaryMeanLen=medianLength(library);
@@ -2392,7 +2461,12 @@ public class CallGenes extends ProkObject {
 			scoreA, scoreB, idPass, idBorderline, hbmPass, collapseFrac,
 			boundaryNet, boundaryNet, boundaryStartTable, boundaryStopTable,
 			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
-			boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets));
+			boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
+			boundaryMarginStart, boundaryMarginStop));
+	}
+
+	private static String resolveBoundaryResource(String family, String suffix, String override){
+		return override==null ? Data.findPath("?"+family+"_"+suffix, false) : findNcrnaResource(override);
 	}
 
 	/** Resolves a literal development/sweep path when it exists or names a path, otherwise
@@ -2893,6 +2967,34 @@ public class CallGenes extends ProkObject {
 	/** Experimental paired 5.8S/LSU development bundle.  Off by default and
 	 * explicit-path-only until resources and thresholds are accepted. */
 	static boolean R58LSU_ENABLED=false;
+	/** Family-scoped R58 boundary refinement. */
+	static boolean R58_BOUNDARY_NN_ENABLED=false;
+	/** When true, preserve the aligned R58 start and refine only the 3' boundary. */
+	static boolean R58_BOUNDARY_3PRIME_ONLY=false;
+	static float R58_BOUNDARY_MARGIN_START=0f;
+	static float R58_BOUNDARY_MARGIN_STOP=0f;
+	/** Family-scoped LSU boundary refinement; default off. */
+	static boolean LSU_BOUNDARY_NN_ENABLED=false;
+	/** When true, preserve the aligned LSU start and refine only the 3' boundary. */
+	static boolean LSU_BOUNDARY_3PRIME_ONLY=false;
+	static float LSU_BOUNDARY_MARGIN_START=0f;
+	static float LSU_BOUNDARY_MARGIN_STOP=0f;
+
+	static float parseR58BoundaryMargin(String value){
+		final float margin=Float.parseFloat(value);
+		if(!Float.isFinite(margin) || margin<0f){
+			throw new IllegalArgumentException("R58 boundary margin must be finite and >=0: "+value);
+		}
+		return margin;
+	}
+
+	static float parseLsuBoundaryMargin(String value){
+		final float margin=Float.parseFloat(value);
+		if(!Float.isFinite(margin) || margin<0f){
+			throw new IllegalArgumentException("LSU boundary margin must be finite and >=0: "+value);
+		}
+		return margin;
+	}
 	/** 18S generic-family pilot gate (default OFF; cont.53). */
 	static boolean S18_ENABLED=false;
 	/** Gate B (C3, Noire's spec plans/c3_ncrnaboundaryscorer_spec.md; G11, 2026-08-28):
@@ -2931,6 +3033,12 @@ public class CallGenes extends ProkObject {
 	static String SIXS_RF01685_KMERS_OVERRIDE=null;
 	static String R58_KMERS_OVERRIDE=null, R58_CONSENSUS_OVERRIDE=null, R58_MODELS_OVERRIDE=null;
 	static String LSU_KMERS_OVERRIDE=null, LSU_CONSENSUS_OVERRIDE=null, LSU_MODELS_OVERRIDE=null;
+	static String R58_BOUNDARY_NET_OVERRIDE=null;
+	static String R58_BOUNDARY_START_TABLE_OVERRIDE=null;
+	static String R58_BOUNDARY_STOP_TABLE_OVERRIDE=null;
+	static String LSU_BOUNDARY_NET_OVERRIDE=null;
+	static String LSU_BOUNDARY_START_TABLE_OVERRIDE=null;
+	static String LSU_BOUNDARY_STOP_TABLE_OVERRIDE=null;
 	static String S18_KMERS_OVERRIDE=null, S18_CONSENSUS_OVERRIDE=null, S18_MODELS_OVERRIDE=null;
 	static String TMRNA_CONSENSUS_OVERRIDE=null;
 	static String TMRNA_MODELS_OVERRIDE=null;
@@ -2965,6 +3073,30 @@ public class CallGenes extends ProkObject {
 		assert(!R58LSU_ENABLED || NCRNA_FAMILIES_ENABLED) : "r58lsu=t requires ncrna=t (or generalncrna=t)";
 		assert(!S18_ENABLED || NCRNA_FAMILIES_ENABLED) : "s18=t requires ncrna=t (or generalncrna=t)";
 		assert(!R58LSU_ENABLED || !NCRNA_BOUNDARY_NN_ENABLED) : "r58lsu=t currently requires ncrnaboundarynet=f";
+		if(R58_BOUNDARY_NN_ENABLED && !(NCRNA_FAMILIES_ENABLED && R58LSU_ENABLED)){
+			throw new IllegalArgumentException("r58ncrnaboundarynet=t requires ncrna=t and r58lsu=t");
+		}
+		if(R58_BOUNDARY_3PRIME_ONLY && !R58_BOUNDARY_NN_ENABLED){
+			throw new IllegalArgumentException("r58ncrnaboundary3primeonly=t requires r58ncrnaboundarynet=t");
+		}
+		final boolean hasR58BoundaryOverrides=(R58_BOUNDARY_NET_OVERRIDE!=null
+			|| R58_BOUNDARY_START_TABLE_OVERRIDE!=null || R58_BOUNDARY_STOP_TABLE_OVERRIDE!=null
+			|| R58_BOUNDARY_MARGIN_START!=0f || R58_BOUNDARY_MARGIN_STOP!=0f);
+		if(hasR58BoundaryOverrides && !R58_BOUNDARY_NN_ENABLED){
+			throw new IllegalArgumentException("R58 boundary resources/margins require r58ncrnaboundarynet=t");
+		}
+		if(LSU_BOUNDARY_NN_ENABLED && !(NCRNA_FAMILIES_ENABLED && R58LSU_ENABLED)){
+			throw new IllegalArgumentException("lsuncrnaboundarynet=t requires ncrna=t and r58lsu=t");
+		}
+		if(LSU_BOUNDARY_3PRIME_ONLY && !LSU_BOUNDARY_NN_ENABLED){
+			throw new IllegalArgumentException("lsuncrnaboundary3primeonly=t requires lsuncrnaboundarynet=t");
+		}
+		final boolean hasLsuBoundaryOverrides=(LSU_BOUNDARY_NET_OVERRIDE!=null
+			|| LSU_BOUNDARY_START_TABLE_OVERRIDE!=null || LSU_BOUNDARY_STOP_TABLE_OVERRIDE!=null
+			|| LSU_BOUNDARY_MARGIN_START!=0f || LSU_BOUNDARY_MARGIN_STOP!=0f);
+		if(hasLsuBoundaryOverrides && !LSU_BOUNDARY_NN_ENABLED){
+			throw new IllegalArgumentException("LSU boundary resources/margins require lsuncrnaboundarynet=t");
+		}
 	}
 
 	/** The family-specific opt-in is sufficient by itself; callers should not need the

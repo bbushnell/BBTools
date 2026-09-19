@@ -19,10 +19,18 @@ public final class LocalEditEngine {
 	}
 	/** Stride1 is dense; larger strides expand sampled low-depth regions exactly. */
 	public LocalEditEngine(final int k,final CountLookup lookup,final int windows,final boolean checkIndelCompetition,final int profileStride){
+		this(k,lookup,windows,checkIndelCompetition,profileStride,0);
+	}
+	/** Optional anchor policy; legacy overloads retain disabled0. */
+	public LocalEditEngine(final int k,final CountLookup lookup,final int windows,final boolean checkIndelCompetition,final int profileStride,final int anchorMinimum){
+		this(k,lookup,windows,checkIndelCompetition,profileStride,anchorMinimum,0);
+	}
+	/** Optional magnitude ratio; 0 disables, otherwise requires >=2. */
+	public LocalEditEngine(final int k,final CountLookup lookup,final int windows,final boolean checkIndelCompetition,final int profileStride,final int anchorMinimum,final int magnitudeFactor){
 		if(lookup==null){throw new IllegalArgumentException("Local edits require immutable counts.");}
 		corrector=new LocalEditCorrector(k,new HomopolymerIndelProposal.CountLookup(){
 			@Override public int count(final Kmer key){return lookup.count(key);}
-		},windows,checkIndelCompetition,profileStride);
+		},windows,checkIndelCompetition,profileStride,anchorMinimum,magnitudeFactor);
 	}
 
 	/** Whole-read transaction: skip excessive initial depth-estimated burden, or
@@ -41,6 +49,8 @@ public final class LocalEditEngine {
 				final int changed=corrector.correctOne(read,nearbyPairs,applied==0 ? maxEdits : -1);
 				profileQueries+=corrector.profileQueries;probeQueries+=corrector.probeQueries;
 				verificationQueries+=corrector.verificationQueries;pairQueries+=corrector.pairQueries;
+				anchorEvaluatedLoci+=corrector.anchorEvaluatedLoci;anchorRejectedLoci+=corrector.anchorRejectedLoci;
+				magnitudeEvaluatedLoci+=corrector.magnitudeEvaluatedLoci;magnitudeRejectedLoci+=corrector.magnitudeRejectedLoci;
 				if(corrector.callStatus==LocalEditCorrector.CallStatus.INITIAL_LIMIT){initialSkippedReads++;return 0;}
 				if(changed==0){
 					substitutions+=s;insertions+=i;deletions+=d;
@@ -69,5 +79,8 @@ public final class LocalEditEngine {
 	public long substitutions,insertions,deletions,changedReads,cappedReads;
 	public long profileQueries,probeQueries,verificationQueries;
 	public long initialSkippedReads,rolledBackReads,attemptedEdits,pairQueries;
+	/** Work counters, including rescans and transactions later rolled back. */
+	public long anchorEvaluatedLoci,anchorRejectedLoci;
+	public long magnitudeEvaluatedLoci,magnitudeRejectedLoci;
 	private final LocalEditCorrector corrector;
 }

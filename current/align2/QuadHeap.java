@@ -75,7 +75,7 @@ public final class QuadHeap {
 		array[1]=array[size];
 		array[size]=null;
 		size--;
-		if(size>0){percUp(1);}
+		if(size>0){percUpIter(1);}
 //		assert(queue.size()==size);
 //		assert(queue.peek()==peek());
 		//assert(testForDuplicates());
@@ -191,7 +191,7 @@ public final class QuadHeap {
 	 * @param loc Index of element to percolate up iteratively
 	 */
 	private void percUpIter(int loc){
-		//Dead code: never called (poll() uses percUp). Iterative sift-down kept as an unused alternative.
+		//Iterative sift-down used by poll(); preserves the recursive version's child and tie choices.
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
 		final Quad a=array[loc];

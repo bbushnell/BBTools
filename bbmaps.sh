@@ -2,17 +2,17 @@
 
 usage(){
 echo "
-BBMapS — Streamer/Writer-based BBMap (bbmapnova).
-Functionally equivalent to bbmap.sh: same alignment engine (BBMapThread/
-AbstractMapThread, unchanged), same flag surface, same output. The only
-difference is internal I/O plumbing — worker threads call stream.Streamer/
-stream.Writer directly instead of the classic ConcurrentReadInputStream/
-ConcurrentReadOutputStream pair. See align2/BBMapS.java.
+BBMapS — BBMap alignment with the Streamer/Writer interface.
 
-Usage:  bbmaps.sh ref=<fasta> in=<reads> out=<sam> t=32
+Single-ended:  bbmapS.sh ref=reference.fa in=reads.fq out=mapped.sam
+Paired-end:    bbmapS.sh ref=reference.fa in=R1.fq in2=R2.fq out=mapped.sam
+Index only:    bbmapS.sh ref=reference.fa path=index
+Reuse index:   bbmapS.sh in=reads.fq out=mapped.sam path=index
+Split reads:   bbsplitS.sh ref_a=a.fa ref_b=b.fa in=reads.fq basename=out_%.fq
 
 Same flag surface as bbmap.sh (build=, in=, in2=, ref=, t=, out=, etc.).
 Run bbmap.sh -h for the full flag reference.
+Java SIMD is detected by the standard BBTools launcher setup.
 "
 }
 
