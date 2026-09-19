@@ -2553,10 +2553,10 @@ public final class BBIndex extends AbstractIndex {
 		
 		if(useQuality){
 			//These lines apparently MUST be used if quality is used later on for slow align.
-			if(USE_AFFINE_SCORE){return msa.maxQuality(baseScores);}
+			if(USE_AFFINE_SCORE && msa!=null){return msa.maxQuality(baseScores);}
 			if(USE_EXTENDED_SCORE){return readlen*(BASE_HIT_SCORE+BASE_HIT_SCORE/5)+Tools.sumInt(baseScores);}
 		}else{
-			if(USE_AFFINE_SCORE){return msa.maxQuality(readlen);}
+			if(USE_AFFINE_SCORE && msa!=null){return msa.maxQuality(readlen);}
 			if(USE_EXTENDED_SCORE){return readlen*(BASE_HIT_SCORE+BASE_HIT_SCORE/5);}
 		}
 		
@@ -2963,7 +2963,7 @@ public final class BBIndex extends AbstractIndex {
 			}
 		}
 		
-		if(USE_AFFINE_SCORE){
+		if(USE_AFFINE_SCORE && msa!=null){
 			/* TODO - sometimes returns a higher score than actual alignment.  This should never happen. */
 			int score=(KFILTER<2 ? msa.calcAffineScore(locArray, baseScores, bases) :
 				msa.calcAffineScore(locArray, baseScores, bases, KFILTER));

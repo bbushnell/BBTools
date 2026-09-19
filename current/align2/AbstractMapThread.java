@@ -81,6 +81,8 @@ public abstract class AbstractMapThread extends Thread {
 		outStreamBlack=outStreamBlack_;
 		pileup=pileup_;
 		
+		QUANTUM_ONLY=Boolean.getBoolean("bbmap3.quantumOnly");
+		PSEUDO_ONLY=Boolean.getBoolean("bbmap3.pseudoAlign");
 		SLOW_ALIGN=SLOW_ALIGN_;
 		LOCAL_ALIGN=LOCAL_ALIGN_;
 		AMBIGUOUS_TOSS=AMBIGUOUS_TOSS_;
@@ -163,7 +165,7 @@ public abstract class AbstractMapThread extends Thread {
 		
 		AVERAGE_PAIR_DIST=INITIAL_AVERAGE_PAIR_DIST;
 		
-		if(SLOW_ALIGN || MAKE_MATCH_STRING){
+		if((SLOW_ALIGN || MAKE_MATCH_STRING) && !QUANTUM_ONLY && !PSEUDO_ONLY){
 			msa=MSA.makeMSA(ALIGN_ROWS(), ALIGN_COLUMNS(), MSA_TYPE);
 			POINTS_MATCH=msa.POINTS_MATCH();
 			POINTS_MATCH2=msa.POINTS_MATCH2();
@@ -182,7 +184,8 @@ public abstract class AbstractMapThread extends Thread {
 //			CLEARZONE1c=0;
 //			CLEARZONEP=0;
 //			CLEARZONE3=0;
-			CLEARZONE1e=0;
+			CLEARZONE1e=(QUANTUM_ONLY ?
+					2*POINTS_MATCH2-POINTS_MATCH-MultiStateAligner11ts.POINTS_SUB+1 : 0);
 		}
 		
 //		CLEARZONE1b_CUTOFF_FLAT=CLEARZONE1b_CUTOFF_FLAT_RATIO*POINTS_MATCH2;
@@ -236,6 +239,11 @@ public abstract class AbstractMapThread extends Thread {
 	public final void postFilterRead(Read r, byte[] basesM, int maxImperfectSwScore, int maxSwScore){
 		if(!r.mapped() || r.perfect()){return;}
 		assert(Read.CHECKSITES(r, basesM));
+		if(PSEUDO_ONLY){
+			assert(r.match==null) : "Pseudoalignment cannot carry a base-level match string";
+			processMapqFilter(r, AbstractMapper.MIN_MAPQ, AbstractMapper.MIN_MAPQ_UNPAIRED);
+			return;
+		}
 		ensureMatchStringOnPrimary(r, basesM, maxImperfectSwScore, maxSwScore);
 		if(!r.mapped() || r.perfect()){return;}
 		assert(r.match!=null) : "Postfiltering does not work with cigar strings disabled.";
@@ -929,6 +937,12 @@ public abstract class AbstractMapThread extends Thread {
 		
 		ArrayList<SiteScore> list=index.findAdvanced(basesP, basesM, r.quality, baseScoresP, keyScoresP, offsets, r.numericID);
 		if(verbose){System.err.println("list: "+list);}
+		if(PSEUDO_ONLY && list!=null){
+			for(SiteScore ss : list){
+				ss.setStop(ss.start()+basesP.length-1);
+				ss.gaps=null;
+			}
+		}
 		
 		r.sites=list;
 		removeOutOfBounds(r, OUTPUT_MAPPED_ONLY, OUTPUT_SAM, EXPECTED_LEN_LIMIT);
@@ -939,8 +953,11 @@ public abstract class AbstractMapThread extends Thread {
 			r.sites=null;
 		}else{
 			r.sites=list;
-			if(!SLOW_ALIGN && AbstractIndex.USE_AFFINE_SCORE){
-				for(SiteScore ss : list){ss.setSlowScore(ss.quickScore);}
+			if(PSEUDO_ONLY || (!SLOW_ALIGN && AbstractIndex.USE_AFFINE_SCORE)){
+				for(SiteScore ss : list){
+					ss.setSlowScore(ss.quickScore);
+					if(PSEUDO_ONLY){ss.perfect=ss.semiperfect=false;ss.match=null;}
+				}
 			}
 		}
 //		assert(r.list!=null); //Less efficient, but easier to code later.
@@ -1903,10 +1920,10 @@ public abstract class AbstractMapThread extends Thread {
 				badPairBases+=(len1+len2);
 			}
 			
-			if(r.perfect() || (maxSwScore>0 && r.topSite().slowScore==maxSwScore)){
+			if(!PSEUDO_ONLY && (r.perfect() || (maxSwScore>0 && r.topSite().slowScore==maxSwScore))){
 				perfectMatch1++;
 				perfectMatchBases1+=len1;
-			}else if(SLOW_ALIGN){
+			}else if(SLOW_ALIGN && !PSEUDO_ONLY){
 				assert(r.topSite().slowScore<maxSwScore) : maxSwScore+"\t"+r.topSite().toText();
 			}
 			
@@ -2042,10 +2059,10 @@ public abstract class AbstractMapThread extends Thread {
 				}
 			}
 			
-			if(r.perfect() || (maxSwScore>0 && r.topSite().slowScore==maxSwScore)){
+			if(!PSEUDO_ONLY && (r.perfect() || (maxSwScore>0 && r.topSite().slowScore==maxSwScore))){
 				perfectMatch2++;
 				perfectMatchBases2+=len;
-			}else if(SLOW_ALIGN){
+			}else if(SLOW_ALIGN && !PSEUDO_ONLY){
 				assert(r.topSite().slowScore<maxSwScore) : maxSwScore+"\t"+r.topSite().toText();
 			}
 			
@@ -3494,6 +3511,10 @@ public abstract class AbstractMapThread extends Thread {
 	
 	/** Use dynamic programming slow-alignment phase to increase quality.  Program may not run anymore if this is disabled. */
 	protected final boolean SLOW_ALIGN;
+	/** Explicit speed mode: use Quantum scoring/traceback and never construct or call an MSA. */
+	protected final boolean QUANTUM_ONLY;
+	/** Explicit coverage/counting mode: finalize k-mer quick scores without base alignment. */
+	protected final boolean PSEUDO_ONLY;
 	/** Produce local alignments instead of global alignments */
 	protected final boolean LOCAL_ALIGN;
 	/** Discard reads with ambiguous alignments (consider them unmapped). */

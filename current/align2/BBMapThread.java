@@ -272,6 +272,17 @@ public final class BBMapThread extends AbstractMapThread{
 		this.hybridPair=hybridPair_;
 		// Private prototype switch; production/default hybrid behavior is unchanged.
 		if(hybridPair && Boolean.getBoolean("bbmap3.hybridMatchReuse")){hybridMatchCache=new HybridMatchCache();}
+		quantumOnly=Boolean.getBoolean("bbmap3.quantumOnly");
+		quantumTieredShadow=Boolean.getBoolean("bbmap3.quantumTieredShadow");
+		quantumTieredMutate=Boolean.getBoolean("bbmap3.quantumTieredMutate");
+		final boolean tieredEnabled=quantumTieredShadow || quantumTieredMutate || quantumOnly;
+		quantumTieredRanker=(tieredEnabled ? new QuantumRanker() : null);
+		quantumTieredStats=(quantumTieredShadow || quantumTieredMutate ?
+				new TieredQuantumStats() : null);
+		quantumOnlyStats=(quantumOnly ? new QuantumOnlyStats() : null);
+		assert(!quantumOnly || msa==null) : "Quantum-only workers must not allocate an MSA";
+		assert(!(quantumOnly && PSEUDO_ONLY)) : "Quantum-only and pseudoalignment modes are exclusive";
+		assert(!PSEUDO_ONLY || msa==null) : "Pseudoalignment workers must not allocate an MSA";
 		secondAttempt=hybridPair ? new PairAttemptAccounting() : null;
 		entryState=hybridPair ? new PairSearchState() : null;
 		firstState=hybridPair ? new PairSearchState() : null;
@@ -425,7 +436,6 @@ public final class BBMapThread extends AbstractMapThread{
 	@Override
 	public void scoreSlow(final ArrayList<SiteScore> list, final byte[] basesP, final byte[] basesM,
 			final int maxSwScore, final int maxImperfectSwScore){
-		
 		int minMsaLimit;
 		if(PAIRED){
 			minMsaLimit=-CLEARZONE1e+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE*maxSwScore);
@@ -480,10 +490,62 @@ public final class BBMapThread extends AbstractMapThread{
 				final int minscore=Tools.max(swscoreNoIndel, minMsaLimit);
 				final int minscore2=Tools.max(swscoreNoIndel-MSA.MIN_SCORE_ADJUST, minMsaLimit);
 				if(verbose){System.err.println("Sent to msa with start="+ss.start+", stop="+ss.stop+", pad="+pad+", limit="+minscore+", gaps="+GapTools.toString(ss.gaps));}
-				swscoreArray=msa.fillAndScoreLimited(bases, ss, pad, minscore);
+				boolean bypass=false;
+				QuantumRanker.Result tieredResult=null;
+				int tieredScore=Integer.MIN_VALUE;
+				final int projectedLengthDelta=ss.stop-ss.start+1-bases.length;
+				if(quantumOnly){
+					if(ss.gaps!=null){
+						quantumOnlyStats.gapArray();
+						ss.setSlowScore(0);
+					}else{
+						final byte[] ref=Data.getChromosome(ss.chrom).array;
+						final int refStart=Math.max(0, ss.start-pad);
+						final int refStop=Math.min(ref.length-1, ss.stop+pad);
+						tieredResult=quantumTieredRanker.align(bases, ref, refStart, refStop,
+								ss.start, Shared.SIMD, true, Integer.MAX_VALUE);
+						if(tieredResult.supported && tieredResult.match!=null){
+							tieredScore=quantumScaledScore(tieredResult.score);
+						}
+						final boolean accepted=tieredResult.supported && !tieredResult.uncertain &&
+								tieredResult.match!=null && tieredScore>=minscore;
+						quantumOnlyStats.observe(tieredResult, tieredScore, minscore);
+						if(accepted){
+							bypass=true;
+							ss.match=tieredResult.match;
+							ss.setSlowScore(tieredScore);
+							ss.setLimits(tieredResult.rStart, tieredResult.rStop);
+							setLimits=true;
+						}else{
+							ss.match=null;
+							ss.setSlowScore(0);
+						}
+					}
+				}else if((quantumTieredShadow || quantumTieredMutate) && ss.gaps==null &&
+						Math.abs(projectedLengthDelta)==1){
+					final byte[] ref=Data.getChromosome(ss.chrom).array;
+					final int refStart=Math.max(0, ss.start-pad);
+					final int refStop=Math.min(ref.length-1, ss.stop+pad);
+					final int editBudget=quantumEditBudget(maxSwScore, minscore, bases.length);
+					tieredResult=quantumTieredRanker.align(bases, ref, refStart, refStop,
+							ss.start, Shared.SIMD, true, editBudget);
+					if(tieredResult.supported && tieredResult.match!=null){
+						tieredScore=msa.score(tieredResult.match);
+					}
+				}
+				if(!quantumOnly && quantumTieredMutate && tieredResult!=null && tieredResult.supported &&
+						!tieredResult.uncertain && tieredResult.insertions+tieredResult.deletions<=1 &&
+						tieredScore>=minscore){
+					bypass=true;
+					ss.match=tieredResult.match;
+					ss.setSlowScore(tieredScore);
+					ss.setLimits(tieredResult.rStart, tieredResult.rStop);
+					setLimits=true;
+				}
+				if(!quantumOnly && !bypass){swscoreArray=msa.fillAndScoreLimited(bases, ss, pad, minscore);}
 				if(verbose){System.err.println("Received "+Arrays.toString(swscoreArray));}
 				
-				if(swscoreArray!=null && swscoreArray.length>6 && (swscoreArray[3]+swscoreArray[4]+expectedLen<EXPECTED_LEN_LIMIT)){
+				if(!quantumOnly && swscoreArray!=null && swscoreArray.length>6 && (swscoreArray[3]+swscoreArray[4]+expectedLen<EXPECTED_LEN_LIMIT)){
 					int[] oldArray=swscoreArray.clone();
 					assert(swscoreArray.length==8);
 					int extraPadLeft=swscoreArray[6];
@@ -507,12 +569,22 @@ public final class BBMapThread extends AbstractMapThread{
 						swscoreArray=oldArray;
 					}
 				}
+				if(!quantumOnly && tieredResult!=null){
+					final int legacyScore=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[0]);
+					final int legacyStart=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[1]);
+					final int legacyStop=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[2]);
+					quantumTieredStats.observe(tieredResult, tieredScore, legacyScore,
+							legacyStart, legacyStop, minscore);
+				}
 				assert(ss.lengthsAgree());
 				if(verbose){
 					System.err.println(QUICK_MATCH_STRINGS+", "+(swscoreArray==null ? "null" : (swscoreArray.length+", "+swscoreArray[0]+" >=? "+minscore)));
 					System.err.println("start="+ss.start+", stop="+ss.stop+", len="+ss.mappedLength());
 				}
-				if(QUICK_MATCH_STRINGS && swscoreArray!=null && swscoreArray.length==6 && swscoreArray[0]>=minscore2 && (PRINT_SECONDARY_ALIGNMENTS || (USE_SS_MATCH_FOR_PRIMARY && swscoreArray[0]>minMatch))){
+				if(bypass){
+					assert(ss.match!=null && matchQueryLength(ss.match)==bases.length) :
+							"Accepted one-base Quantum result requires a reusable match string";
+				}else if(QUICK_MATCH_STRINGS && swscoreArray!=null && swscoreArray.length==6 && swscoreArray[0]>=minscore2 && (PRINT_SECONDARY_ALIGNMENTS || (USE_SS_MATCH_FOR_PRIMARY && swscoreArray[0]>minMatch))){
 					if(verbose){System.err.println("Generating match string.");}
 					assert(swscoreArray.length==6) : swscoreArray.length;
 					assert(swscoreArray[0]>=minscore2) : "\n"+Arrays.toString(swscoreArray)+"\n"+minscore+"\n"+minMatch;
@@ -534,7 +606,9 @@ public final class BBMapThread extends AbstractMapThread{
 					ss.match=null;
 				}
 			}
-			if(swscoreArray!=null && !setLimits){
+			if(quantumOnly){
+				assert(msa==null) : "Quantum-only scoring must not construct an MSA";
+			}else if(swscoreArray!=null && !setLimits){
 				if(verbose){System.err.println("msa returned "+Arrays.toString(swscoreArray));}
 				ss.setSlowScore(swscoreArray[0]);
 				ss.setLimits(swscoreArray[1], swscoreArray[2]);
@@ -558,7 +632,103 @@ public final class BBMapThread extends AbstractMapThread{
 			
 			if(verbose){System.err.println(" -> "+ss);}
 		}
-		
+	}
+
+	TieredQuantumStats quantumTieredStats(){return quantumTieredStats;}
+	QuantumOnlyStats quantumOnlyStats(){return quantumOnlyStats;}
+	private static int matchQueryLength(final byte[] match){
+		int length=0;
+		for(byte op : match){if(op!='D'){length++;}}
+		return length;
+	}
+	private int quantumEditBudget(final int maxSwScore, final int minimumScore,
+			final int readLength){
+		if(quantumOnly){
+			final int deficit=Math.max(0, maxSwScore-minimumScore);
+			return Math.min(readLength, deficit/QUANTUM_EDIT_COST);
+		}
+		final int approximateEditCost=(POINTS_MATCH-msa.POINTS_SUB()+1)/2;
+		assert(approximateEditCost>0) : "Half a substitution penalty must be positive";
+		final int deficit=Math.max(0, maxSwScore-minimumScore);
+		return Math.min(readLength, deficit/approximateEditCost);
+	}
+
+	private static int quantumMaxScore(final int readLength){
+		return QUANTUM_SCORE_SCALE*readLength+QUANTUM_SCORE_OFFSET;
+	}
+
+	private static int quantumScaledScore(final int simpleScore){
+		return QUANTUM_SCORE_SCALE*simpleScore+QUANTUM_SCORE_OFFSET;
+	}
+
+	private int scoreNoIndelsQuantum(final Read read, final byte[] basesP,
+			final byte[] basesM, final int maxSwScore, final int maxImperfectSwScore){
+		if(read.numSites()==0){return 0;}
+		int nearPerfect=0;
+		boolean forceQuantum=false;
+		for(SiteScore ss : read.sites){
+			final byte[] bases=(ss.strand==Shared.PLUS ? basesP : basesM);
+			final byte[] ref=Data.getChromosome(ss.chrom).array;
+			final int oldScore=ss.score;
+			int start=ss.start;
+			int score=quantumGaplessScore(bases, ref, start, null);
+			if(score<oldScore && oldScore>=maxImperfectSwScore &&
+					ss.stop-ss.start+1!=bases.length){
+				final int alternateStart=ss.stop-bases.length+1;
+				final int alternateScore=quantumGaplessScore(bases, ref, alternateStart, null);
+				if(alternateScore>score){score=alternateScore;start=alternateStart;}
+			}
+			ss.setStart(start);
+			ss.setSlowScore(score);
+			ss.setScore(score);
+			if(score>=maxImperfectSwScore){
+				nearPerfect++;
+				ss.setStop(start+bases.length-1);
+				ss.gaps=null;
+				final byte[] match=new byte[bases.length];
+				final int check=quantumGaplessScore(bases, ref, start, match);
+				assert(check==score) : "Quantum gapless score changed while tracing: "+check+" != "+score;
+				ss.match=match;
+				if(score==maxSwScore){ss.perfect=ss.semiperfect=true;}
+				else{ss.setPerfect(bases);}
+			}else if(oldScore>=maxImperfectSwScore || PRINT_SECONDARY_ALIGNMENTS){
+				forceQuantum=true;
+			}
+		}
+		return forceQuantum ? -nearPerfect : nearPerfect;
+	}
+
+	private static int quantumGaplessScore(final byte[] query, final byte[] ref,
+			final int refStart, final byte[] match){
+		if(refStart<0 || refStart+query.length>ref.length){return Integer.MIN_VALUE/4;}
+		int simpleScore=0;
+		for(int q=0, r=refStart; q<query.length; q++, r++){
+			final byte qb=query[q], rb=ref[r];
+			if(qb=='N' || rb=='N'){
+				if(match!=null){match[q]='N';}
+			}else if(qb==rb){
+				simpleScore++;
+				if(match!=null){match[q]='m';}
+			}else{
+				simpleScore--;
+				if(match!=null){match[q]='S';}
+			}
+		}
+		return quantumScaledScore(simpleScore);
+	}
+
+	private void removeQuantumRejectedSites(final Read read){
+		if(!quantumOnly || read.sites==null){return;}
+		int removed=0;
+		for(int i=read.sites.size()-1; i>=0; i--){
+			final SiteScore ss=read.sites.get(i);
+			if(ss.match==null || ss.slowScore<=0){
+				read.sites.set(i, null);
+				removed++;
+			}
+		}
+		if(removed>0){Tools.condenseStrict(read.sites);}
+		if(read.sites.isEmpty()){read.clearMapping();}
 	}
 	
 	
@@ -595,9 +765,13 @@ public final class BBMapThread extends AbstractMapThread{
 		int maxSwScore=0;
 		int maxImperfectSwScore=0;
 
-		if(SLOW_ALIGN || USE_AFFINE_SCORE){
-			maxSwScore=msa.maxQuality(r.length());
-			maxImperfectSwScore=msa.maxImperfectScore(r.length());
+		if(PSEUDO_ONLY){
+			maxSwScore=Tools.max(1, maxPossibleQuickScore);
+			maxImperfectSwScore=maxSwScore;
+		}else if(SLOW_ALIGN || USE_AFFINE_SCORE){
+			maxSwScore=(quantumOnly ? quantumMaxScore(r.length()) : msa.maxQuality(r.length()));
+			maxImperfectSwScore=(quantumOnly ? maxSwScore-QUANTUM_EDIT_COST :
+				msa.maxImperfectScore(r.length()));
 		}
 		
 		if(TRIM_LIST && r.numSites()>1){
@@ -610,9 +784,11 @@ public final class BBMapThread extends AbstractMapThread{
 		assert(Read.CHECKSITES(r, basesM));
 		
 		
-		if(SLOW_ALIGN && r.numSites()>0){
+		if(SLOW_ALIGN && !PSEUDO_ONLY && r.numSites()>0){
 			
-			int numNearPerfectScores=scoreNoIndels(r, basesP, basesM, maxSwScore, maxImperfectSwScore);
+			int numNearPerfectScores=(quantumOnly ?
+					scoreNoIndelsQuantum(r, basesP, basesM, maxSwScore, maxImperfectSwScore) :
+					scoreNoIndels(r, basesP, basesM, maxSwScore, maxImperfectSwScore));
 
 			Shared.sort(r.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
 			assert(Read.CHECKSITES(r, basesM));
@@ -630,7 +806,9 @@ public final class BBMapThread extends AbstractMapThread{
 			}
 			
 			if(numNearPerfectScores<1){
-				if(FIND_TIP_DELETIONS){findTipDeletions(r, basesP, basesM, maxSwScore, maxImperfectSwScore);}
+				if(!quantumOnly && FIND_TIP_DELETIONS){
+					findTipDeletions(r, basesP, basesM, maxSwScore, maxImperfectSwScore);
+				}
 			}
 			
 			if(verbose){
@@ -648,6 +826,7 @@ public final class BBMapThread extends AbstractMapThread{
 				int removed=removeLongIndels(r.sites, index.maxIndel());
 				if(r.numSites()==0){r.clearMapping();}
 			}
+			removeQuantumRejectedSites(r);
 			
 			if(verbose){System.err.println("\nAfter scoreSlow: \t"+r.sites);}
 			assert(Read.CHECKSITES(r, basesM, false));
@@ -678,13 +857,13 @@ public final class BBMapThread extends AbstractMapThread{
 			assert(r.topSite().score==r.topSite().slowScore) : r.topSite();
 		}
 		
-		if(SLOW_ALIGN || USE_AFFINE_SCORE){r.setPerfectFlag(maxSwScore);}
+		if(!PSEUDO_ONLY && (SLOW_ALIGN || USE_AFFINE_SCORE)){r.setPerfectFlag(maxSwScore);}
 		
 		if(r.numSites()>1){
 			
 			final int clearzone;
 			final int score=r.topSite().score;
-			if(r.perfect()){clearzone=CLEARZONEP;}
+			if(r.perfect() || (PSEUDO_ONLY && score>=maxSwScore)){clearzone=CLEARZONEP;}
 			else{
 				assert(score<maxSwScore);
 				final float cz1blimit=(maxSwScore*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT);
@@ -833,12 +1012,14 @@ public final class BBMapThread extends AbstractMapThread{
 			r.clearMapping();
 		}
 		assert(r.sites==null || r.mapScore>0) :
+			(PSEUDO_ONLY ? "Pseudoalignment retained sites with nonpositive quick score: "+r :
+			(quantumOnly ? "Quantum-only mapping retained sites with nonpositive score: "+r :
 			"\nmapScore = "+r.mapScore+"\nread = "+r.toText(false)+"\nscore thresh = "+(-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO*maxSwScore))+"\n"+
 			"msa unlimited return = "+Arrays.toString(msa.fillAndScoreLimited(r.strand()==Shared.PLUS ? r.bases :
 			AminoAcid.reverseComplementBases(r.bases), r.topSite(), Tools.max(SLOW_ALIGN_PADDING, 10), 0))+"\n"+
 			"msa limited return = "+Arrays.toString(msa.fillAndScoreLimited(r.strand()==Shared.PLUS ? r.bases :
 			AminoAcid.reverseComplementBases(r.bases), r.topSite(), Tools.max(SLOW_ALIGN_PADDING, 10), (-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO*maxSwScore))))+"\n\n"+
-			"msa vert limit: "+msa.showVertLimit()+"\n\nmsa horz limit: "+msa.showHorizLimit()+"\n\n";
+			"msa vert limit: "+msa.showVertLimit()+"\n\nmsa horz limit: "+msa.showHorizLimit()+"\n\n"));
 		
 //		assert(r.list==null || r.mapScore>0) : r.mapScore+"\n"+r.list==null ? "null" : r.list.toString();
 		
@@ -866,7 +1047,7 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		
 		assert(checkTopSite(r));
-		if(r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
+		if(!quantumOnly && !PSEUDO_ONLY && r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
 			msa.toLocalAlignment(r, r.topSite(), basesM, r.containsXYC() ? 1 : LOCAL_ALIGN_TIP_LENGTH, LOCAL_ALIGN_MATCH_POINT_RATIO);
 			assert(Read.CHECKSITES(r, basesM));
 		}
@@ -1188,7 +1369,7 @@ public final class BBMapThread extends AbstractMapThread{
 		final int maxSwScore1=attempt.max1, maxSwScore2=attempt.max2;
 		final int maxImperfectSwScore1=attempt.imperfect1, maxImperfectSwScore2=attempt.imperfect2;
 
-		if(SLOW_ALIGN || USE_AFFINE_SCORE){
+		if(!PSEUDO_ONLY && (SLOW_ALIGN || USE_AFFINE_SCORE)){
 			r.setPerfectFlag(maxSwScore1);
 			r2.setPerfectFlag(maxSwScore2);
 //			assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
@@ -1196,7 +1377,7 @@ public final class BBMapThread extends AbstractMapThread{
 		
 
 		if(r.numSites()>1){
-			final int clearzone=r.perfect() ? CLEARZONEP :
+			final int clearzone=(r.perfect() || (PSEUDO_ONLY && r.topSite().score>=maxSwScore1)) ? CLEARZONEP :
 				r.topSite().score>=(int)(maxSwScore1*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT) ? CLEARZONE1 :
 					(r.topSite().score>=(int)(maxSwScore1*CLEARZONE1c_CUTOFF_SCALE-CLEARZONE1c_CUTOFF_FLAT) ? CLEARZONE1b : CLEARZONE1c);
 			int numBestSites1=Tools.countTopScores(r.sites, clearzone);
@@ -1211,7 +1392,7 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 
 		if(r2.numSites()>1){
-			final int clearzone=r2.perfect() ? CLEARZONEP :
+			final int clearzone=(r2.perfect() || (PSEUDO_ONLY && r2.topSite().score>=maxSwScore2)) ? CLEARZONEP :
 				r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1b_CUTOFF_SCALE-CLEARZONE1b_CUTOFF_FLAT) ? CLEARZONE1 :
 					(r2.topSite().score>=(int)(maxSwScore2*CLEARZONE1c_CUTOFF_SCALE-CLEARZONE1c_CUTOFF_FLAT) ? CLEARZONE1b : CLEARZONE1c);
 			int numBestSites2=Tools.countTopScores(r2.sites, clearzone);
@@ -1326,19 +1507,23 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		
 		assert(r.sites==null || r.mapScore>0) :
+			(PSEUDO_ONLY ? "Pseudoalignment paired read retained sites with nonpositive quick score: "+r :
+			(quantumOnly ? "Quantum-only paired read retained sites with nonpositive score: "+r :
 			r.mapScore+"\t"+r.sites+"\n"+(-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED*maxSwScore1))+"\n"+
 			Arrays.toString(msa.fillAndScoreLimited(r.strand()==Shared.PLUS ? r.bases :
 			AminoAcid.reverseComplementBases(r.bases), r.topSite(), Tools.max(SLOW_ALIGN_PADDING, 80), 0))+"\n"+
 			Arrays.toString(msa.fillAndScoreLimited(r.strand()==Shared.PLUS ? r.bases :
 			AminoAcid.reverseComplementBases(r.bases), r.topSite(), Tools.max(SLOW_ALIGN_PADDING, 80), (-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED*maxSwScore1))))+"\n\n"+
-			msa.showVertLimit()+"\n\n"+msa.showHorizLimit()+"\n\n"+r+"\n\n"+r2+"\n\n";
+			msa.showVertLimit()+"\n\n"+msa.showHorizLimit()+"\n\n"+r+"\n\n"+r2+"\n\n"));
 		assert(r2.sites==null || r2.mapScore>0) :
+			(PSEUDO_ONLY ? "Pseudoalignment paired read retained sites with nonpositive quick score: "+r2 :
+			(quantumOnly ? "Quantum-only paired read retained sites with nonpositive score: "+r2 :
 			r2.mapScore+"\t"+r2.sites+"\n"+(-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED*maxSwScore2))+"\n"+
 			Arrays.toString(msa.fillAndScoreLimited(r2.strand()==Shared.PLUS ? r2.bases :
 			AminoAcid.reverseComplementBases(r2.bases), r2.topSite(), Tools.max(SLOW_ALIGN_PADDING, 80), 0))+"\n"+
 			Arrays.toString(msa.fillAndScoreLimited(r2.strand()==Shared.PLUS ? r2.bases :
 			AminoAcid.reverseComplementBases(r2.bases), r2.topSite(), Tools.max(SLOW_ALIGN_PADDING, 80), (-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED*maxSwScore2))))+"\n\n"+
-			msa.showVertLimit()+"\n\n"+msa.showHorizLimit()+"\n\n"+r+"\n\n"+r2+"\n\n";
+			msa.showVertLimit()+"\n\n"+msa.showHorizLimit()+"\n\n"+r+"\n\n"+r2+"\n\n"));
 		
 		assert(!r.mapped() || !MAKE_MATCH_STRING || r.match!=null) : "Note that sometimes, VERY RARELY, match string generation fails.";
 		assert(checkTopSite(r)); // TODO remove this
@@ -1372,7 +1557,7 @@ public final class BBMapThread extends AbstractMapThread{
 //		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
 		
 		assert(checkTopSite(r));
-		if(r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
+		if(!quantumOnly && !PSEUDO_ONLY && r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
 			final SiteScore ss=r.topSite();
 			ss.match=r.match;
 			msa.toLocalAlignment(r, ss, basesM1, r.containsXYC() ? 1 : LOCAL_ALIGN_TIP_LENGTH, LOCAL_ALIGN_MATCH_POINT_RATIO);
@@ -1382,7 +1567,7 @@ public final class BBMapThread extends AbstractMapThread{
 //		assert(false) : r.mapped()+", "+LOCAL_ALIGN+", "+r.containsXYC()+", "+new String(r.match);
 		
 		assert(checkTopSite(r2));
-		if(r2.mapped() && (LOCAL_ALIGN || r2.containsXYC())){
+		if(!quantumOnly && !PSEUDO_ONLY && r2.mapped() && (LOCAL_ALIGN || r2.containsXYC())){
 			final SiteScore ss=r2.topSite();
 			ss.match=r2.match;
 			msa.toLocalAlignment(r2, ss, basesM2, r2.containsXYC() ? 1 : LOCAL_ALIGN_TIP_LENGTH, LOCAL_ALIGN_MATCH_POINT_RATIO);
@@ -1439,10 +1624,14 @@ public final class BBMapThread extends AbstractMapThread{
 		//Discards need to be tracked separately for each end.
 //		if(maxPossibleQuickScore2<0){lowQualityReadsDiscarded--;}
 		
-		final int maxSwScore1=attempt.max1=msa.maxQuality(len1);
-		final int maxImperfectSwScore1=attempt.imperfect1=msa.maxImperfectScore(len1);
-		final int maxSwScore2=attempt.max2=msa.maxQuality(len2);
-		final int maxImperfectSwScore2=attempt.imperfect2=msa.maxImperfectScore(len2);
+		final int maxSwScore1=attempt.max1=(PSEUDO_ONLY ? Tools.max(1, maxPossibleQuickScore1) :
+				(quantumOnly ? quantumMaxScore(len1) : msa.maxQuality(len1)));
+		final int maxImperfectSwScore1=attempt.imperfect1=(PSEUDO_ONLY ? maxSwScore1 :
+				(quantumOnly ? maxSwScore1-QUANTUM_EDIT_COST : msa.maxImperfectScore(len1)));
+		final int maxSwScore2=attempt.max2=(PSEUDO_ONLY ? Tools.max(1, maxPossibleQuickScore2) :
+				(quantumOnly ? quantumMaxScore(len2) : msa.maxQuality(len2)));
+		final int maxImperfectSwScore2=attempt.imperfect2=(PSEUDO_ONLY ? maxSwScore2 :
+				(quantumOnly ? maxSwScore2-QUANTUM_EDIT_COST : msa.maxImperfectScore(len2)));
 		
 		pairSiteScoresInitial(r, r2, TRIM_LIST);
 		if(verbose){System.err.println("\nAfter initial pair:\nRead1:\t"+r+"\nRead2:\t"+r2);}
@@ -1479,15 +1668,19 @@ public final class BBMapThread extends AbstractMapThread{
 		
 //		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
 		
-		if(SLOW_ALIGN){
+		if(SLOW_ALIGN && !PSEUDO_ONLY){
 			
 			if(r.numSites()>0){
 				
-				int numNearPerfectScores1=scoreNoIndels(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1);
+				int numNearPerfectScores1=(quantumOnly ?
+						scoreNoIndelsQuantum(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1) :
+						scoreNoIndels(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1));
 				Shared.sort(r.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
 				
 				if(numNearPerfectScores1<1){
-					if(FIND_TIP_DELETIONS){findTipDeletions(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1);}
+					if(!quantumOnly && FIND_TIP_DELETIONS){
+						findTipDeletions(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1);
+					}
 				}
 				
 				//TODO:
@@ -1499,14 +1692,19 @@ public final class BBMapThread extends AbstractMapThread{
 					if(r.numSites()==0){r.clearMapping();}
 				}
 				Tools.mergeDuplicateSites(r.sites, true, true);
+				removeQuantumRejectedSites(r);
 			}
 			
 			if(r2.numSites()>0){
-				int numNearPerfectScores2=scoreNoIndels(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);
+				int numNearPerfectScores2=(quantumOnly ?
+						scoreNoIndelsQuantum(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2) :
+						scoreNoIndels(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2));
 				Shared.sort(r2.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
 				
 				if(numNearPerfectScores2<1){
-					if(FIND_TIP_DELETIONS){findTipDeletions(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);}
+					if(!quantumOnly && FIND_TIP_DELETIONS){
+						findTipDeletions(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);
+					}
 				}
 				
 				scoreSlow(r2.sites, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);
@@ -1515,6 +1713,7 @@ public final class BBMapThread extends AbstractMapThread{
 					if(r2.numSites()<1){r2.clearMapping();}
 				}
 				Tools.mergeDuplicateSites(r2.sites, true, true);
+				removeQuantumRejectedSites(r2);
 			}
 			
 			
@@ -1610,6 +1809,15 @@ public final class BBMapThread extends AbstractMapThread{
 
 	// One reusable record per worker. No per-read allocation; currently one attempt only.
 	private final PairAttemptAccounting pairAttempt=new PairAttemptAccounting();
+	private final boolean quantumOnly;
+	private final boolean quantumTieredShadow;
+	private final boolean quantumTieredMutate;
+	private final QuantumRanker quantumTieredRanker;
+	private final TieredQuantumStats quantumTieredStats;
+	private final QuantumOnlyStats quantumOnlyStats;
+	private static final int QUANTUM_SCORE_SCALE=100;
+	private static final int QUANTUM_SCORE_OFFSET=-30;
+	private static final int QUANTUM_EDIT_COST=2*QUANTUM_SCORE_SCALE;
 	private static final class PairAttemptAccounting {
 		int quick1, quick2, max1, max2, imperfect1, imperfect2;
 		int initialSiteSum1, initialSiteSum2, postTrimSiteSum1, postTrimSiteSum2;

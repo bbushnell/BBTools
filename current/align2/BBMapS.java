@@ -14,6 +14,7 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import jgi.CoveragePileup;
 import shared.Shared;
+import parse.Parse;
 import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
@@ -117,6 +118,41 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	public String[] preparse(String[] args){
+		boolean quantumOnlyRequested=false;
+		boolean pseudoAlignRequested=false;
+		for(int i=0; i<args.length; i++){
+			final String s=args[i];
+			if(s==null){continue;}
+			final int equals=s.indexOf('=');
+			final String key=(equals<0 ? s : s.substring(0, equals));
+			if(key.equalsIgnoreCase("quantumonebase")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				System.setProperty("bbmap3.quantumTieredMutate",
+						Boolean.toString(Parse.parseBoolean(value)));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("quantumonly")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				quantumOnlyRequested=Parse.parseBoolean(value);
+				System.setProperty("bbmap3.quantumOnly",
+						Boolean.toString(quantumOnlyRequested));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("pseudoalign")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				pseudoAlignRequested=Parse.parseBoolean(value);
+				System.setProperty("bbmap3.pseudoAlign",
+						Boolean.toString(pseudoAlignRequested));
+				args[i]=null;
+			}
+		}
+		if(quantumOnlyRequested || pseudoAlignRequested){
+			final ArrayList<String> list=new ArrayList<String>();
+			list.add("rescue=f");
+			list.add("local=f");
+			list.add("secondary=f");
+			if(pseudoAlignRequested){list.add("match=f");}
+			for(String s : args){if(s!=null){list.add(s);}}
+			args=list.toArray(new String[list.size()]);
+		}
 		if(fast){
 			ArrayList<String> list=new ArrayList<String>();
 			list.add("tipsearch="+TIP_SEARCH_DIST/5);
@@ -307,6 +343,39 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(PRINT_SECONDARY_ALIGNMENTS){throw new RuntimeException("hybridpair is incompatible with secondary=t");}
 			if(PERFECTMODE || SEMIPERFECTMODE){throw new RuntimeException("hybridpair is incompatible with perfectmode/semiperfectmode");}
 		}
+		if(Boolean.getBoolean("bbmap3.quantumOnly")){
+			if(Boolean.getBoolean("bbmap3.quantumTieredMutate")){
+				throw new RuntimeException("quantumonly=t is incompatible with quantumonebase=t");
+			}
+			if(hybridPair){throw new RuntimeException("quantumonly=t is incompatible with hybridpair=t");}
+			if(RESCUE){throw new RuntimeException("quantumonly=t requires rescue=f");}
+			if(LOCAL_ALIGN){throw new RuntimeException("quantumonly=t requires local=f");}
+			if(PRINT_SECONDARY_ALIGNMENTS){
+				throw new RuntimeException("quantumonly=t requires secondary=f and ambig!=all");
+			}
+		}
+		if(Boolean.getBoolean("bbmap3.pseudoAlign")){
+			if(Boolean.getBoolean("bbmap3.quantumOnly") ||
+					Boolean.getBoolean("bbmap3.quantumTieredMutate")){
+				throw new RuntimeException("pseudoalign=t is incompatible with Quantum modes");
+			}
+			if(hybridPair){throw new RuntimeException("pseudoalign=t is incompatible with hybridpair=t");}
+			if(RESCUE){throw new RuntimeException("pseudoalign=t requires rescue=f");}
+			if(LOCAL_ALIGN){throw new RuntimeException("pseudoalign=t requires local=f");}
+			if(PRINT_SECONDARY_ALIGNMENTS){throw new RuntimeException("pseudoalign=t requires secondary=f");}
+			if(MAKE_MATCH_STRING){throw new RuntimeException("pseudoalign=t requires match=f");}
+			if(STRICT_MAX_INDEL){throw new RuntimeException("pseudoalign=t is incompatible with strictmaxindel");}
+			if(PERFECTMODE || SEMIPERFECTMODE){
+				throw new RuntimeException("pseudoalign=t is incompatible with perfectmode/semiperfectmode");
+			}
+			if(MIN_IDFILTER>0 || AbstractMapThread.SUBFILTER>=0 ||
+					AbstractMapThread.DELFILTER>=0 || AbstractMapThread.INSFILTER>=0 ||
+					AbstractMapThread.INDELFILTER>=0 || AbstractMapThread.DELLENFILTER>=0 ||
+					AbstractMapThread.INSLENFILTER>=0 || AbstractMapThread.EDITFILTER>=0 ||
+					AbstractMapThread.NFILTER>=0){
+				throw new RuntimeException("pseudoalign=t is incompatible with identity/edit filters");
+			}
+		}
 
 	}
 	
@@ -438,7 +507,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		if(SEMIPERFECTMODE){setSemiperfectMode();}
 		
 		//Optional section for discrete timing of chrom array loading
-		if(SLOW_ALIGN || AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
+		if((SLOW_ALIGN && !Boolean.getBoolean("bbmap3.pseudoAlign")) ||
+				AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
 			outstream.println();
 			if(INDEX_LOADED){
 				//do nothing
@@ -480,7 +550,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		outstream.println("Generated Index:\t"+t);
 		t.start();
 		
-		if(!SLOW_ALIGN && !AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
+		if((!SLOW_ALIGN || Boolean.getBoolean("bbmap3.pseudoAlign")) &&
+				!AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
 			for(int chrom=minChrom; chrom<=maxChrom; chrom++){
 				Data.unload(chrom, true);
 			}
@@ -500,6 +571,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					"\tnormcov="+normcov+"\tnormcovo="+normcovOverall+(in1==null ? "" : "\tin1="+in1)+(in2==null ? "" : "\tin2="+in2)+
 					(covSetbs ? ("\tbitset="+covBitset+"\tarrays="+covArrays) : "")).split("\t");
 			pileup=new CoveragePileup(cvargs);
+			if(Boolean.getBoolean("bbmap3.pseudoAlign") && !CoveragePileup.INCLUDE_DELETIONS &&
+					!CoveragePileup.START_ONLY && !CoveragePileup.STOP_ONLY){
+				throw new RuntimeException("pseudoalign=t requires deletion-inclusive, start-only, or stop-only coverage");
+			}
 			pileup.createDataStructures();
 			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
 		}
@@ -664,6 +739,25 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 
 		t.stop();
 		if(printStats){outstream.println("\n\n   ------------------   Results   ------------------   ");}
+		if(Boolean.getBoolean("bbmap3.quantumTieredShadow") ||
+				Boolean.getBoolean("bbmap3.quantumTieredMutate")){
+			final TieredQuantumStats total=new TieredQuantumStats();
+			for(AbstractMapThread mtt : mtts){
+				final TieredQuantumStats worker=((BBMapThread)mtt).quantumTieredStats();
+				assert(worker!=null) : "Tiered Quantum mode must create worker statistics";
+				total.add(worker);
+			}
+			outstream.print(total.toTsv());
+		}
+		if(Boolean.getBoolean("bbmap3.quantumOnly")){
+			final QuantumOnlyStats total=new QuantumOnlyStats();
+			for(AbstractMapThread mtt : mtts){
+				final QuantumOnlyStats worker=((BBMapThread)mtt).quantumOnlyStats();
+				assert(worker!=null) : "Quantum-only mode must create worker statistics";
+				total.add(worker);
+			}
+			outstream.print(total.toTsv());
+		}
 
 		printOutput(mtts, t, keylen, paired, false, pileup, scafNzo, sortStats, statsOutputFile);
 		if(!success || errorStateS){throw new RuntimeException("BBMapS terminated in an error state; the output may be corrupt.");}
