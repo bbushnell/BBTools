@@ -22,6 +22,8 @@ public class TrnaKmerIndexBoundTest {
 	public static void main(String[] args){
 		testRepetitiveQueryBound();
 		testUniqueKmerCollapse();
+		testSingleModelStrictCutoff();
+		testSingleModelDirectAlignmentControl();
 		testAdaptiveDenominatorIsUniqueNotPositional();
 		System.out.println("TrnaKmerIndexBoundTest: ALL TESTS PASSED");
 	}
@@ -45,13 +47,13 @@ public class TrnaKmerIndexBoundTest {
 		//Query: the SAME 7-mer "AAAAAAA" repeated 200 times back-to-back (a single long run of 'A').
 		//Old (pre-fix) code would traverse postings["AAAAAAA"] once per raw query position (~194 valid
 		//positions in a 200-mer run), each traversal adding model 0's 5 occurrences -> counts[0] ~970.
-		//Fixed code collapses to ONE unique query k-mer ("AAAAAAA"), so counts[0] must be exactly 5.
+		//The one-model set prefilter collapses repeats on both sides, so the shared count is exactly 1.
 		final byte[] query=toBytes(repeat("A", 200));
 		final int[] result=idx.shortlist(query, 10);
 		final int count0=idx.lastSharedCount(0);
 
-		assert(count0==5) : "Expected counts[0]==5 (model 0's own AAAAAAA occurrence count), got "+count0
-			+" -- unique-query-k-mer dedup is not bounding the count as intended.";
+		assert(count0==1) : "Expected counts[0]==1 distinct shared k-mer type, got "+count0
+			+" -- the one-model path must use set-membership rather than posting multiplicity.";
 		//Model 0's total index-k-mer occurrence count = sequence length - k + 1 = 40-7+1 = 34.
 		final int model0TotalKmerOccurrences=model0.length-k+1;
 		assert(count0<=model0TotalKmerOccurrences) : "counts[0]="+count0
@@ -62,12 +64,10 @@ public class TrnaKmerIndexBoundTest {
 			+" (model total k-mer occurrences="+model0TotalKmerOccurrences+")");
 	}
 
-	/** A query with NO repeated k-mers (every 7-mer window distinct) should give the SAME result under
-	 * old and new logic -- the dedup pass only changes behavior when the query actually repeats a k-mer.
-	 * Sanity check that the common case (non-repetitive real sequence) is unaffected. */
+	/** A self-match must report the number of distinct model/query k-mer types. */
 	static void testUniqueKmerCollapse(){
 		final int k=7;
-		//A sequence with no internal repeats at k=7 (simple non-periodic base pattern).
+		//This sequence has 59 positional 7-mers and 55 distinct 7-mer types.
 		final String seqStr="ACGTACGGTACGTTACGGATTCGGACTGATCGATGCATGCTAGCTAGCTAGGCATCGTAGCTAGT";
 		final byte[] model0=toBytes(seqStr);
 		final byte[][] library={model0};
@@ -76,10 +76,35 @@ public class TrnaKmerIndexBoundTest {
 		final byte[] query=toBytes(seqStr);//query identical to the model -> every k-mer shared exactly once
 		idx.shortlist(query, 10);
 		final int count0=idx.lastSharedCount(0);
-		final int expected=seqStr.length()-k+1;//every window is a distinct k-mer here, one query occurrence each
-		assert(count0==expected) : "Expected counts[0]=="+expected+" for a self-match with no repeated "
-			+"k-mers, got "+count0+" -- dedup pass should not alter non-repetitive-query behavior.";
+		final int expected=55;
+		assert(count0==expected) : "Expected counts[0]=="+expected+" distinct shared k-mer types for the "
+			+"self-match, got "+count0+".";
 		System.out.println("testUniqueKmerCollapse PASSED: counts[0]="+count0+" (expected "+expected+")");
+	}
+
+	/** A one-model family must be rejectable by its configured count; the multi-model keep-best fallback
+	 * must not force the sole model through after it misses the cutoff. */
+	static void testSingleModelStrictCutoff(){
+		final int k=7;
+		final byte[] model=toBytes("ACGTACGGTACGTTACGGATTCGGACTGATCGATGCATGCTAGCTAGCTAGGCATCGTAGCTAGT");
+		final TrnaKmerIndex pass=new TrnaKmerIndex(new byte[][]{model}, k, false, 0f, 0f, 0f, 1);
+		final TrnaKmerIndex reject=new TrnaKmerIndex(new byte[][]{model}, k, false, 0f, 0f, 0f, model.length);
+		final byte[] query=toBytes("ACGTACGG");
+		assert(pass.shortlist(query, 100).length==1) : "One shared k-mer should pass fixedMinHits=1";
+		assert(reject.shortlist(query, 100).length==0) : "One-model fixedMinHits must reject below-cutoff windows; "
+			+"the keep-best fallback is only valid when ranking multiple models";
+		System.out.println("testSingleModelStrictCutoff PASSED");
+	}
+
+	/** fixedMinHits=0 is the explicit no-prefilter control for one-model calibration. */
+	static void testSingleModelDirectAlignmentControl(){
+		final int k=7;
+		final byte[] model=toBytes("AAAAAAAAAAAAAA");
+		final TrnaKmerIndex direct=new TrnaKmerIndex(new byte[][]{model}, k, false, 0f, 0f, 0f, 0);
+		final byte[] noSharedKmer=toBytes("CCCCCCCCCCCCCC");
+		assert(direct.shortlist(noSharedKmer, 1).length==1) : "fixedMinHits=0 must align the sole model even "
+			+"when the candidate window shares no index k-mer; this is the direct-alignment calibration control";
+		System.out.println("testSingleModelDirectAlignmentControl PASSED");
 	}
 
 	/** Distinguishes qKmers=unique-count (correct, current) from qKmers=positional-count (the

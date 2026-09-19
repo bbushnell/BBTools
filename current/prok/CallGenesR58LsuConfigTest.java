@@ -49,8 +49,8 @@ public class CallGenesR58LsuConfigTest {
 			setPaths(null, null, null, null, null, null);
 			CallGenes.loadNcrnaResources();
 			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Bundled R58/LSU pair did not register exactly once");}
-			check(find("r58"), 1, 500, 140, 135);
-			check(find("lsu"), 14, 500, 60, 3500);
+			check(find("r58"), 1, 500, 140, 135, 7, 1, 2);
+			check(find("lsu"), 14, 500, 60, 3500, 9, 4, 448);
 		}finally{s.restore();}
 	}
 
@@ -62,8 +62,8 @@ public class CallGenesR58LsuConfigTest {
 			setPaths(R58_K, R58_C, R58_M, LSU_K, LSU_C, LSU_M);
 			CallGenes.loadNcrnaResources();
 			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Explicit R58/LSU pair did not register exactly once");}
-			check(find("r58"), 2, 500, 140, 135);
-			check(find("lsu"), 11, 1000, 60, 3500);
+			check(find("r58"), 2, 500, 140, 135, 7, 1, 2);
+			check(find("lsu"), 11, 1000, 60, 3500, 9, 4, 448);
 		}finally{s.restore();}
 	}
 
@@ -100,10 +100,11 @@ public class CallGenesR58LsuConfigTest {
 		return count;
 	}
 
-	private static void check(NcrnaFamily f, int models, int kmers, int minLen, int pad){
+	private static void check(NcrnaFamily f, int models, int kmers, int minLen, int pad,
+			int indexK, int indexTopN, int fixedMinHits){
 		if(f.library.length!=models || f.models.length!=models || f.modelNames.length!=models || f.kmerSet.size()!=kmers
-				|| f.kLong!=17 || f.minLen!=minLen || f.windowPad!=pad || f.indexK!=7 || f.indexTopN!=100
-				|| f.adaptive || f.fixedMinHits!=1 || f.idPass!=0.60f || f.idBorderline!=0.55f || f.hbmPass!=0.60f){
+				|| f.kLong!=17 || f.minLen!=minLen || f.windowPad!=pad || f.indexK!=indexK || f.indexTopN!=indexTopN
+				|| f.adaptive || f.fixedMinHits!=fixedMinHits || f.idPass!=0.60f || f.idBorderline!=0.55f || f.hbmPass!=0.60f){
 			throw new AssertionError("Unexpected "+f.name+" bundle shape");
 		}
 	}

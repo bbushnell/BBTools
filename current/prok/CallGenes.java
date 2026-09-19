@@ -2193,7 +2193,7 @@ public class CallGenes extends ProkObject {
 			requireNcrnaResource("r58", "consensus", r58ConsensusResource);
 			requireNcrnaResource("r58", "HBM", r58ModelResource);
 			addNcrnaFamily("r58", r58ConsensusResource, r58ModelResource, r58Kmers, 17, 140,
-				resolveSweepPad("r58", -1, 135), 7, 100, false, 0f, 0f, 0f, 1,
+				resolveSweepPad("r58", -1, 135), 7, 1, false, 0f, 0f, 0f, 2,
 				0f, 1f, resolveSweepFloat("r58", NCRNA_ID_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
 				resolveSweepFloat("r58", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
@@ -2210,7 +2210,7 @@ public class CallGenes extends ProkObject {
 			requireNcrnaResource("lsu", "consensus", lsuConsensusResource);
 			requireNcrnaResource("lsu", "HBM", lsuModelResource);
 			addNcrnaFamily("lsu", lsuConsensusResource, lsuModelResource, lsuKmers, 17, 60,
-				resolveSweepPad("lsu", -1, 3500), 7, 100, false, 0f, 0f, 0f, 1,
+				resolveSweepPad("lsu", -1, 3500), 9, 4, false, 0f, 0f, 0f, 448,
 				0f, 1f, resolveSweepFloat("lsu", NCRNA_ID_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("lsu", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
 				resolveSweepFloat("lsu", NCRNA_HBM_PASS_OVERRIDE, 0.60f),

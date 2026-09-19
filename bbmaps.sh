@@ -13,8 +13,11 @@ Split reads:   bbsplitS.sh ref_a=a.fa ref_b=b.fa in=reads.fq basename=out_%.fq
 Same flag surface as bbmap.sh (build=, in=, in2=, ref=, t=, out=, etc.).
 Optional short-indel acceleration: quantumonebase=t (default f).
 Optional no-MSA speed mode: quantumonly=t (default f; changes scoring/mapping).
-Optional k-mer pseudoalignment: pseudoalign=t (default f; mapped SAM uses CIGAR=*;
-  no base alignment or identity/edit filters; intended for coverage/counting).
+Optional adaptive Quantum/MSA hybrid: quantumhybrid=t (default f; uses Quantum
+  for supported short-indel sites and defers compressed MSA when evidence allows).
+Optional k-mer pseudoalignment: pseudoalign=t (default f; emits a seed-derived
+  polycrystalline CIGAR without full MSA or identity/edit filters; intended for
+  coverage/counting).
 Run bbmap.sh -h for the full flag reference.
 Java SIMD is detected by the standard BBTools launcher setup.
 "

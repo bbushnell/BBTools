@@ -10,6 +10,7 @@ import shared.KillSwitch;
 import shared.Shared;
 import shared.Tools;
 import stream.SiteScore;
+import structures.ByteBuilder;
 import structures.LongM;
 
 
@@ -1321,6 +1322,7 @@ public final class BBIndex extends AbstractIndex {
 		final int[] values=valueArray;
 		final int[] sizes=sizeArray;
 		final int[] locArray=(USE_EXTENDED_SCORE ? getLocArray(bases.length) : null);
+		final int[] polyLimits=(EMIT_POLYCRYSTALLINE_MATCH ? new int[2] : null);
 		final Block b=index[baseChrom];
 		
 		if(ssl==null){ssl=new ArrayList<SiteScore>(8);}
@@ -1529,8 +1531,21 @@ public final class BBIndex extends AbstractIndex {
 					}
 
 					final int chrom=numberToChrom(mapStart, baseChrom);
-					final int site2=numberToSite(mapStart);
-					final int site3=numberToSite(mapStop)+bases.length-1;
+					int site2=numberToSite(mapStart);
+					int site3=numberToSite(mapStop)+bases.length-1;
+					byte[] polyMatch=null;
+					if(EMIT_POLYCRYSTALLINE_MATCH){
+						if(locArrayValid){
+							polyMatch=polycrystallineMatch(locArray, bases,
+									Data.getChromosome(chrom).array, site2, polyLimits);
+							if(polyMatch!=null){site2=polyLimits[0];site3=polyLimits[1];}
+						}else if(score==maxScore){
+							final ByteBuilder bb=new ByteBuilder(8);
+							appendMatchRun(bb, (byte)'m', bases.length);
+							polyMatch=bb.toBytes();
+							site3=site2+bases.length-1;
+						}
+					}
 					
 					assert(site2!=site3) : site2+", "+site3+", "+mapStart+", "+mapStop;
 					
@@ -1593,8 +1608,10 @@ public final class BBIndex extends AbstractIndex {
 					}
 					//assert((ss==null || !ss.semiperfect) && (prevSS==null || !prevSS.semiperfect)) : (ss==null ? false : ss.semiperfect)+", "+(prevSS==null ? false : prevSS.semiperfect); //***
 					
-					if(inbounds && !SEMIPERFECTMODE && !PERFECTMODE && gapArray==null && prevSS!=null &&
-							prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3)){
+					if(inbounds && (!EMIT_POLYCRYSTALLINE_MATCH || polyMatch!=null) &&
+							!SEMIPERFECTMODE && !PERFECTMODE && gapArray==null && prevSS!=null &&
+							prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3) &&
+							(!EMIT_POLYCRYSTALLINE_MATCH || (prevSS.start==site2 && prevSS.stop==site3))){
 						
 						if(verbose){System.err.println("Considering overlapping site chr"+chrom+", "+site2+"-"+site3);}
 
@@ -1608,6 +1625,7 @@ public final class BBIndex extends AbstractIndex {
 
 						if(prevSS.start==site2 && prevSS.stop==site3){
 							if(verbose){System.err.println("Class 1: Same bounds as last site.");}
+							if(EMIT_POLYCRYSTALLINE_MATCH && score>=prevSS.score){prevSS.match=polyMatch;}
 							prevSS.score=prevSS.quickScore=betterScore;
 							prevSS.perfect=(prevSS.perfect || perfect1 || perfect2);
 							if(prevSS.perfect){prevSS.semiperfect=true;}
@@ -1650,6 +1668,7 @@ public final class BBIndex extends AbstractIndex {
 						}else{
 							if(verbose){System.err.println("Class 5: Making new site");}
 							ss=new SiteScore(chrom, strand, site2, site3, approxHits, score, false, perfect1);
+							if(EMIT_POLYCRYSTALLINE_MATCH){ss.match=polyMatch;}
 							if(!perfect1){ss.setPerfect(bases);}
 							//assert((ss==null || !ss.semiperfect) && (prevSS==null || !prevSS.semiperfect)) : (ss==null ? false : ss.semiperfect)+", "+(prevSS==null ? false : prevSS.semiperfect); //***
 //							assert(Read.CHECKSITE(ss, bases));
@@ -1657,9 +1676,10 @@ public final class BBIndex extends AbstractIndex {
 							assert(!perfect1 || ss.stop-ss.start==bases.length-1);
 						}
 						assert(!perfect2 || prevSS.stop-prevSS.start==bases.length-1);
-					}else if(inbounds){
+					}else if(inbounds && (!EMIT_POLYCRYSTALLINE_MATCH || polyMatch!=null)){
 						if(verbose){System.err.println("Considering new site chr"+chrom+", "+site2+"-"+site3);}
 						ss=new SiteScore(chrom, strand, site2, site3, approxHits, score, false, perfect1);
+						if(EMIT_POLYCRYSTALLINE_MATCH){ss.match=polyMatch;}
 						if(!perfect1){ss.setPerfect(bases);}
 						//assert((ss==null || !ss.semiperfect) && (prevSS==null || !prevSS.semiperfect)) : (ss==null ? false : ss.semiperfect)+", "+(prevSS==null ? false : prevSS.semiperfect); //***
 //						assert(Read.CHECKSITE(ss, bases));
@@ -2995,6 +3015,92 @@ public final class BBIndex extends AbstractIndex {
 	}
 	
 	
+	/**
+	 * Converts polycrystalline query-to-reference assignments into a compact
+	 * BBTools match string.  locArray[i] is an alignment-start offset, so the
+	 * assigned reference coordinate is locArray[i]+i.  Missing assignments are
+	 * linearly interpolated; backward coordinates cannot be represented by SAM
+	 * CIGAR and return null for authoritative fallback.
+	 */
+	static byte[] polycrystallineMatch(final int[] locArray, final byte[] query,
+			final byte[] ref, final int fallbackStart){
+		return polycrystallineMatch(locArray, query, ref, fallbackStart, null);
+	}
+
+	/** limits receives the inclusive reference span represented by the match. */
+	static byte[] polycrystallineMatch(final int[] locArray, final byte[] query,
+			final byte[] ref, final int fallbackStart, final int[] limits){
+		assert(locArray!=null && query!=null && ref!=null) : "Polycrystalline CIGAR requires query, reference, and assignments";
+		assert(locArray.length==query.length) : "Assignment/query length mismatch: "+locArray.length+" != "+query.length;
+		assert(limits==null || limits.length>=2) : "Polycrystalline span output requires two cells";
+		if(query.length<1){return null;}
+		int firstKnown=-1, firstCoordinate=-1;
+		for(int i=0; i<locArray.length; i++){
+			if(locArray[i]>=0){firstKnown=i;firstCoordinate=locArray[i]+i;break;}
+		}
+		final ByteBuilder out=new ByteBuilder(16);
+		byte run=0;
+		int runLength=0, previous=-1, lastKnown=-1, lastKnownCoordinate=-1;
+		int nextKnown=firstKnown, nextKnownCoordinate=firstCoordinate;
+		for(int i=0; i<query.length; i++){
+			final int raw=locArray[i];
+			final int coordinate;
+			if(raw>=0){
+				coordinate=raw+i;
+				lastKnown=i;lastKnownCoordinate=coordinate;
+				if(nextKnown<=i){
+					nextKnown=-1;nextKnownCoordinate=-1;
+					for(int j=i+1; j<locArray.length; j++){
+						if(locArray[j]>=0){nextKnown=j;nextKnownCoordinate=locArray[j]+j;break;}
+					}
+				}
+			}else if(firstKnown<0){
+				coordinate=fallbackStart+i;
+			}else if(i<firstKnown){
+				coordinate=firstCoordinate-(firstKnown-i);
+			}else if(nextKnown>i){
+				final int delta=nextKnownCoordinate-lastKnownCoordinate;
+				if(delta<0){return null;}
+				coordinate=lastKnownCoordinate+(int)(((long)delta*(i-lastKnown))/(nextKnown-lastKnown));
+			}else{
+				coordinate=previous+1;
+			}
+			if(coordinate<0 || coordinate>=ref.length || (i>0 && coordinate<previous)){return null;}
+			if(i>0){
+				final int delta=coordinate-previous;
+				if(delta>1){
+					if(runLength>0){appendMatchRun(out, run, runLength);}
+					appendMatchRun(out, (byte)'D', delta-1);
+					run=0;runLength=0;
+				}else if(delta==0){
+					if(run!='I'){
+						if(runLength>0){appendMatchRun(out, run, runLength);}
+						run='I';runLength=0;
+					}
+					runLength++;previous=coordinate;continue;
+				}
+			}
+			final byte q=query[i], r=ref[coordinate];
+			final byte op=(q=='N' || r=='N' ? (byte)'N' : q==r ? (byte)'m' : (byte)'S');
+			if(op!=run){
+				if(runLength>0){appendMatchRun(out, run, runLength);}
+				run=op;runLength=0;
+			}
+			runLength++;
+			previous=coordinate;
+		}
+		if(runLength>0){appendMatchRun(out, run, runLength);}
+		if(limits!=null){limits[0]=(firstKnown<0 ? fallbackStart :
+			(firstKnown==0 ? firstCoordinate : firstCoordinate-firstKnown));limits[1]=previous;}
+		return out.toBytes();
+	}
+
+	private static void appendMatchRun(final ByteBuilder out, final byte op, final int length){
+		assert(length>0) : "Match run length must be positive: "+length;
+		out.append(op);
+		if(length>1){out.append(length);}
+	}
+
 	/** NOTE!  This destroys the locArray, so use a copy if needed. */
 	private static final int[] makeGapArray(int[] locArray, int minLoc, int minGap){
 		int gaps=0;
@@ -3669,6 +3775,8 @@ public final class BBIndex extends AbstractIndex {
 	}
 	
 	public static final boolean USE_SLOWALK3=true && USE_EXTENDED_SCORE;
+	/** Retain the active polycrystalline query-to-reference trace for pseudoalignment CIGAR output. */
+	public static boolean EMIT_POLYCRYSTALLINE_MATCH=false;
 	public static boolean PRESCAN_QSCORE=true && USE_EXTENDED_SCORE; //Decrease quality and increase speed
 	public static final boolean FILTER_BY_QSCORE=true; //Slightly lower quality, but very fast.
 	public static final float MIN_SCORE_MULT=(USE_AFFINE_SCORE ? 0.15f : USE_EXTENDED_SCORE ? .3f : 0.10f);  //Fraction of max score to use as cutoff.  Default 0.15, max is 1; lower is more accurate

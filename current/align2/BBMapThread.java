@@ -275,11 +275,13 @@ public final class BBMapThread extends AbstractMapThread{
 		quantumOnly=Boolean.getBoolean("bbmap3.quantumOnly");
 		quantumTieredShadow=Boolean.getBoolean("bbmap3.quantumTieredShadow");
 		quantumTieredMutate=Boolean.getBoolean("bbmap3.quantumTieredMutate");
-		final boolean tieredEnabled=quantumTieredShadow || quantumTieredMutate || quantumOnly;
+		quantumHybrid=Boolean.getBoolean("bbmap3.quantumHybrid");
+		final boolean tieredEnabled=quantumTieredShadow || quantumTieredMutate || quantumOnly || quantumHybrid;
 		quantumTieredRanker=(tieredEnabled ? new QuantumRanker() : null);
 		quantumTieredStats=(quantumTieredShadow || quantumTieredMutate ?
 				new TieredQuantumStats() : null);
 		quantumOnlyStats=(quantumOnly ? new QuantumOnlyStats() : null);
+		quantumHybridStats=(quantumHybrid ? new QuantumHybridStats() : null);
 		assert(!quantumOnly || msa==null) : "Quantum-only workers must not allocate an MSA";
 		assert(!(quantumOnly && PSEUDO_ONLY)) : "Quantum-only and pseudoalignment modes are exclusive";
 		assert(!PSEUDO_ONLY || msa==null) : "Pseudoalignment workers must not allocate an MSA";
@@ -436,6 +438,16 @@ public final class BBMapThread extends AbstractMapThread{
 	@Override
 	public void scoreSlow(final ArrayList<SiteScore> list, final byte[] basesP, final byte[] basesM,
 			final int maxSwScore, final int maxImperfectSwScore){
+		if(quantumHybrid && list.size()>1){
+			int next=0;
+			for(int i=0; i<list.size(); i++){
+				final SiteScore ss=list.get(i);
+				if(ss.gaps==null){
+					if(i>next){list.remove(i);list.add(next, ss);}
+					next++;
+				}
+			}
+		}
 		int minMsaLimit;
 		if(PAIRED){
 			minMsaLimit=-CLEARZONE1e+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE*maxSwScore);
@@ -448,10 +460,31 @@ public final class BBMapThread extends AbstractMapThread{
 		if(verbose){
 			System.err.println("Slow-scoring.  maxSwScore="+maxSwScore+", maxImperfectSwScore="+maxImperfectSwScore+", minMsaLimit="+minMsaLimit+", minMatch="+minMatch);
 		}
+		int bestOrdinaryScore=Integer.MIN_VALUE;
+		SiteScore bestOrdinarySite=null;
 		for(int i=0; i<list.size(); i++){
 			final SiteScore ss=list.get(i);
 			assert(ss.lengthsAgree());
 			final byte[] bases=(ss.strand==Shared.PLUS ? basesP : basesM);
+			final boolean compressed=(ss.gaps!=null);
+			final int scoreAwareRelax=(maxSwScore-maxImperfectSwScore)*2/3;
+			final boolean scoreAwareCandidate=quantumHybrid && compressed && bestOrdinarySite!=null &&
+					bestOrdinaryScore>=maxImperfectSwScore-scoreAwareRelax &&
+					ss.hits<bestOrdinarySite.hits && ss.quickScore<bestOrdinarySite.quickScore;
+			final boolean applyScoreAware=scoreAwareCandidate && quantumHybridStats.adaptiveOpportunity();
+			if(quantumHybrid && compressed && bestOrdinaryScore>=maxImperfectSwScore){
+				quantumHybridStats.compressedSkipped();
+				ss.match=null;ss.setSlowScore(0);ss.setScore(0);
+				ss.perfect=ss.semiperfect=false;
+				continue;
+			}else if(applyScoreAware){
+				quantumHybridStats.scoreAwareSkipped();
+				ss.match=null;ss.setSlowScore(0);ss.setScore(0);
+				ss.perfect=ss.semiperfect=false;
+				continue;
+			}else if(quantumHybrid && compressed){
+				quantumHybridStats.compressedEvaluated();
+			}
 			
 			if(SEMIPERFECTMODE){
 				assert(ss.stop-ss.start==bases.length-1);
@@ -521,6 +554,29 @@ public final class BBMapThread extends AbstractMapThread{
 							ss.setSlowScore(0);
 						}
 					}
+				}else if(quantumHybrid && ss.gaps==null && Math.abs(projectedLengthDelta)<=1){
+					quantumHybridStats.ordinaryAttempt();
+					final byte[] ref=Data.getChromosome(ss.chrom).array;
+					final int refStart=Math.max(0, ss.start-pad);
+					final int refStop=Math.min(ref.length-1, ss.stop+pad);
+					final int editBudget=quantumEditBudget(maxSwScore, minscore, bases.length);
+					tieredResult=quantumTieredRanker.align(bases, ref, refStart, refStop,
+							ss.start, Shared.SIMD, true, editBudget);
+					final boolean selectedTraceUncertain=tieredResult.match!=null && matchContainsN(tieredResult.match);
+					if(tieredResult.supported && tieredResult.match!=null){tieredScore=msa.score(tieredResult.match);}
+					final int indelBases=tieredResult.insertions+tieredResult.deletions;
+					if(tieredResult.supported && tieredResult.match!=null && !selectedTraceUncertain &&
+							indelBases<=1 && tieredScore>=minscore){
+						bypass=true;ss.match=tieredResult.match;ss.setSlowScore(tieredScore);
+						ss.setLimits(tieredResult.rStart, tieredResult.rStop);setLimits=true;
+						quantumHybridStats.accepted();
+					}else if(!tieredResult.supported){quantumHybridStats.fallbackUnsupported();}
+					else if(tieredResult.match==null){quantumHybridStats.fallbackMissing();}
+					else if(selectedTraceUncertain){quantumHybridStats.fallbackUncertain();}
+					else if(indelBases>1){quantumHybridStats.longTraceFallback();}
+					else{quantumHybridStats.fallbackThreshold();}
+				}else if(quantumHybrid && ss.gaps==null){
+					quantumHybridStats.geometryFallback();
 				}else if((quantumTieredShadow || quantumTieredMutate) && ss.gaps==null &&
 						Math.abs(projectedLengthDelta)==1){
 					final byte[] ref=Data.getChromosome(ss.chrom).array;
@@ -569,7 +625,7 @@ public final class BBMapThread extends AbstractMapThread{
 						swscoreArray=oldArray;
 					}
 				}
-				if(!quantumOnly && tieredResult!=null){
+				if((quantumTieredShadow || quantumTieredMutate) && tieredResult!=null){
 					final int legacyScore=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[0]);
 					final int legacyStart=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[1]);
 					final int legacyStop=(swscoreArray==null ? Integer.MIN_VALUE : swscoreArray[2]);
@@ -622,6 +678,9 @@ public final class BBMapThread extends AbstractMapThread{
 			}
 			assert(ss.lengthsAgree());
 			ss.setScore(ss.slowScore);
+			if(quantumHybrid && !compressed && ss.slowScore>bestOrdinaryScore){
+				bestOrdinaryScore=ss.slowScore;bestOrdinarySite=ss;
+			}
 			minMatch=Tools.max(minMatch, ss.slowScore);
 			minMsaLimit=Tools.max(minMsaLimit, ss.slowScore-CLEARZONE3);
 			assert(ss.slowScore<=maxSwScore);
@@ -636,10 +695,16 @@ public final class BBMapThread extends AbstractMapThread{
 
 	TieredQuantumStats quantumTieredStats(){return quantumTieredStats;}
 	QuantumOnlyStats quantumOnlyStats(){return quantumOnlyStats;}
+	QuantumHybridStats quantumHybridStats(){return quantumHybridStats;}
 	private static int matchQueryLength(final byte[] match){
 		int length=0;
 		for(byte op : match){if(op!='D'){length++;}}
 		return length;
+	}
+	private static boolean matchContainsN(final byte[] match){
+		if(match==null){return false;}
+		for(byte op : match){if(op=='N'){return true;}}
+		return false;
 	}
 	private int quantumEditBudget(final int maxSwScore, final int minimumScore,
 			final int readLength){
@@ -911,6 +976,10 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		if(r.numSites()==0){r.sites=null;r.mapScore=0;}
 		r.setFromTopSite(AMBIGUOUS_RANDOM, true, MAX_PAIR_DIST);
+		if(PSEUDO_ONLY && r.mapped()){
+			assert(r.match!=null) : "Mapped pseudoalignment must retain its polycrystalline trace";
+			r.setShortMatch(true);
+		}
 		assert(Read.CHECKSITES(r, basesM));
 		
 		if(verbose){System.err.println("B: "+r);}
@@ -1426,6 +1495,14 @@ public final class BBMapThread extends AbstractMapThread{
 		
 		r.setFromTopSite(AMBIGUOUS_RANDOM, true, MAX_PAIR_DIST);
 		r2.setFromTopSite(AMBIGUOUS_RANDOM, true, MAX_PAIR_DIST);
+		if(PSEUDO_ONLY && r.mapped()){
+			assert(r.match!=null) : "Mapped pseudoalignment must retain its polycrystalline trace";
+			r.setShortMatch(true);
+		}
+		if(PSEUDO_ONLY && r2.mapped()){
+			assert(r2.match!=null) : "Mapped pseudoalignment must retain its polycrystalline trace";
+			r2.setShortMatch(true);
+		}
 		if(KILL_BAD_PAIRS){
 			if(r.isBadPair(REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, MAX_PAIR_DIST)){
 				int x=r.mapScore/len1;
@@ -1812,9 +1889,11 @@ public final class BBMapThread extends AbstractMapThread{
 	private final boolean quantumOnly;
 	private final boolean quantumTieredShadow;
 	private final boolean quantumTieredMutate;
+	private final boolean quantumHybrid;
 	private final QuantumRanker quantumTieredRanker;
 	private final TieredQuantumStats quantumTieredStats;
 	private final QuantumOnlyStats quantumOnlyStats;
+	private final QuantumHybridStats quantumHybridStats;
 	private static final int QUANTUM_SCORE_SCALE=100;
 	private static final int QUANTUM_SCORE_OFFSET=-30;
 	private static final int QUANTUM_EDIT_COST=2*QUANTUM_SCORE_SCALE;

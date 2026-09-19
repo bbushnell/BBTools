@@ -240,7 +240,8 @@ public abstract class AbstractMapThread extends Thread {
 		if(!r.mapped() || r.perfect()){return;}
 		assert(Read.CHECKSITES(r, basesM));
 		if(PSEUDO_ONLY){
-			assert(r.match==null) : "Pseudoalignment cannot carry a base-level match string";
+			assert(r.match!=null && r.shortmatch()) :
+				"Pseudoalignment must carry its compact polycrystalline match string";
 			processMapqFilter(r, AbstractMapper.MIN_MAPQ, AbstractMapper.MIN_MAPQ_UNPAIRED);
 			return;
 		}
@@ -939,8 +940,12 @@ public abstract class AbstractMapThread extends Thread {
 		if(verbose){System.err.println("list: "+list);}
 		if(PSEUDO_ONLY && list!=null){
 			for(SiteScore ss : list){
-				ss.setStop(ss.start()+basesP.length-1);
+				assert(ss.match!=null) : "Pseudoalignment site requires its polycrystalline trace: "+ss;
+				final int refSpan=Read.calcMatchLength(ss.match);
+				assert(refSpan>0) : "Pseudoalignment trace has no reference span: "+new String(ss.match);
+				ss.setStop(ss.start()+refSpan-1);
 				ss.gaps=null;
+				assert(ss.lengthsAgree()) : "Polycrystalline trace reference span must equal SiteScore bounds: "+ss;
 			}
 		}
 		
@@ -956,7 +961,7 @@ public abstract class AbstractMapThread extends Thread {
 			if(PSEUDO_ONLY || (!SLOW_ALIGN && AbstractIndex.USE_AFFINE_SCORE)){
 				for(SiteScore ss : list){
 					ss.setSlowScore(ss.quickScore);
-					if(PSEUDO_ONLY){ss.perfect=ss.semiperfect=false;ss.match=null;}
+					if(PSEUDO_ONLY){ss.perfect=ss.semiperfect=false;}
 				}
 			}
 		}

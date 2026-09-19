@@ -120,6 +120,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	public String[] preparse(String[] args){
 		boolean quantumOnlyRequested=false;
 		boolean pseudoAlignRequested=false;
+		boolean quantumHybridRequested=false;
 		for(int i=0; i<args.length; i++){
 			final String s=args[i];
 			if(s==null){continue;}
@@ -142,8 +143,19 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				System.setProperty("bbmap3.pseudoAlign",
 						Boolean.toString(pseudoAlignRequested));
 				args[i]=null;
+			}else if(key.equalsIgnoreCase("quantumhybrid")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				quantumHybridRequested=Parse.parseBoolean(value);
+				System.setProperty("bbmap3.quantumHybrid",
+						Boolean.toString(quantumHybridRequested));
+				args[i]=null;
 			}
 		}
+		if(quantumHybridRequested && (quantumOnlyRequested || pseudoAlignRequested ||
+				Boolean.getBoolean("bbmap3.quantumTieredMutate"))){
+			throw new IllegalArgumentException("quantumhybrid=t is incompatible with quantumonly, pseudoalign, and quantumonebase");
+		}
+		BBIndex.EMIT_POLYCRYSTALLINE_MATCH=pseudoAlignRequested;
 		if(quantumOnlyRequested || pseudoAlignRequested){
 			final ArrayList<String> list=new ArrayList<String>();
 			list.add("rescue=f");
@@ -352,6 +364,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(LOCAL_ALIGN){throw new RuntimeException("quantumonly=t requires local=f");}
 			if(PRINT_SECONDARY_ALIGNMENTS){
 				throw new RuntimeException("quantumonly=t requires secondary=f and ambig!=all");
+			}
+		}
+		if(Boolean.getBoolean("bbmap3.quantumHybrid")){
+			if(hybridPair){throw new RuntimeException("quantumhybrid=t is incompatible with hybridpair=t");}
+			if(PERFECTMODE || SEMIPERFECTMODE){
+				throw new RuntimeException("quantumhybrid=t is incompatible with perfectmode/semiperfectmode");
 			}
 		}
 		if(Boolean.getBoolean("bbmap3.pseudoAlign")){
@@ -571,10 +589,6 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					"\tnormcov="+normcov+"\tnormcovo="+normcovOverall+(in1==null ? "" : "\tin1="+in1)+(in2==null ? "" : "\tin2="+in2)+
 					(covSetbs ? ("\tbitset="+covBitset+"\tarrays="+covArrays) : "")).split("\t");
 			pileup=new CoveragePileup(cvargs);
-			if(Boolean.getBoolean("bbmap3.pseudoAlign") && !CoveragePileup.INCLUDE_DELETIONS &&
-					!CoveragePileup.START_ONLY && !CoveragePileup.STOP_ONLY){
-				throw new RuntimeException("pseudoalign=t requires deletion-inclusive, start-only, or stop-only coverage");
-			}
 			pileup.createDataStructures();
 			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
 		}
@@ -754,6 +768,15 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			for(AbstractMapThread mtt : mtts){
 				final QuantumOnlyStats worker=((BBMapThread)mtt).quantumOnlyStats();
 				assert(worker!=null) : "Quantum-only mode must create worker statistics";
+				total.add(worker);
+			}
+			outstream.print(total.toTsv());
+		}
+		if(Boolean.getBoolean("bbmap3.quantumHybrid")){
+			final QuantumHybridStats total=new QuantumHybridStats();
+			for(AbstractMapThread mtt : mtts){
+				final QuantumHybridStats worker=((BBMapThread)mtt).quantumHybridStats();
+				assert(worker!=null) : "Broad Quantum hybrid mode must create worker statistics";
 				total.add(worker);
 			}
 			outstream.print(total.toTsv());

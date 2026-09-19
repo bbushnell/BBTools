@@ -1,12 +1,16 @@
 package prok;
 
 import dna.AminoAcid;
+import map.IntHashSet;
 import shared.KillSwitch;
 import shared.Tools;
 import structures.IntList;
 
 /**
  * Inverted k-mer index over a tRNA consensus library plus a reusable per-query counting shortlister.
+ * A one-model library uses a primitive k-mer set as a strict prefilter instead: there is nothing to
+ * rank, and the configured minimum is allowed to reject that sole model rather than being defeated
+ * by the multi-model keep-best fallback.
  *
  * Replaces TrnaCaller's per-query allocations (int[nModels] hits + int[nModels][2] scored, ~nModels+1
  * allocations per candidate window) and its boxed-comparator Arrays.sort with: a reused int[] count
@@ -36,7 +40,7 @@ import structures.IntList;
  * counting-sort scratch (hist/pos) is sized generously (MAX_COUNT+1) rather than unboundedly, with its
  * own loud assert if a query ever exceeds that -- see MAX_COUNT's javadoc for why a fixed bound is safe.
  *
- * @author Noire
+ * @author Noire, Raiden
  */
 final class TrnaKmerIndex {
 
@@ -47,8 +51,11 @@ final class TrnaKmerIndex {
 	/** postings[kmer] = model IDs whose sequence contains that k-mer, once PER OCCURRENCE (multiplicity
 	 * preserved so the per-query count is occurrence-weighted, exactly as the old int[][] index did). */
 	private final char[][] postings;
+	/** Set-only specialization for a one-model library. Counts unique shared k-mer types; null otherwise. */
+	private final IntHashSet singleModelKmers;
 	private static final char[] EMPTY=new char[0];
 	private static final int[] EMPTY_INT=new int[0];
+	private static final int[] SINGLE_MODEL=new int[]{0};
 
 	/*-- Per-query reusable scratch (mutable; per-thread) --*/
 	/** counts[model] = shared k-mer count with the current query, summed over the query's UNIQUE k-mer
@@ -88,13 +95,32 @@ final class TrnaKmerIndex {
 
 	TrnaKmerIndex(byte[][] library, int indexK_, boolean adaptive_, float floor_, float topFrac_,
 			float qFrac_, int fixedMinHits_){
+		if(fixedMinHits_<0){throw new IllegalArgumentException("fixedMinHits must be >=0: "+fixedMinHits_);}
 		indexK=indexK_;
 		numKmers=1<<(2*indexK);
 		nModels=library.length;
 		adaptive=adaptive_; floor=floor_; topFrac=topFrac_; qFrac=qFrac_; fixedMinHits=fixedMinHits_;
 		counts=new int[nModels];
 		sortedOut=new int[nModels];
-		postings=build(library);
+		if(nModels==1){singleModelKmers=buildSingleModelSet(library[0]); postings=null;}
+		else{singleModelKmers=null; postings=build(library);}
+	}
+
+	/** A ranked posting list has no purpose for one model. Store its distinct k-mers directly. */
+	private IntHashSet buildSingleModelSet(byte[] sequence){
+		final IntHashSet set=new IntHashSet(Tools.max(16, sequence.length-indexK+1));
+		final int kmask=numKmers-1;
+		final byte[] bton=AminoAcid.baseToNumber;
+		int kmer=0, len=0;
+		for(int i=0; i<sequence.length; i++){
+			final int x=bton[sequence[i]];
+			if(x>=0){kmer=((kmer<<2)|x)&kmask; len++; if(len>=indexK){set.add(kmer);}}
+			else{len=0; kmer=0;}
+		}
+		if(set.size()<1){throw new IllegalArgumentException("One-model k-mer prefilter is empty; model length="
+			+sequence.length+", indexK="+indexK+" (TrnaKmerIndex requires at least one valid model k-mer before "
+			+"it can filter candidate windows)");}
+		return set;
 	}
 
 	/** Builds the inverted index in two linear passes (size, then fill) -- no ArrayList<Integer> boxing.
@@ -141,6 +167,14 @@ final class TrnaKmerIndex {
 		final int[] cnt=counts;
 		for(int t=0, ts=touched.size; t<ts; t++){cnt[touched.get(t)]=0;}
 		touched.clear();
+		//A zero fixed cutoff is the explicit direct-alignment control for a one-model library:
+		//there is no ranking decision, and bypassing the set establishes whether filtering loses loci.
+		if(singleModelKmers!=null && !adaptive && fixedMinHits==0){
+			lastMaxShared=0;
+			touched.add(0);
+			totalShortlisted++;
+			return SINGLE_MODEL;
+		}
 
 		//Pass 1: collect every valid query k-mer (one entry per position, same enumeration as before),
 		//then sort+dedup to the UNIQUE set. Brian's directive (2026-08-27): postings must be traversed
@@ -171,6 +205,7 @@ final class TrnaKmerIndex {
 		//half of it for the class's stated zero-alloc-after-warmup design. Functionally identical sorted-
 		//unique output, no established API contract, and one already-verified sort() call.
 		qk.condense();
+		if(singleModelKmers!=null){return shortlistSingleModel(qk);}
 
 		//Pass 2: traverse postings ONCE per unique query k-mer.
 		for(int qi=0, qs=qk.size; qi<qs; qi++){
@@ -236,6 +271,25 @@ final class TrnaKmerIndex {
 		final int[] result=new int[count];
 		System.arraycopy(out, 0, result, 0, count);
 		return result;
+	}
+
+	/** Strict set-membership prefilter for a one-model library; no ranking or keep-best fallback. */
+	private int[] shortlistSingleModel(IntList qk){
+		int shared=0;
+		for(int i=0; i<qk.size; i++){if(singleModelKmers.contains(qk.get(i))){shared++;}}
+		counts[0]=shared;
+		lastMaxShared=shared;
+		if(shared<1){return EMPTY_INT;}
+		touched.add(0);
+		final int minHits;
+		if(adaptive){
+			final int qKmers=Tools.max(1, qk.size);
+			final double v=Math.max(floor, Math.max(topFrac*shared, qFrac*qKmers));
+			minHits=(int)Math.ceil(v);
+		}else{minHits=fixedMinHits;}
+		if(shared<minHits){return EMPTY_INT;}
+		totalShortlisted++;
+		return SINGLE_MODEL;
 	}
 
 	/*-- Accessors for TrnaCaller instrumentation + reporting --*/
