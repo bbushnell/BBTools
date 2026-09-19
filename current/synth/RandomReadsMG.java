@@ -34,6 +34,7 @@ import stream.OrderedQueueSystem2;
 import stream.Read;
 import stream.WriterFactory;
 import structures.ByteBuilder;
+import structures.IntList;
 import structures.ListNum;
 import tax.TaxTree;
 import tracker.ReadStats;
@@ -78,10 +79,9 @@ public class RandomReadsMG{
 	 *4. PCR duplicate simulation
 	 *  -Tested for single-ended reads.
 	 *
-	 *5. Match string output option
-	 *  -Add synthetic variant positions to read headers as match strings
-	 *  -May significantly increase header length
-	 *  -Useful for validation and benchmarking studies
+	 *5. Exact truth sidecar beyond the optional header CIGAR
+	 *  -Record generated bases and contextual component labels per operation
+	 *  -Avoid materializing untouched positions unless a candidate corpus needs them
 	 */
 
 	/*--------------------------------------------------------------*/
@@ -259,6 +259,8 @@ public class RandomReadsMG{
 
 			else if(a.equalsIgnoreCase("addErrors")){
 				addErrors=Parse.parseBoolean(b);
+			}else if(a.equals("addcigar") || a.equals("cigar")){
+				addCigar=Parse.parseBoolean(b);
 			}else if(a.equals("qscore") || a.equals("avgq") || a.equals("qavg") || a.equals("avgqual")){
 				meanQScore=Shared.FAKE_QUAL=(byte)Integer.parseInt(b);
 			}else if(a.equals("qrange")){
@@ -430,7 +432,8 @@ public class RandomReadsMG{
 	 *@return true if all parameters pass validation
 	 */
 	private boolean validateParams(){
-		//		assert(false) : "TODO";
+		if(addCigar && platform==ILLUMINA){throw new IllegalArgumentException("addcigar currently requires pacbio or ont long-read mode.");}
+		if(addCigar && circular){throw new IllegalArgumentException("addcigar does not yet support circular reference wrapping.");}
 		return true;
 	}
 
@@ -967,8 +970,15 @@ public class RandomReadsMG{
 	 *@throws AssertionError If the resulting read length doesn't match the desired length
 	 */
 	public static int addIndels(Read r, float insRate, float delRate, int desiredLength, int meanQ, int qRange, Random randy){
+		return addIndels(r,insRate,delRate,desiredLength,meanQ,qRange,randy,null);
+	}
+
+	/** Trace-aware form; the null-trace path is the legacy compatibility oracle. */
+	static int addIndels(Read r, float insRate, float delRate, int desiredLength, int meanQ, int qRange, Random randy, TruthTrace trace){
 		final byte[] bases=r.bases;
 		final byte[] quals=r.quality;
+		final int[] locs=trace==null ? null : trace.coordinates;
+		assert(trace==null || locs.length==bases.length) : "One truth coordinate is required per input base before generic indels.";
 
 		final int padding0=r.bases.length-desiredLength;
 		int padding=padding0, inss=0, dels=0;
@@ -976,6 +986,7 @@ public class RandomReadsMG{
 		//Create arrays that can accommodate insertions
 		ByteBuilder newBases=new ByteBuilder(desiredLength);
 		ByteBuilder newQuals=quals==null ? null : new ByteBuilder(desiredLength);
+		IntList newLocs=trace==null ? null : new IntList(desiredLength+16);
 
 		final int fullRange=qRange*2+1;
 		final int baseQ=meanQ-qRange;
@@ -989,10 +1000,12 @@ public class RandomReadsMG{
 					//Insertion-add current base plus a random base
 					newBases.append(bases[i]);
 					if(newQuals!=null){newQuals.append(quals[i]);}
+					if(newLocs!=null){newLocs.add(locs[i]);}
 
 					//Insert a random base
 					int x=randy.nextInt()&3;
 					newBases.append(AminoAcid.numberToBase[x]);
+					if(newLocs!=null){newLocs.add(-1);}
 					if(newQuals!=null){
 						int q=baseQ+randy.nextInt(fullRange);
 						newQuals.append((byte)q);
@@ -1010,6 +1023,7 @@ public class RandomReadsMG{
 				//No indel-keep base as is
 				newBases.append(bases[i]);
 				if(newQuals!=null){newQuals.append(quals[i]);}
+				if(newLocs!=null){newLocs.add(locs[i]);}
 			}
 		}
 		assert(newBases.length()>=desiredLength) : 
@@ -1026,6 +1040,11 @@ public class RandomReadsMG{
 		if(newQuals!=null){
 			newQuals.setLength(desiredLength);
 			r.quality=newQuals.toBytes();
+		}
+		if(newLocs!=null){
+			assert(newLocs.size>=desiredLength) : "Generic-indel trace must cover every retained output base before truncation.";
+			newLocs.setSize(desiredLength);trace.coordinates=newLocs.toArray();
+			trace.assertMatches(r);
 		}
 		return newBases.length+dels-inss;
 	}
@@ -1044,6 +1063,11 @@ public class RandomReadsMG{
 	 *@return The number of changes made to the read
 	 */
 	public int mutateLongRead(Read r, float sRate, float iRate, float dRate, float hRate, Random randy){
+		return mutateLongRead(r,sRate,iRate,dRate,hRate,randy,null);
+	}
+
+	/** Trace-aware form; tracking changes no random draws or base-generation decisions. */
+	int mutateLongRead(Read r, float sRate, float iRate, float dRate, float hRate, Random randy, TruthTrace trace){
 		final float delProb=dRate/Math.max(0.000000000001f, (iRate+dRate));
 		final float errProb=sRate+iRate+dRate;
 		float bonus=0;
@@ -1053,34 +1077,111 @@ public class RandomReadsMG{
 		int changes=0;
 		ByteBuilder bb=new ByteBuilder(r.length()/8+10);
 		final byte[] bases=r.bases;
+		final int[] locs=trace==null ? null : trace.coordinates;
+		final IntList newLocs=trace==null ? null : new IntList(bases.length+16);
+		assert(trace==null || locs.length==bases.length) : "One truth coordinate is required per input base before long-read mutation.";
 		for(int i=0; i<bases.length; i++){
 			byte b=bases[i];
-			if(!AminoAcid.isFullyDefined(b)){bb.append(b); prev=-1; bonus=0; continue;}
+			if(!AminoAcid.isFullyDefined(b)){
+				bb.append(b);if(newLocs!=null){newLocs.add(locs[i]);}prev=-1;bonus=0;continue;
+			}
 
 			float f=randy.nextFloat();
 			bonus=(b==prev ? bonus+hRate : 0);
 			prev=b;
 			if(f>=errProb+bonus){
 				bb.append(b);
+				if(newLocs!=null){newLocs.add(locs[i]);}
 			}else if(f<sRate){ //Substitution
 				int x=AminoAcid.baseToNumber[b];
 				x=(x+(randy.nextInt3()+1))&3;
 				bb.append(AminoAcid.numberToBase[x]);
+				if(newLocs!=null){newLocs.add(locs[i]);}
 				changes++;
 			}else{ //Indel
 				if(randy.nextFloat()<delProb){
 					//Deletion, do nothing
 				}else{ //Insertion
 					bb.append(b);
+					if(newLocs!=null){newLocs.add(locs[i]);}
 					byte b2=(f>errProb ? b : AminoAcid.numberToBase[randy.nextInt()&3]);
 					bb.append(b2); //This is a same-base insertion, sometimes.
+					if(newLocs!=null){newLocs.add(-1);}
 				}
 				bonus=0;
 				changes++;
 			}
 		}
 		r.bases=bb.toBytes();
+		if(newLocs!=null){trace.coordinates=newLocs.toArray();trace.assertMatches(r);}
 		return changes;
+	}
+
+	/** Immutable clean source plus the surviving source coordinate of each read base. */
+	static final class TruthTrace{
+		TruthTrace(final byte[] orientedReference){
+			if(orientedReference==null || orientedReference.length<1){throw new IllegalArgumentException("Truth tracing requires a nonempty clean source.");}
+			reference=orientedReference.clone();coordinates=new int[reference.length];
+			for(int i=0;i<coordinates.length;i++){coordinates[i]=i;}
+		}
+		void assertMatches(final Read r){
+			assert(r!=null && r.bases!=null && coordinates!=null && coordinates.length==r.length()) :
+				"Truth coordinates must remain one-to-one with output bases after every mutation pass.";
+		}
+		final byte[] reference;
+		int[] coordinates;
+	}
+
+	/** Exact forward-reference-order header CIGAR and its consumption counts. */
+	static final class TruthCigar{
+		TruthCigar(final byte[] cigar_,final int readLength_,final int referenceLength_){
+			cigar=cigar_;readLength=readLength_;referenceLength=referenceLength_;
+		}
+		final byte[] cigar;
+		final int readLength,referenceLength;
+	}
+
+	/** Build a compact extended CIGAR without realigning repeat-equivalent edits.
+	 * The trace uses read-oriented local coordinates; reverse-strand operations
+	 * are reversed before encoding so the header CIGAR is forward-reference order. */
+	static TruthCigar buildTruthCigar(final Read r,final TruthTrace trace,final boolean reverse){
+		if(r==null || r.bases==null || trace==null){throw new IllegalArgumentException("CIGAR construction requires a read and its mutation trace.");}
+		trace.assertMatches(r);
+		final ByteBuilder ops=new ByteBuilder(r.length()+16);
+		int last=-1;
+		for(int i=0;i<r.length();i++){
+			final int loc=trace.coordinates[i];
+			if(loc<0){ops.append('I');continue;}
+			if(loc>=trace.reference.length){throw new IllegalStateException("Truth coordinate exceeds the clean source: "+loc+" >= "+trace.reference.length);}
+			if(loc<=last){throw new IllegalStateException("Mapped truth coordinates must increase in read orientation: "+last+" then "+loc);}
+			for(int gap=last+1;gap<loc;gap++){ops.append('D');}
+			final byte ref=trace.reference[loc],base=r.bases[i];
+			ops.append(!AminoAcid.isFullyDefined(ref) || !AminoAcid.isFullyDefined(base) ? 'N' : base==ref ? 'm' : 'S');
+			last=loc;
+		}
+		if(last<0){throw new IllegalStateException("A truth CIGAR requires at least one retained reference-mapped base.");}
+		final byte[] longOps=ops.toBytes();
+		if(reverse){for(int a=0,b=longOps.length-1;a<b;a++,b--){final byte x=longOps[a];longOps[a]=longOps[b];longOps[b]=x;}}
+		final ByteBuilder cigar=new ByteBuilder(longOps.length/4+16);
+		int readConsumed=0,referenceConsumed=0,run=0;byte previous=0;
+		for(final byte raw:longOps){
+			final byte op=raw=='m' ? (byte)'=' : raw=='S' ? (byte)'X' : raw=='N' ? (byte)'M' : raw;
+			if(op!='D'){readConsumed++;}if(op!='I'){referenceConsumed++;}
+			if(op==previous){run++;}
+			else{if(run>0){cigar.append(run).append(previous);}previous=op;run=1;}
+		}
+		if(run>0){cigar.append(run).append(previous);}
+		assert(readConsumed==r.length()) : "CIGAR read consumption must equal output length: "+readConsumed+" != "+r.length();
+		assert(referenceConsumed==last+1) : "CIGAR reference consumption must equal represented source prefix: "+referenceConsumed+" != "+(last+1);
+		return new TruthCigar(cigar.toBytes(),readConsumed,referenceConsumed);
+	}
+
+	/** Leftmost forward-reference coordinate of an oriented source prefix. */
+	static int truthStart(final int originalStart,final int extractedLength,final int referenceLength,final boolean reverse){
+		if(originalStart<0 || extractedLength<1 || referenceLength<1 || referenceLength>extractedLength){
+			throw new IllegalArgumentException("Invalid truth span: start="+originalStart+", extracted="+extractedLength+", reference="+referenceLength);
+		}
+		return reverse ? originalStart+extractedLength-referenceLength : originalStart;
 	}
 
 	/**
@@ -1384,13 +1485,21 @@ public class RandomReadsMG{
 			byte[] bases=Arrays.copyOfRange(contig.bases, start, start+paddedLen);
 			if(strand==1){Vector.reverseComplementInPlaceFast(bases);}
 			if(randomPriming && !RandomHexamer.keep(bases, randy)){return null;}
+			final TruthTrace trace=addCigar ? new TruthTrace(bases) : null;
 			Read r=new Read(bases, null, null, rnum);
-			if(addErrors){mutateLongRead(r, sRate, iRate, dRate, hRate, randy);}
+			if(addErrors){mutateLongRead(r, sRate, iRate, dRate, hRate, randy, trace);}
 			if(subRate>0){addSubs(r, subRate, randy);}
 			int reflen=insert;
-			if(indelRate>0){reflen=addIndels(r, insRate, delRate, insert, meanQScore, qScoreRange, randy);}
-			r.id=makeHeader(start, contig.length(), strand, r.length(), reflen, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy, null);
+			if(indelRate>0){reflen=addIndels(r, insRate, delRate, insert, meanQScore, qScoreRange, randy, trace);}
+			byte[] cigar=null;int headerStart=start;
+			if(trace!=null){
+				final TruthCigar truth=buildTruthCigar(r,trace,strand==1);cigar=truth.cigar;reflen=truth.referenceLength;
+				headerStart=truthStart(start,paddedLen,reflen,strand==1);
+				assert(headerStart>=start && headerStart+reflen<=start+paddedLen) :
+					"Minus-strand truth span must remain inside the extracted source interval.";
+			}
+			r.id=makeHeader(headerStart, contig.length(), strand, r.length(), reflen, taxID,
+				fnum, cnum, 0, novel?0:1, fname, randy, null, cigar);
 			return r;
 		}
 
@@ -1432,7 +1541,7 @@ public class RandomReadsMG{
 			int reflen=readlen;
 			if(indelRate>0){reflen=addIndels(r, insRate, delRate, readlen, meanQScore, qScoreRange, randy);}
 			r.id=makeHeader(start, contig.length(), strand, readlen, reflen, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy, null);
+				fnum, cnum, 0, novel?0:1, fname, randy, null, null);
 			return r;
 		}
 
@@ -1509,9 +1618,9 @@ public class RandomReadsMG{
 			insert=insert+readlen-(strand==0 ? reflen2 : reflen1);//Adjust insert for indels
 			
 			r1.id=makeHeader(start1, contig.length(), strand, insert, reflen1, taxID,
-				fnum, cnum, 0, novel?0:1, fname, randy, null);
+				fnum, cnum, 0, novel?0:1, fname, randy, null, null);
 			r2.id=makeHeader(start1, contig.length(), strand, insert, reflen2, taxID,
-				fnum, cnum, 1, novel?0:1, fname, randy, r1.id);
+				fnum, cnum, 1, novel?0:1, fname, randy, r1.id, null);
 			return r1;
 		}
 
@@ -1553,8 +1662,8 @@ public class RandomReadsMG{
 		 *@param randy A random number generator, for Illumina headers
 		 *@return Formatted header string
 		 */
-		private String makeHeader(int start, int clen, int strand, int insert, int rlen, int taxID, 
-				int fnum, long cnum, int pnum, int pcr, String fname, Random randy, String id1){
+		private String makeHeader(int start, int clen, int strand, int insert, int rlen, int taxID,
+				int fnum, long cnum, int pnum, int pcr, String fname, Random randy, String id1, byte[] cigar){
 			if(circular && start>=clen/2) {start-=clen/2;}
 			bb.clear();
 			if(illuminaHeaders) {
@@ -1576,6 +1685,7 @@ public class RandomReadsMG{
 			if(pcrRate>0){bb.under().append('d').under().append(pcr);}
 			if(taxID>0){bb.under().append("tid").under().append(taxID);}
 			else{bb.under().append("name").under().append(fname);}
+			if(cigar!=null){bb.under().append("cigar").under().append(cigar);}
 			if(!illuminaHeaders) {bb.space().append(pnum+1).colon();}
 			return bb.toString();
 		}
@@ -1714,6 +1824,8 @@ public class RandomReadsMG{
 	private boolean paired=true;
 	/** Add platform-specific sequencing errors */
 	private boolean addErrors=false;
+	/** Append an exact forward-reference-order extended CIGAR to long-read headers. */
+	private boolean addCigar=false;
 	/** Mean quality score for generated bases */
 	private int meanQScore=25;
 	/** Quality scores within a read are all the same for compression */

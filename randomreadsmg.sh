@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified February 11, 2026
+Last modified September 18, 2026
 
 Description:  Generates synthetic reads from a set of fasta assemblies.
 Each assembly is assigned a random coverage level, with optional custom 
@@ -139,6 +139,10 @@ irate=-1        Insertion rate; default 0.0055 ONT / 0.000055 PB.
 drate=-1        Deletion rate; default 0.0045 ONT / 0.000045 PB.
 hrate=-1        Homopolymer error boost; default 0.02 ONT / 0.000015 PB.
                 The indel chance increases this much per homopolymer base.
+addcigar=f      Append an exact extended CIGAR to PacBio/ONT read headers.
+                Uses forward-reference order with =,X,I,D and M (ambiguous).
+                Default false preserves legacy headers and output bytes.
+                Circular and Illumina modes are not currently supported.
 
 Coverage variation parameters (used with 'sinewave' flag):
 sinewave=f      Enable realistic coverage variation within contigs.
