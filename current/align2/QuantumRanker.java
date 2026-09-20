@@ -113,8 +113,49 @@ public class QuantumRanker {
 		int maxScore=BAD, prevRowScore=BAD;
 		long cells=0;
 		boolean ambiguous=false, prunedForEdits=false;
+		final int denseRows=(useSIMD && !traceback ? Math.min(topWidth,qLen-1) : 0);
+		for(int i=1; i<=denseRows; i++){
+			currScore[0]=(i<=effectiveMaxEdits ? i*INS : BAD);
+			currMeta[0]=0;
+			currEdits[0]=(i<=effectiveMaxEdits ? i : EDIT_BAD);
+			prunedForEdits|=(i>effectiveMaxEdits);
+			final byte q=query[i-1];
+			ambiguous|=!canonical(q);
+			simd.QuantumDenseTopSIMD.diagonalUp((int)q,refCodes,rLen,
+				prevScore,prevMeta,prevEdits,currScore,currMeta,currEdits);
+			maxScore=BAD;maxPos=0;maxMeta=0;maxRowEdits=EDIT_BAD;
+			final int forcedInsOffset=insPad-i;
+			for(int j=1; j<=rLen; j++){
+				ambiguous|=!canonical(ref[refStart+j-1]);
+				int value=currScore[j], meta=currMeta[j], editCount=currEdits[j];
+				final int left=currScore[j-1]+DEL;
+				if(left>value){
+					value=left;
+					meta=incrementDeletion(currMeta[j-1],1);
+					editCount=currEdits[j-1]+1;
+				}
+				value-=Math.max(0,(j+forcedInsOffset)/2);
+				final boolean withinBudget=(editCount<=effectiveMaxEdits && value>BAD/2);
+				prunedForEdits|=!withinBudget && editCount>effectiveMaxEdits && editCount<EDIT_BAD;
+				currScore[j]=(withinBudget ? value : BAD);
+				currMeta[j]=(withinBudget ? meta : 0);
+				currEdits[j]=(withinBudget ? editCount : EDIT_BAD);
+				if(withinBudget && value>maxScore){
+					maxScore=value;maxPos=j;maxMeta=meta;maxRowEdits=editCount;
+				}
+			}
+			cells+=rLen;
+			if(maxScore<=BAD/2){
+				result.cells=cells;result.editBudgetExceeded=prunedForEdits;
+				result.failureCode=(prunedForEdits ? FAIL_EDIT_BUDGET : FAIL_NO_PATH);
+				return result;
+			}
+			int[] temp=prevScore;prevScore=currScore;currScore=temp;
+			temp=prevMeta;prevMeta=currMeta;currMeta=temp;
+			temp=prevEdits;prevEdits=currEdits;currEdits=temp;
+		}
 
-		for(int i=1; i<=qLen; i++){
+		for(int i=denseRows+1; i<=qLen; i++){
 			currScore[0]=(i<=effectiveMaxEdits ? i*INS : BAD);
 			currMeta[0]=0;
 			currEdits[0]=(i<=effectiveMaxEdits ? i : EDIT_BAD);
@@ -157,11 +198,6 @@ public class QuantumRanker {
 				"Quantum side band must remain consecutive through "+sideWidth;
 			final int scoreWidth=scoreWidth0+Math.max(0, topWidth-i);
 			final int forcedInsOffset=insPad-i;
-			if(useSIMD){
-				simd.QuantumSIMD.diagonalUp((int)q, refCodes, active, 1, activeSize,
-						prevScore, prevMeta, diagonalUpScore, diagonalUpMeta);
-			}
-
 			for(int idx=1; idx<activeSize; idx++){
 				final int j=active[idx];
 				final byte r=ref[refStart+j-1];
@@ -170,29 +206,16 @@ public class QuantumRanker {
 				final boolean match=(q==r && q!='N');
 				final int add=match ? MATCH : (hasN ? N_SCORE : SUB);
 
-				final int diagonal, up;
-				if(useSIMD){
-					diagonal=diagonalUpScore[idx];
-					up=Integer.MIN_VALUE;
-				}else{
-					diagonal=prevScore[j-1]+add;
-					up=prevScore[j]+INS;
-				}
+				final int diagonal=prevScore[j-1]+add;
+				final int up=prevScore[j]+INS;
 				final int directLeft=currScore[j-1]+DEL;
 				final int jumpLeft=maxScore+DEL*(j-maxPos);
 				final boolean useDirectLeft=(directLeft>=jumpLeft);
 				final int left=(useDirectLeft ? directLeft : jumpLeft);
 				int value=diagonal;
-				int meta=(useSIMD ? diagonalUpMeta[idx] : prevMeta[j-1]);
-				final boolean useUp;
-				if(useSIMD){
-					final int diagonalScore=prevScore[j-1]+add;
-					final int upScore=prevScore[j]+INS;
-					useUp=(upScore>diagonalScore);
-				}else{
-					useUp=(up>value);
-					if(useUp){value=up; meta=prevMeta[j];}
-				}
+				int meta=prevMeta[j-1];
+				final boolean useUp=(up>value);
+				if(useUp){value=up;meta=prevMeta[j];}
 				int editCount=(useUp ? prevEdits[j]+1 :
 						prevEdits[j-1]+(match ? 0 : 1));
 				int parentNode=-1, run=1;
