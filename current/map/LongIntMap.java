@@ -161,6 +161,20 @@ public final class LongIntMap implements Serializable {
 	}
 
 	/**
+	 * Gets the value associated with {@code key}, returning the caller-supplied
+	 * default when the key is absent.  Unlike {@link #get(long)}, this overload
+	 * can safely store every possible int value, including -1.  That is useful
+	 * for bit vectors that may use all 32 bits.
+	 * @param key Key to look up
+	 * @param defaultValue Value returned when the key is absent
+	 * @return Stored value, or {@code defaultValue} when absent
+	 */
+	public int getOrDefault(long key, int defaultValue){
+		int cell=findCell(key);
+		return cell<0 ? defaultValue : values[cell];
+	}
+
+	/**
 	 * Checks if the map contains the given key.
 	 * @param key Key to check
 	 * @return true if key is present

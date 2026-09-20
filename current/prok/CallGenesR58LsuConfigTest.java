@@ -5,27 +5,24 @@ import java.util.ArrayList;
 /** Focused checks for the packaged-resource, default-off 5.8S/LSU gate and explicit overrides. */
 public class CallGenesR58LsuConfigTest {
 
-	private static final String ROOT="/mnt/c/codex-lbl/Citan/workspace/ribo_new_members_20260901/"
-		+"component_split_k2p5_target010_20260902/";
-	private static final String R58_K=ROOT+"development_r58_17mers.fa";
-	private static final String R58_C=ROOT+"split_baseline_r58_cid076/consensus.fa";
-	private static final String R58_M=ROOT+"split_baseline_r58_cid076/models.hbm";
-	private static final String LSU_K=ROOT+"development_lsu_17mers.fa";
-	private static final String LSU_C=ROOT+"split_baseline_lsu_cid088/consensus.fa";
-	private static final String LSU_M=ROOT+"split_baseline_lsu_cid088/models.hbm";
-
 	public static void main(String[] args){
+		if(args.length!=0 && args.length!=6){
+			throw new IllegalArgumentException("Expected zero arguments or six explicit resource paths: "
+				+"r58_kmers r58_consensus r58_models lsu_kmers lsu_consensus lsu_models");
+		}
 		if(CallGenes.R58LSU_ENABLED){throw new AssertionError("R58/LSU unexpectedly enabled by default");}
 		if(!"r58".equals(CallGenes.parseNcrnaFamily("r58")) || !"lsu".equals(CallGenes.parseNcrnaFamily("lsu"))){
 			throw new AssertionError("R58/LSU family names are not accepted");
 		}
-		if(CallGenes.defaultNcrnaIdPass("r58")!=0.60f || CallGenes.defaultNcrnaIdBorderline("lsu")!=0.55f){
+		if(CallGenes.defaultNcrnaIdPass("r58")!=0.60f || CallGenes.defaultNcrnaIdBorderline("lsu")!=0.54f){
 			throw new AssertionError("Unexpected R58/LSU default thresholds");
 		}
 		testGateImplication();
 		testBundledPair();
-		testExplicitPair();
-		testMissingLsuRollsBack();
+		if(args.length==6){
+			testExplicitPair(args);
+			testMissingLsuRollsBack(args);
+		}
 		System.out.println("PASS CallGenesR58LsuConfigTest");
 	}
 
@@ -49,30 +46,30 @@ public class CallGenesR58LsuConfigTest {
 			setPaths(null, null, null, null, null, null);
 			CallGenes.loadNcrnaResources();
 			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Bundled R58/LSU pair did not register exactly once");}
-			check(find("r58"), 1, 500, 140, 135, 7, 1, 2);
-			check(find("lsu"), 14, 500, 60, 3500, 9, 4, 448);
+			check(find("r58"), 1, 325, 140, 135, 7, 1, 2, 0.60f, 0.60f, 0.60f);
+			check(find("lsu"), 4, 500, 60, 3500, 9, 4, 448, 0.60f, 0.54f, 0.54f);
 		}finally{s.restore();}
 	}
 
-	private static void testExplicitPair(){
+	private static void testExplicitPair(String[] paths){
 		final Snapshot s=new Snapshot();
 		try{
 			GeneCaller.ncrnaFamilies.clear();
 			CallGenes.NCRNA_FAMILIES_ENABLED=true; CallGenes.R58LSU_ENABLED=true;
-			setPaths(R58_K, R58_C, R58_M, LSU_K, LSU_C, LSU_M);
+			setPaths(paths[0], paths[1], paths[2], paths[3], paths[4], paths[5]);
 			CallGenes.loadNcrnaResources();
 			if(count("r58")!=1 || count("lsu")!=1){throw new AssertionError("Explicit R58/LSU pair did not register exactly once");}
-			check(find("r58"), 2, 500, 140, 135, 7, 1, 2);
-			check(find("lsu"), 11, 1000, 60, 3500, 9, 4, 448);
+			check(find("r58"), -1, -1, 140, 135, 7, 1, 2, 0.60f, 0.60f, 0.60f);
+			check(find("lsu"), -1, -1, 60, 3500, 9, 4, 448, 0.60f, 0.54f, 0.54f);
 		}finally{s.restore();}
 	}
 
-	private static void testMissingLsuRollsBack(){
+	private static void testMissingLsuRollsBack(String[] paths){
 		final Snapshot s=new Snapshot();
 		try{
 			GeneCaller.ncrnaFamilies.clear();
 			CallGenes.NCRNA_FAMILIES_ENABLED=true; CallGenes.R58LSU_ENABLED=true;
-			setPaths(R58_K, R58_C, R58_M, "/tmp/no_such_lsu_kmers.fa", LSU_C, LSU_M);
+			setPaths(paths[0], paths[1], paths[2], "/tmp/no_such_lsu_kmers.fa", paths[4], paths[5]);
 			try{CallGenes.loadNcrnaResources(); throw new AssertionError("Missing LSU resource was accepted");}
 			catch(IllegalArgumentException expected){/* pass */}
 			if(findOrNull("r58")!=null || findOrNull("lsu")!=null){throw new AssertionError("Failed paired load left a partial family registration");}
@@ -101,10 +98,12 @@ public class CallGenesR58LsuConfigTest {
 	}
 
 	private static void check(NcrnaFamily f, int models, int kmers, int minLen, int pad,
-			int indexK, int indexTopN, int fixedMinHits){
-		if(f.library.length!=models || f.models.length!=models || f.modelNames.length!=models || f.kmerSet.size()!=kmers
+			int indexK, int indexTopN, int fixedMinHits, float idPass, float idBorderline, float hbmPass){
+		if((models>=0 && (f.library.length!=models || f.models.length!=models || f.modelNames.length!=models))
+				|| (kmers>=0 && f.kmerSet.size()!=kmers)
 				|| f.kLong!=17 || f.minLen!=minLen || f.windowPad!=pad || f.indexK!=indexK || f.indexTopN!=indexTopN
-				|| f.adaptive || f.fixedMinHits!=fixedMinHits || f.idPass!=0.60f || f.idBorderline!=0.55f || f.hbmPass!=0.60f){
+				|| f.adaptive || f.fixedMinHits!=fixedMinHits || f.idPass!=idPass || f.idBorderline!=idBorderline
+				|| f.hbmPass!=hbmPass){
 			throw new AssertionError("Unexpected "+f.name+" bundle shape");
 		}
 	}

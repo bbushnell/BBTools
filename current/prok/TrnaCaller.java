@@ -779,10 +779,17 @@ public class TrnaCaller extends ProkObject {
 	/*--------------------------------------------------------------*/
 
 	public ArrayList<Orf> scavengeTrnas(String name, byte[] bases, int strand, ArrayList<int[]> called){
+		return scavengeTrnas(name, bases, strand, called, findKmerHitPositions(bases));
+	}
+
+	/** Runs the unchanged tRNA scavenger using a hit stream produced by the
+	 * shared conserved-RNA 17-mer front end. */
+	ArrayList<Orf> scavengeTrnas(String name, byte[] bases, int strand, ArrayList<int[]> called,
+			int[] hitPositions){
 		ArrayList<Orf> results=new ArrayList<>();
 		if((!SCAVENGE && !SCAVENGE_ONLY) || bases==null || bases.length<MIN_TRNA || trnaLibrary==null || ProkObject.trnaKmers==null){return results;}
 		final int initialClaimCount=called.size();
-		int[] hitPositions=findKmerHitPositions(bases);
+		if(hitPositions==null){throw new IllegalArgumentException("Null tRNA seed-hit stream");}
 		if(hitPositions.length==0){return results;}
 		ArrayList<int[]> windows=buildCandidateWindows(hitPositions, bases.length);
 		windows=collapseByIntersection(windows);
@@ -900,7 +907,7 @@ public class TrnaCaller extends ProkObject {
 		return -1;
 	}
 
-	private int[] findKmerHitPositions(byte[] bases){
+	int[] findKmerHitPositions(byte[] bases){
 		final LongHashSet set=ProkObject.trnaKmers;
 		final int kLong=ProkObject.kLongTRna;
 		if(set==null || kLong<=0 || kLong>31 || bases.length<kLong){return EMPTY;}

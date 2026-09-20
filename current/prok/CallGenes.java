@@ -766,6 +766,7 @@ public class CallGenes extends ProkObject {
 			loadLongKmers();
 			loadConsensusSequenceFromFile(false, false);
 		}
+		GeneCaller.initializeConservedRnaSeedIndex();
 		
 		ByteStreamWriter bsw=makeBSW(ffoutGff);
 		if(bsw!=null){
@@ -2195,7 +2196,7 @@ public class CallGenes extends ProkObject {
 			addNcrnaFamily("r58", r58ConsensusResource, r58ModelResource, r58Kmers, 17, 140,
 				resolveSweepPad("r58", -1, 135), 7, 1, false, 0f, 0f, 0f, 2,
 				0f, 1f, resolveSweepFloat("r58", NCRNA_ID_PASS_OVERRIDE, 0.60f),
-				resolveSweepFloat("r58", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
+				resolveSweepFloat("r58", NCRNA_ID_BORDERLINE_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
 				resolveSweepFloat("r58", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 				effectiveBoundaryStartOffsets("r58"), boundaryStopOffsets("r58"),
@@ -2212,8 +2213,8 @@ public class CallGenes extends ProkObject {
 			addNcrnaFamily("lsu", lsuConsensusResource, lsuModelResource, lsuKmers, 17, 60,
 				resolveSweepPad("lsu", -1, 3500), 9, 4, false, 0f, 0f, 0f, 448,
 				0f, 1f, resolveSweepFloat("lsu", NCRNA_ID_PASS_OVERRIDE, 0.60f),
-				resolveSweepFloat("lsu", NCRNA_ID_BORDERLINE_OVERRIDE, 0.55f),
-				resolveSweepFloat("lsu", NCRNA_HBM_PASS_OVERRIDE, 0.60f),
+				resolveSweepFloat("lsu", NCRNA_ID_BORDERLINE_OVERRIDE, 0.54f),
+				resolveSweepFloat("lsu", NCRNA_HBM_PASS_OVERRIDE, 0.54f),
 				resolveSweepFloat("lsu", NCRNA_COLLAPSE_FRAC_OVERRIDE, 0.85f),
 				effectiveBoundaryStartOffsets("lsu"), boundaryStopOffsets("lsu"),
 				LSU_BOUNDARY_NN_ENABLED, LSU_BOUNDARY_NET_OVERRIDE,
@@ -2600,7 +2601,9 @@ public class CallGenes extends ProkObject {
 		if(family.equals("tmrna")){return 0.60f;}
 		if(family.equals("sixs_rf00013")){return 0.60f;}
 		if(family.equals("sixs_rf01685")){return 0.70f;}
-		if(family.equals("r58") || family.equals("lsu") || family.equals("s18")){return 0.55f;}
+		if(family.equals("r58")){return 0.60f;}
+		if(family.equals("s18")){return 0.55f;}
+		if(family.equals("lsu")){return 0.54f;}
 		throw new IllegalArgumentException("No default idborderline for ncRNA family: "+family);
 	}
 

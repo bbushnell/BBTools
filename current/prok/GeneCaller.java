@@ -284,14 +284,26 @@ public class GeneCaller extends ProkObject {
 		//for the whole strand=1 pass (not per-family), matching the cost profile of the tRNA path.
 		final byte[] rcBases=(ncrnaScavengers!=null ? AminoAcid.reverseComplementBases(bases) : null);
 		for(int strand=0; strand<2; strand++){
+			final byte[] strandBases=(ncrnaScavengers!=null ? (strand==0 ? bases : rcBases) : bases);
+			final ConservedRnaSeedIndex.ScanResult sharedSeedHits=(conservedRnaSeedIndex==null
+				? null : conservedRnaSeedIndex.scan(strandBases));
 			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
 			//independent claimed-region list per family per strand -- these families don't
 			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
 			if(ncrnaScavengers!=null){
-				final byte[] strandBases=(strand==0 ? bases : rcBases);
 				for(int fi=0; fi<ncrnaScavengers.size(); fi++){
 					ArrayList<int[]> calledPos=new ArrayList<>();
-					ArrayList<Orf> found=ncrnaScavengers.get(fi).scavenge(name, strandBases, strand, calledPos);
+					final NcrnaScavenger scavenger=ncrnaScavengers.get(fi);
+					final int seedSlot=ncrnaSeedSlots[fi];
+					ArrayList<Orf> found;
+					if(seedSlot>=0){
+						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
+						final int[] hits=sharedSeedHits.hits(seedSlot);
+						if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits, scavenger.findKmerHitPositions(strandBases));}
+						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits);
+					}else{
+						found=scavenger.scavenge(name, strandBases, strand, calledPos);
+					}
 					if(strand==1 && found!=null){
 						for(Orf orf : found){orf.flip();}
 					}
@@ -312,7 +324,15 @@ public class GeneCaller extends ProkObject {
 						if((TrnaCaller.SCAVENGE || TrnaCaller.SCAVENGE_ONLY) && list!=null){
 							ArrayList<int[]> calledPos=new ArrayList<>();
 							for(Orf orf : list){calledPos.add(new int[]{orf.start, orf.stop});}
-							ArrayList<Orf> scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
+							ArrayList<Orf> scavenged;
+							if(trnaSeedSlot>=0){
+								if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for tRNA");}
+								final int[] hits=sharedSeedHits.hits(trnaSeedSlot);
+								if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, "tRNA", strand, hits, trnaCaller.findKmerHitPositions(bases));}
+								scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos, hits);
+							}else{
+								scavenged=trnaCaller.scavengeTrnas(name, bases, strand, calledPos);
+							}
 							if(scavenged!=null){list.addAll(scavenged);}
 						}
 						if(strand==1 && list!=null){
@@ -335,6 +355,38 @@ public class GeneCaller extends ProkObject {
 			Vector.reverseComplementInPlaceFast(bases);
 		}
 		return array;
+	}
+
+	/** Builds the single shared 17-mer index after all requested resources have loaded and
+	 * before worker threads start. Non-17-mer experimental/legacy paths retain their existing
+	 * scanners. */
+	static synchronized void initializeConservedRnaSeedIndex(){
+		final ArrayList<LongHashSet> seedSets=new ArrayList<>();
+		ncrnaSeedSlots=new int[ncrnaFamilies.size()];
+		Arrays.fill(ncrnaSeedSlots, -1);
+		for(int i=0; i<ncrnaFamilies.size(); i++){
+			final NcrnaFamily family=ncrnaFamilies.get(i);
+			if(family.kLong==ConservedRnaSeedIndex.K && family.kmerSet!=null){
+				ncrnaSeedSlots[i]=seedSets.size();
+				seedSets.add(family.kmerSet);
+			}
+		}
+		trnaSeedSlot=-1;
+		if(calltRNA && (TrnaCaller.SCAVENGE || TrnaCaller.SCAVENGE_ONLY)
+				&& kLongTRna==ConservedRnaSeedIndex.K && trnaKmers!=null){
+			trnaSeedSlot=seedSets.size();
+			seedSets.add(trnaKmers);
+		}
+		conservedRnaSeedIndex=(seedSets.isEmpty() ? null
+			: new ConservedRnaSeedIndex(seedSets.toArray(new LongHashSet[seedSets.size()])));
+	}
+
+	private static void verifySeedHits(String contig, String family, int strand, int[] unified, int[] legacy){
+		if(!Arrays.equals(unified, legacy)){
+			throw new IllegalStateException("Unified 17-mer hit-stream mismatch: contig="+contig
+				+", family="+family+", strand="+strand+", unified="+Arrays.toString(unified)
+				+", legacy="+Arrays.toString(legacy));
+		}
 	}
 	
 	/** Designed for quickly calling a single SSU */
@@ -1620,6 +1672,14 @@ public class GeneCaller extends ProkObject {
 	 * ncRNA family with staged resources. Empty if none are staged -- makeRnas skips
 	 * the ncRNA loop entirely in that case. */
 	public static final ArrayList<NcrnaFamily> ncrnaFamilies=new ArrayList<>();
+	/** One shared, read-only-after-build primitive map for every active 17-mer scavenger. */
+	private static ConservedRnaSeedIndex conservedRnaSeedIndex;
+	/** Generic-family index -> shared 17-mer slot; -1 retains the legacy non-17-mer scan. */
+	private static int[] ncrnaSeedSlots=new int[0];
+	/** Shared 17-mer slot for the tRNA scavenger, or -1 when inactive/non-17-mer. */
+	private static int trnaSeedSlot=-1;
+	/** Opt-in production equivalence assertion against the pre-unification scanners. */
+	private static final boolean VERIFY_UNIFIED_SEEDS=Boolean.getBoolean("ncrna.unifiedSeedVerify");
 	/** Per-instance scavengers, one per ncrnaFamilies entry, lazily built (mirrors
 	 * trnaCaller's own per-instance-per-thread construction -- NcrnaScavenger's
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,

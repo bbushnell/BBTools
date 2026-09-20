@@ -178,9 +178,16 @@ public class NcrnaScavenger {
 	/*--------------------------------------------------------------*/
 
 	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called){
+		return scavenge(name, bases, strand, called, findKmerHitPositions(bases));
+	}
+
+	/** Runs the unchanged family-local scavenger using a hit stream produced by
+	 * the shared 17-mer front end. */
+	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
+			int[] hitPositions){
 		ArrayList<Orf> results=new ArrayList<>();
 		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return results;}
-		int[] hitPositions=findKmerHitPositions(bases);
+		if(hitPositions==null){throw new IllegalArgumentException("Null ncRNA seed-hit stream for "+family);}
 		if(workloadSink!=null){workloadSink.seedHits(name, strand, Arrays.copyOf(hitPositions, hitPositions.length));}
 		if(DEBUG){System.err.println("DEBUG scavenge name="+name+" strand="+strand+" bases.length="+bases.length
 			+" hitPositions="+Arrays.toString(hitPositions));}
@@ -231,7 +238,7 @@ public class NcrnaScavenger {
 		return sb.toString();
 	}
 
-	private int[] findKmerHitPositions(byte[] bases){
+	int[] findKmerHitPositions(byte[] bases){
 		if(kmerSet==null || kLong<=0 || kLong>31 || bases.length<kLong){return EMPTY;}
 		final long kmask=~((-1L)<<(2*kLong));
 		final byte[] bton=AminoAcid.baseToNumber;
