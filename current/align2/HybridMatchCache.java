@@ -8,6 +8,8 @@ import stream.SiteScore;
  * Experimental: only unchanged, gapless, initially unmatched sites qualify.
  * The complete genMatchString wrapper must still execute. @author Collei */
 final class HybridMatchCache {
+	HybridMatchCache(){this(null);}
+	HybridMatchCache(HybridMaxIndelStats stats_){stats=stats_;}
 
 	void clear(){entries[0]=entries[1]=null;replaying=false;}
 	void clear(int slot){
@@ -36,6 +38,7 @@ final class HybridMatchCache {
 			site.match=e.match.clone();
 			final AtomicLong audit=auditHits;
 			if(audit!=null){audit.incrementAndGet();}
+			if(stats!=null){stats.matchCacheHit();}
 			return true;
 		}
 		return false;
@@ -63,5 +66,6 @@ final class HybridMatchCache {
 	boolean replaying;
 	/** Installed only by the functional test driver; ordinary runs leave it null. */
 	static volatile AtomicLong auditHits;
+	private final HybridMaxIndelStats stats;
 	private final Entry[] entries=new Entry[2];
 }

@@ -18,6 +18,11 @@ Optional adaptive Quantum/MSA hybrid: quantumhybrid=t (default f; uses Quantum
 Optional k-mer pseudoalignment: pseudoalign=t (default f; emits a seed-derived
   polycrystalline CIGAR without full MSA or identity/edit filters; intended for
   coverage/counting).
+Optional selective max-indel retry: hybridmaxindel=t (default f). The first
+  search uses maxindel=50/maxindel2=100 by default. Unmapped single reads and
+  paired reads with a strong half-read error asymmetry retry at
+  retrymaxindel=16000/retrymaxindel2=32000; retryminmapq=0 accepts every mapped
+  retry, while a higher value requires that minimum MAPQ before selecting it.
 Run bbmap.sh -h for the full flag reference.
 Java SIMD is detected by the standard BBTools launcher setup.
 "

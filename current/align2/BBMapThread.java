@@ -12,6 +12,7 @@ import shared.Tools;
 import stream.ConcurrentReadInputStream;
 import stream.ConcurrentReadOutputStream;
 import stream.Read;
+import stream.SamLine;
 import stream.SiteScore;
 
 /**
@@ -25,7 +26,9 @@ public final class BBMapThread extends AbstractMapThread{
 	private final int hybridTipSearchCeiling;
 	@Override
 	protected int tipDeletionSearchRange(){
-		if(hybridPair && index.maxIndel()==16000 && index.maxIndel2()==32000){
+		if((hybridPair && index.maxIndel()==16000 && index.maxIndel2()==32000) ||
+				(hybridMaxIndelConfig!=null && index.maxIndel()==hybridMaxIndelConfig.highPrimary &&
+				index.maxIndel2()==hybridMaxIndelConfig.highSum)){
 			return Tools.min(hybridTipSearchCeiling, index.maxIndel());
 		}
 		return super.tipDeletionSearchRange();
@@ -214,7 +217,7 @@ public final class BBMapThread extends AbstractMapThread{
 				MAX_SITESCORES_TO_PRINT_, PRINT_SECONDARY_ALIGNMENTS_, REQUIRE_CORRECT_STRANDS_PAIRS_, SAME_STRAND_PAIRS_,
 				KILL_BAD_PAIRS_, RCOMP_MATE_, PERFECTMODE_, SEMIPERFECTMODE_, FORBID_SELF_MAPPING_, TIP_DELETION_SEARCH_RANGE_,
 				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, KFILTER_, IDFILTER_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, TRIM_MIN_LEN_,
-				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_);
+				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_, null);
 	}
 
 	/** Mapping engine constructor for callers that own input and output externally. */
@@ -229,7 +232,7 @@ public final class BBMapThread extends AbstractMapThread{
 			boolean REQUIRE_CORRECT_STRANDS_PAIRS_, boolean SAME_STRAND_PAIRS_, boolean KILL_BAD_PAIRS_, boolean RCOMP_MATE_,
 			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
 			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
-			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_){
+			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_, final HybridMaxIndelConfig hybridMaxIndelConfig_){
 		this(null, paired_, keylen_, pileup_, SMITH_WATERMAN_, THRESH_, minChrom_, maxChrom_,
 				keyDensity_, maxKeyDensity_, minKeyDensity_, maxDesiredKeys_, REMOVE_DUPLICATE_BEST_ALIGNMENTS_, SAVE_AMBIGUOUS_XY_,
 				MINIMUM_ALIGNMENT_SCORE_RATIO_, TRIM_LIST_, MAKE_MATCH_STRING_, QUICK_MATCH_STRINGS_,
@@ -238,7 +241,7 @@ public final class BBMapThread extends AbstractMapThread{
 				MAX_SITESCORES_TO_PRINT_, PRINT_SECONDARY_ALIGNMENTS_, REQUIRE_CORRECT_STRANDS_PAIRS_, SAME_STRAND_PAIRS_,
 				KILL_BAD_PAIRS_, RCOMP_MATE_, PERFECTMODE_, SEMIPERFECTMODE_, FORBID_SELF_MAPPING_, TIP_DELETION_SEARCH_RANGE_,
 				AMBIGUOUS_RANDOM_, AMBIGUOUS_ALL_, KFILTER_, IDFILTER_, TRIM_LEFT_, TRIM_RIGHT_, UNTRIM_, TRIM_QUAL_, TRIM_MIN_LEN_,
-				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_);
+				LOCAL_ALIGN_, RESCUE_, STRICT_MAX_INDEL_, MSA_TYPE_, bloomFilter_, hybridTipSearchCeiling_, hybridPair_, hybridMaxIndelConfig_);
 	}
 
 	private BBMapThread(ConcurrentReadInputStream cris_, boolean paired_, int keylen_,
@@ -252,7 +255,7 @@ public final class BBMapThread extends AbstractMapThread{
 			boolean REQUIRE_CORRECT_STRANDS_PAIRS_, boolean SAME_STRAND_PAIRS_, boolean KILL_BAD_PAIRS_, boolean RCOMP_MATE_,
 			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
 			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
-			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_){
+			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_, final HybridMaxIndelConfig hybridMaxIndelConfig_){
 		
 		super(cris_, paired_,
 				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
@@ -270,8 +273,10 @@ public final class BBMapThread extends AbstractMapThread{
 		assert(hybridTipSearchCeiling_>=TIP_DELETION_SEARCH_RANGE_);
 		this.hybridTipSearchCeiling=hybridTipSearchCeiling_;
 		this.hybridPair=hybridPair_;
-		// Private prototype switch; production/default hybrid behavior is unchanged.
-		if(hybridPair && Boolean.getBoolean("bbmap3.hybridMatchReuse")){hybridMatchCache=new HybridMatchCache();}
+		this.hybridMaxIndelConfig=hybridMaxIndelConfig_;
+		if(hybridPair && hybridMaxIndelConfig!=null){
+			throw new IllegalArgumentException("Legacy hybridpair and general hybridmaxindel are mutually exclusive");
+		}
 		quantumOnly=Boolean.getBoolean("bbmap3.quantumOnly");
 		quantumTieredShadow=Boolean.getBoolean("bbmap3.quantumTieredShadow");
 		quantumTieredMutate=Boolean.getBoolean("bbmap3.quantumTieredMutate");
@@ -285,9 +290,16 @@ public final class BBMapThread extends AbstractMapThread{
 		assert(!quantumOnly || msa==null) : "Quantum-only workers must not allocate an MSA";
 		assert(!(quantumOnly && PSEUDO_ONLY)) : "Quantum-only and pseudoalignment modes are exclusive";
 		assert(!PSEUDO_ONLY || msa==null) : "Pseudoalignment workers must not allocate an MSA";
-		secondAttempt=hybridPair ? new PairAttemptAccounting() : null;
-		entryState=hybridPair ? new PairSearchState() : null;
-		firstState=hybridPair ? new PairSearchState() : null;
+		final boolean pairedHybrid=hybridPair || (paired_ && hybridMaxIndelConfig!=null);
+		secondAttempt=pairedHybrid ? new PairAttemptAccounting() : null;
+		entryState=pairedHybrid ? new PairSearchState() : null;
+		firstState=pairedHybrid ? new PairSearchState() : null;
+		singleSecondAttempt=hybridMaxIndelConfig==null ? null : new SingleAttemptAccounting();
+		singleEntryState=hybridMaxIndelConfig==null ? null : new ReadSearchState();
+		singleFirstState=hybridMaxIndelConfig==null ? null : new ReadSearchState();
+		hybridMaxIndelStats=hybridMaxIndelConfig==null ? null : new HybridMaxIndelStats();
+		if(hybridMaxIndelConfig!=null){hybridMatchCache=new HybridMatchCache(hybridMaxIndelStats);}
+		else if(hybridPair && Boolean.getBoolean("bbmap3.hybridMatchReuse")){hybridMatchCache=new HybridMatchCache(null);}
 		
 		assert(SLOW_ALIGN_PADDING>=0);
 		assert(!(RCOMP_MATE/* || FORBID_SELF_MAPPING*/)) : "RCOMP_MATE: TODO";
@@ -800,6 +812,69 @@ public final class BBMapThread extends AbstractMapThread{
 	@Override
 	public void processRead(final Read r, final byte[] basesM){
 		if(idmodulo>1 && r.numericID%idmodulo!=1){return;}
+		if(hybridMaxIndelConfig!=null){
+			processReadHybridMaxIndel(r,basesM);
+			return;
+		}
+		singleAttempt.reset();
+		searchAndScoreRead(r,basesM,singleAttempt);
+		singleAttempt.commit(this);
+		if(!singleAttempt.rejected){finishRead(r,singleAttempt);}
+	}
+
+	/** First functional route: retry only a nonrejected single read left unmapped by the low attempt. */
+	private void processReadHybridMaxIndel(final Read r, final byte[] basesM){
+		final HybridMaxIndelConfig config=hybridMaxIndelConfig;
+		if(index.maxIndel()!=config.lowPrimary || index.maxIndel2()!=config.lowSum){
+			throw new IllegalStateException("Selective max-indel worker must enter at low bounds "+config+
+				"; got "+index.maxIndel()+"/"+index.maxIndel2());
+		}
+		singleEntryState.capture(r);
+		singleAttempt.reset();
+		SingleAttemptAccounting chosen=singleAttempt;
+		try{
+			searchAndScoreRead(r,basesM,singleAttempt);
+			singleFirstState.capture(r);
+			if(!singleAttempt.rejected && !r.mapped()){
+				hybridMaxIndelStats.retryAttempted();
+				hybridMaxIndelStats.singleNoAccepted();
+				singleEntryState.restore();
+				r.sites=null;
+				index.setRuntimeIndelLimits(config.highPrimary,config.highSum);
+				singleSecondAttempt.reset();
+				searchAndScoreRead(r,basesM,singleSecondAttempt);
+				if(!singleSecondAttempt.rejected && r.mapped() && retryMapqAccepted(r,config.retryMinMapq)){
+					singleAttempt.discard();
+					chosen=singleSecondAttempt;
+					hybridMaxIndelStats.wideSelected();
+				}else{
+					if(!singleSecondAttempt.rejected && r.mapped()){hybridMaxIndelStats.mapqRejected();}
+					singleSecondAttempt.discard();
+					singleFirstState.restore();
+					hybridMaxIndelStats.lowRestored();
+				}
+			}
+			chosen.commit(this);
+			if(!chosen.rejected){finishRead(r,chosen);}
+		}finally{
+			index.setRuntimeIndelLimits(config.lowPrimary,config.lowSum);
+			singleEntryState.clear();singleFirstState.clear();
+		}
+	}
+
+	private static boolean retryMapqAccepted(final Read r,final int minimum){
+		return minimum<=0 || !r.mapped() || SamLine.toMapq(r,null)>=minimum;
+	}
+
+	private static boolean retryPairMapqAccepted(final Read r,final int minimum){
+		if(minimum<=0){return true;}
+		final Read r2=r.mate;
+		return (r.mapped() || r2.mapped()) && retryMapqAccepted(r,minimum) && retryMapqAccepted(r2,minimum);
+	}
+
+	/** One complete single-read search attempt; final statistics commit separately. */
+	private void searchAndScoreRead(final Read r, final byte[] basesM, final SingleAttemptAccounting attempt){
+		assert(!attempt.committed) : "Single-read attempt accounting must be reset before search";
 		final byte[] basesP=r.bases;
 		
 //		System.err.print(" rd#"+r.numericID+" ");
@@ -812,20 +887,19 @@ public final class BBMapThread extends AbstractMapThread{
 //		}
 		
 		if(verbose){System.err.println("\nProcessing "+r);}
-		readsUsed1++;
 		
-		final int maxPossibleQuickScore=quickMap(r, basesM);
+		final int maxPossibleQuickScore=attempt.quick=quickMap(r, basesM);
 		if(verbose){System.err.println("\nQuick Map: \t"+r.sites);}
 		
 		if(maxPossibleQuickScore<0){
 			r.sites=null;
-			lowQualityReadsDiscarded1++;
-			lowQualityBasesDiscarded1+=basesP.length;
+			attempt.rejected=true;
+			attempt.rejectedBases=basesP.length;
 			r.setDiscarded(true);
 			return;
 		}
-		initialSiteSum1+=r.numSites();
-		if(verbose){System.err.println("\ninitialSiteSum1: "+initialSiteSum1);}
+		attempt.initialSiteSum=r.numSites();
+		if(verbose){System.err.println("\ninitialSiteSum1: "+(initialSiteSum1+attempt.initialSiteSum));}
 		
 		int maxSwScore=0;
 		int maxImperfectSwScore=0;
@@ -838,12 +912,14 @@ public final class BBMapThread extends AbstractMapThread{
 			maxImperfectSwScore=(quantumOnly ? maxSwScore-QUANTUM_EDIT_COST :
 				msa.maxImperfectScore(r.length()));
 		}
+		attempt.max=maxSwScore;
+		attempt.imperfect=maxImperfectSwScore;
 		
 		if(TRIM_LIST && r.numSites()>1){
 			if(MIN_TRIM_SITES_TO_RETAIN_SINGLE>1){Shared.sort(r.sites);}
 			int highestQuickScore=trimList(r.sites, false, maxSwScore, true, MIN_TRIM_SITES_TO_RETAIN_SINGLE, MAX_TRIM_SITES_TO_RETAIN);
 		}
-		postTrimSiteSum1+=r.numSites();
+		attempt.postTrimSiteSum=r.numSites();
 		if(verbose){System.err.println("\nAfter trim: \t"+r.sites);}
 		
 		assert(Read.CHECKSITES(r, basesM));
@@ -899,7 +975,7 @@ public final class BBMapThread extends AbstractMapThread{
 
 
 		if(r.numSites()>0){
-			mapped1++;
+			attempt.mapped=1;
 			try {
 				Tools.mergeDuplicateSites(r.sites, true, true);
 			} catch (Exception e) {
@@ -1153,9 +1229,13 @@ public final class BBMapThread extends AbstractMapThread{
 //			}
 //		}
 		
-		if(CALC_STATISTICS){
-			calcStatistics1(r, maxSwScore, maxPossibleQuickScore);
-		}
+	}
+
+	/** Finalize the selected single-read attempt after its accounting is committed. */
+	private void finishRead(final Read r, final SingleAttemptAccounting attempt){
+		assert(attempt.committed && !attempt.rejected) :
+			"Finalize only one selected, nonrejected single-read attempt";
+		if(CALC_STATISTICS){calcStatistics1(r,attempt.max,attempt.quick);}
 	}
 	
 	
@@ -1380,15 +1460,21 @@ public final class BBMapThread extends AbstractMapThread{
 		readsUsed1++;readsUsed2++;
 		final PairAttemptAccounting first=pairAttempt;first.reset();
 		if(hybridMatchCache!=null){hybridMatchCache.clear();}
-		if(!hybridPair){
+		final boolean generalHybrid=(hybridMaxIndelConfig!=null);
+		if(!hybridPair && !generalHybrid){
 			searchAndScorePair(r,basesM1,basesM2,first);
 			first.commit(this);
 			if(!first.rejected){finishReadPair(r,basesM1,basesM2,first);}
 			return;
 		}
-		if(index.maxIndel()!=50 || index.maxIndel2()!=100 ||
+		final int lowPrimary=generalHybrid ? hybridMaxIndelConfig.lowPrimary : 50;
+		final int lowSum=generalHybrid ? hybridMaxIndelConfig.lowSum : 100;
+		final int highPrimary=generalHybrid ? hybridMaxIndelConfig.highPrimary : 16000;
+		final int highSum=generalHybrid ? hybridMaxIndelConfig.highSum : 32000;
+		if(index.maxIndel()!=lowPrimary || index.maxIndel2()!=lowSum ||
 				QUICK_MATCH_STRINGS || STRICT_MAX_INDEL || PRINT_SECONDARY_ALIGNMENTS || BBIndex.PERFECTMODE || BBIndex.SEMIPERFECTMODE){
-			throw new IllegalArgumentException("Experimental hybrid mode supports only default paired50/100 mode");
+			throw new IllegalArgumentException("Paired hybrid worker entered with incompatible options or bounds; expected "+
+				lowPrimary+"/"+lowSum+", got "+index.maxIndel()+"/"+index.maxIndel2());
 		}
 		final long ac0=initialSiteSum1,ac1=initialSiteSum2,ac2=postTrimSiteSum1,ac3=postTrimSiteSum2,ac4=postRescueSiteSum1,ac5=postRescueSiteSum2,ac6=mapped1,ac7=mapped2,ac8=lowQualityReadsDiscarded1,ac9=lowQualityReadsDiscarded2,ac10=lowQualityBasesDiscarded1,ac11=lowQualityBasesDiscarded2,ac12=readsUsed1,ac13=readsUsed2;
 		entryState.capture(r);
@@ -1396,16 +1482,28 @@ public final class BBMapThread extends AbstractMapThread{
 			searchAndScorePair(r,basesM1,basesM2,first);firstState.capture(r);
 			final HybridPairPolicy.Observation observation=first.rejected ? null : HybridPairPolicy.observe(this,r,basesM1,basesM2,first.imperfect1,first.max1,first.imperfect2,first.max2,false);
 			PairAttemptAccounting chosen=first;
-			if(observation!=null && observation.route()){
+			final boolean route=observation!=null && (generalHybrid ?
+				(observation.flags&HybridPairPolicy.HALF_ERRORS)!=0 : observation.route());
+			if(route){
+				if(generalHybrid){
+					hybridMaxIndelStats.retryAttempted();
+					hybridMaxIndelStats.pairReasons(observation.flags);
+				}
 				if(hybridMatchCache!=null){hybridMatchCache.clear();}
 				entryState.restore();r.sites=null;r.mate.sites=null;
-				index.setRuntimeIndelLimits(16000,32000);secondAttempt.reset();
+				index.setRuntimeIndelLimits(highPrimary,highSum);secondAttempt.reset();
 				searchAndScorePair(r,basesM1,basesM2,secondAttempt);
 				final String geometry=secondAttempt.rejected ? "REJECTED" : HybridPairPolicy.observe(this,r,basesM1,basesM2,secondAttempt.imperfect1,secondAttempt.max1,secondAttempt.imperfect2,secondAttempt.max2,true).geometry;
-				if(geometry.equals("NO_CONFLICT")){first.discard();chosen=secondAttempt;}
+				final boolean mapqAccepted=!generalHybrid || retryPairMapqAccepted(r,hybridMaxIndelConfig.retryMinMapq);
+				if(geometry.equals("NO_CONFLICT") && mapqAccepted){
+					first.discard();chosen=secondAttempt;
+					if(generalHybrid){hybridMaxIndelStats.wideSelected();hybridMaxIndelStats.pairOutcome(observation.flags,true);}
+				}
 				else{
+					if(generalHybrid && geometry.equals("NO_CONFLICT") && !mapqAccepted){hybridMaxIndelStats.mapqRejected();}
 					if(hybridMatchCache!=null){hybridMatchCache.clear();}
-					secondAttempt.discard();firstState.restore();index.setRuntimeIndelLimits(50,100);
+					secondAttempt.discard();firstState.restore();index.setRuntimeIndelLimits(lowPrimary,lowSum);
+					if(generalHybrid){hybridMaxIndelStats.lowRestored();hybridMaxIndelStats.pairOutcome(observation.flags,false);}
 				}
 			}
 			chosen.commit(this);
@@ -1422,7 +1520,7 @@ public final class BBMapThread extends AbstractMapThread{
 				finally{if(hybridMatchCache!=null){hybridMatchCache.replaying=false;}}
 			}
 		}finally{
-			try{index.setRuntimeIndelLimits(50,100);}finally{
+			try{index.setRuntimeIndelLimits(lowPrimary,lowSum);}finally{
 				if(hybridMatchCache!=null){hybridMatchCache.clear();}
 				entryState.clear();firstState.clear();
 			}
@@ -1894,9 +1992,42 @@ public final class BBMapThread extends AbstractMapThread{
 	private final TieredQuantumStats quantumTieredStats;
 	private final QuantumOnlyStats quantumOnlyStats;
 	private final QuantumHybridStats quantumHybridStats;
+	private final SingleAttemptAccounting singleAttempt=new SingleAttemptAccounting();
+	private final HybridMaxIndelConfig hybridMaxIndelConfig;
+	private final SingleAttemptAccounting singleSecondAttempt;
+	private final ReadSearchState singleEntryState;
+	private final ReadSearchState singleFirstState;
+	private final HybridMaxIndelStats hybridMaxIndelStats;
 	private static final int QUANTUM_SCORE_SCALE=100;
 	private static final int QUANTUM_SCORE_OFFSET=-30;
 	private static final int QUANTUM_EDIT_COST=2*QUANTUM_SCORE_SCALE;
+	private static final class SingleAttemptAccounting {
+		int quick,max,imperfect;
+		int initialSiteSum,postTrimSiteSum,mapped,rejectedBases;
+		boolean rejected,committed=true;
+		void reset(){
+			assert(committed) : "The previous single-read attempt must commit before storage reuse";
+			quick=max=imperfect=initialSiteSum=postTrimSiteSum=mapped=rejectedBases=0;
+			rejected=false;committed=false;
+		}
+		void discard(){
+			assert(!committed) : "Only an uncommitted single-read attempt may be discarded";
+			committed=true;
+		}
+		void commit(BBMapThread owner){
+			assert(!committed) : "Single-read output and counters must commit exactly once";
+			owner.readsUsed1++;
+			owner.initialSiteSum1+=initialSiteSum;
+			owner.postTrimSiteSum1+=postTrimSiteSum;
+			owner.mapped1+=mapped;
+			if(rejected){
+				owner.lowQualityReadsDiscarded1++;
+				owner.lowQualityBasesDiscarded1+=rejectedBases;
+			}
+			committed=true;
+		}
+	}
+	HybridMaxIndelStats hybridMaxIndelStats(){return hybridMaxIndelStats;}
 	private static final class PairAttemptAccounting {
 		int quick1, quick2, max1, max2, imperfect1, imperfect2;
 		int initialSiteSum1, initialSiteSum2, postTrimSiteSum1, postTrimSiteSum2;

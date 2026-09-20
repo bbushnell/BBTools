@@ -257,7 +257,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	@Override
 	void postparse(String[] args){
 		hybridTipSearchCeiling=TIP_SEARCH_DIST; // Preserve parsed user/preset ceiling before startup indel clamp.
-		if(hybridPair && !explicitIndelBoundSet){
+		if((hybridPair || hybridMaxIndel) && !explicitIndelBoundSet){
 			// Force the validated low-pass bound through the existing install/clamp logic below,
 			// rather than assigning BBIndex.MAX_INDEL directly, so TIP_SEARCH_DIST and any later
 			// bandwidth clamp derive from it exactly as they would for a real user maxindel= flag.
@@ -354,6 +354,19 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(STRICT_MAX_INDEL){throw new RuntimeException("hybridpair is incompatible with strictmaxindel");}
 			if(PRINT_SECONDARY_ALIGNMENTS){throw new RuntimeException("hybridpair is incompatible with secondary=t");}
 			if(PERFECTMODE || SEMIPERFECTMODE){throw new RuntimeException("hybridpair is incompatible with perfectmode/semiperfectmode");}
+		}
+		if(hybridMaxIndel){
+			if(hybridPair){throw new IllegalArgumentException("hybridmaxindel and hybridpair are separate modes");}
+			if(QUICK_MATCH_STRINGS){throw new IllegalArgumentException("hybridmaxindel is incompatible with quickmatch=t");}
+			if(STRICT_MAX_INDEL){throw new IllegalArgumentException("hybridmaxindel is incompatible with strictmaxindel");}
+			if(PRINT_SECONDARY_ALIGNMENTS){throw new IllegalArgumentException("hybridmaxindel is incompatible with secondary=t");}
+			if(PERFECTMODE || SEMIPERFECTMODE){throw new IllegalArgumentException("hybridmaxindel is incompatible with perfectmode/semiperfectmode");}
+			if(Boolean.getBoolean("bbmap3.quantumOnly") || Boolean.getBoolean("bbmap3.quantumHybrid") ||
+					Boolean.getBoolean("bbmap3.quantumTieredMutate") || Boolean.getBoolean("bbmap3.pseudoAlign")){
+				throw new IllegalArgumentException("hybridmaxindel is incompatible with Quantum and pseudoalignment modes");
+			}
+			hybridMaxIndelConfig=new HybridMaxIndelConfig(BBIndex.MAX_INDEL,BBIndex.MAX_INDEL2,
+				retryMaxIndel1,retryMaxIndel2,retryMinMapq);
 		}
 		if(Boolean.getBoolean("bbmap3.quantumOnly")){
 			if(Boolean.getBoolean("bbmap3.quantumTieredMutate")){
@@ -700,7 +713,6 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			ReadWrite.closeStream(streamer);
 			throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
 		}
-
 		final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
 		final Writer[] writers=openWriters(args, buff, paired);
 
@@ -717,7 +729,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
 					PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
 					ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
-					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter, hybridTipSearchCeiling, hybridPair);
+					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter, hybridTipSearchCeiling, hybridPair,
+					hybridMaxIndelConfig);
 			engine.idmodulo=idmodulo;
 			if(verbose){
 				engine.verbose=verbose;
@@ -777,6 +790,15 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			for(AbstractMapThread mtt : mtts){
 				final QuantumHybridStats worker=((BBMapThread)mtt).quantumHybridStats();
 				assert(worker!=null) : "Broad Quantum hybrid mode must create worker statistics";
+				total.add(worker);
+			}
+			outstream.print(total.toTsv());
+		}
+		if(hybridMaxIndelConfig!=null){
+			final HybridMaxIndelStats total=new HybridMaxIndelStats();
+			for(AbstractMapThread mtt : mtts){
+				final HybridMaxIndelStats worker=((BBMapThread)mtt).hybridMaxIndelStats();
+				assert(worker!=null) : "Selective max-indel mode must create worker statistics";
 				total.add(worker);
 			}
 			outstream.print(total.toTsv());
@@ -1090,6 +1112,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	/** Only BBMapS wires the per-invocation hybrid controller through to BBMapThread. */
 	@Override
 	boolean supportsHybridPair(){return true;}
+	@Override
+	boolean supportsHybridMaxIndel(){return true;}
 
 	/**
 	 * Configures parameters for semi-perfect alignment mode.

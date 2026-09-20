@@ -47,7 +47,13 @@ public abstract class AbstractMapper {
 	// (virtual dispatch into subclass overrides) before subclass field initializers would run;
 	// an explicit initializer here would risk being reordered incorrectly by a future edit.
 	boolean hybridPair;
+	boolean hybridMaxIndel;
 	boolean explicitIndelBoundSet;
+	int retryMaxIndel1=16000;
+	int retryMaxIndel2=32000;
+	int retryMinMapq=0;
+	boolean setRetryMaxIndel2;
+	HybridMaxIndelConfig hybridMaxIndelConfig;
 
 	/**
 	 * Constructs AbstractMapper and performs complete initialization sequence.
@@ -71,6 +77,9 @@ public abstract class AbstractMapper {
 		postparse(args3);
 		if(hybridPair && !supportsHybridPair()){
 			throw new RuntimeException(getClass().getSimpleName()+" does not support hybridpair.");
+		}
+		if(hybridMaxIndel && !supportsHybridMaxIndel()){
+			throw new RuntimeException(getClass().getSimpleName()+" does not support hybridmaxindel.");
 		}
 		setup();
 		checkFiles();
@@ -129,6 +138,8 @@ public abstract class AbstractMapper {
 	/** Whether this mapper variant wires the per-invocation hybrid paired controller through to
 	 * its worker threads. Default false; only BBMapS overrides this to true. */
 	boolean supportsHybridPair(){return false;}
+	/** Whether this mapper variant owns the general selective max-indel controller. */
+	boolean supportsHybridMaxIndel(){return false;}
 
 	/** Initializes implementation-specific components after parameter parsing */
 	abstract void setup();
@@ -535,6 +546,27 @@ public abstract class AbstractMapper {
 				}
 			}else if(a.equals("hybridpair")){
 				hybridPair=Parse.parseBoolean(b);
+			}else if(a.equals("hybridmaxindel")){
+				hybridMaxIndel=Parse.parseBoolean(b);
+			}else if(a.equals("retrymaxindel") || a.equals("retrymaxindel1")){
+				final long parsed=Parse.parseKMG(b);
+				if(parsed<1 || parsed>Integer.MAX_VALUE || (!setRetryMaxIndel2 && parsed>Integer.MAX_VALUE/2)){
+					throw new IllegalArgumentException("retrymaxindel must be positive and permit a 2x summed bound: "+b);
+				}
+				retryMaxIndel1=(int)parsed;
+				if(!setRetryMaxIndel2){retryMaxIndel2=2*retryMaxIndel1;}
+			}else if(a.equals("retrymaxindel2") || a.equals("retrymaxindelsum")){
+				final long parsed=Parse.parseKMG(b);
+				if(parsed<1 || parsed>Integer.MAX_VALUE){
+					throw new IllegalArgumentException("retrymaxindel2 must be positive and fit an int: "+b);
+				}
+				retryMaxIndel2=(int)parsed;
+				setRetryMaxIndel2=true;
+			}else if(a.equals("retryminmapq")){
+				retryMinMapq=Integer.parseInt(b);
+				if(retryMinMapq<0 || retryMinMapq>255){
+					throw new IllegalArgumentException("retryminmapq must be in [0,255]: "+b);
+				}
 			}else if(a.equals("padding")){
 				SLOW_ALIGN_PADDING=Integer.parseInt(b);
 				SLOW_RESCUE_PADDING=SLOW_ALIGN_PADDING;
