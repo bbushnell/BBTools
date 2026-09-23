@@ -12,7 +12,7 @@ import stream.SiteScore;
 public final class HybridPairPolicy {
 
 	private HybridPairPolicy(){}
-	public static final int NO_SITE=1, HALF_ERRORS=2, UNKNOWN=4;
+	public static final int NO_SITE=1, HALF_ERRORS=2, UNKNOWN=4, PSEUDO_HALF=8;
 
 	/** Generate disposable top candidates so observation preserves owned sites. */
 	public static Observation observe(BBMapThread owner,Read first,byte[] minus1,byte[] minus2,
@@ -21,7 +21,9 @@ public final class HybridPairPolicy {
 		final Read second=first.mate;
 		final SiteScore a=generate(owner,first,minus1,imperfect1,max1,0);
 		final SiteScore b=generate(owner,second,minus2,imperfect2,max2,1);
-		return new Observation(geometryOnly ? 0 : flags(a,first.length())|flags(b,second.length()),
+		final int flags1=geometryOnly ? 0 : flags(a,first.length());
+		final int flags2=geometryOnly ? 0 : flags(b,second.length());
+		return new Observation(flags1,flags2,
 				geometryOnly ? geometry(a,first.length(),b,second.length()) : "NOT_RUN");
 	}
 
@@ -114,7 +116,9 @@ public final class HybridPairPolicy {
 	}
 
 	public static final class Observation {
-		Observation(int f,String g){flags=f;geometry=g;}
+		Observation(int f1,int f2,String g){flags1=f1;flags2=f2;flags=f1|f2;geometry=g;}
+		public final int flags1;
+		public final int flags2;
 		public final int flags;
 		public final String geometry;
 		public boolean route(){return (flags&(NO_SITE|HALF_ERRORS))!=0;}

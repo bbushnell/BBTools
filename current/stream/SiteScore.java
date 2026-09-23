@@ -1407,6 +1407,18 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 		score=x;
 	}
 
+	/** Stores pre-alignment base coverage percentages without enlarging each SiteScore. */
+	public void setPseudoCoverage(int left,int right){
+		assert(left>=0 && left<=100 && right>=0 && right<=100) :
+				"BBIndex locArray half coverage must be a percentage: "+left+", "+right;
+		flags=(flags&~pseudoCoverageMasks)|((long)left<<pseudoLeftShift)|((long)right<<pseudoRightShift);
+	}
+	public void mergePseudoCoverage(int left,int right){
+		setPseudoCoverage(Tools.max(left,pseudoLeftCoverage()),Tools.max(right,pseudoRightCoverage()));
+	}
+	public int pseudoLeftCoverage(){return (int)((flags>>pseudoLeftShift)&pseudoCoverageMask);}
+	public int pseudoRightCoverage(){return (int)((flags>>pseudoRightShift)&pseudoCoverageMask);}
+
 	/** Starting position on reference chromosome */
 	public int start;
 	/** Ending position on reference chromosome */
@@ -1443,6 +1455,9 @@ public final class SiteScore implements Comparable<SiteScore>, Cloneable, Serial
 	public static final long perfectMask=(1L<<2);
 	/** Bit mask for semiperfect flag (currently unused) */
 	public static final long semiperfectMask=(1L<<3);
+	private static final int pseudoLeftShift=8,pseudoRightShift=15;
+	private static final long pseudoCoverageMask=127L;
+	private static final long pseudoCoverageMasks=(pseudoCoverageMask<<pseudoLeftShift)|(pseudoCoverageMask<<pseudoRightShift);
 	/** Global flag for verbose debugging output */
 	public static boolean verbose=false;
 	

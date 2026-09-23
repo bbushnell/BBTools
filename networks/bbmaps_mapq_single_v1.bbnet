@@ -1,0 +1,50 @@
+##bbnet
+#version 1
+##java 25.0.1
+##simd true
+##simd_ff true
+##simd_bp true
+#concise
+#dense
+#density 1
+#blocksize 1
+#seed 68013
+#layers 4
+#epochs 60
+#dims 37 16 8 1
+#CL java -Xmx12g -ea --add-modules=jdk.incubator.vector ml.RegressionTrainer in=/clusterfs/jgi/groups/gentech/homes/bbushnell/Collei/neural_mapq_physical37_pilot_20260921/data/train.tsv valin=/clusterfs/jgi/groups/gentech/homes/bbushnell/Collei/neural_mapq_physical37_pilot_20260921/data/validation.tsv out=/clusterfs/jgi/groups/gentech/homes/bbushnell/Collei/neural_mapq_physical37_pilot_20260921/model/mapq_single_v1.bbnet dims=37,16,8,1 final=sigmoid epochs=60 batch=8192 lr=0.003 wd=0.0001 seed=68013 simd=t vsimd=t threads=4 overwrite=t
+##fpr 999
+##fnr 999
+##err 999
+##wer 999
+##ctf -1
+#coding A48
+#edges 728
+##layer 1
+C38 TANH 307WfX 2mA`X\ 2H2Q25 n8CM@ 2mB2lE 303a0h oSGUO omS35 ne>CL 2mO?e5 oG>Ho o<1Gg 2oaF3P 2o`aiT oKcIm nnB9B 2oa4mb m>Nkj 3081^\ 30OD2` 2o1aHa 2okUd6 2omI^E 2n9@EC 10Z3I> 30<=^V 11B6bK 10?g`i 11Paf? m:dln 2mLaPd mm[BR 2o51jX 2SmPXV 32f^F6 2o;[3Z o7Pdk 11V:c@
+C39 TANH 10gE== 2o1hlb 2HW8Sm nX3CM 2l\S0] o`GFM 2n_GNQ 2n<YML oYSG0 nA\Bk 2oV^@G 2o`b\P 2oTXcL 30;Q[i oGE;: 2o75mF 2oGGFX 2n<iN? n_R5j 30EhHg 2nWQkM o0H2V 30TKJN 2ma7d^ 10eIZA 30IYQ@ 32>?8R 2onX=] 124[1Z nZ[1< n^>\0 mY64Q 11ighN 2@3`Gc 100UDc 2og_6c oMj;? 31Wa7T
+C40 TANH 30:mLo nB_L9 2FQ`kG 2nPoEi n0JX? 2oG?d] oYDH@ 2mC<eW 2m@b0e oM=Di o?N1h oHg^6 lXSoA o2FNW 2nTOd; 2oU9ij oOa7_ 2o\cA9 n^Hh] oo=Dg oF9Z0 2nhIkJ 10YU>C l@[[m 30lj>2 2om[:o 31W2`R 2oiPD4 11iL[i lmb=a mIO>8 2k8<U< 11Cf;o 2BAoEj 124n:8 2o]kU; mbjJ@ 30Nioo
+C41 TANH 2o]AmU 2mibYV 2GT]]k mbQ@Z mYn>V 2oK[ZC 108RCK n;[n6 2oR[LL n\b@K oePIG neQ=C 2oDQ;j 302[=8 n52Ti oc5g1 2ohlA3 2na`fi oC9;Z 2oY:>l 2n:81` 305R6] 30ao2L 2nTFj2 odi\S 10P@k@ 323WfG 10K^\9 31O>Yi 2lLU<T m^e0I 2mggd] 11\I0J C_\G@ 2ofKO[ n8eMO 2o6Af8 118XEP
+C42 TANH 30kIOU 2nJ>IE 2G82RK nN_mo o4OGh ongIJ 2mHOTS n[<]V oZ<F[ oRc[7 2n8e3R mD@da ne0nV 10R4gH naFiV oTX74 noUOD o4YC3 2oH]@B 2oZ51F 2oVo?Z njYmP 2o5dBH 2ml_;K 114^jM 2o2o57 11YVL\ 2o@UJl 2o8gBL 2mQ8gR 2mNkQE nA439 10lkQ5 2MJS<3 11Td\: oLa8M o?c`E 10LeaF
+C43 TANH 10V?B9 nIO2I C2c_7 2n23FY o4YbQ 2lbcNb 2n`MKN 2n1V`B 2oQF[6 2oYi]e 2ojNMF oCQJ: maSH[ 302al2 2o8^P< nC8Z8 2oFomi oW_@= mmRZ1 o@?bj 2o=6R^ oGX?C o81[5 nPJl> neK0V o_VN@ 12<Hge n0VYg 31UGQ= 2n_SH; 2l@Ico 2n<;nI 31d@4o HnRl[ 11KK<I 2oM_^K 2mo^CP 2oEfiS
+C44 TANH oQU1n 2mLHWm PTnJD 2n?2V= 2n_j9` o0QCE nRS2< mlJW5 ob]6E 2oR453 2olDSD nbi3o oA>o9 oioKS nb^jG 3043bM mdN=? 107l2B 2ned2B 10Dc>` 2o6oR2 oh@8R nl]9k nUeg4 31Kn<m o1TlM 30D9O6 2oT@YV 31`=6Q 2mo2Kd nG?M0 ljfb= 314_7c QG769 11619H 2oFl;a 2l\d<V 10dVhG
+C45 TANH 10DPQ@ 2oI4`S YHL[n n>RY3 n>gao 2oYCGC o@A^X 2n9hAk n2J32 nlo0l o_2oR 2oVVGE 2ncl6m 2onN7R 2nbWKE 2o3YoH oQ\h5 2oT<E2 oX9\< oLSRk 2m_iD5 nkK]K 10BjL> 2n7VlL 310TnC 2oOn>< 31SdK\ 10Id5G 11=oWj nJXNG n\a7D o1GT1 30R@iZ 2Q9Y0a 12W^1W 10IUaF n@@Qe 31fTKT
+C46 TANH 2o=>`Q 2k:PNn ]EjFA m\7VJ 2n^Lik 2n8K0R 2ng8lI 2oNHa^ oAZKD oHcSS mO7;b 2oZGRM ng2NG k9g4M nBYgg oQ;0@ 2o=kh= 2oXWjF nkNa@ 2llBQd 2o1cXK 2n9SY` 10QOeV n`Gg@ 30J@j] 30@\Z1 2mJal; 30Pn2W 31_nS? 2mXMJA nUPRo n9I0j 310gNY 2FKmI: 12_Z:8 n3NPR 2oXM]: 11DDVL
+C47 TANH 10]Yn\ 2m>[:0 AQ;77 2meWNl 2meBjG o@m_e 2oRAfl 2o:ioC oW8;1 2oYZW5 2o<fVd 2om5[k oX2=Z oQWBE 2oAajT 3019l` 2oX@hf obM^E o>j]@ 2n2eLS 2nPV:; o[>fN 102bP\ 2nQR7P 305O`` 30fD3c 30g4Z2 30CokM 11ZdA` 2nVTjY 2n@2E8 m[;3j 31\ZSn P?k5e 32[lMk 2n`K^j 2mK>FI 10QKZD
+C48 TANH n8hSS 2nQDb\ MQ3:m 2n?@]E 2m`h4@ oK7Hj 2o21ND oTOoj 2o^Z4_ o=0@V oU]H7 n57KZ nQH6U o]`bf 2ndC>G 2n1cc: 2nU]j: oMMn2 2o27cR 109J<m 2nMf0I 100DGl 30mVdO l?ilJ 10QY^; 30K7XI 327D[c 10X<2N o8Kb2 2lm=9n 2mc[6b 2mi30[ 314g>O R@j`` 2o[aj3 n8D:d nSlCT 31g=27
+C49 TANH 30T7Fa mRB=G 2FKZV2 n0U]o 2nE[Pm 2ok]?; oj]SV oOKXT 2oPJFo o9R1i 106h>P 2mG95D 2n\X9V 309EHP nT=o3 104R<n 303g=L 2od?Jl nO:0E 2oYIEd 2oZNQ6 2ol]E2 oU;R_ 2nUY0d oSEdZ 10Rib9 120Po^ 30\R@; 11P=<f 2mR=b8 mln>[ 2mAUkn 318:E> 2>>WQT 31[bQo o6M41 2nmfoX 11]9J;
+C50 TANH 10IQ<T 2nE1IV 2H<;Q2 2mBkN2 n2K5f oG=XP oV[:; 2n]XJW 2oZ1=e nQo[Y o[^]0 2nb?DB 2nQ[YB 30>3cD 2n>7]_ 2oEQSP o9=a> o??kT n=dIE o8l2] oP[f6 2oSQ=> 106_7@ 2nB4Uh 10J03R 2o1B1E 30UN^= oLThB 31UR8Z n1d1n n<Y8S n2HG6 2nHe^^ HAiQO 30Z89k 2lCSaS 2lc8=F 10dQ>Q
+C51 TANH o=Wci 2n_aR[ 2C>C1: mLa?k nLWXT 303iAb 2oA85j oE@im 2oDo4j nVXiS ocdDI oiI4Y 2o4o8A 30Ag`h oS]@\ oNFU` 2oJ`9O 2nZid; 303O3R 30<6EN n23^@ 2nP`dj 307KTV 2n792\ o0nOW 10GnP\ 11bmCW oS7<D 313Z9V n@E69 n8BWA 2lQWIR 31FO\5 2<dXjH 318f1] oBS_Z 2o]5QJ 10^GB<
+C52 TANH om6Eo mC8AU 2CQdUE 2nQL3P 2o=M]8 2nL1@= 2oRcAF 2o>^LH 2oDHN` oCiKG 2n?ejC on^c8 nG_le lHMLA mVkbM 2lTQiT n^>PM oJHNT oh1^? 2o;GEe oQ9]b nVA`m 30bFFN 2n>M@B 10D0LS 2o3WH\ 31XIhS 2o0:]n 11cjkm 2n0]jD l:83i m]ZGk oYGQ= 2N\jma 12R543 2oGP:N 2ojN4b 31@nHI
+C53 TANH 2n>MJ6 2n]L[R =G8E9 m^lO^ m0N_[ oIMV< mgh`b 2n\B18 o4g8U n7oYJ nRL[= nPJEA ngZY= 2n;nGP nAhI: o@MKG k]QE1 oB?WN 2oLjM9 2oVE<i 2o0F;l 2ndWji 10<j=@ 2m_CFc 30UUF` 2o^4mM 118MB> 307g0L 31\cbe 2lT9LE mZ_D? mMPK] 2n^L]K 2CK64K 10]a\n 2n6_\d 2n5?E? 313^8m
+##layer 2
+C54 TANH nSVfa nId?l 2nRBLb nS47I nHbK1 2nfXlH l_7jA 2nJj8\ mHnKM 2nJZo5 2nFBBP mV?AC n0Eoj nbJPd mg?LI n7bK6 2lZ4L>
+C55 TANH nARAW m:RcH 2n\^Bi n[KnM m_KY8 2nN<FF mVofI 2nPBM6 nF9OU 2nE?RN 2nQlll 2mLEZ: 2mY4T? nX`U2 n\o;0 nF[2D 2n<^no
+C56 TANH nJXO@ n\BfY 2n`ZkP mm=o^ 2lRUM1 2n^11N 2n22>b 2nYLU` mefgc 2md=8\ 2n1e[c n1UdA n4b=g nf36P n4_hU n?>]L 2n6Z\a
+C57 TANH nCWiX nT<oT 2nW=of mUbf< 2m[\4g 2n_X[@ n@:3d 2nU?WL nY[1c 2n_R4F 2n9o1c 2mM6Oi nQhI\ n:3m5 nD;gI nJQ97 2n>SLS
+C58 TANH nPi0a nV\P6 2n6\0Q n[dA` nELWM 2neei] n=]7W 2nmEO\ mY2oL 2nP0OL 2mKZ]O n1@?; nFGAG n[On\ 2mEbOM l:8P2 2n2fmC
+C59 TANH n646X nJaOP 2m_=`E 2mobc^ nbmo5 2o=@fm mJV<J 2niEQL nj[H3 2m_?4B 2n2fS3 2n0iEP n75DP l:>d1 n?fbj 2nNmn3 2n2gFZ
+C60 TANH 2n7Bk0 2n1o8` nP?_5 2nLGLE 2nTJ7Z 2n;gAk 2nXk4E moP1j 2nWefk o0nL> nZb1S m\UD\ 2nZAdQ 2nckUG mMaLj 2o=o?Y 2m:DPA
+C61 TANH 2n812j 2n7QgR nW6cN 2o1X9; 2mb>U3 o02\R 2nPD7B nPCeh 2nSdDm 2k]jJ6 m]=ka mMfRe 2n<VSN 2nA6]\ 2ndkZL 2m]`ba n@FHM
+##layer 3
+C62 SIG 2n;\e? 2nb>_4 2nhWDb 2o6PBG 2neLQ? 2na:D] 2o63E4 o]UYK oPZml

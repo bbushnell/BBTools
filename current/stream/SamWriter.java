@@ -15,10 +15,10 @@ import template.ThreadWaiter;
 
 /**
  * Writes SAM text files with parallel conversion and ordered output.
- * 
+ *
  * Workers convert Read/SamLine objects to SAM text in parallel.
  * OrderedQueueSystem2 ensures output blocks are written in order.
- * 
+ *
  * @author Brian Bushnell, Isla
  * @date October 25, 2025
  */
@@ -37,6 +37,13 @@ public class SamWriter implements Writer {
 	/** Constructor with mate selection for separate paired output files. */
 	public SamWriter(FileFormat ffout_, int threads_,
 		ArrayList<byte[]> header_, boolean useSharedHeader_, boolean writeR1_, boolean writeR2_){
+		this(ffout_, threads_, header_, useSharedHeader_, writeR1_, writeR2_, 0, 0);
+	}
+
+	/** Constructor with explicit OQS2 capacities; zero retains each default. */
+	public SamWriter(FileFormat ffout_, int threads_,
+		ArrayList<byte[]> header_, boolean useSharedHeader_, boolean writeR1_, boolean writeR2_,
+		int inputCapacity_, int outputCapacity_){
 		ffout=ffout_;
 		fname=ffout.name();
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
@@ -51,9 +58,17 @@ public class SamWriter implements Writer {
 		SamWriterInputJob inputProto=new SamWriterInputJob(null, null, ListNum.PROTO, -1);
 		SamWriterOutputJob outputProto=new SamWriterOutputJob(-1, null, ListNum.PROTO);
 
+		final int inputCapacity=(inputCapacity_>0 ? inputCapacity_ :
+				threads+OrderedQueueSystem2.BUFFER_PADDING);
+		final int outputCapacity=(outputCapacity_>0 ? outputCapacity_ :
+				(OrderedQueueSystem2.BUFFER_MULT*threads)/2+OrderedQueueSystem2.BUFFER_PADDING);
+		if(inputCapacity<2 || outputCapacity<2){
+			throw new IllegalArgumentException("Writer queue capacities must be at least 2: "+
+					inputCapacity+", "+outputCapacity);
+		}
 		oqs=new OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob>(
-			threads, ffout.ordered(), inputProto, outputProto);
-		
+			inputCapacity, outputCapacity, threads, ffout.ordered(), inputProto, outputProto);
+
 		if(ffout.bam()){
 			outstream=ReadWrite.getBamOutputStream(fname, ffout.append());
 		}else {
@@ -68,7 +83,7 @@ public class SamWriter implements Writer {
 
 	@Override
 	public void start(){spawnThreads();}
-	
+
 	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
 
 	/** Add reads for writing (will be converted to SamLines). */
@@ -131,7 +146,7 @@ public class SamWriter implements Writer {
 
 		for(ProcessThread pt : alpt){pt.start();}
 	}
-	
+
 	public static ArrayList<SamLine> toSamLines(ArrayList<Read> reads) {
 		return toSamLines(reads, true, true);
 	}
@@ -143,12 +158,12 @@ public class SamWriter implements Writer {
 			if(r1==null) {continue;}
 			Read r2=(r1==null ? null : r1.mate);
 
-			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
+			SamLine sl1=(r1==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE
 				&& r1.samline!=null ? r1.samline : new SamLine(r1, 0)));
-			SamLine sl2=(r2==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE 
+			SamLine sl2=(r2==null ? null : (ReadStreamWriter.USE_ATTACHED_SAMLINE
 				&& r2.samline!=null ? r2.samline : new SamLine(r2, 1)));
 
-			if(!SamLine.KEEP_NAMES && sl1!=null && sl2!=null && ((sl2.qname==null) || 
+			if(!SamLine.KEEP_NAMES && sl1!=null && sl2!=null && ((sl2.qname==null) ||
 				!sl2.qname.equals(sl1.qname))){
 				sl2.qname=sl1.qname;
 			}
@@ -161,7 +176,7 @@ public class SamWriter implements Writer {
 
 	private static void addSamLine(Read r, SamLine primary, ArrayList<SamLine> samLines) {
 		if(r==null || primary==null) {return;}
-		
+
 		assert(!ReadStreamWriter.ASSERT_CIGAR || !r.mapped() || primary.cigar!=null) : r;
 		samLines.add(primary);
 
@@ -181,7 +196,7 @@ public class SamWriter implements Writer {
 			}
 		}
 	}
-	
+
 	ArrayList<byte[]> getHeader(){
 		if(verbose) {System.err.println("Fetching header: "+useSharedHeader+","+(header!=null));}
 		ArrayList<byte[]> headerLines=null;
@@ -204,7 +219,7 @@ public class SamWriter implements Writer {
 	protected synchronized void writeHeader(){
 		if(headerWritten || supressHeader){return;}
 		ArrayList<byte[]> headerLines=getHeader();
-		
+
 		ByteBuilder bb=new ByteBuilder();
 		try{
 			for(byte[] line : headerLines) {
@@ -366,7 +381,7 @@ public class SamWriter implements Writer {
 					}
 				}
 			}
-			
+
 			if(verbose) {System.err.println("Consumer finished accumulating.");}
 			boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
 			errorState|=b;
@@ -423,17 +438,17 @@ public class SamWriter implements Writer {
 	/*--------------------------------------------------------------*/
 	/*----------------     Getters and Setters      ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	synchronized void setErrorState(boolean b){
 		errorState|=b;
 	}
-	
+
 	@Override
 	public synchronized boolean errorState() {return errorState;}
-	
+
 	@Override
 	public boolean finishedSuccessfully() {return !errorState && oqs.finished();}
-	
+
 	@Override
 	public final String fname() {return fname;}
 
@@ -461,10 +476,10 @@ public class SamWriter implements Writer {
 	final OrderedQueueSystem2<SamWriterInputJob, SamWriterOutputJob> oqs;
 	/** Output stream. */
 	final OutputStream outstream;
-	
+
 	/** Thread list for accumulation. */
 	private ArrayList<ProcessThread> alpt;
-	
+
 	/** Total reads written. */
 	public long readsWritten=0;
 	/** Total bases written. */
@@ -483,7 +498,7 @@ public class SamWriter implements Writer {
 	public static int DEFAULT_THREADS=6;
 
 	public static final boolean verbose=false;
-	
+
 	/** Print status messages to this output stream */
 	protected PrintStream outstream2=System.err;
 

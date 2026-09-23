@@ -54,7 +54,7 @@ public class Resources {
 			if(url!=null){sb.append("  (").append(url).append(')');}
 			sb.append('\n');
 		}
-		sb.append("Download one and place it in BBTools/resources/\n");
+		sb.append("Download each and place network files in BBTools/networks/; other resources in BBTools/resources/\n");
 		System.err.print(sb);
 		System.exit(1);
 		return null;
@@ -77,7 +77,7 @@ public class Resources {
 		}else{
 			sb.append("You may need to download it from:\n  ").append(SOURCEFORGE_URL).append('\n');
 		}
-		sb.append("Place it in BBTools/resources/ and try again.\n");
+		sb.append("Place it in ").append(Data.isNetworkFile(bare) ? "BBTools/networks/" : "BBTools/resources/").append(" and try again.\n");
 		System.err.print(sb);
 		if(exit){
 			System.exit(1);

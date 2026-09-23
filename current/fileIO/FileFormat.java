@@ -472,6 +472,7 @@ public final class FileFormat {
 		else if(ext.equals("gbff")){r[0]=GBFF;}
 		else if(ext.equals("alm")){r[0]=ALM;}
 		else if(ext.equals("bbnet")){r[0]=BBNET;}
+		else if(ext.equals("bbnets")){r[0]=BBNETS;}
 		else if(ext.equals("bbvec") || ext.equals("vec")){r[0]=BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){r[0]=CLADE;}
 		else if(ext.equals("png")){r[0]=PNG;}
@@ -1081,6 +1082,7 @@ public final class FileFormat {
 		else if(ext.equals("gbff")){return GBFF;}
 		else if(ext.equals("alm")){return ALM;}//FIXED [fileIO/FileFormat#003]: twin of testFormat's ext map (L468) had 'alm' but this one didn't, so rawExtensionCode(".alm")=UNKNOWN diverged from testFormat=ALM, spuriously tripping Parser.validateStdio's "specify format" assert on stdout.alm/stdin.alm. The two maps must agree except the deliberate TXT case below.
 		else if(ext.equals("bbnet")){return BBNET;}
+		else if(ext.equals("bbnets")){return BBNETS;}
 		else if(ext.equals("bbvec") || ext.equals("vec")){return BBVEC;}
 		else if(ext.equals("clade") || ext.equals("spectra")){return CLADE;}
 		else if(ext.equals("png")){return PNG;}
@@ -1165,6 +1167,7 @@ public final class FileFormat {
 	public final boolean gbff(){return format==GBFF;}
 	public final boolean alm(){return format==ALM;}
 	public final boolean bbnet(){return format==BBNET;}
+	public final boolean bbnets(){return format==BBNETS;}
 	public final boolean bbvec(){return format==BBVEC;}
 	public final boolean clade(){return format==CLADE;}
 	public final boolean png(){return format==PNG;}
@@ -1372,10 +1375,12 @@ public final class FileFormat {
 	public static final int SAI=36;
 	public static final int GFA=37;
 	public static final int FASTG=38;
+	/** Multi-network container: #levels/#multioutput header followed by ##network/##bbnet blocks. */
+	public static final int BBNETS=39;
 	
 	/** Array mapping format constants to string names.
 	 * Indexed by the integer format code, so its order MUST match the format constants
-	 * (UNKNOWN=0 .. FASTG=38). Do not insert extension-aliases (e.g. "vec","spectra") as
+	 * (UNKNOWN=0 .. BBNETS=39). Do not insert extension-aliases (e.g. "vec","spectra") as
 	 * standalone slots — those are aliases of bbvec/clade, not codes, and would shift the
 	 * alignment. [fileIO/FileFormat#001 FIXED 2026-06-15: removed the two stray aliases.] */
 	public static final String[] FORMAT_ARRAY=new String[] {
@@ -1385,7 +1390,7 @@ public final class FileFormat {
 		"long1d", "bitset", "sketch", "oneline", "fastr",
 		"vcf", "var", "gff", "bed", "pgm", "embl", "gbk", "gbff",
 		"alm", "bbnet", "bbvec", "clade", "png",
-		"bai", "sai", "gfa", "fastg", "foosta"
+		"bai", "sai", "gfa", "fastg", "bbnets"
 	};
 	
 	/** List of recognized file extensions */
@@ -1397,7 +1402,7 @@ public final class FileFormat {
 		"gz", "gzip", "bgzip", "bgz", "bz2", "zip", "xz", "dsrc", "header", "headers",
 		"int1d", "long1d", "bitset", "sketch", "oneline", "flat", "fqz",
 		"gff", "gff3", "var", "vcf", "bed", "pgm", "embl", "gbk", "gbff", "alm", 
-		"bbnet", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",
+		"bbnet", "bbnets", "bbvec", "vec", "clade", "spectra", "7z", "zst", "png",
 		"bai", "sai", "gfa", "fastg", "foosta"
 	};
 	

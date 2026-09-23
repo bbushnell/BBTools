@@ -294,6 +294,7 @@ public final class BBMapThread extends AbstractMapThread{
 		secondAttempt=pairedHybrid ? new PairAttemptAccounting() : null;
 		entryState=pairedHybrid ? new PairSearchState() : null;
 		firstState=pairedHybrid ? new PairSearchState() : null;
+		probeState=pairedHybrid ? new PairSearchState() : null;
 		singleSecondAttempt=hybridMaxIndelConfig==null ? null : new SingleAttemptAccounting();
 		singleEntryState=hybridMaxIndelConfig==null ? null : new ReadSearchState();
 		singleFirstState=hybridMaxIndelConfig==null ? null : new ReadSearchState();
@@ -331,6 +332,7 @@ public final class BBMapThread extends AbstractMapThread{
 		INV_CLEARZONE3=(CLEARZONE3==0 ? 0 : 1f/CLEARZONE3);
 		
 		index=new BBIndex(KEYLEN, minChrom, maxChrom, KFILTER, msa);
+		index.setCapturePseudoCoverage(hybridMaxIndelConfig!=null);
 	}
 	
 	
@@ -870,6 +872,147 @@ public final class BBMapThread extends AbstractMapThread{
 		if(minimum<=0){return true;}
 		final Read r2=r.mate;
 		return (r.mapped() || r2.mapped()) && retryMapqAccepted(r,minimum) && retryMapqAccepted(r2,minimum);
+	}
+
+	/** Highest pre-alignment pseudo score retained by quickMap for one read. */
+	private static int bestQuickScore(final Read r){
+		int best=0;
+		if(r.sites!=null){for(SiteScore ss:r.sites){best=Tools.max(best,ss.quickScore);}}
+		return best;
+	}
+
+	/** Largest reference gap encoded by any pre-alignment pseudo site. */
+	private static int maxPseudoGap(final Read r){
+		int best=0;
+		if(r.sites!=null){
+			for(SiteScore ss:r.sites){
+				final int[] gaps=ss.gaps;
+				if(gaps!=null){for(int i=2;i<gaps.length;i+=2){best=Tools.max(best,gaps[i]-gaps[i-1]-1);}}
+			}
+		}
+		return best;
+	}
+
+	private static SiteScore bestLongGapSite(final Read r){
+		SiteScore best=null;
+		if(r.sites!=null){
+			for(SiteScore ss:r.sites){
+				final int[] gaps=ss.gaps;
+				if(gaps!=null){
+					for(int i=2;i<gaps.length;i+=2){
+						if(gaps[i]-gaps[i-1]-1>50){
+							if(best==null || ss.quickScore>best.quickScore){best=ss;}
+							break;
+						}
+					}
+				}
+			}
+		}
+		return best;
+	}
+	private static boolean hasLongGap(final SiteScore ss){
+		final int[] gaps=ss.gaps;
+		if(gaps!=null){for(int i=2;i<gaps.length;i+=2){if(gaps[i]-gaps[i-1]-1>50){return true;}}}
+		return false;
+	}
+	private static int countNearBestSites(final Read r, final int best, final boolean requireLongGap){
+		if(best<=0 || r.sites==null){return 0;}
+		int count=0;
+		for(SiteScore ss:r.sites){
+			if((!requireLongGap || hasLongGap(ss)) && (long)ss.quickScore*100L>=(long)best*95L){count++;}
+		}
+		return count;
+	}
+	private static int bestLongGapQuickScore(final Read r){
+		final SiteScore ss=bestLongGapSite(r);
+		return ss==null ? 0 : ss.quickScore;
+	}
+
+	/** Retain top quick sites while guaranteeing the best >50-bp gap survives the cap. */
+	private static void retainProbeSites(final Read r, final int limit){
+		if(r.sites==null || r.sites.size()<=limit){return;}
+		final SiteScore gap=bestLongGapSite(r);
+		Shared.sort(r.sites);
+		if(gap!=null){
+			final int index=r.sites.indexOf(gap);
+			if(index>=limit){
+				final SiteScore displaced=r.sites.get(limit-1);
+				r.sites.set(limit-1,gap);
+				r.sites.set(index,displaced);
+			}
+		}
+		while(r.sites.size()>limit){r.sites.remove(r.sites.size()-1);}
+		Shared.sort(r.sites);
+	}
+
+	/** Best-covered read half among pseudo sites whose opposite half stays below the supplied limit. */
+	private static int bestPseudoHalfCoverage(final Read r, final int otherLimit){
+		int best=0;
+		if(r.sites!=null){
+			for(SiteScore ss:r.sites){
+				final int left=ss.pseudoLeftCoverage(), right=ss.pseudoRightCoverage();
+				final int strong=Tools.max(left,right), weak=Tools.min(left,right);
+				if(weak<=otherLimit){best=Tools.max(best,strong);}
+			}
+		}
+		return best;
+	}
+
+	/** Smallest plausible long indel joining complementary half-read pseudo sites. */
+	private static int smallestPseudoSplitGap(final Read r, final int maxGap){
+		if(r.sites==null || r.sites.size()<2){return 0;}
+		int best=maxGap+1;
+		for(SiteScore left:r.sites){
+			if(left.pseudoLeftCoverage()<95 || left.pseudoRightCoverage()>75){continue;}
+			for(SiteScore right:r.sites){
+				if(right.pseudoRightCoverage()<95 || right.pseudoLeftCoverage()>75 ||
+						left.chrom!=right.chrom || left.strand!=right.strand){continue;}
+				final int gap=Tools.absdif(left.start,right.start);
+				if(gap>50 && gap<=maxGap){best=Tools.min(best,gap);}
+			}
+		}
+		return best>maxGap ? 0 : best;
+	}
+
+	/** Highest final paired-site score retained by the low attempt. */
+	private static int bestPairedScore(final Read r){
+		int best=0;
+		if(r.sites!=null){for(SiteScore ss:r.sites){best=Tools.max(best,ss.pairedScore);}}
+		return best;
+	}
+
+	private static int topScore(final Read r){return r.topSite()==null ? 0 : r.topSite().score;}
+	private static int topSlowScore(final Read r){return r.topSite()==null ? 0 : r.topSite().slowScore;}
+	private static int topPairedScore(final Read r){return r.topSite()==null ? 0 : r.topSite().pairedScore;}
+	private boolean topPairable(final Read r){
+		final Read r2=r.mate;
+		return r.topSite()!=null && r2!=null && r2.topSite()!=null &&
+				canPair(r.topSite(),r2.topSite(),r.length(),r2.length(),
+						REQUIRE_CORRECT_STRANDS_PAIRS,SAME_STRAND_PAIRS,MAX_PAIR_DIST);
+	}
+	private int bestPairableQuickScore(final Read r){
+		final Read r2=r.mate;
+		if(r.sites==null || r2==null || r2.sites==null){return 0;}
+		int best=0;
+		for(SiteScore a:r.sites){
+			for(SiteScore b:r2.sites){
+				if(canPair(a,b,r.length(),r2.length(),REQUIRE_CORRECT_STRANDS_PAIRS,SAME_STRAND_PAIRS,MAX_PAIR_DIST)){
+					best=Tools.max(best,a.quickScore+b.quickScore);
+				}
+			}
+		}
+		return best;
+	}
+
+	/** Broad cheap marker used only to decide whether a wide pseudoalignment probe is warranted. */
+	private static boolean pseudoScoreSupported(int best1,int max1,int best2,int max2){
+		return max1>0 && max2>0 && (long)best1*100L>=(long)max1*45L &&
+				(long)best2*100L>=(long)max2*45L;
+	}
+
+	/** At least one mate has complementary half-read pseudo sites separated by a plausible long indel. */
+	private static boolean pseudoHalfSupported(final int split1, final int split2){
+		return split1>0 || split2>0;
 	}
 
 	/** One complete single-read search attempt; final statistics commit separately. */
@@ -1453,6 +1596,32 @@ public final class BBMapThread extends AbstractMapThread{
 	private final PairAttemptAccounting secondAttempt;
 	private final PairSearchState entryState;
 	private final PairSearchState firstState;
+	private final PairSearchState probeState;
+	private void widePseudoProbe(final Read r, final byte[] basesM1, final byte[] basesM2,
+			final PairAttemptAccounting first, final int lowPrimary, final int lowSum,
+			final int highPrimary, final int highSum){
+		entryState.restore();r.sites=null;r.mate.sites=null;
+		index.setRuntimeIndelLimits(highPrimary,highSum);
+		try{
+			first.probeQuick1=quickMap(r,basesM1);
+			first.probeQuick2=quickMap(r.mate,basesM2);
+			first.probeGap1=maxPseudoGap(r);
+			first.probeGap2=maxPseudoGap(r.mate);
+			first.probeGapQuick1=bestLongGapQuickScore(r);
+			first.probeGapQuick2=bestLongGapQuickScore(r.mate);
+			first.probePairQuick=bestPairableQuickScore(r);
+			first.probeNear1=countNearBestSites(r,bestQuickScore(r),false);
+			first.probeNear2=countNearBestSites(r.mate,bestQuickScore(r.mate),false);
+			first.probeGapNear1=countNearBestSites(r,first.probeGapQuick1,true);
+			first.probeGapNear2=countNearBestSites(r.mate,first.probeGapQuick2,true);
+			first.probePairable=first.probePairQuick>0;
+			first.probeAccepted=first.probeGap1>50 || first.probeGap2>50 || first.probePairable;
+			probeState.capture(r);
+		}finally{
+			firstState.restore();
+			index.setRuntimeIndelLimits(lowPrimary,lowSum);
+		}
+	}
 	@Override
 	public void processReadPair(final Read r, final byte[] basesM1, final byte[] basesM2){
 		if(idmodulo>1 && r.numericID%idmodulo!=1){return;}
@@ -1481,29 +1650,72 @@ public final class BBMapThread extends AbstractMapThread{
 		try{
 			searchAndScorePair(r,basesM1,basesM2,first);firstState.capture(r);
 			final HybridPairPolicy.Observation observation=first.rejected ? null : HybridPairPolicy.observe(this,r,basesM1,basesM2,first.imperfect1,first.max1,first.imperfect2,first.max2,false);
+			final boolean lowTopPairable=observation!=null && topPairable(r);
+			final boolean probeCandidate=generalHybrid && HYBRID_WIDE_PROBE && observation!=null &&
+					!lowTopPairable && first.pseudoScoreSupported();
+			if(probeCandidate){
+				widePseudoProbe(r,basesM1,basesM2,first,lowPrimary,lowSum,highPrimary,highSum);
+				hybridMaxIndelStats.wideProbe(first.probeGap1>50 || first.probeGap2>50,first.probePairable);
+			}
+			final boolean halfSupported=HYBRID_WIDE_PROBE ? first.probeAccepted : first.pseudoHalfSupported();
+			final boolean pseudoHalfRoute=HYBRID_PSEUDO_ROUTE && observation!=null && !lowTopPairable && halfSupported;
+			final int routeFlags=observation==null ? 0 :
+					observation.flags|(pseudoHalfRoute ? HybridPairPolicy.PSEUDO_HALF : 0);
+			if(generalHybrid && observation!=null){hybridMaxIndelStats.pairPseudoObservation(lowTopPairable,halfSupported);}
+			if(generalHybrid && HYBRID_PAIR_TRACE && observation!=null){
+				final String id=r.id==null ? Long.toString(r.numericID) : r.id;
+				synchronized(System.err){
+					System.err.println("hybrid_pair_trace\t"+id+"\t"+observation.flags1+"\t"+observation.flags2+
+							"\t"+first.bestQuick1+"\t"+first.quick1+"\t"+first.bestQuick2+"\t"+first.quick2+
+							"\t"+r.length()+"\t"+r.mate.length()+"\t"+bestPairedScore(r)+"\t"+bestPairedScore(r.mate)+
+							"\t"+r.numSites()+"\t"+r.mate.numSites()+"\t"+first.max1+"\t"+first.max2+
+							"\t"+topScore(r)+"\t"+topSlowScore(r)+"\t"+topPairedScore(r)+
+							"\t"+topScore(r.mate)+"\t"+topSlowScore(r.mate)+"\t"+topPairedScore(r.mate)+
+							"\t"+(lowTopPairable?1:0)+"\t"+first.pseudoGap1+"\t"+first.pseudoGap2+
+							"\t"+first.pseudoHalf1+"\t"+first.pseudoHalf2+
+							"\t"+first.pseudoHalf50_1+"\t"+first.pseudoHalf50_2+
+							"\t"+first.pseudoHalf75_1+"\t"+first.pseudoHalf75_2+
+							"\t"+first.pseudoHalf100_1+"\t"+first.pseudoHalf100_2+
+							"\t"+first.pseudoSplit1+"\t"+first.pseudoSplit2+
+							"\t"+first.probeGap1+"\t"+first.probeGap2+
+							"\t"+(first.probePairable?1:0)+"\t"+(first.probeAccepted?1:0)+
+							"\t"+first.probeQuick1+"\t"+first.probeQuick2+
+							"\t"+first.probeGapQuick1+"\t"+first.probeGapQuick2+
+							"\t"+first.probePairQuick+
+							"\t"+first.probeNear1+"\t"+first.probeNear2+
+							"\t"+first.probeGapNear1+"\t"+first.probeGapNear2);
+				}
+			}
 			PairAttemptAccounting chosen=first;
 			final boolean route=observation!=null && (generalHybrid ?
-				(observation.flags&HybridPairPolicy.HALF_ERRORS)!=0 : observation.route());
+				((observation.flags&HybridPairPolicy.HALF_ERRORS)!=0 || pseudoHalfRoute) : observation.route());
 			if(route){
 				if(generalHybrid){
 					hybridMaxIndelStats.retryAttempted();
-					hybridMaxIndelStats.pairReasons(observation.flags);
+					hybridMaxIndelStats.pairReasons(routeFlags);
 				}
 				if(hybridMatchCache!=null){hybridMatchCache.clear();}
-				entryState.restore();r.sites=null;r.mate.sites=null;
 				index.setRuntimeIndelLimits(highPrimary,highSum);secondAttempt.reset();
-				searchAndScorePair(r,basesM1,basesM2,secondAttempt);
+				if(pseudoHalfRoute && HYBRID_WIDE_PROBE && first.probeAccepted){
+					probeState.restore();
+					retainProbeSites(r,16);retainProbeSites(r.mate,16);
+					secondAttempt.quick1=first.probeQuick1;secondAttempt.quick2=first.probeQuick2;
+					scorePairFromQuick(r,basesM1,basesM2,secondAttempt,secondAttempt.quick1,secondAttempt.quick2);
+				}else{
+					entryState.restore();r.sites=null;r.mate.sites=null;
+					searchAndScorePair(r,basesM1,basesM2,secondAttempt);
+				}
 				final String geometry=secondAttempt.rejected ? "REJECTED" : HybridPairPolicy.observe(this,r,basesM1,basesM2,secondAttempt.imperfect1,secondAttempt.max1,secondAttempt.imperfect2,secondAttempt.max2,true).geometry;
 				final boolean mapqAccepted=!generalHybrid || retryPairMapqAccepted(r,hybridMaxIndelConfig.retryMinMapq);
 				if(geometry.equals("NO_CONFLICT") && mapqAccepted){
 					first.discard();chosen=secondAttempt;
-					if(generalHybrid){hybridMaxIndelStats.wideSelected();hybridMaxIndelStats.pairOutcome(observation.flags,true);}
+					if(generalHybrid){hybridMaxIndelStats.wideSelected();hybridMaxIndelStats.pairOutcome(routeFlags,true);}
 				}
 				else{
 					if(generalHybrid && geometry.equals("NO_CONFLICT") && !mapqAccepted){hybridMaxIndelStats.mapqRejected();}
 					if(hybridMatchCache!=null){hybridMatchCache.clear();}
 					secondAttempt.discard();firstState.restore();index.setRuntimeIndelLimits(lowPrimary,lowSum);
-					if(generalHybrid){hybridMaxIndelStats.lowRestored();hybridMaxIndelStats.pairOutcome(observation.flags,false);}
+					if(generalHybrid){hybridMaxIndelStats.lowRestored();hybridMaxIndelStats.pairOutcome(routeFlags,false);}
 				}
 			}
 			chosen.commit(this);
@@ -1522,7 +1734,7 @@ public final class BBMapThread extends AbstractMapThread{
 		}finally{
 			try{index.setRuntimeIndelLimits(lowPrimary,lowSum);}finally{
 				if(hybridMatchCache!=null){hybridMatchCache.clear();}
-				entryState.clear();firstState.clear();
+				entryState.clear();firstState.clear();probeState.clear();
 			}
 		}
 	}
@@ -1771,6 +1983,22 @@ public final class BBMapThread extends AbstractMapThread{
 		final int len1=(basesP1==null ? 0 : basesP1.length), len2=(basesP2==null ? 0 : basesP2.length);
 		final int maxPossibleQuickScore1=attempt.quick1=quickMap(r, basesM1);
 		final int maxPossibleQuickScore2=attempt.quick2=quickMap(r2, basesM2);
+		if(hybridMaxIndelConfig!=null){
+			attempt.bestQuick1=bestQuickScore(r);
+			attempt.pseudoGap1=maxPseudoGap(r);
+			attempt.pseudoHalf1=bestPseudoHalfCoverage(r,25);
+			attempt.pseudoHalf50_1=bestPseudoHalfCoverage(r,50);
+			attempt.pseudoHalf75_1=bestPseudoHalfCoverage(r,75);
+			attempt.pseudoHalf100_1=bestPseudoHalfCoverage(r,100);
+			attempt.pseudoSplit1=smallestPseudoSplitGap(r,hybridMaxIndelConfig.highPrimary);
+			attempt.bestQuick2=bestQuickScore(r2);
+			attempt.pseudoGap2=maxPseudoGap(r2);
+			attempt.pseudoHalf2=bestPseudoHalfCoverage(r2,25);
+			attempt.pseudoHalf50_2=bestPseudoHalfCoverage(r2,50);
+			attempt.pseudoHalf75_2=bestPseudoHalfCoverage(r2,75);
+			attempt.pseudoHalf100_2=bestPseudoHalfCoverage(r2,100);
+			attempt.pseudoSplit2=smallestPseudoSplitGap(r2,hybridMaxIndelConfig.highPrimary);
+		}
 		
 		if(verbose){
 			System.err.println("\nAfter quick map:\nRead1:\t"+r+"\nRead2:\t"+r.mate);
@@ -1787,6 +2015,16 @@ public final class BBMapThread extends AbstractMapThread{
 			r2.setDiscarded(true);
 			return;
 		}
+		scorePairFromQuick(r,basesM1,basesM2,attempt,maxPossibleQuickScore1,maxPossibleQuickScore2);
+	}
+
+	/** Finish one paired attempt from already populated quick-map site lists. */
+	private void scorePairFromQuick(final Read r, final byte[] basesM1, final byte[] basesM2,
+			final PairAttemptAccounting attempt, final int maxPossibleQuickScore1, final int maxPossibleQuickScore2){
+		assert(r.mate!=null && !attempt.committed) : "Quick-map continuation requires an open paired attempt";
+		final Read r2=r.mate;
+		final byte[] basesP1=r.bases, basesP2=r2.bases;
+		final int len1=(basesP1==null ? 0 : basesP1.length), len2=(basesP2==null ? 0 : basesP2.length);
 		
 		//Not really needed due to subsumption
 //		Tools.mergeDuplicateSites(r.list);
@@ -1998,6 +2236,9 @@ public final class BBMapThread extends AbstractMapThread{
 	private final ReadSearchState singleEntryState;
 	private final ReadSearchState singleFirstState;
 	private final HybridMaxIndelStats hybridMaxIndelStats;
+	private static final boolean HYBRID_PAIR_TRACE=Boolean.getBoolean("bbmap3.hybridPairTrace");
+	private static final boolean HYBRID_PSEUDO_ROUTE=!Boolean.getBoolean("bbmap3.disableHybridPseudoRoute");
+	private static final boolean HYBRID_WIDE_PROBE=Boolean.getBoolean("bbmap3.hybridWideProbe");
 	private static final int QUANTUM_SCORE_SCALE=100;
 	private static final int QUANTUM_SCORE_OFFSET=-30;
 	private static final int QUANTUM_EDIT_COST=2*QUANTUM_SCORE_SCALE;
@@ -2029,14 +2270,24 @@ public final class BBMapThread extends AbstractMapThread{
 	}
 	HybridMaxIndelStats hybridMaxIndelStats(){return hybridMaxIndelStats;}
 	private static final class PairAttemptAccounting {
-		int quick1, quick2, max1, max2, imperfect1, imperfect2;
+		int quick1, quick2, bestQuick1, bestQuick2, pseudoGap1, pseudoGap2, pseudoHalf1, pseudoHalf2;
+		int pseudoHalf50_1, pseudoHalf50_2, pseudoHalf75_1, pseudoHalf75_2, pseudoHalf100_1, pseudoHalf100_2;
+		int pseudoSplit1, pseudoSplit2;
+		int probeQuick1, probeQuick2, probeGap1, probeGap2, probeGapQuick1, probeGapQuick2, probePairQuick;
+		int probeNear1, probeNear2, probeGapNear1, probeGapNear2;
+		int max1, max2, imperfect1, imperfect2;
 		int initialSiteSum1, initialSiteSum2, postTrimSiteSum1, postTrimSiteSum2;
 		int postRescueSiteSum1, postRescueSiteSum2, mapped1, mapped2;
 		int rejectedBases1, rejectedBases2;
-		boolean rejected, committed=true;
+		boolean probePairable,probeAccepted,rejected,committed=true;
 		void reset(){
 			assert(committed) : "The previous attempt must be committed before reusing its accounting storage";
-			quick1=quick2=max1=max2=imperfect1=imperfect2=0;
+			quick1=quick2=bestQuick1=bestQuick2=pseudoGap1=pseudoGap2=pseudoHalf1=pseudoHalf2=max1=max2=imperfect1=imperfect2=0;
+			pseudoHalf50_1=pseudoHalf50_2=pseudoHalf75_1=pseudoHalf75_2=pseudoHalf100_1=pseudoHalf100_2=0;
+			pseudoSplit1=pseudoSplit2=0;
+			probeQuick1=probeQuick2=probeGap1=probeGap2=probeGapQuick1=probeGapQuick2=probePairQuick=0;
+			probeNear1=probeNear2=probeGapNear1=probeGapNear2=0;
+			probePairable=probeAccepted=false;
 			initialSiteSum1=initialSiteSum2=postTrimSiteSum1=postTrimSiteSum2=0;
 			postRescueSiteSum1=postRescueSiteSum2=mapped1=mapped2=0;
 			rejectedBases1=rejectedBases2=0;rejected=false;committed=false;
@@ -2044,6 +2295,12 @@ public final class BBMapThread extends AbstractMapThread{
 		void discard(){
 			assert(!committed) : "Only an uncommitted attempt may be discarded";
 			committed=true;
+		}
+		boolean pseudoHalfSupported(){
+			return BBMapThread.pseudoHalfSupported(pseudoSplit1,pseudoSplit2);
+		}
+		boolean pseudoScoreSupported(){
+			return BBMapThread.pseudoScoreSupported(bestQuick1,quick1,bestQuick2,quick2);
 		}
 		void commit(BBMapThread owner){
 			assert(!committed) : "Paired output and intermediate-site statistics must commit exactly once";

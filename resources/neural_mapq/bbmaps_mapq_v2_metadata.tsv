@@ -1,0 +1,14 @@
+key	value
+schema_version	2
+minimum_read_length	50
+maximum_read_length	250
+small_reference_maximum_bases	20000000
+large_reference_minimum_bases	1000000000
+intermediate_reference_behavior	legacy
+unsupported_length_behavior	legacy
+single_large_lut_blocks	32
+single_small_lut_blocks	23
+paired_large_lut_blocks	48
+paired_small_lut_blocks	37
+maximum_evidence_cap	45
+universal_q50_supported	0

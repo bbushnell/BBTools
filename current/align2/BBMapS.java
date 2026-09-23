@@ -1,6 +1,7 @@
 package align2;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -10,6 +11,7 @@ import dna.AminoAcid;
 import dna.ChromosomeArray;
 import dna.Data;
 import dna.FastaToChromArrays2;
+import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import jgi.CoveragePileup;
@@ -19,13 +21,19 @@ import shared.Timer;
 import shared.Tools;
 import shared.TrimRead;
 import stream.FastaReadInputStream;
+import stream.PairedWriter;
 import stream.Read;
+import stream.NeuralMapqCache;
+import stream.SamWriter;
 import stream.Streamer;
 import stream.StreamerFactory;
 import stream.Writer;
 import stream.WriterFactory;
+import stream.UnorderedFastqWriter;
+import stream.UnorderedSamWriter;
 import stream.ReadStreamWriter;
 import stream.SamLine;
+import structures.ByteBuilder;
 import structures.ListNum;
 import structures.LongList;
 import template.Accumulator;
@@ -42,7 +50,22 @@ import tracker.ReadStats;
  */
 public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.ProcessThread> {
 	private int hybridTipSearchCeiling; // Assigned during superclass construction; no field initializer.
-	
+	// Parsed during superclass construction; field initializers would overwrite them afterward.
+	private int orderedWriterInputCapacity;
+	private int orderedWriterOutputCapacity;
+	private String mapqFeatureFile;
+	private String mapqPairFeatureFile;
+	private boolean neuralMapqRequested;
+	private String neuralMapqNet;
+	private String neuralMapqLargeLut;
+	private String neuralMapqSmallLut;
+	private boolean neuralMapqAutoRequested;
+	private boolean neuralMapqPairRequested;
+	private String neuralMapqPairNet;
+	private String neuralMapqPairLargeLut;
+	private String neuralMapqPairSmallLut;
+	private String neuralMapqCaps;
+
 
 	/**
 	 * Program entry point for BBMap alignment.
@@ -62,7 +85,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		clearStatics();
 		BBMapSplitterS.clearStatics();
 	}
-	
+
 	/**
 	 * Constructs BBMap instance with specified arguments.
 	 * Inherits configuration parsing and validation from AbstractMapper.
@@ -71,7 +94,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	public BBMapS(String[] args){
 		super(args);
 	}
-	
+
 	/**
 	 * Sets BBMap-specific default values for alignment parameters.
 	 * Configures compression, key density, alignment scoring, and output settings.
@@ -85,18 +108,18 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		ReadWrite.ZIPLEVEL=2;
 		MAKE_MATCH_STRING=true;
 		keylen=13;
-		
+
 		MINIMUM_ALIGNMENT_SCORE_RATIO=0.56f;
 
 		keyDensity=1.9f;//2.3f;
 		maxKeyDensity=3f;//4f;
 		minKeyDensity=1.5f;//1.8f;
 		maxDesiredKeys=15;
-		
+
 		SLOW_ALIGN_PADDING=4;
 		SLOW_RESCUE_PADDING=4+SLOW_ALIGN_PADDING;
 		TIP_SEARCH_DIST=100;
-		
+
 		MSA_TYPE="MultiStateAligner11ts";
 		MAX_SITESCORES_TO_PRINT=5;
 		PRINT_SECONDARY_ALIGNMENTS=false;
@@ -107,7 +130,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		// Java byte[] ceiling and BBIndex's largest v4 site field (chrombits=1).
 		FastaToChromArrays2.MAX_SINGLE_SCAFFOLD=Shared.MAX_ARRAY_LEN/2-200000;
 	}
-	
+
 	/**
 	 * Pre-processes arguments to apply speed/accuracy mode presets.
 	 * Modifies key density, alignment strictness, and index parameters based on
@@ -126,7 +149,76 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(s==null){continue;}
 			final int equals=s.indexOf('=');
 			final String key=(equals<0 ? s : s.substring(0, equals));
-			if(key.equalsIgnoreCase("quantumonebase")){
+			if(key.equalsIgnoreCase("mapqfeatures")){
+				mapqFeatureFile=(equals<0 ? null : s.substring(equals+1));
+				if(mapqFeatureFile==null || mapqFeatureFile.isEmpty()){
+					throw new IllegalArgumentException("mapqfeatures requires an output path");
+				}
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("mapqpairfeatures")){
+				mapqPairFeatureFile=(equals<0 ? null : s.substring(equals+1));
+				if(mapqPairFeatureFile==null || mapqPairFeatureFile.isEmpty()){
+					throw new IllegalArgumentException("mapqpairfeatures requires an output path");
+				}
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapq")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				neuralMapqAutoRequested=false;
+				neuralMapqRequested=Parse.parseBoolean(value);
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqpair")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				neuralMapqAutoRequested=false;
+				neuralMapqPairRequested=Parse.parseBoolean(value);
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("mapqmode")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				if("neuralauto".equalsIgnoreCase(value) || "auto".equalsIgnoreCase(value)){
+					neuralMapqAutoRequested=true;neuralMapqRequested=neuralMapqPairRequested=false;
+				}else if("neural".equalsIgnoreCase(value)){
+					neuralMapqAutoRequested=false;neuralMapqRequested=true;neuralMapqPairRequested=false;
+				}else if("neuralpaired".equalsIgnoreCase(value)){
+					neuralMapqAutoRequested=false;neuralMapqRequested=false;neuralMapqPairRequested=true;
+				}else if("legacy".equalsIgnoreCase(value)){
+					neuralMapqAutoRequested=neuralMapqRequested=neuralMapqPairRequested=false;
+				}else{throw new IllegalArgumentException("mapqmode must be neuralauto, legacy, neural, or neuralpaired: "+value);}
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqnet")){
+				neuralMapqNet=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqlutlarge")){
+				neuralMapqLargeLut=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqlutsmall")){
+				neuralMapqSmallLut=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqpairnet")){
+				neuralMapqPairNet=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqpairlutlarge")){
+				neuralMapqPairLargeLut=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqpairlutsmall")){
+				neuralMapqPairSmallLut=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("neuralmapqcaps")){
+				neuralMapqCaps=(equals<0 ? null : s.substring(equals+1));
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("orderedwriterbuffers")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				orderedWriterInputCapacity=Parse.parseIntKMG(value);
+				if(orderedWriterInputCapacity<2){
+					throw new IllegalArgumentException("orderedwriterbuffers must be at least 2: "+value);
+				}
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("orderedwriteroutbuffers")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				orderedWriterOutputCapacity=Parse.parseIntKMG(value);
+				if(orderedWriterOutputCapacity<2){
+					throw new IllegalArgumentException("orderedwriteroutbuffers must be at least 2: "+value);
+				}
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("quantumonebase")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
 				System.setProperty("bbmap3.quantumTieredMutate",
 						Boolean.toString(Parse.parseBoolean(value)));
@@ -181,18 +273,18 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			list.add("maxsites=3");
 			list.add("maxsites2=100");
 //			list.add("k=13");
-			
+
 			//TODO:  Make these adjustable.
 //			MIN_TRIM_SITES_TO_RETAIN_SINGLE
 //			MIN_TRIM_SITES_TO_RETAIN_PAIRED
 //			MAX_TRIM_SITES_TO_RETAIN
 			//TODO:  Make trimLists adjustable via an offset or multiplier
-			
+
 			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*1.25f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			keyDensity*=0.9f;
 			maxKeyDensity*=0.9f;
 			minKeyDensity*=0.9f;
@@ -205,12 +297,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			list.add("rescuemismatches=50");
 			list.add("rescuedist=2500");
 			list.add("maxindel=100");
-			
+
 			BBIndex.setFractionToExclude(0);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			SLOW_ALIGN_PADDING=SLOW_ALIGN_PADDING*2+8;
 			SLOW_RESCUE_PADDING=SLOW_RESCUE_PADDING*2+2;
 
@@ -230,24 +322,27 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 //			list.add("midpad=150");
 //			list.add("minscaf=50");
 //			list.add("k=13");
-			
+
 			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.4f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			AbstractIndex.SLOW=true;
 			keyDensity*=1.2f;
 			maxKeyDensity*=1.2f;
 			minKeyDensity*=1.2f;
 		}
-		
+
 		if(excludeFraction>=0){
 			BBIndex.setFractionToExclude(excludeFraction);
 		}
-		return args;
+		// BBMapS-only flags above are consumed by setting their slots to null.
+		// PreParser.parseHelp dereferences the final slot, so a consumed flag in
+		// final position must be removed before AbstractMapper.parse receives it.
+		return Tools.condenseStrict(args);
 	}
-	
+
 	/**
 	 * Post-processes parsed arguments to finalize configuration.
 	 * Applies bandwidth constraints, handles input file detection,
@@ -268,7 +363,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, 3);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, 6);
 		}
-		
+
 		if(maxIndel1>-1){
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, maxIndel1);
 			BBIndex.MAX_INDEL=maxIndel1;
@@ -276,20 +371,20 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		if(maxIndel2>-1){
 			BBIndex.MAX_INDEL2=maxIndel2;
 		}
-		
+
 		if(minApproxHits>-1){
 			BBIndex.MIN_APPROX_HITS_TO_KEEP=minApproxHits;
 		}
-		
+
 		if(expectedSites>-1){
 			BBMapThread.setExpectedSites(expectedSites);
 			outstream.println("Set EXPECTED_SITES to "+expectedSites);
 		}
-		
+
 		if(fractionGenomeToExclude>=0){
 			BBIndex.setFractionToExclude(fractionGenomeToExclude);
 		}
-		
+
 		{
 			final String a=(args.length>0 ? args[0] : null);
 			final String b=(args.length>1 ? args[1] : null);
@@ -299,7 +394,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 
 		assert(synthReadlen<BBMapThread.ALIGN_ROWS);
-		
+
 		if(MSA.bandwidth>0){
 			int halfwidth=MSA.bandwidth/2;
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, halfwidth/2);
@@ -309,12 +404,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, halfwidth/4);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, halfwidth/4);
 		}
-		
+
 		if(PRINT_SECONDARY_ALIGNMENTS){
 			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
 			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
 		}
-		
+
 		if(in1!=null){
 			if(ambigMode==AMBIG_BEST){
 				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
@@ -407,9 +502,66 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				throw new RuntimeException("pseudoalign=t is incompatible with identity/edit filters");
 			}
 		}
+		if(neuralMapqRequested){
+			if(mapqFeatureFile!=null || mapqPairFeatureFile!=null){
+				throw new IllegalArgumentException("neuralmapq cannot be combined with MAPQ feature export");
+			}
+			if(neuralMapqNet==null || neuralMapqNet.isEmpty() ||
+					neuralMapqLargeLut==null || neuralMapqLargeLut.isEmpty() ||
+					neuralMapqSmallLut==null || neuralMapqSmallLut.isEmpty() ||
+					neuralMapqCaps==null || neuralMapqCaps.isEmpty()){
+				throw new IllegalArgumentException("neuralmapq requires neuralmapqnet, neuralmapqlutlarge, neuralmapqlutsmall, and neuralmapqcaps");
+			}
+			if(!MAKE_MATCH_STRING){
+				throw new IllegalArgumentException("neuralmapq requires match=t");
+			}
+			if(PERFECTMODE || SEMIPERFECTMODE || Boolean.getBoolean("bbmap3.quantumOnly") ||
+					Boolean.getBoolean("bbmap3.quantumHybrid") ||
+					Boolean.getBoolean("bbmap3.quantumTieredMutate") ||
+					Boolean.getBoolean("bbmap3.pseudoAlign")){
+				throw new IllegalArgumentException("neuralmapq V2 supports standard alignment mode only");
+			}
+		}
+		if(neuralMapqPairRequested){
+			if(neuralMapqRequested){
+				throw new IllegalArgumentException("neuralmapq and neuralmapqpair are separate modes");
+			}
+			if(mapqFeatureFile!=null || mapqPairFeatureFile!=null){
+				throw new IllegalArgumentException("neuralmapqpair cannot be combined with MAPQ feature export");
+			}
+			if(neuralMapqPairNet==null || neuralMapqPairNet.isEmpty() ||
+					neuralMapqPairLargeLut==null || neuralMapqPairLargeLut.isEmpty() ||
+					neuralMapqPairSmallLut==null || neuralMapqPairSmallLut.isEmpty() ||
+					neuralMapqCaps==null || neuralMapqCaps.isEmpty()){
+				throw new IllegalArgumentException("neuralmapqpair requires neuralmapqpairnet, neuralmapqpairlutlarge, neuralmapqpairlutsmall, and neuralmapqcaps");
+			}
+			if(!MAKE_MATCH_STRING){throw new IllegalArgumentException("neuralmapqpair requires match=t");}
+			if(PERFECTMODE || SEMIPERFECTMODE || Boolean.getBoolean("bbmap3.quantumOnly") ||
+					Boolean.getBoolean("bbmap3.quantumHybrid") ||
+					Boolean.getBoolean("bbmap3.quantumTieredMutate") ||
+					Boolean.getBoolean("bbmap3.pseudoAlign")){
+				throw new IllegalArgumentException("paired neural MAPQ V2 supports standard alignment mode only");
+			}
+		}
+		if(neuralMapqAutoRequested){
+			final boolean incompatible=mapqFeatureFile!=null || mapqPairFeatureFile!=null || !MAKE_MATCH_STRING ||
+					PERFECTMODE || SEMIPERFECTMODE || Boolean.getBoolean("bbmap3.quantumOnly") ||
+					Boolean.getBoolean("bbmap3.quantumHybrid") || Boolean.getBoolean("bbmap3.quantumTieredMutate") ||
+					Boolean.getBoolean("bbmap3.pseudoAlign");
+			if(incompatible){
+				neuralMapqAutoRequested=false;
+				outstream.println("Automatic neural MAPQ disabled for the requested nonstandard/export mode.");
+			}else if(neuralMapqNet==null || neuralMapqNet.isEmpty() || neuralMapqLargeLut==null ||
+					neuralMapqLargeLut.isEmpty() || neuralMapqSmallLut==null || neuralMapqSmallLut.isEmpty() ||
+					neuralMapqPairNet==null || neuralMapqPairNet.isEmpty() || neuralMapqPairLargeLut==null ||
+					neuralMapqPairLargeLut.isEmpty() || neuralMapqPairSmallLut==null ||
+					neuralMapqPairSmallLut.isEmpty() || neuralMapqCaps==null || neuralMapqCaps.isEmpty()){
+				throw new IllegalArgumentException("neuralauto requires all single, paired, and cap resources");
+			}
+		}
 
 	}
-	
+
 	/**
 	 * Performs pre-alignment setup and validation.
 	 * Configures minimum identity thresholds, output streams, blacklists,
@@ -417,17 +569,17 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	public void setup(){
-		
+
 		assert(!useRandomReads || maxReads>0 || (in1!=null && in1.equals("sequential"))) : "Please specify number of reads to use.";
-		
+
 		if(minid!=-1){
 			MINIMUM_ALIGNMENT_SCORE_RATIO=MSA.minIdToMinRatio(minid, MSA_TYPE);
 			outstream.println("Set MINIMUM_ALIGNMENT_SCORE_RATIO to "+Tools.format("%.3f",MINIMUM_ALIGNMENT_SCORE_RATIO));
 		}
-		
+
 		if(!setxs){SamLine.MAKE_XS_TAG=(SamLine.INTRON_LIMIT<1000000000);}
 		if(setxs && !setintron){SamLine.INTRON_LIMIT=10;}
-		
+
 		if(outFile==null && outFile2==null && outFileM==null && outFileM2==null && outFileU==null && outFileU2==null
 				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBMapSplitterS.streamTable==null){
 			outstream.println("No output file.");
@@ -439,15 +591,15 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			}
 		}
 //		assert(false) : bamscript+", "+BBMapSplitterS.streamTable+", "+OUTPUT_READS;
-		
-		
-		
+
+
+
 		FastaReadInputStream.MIN_READ_LEN=Tools.max(keylen+2, FastaReadInputStream.MIN_READ_LEN);
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(build<0){throw new RuntimeException("Must specify a build number, e.g. build=1");}
 		else{Data.GENOME_BUILD=build;}
-		
+
 		if(blacklist!=null && blacklist.size()>0){
 			Timer t=new Timer();
 			t.start();
@@ -458,11 +610,11 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			outstream.println("Created blacklist:\t"+t);
 			t.start();
 		}
-		
+
 		if(ziplevel!=-1){ReadWrite.ZIPLEVEL=ziplevel;}
 		if(reference!=null){RefToIndex.makeIndex(reference, build, outstream, keylen);}
 	}
-	
+
 
 	/**
 	 * Configures handling of reads that map to multiple references.
@@ -495,7 +647,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			BBSplitter.AMBIGUOUS2_MODE=BBSplitter.AMBIGUOUS2_FIRST;
 		}
 	}
-	
+
 	/**
 	 * Loads reference genome index and prepares for alignment.
 	 * Initializes chromosome data structures, generates k-mer index,
@@ -505,7 +657,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	@Override
 	void loadIndex(){
 		Timer t=new Timer(outstream, true);
-		
+
 		if(build>-1){
 			Data.setGenome(build);
 			AbstractIndex.MINCHROM=1;
@@ -513,30 +665,30 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			if(minChrom<0){minChrom=1;}
 			if(maxChrom<0 || maxChrom>Data.numChroms){maxChrom=Data.numChroms;}
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
-			
+
 			if(RefToIndex.AUTO_CHROMBITS){RefToIndex.chrombits=autoChromBits();}
 			if(RefToIndex.chrombits!=-1){
 				BBIndex.setChromBits(RefToIndex.chrombits);
 				if(verbose_stats>0){outstream.println("Set CHROMBITS to "+RefToIndex.chrombits);}
 			}
 		}
-		
+
 		assert(minChrom>=AbstractIndex.MINCHROM && maxChrom<=AbstractIndex.MAXCHROM) :
 			minChrom+", "+maxChrom+", "+AbstractIndex.MINCHROM+", "+AbstractIndex.MAXCHROM;
 		AbstractIndex.MINCHROM=minChrom;
 		AbstractIndex.MAXCHROM=maxChrom;
-		
+
 		if(targetGenomeSize>0){
 			long bases=Data.numDefinedBases;
 			long x=Tools.max(1, Math.round(0.25f+bases*1d/targetGenomeSize));
 			BBMapThread.setExpectedSites((int)x);
 			outstream.println("Set EXPECTED_SITES to "+x);
 		}
-		
+
 		assert(!(PERFECTMODE && SEMIPERFECTMODE));
 		if(PERFECTMODE){setPerfectMode();}
 		if(SEMIPERFECTMODE){setSemiperfectMode();}
-		
+
 		//Optional section for discrete timing of chrom array loading
 		if((SLOW_ALIGN && !Boolean.getBoolean("bbmap3.pseudoAlign")) ||
 				AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
@@ -556,10 +708,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			t.start();
 		}
 		RefToIndex.chromlist=null;
-		
+
 		t.start();
 		BBIndex.loadIndex(minChrom, maxChrom, keylen, !RefToIndex.NODISK, RefToIndex.NODISK);
-		
+
 		{
 			long len=Data.numDefinedBases;
 			if(len<300000000){
@@ -576,25 +728,25 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				}
 			}
 		}
-		
+
 		t.stop();
 		outstream.println("Generated Index:\t"+t);
 		t.start();
-		
+
 		if((!SLOW_ALIGN || Boolean.getBoolean("bbmap3.pseudoAlign")) &&
 				!AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
 			for(int chrom=minChrom; chrom<=maxChrom; chrom++){
 				Data.unload(chrom, true);
 			}
 		}
-		
+
 		if(ReadWrite.countActiveThreads()>0){
 			ReadWrite.waitForWritingToFinish();
 			t.stop();
 			outstream.println("Finished Writing:\t"+t);
 			t.start();
 		}
-		
+
 		if(coverageBinned!=null || coverageBase!=null || rangeCov!=null || coverageHist!=null || coverageStats!=null || coverageRPKM!=null || normcov!=null || normcovOverall!=null || calcCov){
 			String[] cvargs=("covhist="+coverageHist+"\tcovstats="+coverageStats+"\tbasecov="+coverageBase+"\trangecov="+rangeCov+"\tbincov="+coverageBinned+"\tphyscov="+coveragePhysical+
 					"\t32bit="+cov32bit+"\tnzo="+covNzo+"\ttwocolumn="+covTwocolumn+"\tsecondary="+PRINT_SECONDARY_ALIGNMENTS+"\tcovminscaf="+coverageMinScaf+
@@ -605,14 +757,14 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			pileup.createDataStructures();
 			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
 		}
-		
+
 		if(!forceanalyze && (in1==null || maxReads==0)){return;}
-		
+
 		BBIndex.analyzeIndex(minChrom, maxChrom, BBIndex.FRACTION_GENOME_TO_EXCLUDE, keylen);
-		
+
 		t.stop("Analyzed Index:   ");
 		t.start();
-		
+
 		if(makeBloomFilter){
 			String serialPath=RefToIndex.bloomLoc(build);
 			File serialFile=new File(serialPath);
@@ -669,7 +821,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 		return max;
 	}
-		
+
 	/**
 	 * Executes the alignment pipeline with Streamer/Writer factories.
 	 * Each ProcessThread directly claims input lists and submits the same
@@ -706,6 +858,38 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		streamer.start();
 		final boolean paired=streamer.paired();
 		if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
+		if(neuralMapqAutoRequested){
+			neuralMapqRequested=!paired;neuralMapqPairRequested=paired;
+			outstream.println("Automatic neural MAPQ selected "+(paired ? "paired" : "single")+" V2 inference.");
+		}
+		if(neuralMapqRequested && paired){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("neuralmapq V2 supports single-end input only");
+		}
+		if(neuralMapqPairRequested && !paired){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("neuralmapqpair V2 requires paired input");
+		}
+		if(mapqFeatureFile!=null && paired){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("mapqfeatures supports single-end input only in V1");
+		}
+		if(mapqFeatureFile!=null && append){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("mapqfeatures does not support append because each file owns one schema header");
+		}
+		if(mapqPairFeatureFile!=null && !paired){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("mapqpairfeatures requires paired input");
+		}
+		if(mapqPairFeatureFile!=null && mapqFeatureFile!=null){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("mapqfeatures and mapqpairfeatures are separate exporters");
+		}
+		if(mapqPairFeatureFile!=null && append){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("mapqpairfeatures does not support append because each file owns one schema header");
+		}
 		if(hybridPair && !paired){
 			// Real pairedness (interleaved=t included) is only known here, not in postparse();
 			// close the just-started Streamer explicitly since the try/finally below that would
@@ -713,8 +897,21 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			ReadWrite.closeStream(streamer);
 			throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
 		}
+		final NeuralMapqInference neuralMapqTemplate;
+		final NeuralMapqPairedInference neuralMapqPairTemplate;
+		try{
+			neuralMapqTemplate=loadNeuralMapqTemplate();
+			neuralMapqPairTemplate=loadNeuralMapqPairTemplate();
+		}catch(RuntimeException e){
+			ReadWrite.closeStream(streamer);
+			throw e;
+		}
 		final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
 		final Writer[] writers=openWriters(args, buff, paired);
+		final ByteStreamWriter mapqFeatureWriter=(mapqFeatureFile==null ? null :
+				new ByteStreamWriter(mapqFeatureFile,overwrite,false,true));
+		final ByteStreamWriter mapqPairFeatureWriter=(mapqPairFeatureFile==null ? null :
+				new ByteStreamWriter(mapqPairFeatureFile,overwrite,false,true));
 
 		AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
 		final AbstractMapThread[] mtts=new AbstractMapThread[threads];
@@ -737,7 +934,18 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				engine.index().verbose=verbose;
 			}
 			mtts[i]=engine;
-			alpt.add(new ProcessThread(streamer, writers, engine, i));
+			final NeuralMapqInference neuralMapqInference=(neuralMapqTemplate==null ? null : neuralMapqTemplate.copy());
+			final NeuralMapqPairedInference neuralMapqPairInference=(neuralMapqPairTemplate==null ? null : neuralMapqPairTemplate.copy());
+			alpt.add(new ProcessThread(streamer,writers,mapqFeatureWriter,mapqPairFeatureWriter,
+					neuralMapqInference,neuralMapqPairInference,engine,i));
+		}
+		if(mapqFeatureWriter!=null){
+			mapqFeatureWriter.start();
+			mapqFeatureWriter.addJob(NeuralMapqFeatureRow.header());
+		}
+		if(mapqPairFeatureWriter!=null){
+			mapqPairFeatureWriter.start();
+			mapqPairFeatureWriter.addJob(NeuralMapqPairedFeatureRow.header());
 		}
 
 		boolean success=false;
@@ -756,6 +964,14 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				}
 			}
 		}finally{
+			if(mapqFeatureWriter!=null && mapqFeatureWriter.poisonAndWait()){
+				errorStateS=true;
+				success=false;
+			}
+			if(mapqPairFeatureWriter!=null && mapqPairFeatureWriter.poisonAndWait()){
+				errorStateS=true;
+				success=false;
+			}
 			// Some readers report malformed input through errorState rather than nextList().
 			if(ReadWrite.closeStream(streamer)){
 				errorStateS=true;
@@ -808,6 +1024,68 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		if(!success || errorStateS){throw new RuntimeException("BBMapS terminated in an error state; the output may be corrupt.");}
 	}
 
+	/** Loads one immutable template; workers receive private network/input state via copy(). */
+	private NeuralMapqInference loadNeuralMapqTemplate(){
+		if(!neuralMapqRequested){return null;}
+		final int regime=NeuralMapqReferenceScale.regime(Data.numBases);
+		final String lutPath;
+		if(regime==NeuralMapqReferenceScale.SMALL){
+			lutPath=neuralMapqSmallLut;
+		}else if(regime==NeuralMapqReferenceScale.LARGE){
+			lutPath=neuralMapqLargeLut;
+		}else{
+			outstream.println("Neural MAPQ disabled: reference size "+Data.numBases+
+					" is outside the calibrated <="+NeuralMapqReferenceScale.SMALL_MAX_BASES+
+					" or >="+NeuralMapqReferenceScale.LARGE_MIN_BASES+" base regimes.");
+			return null;
+		}
+		try{
+			final String net=resolveNeuralResource(neuralMapqNet,"single neural MAPQ network");
+			final String lut=resolveNeuralResource(lutPath,"single neural MAPQ calibration");
+			final String caps=resolveNeuralResource(neuralMapqCaps,"neural MAPQ length caps");
+			final NeuralMapqInference template=NeuralMapqInference.load(net,lut,caps,regime);
+			outstream.println("Neural MAPQ enabled: "+(regime==NeuralMapqReferenceScale.SMALL ? "small" : "large")+
+					" reference calibration with length-aware V2 caps.");
+			return template;
+		}catch(IOException e){
+			throw new RuntimeException("Could not load neural MAPQ resources",e);
+		}
+	}
+
+	/** Loads one immutable paired template; workers receive private network/input state via copy(). */
+	private NeuralMapqPairedInference loadNeuralMapqPairTemplate(){
+		if(!neuralMapqPairRequested){return null;}
+		final int regime=NeuralMapqPairedReferenceScale.regime(Data.numBases);
+		final String lutPath;
+		if(regime==NeuralMapqPairedReferenceScale.SMALL){
+			lutPath=neuralMapqPairSmallLut;
+		}else if(regime==NeuralMapqPairedReferenceScale.LARGE){
+			lutPath=neuralMapqPairLargeLut;
+		}else{
+			outstream.println("Paired neural MAPQ disabled: reference size "+Data.numBases+
+					" is outside the calibrated <="+NeuralMapqPairedReferenceScale.SMALL_MAX_BASES+
+					" or >="+NeuralMapqPairedReferenceScale.LARGE_MIN_BASES+" base regimes.");
+			return null;
+		}
+		try{
+			final String net=resolveNeuralResource(neuralMapqPairNet,"paired neural MAPQ network");
+			final String lut=resolveNeuralResource(lutPath,"paired neural MAPQ calibration");
+			final String caps=resolveNeuralResource(neuralMapqCaps,"neural MAPQ length caps");
+			final NeuralMapqPairedInference template=NeuralMapqPairedInference.load(net,lut,caps,regime);
+			outstream.println("Paired neural MAPQ enabled: "+
+					(regime==NeuralMapqPairedReferenceScale.SMALL ? "small" : "large")+
+					" reference calibration with length-aware V2 caps.");
+			return template;
+		}catch(IOException e){throw new RuntimeException("Could not load paired neural MAPQ resources",e);}
+	}
+
+	/** Resolve launcher-supplied ? resources through the standard BBTools search path. */
+	private static String resolveNeuralResource(final String path,final String label)throws IOException{
+		final String resolved=Data.findPath(path,false);
+		if(resolved==null){throw new IOException("Could not resolve "+label+": "+path);}
+		return resolved;
+	}
+
 	private Writer[] openWriters(String[] args, int buff, boolean paired){
 		final Writer[] writers=new Writer[4]; // A, M, U, B
 		if(OUTPUT_READS){
@@ -840,10 +1118,34 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 
 	private Writer makeWriter(String file1, String file2, String qf1, String qf2, int buff){
 		if(file1==null){return null;}
-		final FileFormat ff1=FileFormat.testOutput(file1, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
-		final FileFormat ff2=file2==null ? null : FileFormat.testOutput(file2, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, true);
+		// PairedWriter requires ordered twin streams so R1/R2 cannot diverge.
+		// Single/interleaved output may use Writer's unordered output queue.
+		final boolean ordered=ORDERED || file2!=null;
+		final FileFormat ff1=FileFormat.testOutput(file1, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, ordered);
+		final FileFormat ff2=file2==null ? null : FileFormat.testOutput(file2, DEFAULT_OUTPUT_FORMAT, 0, 0, true, overwrite, append, ordered);
 		AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
-		final Writer writer=WriterFactory.getStream(ff1, ff2, qf1, qf2, buff, null, false, Shared.threads());
+		final Writer writer;
+		if(!ordered && file2==null && ff1.sam()){
+			writer=new UnorderedSamWriter(ff1, null, false, Shared.threads());
+		}else if(!ordered && file2==null && ff1.fastq()){
+			writer=new UnorderedFastqWriter(ff1, Shared.threads());
+		}else if(ordered && ff1.samOrBam() && !(ff1.bam() && ReadWrite.nativeBamOut())){
+			final int inputCapacity=(orderedWriterInputCapacity>0 ? orderedWriterInputCapacity :
+					Tools.max(32, 8*Shared.threads()));
+			final int outputCapacity=orderedWriterOutputCapacity;
+			if(ff2==null){
+				writer=new SamWriter(ff1, Shared.threads(), null, false, true, true,
+						inputCapacity, outputCapacity);
+			}else{
+				final Writer w1=new SamWriter(ff1, Shared.threads(), null, false, true, false,
+						inputCapacity, outputCapacity);
+				final Writer w2=new SamWriter(ff2, Shared.threads(), null, false, false, true,
+						inputCapacity, outputCapacity);
+				writer=new PairedWriter(w1, w2);
+			}
+		}else{
+			writer=WriterFactory.getStream(ff1, ff2, qf1, qf2, buff, null, false, Shared.threads());
+		}
 		writer.start();
 		return writer;
 	}
@@ -906,11 +1208,23 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	private volatile boolean errorStateS=false;
 
 	final class ProcessThread extends Thread {
-		ProcessThread(Streamer streamer_, Writer[] writers_, BBMapThread engine_, int tid_){
+		ProcessThread(Streamer streamer_, Writer[] writers_, ByteStreamWriter mapqFeatureWriter_,
+				ByteStreamWriter mapqPairFeatureWriter_,
+				NeuralMapqInference neuralMapqInference_,NeuralMapqPairedInference neuralMapqPairInference_,
+				BBMapThread engine_, int tid_){
 			streamer=streamer_;
 			writers=writers_;
+			mapqFeatureWriter=mapqFeatureWriter_;
+			mapqPairFeatureWriter=mapqPairFeatureWriter_;
+			neuralMapqInference=neuralMapqInference_;
+			neuralMapqPairInference=neuralMapqPairInference_;
+			neuralMapqPairValues=(neuralMapqPairInference==null ? null : new int[2]);
 			engine=engine_;
 			tid=tid_;
+			mapqVector=(mapqFeatureWriter==null ? null : new float[NeuralMapqFeatureSchema.WIDTH]);
+			mapqScratch=(mapqFeatureWriter==null ? null : new NeuralMapqFeatureExtractor.Scratch());
+			mapqPairVector=(mapqPairFeatureWriter==null ? null : new float[NeuralMapqPairedFeatureSchema.WIDTH]);
+			mapqPairScratch=(mapqPairFeatureWriter==null ? null : new NeuralMapqPairedFeatureExtractor.Scratch());
 		}
 
 		@Override
@@ -939,6 +1253,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}
 
 		private void processList(ListNum<Read> ln){
+			final ByteBuilder mapqBlock=(mapqFeatureWriter==null ? null : new ByteBuilder(8192));
+			final ByteBuilder mapqPairBlock=(mapqPairFeatureWriter==null ? null : new ByteBuilder(16384));
 			// Skip original input IDs before shredding, statistics, or mapping. Keep ln.id
 			// even for a wholly skipped batch so ordered output receives every list ID.
 			if(AbstractMapThread.SKIP_INITIAL>0){
@@ -962,6 +1278,9 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				engine.basesIn1+=r.length();
 				engine.basesIn2+=r.mateLength();
 				final Read r2=r.mate;
+				if(neuralMapqInference!=null || neuralMapqPairInference!=null){
+					NeuralMapqCache.clear(r);NeuralMapqCache.clear(r2);
+				}
 
 				final boolean passesBloom=(engine.bloomFilter!=null && engine.bloomFilter.passes(r, r2, bloomBuffer, 1));
 				if(passesBloom){
@@ -1006,6 +1325,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					engine.processRead(r, basesM);
 					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
 					assert(Read.CHECKSITES(r, basesM));
+					if(neuralMapqInference!=null && r.mapped()){
+						final int q=neuralMapqInference.mapq(r);if(q>=0){NeuralMapqCache.set(r,q);}
+					}
+					if(mapqBlock!=null && r.mapped()){
+						NeuralMapqFeatureRow.append(r,mapqVector,mapqScratch,mapqBlock);
+					}
 				}else{
 					if(engine.RCOMP_MATE!=AbstractMapThread.RCOMP){r2.reverseComplementFast();}
 					final byte[] basesM1=AminoAcid.reverseComplementBases(r.bases);
@@ -1019,6 +1344,24 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					engine.capSiteList(r2, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
 					assert(Read.CHECKSITES(r, basesM1));
 					assert(Read.CHECKSITES(r2, basesM2));
+					if(neuralMapqPairInference!=null){
+						neuralMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
+								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,neuralMapqPairValues);
+						if(neuralMapqPairValues[0]>=0){NeuralMapqCache.set(r,neuralMapqPairValues[0]);}
+						if(neuralMapqPairValues[1]>=0){NeuralMapqCache.set(r2,neuralMapqPairValues[1]);}
+					}
+					if(mapqPairBlock!=null){
+						if(r.mapped()){
+							NeuralMapqPairedFeatureRow.append(r,r2,engine.AVERAGE_PAIR_DIST,
+									engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,
+									mapqPairVector,mapqPairScratch,mapqPairBlock);
+						}
+						if(r2.mapped()){
+							NeuralMapqPairedFeatureRow.append(r2,r,engine.AVERAGE_PAIR_DIST,
+									engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,
+									mapqPairVector,mapqPairScratch,mapqPairBlock);
+						}
+					}
 				}
 
 				if(engine.UNTRIM && (engine.TRIM_LEFT || engine.TRIM_RIGHT)){
@@ -1040,6 +1383,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					if(engine.readstats!=null && ReadStats.COLLECT_TIME_STATS){engine.readstats.addToTimeHistogram(r);}
 				}
 			}
+			if(mapqBlock!=null){mapqFeatureWriter.addJob(mapqBlock);}
+			if(mapqPairBlock!=null){mapqPairFeatureWriter.addJob(mapqPairBlock);}
 
 			if(engine.RenameByInsert){
 				final boolean ignoreStrand=(!engine.REQUIRE_CORRECT_STRANDS_PAIRS || engine.SAME_STRAND_PAIRS);
@@ -1105,6 +1450,15 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		Throwable error=null;
 		final Streamer streamer;
 		final Writer[] writers;
+		final ByteStreamWriter mapqFeatureWriter;
+		final ByteStreamWriter mapqPairFeatureWriter;
+		final NeuralMapqInference neuralMapqInference;
+		final NeuralMapqPairedInference neuralMapqPairInference;
+		final int[] neuralMapqPairValues;
+		final float[] mapqVector;
+		final NeuralMapqFeatureExtractor.Scratch mapqScratch;
+		final float[] mapqPairVector;
+		final NeuralMapqPairedFeatureExtractor.Scratch mapqPairScratch;
 		final BBMapThread engine;
 		final int tid;
 	}
@@ -1152,7 +1506,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			BBIndex.setPerfectMode();
 		}
 	}
-	
+
 
 	/**
 	 * Prints current alignment configuration settings.
@@ -1162,19 +1516,19 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	void printSettings(int k){
-		
+
 		printSettings0(k, BBIndex.MAX_INDEL, MINIMUM_ALIGNMENT_SCORE_RATIO);
-		
+
 		if(verbose_stats>=2){
 			outstream.println("Key Density:          \t"+keyDensity+" ("+minKeyDensity+" ~ "+maxKeyDensity+")");
 			outstream.println("Max keys:             \t"+maxDesiredKeys);
-			
+
 			outstream.println("Block Subsections:     \t"+BBIndex.CHROMS_PER_BLOCK);
 			outstream.println("Fraction To Remove:    \t"+Tools.format("%.4f", (BBIndex.REMOVE_FREQUENT_GENOME_FRACTION ? BBIndex.FRACTION_GENOME_TO_EXCLUDE : 0)));
 			//		sysout.println("ADD_SCORE_Z:           \t"+Index4.ADD_SCORE_Z);
 			outstream.println("Hits To Keep:          \t"+BBIndex.MIN_APPROX_HITS_TO_KEEP);
 		}
-		
+
 		if(verbose_stats>=3){
 			outstream.println("Remove Clumpy:         \t"+BBIndex.REMOVE_CLUMPY);
 			if(BBIndex.REMOVE_CLUMPY){
@@ -1200,7 +1554,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				outstream.println("DYNAMIC_SCORE_THRESH:  \t"+BBIndex.DYNAMIC_SCORE_THRESH);
 			}
 		}
-		
+
 	}
 
 }

@@ -1086,7 +1086,6 @@ public final class BBIndex extends AbstractIndex {
 				}
 				
 				if(score>=cutoff){
-
 					if(score>currentTopScore){
 //						System.err.println("New top score!");
 
@@ -1676,9 +1675,19 @@ public final class BBIndex extends AbstractIndex {
 							assert(!perfect1 || ss.stop-ss.start==bases.length-1);
 						}
 						assert(!perfect2 || prevSS.stop-prevSS.start==bases.length-1);
+						if(capturePseudoCoverage){
+							final int packedCoverage=packPseudoCoverage(locArrayValid,score,maxScore,bases.length,locArray);
+							final int pseudoLeft=packedCoverage&127,pseudoRight=(packedCoverage>>7)&127;
+							if(ss==null){prevSS.mergePseudoCoverage(pseudoLeft,pseudoRight);}
+							else{ss.setPseudoCoverage(pseudoLeft,pseudoRight);}
+						}
 					}else if(inbounds && (!EMIT_POLYCRYSTALLINE_MATCH || polyMatch!=null)){
 						if(verbose){System.err.println("Considering new site chr"+chrom+", "+site2+"-"+site3);}
 						ss=new SiteScore(chrom, strand, site2, site3, approxHits, score, false, perfect1);
+						if(capturePseudoCoverage){
+							final int packedCoverage=packPseudoCoverage(locArrayValid,score,maxScore,bases.length,locArray);
+							ss.setPseudoCoverage(packedCoverage&127,(packedCoverage>>7)&127);
+						}
 						if(EMIT_POLYCRYSTALLINE_MATCH){ss.match=polyMatch;}
 						if(!perfect1){ss.setPerfect(bases);}
 						//assert((ss==null || !ss.semiperfect) && (prevSS==null || !prevSS.semiperfect)) : (ss==null ? false : ss.semiperfect)+", "+(prevSS==null ? false : prevSS.semiperfect); //***
@@ -3391,6 +3400,27 @@ public final class BBIndex extends AbstractIndex {
 		if(locArrays[len]==null){locArrays[len]=new int[len];}
 		return locArrays[len];
 	}
+
+	/** Packs the percentage of query bases reached by seed extension in each read half. */
+	private static int packPseudoCoverage(final boolean locArrayValid, final int score,
+			final int maxScore, final int length, final int[] locArray){
+		int left=0, right=0;
+		final int half=length/2;
+		if(locArrayValid){
+			for(int i=0; i<length; i++){
+				if(locArray[i]>=0){
+					if(i<half){left++;}
+					else{right++;}
+				}
+			}
+			left=(100*left)/Tools.max(1,half);
+			right=(100*right)/Tools.max(1,length-half);
+		}else if(score==maxScore){
+			left=right=100;
+		}
+		assert(left>=0 && left<=100 && right>=0 && right<=100) : left+", "+right;
+		return left|(right<<7);
+	}
 	/**
 	 * Retrieves reusable array for greedy list trimming algorithm.
 	 * @param len Required array length
@@ -3612,8 +3642,10 @@ public final class BBIndex extends AbstractIndex {
 	// Owned by the mapping thread, configured only between attempts. Static fields remain startup defaults.
 	private int runtimeMaxIndel;
 	private int runtimeMaxIndel2;
+	private boolean capturePseudoCoverage;
 	public int maxIndel(){return runtimeMaxIndel;}
 	public int maxIndel2(){return runtimeMaxIndel2;}
+	public void setCapturePseudoCoverage(final boolean value){capturePseudoCoverage=value;}
 
 	/** Change this index only. Positive-to-positive attempts; no read/counter transaction is implied. */
 	public void setRuntimeIndelLimits(int primary, int secondary){

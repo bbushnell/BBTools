@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentHashMap;
 
 import align2.AbstractIndex;
@@ -1324,10 +1325,15 @@ public class Data {
 		}else{//Use this as the literal path
 			return fname;
 		}
-		String path=ROOT_RESOURCES+fname;
+		final boolean network=isNetworkFile(fname);
+		String path=(network ? ROOT_NETWORKS : ROOT_RESOURCES)+fname;
 		boolean vb=false;
 		{
 			File f=new File(path);
+			if(!f.exists() && network){
+				if(vb){System.err.println("Did not find "+fname+" at "+path);}
+				path=ROOT_RESOURCES+fname;f=new File(path);
+			}
 			if(!f.exists()){
 				if(vb){System.err.println("Did not find "+fname+" at "+path);}
 				f=new File(ROOT+fname);
@@ -1345,7 +1351,8 @@ public class Data {
 			}
 			if(!f.exists()){
 				if(vb){System.err.println("Considering getResource");}
-				URL url=Primes.class.getResource("/"+fname);
+				URL url=(network ? Primes.class.getResource("/networks/"+fname) : null);
+				if(url==null){url=Primes.class.getResource("/"+fname);}
 				if(url!=null){
 					String temp=PercentEncoding.codeToSymbol(url.toString());
 					if(vb){System.err.println("Found URL "+temp);}
@@ -1357,16 +1364,24 @@ public class Data {
 			//path that only exists on its own system, so exists() self-gates it (no host detection). A literal
 			//command-line path (no '?') returned at the top and never reaches here, so overrides always win.
 			if(!f.exists() && !path.startsWith("jar:")){
-				String dori=DORI_RESOURCES+fname;
+				String dori=(network ? DORI_NETWORKS : DORI_RESOURCES)+fname;
 				f=new File(dori);
 				if(f.exists()){path=dori;}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
 			}
+			if(!f.exists() && network && !path.startsWith("jar:")){
+				String dori=DORI_RESOURCES+fname;f=new File(dori);
+				if(f.exists()){path=dori;}else{if(vb){System.err.println("Did not find "+fname+" at "+dori);}}
+			}
 			if(!f.exists() && !path.startsWith("jar:")){
-				String nersc=NERSC_RESOURCES+fname;
+				String nersc=(network ? NERSC_NETWORKS : NERSC_RESOURCES)+fname;
 				f=new File(nersc);
 				if(f.exists()){path=nersc;}
 				else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
+			}
+			if(!f.exists() && network && !path.startsWith("jar:")){
+				String nersc=NERSC_RESOURCES+fname;f=new File(nersc);
+				if(f.exists()){path=nersc;}else{if(vb){System.err.println("Did not find "+fname+" at "+nersc);}}
 			}
 			if(!f.exists() && !path.startsWith("jar:")){
 				if(warn){
@@ -1378,6 +1393,14 @@ public class Data {
 		}
 		if(vb){System.err.println("Found "+fname+" at "+path);}
 		return path;
+	}
+
+	/** True for single- or multi-network files, optionally gzip-compressed. */
+	public static boolean isNetworkFile(String fname){
+		if(fname==null){return false;}
+		final String lower=fname.toLowerCase(Locale.ENGLISH);
+		return lower.endsWith(".bbnet") || lower.endsWith(".bbnet.gz") ||
+				lower.endsWith(".bbnets") || lower.endsWith(".bbnets.gz");
 	}
 	
 	public static final int min(int x, int y){return x<y ? x : y;}
@@ -1474,19 +1497,24 @@ public class Data {
 
 	public static final String ROOT(){return ROOT;}
 	public static final String RESOURCES(){return ROOT_RESOURCES;}
+	public static final String NETWORKS(){return ROOT_NETWORKS;}
 	
 	
 	/** Found dynamically.  Path to /BBTools/ (the root of the project, NOT including /current/) */
 	private static final String ROOT;
 	/** Path to /BBTools/resources/ */
 	private static final String ROOT_RESOURCES;
+	/** Path to /BBTools/networks/ */
+	private static final String ROOT_NETWORKS;
 
 	/** Central shared resource directory on JGI's Dori cluster, checked after local resources/ (findPath).
 	 *  Hardcoded default; an absolute path that only exists on Dori, so it self-gates via exists(). */
 	public static String DORI_RESOURCES="/clusterfs/jgi/groups/gentech/homes/bbushnell/resources/";
+	public static String DORI_NETWORKS="/clusterfs/jgi/groups/gentech/homes/bbushnell/networks/";
 	/** Central shared resource directory on NERSC, checked last (after Dori). Hardcoded default;
 	 *  self-gates via exists() (the path only exists on NERSC). */
 	public static String NERSC_RESOURCES="/global/cfs/cdirs/bbtools/resources/";
+	public static String NERSC_NETWORKS="/global/cfs/cdirs/bbtools/networks/";
 	
 	public static String ROOT_BASE;
 	public static String ROOT_REF;
@@ -1519,6 +1547,7 @@ public class Data {
 		if(!Shared.WINDOWS || true){setPath("?local");}
 		ROOT=root;
 		ROOT_RESOURCES=ROOT+"resources/";
+		ROOT_NETWORKS=ROOT+"networks/";
 	}
 	
 	/**
