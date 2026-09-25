@@ -44,6 +44,11 @@ Optional explicit paired selection: neuralmapqpair=t. Paired
   MAPQ. The launcher supplies the paired V2 resources.
   Advanced users may override neuralmapqpairnet=,
   neuralmapqpairlutlarge=, and neuralmapqpairlutsmall= explicitly.
+BBMapS also computes calibrated strict-endpoint MAPQ for supported primary
+  alignments. QL:i stores loose-placement MAPQ and QS:i stores exact reference,
+  strand, start, and stop MAPQ. The primary MAPQ field uses QL by default;
+  strictmapq=t swaps it to QS while retaining both tags. Unsupported lengths
+  and intermediate reference sizes retain legacy MAPQ and omit QL/QS.
 Run bbmap.sh -h for the full flag reference.
 Java SIMD is detected by the standard BBTools launcher setup.
 "
@@ -54,6 +59,8 @@ addNeuralMapqResources(){
 	local enabled=false pairEnabled=false autoEnabled=true controlSeen=false
 	local hasNet=false hasLarge=false hasSmall=false
 	local hasPairNet=false hasPairLarge=false hasPairSmall=false hasCaps=false
+	local hasStrictNet=false hasStrictLarge=false hasStrictSmall=false
+	local hasStrictPairNet=false hasStrictPairLarge=false hasStrictPairSmall=false hasStrictCaps=false
 	local arg key value
 	for arg in "$@"; do
 		key="${arg%%=*}";key="${key,,}"
@@ -84,6 +91,13 @@ addNeuralMapqResources(){
 			neuralmapqpairlutlarge) hasPairLarge=true;;
 			neuralmapqpairlutsmall) hasPairSmall=true;;
 			neuralmapqcaps) hasCaps=true;;
+			strictmapqnet) hasStrictNet=true;;
+			strictmapqlutlarge) hasStrictLarge=true;;
+			strictmapqlutsmall) hasStrictSmall=true;;
+			strictmapqpairnet) hasStrictPairNet=true;;
+			strictmapqpairlutlarge) hasStrictPairLarge=true;;
+			strictmapqpairlutsmall) hasStrictPairSmall=true;;
+			strictmapqcaps) hasStrictCaps=true;;
 		esac
 		done
 	if ! $controlSeen;then NEURAL_DEFAULT_ARGS+=("mapqmode=neuralauto");fi
@@ -97,6 +111,9 @@ addNeuralMapqResources(){
 		if ! $hasSmall;then
 			NEURAL_DEFAULT_ARGS+=("neuralmapqlutsmall=?neural_mapq/bbmaps_mapq_single_v2_small.tsv")
 		fi
+		if ! $hasStrictNet;then NEURAL_DEFAULT_ARGS+=("strictmapqnet=?bbmaps_mapq_single_strict_v1.bbnet");fi
+		if ! $hasStrictLarge;then NEURAL_DEFAULT_ARGS+=("strictmapqlutlarge=?neural_mapq/bbmaps_mapq_single_strict_v1_large.tsv");fi
+		if ! $hasStrictSmall;then NEURAL_DEFAULT_ARGS+=("strictmapqlutsmall=?neural_mapq/bbmaps_mapq_single_strict_v1_small.tsv");fi
 	fi
 	if $pairEnabled || $autoEnabled;then
 		if ! $hasPairNet;then
@@ -108,9 +125,15 @@ addNeuralMapqResources(){
 		if ! $hasPairSmall;then
 			NEURAL_DEFAULT_ARGS+=("neuralmapqpairlutsmall=?neural_mapq/bbmaps_mapq_paired_v2_small.tsv")
 		fi
+		if ! $hasStrictPairNet;then NEURAL_DEFAULT_ARGS+=("strictmapqpairnet=?bbmaps_mapq_paired_strict_v1.bbnet");fi
+		if ! $hasStrictPairLarge;then NEURAL_DEFAULT_ARGS+=("strictmapqpairlutlarge=?neural_mapq/bbmaps_mapq_paired_strict_v1_large.tsv");fi
+		if ! $hasStrictPairSmall;then NEURAL_DEFAULT_ARGS+=("strictmapqpairlutsmall=?neural_mapq/bbmaps_mapq_paired_strict_v1_small.tsv");fi
 	fi
 	if { $enabled || $pairEnabled || $autoEnabled; } && ! $hasCaps;then
 		NEURAL_DEFAULT_ARGS+=("neuralmapqcaps=?neural_mapq/bbmaps_mapq_v2_caps.tsv")
+	fi
+	if { $enabled || $pairEnabled || $autoEnabled; } && ! $hasStrictCaps;then
+		NEURAL_DEFAULT_ARGS+=("strictmapqcaps=?neural_mapq/bbmaps_mapq_strict_v1_caps.tsv")
 	fi
 }
 

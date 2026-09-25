@@ -1923,6 +1923,11 @@ public class SamLine implements Serializable {
 			}
 			if(MAKE_SM_TAG){optionalTags.add("SM:i:"+mapq);}
 			if(MAKE_AM_TAG){optionalTags.add("AM:i:"+Data.min(mapq, r2==null ? mapq : (r2.mapped() ? Data.max(1, r2.mapScore/r2.length()) : 0)));}
+			if(MAKE_DUAL_MAPQ_TAGS&&r.primary()){
+				final int loose=NeuralMapqCache.getLoose(r),strict=NeuralMapqCache.getStrict(r);
+				assert((loose<0)==(strict<0)) : KillSwitch.assertDie("QL/QS must be present together; loose="+loose+", strict="+strict+", read="+r.id);
+				if(loose>=0){optionalTags.add("QL:i:"+loose);optionalTags.add("QS:i:"+strict);}
+			}
 
 			if(MAKE_TOPHAT_TAGS){
 				optionalTags.add("AS:i:0");
@@ -2097,8 +2102,8 @@ public class SamLine implements Serializable {
 	 */
 	public static int toMapq(Read r, SiteScore ss){
 		assert(r!=null);
-		if(ss==null && !r.secondary()){
-			final int neural=NeuralMapqCache.get(r);
+		if(ss==null && r.primary()){
+			final int neural=STRICT_MAPQ?NeuralMapqCache.getStrict(r):NeuralMapqCache.getLoose(r);
 			if(neural>=0){return neural;}
 		}
 		int score=(ss==null ? r.mapScore : ss.slowScore);
@@ -3156,7 +3161,7 @@ public class SamLine implements Serializable {
 		if(NO_TAGS){return false;}
 		return MAKE_AM_TAG || MAKE_NM_TAG || MAKE_SM_TAG || MAKE_XM_TAG || MAKE_XS_TAG || MAKE_AS_TAG ||
 				MAKE_NH_TAG || MAKE_TOPHAT_TAGS || MAKE_IDENTITY_TAG || MAKE_SCORE_TAG || MAKE_STOP_TAG || MAKE_LENGTH_TAG ||
-				MAKE_CUSTOM_TAGS || MAKE_INSERT_TAG || MAKE_CORRECTNESS_TAG || MAKE_TIME_TAG || MAKE_BOUNDS_TAG || MAKE_MATEQ_TAG;
+				MAKE_CUSTOM_TAGS || MAKE_INSERT_TAG || MAKE_CORRECTNESS_TAG || MAKE_TIME_TAG || MAKE_BOUNDS_TAG || MAKE_MATEQ_TAG || MAKE_DUAL_MAPQ_TAGS;
 	}
 
 	/** Tests whether any optional tags should be generated.
@@ -3239,6 +3244,10 @@ public class SamLine implements Serializable {
 	public static boolean MAKE_BOUNDS_TAG=false;
 	/** Generate YQ/YJ (mate quality/identity) tags */
 	public static boolean MAKE_MATEQ_TAG=false;
+	/** Generate QL/QS loose/strict neural MAPQ tags when both scores are available. */
+	public static boolean MAKE_DUAL_MAPQ_TAGS=false;
+	/** Use strict rather than loose neural MAPQ in the primary SAM MAPQ field. */
+	public static boolean STRICT_MAPQ=false;
 
 	/** Reduce MAPQ for ambiguously mapping reads */
 	public static boolean PENALIZE_AMBIG=true;

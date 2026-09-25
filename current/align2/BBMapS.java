@@ -65,6 +65,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	private String neuralMapqPairLargeLut;
 	private String neuralMapqPairSmallLut;
 	private String neuralMapqCaps;
+	private String strictMapqNet;
+	private String strictMapqLargeLut;
+	private String strictMapqSmallLut;
+	private String strictMapqPairNet;
+	private String strictMapqPairLargeLut;
+	private String strictMapqPairSmallLut;
+	private String strictMapqCaps;
 
 
 	/**
@@ -204,6 +211,24 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			}else if(key.equalsIgnoreCase("neuralmapqcaps")){
 				neuralMapqCaps=(equals<0 ? null : s.substring(equals+1));
 				args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapq")){
+				final String value=(equals<0 ? null : s.substring(equals+1));
+				SamLine.STRICT_MAPQ=Parse.parseBoolean(value);
+				args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqnet")){
+				strictMapqNet=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqlutlarge")){
+				strictMapqLargeLut=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqlutsmall")){
+				strictMapqSmallLut=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqpairnet")){
+				strictMapqPairNet=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqpairlutlarge")){
+				strictMapqPairLargeLut=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqpairlutsmall")){
+				strictMapqPairSmallLut=(equals<0 ? null : s.substring(equals+1));args[i]=null;
+			}else if(key.equalsIgnoreCase("strictmapqcaps")){
+				strictMapqCaps=(equals<0 ? null : s.substring(equals+1));args[i]=null;
 			}else if(key.equalsIgnoreCase("orderedwriterbuffers")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
 				orderedWriterInputCapacity=Parse.parseIntKMG(value);
@@ -559,8 +584,24 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				throw new IllegalArgumentException("neuralauto requires all single, paired, and cap resources");
 			}
 		}
+		if(anyStrictSingleResource()&&!hasStrictSingleResources()){
+			throw new IllegalArgumentException("strict single MAPQ requires strictmapqnet, strictmapqlutlarge, strictmapqlutsmall, and strictmapqcaps");
+		}
+		if(anyStrictPairResource()&&!hasStrictPairResources()){
+			throw new IllegalArgumentException("strict paired MAPQ requires strictmapqpairnet, strictmapqpairlutlarge, strictmapqpairlutsmall, and strictmapqcaps");
+		}
+		if(SamLine.STRICT_MAPQ){
+			if(neuralMapqRequested&&!hasStrictSingleResources()){throw new IllegalArgumentException("strictmapq=t requires strict single resources");}
+			if(neuralMapqPairRequested&&!hasStrictPairResources()){throw new IllegalArgumentException("strictmapq=t requires strict paired resources");}
+			if(neuralMapqAutoRequested&&(!hasStrictSingleResources()||!hasStrictPairResources())){throw new IllegalArgumentException("strictmapq=t with neuralauto requires both strict resource sets");}
+		}
 
 	}
+
+	private boolean hasStrictSingleResources(){return strictMapqNet!=null&&!strictMapqNet.isEmpty()&&strictMapqLargeLut!=null&&!strictMapqLargeLut.isEmpty()&&strictMapqSmallLut!=null&&!strictMapqSmallLut.isEmpty()&&strictMapqCaps!=null&&!strictMapqCaps.isEmpty();}
+	private boolean hasStrictPairResources(){return strictMapqPairNet!=null&&!strictMapqPairNet.isEmpty()&&strictMapqPairLargeLut!=null&&!strictMapqPairLargeLut.isEmpty()&&strictMapqPairSmallLut!=null&&!strictMapqPairSmallLut.isEmpty()&&strictMapqCaps!=null&&!strictMapqCaps.isEmpty();}
+	private boolean anyStrictSingleResource(){return strictMapqNet!=null||strictMapqLargeLut!=null||strictMapqSmallLut!=null;}
+	private boolean anyStrictPairResource(){return strictMapqPairNet!=null||strictMapqPairLargeLut!=null||strictMapqPairSmallLut!=null;}
 
 	/**
 	 * Performs pre-alignment setup and validation.
@@ -862,6 +903,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			neuralMapqRequested=!paired;neuralMapqPairRequested=paired;
 			outstream.println("Automatic neural MAPQ selected "+(paired ? "paired" : "single")+" V2 inference.");
 		}
+		final boolean dualMapq=neuralMapqRequested?hasStrictSingleResources():neuralMapqPairRequested&&hasStrictPairResources();
+		if(SamLine.STRICT_MAPQ&&!dualMapq){
+			ReadWrite.closeStream(streamer);
+			throw new IllegalArgumentException("strictmapq=t requires a complete strict resource set for the detected input mode");
+		}
+		SamLine.MAKE_DUAL_MAPQ_TAGS=dualMapq;
 		if(neuralMapqRequested && paired){
 			ReadWrite.closeStream(streamer);
 			throw new IllegalArgumentException("neuralmapq V2 supports single-end input only");
@@ -897,11 +944,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			ReadWrite.closeStream(streamer);
 			throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
 		}
-		final NeuralMapqInference neuralMapqTemplate;
-		final NeuralMapqPairedInference neuralMapqPairTemplate;
+		final NeuralMapqInference neuralMapqTemplate,strictMapqTemplate;
+		final NeuralMapqPairedInference neuralMapqPairTemplate,strictMapqPairTemplate;
 		try{
 			neuralMapqTemplate=loadNeuralMapqTemplate();
 			neuralMapqPairTemplate=loadNeuralMapqPairTemplate();
+			strictMapqTemplate=loadStrictMapqTemplate();
+			strictMapqPairTemplate=loadStrictMapqPairTemplate();
 		}catch(RuntimeException e){
 			ReadWrite.closeStream(streamer);
 			throw e;
@@ -936,8 +985,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			mtts[i]=engine;
 			final NeuralMapqInference neuralMapqInference=(neuralMapqTemplate==null ? null : neuralMapqTemplate.copy());
 			final NeuralMapqPairedInference neuralMapqPairInference=(neuralMapqPairTemplate==null ? null : neuralMapqPairTemplate.copy());
+			final NeuralMapqInference strictMapqInference=(strictMapqTemplate==null ? null : strictMapqTemplate.copy());
+			final NeuralMapqPairedInference strictMapqPairInference=(strictMapqPairTemplate==null ? null : strictMapqPairTemplate.copy());
 			alpt.add(new ProcessThread(streamer,writers,mapqFeatureWriter,mapqPairFeatureWriter,
-					neuralMapqInference,neuralMapqPairInference,engine,i));
+					neuralMapqInference,neuralMapqPairInference,strictMapqInference,strictMapqPairInference,engine,i));
 		}
 		if(mapqFeatureWriter!=null){
 			mapqFeatureWriter.start();
@@ -1079,6 +1130,38 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}catch(IOException e){throw new RuntimeException("Could not load paired neural MAPQ resources",e);}
 	}
 
+	/** Loads strict single-end inference when its complete optional resource set is present. */
+	private NeuralMapqInference loadStrictMapqTemplate(){
+		if(!neuralMapqRequested||!hasStrictSingleResources()){return null;}
+		final int regime=NeuralMapqReferenceScale.regime(Data.numBases);
+		if(regime==NeuralMapqReferenceScale.UNSUPPORTED){return null;}
+		final String lutPath=regime==NeuralMapqReferenceScale.SMALL?strictMapqSmallLut:strictMapqLargeLut;
+		try{
+			final NeuralMapqInference template=NeuralMapqInference.load(
+					resolveNeuralResource(strictMapqNet,"single strict MAPQ network"),
+					resolveNeuralResource(lutPath,"single strict MAPQ calibration"),
+					resolveNeuralResource(strictMapqCaps,"strict MAPQ length caps"),regime);
+			outstream.println("Strict single MAPQ tags enabled with "+(regime==NeuralMapqReferenceScale.SMALL?"small":"large")+" reference calibration.");
+			return template;
+		}catch(IOException e){throw new RuntimeException("Could not load strict single MAPQ resources",e);}
+	}
+
+	/** Loads strict paired inference when its complete optional resource set is present. */
+	private NeuralMapqPairedInference loadStrictMapqPairTemplate(){
+		if(!neuralMapqPairRequested||!hasStrictPairResources()){return null;}
+		final int regime=NeuralMapqPairedReferenceScale.regime(Data.numBases);
+		if(regime==NeuralMapqPairedReferenceScale.UNSUPPORTED){return null;}
+		final String lutPath=regime==NeuralMapqPairedReferenceScale.SMALL?strictMapqPairSmallLut:strictMapqPairLargeLut;
+		try{
+			final NeuralMapqPairedInference template=NeuralMapqPairedInference.load(
+					resolveNeuralResource(strictMapqPairNet,"paired strict MAPQ network"),
+					resolveNeuralResource(lutPath,"paired strict MAPQ calibration"),
+					resolveNeuralResource(strictMapqCaps,"strict MAPQ length caps"),regime);
+			outstream.println("Strict paired MAPQ tags enabled with "+(regime==NeuralMapqPairedReferenceScale.SMALL?"small":"large")+" reference calibration.");
+			return template;
+		}catch(IOException e){throw new RuntimeException("Could not load strict paired MAPQ resources",e);}
+	}
+
 	/** Resolve launcher-supplied ? resources through the standard BBTools search path. */
 	private static String resolveNeuralResource(final String path,final String label)throws IOException{
 		final String resolved=Data.findPath(path,false);
@@ -1211,6 +1294,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		ProcessThread(Streamer streamer_, Writer[] writers_, ByteStreamWriter mapqFeatureWriter_,
 				ByteStreamWriter mapqPairFeatureWriter_,
 				NeuralMapqInference neuralMapqInference_,NeuralMapqPairedInference neuralMapqPairInference_,
+				NeuralMapqInference strictMapqInference_,NeuralMapqPairedInference strictMapqPairInference_,
 				BBMapThread engine_, int tid_){
 			streamer=streamer_;
 			writers=writers_;
@@ -1219,6 +1303,9 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			neuralMapqInference=neuralMapqInference_;
 			neuralMapqPairInference=neuralMapqPairInference_;
 			neuralMapqPairValues=(neuralMapqPairInference==null ? null : new int[2]);
+			strictMapqInference=strictMapqInference_;
+			strictMapqPairInference=strictMapqPairInference_;
+			strictMapqPairValues=(strictMapqPairInference==null ? null : new int[2]);
 			engine=engine_;
 			tid=tid_;
 			mapqVector=(mapqFeatureWriter==null ? null : new float[NeuralMapqFeatureSchema.WIDTH]);
@@ -1278,7 +1365,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				engine.basesIn1+=r.length();
 				engine.basesIn2+=r.mateLength();
 				final Read r2=r.mate;
-				if(neuralMapqInference!=null || neuralMapqPairInference!=null){
+				if(neuralMapqInference!=null || neuralMapqPairInference!=null || strictMapqInference!=null || strictMapqPairInference!=null){
 					NeuralMapqCache.clear(r);NeuralMapqCache.clear(r2);
 				}
 
@@ -1326,7 +1413,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
 					assert(Read.CHECKSITES(r, basesM));
 					if(neuralMapqInference!=null && r.mapped()){
-						final int q=neuralMapqInference.mapq(r);if(q>=0){NeuralMapqCache.set(r,q);}
+						final int q=neuralMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setLoose(r,q);}
+					}
+					if(strictMapqInference!=null && r.mapped()){
+						final int q=strictMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setStrict(r,q);}
 					}
 					if(mapqBlock!=null && r.mapped()){
 						NeuralMapqFeatureRow.append(r,mapqVector,mapqScratch,mapqBlock);
@@ -1347,8 +1437,14 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					if(neuralMapqPairInference!=null){
 						neuralMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
 								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,neuralMapqPairValues);
-						if(neuralMapqPairValues[0]>=0){NeuralMapqCache.set(r,neuralMapqPairValues[0]);}
-						if(neuralMapqPairValues[1]>=0){NeuralMapqCache.set(r2,neuralMapqPairValues[1]);}
+						if(neuralMapqPairValues[0]>=0){NeuralMapqCache.setLoose(r,neuralMapqPairValues[0]);}
+						if(neuralMapqPairValues[1]>=0){NeuralMapqCache.setLoose(r2,neuralMapqPairValues[1]);}
+					}
+					if(strictMapqPairInference!=null){
+						strictMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
+								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,strictMapqPairValues);
+						if(strictMapqPairValues[0]>=0){NeuralMapqCache.setStrict(r,strictMapqPairValues[0]);}
+						if(strictMapqPairValues[1]>=0){NeuralMapqCache.setStrict(r2,strictMapqPairValues[1]);}
 					}
 					if(mapqPairBlock!=null){
 						if(r.mapped()){
@@ -1455,6 +1551,9 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		final NeuralMapqInference neuralMapqInference;
 		final NeuralMapqPairedInference neuralMapqPairInference;
 		final int[] neuralMapqPairValues;
+		final NeuralMapqInference strictMapqInference;
+		final NeuralMapqPairedInference strictMapqPairInference;
+		final int[] strictMapqPairValues;
 		final float[] mapqVector;
 		final NeuralMapqFeatureExtractor.Scratch mapqScratch;
 		final float[] mapqPairVector;

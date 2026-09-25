@@ -3518,7 +3518,7 @@ public final class BBIndex extends AbstractIndex {
 		PrimitiveColumnHeap(int capacity, int[] values_){
 			int base=1;
 			while(base<capacity){base<<=1;}
-			tree=new int[base<<1];
+			tree=new long[base<<1];
 			maxCapacity=capacity;
 			values=values_;
 		}
@@ -3526,7 +3526,7 @@ public final class BBIndex extends AbstractIndex {
 		void clear(){size=0;leafBase=0;}
 		boolean isEmpty(){return size==0;}
 		int size(){return size;}
-		int peek(){assert(size>0 && leafBase>0);return tree[1];}
+		int peek(){assert(size>0 && leafBase>0);return column(tree[1]);}
 
 		void add(final int column){
 			assert(column==size && size<maxCapacity);
@@ -3535,11 +3535,11 @@ public final class BBIndex extends AbstractIndex {
 
 		/** Build once after the sequential columns and their values have been initialized. */
 		void prepare(){
-			if(size==0){leafBase=1;tree[1]=-1;return;}
+			if(size==0){leafBase=1;tree[1]=EMPTY;return;}
 			int base=1;
 			while(base<size){base<<=1;}
 			leafBase=base;
-			for(int i=0; i<base; i++){tree[base+i]=(i<size ? i : -1);}
+			for(int i=0; i<base; i++){tree[base+i]=(i<size ? key(i) : EMPTY);}
 			for(int node=base-1; node>0; node--){
 				tree[node]=winner(tree[node<<1], tree[(node<<1)|1]);
 			}
@@ -3548,13 +3548,15 @@ public final class BBIndex extends AbstractIndex {
 		/** Re-establish heap order after the root column's site increased. */
 		void updateTop(){
 			assert(size>0 && leafBase>0);
-			updatePath(tree[1]);
+			final int column=column(tree[1]);
+			tree[leafBase+column]=key(column);
+			updatePath(column);
 		}
 
 		int poll(){
 			assert(size>0 && leafBase>0);
-			final int result=tree[1];
-			tree[leafBase+result]=-1;
+			final int result=column(tree[1]);
+			tree[leafBase+result]=EMPTY;
 			size--;
 			updatePath(result);
 			return result;
@@ -3566,18 +3568,20 @@ public final class BBIndex extends AbstractIndex {
 			}
 		}
 
-		private int winner(final int a, final int b){
-			if(a<0){return b;}
-			if(b<0){return a;}
-			return compare(a, b)<=0 ? a : b;
+		private long winner(final long a, final long b){
+			return a<=b ? a : b;
 		}
 
-		private int compare(final int a, final int b){
-			final int x=values[a]-values[b];
-			return x==0 ? a-b : x;
+		private long key(final int column){
+			final int site=values[column];
+			assert(site>=0) : "BBIndex.toNumber reserves the sign bit; site="+site+", column="+column;
+			return (((long)site)<<32)|(column&0xffffffffL);
 		}
 
-		private final int[] tree;
+		private static int column(final long key){return (int)key;}
+
+		private static final long EMPTY=Long.MAX_VALUE;
+		private final long[] tree;
 		private final int maxCapacity;
 		private final int[] values;
 		private int leafBase;

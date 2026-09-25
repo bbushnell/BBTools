@@ -3309,6 +3309,8 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 
 	/** Alignment score from BBMap.  Assumed to max at approx 100*bases.length */
 	public int mapScore=0;
+	/** Runtime-only packed loose/strict neural MAPQs; zero means neither is present. */
+	public short neuralMapqs=0;
 
 	/** List of potential alignment sites sorted by score */
 	public ArrayList<SiteScore> sites;
