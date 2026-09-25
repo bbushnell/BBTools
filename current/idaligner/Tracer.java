@@ -1,5 +1,7 @@
 package idaligner;
 
+import java.util.Arrays;
+
 import structures.ByteBuilder;
 import structures.LongList;
 
@@ -404,6 +406,58 @@ public class Tracer{
 			assert(remaining-->0) : "Cycle in sparse traceback";
 		}
 		return bb.reverse().toBytes();
+	}
+
+	/** Canonicalizes maximal I/D blocks in an owned, long match string in place.
+	 * Each opposing pair consumes one query and one reference base; a diagonal
+	 * scores at least -1 instead of -2 under Quantum's linear +1/-1/0 scoring.
+	 * Emit diagonals first, then the excess gap type, preserving both endpoints.
+	 * This is a local improvement of the sparse path, not a new optimal DP fill. */
+	static byte[] normalizeOpposingIndels(final byte[] ops, final byte[] query,
+			final byte[] ref, final int rStart){
+		assert(ops!=null && query!=null && ref!=null) : "Canonical traceback requires operations and their actual bases";
+		assert(rStart>=0 && rStart<=ref.length) : "Trace reference origin outside input: "+rStart+" / "+ref.length;
+		if(!hasOpposingIndels(ops)){return ops;}
+		int in=0, out=0, qpos=0, rpos=rStart;
+		while(in<ops.length){
+			final byte op=ops[in];
+			if(op!='I' && op!='D'){
+				assert(op=='m' || op=='S' || op=='N') : "Expected long Quantum trace, found "+(char)op;
+				ops[out++]=op;
+				in++; qpos++; rpos++;
+				continue;
+			}
+			int insertions=0, deletions=0;
+			while(in<ops.length && (ops[in]=='I' || ops[in]=='D')){
+				if(ops[in++]=='I'){insertions++;}else{deletions++;}
+			}
+			assert(qpos+insertions<=query.length && rpos+deletions<=ref.length) :
+				"Indel block exceeds trace inputs: q="+qpos+"+"+insertions+"/"+query.length+
+				", r="+rpos+"+"+deletions+"/"+ref.length;
+			final int pairs=Math.min(insertions, deletions);
+			for(int i=0; i<pairs; i++){
+				final byte q=query[qpos++], r=ref[rpos++];
+				ops[out++]=(byte)(q==r && q!='N' ? 'm' : q=='N' || r=='N' ? 'N' : 'S');
+			}
+			for(int i=pairs; i<insertions; i++){ops[out++]='I'; qpos++;}
+			for(int i=pairs; i<deletions; i++){ops[out++]='D'; rpos++;}
+		}
+		assert(qpos==query.length && rpos<=ref.length) :
+			"Canonical trace must consume the whole glocal query within the reference: q="+qpos+
+			"/"+query.length+", r="+rpos+"/"+ref.length;
+		final byte[] normalized=Arrays.copyOf(ops, out);
+		assert(!hasOpposingIndels(normalized)) :
+			"Opposing indels survived canonicalization; BaseGraph.score requires an INS predecessor to be REF or INS";
+		return normalized;
+	}
+
+	/** Opposing gaps cost two penalties where one diagonal suffices in Quantum. */
+	static boolean hasOpposingIndels(final byte[] ops){
+		assert(ops!=null) : "An emitted Quantum trace must exist before checking its indel transitions";
+		for(int i=1; i<ops.length; i++){
+			if((ops[i-1]=='I' && ops[i]=='D') || (ops[i-1]=='D' && ops[i]=='I')){return true;}
+		}
+		return false;
 	}
 
 	/*--------------------------------------------------------------*/

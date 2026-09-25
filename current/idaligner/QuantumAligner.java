@@ -521,9 +521,18 @@ public class QuantumAligner implements IDAligner{
 		}
 		loops.addAndGet(mloops);
 		final float identity=Tracer.postprocess(maxScore, maxPos, qLen, rLen, null, stats);
-		final byte[] matchString=Tracer.tracebackNodes(trace, maxNode, null);
+		final byte[] rawTrace=Tracer.tracebackNodes(trace, maxNode, null);
+		final byte[] matchString=Tracer.normalizeOpposingIndels(rawTrace, query, ref, stats.rStart);
 		stats.setFromMatchString(matchString);
-		return identity;
+		stats.opposingIndelsRepaired=(matchString!=rawTrace);
+		assert(stats.matches+stats.subs+stats.ins+stats.ns==qLen &&
+			stats.matches+stats.subs+stats.dels+stats.ns==stats.rStop-stats.rStart+1) :
+			"Quantum trace must preserve the sparse-fill endpoints after canonicalization: "+stats;
+		//Preserve both existing N conventions: the return value gives neutral N
+		//half credit, while setFromMatchString gives it no match credit in stats.
+		//Only a repaired trace needs a new return estimate; changing the convention
+		//for unchanged traces or stats consumers is a separate compatibility decision.
+		return matchString==rawTrace ? identity : (stats.matches+0.5f*stats.ns)/matchString.length;
 	}
 
 	// Process the first topWidth rows using a dense approach

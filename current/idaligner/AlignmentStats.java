@@ -24,6 +24,7 @@ public class AlignmentStats {
 
 	// Reset method for reuse
 	public void clear() {
+		opposingIndelsRepaired=false;
 		identity=0;
 		matches=0;
 		subs=0;
@@ -39,6 +40,7 @@ public class AlignmentStats {
 
 	// Helper to fill from the old int[] pos style
 	public void setFromPos(int[] pos, float id) {
+		opposingIndelsRepaired=false;
 		if(pos!=null){
 			rStart=pos[0];
 			rStop=pos[1];
@@ -51,6 +53,7 @@ public class AlignmentStats {
 
 	// Helper to fill from the old int[] pos style
 	public float setAndSolve(int[] pos, int qLen_, int rLen_) {
+		opposingIndelsRepaired=false;
 		rStart=pos[0];
 		rStop=pos[1];
 		score=pos[2];
@@ -62,6 +65,7 @@ public class AlignmentStats {
 	
 	public float setFromMatchString(byte[] matchString_) {
 		assert(matchString_!=null);
+		opposingIndelsRepaired=false;
 		matchString=matchString_;
 		matches=subs=ins=dels=ns=0;
 		for(byte b : matchString) {
@@ -130,5 +134,7 @@ public class AlignmentStats {
 	public int rStart, rStop;
 	public int qLen, rLen;
 	public boolean doTrace=false;
+	/** Internal provenance for guards: the latest Quantum trace contained opposing gaps. */
+	boolean opposingIndelsRepaired=false;
 	
 }

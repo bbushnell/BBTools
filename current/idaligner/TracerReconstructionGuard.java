@@ -129,6 +129,7 @@ public class TracerReconstructionGuard {
 
 	static int failures=0;
 	static int cases=0;
+	static int quantumRepairs=0;
 	// Per-aligner failure detail, for the coverage summary at the end.
 	static Map<String, Integer> failuresByAligner=new LinkedHashMap<>();
 
@@ -139,17 +140,27 @@ public class TracerReconstructionGuard {
 		float identity=fn.run(query, ref, stats);
 		String problem=checkReconstruction(stats, query, ref);
 		if(problem==null && aligner.equals("QuantumAligner")){
+			if(stats.opposingIndelsRepaired){quantumRepairs++;}
 			int[] pos=new int[4];
 			float plainIdentity=QuantumAligner.alignStatic(query, ref, pos);
-			if(Float.floatToIntBits(identity)!=Float.floatToIntBits(plainIdentity)){
-				problem="trace identity "+identity+" != non-trace identity "+plainIdentity;
+			final float expectedIdentity=(stats.matches+0.5f*stats.ns)/stats.matchString.length;
+			if(!stats.opposingIndelsRepaired && Float.floatToIntBits(identity)!=Float.floatToIntBits(plainIdentity)){
+				problem="unchanged trace identity "+identity+" != non-trace identity "+plainIdentity;
+			}else if(Float.floatToIntBits(identity)!=Float.floatToIntBits(expectedIdentity)){
+				problem="returned trace identity "+identity+" != neutral-N trace estimate "+expectedIdentity;
 			}else if(stats.rStart!=pos[0] || stats.rStop!=pos[1]){
 				problem="trace coordinates "+stats.rStart+"-"+stats.rStop+
 						" != non-trace coordinates "+pos[0]+"-"+pos[1];
-			}else if(stats.score!=pos[2] || stats.dels!=pos[3]){
-				problem="trace score/dels "+stats.score+"/"+stats.dels+
-						" != non-trace score/dels "+pos[2]+"/"+pos[3];
+			}else if(Tracer.hasOpposingIndels(stats.matchString)){
+				problem="opposing indels cannot be consumed by BaseGraph.score";
+			}else if(!stats.opposingIndelsRepaired && (stats.score!=pos[2] || stats.dels!=pos[3])){
+				problem="unchanged trace score/dels "+stats.score+"/"+stats.dels+" != non-trace "+pos[2]+"/"+pos[3];
+			}else if(stats.opposingIndelsRepaired && (stats.score<=pos[2] || stats.dels>=pos[3])){
+				problem="canonical trace worsened sparse score/deletion count: "+stats.score+"/"+stats.dels+
+						" versus "+pos[2]+"/"+pos[3];
 			}
+			//Canonicalization can improve the sparse path; its score/identity need not
+			//equal the unchanged no-trace estimate. Base reconstruction still applies.
 		}
 		if(problem!=null){
 			failures++;
@@ -235,6 +246,7 @@ public class TracerReconstructionGuard {
 		System.out.println();
 		System.out.println("=== COVERAGE: "+ALIGNERS.size()+" aligners guarded: "+ALIGNERS.keySet()+" ===");
 		System.out.println("=== "+cases+" cases run, "+failures+" failures ===");
+		System.out.println("=== Quantum raw traces repaired: "+quantumRepairs+" ===");
 		if(failures>0){
 			for(Map.Entry<String,Integer> e : failuresByAligner.entrySet()){
 				System.out.println("  "+e.getKey()+": "+e.getValue()+" failures");
