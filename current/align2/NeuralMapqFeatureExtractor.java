@@ -17,20 +17,27 @@ public final class NeuralMapqFeatureExtractor {
 	 * Scratch and vector per mapping thread.
 	 */
 	public static void fill(final Read read, final float[] vector, final Scratch scratch){
-		fill(read,vector,scratch,true);
+		fill(read,vector,scratch,true,true);
 	}
 
 	/** Fills only the accepted 37-input runtime boundary; dropped composition fields become zero. */
 	public static void fillRuntime(final Read read, final float[] vector, final Scratch scratch){
-		fill(read,vector,scratch,false);
+		fill(read,vector,scratch,false,true);
+	}
+
+	/** Raw single-end feature block for one end of a paired example. */
+	static void fillPairedEnd(final Read read, final float[] vector, final Scratch scratch){
+		fill(read,vector,scratch,true,false);
 	}
 
 	private static void fill(final Read read, final float[] vector, final Scratch scratch,
-			final boolean includeDroppedComposition){
+			final boolean includeDroppedComposition, final boolean requireUnpaired){
 		if(read==null || vector==null || scratch==null){
 			throw new IllegalArgumentException("Neural MAPQ extraction requires read, vector, and scratch");
 		}
-		if(read.mate!=null){throw new IllegalArgumentException("Single-end neural MAPQ V1 cannot extract paired reads");}
+		if(requireUnpaired && read.mate!=null){
+			throw new IllegalArgumentException("Single-end neural MAPQ V1 cannot extract paired reads");
+		}
 		if(!read.mapped() || !read.primary() || read.bases==null || read.bases.length<1){
 			throw new IllegalArgumentException("Neural MAPQ extraction requires a mapped primary read with bases");
 		}
