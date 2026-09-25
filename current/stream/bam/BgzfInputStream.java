@@ -342,6 +342,16 @@ public class BgzfInputStream extends InputStream {
 			this.tail = tail;
 		}
 
+		/** Reports unread prefix and tail bytes, saturating the sum to avoid overflow.
+		 * Older GZIPInputStream implementations use available() to find concatenated members;
+		 * inherited zero can discard a buffered next-member header and cause false corruption.
+		 */
+		@Override
+		public int available() throws IOException{
+			assert(position>=0 && position<=prefix.length) : "Gzip header replay position outside prefix: "+position+" of "+prefix.length;
+			return (int)Math.min(Integer.MAX_VALUE, (long)(prefix.length-position)+tail.available());
+		}
+
 		@Override
 		public int read() throws IOException {
 			if (position < prefix.length) {
