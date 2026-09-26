@@ -14,6 +14,7 @@ import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import fileIO.TextStreamWriter;
+import gff.GffValidator;
 import json.JsonObject;
 import json.JsonParser;
 import map.IntHashMapBinary;
@@ -226,12 +227,17 @@ public class TestFormat {
 	
 	
 	
+	/** Scans inputs, prints summaries, and fails if a reader, writer, or check failed. */
 	void process(Timer t){
 		boolean sequence=false, variant=false;
 		for(String fname : in){
+			final int previousFormat=format, previousCompression=compression;
+			final boolean previousBgzip=bgzip;
 			final FileFormat ff=test(fname);
 			if(full){
-				if(ff.isSequence()){
+				if(ff.gff()){
+					processGff(ff);
+				}else if(ff.isSequence()){
 					sequence=true;
 					processReads(ff);
 				}else if(ff.var()){
@@ -244,10 +250,16 @@ public class TestFormat {
 					System.err.println("Does not seem to be a sequence or variant format: "+ff.rawExtension());
 				}
 			}
+			if(ff.gff()){
+				//GFF reports are per file; do not relabel accumulated sequence/variant statistics.
+				format=previousFormat; compression=previousCompression; bgzip=previousBgzip;
+			}
 //			System.err.println(ff);
 		}
 		
 		
+		//TODO: Probable bug - mixed sequence/variant inputs suppress the variant summary
+		//and share last-file metadata; per-file reporting is needed before general mixed-format validation.
 		if(sequence){
 			printSequenceResults();
 		}else if(variant){
@@ -263,6 +275,24 @@ public class TestFormat {
 				outstream.println("Vars Processed:     "+variantsProcessed+" \t"+Tools.format("%.2fk vars/sec", (variantsProcessed/(double)(t.elapsed))*1000000));
 			}
 		}
+		if(errorState){throw new RuntimeException("TestFormat encountered a validation or I/O error; results may be incomplete.");}
+	}
+
+	/** Reports GFF core-field coverage separately from sequence and variant statistics. */
+	private void processGff(final FileFormat ff){
+		final GffValidator.Result result=GffValidator.validateFile(ff);
+		println("File\t\t"+ff.name());
+		println("Format\t\tgff");
+		println("Compression\t"+(ff.bgzip() ? "bgzip" : FileFormat.COMPRESSION_ARRAY[ff.compression()]));
+		println("ValidationScope\tGFF core fields; attributes, directives, ontology, relationships, and FASTA contents unchecked");
+		println("FeatureLines\t"+result.features);
+		println("InvalidFeatures\t"+result.invalid);
+		println("CommentLines\t"+result.comments);
+		println("BlankLines\t"+result.blanks);
+		println("UncheckedFastaLines\t"+result.fastaLines);
+		if(result.firstError!=null){outstream.println(ff.name()+":"+result.firstErrorLine+": "+result.firstError);}
+		if(result.readError){outstream.println("Read/decompression/close failure in "+ff.name());}
+		errorState|=!result.passedCoreChecks();
 	}
 	
 	void printVariantResults(){
@@ -402,7 +432,7 @@ public class TestFormat {
 					for(LongPair lp : list){
 						bsw.print(lp.a).print('\t').print(lp.b).nl();
 					}
-					bsw.poisonAndWait();
+					errorState|=bsw.poisonAndWait();
 				}else{
 					try {
 						if(!FileFormat.isStdio(khistFile) && new File(khistFile).exists()){
@@ -432,7 +462,7 @@ public class TestFormat {
 						bsw.print(key).print('\t').print(value).nl();
 						prev=key;
 					}
-					bsw.poisonAndWait();
+					errorState|=bsw.poisonAndWait();
 					
 				}else{
 					ReadWrite.delete(zmwhistFile, false);
@@ -492,6 +522,7 @@ public class TestFormat {
 			errorSum+=(count*QualityTools.PROB_ERROR[q]);
 		}
 		qCalled=Tools.max(1, qCalled);
+		//TODO: Probable bug - integer division truncates fractional mean qualities before conversion to double.
 		double avg=qSum/qCalled;
 		double errorAvg=errorSum/qCalled;
 		double logAvg=QualityTools.probErrorToPhredDouble(errorAvg);
@@ -711,15 +742,17 @@ public class TestFormat {
 		}
 		spawnThreads(ff, cris);
 		
-		ReadWrite.closeStream(cris);
+		errorState|=ReadWrite.closeStream(cris);
 		if(verbose){outstream.println("Finished.");}
 	}
 	
+	/** Loads VAR summary metadata through EOF; blank lines are ignored, not treated as EOF. */
 	void loadVars(FileFormat ff){
 		final ByteFile bf=ByteFile.makeByteFile(ff);
 		final byte delimiter='\t';
 		byte[] line=bf.nextLine();
-		while(line!=null && line.length>0){
+		while(line!=null){
+			if(line.length==0){line=bf.nextLine(); continue;}
 			if(line[0]!='#'){
 				variantsProcessed++;
 //				Var v=new Var(line, delimiter);
@@ -742,14 +775,15 @@ public class TestFormat {
 			}
 			line=bf.nextLine();
 		}
-		bf.close();
+		errorState|=bf.close();
 	}
 	
+	/** Counts VCF data and header lines separately and preserves read/close errors. */
 	void loadVcf(FileFormat ff){
 		ByteFile bf=ByteFile.makeByteFile(ff);
 		byte[] line=bf.nextLine();
-		while(line!=null && line.length>0){
-			headerLinesProcessed++;
+		while(line!=null){
+			if(line.length==0){line=bf.nextLine(); continue;}
 			if(line[0]!='#'){
 				variantsProcessed++;
 //				Var v;
@@ -759,6 +793,7 @@ public class TestFormat {
 //					System.err.println("Unable to parse VCF line: '"+new String(line)+"'");
 //				}
 			}else{
+				headerLinesProcessed++;
 				String[] split=new String(line).split("=");
 				if(split.length==2){
 					String a=split[0], b=split[1];
@@ -777,7 +812,7 @@ public class TestFormat {
 			}
 			line=bf.nextLine();
 		}
-		bf.close();
+		errorState|=bf.close();
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -982,6 +1017,8 @@ public class TestFormat {
 		
 		@Override
 		public void run(){
+			//TODO: Probable bug - an unchecked worker failure can strand upstream queue users;
+			//success_T records failure only after joins, so a terminal-propagation audit is still needed.
 			processInThread();
 			success_T=true;
 		}
