@@ -760,6 +760,10 @@ public class FASTQ {
 //				assert(false);
 			}
 		}
+		//A batch limit is reached only after a complete record/pair. Residual state therefore
+		//means EOF interrupted the input; returning list here would silently discard that data.
+		if(cntr!=0){incompleteRecord(tf.name, cntr, quad[0]);}
+		if(prev!=null){incompletePair(tf.name, prev);}
 		assert(list.size()<=maxReadsToReturn);
 		return list;
 	}
@@ -780,9 +784,9 @@ public class FASTQ {
 		final byte[][] quad=new byte[4][];
 		
 		int cntr=0, added=0;
+		Read prev=null;
 		
 		if(interleaved){
-			Read prev=null;
 			for(byte[] s=bf.nextLine(); s!=null; s=bf.nextLine()){
 				quad[cntr]=s;
 				cntr++;
@@ -848,8 +852,26 @@ public class FASTQ {
 				}
 			}
 		}
+		//Do not accept EOF with an unfinished quad or mate; complete batches leave both empty.
+		if(cntr!=0){incompleteRecord(bf.name(), cntr, new String(quad[0], StandardCharsets.US_ASCII));}
+		if(prev!=null){incompletePair(bf.name(), prev);}
 		assert(list.size()<=maxReadsToReturn);
 		return list;
+	}
+
+	/** Fails loudly before a trailing fragment can be reported as successfully parsed input. */
+	private static void incompleteRecord(final String fname, final int lines, final String firstLine){
+		assert(lines>0 && lines<4) : "Incomplete FASTQ reporting requires a partial four-line record; lines="+lines;
+		errorState=true;
+		KillSwitch.kill("Incomplete FASTQ record at end of file '"+fname+"': found "+lines+
+			" of 4 lines. The input may be truncated or malformed.\nFirst line of fragment: "+firstLine);
+	}
+
+	/** Fails loudly when interleaved input ends after the first complete read of a pair. */
+	private static void incompletePair(final String fname, final Read unpaired){
+		assert(unpaired!=null) : "Interleaved EOF reporting requires the parsed first read whose mate is missing";
+		errorState=true;
+		KillSwitch.kill("Incomplete interleaved FASTQ pair at end of file '"+fname+"': read '"+unpaired.id+"' has no mate.");
 	}
 	
 	/**

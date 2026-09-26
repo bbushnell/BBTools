@@ -5,7 +5,7 @@ echo "
 Written by Brian Bushnell
 Last modified May 15, 2025
 
-Description:  Merges files of SSU sequences to keep one per taxID.
+Description:  Merges ribosomal sequence files to keep ranked members per TaxID.
 By default, a consensus is generated per TaxID, then the sequence
 best matching that consensus is used:
 First, all sequences per TaxID are aligned to a reference consensus.
@@ -13,7 +13,9 @@ Second, the best-matching sequence is used as a seed, and all other
 sequences for that TaxID are aligned to the seed to generate a new consensus.
 Third, in 'consensus' mode, that consensus is simply output.
 In 'best' mode (default), all sequences are aligned again to the new consensus,
-and the best-matching is output.
+and up to maxpertaxid members are output (one by default).
+All copies, including duplicates, contribute to the per-TaxID consensus.
+Optional exact deduplication occurs after ranking and before selecting outputs.
 
 Usage:  mergeribo.sh in=<file,file> out=<file>
 
@@ -31,11 +33,18 @@ fastawrap=70    4000 is recommended to minimize filesize.
 Processing parameters:
 alt=<file>      Lower priority data.  Only used if there is no SSU associated
                 with the TaxID from the primary input.
-best=t          Output the best representative per taxID.
+best=t          Output ranked real representatives per TaxID.
+maxpertaxid=1   Maximum representatives per TaxID; must be at least 1.
+dedupe=f        Remove exact duplicate sequences within each TaxID AFTER
+                consensus building and ranking, keeping the highest-ranked copy.
+                Use maxpertaxid=10 dedupe=t for up to 10 distinct copies.
+                With dedupe=f, repeated sequences may occupy multiple outputs.
 consensus=f     Output a consensus per taxID instead of the best input
-                sequence.  Mutually exclusive with best.
+                sequence.  Mutually exclusive with best; requires maxpertaxid=1.
 fast=f          Output the best sequence based on alignment to global consensus
                 (the seed) rather than individual consensus.
+                Fast mode and groups with fewer than 3 members use global-seed
+                ranking; larger non-fast groups use their own consensus.
 minid=0.62      Ignore sequences with identity lower than this to the global
                 consensus.
 maxns=-1        Ignore sequences with more than this many Ns, if non-negative.
@@ -82,7 +91,8 @@ resolveSymlinks(){
 	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 	while [ -h "$SCRIPT" ]; do
 		DIR="$(dirname "$SCRIPT")"
-		SCRIPT="$(readlink "$SCRIPT")"
+		LINK_TARGET="$(readlink "$SCRIPT")"
+		SCRIPT="$LINK_TARGET"
 		[ "${SCRIPT#/}" = "$SCRIPT" ] && SCRIPT="$DIR/$SCRIPT"
 	done
 	DIR="$(cd "$(dirname "$SCRIPT")" && pwd)"

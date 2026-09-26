@@ -3,10 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified December 1, 2025
-
-#This is an experimental new version of Reformat using a faster I/O system,
-#refactored to support multithreading
+Last modified September 25, 2026
 
 Description:  Reformats reads to change ASCII quality encoding, interleaving, file format, or compression format.
 Optionally performs additional functions such as quality trimming, subsetting, and subsampling.

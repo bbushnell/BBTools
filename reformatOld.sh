@@ -5,10 +5,11 @@ echo "
 Written by Brian Bushnell
 Last modified September 25, 2026
 
+Legacy singlethreaded version - new version is much faster.
+
 Description:  Reformats reads to change ASCII quality encoding, interleaving, file format, or compression format.
 Optionally performs additional functions such as quality trimming, subsetting, and subsampling.
 Supports fastq, fasta, fasta+qual, scarf, oneline, sam, bam, gzip, bz2.
-Multithreaded version of reformat.sh.
 Please read bbmap/docs/guides/ReformatGuide.txt for more information.
 
 Usage:  reformat.sh in=<file> in2=<file2> out=<outfile> out2=<outfile2>
@@ -20,6 +21,7 @@ Parameters and their defaults:
 
 ow=f                    (overwrite) Overwrites files that already exist.
 app=f                   (append) Append to files that already exist.
+zl=4                    (ziplevel) Set compression level, 1 (low) to 9 (max).
 int=f                   (interleaved) Determines whether INPUT file is considered interleaved.
 fastawrap=70            Length of lines in fasta output.
 fastareadlen=0          Set to a non-zero number to break fasta files into reads of at most this length.
@@ -34,16 +36,6 @@ qfout2=<.qual file>     Write qualities from this qual file, for the reads comin
 outsingle=<file>        (outs) If a read is longer than minlength and its mate is shorter, the longer one goes here.
 deleteinput=f           Delete input upon successful completion.
 ref=<file>              Optional reference fasta for sam processing.
-
-Threading and Compression Parameters:
-
-zl=4                    (ziplevel) Set compression level, 1 (low) to 9 (max); values above 6 are slow.
-wt=auto                 (workers) Number of worker threads.
-tin=auto                (threadsin) Number of threads for file reading.
-tout=auto               (threadsout) Number of threads for file writing.
-t=auto                  (threads) Maximum number of threads per pipeline stage; affects speed of things like bgzip processing.
-                        All stages will be capped at this number unless specified.  Default is logical cores.
-Note: Particularly with fasta files, fewer threads need less memory, so wt=1 tin=1 tout=1 is advisable with large contigs/chromosomes.
 
 Processing Parameters:
 
@@ -223,10 +215,12 @@ Please contact Brian Bushnell at bbushnell@lbl.gov if you encounter any problems
 For documentation and the latest version, visit: https://bbmap.org
 "
 }
+
 if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
 	usage
 	exit
 fi
+
 resolveSymlinks(){
 	SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
 	while [ -h "$SCRIPT" ]; do
@@ -241,21 +235,19 @@ resolveSymlinks(){
 		CP="$DIR/current/"
 	fi
 }
+
 setEnv(){
-	# Source helpers
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
-	
-	# Parse and run
-	# Expandable heap: starts at 256MB, can grow to 2GB
-	parseJavaArgs "--xmx=2g" "--xms=256m" "--mode=fixed" "$@"
+
+	parseJavaArgs "--xmx=300m" "--xms=300m" "--mode=fixed" "$@"
 	setEnvironment
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.ReformatStreamer $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS -cp $CP jgi.ReformatReads $@"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.ReformatStreamer "$@"
+	java $EA $EOOM $SIMD $XMX $XMS -cp "$CP" jgi.ReformatReads "$@"
 }
 
 resolveSymlinks
