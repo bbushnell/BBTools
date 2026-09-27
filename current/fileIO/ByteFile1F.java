@@ -220,7 +220,12 @@ public final class ByteFile1F extends ByteFile {
 		// Read data
 		while(positions.isEmpty()){
 			if(bstop==buffer.length){
-				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
+				//Use long arithmetic above 1GiB; never treat a full capped record buffer as EOF.
+				final int maxCap=Integer.MAX_VALUE-8;
+				if(buffer.length>=maxCap){
+					throw new RuntimeException("ByteFile1F: FASTA record in "+name()+" exceeds reader capacity ("+maxCap+" bytes)");
+				}
+				buffer=KillSwitch.copyOf(buffer, (int)Math.min(2L*buffer.length, maxCap));
 			}
 			
 			int r=-1;

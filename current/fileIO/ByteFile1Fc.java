@@ -248,7 +248,14 @@ public final class ByteFile1Fc extends ByteFile {
 		
 		while(lastRecordLoc<0){
 			if(bstop==buffer.length){
-				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
+				//G11's reader fix: long arithmetic prevents overflow above 1GiB. Fail at the cap
+				//instead of issuing read(...,0), which would silently truncate the record as false EOF.
+				final int maxCap=Integer.MAX_VALUE-8;
+				if(buffer.length>=maxCap){
+					throw new RuntimeException("ByteFile1Fc: FASTA record in "+ff.name()+" exceeds reader capacity ("
+						+maxCap+" bytes) with no '\\n>' boundary; records >~2GB require a streaming reader, not this whole-record buffer.");
+				}
+				buffer=KillSwitch.copyOf(buffer, (int)Math.min(2L*buffer.length, maxCap));
 			}
 			
 			int r=0;
@@ -262,7 +269,8 @@ public final class ByteFile1Fc extends ByteFile {
 			}
 			
 //			final int from=Math.max(0, bstop-1);//Not safe because buffer can come in with residual newlines
-			bstop+=r;
+			//EOF returns -1; only bytes actually read extend the buffer. Preserve a final base without newline.
+			if(r>0){bstop+=r;}
 			
 			if(firstRecord){
 			    assert(bstop<1 || buffer[0]==carrot) : "File does not start with '>' - "+ff.name()+" is not a valid FASTA file";
@@ -288,7 +296,9 @@ public final class ByteFile1Fc extends ByteFile {
 	}
 	
 	private byte[] condense(byte[] buffer, IntList newlines1, IntList newlines2, int lastRecordLoc) {
-		int lastByte=lastRecordLoc>0 ? lastRecordLoc : bstop;
+		//At EOF, use the final physical newline's index, or the synthetic boundary for an unterminated line.
+		final int lastByte=lastRecordLoc>0 ? lastRecordLoc :
+			(bstop>0 && buffer[bstop-1]==slashn ? bstop-1 : bstop);
 		newlines2.clear();
 		if(lastByte<1) {
 			close();

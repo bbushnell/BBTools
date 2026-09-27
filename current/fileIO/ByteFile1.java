@@ -372,7 +372,12 @@ public final class ByteFile1 extends ByteFile {
 		int r=-1;
 		while(len==bstop){//hit end of input without encountering a newline
 			if(bstop==buffer.length){
-				buffer=KillSwitch.copyOf(buffer, buffer.length*2);
+				//Use long arithmetic above 1GiB; a full capped buffer must not become a zero-byte read/false EOF.
+				final int maxCap=Integer.MAX_VALUE-8;
+				if(buffer.length>=maxCap){
+					throw new RuntimeException("ByteFile1: line in "+name()+" exceeds reader capacity ("+maxCap+" bytes)");
+				}
+				buffer=KillSwitch.copyOf(buffer, (int)Math.min(2L*buffer.length, maxCap));
 			}
 			try{
 				r=is.read(buffer, bstop, buffer.length-bstop);
@@ -423,17 +428,23 @@ public final class ByteFile1 extends ByteFile {
 				buffer[j]=line[i];
 			}
 			bstart=bstart-line.length;
+			refreshLinePositions();
 			return;
 		}
 
 		int bLen=bstop-bstart;
-		int newLen=bLen+line.length+1;
+		final long required=(long)bLen+line.length+1;
+		final int maxCap=Integer.MAX_VALUE-8;
+		if(required>maxCap){
+			throw new RuntimeException("ByteFile1: pushback in "+name()+" requires "+required+" bytes; capacity is "+maxCap);
+		}
+		final int newLen=(int)required;
 		int rShift=line.length+1-bstart;
 		assert(rShift>0) : bstop+", "+bstart+", "+line.length;
 		while(newLen>buffer.length){
 			//This could get big if pushback is used often,
 			//unless special steps are taken to prevent it, like leaving extra space for pushbacks.
-			buffer=Arrays.copyOf(buffer, buffer.length*2);
+			buffer=Arrays.copyOf(buffer, (int)Math.min(2L*buffer.length, maxCap));
 		}
 
 		Tools.shiftRight(buffer, rShift);
@@ -444,6 +455,15 @@ public final class ByteFile1 extends ByteFile {
 		buffer[line.length]='\n';
 		bstart=0;
 		bstop=newLen;
+		refreshLinePositions();
+	}
+
+	/** Pushback changes offsets and adds a newline; cached SIMD positions must describe the unread buffer. */
+	private void refreshLinePositions(){
+		assert(bstart>=0 && bstart<=bstop && bstop<=buffer.length) : "Invalid unread range after pushback: "+bstart+","+bstop+","+buffer.length;
+		listPos=0;
+		positions.clear();
+		if(Shared.SIMD){Vector.findSymbols(buffer, bstart, bstop, slashn, positions);}
 	}
 
 	/**
