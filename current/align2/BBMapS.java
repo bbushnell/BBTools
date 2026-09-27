@@ -376,6 +376,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	void postparse(String[] args){
+		// Enable horizontal SIMD for both limited and unlimited fills when supported.
+		// The aligner checks Shared.SIMD and hardware support before linking SIMD classes.
+		// Older Java and simd=f retain the original scalar implementation.
+		MultiStateAligner11ts.USE_HORIZONTAL_UNLIMITED=true;
 		hybridTipSearchCeiling=TIP_SEARCH_DIST; // Preserve parsed user/preset ceiling before startup indel clamp.
 		if((hybridPair || hybridMaxIndel) && !explicitIndelBoundSet){
 			// Force the validated low-pass bound through the existing install/clamp logic below,

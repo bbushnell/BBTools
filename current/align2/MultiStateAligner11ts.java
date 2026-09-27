@@ -76,7 +76,17 @@ public final class MultiStateAligner11ts extends MSA{
 	public MultiStateAligner11ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 		
-		packed=KillSwitch.allocInt3D(3, maxRows+1, maxColumns+1);
+		final String horizontalMode=System.getProperty("bbmap3.horizontalUnlimited",
+				USE_HORIZONTAL_UNLIMITED && shared.Shared.SIMD && simd.Vector.simd256 ? "vector" : "off");
+		if(!horizontalMode.equals("off") && !horizontalMode.equals("scalar") && !horizontalMode.equals("vector") && !horizontalMode.equals("diagonal")){
+			throw new IllegalArgumentException("bbmap3.horizontalUnlimited must be off,scalar,vector,or diagonal");
+		}
+		final boolean supported=shared.Shared.SIMD && simd.Vector.simd256;
+		// Diagonal is opt-in only:154.931s versus98.084s horizontal on the real HG001 comparison.
+		horizontal=horizontalMode.equals("off") || nativeNConsistency || (horizontalMode.equals("diagonal") && !supported) ? null :
+				horizontalMode.equals("diagonal") ? new DiagonalUnlimited() : new HorizontalUnlimited(horizontalMode.equals("vector"));
+		compactLimited=Boolean.parseBoolean(System.getProperty("bbmap3.compactLimited",
+				USE_HORIZONTAL_UNLIMITED && supported ? "true" : "false"));
 		msPredecessor=nativeNConsistency ? new byte[maxRows+1][maxColumns+2] : null;
 		//TODO: Possible bug [align2/MultiStateAligner11ts#002] (latent): the fill loop's clear-ahead writes
 		//packed[..][row-1][col+1] at the colStop boundary. col runs to `columns` (for col=colStart;col<=columns),
@@ -90,6 +100,13 @@ public final class MultiStateAligner11ts extends MSA{
 		
 		Arrays.fill(vertLimit, BADoff);
 		Arrays.fill(horizLimit, BADoff);
+		if(horizontal==null){ensurePacked();}
+	}
+
+	/** Allocate full score matrices only for the original scalar route or an exceptional replay. */
+	private void ensurePacked(){
+		if(packed!=null){return;}
+		packed=KillSwitch.allocInt3D(3,maxRows+1,maxColumns+1);
 		
 //		for(int i=0; i<maxColumns+1; i++){
 //			scores[0][i]=0-i;
@@ -152,6 +169,7 @@ public final class MultiStateAligner11ts extends MSA{
 	}
 
 	private final int[] fillLimitedX(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, boolean bypassWidth){
+		horizontalReady=false;
 		if(verbose){System.err.println("fillLimitedX");}
 //		minScore=0;
 //		assert(minScore>0);
@@ -188,6 +206,13 @@ public final class MultiStateAligner11ts extends MSA{
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
 		
+		if(compactLimited && horizontal!=null && read.length>0 && read.length<POINTSoff_INS_ARRAY.length){
+			horizontalReady=true;
+			int[] result=horizontal.fillLimited(read,ref,refStartLoc,refEndLoc,minScore-MIN_SCORE_ADJUST,halfband);
+			iterationsLimited+=horizontal.lastFillCells;
+			return result;
+		}
+		ensurePacked();
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
 		if(nConsistent){clearMSPredecessors();}
 		
@@ -812,6 +837,25 @@ public final class MultiStateAligner11ts extends MSA{
 	 * @return int[] {rows, maxCol, maxState, maxScore}
 	 */
 	private final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
+		if(horizontal!=null && read.length>0 && read.length<POINTSoff_INS_ARRAY.length){
+			rows=read.length;columns=refEndLoc-refStartLoc+1;
+			assert(rows<=maxRows && columns<=maxColumns) : "Rolling fill must honor the same MSA dimension limits";
+			horizontalReady=true;
+			iterationsUnlimited+=(long)rows*columns;
+			return horizontal.fill(read,ref,refStartLoc,refEndLoc);
+		}
+		horizontalReady=false;ensurePacked();
+		return fillUnlimitedLegacy(read,ref,refStartLoc,refEndLoc);
+	}
+
+	private void restorePacked(){
+		horizontalRestores++;
+		assert(horizontalReady) : "Only a retained rolling fill can rebuild the legacy matrix";
+		horizontalReady=false;ensurePacked();
+		fillUnlimitedLegacy(horizontal.query,horizontal.reference,horizontal.refStart,horizontal.refStop);
+	}
+
+	private final int[] fillUnlimitedLegacy(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		rows=read.length; //Number rows to fill, equal to query length.
 		columns=refEndLoc-refStartLoc+1; //Number of columns to fill, equal to relevant portion of reference.
 		final boolean nConsistent=nConsistentExecution();
@@ -1125,6 +1169,7 @@ public final class MultiStateAligner11ts extends MSA{
 	@Deprecated
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public final int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc){
+		horizontalReady=false;ensurePacked();
 		if(nativeNConsistency){throw new IllegalStateException("nativeNConsistency does not support fillQ");}
 		assert(false) : "Needs to be redone to work with score cutoffs.  Not difficult.";
 		rows=read.length;
@@ -1349,6 +1394,10 @@ public final class MultiStateAligner11ts extends MSA{
 	@Override
 	/** Generates the match string */
 	public final byte[] traceback2(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state){
+		if(horizontalReady){
+			if(horizontal.matches(read,ref,refStartLoc,refEndLoc,row)){return horizontal.traceback(row,col,state);}
+			restorePacked();
+		}
 		if(nativeNLegacyRouting){checkRoutedDirect(read,ref,refStartLoc,refEndLoc);}
 //		assert(false);
 		assert(refStartLoc<=refEndLoc) : refStartLoc+", "+refEndLoc;
@@ -1527,6 +1576,10 @@ public final class MultiStateAligner11ts extends MSA{
 	 * if more padding is needed */
 	public final int[] score2(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState){
+		if(horizontalReady){
+			if(horizontal.matches(read,ref,refStartLoc,refEndLoc,maxRow)){return horizontal.score(maxRow,maxCol,maxState,refEndLoc);}
+			restorePacked();
+		}
 		if(nativeNLegacyRouting){checkRoutedDirect(read,ref,refStartLoc,refEndLoc);}
 		
 		int row=maxRow;
@@ -2624,7 +2677,13 @@ public final class MultiStateAligner11ts extends MSA{
 	/**
 	 * 3D scoring matrices for match/substitution, deletion, and insertion states
 	 */
-	private final int[][][] packed;
+	private int[][][] packed;
+	private final HorizontalUnlimited horizontal;
+	/** BBMapS enables the tested SIMD fill; other callers retain their existing default. */
+	public static boolean USE_HORIZONTAL_UNLIMITED=false;
+	private boolean horizontalReady;
+	private final boolean compactLimited;
+	long horizontalRestores;
 	/** Buffer for storing gapped reference sequence */
 	private final byte[] grefbuffer;
 	/** Limit of valid data in gapped reference buffer */
@@ -2722,8 +2781,8 @@ public final class MultiStateAligner11ts extends MSA{
 	static{assert(Integer.bitCount(TIMESLIP)==1);}
 	
 	
-	private static final int BARRIER_I1=2;
-	private static final int BARRIER_D1=3;
+	static final int BARRIER_I1=2;
+	static final int BARRIER_D1=3;
 	
 
 	public static final int LIMIT_FOR_COST_3=5;

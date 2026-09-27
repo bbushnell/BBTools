@@ -51,6 +51,10 @@ BBMapS also computes calibrated strict-endpoint MAPQ for supported primary
   and intermediate reference sizes retain legacy MAPQ and omit QL/QS.
 Run bbmap.sh -h for the full flag reference.
 Java SIMD is detected by the standard BBTools launcher setup.
+BBMapS automatically uses horizontal SIMD for limited and unlimited alignment when supported.
+  simd=f or an older Java runtime retains the original scalar alignment path.
+  The slower experimental diagonal unlimited fill is never selected automatically.
+  To try it: JAVA_TOOL_OPTIONS=-Dbbmap3.horizontalUnlimited=diagonal bbmapS.sh ...
 "
 }
 
