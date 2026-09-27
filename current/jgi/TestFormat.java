@@ -43,6 +43,8 @@ import structures.SuperLongList;
 import tracker.AdapterTracker;
 import tracker.KmerTracker;
 import tracker.ReadStats;
+import var2.BedValidator;
+import var2.VCFValidator;
 
 /**
  * @author Brian Bushnell
@@ -91,6 +93,12 @@ public class TestFormat {
 				//Set a variable here
 			}else if(a.equals("full")){
 				full=Parse.parseBoolean(b);
+			}else if(a.equals("bedfields")){
+				if(b==null){throw new IllegalArgumentException("bedfields requires auto or a standard-field count");}
+				bedFields=b.equalsIgnoreCase("auto") ? 0 : Integer.parseInt(b);
+				if(bedFields!=0 && !((bedFields>=3 && bedFields<=9) || bedFields==12)){
+					throw new IllegalArgumentException("bedfields must be auto, 3-9, or 12");
+				}
 			}else if(a.equals("in") || a.equals("in1")){
 				in.add(b);
 			}else if(a.equals("sketchsize")){
@@ -229,7 +237,8 @@ public class TestFormat {
 	
 	/** Scans inputs, prints summaries, and fails if a reader, writer, or check failed. */
 	void process(Timer t){
-		boolean sequence=false, variant=false;
+		boolean sequence=false, variant=false, vcf=false;
+		long vcfRecords=0;
 		for(String fname : in){
 			final int previousFormat=format, previousCompression=compression;
 			final boolean previousBgzip=bgzip;
@@ -237,28 +246,31 @@ public class TestFormat {
 			if(full){
 				if(ff.gff()){
 					processGff(ff);
+				}else if(ff.bed()){
+					errorState|=!BedValidator.printResult(BedValidator.validateFile(ff, bedFields), ff, System.out, outstream);
+				}else if(ff.vcf()){
+					final VCFValidator.Result result=VCFValidator.validateFile(ff);
+					vcf=true; vcfRecords+=result.records;
+					errorState|=!VCFValidator.printResult(result, ff, System.out, outstream);
 				}else if(ff.isSequence()){
 					sequence=true;
 					processReads(ff);
 				}else if(ff.var()){
 					variant=true;
 					loadVars(ff);
-				}else if(ff.vcf()){
-					variant=true;
-					loadVcf(ff);
 				}else{
-					System.err.println("Does not seem to be a sequence or variant format: "+ff.rawExtension());
+					System.err.println("No full-file analysis for format: "+ff.rawExtension());
 				}
 			}
-			if(ff.gff()){
-				//GFF reports are per file; do not relabel accumulated sequence/variant statistics.
+			if(ff.gff() || ff.bed() || ff.vcf()){
+				//Validator reports are per file; do not relabel accumulated sequence/VAR statistics.
 				format=previousFormat; compression=previousCompression; bgzip=previousBgzip;
 			}
 //			System.err.println(ff);
 		}
 		
 		
-		//TODO: Probable bug - mixed sequence/variant inputs suppress the variant summary
+		//TODO: Probable bug - mixed sequence/VAR inputs suppress the VAR summary
 		//and share last-file metadata; per-file reporting is needed before general mixed-format validation.
 		if(sequence){
 			printSequenceResults();
@@ -271,8 +283,9 @@ public class TestFormat {
 			outstream.println("Time:                         \t"+t);
 			if(sequence){
 				outstream.println("Reads Processed:    "+readsProcessed+" \t"+Tools.format("%.2fk reads/sec", (readsProcessed/(double)(t.elapsed))*1000000));
-			}else if(variant){
-				outstream.println("Vars Processed:     "+variantsProcessed+" \t"+Tools.format("%.2fk vars/sec", (variantsProcessed/(double)(t.elapsed))*1000000));
+			}else if(variant || vcf){
+				final long count=variantsProcessed+vcfRecords;
+				outstream.println("Vars Processed:     "+count+" \t"+Tools.format("%.2fk vars/sec", (count/(double)(t.elapsed))*1000000));
 			}
 		}
 		if(errorState){throw new RuntimeException("TestFormat encountered a validation or I/O error; results may be incomplete.");}
@@ -511,6 +524,7 @@ public class TestFormat {
 		}
 	}
 	
+	/** Prints quality statistics; means exclude nonpositive qualities, while histograms include all occupied quality bins. */
 	void printQhist(){
 		long qSum=0;
 		double errorSum=0;
@@ -522,8 +536,7 @@ public class TestFormat {
 			errorSum+=(count*QualityTools.PROB_ERROR[q]);
 		}
 		qCalled=Tools.max(1, qCalled);
-		//TODO: Probable bug - integer division truncates fractional mean qualities before conversion to double.
-		double avg=qSum/qCalled;
+		double avg=qSum/(double)qCalled;
 		double errorAvg=errorSum/qCalled;
 		double logAvg=QualityTools.probErrorToPhredDouble(errorAvg);
 		double trimMult=100.0/(Tools.max(basesProcessed, 1));
@@ -778,42 +791,6 @@ public class TestFormat {
 		errorState|=bf.close();
 	}
 	
-	/** Counts VCF data and header lines separately and preserves read/close errors. */
-	void loadVcf(FileFormat ff){
-		ByteFile bf=ByteFile.makeByteFile(ff);
-		byte[] line=bf.nextLine();
-		while(line!=null){
-			if(line.length==0){line=bf.nextLine(); continue;}
-			if(line[0]!='#'){
-				variantsProcessed++;
-//				Var v;
-//				try {
-//					v = Var.fromVCF(line, null);
-//				} catch (Exception e) {
-//					System.err.println("Unable to parse VCF line: '"+new String(line)+"'");
-//				}
-			}else{
-				headerLinesProcessed++;
-				String[] split=new String(line).split("=");
-				if(split.length==2){
-					String a=split[0], b=split[1];
-					if(a.equalsIgnoreCase("##ploidy")){
-						ploidy=Integer.parseInt(b);
-					}else if(a.equalsIgnoreCase("##properPairRate")){
-						pairingRate= Double.parseDouble(b);
-					}else if(a.equalsIgnoreCase("##totalQualityAvg")){
-						totalQualityAvg= Double.parseDouble(b);
-					}else if(a.equalsIgnoreCase("##mapqAvg")){
-						mapqAvg= Double.parseDouble(b);
-					}else if(a.equalsIgnoreCase("##readLengthAvg")){
-						readLengthAvg= Double.parseDouble(b);
-					}
-				}
-			}
-			line=bf.nextLine();
-		}
-		errorState|=bf.close();
-	}
 	
 	/*--------------------------------------------------------------*/
 	
@@ -1349,6 +1326,8 @@ public class TestFormat {
 
 	private long maxReads=-1;
 	private boolean full=true;
+	/** Zero infers standard BED fields; a positive value declares a BEDn+ prefix. */
+	private int bedFields=0;
 	private boolean fast=true;
 	
 	private boolean printSpeed=false;

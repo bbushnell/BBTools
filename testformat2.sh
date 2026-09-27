@@ -3,15 +3,30 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified November 6, 2025
+Last modified September 26, 2026
 
 Description:  Reads the entire file to find extended information about the format and contents.
+GFF input: checks nine nonempty fields, control characters, positive ordered
+coordinates, decimal score syntax, strand, and phase (required for CDS).
+Attributes, directives, ontology, feature relationships, and embedded FASTA
+contents are not validated.  The report states this limited coverage.
+Detected validation or I/O failures return a nonzero exit status.
+BED input: checks standard fields and block structure, accepts UCSC track headers,
+and reports unchecked custom columns. Reference bounds and sorting are unchecked.
+VCF input: checks VCF4.1-4.5 headers, column counts, POS/REF/QUAL syntax and
+FORMAT/sample structure. Detailed ALT/GT, INFO/FILTER/ID semantics, declaration
+matching, numeric ranges, reference agreement and sorting remain unchecked.
+Blank VCF lines after the version are tolerated; final newline is not checked.
 
 Usage:  testformat2.sh <file>
 
 Parameters:
 
 full=t          Process the full file.
+bedfields=auto  Infer BED3-9 or BED12 standard fields (complete block columns).
+                Set 3-9 or 12 for BEDn+ files; later custom fields are unchecked.
+                A valid single-tab interpretation is preferred; otherwise horizontal
+                whitespace is tried. Field counts must agree within each track.
 speed=f         Print processing time.
 printjunk=f     Print headers of junk reads to stdout.
 zmw=t           Parse PacBio ZMW IDs.
