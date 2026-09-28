@@ -150,7 +150,8 @@ public class NcrnaBoundaryCaptureDriver {
 					@Override
 					public void capture(String contigName, int strand, int modelIndex,
 							int origWStart, int origWStop, int postTrimStart, int postTrimStop,
-							byte[] windowCopy, int windowCopyOffset, boolean trimSucceeded, boolean nnInvoked){
+							byte[] windowCopy, int windowCopyOffset, boolean trimSucceeded, boolean nnInvoked,
+							int windowSource, float acceptedIdentity, int alignedLength){
 						//Self-inverse per-strand<->absolute transform from the sink javadoc
 						//(PFeature.flip's formula): identity on strand 0.
 						final int absStart=(strand==0 ? postTrimStart : scafLen[0]-1-postTrimStop);

@@ -234,4 +234,32 @@ public class NcrnaFamily {
 	final int[] boundaryStopOffsets;
 	final float boundaryMarginStart;
 	final float boundaryMarginStop;
+	SeedOffsetTable voteTable=null;
+	boolean voteWindows=false, voteEnds=false;
+	int voteSlack=60;
+	float voteEndsMaxSd=5f;
+	/** Optional production model-dispatched endpoint resources. Null preserves the
+	 * family-wide endpoint path. Arrays are index-aligned with library/modelNames. */
+	CellNet[] boundaryNetsByModel=null;
+	TrnaBoundaryFeatures.NinemerTable[] boundaryStartTablesByModel=null;
+	TrnaBoundaryFeatures.NinemerTable[] boundaryStopTablesByModel=null;
+	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
+	boolean boundaryOnRawEndpoints=false;
+	boolean nnCentre5Vote=false, nnCentre3Vote=false;
+	float nnCutoff=Float.NaN;
+
+	/** Production controls that historically lived only in RrnaScavengerHarness.
+	 * Defaults preserve every existing generic-ncRNA family. */
+	int outputType=ProkObject.RNA;
+	int seedMinHits=1;
+	/** Inclusive alignment-span cap; unlimited unless explicitly selected. */
+	int maxLen=Integer.MAX_VALUE;
+	int quantumThresh=120;
+	boolean scavengePass2=true;
+	boolean rankedModelFallback=false;
+	boolean strictIndexCutoff=false;
+	boolean trimAlignmentExtent=true;
+	/** When true, every shortlisted consensus is Quantum-aligned once with
+	 * traceback, and that result supplies detection, coordinates, and HBM input. */
+	boolean reuseConsensusAlignment=false;
 }

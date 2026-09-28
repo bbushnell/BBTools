@@ -20,6 +20,7 @@ fi
 # Initialize global variables
 XMX=""
 XMS=""
+XSS=""
 EA="-ea"
 EOOM=""
 SIMD=""
@@ -121,12 +122,16 @@ normalizeMemory() {
 	# Strip any existing prefix variations
 	mem="${mem#-Xmx}"
 	mem="${mem#-Xms}"
+	mem="${mem#-Xss}"
 	mem="${mem#Xmx}"
 	mem="${mem#Xms}"
+	mem="${mem#Xss}"
 	mem="${mem#-xmx}"
 	mem="${mem#-xms}"
+	mem="${mem#-xss}"
 	mem="${mem#xmx}"
 	mem="${mem#xms}"
+	mem="${mem#xss}"
 	
 	# Check if already has suffix (case-insensitive)
 	case "$mem" in
@@ -194,8 +199,10 @@ normalizeMemory() {
 parseJavaArgs() {
 	local setxmx=0
 	local setxms=0
+	local setxss=0
 	local defaultXmx="4g"  # Default max heap
 	local defaultXms=""	 # Default min heap (empty = same as Xmx)
+	local defaultXss=""	 # Default thread stack (empty = wrapper/JVM default)
 	local memPercent=84
 	local memMode="auto"
 	local simd_specified=0
@@ -207,6 +214,8 @@ parseJavaArgs() {
 			defaultXmx="$(echo "$arg" | cut -d= -f2)"
 		elif [ "${arg%%=*}" = "--xms" ]; then
 			defaultXms="$(echo "$arg" | cut -d= -f2)"
+		elif [ "${arg%%=*}" = "--xss" ]; then
+			defaultXss="$(echo "$arg" | cut -d= -f2)"
 		elif [ "${arg%%=*}" = "--mem" ]; then
 			# Legacy: sets both to same value
 			defaultXmx="$(echo "$arg" | cut -d= -f2)"
@@ -243,6 +252,16 @@ parseJavaArgs() {
 			value="${value#=}"
 			XMS=$(normalizeMemory "$value" "-Xms")
 			setxms=1
+		elif case "$arg" in -[xX][sS][sS]*|[xX][sS][sS]*) true;; *) false;; esac; then
+			# Extract the thread-stack value using the same JVM-flag convention.
+			local value="$arg"
+			value="${value#-}"; value="${value#-}"; value="${value#-}"
+			case "$value" in
+				[xX][sS][sS]*) value="${value#[xX][sS][sS]}" ;;
+			esac
+			value="${value#=}"
+			XSS=$(normalizeMemory "$value" "-Xss")
+			setxss=1
 		
 		# Assertion settings
 		elif [ "$arg" = "-da" ] || [ "$arg" = "-ea" ]; then
@@ -320,6 +339,11 @@ parseJavaArgs() {
 		local substring=$(echo $XMS | cut -d's' -f 2)
 		XMX="-Xmx$substring"
 	fi
+
+	# Wrapper defaults remain in effect unless the user supplied an explicit -Xss.
+	if [ "$setxss" = "0" ] && [ -n "$defaultXss" ]; then
+		XSS=$(normalizeMemory "$defaultXss" "-Xss")
+	fi
 	
 	z="$XMX"
 	z2="$XMS"
@@ -352,7 +376,7 @@ getJavaCommand() {
 	parseJavaArgs "$@"
 	setEnvironment
 	
-	local JAVA_CMD="java $EA $EOOM $PROXY $XMX $XMS $SIMD"
+	local JAVA_CMD="java $EA $EOOM $PROXY $XMX $XMS $XSS $SIMD"
 	echo "$JAVA_CMD"
 }
 

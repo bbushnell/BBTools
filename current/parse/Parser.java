@@ -1628,10 +1628,10 @@ public class Parser {
 	 */
 	static boolean isJavaFlag(String arg){
 		if(arg==null){return false;}
-		if(arg.startsWith("-Xmx") || arg.startsWith("-Xms") || arg.startsWith("-Xmn") || arg.startsWith("-xmx") || arg.startsWith("-xms") || arg.startsWith("-xmn")){
+		if(arg.startsWith("-Xmx") || arg.startsWith("-Xms") || arg.startsWith("-Xmn") || arg.startsWith("-Xss") || arg.startsWith("-xmx") || arg.startsWith("-xms") || arg.startsWith("-xmn") || arg.startsWith("-xss")){
 			return arg.length()>4 && Tools.isDigit(arg.charAt(4));
 		}
-		if(arg.startsWith("Xmx") || arg.startsWith("Xms") || arg.startsWith("Xmn") || arg.startsWith("xmx")){
+		if(arg.startsWith("Xmx") || arg.startsWith("Xms") || arg.startsWith("Xmn") || arg.startsWith("Xss") || arg.startsWith("xmx") || arg.startsWith("xss")){
 			return arg.length()>3 && (Tools.isDigit(arg.charAt(3)) || arg.charAt(3)=='=');
 		}
 		if(arg.equals("-ea") || arg.equals("-da") || arg.equals("ea") || arg.equals("da")){

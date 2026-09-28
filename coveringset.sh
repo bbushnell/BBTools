@@ -68,6 +68,9 @@ kdesign=        If set, select at this k but output at k.
 
 Selection parameters:
 step=500        Kmers to select per round.
+steps=          Comma-delimited per-round schedule, e.g. 200,50,20,10,5.
+                The last value repeats until the coverage target is reached.
+                Nucleotide mode only; mutually exclusive with stepfraction.
 stepfraction=0  Adaptive sizing for rounds 2+: target this fraction of the
                 remaining sequences, projected from the previous round's
                 recovered-sequences-per-kmer rate. 0 disables adaptation.

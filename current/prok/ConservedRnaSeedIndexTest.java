@@ -12,8 +12,23 @@ public class ConservedRnaSeedIndexTest {
 
 	public static void main(String[] args){
 		testCollisionsAllBitsAndStrands();
+		testSelectiveKeyRetention();
 		testCapacityGuard();
 		System.out.println("PASS ConservedRnaSeedIndexTest");
+	}
+
+	private static void testSelectiveKeyRetention(){
+		final LongHashSet aSet=new LongHashSet(2), cSet=new LongHashSet(2);
+		final long a=encode(repeat('A',17)), c=encode(repeat('C',17)); aSet.add(a); cSet.add(c);
+		final ConservedRnaSeedIndex index=new ConservedRnaSeedIndex(new LongHashSet[]{aSet,cSet}, new boolean[]{true,false});
+		final ConservedRnaSeedIndex.ScanResult result=index.scan(bytes(repeat('A',17)+"N"+repeat('C',17)));
+		if(!Arrays.equals(result.keys(0), new long[]{a}) || result.keys(1).length!=0){
+			throw new AssertionError("Selective key retention failed");
+		}
+		boolean threw=false;
+		try{new ConservedRnaSeedIndex(new LongHashSet[]{aSet}, new boolean[2]);}
+		catch(IllegalArgumentException e){threw=e.getMessage().contains("length mismatch");}
+		if(!threw){throw new AssertionError("Expected retain-key length mismatch failure");}
 	}
 
 	private static void testCollisionsAllBitsAndStrands(){

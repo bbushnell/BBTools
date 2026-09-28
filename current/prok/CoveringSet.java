@@ -130,6 +130,9 @@ public class CoveringSet {
 				kDesign=Integer.parseInt(b);
 			}else if(a.equals("step")){
 				step=(int)Parse.parseKMG(b);
+			}else if(a.equals("steps") || a.equals("stepschedule")){
+				stepSchedule=Parse.parseIntArray(b, ",");
+				if(stepSchedule.length>0){step=stepSchedule[0];}
 			}else if(a.equals("stepfraction") || a.equals("stepfrac") || a.equals("adaptivefraction")){
 				stepFraction=Double.parseDouble(b);
 			}else if(a.equals("minstepmult")){
@@ -204,6 +207,12 @@ public class CoveringSet {
 				" bits="+reducedAlphabet.bits()+" alphabet="+reducedAlphabet.symbols());
 		}
 		if(step<1){throw new IllegalArgumentException("step must be positive: "+step);}
+		if(stepSchedule!=null){
+			if(stepSchedule.length<1){throw new IllegalArgumentException("steps must contain at least one positive batch size");}
+			for(int x : stepSchedule){if(x<1){throw new IllegalArgumentException("steps values must be positive: "+Arrays.toString(stepSchedule));}}
+			if(stepFraction>0){throw new IllegalArgumentException("steps and stepfraction are mutually exclusive");}
+			if(proteinMode || families!=null){throw new IllegalArgumentException("steps is currently supported only for single-pool nucleotide mode");}
+		}
 		if(stepFraction<0 || stepFraction>1){
 			throw new IllegalArgumentException("stepfraction must be in [0,1]: "+stepFraction);
 		}
@@ -243,7 +252,8 @@ public class CoveringSet {
 		if(numPartitions<=0){numPartitions=Tools.max(15, 2*Shared.threads())|1;}
 		outstream.println("Pool: "+totalSeqs+" sequences, k="+k+
 				(kDesign!=k ? " (design k="+kDesign+")" : "")+
-				", step="+step+(stepFraction>0 ? ", stepfraction="+stepFraction+
+				(stepSchedule==null ? ", step="+step : ", steps="+Arrays.toString(stepSchedule))+
+				(stepFraction>0 ? ", stepfraction="+stepFraction+
 				", stepbounds="+minStepMult+"-"+maxStepMult+", step2boost="+step2Boost : "")+
 				", rcomp="+rcomp+", partitions="+numPartitions+", bufsize="+bufferSize);
 
@@ -270,7 +280,7 @@ public class CoveringSet {
 			if(covFrac>=minCovFraction){break;}
 
 			//Retain the historical near-target reduction when adaptive sizing is off.
-			if(stepFraction<=0){
+			if(stepSchedule==null && stepFraction<=0){
 				final float gap=aliveCount/(float)totalSeqs;
 				final float targetGap=1f-minCovFraction;
 				if(gap<=2*targetGap && currentStep>Math.max(1, step/2)){
@@ -289,7 +299,9 @@ public class CoveringSet {
 			if(currentCounts.isEmpty()){break;}
 
 			final int candidateLimit=(int)Tools.min(Integer.MAX_VALUE, 2L*roundStep);
-			long[] candidates=topNByCount(currentCounts, candidateLimit);
+			//Exclude previously selected keys before bounded top-N truncation. If they
+			//occupy the heap, minhits>1 can see added==0 and stop before a second key.
+			long[] candidates=topNByCount(currentCounts, candidateLimit, selectedSet);
 			long[] ranked=rankByOriginal(candidates, originalCounts, roundStep);
 
 			int added=0;
@@ -311,7 +323,11 @@ public class CoveringSet {
 						selectedKmers.size+"), evicted "+evicted+
 						", alive="+aliveCount+", coverage="+String.format("%.4f", cov));
 			}
-			if(stepFraction>0 && aliveCount>0){
+			if(stepSchedule!=null && aliveCount>0){
+				final int nextStep=stepSchedule[Tools.min(round, stepSchedule.length-1)];
+				if(verbose || nextStep!=currentStep){outstream.println("  Next scheduled step: "+nextStep);}
+				currentStep=nextStep;
+			}else if(stepFraction>0 && aliveCount>0){
 				final int nextStep=adaptiveStep(added, evicted, aliveCount, round+1);
 				if(verbose || nextStep!=currentStep){
 					outstream.println("  Next step: "+nextStep+" (previous added="+added+
@@ -443,6 +459,8 @@ public class CoveringSet {
 			final TopKHeap currentHeap=new TopKHeap(candidateLimit);
 			final long[] currentKeys=current.keys(); final int[] currentValues=current.values();
 			final long currentInvalid=current.invalid();
+			//TODO: Probable bug - this protein-family heap does not exclude already-selected
+			//keys before truncation and may stall minhits>1 as the nucleotide path did.
 			for(int cell=0; cell<currentKeys.length; cell++){
 				if(currentKeys[cell]!=currentInvalid){currentHeap.add(currentKeys[cell], currentValues[cell], currentKeys[cell]);}
 			}
@@ -918,21 +936,21 @@ public class CoveringSet {
 	 * complete kmer space. Each shard is scanned independently in parallel into
 	 * a bounded primitive heap, then the small shard results are merged. Numeric
 	 * kmer order breaks count ties reproducibly, independent of shard count. */
-	private long[] topNByCount(final PartitionedCounter counter, final int n){
+	private long[] topNByCount(final PartitionedCounter counter, final int n, final LongHashSet excluded){
 		if(n<=0 || counter.isEmpty()){return new long[0];}
 		final int limit=(int)Tools.min(n, counter.size());
 		final int ways=counter.shards.length;
 		final int threads=Tools.max(1, Shared.threads());
 		final TopKHeap merged=new TopKHeap(limit);
 		if(threads<=1 || ways<=1){
-			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit));}
+			for(int way=0; way<ways; way++){merged.add(topKFromShard(counter.shards[way], limit, excluded));}
 		}else{
 			final ArrayList<Future<TopKHeap>> futures=new ArrayList<>(ways);
 			for(int way=0; way<ways; way++){
 				final int w=way;
 				futures.add(pool().submit(new Callable<TopKHeap>(){
 					@Override
-					public TopKHeap call(){return topKFromShard(counter.shards[w], limit);}
+					public TopKHeap call(){return topKFromShard(counter.shards[w], limit, excluded);}
 				}));
 			}
 			for(Future<TopKHeap> f : futures){
@@ -943,14 +961,14 @@ public class CoveringSet {
 	}
 
 	/** Scans one immutable shard into a bounded top-K heap. */
-	private static TopKHeap topKFromShard(LongIntMap map, int limit){
+	private static TopKHeap topKFromShard(LongIntMap map, int limit, LongHashSet excluded){
 		final TopKHeap heap=new TopKHeap(Tools.min(limit, map.size()));
 		final long[] keys=map.keys();
 		final int[] counts=map.values();
 		final long invalid=map.invalid();
 		for(int cell=0; cell<keys.length; cell++){
 			final long key=keys[cell];
-			if(key!=invalid){heap.add(key, counts[cell], key);}
+			if(key!=invalid && (excluded==null || !excluded.contains(key))){heap.add(key, counts[cell], key);}
 		}
 		return heap;
 	}
@@ -990,11 +1008,14 @@ public class CoveringSet {
 			LongHashSet selected, int from, int to, int kLen, long mask){
 		int evicted=0;
 		final int shift2=2*kLen-2;
+		final LongHashSet matched=(minHits>1 ? new LongHashSet(16) : null);
 		for(int i=from; i<to; i++){
 			if(!alive[i]){continue;}
 			byte[] bases=pool.get(i);
 			long kmer=0, rkmer=0;
 			int len=0;
+			boolean covered=false;
+			if(matched!=null){matched.clear();}
 			for(byte b : bases){
 				int num=AminoAcid.baseToNumber[b];
 				if(num>=0){
@@ -1004,13 +1025,18 @@ public class CoveringSet {
 						rkmer=((rkmer>>>2)|(comp<<shift2))&mask;
 					}
 					len++;
-					if(len>=kLen && selected.contains(rcomp ? Tools.max(kmer, rkmer) : kmer)){
-						alive[i]=false;
-						evicted++;
-						break;
+					if(len>=kLen){
+						final long key=(rcomp ? Tools.max(kmer, rkmer) : kmer);
+						if(selected.contains(key)){
+							//Before 2026-09-21, nucleotide minhits was parsed but evictRange
+							//never read it and evicted every sequence on its first selected k-mer.
+							covered=(minHits<=1 || (matched.add(key) && matched.size()>=minHits));
+							if(covered){break;}
+						}
 					}
 				}else{len=0; kmer=0; rkmer=0;}
 			}
+			if(covered){alive[i]=false; evicted++;}
 		}
 		return evicted;
 	}
@@ -1209,6 +1235,8 @@ public class CoveringSet {
 	private int k=17;
 	private int kDesign=-1;
 	private int step=500;
+	/** Literal per-round nucleotide batch schedule; the last value repeats. */
+	private int[] stepSchedule=null;
 	/** Fraction of remaining sequences targeted per adaptive round; 0 keeps the
 	 * historical fixed-step behavior. */
 	private double stepFraction=0;

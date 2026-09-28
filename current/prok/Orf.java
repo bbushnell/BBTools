@@ -487,6 +487,9 @@ public class Orf extends PFeature {
 		if(trnaAnticodon!=null){
 			bb.append(",anticodon:").append(trnaAnticodon);
 		}
+		if(ncrnaFamily!=null){
+			bb.append(",family:").append(ncrnaFamily);
+		}
 		return bb;
 	}
 	

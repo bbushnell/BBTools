@@ -28,7 +28,6 @@ import stream.StreamerFactory;
 import stream.Writer;
 import stream.WriterFactory;
 import structures.ListNum;
-import tax.GiToTaxid;
 import tax.TaxTree;
 import template.Accumulator;
 import template.ThreadWaiter;
@@ -414,17 +413,13 @@ public class CutGff2 implements Accumulator<CutGff2.ProcessThread> {
 		}
 	}
 
-	/** Sets r.obj (taxid) and normalizes r.id, mirroring CutGff.renameByTaxID's local
-	 * (non-network) paths; the constructor rejects network tax modes for streaming. */
+	/** Sets r.obj from TaxTree's shared embedded-taxid parser and adds a tid prefix
+	 * only when absent, preserving the original contig ID for GFF lookup. */
 	private void renameByTaxID(Read r){
-		if(r.id!=null && r.id.startsWith("tid|")){
-			r.obj=TaxTree.parseHeaderStatic(r.id);
-		}else{
-			int id=GiToTaxid.parseTaxidNumber(r.id, '|');
-			assert(id>=0 || !requirePresent) : "Can't find taxID for header: "+id+", "+r.name();
-			r.obj=id;
-			r.id="tid|"+id+"|"+id;
-		}
+		final int id=TaxTree.parseTaxID(r.id);
+		assert(id>=0 || !requirePresent) : "Can't find taxID for header: "+id+", "+r.name();
+		r.obj=id;
+		if(r.id!=null && !r.id.startsWith("tid|")){r.id="tid|"+id+"|"+r.id;}
 	}
 
 	/**

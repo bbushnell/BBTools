@@ -1150,7 +1150,7 @@ public class TrnaConsensusBuilder {
 	 * longest-member-as-its-own-pivot distinction is exactly the fix buildConsensusAndGraph
 	 * exists for. Mirrors buildBaseGraph's own alignment/add loop exactly, parameterized by ref
 	 * instead of internally picking the longest member as its own pivot. */
-	private static BaseGraph buildGraphFromReference(ArrayList<Read> cluster, byte[] ref, String name){
+	static BaseGraph buildGraphFromReference(ArrayList<Read> cluster, byte[] ref, String name){
 		final BaseGraph bg=new BaseGraph(name, ref, null, 0, 0);
 		final AlignmentStats stats=new AlignmentStats(true);
 		for(Read r : cluster){
@@ -1192,6 +1192,15 @@ public class TrnaConsensusBuilder {
 		return model.score(r, false, true);
 	}
 
+	/** Scores an existing consensus-as-query alignment against its parallel HBM.
+	 * This method performs no alignment; callers retain the Quantum traceback that
+	 * already supplied detection identity and genomic coordinates. */
+	static float scoreAlignedAgainstModel(byte[] candidate, AlignmentStats stats, BaseGraph model){
+		if(model==null || candidate==null || stats==null || stats.matchString==null){return -999;}
+		final Read r=invertToModelFrame(candidate, stats);
+		return r==null ? -999 : model.score(r, false, true);
+	}
+
 	/**
 	 * Converts a consensus-as-query alignment (candidate as the reference) into
 	 * a candidate-as-query Read in model coordinates for BaseGraph scoring.
@@ -1227,6 +1236,11 @@ public class TrnaConsensusBuilder {
 		if(to-from<1 || bTo-bFrom<1){return null;}
 		if(from>0 || to<inv.length){inv=Arrays.copyOfRange(inv, from, to);}
 		if(bFrom>0 || bTo<bases.length){bases=Arrays.copyOfRange(bases, bFrom, bTo);}
+		//Quantum traceback can switch directly between deletion and insertion runs.
+		//BaseGraph cannot traverse DEL->INS, and each opposing pair consumes exactly
+		//one model and one candidate base, so canonicalize those pairs to diagonal
+		//substitutions without performing another alignment.
+		inv=normalizeOpposingIndels(inv);
 		int modelSpan=0;
 		for(byte b : inv){if(b!='I'){modelSpan++;}}
 		if(modelSpan<1){return null;}
@@ -1236,6 +1250,42 @@ public class TrnaConsensusBuilder {
 		aligned.stop=startPos+modelSpan-1;
 		aligned.setMapped(true);
 		return aligned;
+	}
+
+	/** Collapses adjacent opposing indel runs to diagonal substitutions while
+	 * preserving query and model consumption. Package-visible for fixtures. */
+	static byte[] normalizeOpposingIndels(byte[] ops){
+		if(ops==null || ops.length<2){return ops;}
+		byte[] out=new byte[ops.length];
+		int in=0, len=0;
+		while(in<ops.length){
+			final byte op=ops[in];
+			if(op!='I' && op!='D'){out[len++]=op;in++;continue;}
+			int end=in, insertions=0, deletions=0;
+			while(end<ops.length && (ops[end]=='I' || ops[end]=='D')){
+				if(ops[end]=='I'){insertions++;}else{deletions++;}
+				end++;
+			}
+			final int pairs=Math.min(insertions,deletions);
+			for(int i=0;i<pairs;i++){out[len++]='S';}
+			final byte residual=(insertions>deletions ? (byte)'I' : (byte)'D');
+			for(int i=pairs;i<Math.max(insertions,deletions);i++){out[len++]=residual;}
+			in=end;
+		}
+		final byte[] normalized=(len==ops.length ? out : Arrays.copyOf(out,len));
+		for(int i=0;i+1<normalized.length;i++){
+			assert(normalized[i]!='D' || normalized[i+1]!='I') : "Opposing indels survived normalization: "+new String(normalized);
+		}
+		assert(alignmentConsumption(ops,true)==alignmentConsumption(normalized,true));
+		assert(alignmentConsumption(ops,false)==alignmentConsumption(normalized,false));
+		return normalized;
+	}
+
+	/** Counts query consumption (all but D) or model consumption (all but I). */
+	static int alignmentConsumption(byte[] ops,boolean query){
+		int sum=0;
+		for(byte op:ops){if(query ? op!='D' : op!='I'){sum++;}}
+		return sum;
 	}
 
 	/**
@@ -1258,7 +1308,9 @@ public class TrnaConsensusBuilder {
 	@SuppressWarnings("unchecked")
 	public static BaseGraph[] loadModels(String fname){
 		if(fname==null){return null;}
-		if(fname.endsWith(".txt") || fname.endsWith(".hbm")){
+		final String lower=fname.toLowerCase(java.util.Locale.ROOT);
+		if(lower.endsWith(".txt") || lower.endsWith(".hbm") ||
+				lower.endsWith(".txt.gz") || lower.endsWith(".hbm.gz")){
 			return loadTextModels(fname);
 		}
 		ArrayList<BaseGraph> list=(ArrayList<BaseGraph>)ReadWrite.readObject(fname, false);

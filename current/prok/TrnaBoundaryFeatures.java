@@ -1,5 +1,7 @@
 package prok;
 
+import java.util.Arrays;
+
 import consensus.BaseGraph;
 import idaligner.AlignmentStats;
 import idaligner.ScrabbleAligner;
@@ -318,7 +320,7 @@ public class TrnaBoundaryFeatures {
 	 * skipped in the cluster loop), so a position landing inside that N-gap can have
 	 * ZERO coverage even at the geometric middle of a 297bp model. A true max-scan finds
 	 * the model's actual depth plateau regardless of where in the model it falls. */
-	private static int modelMaxCoverage(BaseGraph model){
+	static int modelMaxCoverage(BaseGraph model){
 		int max=0;
 		for(int i=0; i<model.ref.length; i++){
 			final int c=modelCoverage(model, i);
@@ -442,6 +444,29 @@ public class TrnaBoundaryFeatures {
 			modelCoverage(model, alignPos)/plateau,
 			modelCoverage(model, alignPos+1)/plateau
 		};
+	}
+
+	/** One-alignment inference path for the paired ANI + model-tip features.  The
+	 * shipped HBM model's original sequence normally equals its parallel consensus;
+	 * if that invariant is absent, fall back to the two established alignments so
+	 * feature values remain unchanged.  modelPlateau is computed once per accepted
+	 * locus rather than rescanned for every endpoint candidate. */
+	static float[] aniAndFuzzinessFeature(byte[] candidate, byte[] consensus, BaseGraph model,
+			boolean useStart, float modelPlateau){
+		if(model==null || !Arrays.equals(consensus, model.original)){
+			final float ani=aniFeature(candidate, consensus);
+			final float[] fuzz=tipFuzzinessFeature(candidate, model, useStart);
+			return new float[]{ani,fuzz[0],fuzz[1],fuzz[2]};
+		}
+		final AlignmentStats stats=new AlignmentStats(true);
+		final Read r=alignToModelFrame(candidate, model, stats);
+		if(r==null){return new float[]{stats.identity,NO_MODEL_MATCH,NO_MODEL_MATCH,NO_MODEL_MATCH};}
+		assert(modelPlateau>0) : "Full HBM model must have positive max coverage before boundary scoring; model="+model.name;
+		final int alignPos=(useStart ? r.start : r.stop);
+		return new float[]{stats.identity,
+			modelCoverage(model,alignPos-1)/modelPlateau,
+			modelCoverage(model,alignPos)/modelPlateau,
+			modelCoverage(model,alignPos+1)/modelPlateau};
 	}
 
 	public static float[] tipFuzzinessFeature(byte[] candidate, BaseGraph model, boolean useStart){

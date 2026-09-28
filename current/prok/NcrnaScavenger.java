@@ -2,6 +2,8 @@ package prok;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 
 import consensus.BaseGraph;
 import dna.AminoAcid;
@@ -126,6 +128,8 @@ public class NcrnaScavenger {
 			int boundaryStartInside_, int boundaryStartOutside_, int boundaryStopInside_, int boundaryStopOutside_,
 			float boundaryMeanLen_, int[] boundaryStartOffsets_, int[] boundaryStopOffsets_,
 			float boundaryMarginStart_, float boundaryMarginStop_){
+		TrnaKmerIndex.validateConfiguration(indexK_, adaptFloor_, adaptTopFrac_, adaptQFrac_, fixedMinHits_);
+		TrnaKmerIndex.validateTopN(indexTopN_);
 		if(!Float.isFinite(boundaryMarginStart_) || boundaryMarginStart_<0f ||
 				!Float.isFinite(boundaryMarginStop_) || boundaryMarginStop_<0f){
 			throw new IllegalArgumentException("ncRNA boundary margins must be finite and >=0: "
@@ -172,58 +176,184 @@ public class NcrnaScavenger {
 	}
 
 	public long alignmentCount(){return alignmentCount;}
+	/** Sum of candidate input spans at actual alignment calls, including endpoint trimming. */
+	public long alignedBases(){return alignedBases;}
+	/** HBM evaluations count separately; reusing a traceback is not another alignment. */
+	public long hbmScoreCalls(){return hbmScoreCalls;}
+	public long hbmBasesScored(){return hbmBasesScored;}
+	/** Seed occurrences admitted to this family's scavenger after its input/minimum-length guards. */
+	public long kmerHitCount(){return kmerHitCount;}
+	/** Windows scheduled across both passes, before the seed-count and model filters. */
+	public long windowCount(){return windowCount;}
+	public long boundaryNanos(){return boundaryNanos;}
+	boolean hasPerModelBoundaryResources(){return boundaryNetsByModel!=null;}
+	boolean endpointUsesPerSiteScrabble(){return NcrnaBoundaryScorer.usesPerSiteScrabble(boundaryFeatureVersion);}
+
+	/** Development-harness support for model-dispatched V3 endpoint resources.
+	 * The ordinary family-wide resources remain the fallback and all production
+	 * construction paths remain unchanged. Each net is cloned because feedForward
+	 * mutates Cell state. Consensus tables are read-only after loading; the existing
+	 * family-wide tables supply the second half of the V3 profile blend. */
+	void setPerModelBoundaryResources(CellNet[] nets,
+			TrnaBoundaryFeatures.NinemerTable[] startTables,
+			TrnaBoundaryFeatures.NinemerTable[] stopTables){
+		if(nets==null || startTables==null || stopTables==null || nets.length!=library.length
+				|| startTables.length!=library.length || stopTables.length!=library.length){
+			throw new IllegalArgumentException("Per-model boundary resources must exactly match consensus count "+library.length);
+		}
+		boundaryNetsByModel=new CellNet[library.length];
+		boundaryStartTablesByModel=startTables.clone();
+		boundaryStopTablesByModel=stopTables.clone();
+		for(int i=0; i<library.length; i++){
+			if(nets[i]==null || startTables[i]==null || stopTables[i]==null){
+				throw new IllegalArgumentException("Missing per-model boundary resources for consensus index "+i);
+			}
+			boundaryNetsByModel[i]=nets[i].copy(false);
+		}
+	}
 
 	/*--------------------------------------------------------------*/
 	/*----------------       Scavenger Pass       ----------------*/
 	/*--------------------------------------------------------------*/
 
 	public ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called){
-		return scavenge(name, bases, strand, called, findKmerHitPositions(bases));
+		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return new ArrayList<Orf>();}
+		final int[] hits=findKmerHitPositions(bases);
+		return scavenge(name, bases, strand, called, hits, votingEnabled() ? findKmerHitKeys(bases, hits) : null);
 	}
 
 	/** Runs the unchanged family-local scavenger using a hit stream produced by
 	 * the shared 17-mer front end. */
 	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
 			int[] hitPositions){
+		return scavenge(name, bases, strand, called, hitPositions, null);
+	}
+
+	ArrayList<Orf> scavenge(String name, byte[] bases, int strand, ArrayList<int[]> called,
+			int[] hitPositions, long[] hitKeys){
 		ArrayList<Orf> results=new ArrayList<>();
 		if(bases==null || bases.length<minLen || library==null || kmerSet==null){return results;}
 		if(hitPositions==null){throw new IllegalArgumentException("Null ncRNA seed-hit stream for "+family);}
+		if(votingEnabled() && (hitKeys==null || hitKeys.length!=hitPositions.length)){
+			throw new IllegalArgumentException("Seed voting requires one key per hit for "+family);
+		}
+		kmerHitCount+=hitPositions.length;
 		if(workloadSink!=null){workloadSink.seedHits(name, strand, Arrays.copyOf(hitPositions, hitPositions.length));}
+		if(diagSink!=null){diagSink.seed(diagFamily,name,strand,bases.length,Arrays.copyOf(hitPositions,hitPositions.length));}
 		if(DEBUG){System.err.println("DEBUG scavenge name="+name+" strand="+strand+" bases.length="+bases.length
 			+" hitPositions="+Arrays.toString(hitPositions));}
 		if(hitPositions.length==0){return results;}
 		ArrayList<int[]> windows=buildCandidateWindows(hitPositions, bases.length);
 		if(DEBUG){System.err.println("DEBUG windows before collapse: "+dumpWindows(windows));}
 		windows=collapseByIntersection(windows);
+		if(voteWindows){applyVoteWindows(windows, hitPositions, hitKeys, bases.length);}
 		if(DEBUG){System.err.println("DEBUG windows after collapse: "+dumpWindows(windows));}
 		windows=subtractClaimed(windows, called);
 		if(DEBUG){System.err.println("DEBUG windows after subtractClaimed: "+dumpWindows(windows));}
-		for(int[] w : windows){
-			if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 1, w[0], w[1]);}
-			Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
-			if(DEBUG){System.err.println("DEBUG alignWindow("+w[0]+","+w[1]+") -> "+(orf==null ? "null" : (orf.start+"-"+orf.stop+" score="+orf.orfScore)));}
-			if(orf!=null){
-				called.add(new int[]{orf.start, orf.stop});
-				results.add(orf);
+		if(refreshClaimedWindows){
+			alignPassAgainstSnapshot(name,bases,strand,1,windows,new ArrayList<int[]>(called),hitPositions,hitKeys,called,results);
+		}else{
+			for(int[] original : windows){
+				windowCount++;
+				if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 1, original[0], original[1]);}
+				Orf orf=alignWindow(name, bases, strand, 1, original[0], original[1], windowSource(original), hitPositions, hitKeys);
+				if(DEBUG){System.err.println("DEBUG alignWindow("+original[0]+","+original[1]+") -> "+(orf==null ? "null" : (orf.start+"-"+orf.stop+" score="+orf.orfScore)));}
+				if(orf!=null){called.add(new int[]{orf.start, orf.stop});results.add(orf);emitInstrumentation(orf);}
 			}
 		}
 		if(scavengePass2){
 			int[] nearHits=findNearbyUnclaimed(hitPositions, called, bases.length);
+			long[] nearKeys=(votingEnabled() ? subsetKeys(hitPositions, hitKeys, nearHits) : null);
 			if(nearHits.length>0){
 				ArrayList<int[]> pass2Windows=buildCandidateWindows(nearHits, bases.length);
 				pass2Windows=collapseByIntersection(pass2Windows);
+				if(voteWindows){applyVoteWindows(pass2Windows, nearHits, nearKeys, bases.length);}
 				pass2Windows=subtractClaimed(pass2Windows, called);
-				for(int[] w : pass2Windows){
-					if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 2, w[0], w[1]);}
-					Orf orf=alignWindow(name, bases, strand, w[0], w[1]);
-					if(orf!=null){
-						called.add(new int[]{orf.start, orf.stop});
-						results.add(orf);
+				if(refreshClaimedWindows){
+					alignPassAgainstSnapshot(name,bases,strand,2,pass2Windows,new ArrayList<int[]>(called),nearHits,nearKeys,called,results);
+				}else{
+					for(int[] original : pass2Windows){
+						windowCount++;
+						if(workloadSink!=null){workloadSink.scheduledWindow(name, strand, 2, original[0], original[1]);}
+						Orf orf=alignWindow(name, bases, strand, 2, original[0], original[1], windowSource(original), nearHits, nearKeys);
+						if(orf!=null){called.add(new int[]{orf.start, orf.stop});results.add(orf);emitInstrumentation(orf);}
 					}
 				}
 			}
 		}
 		return results;
+	}
+
+	/** Evaluates one pass against a stable snapshot of claims that existed before the
+	 * pass.  New candidates cannot starve later, higher-scoring candidates merely by
+	 * appearing first; mutually overlapping same-family candidates are resolved after
+	 * all windows have been evaluated, then the winners become claims for the next pass. */
+	private void alignPassAgainstSnapshot(String name,byte[] bases,int strand,int pass,ArrayList<int[]> windows,
+			ArrayList<int[]> claimSnapshot,int[] hitPositions,long[] hitKeys,ArrayList<int[]> called,ArrayList<Orf> results){
+		final ArrayList<Orf> candidates=new ArrayList<Orf>();
+		for(int[] original:windows){
+			final ArrayList<int[]> pending=new ArrayList<int[]>(1);pending.add(original);
+			for(int[] w:subtractClaimed(pending,claimSnapshot)){
+				windowCount++;
+				if(workloadSink!=null){workloadSink.scheduledWindow(name,strand,pass,w[0],w[1]);}
+				final Orf orf=alignWindow(name,bases,strand,pass,w[0],w[1],windowSource(w),hitPositions,hitKeys);
+				if(DEBUG){System.err.println("DEBUG alignWindow("+w[0]+","+w[1]+") -> "+(orf==null ? "null" : (orf.start+"-"+orf.stop+" score="+orf.orfScore)));}
+				if(orf!=null){candidates.add(orf);}
+			}
+		}
+		commitSnapshotCandidates(candidates,called,results);
+	}
+
+	/** Commits only snapshot-resolver winners and emits capture for those returned calls. */
+	void commitSnapshotCandidates(ArrayList<Orf> candidates,ArrayList<int[]> called,ArrayList<Orf> results){
+		final ArrayList<Orf> selected=selectBestNonOverlapping(candidates);
+		for(Orf orf:selected){
+			called.add(new int[]{orf.start,orf.stop});results.add(orf);emitInstrumentation(orf);
+		}
+		emitResolvedInstrumentation(candidates,selected);
+	}
+
+	/** Keeps the maximum-score call in each reciprocal-half-overlap conflict component.
+	 * Low-overlap adjacent same-family genes remain distinct; this is required for the
+	 * Pneumocystis LSU repeat pair that shares only 277 bp of roughly 3.4 kb. */
+	static ArrayList<Orf> selectBestNonOverlapping(ArrayList<Orf> candidates){
+		final ArrayList<Orf> sorted=new ArrayList<Orf>(candidates);
+		sorted.sort((a,b)->compareSnapshotCandidates(a,b));
+		final int n=sorted.size();if(n<2){return sorted;}
+		final int[] parent=new int[n],winner=new int[n];for(int i=0;i<n;i++){parent[i]=i;winner[i]=-1;}
+		for(int i=0;i<n;i++){for(int j=i+1;j<n;j++){if(snapshotConflict(sorted.get(i),sorted.get(j))){unionSnapshot(parent,i,j);}}}
+		for(int i=0;i<n;i++){final int root=findSnapshot(parent,i),old=winner[root];if(old<0||sorted.get(i).orfScore>sorted.get(old).orfScore||(sorted.get(i).orfScore==sorted.get(old).orfScore&&compareSnapshotCandidates(sorted.get(i),sorted.get(old))<0)){winner[root]=i;}}
+		final ArrayList<Orf> selected=new ArrayList<Orf>();
+		for(int i=0;i<n;i++){if(winner[findSnapshot(parent,i)]==i){selected.add(sorted.get(i));}}
+		Collections.sort(selected);
+		for(int i=0;i<selected.size();i++){for(int j=i+1;j<selected.size();j++){assert(!snapshotConflict(selected.get(i),selected.get(j))) : "Snapshot resolver retained a reciprocal-half-overlap same-family conflict";}}
+		return selected;
+	}
+
+	static boolean snapshotConflict(Orf a,Orf b){
+		if(a.strand!=b.strand||!a.scafName.equals(b.scafName)||compareNullable(a.ncrnaFamily,b.ncrnaFamily)!=0){return false;}
+		final int overlap=Tools.min(a.stop,b.stop)-Tools.max(a.start,b.start)+1;
+		return overlap>0&&2L*overlap>=a.stop-a.start+1L&&2L*overlap>=b.stop-b.start+1L;
+	}
+
+	private static int findSnapshot(int[] parent,int x){int root=x;while(parent[root]!=root){root=parent[root];}while(parent[x]!=x){final int next=parent[x];parent[x]=root;x=next;}return root;}
+	private static void unionSnapshot(int[] parent,int a,int b){final int x=findSnapshot(parent,a),y=findSnapshot(parent,b);if(x!=y){parent[Tools.max(x,y)]=Tools.min(x,y);}}
+
+	/** Total biological/provenance order used before DP.  Exact weight ties prefer
+	 * the earlier item in this order because the recurrence keeps the existing path. */
+	static int compareSnapshotCandidates(Orf a,Orf b){
+		int x=Integer.compare(a.stop,b.stop);if(x!=0){return x;}
+		x=Integer.compare(a.start,b.start);if(x!=0){return x;}
+		x=-Float.compare(a.orfScore,b.orfScore);if(x!=0){return x;}
+		x=compareNullable(a.trnaModel,b.trnaModel);if(x!=0){return x;}
+		x=compareNullable(a.ncrnaFamily,b.ncrnaFamily);if(x!=0){return x;}
+		x=Integer.compare(a.type,b.type);if(x!=0){return x;}
+		x=Integer.compare(a.strand,b.strand);if(x!=0){return x;}
+		return Integer.compare(a.frame,b.frame);
+	}
+
+	private static int compareNullable(String a,String b){
+		if(a==b){return 0;}if(a==null){return -1;}if(b==null){return 1;}return a.compareTo(b);
 	}
 
 	/** Temporary diagnostic flag (Neptune, 2026-08-23): traces kmer hits, candidate window
@@ -254,12 +384,23 @@ public class NcrnaScavenger {
 		return hits.toArray();
 	}
 
+	private long[] findKmerHitKeys(byte[] bases, int[] hits){
+		final long[] keys=new long[hits.length];
+		final byte[] bton=AminoAcid.baseToNumber;
+		for(int i=0; i<hits.length; i++){
+			final int start=hits[i]-kLong/2; long key=0;
+			for(int j=0; j<kLong; j++){key=(key<<2)|bton[bases[start+j]];}
+			keys[i]=key;
+		}
+		return keys;
+	}
+
 	private ArrayList<int[]> buildCandidateWindows(int[] hitPositions, int seqLen){
 		ArrayList<int[]> windows=new ArrayList<>();
 		for(int center : hitPositions){
 			int start=Tools.max(0, center-windowPad);
 			int stop=Tools.min(seqLen-1, center+windowPad+kLong);
-			windows.add(new int[]{start, stop});
+			windows.add(new int[]{start, stop, WINDOW_COLLAPSE});
 		}
 		return windows;
 	}
@@ -277,7 +418,7 @@ public class NcrnaScavenger {
 			int overlap=Tools.min(current[1], next[1])-Tools.max(current[0], next[0]);
 			int shorter=Tools.min(current[1]-current[0], next[1]-next[0]);
 			if(overlap>0 && overlap>=shorter*collapseFrac){
-				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1])};
+				current=new int[]{Tools.max(current[0], next[0]), Tools.min(current[1], next[1]), WINDOW_COLLAPSE};
 			}else{
 				if(current[1]-current[0]>=minLen){result.add(current);}
 				current=next;
@@ -297,7 +438,7 @@ public class NcrnaScavenger {
 		ArrayList<int[]> result=new ArrayList<>();
 		for(int[] w : windows){
 			ArrayList<int[]> segments=new ArrayList<>();
-			segments.add(new int[]{w[0], w[1]});
+			segments.add(new int[]{w[0], w[1], windowSource(w)});
 			for(int[] c : claimed){
 				ArrayList<int[]> next=new ArrayList<>();
 				for(int[] seg : segments){
@@ -306,8 +447,8 @@ public class NcrnaScavenger {
 						next.add(seg);//no overlap with this claim -- unchanged
 						continue;
 					}
-					if(lo<c[0]){next.add(new int[]{lo, c[0]-1});}//left remainder survives
-					if(hi>c[1]){next.add(new int[]{c[1]+1, hi});}//right remainder survives
+					if(lo<c[0]){next.add(new int[]{lo, c[0]-1, windowSource(seg)});}//left remainder survives
+					if(hi>c[1]){next.add(new int[]{c[1]+1, hi, windowSource(seg)});}//right remainder survives
 					//neither branch fires -> claim fully covers this segment, it's consumed
 				}
 				segments=next;
@@ -335,38 +476,78 @@ public class NcrnaScavenger {
 		return result.toArray();
 	}
 
-	private Orf alignWindow(String name, byte[] bases, int strand, int wStart, int wStop){
+	private Orf alignWindow(String name, byte[] bases, int strand, int pass, int wStart, int wStop, int windowSource,
+			int[] hitPositions, long[] hitKeys){
+		// Length caps currently belong to the one-alignment rRNA path, where every
+		// model has its own measured span before ranking or early acceptance.
+		if(maxLen<Integer.MAX_VALUE && !reuseConsensusAlignment){
+			throw new IllegalStateException("A finite ncRNA maxLen requires reuseConsensusAlignment: "+family);
+		}
 		final int wLen=wStop-wStart+1;
-		if(wLen<minLen){return null;}
+		if(wLen<minLen){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_WLEN",-1,-1,-1,0f,0f,0f,-1,-1,false);
+			return null;
+		}
 		byte[] seq=copyRegionUpper(bases, wStart, wStop+1);
 		final int khits=kmerHits(seq);
 		if(DEBUG){System.err.println("DEBUG alignWindow wLen="+wLen+" khits="+khits+" minKmerHits="+minKmerHits
 			+" quantumThresh="+quantumThresh+" usingQuantum="+(wLen>quantumThresh));}
-		if(khits<minKmerHits){return null;}
+		if(khits<minKmerHits){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_KHITS",khits,-1,-1,0f,0f,0f,-1,-1,false);
+			return null;
+		}
+		if(workloadSink!=null){workloadSink.postSeedWindow(name, strand, pass, wStart, wStop, khits);}
 		int[] shortlist=shortlistByKmer(seq, indexTopN);
 		if(DEBUG){System.err.println("DEBUG shortlist.length="+shortlist.length+" shortlist="+Arrays.toString(shortlist));}
+		if(!mappingOracleExhaustive && strictIndexCutoff && kmerIndex!=null && kmerIndex.lastMaxShared()<indexMinHitsDefault){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_INDEX",khits,shortlist.length,-1,0f,0f,0f,-1,-1,false);
+			return null;
+		}
+		if(reuseConsensusAlignment){
+			return alignWindowOnce(name,bases,strand,pass,wStart,wStop,windowSource,hitPositions,hitKeys,seq,shortlist,khits);
+		}
 		float bestId=0; int bestModel=-1;
 		int bestStart=0, bestStop=wLen-1;
-		if(wLen>quantumThresh){
+		final boolean quantumUsed=wLen>quantumThresh;
+		final boolean quantumFeatures=(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2
+			|| boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V3);
+		final float[] shortlistIdentity=(quantumFeatures ? new float[shortlist.length] : null);
+		if(quantumUsed){
 			int[] pos=new int[4];
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				float id=QuantumAligner.alignStatic(library[m], seq, pos);
+				alignedBases+=seq.length;
+				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
 				alignmentCount++;
+				if(modelAttemptSink!=null){
+					final int alignedLength=quantumTraceAlignedLength(modelAttemptSink,pos,wLen);
+					modelAttemptSink.modelAttempt(name, strand, pass, wStart, wStop,
+						j+1, m, kmerIndex.lastSharedCount(m), id, alignedLength, id>=idPass);
+				}
 				if(DEBUG){System.err.println("DEBUG   quantum model="+m+" modelLen="+library[m].length+" id="+id+" pos="+Arrays.toString(pos));}
 				if(id>bestId){bestId=id; bestModel=m; bestStart=pos[0]; bestStop=pos[1];}
+				if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
 			}
 		}else{
 			for(int j=0; j<shortlist.length; j++){
 				int m=shortlist[j];
 				float id=ScrabbleAligner.alignStatic(seq, library[m], null);
+				alignedBases+=seq.length;
+				if(shortlistIdentity!=null){shortlistIdentity[j]=id;}
 				alignmentCount++;
+				if(modelAttemptSink!=null){modelAttemptSink.modelAttempt(name, strand, pass, wStart, wStop,
+					j+1, m, kmerIndex.lastSharedCount(m), id, -1, id>=idPass);}
 				if(DEBUG){System.err.println("DEBUG   scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
 				if(id>bestId){bestId=id; bestModel=m;}
+				if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
 			}
 		}
 		if(DEBUG){System.err.println("DEBUG best: bestId="+bestId+" bestModel="+bestModel+" idBorderline="+idBorderline+" idPass="+idPass);}
-		if(bestId<idBorderline || bestModel<0){return null;}
+		if(bestId<idBorderline || bestModel<0){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_ID",khits,shortlist.length,bestModel,bestId,0f,0f,-1,-1,false);
+			return null;
+		}
 		final int orfStart=wStart+bestStart;
 		final int orfStop=wStart+bestStop;
 		//Forward-ported from Noire's tree (2026-08-28, C3 merge): inclusive-length check (+1)
@@ -374,8 +555,11 @@ public class NcrnaScavenger {
 		//an inclusive [orfStart,orfStop] span by one base, the same off-by-one class flagged (but
 		//deliberately NOT fixed) in subtractClaimed's TODO comment; this one Noire did fix, as part
 		//of the same scoreA/scoreB commit that introduced orfLen.
-		if(orfStop-orfStart+1<minLen){return null;}
-		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, ProkObject.RNA);
+		if(orfStop-orfStart+1<minLen){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_LEN",khits,shortlist.length,bestModel,bestId,0f,0f,orfStart,orfStop,false);
+			return null;
+		}
+		Orf orf=new Orf(name, orfStart, orfStop, strand, 0, bases, false, outputType);
 		orf.ncrnaFamily=family;//set once, covers the IDPASS/RESCUE/HBM accept branches below -- all reuse this same Orf instance
 		final int orfLen=orfStop-orfStart+1;
 		//Forward-ported from Noire's tree (2026-08-28, C3 merge): scoreA/scoreB per-family score
@@ -384,47 +568,201 @@ public class NcrnaScavenger {
 		orf.orfScore=scoreA+scoreB*orfLen*bestId*bestId;
 
 		if(bestId>=idPass){
+			boolean trimmed=false;
 			if(annotate && modelNames!=null && bestModel<modelNames.length){
 				orf.trnaModel=modelNames[bestModel];
-				trimToAlignmentExtent(orf, bases, bestModel, wStart, wStop);
-			}
+				trimmed=finishAcceptedBoundary(orf, bases, bestModel, wStart, wStop, windowSource, bestId, orfLen,
+					bestId, quantumUsed, hitPositions, hitKeys);
+			}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_IDPASS",khits,shortlist.length,bestModel,bestId,0f,0f,orf.start,orf.stop,trimmed);
 			return orf;
 		}else{
 			byte[] orfSeq=copyRegionUpper(bases, orfStart, orfStop+1);
 			if(DEBUG){System.err.println("DEBUG rescue orfStart="+orfStart+" orfStop="+orfStop
 				+" orfSeq.length="+orfSeq.length+" (from Quantum pos bestStart="+bestStart+" bestStop="+bestStop+")");}
-			float bestReId=0; int bestReModel=-1;
-			float bestHbm=-999; int bestHbmModel=-1;
+			float bestReId=0; int bestReModel=-1, bestReRank=-1;
+			float bestHbm=-999, bestHbmIdentity=Float.NaN; int bestHbmModel=-1, bestHbmRank=-1;
 			for(int j=0; j<shortlist.length; j++){
 				final int m=shortlist[j];
 				final float id=ScrabbleAligner.alignStatic(orfSeq, library[m], null);
+				alignedBases+=orfSeq.length;
 				alignmentCount++;
 				if(DEBUG){System.err.println("DEBUG   rescue-scrabble model="+m+" modelLen="+library[m].length+" id="+id);}
-				if(id>bestReId){bestReId=id; bestReModel=m;}
-				if(id>=idPass){break;}
+				if(id>bestReId){bestReId=id; bestReModel=m; bestReRank=j;}
+				if(!mappingOracleExhaustive && id>=idPass){break;}
 				if(models!=null && m<models.length && id>=idBorderline){
 					final float hbm=TrnaConsensusBuilder.scoreAgainstModel(orfSeq, models[m]);
+					hbmScoreCalls++; hbmBasesScored+=orfSeq.length;
 					if(DEBUG){System.err.println("DEBUG   rescue-hbm model="+m+" hbm="+hbm);}
-					if(hbm>bestHbm){bestHbm=hbm; bestHbmModel=m;}
+					if(hbm>bestHbm){bestHbm=hbm; bestHbmModel=m; bestHbmIdentity=id; bestHbmRank=j;}
 				}
 			}
 			if(DEBUG){System.err.println("DEBUG rescue result: bestReId="+bestReId+" bestReModel="+bestReModel
 				+" bestHbm="+bestHbm+" bestHbmModel="+bestHbmModel+" idPass="+idPass+" hbmPass="+hbmPass);}
 			if(bestReId>=idPass && bestReModel>=0){
+				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestReModel<modelNames.length){
 					orf.trnaModel=modelNames[bestReModel];
-					trimToAlignmentExtent(orf, bases, bestReModel, wStart, wStop);
-				}
+					trimmed=finishAcceptedBoundary(orf, bases, bestReModel, wStart, wStop, windowSource, bestReId, orfLen,
+						(shortlistIdentity==null ? bestReId : shortlistIdentity[bestReRank]), quantumUsed, hitPositions, hitKeys);
+				}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
+				diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_RESCUE",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
 				return orf;
 			}else if(bestHbm>=hbmPass && bestHbmModel>=0){
+				boolean trimmed=false;
 				if(annotate && modelNames!=null && bestHbmModel<modelNames.length){
 					orf.trnaModel=modelNames[bestHbmModel];
-					trimToAlignmentExtent(orf, bases, bestHbmModel, wStart, wStop);
-				}
+					trimmed=finishAcceptedBoundary(orf, bases, bestHbmModel, wStart, wStop, windowSource, bestHbmIdentity, orfLen,
+						(shortlistIdentity==null ? bestHbmIdentity : shortlistIdentity[bestHbmRank]), quantumUsed, hitPositions, hitKeys);
+				}else{applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);}
+				diagnoseWindow(name,bases,strand,pass,wStart,wStop,"ACCEPT_HBM",khits,shortlist.length,bestHbmModel,bestId,bestReId,bestHbm,orf.start,orf.stop,trimmed);
 				return orf;
 			}
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_RESCUE",khits,shortlist.length,bestReModel,bestId,bestReId,bestHbm,orfStart,orfStop,false);
 		}
 		return null;
+	}
+
+	/** Production rRNA path: align each shortlisted consensus exactly once and
+	 * retain its Quantum traceback for detection, coordinates, endpoint features,
+	 * and optional HBM rescue. */
+	private Orf alignWindowOnce(String name, byte[] bases, int strand, int pass, int wStart, int wStop,
+			int windowSource, int[] hitPositions, long[] hitKeys, byte[] seq, int[] shortlist, int khits){
+		if(trimAlignmentExtent){throw new IllegalStateException("Alignment-reuse path cannot perform a second endpoint alignment: "+family);}
+		final boolean[] aligned=new boolean[library.length];
+		float bestId=0, bestHbm=-999, bestHbmIdentity=Float.NaN;
+		int bestModel=-1, bestHbmModel=-1;
+		AlignmentStats bestStats=null, bestHbmStats=null;
+		for(int j=0; j<shortlist.length; j++){
+			final int m=shortlist[j];
+			if(m<0 || m>=library.length){throw new IllegalStateException("Invalid shortlisted model "+m+" for "+family);}
+			if(aligned[m]){throw new IllegalStateException("Consensus aligned more than once at one locus: family="+family+", model="+m);}
+			aligned[m]=true;
+			final AlignmentStats stats=new AlignmentStats(true);
+			stats.doTrace=true;
+			final float id=QuantumAligner.alignAndTraceStatic(library[m], seq, stats);
+			alignedBases+=seq.length;
+			alignmentCount++;
+			final int alignedLength=quantumAlignedLength(stats,seq.length);
+			final boolean lengthAllowed=alignedLength<=maxLen;
+			if(modelAttemptSink!=null){
+				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1,m,
+					kmerIndex.lastSharedCount(m),id,alignedLength,id>=idPass && lengthAllowed);
+			}
+			// An overlong high-identity model must not suppress a later valid model.
+			if(!lengthAllowed){continue;}
+			if(DEBUG){System.err.println("DEBUG   single-quantum model="+m+" modelLen="+library[m].length
+				+" id="+id+" rStart="+stats.rStart+" rStop="+stats.rStop);}
+			if(id>bestId){bestId=id;bestModel=m;bestStats=stats;}
+			if(models!=null && m<models.length && id>=idBorderline && hbmPass<=1f){
+				final float hbm=TrnaConsensusBuilder.scoreAlignedAgainstModel(seq,stats,models[m]);
+				hbmScoreCalls++; hbmBasesScored+=alignedLength;
+				if(DEBUG){System.err.println("DEBUG   reused-quantum-hbm model="+m+" hbm="+hbm);}
+				if(hbm>bestHbm){bestHbm=hbm;bestHbmModel=m;bestHbmIdentity=id;bestHbmStats=stats;}
+			}
+			if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
+		}
+		final int model;
+		final float identity;
+		final AlignmentStats stats;
+		if(bestId>=idPass && bestModel>=0){model=bestModel;identity=bestId;stats=bestStats;}
+		else if(bestHbm>=hbmPass && bestHbmModel>=0){model=bestHbmModel;identity=bestHbmIdentity;stats=bestHbmStats;}
+		else{
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_VERIFY",khits,shortlist.length,bestModel,bestId,0f,bestHbm,-1,-1,false);
+			return null;
+		}
+		final int orfStart=wStart+stats.rStart, orfStop=wStart+stats.rStop;
+		if(orfStop-orfStart+1<minLen){
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_LEN",khits,shortlist.length,model,bestId,0f,bestHbm,orfStart,orfStop,false);
+			return null;
+		}
+		final Orf orf=new Orf(name,orfStart,orfStop,strand,0,bases,false,outputType);
+		orf.ncrnaFamily=family;
+		final int orfLen=orfStop-orfStart+1;
+		orf.orfScore=scoreA+scoreB*orfLen*identity*identity;
+		boolean trimmed=false;
+		if(annotate && modelNames!=null && model<modelNames.length){
+			orf.trnaModel=modelNames[model];
+			trimmed=finishAcceptedBoundary(orf,bases,model,wStart,wStop,windowSource,identity,orfLen,
+				identity,true,hitPositions,hitKeys);
+		}else{applyVotedEnds(orf,hitPositions,hitKeys,wStart,wStop,bases.length);}
+		if(orf.stop-orf.start+1>maxLen){
+			if(pendingInstrumentation!=null){pendingInstrumentation.remove(orf);}
+			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_MAXLEN",khits,shortlist.length,
+				model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
+			return null;
+		}
+		diagnoseWindow(name,bases,strand,pass,wStart,wStop,bestId>=idPass ? "ACCEPT_IDPASS" : "ACCEPT_HBM",
+			khits,shortlist.length,model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
+		return orf;
+	}
+
+	/** Read-only reporting helper: no model-name lookup or output work when the sink is off. */
+	private void diagnoseWindow(String name,byte[] bases,int strand,int pass,int start,int stop,
+			String outcome,int hits,int shortlistSize,int model,float id,float reId,float hbm,
+			int orfStart,int orfStop,boolean trimmed){
+		if(diagSink==null){return;}
+		final String modelName=(modelNames!=null && model>=0 && model<modelNames.length ? modelNames[model] : null);
+		diagSink.window(diagFamily,name,strand,bases.length,pass,start,stop,outcome,hits,shortlistSize,
+			model,modelName,id,reId,hbm,orfStart,orfStop,trimmed);
+	}
+
+	/** Sink gate kept explicit so trace-only coordinate validation cannot alter the
+	 * default caller path.  The null-sink return is a fixture-visible proof that
+	 * malformed diagnostic coordinates remain irrelevant while tracing is off. */
+	static int quantumTraceAlignedLength(NcrnaModelAttemptInstrumentSink sink,int[] pos,int windowLength){
+		return sink==null ? -1 : quantumAlignedLength(pos,windowLength);
+	}
+
+	/** Converts QuantumAligner's inclusive reference coordinates into the diagnostic
+	 * model-attempt span. Invalid coordinates would corrupt the trace used to compare
+	 * accepted and rejected attempts, so fail loudly rather than emit a plausible value. */
+	static int quantumAlignedLength(int[] pos,int windowLength){
+		if(pos==null || pos.length<2 || pos[0]<0 || pos[1]<pos[0] || pos[1]>=windowLength){
+			throw new IllegalStateException("Invalid Quantum alignment coordinates for model-attempt trace: "
+				+Arrays.toString(pos)+", windowLength="+windowLength);
+		}
+		return pos[1]-pos[0]+1;
+	}
+
+	static int quantumAlignedLength(AlignmentStats stats,int windowLength){
+		if(stats==null || stats.rStart<0 || stats.rStop<stats.rStart || stats.rStop>=windowLength){
+			throw new IllegalStateException("Invalid Quantum traceback coordinates for model attempt: "
+				+(stats==null ? "null" : stats.rStart+"-"+stats.rStop)+", windowLength="+windowLength);
+		}
+		return stats.rStop-stats.rStart+1;
+	}
+
+	/** Preserves the selected anchor order explicitly: alignment trim, optional
+	 * hybrid5 voting, then NN refinement around the resulting per-endpoint anchor. */
+	private boolean finishAcceptedBoundary(Orf orf, byte[] bases, int model, int wStart, int wStop,
+			int windowSource, float acceptedIdentity, int alignedLength, float locusAni, boolean locusAniFromQuantum,
+			int[] hitPositions, long[] hitKeys){
+		final boolean trimSucceeded;
+		if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop);}
+		else{trimSucceeded=false;}
+		final boolean hasBoundaryNets=(boundaryNetsByModel!=null || (boundary5Net!=null && boundary3Net!=null));
+		final boolean nnInvoked=(trimSucceeded || boundaryOnRawEndpoints) && hasBoundaryNets;
+		if(instrumentSink!=null){captureInstrumentation(orf,bases,model,wStart,wStop,trimSucceeded,nnInvoked,windowSource,acceptedIdentity,alignedLength);}
+		final int alignedStart=orf.start, alignedStop=orf.stop;
+		if(nnInvoked && !nnCentre5Vote && !nnCentre3Vote){refineBoundaryNN(orf, bases, model, locusAni, locusAniFromQuantum, 0);}
+		final int votedMask=applyVotedEnds(orf, hitPositions, hitKeys, wStart, wStop, bases.length);
+		if(nnInvoked && nnCentre5Vote && nnCentre3Vote){refineBoundaryNN(orf, bases, model, locusAni, locusAniFromQuantum, votedMask);}
+		else if(nnInvoked && nnCentre5Vote!=nnCentre3Vote){
+			final int centreMask=selectMixedNnAnchors(orf,alignedStart,alignedStop,nnCentre5Vote,nnCentre3Vote,votedMask);
+			refineBoundaryNN(orf, bases, model, locusAni, locusAniFromQuantum, centreMask);
+		}
+		return trimSucceeded;
+	}
+
+	/** Restores the alignment-centred endpoint of a mixed-centre experiment after
+	 * voting has supplied the other endpoint. Returns the per-end vote provenance
+	 * mask consumed by boundary tracing. */
+	static int selectMixedNnAnchors(Orf orf,int alignedStart,int alignedStop,
+			boolean centre5Vote,boolean centre3Vote,int votedMask){
+		assert(centre5Vote!=centre3Vote) : "Mixed-anchor helper requires exactly one vote-centred endpoint";
+		if(!centre5Vote){orf.start=alignedStart;}if(!centre3Vote){orf.stop=alignedStop;}
+		return (centre5Vote ? votedMask&1 : 0)|(centre3Vote ? votedMask&2 : 0);
 	}
 
 	/**
@@ -439,7 +777,7 @@ public class NcrnaScavenger {
 	 * the trim-no-op case (extended window shorter than the model) without needing to coax it
 	 * out of the full scavenge() pipeline's alignment dynamics -- deterministic and fast versus
 	 * fragile fixture engineering for the same real code path. */
-	void trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop){
+	boolean trimToAlignmentExtent(Orf orf, byte[] bases, int model, int wStart, int wStop){
 		final int xFrom=Tools.max(0, orf.start-trimExt);
 		final int xTo=Tools.min(bases.length-1, orf.stop+trimExt);
 		byte[] seqX=copyRegionUpper(bases, xFrom, xTo+1);
@@ -448,6 +786,7 @@ public class NcrnaScavenger {
 		stats.doTrace=true;
 		if(seqX.length>=cons.length){ScrabbleAligner.alignAndTraceStatic(cons, seqX, stats);}
 		else{ScrabbleAligner.alignAndTraceStatic(seqX, cons, stats);}
+		alignedBases+=seqX.length;
 		alignmentCount++;
 		//Citan, 2026-08-28: the original code `return`ed here on either guard, which ALSO
 		//skipped instrumentation capture for these loci -- silently undercounting the accepted
@@ -466,50 +805,69 @@ public class NcrnaScavenger {
 				trimSucceeded=true;
 			}
 		}
-		//C3 boundary-precision NN (Noire's spec, plans/c3_ncrnaboundaryscorer_spec.md; G11,
-		//2026-08-28): a further small adjustment on top of the alignment-extent snap above,
-		//mirroring TrnaCaller.refineBoundaryNN's placement immediately after its own trim
-		//(TrnaCaller.java:644-658). nnInvoked is EXACTLY the original condition under
-		//which refineBoundaryNN used to run (unreachable at all when either early-return guard
-		//above had fired, AND boundary5Net/boundary3Net non-null) -- boundary5Net==null (the
-		//structural off-by-default) still means this never executes and orf.start/orf.stop are
-		//exactly what the snap above left them, byte-identical to pre-C3 behavior. nnInvoked is
-		//a PRODUCTION-RUN FACT (did this exact call actually run the net), NOT a bootstrap-
-		//suitability signal -- bootstrap capture runs are intentionally NN-off (no net staged
-		//yet), so trimSucceeded=true with nnInvoked=false is the NORMAL, expected bootstrap
-		//state, not a degraded one. Citan, 2026-08-28: renamed from refinementEligible, which
-		//conflated "was the net literally invoked this run" with "is this locus structurally
-		//usable for training" -- they are different questions with different answers during
-		//bootstrap capture.
-		final boolean nnInvoked=trimSucceeded && boundary5Net!=null && boundary3Net!=null;
-		//Boundary-NN instrumentation (Citan/Brian, 2026-08-28): fires for EVERY accepted locus
-		//this method is called on -- not gated on trimSucceeded -- so the accepted denominator
-		//is never undercounted. Single null-check, off by default -- see instrumentSink's
-		//javadoc.
-		if(instrumentSink!=null){captureInstrumentation(orf, bases, model, wStart, wStop, trimSucceeded, nnInvoked);}
-		if(nnInvoked){refineBoundaryNN(orf, bases, model);}
+		return trimSucceeded;
 	}
 
 	/** Builds the private window copy (never a live bases[] reference -- see
 	 * NcrnaBoundaryInstrumentSink's thread-safety javadoc) and invokes the sink. Split out of
 	 * trimToAlignmentExtent so the hot (instrumentation-off) path is a single null-check with
 	 * no other cost. */
-	private void captureInstrumentation(Orf orf, byte[] bases, int model, int wStart, int wStop,
-			boolean trimSucceeded, boolean nnInvoked){
+	void captureInstrumentation(Orf orf, byte[] bases, int model, int wStart, int wStop,
+			boolean trimSucceeded, boolean nnInvoked, int windowSource, float acceptedIdentity, int alignedLength){
 		final int copyFrom=Tools.max(0, orf.start-INSTRUMENT_CAPTURE_PAD);
 		final int copyTo=Tools.min(bases.length-1, orf.stop+INSTRUMENT_CAPTURE_PAD);
 		final byte[] windowCopy=Arrays.copyOfRange(bases, copyFrom, copyTo+1);
-		instrumentSink.capture(orf.scafName, orf.strand, model, wStart, wStop,
-			orf.start, orf.stop, windowCopy, copyFrom, trimSucceeded, nnInvoked);
+		final InstrumentationCapture capture=new InstrumentationCapture(orf.scafName,orf.strand,model,wStart,wStop,
+			orf.start,orf.stop,windowCopy,copyFrom,trimSucceeded,nnInvoked,windowSource,acceptedIdentity,alignedLength);
+		final InstrumentationCapture old=pendingInstrumentation.put(orf,capture);
+		assert(old==null) : "Each accepted candidate may queue exactly one boundary capture; guards duplicate provenance for "+orf.scafName;
+	}
+
+	/** Emits capture only after the candidate becomes a returned call. Snapshot refresh may
+	 * align several mutually overlapping accepted candidates, so firing inside alignWindow
+	 * overcounts the final call denominator and breaks trace/call conservation. */
+	private void emitInstrumentation(Orf orf){
+		if(instrumentSink==null){return;}
+		final InstrumentationCapture c=pendingInstrumentation.remove(orf);
+		assert(c!=null) : "Every returned accepted call must retain its queued boundary capture; guards trace/call conservation for "+orf.scafName;
+		instrumentSink.capture(c.contig,c.strand,c.model,c.wStart,c.wStop,c.postStart,c.postStop,
+			c.window,c.windowOffset,c.trimSucceeded,c.nnInvoked,c.windowSource,c.identity,c.alignedLength);
+	}
+
+	/** Emits evidence for accepted candidates rejected by the snapshot resolver, then drops
+	 * their queued state. The committed overlapping winner is chosen by maximum overlap,
+	 * then candidate score/order, solely to make the resolution link deterministic. */
+	private void emitResolvedInstrumentation(ArrayList<Orf> candidates,ArrayList<Orf> selected){
+		if(pendingInstrumentation==null){return;}
+		final IdentityHashMap<Orf,Boolean> kept=new IdentityHashMap<Orf,Boolean>();for(Orf orf:selected){kept.put(orf,Boolean.TRUE);}
+		for(Orf loser:candidates){if(kept.containsKey(loser)){continue;}final InstrumentationCapture c=pendingInstrumentation.remove(loser);assert(c!=null) : "Every resolved-out candidate must retain queued capture evidence for "+loser.scafName;
+			final Orf winner=resolvedComponentWinner(loser,candidates,kept);
+			if(winner==null){throw new IllegalStateException("Resolved-out candidate lacks a committed winner in its reciprocal-overlap component: "+loser.scafName+":"+loser.start+"-"+loser.stop);}
+			instrumentSink.resolvedOut(loser,winner,c.model,c.wStart,c.wStop,c.postStart,c.postStop,c.window,c.windowOffset,c.trimSucceeded,c.nnInvoked,c.windowSource,c.identity,c.alignedLength);
+		}
+	}
+
+	/** Finds the one committed winner in loser's reciprocal-overlap component.
+	 * Component traversal preserves evidence linkage even for an A-B-C conflict
+	 * chain whose maximum-score winner does not directly overlap every loser. */
+	private static Orf resolvedComponentWinner(Orf loser,ArrayList<Orf> candidates,IdentityHashMap<Orf,Boolean> kept){
+		final IdentityHashMap<Orf,Boolean> seen=new IdentityHashMap<Orf,Boolean>();final ArrayList<Orf> queue=new ArrayList<Orf>();queue.add(loser);seen.put(loser,Boolean.TRUE);
+		for(int q=0;q<queue.size();q++){final Orf current=queue.get(q);if(kept.containsKey(current)){return current;}for(Orf candidate:candidates){if(!seen.containsKey(candidate)&&snapshotConflict(current,candidate)){seen.put(candidate,Boolean.TRUE);queue.add(candidate);}}}
+		return null;
 	}
 
 	/** Applies the boundary-precision NN's refinement to an already-trimmed, already-verified
-	 * Orf. Builds a padded window around the current [orf.start,orf.stop] (PAD=10, matching
-	 * TrnaCaller.refineBoundaryNN's convention -- comfortably covers the current per-family
-	 * candidate ranges), then defers to NcrnaBoundaryScorer.refineBoundaries.
+	 * Orf. Builds a window large enough for the configured sweep and tip-feature profile,
+	 * then defers to NcrnaBoundaryScorer.refineBoundariesWithCounts.
 	 * No-op (leaves orf untouched) if the padded window can't hold a valid base candidate. */
-	private void refineBoundaryNN(Orf orf, byte[] bases, int model){
-		final int PAD=10;
+	private void refineBoundaryNN(Orf orf, byte[] bases, int model, float locusAni, boolean locusAniFromQuantum, int votedMask){
+		final boolean dispatched=(boundaryNetsByModel!=null);
+		final CellNet startNet=(dispatched ? boundaryNetsByModel[model] : boundary5Net);
+		final CellNet stopNet=(dispatched ? boundaryNetsByModel[model] : boundary3Net);
+		final TrnaBoundaryFeatures.NinemerTable startTable=(dispatched ? boundaryStartTablesByModel[model] : boundaryStartTable);
+		final TrnaBoundaryFeatures.NinemerTable stopTable=(dispatched ? boundaryStopTablesByModel[model] : boundaryStopTable);
+		final int PAD=boundaryRefinementPad(boundaryStartOffsets, boundaryStopOffsets,
+			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside);
 		final int winStart=Tools.max(0, orf.start-PAD);
 		final int winStop=Tools.min(bases.length-1, orf.stop+PAD);
 		final byte[] window=copyRegionUpper(bases, winStart, winStop+1);
@@ -517,13 +875,60 @@ public class NcrnaScavenger {
 		if(s<0 || e>=window.length || e-s<15){return;}
 		final float contigGC=contigGC(bases);
 		final BaseGraph modelGraph=(models!=null && model<models.length ? models[model] : null);
-		final int[] offsets=NcrnaBoundaryScorer.refineBoundaries(boundary5Net, boundary3Net, window, s, e,
-			library[model], modelGraph, boundaryStartTable, boundaryStopTable,
-			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
-			contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
-			boundaryMarginStart, boundaryMarginStop);
-		orf.start+=offsets[0];
-		orf.stop+=offsets[1];
+		final float[] startFuzz,stopFuzz;
+		if(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2 || boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V3){
+			if(!locusAniFromQuantum){throw new IllegalStateException("boundaryfeatures=v"+boundaryFeatureVersion
+				+" requires a QuantumAligner locus identity; family="+family);}
+		}
+		if(boundaryFeatureVersion==NcrnaBoundaryScorer.FEATURES_V2){
+			if(boundaryFuzzConstants==null){throw new IllegalStateException("boundaryfeatures=v2 requires loaded model/end fuzz constants; family="+family);}
+			startFuzz=boundaryFuzzConstants.values(model,true);
+			stopFuzz=boundaryFuzzConstants.values(model,false);
+		}else{startFuzz=null;stopFuzz=null;}
+		final NcrnaBoundaryScorer.RefinementResult result;
+		final long boundaryStartNanos=System.nanoTime();
+		try{
+			result=NcrnaBoundaryScorer.refineBoundariesWithCounts(
+				startNet, stopNet, window, s, e,
+				library[model], modelGraph, startTable, stopTable,
+				boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
+				contigGC, boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
+				boundaryMarginStart, boundaryMarginStop, winStart==0, winStop==bases.length-1,
+				boundaryFeatureVersion,locusAni,startFuzz,stopFuzz,
+				(dispatched ? boundaryStartTable : null), (dispatched ? boundaryStopTable : null));
+		}finally{boundaryNanos+=System.nanoTime()-boundaryStartNanos;}
+		final int anchorStart=orf.start, anchorStop=orf.stop;
+		final int startOffset=applyBoundaryScoreCutoff(result.startOffset,result.startChosenScore,nnCutoff);
+		final int stopOffset=applyBoundaryScoreCutoff(result.stopOffset,result.stopChosenScore,nnCutoff);
+		orf.start+=startOffset;
+		orf.stop+=stopOffset;
+		if(boundaryScoreSink!=null){boundaryScoreSink.scored(orf.scafName, orf.strand, model,
+			anchorStart, anchorStop, startOffset, stopOffset,
+			result.startSitesScored, result.stopSitesScored,
+			result.startChosenScore, result.stopChosenScore,
+			NcrnaBoundaryScorer.centeredRadius(boundaryStartOffsets),
+			NcrnaBoundaryScorer.centeredRadius(boundaryStopOffsets),
+			(votedMask&1)!=0, (votedMask&2)!=0);}
+	}
+
+	static int applyBoundaryScoreCutoff(int offset,float score,float cutoff){return Float.isNaN(cutoff)||score>=cutoff ? offset : 0;}
+
+	/** Enough genomic context for every configured candidate and every five-position
+	 * enrichment profile.  The prior fixed PAD=10 clipped the measured G16 radii
+	 * 12--25 and could silently replace real tip features with out-of-bounds zeros. */
+	static int boundaryRefinementPad(int[] startOffsets, int[] stopOffsets,
+			int startInside, int startOutside, int stopInside, int stopOutside){
+		if(startOffsets==null || startOffsets.length<1 || stopOffsets==null || stopOffsets.length<1){
+			throw new IllegalArgumentException("Boundary refinement requires nonempty start and stop offset arrays");
+		}
+		if(startInside<0 || startOutside<0 || stopInside<0 || stopOutside<0){
+			throw new IllegalArgumentException("Boundary refinement requires nonnegative table geometry");
+		}
+		int maxOffset=0;
+		for(int x : startOffsets){maxOffset=Tools.max(maxOffset, Math.abs(x));}
+		for(int x : stopOffsets){maxOffset=Tools.max(maxOffset, Math.abs(x));}
+		final int maxK=Tools.max(startInside+startOutside, stopInside+stopOutside);
+		return Tools.max(10, maxOffset+2+maxK);
 	}
 
 	/** Returns an uppercase private copy for ncRNA matching and refinement without
@@ -562,12 +967,98 @@ public class NcrnaScavenger {
 	}
 
 	private int[] shortlistByKmer(byte[] seq, int topN){
-		if(kmerIndex==null || library==null){
+		if(mappingOracleExhaustive || kmerIndex==null || library==null){
+			//Refresh diagnostic shared-count scratch for this query, but discard its filtering.
+			if(mappingOracleExhaustive && kmerIndex!=null){kmerIndex.shortlist(seq,library.length);}
 			int[] all=new int[library.length];
 			for(int i=0; i<all.length; i++){all[i]=i;}
 			return all;
 		}
 		return kmerIndex.shortlist(seq, topN);
+	}
+
+	private boolean votingEnabled(){return voteTable!=null && (voteWindows || voteEnds);}
+
+	private void applyVoteWindows(ArrayList<int[]> windows, int[] positions, long[] keys, int seqLen){
+		for(int[] window : windows){
+			if(countHits(positions, window[0], window[1])<minKmerHits || !computeVotes(positions, keys, window[0], window[1])){
+				window[2]=WINDOW_FALLBACK; voteWindowFallbacks++; continue;
+			}
+			final int start=Tools.max(0, (int)Math.round(voteScratch[0])-voteSlack);
+			final int stop=Tools.min(seqLen-1, (int)Math.round(voteScratch[1])+voteSlack);
+			if(stop-start+1<minLen){window[2]=WINDOW_FALLBACK; voteWindowFallbacks++; continue;}
+			window[0]=start; window[1]=stop; window[2]=WINDOW_VOTED; votedWindows++;
+		}
+	}
+
+	static String windowSourceName(int source){return source==WINDOW_VOTED ? "voted" : source==WINDOW_FALLBACK ? "fallback" : "collapse";}
+	private static int windowSource(int[] window){return window.length>2 ? window[2] : WINDOW_COLLAPSE;}
+
+	private int applyVotedEnds(Orf orf, int[] positions, long[] keys, int from, int to, int seqLen){
+		if(!voteEnds){return 0;}
+		if(!computeVotes(positions, keys, from, to)){
+			voteEndFallbackStart++; voteEndFallbackStop++; return 0;
+		}
+		int start=orf.start, stop=orf.stop;
+		final boolean useStart=voteScratch[2]<=voteEndsMaxSd, useStop=voteScratch[3]<=voteEndsMaxSd;
+		if(useStart){start=(int)Math.round(voteScratch[0]);}else{voteEndFallbackStart++;}
+		if(useStop){stop=(int)Math.round(voteScratch[1]);}else{voteEndFallbackStop++;}
+		if(start>=0 && stop>=start && stop<seqLen){
+			orf.start=start; orf.stop=stop; if(useStart){votedStarts++;} if(useStop){votedStops++;}
+			return (useStart ? 1 : 0)|(useStop ? 2 : 0);
+		}else{
+			voteEndInvalidSpans++;
+			if(useStart){voteEndFallbackStart++;}
+			if(useStop){voteEndFallbackStop++;}
+			return 0;
+		}
+	}
+
+	/** Task 16-selected W2-D25 policy, isolated so the combiner remains swappable. */
+	static double voteWeight(double sd, double distance){
+		return 1.0/(Math.max(1.0, sd*sd)*(1.0+distance/25.0));
+	}
+
+	private boolean computeVotes(int[] positions, long[] keys, int from, int to){
+		if(voteTable==null || positions==null || keys==null || positions.length!=keys.length){return false;}
+		double leftSum=0, leftWeight=0, rightSum=0, rightWeight=0; int topLeft=0, topRight=0;
+		Arrays.fill(topLeftWeights, -1); Arrays.fill(topRightWeights, -1);
+		for(int i=0; i<positions.length; i++){
+			final int center=positions[i]; if(center<from || center>to){continue;}
+			final SeedOffsetTable.KmerInfo info=voteTable.get(keys[i]); if(info==null || !info.trained()){continue;}
+			final double predLeft=center-kLong/2-info.leftOffset;
+			final double predRight=center+kLong/2+info.rightOffset;
+			final double wl=voteWeight(info.leftSD, info.leftOffset), wr=voteWeight(info.rightSD, info.rightOffset);
+			leftSum+=predLeft*wl; leftWeight+=wl; rightSum+=predRight*wr; rightWeight+=wr;
+			topLeft=insertTop(predLeft, wl, topLeftValues, topLeftWeights, topLeft);
+			topRight=insertTop(predRight, wr, topRightValues, topRightWeights, topRight);
+		}
+		if(!(leftWeight>0) || !(rightWeight>0)){return false;}
+		voteScratch[0]=leftSum/leftWeight; voteScratch[1]=rightSum/rightWeight;
+		voteScratch[2]=populationSd(topLeftValues, topLeft); voteScratch[3]=populationSd(topRightValues, topRight);
+		return voteScratch[1]>=voteScratch[0];
+	}
+
+	private static int insertTop(double value, double weight, double[] values, double[] weights, int size){
+		int pos=Math.min(size, 10); while(pos>0 && weight>weights[pos-1]){pos--;}
+		if(pos<10){for(int j=Math.min(size,9); j>pos; j--){weights[j]=weights[j-1]; values[j]=values[j-1];}
+			weights[pos]=weight; values[pos]=value; if(size<10){size++;}}
+		return size;
+	}
+
+	private static double populationSd(double[] values, int size){
+		if(size<1){return Double.POSITIVE_INFINITY;} double mean=0,m2=0;
+		for(int i=0;i<size;i++){double d=values[i]-mean;mean+=d/(i+1);m2+=d*(values[i]-mean);}
+		return Math.sqrt(Math.max(0,m2/size));
+	}
+
+	private static int countHits(int[] positions, int from, int to){int n=0;for(int p:positions){if(p>=from&&p<=to){n++;}}return n;}
+
+	static long[] subsetKeys(int[] allPositions, long[] allKeys, int[] subset){
+		final long[] out=new long[subset.length]; int j=0;
+		for(int i=0;i<allPositions.length&&j<subset.length;i++){if(allPositions[i]==subset[j]){out[j++]=allKeys[i];}}
+		if(j!=subset.length){throw new IllegalStateException("Could not match pass-2 seed keys");}
+		return out;
 	}
 
 	/*--------------------------------------------------------------*/
@@ -583,6 +1074,7 @@ public class NcrnaScavenger {
 	private final TrnaKmerIndex kmerIndex;
 
 	private static final int[] EMPTY=new int[0];
+	static final int WINDOW_COLLAPSE=0, WINDOW_VOTED=1, WINDOW_FALLBACK=2;
 
 	//Per-family tunables not yet wired to per-family values (Noire, 2026-08-23: "start
 	//with tRNA's defaults, tune per family later") -- default to TrnaCaller's measured-best
@@ -597,6 +1089,26 @@ public class NcrnaScavenger {
 	float adaptTopFrac=0.48f;
 	float adaptQFrac=0.072f;
 	int minKmerHits=1;
+	int maxLen=Integer.MAX_VALUE;
+	/** Production controls; claimed-window refresh prevents duplicate calls from stale window geometry. */
+	boolean refreshClaimedWindows=true;
+	boolean rankedModelFallback=false;
+	boolean strictIndexCutoff=false;
+	boolean trimAlignmentExtent=true;
+	int outputType=ProkObject.RNA;
+	/** Explicit experiment-only permission to refine QuantumAligner endpoints when
+	 * traceback trimming is disabled. Default false preserves every existing caller. */
+	boolean boundaryOnRawEndpoints=false;
+	boolean nnCentre5Vote=false, nnCentre3Vote=false;
+	float nnCutoff=Float.NaN;
+	SeedOffsetTable voteTable=null;
+	boolean voteWindows=false, voteEnds=false;
+	int voteSlack=60;
+	float voteEndsMaxSd=5f;
+	long votedWindows=0, voteWindowFallbacks=0, votedStarts=0, votedStops=0;
+	long voteEndFallbackStart=0, voteEndFallbackStop=0, voteEndInvalidSpans=0;
+	private final double[] voteScratch=new double[4], topLeftValues=new double[10], topLeftWeights=new double[10];
+	private final double[] topRightValues=new double[10], topRightWeights=new double[10];
 	//Forward-ported from Noire's tree (2026-08-28, C3 merge): idPass/idBorderline are now
 	//FINAL, set unconditionally by every constructor (0.75f/0.65f remain the fallback values
 	//for the 8-arg and 15-arg delegating overloads) -- previously mutable with the same
@@ -614,6 +1126,7 @@ public class NcrnaScavenger {
 	float collapseFrac=0.9f;
 	int trimExt=10;
 	boolean scavengePass2=true;
+	boolean reuseConsensusAlignment=false;
 	/** Explicit family identity (e.g. "s18", "r58", "lsu"), set post-construction by
 	 * GeneCaller.makeRnas() from NcrnaFamily.name -- mirrors the existing hbmPass/
 	 * collapseFrac post-construction assignment pattern above. Propagated onto every
@@ -621,6 +1134,9 @@ public class NcrnaScavenger {
 	String family;
 
 	private long alignmentCount=0;
+	private long alignedBases=0, hbmScoreCalls=0, hbmBasesScored=0;
+	private long kmerHitCount=0, windowCount=0;
+	private long boundaryNanos=0;
 
 	//C3 boundary-precision-NN resources (G11, 2026-08-28) -- boundary5Net==null (this
 	//instance's default unless the full constructor is used with real templates) means OFF,
@@ -629,10 +1145,14 @@ public class NcrnaScavenger {
 	//read-only templates (thread safety -- see the full constructor's javadoc).
 	private final CellNet boundary5Net, boundary3Net;
 	private final TrnaBoundaryFeatures.NinemerTable boundaryStartTable, boundaryStopTable;
+	private CellNet[] boundaryNetsByModel=null;
+	private TrnaBoundaryFeatures.NinemerTable[] boundaryStartTablesByModel=null, boundaryStopTablesByModel=null;
 	private final int boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside;
 	private final float boundaryMeanLen;
 	private final int[] boundaryStartOffsets, boundaryStopOffsets;
 	private final float boundaryMarginStart, boundaryMarginStop;
+	int boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
+	NcrnaBoundaryFuzzConstants boundaryFuzzConstants=null;
 
 	//Boundary-NN instrumentation (Citan/Brian, 2026-08-28) -- opt-in, off by default. A setter
 	//rather than another constructor param: NcrnaScavenger already has 3 overloaded
@@ -642,6 +1162,8 @@ public class NcrnaScavenger {
 	//trimToAlignmentExtent) -- not the per-candidate-window hot path, so this costs nothing on
 	//the scan loop either way.
 	private NcrnaBoundaryInstrumentSink instrumentSink=null;
+	private IdentityHashMap<Orf,InstrumentationCapture> pendingInstrumentation=null;
+	private BoundaryScoreSink boundaryScoreSink=null;
 
 	//B4 seed-trigger/workload instrumentation (Citan/G11, 2026-08-29) -- opt-in, off by default,
 	//same cost model as instrumentSink above (single null-check per call site, zero cost when
@@ -649,6 +1171,15 @@ public class NcrnaScavenger {
 	//on EVERY scanned strand and EVERY scheduled window, vs accepted-locus-only boundary state),
 	//different consumer (a B4/B5 family evaluator driver, not boundary-NN training).
 	private NcrnaWorkloadInstrumentSink workloadSink=null;
+	private NcrnaModelAttemptInstrumentSink modelAttemptSink=null;
+	private NcrnaStageDiagSink diagSink=null;
+	private String diagFamily=null;
+	private boolean mappingOracleExhaustive=false;
+
+	void setStageDiagSink(NcrnaStageDiagSink sink,String familyName){diagSink=sink;diagFamily=familyName;}
+	/** Calibration-only exhaustive verifier arm: bypass mapping filters and early exits,
+	 * retaining seed/window/identity/HBM gates. Model traversal is library order, not rank. */
+	void setMappingOracleExhaustive(boolean value){mappingOracleExhaustive=value;}
 
 	/** Arms (or disarms, via null) B4 workload instrumentation capture. Package-visible: only an
 	 * evaluation driver in this package should call this, mirroring setInstrumentSink's scoping
@@ -657,6 +1188,16 @@ public class NcrnaScavenger {
 	 * seedHits/scheduledWindow never index into modelNames, so there is no equivalent silent-skip
 	 * hazard to guard against at arm time. */
 	void setWorkloadSink(NcrnaWorkloadInstrumentSink sink){workloadSink=sink;}
+	void setModelAttemptSink(NcrnaModelAttemptInstrumentSink sink){modelAttemptSink=sink;}
+	void setBoundaryScoreSink(BoundaryScoreSink sink){boundaryScoreSink=sink;}
+
+	/** Development-only endpoint-sweep evidence, two rows per refined locus. */
+	interface BoundaryScoreSink{
+		void scored(String contig, int strand, int model, int anchorStart, int anchorStop,
+			int startOffset, int stopOffset, int startSitesScored, int stopSitesScored,
+			float startChosenScore, float stopChosenScore,
+			int startRadius, int stopRadius, boolean startVotedAnchor, boolean stopVotedAnchor);
+	}
 
 	/** Arms (or disarms, via null) boundary-NN instrumentation capture. Package-visible: only
 	 * an instrumentation driver in this package should call this, never production CallGenes
@@ -684,6 +1225,12 @@ public class NcrnaScavenger {
 				+"sites), undercounting the accepted denominator just like the trim-guard bug this replaces.";
 		}
 		instrumentSink=sink;
+		pendingInstrumentation=(sink==null ? null : new IdentityHashMap<Orf,InstrumentationCapture>());
+	}
+
+	private static final class InstrumentationCapture{
+		InstrumentationCapture(String c,int s,int m,int ws,int we,int ps,int pe,byte[] w,int wo,boolean t,boolean n,int source,float id,int al){contig=c;strand=s;model=m;wStart=ws;wStop=we;postStart=ps;postStop=pe;window=w;windowOffset=wo;trimSucceeded=t;nnInvoked=n;windowSource=source;identity=id;alignedLength=al;}
+		final String contig;final int strand,model,wStart,wStop,postStart,postStop,windowOffset,windowSource,alignedLength;final byte[] window;final boolean trimSucceeded,nnInvoked;final float identity;
 	}
 
 	/** Padding beyond the post-trim [start,stop] captured into the instrumentation window copy

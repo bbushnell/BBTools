@@ -47,6 +47,8 @@ Java Parameters:
 -Xmx            This will set Java's memory usage, overriding autodetection.
                 -Xmx20g will specify 20 gigs of RAM, and -Xmx200m will
                 specify 200 megs. The max is typically 85% of physical memory.
+-Xss            Set Java's thread-stack size.  The default is -Xss8m;
+                an explicit value such as -Xss64m overrides it.
 -eoom           This flag will cause the process to exit if an out-of-memory
                 exception occurs.  Requires Java 8u92+.
 -da             Disable assertions.
@@ -80,14 +82,14 @@ setEnv(){
 	. "$DIR/javasetup.sh"
 	. "$DIR/memdetect.sh"
 
-	parseJavaArgs "--xmx=4g" "--xms=4g" "--percent=84" "--mode=auto" "$@"
+	parseJavaArgs "--xmx=4g" "--xms=4g" "--xss=8m" "--percent=84" "--mode=auto" "$@"
 	setEnvironment
 }
 
 launch() {
-	CMD="java $EA $EOOM $SIMD $XMX $XMS -Xss8m -cp $CP consensus.ConsensusMaker $@"
+	CMD="java $EA $EOOM $SIMD $XMX $XMS $XSS -cp $CP consensus.ConsensusMaker $@"
 	echo "$CMD" >&2
-	java $EA $EOOM $SIMD $XMX $XMS -Xss8m -cp "$CP" consensus.ConsensusMaker "$@"
+	java $EA $EOOM $SIMD $XMX $XMS $XSS -cp "$CP" consensus.ConsensusMaker "$@"
 }
 
 resolveSymlinks

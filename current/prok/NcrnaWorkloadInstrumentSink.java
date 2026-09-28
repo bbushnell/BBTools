@@ -58,10 +58,9 @@ public interface NcrnaWorkloadInstrumentSink {
 	void seedHits(String contigName, int strand, int[] hitPositions);
 
 	/**
-	 * Fires once per candidate window immediately BEFORE NcrnaScavenger calls alignWindow on it
-	 * -- i.e. once per actual alignment REQUEST, after buildCandidateWindows -> collapse
-	 * ByIntersection -> subtractClaimed have already run, matching schema B4's "actual alignment
-	 * requests" gate metric exactly (NOT raw seed-hit count, NOT a pre-collapse window count).
+	 * Fires once per candidate window immediately BEFORE NcrnaScavenger calls alignWindow on it,
+	 * after buildCandidateWindows -> collapseByIntersection -> subtractClaimed have run. This is
+	 * a pre-filter scheduled-window count: alignWindow still applies its minKmerHits gate.
 	 * Fires for every window in both scavenge passes -- pass=1 for the primary windows loop,
 	 * pass=2 for the findNearbyUnclaimed/pass2Windows loop (only reached when scavengePass2 is
 	 * enabled, the production default) -- so a driver can report combined and per-pass totals.
@@ -72,4 +71,11 @@ public interface NcrnaWorkloadInstrumentSink {
 	 *   argument for this call), in the same per-strand frame as seedHits' hitPositions.
 	 */
 	void scheduledWindow(String contigName, int strand, int pass, int wStart, int wStop);
+
+	/**
+	 * Fires once after a scheduled window passes alignWindow's minKmerHits gate and before model
+	 * shortlisting or the strict shared-index cutoff. This separates caller seed-gate survival
+	 * from the older scheduled-window counter without changing the instrumentation-off path.
+	 */
+	default void postSeedWindow(String contigName, int strand, int pass, int wStart, int wStop, int seedHits){}
 }

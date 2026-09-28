@@ -13,6 +13,8 @@ import fileIO.FileFormat;
 import fileIO.ReadWrite;
 import gff.CompareGff;
 import gff.GffLine;
+import idaligner.QuantumAligner;
+import idaligner.ScrabbleAligner;
 import jgi.BBMerge;
 import json.JsonObject;
 import map.LongHashSet;
@@ -187,6 +189,9 @@ public class CallGenes extends ProkObject {
 			}else if(a.equalsIgnoreCase("5sattemptlog")){
 				assert(b!=null) : "5sattemptlog requires a path";
 				fiveSAttemptLog=b;
+			}else if(a.equalsIgnoreCase("ncrnadiag") || a.equalsIgnoreCase("r58diag")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException(a+" requires an output path");}
+				ncrnaDiagLog=b;
 			}else if(a.equals("hist") || a.equalsIgnoreCase("outhist") || a.equalsIgnoreCase("lengthhist") || a.equalsIgnoreCase("lhist") || a.equalsIgnoreCase("genehist")){
 				geneHistFile=b;
 			}else if(a.equals("bins")){
@@ -473,6 +478,14 @@ public class CallGenes extends ProkObject {
 				prok.TrnaBoundaryVectorGen.INCLUDE_CROSS_ENRICHMENT=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("ncrna") || a.equalsIgnoreCase("generalncrna")){
 				NCRNA_FAMILIES_ENABLED=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("rrna17") || a.equalsIgnoreCase("rrna17mer")){
+				setRrna17Profile(b);
+			}else if(a.equalsIgnoreCase("rrna17prok5shbm")){
+				setRrna17Prok5sHbm(b);
+			}else if(a.equalsIgnoreCase("rrna23sendpoint") || a.equalsIgnoreCase("rrna23sendpointmode")){
+				setRrna23SEndpointMode(b);
+			}else if(parseNcrnaRefreshFlag(a, b)){
+				//parsed by helper
 			}else if(a.equalsIgnoreCase("ncrnaboundarynet")){
 				NCRNA_BOUNDARY_NN_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("r58ncrnaboundarynet") || a.equalsIgnoreCase("r58boundarynn")){
@@ -513,6 +526,30 @@ public class CallGenes extends ProkObject {
 				NCRNA_FAMILY_FILTER=parseNcrnaFamily(b);
 			}else if(a.equalsIgnoreCase("ncrnakmers")){
 				NCRNA_KMERS_OVERRIDE=b;
+			}else if(a.equalsIgnoreCase("ncrnaseedminhits")){
+				NCRNA_SEED_MIN_HITS_OVERRIDE=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
+			}else if(a.equalsIgnoreCase("ncrnaindexk") || a.equalsIgnoreCase("ncrnamapk")){
+				NCRNA_INDEX_K_OVERRIDE=parseSweepInt(a, b, 1, 15);
+			}else if(a.equalsIgnoreCase("ncrnaindextopn")){
+				NCRNA_INDEX_TOP_N_OVERRIDE=parseSweepInt(a, b, 1, Integer.MAX_VALUE);
+			}else if(a.equalsIgnoreCase("ncrnaindexminhits") || a.equalsIgnoreCase("ncrnafixedminhits")){
+				NCRNA_INDEX_MIN_HITS_OVERRIDE=parseSweepInt(a, b, 0, Integer.MAX_VALUE);
+			}else if(a.equalsIgnoreCase("ncrnaadaptiveminhits") || a.equalsIgnoreCase("ncrnaadaptiveshortlist")){
+				NCRNA_ADAPTIVE_MINHITS_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnaadaptfloor")){
+				NCRNA_ADAPT_FLOOR_OVERRIDE=parseNonnegativeFloat(a,b);
+			}else if(a.equalsIgnoreCase("ncrnaadapttopfrac")){
+				NCRNA_ADAPT_TOPFRAC_OVERRIDE=parseNonnegativeFloat(a,b);
+			}else if(a.equalsIgnoreCase("ncrnaadaptqfrac")){
+				NCRNA_ADAPT_QFRAC_OVERRIDE=parseNonnegativeFloat(a,b);
+			}else if(a.equalsIgnoreCase("r58ncrnaminlen") || a.equalsIgnoreCase("r58minlen")){
+				R58_MINLEN_OVERRIDE=parseSweepInt(a,b,1,1000);
+			}else if(a.equalsIgnoreCase("ncrnastrictindexcutoff")){
+				NCRNA_STRICT_INDEX_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnarankedfallback")){
+				NCRNA_RANKED_FALLBACK_OVERRIDE=Parse.parseBoolean(b);
+			}else if(a.equalsIgnoreCase("ncrnamaxlen")){
+				NCRNA_MAX_LEN_OVERRIDE=parseSweepInt(a, b, 90, Integer.MAX_VALUE);
 			}else if(a.equalsIgnoreCase("rnasepkmers")){
 				RNASEP_KMERS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("srpsmallkmers")){
@@ -603,6 +640,7 @@ public class CallGenes extends ProkObject {
 				SIXS_RF01685_PAD_OVERRIDE=parsePadOverride("sixsrf01685pad", b);
 			}
 
+			else if(parseFamilyIndexOverride(a,b)){}
 			else if(ProkObject.parse(arg, a, b)){}
 
 			else if(parser.parse(arg, a, b)){
@@ -677,7 +715,9 @@ public class CallGenes extends ProkObject {
 		//always live under BBTools' always-on -ea) rather than a special-cased exception.
 		validateNcrnaGateCombo();
 		validateNcrnaSweepOverrides();
+		validateRrna17GateCombo();
 		if(NCRNA_FAMILIES_ENABLED){loadNcrnaResources();}
+		if(RRNA17_ENABLED){loadRrna17Resources(RRNA17_PROFILE);}
 
 		if(Shared.threads()<2){ordered=false;}
 		assert(!fnaList.isEmpty()) : "At least 1 fasta file is required.";
@@ -695,10 +735,10 @@ public class CallGenes extends ProkObject {
 	/** Ensure files can be read and written */
 	private void checkFileExistence(){
 		//Ensure output files can be written
-		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile)){
+		if(!Tools.testOutputFiles(overwrite, append, false, outGff, outAmino, out16S, out18S, outIts, outStats, geneHistFile, fiveSAttemptLog, ncrnaDiagLog)){
 			outstream.println((outGff==null)+", "+outGff);
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "
-					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+"\n");
+					+outGff+", "+outAmino+", "+out16S+", "+out18S+", "+outIts+", "+outStats+", "+geneHistFile+", "+fiveSAttemptLog+", "+ncrnaDiagLog+"\n");
 		}
 		
 		//Ensure input files can be read
@@ -717,6 +757,8 @@ public class CallGenes extends ProkObject {
 		foo.add(outIts);
 		foo.add(outStats);
 		foo.add(geneHistFile);
+		foo.add(fiveSAttemptLog);
+		foo.add(ncrnaDiagLog);
 		if(!Tools.testForDuplicateFiles(true, foo.toArray(new String[0]))){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
@@ -767,6 +809,9 @@ public class CallGenes extends ProkObject {
 			loadConsensusSequenceFromFile(false, false);
 		}
 		GeneCaller.initializeConservedRnaSeedIndex();
+		final QuantumAligner quantumCounter=new QuantumAligner();
+		final ScrabbleAligner scrabbleCounter=new ScrabbleAligner();
+		final long quantumCells0=quantumCounter.loops(), scrabbleCells0=scrabbleCounter.loops();
 		
 		ByteStreamWriter bsw=makeBSW(ffoutGff);
 		if(bsw!=null){
@@ -781,6 +826,14 @@ public class CallGenes extends ProkObject {
 			attemptSink=new AttemptLogSink(attemptBsw);
 		}
 
+		ByteStreamWriter ncrnaDiagBsw=null;
+		NcrnaStageDiagSink ncrnaDiagSink=null;
+		if(ncrnaDiagLog!=null){
+			ncrnaDiagBsw=new ByteStreamWriter(ncrnaDiagLog,overwrite,append,false);
+			ncrnaDiagBsw.start();
+			ncrnaDiagBsw.println(NcrnaStageDiagLogSink.HEADER);
+			ncrnaDiagSink=new NcrnaStageDiagLogSink(ncrnaDiagBsw);
+		}
 		ConcurrentReadOutputStream rosAmino=makeCros(ffoutAmino);
 		ConcurrentReadOutputStream ros16S=makeCros(ffout16S);
 		ConcurrentReadOutputStream ros18S=makeCros(ffout18S);
@@ -812,7 +865,7 @@ public class CallGenes extends ProkObject {
 			final ConcurrentReadInputStream cris=makeCris(fna);
 			
 			//Process the reads in separate threads
-			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink);
+			spawnThreads(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, attemptSink, ncrnaDiagSink);
 			
 			//Close the input stream
 			errorState|=ReadWrite.closeStream(cris);
@@ -828,9 +881,11 @@ public class CallGenes extends ProkObject {
 		//Close the output stream
 		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 		if(attemptBsw!=null){errorState|=attemptBsw.poisonAndWait();}
+		if(ncrnaDiagBsw!=null){errorState|=ncrnaDiagBsw.poisonAndWait();}
 		
 		//Reset read validation
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
+		ncrnaAlignedCells=(quantumCounter.loops()-quantumCells0)+(scrabbleCounter.loops()-scrabbleCells0);
 		
 		//Report timing and results
 		t.stop();
@@ -1029,8 +1084,13 @@ public class CallGenes extends ProkObject {
 		if(!GeneCaller.ncrnaFamilies.isEmpty()){
 			for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){
 				NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
+				bsw.println("ncRNA Kmer Hits ("+family.name+"):\t "+Tools.padLeft(ncrnaKmerHits[i], 12));
+				bsw.println("ncRNA Windows ("+family.name+"):\t "+Tools.padLeft(ncrnaWindows[i], 12));
 				bsw.println("ncRNA Alignments ("+family.name+"):\t "+Tools.padLeft(ncrnaAlignments[i], 12));
+				bsw.println("ncRNA Out ("+family.name+"):\t "+Tools.padLeft(ncrnaCalls[i], 12));
 			}
+			bsw.println("ncRNA Shared Sweep Passes:\t "+Tools.padLeft(ncrnaSharedSweepPasses, 12));
+			bsw.println("ncRNA Aligned Cells:  \t "+Tools.padLeft(ncrnaAlignedCells, 12));
 			bsw.println("RNA Out:              \t "+Tools.padLeft(rnaOut, 12));
 		}
 		
@@ -1172,8 +1232,13 @@ public class CallGenes extends ProkObject {
 			if(!GeneCaller.ncrnaFamilies.isEmpty()){
 				for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){
 					NcrnaFamily family=GeneCaller.ncrnaFamilies.get(i);
+					jo.add("ncRNA Kmer Hits ("+family.name+")", ncrnaKmerHits[i]);
+					jo.add("ncRNA Windows ("+family.name+")", ncrnaWindows[i]);
 					jo.add("ncRNA Alignments ("+family.name+")", ncrnaAlignments[i]);
+					jo.add("ncRNA Out ("+family.name+")", ncrnaCalls[i]);
 				}
+				jo.add("ncRNA Shared Sweep Passes", ncrnaSharedSweepPasses);
+				jo.add("ncRNA Aligned Cells", ncrnaAlignedCells);
 				jo.add("RNA Out", rnaOut);
 			}
 			outer.add("Overall", jo);
@@ -1247,7 +1312,7 @@ public class CallGenes extends ProkObject {
 	
 	/** Spawn process threads */
 	private void spawnThreads(final ConcurrentReadInputStream cris, final ByteStreamWriter bsw, 
-			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink){
+			ConcurrentReadOutputStream rosAmino, ConcurrentReadOutputStream ros16S, ConcurrentReadOutputStream ros18S, ConcurrentReadOutputStream rosIts, GeneModel pgm, RefinementAttemptSink attemptSink, NcrnaStageDiagSink ncrnaDiagSink){
 		
 		//Do anything necessary prior to processing
 		
@@ -1257,7 +1322,7 @@ public class CallGenes extends ProkObject {
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
-			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink));
+			alpt.add(new ProcessThread(cris, bsw, rosAmino, ros16S, ros18S, rosIts, pgm, minLen, i, attemptSink, ncrnaDiagSink));
 		}
 		
 		//Start the threads
@@ -1345,6 +1410,22 @@ public class CallGenes extends ProkObject {
 			for(int i=0; i<threadNcrnaAlignments.length; i++){
 				ncrnaAlignments[i]+=threadNcrnaAlignments[i];
 			}
+			final long[] threadNcrnaKmerHits=pt.caller.ncrnaKmerHitCounts();
+			final long[] threadNcrnaWindows=pt.caller.ncrnaWindowCounts();
+			if(ncrnaKmerHits==null){ncrnaKmerHits=new long[threadNcrnaKmerHits.length];}
+			if(ncrnaWindows==null){ncrnaWindows=new long[threadNcrnaWindows.length];}
+			assert(ncrnaKmerHits.length==threadNcrnaKmerHits.length
+				&& ncrnaWindows.length==threadNcrnaWindows.length
+				&& ncrnaWindows.length==ncrnaKmerHits.length) : "Family count changed between workers; cannot merge ncRNA work statistics by family index";
+			for(int i=0; i<threadNcrnaKmerHits.length; i++){
+				ncrnaKmerHits[i]+=threadNcrnaKmerHits[i];
+				ncrnaWindows[i]+=threadNcrnaWindows[i];
+			}
+			ncrnaSharedSweepPasses+=pt.caller.sharedSweepPasses();
+			long[] threadNcrnaCalls=pt.caller.ncrnaOutputCounts();
+			if(ncrnaCalls==null){ncrnaCalls=new long[threadNcrnaCalls.length];}
+			assert(ncrnaCalls.length==threadNcrnaCalls.length) : "ncRNA output-count family width changed during one run";
+			for(int i=0; i<threadNcrnaCalls.length; i++){ncrnaCalls[i]+=threadNcrnaCalls[i];}
 			
 			stCds.add(pt.caller.stCds);
 			stCds2.add(pt.caller.stCds2);
@@ -1546,7 +1627,7 @@ public class CallGenes extends ProkObject {
 		 */
 		ProcessThread(final ConcurrentReadInputStream cris_, final ByteStreamWriter bsw_, 
 				ConcurrentReadOutputStream rosAmino_, ConcurrentReadOutputStream ros16S_, ConcurrentReadOutputStream ros18S_, ConcurrentReadOutputStream rosIts_, 
-				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_){
+				GeneModel pgm_, final int minLen, final int tid_, RefinementAttemptSink attemptSink_, NcrnaStageDiagSink ncrnaDiagSink_){
 			cris=cris_;
 			bsw=bsw_;
 			rosAmino=rosAmino_;
@@ -1559,6 +1640,7 @@ public class CallGenes extends ProkObject {
 			caller=new GeneCaller(minLen, maxOverlapSameStrand, maxOverlapOppositeStrand, 
 					minStartScore, minStopScore, minKmerScore, minOrfScore, minAvgScore, pgm);
 			caller.setAttemptSink(attemptSink_);
+			caller.setNcrnaDiagSink(ncrnaDiagSink_);
 		}
 		
 		//Called by start()
@@ -1888,6 +1970,9 @@ public class CallGenes extends ProkObject {
 	public static ArrayList<Read> detranslate(final ArrayList<Read> prots){
 		if(prots==null || prots.isEmpty()){return null;}
 		ArrayList<Read> nucs=new ArrayList<Read>(prots.size());
+		//TODO: Probable bug - proteins are already oriented by translate(); this loop
+		//does not use strand and detranslates every protein twice. RETRANSLATE in
+		//ProcessThread.processRead reaches this path. Kept unchanged in the metrics repair.
 		for(int strand=0; strand<2; strand++){
 			for(Read prot : prots){
 				Read nuc=detranslate(prot);
@@ -2179,6 +2264,221 @@ public class CallGenes extends ProkObject {
 		if(S18_ENABLED){loadS18DevelopmentResources();}
 	}
 
+	/** Registers one measured domain profile for the production CallGenes path.
+	 * Families within the profile share one ConservedRnaSeedIndex scan; verification remains
+	 * family-local. Prokaryotic and eukaryotic 5S must not compete in the same call path. */
+	static synchronized void loadRrna17Resources(String profile){
+		if(profile==null){throw new IllegalArgumentException("rrna17 requires profile prok, euk, euk18s, or euk5s");}
+		if(RRNA17_LOADED_PROFILE!=null){
+			if(RRNA17_LOADED_PROFILE.equals(profile)){return;}
+			throw new IllegalStateException("rRNA17 resources already loaded for profile "+RRNA17_LOADED_PROFILE+", cannot switch to "+profile);
+		}
+		final int before=GeneCaller.ncrnaFamilies.size();
+		try{
+			if(profile.equals("prok")){
+				addRrna17Family("16S", "16S_consensus_sequence.fa", null,
+					loadEffectiveNcrnaKmerSet("16S", "16S_17mers.fa", null, 17), 17, 1400, 1800,
+					9, 1, false, 0f, 0f, 0f, 1, 0f, 1f, .62f, .62f, 1.01f, .85f,
+					NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+				configureRrna17Family(familyAt(before, "16S"), ProkObject.r16S, 7, true, false, false, false);
+				final boolean endpoint23S=(RRNA23S_ENDPOINT_MODE!=RRNA23S_ENDPOINT_OFF);
+				final String endpoint23SNet=(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28
+					? "23S_boundary_g28_universal_net.bbnet" : "23S_boundary_g16c_net.bbnet");
+				addNcrnaFamily("23S", "23S_consensus_sequence.fa", endpoint23S ? "23S.models.hbm" : null,
+					loadEffectiveNcrnaKmerSet("23S", "23S_17mers.fa", null, 17), 17, 2600, 3500,
+					9, 3, false, 0f, 0f, 0f, 128, 0f, 1f, .60f, .60f, 1.01f, .85f,
+					centeredOffsets(16), centeredOffsets(16), endpoint23S, endpoint23SNet,
+					"23S_boundary_family_start_table.tsv", "23S_boundary_family_stop_table.tsv", 0f, 0f);
+				final NcrnaFamily prok23s=familyAt(before+1, "23S");
+				configureRrna17Family(prok23s, ProkObject.r23S, 5, false, true, true,
+					RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16);
+				configureRrna23SEndpoints(prok23s);
+				final String prok5sModelResource=(RRNA17_PROK5S_HBM ? "5S.g5.models.hbm" : null);
+				addRrna17Family("prok5S", "5S_consensus_sequence.fa", prok5sModelResource,
+					loadEffectiveNcrnaKmerSet("prok5S", "5S_17mers.fa", null, 17), 17, 90, 150,
+					7, 3, false, 0f, 0f, 0f, 2, 0f, 1f, .80f, .60f,
+					(RRNA17_PROK5S_HBM ? .60f : 1.01f), .85f,
+					NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+				final NcrnaFamily prok5s=familyAt(before+2, "prok5S");
+				if(RRNA17_PROK5S_HBM){
+					requireNcrnaLibraryModelAlignment(prok5s.name, prok5s.library, prok5s.models, prok5s.modelNames,
+						"5S_consensus_sequence.fa", "5S.g5.models.hbm");
+				}else if(prok5s.models!=null){
+					throw new IllegalStateException("rrna17prok5shbm=f loaded unexpected prok5S models");
+				}
+				configureRrna17Family(prok5s, ProkObject.r5S, 2, true, false, false, false);
+				if(GeneCaller.ncrnaFamilies.size()!=before+3){throw new IllegalArgumentException("rrna17=prok requires complete 16S, 23S, and prok5S resources");}
+			}else if(profile.equals("euk") || profile.equals("euk18s")){
+				//Keep the expanded opt-in library separate from legacy 18S refinement.
+				addRrna17Family("18S", "18S_rrna17_consensus_sequence.fa", null,
+					loadEffectiveNcrnaKmerSet("18S", "18S_17mers.fa", null, 17), 17, 60, 2400,
+					9, 5, false, 0f, 0f, 0f, 384, 0f, 1f, .60f, .60f, 1.01f, .825f,
+					NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+				final NcrnaFamily euk18s=familyAt(before, "18S");
+				configureRrna17Family(euk18s, ProkObject.r18S, 7, false, false, false, false);
+				euk18s.voteTable=SeedOffsetTable.load(findNcrnaResource("18S_seed_offsets.tsv"), 17,
+					euk18s.kmerSet, "89a0fac9aa6e1e195ff4");
+				euk18s.voteWindows=true;
+				euk18s.voteEnds=false;
+				euk18s.voteSlack=60;
+				if(profile.equals("euk")){
+					addEuk5sFamily(before+1);
+				}
+				final int expected=(profile.equals("euk") ? before+2 : before+1);
+				if(GeneCaller.ncrnaFamilies.size()!=expected){throw new IllegalArgumentException("rrna17="+profile+" has incomplete eukaryotic rRNA resources");}
+			}else if(profile.equals("euk5s")){
+				addEuk5sFamily(before);
+				if(GeneCaller.ncrnaFamilies.size()!=before+1){throw new IllegalArgumentException("rrna17=euk5s requires complete euk5S resources");}
+			}else{
+				throw new IllegalArgumentException("Unknown rrna17 profile: "+profile);
+			}
+			RRNA17_LOADED_PROFILE=profile;
+		}catch(RuntimeException e){
+			while(GeneCaller.ncrnaFamilies.size()>before){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
+			throw e;
+		}
+	}
+
+	/** One factory keeps the combined and isolated eukaryotic profiles identical. */
+	private static void addEuk5sFamily(int index){
+		final String name="euk5S";
+		addRrna17Family(name, "euk5S_consensus_sequence.fa", null,
+			loadEffectiveNcrnaKmerSet(name, "euk5S_17mers.fa", null, 17), 17, 90,
+			resolveSweepPad(name, -1, 150), resolveSweepInt(name, NCRNA_INDEX_K_OVERRIDE, 7),
+			resolveSweepInt(name, NCRNA_INDEX_TOP_N_OVERRIDE, 5), false, 0f, 0f, 0f,
+			resolveSweepInt(name, NCRNA_INDEX_MIN_HITS_OVERRIDE, 2),
+			resolveSweepFloat(name, NCRNA_SCORE_A_OVERRIDE, 0f), resolveSweepFloat(name, NCRNA_SCORE_B_OVERRIDE, 1f),
+			resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, .65f), resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, .65f),
+			1.01f, resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, .75f),
+			NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+		final NcrnaFamily family=familyAt(index, name);
+		final boolean target=ncrnaSweepTarget(name);
+		configureRrna17Family(family, ProkObject.r5S, resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, 1),
+			false, target && Boolean.TRUE.equals(NCRNA_RANKED_FALLBACK_OVERRIDE),
+			target && Boolean.TRUE.equals(NCRNA_STRICT_INDEX_OVERRIDE), false);
+		family.maxLen=resolveSweepInt(name, NCRNA_MAX_LEN_OVERRIDE, Integer.MAX_VALUE);
+		assert(family.kLong==ConservedRnaSeedIndex.K) : "euk5S must remain in the shared 17-mer seed scan";
+		if(target){
+			System.err.println("euk5S controls: seedK="+family.kLong+" seedMinHits="+family.seedMinHits
+				+" indexK="+family.indexK+" topN="+family.indexTopN+" minHits="+family.fixedMinHits
+				+" strict="+family.strictIndexCutoff+" rankedFallback="+family.rankedModelFallback
+				+" minLen="+family.minLen+" maxLen="+family.maxLen+" windowPad="+family.windowPad
+				+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbm=off"
+				+" scoreA="+family.scoreA+" scoreB="+family.scoreB+" collapseFrac="+family.collapseFrac);
+		}
+	}
+
+	private static NcrnaFamily familyAt(int index, String name){
+		if(index<0 || index>=GeneCaller.ncrnaFamilies.size()){
+			throw new IllegalArgumentException("Missing rrna17 family "+name);
+		}
+		final NcrnaFamily family=GeneCaller.ncrnaFamilies.get(index);
+		if(!name.equals(family.name)){throw new IllegalArgumentException("Expected rrna17 family "+name+" at "+index+", found "+family.name);}
+		return family;
+	}
+
+	private static void addRrna17Family(String name, String libResource, String modelResource,
+			LongHashSet kmerSet, int kLong, int minLen, int windowPad,
+			int indexK, int indexTopN, boolean adaptive,
+			float adaptFloor, float adaptTopFrac, float adaptQFrac, int fixedMinHits,
+			float scoreA, float scoreB, float idPass, float idBorderline,
+			float hbmPass, float collapseFrac, int[] boundaryStartOffsets, int[] boundaryStopOffsets){
+		addNcrnaFamily(name, libResource, modelResource, kmerSet, kLong, minLen, windowPad,
+			indexK, indexTopN, adaptive, adaptFloor, adaptTopFrac, adaptQFrac, fixedMinHits,
+			scoreA, scoreB, idPass, idBorderline, hbmPass, collapseFrac,
+			boundaryStartOffsets, boundaryStopOffsets, false, null, null, null, 0f, 0f);
+	}
+
+	private static void configureRrna17Family(NcrnaFamily family, int outputType, int seedMinHits,
+			boolean pass2, boolean rankedFallback, boolean strictIndexCutoff, boolean trimAlignment){
+		family.outputType=outputType;
+		family.seedMinHits=seedMinHits;
+		family.scavengePass2=pass2;
+		family.rankedModelFallback=rankedFallback;
+		family.strictIndexCutoff=strictIndexCutoff;
+		family.trimAlignmentExtent=trimAlignment;
+		// The selected production rRNA paths reuse one trace-enabled Quantum
+		// alignment. G16-C is retained only as the explicit legacy alternate whose
+		// V1 endpoint features intentionally perform candidate-site alignments.
+		family.reuseConsensusAlignment=!trimAlignment;
+	}
+
+	/** Applies an explicitly requested historical 23S endpoint policy.
+	 * G28/G16-C resources were discarded; requesting either requires its resources
+	 * and fails loudly when they are absent. No endpoint network ships for 23S. */
+	private static void configureRrna23SEndpoints(NcrnaFamily family){
+		if(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_OFF){return;}
+		final String votePath=findNcrnaResource("23S_seed_offsets.tsv");
+		family.voteTable=SeedOffsetTable.load(votePath, 17, family.kmerSet, "4eff129accfdaedfb028");
+		family.voteWindows=false;
+		family.voteEnds=true;
+		family.voteSlack=150;
+		family.voteEndsMaxSd=5f;
+		if(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G28){
+			family.boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V3;
+			family.boundaryOnRawEndpoints=true;
+			family.nnCentre5Vote=true;
+			family.nnCentre3Vote=true;
+			family.nnCutoff=Float.NaN;
+			loadRrna23SG28Dispatch(family);
+		}else if(RRNA23S_ENDPOINT_MODE==RRNA23S_ENDPOINT_G16){
+			family.boundaryFeatureVersion=NcrnaBoundaryScorer.FEATURES_V1;
+			family.boundaryOnRawEndpoints=false;
+			family.nnCentre5Vote=false;
+			family.nnCentre3Vote=true;
+			family.nnCutoff=.46f;
+		}else{throw new IllegalStateException("Unknown 23S endpoint mode: "+RRNA23S_ENDPOINT_MODE);}
+	}
+
+	private static void loadRrna23SG28Dispatch(NcrnaFamily family){
+		final int n=family.library.length;
+		if(family.modelNames==null || family.modelNames.length!=n){
+			throw new IllegalArgumentException("G28 23S endpoints require one named consensus per library entry");
+		}
+		family.boundaryNetsByModel=new ml.CellNet[n];
+		family.boundaryStartTablesByModel=new TrnaBoundaryFeatures.NinemerTable[n];
+		family.boundaryStopTablesByModel=new TrnaBoundaryFeatures.NinemerTable[n];
+		final java.util.HashSet<String> seen=new java.util.HashSet<String>();
+		for(int i=0; i<n; i++){
+			final String model=firstToken(family.modelNames[i]);
+			if(!(model.equals("universal") || model.equals("bacteria") || model.equals("archaea") || model.equals("plastid")) || !seen.add(model)){
+				throw new IllegalArgumentException("Unknown or duplicate G28 23S consensus model: "+model);
+			}
+			final String prefix="23S_boundary_g28_"+model;
+			family.boundaryNetsByModel[i]=NcrnaBoundaryScorer.load(requireRrna23SEndpointResource(prefix+"_net.bbnet"));
+			final TrnaNinemerTableBuilder.LoadedTable start=TrnaNinemerTableBuilder.loadTable(requireRrna23SEndpointResource(prefix+"_start_table.tsv"));
+			final TrnaNinemerTableBuilder.LoadedTable stop=TrnaNinemerTableBuilder.loadTable(requireRrna23SEndpointResource(prefix+"_stop_table.tsv"));
+			validateRrna23SDispatchedTable(family,start,TrnaBoundaryFeatures.BoundaryType.START,model);
+			validateRrna23SDispatchedTable(family,stop,TrnaBoundaryFeatures.BoundaryType.STOP,model);
+			family.boundaryStartTablesByModel[i]=start.table;
+			family.boundaryStopTablesByModel[i]=stop.table;
+		}
+		if(seen.size()!=4){throw new IllegalArgumentException("G28 23S endpoints require universal/bacteria/archaea/plastid consensuses");}
+	}
+
+	private static void validateRrna23SDispatchedTable(NcrnaFamily family,
+			TrnaNinemerTableBuilder.LoadedTable table, TrnaBoundaryFeatures.BoundaryType type, String model){
+		final int inside=(type==TrnaBoundaryFeatures.BoundaryType.START ? family.boundaryStartInside : family.boundaryStopInside);
+		final int outside=(type==TrnaBoundaryFeatures.BoundaryType.START ? family.boundaryStartOutside : family.boundaryStopOutside);
+		if(table.k!=9 || table.type!=type || table.insideCount!=inside || table.outsideCount!=outside){
+			throw new IllegalArgumentException("G28 23S "+model+" "+type+" table geometry mismatch");
+		}
+	}
+
+	private static String requireRrna23SEndpointResource(String resource){
+		final String path=findNcrnaResource(resource);
+		if(path==null || !new java.io.File(path).exists()){
+			throw new IllegalArgumentException("Missing required 23S endpoint resource: "+resource);
+		}
+		return path;
+	}
+
+	private static int[] centeredOffsets(int radius){
+		final int[] offsets=new int[2*radius+1];
+		for(int i=0; i<offsets.length; i++){offsets[i]=i-radius;}
+		return offsets;
+	}
+
 	/** Loads the paired, default-off 5.8S/LSU bundles. Explicit CLI paths still
 	 * override the packaged resources, but plain {@code r58lsu=t} resolves the
 	 * release-tier files from BBTools' normal resource namespace, matching the
@@ -2457,13 +2757,26 @@ public class CallGenes extends ProkObject {
 			boundaryStopTable=lt2.table; boundaryStopInside=lt2.insideCount; boundaryStopOutside=lt2.outsideCount;
 			boundaryMeanLen=medianLength(library);
 		}
-		GeneCaller.ncrnaFamilies.add(new NcrnaFamily(name, library, models, modelNames, kmerSet, kLong, minLen, windowPad,
+		final IndexOverrides overrides=familyIndexOverrides(name);
+		indexK=resolveFamilyInt(name,overrides.k,NCRNA_INDEX_K_OVERRIDE,indexK);
+		indexTopN=resolveFamilyInt(name,overrides.topN,NCRNA_INDEX_TOP_N_OVERRIDE,indexTopN);
+		fixedMinHits=resolveFamilyInt(name,overrides.minHits,NCRNA_INDEX_MIN_HITS_OVERRIDE,fixedMinHits);
+		adaptive=resolveFamilyBoolean(name,overrides.adaptive,NCRNA_ADAPTIVE_MINHITS_OVERRIDE,adaptive);
+		adaptFloor=resolveFamilyScore(name,overrides.floor,NCRNA_ADAPT_FLOOR_OVERRIDE,adaptFloor);
+		adaptTopFrac=resolveFamilyScore(name,overrides.topFrac,NCRNA_ADAPT_TOPFRAC_OVERRIDE,adaptTopFrac);
+		adaptQFrac=resolveFamilyScore(name,overrides.qFrac,NCRNA_ADAPT_QFRAC_OVERRIDE,adaptQFrac);
+		TrnaKmerIndex.validateConfiguration(indexK,adaptFloor,adaptTopFrac,adaptQFrac,fixedMinHits);
+		TrnaKmerIndex.validateTopN(indexTopN);
+		if(name.equals("r58") && R58_MINLEN_OVERRIDE>=0){minLen=R58_MINLEN_OVERRIDE;}
+		final NcrnaFamily family=new NcrnaFamily(name, library, models, modelNames, kmerSet, kLong, minLen, windowPad,
 			indexK, indexTopN, adaptive, adaptFloor, adaptTopFrac, adaptQFrac, fixedMinHits,
 			scoreA, scoreB, idPass, idBorderline, hbmPass, collapseFrac,
 			boundaryNet, boundaryNet, boundaryStartTable, boundaryStopTable,
 			boundaryStartInside, boundaryStartOutside, boundaryStopInside, boundaryStopOutside,
 			boundaryMeanLen, boundaryStartOffsets, boundaryStopOffsets,
-			boundaryMarginStart, boundaryMarginStop));
+			boundaryMarginStart, boundaryMarginStop);
+		family.voteSlack=(name.equalsIgnoreCase("lsu") || name.equalsIgnoreCase("23S") ? 150 : 60);
+		GeneCaller.ncrnaFamilies.add(family);
 	}
 
 	private static String resolveBoundaryResource(String family, String suffix, String override){
@@ -2578,15 +2891,17 @@ public class CallGenes extends ProkObject {
 		else if(s.equals("srpsmall")){s="srp_small";}
 		else if(s.equals("srplarge")){s="srp_large";}
 		else if(s.equals("tm_rna") || s.equals("ssra")){s="tmrna";}
+		if(s.equals("euk5s")){return "euk5S";}
 		if(!s.equals("rnasep") && !s.equals("srp_small") && !s.equals("srp_large") && !s.equals("tmrna")
 				&& !s.equals("sixs_rf00013") && !s.equals("sixs_rf01685") && !s.equals("r58") && !s.equals("lsu")
 				&& !s.equals("s18")){
-			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, or s18: "+value);
+			throw new IllegalArgumentException("ncrnafamily must be rnasep, srp_small, srp_large, tmrna, sixs_rf00013, sixs_rf01685, r58, lsu, s18, or euk5S: "+value);
 		}
 		return s;
 	}
 
 	static float defaultNcrnaIdPass(String family){
+		if(family.equals("euk5S")){return .65f;}
 		if(family.equals("rnasep")){return 0.65f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.70f;}
 		if(family.equals("tmrna")){return 0.62f;}
@@ -2596,6 +2911,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	static float defaultNcrnaIdBorderline(String family){
+		if(family.equals("euk5S")){return .65f;}
 		if(family.equals("rnasep")){return 0.58f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.64f;}
 		if(family.equals("tmrna")){return 0.60f;}
@@ -2623,12 +2939,79 @@ public class CallGenes extends ProkObject {
 		return NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals(name);
 	}
 
+	static int parseSweepInt(String flag, String value, int min, int max){
+		final long x;
+		try{x=Parse.parseKMG(value);}
+		catch(RuntimeException e){throw new IllegalArgumentException(flag+" requires an integer in ["+min+","+max+"]: "+value,e);}
+		if(x<min || x>max){throw new IllegalArgumentException(flag+" must be in ["+min+","+max+"]: "+value);}
+		return (int)x;
+	}
+
+	static int resolveSweepInt(String family, int override, int shippedDefault){
+		return ncrnaSweepTarget(family) && override>=0 ? override : shippedDefault;
+	}
+
+	static int resolveFamilyInt(String family,int specific,int generic,int shippedDefault){
+		return specific>=0 ? specific : resolveSweepInt(family,generic,shippedDefault);
+	}
+	static boolean resolveFamilyBoolean(String family,Boolean specific,Boolean generic,boolean shippedDefault){
+		return specific!=null ? specific : ncrnaSweepTarget(family) && generic!=null ? generic : shippedDefault;
+	}
+	static float parseNonnegativeFloat(String flag,String value){
+		final float x=parseFiniteFloat(flag,value);
+		if(x<0){throw new IllegalArgumentException(flag+" must be >=0: "+value);}
+		return x;
+	}
+
+	/** Only the historical R58/LSU prefixes select a specific family; generic overrides
+	 * still require ncrnafamily. Specific overrides take precedence, as for score controls. */
+	static boolean parseFamilyIndexOverride(String flag,String value){
+		final String s=flag.toLowerCase(java.util.Locale.ROOT);
+		final IndexOverrides o;
+		if(s.startsWith("r58ncrna")){o=R58_INDEX_OVERRIDES;}
+		else if(s.startsWith("lsuncrna")){o=LSU_INDEX_OVERRIDES;}
+		else{return false;}
+		final String suffix=s.substring(8);
+		if(suffix.equals("indexk") || suffix.equals("mapk")){o.k=parseSweepInt(flag,value,1,15);}
+		else if(suffix.equals("indextopn")){o.topN=parseSweepInt(flag,value,1,Integer.MAX_VALUE);}
+		else if(suffix.equals("indexminhits") || suffix.equals("fixedminhits")){o.minHits=parseSweepInt(flag,value,0,Integer.MAX_VALUE);}
+		else if(suffix.equals("adaptiveminhits") || suffix.equals("adaptiveshortlist")){o.adaptive=Parse.parseBoolean(value);}
+		else if(suffix.equals("adaptfloor")){o.floor=parseNonnegativeFloat(flag,value);}
+		else if(suffix.equals("adapttopfrac")){o.topFrac=parseNonnegativeFloat(flag,value);}
+		else if(suffix.equals("adaptqfrac")){o.qFrac=parseNonnegativeFloat(flag,value);}
+		else{return false;}
+		return true;
+	}
+	private static IndexOverrides familyIndexOverrides(String family){
+		return family.equals("r58") ? R58_INDEX_OVERRIDES : family.equals("lsu") ? LSU_INDEX_OVERRIDES : NO_INDEX_OVERRIDES;
+	}
+	static final class IndexOverrides{
+		int k=-1,topN=-1,minHits=-1;
+		Boolean adaptive=null;
+		float floor=Float.NaN,topFrac=Float.NaN,qFrac=Float.NaN;
+		boolean isSet(){return k>=0 || topN>=0 || minHits>=0 || adaptive!=null
+			|| !Float.isNaN(floor) || !Float.isNaN(topFrac) || !Float.isNaN(qFrac);}
+	}
+
 	/** Rejects ambiguous global overrides and logically inverted identity thresholds. */
 	static void validateNcrnaSweepOverrides(){
+		final boolean euk5s=ncrnaSweepTarget("euk5S");
+		final boolean eukControls=NCRNA_SEED_MIN_HITS_OVERRIDE>=0 || NCRNA_MAX_LEN_OVERRIDE>=0
+			|| NCRNA_STRICT_INDEX_OVERRIDE!=null || NCRNA_RANKED_FALLBACK_OVERRIDE!=null;
+		if(eukControls && !euk5s){throw new IllegalArgumentException("ncRNA seed/index/length controls currently require ncrnafamily=euk5S");}
+		if(euk5s && !(RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE)))){
+			throw new IllegalArgumentException("ncrnafamily=euk5S requires rrna17=euk or rrna17=euk5s");
+		}
+		if(euk5s && !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE)){
+			throw new IllegalArgumentException("euk5S has no HBM resource; ncrnahbmpass would have no effect");
+		}
 		final boolean anyGenericOverride=NCRNA_KMERS_OVERRIDE!=null || NCRNA_WINDOW_PAD_OVERRIDE>=0
 			|| !Float.isNaN(NCRNA_ID_PASS_OVERRIDE) || !Float.isNaN(NCRNA_ID_BORDERLINE_OVERRIDE)
 			|| !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE) || !Float.isNaN(NCRNA_SCORE_A_OVERRIDE)
-			|| !Float.isNaN(NCRNA_SCORE_B_OVERRIDE) || !Float.isNaN(NCRNA_COLLAPSE_FRAC_OVERRIDE);
+			|| !Float.isNaN(NCRNA_SCORE_B_OVERRIDE) || !Float.isNaN(NCRNA_COLLAPSE_FRAC_OVERRIDE)
+			|| NCRNA_INDEX_K_OVERRIDE>=0 || NCRNA_INDEX_TOP_N_OVERRIDE>=0 || NCRNA_INDEX_MIN_HITS_OVERRIDE>=0
+			|| NCRNA_ADAPTIVE_MINHITS_OVERRIDE!=null || !Float.isNaN(NCRNA_ADAPT_FLOOR_OVERRIDE)
+			|| !Float.isNaN(NCRNA_ADAPT_TOPFRAC_OVERRIDE) || !Float.isNaN(NCRNA_ADAPT_QFRAC_OVERRIDE);
 		final boolean anyFamilyKmers=RNASEP_KMERS_OVERRIDE!=null || SRPSMALL_KMERS_OVERRIDE!=null
 			|| SRPLARGE_KMERS_OVERRIDE!=null || TMRNA_KMERS_OVERRIDE!=null
 			|| SIXS_RF00013_KMERS_OVERRIDE!=null || SIXS_RF01685_KMERS_OVERRIDE!=null
@@ -2640,13 +3023,14 @@ public class CallGenes extends ProkObject {
 		final boolean anySixsOverride=SIXS_RF00013_KMERS_OVERRIDE!=null || SIXS_RF01685_KMERS_OVERRIDE!=null
 			|| SIXS_RF00013_PAD_OVERRIDE>=0 || SIXS_RF01685_PAD_OVERRIDE>=0;
 		final boolean anyR58LsuOverride=R58_KMERS_OVERRIDE!=null || R58_CONSENSUS_OVERRIDE!=null || R58_MODELS_OVERRIDE!=null
-			|| LSU_KMERS_OVERRIDE!=null || LSU_CONSENSUS_OVERRIDE!=null || LSU_MODELS_OVERRIDE!=null;
+			|| LSU_KMERS_OVERRIDE!=null || LSU_CONSENSUS_OVERRIDE!=null || LSU_MODELS_OVERRIDE!=null
+			|| R58_MINLEN_OVERRIDE>=0 || R58_INDEX_OVERRIDES.isSet() || LSU_INDEX_OVERRIDES.isSet();
 		final boolean anyFamilyScores=!Float.isNaN(RNASEP_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(RNASEP_SCORE_B_OVERRIDE) || !Float.isNaN(SRPSMALL_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(SRPSMALL_SCORE_B_OVERRIDE) || !Float.isNaN(SRPLARGE_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(SRPLARGE_SCORE_B_OVERRIDE) || !Float.isNaN(TMRNA_SCORE_A_OVERRIDE)
 			|| !Float.isNaN(TMRNA_SCORE_B_OVERRIDE);
-		if(NCRNA_FAMILY_FILTER!=null && !NCRNA_FAMILIES_ENABLED){
+		if(NCRNA_FAMILY_FILTER!=null && !euk5s && !NCRNA_FAMILIES_ENABLED){
 			throw new IllegalArgumentException("ncrnafamily requires ncrna=t");
 		}
 		if(NCRNA_FAMILY_FILTER!=null && NCRNA_FAMILY_FILTER.equals("tmrna") && !TMRNA_ENABLED){
@@ -2823,6 +3207,14 @@ public class CallGenes extends ProkObject {
 	long rnaOut=0;
 	/** Completed generic-ncRNA alignments, in GeneCaller.ncrnaFamilies order. */
 	long[] ncrnaAlignments;
+	/** Family-local seed occurrences and scheduled pre-filter windows, merged after join. */
+	long[] ncrnaKmerHits, ncrnaWindows;
+	/** Actual shared 17-mer strand scans, not multiplied by the number of registered families. */
+	long ncrnaSharedSweepPasses=0;
+	/** Committed output calls in GeneCaller.ncrnaFamilies order. */
+	long[] ncrnaCalls;
+	/** Quantum+Scrabble dynamic-programming cells during this CallGenes invocation. */
+	long ncrnaAlignedCells=0;
 	/** Count of 16S rRNA genes identified and output */
 	long r16SOut=0;
 	/** Count of 23S rRNA genes identified and output */
@@ -2960,6 +3352,26 @@ public class CallGenes extends ProkObject {
 	 * NcrnaBoundaryVectorGen's training-vector generator, or eval scripts) -- this flag only
 	 * gates PRODUCTION callgenes invocations. */
 	static boolean NCRNA_FAMILIES_ENABLED=false;
+	/** Default-off integrated 17-mer caller for prokaryotic 16S/23S/5S and
+	 * eukaryotic 18S/5S. This replaces, rather than supplements, legacy PGM rRNA. */
+	static boolean RRNA17_ENABLED=false;
+	static String RRNA17_PROFILE=null;
+	static String RRNA17_LOADED_PROFILE=null;
+	static final int RRNA23S_ENDPOINT_OFF=0, RRNA23S_ENDPOINT_G28=1, RRNA23S_ENDPOINT_G16=2;
+	/** No 23S endpoint network is shipped; the discarded G28/G16-C modes are not defaults. */
+	static int RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_OFF;
+	static boolean RRNA23S_ENDPOINT_EXPLICIT=false;
+	/** Default-on matched ablation gate for prok5S HBM detection rescue. */
+	static boolean RRNA17_PROK5S_HBM=true;
+	static boolean RRNA17_PROK5S_HBM_EXPLICIT=false;
+	/** Re-subtract already claimed loci immediately before each generic-ncRNA window alignment. */
+	static boolean NCRNA_REFRESH_CLAIMED_WINDOWS=false;
+
+	static boolean parseNcrnaRefreshFlag(String key, String value){
+		if(!key.equalsIgnoreCase("v2refresh")){return false;}
+		NCRNA_REFRESH_CLAIMED_WINDOWS=Parse.parseBoolean(value);
+		return true;
+	}
 	/** Experimental tmRNA bundle gate. Subordinate to ncrna=t and deliberately independent
 	 * of the existing three-family gate so adding unfinished tmRNA resources cannot change an
 	 * established ncrna=t run. */
@@ -3028,6 +3440,15 @@ public class CallGenes extends ProkObject {
 	 * family so a command cannot silently apply one value to biologically different callers. */
 	static String NCRNA_FAMILY_FILTER=null;
 	static String NCRNA_KMERS_OVERRIDE=null;
+	/** Targeted index controls and euk5S-only seed/length controls; unset preserves defaults. */
+	static int NCRNA_SEED_MIN_HITS_OVERRIDE=-1, NCRNA_INDEX_K_OVERRIDE=-1;
+	static int NCRNA_INDEX_TOP_N_OVERRIDE=-1, NCRNA_INDEX_MIN_HITS_OVERRIDE=-1, NCRNA_MAX_LEN_OVERRIDE=-1;
+	static Boolean NCRNA_STRICT_INDEX_OVERRIDE=null, NCRNA_RANKED_FALLBACK_OVERRIDE=null;
+	static Boolean NCRNA_ADAPTIVE_MINHITS_OVERRIDE=null;
+	static float NCRNA_ADAPT_FLOOR_OVERRIDE=Float.NaN, NCRNA_ADAPT_TOPFRAC_OVERRIDE=Float.NaN, NCRNA_ADAPT_QFRAC_OVERRIDE=Float.NaN;
+	static int R58_MINLEN_OVERRIDE=-1;
+	static final IndexOverrides R58_INDEX_OVERRIDES=new IndexOverrides(), LSU_INDEX_OVERRIDES=new IndexOverrides();
+	private static final IndexOverrides NO_INDEX_OVERRIDES=new IndexOverrides();
 	static String RNASEP_KMERS_OVERRIDE=null;
 	static String SRPSMALL_KMERS_OVERRIDE=null;
 	static String SRPLARGE_KMERS_OVERRIDE=null;
@@ -3102,6 +3523,52 @@ public class CallGenes extends ProkObject {
 		}
 	}
 
+	static void validateRrna17GateCombo(){
+		if(RRNA17_ENABLED && !("prok".equals(RRNA17_PROFILE) || "euk".equals(RRNA17_PROFILE)
+				|| "euk18s".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))){
+			throw new IllegalArgumentException("rrna17 must be prok, euk, euk18s, euk5s, or f");
+		}
+		if(RRNA17_ENABLED && (call16S || call18S || call23S || call5S)){
+			throw new IllegalArgumentException("rrna17 requires call16s=f call23s=f call5s=f call18s=f to prevent duplicate mixed-method rRNA calls");
+		}
+		if(RRNA23S_ENDPOINT_EXPLICIT && !(RRNA17_ENABLED && "prok".equals(RRNA17_PROFILE))){
+			throw new IllegalArgumentException("rrna23sendpoint requires rrna17=prok");
+		}
+		if(RRNA17_PROK5S_HBM_EXPLICIT && !(RRNA17_ENABLED && "prok".equals(RRNA17_PROFILE))){
+			throw new IllegalArgumentException("rrna17prok5shbm requires rrna17=prok");
+		}
+	}
+
+	static void setRrna17Prok5sHbm(String value){
+		RRNA17_PROK5S_HBM=Parse.parseBoolean(value);
+		RRNA17_PROK5S_HBM_EXPLICIT=true;
+	}
+
+	static void setRrna23SEndpointMode(String value){
+		if(value==null){throw new IllegalArgumentException("rrna23sendpoint requires g28, g16, or off");}
+		if(value.equalsIgnoreCase("g28") || value.equalsIgnoreCase("alignmentfree") || value.equalsIgnoreCase("alignment-free")){
+			RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_G28;
+		}else if(value.equalsIgnoreCase("g16") || value.equalsIgnoreCase("g16c") || value.equalsIgnoreCase("accuracy")){
+			RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_G16;
+		}else if(value.equalsIgnoreCase("off") || value.equalsIgnoreCase("f") || value.equalsIgnoreCase("false")){
+			RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_OFF;
+		}else{throw new IllegalArgumentException("rrna23sendpoint must be g28, g16, or off: "+value);}
+		RRNA23S_ENDPOINT_EXPLICIT=true;
+	}
+
+	static void setRrna17Profile(String value){
+		if(value!=null && (value.equalsIgnoreCase("f") || value.equalsIgnoreCase("false"))){
+			RRNA17_ENABLED=false;
+			RRNA17_PROFILE=null;
+		}else if(value!=null && (value.equalsIgnoreCase("prok") || value.equalsIgnoreCase("euk")
+				|| value.equalsIgnoreCase("euk18s") || value.equalsIgnoreCase("euk5s"))){
+			RRNA17_ENABLED=true;
+			RRNA17_PROFILE=value.toLowerCase();
+		}else{
+			throw new IllegalArgumentException("rrna17 must be prok, euk, euk18s, euk5s, or f: "+value);
+		}
+	}
+
 	/** The family-specific opt-in is sufficient by itself; callers should not need the
 	 * redundant {@code ncrna=t} umbrella flag as well. Explicitly disabling the umbrella
 	 * after this option is still diagnosed by validateNcrnaGateCombo(). */
@@ -3114,6 +3581,8 @@ public class CallGenes extends ProkObject {
 	private String outStats="stderr";
 	/** Optional, default-off 5S consensus-attempt TSV diagnostic. */
 	private String fiveSAttemptLog=null;
+	/** Optional stage TSV, shared across workers; omitted means no diagnostic output. */
+	private String ncrnaDiagLog=null;
 	/** Output filename for gene length histogram */
 	private String geneHistFile=null;
 	/** Whether to output statistics in JSON format */

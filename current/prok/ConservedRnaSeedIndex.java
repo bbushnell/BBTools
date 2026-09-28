@@ -4,6 +4,7 @@ import dna.AminoAcid;
 import map.LongHashSet;
 import map.LongIntMap;
 import structures.IntList;
+import structures.LongList;
 
 /**
  * Shared 17-mer front end for conserved-RNA scavengers.
@@ -19,12 +20,21 @@ final class ConservedRnaSeedIndex {
 	static final int MAX_SLOTS=32;
 
 	ConservedRnaSeedIndex(LongHashSet[] seedSets){
+		this(seedSets, null);
+	}
+
+	ConservedRnaSeedIndex(LongHashSet[] seedSets, boolean[] retainKeys_){
 		if(seedSets==null){throw new IllegalArgumentException("Conserved-RNA seed sets are null");}
+		if(retainKeys_!=null && retainKeys_.length!=seedSets.length){
+			throw new IllegalArgumentException("Conserved-RNA retain-key length mismatch: "+retainKeys_.length+" != "+seedSets.length);
+		}
 		if(seedSets.length>MAX_SLOTS){
 			throw new IllegalArgumentException("Conserved-RNA 17-mer index has "+seedSets.length
 				+" family/type slots; the int bit-vector capacity is "+MAX_SLOTS);
 		}
 		slotCount=seedSets.length;
+		retainKeys=(retainKeys_==null ? new boolean[slotCount] : retainKeys_.clone());
+		boolean any=false; for(boolean b : retainKeys){any|=b;} anyRetainedKeys=any;
 		long seedUpperBound=0;
 		for(int slot=0; slot<slotCount; slot++){
 			LongHashSet set=seedSets[slot];
@@ -45,8 +55,9 @@ final class ConservedRnaSeedIndex {
 	}
 
 	ScanResult scan(byte[] bases){
-		if(bases==null || bases.length<K){return new ScanResult(new int[slotCount][]);}
+		if(bases==null || bases.length<K){return new ScanResult(new int[slotCount][], anyRetainedKeys ? new long[slotCount][] : null);}
 		final IntList[] lists=new IntList[slotCount];
+		final LongList[] keyLists=(anyRetainedKeys ? new LongList[slotCount] : null);
 		final long mask=~((-1L)<<(2*K));
 		final byte[] bton=AminoAcid.baseToNumber;
 		long kmer=0;
@@ -67,30 +78,43 @@ final class ConservedRnaSeedIndex {
 				IntList list=lists[slot];
 				if(list==null){lists[slot]=list=new IntList();}
 				list.add(i-K/2);
+				if(retainKeys[slot]){
+					LongList keys=keyLists[slot]; if(keys==null){keyLists[slot]=keys=new LongList();} keys.add(kmer);
+				}
 				typeBits&=typeBits-1;
 			}
 		}
 		final int[][] hits=new int[slotCount][];
+		final long[][] keys=(anyRetainedKeys ? new long[slotCount][] : null);
 		for(int slot=0; slot<slotCount; slot++){
 			hits[slot]=(lists[slot]==null ? EMPTY : lists[slot].toArray());
+			if(keys!=null){keys[slot]=(keyLists[slot]==null ? EMPTY_LONG : keyLists[slot].toArray());}
 		}
-		return new ScanResult(hits);
+		return new ScanResult(hits, keys);
 	}
 
 	int slotCount(){return slotCount;}
 
 	static final class ScanResult {
-		ScanResult(int[][] hits_){hits=hits_;}
+		ScanResult(int[][] hits_, long[][] keys_){hits=hits_; keys=keys_;}
 		int[] hits(int slot){
 			if(slot<0 || slot>=hits.length){
 				throw new IllegalArgumentException("Invalid conserved-RNA seed slot "+slot+" for "+hits.length+" slots");
 			}
 			return hits[slot]==null ? EMPTY : hits[slot];
 		}
+		long[] keys(int slot){
+			if(slot<0 || slot>=hits.length){throw new IllegalArgumentException("Invalid conserved-RNA seed slot "+slot);}
+			return keys==null || keys[slot]==null ? EMPTY_LONG : keys[slot];
+		}
 		private final int[][] hits;
+		private final long[][] keys;
 	}
 
 	private final LongIntMap seedToTypeBits;
 	private final int slotCount;
+	private final boolean[] retainKeys;
+	private final boolean anyRetainedKeys;
 	private static final int[] EMPTY=new int[0];
+	private static final long[] EMPTY_LONG=new long[0];
 }

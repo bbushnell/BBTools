@@ -82,6 +82,15 @@ public interface NcrnaBoundaryInstrumentSink {
 	 *   "a net was staged and did/didn't fire", not for judging trainability.
 	 */
 	void capture(String contigName, int strand, int modelIndex,
-			int origWStart, int origWStop, int postTrimStart, int postTrimStop,
-			byte[] windowCopy, int windowCopyOffset, boolean trimSucceeded, boolean nnInvoked);
+		int origWStart, int origWStop, int postTrimStart, int postTrimStop,
+		byte[] windowCopy, int windowCopyOffset, boolean trimSucceeded, boolean nnInvoked,
+		int windowSource, float acceptedIdentity, int alignedLength);
+
+	/** Evidence hook for an accepted candidate removed by snapshot path resolution.
+	 * Default no-op preserves existing capture consumers; trace consumers may retain
+	 * the losing candidate and its committed winner without counting it as a call. */
+	default void resolvedOut(Orf candidate,Orf winner,int modelIndex,
+		int origWStart,int origWStop,int postTrimStart,int postTrimStop,
+		byte[] windowCopy,int windowCopyOffset,boolean trimSucceeded,boolean nnInvoked,
+		int windowSource,float acceptedIdentity,int alignedLength){}
 }

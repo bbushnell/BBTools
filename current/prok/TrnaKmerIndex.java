@@ -95,7 +95,7 @@ final class TrnaKmerIndex {
 
 	TrnaKmerIndex(byte[][] library, int indexK_, boolean adaptive_, float floor_, float topFrac_,
 			float qFrac_, int fixedMinHits_){
-		if(fixedMinHits_<0){throw new IllegalArgumentException("fixedMinHits must be >=0: "+fixedMinHits_);}
+		validateConfiguration(indexK_, floor_, topFrac_, qFrac_, fixedMinHits_);
 		indexK=indexK_;
 		numKmers=1<<(2*indexK);
 		nModels=library.length;
@@ -104,6 +104,19 @@ final class TrnaKmerIndex {
 		sortedOut=new int[nModels];
 		if(nModels==1){singleModelKmers=buildSingleModelSet(library[0]); postings=null;}
 		else{singleModelKmers=null; postings=build(library);}
+	}
+
+	/** Validate before the int key-space shift/allocation; k>=16 wraps that shift. */
+	static void validateConfiguration(int k, float floor, float topFrac, float qFrac, int minHits){
+		if(k<1 || 2L*k>=Integer.SIZE){throw new IllegalArgumentException("indexK must be in [1,15]: "+k);}
+		if(!Float.isFinite(floor) || floor<0){throw new IllegalArgumentException("adaptFloor must be finite and >=0: "+floor);}
+		if(!Float.isFinite(topFrac) || topFrac<0){throw new IllegalArgumentException("adaptTopFrac must be finite and >=0: "+topFrac);}
+		if(!Float.isFinite(qFrac) || qFrac<0){throw new IllegalArgumentException("adaptQFrac must be finite and >=0: "+qFrac);}
+		if(minHits<0){throw new IllegalArgumentException("fixedMinHits must be >=0: "+minHits);}
+	}
+
+	static void validateTopN(int topN){
+		if(topN<1){throw new IllegalArgumentException("indexTopN must be >=1: "+topN);}
 	}
 
 	/** A ranked posting list has no purpose for one model. Store its distinct k-mers directly. */
@@ -162,6 +175,7 @@ final class TrnaKmerIndex {
 	 * are not bit-identical to it for queries with repeated k-mers -- see the class javadoc and the
 	 * unique-query-k-mer block below. */
 	int[] shortlist(byte[] seq, int topN){
+		validateTopN(topN);
 		queries++;
 		//Clear the previous query's counts in O(touched).
 		final int[] cnt=counts;

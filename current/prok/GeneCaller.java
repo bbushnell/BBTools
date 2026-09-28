@@ -270,9 +270,8 @@ public class GeneCaller extends ProkObject {
 					fam.boundaryStartInside, fam.boundaryStartOutside, fam.boundaryStopInside, fam.boundaryStopOutside,
 					fam.boundaryMeanLen, fam.boundaryStartOffsets, fam.boundaryStopOffsets,
 					fam.boundaryMarginStart, fam.boundaryMarginStop);
-				scavenger.hbmPass=fam.hbmPass;
-				scavenger.collapseFrac=fam.collapseFrac;
-				scavenger.family=fam.name;
+				applyNcrnaFamilyControls(scavenger, fam);
+				scavenger.setStageDiagSink(ncrnaDiagSink,fam.name);
 				ncrnaScavengers.add(scavenger);
 			}
 		}
@@ -287,6 +286,9 @@ public class GeneCaller extends ProkObject {
 			final byte[] strandBases=(ncrnaScavengers!=null ? (strand==0 ? bases : rcBases) : bases);
 			final ConservedRnaSeedIndex.ScanResult sharedSeedHits=(conservedRnaSeedIndex==null
 				? null : conservedRnaSeedIndex.scan(strandBases));
+			//Count actual base-loop scans, including no-hit and family-minLen-rejected
+			//strands. The shared index returns before scanning inputs shorter than K.
+			if(sharedSeedHits!=null && strandBases.length>=ConservedRnaSeedIndex.K){sharedSweepPasses++;}
 			//Generic ncRNA scavenger pass (Noire's TrnaCaller factoring, 2026-08-23): one
 			//independent claimed-region list per family per strand -- these families don't
 			//overlap each other or tRNA biologically, so there's no reason to cross-claim.
@@ -300,7 +302,7 @@ public class GeneCaller extends ProkObject {
 						if(sharedSeedHits==null){throw new IllegalStateException("Missing shared 17-mer scan for "+ncrnaFamilies.get(fi).name);}
 						final int[] hits=sharedSeedHits.hits(seedSlot);
 						if(VERIFY_UNIFIED_SEEDS){verifySeedHits(name, ncrnaFamilies.get(fi).name, strand, hits, scavenger.findKmerHitPositions(strandBases));}
-						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits);
+						found=scavenger.scavenge(name, strandBases, strand, calledPos, hits, sharedSeedHits.keys(seedSlot));
 					}else{
 						found=scavenger.scavenge(name, strandBases, strand, calledPos);
 					}
@@ -357,11 +359,43 @@ public class GeneCaller extends ProkObject {
 		return array;
 	}
 
+	static void applyNcrnaProductionControls(NcrnaScavenger scavenger){
+		scavenger.refreshClaimedWindows=CallGenes.NCRNA_REFRESH_CLAIMED_WINDOWS;
+	}
+
+	static void applyNcrnaFamilyControls(NcrnaScavenger scavenger, NcrnaFamily family){
+		scavenger.hbmPass=family.hbmPass;
+		scavenger.collapseFrac=family.collapseFrac;
+		scavenger.family=family.name;
+		scavenger.voteTable=family.voteTable; scavenger.voteWindows=family.voteWindows; scavenger.voteEnds=family.voteEnds;
+		scavenger.voteSlack=family.voteSlack; scavenger.voteEndsMaxSd=family.voteEndsMaxSd;
+		scavenger.outputType=family.outputType;
+		scavenger.minKmerHits=family.seedMinHits;
+		scavenger.maxLen=family.maxLen;
+		scavenger.quantumThresh=family.quantumThresh;
+		scavenger.scavengePass2=family.scavengePass2;
+		scavenger.rankedModelFallback=family.rankedModelFallback;
+		scavenger.strictIndexCutoff=family.strictIndexCutoff;
+		scavenger.trimAlignmentExtent=family.trimAlignmentExtent;
+		scavenger.reuseConsensusAlignment=family.reuseConsensusAlignment;
+		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;
+		scavenger.boundaryOnRawEndpoints=family.boundaryOnRawEndpoints;
+		scavenger.nnCentre5Vote=family.nnCentre5Vote;
+		scavenger.nnCentre3Vote=family.nnCentre3Vote;
+		scavenger.nnCutoff=family.nnCutoff;
+		if(family.boundaryNetsByModel!=null){
+			scavenger.setPerModelBoundaryResources(family.boundaryNetsByModel,
+				family.boundaryStartTablesByModel, family.boundaryStopTablesByModel);
+		}
+		applyNcrnaProductionControls(scavenger);
+	}
+
 	/** Builds the single shared 17-mer index after all requested resources have loaded and
 	 * before worker threads start. Non-17-mer experimental/legacy paths retain their existing
 	 * scanners. */
 	static synchronized void initializeConservedRnaSeedIndex(){
 		final ArrayList<LongHashSet> seedSets=new ArrayList<>();
+		final ArrayList<Boolean> retainKeys=new ArrayList<>();
 		ncrnaSeedSlots=new int[ncrnaFamilies.size()];
 		Arrays.fill(ncrnaSeedSlots, -1);
 		for(int i=0; i<ncrnaFamilies.size(); i++){
@@ -369,6 +403,7 @@ public class GeneCaller extends ProkObject {
 			if(family.kLong==ConservedRnaSeedIndex.K && family.kmerSet!=null){
 				ncrnaSeedSlots[i]=seedSets.size();
 				seedSets.add(family.kmerSet);
+				retainKeys.add(family.voteTable!=null && (family.voteWindows || family.voteEnds));
 			}
 		}
 		trnaSeedSlot=-1;
@@ -376,10 +411,16 @@ public class GeneCaller extends ProkObject {
 				&& kLongTRna==ConservedRnaSeedIndex.K && trnaKmers!=null){
 			trnaSeedSlot=seedSets.size();
 			seedSets.add(trnaKmers);
+			retainKeys.add(false);
 		}
-		conservedRnaSeedIndex=(seedSets.isEmpty() ? null
-			: new ConservedRnaSeedIndex(seedSets.toArray(new LongHashSet[seedSets.size()])));
+		if(seedSets.isEmpty()){conservedRnaSeedIndex=null;}
+		else{
+			final boolean[] retain=new boolean[retainKeys.size()]; for(int i=0;i<retain.length;i++){retain[i]=retainKeys.get(i);}
+			conservedRnaSeedIndex=new ConservedRnaSeedIndex(seedSets.toArray(new LongHashSet[seedSets.size()]), retain);
+		}
 	}
+
+	static int conservedRnaSeedSlotCount(){return conservedRnaSeedIndex==null ? 0 : conservedRnaSeedIndex.slotCount();}
 
 	private static void verifySeedHits(String contig, String family, int strand, int[] unified, int[] legacy){
 		if(!Arrays.equals(unified, legacy)){
@@ -527,6 +568,15 @@ public class GeneCaller extends ProkObject {
 			else if(orf.type==r5S){r5SOut++;}
 			else if(orf.type==r18S){r18SOut++;}
 			else if(orf.type==RNA){rnaOut++;}
+			if(orf.ncrnaFamily!=null){
+				if(ncrnaOutByFamily==null){ncrnaOutByFamily=new long[ncrnaFamilies.size()];}
+				int familyIndex=-1;
+				for(int i=0; i<ncrnaFamilies.size(); i++){
+					if(orf.ncrnaFamily.equals(ncrnaFamilies.get(i).name)){familyIndex=i; break;}
+				}
+				if(familyIndex<0){throw new IllegalStateException("Unknown committed ncRNA family: "+orf.ncrnaFamily);}
+				ncrnaOutByFamily[familyIndex]++;
+			}
 		}
 		Collections.sort(bestPath);
 		return bestPath;
@@ -1685,6 +1735,10 @@ public class GeneCaller extends ProkObject {
 	 * TrnaKmerIndex is per-thread-mutable, so each GeneCaller instance needs its own,
 	 * built from the SHARED read-only family bundle). Null until first use. */
 	private ArrayList<NcrnaScavenger> ncrnaScavengers;
+	private long[] ncrnaOutByFamily;
+	/** Per-worker shared 17-mer scans, including the optional tRNA slot; never per family. */
+	private long sharedSweepPasses=0;
+	long sharedSweepPasses(){return sharedSweepPasses;}
 
 	/** Returns completed alignment counts in the same order as ncrnaFamilies.
 	 * Called only after this GeneCaller's worker thread has terminated. */
@@ -1695,6 +1749,45 @@ public class GeneCaller extends ProkObject {
 			for(int i=0; i<ncrnaScavengers.size(); i++){
 				counts[i]=ncrnaScavengers.get(i).alignmentCount();
 			}
+		}
+		return counts;
+	}
+
+	long[] ncrnaOutputCounts(){return ncrnaOutByFamily==null ? new long[ncrnaFamilies.size()] : ncrnaOutByFamily;}
+
+	long[] ncrnaAlignedBases(){return ncrnaCostCounts(0);}
+	long[] ncrnaHbmScoreCalls(){return ncrnaCostCounts(1);}
+	long[] ncrnaHbmBasesScored(){return ncrnaCostCounts(2);}
+	/** Read only after this worker terminates, in the same family order as alignment counts. */
+	private long[] ncrnaCostCounts(int kind){
+		assert(kind>=0 && kind<=2) : "Cost selector must name aligned bases, HBM calls, or HBM bases";
+		final long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before cost aggregation";
+			for(int i=0;i<counts.length;i++){
+				final NcrnaScavenger s=ncrnaScavengers.get(i);
+				counts[i]=(kind==0 ? s.alignedBases() : kind==1 ? s.hbmScoreCalls() : s.hbmBasesScored());
+			}
+		}
+		return counts;
+	}
+
+	/** Family-local seed occurrences after input/minLen guards; read after worker termination. */
+	long[] ncrnaKmerHitCounts(){
+		final long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before seed-count aggregation; per-family statistics would be misattributed";
+			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).kmerHitCount();}
+		}
+		return counts;
+	}
+
+	/** Scheduled windows across both passes, including windows rejected before alignment. */
+	long[] ncrnaWindowCounts(){
+		final long[] counts=new long[ncrnaFamilies.size()];
+		if(ncrnaScavengers!=null){
+			assert(ncrnaScavengers.size()==counts.length) : "Family registry changed before window-count aggregation; per-family statistics would be misattributed";
+			for(int i=0; i<counts.length; i++){counts[i]=ncrnaScavengers.get(i).windowCount();}
 		}
 		return counts;
 	}
@@ -2094,6 +2187,15 @@ public class GeneCaller extends ProkObject {
 	/** Test-only, null-by-default observer for ordered rRNA consensus attempts. */
 	private RefinementAttemptSink attemptSink=null;
 	void setAttemptSink(RefinementAttemptSink sink){attemptSink=sink;}
+	private NcrnaStageDiagSink ncrnaDiagSink=null;
+	void setNcrnaDiagSink(NcrnaStageDiagSink sink){
+		ncrnaDiagSink=sink;
+		if(ncrnaScavengers!=null){
+			for(int i=0;i<ncrnaScavengers.size();i++){
+				ncrnaScavengers.get(i).setStageDiagSink(sink,ncrnaFamilies.get(i).name);
+			}
+		}
+	}
 	private float lastAttemptIdentity=Float.NaN;
 	private String lastAttemptReason="UNKNOWN";
 

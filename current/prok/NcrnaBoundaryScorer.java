@@ -17,7 +17,7 @@ import ml.CellNetParser;
  * <li>No stem feature (10 dims, not 11) -- the acceptor-stem palindrome is
  *     tRNA-specific; see NcrnaBoundaryVectorGen's javadoc for the full 10-dim
  *     feature list this class must reproduce bit-for-bit.</li>
- * <li>No tip-adjustment approximation -- ani and fuzziness are BOTH brute-force
+	 * <li>V1 has no tip-adjustment approximation -- ani and fuzziness are BOTH brute-force
  *     recomputed per candidate (TrnaBoundaryFeatures.aniFeature /
  *     tipFuzzinessFeature directly), matching NcrnaBoundaryVectorGen's training
 	 *     vectors exactly (zero train/inference gap). Up to 12 realignments per
@@ -25,7 +25,20 @@ import ml.CellNetParser;
  *     frequency; TrnaBoundaryScorer's one-alignment-per-locus tip-adjustment
  *     machinery exists specifically to avoid that cost in tRNA's hot path and
  *     has no equivalent need here.</li>
- * </ul>
+	 * </ul>
+	 *
+	 * <p>The opt-in V2 feature layout removes every per-site alignment: ANI is the
+	 * accepted locus's existing QuantumAligner identity and fuzziness is a pair of
+	 * three-value constants loaded for the selected model's 5' and 3' ends. The
+	 * per-site enrichment profile, endpoint flag, length ratio, and contig GC retain
+	 * their V1 definitions. V1 remains the default until V2 is trained and selected.
+	 *
+	 * <p>V3 keeps only measured per-site/per-locus inputs: enrichment profile (3),
+	 * endpoint flag, length ratio, contig GC, and the accepted locus's existing
+	 * QuantumAligner identity, followed by three explicit zero spare slots. It has
+	 * no HBM-constant dependency. QuantumAligner consumes the full consensus query,
+	 * so a proposed consensus-overlap fraction would always be 1 and is deliberately
+	 * omitted rather than emitted as a fake feature.
  *
  * <p>Also unlike TrnaBoundaryScorer: no cross-boundary-enrichment option (the
  * ncRNA feature vector is always exactly 10 dims, never 14) and no dedicated
@@ -44,6 +57,18 @@ public class NcrnaBoundaryScorer {
 	 * prof0-2, isStop, fuzz0-2, lengthRatio, contigGC) -- no stem, no optional
 	 * cross-boundary-enrichment variant, unlike TrnaBoundaryScorer's 11-or-14. */
 	public static final int NUM_FEATURES=10;
+	static final int FEATURES_V1=1,FEATURES_V2=2,FEATURES_V3=3;
+
+	static int parseFeatureVersion(String value){
+		if(value.equalsIgnoreCase("v1") || value.equals("1") || value.equalsIgnoreCase("current")){return FEATURES_V1;}
+		if(value.equalsIgnoreCase("v2") || value.equals("2")){return FEATURES_V2;}
+		if(value.equalsIgnoreCase("v3") || value.equals("3")){return FEATURES_V3;}
+		throw new IllegalArgumentException("boundaryfeatures must be v1, v2, or v3: "+value);
+	}
+
+	/** V1 alone performs candidate-site Scrabble alignment. V2/V3 are structurally
+	 * alignment-free at endpoint sites and reuse the accepted whole-locus identity. */
+	static boolean usesPerSiteScrabble(int featureVersion){return featureVersion==FEATURES_V1;}
 
 	/** Loads a boundary net and fails loud if its declared input dimension isn't
 	 * exactly NUM_FEATURES (Citan's explicit requirement, fail-fast on dimension
@@ -91,16 +116,53 @@ public class NcrnaBoundaryScorer {
 	public static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
 			int insideCount, int outsideCount, float contigGC, float meanLen){
+		final float modelPlateau=(model==null ? 0 : TrnaBoundaryFeatures.modelMaxCoverage(model));
+		return score(net,window,s,e,isStop,modelConsensus,model,table,insideCount,outsideCount,contigGC,meanLen,modelPlateau);
+	}
+
+	private static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
+			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
+			int insideCount, int outsideCount, float contigGC, float meanLen, float modelPlateau){
+		return score(net,window,s,e,isStop,modelConsensus,model,table,insideCount,outsideCount,
+			contigGC,meanLen,modelPlateau,FEATURES_V1,Float.NaN,null,null,null);
+	}
+
+	private static float score(CellNet net, byte[] window, int s, int e, boolean isStop,
+			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
+			int insideCount, int outsideCount, float contigGC, float meanLen, float modelPlateau,
+			int featureVersion, float locusAni, float[] startFuzz, float[] stopFuzz,
+			TrnaBoundaryFeatures.NinemerTable familyTable){
 		final boolean useStart=!isStop;
 		final int boundaryPos=(isStop ? e : s);
 		final TrnaBoundaryFeatures.BoundaryType type=(isStop
 			? TrnaBoundaryFeatures.BoundaryType.STOP : TrnaBoundaryFeatures.BoundaryType.START);
 		final float[] prof=TrnaBoundaryFeatures.enrichmentProfile(window, boundaryPos, type, insideCount, outsideCount, table);
-		final byte[] candSeq=java.util.Arrays.copyOfRange(window, s, e+1);
-		final float ani=TrnaBoundaryFeatures.aniFeature(candSeq, modelConsensus);
-		final float[] fuzz=TrnaBoundaryFeatures.tipFuzzinessFeature(candSeq, model, useStart);
+		if(familyTable!=null){
+			if(featureVersion!=FEATURES_V3){throw new IllegalArgumentException("Family/consensus table blending requires boundaryfeatures=v3");}
+			final float[] familyProf=TrnaBoundaryFeatures.enrichmentProfile(window, boundaryPos, type, insideCount, outsideCount, familyTable);
+			NcrnaBoundaryVectorGen.blendProfiles(prof,familyProf);
+		}
+		final float ani;
+		final float[] fuzz;
+		if(featureVersion==FEATURES_V2){
+			if(!Float.isFinite(locusAni)){throw new IllegalArgumentException("boundaryfeatures=v2 requires finite locus ANI from QuantumAligner");}
+			fuzz=(useStart ? startFuzz : stopFuzz);
+			if(fuzz==null || fuzz.length!=3){throw new IllegalArgumentException("boundaryfeatures=v2 requires three HBM constants per model end");}
+			ani=locusAni;
+		}else if(featureVersion==FEATURES_V3){
+			if(!Float.isFinite(locusAni)){throw new IllegalArgumentException("boundaryfeatures=v3 requires finite locus identity from QuantumAligner");}
+			ani=locusAni;fuzz=null;
+		}else if(usesPerSiteScrabble(featureVersion)){
+			final byte[] candSeq=java.util.Arrays.copyOfRange(window, s, e+1);
+			final float[] aniFuzz=TrnaBoundaryFeatures.aniAndFuzzinessFeature(candSeq, modelConsensus, model, useStart, modelPlateau);
+			ani=aniFuzz[0]; fuzz=new float[]{aniFuzz[1],aniFuzz[2],aniFuzz[3]};
+		}else{
+			throw new IllegalArgumentException("Unknown ncRNA boundary feature version: "+featureVersion);
+		}
 		final float lengthRatio=(e-s+1)/meanLen;
-		final float[] in=buildInput(ani, prof, isStop, fuzz, lengthRatio, contigGC);
+		final float[] in=(featureVersion==FEATURES_V3
+			? buildV3Input(prof,isStop,lengthRatio,contigGC,locusAni)
+			: buildInput(ani,prof,isStop,fuzz,lengthRatio,contigGC));
 		net.applyInput(in);
 		return net.feedForward();
 	}
@@ -111,6 +173,13 @@ public class NcrnaBoundaryScorer {
 	private static float[] buildInput(float ani, float[] prof, boolean isStop, float[] fuzz,
 			float lengthRatio, float contigGC){
 		return new float[]{ani, prof[0], prof[1], prof[2], (isStop ? 1f : 0f), fuzz[0], fuzz[1], fuzz[2], lengthRatio, contigGC};
+	}
+
+	/** V3 order: profile[0..2], isStop, lengthRatio, contigGC, Quantum identity,
+	 * then three reserved zero slots. Package-visible for exact-layout fixtures. */
+	static float[] buildV3Input(float[] prof, boolean isStop, float lengthRatio, float contigGC, float locusIdentity){
+		if(!Float.isFinite(locusIdentity)){throw new IllegalArgumentException("boundaryfeatures=v3 requires finite locus identity from QuantumAligner");}
+		return new float[]{prof[0],prof[1],prof[2],(isStop ? 1f : 0f),lengthRatio,contigGC,locusIdentity,0f,0f,0f};
 	}
 
 	/**
@@ -159,24 +228,92 @@ public class NcrnaBoundaryScorer {
 			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
 			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
 			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop){
-		final float startConf=score(startNet, window, s, e, false, modelConsensus, model,
-			startTable, startInside, startOutside, contigGC, meanLen);
-		final float stopConf=score(stopNet, window, s, e, true, modelConsensus, model,
-			stopTable, stopInside, stopOutside, contigGC, meanLen);
+		return refineBoundariesWithCounts(startNet, stopNet, window, s, e, modelConsensus, model,
+			startTable, stopTable, startInside, startOutside, stopInside, stopOutside,
+			contigGC, meanLen, startOffsets, stopOffsets, marginStart, marginStop, false, false).offsets();
+	}
 
-		final int bestStartOffset, bestStopOffset;
-		if(startConf<=stopConf){//start is the worse (or tied) boundary -- refine it first
-			bestStartOffset=applyMargin(bestOffset(startNet, window, s, e, false, modelConsensus, model,
-				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), marginStart);
-			bestStopOffset=applyMargin(bestOffset(stopNet, window, s+bestStartOffset, e, true, modelConsensus, model,
-				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), marginStop);
-		}else{
-			bestStopOffset=applyMargin(bestOffset(stopNet, window, s, e, true, modelConsensus, model,
-				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets), marginStop);
-			bestStartOffset=applyMargin(bestOffset(startNet, window, s, e+bestStopOffset, false, modelConsensus, model,
-				startTable, startInside, startOutside, contigGC, meanLen, startOffsets), marginStart);
+	/** Refinement result plus the measured number of sweep sites evaluated for each endpoint. */
+	static final class RefinementResult{
+		RefinementResult(int startOffset_, int stopOffset_, int startSitesScored_, int stopSitesScored_,
+				float startChosenScore_, float stopChosenScore_){
+			startOffset=startOffset_; stopOffset=stopOffset_;
+			startSitesScored=startSitesScored_; stopSitesScored=stopSitesScored_;
+			startChosenScore=startChosenScore_; stopChosenScore=stopChosenScore_;
 		}
-		return new int[]{bestStartOffset, bestStopOffset};
+		int[] offsets(){return new int[]{startOffset, stopOffset};}
+		final int startOffset, stopOffset, startSitesScored, stopSitesScored;
+		final float startChosenScore, stopChosenScore;
+	}
+
+	/** Same exhaustive refinement with explicit contig-edge state for the G16 radius proof. */
+	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd){
+		return refineBoundariesWithCounts(startNet,stopNet,window,s,e,modelConsensus,model,startTable,stopTable,
+			startInside,startOutside,stopInside,stopOutside,contigGC,meanLen,startOffsets,stopOffsets,
+			marginStart,marginStop,touchesContigStart,touchesContigEnd,FEATURES_V1,Float.NaN,null,null);
+	}
+
+	/** V2 shares one Quantum identity across the locus and reads fixed HBM endpoint
+	 * constants. V3 shares the identity but replaces those constants with zero spares. */
+	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz){
+		return refineBoundariesWithCounts(startNet,stopNet,window,s,e,modelConsensus,model,startTable,stopTable,
+			startInside,startOutside,stopInside,stopOutside,contigGC,meanLen,startOffsets,stopOffsets,
+			marginStart,marginStop,touchesContigStart,touchesContigEnd,featureVersion,locusAni,startFuzz,stopFuzz,null,null);
+	}
+
+	/** V3 inference with the same independently normalized 50/50 family/consensus
+	 * profile blend used by NcrnaBoundaryVectorGen. Null family tables preserve the
+	 * historical single-table path byte-for-byte. */
+	static RefinementResult refineBoundariesWithCounts(CellNet startNet, CellNet stopNet, byte[] window, int s, int e,
+			byte[] modelConsensus, BaseGraph model,
+			TrnaBoundaryFeatures.NinemerTable startTable, TrnaBoundaryFeatures.NinemerTable stopTable,
+			int startInside, int startOutside, int stopInside, int stopOutside, float contigGC, float meanLen,
+			int[] startOffsets, int[] stopOffsets, float marginStart, float marginStop,
+			boolean touchesContigStart, boolean touchesContigEnd, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz,
+			TrnaBoundaryFeatures.NinemerTable familyStartTable,
+			TrnaBoundaryFeatures.NinemerTable familyStopTable){
+		if(featureVersion!=FEATURES_V1 && featureVersion!=FEATURES_V2 && featureVersion!=FEATURES_V3){throw new IllegalArgumentException(
+			"Unknown ncRNA boundary feature version: "+featureVersion);}
+		if((familyStartTable==null)!=(familyStopTable==null)){throw new IllegalArgumentException("Family start/stop tables must be supplied together");}
+		if(familyStartTable!=null && featureVersion!=FEATURES_V3){throw new IllegalArgumentException("Family/consensus table blending requires boundaryfeatures=v3");}
+		final float modelPlateau=(featureVersion==FEATURES_V1 && model!=null ? TrnaBoundaryFeatures.modelMaxCoverage(model) : 0);
+		final float startConf=score(startNet, window, s, e, false, modelConsensus, model,
+			startTable, startInside, startOutside, contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
+		final float stopConf=score(stopNet, window, s, e, true, modelConsensus, model,
+			stopTable, stopInside, stopOutside, contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable);
+
+		final float[] startSweep, stopSweep;
+		if(startConf<=stopConf){//start is the worse (or tied) boundary -- refine it first
+			startSweep=bestOffset(startNet, window, s, e, false, modelConsensus, model,
+				startTable, startInside, startOutside, contigGC, meanLen, startOffsets, touchesContigStart, modelPlateau,
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
+			final int bestStartOffset=applyMargin(startSweep, marginStart);
+			stopSweep=bestOffset(stopNet, window, s+bestStartOffset, e, true, modelConsensus, model,
+				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets, touchesContigEnd, modelPlateau,
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable);
+		}else{
+			stopSweep=bestOffset(stopNet, window, s, e, true, modelConsensus, model,
+				stopTable, stopInside, stopOutside, contigGC, meanLen, stopOffsets, touchesContigEnd, modelPlateau,
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStopTable);
+			final int bestStopOffset=applyMargin(stopSweep, marginStop);
+			startSweep=bestOffset(startNet, window, s, e+bestStopOffset, false, modelConsensus, model,
+				startTable, startInside, startOutside, contigGC, meanLen, startOffsets, touchesContigStart, modelPlateau,
+				featureVersion,locusAni,startFuzz,stopFuzz,familyStartTable);
+		}
+		return new RefinementResult(applyMargin(startSweep, marginStart), applyMargin(stopSweep, marginStop),
+			(int)startSweep[3], (int)stopSweep[3], selectedScore(startSweep, marginStart), selectedScore(stopSweep, marginStop));
 	}
 
 	/** Applies a MARGIN_THRESHOLD gate to one boundary's sweep result {bestOffset,
@@ -187,6 +324,11 @@ public class NcrnaBoundaryScorer {
 		final int bestOffset=(int)sweepResult[0];
 		final float bestScore=sweepResult[1], zeroScore=sweepResult[2];
 		return (bestScore-zeroScore>margin) ? bestOffset : 0;
+	}
+
+	/** Score at the endpoint actually selected after the margin gate. */
+	static float selectedScore(float[] sweepResult, float margin){
+		return applyMargin(sweepResult, margin)==0 ? sweepResult[2] : sweepResult[1];
 	}
 
 	/**
@@ -200,12 +342,16 @@ public class NcrnaBoundaryScorer {
 	 */
 	private static float[] bestOffset(CellNet net, byte[] window, int s0, int e0, boolean isStop,
 			byte[] modelConsensus, BaseGraph model, TrnaBoundaryFeatures.NinemerTable table,
-			int insideCount, int outsideCount, float contigGC, float meanLen, int[] offsets){
-		int bestOff=0; float bestScore=-Float.MAX_VALUE, zeroScore=Float.NaN;
+			int insideCount, int outsideCount, float contigGC, float meanLen, int[] offsets,
+			boolean touchesRelevantContigEnd, float modelPlateau, int featureVersion, float locusAni,
+			float[] startFuzz, float[] stopFuzz, TrnaBoundaryFeatures.NinemerTable familyTable){
+		int bestOff=0, sitesScored=0; float bestScore=-Float.MAX_VALUE, zeroScore=Float.NaN;
 		for(int offset : offsets){
 			final int s=s0+(isStop ? 0 : offset), e=e0+(isStop ? offset : 0);
 			if(s<0 || e>=window.length || e-s<15){continue;}
-			final float sc=score(net, window, s, e, isStop, modelConsensus, model, table, insideCount, outsideCount, contigGC, meanLen);
+			final float sc=score(net, window, s, e, isStop, modelConsensus, model, table, insideCount, outsideCount,
+				contigGC, meanLen, modelPlateau,featureVersion,locusAni,startFuzz,stopFuzz,familyTable);
+			sitesScored++;
 			if(offset==0){zeroScore=sc;}
 			if(sc>bestScore){bestScore=sc; bestOff=offset;}
 		}
@@ -216,6 +362,29 @@ public class NcrnaBoundaryScorer {
 		assert(!Float.isNaN(zeroScore)) : "offset=0 is always in-bounds for a valid base candidate -- "
 			+"scoreOffset should never return NaN for the unshifted span (window.length="+window.length
 			+", s0="+s0+", e0="+e0+", isStop="+isStop+")";
-		return new float[]{bestOff, bestScore, zeroScore};
+		assertCompleteCenteredSweep(offsets, sitesScored, touchesRelevantContigEnd,
+			(isStop ? e0 : s0), isStop, window.length);
+		return new float[]{bestOff, bestScore, zeroScore, sitesScored};
+	}
+
+	/** Brian via G11, 2026-09-22: every site in -r..+r must be scored.  This
+	 * plain assert follows the assertions skill because the sweep is synchronous
+	 * on the calling thread; failure cannot strand a producer/consumer pipeline.
+	 * It catches the fixed-PAD=10 regression that silently collapsed radii
+	 * 12/16/20/25. */
+	static void assertCompleteCenteredSweep(int[] offsets, int sitesScored,
+			boolean touchesRelevantContigEnd, int position, boolean isStop, int windowLength){
+		final int radius=centeredRadius(offsets);
+		assert(radius<0 || touchesRelevantContigEnd || sitesScored==2*radius+1) :
+			"Incomplete boundary sweep: r="+radius+" sitesScored="+sitesScored+" position="+position
+			+" endpoint="+(isStop ? "stop" : "start")+" windowLength="+windowLength;
+	}
+
+	/** Returns r only for a complete ordered {-r,...,0,...,+r} array; otherwise -1. */
+	static int centeredRadius(int[] offsets){
+		if(offsets==null || offsets.length<1 || (offsets.length&1)==0){return -1;}
+		final int radius=offsets.length/2;
+		for(int i=0; i<offsets.length; i++){if(offsets[i]!=i-radius){return -1;}}
+		return radius;
 	}
 }

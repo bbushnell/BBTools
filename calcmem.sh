@@ -70,6 +70,7 @@ parseXmx () {
 	
 	local setxmx=0
 	local setxms=0
+	local setxss=0
 	local simd_specified=0
 	
 	SIMD=""
@@ -96,6 +97,18 @@ parseXmx () {
 		elif [[ "$arg" = "Xms"* ]]; then
 			z2="-$arg"
 			setxms=1
+		elif [[ "$arg" = "Xss="* ]] || [[ "$arg" = "xss="* ]]; then
+			XSS="-Xss"${arg:4}
+			setxss=1
+		elif [[ "$arg" = "-Xss="* ]] || [[ "$arg" = "-xss="* ]]; then
+			XSS="-Xss"${arg:5}
+			setxss=1
+		elif [[ "$arg" = "-Xss"* ]] || [[ "$arg" = "-xss"* ]]; then
+			XSS="-X"${arg:2}
+			setxss=1
+		elif [[ "$arg" = "Xss"* ]] || [[ "$arg" = "xss"* ]]; then
+			XSS="-X"${arg:1}
+			setxss=1
 		elif [[ "$arg" = "-da" ]] || [[ "$arg" = "-ea" ]]; then
 			EA="$arg"
 		elif [[ "$arg" = "da" ]] || [[ "$arg" = "ea" ]]; then
