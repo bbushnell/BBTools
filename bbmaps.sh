@@ -19,10 +19,13 @@ Optional k-mer pseudoalignment: pseudoalign=t (default f; emits a seed-derived
   polycrystalline CIGAR without full MSA or identity/edit filters; intended for
   coverage/counting).
 Optional selective max-indel retry: hybridmaxindel=t (default f). The first
-  search uses maxindel=50/maxindel2=100 by default. Unmapped single reads and
-  paired reads with a strong half-read error asymmetry retry at
-  retrymaxindel=16000/retrymaxindel2=32000; retryminmapq=0 accepts every mapped
-  retry, while a higher value requires that minimum MAPQ before selecting it.
+  search uses maxindel=50/maxindel2=100 by default. Unmapped single reads retry;
+  paired reads retry when no acceptable pair is found or a mostly clean read
+  has clustered errors near one end. The retry uses
+  retrymaxindel=16000/retrymaxindel2=32000. Paired retries must pass geometry
+  checks; retryminmapq=0 adds no MAPQ restriction, while a higher value also
+  requires that minimum MAPQ. Hybrid is conservative and can miss alignments
+  found by a full maxindel=16000 search; it remains default-off.
 Calibrated neural MAPQ is enabled by default. BBMapS automatically selects the
   single or paired V2 model from the actual input stream. Set mapqmode=legacy
   (or neuralmapq=f/neuralmapqpair=f) to restore legacy MAPQ. Automatic neural

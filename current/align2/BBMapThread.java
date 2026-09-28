@@ -274,6 +274,7 @@ public final class BBMapThread extends AbstractMapThread{
 		this.hybridTipSearchCeiling=hybridTipSearchCeiling_;
 		this.hybridPair=hybridPair_;
 		this.hybridMaxIndelConfig=hybridMaxIndelConfig_;
+		enhancedPairedHybrid=paired_ && hybridMaxIndelConfig_!=null;
 		if(hybridPair && hybridMaxIndelConfig!=null){
 			throw new IllegalArgumentException("Legacy hybridpair and general hybridmaxindel are mutually exclusive");
 		}
@@ -291,6 +292,9 @@ public final class BBMapThread extends AbstractMapThread{
 		assert(!(quantumOnly && PSEUDO_ONLY)) : "Quantum-only and pseudoalignment modes are exclusive";
 		assert(!PSEUDO_ONLY || msa==null) : "Pseudoalignment workers must not allocate an MSA";
 		final boolean pairedHybrid=hybridPair || (paired_ && hybridMaxIndelConfig!=null);
+		if(enhancedPairedHybrid && msa instanceof MultiStateAligner11ts){
+			((MultiStateAligner11ts)msa).setCompactWideLimited(true);
+		}
 		secondAttempt=pairedHybrid ? new PairAttemptAccounting() : null;
 		entryState=pairedHybrid ? new PairSearchState() : null;
 		firstState=pairedHybrid ? new PairSearchState() : null;
@@ -1649,7 +1653,7 @@ public final class BBMapThread extends AbstractMapThread{
 		entryState.capture(r);
 		try{
 			searchAndScorePair(r,basesM1,basesM2,first);firstState.capture(r);
-			final HybridPairPolicy.Observation observation=first.rejected ? null : HybridPairPolicy.observe(this,r,basesM1,basesM2,first.imperfect1,first.max1,first.imperfect2,first.max2,false);
+			final HybridPairPolicy.Observation observation=first.rejected ? null : HybridPairPolicy.observe(this,r,basesM1,basesM2,first.imperfect1,first.max1,first.imperfect2,first.max2,false,enhancedPairedHybrid);
 			final boolean lowTopPairable=observation!=null && topPairable(r);
 			final boolean probeCandidate=generalHybrid && HYBRID_WIDE_PROBE && observation!=null &&
 					!lowTopPairable && first.pseudoScoreSupported();
@@ -1687,8 +1691,11 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 			}
 			PairAttemptAccounting chosen=first;
+			// An absent acceptable pair warrants a complete
+			// wide search, even when both ends retain individually plausible low sites.
+			final boolean noGoodPairRoute=generalHybrid && (enhancedPairedHybrid || HYBRID_GOOD_PAIR_RETRY) && observation!=null && !lowTopPairable;
 			final boolean route=observation!=null && (generalHybrid ?
-				((observation.flags&HybridPairPolicy.HALF_ERRORS)!=0 || pseudoHalfRoute) : observation.route());
+				((observation.flags&(HybridPairPolicy.HALF_ERRORS|HybridPairPolicy.TERMINAL_ERRORS))!=0 || pseudoHalfRoute || noGoodPairRoute) : observation.route());
 			if(route){
 				if(generalHybrid){
 					hybridMaxIndelStats.retryAttempted();
@@ -1696,7 +1703,7 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 				if(hybridMatchCache!=null){hybridMatchCache.clear();}
 				index.setRuntimeIndelLimits(highPrimary,highSum);secondAttempt.reset();
-				if(pseudoHalfRoute && HYBRID_WIDE_PROBE && first.probeAccepted){
+				if(!noGoodPairRoute && pseudoHalfRoute && HYBRID_WIDE_PROBE && first.probeAccepted){
 					probeState.restore();
 					retainProbeSites(r,16);retainProbeSites(r.mate,16);
 					secondAttempt.quick1=first.probeQuick1;secondAttempt.quick2=first.probeQuick2;
@@ -2232,11 +2239,13 @@ public final class BBMapThread extends AbstractMapThread{
 	private final QuantumHybridStats quantumHybridStats;
 	private final SingleAttemptAccounting singleAttempt=new SingleAttemptAccounting();
 	private final HybridMaxIndelConfig hybridMaxIndelConfig;
+	private final boolean enhancedPairedHybrid;
 	private final SingleAttemptAccounting singleSecondAttempt;
 	private final ReadSearchState singleEntryState;
 	private final ReadSearchState singleFirstState;
 	private final HybridMaxIndelStats hybridMaxIndelStats;
 	private static final boolean HYBRID_PAIR_TRACE=Boolean.getBoolean("bbmap3.hybridPairTrace");
+	private static final boolean HYBRID_GOOD_PAIR_RETRY=Boolean.getBoolean("bbmap3.hybridGoodPairRetry");
 	private static final boolean HYBRID_PSEUDO_ROUTE=!Boolean.getBoolean("bbmap3.disableHybridPseudoRoute");
 	private static final boolean HYBRID_WIDE_PROBE=Boolean.getBoolean("bbmap3.hybridWideProbe");
 	private static final int QUANTUM_SCORE_SCALE=100;

@@ -16,7 +16,8 @@ public final class SIMDMSALimited {
 		for(;col<=limit;col+=8){
 			final IntVector positions=LANES.add(col);
 			// Every remaining query/reference base can contribute at most MATCH2.
-			final IntVector cutoff=C(target-(rows-row)*POINTSoff_MATCH2).max(C(target).sub(C(columns).sub(positions).mul(POINTSoff_MATCH2)));
+			// Bound by the query before multiplying:wide references can otherwise overflow shifted scores.
+			final IntVector cutoff=C(target).sub(C(rows-row).min(C(columns).sub(positions)).mul(POINTSoff_MATCH2));
 			final IntVector ref=IntVector.fromArray(S,refs,col),prevRef=IntVector.fromArray(S,refs,col-1);
 			final VectorMask<Integer> gap=ref.eq(gapSymbol),match=ref.eq(q).and(ref.compare(NE,'N')),prevMatch=prevRef.eq(q0).and(prevRef.compare(NE,'N'));
 			final IntVector diag=IntVector.fromArray(S,pm,col-1),a=diag.and(SCOREMASK),b=IntVector.fromArray(S,pd,col-1).and(SCOREMASK),c=IntVector.fromArray(S,pi,col-1).and(SCOREMASK),streak=diag.and(TIMEMASK);

@@ -22,6 +22,7 @@ public final class HybridMaxIndelStats {
 		if(!pairable && halfSupported){pairNotPairableHalfSupported++;}
 	}
 	public void pairReasons(int flags){
+		if((flags&HybridPairPolicy.TERMINAL_ERRORS)!=0){pairTerminalErrors++;}
 		final boolean noSite=(flags&HybridPairPolicy.NO_SITE)!=0;
 		final boolean half=(flags&HybridPairPolicy.HALF_ERRORS)!=0;
 		final boolean pseudo=(flags&HybridPairPolicy.PSEUDO_HALF)!=0;
@@ -31,6 +32,7 @@ public final class HybridMaxIndelStats {
 		if(noSite && half){pairBoth++;}
 	}
 	public void pairOutcome(int flags,boolean selected){
+		if((flags&HybridPairPolicy.TERMINAL_ERRORS)!=0){if(selected){pairWideTerminal++;}else{pairRestoredTerminal++;}}
 		final boolean noSite=(flags&HybridPairPolicy.NO_SITE)!=0;
 		final boolean half=(flags&HybridPairPolicy.HALF_ERRORS)!=0;
 		final boolean pseudo=(flags&HybridPairPolicy.PSEUDO_HALF)!=0;
@@ -54,6 +56,7 @@ public final class HybridMaxIndelStats {
 		wideProbeGap+=b.wideProbeGap;wideProbePairable+=b.wideProbePairable;
 		pairHalfSupported+=b.pairHalfSupported;pairNotPairableHalfSupported+=b.pairNotPairableHalfSupported;
 		pairNoSite+=b.pairNoSite;
+		pairTerminalErrors+=b.pairTerminalErrors;pairWideTerminal+=b.pairWideTerminal;pairRestoredTerminal+=b.pairRestoredTerminal;
 		pairHalfErrors+=b.pairHalfErrors;pairPseudoHalf+=b.pairPseudoHalf;pairBoth+=b.pairBoth;
 		pairWideNoSite+=b.pairWideNoSite;pairWideHalfErrors+=b.pairWideHalfErrors;pairWideBoth+=b.pairWideBoth;
 		pairWidePseudoHalf+=b.pairWidePseudoHalf;
@@ -72,6 +75,7 @@ public final class HybridMaxIndelStats {
 		"\tpair_not_pairable_half_supported\t"+pairNotPairableHalfSupported+
 		"\tpair_no_site\t"+pairNoSite+
 		"\tpair_half_errors\t"+pairHalfErrors+"\tpair_pseudo_half\t"+pairPseudoHalf+"\tpair_both\t"+pairBoth+
+		"\tpair_terminal_errors\t"+pairTerminalErrors+"\tpair_wide_terminal\t"+pairWideTerminal+"\tpair_restored_terminal\t"+pairRestoredTerminal+
 		"\tpair_wide_no_site\t"+pairWideNoSite+"\tpair_wide_half_errors\t"+pairWideHalfErrors+
 		"\tpair_wide_pseudo_half\t"+pairWidePseudoHalf+
 		"\tpair_wide_both\t"+pairWideBoth+"\tpair_restored_no_site\t"+pairRestoredNoSite+
@@ -97,6 +101,7 @@ public final class HybridMaxIndelStats {
 	private long pairNotPairableHalfSupported;
 	private long pairNoSite;
 	private long pairHalfErrors;
+	private long pairTerminalErrors,pairWideTerminal,pairRestoredTerminal;
 	private long pairPseudoHalf;
 	private long pairBoth;
 	private long pairWideNoSite;

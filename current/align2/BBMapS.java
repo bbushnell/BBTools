@@ -1333,13 +1333,10 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			}catch(Throwable t){
 				error=t;
 				t.printStackTrace();
-				// A failed worker may never submit its ordered list ID. Signal immediately:
-				// waiting for startAndWait to return would strand siblings in output backpressure.
-				// Writer.finishError is idempotent/nonblocking; CROS.abort wakes ordered add waits.
-				for(Writer writer : writers){
-					if(writer!=null){writer.finishError();}
-				}
-				abortSplitterStreams();
+				// A missing ordered list invalidates output. Writer.finishError alone
+				// allowed siblings to keep mapping after the real HG001 paired-score
+				// inference failure;terminate the whole run rather than emitting partial output.
+				shared.KillSwitch.killTraceless("BBMapS worker failed; output is incomplete and must not be used.");
 			}
 		}
 

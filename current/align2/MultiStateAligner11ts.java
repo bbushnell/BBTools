@@ -180,7 +180,9 @@ public final class MultiStateAligner11ts extends MSA{
 		final int halfband=(bandwidth<1 && bandwidthRatio<=0) ? 0 :
 			Tools.max(Tools.min(bandwidth<1 ? 9999999 : bandwidth, bandwidthRatio<=0 ? 9999999 : 8+(int)(rows*bandwidthRatio)), (columns-rows+8))/2;
 		
-		if(minScore<1 || (columns+rows<90) || (!bypassWidth && (halfband<1 || halfband*3>columns) && (columns>read.length+Tools.min(170, read.length+20)))){
+		final boolean compactWide=compactWideLimited && compactLimited && horizontal!=null &&
+				rows>0 && rows<=300 && rows<=maxRows && columns<=maxColumns && bandwidth<1 && bandwidthRatio<=0;
+		if(minScore<1 || (columns+rows<90) || (!compactWide && !bypassWidth && (halfband<1 || halfband*3>columns) && (columns>read.length+Tools.min(170, read.length+20)))){
 			if(!bypassWidth && pruneWide && minScore>=1 && columns+rows>=90 &&
 					bandwidth<1 && bandwidthRatio<=0 && wideTrialSafe(minScore)){
 				final AtomicLongArray audit=widePruneAudit;
@@ -2683,6 +2685,13 @@ public final class MultiStateAligner11ts extends MSA{
 	public static boolean USE_HORIZONTAL_UNLIMITED=false;
 	private boolean horizontalReady;
 	private final boolean compactLimited;
+	/** Honor positive caller cutoffs in wide short-read windows for opted-in workers. */
+	private boolean compactWideLimited=Boolean.getBoolean("bbmap3.compactWideLimited");
+	/** Configure a new,worker-owned aligner before its first fill; never changes another instance. */
+	void setCompactWideLimited(boolean enabled){
+		assert(!horizontalReady) : "Configure compact-wide policy before filling; an existing compact traceback belongs to the prior policy";
+		compactWideLimited=enabled;
+	}
 	long horizontalRestores;
 	/** Buffer for storing gapped reference sequence */
 	private final byte[] grefbuffer;

@@ -12,17 +12,25 @@ import stream.SiteScore;
 public final class HybridPairPolicy {
 
 	private HybridPairPolicy(){}
-	public static final int NO_SITE=1, HALF_ERRORS=2, UNKNOWN=4, PSEUDO_HALF=8;
+	public static final int NO_SITE=1, HALF_ERRORS=2, UNKNOWN=4, PSEUDO_HALF=8, TERMINAL_ERRORS=16;
+	private static final boolean TERMINAL_RETRY=Boolean.getBoolean("bbmap3.hybridTerminalRetry");
+	private static final boolean TERMINAL_HALF_WINDOW=Boolean.getBoolean("bbmap3.hybridTerminalHalfWindow");
 
 	/** Generate disposable top candidates so observation preserves owned sites. */
 	public static Observation observe(BBMapThread owner,Read first,byte[] minus1,byte[] minus2,
 			int imperfect1,int max1,int imperfect2,int max2,boolean geometryOnly){
+		return observe(owner,first,minus1,minus2,imperfect1,max1,imperfect2,max2,geometryOnly,false);
+	}
+
+	/** Explicit worker policy keeps opt-in paired behavior local to this invocation. */
+	public static Observation observe(BBMapThread owner,Read first,byte[] minus1,byte[] minus2,
+			int imperfect1,int max1,int imperfect2,int max2,boolean geometryOnly,boolean terminalHalfWindow){
 		assert(first!=null && first.mate!=null) : "Paired retry observation requires both reads";
 		final Read second=first.mate;
 		final SiteScore a=generate(owner,first,minus1,imperfect1,max1,0);
 		final SiteScore b=generate(owner,second,minus2,imperfect2,max2,1);
-		final int flags1=geometryOnly ? 0 : flags(a,first.length());
-		final int flags2=geometryOnly ? 0 : flags(b,second.length());
+		final int flags1=geometryOnly ? 0 : flags(a,first.length(),terminalHalfWindow);
+		final int flags2=geometryOnly ? 0 : flags(b,second.length(),terminalHalfWindow);
 		return new Observation(flags1,flags2,
 				geometryOnly ? geometry(a,first.length(),b,second.length()) : "NOT_RUN");
 	}
@@ -45,12 +53,48 @@ public final class HybridPairPolicy {
 	}
 
 	static int flags(SiteScore site,int length){
+		return flags(site,length,false);
+	}
+
+	static int flags(SiteScore site,int length,boolean terminalHalfWindow){
 		if(site==null){return NO_SITE;}
 		if(site.match==null){return UNKNOWN;}
 		final int[] counts=new int[5];
 		count(site.match,length,!site.plus(),counts);
 		if(counts[4]>0){return UNKNOWN;}
-		return signal(counts[2],counts[3],length) ? HALF_ERRORS : 0;
+		return (signal(counts[2],counts[3],length) ? HALF_ERRORS : 0) |
+				((terminalHalfWindow || TERMINAL_RETRY) && terminalSignal(site.match,length,counts[2]+counts[3],
+						(terminalHalfWindow || TERMINAL_HALF_WINDOW) ? length/2 : Math.min(32,length/2)) ? TERMINAL_ERRORS : 0);
+	}
+
+	/** Short bad tail with a mostly clean remainder; a retry hint,never an acceptance rule. */
+	static boolean terminalSignal(byte[] match,int length){
+		assert(match!=null && length>=2) : "HybridPairPolicy.flags requires a generated native match and two query halves";
+		int q=0,total=0;
+		for(byte op:match){
+			if(op=='D'){continue;}
+			if("SVIXYC".indexOf((char)op)>=0){total++;}q++;
+		}
+		assert(q==length) : "Native operations must consume the query exactly before terminal windows are located: "+q+" versus "+length;
+		return terminalSignal(match,length,total,TERMINAL_HALF_WINDOW ? length/2 : Math.min(32,length/2));
+	}
+
+	/** Reuse the discrepancy count already computed by flags; no extra full pass or scratch array. */
+	static boolean terminalSignal(byte[] match,int length,int total,int limit){
+		assert(match!=null && length>=2 && total>=0 && total<=length && limit>=0 && limit<=length/2) :
+				"Native count and terminal limit must describe disjoint query-end windows: length="+length+", errors="+total+", limit="+limit;
+		if(total<4){return false;}
+		int first=0,last=0,left=0,right=match.length-1;
+		for(int n=1;n<=limit;n++){
+			while(left<match.length && match[left]=='D'){left++;}
+			while(right>=0 && match[right]=='D'){right--;}
+			assert(left<=right) : "Reference-only deletions must not consume a query position in either terminal window";
+			first+=("SVIXYC".indexOf((char)match[left++])>=0 ? 1 : 0);
+			last+=("SVIXYC".indexOf((char)match[right--])>=0 ? 1 : 0);
+			if((first>=4 && 5*first>=2*n && 10L*(total-first)<=length-n) ||
+					(last>=4 && 5*last>=2*n && 10L*(total-last)<=length-n)){return true;}
+		}
+		return false;
 	}
 
 	/** Counters: substitutions by half, all discrepancies by half, unknown bases. */
@@ -121,7 +165,7 @@ public final class HybridPairPolicy {
 		public final int flags2;
 		public final int flags;
 		public final String geometry;
-		public boolean route(){return (flags&(NO_SITE|HALF_ERRORS))!=0;}
+		public boolean route(){return (flags&(NO_SITE|HALF_ERRORS|TERMINAL_ERRORS))!=0;}
 	}
 	private static final class Shape {
 		Shape(String s){state=s;}

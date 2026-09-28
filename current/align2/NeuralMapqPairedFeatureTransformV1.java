@@ -15,7 +15,10 @@ public final class NeuralMapqPairedFeatureTransformV1 {
 		int i=END_WIDTH;
 		out[i++]=binary(raw[PAIR_RAW+1],"mate_mapped");out[i++]=binary(raw[PAIR_RAW+2],"anchor_paired");out[i++]=binary(raw[PAIR_RAW+3],"mate_paired");
 		out[i++]=binary(raw[PAIR_RAW+4],"same_chromosome");out[i++]=binary(raw[PAIR_RAW+5],"same_scaffold");out[i++]=binary(raw[PAIR_RAW+6],"same_strand");out[i++]=binary(raw[PAIR_RAW+7],"expected_orientation");
-		out[i++]=nonnegative(raw[PAIR_RAW+17],"anchor_paired_score")*invAnchorScore;out[i++]=nonnegative(raw[PAIR_RAW+18],"mate_paired_score")*invMateScore;
+		// SiteScore.setSlowScore(x<=0) also assigns pairedScore=x; later score
+		// penalties can therefore leave a negative paired score on a mapped end.
+		// These are signed scores, like the single-end score features, not counts.
+		out[i++]=finite(raw[PAIR_RAW+17],"anchor_paired_score")*invAnchorScore;out[i++]=finite(raw[PAIR_RAW+18],"mate_paired_score")*invMateScore;
 		out[i++]=nonnegative(raw[PAIR_RAW+19],"anchor_pair_score_gain")*invAnchorScore;out[i++]=nonnegative(raw[PAIR_RAW+20],"mate_pair_score_gain")*invMateScore;
 		out[i++]=finite(raw[PAIR_RAW+21],"pair_score_sum")*invPairScore;out[i++]=(float)Math.log1p(combinedLength);out[i++]=binary(raw[PAIR_RAW+23],"both_perfect");
 		assert(i==WIDTH) : "Frozen37+14 feature contract must fill width51; wrote "+i;validate(out);

@@ -74,7 +74,6 @@ class HorizontalUnlimited {
 		int previousLo=1,previousHi=columns,boundary=0;
 		for(int row=1;row<=rows;row++){
 			boundary+=POINTSoff_INS_ARRAY[row];cm[0]=cd[0]=ci[0]=boundary;
-			final int rowLimit=target-(rows-row)*POINTSoff_MATCH2;
 			final int from=Math.max(previousLo,halfband>0?Math.max(1,row-halfband):1);
 			final int to=Math.min(columns,Math.min(previousHi+1,halfband>0?row+2*halfband:columns));
 			if(from>to){return null;}
@@ -84,7 +83,7 @@ class HorizontalUnlimited {
 			if(vector){first=simd.SIMDMSALimited.fillRow(pm,pd,pi,cm,ci,refCodes,traceFlags,q,q0,row,rows,columns,floor,BARRIER_I1,MSA.GAPC,from,to,target);}
 			for(int col=first;col<=to;col++){
 				fillCell(pm,pd,pi,cm,ci,refCodes,traceFlags,q,q0,row,rows,columns,floor,col);
-				final int cutoff=Math.max(rowLimit,target-(columns-col)*POINTSoff_MATCH2);
+				final int cutoff=target-Math.min(rows-row,columns-col)*POINTSoff_MATCH2;
 				if(cm[col]<cutoff){cm[col]=floor;}if(ci[col]<cutoff){ci[col]=floor;}
 			}
 			int nextLo=-1,nextHi=-1,left=cd[from-1];
@@ -94,7 +93,7 @@ class HorizontalUnlimited {
 				lastFillCells++;
 				if(col>to){cm[col]=ci[col]=floor;traceFlags[col]=0;}
 				final int ms=cm[col-1]&SCOREMASK,del=left&SCOREMASK,s=left&TIMEMASK;
-				final int cutoff=Math.max(rowLimit,target-(columns-col)*POINTSoff_MATCH2);
+				final int cutoff=target-Math.min(rows-row,columns-col)*POINTSoff_MATCH2;
 				int value=floor;
 				if(!blocked){
 					final int extra=refCodes[col]=='N'?POINTSoff_DEL_REF_N:refCodes[col]==MSA.GAPC?POINTSoff_GAP:0;
@@ -109,7 +108,7 @@ class HorizontalUnlimited {
 				if(col>to && !live){break;}
 			}
 			// Preserve a possible leading-insertion path on column0 even when no interior cell survives.
-			if(boundary>=Math.max(rowLimit,target-columns*POINTSoff_MATCH2) && (halfband<1 || row+1-halfband<=1)){
+			if(boundary>=target-Math.min(rows-row,columns)*POINTSoff_MATCH2 && (halfband<1 || row+1-halfband<=1)){
 				nextLo=1;nextHi=Math.max(0,nextHi);
 			}
 			if(nextLo<0){return null;}
