@@ -6,49 +6,45 @@ import java.util.Arrays;
 import shared.Shared;
 import ukmer.Kmer;
 
-/** Focused argument-routing checks for the public Tadpole magnitude guard.
- * Constructs tables but does not load, correct, or write reads.
+/** Current local-edit parser regression, retaining the historical test name.
+ * The ratio API was removed in25457191; verify its rejection rather than
+ * referencing the deleted field. No correction algorithm is changed.
  * @author Fischl */
-public class TadpoleFixIndelsRatioTest {
+public final class TadpoleFixIndelsRatioTest {
 
+	private TadpoleFixIndelsRatioTest(){}
+
+	/** Construct small tables without reading or correcting input sequences. */
 	public static void main(final String[] args){
-		assert(args.length==1) : "Expected BBTools root containing testdata.";
+		if(args.length!=1){throw new IllegalArgumentException("Expected BBTools root containing testdata.");}
 		final String root=args[0];
-		final Tadpole off=makeRaw(root);
-		assert(!off.localEdit && off.localEditMagnitudeFactor==17) : "fixindels must remain default-off while retaining the qualified ratio default.";
-		final Tadpole defaults=make(root);
-		assert(defaults.localEdit && defaults.localEditMagnitudeFactor==17) : "fixindels must default to the qualified factor17 guard.";
-		final Tadpole disabled=make(root,"fixindelsratio=0");
-		assert(disabled.localEditMagnitudeFactor==0) : "Explicit factor0 must preserve the diagnostic unguarded path.";
-		final Tadpole boundary=make(root,"fixindelsratio=2");
-		assert(boundary.localEditMagnitudeFactor==2) : "Factor2 is the minimum enabled ratio.";
-		final Tadpole explicit=make(root,"fixindelsratio=23");
-		assert(explicit.localEditMagnitudeFactor==23) : "Explicit integer ratios >=2 must route unchanged.";
-		final Tadpole pairs=make(root,"fixindelspairs=t","fixindelsratio=0");
-		assert(pairs.localEditPairs && pairs.localEditMagnitudeFactor==0) : "Pair lookahead remains available only with the guard explicitly disabled.";
-		expectFailure(root,"fixindelsratio=1");
-		expectFailure(root,"fixindelsratio=-1");
-		expectFailure(root,"fixindelspairs=t");
-		System.out.println("TADPOLE_FIXINDELS_RATIO_TEST_OK default_off default17 explicit0 boundary2 explicit23 pair_requires0 invalid1 invalid_negative");
+		assert(!make(root).localEdit) : "Local edits must remain default-off.";
+		assert(make(root, "fixindels=t").localEdit) : "Explicit fixindels=t must enable the local edit path.";
+		assert(make(root, "fixindels=t", "fixindelspairs=t").localEditPairs) : "Pair lookahead requires enabled local edits.";
+		expectFailure(root, "fixindelspairs=t");
+		expectFailure(root, "fixindelsmax=0");
+		expectFailure(root, "fixindelsstride=0");
+		expectFailure(root, "fixindels=t", "fixindelsbatch=t", "fixindelspatchmax=1");
+		expectFailure(root, "fixindelsratio=17");
+		System.out.println("TADPOLE_FIXINDELS_RATIO_TEST_OK current_routing removed_ratio_rejected");
 	}
 
-	private static Tadpole make(final String root,final String... extra){
-		final String[] enabled=new String[extra.length+1];enabled[0]="fixindels=t";System.arraycopy(extra,0,enabled,1,extra.length);
-		return makeRaw(root,enabled);
+	/** Use the pinned fixture and one thread; construction never loads reads. */
+	private static Tadpole make(final String root, final String... extra){
+		Kmer.PACKED=false;
+		Tadpole.FORCE_TADPOLE2=false;
+		Shared.COMMAND_LINE=null;
+		final ArrayList<String> args=new ArrayList<String>(Arrays.asList(
+				"in="+root+"/testdata/crossk_left_bridge_reads.fa", "out=null", "k=31", "t=1",
+				"prealloc=f", "prefilter=f", "pop=f", "mode=correct", "ecc=f", "minprob=0"));
+		args.addAll(Arrays.asList(extra));
+		return Tadpole.makeTadpole(args.toArray(new String[args.size()]), true);
 	}
 
-	private static Tadpole makeRaw(final String root,final String... extra){
-		Kmer.PACKED=false;Tadpole.FORCE_TADPOLE2=false;Shared.COMMAND_LINE=null;
-		final ArrayList<String> list=new ArrayList<String>(Arrays.asList(
-			"in="+root+"/testdata/crossk_left_bridge_reads.fa","out=null","k=31","t=1",
-			"prealloc=f","prefilter=f","pop=f","mode=correct","ecc=f","minprob=0"));
-		list.addAll(Arrays.asList(extra));
-		return Tadpole.makeTadpole(list.toArray(new String[list.size()]),true);
-	}
-
-	private static void expectFailure(final String root,final String... extra){
-		boolean failed=false;
-		try{make(root,extra);}catch(IllegalArgumentException expected){failed=true;}
-		assert(failed) : "Invalid fixindelsratio combination was accepted: "+Arrays.toString(extra);
+	/** Invalid active knobs and retired flags must fail instead of being ignored. */
+	private static void expectFailure(final String root, final String... extra){
+		try{make(root, extra);}
+		catch(final RuntimeException expected){return;}
+		throw new AssertionError("Invalid or retired local-edit arguments accepted: "+Arrays.toString(extra));
 	}
 }

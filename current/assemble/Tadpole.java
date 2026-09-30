@@ -20,6 +20,7 @@ import jgi.BBMerge;
 import jgi.CallPeaks;
 import kmer.AbstractKmerTableSet;
 import kmer.HashBuffer;
+import ml.CellNet;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
@@ -57,6 +58,12 @@ import ukmer.KmerTableSetU;
  * fixindelsbatch=f optionally groups verified original-coordinate candidates,
  * repairs bounded local regions and rebuilds the read once. It requires dense
  * fixindelsstride=1, no pair lookahead, and fixindelspatchmax>=2*K+5 (default4096).
+ * fixindelsnet=<file>, fixindelssha80=<20hex>, and fixindelscutoff=<float>
+ * enable one frozen K=62 model as a veto after unique full-context
+ * verification; fixindelshighnet=<file>, fixindelshighsha80=<20hex>, and
+ * fixindelshighcutoff=<float> add an original-read P50>30 high-depth veto.
+ * Neural binding is incompatible with pair/batch modes. pacbio selects the
+ * bundled depth specialists and correction defaults; explicit options override.
  * @author Brian Bushnell
  * @date May 15, 2015
  *
@@ -123,7 +130,53 @@ public abstract class Tadpole extends ShaveObject{
 		assert(args!=null) : "Tadpole dispatch requires an argument array before selecting its kmer representation.";
 		//Preserve the original invocation for metadata; PreParser will see expanded args.
 		if(Shared.COMMAND_LINE==null){Shared.COMMAND_LINE=args.clone();}
-		return Parser.parseConfig(args);
+		return expandPacBioArgs(Parser.parseConfig(args));
+	}
+
+	/** Apply PacBio defaults before K dispatch; explicit options win in either order. */
+	private static String[] expandPacBioArgs(final String[] args){
+		assert(args!=null) : "PacBio defaults must precede Tadpole implementation selection.";
+		boolean pacbio=false, specified=false;
+		final ArrayList<String> explicit=new ArrayList<String>(args.length);
+		for(final String arg:args){
+			final String[] split=arg.split("=", 2);
+			String name=split[0];
+			while(name.startsWith("-")){name=name.substring(1);}
+			if(name.equalsIgnoreCase("pacbio")){
+				pacbio=Parse.parseBoolean(split.length>1 ? split[1] : null);
+				specified=true;
+			}else{
+				explicit.add(arg);
+			}
+		}
+		if(!specified){return args;}
+		final ArrayList<String> expanded=new ArrayList<String>();
+		if(pacbio){
+			//Prepend, rather than append, so individual controls retain their usual semantics.
+			expanded.add("k=62");
+			expanded.add("fixindels=t");
+			expanded.add("ecc=f");
+			expanded.add("minprob=0");
+			expanded.add("fixindelsnet=?tadpole_pacbio_low.bbnet");
+			expanded.add("fixindelssha80=d1871ef334d85c3812b6");
+			expanded.add("fixindelscutoff=0.93");
+			expanded.add("fixindelshighnet=?tadpole_pacbio_high.bbnet");
+			expanded.add("fixindelshighsha80=d127d08fb2439bbfbcc0");
+			expanded.add("fixindelshighcutoff=0.96");
+			//With PacBio selected, ecc requests this correction path, not a second
+			//legacy pass. fixindels still selects correct mode when mode is omitted.
+			for(int i=0; i<explicit.size(); i++){
+				final String[] split=explicit.get(i).split("=", 2);
+				String name=split[0];
+				while(name.startsWith("-")){name=name.substring(1);}
+				if((name.equalsIgnoreCase("ecc") || name.equalsIgnoreCase("ecct")) &&
+						Parse.parseBoolean(split.length>1 ? split[1] : null)){
+					explicit.set(i, "ecc=f");
+				}
+			}
+		}
+		expanded.addAll(explicit);
+		return expanded.toArray(new String[expanded.size()]);
 	}
 
 	/**
@@ -166,6 +219,7 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param args Command line arguments
 	 */
 	public Tadpole(String[] args, boolean setDefaults){
+		args=expandConfigArgs(args);
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), true);
@@ -198,6 +252,10 @@ public abstract class Tadpole extends ShaveObject{
 		boolean localEdit_=false;
 		boolean localEditPairs_=false;
 		boolean localEditBatch_=false;
+		String localEditNetPath_=null, localEditNetSha80_=null;
+		String localEditHighNetPath_=null, localEditHighNetSha80_=null;
+		float localEditNetCutoff_=Float.NaN;
+		float localEditHighNetCutoff_=Float.NaN;
 		int localEditMax_=8,localEditStride_=8;
 		int localEditPatchMax_=4096;
 		boolean useOwnership_=false, setUseOwnership_=false;
@@ -621,6 +679,24 @@ public abstract class Tadpole extends ShaveObject{
 				localEditPairs_=Parse.parseBoolean(b);
 			}else if(a.equals("fixindelsbatch")){
 				localEditBatch_=Parse.parseBoolean(b);
+			}else if(a.equals("fixindelsnet")){
+				if(b==null || b.length()==0){throw new IllegalArgumentException("fixindelsnet requires a model path.");}
+				localEditNetPath_=b;
+			}else if(a.equals("fixindelssha80")){
+				if(b==null || b.length()==0){throw new IllegalArgumentException("fixindelssha80 requires 20 lowercase hex characters.");}
+				localEditNetSha80_=b;
+			}else if(a.equals("fixindelscutoff")){
+				localEditNetCutoff_=Float.parseFloat(b);
+				if(!Float.isFinite(localEditNetCutoff_)){throw new IllegalArgumentException("fixindelscutoff must be finite.");}
+			}else if(a.equals("fixindelshighnet")){
+				if(b==null || b.length()==0){throw new IllegalArgumentException("fixindelshighnet requires a model path.");}
+				localEditHighNetPath_=b;
+			}else if(a.equals("fixindelshighsha80")){
+				if(b==null || b.length()==0){throw new IllegalArgumentException("fixindelshighsha80 requires 20 lowercase hex characters.");}
+				localEditHighNetSha80_=b;
+			}else if(a.equals("fixindelshighcutoff")){
+				localEditHighNetCutoff_=Float.parseFloat(b);
+				if(!Float.isFinite(localEditHighNetCutoff_)){throw new IllegalArgumentException("fixindelshighcutoff must be finite.");}
 			}else if(a.equals("fixindelspatchmax")){
 				localEditPatchMax_=Integer.parseInt(b);
 			}else if(a.equals("merge")){
@@ -885,6 +961,23 @@ public abstract class Tadpole extends ShaveObject{
 			throw new IllegalArgumentException("fixindelsbatch=t requires fixindels=t, fixindelsstride=1 and fixindelspairs=f; sparse scanning and pair lookahead are not supported by this mode.");
 		}
 		if(localEditBatch_ && localEditPatchMax_<2L*kbig+5){throw new IllegalArgumentException("fixindelspatchmax must be at least 2*K+5 to hold a local core and two complete K-base flanks.");}
+		final boolean localEditNetBinding_=localEditNetPath_!=null || localEditNetSha80_!=null || !Float.isNaN(localEditNetCutoff_);
+		final boolean localEditHighNetBinding_=localEditHighNetPath_!=null || localEditHighNetSha80_!=null || !Float.isNaN(localEditHighNetCutoff_);
+		if(localEditNetBinding_ && (localEditNetPath_==null || localEditNetSha80_==null || !Float.isFinite(localEditNetCutoff_) ||
+				localEditNetCutoff_<0 || localEditNetCutoff_>1)){
+			throw new IllegalArgumentException("Neural veto requires fixindelsnet=<file>, fixindelssha80=<20hex>, and fixindelscutoff=<0..1> together.");
+		}
+		if(localEditHighNetBinding_ && (localEditHighNetPath_==null || localEditHighNetSha80_==null || !Float.isFinite(localEditHighNetCutoff_) ||
+				localEditHighNetCutoff_<0 || localEditHighNetCutoff_>1)){
+			throw new IllegalArgumentException("High-depth neural veto requires fixindelshighnet=<file>, fixindelshighsha80=<20hex>, and fixindelshighcutoff=<0..1> together.");
+		}
+		if(localEditHighNetBinding_ && !localEditNetBinding_){
+			throw new IllegalArgumentException("High-depth neural veto requires the low-depth neural veto trio.");
+		}
+		if(localEditNetBinding_ && (!localEdit_ || kbig!=LocalEditNeuralGate.MODEL_K ||
+				localEditPairs_ || localEditBatch_)){
+			throw new IllegalArgumentException("Neural veto requires fixindels=t, k=62, fixindelspairs=f and fixindelsbatch=f.");
+		}
 		if(localEdit_ && (kbig<5 || processingMode!=correctMode || ecc_ || ecco_ || merge_ || markErrors_ || hpIndel_ ||
 			extendLeft>0 || extendRight>0 || MARK_BAD_BASES>0)){
 			throw new IllegalArgumentException("fixindels requires k>=5 and dedicated correct mode: ecc=f ecco=f merge=f markerrors=f hpindel=f, no extension or base marking.");
@@ -909,6 +1002,13 @@ public abstract class Tadpole extends ShaveObject{
 		localEditPairs=localEditPairs_;
 		localEditBatch=localEditBatch_;
 		localEditPatchMax=localEditPatchMax_;
+		localEditNeuralCutoff=localEditNetCutoff_;
+		localEditNeuralNet=localEditNetPath_==null ? null :
+			LocalEditNeuralGate.loadFrozen(localEditNetPath_, localEditNetSha80_, localEditNetCutoff_);
+		localEditNeuralHighCutoff=localEditHighNetCutoff_;
+		localEditNeuralHighNet=localEditHighNetPath_==null ? null :
+			LocalEditNeuralGate.loadFrozen(localEditHighNetPath_, localEditHighNetSha80_, localEditHighNetCutoff_);
+		LocalEditNeuralGate.validateRoutedPair(localEditNeuralNet, localEditNeuralHighNet);
 		if(hpIndel){
 			outstream.println("EXPERIMENTAL hpindel: unpaired alignment-free reads only; support>=4, original<=2, contrast>4, maxedits="+hpMaxEdits+". Rare true alleles may be changed.");
 		}
@@ -919,6 +1019,8 @@ public abstract class Tadpole extends ShaveObject{
 			Read.FIX_HEADER=false;
 			outstream.println("fixindels: bounded worker-local single-edit correction; maxedits="+localEditMax+
 				", profile-stride="+localEditStride+", pair-lookahead="+localEditPairs+".");
+			if(localEditNeuralNet!=null){outstream.println("fixindelsnet: frozen neural veto enabled after unique full-context verification.");}
+			if(localEditNeuralHighNet!=null){outstream.println("fixindelshighnet: original-read P50 high-depth routing enabled.");}
 			if(localEditBatch){outstream.println("fixindelsbatch: original-coordinate local regions, one final read rebuild; max-region-bases="+localEditPatchMax+".");}
 		}
 
@@ -1199,7 +1301,8 @@ public abstract class Tadpole extends ShaveObject{
 			if(localEdit){
 				outstream.println("LOCAL_EDIT reads_changed="+localEditReadsChanged+" substitutions="+localEditSubstitutions+
 					" insertions="+localEditInsertions+" deletions="+localEditDeletions+" cap_hits="+localEditCapHits+
-					" pair_lookups="+localEditPairQueries);
+					" pair_lookups="+localEditPairQueries+" neural_evaluations="+localEditNeuralEvaluations+
+					" neural_accepted="+localEditNeuralAccepted+" neural_rejected="+localEditNeuralRejected);
 				outstream.println("FIXINDELS_GUARD initial_skipped="+localEditInitialSkipped+" rolled_back="+localEditRolledBack);
 				if(localEditBatch){outstream.println("FIXINDELS_BATCH selected_regions="+localEditRegions+" edge_deferred="+localEditEdges+
 					" size_deferred="+localEditSizes+" boundary_rejected="+localEditBoundaries+" final_rejected="+localEditFinalRejected);}
@@ -2563,6 +2666,9 @@ public abstract class Tadpole extends ShaveObject{
 			localEditCapHits+=pt.localEditCapHitsT;
 			localEditPairQueries+=pt.localEditPairQueriesT;
 			localEditInitialSkipped+=pt.localEditInitialSkippedT;localEditRolledBack+=pt.localEditRolledBackT;
+			localEditNeuralEvaluations+=pt.localEditNeuralEvaluationsT;
+			localEditNeuralAccepted+=pt.localEditNeuralAcceptedT;
+			localEditNeuralRejected+=pt.localEditNeuralRejectedT;
 			localEditRegions+=pt.localEditRegionsT;localEditEdges+=pt.localEditEdgesT;localEditSizes+=pt.localEditSizesT;
 			localEditBoundaries+=pt.localEditBoundariesT;localEditFinalRejected+=pt.localEditFinalRejectedT;
 			readsCorrected+=pt.readsCorrectedT;
@@ -3093,6 +3199,9 @@ public abstract class Tadpole extends ShaveObject{
 			localEditDeletionsT=localEditEngine.deletions;localEditReadsChangedT=localEditEngine.changedReads;
 			localEditCapHitsT=localEditEngine.cappedReads;localEditPairQueriesT=localEditEngine.pairQueries;
 			localEditInitialSkippedT=localEditEngine.initialSkippedReads;localEditRolledBackT=localEditEngine.rolledBackReads;
+			localEditNeuralEvaluationsT=localEditEngine.neuralEvaluations;
+			localEditNeuralAcceptedT=localEditEngine.neuralAcceptedLoci;
+			localEditNeuralRejectedT=localEditEngine.neuralRejectedLoci;
 		}
 
 		/** Indel-only opt-in phase; collect against original arrays before any splice.
@@ -3174,7 +3283,9 @@ public abstract class Tadpole extends ShaveObject{
 		private final LocalEditEngine localEditEngine=localEdit && !localEditBatch ? new LocalEditEngine(kbig,
 			new LocalEditEngine.CountLookup(){
 				@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}
-			},1,true,localEditStride) : null;
+			}, 1, true, localEditStride,
+				localEditNeuralNet==null ? null : localEditNeuralNet.copy(false), localEditNeuralCutoff,
+				localEditNeuralHighNet==null ? null : localEditNeuralHighNet.copy(false), localEditNeuralHighCutoff) : null;
 		private final HomopolymerIndelProposal.CountLookup localEditBatchCounts=localEditBatch ?
 			new HomopolymerIndelProposal.CountLookup(){@Override public int count(final Kmer key){return Tadpole.this.bridgeCount(key);}} : null;
 		private final LocalEditPatchRegions localEditRegionsWorker=localEditBatch ? new LocalEditPatchRegions(kbig,localEditBatchCounts,1,true,1,localEditPatchMax) : null;
@@ -3182,6 +3293,7 @@ public abstract class Tadpole extends ShaveObject{
 		long localEditReadsChangedT=0, localEditSubstitutionsT=0, localEditInsertionsT=0, localEditDeletionsT=0;
 		long localEditCapHitsT=0, localEditPairQueriesT=0;
 		long localEditInitialSkippedT=0,localEditRolledBackT=0;
+		long localEditNeuralEvaluationsT=0, localEditNeuralAcceptedT=0, localEditNeuralRejectedT=0;
 		long localEditRegionsT=0,localEditEdgesT=0,localEditSizesT=0,localEditBoundariesT=0,localEditFinalRejectedT=0;
 		
 		long readsInT=0;
@@ -3972,14 +4084,15 @@ public abstract class Tadpole extends ShaveObject{
 	/** Adds the resolved compact-table selection to the table-loader arguments. */
 	final String[] tableArgs(final String[] originalArgs){
 		assert(originalArgs!=null) : "Tadpole1/2 must pass their constructor arguments to the table loader.";
+		final String[] expandedArgs=expandConfigArgs(originalArgs);
 		final String[] args;
 		if(localEdit){
 			//KmerTableSet/U reparses quality/header flags after this superclass constructor.
 			//Keep the correction policy authoritative for both count loading and read output.
-			args=Arrays.copyOf(originalArgs,originalArgs.length+2);
-			args[originalArgs.length]="changequality=f";
-			args[originalArgs.length+1]="fixheader=f";
-		}else{args=originalArgs;}
+			args=Arrays.copyOf(expandedArgs, expandedArgs.length+2);
+			args[expandedArgs.length]="changequality=f";
+			args[expandedArgs.length+1]="fixheader=f";
+		}else{args=expandedArgs;}
 		//TODO: Probable bug - outstream=file survives into KmerTableSet/U's PreParser after Tadpole's PreParser opened it; the second FileOutputStream can truncate/interleave logs. Separate from config dispatch; do not reopen streams during expansion.
 		if(hashKmerMode<1){
 			if(!hashKmerModeSpecified){return args;}
@@ -4270,6 +4383,7 @@ public abstract class Tadpole extends ShaveObject{
 	long localEditReadsChanged=0, localEditSubstitutions=0, localEditInsertions=0, localEditDeletions=0;
 	long localEditCapHits=0, localEditPairQueries=0;
 	long localEditInitialSkipped=0,localEditRolledBack=0;
+	long localEditNeuralEvaluations=0, localEditNeuralAccepted=0, localEditNeuralRejected=0;
 	long localEditRegions=0,localEditEdges=0,localEditSizes=0,localEditBoundaries=0,localEditFinalRejected=0;
 	long readsExtended=0;
 	long readsCorrected=0;
@@ -4498,6 +4612,10 @@ public abstract class Tadpole extends ShaveObject{
 	/** Opt-in dense local transactions; existing sequential defaults remain unchanged. */
 	final boolean localEditBatch;
 	final int localEditPatchMax;
+	final CellNet localEditNeuralNet;
+	final float localEditNeuralCutoff;
+	final CellNet localEditNeuralHighNet;
+	final float localEditNeuralHighCutoff;
 	
 	/** Correct via overlap */
 	final boolean ecco;

@@ -3,7 +3,7 @@
 usage(){
 echo "
 Written by Brian Bushnell
-Last modified August 30, 2026
+Last modified September 30, 2026
 
 Description:  Uses kmer counts to assemble contigs, extend sequences,
 or error-correct reads.  Tadpole has no upper bound for kmer length.
@@ -20,6 +20,7 @@ Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
 Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
+PacBio HiFi:  tadpole.sh in=<reads> out=<corrected> k=62 ecc pacbio
 
 Multi-K shorthand assembles at the longest K, joins unique reciprocal exact
 tip overlaps at each shorter K, and uses each shorter read table to bridge
@@ -262,12 +263,25 @@ extendrollback=3    Trim a random number of bases, up to this many, on reads
                     of sharp coverage discontinuities at branches.
 
 General single-base correction (default off):
+pacbio=f          Enables indel repair and PacBio-trained neural networks.
+                    For unpaired PacBio HiFi FASTA/FASTQ reads. Sets fixindels=t,
+                    k=62, ecc=f, minprob=0 and the bundled LOW/HIGH models.
+                    Selects correct mode if mode is omitted. With pacbio, ecc
+                    requests this repair path, not the legacy substitution pass.
+                    Uses LOW cutoff 0.93 at original-read median kmer depth <=30,
+                    HIGH cutoff 0.96 above 30. Routing uses read depth, not the
+                    nominal coverage of the dataset. Models only veto otherwise
+                    accepted corrections; they do not bypass heuristic checks.
+                    Explicit options override preset defaults in either order.
+                    Bare pacbio means pacbio=t; pacbio=f leaves defaults unchanged.
+                    Incompatible options (e.g. k!=62, pair/batch modes)
+                    cause an error; they are not silently ignored.
 fixindels=f        Correct substitutions and 1bp insertions/deletions using kmer
                     support; not restricted to homopolymers. Selects a separate
                     conservative algorithm, not indel-only correction.
                     Unpaired, alignment-free FASTA/FASTQ reads only.
                     Requires k>=5 and correct mode (selected if mode is omitted).
-                    Incompatible with ecc/ecco/merge/markerrors/hpindel, extension,
+                    Incompatible with legacy ecc/ecco/merge/markerrors/hpindel, extension,
                     or base marking. Uses one centered candidate probe window,
                     then verifies all affected kmers against the unchanged table.
                     With qualities present, inserted/substituted bases get Q0;
@@ -304,8 +318,28 @@ fixindelsbatch=f   Experimental local-region correction with one final read rebu
                     Tadpole only. Existing sequential mode remains the default.
 fixindelspatchmax=4096 Maximum region size in bases, including context, for batch
                     mode. Must be >=2*K+5. Oversized regions are withheld, not split.
+fixindelsnet=<file> Neural veto after unique full-context verification. Used for
+                    all reads without a HIGH model, otherwise for median depth<=30.
+                    Requires fixindels=t, k=62, fixindelspairs=f, fixindelsbatch=f.
+fixindelssha80=<20hex> Expected model checksum: last 20 lowercase SHA-256 hex digits.
+fixindelscutoff=<0..1> Minimum accepted LOW score (0.93 with pacbio).
+fixindelshighnet=<file> Optional HIGH model for original-read median depth>30.
+                    Requires a LOW model; both must have 39 inputs and 1 output.
+fixindelshighsha80=<20hex> Expected HIGH model checksum, in the same format.
+fixindelshighcutoff=<0..1> Minimum accepted HIGH score (0.96 with pacbio).
+                    Without pacbio, supply path, checksum and cutoff together for
+                    each model. With pacbio, bundled models need no path/hash;
+                    custom replacements require matching path and checksum.
+                    Missing features or scores below cutoff leave edits unapplied.
+                    Missing models, checksum/dimension mismatches and invalid
+                    cutoffs are errors. Neural correction remains off by default.
 Example of general single-base correction:
 tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t ecc=f minprob=0
+
+Example using the bundled PacBio HiFi models:
+tadpole.sh in=reads.fq.gz out=fixed.fq.gz k=62 ecc pacbio
+Example overriding the LOW/HIGH cutoffs:
+tadpole.sh in=reads.fq.gz out=fixed.fq.gz k=62 ecc pacbio fixindelscutoff=0.93 fixindelshighcutoff=0.96
 
 Example of local-region correction for long reads (explicit 64-edit budget):
 tadpole.sh in=reads.fq out=fixed.fq k=62 fixindels=t fixindelsbatch=t fixindelsstride=1 fixindelsmax=64 ecc=f minprob=0
@@ -331,6 +365,7 @@ hpcompeting=f       Experimental: veto HP insertions when a non-run base inserte
                     Experimental: rare true alleles can be changed.
 Standard substitution correction and error marking:
 ecc=f               Error correct via kmer counts.
+                    With pacbio, uses NN-gated indel repair instead of legacy ecc.
 markerrors=f        Mark bounded low-count kmer runs as N instead of correcting.
                     Requires two high-depth kmers on both sides; exact K and K-1
                     runs are marked, while end/merged runs are reported and skipped.
