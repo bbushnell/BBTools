@@ -44,7 +44,7 @@ import align2.BBSplitter.SetCount;
  * preparation and classic BBSplitter remain unchanged.
  * @author Brian Bushnell, Collei
  */
-public final class BBMapSplitterS {
+public final class BBMapSplitterS{
 	/** Prepare named reference sets with the classic parser, then map through BBMapS. */
 	public static void main(String[] args){
 		assert(args!=null) : "BBMapSplitterS requires a command-line argument array.";
@@ -64,52 +64,87 @@ public final class BBMapSplitterS {
 		BBMapS.main(mapperArgs);
 	}
 
+	/**
+	 * Starts named output writers after validating unique set names and nonempty paths.
+	 * Returns null when no output arguments are present. On setup failure, aborts
+	 * every writer returned by the factory and restores the previous SAM-output flag.
+	 * The caller owns successful writers and must finish or abort them. OUTPUT_READS
+	 * is retained for signature compatibility; the caller decides whether to invoke
+	 * this method. Ordered list IDs are shared across destinations, including empty batches.
+	 */
 	public static synchronized HashMap<String, Writer> makeOutputStreams(String[] args, boolean OUTPUT_READS, boolean OUTPUT_ORDERED_READS,
 			int buff, boolean paired, boolean overwrite_, boolean append_, boolean ambiguous){
-//		assert(false) : Arrays.toString(args);
-		HashMap<String, Writer> table=new HashMap<String, Writer>();
+		// Validate names before any writer can open/truncate an output.
+		final HashSet<String> names=new HashSet<String>();
 		for(String arg : args){
-			String[] split=arg.split("=");
-			String a=split[0];
-			String b=split.length>1 ? split[1] : null;
-			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
-//			assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
-			
-			if(arg.indexOf('=')>0 && a.toLowerCase().startsWith("out_")){
-				assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
-				String name=a.substring(4).replace('\\', '/');
-				
-				final String fname1, fname2;
-				
-				if(ambiguous){
-					if(b.indexOf('/')>=0){
-						int x=b.lastIndexOf('/');
-						b=b.substring(0, x+1)+"AMBIGUOUS_"+b.substring(x+1);
-					}else{
-						b="AMBIGUOUS_"+b;
-					}
+			final int equals=arg.indexOf('=');
+			if(equals>0 && arg.substring(0, equals).toLowerCase().startsWith("out_")){
+				final String name=arg.substring(4, equals).replace('\\', '/');
+				final String value=arg.substring(equals+1);
+				if(value.isEmpty() || value.equalsIgnoreCase("null")){
+					throw new IllegalArgumentException("Missing splitter output path: "+arg);
 				}
-				
-				if(!FileFormat.hasSamOrBamExtension(b) && ReadWrite.stripExtension(b).contains("#")){
-					fname1=b.replace('#', '1');
-					fname2=b.replace('#', '2');
-				}else{
-					fname1=b;
-					fname2=null;
-				}
-//				assert(false) : fname1;
-//				assert(!ambiguous) : fname1+", "+fname2+", "+b+", "+ambiguous;
-
-				FileFormat ff1=FileFormat.testOutput(fname1, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS);
-				FileFormat ff2=paired ? FileFormat.testOutput(fname2, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS) : null;
-				Writer ros=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, Shared.threads());
-				ros.start();
-//				Data.sysout.println("Started output stream:\t"+t);
-				table.put(name, ros);
-				AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
+				if(!names.add(name)){throw new IllegalArgumentException("Duplicate splitter output name: "+name);}
 			}
 		}
-		return table.isEmpty() ? null : table;
+		final boolean previousSam=AbstractMapThread.OUTPUT_SAM;
+		//TODO: Probable bug - distinct set names can still resolve to the same output path.
+		//WriterFactory must own cleanup for resources created internally before it returns a Writer.
+		HashMap<String, Writer> table=new HashMap<String, Writer>();
+		Writer pending=null;
+		try{
+			for(String arg : args){
+				String[] split=arg.split("=", 2);
+				String a=split[0];
+				String b=split.length>1 ? split[1] : null;
+				if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+
+				if(arg.indexOf('=')>0 && a.toLowerCase().startsWith("out_")){
+					assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
+					String name=a.substring(4).replace('\\', '/');
+
+					final String fname1, fname2;
+
+					if(ambiguous){
+						if(b.indexOf('/')>=0){
+							int x=b.lastIndexOf('/');
+							b=b.substring(0, x+1)+"AMBIGUOUS_"+b.substring(x+1);
+						}else{
+							b="AMBIGUOUS_"+b;
+						}
+					}
+
+					if(!FileFormat.hasSamOrBamExtension(b) && ReadWrite.stripExtension(b).contains("#")){
+						fname1=b.replace('#', '1');
+						fname2=b.replace('#', '2');
+					}else{
+						fname1=b;
+						fname2=null;
+					}
+
+					FileFormat ff1=FileFormat.testOutput(fname1, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS);
+					FileFormat ff2=paired ? FileFormat.testOutput(fname2, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS) : null;
+					Writer ros=WriterFactory.getStream(ff1, ff2, null, null, buff, null, false, Shared.threads());
+					pending=ros;
+					ros.start();
+					table.put(name, ros);
+					pending=null;
+					AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
+				}
+			}
+			return table.isEmpty() ? null : table;
+		}catch(RuntimeException | Error failure){
+			AbstractMapThread.OUTPUT_SAM=previousSam;
+			if(pending!=null){abortSetupWriter(pending, failure);}
+			for(Writer writer : table.values()){abortSetupWriter(writer, failure);}
+			throw failure;
+		}
+	}
+
+	/** Abandons setup-owned queues without waiting for ordered data that will never arrive. */
+	private static void abortSetupWriter(Writer writer, Throwable failure){
+		try{writer.finishError();}
+		catch(RuntimeException | Error cleanup){if(cleanup!=failure){failure.addSuppressed(cleanup);}}
 	}
 	/**
 	 * @param readlist List of reads to print
@@ -128,7 +163,7 @@ public final class BBMapSplitterS {
 			splitTable=new HashMap<String, ArrayList<Read>>();
 			clear=false;
 		}
-		
+
 		if(!readlist.isEmpty()){
 			HashSet<String> set=new HashSet<String>(8);
 			for(Read r : readlist){
@@ -147,7 +182,7 @@ public final class BBMapSplitterS {
 				}
 			}
 		}
-		
+
 		for(String s : streamTable.keySet()){
 			ArrayList<Read> alr=splitTable.get(s);
 			if(alr==null){alr=blank;}
@@ -156,7 +191,6 @@ public final class BBMapSplitterS {
 		}
 		if(clear){splitTable.clear();}
 	}
-	
 
 	/**
 	 * @param readlist List of reads to print
@@ -177,7 +211,7 @@ public final class BBMapSplitterS {
 			splitTableA=new HashMap<String, ArrayList<Read>>();
 			clearA=false;
 		}
-		
+
 		final HashSet<String> hss0, hss1, hss2, hss3, hsspr, hssam;
 		final HashSet<String>[] hssa;
 		if(TRACK_SET_STATS || streamTable!=null){
@@ -187,21 +221,20 @@ public final class BBMapSplitterS {
 			hss3=new HashSet<String>(16);
 			hsspr=new HashSet<String>(16);
 			hssam=new HashSet<String>(16);
-			hssa=(HashSet<String>[])new HashSet[] {hss0, hss1, hss2, hss3};
+			hssa=(HashSet<String>[])new HashSet[]{hss0, hss1, hss2, hss3};
 		}else if(TRACK_SCAF_STATS){
 			hss0=new HashSet<String>(16);
 			hss1=null; hss2=null; hss3=null; hsspr=null; hssam=null; hssa=null;
 		}else{
 			hss0=null; hss1=null; hss2=null; hss3=null; hsspr=null; hssam=null; hssa=null;
 		}
-		
+
 		for(final Read r1 : readlist){
-//			System.out.println("\nProcessing read "+r1.numericID);
 			final Read r2=r1==null ? null : r1.mate;
-			
+
 			if(r1!=null){addToScafCounts(r1, clearzone, hss0);} //Scafstats for read 1
 			if(r2!=null){addToScafCounts(r2, clearzone, hss0);} //Scafstats for read 2
-			
+
 			if(r1!=null){
 
 				final HashSet<String>[] sets=(TRACK_SET_STATS || streamTable!=null) ? getSets(r1, clearzone, hssa) : null;
@@ -210,19 +243,11 @@ public final class BBMapSplitterS {
 					final HashSet<String> p1=(sets[0].isEmpty() ? null : sets[0]), s1=(sets[1].isEmpty() ? null : sets[1]),
 							p2=(sets[2].isEmpty() ? null : sets[2]), s2=(sets[3].isEmpty() ? null : sets[3]);
 					assert(sets==hssa);
-//					assert(p1!=null);
-//					assert(s1!=null);
-//					assert(p2!=null);
-//					assert(s2!=null);
 
 					if(p1!=null && p2!=null && !p1.equals(p2)){ambiguous=true;}
 					else if(p1!=null && s1!=null && !p1.containsAll(s1)){ambiguous=true;}
 					else if(p2!=null && s2!=null && !p2.containsAll(s2)){ambiguous=true;}
 
-//					System.out.println("\nambiguous="+ambiguous);
-//					System.out.println(p1);
-//					System.out.println(s1);
-					
 					HashSet<String> primarySet=hsspr, ambigSet=hssam;
 					primarySet.clear();
 					ambigSet.clear();
@@ -236,7 +261,6 @@ public final class BBMapSplitterS {
 						if(p1!=null){primarySet.addAll(p1);}
 						if(p2!=null){primarySet.addAll(p2);}
 					}
-					
 
 					if(ambiguous){
 						if(AMBIGUOUS2_MODE==AMBIGUOUS2_SPLIT){
@@ -254,7 +278,7 @@ public final class BBMapSplitterS {
 							primarySet=null;
 						}
 					}
-					
+
 					if(primarySet!=null && splitTable!=null){
 						for(String s : primarySet){
 							ArrayList<Read> alr=splitTable.get(s);
@@ -276,9 +300,9 @@ public final class BBMapSplitterS {
 							alr.add(r1);
 						}
 					}
-					
+
 					if(setCountTable!=null){
-						
+
 						primarySet=hsspr;
 						primarySet.clear();
 						if(p1!=null){primarySet.addAll(p1);}
@@ -287,7 +311,6 @@ public final class BBMapSplitterS {
 							if(s1!=null){primarySet.addAll(s1);}
 							if(s2!=null){primarySet.addAll(s2);}
 						}
-						//	System.out.println(primarySet);
 						final int incrR=r1.pairCount();
 						final int incrB=r1.pairLength();
 
@@ -297,7 +320,6 @@ public final class BBMapSplitterS {
 							assert(sc!=null) : s;
 							if(ambiguous){
 								synchronized(sc){
-									//										System.out.println("Incrementing set "+sc);
 									sc.ambiguousReads+=incrR;
 									sc.ambiguousBases+=incrB;
 									if(num==0){
@@ -307,7 +329,6 @@ public final class BBMapSplitterS {
 								}
 							}else{
 								synchronized(sc){
-									//										System.out.println("Incrementing set "+sc);
 									sc.mappedReads+=incrR;
 									sc.mappedBases+=incrB;
 									if(num==0){
@@ -325,10 +346,7 @@ public final class BBMapSplitterS {
 		}
 		if(streamTable!=null){
 			for(String s : streamTable.keySet()){
-//				System.err.println("Searching for "+s+" in "+splitTable.keySet());
-//				System.err.println(splitTable.containsKey(s));
 				ArrayList<Read> alr=splitTable.get(s);
-//				System.err.println("Adding alr "+alr+"\n");
 				if(alr==null){alr=blank;}
 				Writer tros=streamTable.get(s);
 				tros.add(alr, listID);
@@ -345,7 +363,7 @@ public final class BBMapSplitterS {
 		if(clear){splitTable.clear();}
 		if(clearA){splitTableA.clear();}
 	}
-	
+
 	/**
 	 * Updates scaffold-level read count statistics.
 	 * Counts mapped, ambiguous, and assigned reads per scaffold.
@@ -367,8 +385,7 @@ public final class BBMapSplitterS {
 
 				int incrRS=1+(r.mate!=null && !r.mateMapped() ? 1 : 0);
 				int incrBS=r.length()+(r.mate!=null && !r.mateMapped() ? r.mateLength() : 0);
-				
-				
+
 				if(r.ambiguous()){
 					incrRA+=1;
 					incrBA+=r.length();
@@ -384,11 +401,7 @@ public final class BBMapSplitterS {
 				for(String s : set){
 					SetCount sc=scafCountTable.get(s);
 					assert(sc!=null) : "Can't find "+s+"\nin\n"+scafCountTable.keySet()+"\n";
-
-//					System.out.println(sc);
-//					System.out.println("+ "+incrRM+", "+incrRA+", "+incrBM+", "+incrBA);
 					synchronized(sc){
-						//							System.out.println("Incrementing scaf "+sc);
 						sc.mappedReads+=incrRM;
 						sc.mappedBases+=incrBM;
 						sc.ambiguousReads+=incrRA;
@@ -398,9 +411,6 @@ public final class BBMapSplitterS {
 							sc.assignedBases+=incrBS;
 						}
 					}
-//					System.out.println(sc);
-//					System.out.println();
-//					assert(false) : "\n"+incrRM+", "+incrRA+", "+incrBM+", "+incrBA+"\n"+set;
 					num++;
 				}
 				set.clear();
@@ -410,6 +420,9 @@ public final class BBMapSplitterS {
 	/**
 	 * Creates a shell script for converting SAM files to sorted, indexed BAM files.
 	 * Generates samtools commands for each SAM/BAM file in the output streams.
+	 * Filenames are literal shell arguments. The generated Bash script stops on
+	 * failed commands/pipelines, preventing indexing after a failed conversion/sort.
+	 * A script-write failure propagates; this method does not execute samtools.
 	 *
 	 * @param outname Output script file name
 	 * @param list Additional SAM/BAM files to include
@@ -441,11 +454,12 @@ public final class BBMapSplitterS {
 		}
 		TextStreamWriter tsw=new TextStreamWriter(outname, overwrite, append, false);
 		tsw.start();
-		
+
 		String memstring=null;
 		if(set.size()>0){
 			tsw.println("#!/bin/bash");
-			
+			tsw.println("set -euo pipefail");
+
 			long mem=Runtime.getRuntime().maxMemory()/3400000;
 			mem=Tools.min(100000, mem);
 			if(mem<2048){memstring=mem+"M";}
@@ -455,7 +469,7 @@ public final class BBMapSplitterS {
 			tsw.println("echo \"      If Samtools crashes, please ensure you are running on the same platform as BBMap,\"");
 			tsw.println("echo \"      or reduce Samtools' memory setting (the -m flag).\"");
 		}
-		
+
 		for(String sam : set){
 			String bam;
 			if(sam.endsWith(".sam.gz")){bam=sam.substring(0, sam.length()-6)+"bam";}
@@ -463,36 +477,36 @@ public final class BBMapSplitterS {
 			else{bam=sam;} //Hopefully, they must have outputted a bam file using samtools.
 			String bam2=bam.substring(0, bam.length()-4)+"_sorted";
 			String bam3=bam2+".bam";
-			
+
 			if(Data.SAMTOOLS() && !Data.SAMTOOLS_VERSION_1x){
-				//do nothing
+				bam2=shellQuote(bam2);
 			}else{
-				bam2="-o "+bam2+".bam";
+				bam2="-o "+shellQuote(bam3);
 			}
-			
+
 			boolean pipe=true;
 			if(pipe && sam!=bam){
-//				if(Data.SAMTOOLS() && !Data.SAMTOOLS_VERSION_1x){
-					tsw.println("echo \"Note: Please ignore any warnings about 'EOF marker is absent'; " +
+				tsw.println("echo \"Note: Please ignore any warnings about 'EOF marker is absent'; " +
 							"this is a bug in samtools that occurs when using piped input.\"");
-//				}
-				tsw.println("samtools view -bShu "+sam+" | samtools sort -m "+memstring+" -@ 3 - "+bam2);
+				tsw.println("samtools view -bShu "+shellQuote(sam)+" | samtools sort -m "+memstring+" -@ 3 - "+bam2);
 			}else{
-				if(sam!=bam){tsw.println("samtools view -bSh1 -o "+bam+" "+sam);}
-				tsw.println("samtools sort -m "+memstring+" -@ 3 "+bam+" "+bam2);
+				if(sam!=bam){tsw.println("samtools view -bSh1 -o "+shellQuote(bam)+" "+shellQuote(sam));}
+				tsw.println("samtools sort -m "+memstring+" -@ 3 "+shellQuote(bam)+" "+bam2);
 			}
-			
-			tsw.println("samtools index "+bam3);
+
+			tsw.println("samtools index "+shellQuote(bam3));
 		}
-		tsw.poisonAndWait();
-		
-		try {
+		if(tsw.poisonAndWait()){throw new RuntimeException("Failed to write BAM conversion script: "+outname);}
+
+		try{
 			File f=new File(outname);
 			f.setExecutable(true, false);
-		} catch (Exception e) {
-//			e.printStackTrace();
+		}catch(Exception e){
 		}
 	}
+
+	/** Emits one literal Bash argument, including apostrophes and expansion metacharacters. */
+	private static String shellQuote(String value){return "'"+value.replace("'", "'\"'\"'")+"'";}
 
 	private static final ArrayList<Read> blank=new ArrayList<Read>(0);
 	public static HashMap<String, Writer> streamTable=null;

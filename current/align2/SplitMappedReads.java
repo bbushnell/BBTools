@@ -16,62 +16,83 @@ import stream.SiteScore;
 import structures.ListNum;
 
 /**
- * Splits mapped reads by chromosome into separate output files.
- * Organizes reads into single and paired categories per chromosome for downstream processing.
- * Creates buffered output streams for efficient writing of large read datasets.
+ * Splits legacy native-text reads by chromosome, read side and paired flag.
+ * This is a legacy RTextInputStream utility, not BBMapS's Streamer/Writer splitter
+ * and not a SAM/FASTQ converter. Records outside the selected chromosome range
+ * are discarded; top-site coordinates are used when chrom is missing. Routing
+ * follows each read's paired flag, not merely the presence of a mate.
+ * The output pattern must contain #, replaced with category/side/chromosome.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class SplitMappedReads {
-	
-	
+public class SplitMappedReads{
+
 	/**
 	 * Program entry point for splitting mapped reads by chromosome.
 	 * Parses command line arguments for input files, output prefix, and chromosome range.
 	 * @param args Command line arguments: [reads1] [reads2] [outname] [minChrom] [maxChrom]
 	 */
 	public static void main(String[] args){
+		if(args.length<3){throw new IllegalArgumentException("Expected reads1 reads2-or-null output-with-# [minChrom [maxChrom]]");}
 
 		String reads1=args[0];
 		String reads2=args[1].equalsIgnoreCase("null") ?  null : args[1];
 		String outname=args[2].equalsIgnoreCase("null") ?  "" : args[2];
-		
+
 		int minChrom=1;
 		int maxChrom=25;
 		if(args.length>3){
-			minChrom=maxChrom=Byte.parseByte(args[3]);
+			minChrom=maxChrom=Integer.parseInt(args[3]);
 			if(args.length>4){
-				maxChrom=Byte.parseByte(args[4]);
+				maxChrom=Integer.parseInt(args[4]);
 			}
 		}
-		assert(minChrom<=maxChrom && minChrom>=0);
-		
+
 		SplitMappedReads smr=new SplitMappedReads(reads1, reads2, outname, minChrom, maxChrom);
 		smr.process();
-		
+
 	}
-	
+
 	public SplitMappedReads(String fname1, String fname2, String outname_, int minChrom, int maxChrom){
-		this(new RTextInputStream(fname1, fname2, -1), outname_, minChrom, maxChrom);
-		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
+		this(openInput(fname1, fname2, outname_, minChrom, maxChrom), outname_, minChrom, maxChrom);
 	}
-	
+
+	/** Validates the destination before opening input resources. */
+	private static RTextInputStream openInput(String fname1, String fname2, String outname, int minChrom, int maxChrom){
+		validateOutput(outname, minChrom, maxChrom);
+		if(fname1==null || fname1.equals(fname2)){throw new IllegalArgumentException("First input is required; a supplied mate path must differ: "+fname1+", "+fname2);}
+		return new RTextInputStream(fname1, fname2, -1);
+	}
+
+	/** Prevents multiple category/chromosome streams from truncating the same destination. */
+	private static void validateOutput(String outname, int minChrom, int maxChrom){
+		if(outname==null || !outname.contains("#")){
+			throw new IllegalArgumentException("Output pattern must contain # for distinct category/chromosome files: "+outname);
+		}
+		if(minChrom<0 || maxChrom<minChrom || maxChrom==Integer.MAX_VALUE){
+			throw new IllegalArgumentException("Invalid chromosome range for maxChrom+1 output arrays: "+minChrom+".."+maxChrom);
+		}
+	}
+
 	/**
 	 * Constructor that creates a SplitMappedReads instance from an input stream.
 	 * Sets up output arrays and buffers for each chromosome in the specified range.
 	 *
 	 * @param stream_ Input stream containing mapped reads
-	 * @param outname_ Output file prefix pattern (should contain '#' for chromosome substitution)
+	 * Invalid output arguments leave the caller-supplied input stream owned by its caller.
+	 * @param outname_ Output file pattern containing '#' for category/chromosome substitution
 	 * @param minChrom Minimum chromosome number to process
 	 * @param maxChrom Maximum chromosome number to process
 	 */
 	public SplitMappedReads(RTextInputStream stream_, String outname_, int minChrom, int maxChrom){
+		validateOutput(outname_, minChrom, maxChrom);
+		//TODO: Probable bug - a later output-open failure can leak previously opened outputs and input.
+		//Constructor rollback and checking output/input path aliasing remain unimplemented.
 		stream=stream_;
 		outname=outname_;
 		paired=stream.paired();
-//		assert(outname.contains("#")) : "Output file name must contain the character '#' to be used for chromosome number.";
-		
+
 		MIN_CHROM=minChrom;
 		MAX_CHROM=maxChrom;
 		assert(MIN_CHROM>=0);
@@ -87,7 +108,7 @@ public class SplitMappedReads {
 			printArraySingle1[i].println("#Chromosome "+i+" Read 1 Singletons");
 			printArraySingle1[i].println("#"+Read.header());
 		}
-		
+
 		if(!paired){
 			outArraySingle2=null;
 			printArraySingle2=null;
@@ -99,7 +120,7 @@ public class SplitMappedReads {
 			printArrayPaired2=null;
 			bufferArrayPaired2=null;
 		}else{
-			
+
 			outArraySingle2=new OutputStream[maxChrom+1];
 			printArraySingle2=new PrintWriter[maxChrom+1];
 			bufferArraySingle2=new ArrayList[maxChrom+1];
@@ -110,7 +131,7 @@ public class SplitMappedReads {
 				printArraySingle2[i].println("#Chromosome "+i+" Read 2 Singletons");
 				printArraySingle2[i].println("#"+Read.header());
 			}
-			
+
 			outArrayPaired1=new OutputStream[maxChrom+1];
 			printArrayPaired1=new PrintWriter[maxChrom+1];
 			bufferArrayPaired1=new ArrayList[maxChrom+1];
@@ -121,7 +142,7 @@ public class SplitMappedReads {
 				printArrayPaired1[i].println("#Chromosome "+i+" Read 1 Paired");
 				printArrayPaired1[i].println("#"+Read.header());
 			}
-			
+
 			outArrayPaired2=new OutputStream[maxChrom+1];
 			printArrayPaired2=new PrintWriter[maxChrom+1];
 			bufferArrayPaired2=new ArrayList[maxChrom+1];
@@ -132,26 +153,27 @@ public class SplitMappedReads {
 				printArrayPaired2[i].println("#Chromosome "+i+" Read 2 Paired");
 				printArrayPaired2[i].println("#"+Read.header());
 			}
-			
+
 		}
-		
+
 		cris=(USE_CRIS ? new ConcurrentLegacyReadInputStream(stream, -1) : null);
 	}
-	
+
 	/**
 	 * Main processing method that reads and splits mapped reads by chromosome.
 	 * Uses either concurrent or standard input streaming based on USE_CRIS setting.
 	 * Times the entire operation and outputs processing duration.
 	 */
 	public void process(){
-		
+		//TODO: Probable bug - exceptions during reading/routing bypass finish(); exceptional cleanup needs a finally path.
+
 		Timer t=new Timer();
-		
+
 		if(cris!=null){
 			cris.start();
 			ListNum<Read> ln=cris.nextList();
 			ArrayList<Read> reads=(ln!=null ? ln.list : null);
-			
+
 			while(ln!=null && reads!=null && reads.size()>0){//ln!=null prevents a compiler potential null access warning
 				processReads(reads);
 				cris.returnList(ln);
@@ -166,17 +188,15 @@ public class SplitMappedReads {
 				reads=stream.nextList();
 			}
 		}
-		
+
 		synchronized(this){this.notifyAll();}
-		
+
 		finish();
-		
+
 		t.stop();
 		Data.sysout.println("Time:\t"+t);
 	}
-	
 
-	
 	/**
 	 * Processes a batch of reads by adding them to appropriate chromosome buffers.
 	 * Handles both single reads and paired reads with mates.
@@ -191,7 +211,6 @@ public class SplitMappedReads {
 		}
 	}
 
-	
 	/**
 	 * Adds a single read to the appropriate output buffer based on chromosome and pairing.
 	 * Extracts chromosome information from top alignment site if not already set.
@@ -201,7 +220,7 @@ public class SplitMappedReads {
 	 * @param side Read side indicator (1 for first read, 2 for second read in pair)
 	 */
 	private void addRead(Read r, int side){
-		
+
 		if(r.chrom<1 && r.numSites()>0){
 			SiteScore ss=r.topSite(); //Should not be necessary
 			r.start=ss.start;
@@ -209,18 +228,17 @@ public class SplitMappedReads {
 			r.chrom=ss.chrom;
 			r.setStrand(ss.strand);
 		}
-		
+
 		//Ensure no superfluous data is written
 		r.sites=null;
 		r.originalSite=null;
 		r.samline=null;
-		
-//		System.err.println("Adding to chrom "+r.chrom+", side "+side+", paired="+r.paired+", "+(r.list==null ? "null" : r.list.size()));
+
 		if(r.chrom<MIN_CHROM || r.chrom>MAX_CHROM){return;}
-		
+
 		final PrintWriter writer;
 		final ArrayList<Read> list;
-		
+
 		if(side==1){
 			if(r.paired()){
 				writer=printArrayPaired1[r.chrom];
@@ -239,17 +257,16 @@ public class SplitMappedReads {
 				list=bufferArraySingle2[r.chrom];
 			}
 		}
-		
+
 		assert(list.size()<WRITE_BUFFER);
 		list.add(r);
-		
+
 		if(list.size()>=WRITE_BUFFER){
-			writeList((ArrayList<Read>)list.clone(), writer);
+			writeList(list, writer);// Synchronous writing completes before this buffer is cleared.
 			list.clear();
 		}
 	}
-	
-	
+
 	/**
 	 * Writes a list of reads to the specified output stream in text format.
 	 * Uses synchronization to ensure thread-safe writing when multiple threads access same writer.
@@ -263,22 +280,21 @@ public class SplitMappedReads {
 			}
 		}
 	}
-	
-	
+
 	/**
 	 * Completes processing by flushing all buffers and closing output streams.
 	 * Writes any remaining buffered reads, handles ZIP stream finalization,
 	 * and properly closes all input and output resources.
 	 */
 	public void finish(){
+		boolean error=false;
+		IOException cause=null;
 
-		final PrintWriter[][] writers=new PrintWriter[][] {printArraySingle1, printArraySingle2, printArrayPaired1, printArrayPaired2};
-		final OutputStream[][] streams=new OutputStream[][] {outArraySingle1, outArraySingle2, outArrayPaired1, outArrayPaired2};
-		final ArrayList<Read>[][] buffers=new ArrayList[][] {bufferArraySingle1, bufferArraySingle2, bufferArrayPaired1, bufferArrayPaired2};
-		
+		final PrintWriter[][] writers=new PrintWriter[][]{printArraySingle1, printArraySingle2, printArrayPaired1, printArrayPaired2};
+		final OutputStream[][] streams=new OutputStream[][]{outArraySingle1, outArraySingle2, outArrayPaired1, outArrayPaired2};
+		final ArrayList<Read>[][] buffers=new ArrayList[][]{bufferArraySingle1, bufferArraySingle2, bufferArrayPaired1, bufferArrayPaired2};
 
 		for(int x=0; x<buffers.length; x++){
-
 
 			PrintWriter[] printArray=writers[x];
 			ArrayList<Read>[] bufferArray=buffers[x];
@@ -289,82 +305,78 @@ public class SplitMappedReads {
 
 				if(list!=null && !list.isEmpty()){
 					writeList(list, writer);
-					list=null;
+					list.clear();
 				}
 			}
 		}
-		
-		//TODO: Wait for writing to finish, if it is done in threads.
-		
-		
-		for(int x=0; x<writers.length; x++){
 
+		// writeList is synchronous; only the input stream has an optional worker.
+
+		for(int x=0; x<writers.length; x++){
 
 			PrintWriter[] printArray=writers[x];
 			OutputStream[] outArray=streams[x];
-			
+
 			for(int i=0; printArray!=null && i<printArray.length; i++){
 				if(printArray[i]!=null){
 					synchronized(printArray[i]){
 						printArray[i].flush();
+						error|=printArray[i].checkError();
 						if(outArray[i].getClass()==ZipOutputStream.class){
 							ZipOutputStream zos=(ZipOutputStream)outArray[i];
-							try {
+							try{
 								zos.closeEntry();
 								zos.finish();
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
+							}catch(IOException e){
+								error=true;
+								if(cause==null){cause=e;}
 							}
 						}
 						printArray[i].close();
-						try {
+						error|=printArray[i].checkError();
+						try{
 							outArray[i].close();
-						} catch (IOException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
+						}catch(IOException e){
+							error=true;
+							if(cause==null){cause=e;}
 						}
 					}
 				}
 			}
 		}
-		
-//		if(cris!=null){cris.shutdown();}
-//		stream.shutdown();
-		
-		if(cris!=null){ReadWrite.closeStream(cris);}
-		else{stream.close();}
+
+		if(cris!=null){error|=ReadWrite.closeStream(cris);}
+		else{error|=stream.close();}
+		if(error){throw new RuntimeException("SplitMappedReads encountered an I/O failure; split output may be incomplete: "+outname, cause);}
 	}
-	
-	
+
 	public final String outname;
 	private final RTextInputStream stream;
 	private final ConcurrentLegacyReadInputStream cris;
-	
+
 	private final OutputStream[] outArraySingle1;
 	private final PrintWriter[] printArraySingle1;
 	private final ArrayList<Read>[] bufferArraySingle1;
-	
+
 	private final OutputStream[] outArraySingle2;
 	private final PrintWriter[] printArraySingle2;
 	private final ArrayList<Read>[] bufferArraySingle2;
-	
+
 	private final OutputStream[] outArrayPaired1;
 	private final PrintWriter[] printArrayPaired1;
 	private final ArrayList<Read>[] bufferArrayPaired1;
-	
+
 	private final OutputStream[] outArrayPaired2;
 	private final PrintWriter[] printArrayPaired2;
 	private final ArrayList<Read>[] bufferArrayPaired2;
 
 	private final int MIN_CHROM;
 	private final int MAX_CHROM;
-	
+
 	public final boolean paired;
-	
+
 	public static boolean USE_CRIS=true; //Similar speed either way.  "true" may be better with many threads.
-	
+
 	public static final int WRITE_BUFFER=400; //Bigger number uses more memory, for less frequent writes.
-	
-	
+
 }

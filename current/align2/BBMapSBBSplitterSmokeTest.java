@@ -5,10 +5,21 @@ import java.nio.file.Files;
 
 import dna.Data;
 
-/** Exercises BBMapS's real BBSplitterInvoker against two merged references. */
-public final class BBMapSBBSplitterSmokeTest {
+/**
+ * Runs BBMapS on two reference sets using BBSplitter's merged-reference arguments.
+ * Checks only that both named output files exist and are nonempty. A header-only
+ * SAM can satisfy that check; record counts, routing and mapping accuracy require
+ * separate tests. Assertions must be enabled for the output checks.
+ * Run from a private working/index directory: reference preparation and mapping
+ * write files, overwrite is enabled, and the mapper uses four threads. The read
+ * fixture must exercise both reference sets. Use a single-output pattern with %,
+ * without a paired-file # placeholder; this helper checks one file per set.
+ * Mapper and scaffold-prefix settings remain process-global after the run.
+ */
+public final class BBMapSBBSplitterSmokeTest{
 
-	public static void main(String[] args) throws Exception {
+	/** Arguments: first reference, second reference, reads, output pattern, build ID. */
+	public static void main(String[] args) throws Exception{
 		if(args.length!=5){
 			throw new IllegalArgumentException("usage: ref1 ref2 reads output_pattern build");
 		}

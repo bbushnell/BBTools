@@ -1,45 +1,63 @@
 package align2;
 
 /**
- * High-performance binary min-heap implementation for Quad64 objects providing efficient
- * priority queue operations in alignment algorithms. Manages prioritized Quad64 alignment
- * candidates using 1-indexed binary heap with cache-optimized memory layout.
- *
- * Uses traditional heap layout starting at index 1 with efficient parent/child navigation
- * (parent=i/2, left=2i, right=2i+1). Forces even array length for optimal cache line
- * alignment and memory access patterns.
+ * Fixed-array binary min-heap for worker-owned Quad64 hit-list cursors.
+ * Orders by compareTo (site, then column), never equals. Entries must be nonnull,
+ * distinct object references; equal coordinate values in separate objects are
+ * allowed. Poll a cursor before changing its key and reinserting it.
+ * Indexing is 1-based: parent=i/2, children=2i and 2i+1. Even backing length
+ * leaves a sibling slot for the final left child; it does not guarantee cache
+ * alignment. clear retains references for pooled reuse. Not thread-safe.
  *
  * @author Brian Bushnell
  * @date December 19, 2013
  */
-public final class Quad64Heap {
-	
+public final class Quad64Heap{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Constructs a new Quad64Heap with specified maximum capacity.
-	 * Forces even array length for optimal cache line alignment.
+	 * Rounds maxSize+1 to an even backing length, including unused index0.
 	 * @param maxSize Maximum number of elements the heap can contain
+	 * @throws IllegalArgumentException if the backing-array length cannot be represented
 	 */
-	public Quad64Heap(int maxSize){
-		
+	public Quad64Heap(final int maxSize){
+		//One unused slot plus even rounding must fit before allocating the array.
+		if(maxSize<0 || maxSize>Integer.MAX_VALUE-2){
+			throw new IllegalArgumentException("Quad64Heap capacity cannot fit its 1-based, even-length backing array: "+maxSize);
+		}
+
 		int len=maxSize+1;
 		if((len&1)==1){len++;} //Array size is always even.
-		
+
 		CAPACITY=maxSize;
 		array=new Quad64[len];
 //		queue=new PriorityQueue<T>(maxSize);
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Inserts element into heap maintaining min-heap property through percolate-up.
 	 * O(log n) insertion operation.
-	 * @param t The Quad64 element to add to the heap
-	 * @return Always true (heap dynamically manages capacity)
+	 * @param t Nonnull cursor not already present by reference
+	 * @return true after insertion
+	 * @throws IllegalStateException if full; the heap remains unchanged
+	 * @throws NullPointerException if the cursor is null; the heap remains unchanged
 	 */
-	public boolean add(Quad64 t){
+	public boolean add(final Quad64 t){
+		//Reject invalid insertions before changing size or any active cursor.
+		if(t==null){throw new NullPointerException("Quad64Heap requires a nonnull hit-list cursor");}
+		if(size>=CAPACITY){throw new IllegalStateException("Quad64Heap is full: size="+size+", capacity="+CAPACITY);}
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
 //		queue.add(t);
-		assert(size==0 || array[size]!=null);
+		assert(size==0 || array[size]!=null) : "Every active heap slot must contain an index cursor; size="+size;
 		size++;
 		array[size]=t;
 		percDown(size);
@@ -48,7 +66,7 @@ public final class Quad64Heap {
 		//assert(testForDuplicates());
 		return true;
 	}
-	
+
 	/**
 	 * Returns minimum element without removing it from heap.
 	 * O(1) operation accessing root element at index 1.
@@ -66,7 +84,7 @@ public final class Quad64Heap {
 		//assert(testForDuplicates());
 		return array[1];
 	}
-	
+
 	/**
 	 * Removes and returns minimum element from heap. O(log n) removal operation
 	 * with last-element replacement and percolate-down to maintain heap property.
@@ -76,7 +94,7 @@ public final class Quad64Heap {
 		//assert(testForDuplicates());
 //		assert(queue.size()==size);
 		if(size==0){return null;}
-		Quad64 t=array[1];
+		final Quad64 t=array[1];
 //		assert(t==queue.poll());
 		array[1]=array[size];
 		array[size]=null;
@@ -87,7 +105,7 @@ public final class Quad64Heap {
 		//assert(testForDuplicates());
 		return t;
 	}
-	
+
 //	private void percDownRecursive(int loc){
 //		//assert(testForDuplicates());
 //		assert(loc>0);
@@ -120,7 +138,7 @@ public final class Quad64Heap {
 //			}else{return;}
 //		}
 //	}
-	
+
 	/**
 	 * Percolates element upward in heap to maintain min-heap property after insertion.
 	 * Optimized upward percolation using while loop, moving smaller elements toward root.
@@ -137,7 +155,7 @@ public final class Quad64Heap {
 		int next=loc/2;
 		final Quad64 a=array[loc];
 		Quad64 b=array[next];
-		
+
 //		while(loc>1 && (a.site<b.site || (a.site==b.site && a.column<b.column))){
 		while(loc>1 && a.compareTo(b)<0){
 			array[loc]=b;
@@ -145,10 +163,10 @@ public final class Quad64Heap {
 			next=next/2;
 			b=array[next];
 		}
-			
+
 		array[loc]=a;
 	}
-	
+
 	/**
 	 * Percolates element downward in heap to maintain min-heap property after removal.
 	 * Recursively compares with children and swaps with smaller child if needed.
@@ -161,15 +179,16 @@ public final class Quad64Heap {
 		//array[size+1] is the freshly-vacated null.
 		//assert(testForDuplicates());
 		assert(loc>0 && loc<=size) : loc+", "+size;
-		int next1=loc*2;
-		int next2=next1+1;
-		if(next1>size){return;}
-		Quad64 a=array[loc];
-		Quad64 b=array[next1];
-		Quad64 c=array[next2];
-		assert(a!=b);
-		assert(b!=c);
-		assert(b!=null);
+		//Check for a leaf before doubling loc; large valid indices can overflow.
+		if(loc>size/2){return;}
+		final int next1=loc*2;
+		final int next2=next1+1;
+		final Quad64 a=array[loc];
+		final Quad64 b=array[next1];
+		final Quad64 c=array[next2];
+		assert(a!=b) : "BBIndex5 supplies distinct pooled cursors; parent/left alias at "+loc;
+		assert(b!=c) : "BBIndex5 supplies distinct pooled cursors; siblings alias at "+loc;
+		assert(b!=null) : "Active left child must contain a cursor; index="+next1+", size="+size;
 		//assert(testForDuplicates());
 		if(c==null || b.compareTo(c)<1){
 			if(a.compareTo(b)>0){
@@ -189,7 +208,7 @@ public final class Quad64Heap {
 			}
 		}
 	}
-	
+
 	/**
 	 * Iterative alternative to recursive percolate-down operation for performance
 	 * optimization. Provides same functionality as percUp() but uses while loop
@@ -203,17 +222,17 @@ public final class Quad64Heap {
 		final Quad64 a=array[loc];
 		//assert(testForDuplicates());
 
-		int next1=loc*2;
-		int next2=next1+1;
-		
-		while(next1<=size){
-			
-			Quad64 b=array[next1];
-			Quad64 c=array[next2];
-			assert(a!=b);
-			assert(b!=c);
-			assert(b!=null);
-			
+		//Only parents have children; bounding loc first prevents index overflow.
+		while(loc<=size/2){
+			final int next1=loc*2;
+			final int next2=next1+1;
+
+			final Quad64 b=array[next1];
+			final Quad64 c=array[next2];
+			assert(a!=b) : "BBIndex5 supplies distinct pooled cursors; parent/left alias at "+loc;
+			assert(b!=c) : "BBIndex5 supplies distinct pooled cursors; siblings alias at "+loc;
+			assert(b!=null) : "Active left child must contain a cursor; index="+next1+", size="+size;
+
 			if(c==null || b.compareTo(c)<1){
 //			if(c==null || (b.site<c.site || (b.site==c.site && b.column<c.column))){
 				if(a.compareTo(b)>0){
@@ -234,58 +253,62 @@ public final class Quad64Heap {
 					break;
 				}
 			}
-			next1=loc*2;
-			next2=next1+1;
 		}
 		array[loc]=a;
 	}
-	
+
 	/** Checks if heap contains no elements.
 	 * @return True if heap is empty, false otherwise */
 	public boolean isEmpty(){
 //		assert((size==0) == queue.isEmpty());
 		return size==0;
 	}
-	
+
 	/** Removes all elements from heap without array traversal.
-	 * Resets size to 0 for efficient heap reset operation. */
+	 * Resets size only; inactive backing slots retain their previous references. */
 	public void clear(){
 //		queue.clear();
 //		for(int i=1; i<=size; i++){array[i]=null;}
 		size=0;
 	}
-	
+
 	/** Returns current number of elements in heap.
 	 * @return Number of elements currently stored in heap */
 	public int size(){
 		return size;
 	}
-	
+
 	/**
 	 * Calculates tier level based on bit position of highest set bit.
 	 * Uses Integer.numberOfLeadingZeros for efficient bit manipulation.
 	 * @param x Input integer value
 	 * @return Tier level (31 - leading zeros count)
 	 */
-	public static int tier(int x){
-		int leading=Integer.numberOfLeadingZeros(x);
+	public static int tier(final int x){
+		final int leading=Integer.numberOfLeadingZeros(x);
 		return 31-leading;
 	}
-	
+
 	/**
 	 * Validation method for heap integrity verification during development.
-	 * Checks for duplicate object references in the heap array.
+	 * Checks only active slots for duplicate references; clear() retains inactive slots.
+	 * This O(size²) diagnostic is not called by normal heap operations.
 	 * @return True if no duplicate references found, false if duplicates exist
 	 */
 	public boolean testForDuplicates(){
-		for(int i=0; i<array.length; i++){
-			for(int j=i+1; j<array.length; j++){
+		assert(size>=0 && size<=CAPACITY) : "Active cursor range must fit the declared heap capacity: "+size+" / "+CAPACITY;
+		for(int i=1; i<=size; i++){
+			for(int j=i+1; j<=size; j++){
 				if(array[i]!=null && array[i]==array[j]){return false;}
 			}
 		}
 		return true;
 	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * 1-indexed binary heap array storing Quad64 elements with even-sized allocation
 	 */
@@ -294,5 +317,5 @@ public final class Quad64Heap {
 	private final int CAPACITY;
 	/** Current number of elements stored in the heap */
 	private int size=0;
-	
+
 }

@@ -1,7 +1,6 @@
 package align2;
 
 import java.io.File;
-import java.lang.Thread.State;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -14,17 +13,26 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
-
-/**
- * @author Brian Bushnell
+/** Builds or loads flat k-mer blocks used by BBIndex.
+ * Each block has four workers with disjoint key ranges. They count hits, share
+ * one allocation, then fill their ranges without per-hit locking. A block is
+ * published only after all workers complete successfully. Cached and generated
+ * worker failures reach the caller after started workers have been drained.
+ * Reference state and build/filter settings are global: callers must serialize
+ * reconfiguration and keep chromosome arrays unchanged for the whole build.
+ * Disk writes retain Block.write's asynchronous sites-file behavior; returning
+ * from makeIndex is not a guarantee that all cache writes have completed.
+ * @author Brian Bushnell, Collei
  * @date Dec 23, 2012
  *
  */
-public class IndexMaker4 {
-	
+public class IndexMaker4{
+
 	/**
 	 * Creates k-mer indices for a range of chromosomes with multi-threaded processing.
 	 * Initializes BlockMaker threads for each chromosome range and coordinates their execution.
+	 * Successful blocks may remain in a supplied destination after a failed batch;
+	 * a failed batch throws rather than returning that partially populated array.
 	 *
 	 * @param genome Genome build number for reference selection
 	 * @param minChrom Minimum chromosome number to index
@@ -45,55 +53,68 @@ public class IndexMaker4 {
 			int MAX_ALLOWED_CHROM_INDEX, int CHROM_MASK_LOW, int CHROM_MASK_HIGH, int SITE_MASK, int SHIFT_LENGTH,
 			boolean WRITE, boolean DISK_INVALID, Block[] index){
 		Timer t=new Timer();
-		
+
 		MAX_CONCURRENT_BLOCKS=(Shared.LOW_MEMORY ? 1 : (Shared.WINDOWS ? (WRITE ? 1 : Tools.max(1, Shared.threads()/4)) : Tools.max(1, Shared.threads()/4)));
-		
+
 		minChrom=Tools.max(1, minChrom);
 		if(genome>=0 && Data.GENOME_BUILD!=genome){
 			Data.setGenome(genome);
 			maxChrom=Tools.min(Data.numChroms, maxChrom);
 		}
-		
-		assert(minChrom<=maxChrom);
-		
+
+		assert(minChrom<=maxChrom) : "Index build requires a nonempty inclusive chromosome range: "+minChrom+".."+maxChrom;
+
 		if(index==null){index=new Block[maxChrom+1];}
-		
+
 		ArrayList<BlockMaker> list=new ArrayList<BlockMaker>();
-		
-		for(int i=1; i<=maxChrom;){
-			if(i>=minChrom){
-				int a=minChrom(i, minChrom, CHROM_MASK_HIGH);
-				int b=maxChrom(i, minChrom, maxChrom, CHROM_MASK_LOW);
-				assert(b>=i);
-				
-				BlockMaker idm=new BlockMaker(a, b, k, CHROMBITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, WRITE, DISK_INVALID, index);
-				list.add(idm);
-				incrementActiveBlocks(1);
-				idm.start();
-				
-				while(idm.getState()==State.NEW){}//wait
-				
-				i=b+1;
-			}else{i++;}
-		}
-		
+
+		Throwable failure=null;
+		try{
+			for(int i=1; i<=maxChrom;){
+				if(i>=minChrom){
+					final int a=minChrom(i, minChrom, CHROM_MASK_HIGH);
+					final int b=maxChrom(i, minChrom, maxChrom, CHROM_MASK_LOW);
+					assert(b>=i) : "Block upper bound must advance the chromosome loop: chromosome="+i+", end="+b;
+					final BlockMaker idm=new BlockMaker(a, b, k, CHROMBITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, WRITE, DISK_INVALID, index);
+					list.add(idm);
+					incrementActiveBlocks(1);
+					try{idm.start();}
+					catch(RuntimeException|Error problem){incrementActiveBlocks(-1); throw problem;}
+					i=b+1;
+				}else{i++;}
+			}
+		}catch(RuntimeException|Error problem){failure=problem;}
+
+		// Drain every started worker even when reservation or launch failed.
+		boolean interrupted=false;
 		for(BlockMaker cm : list){
-			while(cm.getState()!=State.TERMINATED){
-				try {
-					cm.join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			while(cm.isAlive()){
+				try{cm.join();}
+				catch(InterruptedException problem){
+					interrupted=true;
+					if(failure==null){failure=new RuntimeException("Interrupted while joining index block builder", problem);}
 				}
 			}
+			if(cm.failure!=null){
+				if(failure==null){failure=cm.failure;}
+				else if(failure!=cm.failure){failure.addSuppressed(cm.failure);}
+			}
 		}
-		
+		if(interrupted){Thread.currentThread().interrupt();}
+		if(failure!=null){rethrow(failure);}
+
 		t.stop();
-//		Data.sysout.println("Index gen time: \t"+t);
-		
+
 		return index;
 	}
-	
+
+	/** Preserves the original unchecked failure after workers have been joined. */
+	private static void rethrow(final Throwable problem){
+		if(problem instanceof Error){throw (Error)problem;}
+		if(problem instanceof RuntimeException){throw (RuntimeException)problem;}
+		throw new RuntimeException(problem);
+	}
+
 	/**
 	 * Creates a single Block index for a chromosome range.
 	 * Note: Contains assertion failures suggesting this method is deprecated.
@@ -120,9 +141,9 @@ public class IndexMaker4 {
 		assert(false) : maxChrom+", "+MAX_ALLOWED_CHROM_INDEX;
 		BlockMaker idm=new BlockMaker(minChrom, maxChrom, k, CHROMBITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, WRITE, DISK_INVALID, matrix);
 		Block block=idm.makeArrays();
-		
+
 		assert(false) : maxChrom+", "+MAX_ALLOWED_CHROM_INDEX;
-		
+
 		if(verbose){
 			for(int i=0; i<block.numStarts; i++){
 				int[] array=block.getHitList(i);
@@ -130,12 +151,10 @@ public class IndexMaker4 {
 				else{Data.sysout.println(i+": "+Arrays.toString(array));}
 			}
 		}
-		
+
 		return block;
 	}
-	
-	
-	
+
 	/**
 	 * Thread-based worker for creating k-mer index blocks for chromosome ranges.
 	 * Manages the complete lifecycle from reading cached indices to generating new ones.
@@ -162,14 +181,13 @@ public class IndexMaker4 {
 		public BlockMaker(int minChrom_, int maxChrom_, int k, int CHROMBITS_,
 				int MAX_ALLOWED_CHROM_INDEX_, int CHROM_MASK_LOW_, int CHROM_MASK_HIGH_, int SITE_MASK_, int SHIFT_LENGTH_,
 				boolean WRITE_TO_DISK_, boolean DISK_INVALID_, Block[] matrix_){
-			
+
 			KEYLEN=k;
 			CHROMBITS=CHROMBITS_;
 			KEYSPACE=1<<(2*KEYLEN);
 			MAX_ALLOWED_CHROM_INDEX=MAX_ALLOWED_CHROM_INDEX_;
 			WRITE_TO_DISK=WRITE_TO_DISK_;
 			DISK_INVALID=DISK_INVALID_;
-
 
 			CHROM_MASK_LOW=CHROM_MASK_LOW_;
 			CHROM_MASK_HIGH=CHROM_MASK_HIGH_;
@@ -179,17 +197,25 @@ public class IndexMaker4 {
 			minChrom=minChrom_;
 			maxChrom=maxChrom_;
 			matrix=matrix_;
-//			assert(false) : maxChrom+", "+MAX_ALLOWED_CHROM_INDEX;
-//			System.err.println(minChrom+"~"+maxChrom);
 		}
-
 
 		@Override
 		public void run(){
-			makeArrays();
-			incrementActiveBlocks(-1);
+			try{makeArrays();}
+			catch(RuntimeException|Error problem){failure=problem;}
+			finally{incrementActiveBlocks(-1);}
 		}
 
+		/** Inspected by makeIndex after joining this worker. */
+		private volatile Throwable failure;
+
+		/** Wake both build barriers when any worker or its launcher fails. */
+		private void failBuild(final Throwable problem, final int[] intercom){
+			synchronized(intercom){
+				if(failure==null){failure=problem;}
+				intercom.notifyAll();
+			}
+		}
 
 		/**
 		 * Creates k-mer index arrays for the assigned chromosome range.
@@ -198,7 +224,7 @@ public class IndexMaker4 {
 		 * @return Block containing the completed k-mer index
 		 */
 		Block makeArrays(){
-			
+
 			if(!DISK_INVALID){
 				String fname=fname(minChrom, maxChrom, KEYLEN, CHROMBITS);
 				File f=new File(fname);
@@ -224,37 +250,39 @@ public class IndexMaker4 {
 					}
 				}
 			}
-			
+
 			CountThread threads[]=new CountThread[4];
 			int[] sizes=KillSwitch.allocInt1D(KEYSPACE+1);
 			int[] intercom=KillSwitch.allocInt1D(4);
 			Block[] indexHolder=new Block[1];
 
-			for(int i=0; i<4; i++){
-				threads[i]=new CountThread(i, sizes, intercom, indexHolder);
-				threads[i].start();
-//				while(!threads[i].isAlive()){
-//					//wait for these threads to start
-//				}
-			}
+			try{
+				for(int i=0; i<4; i++){
+					threads[i]=new CountThread(i, sizes, intercom, indexHolder);
+					threads[i].start();
+				}
+			}catch(RuntimeException|Error problem){failBuild(problem, intercom);}
 			Data.sysout.println("Indexing threads started for block "+baseChrom(minChrom)+"-"+maxChrom);
+			boolean interrupted=false;
 			for(int i=0; i<threads.length; i++){
-				while(threads[i].getState()!=State.TERMINATED){
-					try {
-						threads[i].join();
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+				if(threads[i]==null){continue;}
+				while(threads[i].isAlive()){
+					try{threads[i].join();}
+					catch(InterruptedException problem){
+						interrupted=true;
+						failBuild(new RuntimeException("Interrupted while joining index count/fill workers", problem), intercom);
 					}
 				}
 			}
+			if(interrupted){Thread.currentThread().interrupt();}
+			if(failure!=null){rethrow(failure);}
 			Data.sysout.println("Indexing threads finished for block "+baseChrom(minChrom)+"-"+maxChrom);
-			
+
 			for(int i=sizes.length-2; i>=0; i--){
 				sizes[i+1]=sizes[i];
 			}
 			sizes[0]=0;
-			
+
 			if(matrix!=null){
 				for(int i=baseChrom(minChrom); i<=maxChrom; i++){
 					matrix[i]=indexHolder[0];
@@ -264,18 +292,17 @@ public class IndexMaker4 {
 			if(WRITE_TO_DISK){
 				String fname=fname(minChrom, maxChrom, KEYLEN, CHROMBITS);
 //				File f=new File(fname);
-//				assert(!f.exists()) : "Tried to overwrite file "+f.getAbsolutePath();
 				indexHolder[0].write(fname, true);
 			}
-			
+
 			return indexHolder[0];
 		}
-
 
 		/**
 		 * Worker thread that processes k-mers for a specific base (A, C, G, T) range.
 		 * Handles both counting phase (determining array sizes) and filling phase (populating indices).
-		 * Uses chromosome-specific filtering to avoid homopolymer sequences.
+			 * Uses the same periodic-key and optional modulo filters in both passes.
+			 * Key ownership is the high two bits of the forward key, not chromosome.
 		 */
 		private class CountThread extends Thread{
 
@@ -295,10 +322,9 @@ public class IndexMaker4 {
 
 				minIndex=(id<<(2*KEYLEN-2));
 				maxIndex=(int)(((id+1L)<<(2*KEYLEN-2))-1);
-				//Data.sysout.println("Thread "+id+" range is "+minIndex+", "+maxIndex);
-				
+
 				if(ALLOW_POLYMERS){
-					banmask=-1; //poly-A still slips through
+					banmask=-1; //The zero key (poly-A) is still excluded by the comparison.
 				}else{
 					//TODO [align2/IndexMaker4#001]: dead store - `b` (the base-id homopolymer key) is built here
 					//but never read; banmask below uses the id-independent periodicity formula. Harmless vestige of
@@ -316,7 +342,7 @@ public class IndexMaker4 {
 			private final int id;
 			/** Shared array for counting k-mer occurrences */
 			private final int[] sizes;
-			/** {sizeSum, #finishedCounting, #finishedAllocating, #finishedFilling} */
+			/** Barrier monitor; slot1 counts finished counters,slot2 marks allocation. Slots0/3 are unused. */
 			private final int[] intercom;
 			/** Shared holder for the final Block index */
 			private final Block[] indexHolder;
@@ -331,25 +357,26 @@ public class IndexMaker4 {
 
 			@Override
 			public void run(){
+				try{build();}
+				catch(InterruptedException problem){
+					Thread.currentThread().interrupt();
+					failBuild(new RuntimeException("Interrupted at index count/allocation barrier", problem), intercom);
+				}catch(RuntimeException|Error problem){failBuild(problem, intercom);}
+			}
 
-				//Data.sysout.println("Thread "+id+" counting sizes for ("+minChrom+", "+maxChrom+")");
+			/** Disjoint key ranges share one allocation; neither barrier may outlive a failure. */
+			private void build() throws InterruptedException{
 				for(int i=minChrom; i<=maxChrom; i++){countSizes(i);}
-				
+
 				final Block b;
 				synchronized(intercom){
-					//Data.sysout.println("Thread "+id+" synced on intercom: "+Arrays.toString(intercom));
 					intercom[1]++;
 					if(id==0){
-						while(intercom[1]<4){
-							//Data.sysout.println("Thread "+id+" waiting on intercom: "+Arrays.toString(intercom));
-							try {
-								intercom.wait();
-							} catch (InterruptedException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}
+						while(intercom[1]<4 && failure==null){
+							intercom.wait();
 						}
-						
+						if(failure!=null){rethrow(failure);}
+
 						// Count in long so an oversized block fails before int wrap can
 						// corrupt the allocation size or strand the fill workers.
 						long sumL=0;
@@ -364,7 +391,7 @@ public class IndexMaker4 {
 								". Use fewer chromosomes per block (lower chrombits) or split chromosomes shorter.");
 						}
 						final int sum=(int)sumL;
-						
+
 						if(USE_ALLOC_SYNC){
 							synchronized(ALLOC_SYNC){//To allow contiguous memory allocation
 								b=new Block(KillSwitch.allocInt1D(sum), sizes);
@@ -374,27 +401,18 @@ public class IndexMaker4 {
 						}
 						indexHolder[0]=b;
 						intercom[2]++;
-						assert(intercom[2]==1);
+						assert(intercom[2]==1) : "Only worker zero allocates the shared block; allocations="+intercom[2];
 						intercom.notifyAll();
 					}else{
-						while(intercom[2]<1){
-							//Data.sysout.println("Thread "+id+" waiting on intercom: "+Arrays.toString(intercom));
-							try {
-								if(intercom[1]>=4){intercom.notify();}
-								intercom.wait();
-							} catch (InterruptedException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
-							}
+						while(intercom[2]<1 && failure==null){
+							if(intercom[1]>=4){intercom.notifyAll();}
+							intercom.wait();
 						}
+						if(failure!=null){rethrow(failure);}
 					}
 				}
 
-				//Data.sysout.println("Thread "+id+" filling arrays for ("+minChrom+", "+maxChrom+")");
-
-				
 				for(int i=minChrom; i<=maxChrom; i++){fillArrays(i);}
-				//Data.sysout.println("Thread "+id+" finished.");
 			}
 
 			/**
@@ -405,7 +423,6 @@ public class IndexMaker4 {
 			 */
 			private void countSizes(final int chrom){
 
-				//			System.err.println("Thread "+id+" using chr"+chrom+" for countSizes");
 				ChromosomeArray ca=dna.Data.getChromosome(chrom);
 
 				//			int baseChrom=baseChrom(chrom);
@@ -432,6 +449,9 @@ public class IndexMaker4 {
 					if(valid<KEYLEN || key<minIndex || key>maxIndex){continue;}
 					if((key>>banshift)!=(key&banmask) && (!USE_MODULO || key%MODULO==0 ||
 							(AminoAcid.reverseComplementBinaryFast(key, KEYLEN))%MODULO==0)){
+						//TODO: Probable extreme-input overflow - a single key with >Integer.MAX_VALUE
+						// occurrences wraps before the long total-size check. Ordinary supported
+						// blocks fit int storage; an oversized repetitive block needs an earlier failure.
 						sizes[key]++;
 					}
 				}
@@ -445,7 +465,6 @@ public class IndexMaker4 {
 			 */
 			private void fillArrays(final int chrom){
 
-				//			System.err.println("Thread "+id+" using chr"+chrom+" for fillArrays");
 				ChromosomeArray ca=dna.Data.getChromosome(chrom);
 
 				int baseChrom=baseChrom(chrom);
@@ -486,7 +505,6 @@ public class IndexMaker4 {
 			}
 
 		}
-		
 
 		/** Encode a (location, chrom) pair to an index */
 		public final int toNumber(int site, int chrom){
@@ -505,13 +523,11 @@ public class IndexMaker4 {
 		public final int numberToChrom(int number, int baseChrom){
 			assert((baseChrom&CHROM_MASK_LOW)==0) : Integer.toHexString(number)+", baseChrom="+baseChrom;
 			assert(baseChrom>=0) : Integer.toHexString(number)+", baseChrom="+baseChrom;
-			//		assert(baseChrom<8) : Integer.toHexString(number)+", baseChrom="+baseChrom;
 
 			int out=(number>>>SHIFT_LENGTH);
 
 			out=out+(baseChrom&CHROM_MASK_HIGH);
 
-			//		assert(out<8) : Integer.toHexString(number)+", baseChrom="+baseChrom;
 			return out;
 		}
 
@@ -586,7 +602,7 @@ public class IndexMaker4 {
 	public static final String fname(int minChrom, int maxChrom, int k, int chrombits){
 		return fname(minChrom, maxChrom, k, chrombits, Data.GENOME_BUILD);
 	}
-	
+
 	/**
 	 * Generates filename for index cache files with specific genome build.
 	 *
@@ -605,31 +621,31 @@ public class IndexMaker4 {
 			return Data.ROOT_INDEX+build+"/chr"+minChrom+suffix;
 		}
 	}
-	
+
 	/**
 	 * Thread-safe method to increment the count of active index blocks.
 	 * Enforces concurrency limits and provides thread coordination.
 	 * @param i Increment amount (positive or negative)
 	 */
 	static void incrementActiveBlocks(int i){
-		assert(i!=0);
+		assert(i!=0) : "Slot accounting requires a nonzero acquire/release delta";
 		synchronized(THREAD_SYNC){
-			assert(ACTIVE_BLOCKS>=0);
-			assert(ACTIVE_BLOCKS<=MAX_CONCURRENT_BLOCKS);
-			
+			assert(ACTIVE_BLOCKS>=0) : "Every block release must match a reservation; active="+ACTIVE_BLOCKS;
+			assert(ACTIVE_BLOCKS<=MAX_CONCURRENT_BLOCKS) : "Build concurrency must not be reconfigured during an active batch: active="+ACTIVE_BLOCKS+", limit="+MAX_CONCURRENT_BLOCKS;
+
 			while(i>0 && ACTIVE_BLOCKS>0 && ACTIVE_BLOCKS>=MAX_CONCURRENT_BLOCKS){
-				try {
+				try{
 					THREAD_SYNC.wait(10000);
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+				}catch(InterruptedException e){
+					Thread.currentThread().interrupt();
+					throw new RuntimeException("Interrupted while reserving an index block builder slot", e);
 				}
 			}
 			ACTIVE_BLOCKS+=i;
 			if(ACTIVE_BLOCKS<MAX_CONCURRENT_BLOCKS || i<0){THREAD_SYNC.notifyAll();}
-			
-			assert(ACTIVE_BLOCKS>=0);
-			assert(ACTIVE_BLOCKS<=MAX_CONCURRENT_BLOCKS);
+
+			assert(ACTIVE_BLOCKS>=0) : "Block slot released without reservation: active="+ACTIVE_BLOCKS;
+			assert(ACTIVE_BLOCKS<=MAX_CONCURRENT_BLOCKS) : "Reservation exceeded the block concurrency limit: active="+ACTIVE_BLOCKS+", limit="+MAX_CONCURRENT_BLOCKS;
 		}
 	}
 
@@ -642,17 +658,17 @@ public class IndexMaker4 {
 	static final String ALLOC_SYNC=new String("ALLOC_SYNC");
 	/** Synchronization object for thread coordination */
 	private static final String THREAD_SYNC=new String("THREAD_SYNC");
-	
+
 	/** Maximum number of index blocks that can be processed simultaneously */
 	public static int MAX_CONCURRENT_BLOCKS=(Shared.LOW_MEMORY ? 1 : (Shared.WINDOWS ? 1 : Tools.max(1, Shared.threads()/4)));
 	/** Current number of active index blocks being processed */
 	private static int ACTIVE_BLOCKS=0;
 
-	/** Whether to allow homopolymer k-mers in the index */
+	/** Disables periodic-key filtering except for the zero (poly-A) key. */
 	public static boolean ALLOW_POLYMERS=false;
 	/** Whether to apply modulo filtering to k-mers */
 	public static boolean USE_MODULO=false;
 	/** Modulo value for k-mer filtering when USE_MODULO is enabled */
 	static final int MODULO=9;
-	
+
 }

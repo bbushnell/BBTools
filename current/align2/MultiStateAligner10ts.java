@@ -6,45 +6,45 @@ import dna.AminoAcid;
 import shared.Tools;
 import stream.SiteScore;
 
-/**
- * "P" for "Packed".<br>
- * Same as MSA2P, but the "prevState" field was removed.
- * Yields identical results to MSA2, but is faster.
- * For very long reads (over 2000bp) the score may overflow, so MSA2 should be used instead,
- * or the time field should be shrunk. */
+/** Legacy scalar aligner with three full packed score/streak matrices.
+ * Factory-selectable, but not the default BBMapS aligner. It retains inline
+ * gap-penalty and end-barrier logic. Each instance belongs to one worker; another
+ * fill invalidates the matrix and compressed reference needed by score/traceback.
+ * Reference intervals are inclusive. The lower 11 bits store streak lengths,
+ * so scores must remain within the packed range enforced by fill assertions.
+ * @author Brian Bushnell, Collei
+ */
 public final class MultiStateAligner10ts extends MSA{
-	
-	
+
 	public static void main(String[] args){
 		byte[] read=args[0].getBytes();
 		byte[] ref=args[1].getBytes();
-		
+
 		byte[] original=ref;
-		
+
 		MultiStateAligner10ts msa=new MultiStateAligner10ts(read.length, ref.length);
-		
+
 		System.out.println("Initial: ");
 		printMatrix(msa.packed, read.length, ref.length, TIMEMASK, SCOREOFFSET);
-		
+
 		int[] max=msa.fillLimited(read, ref, 0, ref.length-1, 0, null);
-		
+
 		System.out.println("Max: "+Arrays.toString(max));
-		
+
 		System.out.println("Final: ");
 		printMatrix(msa.packed, read.length, ref.length, TIMEMASK, SCOREOFFSET);
-		
+
 		byte[] out=msa.traceback(read, ref,  0, ref.length-1, max[0], max[1], max[2], false);
-		
+
 		int[] score=null;
 		score=msa.score(read, ref,  0, ref.length-1, max[0], max[1], max[2], false);
-		
+
 		System.out.println(new String(ref));
 		System.out.println(new String(read));
 		System.out.println(new String(out));
 		System.out.println("Score: "+Arrays.toString(score));
 	}
-	
-	
+
 	/**
 	 * Constructs aligner with specified matrix dimensions.
 	 * Initializes packed matrices, boundary arrays, and gap reference buffer.
@@ -56,13 +56,13 @@ public final class MultiStateAligner10ts extends MSA{
 	public MultiStateAligner10ts(int maxRows_, int maxColumns_){
 		super(maxRows_, maxColumns_);
 
-		//Comprehension (Ady 2026-06-21): 10ts is the family OUTLIER -- TIMEBITS=11 (despite the "10ts" name), its own
-		//harsher tuning (INS=-395/DEL=-472, BARRIER_I1=2/D1=3), no AFFINE_ARRAYS infra; a legacy variant, selectable via
-		//the MSA factory (MSA.java:40) but not the default (11ts is). #002 family-wide: packed is maxColumns+1 wide while
-		//grefbuffer is maxColumns+2, and fillLimitedX (L553) / fillBanded1 (L1028) clear-ahead-write packed[..][row-1][col+1].
+		//TIMEBITS=11 despite the class name. This legacy factory-selectable variant
+		//uses inline penalty ladders rather than the 11ts affine lookup arrays.
+		//fillLimitedX and fillBanded1 clear packed[..][row-1][col+1] even at the final
+		//advertised column. Reserve a sentinel so that this clear-ahead write is valid.
 		//bpacked + startmatrix + col0score exist ONLY for the DEAD fillBanded (L1072: assert(false)+zero callers) -- see
 		//align2/MultiStateAligner10ts#001. The startmatrix[matrix][0][i]=i off-by-1 TODO below is moot while fillBanded is dead.
-		packed=new int[3][maxRows+1][maxColumns+1];
+		packed=new int[3][maxRows+1][maxColumns+2];
 		bpacked=new int[3][maxRows+1][];
 		startmatrix=new int[3][maxRows+1][];
 		grefbuffer=new byte[maxColumns+2];
@@ -72,7 +72,7 @@ public final class MultiStateAligner10ts extends MSA{
 		horizLimit=new int[maxColumns+1];
 		Arrays.fill(vertLimit, BADoff);
 		Arrays.fill(horizLimit, BADoff);
-		
+
 		for(int matrix=0; matrix<packed.length; matrix++){
 			for(int i=1; i<=maxRows; i++){
 				for(int j=0; j<packed[matrix][i].length; j++){
@@ -84,26 +84,28 @@ public final class MultiStateAligner10ts extends MSA{
 //				scores[matrix][i][0]=(i*POINTSoff_NOREF);
 //			}
 			for(int i=0; i<=maxRows; i++){
-				
+
 				int prevScore=(i<2 ? 0 : packed[matrix][i-1][0]);
 				int score=(i<2 ? (i*POINTSoff_INS) :
 					(i<LIMIT_FOR_COST_3 ? prevScore+POINTSoff_INS2 :
 						(i<LIMIT_FOR_COST_4 ? prevScore+POINTSoff_INS3 : prevScore+POINTSoff_INS4)));
-				
+
 				packed[matrix][i][0]=score;
 			}
-			
-			for(int i=0; i<3; i++){
+
+			// Auxiliary scratch for unfinished fillBanded; short matrices may have
+			// fewer than three rows. Never index beyond the allocated row count.
+			for(int i=0; i<3 && i<=maxRows; i++){
 				bpacked[matrix][i]=packed[matrix][i];
 				startmatrix[matrix][i]=new int[maxColumns+1];
 				Arrays.fill(startmatrix[matrix][i], -1);
 			}
-			
+
 			for(int i=3; i<bpacked[matrix].length; i++){
 				bpacked[matrix][i]=bpacked[matrix][i-2];
 				startmatrix[matrix][i]=startmatrix[matrix][i-2];
 			}
-			
+
 			for(int i=0; i<startmatrix[matrix][0].length; i++){
 				startmatrix[matrix][0][i]=i; //TODO: This may be off by 1 or 2, and may be different for the different matrices, so check it.
 			}
@@ -112,8 +114,7 @@ public final class MultiStateAligner10ts extends MSA{
 			col0score[i]=packed[0][i][0];
 		}
 	}
-	
-	
+
 	/** return new int[] {rows, maxC, maxS, max};
 	 * Will not fill areas that cannot match minScore */
 	@Override
@@ -121,17 +122,16 @@ public final class MultiStateAligner10ts extends MSA{
 		if(gaps==null){return fillLimitedX(read, ref, refStartLoc, refEndLoc, minScore);}
 		else{
 			byte[] gref=makeGref(ref, gaps, refStartLoc, refEndLoc);
-			
+
 			if(verbose && greflimit>0 && greflimit<500){
 				System.err.println(new String(gref, 0, greflimit));
 			}
-			
+
 			assert(gref!=null) : "Excessively long read:\n"+new String(read);
 			return fillLimitedX(read, gref, 0, greflimit, minScore);
 		}
 	}
-	
-	
+
 	/** return new int[] {rows, maxC, maxS, max};
 	 * Will not fill areas that cannot match minScore */
 	private final int[] fillLimitedX(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
@@ -141,7 +141,7 @@ public final class MultiStateAligner10ts extends MSA{
 //		assert(minScore>0);
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
-		
+
 		if(/*read.length<40 || */false || minScore<=0 || columns>read.length+Tools.min(170, read.length+20)){
 //			assert(false) : minScore;
 //			assert(minScore>0) : minScore;
@@ -152,14 +152,14 @@ public final class MultiStateAligner10ts extends MSA{
 //		final int BARRIER_I2=columns-BARRIER_I1;
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
-		
+
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
-		
+
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(columns<=maxColumns) : "Check that values are in-bounds before calling this function: "+columns+", "+maxColumns+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
-		
+
 		assert(refStartLoc>=0) : "Check that values are in-bounds before calling this function: "+refStartLoc+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(refEndLoc<ref.length) : "Check that values are in-bounds before calling this function: "+refEndLoc+", "+ref.length+"\n"+
@@ -178,10 +178,10 @@ public final class MultiStateAligner10ts extends MSA{
 //				Arrays.fill(packed[x][y], 1, columns+1, BADoff);
 //			}
 		}
-		
+
 		int minGoodCol=1;
 		int maxGoodCol=columns;
-		
+
 		final int minScore_off=(minScore<<SCOREOFFSET);
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
 		final int floor=minScore_off-maxGain;
@@ -189,7 +189,7 @@ public final class MultiStateAligner10ts extends MSA{
 		final int subfloor=floor-5*POINTSoff_MATCH2;
 		assert(subfloor>BADoff); //TODO: Actually, it needs to be substantially more.
 		assert(subfloor<minScore_off) : minScore_off+", "+floor+", "+BADoff+", "+subfloor;
-		
+
 		if(verbose2){
 			System.out.println();
 			System.out.println("minScore="+minScore+"\t"+minScore_off);
@@ -200,7 +200,7 @@ public final class MultiStateAligner10ts extends MSA{
 			System.out.println("maxGain="+(maxGain>>SCOREOFFSET)+"\t"+(maxGain));
 			System.out.println();
 		}
-		
+
 		vertLimit[rows]=minScore_off;
 		boolean prevDefined=false;
 		for(int i=rows-1; i>=0; i--){
@@ -213,7 +213,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 		horizLimit[columns]=minScore_off;
 		prevDefined=false;
 		for(int i=columns-1; i>=0; i--){
@@ -226,7 +226,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 //		vertLimit[rows]=minScore_off;
 //		for(int i=rows-1; i>=0; i--){
 //			vertLimit[i]=Tools.max(vertLimit[i+1]-POINTSoff_MATCH2, floor);
@@ -236,17 +236,17 @@ public final class MultiStateAligner10ts extends MSA{
 //		for(int i=columns-1; i>=0; i--){
 //			horizLimit[i]=Tools.max(horizLimit[i+1]-POINTSoff_MATCH2, floor);
 //		}
-		
+
 		for(int row=1; row<=rows; row++){
-			
+
 			int colStart=minGoodCol;
 			int colStop=maxGoodCol;
-			
+
 			minGoodCol=-1;
 			maxGoodCol=-2;
-			
+
 			final int vlimit=vertLimit[row];
-			
+
 			if(verbose2){
 				System.out.println();
 				System.out.println("row="+row);
@@ -254,21 +254,18 @@ public final class MultiStateAligner10ts extends MSA{
 				System.out.println("colStop="+colStop);
 				System.out.println("vlimit="+(vlimit>>SCOREOFFSET)+"\t"+(vlimit));
 			}
-			
+
 			if(colStart<0 || colStop<colStart){break;}
-			
-			
+
 			if(colStart>1){
 				assert(row>0);
 				packed[MODE_MS][row][colStart-1]=subfloor;
 				packed[MODE_INS][row][colStart-1]=subfloor;
 				packed[MODE_DEL][row][colStart-1]=subfloor;
 			}
-			
-			
+
 			for(int col=colStart; col<=columns; col++){
 
-				
 				if(verbose2){
 					System.out.println("\ncol "+col);
 				}
@@ -277,7 +274,7 @@ public final class MultiStateAligner10ts extends MSA{
 				final byte call1=read[row-1];
 				final byte ref0=(col<2 ? (byte)'!' : ref[refStartLoc+col-2]);
 				final byte ref1=ref[refStartLoc+col-1];
-				
+
 				final boolean gap=(ref1==GAPC);
 				assert(call1!=GAPC);
 
@@ -285,9 +282,9 @@ public final class MultiStateAligner10ts extends MSA{
 //				final boolean prevMatch=(row<2 || col<2 ? false : read[row-2]==ref[refStartLoc+col-2]);
 				final boolean match=(call1==ref1 && ref1!='N');
 				final boolean prevMatch=(call0==ref0 && ref0!='N');
-				
+
 //				System.err.println("")
-				
+
 				iterationsLimited++;
 				final int limit=Tools.max(vlimit, horizLimit[col]);
 				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-POINTSoff_SUB3));
@@ -297,40 +294,39 @@ public final class MultiStateAligner10ts extends MSA{
 
 				final int delPenalty=calcDelScoreOffset(delNeeded);
 				final int insPenalty=calcInsScoreOffset(insNeeded);
-				
-				
+
 				final int scoreFromDiag_MS=packed[MODE_MS][row-1][col-1]&SCOREMASK;
 				final int scoreFromDel_MS=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
 				final int scoreFromIns_MS=packed[MODE_INS][row-1][col-1]&SCOREMASK;
-				
+
 				final int scoreFromDiag_DEL=packed[MODE_MS][row][col-1]&SCOREMASK;
 				final int scoreFromDel_DEL=packed[MODE_DEL][row][col-1]&SCOREMASK;
 
 				final int scoreFromDiag_INS=packed[MODE_MS][row-1][col]&SCOREMASK;
 				final int scoreFromIns_INS=packed[MODE_INS][row-1][col]&SCOREMASK;
-				
+
 //				if(scoreFromDiag_MS<limit3 && scoreFromDel_MS<limit3 && scoreFromIns_MS<limit3
 //						&& scoreFromDiag_DEL<limit && scoreFromDel_DEL<limit && scoreFromDiag_INS<limit && scoreFromIns_INS<limit){
 //					iterationsLimited--; //A "fast" iteration
 //				}
-				
+
 				if(gap || (scoreFromDiag_MS<=limit3 && scoreFromDel_MS<=limit3 && scoreFromIns_MS<=limit3)){
 					packed[MODE_MS][row][col]=subfloor;
 				}else{//Calculate match and sub scores
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
 					{//Calculate match/sub score
-						
+
 						int score;
 						int time;
 						byte prevState;
-						
+
 						if(match){
 
 							int scoreMS=scoreFromDiag_MS+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel_MS+POINTSoff_MATCH;
 							int scoreI=scoreFromIns_MS+POINTSoff_MATCH;
-							
+
 //							byte prevState;
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
@@ -345,7 +341,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -354,9 +350,9 @@ public final class MultiStateAligner10ts extends MSA{
 //							assert((score&SCOREMASK)==score);
 ////							assert((prevState&MODEMASK)==prevState);
 //							assert((time&TIMEMASK)==time);
-							
+
 						}else{
-							
+
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
 								scoreMS=scoreFromDiag_MS+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
@@ -364,10 +360,10 @@ public final class MultiStateAligner10ts extends MSA{
 							}else{
 								scoreMS=scoreFromDiag_MS+POINTSoff_NOCALL;
 							}
-							
+
 							int scoreD=scoreFromDel_MS+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
 							int scoreI=scoreFromIns_MS+POINTSoff_SUB;
-							
+
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
 								time=(prevMatch ? 1 : streak+1);
@@ -382,7 +378,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -392,7 +388,7 @@ public final class MultiStateAligner10ts extends MSA{
 ////							assert((prevState&MODEMASK)==prevState);
 //							assert((time&TIMEMASK)==time);
 						}
-						
+
 						final int limit2;
 						if(delNeeded>0){
 							limit2=limit-delPenalty;
@@ -402,16 +398,16 @@ public final class MultiStateAligner10ts extends MSA{
 							limit2=limit;
 						}
 						assert(limit2>=limit);
-						
+
 						if(verbose2){System.err.println("MS: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-						
+
 						if(score>=limit2){
 							maxGoodCol=col;
 							if(minGoodCol<0){minGoodCol=col;}
 						}else{
 							score=subfloor;
 						}
-						
+
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 						assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 						assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -422,14 +418,14 @@ public final class MultiStateAligner10ts extends MSA{
 						assert((time&TIMEMASK)==time);
 					}
 				}
-				
+
 				if((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit) || row<BARRIER_D1 || row>BARRIER_D2){
 //					assert((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit)) : scoreFromDiag_DEL+", "+row;
 					packed[MODE_DEL][row][col]=subfloor;
 				}else{//Calculate DEL score
-							
+
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_DEL+POINTSoff_DEL;
 					int scoreD=scoreFromDel_DEL+(streak==0 ? POINTSoff_DEL :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
@@ -437,8 +433,7 @@ public final class MultiStateAligner10ts extends MSA{
 								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
 									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
 //					int scoreI=scoreFromIns+POINTSoff_DEL;
-					
-					
+
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
 						scoreD+=POINTSoff_DEL_REF_N;
@@ -446,9 +441,9 @@ public final class MultiStateAligner10ts extends MSA{
 						scoreMS+=POINTSoff_GAP;
 						scoreD+=POINTSoff_GAP;
 					}
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -461,7 +456,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_DEL;
 					}
-					
+
 					final int limit2;
 					if(insNeeded>0){
 						limit2=limit-insPenalty;
@@ -472,14 +467,14 @@ public final class MultiStateAligner10ts extends MSA{
 					}
 					assert(limit2>=limit);
 					if(verbose2){System.err.println("DEL: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-					
+
 					if(score>=limit2){
 						maxGoodCol=col;
 						if(minGoodCol<0){minGoodCol=col;}
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -494,23 +489,22 @@ public final class MultiStateAligner10ts extends MSA{
 				if(gap || (scoreFromDiag_INS<=limit && scoreFromIns_INS<=limit) || (row<BARRIER_I1 && col>1) || (row>BARRIER_I2 && col<BARRIER_I2b)){
 					packed[MODE_INS][row][col]=subfloor;
 				}else{//Calculate INS score
-					
+
 					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_INS+POINTSoff_INS;
 //					int scoreD=scoreFromDel+POINTSoff_INS;
 					int scoreI=scoreFromIns_INS+(streak==0 ? POINTSoff_INS :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
-					
-					
+
 //					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
 //							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
 //							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -523,7 +517,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_INS;
 					}
-					
+
 					final int limit2;
 					if(delNeeded>0){
 						limit2=limit-delPenalty;
@@ -541,7 +535,7 @@ public final class MultiStateAligner10ts extends MSA{
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -551,8 +545,7 @@ public final class MultiStateAligner10ts extends MSA{
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
 				}
-				
-				
+
 				if(col>=colStop){
 					if(col>colStop && maxGoodCol<col){break;}
 					if(row>1){
@@ -563,12 +556,11 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
 
 		int maxCol=-1;
 		int maxState=-1;
 		int maxScore=Integer.MIN_VALUE;
-		
+
 		for(int state=0; state<packed.length; state++){
 			for(int col=1; col<=columns; col++){
 				int x=packed[state][rows][col]&SCOREMASK;
@@ -579,7 +571,7 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
+
 		assert(maxScore>=BADoff);
 //		if(maxScore==BADoff){
 //			return null;
@@ -587,24 +579,23 @@ public final class MultiStateAligner10ts extends MSA{
 //		if(maxScore<floor){
 //			return null;
 //		}
-		
+
 		if(verbose){
 			System.out.println("Filled matrix.");
 			printMatrix(packed, rows, columns, TIMEMASK, SCOREOFFSET);
 		}
 		if(verbose){System.err.println("maxscore="+(maxScore>>SCOREOFFSET)+", minscore="+(minScore_off>>SCOREOFFSET));}
-		
+
 		if(maxScore<minScore_off){
 			return null;
 		}
-		
+
 		maxScore>>=SCOREOFFSET;
 
 //		System.err.println("Returning "+rows+", "+maxCol+", "+maxState+", "+maxScore);
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
-	
-	
+
 	/**
 	 * Like fillLimitedX but additionally restricted to a band.
 	 * return new int[] {rows, maxC, maxS, max};
@@ -616,7 +607,7 @@ public final class MultiStateAligner10ts extends MSA{
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
 		final int halfband=bandwidth/2;
-		
+
 		if(/*read.length<40 || */false || minScore<=0 || columns>read.length+Tools.min(170, read.length+20)){
 //			assert(false) : minScore;
 //			assert(minScore>0) : minScore;
@@ -627,14 +618,14 @@ public final class MultiStateAligner10ts extends MSA{
 //		final int BARRIER_I2=columns-BARRIER_I1;
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
-		
+
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
-		
+
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(columns<=maxColumns) : "Check that values are in-bounds before calling this function: "+columns+", "+maxColumns+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
-		
+
 		assert(refStartLoc>=0) : "Check that values are in-bounds before calling this function: "+refStartLoc+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(refEndLoc<ref.length) : "Check that values are in-bounds before calling this function: "+refEndLoc+", "+ref.length+"\n"+
@@ -653,10 +644,10 @@ public final class MultiStateAligner10ts extends MSA{
 //				Arrays.fill(packed[x][y], 1, columns+1, BADoff);
 //			}
 		}
-		
+
 		int minGoodCol=1;
 		int maxGoodCol=columns;
-		
+
 		final int minScore_off=(minScore<<SCOREOFFSET);
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
 		final int floor=minScore_off-maxGain;
@@ -664,7 +655,7 @@ public final class MultiStateAligner10ts extends MSA{
 		final int subfloor=floor-5*POINTSoff_MATCH2;
 		assert(subfloor>BADoff); //TODO: Actually, it needs to be substantially more.
 		assert(subfloor<minScore_off) : minScore_off+", "+floor+", "+BADoff+", "+subfloor;
-		
+
 		if(verbose2){
 			System.out.println();
 			System.out.println("minScore="+minScore+"\t"+minScore_off);
@@ -675,7 +666,7 @@ public final class MultiStateAligner10ts extends MSA{
 			System.out.println("maxGain="+(maxGain>>SCOREOFFSET)+"\t"+(maxGain));
 			System.out.println();
 		}
-		
+
 		vertLimit[rows]=minScore_off;
 		boolean prevDefined=false;
 		for(int i=rows-1; i>=0; i--){
@@ -688,7 +679,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 		horizLimit[columns]=minScore_off;
 		prevDefined=false;
 		for(int i=columns-1; i>=0; i--){
@@ -701,7 +692,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 //		vertLimit[rows]=minScore_off;
 //		for(int i=rows-1; i>=0; i--){
 //			vertLimit[i]=Tools.max(vertLimit[i+1]-POINTSoff_MATCH2, floor);
@@ -711,17 +702,17 @@ public final class MultiStateAligner10ts extends MSA{
 //		for(int i=columns-1; i>=0; i--){
 //			horizLimit[i]=Tools.max(horizLimit[i+1]-POINTSoff_MATCH2, floor);
 //		}
-		
+
 		for(int row=1; row<=rows; row++){
-			
+
 			int colStart=Tools.max(minGoodCol, row-halfband);
 			int colStop=Tools.min(maxGoodCol, row+halfband);
-			
+
 			minGoodCol=-1;
 			maxGoodCol=-2;
-			
+
 			final int vlimit=vertLimit[row];
-			
+
 			if(verbose2){
 				System.out.println();
 				System.out.println("row="+row);
@@ -729,21 +720,18 @@ public final class MultiStateAligner10ts extends MSA{
 				System.out.println("colStop="+colStop);
 				System.out.println("vlimit="+(vlimit>>SCOREOFFSET)+"\t"+(vlimit));
 			}
-			
+
 			if(colStart<0 || colStop<colStart){break;}
-			
-			
+
 			if(colStart>1){
 				assert(row>0);
 				packed[MODE_MS][row][colStart-1]=subfloor;
 				packed[MODE_INS][row][colStart-1]=subfloor;
 				packed[MODE_DEL][row][colStart-1]=subfloor;
 			}
-			
-			
+
 			for(int col=colStart; col<=columns; col++){
 
-				
 				if(verbose2){
 					System.out.println("\ncol "+col);
 				}
@@ -752,7 +740,7 @@ public final class MultiStateAligner10ts extends MSA{
 				final byte call1=read[row-1];
 				final byte ref0=(col<2 ? (byte)'!' : ref[refStartLoc+col-2]);
 				final byte ref1=ref[refStartLoc+col-1];
-				
+
 				final boolean gap=(ref1==GAPC);
 				assert(call1!=GAPC);
 
@@ -760,9 +748,9 @@ public final class MultiStateAligner10ts extends MSA{
 //				final boolean prevMatch=(row<2 || col<2 ? false : read[row-2]==ref[refStartLoc+col-2]);
 				final boolean match=(call1==ref1 && ref1!='N');
 				final boolean prevMatch=(call0==ref0 && ref0!='N');
-				
+
 //				System.err.println("")
-				
+
 				iterationsLimited++;
 				final int limit=Tools.max(vlimit, horizLimit[col]);
 				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-POINTSoff_SUB3));
@@ -772,40 +760,39 @@ public final class MultiStateAligner10ts extends MSA{
 
 				final int delPenalty=calcDelScoreOffset(delNeeded);
 				final int insPenalty=calcInsScoreOffset(insNeeded);
-				
-				
+
 				final int scoreFromDiag_MS=packed[MODE_MS][row-1][col-1]&SCOREMASK;
 				final int scoreFromDel_MS=packed[MODE_DEL][row-1][col-1]&SCOREMASK;
 				final int scoreFromIns_MS=packed[MODE_INS][row-1][col-1]&SCOREMASK;
-				
+
 				final int scoreFromDiag_DEL=packed[MODE_MS][row][col-1]&SCOREMASK;
 				final int scoreFromDel_DEL=packed[MODE_DEL][row][col-1]&SCOREMASK;
 
 				final int scoreFromDiag_INS=packed[MODE_MS][row-1][col]&SCOREMASK;
 				final int scoreFromIns_INS=packed[MODE_INS][row-1][col]&SCOREMASK;
-				
+
 //				if(scoreFromDiag_MS<limit3 && scoreFromDel_MS<limit3 && scoreFromIns_MS<limit3
 //						&& scoreFromDiag_DEL<limit && scoreFromDel_DEL<limit && scoreFromDiag_INS<limit && scoreFromIns_INS<limit){
 //					iterationsLimited--; //A "fast" iteration
 //				}
-				
+
 				if(gap || (scoreFromDiag_MS<=limit3 && scoreFromDel_MS<=limit3 && scoreFromIns_MS<=limit3)){
 					packed[MODE_MS][row][col]=subfloor;
 				}else{//Calculate match and sub scores
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
 					{//Calculate match/sub score
-						
+
 						int score;
 						int time;
 						byte prevState;
-						
+
 						if(match){
 
 							int scoreMS=scoreFromDiag_MS+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel_MS+POINTSoff_MATCH;
 							int scoreI=scoreFromIns_MS+POINTSoff_MATCH;
-							
+
 //							byte prevState;
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
@@ -820,7 +807,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -829,9 +816,9 @@ public final class MultiStateAligner10ts extends MSA{
 //							assert((score&SCOREMASK)==score);
 ////							assert((prevState&MODEMASK)==prevState);
 //							assert((time&TIMEMASK)==time);
-							
+
 						}else{
-							
+
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
 								scoreMS=scoreFromDiag_MS+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
@@ -839,10 +826,10 @@ public final class MultiStateAligner10ts extends MSA{
 							}else{
 								scoreMS=scoreFromDiag_MS+POINTSoff_NOCALL;
 							}
-							
+
 							int scoreD=scoreFromDel_MS+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
 							int scoreI=scoreFromIns_MS+POINTSoff_SUB;
-							
+
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
 								time=(prevMatch ? 1 : streak+1);
@@ -857,7 +844,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -867,7 +854,7 @@ public final class MultiStateAligner10ts extends MSA{
 ////							assert((prevState&MODEMASK)==prevState);
 //							assert((time&TIMEMASK)==time);
 						}
-						
+
 						final int limit2;
 						if(delNeeded>0){
 							limit2=limit-delPenalty;
@@ -877,16 +864,16 @@ public final class MultiStateAligner10ts extends MSA{
 							limit2=limit;
 						}
 						assert(limit2>=limit);
-						
+
 						if(verbose2){System.err.println("MS: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-						
+
 						if(score>=limit2){
 							maxGoodCol=col;
 							if(minGoodCol<0){minGoodCol=col;}
 						}else{
 							score=subfloor;
 						}
-						
+
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 						assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 						assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -897,14 +884,14 @@ public final class MultiStateAligner10ts extends MSA{
 						assert((time&TIMEMASK)==time);
 					}
 				}
-				
+
 				if((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit) || row<BARRIER_D1 || row>BARRIER_D2){
 //					assert((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit)) : scoreFromDiag_DEL+", "+row;
 					packed[MODE_DEL][row][col]=subfloor;
 				}else{//Calculate DEL score
-							
+
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_DEL+POINTSoff_DEL;
 					int scoreD=scoreFromDel_DEL+(streak==0 ? POINTSoff_DEL :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
@@ -912,8 +899,7 @@ public final class MultiStateAligner10ts extends MSA{
 								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
 									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
 //					int scoreI=scoreFromIns+POINTSoff_DEL;
-					
-					
+
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
 						scoreD+=POINTSoff_DEL_REF_N;
@@ -921,9 +907,9 @@ public final class MultiStateAligner10ts extends MSA{
 						scoreMS+=POINTSoff_GAP;
 						scoreD+=POINTSoff_GAP;
 					}
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -936,7 +922,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_DEL;
 					}
-					
+
 					final int limit2;
 					if(insNeeded>0){
 						limit2=limit-insPenalty;
@@ -947,14 +933,14 @@ public final class MultiStateAligner10ts extends MSA{
 					}
 					assert(limit2>=limit);
 					if(verbose2){System.err.println("DEL: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-					
+
 					if(score>=limit2){
 						maxGoodCol=col;
 						if(minGoodCol<0){minGoodCol=col;}
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -969,23 +955,22 @@ public final class MultiStateAligner10ts extends MSA{
 				if(gap || (scoreFromDiag_INS<=limit && scoreFromIns_INS<=limit) || (row<BARRIER_I1 && col>1) || (row>BARRIER_I2 && col<BARRIER_I2b)){
 					packed[MODE_INS][row][col]=subfloor;
 				}else{//Calculate INS score
-					
+
 					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_INS+POINTSoff_INS;
 //					int scoreD=scoreFromDel+POINTSoff_INS;
 					int scoreI=scoreFromIns_INS+(streak==0 ? POINTSoff_INS :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
-					
-					
+
 //					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
 //							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
 //							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -998,7 +983,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_INS;
 					}
-					
+
 					final int limit2;
 					if(delNeeded>0){
 						limit2=limit-delPenalty;
@@ -1016,7 +1001,7 @@ public final class MultiStateAligner10ts extends MSA{
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1026,8 +1011,7 @@ public final class MultiStateAligner10ts extends MSA{
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
 				}
-				
-				
+
 				if(col>=colStop){
 					if(col>colStop && maxGoodCol<col){break;}
 					if(row>1){
@@ -1038,12 +1022,11 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
 
 		int maxCol=-1;
 		int maxState=-1;
 		int maxScore=Integer.MIN_VALUE;
-		
+
 		for(int state=0; state<packed.length; state++){
 			for(int col=1; col<=columns; col++){
 				int x=packed[state][rows][col]&SCOREMASK;
@@ -1054,7 +1037,7 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
+
 		assert(maxScore>=BADoff);
 //		if(maxScore==BADoff){
 //			return null;
@@ -1065,14 +1048,13 @@ public final class MultiStateAligner10ts extends MSA{
 		if(maxScore<minScore_off){
 			return null;
 		}
-		
+
 		maxScore>>=SCOREOFFSET;
 
 //		System.err.println("Returning "+rows+", "+maxCol+", "+maxState+", "+maxScore);
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
-	
-	
+
 	/** return new int[] {rows, maxC, maxS, max, maxStart};
 	 * Will not fill areas that cannot match minScore */
 	private final int[] fillBanded(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore){
@@ -1087,22 +1069,22 @@ public final class MultiStateAligner10ts extends MSA{
 //		assert(minScore>0);
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
-		
+
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
-		
+
 		minScore-=MIN_SCORE_ADJUST; //Increases quality trivially
-		
+
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(columns<=maxColumns) : "Check that values are in-bounds before calling this function: "+columns+", "+maxColumns+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
-		
+
 		assert(refStartLoc>=0) : "Check that values are in-bounds before calling this function: "+refStartLoc+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
 		assert(refEndLoc<ref.length) : "Check that values are in-bounds before calling this function: "+refEndLoc+", "+ref.length+"\n"+
 			refStartLoc+", "+refEndLoc+", "+rows+", "+maxRows+", "+columns+", "+maxColumns+"\n"+new String(read)+"\n";
-		
+
 		for(int x=0; x<packed.length; x++){
 
 //			Arrays.fill(bpacked[x][1], 1, columns+1, BADoff);
@@ -1111,10 +1093,10 @@ public final class MultiStateAligner10ts extends MSA{
 //				Arrays.fill(bpacked[x][y], 1, columns+1, BADoff);
 //			}
 		}
-		
+
 		int minGoodCol=1;
 		int maxGoodCol=columns;
-		
+
 		final int minScore_off=(minScore<<SCOREOFFSET);
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
 		final int floor=minScore_off-maxGain;
@@ -1122,7 +1104,7 @@ public final class MultiStateAligner10ts extends MSA{
 		final int subfloor=floor-5*POINTSoff_MATCH2;
 		assert(subfloor>BADoff); //TODO: Actually, it needs to be substantially more.
 		assert(subfloor<minScore_off) : minScore_off+", "+floor+", "+BADoff+", "+subfloor;
-		
+
 		if(verbose2){
 			System.out.println();
 			System.out.println("minScore="+minScore+"\t"+minScore_off);
@@ -1133,7 +1115,7 @@ public final class MultiStateAligner10ts extends MSA{
 			System.out.println("maxGain="+(maxGain>>SCOREOFFSET)+"\t"+(maxGain));
 			System.out.println();
 		}
-		
+
 		vertLimit[rows]=minScore_off;
 		boolean prevDefined=false;
 		for(int i=rows-1; i>=0; i--){
@@ -1146,7 +1128,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 		horizLimit[columns]=minScore_off;
 		prevDefined=false;
 		for(int i=columns-1; i>=0; i--){
@@ -1159,7 +1141,7 @@ public final class MultiStateAligner10ts extends MSA{
 				prevDefined=false;
 			}
 		}
-		
+
 //		vertLimit[rows]=minScore_off;
 //		for(int i=rows-1; i>=0; i--){
 //			vertLimit[i]=Tools.max(vertLimit[i+1]-POINTSoff_MATCH2, floor);
@@ -1169,17 +1151,17 @@ public final class MultiStateAligner10ts extends MSA{
 //		for(int i=columns-1; i>=0; i--){
 //			horizLimit[i]=Tools.max(horizLimit[i+1]-POINTSoff_MATCH2, floor);
 //		}
-		
+
 		for(int row=1; row<=rows; row++){
-			
+
 			int colStart=minGoodCol;
 			int colStop=maxGoodCol;
-			
+
 			minGoodCol=-1;
 			maxGoodCol=-2;
-			
+
 			final int vlimit=vertLimit[row];
-			
+
 			if(verbose2){
 				System.out.println();
 				System.out.println("row="+row);
@@ -1187,10 +1169,9 @@ public final class MultiStateAligner10ts extends MSA{
 				System.out.println("colStop="+colStop);
 				System.out.println("vlimit="+(vlimit>>SCOREOFFSET)+"\t"+(vlimit));
 			}
-			
+
 			if(colStart<0 || colStop<colStart){break;}
-			
-			
+
 			if(colStart>1){
 				assert(row>0);
 				bpacked[MODE_MS][row][colStart-1]=subfloor;
@@ -1200,11 +1181,9 @@ public final class MultiStateAligner10ts extends MSA{
 				bpacked[MODE_MS][row-1][0]=bpacked[MODE_INS][row-1][0]=bpacked[MODE_DEL][row-1][0]=col0score[row-1];
 				bpacked[MODE_MS][row][0]=bpacked[MODE_INS][row][0]=bpacked[MODE_DEL][row][0]=col0score[row];
 			}
-			
-			
+
 			for(int col=colStart; col<=columns; col++){
 
-				
 				if(verbose2){
 					System.out.println("\ncol "+col);
 				}
@@ -1213,7 +1192,7 @@ public final class MultiStateAligner10ts extends MSA{
 				final byte call1=read[row-1];
 				final byte ref0=(col<2 ? (byte)'!' : ref[refStartLoc+col-2]);
 				final byte ref1=ref[refStartLoc+col-1];
-				
+
 				final boolean gap=(ref1==GAPC);
 				assert(call1!=GAPC);
 
@@ -1221,9 +1200,9 @@ public final class MultiStateAligner10ts extends MSA{
 //				final boolean prevMatch=(row<2 || col<2 ? false : read[row-2]==ref[refStartLoc+col-2]);
 				final boolean match=(call1==ref1 && ref1!='N');
 				final boolean prevMatch=(call0==ref0 && ref0!='N');
-				
+
 //				System.err.println("")
-				
+
 				iterationsLimited++;
 				final int limit=Tools.max(vlimit, horizLimit[col]);
 				final int limit3=Tools.max(floor, (match ? limit-POINTSoff_MATCH2 : limit-POINTSoff_SUB3));
@@ -1233,23 +1212,22 @@ public final class MultiStateAligner10ts extends MSA{
 
 				final int delPenalty=calcDelScoreOffset(delNeeded);
 				final int insPenalty=calcInsScoreOffset(insNeeded);
-				
-				
+
 				final int scoreFromDiag_MS=bpacked[MODE_MS][row-1][col-1]&SCOREMASK;
 				final int scoreFromDel_MS=bpacked[MODE_DEL][row-1][col-1]&SCOREMASK;
 				final int scoreFromIns_MS=bpacked[MODE_INS][row-1][col-1]&SCOREMASK;
-				
+
 				final int scoreFromDiag_DEL=bpacked[MODE_MS][row][col-1]&SCOREMASK;
 				final int scoreFromDel_DEL=bpacked[MODE_DEL][row][col-1]&SCOREMASK;
 
 				final int scoreFromDiag_INS=bpacked[MODE_MS][row-1][col]&SCOREMASK;
 				final int scoreFromIns_INS=bpacked[MODE_INS][row-1][col]&SCOREMASK;
-				
+
 //				if(scoreFromDiag_MS<limit3 && scoreFromDel_MS<limit3 && scoreFromIns_MS<limit3
 //						&& scoreFromDiag_DEL<limit && scoreFromDel_DEL<limit && scoreFromDiag_INS<limit && scoreFromIns_INS<limit){
 //					iterationsLimited--; //A "fast" iteration
 //				}
-				
+
 				if(gap || (scoreFromDiag_MS<=limit3 && scoreFromDel_MS<=limit3 && scoreFromIns_MS<=limit3)){
 					bpacked[MODE_MS][row][col]=subfloor;
 					startmatrix[MODE_MS][row][col]=-1;
@@ -1257,18 +1235,18 @@ public final class MultiStateAligner10ts extends MSA{
 					final int streak=(bpacked[MODE_MS][row-1][col-1]&TIMEMASK);
 
 					{//Calculate match/sub score
-						
+
 						int score;
 						int time;
 						int start;
 						byte prevState;
-						
+
 						if(match){
 
 							int scoreMS=scoreFromDiag_MS+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel_MS+POINTSoff_MATCH;
 							int scoreI=scoreFromIns_MS+POINTSoff_MATCH;
-							
+
 //							byte prevState;
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
@@ -1283,7 +1261,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1292,9 +1270,9 @@ public final class MultiStateAligner10ts extends MSA{
 //							assert((score&SCOREMASK)==score);
 ////							assert((prevState&MODEMASK)==prevState);
 //							assert((time&TIMEMASK)==time);
-							
+
 						}else{
-							
+
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
 								scoreMS=scoreFromDiag_MS+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
@@ -1302,10 +1280,10 @@ public final class MultiStateAligner10ts extends MSA{
 							}else{
 								scoreMS=scoreFromDiag_MS+POINTSoff_NOCALL;
 							}
-							
+
 							int scoreD=scoreFromDel_MS+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
 							int scoreI=scoreFromIns_MS+POINTSoff_SUB;
-							
+
 							if(scoreMS>=scoreD && scoreMS>=scoreI){
 								score=scoreMS;
 								time=(prevMatch ? 1 : streak+1);
@@ -1320,7 +1298,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 //							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 //							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 //							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1331,7 +1309,7 @@ public final class MultiStateAligner10ts extends MSA{
 //							assert((time&TIMEMASK)==time);
 						}
 						start=startmatrix[prevState][row-1][col-1];
-						
+
 						final int limit2;
 						if(delNeeded>0){
 							limit2=limit-delPenalty;
@@ -1341,16 +1319,16 @@ public final class MultiStateAligner10ts extends MSA{
 							limit2=limit;
 						}
 						assert(limit2>=limit);
-						
+
 						if(verbose2){System.err.println("MS: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-						
+
 						if(score>=limit2){
 							maxGoodCol=col;
 							if(minGoodCol<0){minGoodCol=col;}
 						}else{
 							score=subfloor;
 						}
-						
+
 						if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 						assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 						assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1362,15 +1340,15 @@ public final class MultiStateAligner10ts extends MSA{
 						assert((time&TIMEMASK)==time);
 					}
 				}
-				
+
 				if((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit) || row<BARRIER_D1 || row>BARRIER_D2){
 //					assert((scoreFromDiag_DEL<=limit && scoreFromDel_DEL<=limit)) : scoreFromDiag_DEL+", "+row;
 					bpacked[MODE_DEL][row][col]=subfloor;
 					startmatrix[MODE_MS][row][col]=-1;
 				}else{//Calculate DEL score
-							
+
 					final int streak=bpacked[MODE_DEL][row][col-1]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_DEL+POINTSoff_DEL;
 					int scoreD=scoreFromDel_DEL+(streak==0 ? POINTSoff_DEL :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
@@ -1378,8 +1356,7 @@ public final class MultiStateAligner10ts extends MSA{
 								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
 									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
 //					int scoreI=scoreFromIns+POINTSoff_DEL;
-					
-					
+
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
 						scoreD+=POINTSoff_DEL_REF_N;
@@ -1387,14 +1364,14 @@ public final class MultiStateAligner10ts extends MSA{
 						scoreMS+=POINTSoff_GAP;
 						scoreD+=POINTSoff_GAP;
 					}
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					int start;
 					byte prevState;
-					
+
 					if(scoreMS>=scoreD){
 						score=scoreMS;
 						time=1;
@@ -1405,7 +1382,7 @@ public final class MultiStateAligner10ts extends MSA{
 						prevState=MODE_DEL;
 					}
 					start=startmatrix[prevState][row][col-1];
-					
+
 					final int limit2;
 					if(insNeeded>0){
 						limit2=limit-insPenalty;
@@ -1416,14 +1393,14 @@ public final class MultiStateAligner10ts extends MSA{
 					}
 					assert(limit2>=limit);
 					if(verbose2){System.err.println("DEL: \tlimit2="+(limit2>>SCOREOFFSET)+"\t, score="+(score>>SCOREOFFSET));}
-					
+
 					if(score>=limit2){
 						maxGoodCol=col;
 						if(minGoodCol<0){minGoodCol=col;}
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1440,28 +1417,27 @@ public final class MultiStateAligner10ts extends MSA{
 					bpacked[MODE_INS][row][col]=subfloor;
 					startmatrix[MODE_MS][row][col]=-1;
 				}else{//Calculate INS score
-					
+
 					final int streak=bpacked[MODE_INS][row-1][col]&TIMEMASK;
-					
+
 					int scoreMS=scoreFromDiag_INS+POINTSoff_INS;
 //					int scoreD=scoreFromDel+POINTSoff_INS;
 					int scoreI=scoreFromIns_INS+(streak==0 ? POINTSoff_INS :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
-					
-					
+
 //					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
 //							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
 //							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					int start;
 					byte prevState;
-					
+
 					if(scoreMS>=scoreI){
 						score=scoreMS;
 						time=1;
@@ -1472,7 +1448,7 @@ public final class MultiStateAligner10ts extends MSA{
 						prevState=MODE_INS;
 					}
 					start=startmatrix[prevState][row-1][col];
-					
+
 					final int limit2;
 					if(delNeeded>0){
 						limit2=limit-delPenalty;
@@ -1490,7 +1466,7 @@ public final class MultiStateAligner10ts extends MSA{
 					}else{
 						score=subfloor;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE || score==BADoff) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1501,8 +1477,7 @@ public final class MultiStateAligner10ts extends MSA{
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
 				}
-				
-				
+
 				if(col>=colStop){
 					if(col>colStop && maxGoodCol<col){break;}
 					if(row>1){
@@ -1516,13 +1491,12 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
 
 		int maxCol=-1;
 		int maxState=-1;
 		int maxStart=-1;
 		int maxScore=Integer.MIN_VALUE;
-		
+
 		for(int state=0; state<packed.length; state++){
 			for(int col=1; col<=columns; col++){
 				int x=bpacked[state][rows][col]&SCOREMASK;
@@ -1534,7 +1508,7 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
+
 		assert(maxScore>=BADoff);
 //		if(maxScore==BADoff){
 //			return null;
@@ -1545,14 +1519,13 @@ public final class MultiStateAligner10ts extends MSA{
 		if(maxScore<minScore_off){
 			return null;
 		}
-		
+
 		maxScore>>=SCOREOFFSET;
 
 //		System.err.println("Returning "+rows+", "+maxCol+", "+maxState+", "+maxScore);
 		return new int[] {rows, maxCol, maxState, maxScore, maxStart};
 	}
-	
-	
+
 	/** return new int[] {rows, maxC, maxS, max};
 	 * Will not fill areas that cannot match minScore */
 	@Override
@@ -1564,52 +1537,51 @@ public final class MultiStateAligner10ts extends MSA{
 			return fillUnlimited(read, gref, 0, greflimit);
 		}
 	}
-	
-	
+
 	/** return new int[] {rows, maxC, maxS, max};
 	 * Does not require a min score (ie, same as old method) */
 	private final int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
 		if(verbose){System.err.println("fillUnlimited()");}
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
-		
+
 		final int maxGain=(read.length-1)*POINTSoff_MATCH2+POINTSoff_MATCH;
 		final int subfloor=0-2*maxGain;
 		assert(subfloor>BADoff && subfloor*2>BADoff); //TODO: Actually, it needs to be substantially more.
 //		final int BARRIER_I2=columns-BARRIER_I1;
 		final int BARRIER_I2=rows-BARRIER_I1, BARRIER_I2b=columns-1;
 		final int BARRIER_D2=rows-BARRIER_D1;
-		
+
 		//temporary, for finding a bug
 		if(rows>maxRows || columns>maxColumns){
 			throw new RuntimeException();
 		}
-		
+
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows;
 		assert(columns<=maxColumns) : "Check that values are in-bounds before calling this function: "+columns+", "+maxColumns;
-		
+
 		assert(refStartLoc>=0) : "Check that values are in-bounds before calling this function: "+refStartLoc;
 		assert(refEndLoc<ref.length) : "Check that values are in-bounds before calling this function: "+refEndLoc+", "+ref.length;
-		
+
 		for(int row=1; row<=rows; row++){
 
 //			int minc=max(1, row-20);
 //			int maxc=min(columns, row+20);
-			
+
 			for(int col=1; col<=columns; col++){
 				iterationsUnlimited++;
-				
+
 //				final boolean match=(read[row-1]==ref[refStartLoc+col-1]);
 //				final boolean prevMatch=(row<2 || col<2 ? false : read[row-2]==ref[refStartLoc+col-2]);
-				
+
 				final byte call0=(row<2 ? (byte)'?' : read[row-2]);
 				final byte call1=read[row-1];
 				final byte ref0=(col<2 ? (byte)'!' : ref[refStartLoc+col-2]);
 				final byte ref1=ref[refStartLoc+col-1];
-				
+
 				final boolean match=(call1==ref1 && ref1!='N');
 				final boolean prevMatch=(call0==ref0 && ref0!='N');
-				
+
 				final boolean gap=(ref1==GAPC);
 				assert(call1!=GAPC);
 
@@ -1623,13 +1595,13 @@ public final class MultiStateAligner10ts extends MSA{
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
 					{//Calculate match/sub score
-						
+
 						if(match){
 
 							int scoreMS=scoreFromDiag+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel+POINTSoff_MATCH;
 							int scoreI=scoreFromIns+POINTSoff_MATCH;
-							
+
 							int score;
 							int time;
 //							byte prevState;
@@ -1646,7 +1618,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 //								prevState=MODE_INS;
 							}
-							
+
 							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1655,9 +1627,9 @@ public final class MultiStateAligner10ts extends MSA{
 							assert((score&SCOREMASK)==score);
 //							assert((prevState&MODEMASK)==prevState);
 							assert((time&TIMEMASK)==time);
-							
+
 						}else{
-							
+
 							int scoreMS;
 							if(ref1!='N' && call1!='N'){
 								scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
@@ -1665,10 +1637,10 @@ public final class MultiStateAligner10ts extends MSA{
 							}else{
 								scoreMS=scoreFromDiag+POINTSoff_NOCALL;
 							}
-							
+
 							int scoreD=scoreFromDel+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
 							int scoreI=scoreFromIns+POINTSoff_SUB;
-							
+
 							int score;
 							int time;
 							byte prevState;
@@ -1686,7 +1658,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1698,16 +1670,16 @@ public final class MultiStateAligner10ts extends MSA{
 						}
 					}
 				}
-				
+
 				if(row<BARRIER_D1 || row>BARRIER_D2){
 					packed[MODE_DEL][row][col]=subfloor;
 				}else{//Calculate DEL score
-							
+
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
-					
+
 					final int scoreFromDiag=packed[MODE_MS][row][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row][col-1]&SCOREMASK;
-					
+
 					int scoreMS=scoreFromDiag+POINTSoff_DEL;
 					int scoreD=scoreFromDel+(streak==0 ? POINTSoff_DEL :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
@@ -1715,7 +1687,7 @@ public final class MultiStateAligner10ts extends MSA{
 								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
 									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
 //					int scoreI=scoreFromIns+POINTSoff_DEL;
-					
+
 					if(ref1=='N'){
 						scoreMS+=POINTSoff_DEL_REF_N;
 						scoreD+=POINTSoff_DEL_REF_N;
@@ -1723,9 +1695,9 @@ public final class MultiStateAligner10ts extends MSA{
 						scoreMS+=POINTSoff_GAP;
 						scoreD+=POINTSoff_GAP;
 					}
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -1738,7 +1710,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_DEL;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1748,31 +1720,31 @@ public final class MultiStateAligner10ts extends MSA{
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
 				}
-				
+
 				//Calculate INS score
 //				if(gap || col<BARRIER_I1 || col>BARRIER_I2){
 				if(gap || (row<BARRIER_I1 && col>1) || (row>BARRIER_I2 && col<BARRIER_I2b)){
 					packed[MODE_INS][row][col]=subfloor;
 				}else{//Calculate INS score
-					
+
 					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
 
 					final int scoreFromDiag=packed[MODE_MS][row-1][col]&SCOREMASK;
 					final int scoreFromIns=packed[MODE_INS][row-1][col]&SCOREMASK;
-					
+
 					int scoreMS=scoreFromDiag+POINTSoff_INS;
 //					int scoreD=scoreFromDel+POINTSoff_INS;
 					int scoreI=scoreFromIns+(streak==0 ? POINTSoff_INS :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
-					
+
 //					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
 //							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
 //							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
-					
+
 					//if(match){scoreMS=subfloor;}
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -1785,7 +1757,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_INS;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1797,12 +1769,11 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
 
 		int maxCol=-1;
 		int maxState=-1;
 		int maxScore=Integer.MIN_VALUE;
-		
+
 		for(int state=0; state<packed.length; state++){
 			for(int col=1; col<=columns; col++){
 				int x=packed[state][rows][col]&SCOREMASK;
@@ -1818,7 +1789,7 @@ public final class MultiStateAligner10ts extends MSA{
 //		System.err.println("Returning "+rows+", "+maxCol+", "+maxState+", "+maxScore);
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
-	
+
 	@Override
 	@Deprecated
 	/** return new int[] {rows, maxC, maxS, max}; */
@@ -1829,17 +1800,17 @@ public final class MultiStateAligner10ts extends MSA{
 
 		assert(rows<=maxRows) : "Check that values are in-bounds before calling this function: "+rows+", "+maxRows;
 		assert(columns<=maxColumns) : "Check that values are in-bounds before calling this function: "+columns+", "+maxColumns;
-		
+
 		assert(refStartLoc>=0) : "Check that values are in-bounds before calling this function: "+refStartLoc;
 		assert(refEndLoc<ref.length) : "Check that values are in-bounds before calling this function: "+refEndLoc+", "+ref.length;
-		
+
 		for(int row=1; row<=rows; row++){
 
 //			int minc=max(1, row-20);
 //			int maxc=min(columns, row+20);
-			
+
 			for(int col=1; col<=columns; col++){
-				
+
 				final boolean match=(read[row-1]==ref[refStartLoc+col-1]);
 				final boolean prevMatch=(row<2 || col<2 ? false : read[row-2]==ref[refStartLoc+col-2]);
 
@@ -1851,13 +1822,13 @@ public final class MultiStateAligner10ts extends MSA{
 					final int streak=(packed[MODE_MS][row-1][col-1]&TIMEMASK);
 
 					{//Calculate match/sub score
-						
+
 						if(match){
 
 							int scoreMS=scoreFromDiag+(prevMatch ? POINTSoff_MATCH2 : POINTSoff_MATCH);
 							int scoreD=scoreFromDel+POINTSoff_MATCH;
 							int scoreI=scoreFromIns+POINTSoff_MATCH;
-							
+
 							int score;
 							int time;
 //							byte prevState;
@@ -1875,7 +1846,7 @@ public final class MultiStateAligner10ts extends MSA{
 //								prevState=MODE_INS;
 							}
 							score+=(((int)baseScores[row-1])<<SCOREOFFSET); //modifier
-							
+
 							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1884,14 +1855,14 @@ public final class MultiStateAligner10ts extends MSA{
 							assert((score&SCOREMASK)==score);
 //							assert((prevState&MODEMASK)==prevState);
 							assert((time&TIMEMASK)==time);
-							
+
 						}else{
 
 							int scoreMS=scoreFromDiag+(prevMatch ? (streak<=1 ? POINTSoff_SUBR : POINTSoff_SUB) :
 								(streak==0 ? POINTSoff_SUB : streak<LIMIT_FOR_COST_3 ? POINTSoff_SUB2 : POINTSoff_SUB3));
 							int scoreD=scoreFromDel+POINTSoff_SUB; //+2 to move it as close as possible to the deletion / insertion
 							int scoreI=scoreFromIns+POINTSoff_SUB;
-							
+
 							int score;
 							int time;
 							byte prevState;
@@ -1909,7 +1880,7 @@ public final class MultiStateAligner10ts extends MSA{
 								time=1;
 								prevState=MODE_INS;
 							}
-							
+
 							if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 							assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 							assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1921,14 +1892,14 @@ public final class MultiStateAligner10ts extends MSA{
 						}
 					}
 				}
-				
+
 				{//Calculate DEL score
-							
+
 					final int streak=packed[MODE_DEL][row][col-1]&TIMEMASK;
-					
+
 					final int scoreFromDiag=packed[MODE_MS][row][col-1]&SCOREMASK;
 					final int scoreFromDel=packed[MODE_DEL][row][col-1]&SCOREMASK;
-					
+
 					int scoreMS=scoreFromDiag+POINTSoff_DEL;
 					int scoreD=scoreFromDel+(streak==0 ? POINTSoff_DEL :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_DEL2 :
@@ -1936,7 +1907,7 @@ public final class MultiStateAligner10ts extends MSA{
 								streak<LIMIT_FOR_COST_5 ? POINTSoff_DEL4 :
 									((streak&MASK5)==0 ? POINTSoff_DEL5 : 0));
 //					int scoreI=scoreFromIns+POINTSoff_DEL;
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -1949,7 +1920,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_DEL;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -1959,25 +1930,25 @@ public final class MultiStateAligner10ts extends MSA{
 //					assert((prevState&MODEMASK)==prevState);
 					assert((time&TIMEMASK)==time);
 				}
-				
+
 				{//Calculate INS score
-					
+
 					final int streak=packed[MODE_INS][row-1][col]&TIMEMASK;
 
 					final int scoreFromDiag=packed[MODE_MS][row-1][col]&SCOREMASK;
 					final int scoreFromIns=packed[MODE_INS][row-1][col]&SCOREMASK;
-					
+
 					int scoreMS=scoreFromDiag+POINTSoff_INS;
 //					int scoreD=scoreFromDel+POINTSoff_INS;
 					int scoreI=scoreFromIns+(streak==0 ? POINTSoff_INS :
 						streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 :
 							streak<LIMIT_FOR_COST_4 ? POINTSoff_INS3 : POINTSoff_INS4);
-					
+
 //					System.err.println("("+row+","+col+")\t"+scoreFromDiag+"+"+POINTSoff_INS+"="+scoreM+", "+
 //							scoreFromSub+"+"+POINTSoff_INS+"="+scoreS+", "
 //							+scoreD+", "+scoreFromIns+"+"+
 //							(streak==0 ? POINTSoff_INS : streak<LIMIT_FOR_COST_3 ? POINTSoff_INS2 : POINTSoff_INS3)+"="+scoreI);
-					
+
 					int score;
 					int time;
 					byte prevState;
@@ -1990,7 +1961,7 @@ public final class MultiStateAligner10ts extends MSA{
 						time=streak+1;
 						prevState=MODE_INS;
 					}
-					
+
 					if(time>MAX_TIME){time=MAX_TIME-MASK5;}
 					assert(score>=MINoff_SCORE) : "Score overflow - use MSA2 instead";
 					assert(score<=MAXoff_SCORE) : "Score overflow - use MSA2 instead";
@@ -2002,12 +1973,11 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 			}
 		}
-		
 
 		int maxCol=-1;
 		int maxState=-1;
 		int maxScore=Integer.MIN_VALUE;
-		
+
 		for(int state=0; state<packed.length; state++){
 			for(int col=1; col<=columns; col++){
 				int x=packed[state][rows][col]&SCOREMASK;
@@ -2024,9 +1994,7 @@ public final class MultiStateAligner10ts extends MSA{
 		return new int[] {rows, maxCol, maxState, maxScore};
 	}
 
-	
-	/** @return {score, bestRefStart, bestRefStop} */
-	/** Generates the match string */
+	/** Returns an expanded match string from the most recent fill's matrix. */
 	@Override
 	public final byte[] traceback(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state, boolean gapped){
 		if(gapped){
@@ -2039,33 +2007,32 @@ public final class MultiStateAligner10ts extends MSA{
 			return traceback2(read, ref, refStartLoc, refEndLoc, row, col, state);
 		}
 	}
-	
-	
+
 	/** Generates the match string */
 	@Override
 	public final byte[] traceback2(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state){
 //		assert(false);
 		assert(refStartLoc<=refEndLoc) : refStartLoc+", "+refEndLoc;
 		assert(row==rows);
-		
+
 		byte[] out=new byte[row+col-1]; //TODO if an out of bound crash occurs, try removing the "-1".
 		int outPos=0;
-		
+
 		int gaps=0;
-		
+
 		if(state==MODE_INS){
 			//TODO ? Maybe not needed.
 		}
-		
+
 		while(row>0 && col>0){
-			
+
 //			byte prev0=(byte)(packed[state][row][col]&MODEMASK);
 
 			final int time=packed[state][row][col]&TIMEMASK;
 			final byte prev;
-				
+
 //			System.err.println("state="+state+", prev="+prev+", row="+row+", col="+col+", score="+scores[state][row][col]);
-			
+
 			if(state==MODE_MS){
 				if(time>1){prev=(byte)state;}
 				else{
@@ -2076,7 +2043,7 @@ public final class MultiStateAligner10ts extends MSA{
 					else if(scoreFromDel>=scoreFromIns){prev=MODE_DEL;}
 					else{prev=MODE_INS;}
 				}
-				
+
 				byte c=read[row-1];
 				byte r=ref[refStartLoc+col-1];
 				if(c==r){
@@ -2091,7 +2058,7 @@ public final class MultiStateAligner10ts extends MSA{
 						out[outPos]='S';
 					}
 				}
-				
+
 				row--;
 				col--;
 			}else if(state==MODE_DEL){
@@ -2102,7 +2069,7 @@ public final class MultiStateAligner10ts extends MSA{
 					if(scoreFromDiag>=scoreFromDel){prev=MODE_MS;}
 					else{prev=MODE_DEL;}
 				}
-				
+
 				byte r=ref[refStartLoc+col-1];
 				if(r==GAPC){
 					out[outPos]='-';
@@ -2119,7 +2086,7 @@ public final class MultiStateAligner10ts extends MSA{
 					if(scoreFromDiag>=scoreFromIns){prev=MODE_MS;}
 					else{prev=MODE_INS;}
 				}
-				
+
 				assert(state==MODE_INS) : state;
 				if(col==0){
 					out[outPos]='X';
@@ -2135,7 +2102,7 @@ public final class MultiStateAligner10ts extends MSA{
 			state=prev;
 			outPos++;
 		}
-		
+
 		assert(row==0 || col==0);
 		if(col!=row){
 			while(row>0){
@@ -2148,17 +2115,16 @@ public final class MultiStateAligner10ts extends MSA{
 				//do nothing
 			}
 		}
-		
-		
+
 		//Shrink and reverse the string
 		byte[] out2=new byte[outPos];
 		for(int i=0; i<outPos; i++){
 			out2[i]=out[outPos-i-1];
 		}
 		out=null;
-		
+
 		if(gaps==0){return out2;}
-		
+
 		//TODO Consider outputting this compressed.
 		byte[] out3=new byte[out2.length+gaps*(GAPLEN-1)];
 		for(int i=0, j=0; i<out2.length; i++){
@@ -2175,8 +2141,9 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		return out3;
 	}
-	
-	/** @return {score, bestRefStart, bestRefStop} */
+
+	/** Returns score, inclusive endpoints, and matrix endpoint; adds two padding
+	 * counts when the alignment runs beyond the supplied reference interval. */
 	@Override
 	public final int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState, boolean gapped){
@@ -2188,21 +2155,21 @@ public final class MultiStateAligner10ts extends MSA{
 			final byte[] gref=grefbuffer;
 			int gstart=translateToGappedCoordinate(refStartLoc, gref);
 			int gstop=translateToGappedCoordinate(refEndLoc, gref);
-			
+
 			assert(translateFromGappedCoordinate(gstart, gref)==refStartLoc); //TODO: Remove slow assertions
 			assert(translateFromGappedCoordinate(gstop, gref)==refEndLoc);
-			
+
 			assert(gstart==0) : gstart; //TODO: skip translation if this is always zero
-			
+
 			if(verbose){System.err.println("gstart, gstop: "+gstart+", "+gstop);}
 			int[] out=score2(read, gref, gstart, gstop, maxRow, maxCol, maxState);
 			if(verbose){System.err.println("got score "+Arrays.toString(out));}
-			
+
 			assert(out[1]==translateToGappedCoordinate(translateFromGappedCoordinate(out[1], gref), gref)) :
 				"Verifying: "+out[1]+" -> "+translateFromGappedCoordinate(out[1], gref)+" -> "+
 				translateToGappedCoordinate(translateFromGappedCoordinate(out[1], gref), gref);
 			assert(out[2]==translateToGappedCoordinate(translateFromGappedCoordinate(out[2], gref), gref));
-			
+
 			out[1]=translateFromGappedCoordinate(out[1], gref);
 			out[2]=translateFromGappedCoordinate(out[2], gref);
 			if(verbose){System.err.println("returning score "+Arrays.toString(out));}
@@ -2211,12 +2178,13 @@ public final class MultiStateAligner10ts extends MSA{
 			return score2(read, ref, refStartLoc, refEndLoc, maxRow, maxCol, maxState);
 		}
 	}
-	
-	/** @return {score, bestRefStart, bestRefStop}, or {score, bestRefStart, bestRefStop, padLeft, padRight} if more padding is needed */
+
+	/** Returns {score,start,stop,row,col,state}, with {padLeft,padRight} appended
+	 * when more reference padding is needed. Consumes the most recent fill. */
 	@Override
 	public final int[] score2(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState){
-		
+
 		int row=maxRow;
 		int col=maxCol;
 		int state=maxState;
@@ -2227,39 +2195,36 @@ public final class MultiStateAligner10ts extends MSA{
 			maxState+", "+maxRow+", "+maxCol+"\n"+new String(read)+"\n"+toString(ref, refStartLoc, refEndLoc);
 		assert(maxCol>=0 && maxCol<packed[0][0].length) :
 			maxState+", "+maxRow+", "+maxCol+"\n"+new String(read)+"\n"+toString(ref, refStartLoc, refEndLoc);
-		
+
 		int score=packed[maxState][maxRow][maxCol]&SCOREMASK; //Or zero, if it is to be recalculated
-		
+
 		if(row<rows){
 			int difR=rows-row;
 			int difC=columns-col;
-			
+
 			while(difR>difC){
 				score+=POINTSoff_NOREF;
 				difR--;
 			}
-			
+
 			row+=difR;
 			col+=difR;
-			
+
 		}
-		
+
 		assert(refStartLoc<=refEndLoc);
 		assert(row==rows);
 
-		
 		final int bestRefStop=refStartLoc+col-1;
-		
+
 		while(row>0 && col>0){
 //			System.err.println("state="+state+", row="+row+", col="+col);
-			
 
-			
 //			byte prev0=(byte)(packed[state][row][col]&MODEMASK);
 
 			final int time=packed[state][row][col]&TIMEMASK;
 			final byte prev;
-			
+
 			if(state==MODE_MS){
 				if(time>1){prev=(byte)state;}
 				else{
@@ -2292,11 +2257,11 @@ public final class MultiStateAligner10ts extends MSA{
 				}
 				row--;
 			}
-			
+
 			if(col<0){
 				System.err.println(row);
 				break; //prevents an out of bounds access
-			
+
 			}
 
 //			assert(prev==prev0);
@@ -2308,9 +2273,9 @@ public final class MultiStateAligner10ts extends MSA{
 		if(row>col){
 			col-=row;
 		}
-		
+
 		final int bestRefStart=refStartLoc+col;
-		
+
 		score>>=SCOREOFFSET;
 		int[] rvec;
 		if(bestRefStart<refStartLoc || bestRefStop>refEndLoc){ //Suggest extra padding in cases of overflow
@@ -2322,132 +2287,125 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		return rvec;
 	}
-	
-	/**
-	 * Fills grefbuffer
-	 * @param ref
-	 * @param a
-	 * @param b
-	 * @param gaps
-	 * @return gref
-	 */
+
+	/** Builds borrowed compressed-reference scratch from paired inclusive spans.
+	 * Temporarily expands the outer caller endpoints, restoring them even if
+	 * construction fails. The returned buffer is invalidated by the next build. */
 	private final byte[] makeGref(byte[] ref, int[] gaps, int refStartLoc, int refEndLoc){
-		assert(gaps!=null && gaps.length>0);
-		
+		assert(gaps!=null && gaps.length>=2 && (gaps.length&1)==0) :
+			"makeGref reads paired inclusive endpoints: "+Arrays.toString(gaps);
+
 		assert(refStartLoc<=gaps[0]) : refStartLoc+", "+refEndLoc+", "+Arrays.toString(gaps);
 		assert(refEndLoc>=gaps[gaps.length-1]);
-		
+
 		final int g0_old=gaps[0];
 		final int gN_old=gaps[gaps.length-1];
-		gaps[0]=Tools.min(gaps[0], refStartLoc);
-		gaps[gaps.length-1]=Tools.max(gN_old, refEndLoc);
-		grefRefOrigin=gaps[0];
+		try{
+			gaps[0]=Tools.min(gaps[0], refStartLoc);
+			gaps[gaps.length-1]=Tools.max(gN_old, refEndLoc);
+			grefRefOrigin=gaps[0];
 
-		if(verbose){System.err.println("\ngaps2: "+Arrays.toString(gaps));}
-		
-//		grefRefOrigin=Tools.min(gaps[0], refStartLoc);
-		
-//		//This block is no longer needed since the array is preallocated.
-//		int len=0;
-//		final int gb2=GAPBUFFER*2;
-//		for(int i=0; i<gaps.length; i+=2){
-//			int x=gaps[i];
-//			int y=gaps[i+1];
-//			len+=(y-x+1);
-//			if(i+2<gaps.length){
-//				int z=gaps[i+2];
-//				assert(z>y);
-//				int gap=z-y-1;
-//				if(gap<MINGAP){
-//					len+=gap;
-//				}else{
-//					len+=gb2;
-//					gap-=gb2;
-//					int div=gap/GAPLEN;
-//					int rem=gap%GAPLEN;
-//					len+=(div+rem);
-//				}
-//			}
-//		}
-		byte[] gref=grefbuffer;
-		
-		int gpos=0;
-		for(int i=0; i<gaps.length; i+=2){
-			int x=gaps[i];
-			int y=gaps[i+1];
-			
-			for(int r=x; r<=y; r++, gpos++){
-				//TODO: if out of bounds, use an 'N'
-//				assert(gpos<gref.length) : refStartLoc+", "+refEndLoc+", "+greflimit+", "+GREFLIMIT2_CUSHION+"\n"+new String(gref);
-				gref[gpos]=ref[r];
-			}
-			
-			if(i+2<gaps.length){
-				int z=gaps[i+2];
-				assert(z>y);
-				int gap=z-y-1;
-				assert(gap>=MINGAP) : gap+"\t"+MINGAP;
-				if(gap<MINGAP){
-					assert(false) : "TODO - just fill in normally";
-				}else{
-					int rem=gap%GAPLEN;
-					int lim=y+GAPBUFFER+rem;
-					
-					int div=(gap-GAPBUFFER2)/GAPLEN;
-					if(verbose){
-						System.err.println("div = "+div);
-					}
-					assert(div>0);
-					
-					for(int r=y+1; r<=lim; r++, gpos++){
-						gref[gpos]=ref[r];
-					}
-					for(int g=0; g<div; g++, gpos++){
-						gref[gpos]=GAPC;
-					}
-					for(int r=z-GAPBUFFER; r<z; r++, gpos++){
-						gref[gpos]=ref[r];
+			if(verbose){System.err.println("\ngaps2: "+Arrays.toString(gaps));}
+
+	//		grefRefOrigin=Tools.min(gaps[0], refStartLoc);
+
+	//		//This block is no longer needed since the array is preallocated.
+	//		int len=0;
+	//		final int gb2=GAPBUFFER*2;
+	//		for(int i=0; i<gaps.length; i+=2){
+	//			int x=gaps[i];
+	//			int y=gaps[i+1];
+	//			len+=(y-x+1);
+	//			if(i+2<gaps.length){
+	//				int z=gaps[i+2];
+	//				assert(z>y);
+	//				int gap=z-y-1;
+	//				if(gap<MINGAP){
+	//					len+=gap;
+	//				}else{
+	//					len+=gb2;
+	//					gap-=gb2;
+	//					int div=gap/GAPLEN;
+	//					int rem=gap%GAPLEN;
+	//					len+=(div+rem);
+	//				}
+	//			}
+	//		}
+			byte[] gref=grefbuffer;
+
+			int gpos=0;
+			for(int i=0; i<gaps.length; i+=2){
+				int x=gaps[i];
+				int y=gaps[i+1];
+
+				for(int r=x; r<=y; r++, gpos++){
+					//TODO: if out of bounds, use an 'N'
+	//				assert(gpos<gref.length) : refStartLoc+", "+refEndLoc+", "+greflimit+", "+GREFLIMIT2_CUSHION+"\n"+new String(gref);
+					gref[gpos]=ref[r];
+				}
+
+				if(i+2<gaps.length){
+					int z=gaps[i+2];
+					assert(z>y);
+					int gap=z-y-1;
+					assert(gap>=MINGAP) : gap+"\t"+MINGAP;
+					if(gap<MINGAP){
+						assert(false) : "TODO - just fill in normally";
+					}else{
+						int rem=gap%GAPLEN;
+						int lim=y+GAPBUFFER+rem;
+
+						int div=(gap-GAPBUFFER2)/GAPLEN;
+						if(verbose){
+							System.err.println("div = "+div);
+						}
+						assert(div>0);
+
+						for(int r=y+1; r<=lim; r++, gpos++){
+							gref[gpos]=ref[r];
+						}
+						for(int g=0; g<div; g++, gpos++){
+							gref[gpos]=GAPC;
+						}
+						for(int r=z-GAPBUFFER; r<z; r++, gpos++){
+							gref[gpos]=ref[r];
+						}
 					}
 				}
 			}
-		}
-		
-		greflimit=gpos;
-		
-		assert(gref[gpos-1]==ref[refEndLoc]);
-//		assert(greflimit+GREFLIMIT2_CUSHION<=gref.length) : refStartLoc+", "+refEndLoc+", "+greflimit+", "+GREFLIMIT2_CUSHION+"\n"+new String(gref);
-		//Add a cushion to the end to clear out the prior data (especially GAPC) that was there
-		{
-			final int lim=Tools.min(gref.length, greflimit+GREFLIMIT2_CUSHION);
-			//TODO: Possible bug [align2/MultiStateAligner9Flat#001 - family-wide, all 7 siblings]: DEAD guard -- lim is
-			//pre-capped by Tools.min(gref.length,..), so (lim>gref.length) is never true. The intended overflow->return-null
-			//never fires; the cushion silently truncates and a later translate*() throws "Out of bounds" instead. LOW (loud
-			//crash, not wrong output). The check likely should test the UNCAPPED greflimit+GREFLIMIT2_CUSHION. Brian's call.
-			if(lim>gref.length){
-				System.err.println("gref buffer overflow: "+lim+" > "+gref.length);
-				return null;
-			}
-			for(int i=greflimit, r=refEndLoc+1; i<lim; i++, r++){
-				gref[i]=(r<ref.length ? ref[r] : (byte)'N');
-				greflimit2=i;
-			}
-		}
-		
-		if(verbose){
-			System.err.println("gref:\n"+new String(gref));
-		}
-		
-		gaps[0]=g0_old;
-		gaps[gaps.length-1]=gN_old;
 
-		if(verbose){
-			System.err.println("\ngaps3: "+Arrays.toString(gaps));
+			greflimit=gpos;
+
+			assert(gref[gpos-1]==ref[refEndLoc]);
+	//		assert(greflimit+GREFLIMIT2_CUSHION<=gref.length) : refStartLoc+", "+refEndLoc+", "+greflimit+", "+GREFLIMIT2_CUSHION+"\n"+new String(gref);
+			//Add a cushion to the end to clear out the prior data (especially GAPC) that was there
+			{
+				final int lim=Tools.min(gref.length, greflimit+GREFLIMIT2_CUSHION);
+				//TODO: Possible bug [align2/MultiStateAligner9Flat#001 - family-wide, all 7 siblings]: DEAD guard -- lim is
+				//pre-capped by Tools.min(gref.length,..), so (lim>gref.length) is never true. The intended overflow->return-null
+				//never fires; the cushion silently truncates and a later translate*() throws "Out of bounds" instead. LOW (loud
+				//crash, not wrong output). The check likely should test the UNCAPPED greflimit+GREFLIMIT2_CUSHION. Brian's call.
+				if(lim>gref.length){
+					System.err.println("gref buffer overflow: "+lim+" > "+gref.length);
+					return null;
+				}
+				for(int i=greflimit, r=refEndLoc+1; i<lim; i++, r++){
+					gref[i]=(r<ref.length ? ref[r] : (byte)'N');
+					greflimit2=i;
+				}
+			}
+
+			if(verbose){
+				System.err.println("gref:\n"+new String(gref));
+			}
+
+			return gref;
+		}finally{
+			gaps[0]=g0_old;
+			gaps[gaps.length-1]=gN_old;
 		}
-		
-		return gref;
 	}
-	
-	
+
 //	public final int[] translateScoreFromGappedCoordinate(int[] score){
 ////		{score, bestRefStart, bestRefStop}
 //		int a=score[1];
@@ -2472,7 +2430,7 @@ public final class MultiStateAligner10ts extends MSA{
 //		}
 //		throw new RuntimeException("Out of bounds.");
 //	}
-	
+
 	/**
 	 * Converts gapped reference coordinate to original reference position.
 	 * Accounts for gap character compression when determining actual genomic
@@ -2483,6 +2441,9 @@ public final class MultiStateAligner10ts extends MSA{
 	 * @return Corresponding position in original reference sequence
 	 */
 	private final int translateFromGappedCoordinate(int point, byte[] gref){
+		//TODO: Probable bug - makeGref records the last cushion index in
+		// greflimit2, while both translation loops treat it as an exclusive limit.
+		// Reachability of that final cushion position by ordinary callers is unverified.
 		if(verbose){System.err.println("translateFromGappedCoordinate("+point+"), gro="+grefRefOrigin+", grl="+greflimit);}
 		if(point<=0){return grefRefOrigin+point;}
 		for(int i=0, j=grefRefOrigin; i<greflimit2; i++){
@@ -2494,7 +2455,7 @@ public final class MultiStateAligner10ts extends MSA{
 				if(verbose){System.err.println(" -> "+j);}
 				return j;
 			}
-			
+
 			j+=(c==GAPC ? GAPLEN : 1);
 //			if(c!=GAPC){j++;}
 //			else{j+=GAPLEN;}
@@ -2503,10 +2464,10 @@ public final class MultiStateAligner10ts extends MSA{
 		System.err.println(grefRefOrigin);
 		System.err.println(point);
 		System.err.println(new String(gref));
-		
+
 		throw new RuntimeException("Out of bounds.");
 	}
-	
+
 	/**
 	 * Converts original reference coordinate to gapped reference position.
 	 * Maps genomic coordinates to positions in compressed reference accounting
@@ -2528,7 +2489,7 @@ public final class MultiStateAligner10ts extends MSA{
 				if(verbose){System.err.println(" -> "+i);}
 				return i;
 			}
-			
+
 			j+=(c==GAPC ? GAPLEN : 1);
 //			if(c!=GAPC){j++;}
 //			else{j+=GAPLEN;}
@@ -2537,10 +2498,10 @@ public final class MultiStateAligner10ts extends MSA{
 		System.err.println(grefRefOrigin);
 		System.err.println(point);
 		System.err.println(new String(gref));
-		
+
 		throw new RuntimeException("Out of bounds.");
 	}
-	
+
 //	public final int scoreNoIndels(byte[] read, SiteScore ss){
 //
 //		ChromosomeArray cha=Data.getChromosome(ss.chrom);
@@ -2580,7 +2541,6 @@ public final class MultiStateAligner10ts extends MSA{
 //
 //		return score;
 //	}
-	
 
 //	public final int scoreNoIndels(byte[] read, final int chrom, final int refStart){
 //
@@ -2636,8 +2596,6 @@ public final class MultiStateAligner10ts extends MSA{
 //
 //		return score;
 //	}
-	
-
 
 	/** Calculates score based on an array from Index */
 	private final int calcAffineScore(int[] locArray){
@@ -2645,10 +2603,10 @@ public final class MultiStateAligner10ts extends MSA{
 		int lastLoc=-2; //Last true location
 		int lastValue=-1;
 		int timeInMode=0;
-		
+
 		for(int i=0; i<locArray.length; i++){
 			int loc=locArray[i];
-			
+
 			if(loc>0){//match
 				if(loc==lastValue){//contiguous match
 					score+=POINTS_MATCH2;
@@ -2721,17 +2679,17 @@ public final class MultiStateAligner10ts extends MSA{
 		assert(score<=maxQuality(locArray.length));
 		return score;
 	}
-	
+
 	@Override
 	public final int calcAffineScore(int[] locArray, byte[] baseScores, byte[] bases){
 		int score=0;
 		int lastLoc=-3; //Last true location
 		int lastValue=-1;
 		int timeInMode=0;
-		
+
 		for(int i=0; i<locArray.length; i++){
 			int loc=locArray[i];
-			
+
 			if(loc>0){//match
 				if(loc==lastValue){//contiguous match
 					score+=(POINTS_MATCH2+baseScores[i]);
@@ -2809,22 +2767,22 @@ public final class MultiStateAligner10ts extends MSA{
 		assert(score<=maxQuality(locArray.length));
 		return score;
 	}
-	
+
 	@Override
 	public final int calcAffineScore(int[] locArray, byte[] baseScores, byte[] bases, int minContig){
 		assert(minContig>1) : minContig;
-		
+
 		int contig=0;
 		int maxContig=0;
-		
+
 		int score=0;
 		int lastLoc=-3; //Last true location
 		int lastValue=-1;
 		int timeInMode=0;
-		
+
 		for(int i=0; i<locArray.length; i++){
 			int loc=locArray[i];
-			
+
 			if(loc>0){//match
 				if(loc==lastValue){//contiguous match
 					contig++;
@@ -2910,14 +2868,14 @@ public final class MultiStateAligner10ts extends MSA{
 		if(Tools.max(contig, maxContig)<minContig){score=Tools.min(score, -50*locArray.length);}
 		return score;
 	}
-	
+
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, final int refStart){
-		
+
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
@@ -2932,13 +2890,13 @@ public final class MultiStateAligner10ts extends MSA{
 			readStop-=dif;
 			score+=POINTS_NOREF*dif;
 		}
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -2955,23 +2913,23 @@ public final class MultiStateAligner10ts extends MSA{
 			}else{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
 				mode=MODE_SUB;
 			}
 		}
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final byte[] genMatchNoIndels(byte[] read, byte[] ref, final int refStart){
 		if(read==null || ref==null){return null;}
-		
+
 		final byte[] match=new byte[read.length];
-		
+
 		for(int i=0, j=refStart; i<read.length; i++, j++){
 			byte c=read[i];
 			byte r=(j<0 || j>=ref.length) ? (byte)'N' : ref[j];
@@ -2979,19 +2937,19 @@ public final class MultiStateAligner10ts extends MSA{
 			if(c=='N' || r=='N'){match[i]='N';}
 			else if(c==r){match[i]='m';}
 			else{match[i]='S';}
-			
+
 		}
-		
+
 		return match;
 	}
-	
+
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart){
-		
+
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
@@ -3006,13 +2964,13 @@ public final class MultiStateAligner10ts extends MSA{
 			readStop-=dif;
 			score+=POINTS_NOREF*dif;
 		}
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -3030,25 +2988,25 @@ public final class MultiStateAligner10ts extends MSA{
 			}else{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
 				mode=MODE_SUB;
 			}
 		}
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
-		
+
 		assert(refStart<=ref.length) : refStart+", "+ref.length;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
@@ -3067,7 +3025,7 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		assert(refStart+readStop<=ref.length) : "readStart="+readStart+", readStop="+readStop+
 		", refStart="+refStart+", refStop="+refStop+", ref.length="+ref.length+", read.length="+read.length;
-		
+
 		assert(matchReturn!=null);
 		assert(matchReturn.length==1);
 		if(matchReturn[0]==null || matchReturn[0].length!=read.length){
@@ -3075,15 +3033,15 @@ public final class MultiStateAligner10ts extends MSA{
 			matchReturn[0]=new byte[read.length];
 		}
 		final byte[] match=matchReturn[0];
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			assert(r!='.' && c!='.');
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -3106,25 +3064,25 @@ public final class MultiStateAligner10ts extends MSA{
 				match[i]='S';
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
 				mode=MODE_SUB;
 			}
 		}
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn){
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
-		
+
 		assert(refStart<=ref.length) : refStart+", "+ref.length;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
@@ -3143,7 +3101,7 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		assert(refStart+readStop<=ref.length) : "readStart="+readStart+", readStop="+readStop+
 		", refStart="+refStart+", refStop="+refStop+", ref.length="+ref.length+", read.length="+read.length;
-		
+
 		assert(matchReturn!=null);
 		assert(matchReturn.length==1);
 		if(matchReturn[0]==null || matchReturn[0].length!=read.length){
@@ -3151,15 +3109,15 @@ public final class MultiStateAligner10ts extends MSA{
 			matchReturn[0]=new byte[read.length];
 		}
 		final byte[] match=matchReturn[0];
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			assert(r!='.' && c!='.');
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -3181,24 +3139,24 @@ public final class MultiStateAligner10ts extends MSA{
 				match[i]='S';
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
 				mode=MODE_SUB;
 			}
 		}
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, final int refStart, final SiteScore ss){
-		
+
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
@@ -3206,7 +3164,7 @@ public final class MultiStateAligner10ts extends MSA{
 		final int refStop=refStart+read.length;
 		boolean semiperfect=true;
 		int norefs=0;
-		
+
 		if(refStart<0){
 			readStart=0-refStart;
 			score+=POINTS_NOREF*readStart;
@@ -3218,13 +3176,13 @@ public final class MultiStateAligner10ts extends MSA{
 			score+=POINTS_NOREF*dif;
 			norefs+=dif;
 		}
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -3243,7 +3201,7 @@ public final class MultiStateAligner10ts extends MSA{
 			}else{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
@@ -3251,28 +3209,28 @@ public final class MultiStateAligner10ts extends MSA{
 				semiperfect=false;
 			}
 		}
-		
+
 		//TODO: Verify this; it's in the PacBio version
 		//if(semiperfect && ss!=null){ss.semiperfect=((ss.stop==ss.start+read.length-1) && (norefs<=read.length/2));}
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
-		
+
 		int score=0;
 		int mode=-1;
 		int timeInMode=0;
 		int norefs=0;
-		
+
 		//This block handles cases where the read runs outside the reference
 		//Of course, padding the reference with 'N' would be better, but...
 		int readStart=0;
 		int readStop=read.length;
 		final int refStop=refStart+read.length;
 		boolean semiperfect=true;
-		
+
 		if(refStart<0){
 			readStart=0-refStart;
 			score+=POINTS_NOREF*readStart;
@@ -3284,13 +3242,13 @@ public final class MultiStateAligner10ts extends MSA{
 			score+=POINTS_NOREF*dif;
 			norefs+=dif;
 		}
-		
+
 //		if(refStart<0 || refStart+read.length>ref.length){return -99999;} //No longer needed.
-		
+
 		for(int i=readStart; i<readStop; i++){
 			byte c=read[i];
 			byte r=ref[refStart+i];
-			
+
 			if(c==r && c!='N'){
 				if(mode==MODE_MS){
 					timeInMode++;
@@ -3310,7 +3268,7 @@ public final class MultiStateAligner10ts extends MSA{
 			}else{
 				if(mode==MODE_SUB){timeInMode++;}
 				else{timeInMode=0;}
-				
+
 				if(timeInMode==0){score+=POINTS_SUB;}
 				else if(timeInMode<LIMIT_FOR_COST_3){score+=POINTS_SUB2;}
 				else{score+=POINTS_SUB3;}
@@ -3318,14 +3276,14 @@ public final class MultiStateAligner10ts extends MSA{
 				semiperfect=false;
 			}
 		}
-		
+
 		//TODO: Verify.  This is in the PacBio version.
 //		if(semiperfect && ss!=null){ss.semiperfect=((ss.stop==ss.start+read.length-1) && (norefs<=read.length/2));}
 //		assert(Read.CHECKSITE(ss, read, -1));
-		
+
 		return score;
 	}
-	
+
 	@Override
 	public final int maxQuality(int numBases){
 		return POINTS_MATCH+(numBases-1)*(POINTS_MATCH2);
@@ -3335,7 +3293,7 @@ public final class MultiStateAligner10ts extends MSA{
 	public final int maxQuality(byte[] baseScores){
 		return POINTS_MATCH+(baseScores.length-1)*(POINTS_MATCH2)+Tools.sumInt(baseScores);
 	}
-	
+
 	@Override
 	public final int maxImperfectScore(int numBases){
 //		int maxQ=maxQuality(numBases);
@@ -3343,7 +3301,7 @@ public final class MultiStateAligner10ts extends MSA{
 //		int maxI=maxQ+POINTS_DEL;
 //		maxI=Tools.max(maxI, maxQ+POINTS_INS-POINTS_MATCH2);
 //		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB));
-		
+
 		int maxQ=maxQuality(numBases);
 		int maxI=maxQ+Tools.min(POINTS_DEL, POINTS_INS-POINTS_MATCH2);
 		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB)));
@@ -3357,7 +3315,7 @@ public final class MultiStateAligner10ts extends MSA{
 //		int maxI=maxQ+POINTS_DEL;
 //		maxI=Tools.max(maxI, maxQ+POINTS_INS-POINTS_MATCH2);
 //		maxI=Tools.min(maxI, maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB));
-		
+
 		int maxQ=maxQuality(baseScores);
 		int maxI=maxQ+Tools.min(POINTS_DEL, POINTS_INS-POINTS_MATCH2);
 		assert(maxI<(maxQ-(POINTS_MATCH2+POINTS_MATCH2)+(POINTS_MATCH+POINTS_SUB)));
@@ -3368,7 +3326,7 @@ public final class MultiStateAligner10ts extends MSA{
 	public int calcDelScore(int len, boolean approximateGaps){
 		if(len<=0){return 0;}
 		int score=POINTS_DEL;
-		
+
 		if(approximateGaps && len>MINGAP){
 			int rem=len%GAPLEN;
 			int div=(len-GAPBUFFER2)/GAPLEN;
@@ -3378,7 +3336,7 @@ public final class MultiStateAligner10ts extends MSA{
 			assert(len>LIMIT_FOR_COST_4); //and probably LIMIT_FOR_COST_5
 //			assert(false) : div;
 		}
-		
+
 		if(len>LIMIT_FOR_COST_5){
 			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTS_DEL5;
 			len=LIMIT_FOR_COST_5;
@@ -3396,7 +3354,7 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		return score;
 	}
-	
+
 	/**
 	 * Calculates offset-adjusted deletion score for matrix operations.
 	 * Applies bit-shifted scoring values used in packed matrix computations
@@ -3408,7 +3366,7 @@ public final class MultiStateAligner10ts extends MSA{
 	private static int calcDelScoreOffset(int len){
 		if(len<=0){return 0;}
 		int score=POINTSoff_DEL;
-		
+
 		if(len>LIMIT_FOR_COST_5){
 			score+=((len-LIMIT_FOR_COST_5+MASK5)/TIMESLIP)*POINTSoff_DEL5;
 			len=LIMIT_FOR_COST_5;
@@ -3431,7 +3389,7 @@ public final class MultiStateAligner10ts extends MSA{
 	public int calcInsScore(int len){
 		if(len<=0){return 0;}
 		int score=POINTS_INS;
-		
+
 		if(len>LIMIT_FOR_COST_4){
 			score+=(len-LIMIT_FOR_COST_4)*POINTS_INS4;
 			len=LIMIT_FOR_COST_4;
@@ -3445,7 +3403,7 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		return score;
 	}
-	
+
 	/**
 	 * Calculates offset-adjusted insertion score for matrix operations.
 	 * Provides bit-shifted insertion penalties for use in packed
@@ -3470,7 +3428,6 @@ public final class MultiStateAligner10ts extends MSA{
 		}
 		return score;
 	}
-	
 
 	/** Main packed alignment matrix storing scores and time information */
 	private final int[][][] packed;
@@ -3480,7 +3437,7 @@ public final class MultiStateAligner10ts extends MSA{
 	private final int[][][] startmatrix;
 	/** Score for column zero */
 	private final int[] col0score;
-	
+
 	/** Buffer for storing gap-compressed reference sequences */
 	private final byte[] grefbuffer;
 	/** Length limit for gap-compressed reference sequence */
@@ -3489,8 +3446,7 @@ public final class MultiStateAligner10ts extends MSA{
 	private int greflimit2=-1;
 	/** Origin position of gap-compressed reference in original coordinates */
 	private int grefRefOrigin=-1;
-	
-	
+
 	/**DO NOT MODIFY*/
 	@Override
 	public final byte[] getGrefbuffer(){
@@ -3514,7 +3470,7 @@ public final class MultiStateAligner10ts extends MSA{
 		for(int i=0; i<=columns; i++){sb.append(horizLimit[i]>>SCOREOFFSET).append(",");}
 		return sb;
 	}
-	
+
 	/**
 	 * Converts minimum identity percentage to minimum score ratio.
 	 * Calculates expected score ratio based on scoring model parameters
@@ -3538,18 +3494,18 @@ public final class MultiStateAligner10ts extends MSA{
 		minratio=Tools.max(0.05, minratio);
 		return (float)minratio;
 	}
-	
+
 	public static final int TIMEBITS=11;
 	public static final int SCOREBITS=32-TIMEBITS;
 	public static final int MAX_TIME=((1<<TIMEBITS)-1);
 	public static final int MAX_SCORE=((1<<(SCOREBITS-1))-1)-2000;
 	public static final int MIN_SCORE=0-MAX_SCORE; //Keeps it 1 point above "BAD".
-	
+
 	public static final int SCOREOFFSET=TIMEBITS;
-	
+
 	public static final int TIMEMASK=~((-1)<<TIMEBITS);
 	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
-	
+
 	public static final int POINTS_NOREF=0;
 	public static final int POINTS_NOCALL=0;
 	public static final int POINTS_MATCH=70;
@@ -3575,19 +3531,16 @@ public final class MultiStateAligner10ts extends MSA{
 	public static final int TIMESLIP=4;
 	public static final int MASK5=TIMESLIP-1;
 	static{assert(Integer.bitCount(TIMESLIP)==1);}
-	
-	
+
 	private static final int BARRIER_I1=2;
 	private static final int BARRIER_D1=3;
-	
 
 	public static final int LIMIT_FOR_COST_3=5;
 	public static final int LIMIT_FOR_COST_4=20;
 	public static final int LIMIT_FOR_COST_5=80;
-	
+
 	public static final int BAD=MIN_SCORE-1;
-	
-	
+
 	public static final int POINTSoff_NOREF=(POINTS_NOREF<<SCOREOFFSET);
 	public static final int POINTSoff_NOCALL=(POINTS_NOCALL<<SCOREOFFSET);
 	public static final int POINTSoff_MATCH=(POINTS_MATCH<<SCOREOFFSET);
@@ -3612,8 +3565,7 @@ public final class MultiStateAligner10ts extends MSA{
 	public static final int BADoff=(BAD<<SCOREOFFSET);
 	public static final int MAXoff_SCORE=MAX_SCORE<<SCOREOFFSET;
 	public static final int MINoff_SCORE=MIN_SCORE<<SCOREOFFSET;
-	
-	
+
 	@Override
 	public final int POINTS_NOREF(){return POINTS_NOREF;}
 	@Override
@@ -3663,7 +3615,7 @@ public final class MultiStateAligner10ts extends MSA{
 	public final int MASK5(){return MASK5;}
 	@Override
 	public final int SCOREOFFSET(){return SCOREOFFSET;}//FIXED: was SCOREOFFSET() — family-wide self-recursion typo, see MultiStateAligner11ts#001
-	
+
 	@Override
 	final int BARRIER_I1(){return BARRIER_I1;}
 	@Override
@@ -3675,14 +3627,13 @@ public final class MultiStateAligner10ts extends MSA{
 	public final int LIMIT_FOR_COST_4(){return LIMIT_FOR_COST_4;}
 	@Override
 	public final int LIMIT_FOR_COST_5(){return LIMIT_FOR_COST_5;}
-	
+
 	@Override
 	public final int BAD(){return BAD;}
-	
-	
+
 	/** Current number of rows in alignment matrix (query sequence length) */
 	private int rows;
 	/** Current number of columns in alignment matrix (reference region length) */
 	private int columns;
-	
+
 }

@@ -17,21 +17,23 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * Specialized BBMap aligner optimized for Pacific Biosciences long reads.
- * Configures alignment parameters specifically for PacBio sequencing characteristics
- * including higher error rates and longer read lengths. Extends AbstractMapper
- * with PacBio-specific settings for key density, alignment scoring, and index handling.
- * Based on the TestIndex11f mapper branch.
+ * Legacy PacBio mapper selecting BBIndexPacBio, BBMapThreadPacBio and the
+ * MultiStateAligner9PacBio scoring model. Defaults target longer, noisier reads;
+ * they do not imply support for arbitrary read lengths or current HiFi tuning.
+ * Uses AbstractMapper's concurrent streams rather than BBMapS's Streamer/Writer
+ * pipeline. Static index, reference and stream settings are shared across runs.
  * @author Brian Bushnell
  * @date Jul 10, 2012
  */
-public final class BBMapPacBio extends AbstractMapper  {
-	
+public final class BBMapPacBio extends AbstractMapper{
+
 
 	/**
 	 * Program entry point for BBMapPacBio aligner.
 	 * Initializes mapper, loads index, processes ambiguous mappings if needed,
-	 * and executes speed testing with timing output.
+	 * and executes mapping with timing output. INDEX_LOADED trusts caller-managed
+	 * index state. Local tables reset only after normal completion; shared settings
+	 * are not fully restored or isolated for concurrent independent invocations.
 	 * @param args Command-line arguments for alignment configuration
 	 */
 	public static void main(String[] args){
@@ -46,21 +48,24 @@ public final class BBMapPacBio extends AbstractMapper  {
 		outstream.println("\nTotal time:     \t"+t);
 		clearStatics();
 	}
-	
+
 	/**
 	 * Constructs BBMapPacBio aligner with command-line arguments.
-	 * Calls superclass constructor to initialize base mapper functionality.
+	 * The superclass invokes this class's parsing/setup overrides, including
+	 * optional reference conversion, before this constructor returns.
 	 * @param args Command-line arguments for configuration
 	 */
 	public BBMapPacBio(String[] args){
 		super(args);
 	}
-	
+
 	/**
 	 * Sets PacBio-specific default parameters for alignment.
 	 * Configures compression settings (bgzip over pigz), key length (12),
-	 * key density parameters optimized for long reads, alignment score ratios,
+	 * key density parameters, alignment score ratios,
 	 * padding settings, and aligner type (MultiStateAligner9PacBio).
+	 * Also caps the shared read buffer at 20 and changes inter-scaffold padding.
+	 * This is a partial preset rather than a complete reset of shared settings.
 	 */
 	@Override
 	public void setDefaults(){
@@ -71,30 +76,36 @@ public final class BBMapPacBio extends AbstractMapper  {
 		ReadWrite.ZIPLEVEL=2;
 		MAKE_MATCH_STRING=true;
 		keylen=12;
-		
+
 		MINIMUM_ALIGNMENT_SCORE_RATIO=0.46f;
 
 		keyDensity=3.5f;//2.3f;
 		maxKeyDensity=4.5f;//4f;
+		//TODO: Probable bug - AbstractMapper.minKeyDensity has Java's zero default;
+		//its constructor calls this before parsing, so multiplication leaves it zero.
+		//An intended nonzero default needs an explicit value and accuracy validation.
 		minKeyDensity*=2.5f;//1.8f;
 		maxDesiredKeys=63;
-		
+
 		SLOW_ALIGN_PADDING=8;
 		SLOW_RESCUE_PADDING=8+SLOW_ALIGN_PADDING;
 		TIP_SEARCH_DIST=15;
-		
+
 		MSA_TYPE="MultiStateAligner9PacBio";
 		MAX_SITESCORES_TO_PRINT=100;
 		PRINT_SECONDARY_ALIGNMENTS=false;
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 		Shared.capBufferLen(20);
 	}
-	
+
 	/**
 	 * Preprocesses command-line arguments based on speed mode selection.
 	 * Modifies parameters for fast, slow, or vslow modes by adjusting
 	 * key densities, search distances, rescue parameters, and genome
 	 * fraction exclusion settings. Returns modified argument array.
+	 * Preset arguments precede explicit arguments, which therefore override them.
+	 * Selection order is fast, vslow, then slow. The slow branch changes direct
+	 * density/index settings but still has no argument-list additions.
 	 * @param args Original command-line arguments
 	 * @return Modified argument array with mode-specific parameters
 	 */
@@ -113,12 +124,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 			list.add("rescuedist=800");
 			list.add("maxsites=5");
 			list.add("maxsites2=400");
-			
+
 			BBIndexPacBio.setFractionToExclude(BBIndexPacBio.FRACTION_GENOME_TO_EXCLUDE*1.25f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			keyDensity*=0.9f;
 			maxKeyDensity*=0.9f;
 			minKeyDensity*=0.9f;
@@ -130,12 +141,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 			list.add("usequality=f");
 			list.add("rescuemismatches=50");
 			list.add("rescuedist=2500");
-			
+
 			BBIndexPacBio.setFractionToExclude(0);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			SLOW_ALIGN_PADDING=SLOW_ALIGN_PADDING*2+8;
 			SLOW_RESCUE_PADDING=SLOW_RESCUE_PADDING*2+2;
 
@@ -147,25 +158,25 @@ public final class BBMapPacBio extends AbstractMapper  {
 		}else if(slow){
 			//TODO: Unfinished
 			ArrayList<String> list=new ArrayList<String>();
-			
+
 			BBIndexPacBio.setFractionToExclude(BBIndexPacBio.FRACTION_GENOME_TO_EXCLUDE*0.4f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			AbstractIndex.SLOW=true;
 			keyDensity*=1.2f;
 			maxKeyDensity*=1.2f;
 			minKeyDensity*=1.2f;
 		}
-		
+
 		if(excludeFraction>=0){
 			BBIndexPacBio.setFractionToExclude(excludeFraction);
 		}
-		
+
 		return args;
 	}
-	
+
 	/**
 	 * Post-processes parsed arguments to finalize configuration settings.
 	 * Adjusts padding based on bandwidth ratio, sets indel limits,
@@ -175,12 +186,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 	 */
 	@Override
 	void postparse(String[] args){
-		
+
 		if(MSA.bandwidthRatio>0 && MSA.bandwidthRatio<.2){
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, 5);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, 10);
 		}
-		
+
 		if(maxIndel1>-1){
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, maxIndel1);
 			BBIndexPacBio.MAX_INDEL=maxIndel1;
@@ -188,20 +199,22 @@ public final class BBMapPacBio extends AbstractMapper  {
 		if(maxIndel2>-1){
 			BBIndexPacBio.MAX_INDEL2=maxIndel2;
 		}
-		
+
 		if(minApproxHits>-1){
 			BBIndexPacBio.MIN_APPROX_HITS_TO_KEEP=minApproxHits;
 		}
-		
+
 		if(expectedSites>-1){
+			//TODO: Probable bug - the worker setter only warns and ignores its argument;
+			//the diagnostic below nevertheless implies that the setting took effect.
 			BBMapThreadPacBio.setExpectedSites(expectedSites);
 			outstream.println("Set EXPECTED_SITES to "+expectedSites);
 		}
-		
+
 		if(fractionGenomeToExclude>=0){
 			BBIndexPacBio.setFractionToExclude(fractionGenomeToExclude);
 		}
-		
+
 		{
 			final String a=(args.length>0 ? args[0] : null);
 			final String b=(args.length>1 ? args[1] : null);
@@ -211,7 +224,7 @@ public final class BBMapPacBio extends AbstractMapper  {
 		}
 
 		assert(synthReadlen<BBMapThreadPacBio.ALIGN_ROWS);
-		
+
 		if(MSA.bandwidth>0){
 			int halfwidth=MSA.bandwidth/2;
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, halfwidth/2);
@@ -220,12 +233,12 @@ public final class BBMapPacBio extends AbstractMapper  {
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, halfwidth/4);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, halfwidth/4);
 		}
-		
+
 		if(PRINT_SECONDARY_ALIGNMENTS){
 			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
 			BBIndexPacBio.QUIT_AFTER_TWO_PERFECTS=false;
 		}
-		
+
 		if(in1!=null){
 			if(ambigMode==AMBIG_BEST){
 				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
@@ -251,28 +264,30 @@ public final class BBMapPacBio extends AbstractMapper  {
 				throw new RuntimeException("Unknown ambiguous mapping mode: "+ambigMode);
 			}
 		}
-		
+
 	}
-	
+
 	/**
 	 * Performs initial setup and validation before alignment processing.
 	 * Validates read parameters, configures minimum alignment score ratios,
 	 * sets up XS tag generation, determines output settings, validates
 	 * genome build, creates blacklists, and initializes reference indexing.
+	 * Determines output presence and may write a BAM script; actual stream
+	 * acquisition occurs later through openStreams in testSpeed.
 	 */
 	@Override
 	public void setup(){
-		
+
 		assert(!useRandomReads || maxReads>0 || (in1!=null && in1.equals("sequential"))) : "Please specify number of reads to use.";
-		
+
 		if(minid!=-1){
 			MINIMUM_ALIGNMENT_SCORE_RATIO=MSA.minIdToMinRatio(minid, MSA_TYPE);
 			outstream.println("Set MINIMUM_ALIGNMENT_SCORE_RATIO to "+Tools.format("%.3f",MINIMUM_ALIGNMENT_SCORE_RATIO));
 		}
-		
+
 		if(!setxs){SamLine.MAKE_XS_TAG=(SamLine.INTRON_LIMIT<1000000000);}
 		if(setxs && !setintron){SamLine.INTRON_LIMIT=10;}
-		
+
 		if(outFile==null && outFile2==null && outFileM==null && outFileM2==null && outFileU==null && outFileU2==null
 				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBSplitter.streamTable==null){
 			outstream.println("No output file.");
@@ -283,13 +298,13 @@ public final class BBMapPacBio extends AbstractMapper  {
 				BBSplitter.makeBamScript(bamscript, splitterOutputs, outFile, outFile2, outFileM, outFileM2, outFileU, outFileU2, outFileB, outFileB2);
 			}
 		}
-		
+
 		FastaReadInputStream.MIN_READ_LEN=Tools.max(keylen+2, FastaReadInputStream.MIN_READ_LEN);
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(build<0){throw new RuntimeException("Must specify a build number, e.g. build=1");}
 		else{Data.GENOME_BUILD=build;}
-		
+
 		if(blacklist!=null && blacklist.size()>0){
 			Timer t=new Timer();
 			t.start();
@@ -300,11 +315,11 @@ public final class BBMapPacBio extends AbstractMapper  {
 			outstream.println("Created blacklist:\t"+t);
 			t.start();
 		}
-		
+
 		if(ziplevel!=-1){ReadWrite.ZIPLEVEL=ziplevel;}
 		if(reference!=null){RefToIndex.makeIndex(reference, build, outstream, keylen);}
 	}
-	
+
 
 	/**
 	 * Configures handling of reads that map ambiguously to multiple references.
@@ -338,7 +353,7 @@ public final class BBMapPacBio extends AbstractMapper  {
 			BBSplitter.AMBIGUOUS2_MODE=BBSplitter.AMBIGUOUS2_FIRST;
 		}
 	}
-	
+
 	/**
 	 * Loads and configures the BBIndexPacBio alignment index.
 	 * Sets up genome build, chromosome ranges, target genome sizing,
@@ -349,7 +364,7 @@ public final class BBMapPacBio extends AbstractMapper  {
 	@Override
 	void loadIndex(){
 		Timer t=new Timer();
-		
+
 		if(build>-1){
 			Data.setGenome(build);
 			AbstractIndex.MINCHROM=1;
@@ -357,8 +372,10 @@ public final class BBMapPacBio extends AbstractMapper  {
 			if(minChrom<0){minChrom=1;}
 			if(maxChrom<0 || maxChrom>Data.numChroms){maxChrom=Data.numChroms;}
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
-			
+
 			if(RefToIndex.AUTO_CHROMBITS){
+				//TODO: Probable bug - fitting the longest chromosome does not bound the
+				//total sites allocated per block; this selector lacks a block-sum budget.
 				int maxLength=Tools.max(Data.chromLengths);
 				RefToIndex.chrombits=Integer.numberOfLeadingZeros(maxLength)-1;
 				RefToIndex.chrombits=Tools.min(RefToIndex.chrombits, 16);
@@ -368,23 +385,24 @@ public final class BBMapPacBio extends AbstractMapper  {
 				if(verbose_stats>0){outstream.println("Set CHROMBITS to "+RefToIndex.chrombits);}
 			}
 		}
-		
+
 		assert(minChrom>=AbstractIndex.MINCHROM && maxChrom<=AbstractIndex.MAXCHROM) :
 			minChrom+", "+maxChrom+", "+AbstractIndex.MINCHROM+", "+AbstractIndex.MAXCHROM;
 		AbstractIndex.MINCHROM=minChrom;
 		AbstractIndex.MAXCHROM=maxChrom;
-		
+
 		if(targetGenomeSize>0){
+			// The derived value reaches a warning-only setter and does not change search.
 			long bases=Data.numDefinedBases;
 			long x=Tools.max(1, Math.round(0.25f+bases*1d/targetGenomeSize));
 			BBMapThreadPacBio.setExpectedSites((int)x);
 			outstream.println("Set EXPECTED_SITES to "+x);
 		}
-		
+
 		assert(!(PERFECTMODE && SEMIPERFECTMODE));
 		if(PERFECTMODE){setPerfectMode();}
 		if(SEMIPERFECTMODE){setSemiperfectMode();}
-		
+
 		//Optional section for discrete timing of chrom array loading
 		if(SLOW_ALIGN || AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
 			outstream.println();
@@ -401,12 +419,14 @@ public final class BBMapPacBio extends AbstractMapper  {
 			t.start();
 		}
 		RefToIndex.chromlist=null;
-		
+
 		t.start();
 		BBIndexPacBio.loadIndex(minChrom, maxChrom, keylen, !RefToIndex.NODISK, RefToIndex.NODISK);
-		
+
 		{
 			long len=Data.numDefinedBases;
+			//TODO: Probable bug - increments/multipliers accumulate on repeated index
+			//loads unless the caller restores these shared static settings first.
 			if(len<300000000){
 				BBIndexPacBio.MAX_HITS_REDUCTION2+=1;
 				BBIndexPacBio.MAXIMUM_MAX_HITS_REDUCTION+=1;
@@ -421,24 +441,24 @@ public final class BBMapPacBio extends AbstractMapper  {
 				}
 			}
 		}
-		
+
 		t.stop();
 		outstream.println("Generated Index:\t"+t);
 		t.start();
-		
+
 		if(!SLOW_ALIGN && !AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
 			for(int chrom=minChrom; chrom<=maxChrom; chrom++){
 				Data.unload(chrom, true);
 			}
 		}
-		
+
 		if(ReadWrite.countActiveThreads()>0){
 			ReadWrite.waitForWritingToFinish();
 			t.stop();
 			outstream.println("Finished Writing:\t"+t);
 			t.start();
 		}
-		
+
 		if(coverageBinned!=null || coverageBase!=null || rangeCov!=null || coverageHist!=null || coverageStats!=null || coverageRPKM!=null || normcov!=null || normcovOverall!=null || calcCov){
 			String[] cvargs=("covhist="+coverageHist+"\tcovstats="+coverageStats+"\tbasecov="+coverageBase+"\trangecov="+rangeCov+"\tbincov="+coverageBinned+"\tphyscov="+coveragePhysical+
 					"\t32bit="+cov32bit+"\tnzo="+covNzo+"\ttwocolumn="+covTwocolumn+"\tsecondary="+PRINT_SECONDARY_ALIGNMENTS+"\tcovminscaf="+coverageMinScaf+
@@ -449,19 +469,21 @@ public final class BBMapPacBio extends AbstractMapper  {
 			pileup.createDataStructures();
 			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
 		}
-		
+
 		if(!forceanalyze && (in1==null || maxReads==0)){return;}
-		
+
 		BBIndexPacBio.analyzeIndex(minChrom, maxChrom, BBIndexPacBio.FRACTION_GENOME_TO_EXCLUDE, keylen);
-		
+
 		t.stop();
 		outstream.println("Analyzed Index:   \t"+t);
 		t.start();
-		
+
 		if(makeBloomFilter){
 			String serialPath=RefToIndex.bloomLoc(build);
 			File serialFile=new File(serialPath);
 			if(bloomSerial && !RefToIndex.NODISK && serialFile.exists()){
+				//TODO: Probable bug - cached k/hash/hit settings are not compared with
+				//the requested configuration before this filter is reused.
 				bloomFilter=ReadWrite.read(BloomFilter.class, RefToIndex.bloomLoc(build), true);
 				t.stop("Loaded Bloom Filter: ");
 			}else{
@@ -470,10 +492,10 @@ public final class BBMapPacBio extends AbstractMapper  {
 				t.stop("Made Bloom Filter: ");
 				if(bloomSerial && !RefToIndex.NODISK && !RefToIndex.FORCE_READ_ONLY){
 //					 && serialFile.canWrite()
-					try {
+					try{
 						ReadWrite.writeObjectInThread(bloomFilter, serialPath, true);
 						outstream.println("Writing Bloom Filter.");
-					} catch (Throwable e) {
+					}catch(Throwable e){
 						e.printStackTrace();
 						outstream.println("Can't Write Bloom Filter.");
 					}
@@ -483,35 +505,40 @@ public final class BBMapPacBio extends AbstractMapper  {
 			t.start();
 		}
 	}
-		
+
 	/**
 	 * Executes the main alignment processing pipeline with timing measurement.
 	 * Opens input/output streams, creates and starts BBMapThreadPacBio worker threads,
 	 * processes reads in single or paired-end mode, collects results,
 	 * and outputs statistics and timing information.
+	 * Streams open before worker construction; normal shutdown joins workers and
+	 * folds stream failures into errorState. The memory adjustment uses a fixed
+	 * per-thread estimate rather than measuring each aligner's actual allocation.
 	 * @param args Command-line arguments for stream configuration
 	 */
 	@Override
 	public void testSpeed(String[] args){
-		
+
 		if(in1==null || maxReads==0){
 			outstream.println("No reads to process; quitting.");
 			return;
 		}
-		
+
 		Timer t=new Timer();
-		
+
 		final boolean paired=openStreams(t, args);
+		//TODO: Probable bug - startup failures can escape before normal closeStreams;
+		//there is no invocation-wide resource cleanup scope here.
 		if(paired){BBIndexPacBio.QUIT_AFTER_TWO_PERFECTS=false;}
-		
+
 		t.start();
-		
+
 		adjustThreadsforMemory(680);
-		
+
 		AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
 		AbstractMapThread[] mtts=new AbstractMapThread[Shared.threads()];
 		for(int i=0; i<mtts.length; i++){
-			try {
+			try{
 				mtts[i]=new BBMapThreadPacBio(cris, keylen,
 						pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
 						maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
@@ -521,7 +548,9 @@ public final class BBMapPacBio extends AbstractMapper  {
 						PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
 						ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
 						LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
-			} catch (Exception e) {
+			//TODO: Probable bug - AssertionError and other Errors bypass this catch
+			//after streams are opened, unlike classic BBMap's Throwable catch.
+			}catch(Exception e){
 				e.printStackTrace();
 				abort(mtts, "Aborting due to prior error.");
 			}
@@ -531,34 +560,36 @@ public final class BBMapPacBio extends AbstractMapper  {
 				mtts[i].index().verbose=verbose;
 			}
 		}
-		
+
 		cris.start(); //4567
 		outstream.println("Processing reads in "+(paired ? "paired" : "single")+"-ended mode.");
 		outstream.println("Started read stream.");
-		
+
 		/* The threads are started after initialization to prevent resource competition between initialization and mapping */
 		for(int i=0; i<mtts.length; i++){mtts[i].start();}
 		outstream.println("Started "+mtts.length+" mapping thread"+(mtts.length==1 ? "" : "s")+".");
-		
+
 		final int broken=shutDownThreads(mtts, false);
-		
+
 		if(printStats){outstream.println("\n\n   ------------------   Results   ------------------   ");}
 		closeStreams(cris, rosA, rosM, rosU, rosB);
 		outstream.println();
 		if(printSettings){printSettings(keylen);}
-		
+
 		printOutput(mtts, t, keylen, paired, false, pileup, scafNzo, sortStats, statsOutputFile);
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
-	
+
 	/**
 	 * Configures parameters for semi-perfect alignment mode.
 	 * Reduces key density and desired keys by half, sets minimum key density,
 	 * adjusts alignment score ratio to 0.45, and delegates to BBIndexPacBio
 	 * for index-specific semi-perfect mode configuration.
+	 * That mode permits complete/partial no-reference matches and sets both indel
+	 * bounds to zero; it does not enable arbitrary substitution-tolerant matches.
 	 */
 	@Override
-	void setSemiperfectMode() {
+	void setSemiperfectMode(){
 		assert(SEMIPERFECTMODE);
 		if(SEMIPERFECTMODE){
 			TRIM_LIST=false;
@@ -576,9 +607,10 @@ public final class BBMapPacBio extends AbstractMapper  {
 	 * Reduces key density and desired keys by half, sets minimum key density,
 	 * sets alignment score ratio to 1.0 (perfect matches only), and delegates
 	 * to BBIndexPacBio for index-specific perfect mode configuration.
+	 * The index requires complete matching and sets both indel bounds to zero.
 	 */
 	@Override
-	void setPerfectMode() {
+	void setPerfectMode(){
 		assert(PERFECTMODE);
 		if(PERFECTMODE){
 			TRIM_LIST=false;
@@ -590,7 +622,7 @@ public final class BBMapPacBio extends AbstractMapper  {
 			BBIndexPacBio.setPerfectMode();
 		}
 	}
-	
+
 
 	/**
 	 * Outputs current alignment configuration settings to the output stream.
@@ -602,19 +634,19 @@ public final class BBMapPacBio extends AbstractMapper  {
 	 */
 	@Override
 	void printSettings(int k){
-		
+
 		printSettings0(k, BBIndexPacBio.MAX_INDEL, MINIMUM_ALIGNMENT_SCORE_RATIO);
-		
+
 		if(verbose_stats>=2){
 			outstream.println("Key Density:          \t"+keyDensity+" ("+minKeyDensity+" ~ "+maxKeyDensity+")");
 			outstream.println("Max keys:             \t"+maxDesiredKeys);
-			
+
 			outstream.println("Block Subsections:     \t"+BBIndexPacBio.CHROMS_PER_BLOCK);
 			outstream.println("Fraction To Remove:    \t"+Tools.format("%.4f", (BBIndexPacBio.REMOVE_FREQUENT_GENOME_FRACTION ? BBIndexPacBio.FRACTION_GENOME_TO_EXCLUDE : 0)));
 			//		sysout.println("ADD_SCORE_Z:           \t"+IndexPacBio.ADD_SCORE_Z);
 			outstream.println("Hits To Keep:          \t"+BBIndexPacBio.MIN_APPROX_HITS_TO_KEEP);
 		}
-		
+
 		if(verbose_stats>=3){
 			outstream.println("Remove Clumpy:         \t"+BBIndexPacBio.REMOVE_CLUMPY);
 			if(BBIndexPacBio.REMOVE_CLUMPY){
@@ -640,7 +672,7 @@ public final class BBMapPacBio extends AbstractMapper  {
 				outstream.println("DYNAMIC_SCORE_THRESH:  \t"+BBIndexPacBio.DYNAMIC_SCORE_THRESH);
 			}
 		}
-		
+
 	}
 
 }

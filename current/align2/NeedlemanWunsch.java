@@ -2,99 +2,72 @@ package align2;
 
 import java.util.Arrays;
 
-import shared.Tools;
 /**
- * Implementation of the Needleman-Wunsch global sequence alignment algorithm.
- * Uses dynamic programming to find optimal global alignment between two sequences
- * with configurable match/mismatch scoring and gap penalties.
+ * Standalone Needleman-Wunsch global alignment demonstration.
+ * Scores exact byte matches +1, mismatches -1, and each gap base -1. Scoring
+ * is fixed, not configurable. Both the whole query and the inclusive reference
+ * window are consumed; ties prefer diagonal, then left, then up.
  *
- * @author Brian Bushnell
+ * The mutable matrix belongs to one caller. traceback returns the aligned query
+ * (reference-consuming deletions are '-'), not a CIGAR or a two-sequence alignment.
+ * A 2026-06-20 review reported no production callers; this review does not claim
+ * a new package-wide caller audit or a BBMapS mapping-performance effect.
+ *
+ * @author Brian Bushnell, Collei
  * @date 2013
  */
-public class NeedlemanWunsch {
+public class NeedlemanWunsch{
 
-	//NOTE: DEAD — no callers anywhere (grep, 2026-06-20); only its own test main() uses it. A standalone/
-	//demo global aligner, superseded in production by the banded aligners (BandedAlignerConcrete) and MSA.
-	//Caveats below (debug-print spam in fill(), incomplete UP traceback) are latent while it stays unused.
-
-	/**
-	 * Test program entry point that demonstrates alignment of two input sequences.
-	 * Takes two command-line arguments as sequences and displays the scoring matrix
-	 * and final alignment result.
-	 * @param args Two sequence strings to align
-	 */
+	/** Demonstrates a full-reference alignment and prints matrices plus aligned query. */
 	public static void main(String[] args){
-		byte[] read=args[0].getBytes();
-		byte[] ref=args[1].getBytes();
-		NeedlemanWunsch nw=new NeedlemanWunsch(read.length, ref.length);
+		if(args.length!=2){throw new IllegalArgumentException("Expected query and reference sequence arguments");}
+		final byte[] read=args[0].getBytes(), ref=args[1].getBytes();
+		final NeedlemanWunsch nw=new NeedlemanWunsch(read.length, ref.length);
 		nw.fill(read, ref, 0, ref.length-1);
-		
 		for(int row=0; row<nw.scores.length; row++){
 			System.err.println(Arrays.toString(nw.scores[row]));
 			System.err.println(Arrays.toString(nw.pointers[row]));
 			System.err.println();
 		}
-		
-		byte[] out=nw.traceback(read, ref,  0, ref.length-1);
-		
-		
-		
-		System.err.println(new String(out));
+		System.err.println(new String(nw.traceback(read, ref, 0, ref.length-1)));
 	}
-	
-	
-	/**
-	 * Constructs a Needleman-Wunsch aligner with specified matrix dimensions.
-	 * Initializes scoring and pointer matrices with gap penalties along borders.
-	 * Uses linear gap penalty of -1 per gap.
-	 *
-	 * @param maxRows_ Maximum number of rows (query sequence length + 1)
-	 * @param maxColumns_ Maximum number of columns (reference sequence length + 1)
-	 */
+
+	/** Allocates capacity for maxRows_ query bases and maxColumns_ reference bases.
+	 * The extra boundary row/column is allocated internally. Zero lengths are valid. */
 	public NeedlemanWunsch(int maxRows_, int maxColumns_){
+		assert(maxRows_>=0 && maxRows_<Integer.MAX_VALUE && maxColumns_>=0 && maxColumns_<Integer.MAX_VALUE) :
+				"Matrix lengths must permit one boundary cell: "+maxRows_+" x "+maxColumns_;
 		maxRows=maxRows_;
 		maxColumns=maxColumns_;
 		scores=new int[maxRows+1][maxColumns+1];
 		pointers=new byte[maxRows+1][maxColumns+1];
 		for(int i=0; i<maxColumns+1; i++){
 			scores[0][i]=0-i;
+			pointers[0][i]=LEFT;
 		}
 		for(int i=0; i<maxRows+1; i++){
 			scores[i][0]=0-i;
+			pointers[i][0]=UP;
 		}
 	}
-	
-//	public void initialize(int rows_, int columns_){
-//		rows=rows_;
-//		columns=columns_;
-//		assert(rows<=maxRows);
-//		assert(columns<=maxColumns);
-//	}
-	
-	/**
-	 * Fills the dynamic programming matrix for sequence alignment.
-	 * Computes optimal scores using match/mismatch scoring (+1/-1) and gap penalty (-1).
-	 * Updates both scoring matrix and pointer matrix for traceback.
-	 *
-	 * @param read Query sequence to align
-	 * @param ref Reference sequence
-	 * @param refStartLoc Start position in reference sequence
-	 * @param refEndLoc End position in reference sequence (inclusive)
-	 */
+
+	/** Fills scores/pointers for the whole query and an inclusive reference window.
+	 * Empty windows use end=start-1. The active rectangle is overwritten on reuse;
+	 * cells outside it are stale. Call traceback before another fill on this instance. */
 	public void fill(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
+		assert(read!=null && ref!=null) : "Global fill requires query and reference arrays";
+		assert(refStartLoc>=0 && refStartLoc<=ref.length && refEndLoc>=refStartLoc-1 && refEndLoc<ref.length) :
+				"Inclusive reference window is outside the array: "+refStartLoc+".."+refEndLoc+" / "+ref.length;
 		rows=read.length;
 		columns=refEndLoc-refStartLoc+1;
-		//CLEANUP CANDIDATE (greenlight needed): these two System.err.printlns are debug leftovers; the
-		//inner-loop one spams O(rows*cols) lines to stderr. Harmless only because this class is dead.
-		System.err.println("rows = "+rows+", columns="+columns);
-
+		assert(rows<=maxRows && columns<=maxColumns) :
+				"Fill exceeds allocated matrix capacity: "+rows+" x "+columns+" > "+maxRows+" x "+maxColumns;
 		for(int row=0; row<rows; row++){
 			for(int col=0; col<columns; col++){
-				System.err.println("row = "+row+", col="+col);
-				int match=(read[row]==ref[refStartLoc+col] ? 1 : -1);
-				int diag=match+scores[row][col];
-				int left=scores[row+1][col]-1;
-				int up=scores[row][col+1]-1;
+				final int match=(read[row]==ref[refStartLoc+col] ? 1 : -1);
+				final int diag=match+scores[row][col];
+				final int left=scores[row+1][col]-1;
+				final int up=scores[row][col+1]-1;
 				if(diag>=left && diag>=up){
 					scores[row+1][col+1]=diag;
 					pointers[row+1][col+1]=DIAG;
@@ -107,59 +80,41 @@ public class NeedlemanWunsch {
 				}
 			}
 		}
-		
 	}
-	
-	/**
-	 * Performs traceback through pointer matrix to construct optimal alignment.
-	 * Traces from bottom-right corner back to origin following optimal path.
-	 * Returns aligned query sequence with gaps represented as '-' characters.
-	 *
-	 * @param read Original query sequence
-	 * @param ref Original reference sequence
-	 * @param refStartLoc Start position in reference sequence
-	 * @param refEndLoc End position in reference sequence (inclusive)
-	 * @return Aligned query sequence with gaps
-	 */
+
+	/** Returns a newly allocated aligned query for the preceding fill.
+	 * Arguments must describe that fill. Up moves emit query bases aligned to a
+	 * reference gap; left moves emit '-'. Output may exceed either input length. */
 	public byte[] traceback(byte[] read, byte[] ref, int refStartLoc, int refEndLoc){
-		int row=read.length;
-		int col=ref.length;
-		
-		byte[] out=new byte[Tools.max(row, col)];
-		int outPos=out.length-1;
-		
+		assert(read!=null && ref!=null) : "Traceback requires the preceding fill's input arrays";
+		assert(refStartLoc>=0 && refStartLoc<=ref.length && refEndLoc>=refStartLoc-1 && refEndLoc<ref.length) :
+				"Traceback reference window is outside the array: "+refStartLoc+".."+refEndLoc;
+		int row=read.length, col=refEndLoc-refStartLoc+1;
+		assert(row==rows && col==columns) : "Traceback dimensions differ from the last fill: "+row+" x "+col+" versus "+rows+" x "+columns;
+		final byte[] out=new byte[row+col];
+		int outPos=out.length;
 		while(row>0 || col>0){
-			byte ptr=pointers[row][col];
+			final byte ptr=pointers[row][col];
 			if(ptr==DIAG){
-				out[outPos]=read[row-1];
-				row--;
+				out[--outPos]=read[--row];
 				col--;
-				outPos--;
 			}else if(ptr==LEFT){
-				out[outPos]='-';
+				out[--outPos]='-';
 				col--;
-				outPos--;
 			}else{
-				//UP move emits nothing (the gap write is commented out), so query bases aligned to a
-				//ref gap are dropped from the output string — incomplete traceback. Latent (dead class).
-				assert(ptr==UP);
-//				out[outPos]='-';
-				row--;
+				assert(ptr==UP) : "Traceback pointer is not DIAG/LEFT/UP: "+ptr+" at "+row+", "+col;
+				out[--outPos]=read[--row];
 			}
 		}
-		return out;
+		return outPos==0 ? out : Arrays.copyOfRange(out, outPos, out.length);
 	}
-	
+
 	public final int maxRows;
 	public final int maxColumns;
 	private final int[][] scores;
 	private final byte[][] pointers;
-	
-	/** Pointer constant indicating gap in reference sequence (move up in matrix) */
-	/** Pointer constant indicating match/mismatch (diagonal move in matrix) */
+	private int rows, columns;
+
+	/** Left consumes reference only; diagonal consumes both; up consumes query only. */
 	public static final byte LEFT=0, DIAG=1, UP=2;
-	
-	private int rows;
-	private int columns;
-	
 }

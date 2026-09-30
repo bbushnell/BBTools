@@ -1,8 +1,19 @@
 package align2;
 
-/** Worker-local counters for tiered Quantum qualification and opt-in routing. */
-public class TieredQuantumStats {
+/**
+ * Worker-local counters for tiered Quantum shadow comparison and opt-in routing.
+ * Counts candidate alignments, not reads. Supported includes uncertain results;
+ * remaining comparison counters include only supported, certain results.
+ * Reusable means score/endpoint agreement under this test, not proven identical
+ * traceback or mapping accuracy. Merge completed workers; updates are unsynchronized.
+ * @author Collei
+ */
+public class TieredQuantumStats{
 
+	/** Consumes a nonnull, transient ranker result without retaining it.
+	 * bbScore is the trace rescored in MSA units. Integer.MIN_VALUE marks an absent
+	 * legacy result (including when opt-in reuse bypassed the MSA). Small means
+	 * at most one inserted/deleted base in total; zero-indel results are included. */
 	void observe(final QuantumRanker.Result qr, final int bbScore,
 			final int legacyScore, final int legacyStart, final int legacyStop,
 			final int originalMinScore){
@@ -27,17 +38,20 @@ public class TieredQuantumStats {
 		}
 	}
 
+	/** Adds another completed worker's counters; does not clear or deduplicate them. */
 	void add(final TieredQuantumStats other){
-		attempts+=other.attempts;unsupported+=other.unsupported;supported+=other.supported;
+		attempts+=other.attempts; unsupported+=other.unsupported; supported+=other.supported;
 		legacyResult+=other.legacyResult;
-		uncertain+=other.uncertain;smallIndel+=other.smallIndel;
+		uncertain+=other.uncertain; smallIndel+=other.smallIndel;
 		smallScoreAtLeastLegacy+=other.smallScoreAtLeastLegacy;
-		smallEndpointExact+=other.smallEndpointExact;smallReusable+=other.smallReusable;
+		smallEndpointExact+=other.smallEndpointExact; smallReusable+=other.smallReusable;
 		longerIndel+=other.longerIndel;
 		longerRaisesMinScore+=other.longerRaisesMinScore;
 		longerEndpointSpanSum+=other.longerEndpointSpanSum;
 	}
 
+	/** Emits raw counts and a span sum, not rates or an average span.
+	 * The historical shadow prefix is also used when opt-in routing is active. */
 	String toTsv(){
 		return "quantum_tiered_shadow\tattempts\t"+attempts+
 				"\tsupported\t"+supported+"\tunsupported\t"+unsupported+

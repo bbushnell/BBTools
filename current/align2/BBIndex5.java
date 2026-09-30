@@ -22,16 +22,18 @@ import stream.SiteScore;
  * instead of BBIndex's Quad (int site), packed coords are widened via
  * ((long)a2)&0xFFFFFFFFL, and the indel-window math uses subUnsigned/addUnsigned
  * rather than signed +/-. This doubles the addressable range per block from
- * ~2.1Gbp (signed int) to ~4.29Gbp (unsigned int). Same 67-method API surface as
- * BBIndex but ~740 lines leaner. Opt-in via BBMap5; default bbmap.sh still uses BBIndex.
+ * ~2.1Gbp (signed int) to ~4.29Gbp (unsigned packed coordinate). This is block
+ * address space, not a promise that a Java chromosome array can span that range.
+ * Used by the legacy BBMap5 worker, not BBMapS's current BBIndex implementation.
+ * Shared index/count tables are loaded once; scratch arrays and heap are worker-local.
  *
  * @author Brian Bushnell
  * @date Jan 3, 2013
  *
  */
 public final class BBIndex5 extends AbstractIndex {
-	
-	
+
+
 	/**
 	 * Command-line interface for index generation.
 	 * Builds BBIndex5 k-mer index from reference genome with configurable parameters.
@@ -39,9 +41,9 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @param args Command-line arguments including build, minchrom, maxchrom, keylen
 	 */
 	public static void main(String[] args){
-		
+
 		int k=13;
-		
+
 		for(int i=0; i<args.length; i++){
 			String s=args[i].toLowerCase();
 			if(s.contains("=")){
@@ -65,24 +67,24 @@ public final class BBIndex5 extends AbstractIndex {
 			assert(Data.numChroms<=Byte.MAX_VALUE) : "TODO";
 			MAXCHROM=Data.numChroms;
 		}
-		
-		
+
+
 		System.err.println("Writing build "+Data.GENOME_BUILD+" "+
 				"BASESPACE index, keylen="+k+", chrom bits="+NUM_CHROM_BITS);
-		
-		
+
+
 		int first=(NUM_CHROM_BITS==0 ? 1 : 0);
 //		first=24;
-		
+
 		Data.sysout.println("Loading index for chunk "+first+"-"+MAXCHROM+", build "+Data.GENOME_BUILD);
 		index=IndexMaker5.makeIndex(Data.GENOME_BUILD, first, MAXCHROM,
 				k, NUM_CHROM_BITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, true, false, index);
 
-		
+
 		System.err.println("Finished all chroms, may still be writing.");
 	}
-	
-	
+
+
 	/**
 	 * Constructs BBIndex5 instance for specified chromosome range and parameters.
 	 * Initializes scoring constants and allocates prescan arrays for multi-threaded access.
@@ -108,7 +110,7 @@ public final class BBIndex5 extends AbstractIndex {
 		prescoreArray=new int[cycles];
 		precountArray=new int[cycles];
 	}
-	
+
 	/** Load or generate index from minChrom to maxChrom, inclusive, with keylength k.
 	 * This range can encompass multiple blocks.
 	 * Should only be called once in a process. */
@@ -121,30 +123,30 @@ public final class BBIndex5 extends AbstractIndex {
 				k, NUM_CHROM_BITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, writeToDisk, diskInvalid, index);
 
 	}
-	
+
 	/** Calculate statistics of index, such as list lengths, and find clumpy keys */
 	public static final synchronized void analyzeIndex(int minChrom, int maxChrom, float fractionToExclude, int k){
 
 		assert(lengthHistogram==null);
 		assert(COUNTS==null);
-		
+
 		int KEYSPACE=1<<(2*k);
 		COUNTS=new int[KEYSPACE];
-		
+
 		maxChrom=maxChrom(maxChrom);
-		
+
 		for(int key=0; key<KEYSPACE; key++){
 			int rkey=KeyRing.reverseComplementKey(key, k);
 			assert(key==KeyRing.reverseComplementKey(rkey, k));
-			
+
 			if(key<=rkey){
-				
+
 				long clumps=0;
 				long len=0;
-				
+
 				for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 					Block b=index[chrom];
-					
+
 					final int[] sites=b.sites;
 					final int start1=b.starts[key];
 					final int stop1=start1+b.length(key);
@@ -152,10 +154,10 @@ public final class BBIndex5 extends AbstractIndex {
 					final int stop2=(rkey==key ? -1 : start2+b.length(rkey));
 					final int len1=stop1-start1;
 					final int len2=stop2-start2;
-					
+
 					len=len+len1+len2;
 //					System.out.println(len+", len1="+len1+", len2="+len2+", start1="+start1+", stop1="+stop1+", start2="+start2+", stop2="+stop2);
-					
+
 					if(REMOVE_CLUMPY){
 						for(int i=start1+1; i<stop1; i++){
 							int dif=sites[i]-sites[i-1];
@@ -173,13 +175,13 @@ public final class BBIndex5 extends AbstractIndex {
 							}
 						}
 					}
-					
+
 				}
-				
+
 				COUNTS[key]=(int)Tools.min(Integer.MAX_VALUE, COUNTS[key]+len);
 				if(key!=rkey){COUNTS[rkey]=(int)Tools.min(Integer.MAX_VALUE, COUNTS[rkey]+len);}
 				assert(COUNTS[key]==COUNTS[rkey]) : key+", "+rkey;
-				
+
 				if(REMOVE_CLUMPY && len>CLUMPY_MIN_LENGTH_INDEX && clumps>(CLUMPY_FRACTION*len)){
 					COUNTS[key]=0;
 					COUNTS[rkey]=0;
@@ -190,38 +192,38 @@ public final class BBIndex5 extends AbstractIndex {
 						sites[b.starts[rkey]]=-1;
 					}
 				}
-				
+
 //				System.err.println("COUNTS["+key+"] = "+COUNTS[key]+", COUNTS["+rkey+"] = "+COUNTS[rkey]);
 			}
 		}
-		
+
 		lengthHistogram=Tools.makeLengthHistogram3(COUNTS, 1000, verbose2);
-		
+
 		//if(verbose2){System.err.println("lengthHistogram: "+Arrays.toString(lengthHistogram));}
-		
+
 		if(REMOVE_FREQUENT_GENOME_FRACTION){
 
 			int lengthLimitIndex=(int)((1-fractionToExclude)*(lengthHistogram.length-1));
 			int lengthLimitIndex2=(int)((1-fractionToExclude*DOUBLE_SEARCH_THRESH_MULT)*(lengthHistogram.length-1));
-			
+
 			MAX_USABLE_LENGTH=Tools.max(2*SMALL_GENOME_LIST, lengthHistogram[lengthLimitIndex]);
 			MAX_USABLE_LENGTH2=Tools.max(6*SMALL_GENOME_LIST, lengthHistogram[lengthLimitIndex2]);
-			
+
 			if(verbose2){System.err.println("MAX_USABLE_LENGTH:  "+MAX_USABLE_LENGTH+"\nMAX_USABLE_LENGTH2: "+MAX_USABLE_LENGTH2);}
 		}
-		
+
 		Solver.POINTS_PER_SITE=(int)Math.floor((Solver.BASE_POINTS_PER_SITE*4000f)/Tools.max(2*SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH]));
 		if(Solver.POINTS_PER_SITE==0){Solver.POINTS_PER_SITE=-1;}
 		if(verbose2){System.err.println("POINTS_PER_SITE:  "+Solver.POINTS_PER_SITE);}
 		assert(Solver.POINTS_PER_SITE<0) : Solver.POINTS_PER_SITE;
 	}
-	
-	
+
+
 	/** Returns the filename for the block holding this chrom */
 	public static final String fname(int chrom, int k){
 		return IndexMaker5.fname(minChrom(chrom), maxChrom(chrom), k, NUM_CHROM_BITS);
 	}
-	
+
 	/** Ensure key offsets are strictly ascending. */
 	private static boolean checkOffsets(int[] offsets){
 		for(int i=1; i<offsets.length; i++){
@@ -229,26 +231,26 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		return true;
 	}
-	
+
 	@Deprecated
 	private final int trimExcessHitLists(int[] keys, int[][] hits){
-		
+
 		assert(false) : "Needs to be redone because hits are no longer sorted by length.";
-		
+
 		assert(hits.length==keys.length);
 //		assert(false) : "modify this function so that it gives more weight to trimming lists over highly covered baits";
 		//And also, incorporate the "remove the longest list" function
-		
+
 		final int limit=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH])*keys.length;
 		final int limit2=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH2]);
 		final int limit3=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_SHORTEST_LIST_TO_SEARCH]);
-		
+
 		int sum=0;
 		int initialHitCount=0;
 
 		int shortest=Integer.MAX_VALUE-1;
 		int shortest2=Integer.MAX_VALUE;
-		
+
 		for(int i=0; i<keys.length; i++){
 			int key=keys[i];
 			int x=count(key);
@@ -271,12 +273,12 @@ public final class BBIndex5 extends AbstractIndex {
 			return 0;
 		}
 		if(sum<=limit && sum/initialHitCount<=limit2){return initialHitCount;}
-		
+
 		Pointer[] ptrs=Pointer.loadMatrix(hits);
 //		ptrs[0].value/=2;
 //		ptrs[ptrs.length-1].value/=2;
 		Arrays.sort(ptrs);
-		
+
 		int finalHitCount=initialHitCount;
 		for(int i=ptrs.length-1; sum>limit || sum/finalHitCount>limit2; i--){
 			Pointer p=ptrs[i];
@@ -284,38 +286,40 @@ public final class BBIndex5 extends AbstractIndex {
 			hits[p.key]=null;
 			finalHitCount--;
 		}
-		
+
 		return finalHitCount;
 	}
-	
+
 	/** Remove least useful keys to accelerate search */
 	private final int trimExcessHitListsByGreedy(int[] offsets, int[] keyScores, int maxHitLists, int[] keys){
-		
+		//TODO: Probable bug - summed hit counts and length*key-count limits use
+		//int arithmetic and can wrap for very repetitive references.
+
 		float[] keyWeights=getKeyWeightArray(keyScores.length);
 		for(int i=0; i<keyScores.length; i++){
 			keyWeights[i]=keyScores[i]*INV_BASE_KEY_HIT_SCORE;
 		}
-		
+
 //		assert(false) : "modify this function so that it gives more weight to trimming lists over highly covered baits";
 		//And also, incorporate the "remove the longest list" function
-		
+
 		final int limit=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH])*keys.length;
 		final int limit2=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH2]);
 		final int limit3=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_SHORTEST_LIST_TO_SEARCH]);
 //		final int limitS=lengthHistogram[chrom][MAX_SINGLE_LIST_TO_SEARCH];
-		
+
 		int sum=0;
 		int initialHitCount=0;
 
 		int shortest=Integer.MAX_VALUE-1;
 		int shortest2=Integer.MAX_VALUE;
-		
+
 //		for(int i=0; i<hits.length; i++){
 //			if(hits[i]!=null && hits[i].length>limitS){hits[i]=null;}
 //		}
-		
+
 		final int[] lengths=getGenericArray(keys.length);
-		
+
 		for(int i=0; i<keys.length; i++){
 			int key=keys[i];
 			int x=count(key);
@@ -338,10 +342,10 @@ public final class BBIndex5 extends AbstractIndex {
 			for(int i=0; i<keys.length; i++){keys[i]=-1;}
 			return 0;
 		}
-		
+
 		int hitsCount=initialHitCount;
 		int worstValue=Integer.MIN_VALUE;
-		
+
 		while(hitsCount>=MIN_APPROX_HITS_TO_KEEP && (sum>limit || sum/initialHitCount>limit2 || hitsCount>maxHitLists/* || worstValue<0*/)){
 			final int[] lists=getGreedyListArray(hitsCount);
 			for(int i=0, j=0; j<lists.length; i++){
@@ -350,7 +354,7 @@ public final class BBIndex5 extends AbstractIndex {
 					j++;
 				}
 			}
-			
+
 			Solver.findWorstGreedy(offsets, lengths, keyWeights, KEYLEN, lists, greedyReturn);
 			int worstIndex=greedyReturn[0];
 			int worst=lists[worstIndex];
@@ -365,8 +369,8 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		return hitsCount;
 	}
-	
-	
+
+
 	/**
 	 * Retrieves hit list boundaries for k-mers within specified chromosome block.
 	 *
@@ -398,8 +402,8 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		return numHits;
 	}
-	
-	
+
+
 	/**
 	 * Counts k-mers with hit lists shorter than maximum length threshold.
 	 *
@@ -423,18 +427,18 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		return numHits;
 	}
-	
-	
+
+
 	@Override
 	public final ArrayList<SiteScore> findAdvanced(byte[] basesP, byte[] basesM, byte[] qual, byte[] baseScoresP, int[] keyScoresP, int[] offsets, long id){
 		assert(minChrom<=maxChrom && minChrom>=0);
 		ArrayList<SiteScore> result=find(basesP, basesM, qual, baseScoresP, keyScoresP, offsets, true, id);
 		if(DOUBLE_SEARCH_NO_HIT && (result==null || result.isEmpty())){result=find(basesP, basesM, qual, baseScoresP, keyScoresP, offsets, false, id);}
-		
+
 		return result;
 	}
-	
-	
+
+
 	/**
 	 * Primary k-mer search method implementing multi-stage filtering and alignment.
 	 * Searches both forward and reverse strands across all chromosome blocks,
@@ -451,16 +455,18 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @return List of alignment sites sorted by score
 	 */
 	public final ArrayList<SiteScore> find(byte[] basesP, byte[] basesM, byte[] qual,  byte[] baseScoresP, int[] keyScoresP, int[] offsetsP, boolean obeyLimits, long id){
-		
+
 		assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
 		final int[] keysOriginal=KeyRing.makeKeys(basesP, offsetsP, KEYLEN);
 		int[] keysP=Arrays.copyOf(keysOriginal, keysOriginal.length);
 
 		initialKeys+=offsetsP.length;
 		initialKeyIterations++;
-		
+
 		final int maxLen=(obeyLimits ? MAX_USABLE_LENGTH : MAX_USABLE_LENGTH2);
-		
+		//TODO: Probable bug - the relaxed maxLen*2/*3/*5 limits below can wrap
+		//when analyzed hit-list counts approach the int limit.
+
 		int numHits=0;
 		numHits=countHits(keysP, maxLen, true);
 		if(numHits>0){ //TODO: Change these to higher numbers
@@ -496,26 +502,26 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		initialKeys2+=numHits;
 		//assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
-		
+
 //		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
 		if(TRIM_BY_GREEDY && obeyLimits){
 			int maxLists=Tools.max((int)(HIT_FRACTION_TO_RETAIN*keysP.length), MIN_HIT_LISTS_TO_RETAIN);
 			numHits=trimExcessHitListsByGreedy(offsetsP, keyScoresP, maxLists, keysP);
 		}
 //		System.out.println("After greedy: numHits = "+numHits);
-		
+
 		if(TRIM_BY_TOTAL_SITE_COUNT && obeyLimits){
 			throw new RuntimeException("Needs to be redone.");
 //			numHits=trimExcessHitLists(keys, hits);
 		}
-		
+
 		if(TRIM_LONG_HIT_LISTS && obeyLimits && numHits>MIN_APPROX_HITS_TO_KEEP){
 			int cutoffIndex=((int) (HIT_FRACTION_TO_RETAIN*(keysP.length)-0.01f))+(keysP.length-numHits);
 
 			int zeroes=keysP.length-numHits;
 			int altMinIndex=(zeroes+(MIN_HIT_LISTS_TO_RETAIN-1));
 			cutoffIndex=Tools.max(cutoffIndex, altMinIndex);
-			
+
 			assert(cutoffIndex>0) : cutoffIndex+"\n"+numHits;
 
 			if(cutoffIndex<(keysP.length-1)){
@@ -523,11 +529,11 @@ public final class BBIndex5 extends AbstractIndex {
 				for(int i=0; i<keysP.length; i++){lens[i]=count(keysP[i]);}
 				Arrays.sort(lens);
 				int cutoff=lens[cutoffIndex];
-				
+
 				cutoff=Tools.max(lengthHistogram[MIN_INDEX_TO_DROP_LONG_HIT_LIST], cutoff);
-				
+
 				int removed=0;
-				
+
 				for(int i=0; i<keysP.length; i++){
 					int key=keysP[i];
 					if(count(key)>cutoff){
@@ -539,7 +545,7 @@ public final class BBIndex5 extends AbstractIndex {
 			}
 		}
 //		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
-		
+
 		final ArrayList<SiteScore> result=new ArrayList<SiteScore>(8);
 		if(numHits<MIN_APPROX_HITS_TO_KEEP){return result;}
 		//assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
@@ -559,7 +565,7 @@ public final class BBIndex5 extends AbstractIndex {
 		//Reverse the offsets for minus-strand mapping, since they are generated based on quality
 		int[] offsetsM=KeyRing.reverseOffsets(offsetsP, KEYLEN, basesP.length);
 		final int[] keysM=KeyRing.reverseComplementKeys(keysP, KEYLEN);
-		
+
 //		assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
 //		assert(checkOffsets(offsetsM)) : Arrays.toString(offsetsM);
 
@@ -569,23 +575,23 @@ public final class BBIndex5 extends AbstractIndex {
 		final byte[] baseScoresM=Tools.reverseAndCopy(baseScoresP, getBaseScoreArray(baseScoresP.length, 1));
 		final int[] keyScoresM=Tools.reverseAndCopy(keyScoresP, getKeyScoreArray(keyScoresP.length, 1));
 		final int maxQuickScore=maxQuickScore(offsetsP, keyScoresP);
-		
+
 		assert(offsetsM.length==offsetsP.length);
 		assert(maxQuickScore==maxQuickScore(offsetsM, keyScoresM));
-		
+
 		final int[] bestScores=KillSwitch.allocInt1D(6);
-		
+
 		//This prevents filtering by qscore when a low-quality read only uses a few keys.
 		//In that case, extending is more important.
 		final boolean prescan_qscore=(PRESCAN_QSCORE && numHits>=5);
-		
+
 		int[][] prescanResults=null;
 		int[] precounts=null;
 		int[] prescores=null;
 
 		int hitsCutoff=0;
 		int qscoreCutoff=(int)(MIN_QSCORE_MULT*maxQuickScore);
-		
+
 		boolean allBasesCovered=true;
 		{
 			if(offsetsP[0]!=0){allBasesCovered=false;}
@@ -599,29 +605,29 @@ public final class BBIndex5 extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		//TODO I don't understand this logic
 		final boolean pretendAllBasesAreCovered=(allBasesCovered ||
 					keysP.length>=keysOriginal.length-4 ||
 					(keysP.length>=9 && (offsetsP[offsetsP.length-1]-offsetsP[0]+KEYLEN)>Tools.max(40, (int)(basesP.length*.75f))));
-		
+
 //		System.err.println(allBasesCovered+"\t"+Arrays.toString(offsetsP));
 //		assert(allBasesCovered);
-		
+
 		if(prescan_qscore){
 			prescanResults=prescanAllBlocks(bestScores,
 					keysP, keyScoresP, offsetsP,
 					keysM, keyScoresM, offsetsM,
 					pretendAllBasesAreCovered);
-			
+
 			if(prescanResults!=null){
 				precounts=prescanResults[0];
 				prescores=prescanResults[1];
 			}
-			
+
 			if(bestScores[1]<MIN_APPROX_HITS_TO_KEEP){return result;}
 			if(bestScores[3]<maxQuickScore*MIN_QSCORE_MULT2){return result;} //if(bestScores[3]<maxQuickScore(offsetsP, keyScoresP)*.10f){return result;}
-			
+
 			if(bestScores[3]>=maxQuickScore && pretendAllBasesAreCovered){
 				assert(bestScores[3]==maxQuickScore);
 				assert(bestScores[1]==numHits);
@@ -633,11 +639,11 @@ public final class BBIndex5 extends AbstractIndex {
 				qscoreCutoff=Tools.max(qscoreCutoff, (int)(bestScores[3]*PRESCAN_QSCORE_THRESH));
 			}
 		}
-		
+
 		final int maxScore=maxScore(offsetsP, baseScoresP, keyScoresP, basesP.length, true);
 		final boolean fullyDefined=AminoAcid.isFullyDefined(basesP);
 		assert(bestScores[2]<=0) : Arrays.toString(bestScores);
-		
+
 		int cycle=0;
 		for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 			if(precounts==null || precounts[cycle]>=hitsCutoff || prescores[cycle]>=qscoreCutoff){
@@ -659,24 +665,24 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 
 		assert(Read.CHECKSITES(result, basesP, basesM, id, false)); //TODO: Comment out once checked
-		
+
 		return result;
 	}
-	
+
 	/** Search blocks rapidly to find max hits, and perfect sites.  May indicate some blocks can be skipped. */
 	private final int[][] prescanAllBlocks(int[] bestScores,
 			int[] keysP, int[] keyScoresP, int[] offsetsP,
 			int[] keysM, int[] keyScoresM, int[] offsetsM,
 			final boolean allBasesCovered){
-		
+
 		int[][][] pm=new int[][][] {{keysP, keyScoresP, offsetsP}, {keysM, keyScoresM, offsetsM}};
-		
+
 		int bestqscore=0;
 		int maxHits=0;
 		int minHitsToScore=MIN_APPROX_HITS_TO_KEEP;
-		
+
 		final int maxQuickScore=maxQuickScore(offsetsP, keyScoresP);
-		
+
 		final int[] counts=precountArray;
 		final int[] scores=prescoreArray;
 		final int[][] ret=prescanReturn;
@@ -684,29 +690,29 @@ public final class BBIndex5 extends AbstractIndex {
 		Arrays.fill(scores, maxQuickScore);
 		ret[0]=counts;
 		ret[1]=scores;
-		
+
 		int cycle=0;
 		for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 			final int baseChrom=baseChrom(chrom);
 			for(int pmi=0; pmi<2; pmi++, cycle++){
-				
+
 				int[] keys=pm[pmi][0];
 				int[] keyScores=pm[pmi][1];
 				int[] offsets=pm[pmi][2];
 //				int[][] hits=getHitArray(offsets.length);
-				
+
 				int[] starts=startArray;
 				int[] stops=stopArray;
 				final int numHits=getHits(keys, chrom, Integer.MAX_VALUE, starts, stops);
-				
+
 				if(numHits<minHitsToScore){
 					scores[cycle]=-9999;
 					counts[cycle]=0;
 				}else{
-					
+
 //					final int maxQuickScore=maxQuickScore(offsets, keyScores);
 					//				System.err.println("maxScore = "+maxScore);
-					
+
 					if(numHits<keys.length){
 						int[][] r=shrink(starts, stops, offsets, keyScores, offsets.length);
 						if(r!=null){
@@ -718,19 +724,19 @@ public final class BBIndex5 extends AbstractIndex {
 //								+"\n\n"+numHits+", "+offsets.length;
 						}
 					}
-					
+
 					assert(numHits==offsets.length) : numHits+", "+offsets.length+", "+starts.length+", "+keys.length;
 					assert(numHits==keyScores.length);
 					heap.clear();
 					final Quad64[] triples=tripleStorage;
 					final int[] values=valueArray;
-					
+
 					int[] temp=findMaxQscore2(starts, stops, offsets, keyScores, baseChrom, triples, values, minHitsToScore, true,
 							bestqscore>=maxQuickScore && allBasesCovered);
 
 					scores[cycle]=temp[0];
 					counts[cycle]=temp[1];
-					
+
 					bestqscore=Tools.max(temp[0], bestqscore);
 					maxHits=Tools.max(maxHits, temp[1]);
 					if(bestqscore>=maxQuickScore && allBasesCovered){
@@ -745,9 +751,9 @@ public final class BBIndex5 extends AbstractIndex {
 							"numHits: \t"+numHits+
 							"minHitsToScore: \t"+minHitsToScore+
 							"keys.length: \t"+keys.length;
-						
+
 						minHitsToScore=Tools.max(minHitsToScore, maxHits);
-						
+
 						{
 							//This early exit is optional.  Does not seem to impact speed much either way.
 							bestScores[1]=Tools.max(bestScores[1], maxHits);
@@ -758,41 +764,41 @@ public final class BBIndex5 extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		bestScores[1]=Tools.max(bestScores[1], maxHits);
 		bestScores[3]=Tools.max(bestScores[3], bestqscore);
-		
+
 		if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-		
+
 		return ret;
 	}
-	
-	
+
+
 	/** Search a single block and strand */
 	public final ArrayList<SiteScore> find(int[] keys, final byte[] bases, final byte[] baseScores, int[] keyScores,
 			final int chrom, final byte strand,
 			int[] offsets, final boolean obeyLimits, ArrayList<SiteScore> ssl, int[] bestScores,
 			final boolean allBasesCovered, final int maxScore, final boolean fullyDefined){
-		
+
 		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
 
 		int[] starts=startArray;
 		int[] stops=stopArray;
-		
+
 		int numHits=getHits(keys, chrom, Integer.MAX_VALUE, starts, stops);
 		if(numHits<MIN_APPROX_HITS_TO_KEEP){return ssl;}
-		
+
 		if(USE_SLOWALK3){
 			if(!RETAIN_BEST_SCORES){Arrays.fill(bestScores, 0);}
 			ssl=slowWalk3(starts, stops, bases, baseScores, keyScores, offsets, chrom, strand, obeyLimits, ssl, bestScores, allBasesCovered, maxScore, fullyDefined);
 		}else{
 			ssl=slowWalk2(starts, stops, bases, baseScores, keyScores, offsets, chrom, strand, obeyLimits, ssl, fullyDefined);
 		}
-		
+
 		return ssl;
-		
+
 	}
-	
+
 	/** Compress arrays by removing null/empty lists */
 	private final int[][] shrink(int[] starts, int[] stops, int[] offsets, int[] keyScores, final int len){
 
@@ -826,7 +832,7 @@ public final class BBIndex5 extends AbstractIndex {
 		r[4]=keyScores2;
 		return r;
 	}
-	
+
 	/** Removes "-1" keys. */
 	private final int[][] shrink2(int[] offsets, int[] keys, int[] keyScores){
 
@@ -863,13 +869,13 @@ public final class BBIndex5 extends AbstractIndex {
 		r[2]=keyScores2;
 		return r;
 	}
-	
-	
+
+
 	/** This uses a heap to track next column to increment */
 	private final ArrayList<SiteScore> slowWalk2(int[] starts, int[] stops, final byte[] bases,
 			final byte[] baseScores, int[] keyScores, int[] offsets,
 			final int baseChrom_, final byte strand, final boolean obeyLimits, ArrayList<SiteScore> ssl, final boolean fullyDefined){
-		
+
 		if(SHRINK_BEFORE_WALK){
 			int[][] r=shrink(starts, stops, offsets, keyScores, offsets.length);
 			if(r!=null){
@@ -879,13 +885,13 @@ public final class BBIndex5 extends AbstractIndex {
 				keyScores=r[4];
 			}
 		}
-		
+
 		final int numHits=offsets.length; //After shrink
-		
-		
+
+
 		assert(numHits==offsets.length);
 		assert(numHits==keyScores.length);
-		
+
 ////		System.out.println("After SHRINK_BEFORE_WALK: numHits = "+hits.length);
 //		Block b=index[baseChrom_];
 //		int[][] hits=b.getHitLists(starts, stops);
@@ -899,43 +905,43 @@ public final class BBIndex5 extends AbstractIndex {
 //		}
 //
 //		final int numHits=hits.length; //After shrink
-		
-		
+
+
 		assert(numHits==offsets.length);
 		assert(numHits==keyScores.length);
-		
+
 		assert(!(!SHRINK_BEFORE_WALK && ADD_SCORE_Z));
-		
+
 		//This can be done before or after shrinking, but the results will change depending on MIN_SCORE_MULT and etc.
 		final int maxScore=maxScore(offsets, baseScores, keyScores, bases.length, true);
 //		final int maxQuickScore=(!USE_EXTENDED_SCORE ? maxScore : maxQuickScore(offsets));
 //		System.err.println("maxScore = "+maxScore);
-		
+
 //		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*0.85f*maxScore));
 		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*1.25f*maxScore));
 //		final int minQuickScore=(!USE_EXTENDED_SCORE ? minScore : (int)(maxQuickScore*0.15f));
 //		final int minScore=(int)(MIN_SCORE_MULT*maxScore);
 //		System.err.println("minScore = "+minScore);
-		
+
 		final int baseChrom=baseChrom(baseChrom_);
-		
-		
+
+
 //		final PriorityQueue<Quad64> heap=new PriorityQueue<Quad64>(numHits);
 		heap.clear();
 //		final Quad64[] triples=new Quad64[numHits];
 		final Quad64[] triples=tripleStorage;
-		
+
 		final Block b=index[baseChrom];
 		final int[] values=valueArray;
 		final int[] sizes=sizeArray;
 		final int[] locArray=(USE_EXTENDED_SCORE ? getLocArray(bases.length) : null);
-		
+
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
 			sizes[i]=b.length(start, stops[i]);
 			assert(sizes[i]>0);
-			
+
 			int a=sites[start];
 			int a2;
 			if((a&SITE_MASK)>=offsets[i]){
@@ -958,32 +964,32 @@ public final class BBIndex5 extends AbstractIndex {
 
 			heap.add(t);
 		}
-		
+
 		if(ssl==null){ssl=new ArrayList<SiteScore>(8);}
-		
+
 		int currentTopScore=-999999999;
-		
+
 		int cutoff=minScore;
-		
+
 		int maxHits=0;
 		int approxHitsCutoff=MIN_APPROX_HITS_TO_KEEP;
-		
+
 //		System.out.println("\nEntering SS loop:");
 //		System.out.println("maxScore="+maxScore+"\tminScore="+minScore+"\tcurrentTopScore="+currentTopScore+"\n" +
 //				"cutoff="+cutoff+"\tmaxHits="+maxHits+"\tapproxHitsCutoff="+approxHitsCutoff);
 //		System.out.println();
-		
+
 		SiteScore prevSS=null;
 		while(!heap.isEmpty()){
 			Quad64 t=heap.peek();
 			final int site=(int)t.site; //*** TODO
 			final int centerIndex=t.column;
-			
+
 			int maxNearbySite=site;
 
 
 			int approxHits=0;
-			
+
 			{//Inner loop
 				final int minsite=subUnsigned(site, MAX_INDEL);
 				final int maxsite=addUnsigned(site, MAX_INDEL2);
@@ -1000,11 +1006,11 @@ public final class BBIndex5 extends AbstractIndex {
 			assert(centerIndex>=0) : centerIndex;
 			assert(approxHits>=1 || approxHitsCutoff>1) : approxHits+", "+approxHitsCutoff+", "+numHits+", "+t.column;
 			if(approxHits>=approxHitsCutoff){
-				
+
 				int score;
-				
+
 				int mapStart=site, mapStop=maxNearbySite;
-				
+
 				if(USE_EXTENDED_SCORE){
 					final int chrom=numberToChrom(site, baseChrom);
 					score=extendScore(bases, baseScores, offsets, values, chrom, centerIndex, locArray, numHits, approxHits);
@@ -1019,7 +1025,7 @@ public final class BBIndex5 extends AbstractIndex {
 								if(x>max){max=x;}
 							}
 						}
-						
+
 //						assert(min>-1 && max>-1) : Arrays.toString(locArray); //TODO: How did this assertion trigger?
 						if(min<0 || max<0){
 							//Note: This error can trigger if minChrom and maxChrom do not align to block boundaries
@@ -1034,16 +1040,16 @@ public final class BBIndex5 extends AbstractIndex {
 							}
 							score=-99999;
 						}
-						
-						
+
+
 						mapStart=toNumber(min, chrom);
 						mapStop=toNumber(max, chrom);
-						
-						
-						
+
+
+
 //						System.err.println("site="+site+", maxNearbySite="+maxNearbySite+", min="+min+", max="+max+
 //								", mapStart="+mapStart+", mapStop="+mapStop);
-						
+
 //						if(chrom==17 && absdif(min, 30354420)<2000){
 //							System.err.println("\n*****\n");
 //							System.err.println("site="+site+" ("+numberToSite(site)+"), maxNearbySite="+maxNearbySite+
@@ -1063,8 +1069,8 @@ public final class BBIndex5 extends AbstractIndex {
 						score+=scoreZ;
 					}
 				}
-				
-				
+
+
 //				score=score(values, centerIndex, offsets, hits);
 //				if(ADD_SCORE_Z){
 //					int scoreZ=scoreZ2(values, centerIndex, offsets);
@@ -1080,16 +1086,16 @@ public final class BBIndex5 extends AbstractIndex {
 //						score=-1;
 //					}
 //				}
-				
-				
+
+
 //				System.err.println("maxScore = "+maxScore);
 //				System.err.println("hits = "+approxHits+" / "+approxHitsCutoff);
 //				System.err.println("score = "+score+" / "+cutoff);
-				
+
 				if(score>=cutoff){
-					
+
 //					System.err.println("Passed!");
-					
+
 //					System.out.println("approxHits="+approxHits+" / "+approxHitsCutoff);
 //					System.out.println("score="+score+" / "+cutoff);
 //					System.out.println("strand="+Gene.strandCodes[strand]);
@@ -1116,7 +1122,7 @@ public final class BBIndex5 extends AbstractIndex {
 						}
 
 						currentTopScore=score;
-						
+
 //						System.out.println("New top score: "+currentTopScore+" \t("+cutoff+")");
 					}
 
@@ -1127,26 +1133,26 @@ public final class BBIndex5 extends AbstractIndex {
 					final int chrom=numberToChrom(mapStart, baseChrom);
 					final int site2=numberToSite(mapStart);
 					final int site3=numberToSite(mapStop)+bases.length-1;
-					
+
 					assert(NUM_CHROM_BITS==0 || site2<SITE_MASK-1000) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length+
 						"\n\n"+Arrays.toString(b.getHitList(centerIndex));
 					assert(site2<site3) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length;
-					
-					
+
+
 					//Note:  I could also do this as soon as score is calculated.
 //					if(ADD_SCORE_Z){
 //						int scoreZ=scoreZ2(values, centerIndex, offsets);
 //						score+=scoreZ;
 //					}
-					
+
 					//This block is optional, but tries to eliminate multiple identical alignments
 //					SiteScore prevSS=(ssl.size()<1 ? null : ssl.get(ssl.size()-1));
-					
+
 					SiteScore ss=null;
 					final boolean perfect1=USE_EXTENDED_SCORE && score==maxScore && fullyDefined;
-					
+
 					int[] gapArray=null;
 					if(site3-site2>=MINGAP+bases.length){
 						gapArray=makeGapArray(locArray, mapStart, MINGAP);
@@ -1160,7 +1166,7 @@ public final class BBIndex5 extends AbstractIndex {
 						}
 						assert(false) : Arrays.toString(locArray);
 					}
-					
+
 					if(gapArray==null && prevSS!=null && prevSS.gaps==null &&
 							prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3)){
 
@@ -1212,7 +1218,7 @@ public final class BBIndex5 extends AbstractIndex {
 							System.err.println(ss.toText()+"\t"+Arrays.toString(gapArray)+"\n"+Arrays.toString(locArray)+"\n");
 						}
 					}
-					
+
 					if(ss!=null){
 //						System.out.println("Added site "+ss.toText());
 						ssl.add(ss);
@@ -1220,7 +1226,7 @@ public final class BBIndex5 extends AbstractIndex {
 					}else{
 //						System.out.println("Subsumed site "+new SiteScore(chrom, strand, site2, site3, score).toText());
 					}
-					
+
 //					if(prevSS!=null && prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3)){
 //						int betterScore=Tools.max(score, prevSS.score);
 //						if(prevSS.start==site2 && prevSS.stop==site3){
@@ -1246,18 +1252,18 @@ public final class BBIndex5 extends AbstractIndex {
 
 				}
 			}
-			
+
 			while(site==(int)heap.peek().site){ //Remove all identical elements, and add subsequent elements
 				final Quad64 t2=heap.poll();
 				final int row=t2.row+1, col=t2.column;
 				if(row<stops[col]){
 					t2.row=row;
-					
+
 					int a=t2.list[row];
 					int a2;
 					if((a&SITE_MASK)>=offsets[col]){
 						a2=a-offsets[col];
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1266,12 +1272,12 @@ public final class BBIndex5 extends AbstractIndex {
 						int st=numberToSite(a);
 						int st2=Tools.max(st-offsets[col], 0);
 						a2=toNumber(st2, ch);
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
 					}
-					
+
 					assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 						"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1284,22 +1290,22 @@ public final class BBIndex5 extends AbstractIndex {
 			}
 
 		}
-		
+
 		return ssl;
 	}
-	
+
 	/** This uses a heap to track next column to increment */
 	private final ArrayList<SiteScore> slowWalk3(int[] starts, int[] stops, final byte[] bases,
 			final byte[] baseScores, int[] keyScores, int[] offsets,
 			final int baseChrom_, final byte strand, final boolean obeyLimits, ArrayList<SiteScore> ssl,
 			int[] bestScores, final boolean allBasesCovered, final int maxScore, final boolean fullyDefined){
 		assert(USE_EXTENDED_SCORE);
-		
+
 		final int numKeys=offsets.length; //Before shrink
-		
+
 		//This can be done before or after shrinking, but the results will change depending on MIN_SCORE_MULT and etc.
 		final int maxQuickScore=maxQuickScore(offsets, keyScores);
-		
+
 		if(SHRINK_BEFORE_WALK){
 			int[][] r=shrink(starts, stops, offsets, keyScores, offsets.length);
 			if(r!=null){
@@ -1309,41 +1315,41 @@ public final class BBIndex5 extends AbstractIndex {
 				keyScores=r[4];
 			}
 		}
-		
+
 		final int numHits=offsets.length; //After shrink
-		
-		
+
+
 		assert(numHits==offsets.length);
 		assert(numHits==keyScores.length);
-		
+
 		usedKeys+=numHits;
 		usedKeyIterations++;
-		
+
 		final boolean filter_by_qscore=(FILTER_BY_QSCORE && numKeys>=5);
-		
+
 		assert(!(!SHRINK_BEFORE_WALK && ADD_SCORE_Z));
-		
-		
+
+
 //		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*0.85f*maxScore));
 		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*1.25f*maxScore));
 		final int minQuickScore=(int)(MIN_QSCORE_MULT*maxQuickScore);
-		
+
 		final int baseChrom=baseChrom(baseChrom_);
-		
+
 		heap.clear();
-		
+
 		final Quad64[] triples=tripleStorage;
 
 		final int[] values=valueArray;
 		final int[] sizes=sizeArray;
 		final int[] locArray=(USE_EXTENDED_SCORE ? getLocArray(bases.length) : null);
 		final Block b=index[baseChrom];
-		
+
 		if(ssl==null){ssl=new ArrayList<SiteScore>(8);}
-		
+
 		int currentTopScore=bestScores[0];
 		int cutoff=Tools.max(minScore, (int)(currentTopScore*DYNAMIC_SCORE_THRESH));
-		
+
 		int qcutoff=Tools.max(bestScores[2], minQuickScore);
 		int bestqscore=bestScores[3];
 		int maxHits=bestScores[1];
@@ -1351,24 +1357,24 @@ public final class BBIndex5 extends AbstractIndex {
 		assert((currentTopScore>=maxScore) == (perfectsFound>0)) : currentTopScore+", "+maxScore+", "+perfectsFound+", "+maxHits+", "+numHits;
 		int approxHitsCutoff=calcApproxHitsCutoff(numKeys, maxHits, MIN_APPROX_HITS_TO_KEEP, currentTopScore>=maxScore);
 		if(approxHitsCutoff>numHits){return ssl;}
-		
+
 		final boolean shortCircuit=(allBasesCovered && numKeys==numHits && filter_by_qscore);
-		
-		
+
+
 		assert(USE_EXTENDED_SCORE);
-		
+
 		if(currentTopScore>=maxScore){
 			assert(currentTopScore==maxScore);
 			qcutoff=Tools.max(qcutoff, (int)(maxQuickScore*DYNAMIC_QSCORE_THRESH_PERFECT));
 		}
-			
-		
+
+
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
 			sizes[i]=b.length(start, stops[i]);
 			assert(sizes[i]>0);
-			
+
 			int a=sites[start];
 			int a2;
 			if((a&SITE_MASK)>=offsets[i]){
@@ -1396,19 +1402,19 @@ public final class BBIndex5 extends AbstractIndex {
 //		System.out.println("maxScore="+maxScore+"\tminScore="+minScore+"\tcurrentTopScore="+currentTopScore+"\n" +
 //				"cutoff="+cutoff+"\tmaxHits="+maxHits+"\tapproxHitsCutoff="+approxHitsCutoff);
 //		System.out.println("maxQuickScore="+maxQuickScore+"\tminQuickScore="+minQuickScore+"\tqcutoff="+qcutoff);
-		
-		
+
+
 		SiteScore prevSS=null;
 		while(!heap.isEmpty()){
 			Quad64 t=heap.peek();
 			final int site=(int)t.site;
 			final int centerIndex=t.column;
-			
+
 			int maxNearbySite=site;
 
 
 			int approxHits=0;
-			
+
 			{//Inner loop
 				final int minsite=subUnsigned(site, MAX_INDEL);
 				final int maxsite=addUnsigned(site, MAX_INDEL2);
@@ -1425,25 +1431,25 @@ public final class BBIndex5 extends AbstractIndex {
 			assert(centerIndex>=0) : centerIndex;
 			assert(approxHits>=1 || approxHitsCutoff>1) : approxHits+", "+approxHitsCutoff+", "+numHits+", "+t.column;
 			if(approxHits>=approxHitsCutoff){
-				
+
 				int score;
 				int qscore=(filter_by_qscore ? quickScore(values, keyScores, centerIndex, offsets, sizes, true, approxHits, numHits) : qcutoff);
 				if(ADD_SCORE_Z){
 					int scoreZ=scoreZ2(values, centerIndex, offsets, approxHits, numHits);
 					qscore+=scoreZ;
 				}
-				
+
 				int mapStart=site, mapStop=maxNearbySite;
-				
+
 				assert(USE_EXTENDED_SCORE);
-				
+
 				boolean locArrayValid=false;
 				if(qscore<qcutoff){
 					score=-1;
 				}else{
 
 					final int chrom=numberToChrom(site, baseChrom);
-					
+
 					//TODO Note that disabling the shortCircuit code seems to make things run 2% faster (with identical results).
 					//However, theoretically, shortCircuit should be far more efficient.  Test both ways on cluster and on a larger run.
 					//May have something to do with compiler loop optimizations.
@@ -1467,7 +1473,7 @@ public final class BBIndex5 extends AbstractIndex {
 							System.err.println("score: "+score);
 							System.err.println("locArray: "+Arrays.toString(locArray));
 						}
-					
+
 						//Correct begin and end positions if they changed.
 						int min=Integer.MAX_VALUE;
 						int max=Integer.MIN_VALUE;
@@ -1512,21 +1518,21 @@ public final class BBIndex5 extends AbstractIndex {
 						qcutoff=Tools.max(qcutoff, (int)(maxQuickScore*DYNAMIC_QSCORE_THRESH_PERFECT));
 						approxHitsCutoff=calcApproxHitsCutoff(numKeys, maxHits, MIN_APPROX_HITS_TO_KEEP, true);
 					}
-					
+
 					if(score>=cutoff){
 						qcutoff=Tools.max(qcutoff, (int)(qscore*DYNAMIC_QSCORE_THRESH));
 						bestqscore=Tools.max(qscore, bestqscore);
 					}
 				}
-				
+
 //				System.err.println("maxScore = "+maxScore);
 //				System.err.println("hits = "+approxHits+" / "+approxHitsCutoff);
 //				System.err.println("score = "+score+" / "+cutoff);
-				
+
 				if(score>=cutoff){
-					
+
 //					System.err.println("Passed!");
-					
+
 //					System.out.println("approxHits="+approxHits+" / "+approxHitsCutoff);
 //					System.out.println("score="+score+" / "+cutoff);
 //					System.out.println("strand="+Gene.strandCodes[strand]);
@@ -1558,14 +1564,14 @@ public final class BBIndex5 extends AbstractIndex {
 					final int chrom=numberToChrom(mapStart, baseChrom);
 					final int site2=numberToSite(mapStart);
 					final int site3=numberToSite(mapStop)+bases.length-1;
-					
+
 					assert(NUM_CHROM_BITS==0 || site2<SITE_MASK-1000) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length+
 						"\n\n"+Arrays.toString(b.getHitList(centerIndex));
 					assert(site2<site3) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length;
-					
-					
+
+
 					int[] gapArray=null;
 					if(site3-site2>=MINGAP+bases.length){
 						assert(locArrayValid) : "Loc array was not filled.";
@@ -1584,7 +1590,7 @@ public final class BBIndex5 extends AbstractIndex {
 //
 //							System.err.println(mapStart+" -> "+site2);
 //							System.err.println(mapStop+" -> "+site3);
-							
+
 							assert(gapArray[0]>=site2 && gapArray[0]-site2<bases.length);
 							assert(gapArray[gapArray.length-1]<=site3 && site3-gapArray[gapArray.length-1]<bases.length) : "\n"+
 								mapStart+" -> "+site2+"\n"+
@@ -1602,15 +1608,15 @@ public final class BBIndex5 extends AbstractIndex {
 						if(verbose){System.err.println("@ site "+site2+", made gap array: "+Arrays.toString(gapArray));}
 //						assert(false) : Arrays.toString(locArray);
 					}
-					
-					
+
+
 					//This block is optional, but tries to eliminate multiple identical alignments
-					
+
 					SiteScore ss=null;
 					final boolean perfect1=USE_EXTENDED_SCORE && score==maxScore && fullyDefined;
 					final boolean inbounds=(site2>=0 && site3<Data.chromLengths[chrom]);
 //					if(!inbounds){System.err.println("Index tossed out-of-bounds site chr"+chrom+", "+site2+"-"+site3);}
-					
+
 					if(inbounds && !SEMIPERFECTMODE && !PERFECTMODE && gapArray==null && prevSS!=null &&
 							prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3)){
 
@@ -1668,17 +1674,17 @@ public final class BBIndex5 extends AbstractIndex {
 						ss.gaps=gapArray;
 						if(verbose){System.err.println("B) Index made SiteScore "+ss.toText()+", "+Arrays.toString(ss.gaps));}
 					}
-					
+
 					assert(ss==null || !ss.perfect || ss.semiperfect) : ss;
 					assert(prevSS==null || !prevSS.perfect || prevSS.semiperfect) : "\n"+SiteScore.header()+"\n"+ss+"\n"+prevSS;
 					if(ss!=null && ((SEMIPERFECTMODE && !ss.semiperfect) || (PERFECTMODE && !ss.perfect))){ss=null;}
-					
-					
+
+
 					if(ss!=null){
 //						System.out.println("Added site "+ss.toText()+", qscore="+qscore);
 						ssl.add(ss);
 						if(ss.perfect){
-							
+
 							if(prevSS==null || !prevSS.perfect || !ss.overlaps(prevSS)){
 								if(prevSS==null){assert ssl.size()<2 || !ss.overlaps(ssl.get(ssl.size()-2));}
 								perfectsFound++;
@@ -1691,7 +1697,7 @@ public final class BBIndex5 extends AbstractIndex {
 								if(QUIT_AFTER_TWO_PERFECTS && perfectsFound>=2){break;}
 							}
 						}
-						
+
 						prevSS=ss;
 					}else{
 //						System.out.println("Subsumed site "+new SiteScore(chrom, strand, site2, site3, score).toText());
@@ -1704,12 +1710,12 @@ public final class BBIndex5 extends AbstractIndex {
 				final int row=t2.row+1, col=t2.column;
 				if(row<stops[col]){
 					t2.row=row;
-					
+
 					int a=t2.list[row];
 					int a2;
 					if((a&SITE_MASK)>=offsets[col]){
 						a2=a-offsets[col];
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1718,16 +1724,16 @@ public final class BBIndex5 extends AbstractIndex {
 						int st=numberToSite(a);
 						int st2=Tools.max(st-offsets[col], 0);
 						a2=toNumber(st2, ch);
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
 					}
-					
+
 					assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 						"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
-					
+
 					t2.site=((long)a2)&0xFFFFFFFFL;
 					values[col]=a2;
 					heap.add(t2);
@@ -1737,11 +1743,11 @@ public final class BBIndex5 extends AbstractIndex {
 					bestScores[1]=Tools.max(bestScores[1], maxHits);
 					bestScores[2]=Tools.max(bestScores[2], qcutoff);
 					bestScores[3]=Tools.max(bestScores[3], bestqscore);
-					
+
 					bestScores[4]=maxQuickScore;
 					bestScores[5]=perfectsFound; //***$ fixed by adding this line
 					if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-					
+
 					return ssl;
 				}
 				if(heap.isEmpty()){
@@ -1751,7 +1757,7 @@ public final class BBIndex5 extends AbstractIndex {
 			}
 
 		}
-		
+
 		assert(USE_EXTENDED_SCORE);
 		bestScores[0]=Tools.max(bestScores[0], currentTopScore);
 		bestScores[1]=Tools.max(bestScores[1], maxHits);
@@ -1761,14 +1767,14 @@ public final class BBIndex5 extends AbstractIndex {
 		bestScores[4]=maxQuickScore;
 		bestScores[5]=perfectsFound;
 		if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-		
+
 //		bestScores[0]=Tools.max(bestScores[0], currentTopScore);
 //		bestScores[1]=Tools.max(bestScores[1], maxHits);
 //		bestScores[2]=Tools.max(bestScores[2], qcutoff);
 		return ssl;
 	}
-	
-	
+
+
 	/**
 	 * Finds maximum quick score and hit count for rapid alignment quality assessment.
 	 * Used during prescan phase to identify high-quality alignment regions.
@@ -1788,21 +1794,21 @@ public final class BBIndex5 extends AbstractIndex {
 	private final int[] findMaxQscore2(final int[] starts, final int[] stops, final int[] offsets, final int[] keyScores,
 			final int baseChrom_, final Quad64[] triples, final int[] values, final int prevMaxHits,
 			boolean earlyExit, boolean perfectOnly){
-		
+
 		final int numHits=offsets.length;
 		assert(numHits>=prevMaxHits);
-		
+
 		final int baseChrom=baseChrom(baseChrom_);
 		final Block b=index[baseChrom];
 		final int[] sizes=sizeArray;
-		
+
 		heap.clear();
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
 			sizes[i]=b.length(start, stops[i]);
 			assert(sizes[i]>0);
-			
+
 			int a=sites[start];
 			int a2;
 			if((a&SITE_MASK)>=offsets[i]){
@@ -1825,15 +1831,15 @@ public final class BBIndex5 extends AbstractIndex {
 
 			heap.add(t);
 		}
-		
+
 		final int maxQuickScore=maxQuickScore(offsets, keyScores);
-		
+
 		int topQscore=-999999999;
-		
+
 		int maxHits=0;
 //		int approxHitsCutoff=MIN_APPROX_HITS_TO_KEEP;
-		
-		
+
+
 		int approxHitsCutoff;
 		final int indelCutoff;
 		if(perfectOnly){
@@ -1843,18 +1849,18 @@ public final class BBIndex5 extends AbstractIndex {
 			approxHitsCutoff=Tools.max(prevMaxHits, Tools.min(MIN_APPROX_HITS_TO_KEEP, numHits-1)); //Faster, same accuracy
 			indelCutoff=MAX_INDEL2;
 		}
-		
-		
+
+
 		while(!heap.isEmpty()){
 			Quad64 t=heap.peek();
 			final int site=(int)t.site; //*** TODO
 			final int centerIndex=t.column;
-			
+
 			int maxNearbySite=site;
 
 
 			int approxHits=0;
-			
+
 			{//Inner loop
 				final int minsite=subUnsigned(site, MAX_INDEL);
 				final int maxsite=addUnsigned(site, MAX_INDEL2);
@@ -1871,24 +1877,24 @@ public final class BBIndex5 extends AbstractIndex {
 			assert(centerIndex>=0) : centerIndex;
 			assert(approxHits>=1 || approxHitsCutoff>1) : approxHits+", "+approxHitsCutoff+", "+numHits+", "+t.column;
 			if(approxHits>=approxHitsCutoff){
-				
+
 				int qscore=quickScore(values, keyScores, centerIndex, offsets, sizes, true, approxHits, numHits);
-				
+
 				if(ADD_SCORE_Z){
 					int scoreZ=scoreZ2(values, centerIndex, offsets, approxHits, numHits);
 					qscore+=scoreZ;
 				}
-				
+
 				if(qscore>topQscore){
-					
+
 //					maxHits=Tools.max(approxHits, maxHits);
 //					approxHitsCutoff=Tools.max(approxHitsCutoff, maxHits); //Best setting for pre-scan
-					
+
 					maxHits=Tools.max(approxHits, maxHits);
 					approxHitsCutoff=Tools.max(approxHitsCutoff, approxHits-1); //Best setting for pre-scan
-					
+
 					topQscore=qscore;
-					
+
 					if(qscore>=maxQuickScore){
 						assert(qscore==maxQuickScore);
 						assert(approxHits==numHits);
@@ -1904,12 +1910,12 @@ public final class BBIndex5 extends AbstractIndex {
 				final int row=t2.row+1, col=t2.column;
 				if(row<stops[col]){
 					t2.row=row;
-					
+
 					int a=t2.list[row];
 					int a2;
 					if((a&SITE_MASK)>=offsets[col]){
 						a2=a-offsets[col];
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1918,12 +1924,12 @@ public final class BBIndex5 extends AbstractIndex {
 						int st=numberToSite(a);
 						int st2=Tools.max(st-offsets[col], 0);
 						a2=toNumber(st2, ch);
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
 					}
-					
+
 					assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 						"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 						", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1938,23 +1944,23 @@ public final class BBIndex5 extends AbstractIndex {
 			}
 
 		}
-		
-		
-		
+
+
+
 		return new int[] {topQscore, maxHits};
 	}
-	
-	
+
+
 	/** Uses unsigned math */
 	private static final int absdif(int a, int b){
 //		return a>b ? a-b : b-a;
 		return (a<0 == b<0) ? a>b ? a-b : b-a : Integer.MAX_VALUE;
 	}
-	
-	
+
+
 	@Override
 	final int maxScore(int[] offsets, byte[] baseScores, int[] keyScores, int readlen, boolean useQuality){
-		
+
 		if(useQuality){
 			//These lines apparently MUST be used if quality is used later on for slow align.
 			if(USE_AFFINE_SCORE){return msa.maxQuality(baseScores);}
@@ -1963,11 +1969,11 @@ public final class BBIndex5 extends AbstractIndex {
 			if(USE_AFFINE_SCORE){return msa.maxQuality(readlen);}
 			if(USE_EXTENDED_SCORE){return readlen*(BASE_HIT_SCORE+BASE_HIT_SCORE/5);}
 		}
-		
+
 		return maxQuickScore(offsets, keyScores);
 	}
-	
-	
+
+
 	/**
 	 * Calculates maximum quick score from k-mer scores and positional bonuses.
 	 * Includes Y-score for k-mer spacing and optional Z-score for coverage.
@@ -1986,13 +1992,13 @@ public final class BBIndex5 extends AbstractIndex {
 
 //		if(ADD_SCORE_Z){x+=((offsets[offsets.length-1]+CHUNKSIZE)*Z_SCORE_MULT);}
 		if(ADD_SCORE_Z){x+=maxScoreZ(offsets);}
-		
+
 		return x+y;
 //		int bonus=(2*(HIT_SCORE/2)); //For matching both ends
 //		return x+y+bonus;
 	}
-	
-	
+
+
 	/**
 	 * Computes quick alignment score based on k-mer positions and penalties.
 	 * Uses center-out scoring with left/right extension and indel penalties.
@@ -2009,27 +2015,27 @@ public final class BBIndex5 extends AbstractIndex {
 	 */
 	private final int quickScore(final int[] values, final int[] keyScores, final int centerIndex, final int offsets[],
 			int[] sizes, final boolean penalizeIndels, final int numApproxHits, final int numHits){
-		
+
 		if(numApproxHits==1){return keyScores[centerIndex];}
-		
+
 		//Done!
 		//Correct way to calculate score:
 		//Find the first chunk that exactly hits the center.
 		//Then, align leftward of it, and align rightward of it, and sum the scores.
-		
+
 		//"-centerIndex" is a disambiguating term that, given otherwise identical match patterns
 		//(for example, a small indel will generate two valid site candidates), choose the lower site.
 
 		int x=keyScores[centerIndex]+scoreLeft(values, keyScores, centerIndex, sizes, penalizeIndels)+
 			scoreRight(values, keyScores, centerIndex, sizes, penalizeIndels, numHits)-centerIndex;
-		
+
 		int y=Y_SCORE_MULT*scoreY(values, centerIndex, offsets);
 		if(ADD_LIST_SIZE_BONUS){x+=calcListSizeBonus(sizes[centerIndex]);}
 //		int z=scoreZ(locs, hits);
 		return x+y;
 	}
-	
-	
+
+
 //	/** Generates a term that increases score with how many bases in the read match the ref. */
 //	private static final int scoreZ(int[] locs, int centerIndex, int offsets[]){
 //		final int center=locs[centerIndex];
@@ -2071,13 +2077,13 @@ public final class BBIndex5 extends AbstractIndex {
 //		}
 //		return score;
 //	}
-	
-	
-	
+
+
+
 	/**
-	 * Performs full sequence alignment extension to calculate precise alignment score.
-	 * Uses reference sequence comparison with quality score integration and gap penalties.
-	 * More accurate but computationally intensive than quick scoring.
+	 * Extends seed diagonals into a per-base pseudoalignment and scores it.
+	 * This is not a dynamic-programming alignment or traceback; locArray holds
+	 * reference-minus-query offsets, with negative entries marking unmatched bases.
 	 *
 	 * @param bases Query sequence bases
 	 * @param baseScores Base quality scores
@@ -2093,10 +2099,10 @@ public final class BBIndex5 extends AbstractIndex {
 	private final int extendScore(final byte[] bases, final byte[] baseScores, final int[] offsets, final int[] values,
 			final int chrom, final int centerIndex, final int[] locArray, final int numHits, final int numApproxHits){
 		callsToExtendScore++;
-		
+
 		final int centerVal=values[centerIndex];
 		final int centerLoc=numberToSite(centerVal);
-		
+
 		final int minLoc=Tools.max(0, centerLoc-MAX_INDEL); //Legacy, for assertions
 		final int maxLoc=centerLoc+MAX_INDEL2; //Legacy, for assertions
 
@@ -2105,17 +2111,17 @@ public final class BBIndex5 extends AbstractIndex {
 
 //		System.out.println("Min, center, max = "+minLoc+", "+center+", "+ maxLoc);
 //		System.out.println("centerIndex = "+centerIndex);
-		
+
 		final byte[] ref=Data.getChromosome(chrom).array;
-		
+
 //		int[] locArray=new int[bases.length];
 		Arrays.fill(locArray, -1);
-		
-		
+
+
 		//First fill in reverse
 		for(int i=0, keynum=0; i<numHits; i++){
 			final int value=values[i];
-			
+
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
 				assert(refbase>=minLoc && refbase<=maxLoc);
@@ -2154,18 +2160,18 @@ public final class BBIndex5 extends AbstractIndex {
 				}
 			}
 		}
-		
-		
-		
+
+
+
 		//Then fill forward
 		for(int i=0; i<numHits; i++){
 			final int value=values[i];
-			
+
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
 				assert(refbase>=minLoc && refbase<=maxLoc);
 				final int callbase=offsets[i];
-				
+
 				int misses=0;
 				for(int cloc=callbase+KEYLEN, rloc=refbase+cloc; cloc<bases.length && rloc<ref.length; cloc++, rloc++){
 					int old=locArray[cloc];
@@ -2173,7 +2179,7 @@ public final class BBIndex5 extends AbstractIndex {
 					if(misses>0 && old>=0){break;} //Already filled with something that has no errors
 					byte c=bases[cloc];
 					byte r=ref[rloc];
-					
+
 					if(c==r){
 						if(old<0 || refbase==centerLoc){ //If the cell is empty or this key corresponds to center
 							locArray[cloc]=refbase;
@@ -2185,7 +2191,7 @@ public final class BBIndex5 extends AbstractIndex {
 				}
 			}
 		}
-		
+
 //		//Change 'N' to -2.  A bit slow.
 //		{
 //			int firstMatch=0;
@@ -2214,7 +2220,7 @@ public final class BBIndex5 extends AbstractIndex {
 //				}
 //			}
 //		}
-		
+
 		//Change 'N' to -2, but only for nocalls, not norefs.  Much faster.
 		{
 			final byte nb=(byte)'N';
@@ -2222,14 +2228,14 @@ public final class BBIndex5 extends AbstractIndex {
 				if(bases[i]==nb){locArray[i]=-2;}
 			}
 		}
-		
+
 		if(USE_AFFINE_SCORE){
 			/* TODO - sometimes returns a higher score than actual alignment.  This should never happen. */
 			int score=(KFILTER<2 ? msa.calcAffineScore(locArray, baseScores, bases) :
 				msa.calcAffineScore(locArray, baseScores, bases, KFILTER));
 			return score;
 		}
-		
+
 		int score=0;
 		int lastLoc=-1;
 		int centerBonus=BASE_HIT_SCORE/5;
@@ -2249,32 +2255,32 @@ public final class BBIndex5 extends AbstractIndex {
 
 //		System.err.println("Extended score: "+score);
 //		System.err.println(Arrays.toString(locArray));
-		
-		
+
+
 		return score;
 	}
-	
-	
+
+
 	/** NOTE!  This destroys the locArray, so use a copy if needed. */
 	private static final int[] makeGapArray(int[] locArray, int minLoc, int minGap){
 		int gaps=0;
 		boolean doSort=false;
-		
+
 		if(locArray[0]<0){locArray[0]=minLoc;}
 		for(int i=1; i<locArray.length; i++){
 			if(locArray[i]<0){locArray[i]=locArray[i-1]+1;}
 			else{locArray[i]+=i;}
 			if(locArray[i]<locArray[i-1]){doSort=true;}
 		}
-		
+
 //		System.err.println(Arrays.toString(locArray)+"\n");
-		
+
 		if(doSort){
 //			System.err.println("*");
 			Arrays.sort(locArray);
 		}
 //		System.err.println(Arrays.toString(locArray)+"\n");
-		
+
 		for(int i=1; i<locArray.length; i++){
 			int dif=locArray[i]-locArray[i-1];
 			assert(dif>=0);
@@ -2286,7 +2292,7 @@ public final class BBIndex5 extends AbstractIndex {
 		int[] out=new int[2+gaps*2];
 		out[0]=locArray[0];
 		out[out.length-1]=locArray[locArray.length-1];
-		
+
 		for(int i=1, j=1; i<locArray.length; i++){
 			int dif=locArray[i]-locArray[i-1];
 			assert(dif>=0);
@@ -2298,27 +2304,29 @@ public final class BBIndex5 extends AbstractIndex {
 		}
 		return out;
 	}
-	
-	
+
+
 	/** Generates a term that increases score with how many bases in the read match the ref. */
 	private final int scoreZ2(int[] values, int centerIndex, int offsets[], int numApproxHits, int numHits){
-		
+		//TODO: Probable bug - unlike the walk bounds, these signed bounds clamp
+		//minLoc to zero, excluding packed coordinates with their high bit set.
+
 		if(numApproxHits==1){return SCOREZ_1KEY;}
-		
+
 		final int center=values[centerIndex];
 
 		final int maxLoc=center+MAX_INDEL2;
 		final int minLoc=Tools.max(0, center-MAX_INDEL);
-		
+
 
 
 //		final int minVal=subUnsigned(centerVal, MAX_INDEL);
 //		final int maxVal=addUnsigned(centerVal, MAX_INDEL2);
-		
+
 		int score=0;
-		
+
 		int a0=-1, b0=-1;
-		
+
 		for(int i=0; i<numHits; i++){
 			int loc=values[i];
 //			int dif=absdif(loc, center);
@@ -2326,7 +2334,7 @@ public final class BBIndex5 extends AbstractIndex {
 //				assert(loc>=center) : "loc="+loc+"\ni="+i+"\ncenterIndex="+centerIndex+
 //					"\nmaxLoc="+maxLoc+"\nlocs:\t"+Arrays.toString(locs)+"\noffsets:\t"+Arrays.toString(offsets);
 				int a=offsets[i];
-				
+
 				if(b0<a){
 					score+=b0-a0;
 					a0=a;
@@ -2339,7 +2347,7 @@ public final class BBIndex5 extends AbstractIndex {
 //		assert(score==scoreZslow(locs, centerIndex, offsets, false)) : scoreZslow(locs, centerIndex, offsets, true)+" != "+score;
 		return score;
 	}
-	
+
 	@Deprecated
 	/** This was just to verify scoreZ2. */
 	private final int scoreZslow(int[] locs, int centerIndex, int offsets[], boolean display, int numHits){
@@ -2347,10 +2355,10 @@ public final class BBIndex5 extends AbstractIndex {
 
 		final int maxLoc=center+MAX_INDEL2;
 		final int minLoc=Tools.max(0, center-MAX_INDEL);
-		
+
 		byte[] array=new byte[offsets[offsets.length-1]+KEYLEN];
 		int score=0;
-		
+
 		for(int i=0; i<numHits; i++){
 			int loc=locs[i];
 //			int dif=absdif(loc, center);
@@ -2365,12 +2373,12 @@ public final class BBIndex5 extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		if(display){System.err.println("\n"+Arrays.toString(array)+"\n");}
-		
+
 		return score*Z_SCORE_MULT;
 	}
-	
+
 	/** Generates a term that increases score with how many bases in the read match the ref. */
 	private final int maxScoreZ(int offsets[]){
 		int score=0;
@@ -2389,7 +2397,7 @@ public final class BBIndex5 extends AbstractIndex {
 		score+=b0-a0;
 		return score*Z_SCORE_MULT;
 	}
-	
+
 
 	/**
 	 * Scores k-mers to the right of center position with indel penalties.
@@ -2403,25 +2411,25 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @return Cumulative score for rightward k-mer extension
 	 */
 	private final int scoreRight(int[] values, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels, int numHits){
-		
+
 		int score=0;
-		
+
 		int prev, loc=values[centerIndex];
-		
+
 		for(int i=centerIndex+1; i<numHits; i++){
-			
+
 			if(values[i]!=-1){
 				prev=loc;
 				loc=values[i];
-				
+
 				int offset=absdif(loc, prev);
-				
+
 				if(offset<=MAX_INDEL){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
-					
+
 //					if(i==locs.length-1){score+=HIT_SCORE/2;} //Adds a bonus for matching the first or last key
-					
+
 					if(penalizeIndels && offset!=0){
 						int penalty=Tools.min(INDEL_PENALTY+INDEL_PENALTY_MULT*offset, MAX_PENALTY_FOR_MISALIGNED_HIT);
 						score-=penalty;
@@ -2431,12 +2439,12 @@ public final class BBIndex5 extends AbstractIndex {
 					loc=prev;
 				}
 			}
-			
+
 		}
 		return score;
-		
+
 	}
-	
+
 	/**
 	 * Scores k-mers to the left of center position with indel penalties.
 	 *
@@ -2448,25 +2456,25 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @return Cumulative score for leftward k-mer extension
 	 */
 	private final int scoreLeft(int[] values, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels){
-		
+
 		callsToScore++;
-		
+
 		int score=0;
-		
+
 		int prev, loc=values[centerIndex];
-		
+
 		for(int i=centerIndex-1; i>=0; i--){
-			
+
 			if(values[i]!=-1){
 				prev=loc;
 				loc=values[i];
-				
+
 				int offset=absdif(loc, prev);
-				
+
 				if(offset<=MAX_INDEL){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
-					
+
 //					if(i==0){score+=HIT_SCORE/2;} //Adds a bonus for matching the first or last key
 					if(penalizeIndels && offset!=0){
 						int penalty=Tools.min(INDEL_PENALTY+INDEL_PENALTY_MULT*offset, MAX_PENALTY_FOR_MISALIGNED_HIT);
@@ -2476,12 +2484,12 @@ public final class BBIndex5 extends AbstractIndex {
 					loc=prev;
 				}
 			}
-			
+
 		}
 		return score;
-		
+
 	}
-	
+
 	/** Encode a (location, chrom) pair to an index */
 	private static final int toNumber(int site, int chrom){
 		int out=(chrom&CHROM_MASK_LOW);
@@ -2489,7 +2497,7 @@ public final class BBIndex5 extends AbstractIndex {
 		out=(out|site);
 		return out;
 	}
-	
+
 	/** Decode an (index, baseChrom) pair to a chromosome */
 	private static final int numberToChrom(int number, int baseChrom){
 		assert((baseChrom&CHROM_MASK_LOW)==0) : Integer.toHexString(number)+", baseChrom="+baseChrom;
@@ -2498,19 +2506,19 @@ public final class BBIndex5 extends AbstractIndex {
 		out=out+(baseChrom&CHROM_MASK_HIGH);
 		return out;
 	}
-	
+
 	/** Decode an index to a location */
 	private static final int numberToSite(int number){
 		return (number&SITE_MASK);
 	}
-	
+
 	private static int subUnsigned(int a, int b){
 		int c=a-b;
 		if((a<0)==(c<0)){return c;}
 		if(a>=0){return b>=0 ? 0 : Integer.MAX_VALUE-10000;}
 		return b>=0 ? Integer.MIN_VALUE : -10000;
 	}
-	
+
 	private static int addUnsigned(int a, int b){
 		int c=a+b;
 		if((a<0)==(c<0)){return c;}
@@ -2536,8 +2544,8 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @return Block-aligned maximum chromosome number within global limits
 	 */
 	private static final int maxChrom(int chrom){return Tools.max(MINCHROM, Tools.min(MAXCHROM, chrom|CHROM_MASK_LOW));}
-	
-	
+
+
 	private final int[] getOffsetArray(int len){
 		if(offsetArrays[len]==null){offsetArrays[len]=new int[len];}
 		return offsetArrays[len];
@@ -2564,7 +2572,8 @@ public final class BBIndex5 extends AbstractIndex {
 	}
 	@Override
 	final int[] getKeyScoreArray(int len, int strand){
-		if(len>=keyScoreArrays.length){return new int[len];}
+		// Length is the second dimension; the first dimension contains two strands.
+		if(len>=keyScoreArrays[0].length){return new int[len];}
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];
 	}
@@ -2577,8 +2586,8 @@ public final class BBIndex5 extends AbstractIndex {
 	float[] keyProbArray() {
 		return keyProbArray;
 	}
-	
-	
+
+
 	/** Cached position arrays for extended alignment scoring */
 	private final int[][] locArrays=new int[601][];
 	/** Site value array for coordinate tracking during alignment */
@@ -2606,32 +2615,32 @@ public final class BBIndex5 extends AbstractIndex {
 	/** Probability array for k-mer frequency weighting */
 	final float[] keyProbArray=new float[601];
 	private final float[][] keyWeightArrays=new float[128][];
-	
-	
+
+
 	private final static Quad64[] makeQuad64Storage(int number){
 		Quad64[] r=new Quad64[number];
 		for(int i=0; i<number; i++){r[i]=new Quad64(i, 0, 0);}
 		return r;
 	}
-	
+
 
 	/** Priority queue for efficient site traversal during alignment walking */
 	private final Quad64Heap heap=new Quad64Heap(127);
-	
+
 	/** Bit shift length for coordinate encoding in packed integers */
 	static int SHIFT_LENGTH=(32-NUM_CHROM_BITS);
 	/** Maximum chromosome index value supported by current bit encoding */
 	static int MAX_ALLOWED_CHROM_INDEX=~((-1)<<SHIFT_LENGTH);
-	
+
 	/** Mask the number to get the site, which is in the lower bits */
 	static int SITE_MASK=((-1)>>>(NUM_CHROM_BITS));
-	
+
 	/** Mask the chromosome's high bits to get the low bits */
 	static int CHROM_MASK_LOW=CHROMS_PER_BLOCK-1;
-	
+
 	/** Mask the chromosome's lower bits to get the high bits */
 	static int CHROM_MASK_HIGH=~CHROM_MASK_LOW;
-	
+
 	/**
 	 * Configures bit allocation for chromosome encoding in packed integers.
 	 * Updates all related constants for coordinate packing and block organization.
@@ -2639,7 +2648,9 @@ public final class BBIndex5 extends AbstractIndex {
 	 * @param x Number of bits to allocate for chromosome numbers
 	 */
 	static void setChromBits(int x){
-		
+		//TODO: Probable bug - x=0 makes SHIFT_LENGTH=32, but Java int shifts mask
+		//the distance to0; MAX_ALLOWED_CHROM_INDEX and chromosome decoding break.
+
 		NUM_CHROM_BITS=x;
 		CHROMS_PER_BLOCK=(1<<(NUM_CHROM_BITS));
 		SHIFT_LENGTH=(32-NUM_CHROM_BITS);
@@ -2647,9 +2658,9 @@ public final class BBIndex5 extends AbstractIndex {
 		SITE_MASK=((-1)>>>(NUM_CHROM_BITS));
 		CHROM_MASK_LOW=CHROMS_PER_BLOCK-1;
 		CHROM_MASK_HIGH=~CHROM_MASK_LOW;
-		
+
 //		assert(false) : Integer.bitCount(SITE_MASK)+", "+MAX_ALLOWED_CHROM_INDEX+", "+CHROMS_PER_BLOCK;
-		
+
 //		assert(NUM_CHROM_BITS<30);
 		assert(NUM_CHROM_BITS>=0); //max is 3 for human; perhaps more for other organisms
 //		assert((1<<(NUM_CHROM_BITS))>=CHROMSPERBLOCK) : (1<<(NUM_CHROM_BITS))+" < "+CHROMSPERBLOCK;
@@ -2657,7 +2668,7 @@ public final class BBIndex5 extends AbstractIndex {
 		assert(Integer.bitCount(CHROMS_PER_BLOCK)==1);
 		assert(Integer.numberOfLeadingZeros(SITE_MASK)==(NUM_CHROM_BITS)) : Integer.toHexString(SITE_MASK);
 	}
-	
+
 	/** Number of search cycles for all chromosome blocks and strands */
 	private final int cycles;
 
@@ -2669,21 +2680,21 @@ public final class BBIndex5 extends AbstractIndex {
 	public static int MAX_INDEL=16000; //Max indel length, min 0, default 400; longer is more accurate
 	/** Double the maximum indel length for extended search windows */
 	public static int MAX_INDEL2=2*MAX_INDEL;
-	
+
 	private final float INV_BASE_KEY_HIT_SCORE;
 	private final int INDEL_PENALTY; //default (HIT_SCORE/2)-1
 	private final int INDEL_PENALTY_MULT; //default 20; penalty for indel length
 	private final int MAX_PENALTY_FOR_MISALIGNED_HIT;
 	private final int SCOREZ_1KEY;
-	
+
 	/** Whether to include Z-score component for sequence coverage assessment */
 	public static final boolean ADD_SCORE_Z=true; //Increases quality, decreases speed
 	/** Multiplier for Z-score contribution to total alignment score */
 	public static final int Z_SCORE_MULT=20;
 	/** Multiplier for Y-score positional bonus in alignment scoring */
 	public static final int Y_SCORE_MULT=10;
-	
-	
+
+
 	/**
 	 * Return only sites that match completely or with partial no-reference
 	 */
@@ -2692,13 +2703,13 @@ public final class BBIndex5 extends AbstractIndex {
 		SEMIPERFECTMODE=true;
 		PRESCAN_QSCORE=false;
 //		MIN_APPROX_HITS_TO_KEEP++;
-		
-		
-		
+
+
+
 		MAX_INDEL=0;
 		MAX_INDEL2=0;
 	}
-	
+
 	/**
 	 * Return only sites that match completely
 	 */
@@ -2707,22 +2718,24 @@ public final class BBIndex5 extends AbstractIndex {
 		PERFECTMODE=true;
 		PRESCAN_QSCORE=false;
 //		MIN_APPROX_HITS_TO_KEEP++;
-		
-		
-		
+
+
+
 		MAX_INDEL=0;
 		MAX_INDEL2=0;
 	}
-	
+
 	/** Fraction of most frequent k-mers excluded for performance optimization */
 	static float FRACTION_GENOME_TO_EXCLUDE=0.03f; //Default .03; lower is slower and more accurate.  For perfect reads and small genomes, lower is FASTER.
-	
+
 	/**
 	 * Configures fraction of most frequent k-mers to exclude from alignment.
 	 * Adjusts multiple filtering thresholds to balance speed versus sensitivity.
 	 * @param f Fraction to exclude (0.0 to 1.0, typically 0.03)
 	 */
 	public static final void setFractionToExclude(float f){
+		//TODO: Probable parameter-range bug - accepted fractions such as0.5 yield
+		//negative histogram indexes in the formulas below; defaults remain small.
 		assert(f>=0 && f<1);
 		FRACTION_GENOME_TO_EXCLUDE=f;
 		MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
@@ -2731,15 +2744,15 @@ public final class BBIndex5 extends AbstractIndex {
 		MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935
 		MAX_SHORTEST_LIST_TO_SEARCH=(int)(1000*(1-2.8*FRACTION_GENOME_TO_EXCLUDE)); //Default 860
 	}
-	
-	
+
+
 	/** Default .75.  Range: 0 to 1 (but 0 will break everything).  Lower is faster and less accurate. */
 	static final float HIT_FRACTION_TO_RETAIN=0.85f; //default: .8
 	/** Range: 0 to 1000.  Lower should be faster and less accurate. */
 	static int MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
 	/** Range: 2 to infinity.  Lower should be faster and less accurate. */
 	static final int MIN_HIT_LISTS_TO_RETAIN=6;
-	
+
 	static int MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 	//lower is faster
 	static int MAX_AVERAGE_LIST_TO_SEARCH2=(int)(1000*(1-1.4*FRACTION_GENOME_TO_EXCLUDE)); //default 910
@@ -2747,32 +2760,32 @@ public final class BBIndex5 extends AbstractIndex {
 	static int MAX_SINGLE_LIST_TO_SEARCH=(int)(1000*(1-1.0*FRACTION_GENOME_TO_EXCLUDE)); //default 935
 	//lower is faster
 	static int MAX_SHORTEST_LIST_TO_SEARCH=(int)(1000*(1-2.8*FRACTION_GENOME_TO_EXCLUDE)); //Default 860
-	
+
 	/** To increase accuracy on small genomes, override greedy list dismissal when the list is at most this long. */
 	public static final int SMALL_GENOME_LIST=20;
-	
+
 	static{assert(!(TRIM_BY_GREEDY && TRIM_BY_TOTAL_SITE_COUNT)) : "Pick one.";}
-	
+
 	static final int CLUMPY_MAX_DIST=5; //Keys repeating over intervals of this or less are clumpy.
-	
+
 	/** Minimum length of list before clumpiness is considered. This is an index in the length histogram, from 0 to 1000. */
 	static final int CLUMPY_MIN_LENGTH_INDEX=2000;
 	static final float CLUMPY_FRACTION=0.75f; //0 to 1; higher is slower but more stringent. 0.5 means the median distance is clumpy.
-	
+
 	static final int MAX_SUBSUMPTION_LENGTH=MAX_INDEL2;
-	
+
 	/** approxHitsCutoff=maxHits-MAX_HITS_REDUCTION1 when slowWalk3 is first entered */
 	public static final int MAX_HITS_REDUCTION1=0;
-	
+
 	/** approxHitsCutoff=maxHits-MAX_HITS_REDUCTION2 dynamically when best score is exceeded */
 	public static int MAX_HITS_REDUCTION2=2; //default 1; higher is more accurate (more mapping and less FP) but slower
-	
+
 	/** approxHitsCutoff=maxHits-MAX_HITS_REDUCTION_PERFECT when perfect score is found */
 	public static final int MAX_HITS_REDUCTION_PERFECT=0;
 
 	public static int MAXIMUM_MAX_HITS_REDUCTION=3;
 	public static int HIT_REDUCTION_DIV=5;
-	
+
 	/**
 	 * Calculates minimum hit count threshold for alignment consideration.
 	 * Balances alignment sensitivity with computational performance based on read characteristics.
@@ -2786,7 +2799,7 @@ public final class BBIndex5 extends AbstractIndex {
 	private static final int calcApproxHitsCutoff(final int keys, final int hits, int currentCutoff, final boolean perfect){ //***$
 		assert(keys>=hits) : keys+", "+hits;
 		assert(hits>=0);
-		
+
 		int mahtk=MIN_APPROX_HITS_TO_KEEP;
 		if(SEMIPERFECTMODE || PERFECTMODE){
 			if(keys==1){return 1;}
@@ -2795,7 +2808,7 @@ public final class BBIndex5 extends AbstractIndex {
 				if(currentCutoff==MIN_APPROX_HITS_TO_KEEP){currentCutoff++;}
 			}
 		}
-		
+
 		int reduction=Tools.min(Tools.max((hits)/HIT_REDUCTION_DIV, MAX_HITS_REDUCTION2), Tools.max(MAXIMUM_MAX_HITS_REDUCTION, keys/8));
 //		if(hits<3){reduction=0;}
 //		else if(hits<4){reduction=Tools.min(1, reduction);}
@@ -2803,15 +2816,15 @@ public final class BBIndex5 extends AbstractIndex {
 //		else if(hits<6){reduction=Tools.min(3, reduction);}
 		assert(reduction>=0);
 		int r=hits-reduction;
-		
+
 		r=Tools.max(mahtk, currentCutoff, r);
-		
+
 		if(perfect){
 			r=Tools.max(r, keys-MAX_HITS_REDUCTION_PERFECT);
 		}
 		return r;
 	}
-	
+
 	/** Whether to use advanced SlowWalk3 algorithm with extended scoring */
 	public static final boolean USE_SLOWALK3=true && USE_EXTENDED_SCORE;
 	/** Whether to enable rapid prescan for quality-based block filtering */
@@ -2829,6 +2842,6 @@ public final class BBIndex5 extends AbstractIndex {
 		assert(MIN_SCORE_MULT>=0 && MIN_SCORE_MULT<1);
 		assert(DYNAMIC_SCORE_THRESH>=0 && DYNAMIC_SCORE_THRESH<1);
 	}
-	
-	
+
+
 }

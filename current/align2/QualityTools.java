@@ -7,67 +7,40 @@ import dna.AminoAcid;
 import shared.Tools;
 import stream.Read;
 
-
-
 /**
- * 
+ * Base-quality lookup tables, rolling k-mer error estimates and mapper score transforms.
+ * Uses BBTools' Q0/Q1 error conventions (.75/.7), rather than the literal Phred
+ * formula at those two points. Pair matrices model at least one independent error,
+ * not the posterior confidence of a consensus call. Public tables are shared;
+ * callers must not mutate them. Reusable output arrays belong to the caller.
  *  @author Brian Bushnell
  *  @date Jul 17, 2011 12:04:06 PM
  */
-public class QualityTools {
-	
+public class QualityTools{
+
 	/*-------------------- Main --------------------*/
 
 	/** Program entry point for testing quality matrix operations.
 	 * @param args Command-line arguments */
 	public static void main(String[] args){
-		
+
 		for(int i=0; i<MATRIX_SIZE; i++){
 			for(int j=0; j<MATRIX_SIZE; j++){
 				System.err.print((int)qualsToPhredSafe((byte)i, (byte)j)+",");
 			}
 			System.err.println();
 		}
-		
-//		byte[] quals=new byte[] {15, 12, 20, 9, 10, 16, 14, 7, 11, 10, 10, 10, 10, 4, 4, 30, 30, 30, 30};
-//		float[] probs=makeKeyProbs(quals, 4);
-//		float[] probs2=makeKeyProbs(quals, 4);
 //
-//		int[] scores=makeKeyScores(quals, 4, 50, 50, null);
 //
-//		System.out.println(Arrays.toString(probs)+"\n");
-//		System.out.println(Arrays.toString(probs2)+"\n");
-//		System.out.println(Arrays.toString(scores)+"\n");
 //
-//		bench(50, 20000000);
-//		bench2(50, 20000000);
-//		bench(50, 20000000);
-//		bench2(50, 20000000);
-//		bench(50, 20000000);
-//		bench2(50, 20000000);
-		
-//		System.out.println(1-((1-.1f)*(1-.1f)*(1-.1f)));
-//		System.out.println("\n"+Arrays.toString(PROB));
-//		System.out.println("\n"+Arrays.toString(INVERSE));
-//		System.out.println("\n"+Arrays.toString(SUB_PROB));
-//		System.out.println("\n"+Arrays.toString(SUB_INVERSE));
-		
-//		initializeq102matrix(null);
-//		for(int a=0; a<42; a++){
-//			for(int b=0; b<42; b++){
-//				for(int c=0; c<42; c++){
-//					System.out.println(a+"\t"+b+"\t"+c+"\t"+q3ProbMatrix[a][b][c]);
-//				}
-//			}
-//		}
-		
+
 	}
-	
+
 	/*-------------------- Constructors --------------------*/
 
 	/** Default constructor for QualityTools */
 	public QualityTools(){}
-	
+
 	/*-------------------- Methods --------------------*/
 
 	/*-------------------- Overridden Methods --------------------*/
@@ -75,16 +48,16 @@ public class QualityTools {
 	/*-------------------- Abstract Methods --------------------*/
 
 	/*-------------------- Static Methods --------------------*/
-	
+
 	/**
 	 * Benchmarks performance of makeKeyProbs method.
 	 * @param length Length of quality array to generate
 	 * @param rounds Number of benchmark iterations
 	 */
 	public static void bench(int length, int rounds){
-		
+
 		long time=System.nanoTime();
-		
+
 		byte[] qual=new byte[length];
 		for(int i=0; i<qual.length; i++){
 			qual[i]=(byte)(Math.random()*30+5);
@@ -95,21 +68,21 @@ public class QualityTools {
 				System.err.println("Ooops! "+Arrays.toString(r));
 			}
 		}
-		
+
 		time=System.nanoTime()-time;
 		float seconds=(float)(time/1000000000d);
 		System.out.println("Bench Time: "+Tools.format("%.3f",seconds)+" s");
 	}
-	
+
 	/**
 	 * Benchmarks performance of makeKeyProbs2 method.
 	 * @param length Length of quality array to generate
 	 * @param rounds Number of benchmark iterations
 	 */
 	public static void bench2(int length, int rounds){
-		
+
 		long time=System.nanoTime();
-		
+
 		byte[] qual=new byte[length];
 		for(int i=0; i<qual.length; i++){
 			qual[i]=(byte)(Math.random()*30+5);
@@ -120,17 +93,17 @@ public class QualityTools {
 				System.err.println("Ooops! "+Arrays.toString(r));
 			}
 		}
-		
+
 		time=System.nanoTime()-time;
 		float seconds=(float)(time/1000000000d);
 		System.out.println("Bench2 Time: "+Tools.format("%.3f",seconds)+" s");
 	}
-	
+
 	/**
 	 * Creates key quality scores from quality and base arrays.
 	 * Combines probability calculations with scoring transformation.
 	 *
-	 * @param qual Quality scores array
+	 * @param qual Quality scores array, or null to use the missing-quality convention
 	 * @param bases Base sequence array
 	 * @param keylen Length of each key
 	 * @param range Score range for transformation
@@ -141,9 +114,9 @@ public class QualityTools {
 	 */
 	public static int[] makeKeyScores(byte[] qual, byte[] bases, int keylen, int range, int baseScore, int[] out, boolean useModulo){
 		float[] probs=makeKeyProbs(qual, bases, keylen, useModulo);
-		return makeKeyScores(probs, (qual.length-keylen+1), range, baseScore, out);
+		return makeKeyScores(probs, probs.length, range, baseScore, out);
 	}
-	
+
 	/**
 	 * Converts probability array to score array using linear transformation.
 	 *
@@ -156,14 +129,13 @@ public class QualityTools {
 	 */
 	public static int[] makeKeyScores(float[] probs, int numProbs, int range, int baseScore, int[] out){
 		if(out==null){out=new int[numProbs];}
-//		assert(out.length==probs.length);
 		assert(out.length>=numProbs);
 		for(int i=0; i<numProbs; i++){
 			out[i]=baseScore+(int)Math.round(range*(1-(probs[i])));
 		}
 		return out;
 	}
-	
+
 	/**
 	 * Creates integer score array from quality scores.
 	 * Scales correct probabilities to maxScore range.
@@ -182,7 +154,7 @@ public class QualityTools {
 		}
 		return out;
 	}
-	
+
 	/**
 	 * Creates byte score array from quality scores.
 	 *
@@ -210,7 +182,7 @@ public class QualityTools {
 		}
 		return out;
 	}
-	
+
 	/**
 	 * Creates byte score array filled with zeros (high quality assumption).
 	 *
@@ -221,38 +193,34 @@ public class QualityTools {
 	 */
 	public static byte[] makeByteScoreArray(int maxScore, byte[] out, boolean negative){
 		assert(out!=null);
-//		for(int i=0; i<out.length; i++){
-//			float probM=SUB_PROB[30];
-//			int x=(int)Math.round(maxScore*probM);
-//			assert(x>=Byte.MIN_VALUE && x<=Byte.MAX_VALUE);
-//			if(negative){
-//				x=x-maxScore;
-//				assert(x<=0);
-//			}else{
-//				assert(x>=0 && x<=maxScore);
-//			}
-//			out[i]=(byte)x;
-//		}
 		Arrays.fill(out, (byte)0);
 		return out;
 	}
-	
-	/** Returns prob of error for each key */
+
+	/** Allocates one error estimate per key; when quality is absent, bases supplies the length. */
 	public static float[] makeKeyProbs(byte[] quality, byte[] bases, int keylen, boolean useModulo){
 		return makeKeyProbs(quality, bases, keylen, null, useModulo);
 	}
-	
-	/** Returns prob of error for each key */
+
+	/**
+	 * Estimates the chance of at least one error in each k-mer by rolling a float
+	 * product of correct probabilities. Any Q0 in a window forces its result to 1.
+	 * With quality present, writes the valid prefix and leaves a larger output tail
+	 * untouched. Bases are used only for optional modulo filtering; undefined bases
+	 * must be excluded elsewhere unless their qualities already mark them as Q0.
+	 * The mapper supplies a reusable output array. Missing qualities delegate to the
+	 * zero-error convention below. keylen must fit the input; modulo encoding is int-based.
+	 */
 	public static float[] makeKeyProbs(byte[] quality, byte[] bases, int keylen, float[] out, boolean useModulo){
 		if(quality==null){return makeKeyProbs(bases, keylen, out, useModulo);}
 		if(out==null){out=new float[quality.length-keylen+1];}
 		assert(out.length>=quality.length-keylen+1) : quality.length+", "+keylen+", "+out.length;
-//		assert(out.length==quality.length-keylen+1);
 		float key1=1;
-		
+		//TODO: Probable bug - very long low-quality keys can underflow this rolling product;
+		//roundoff can also drift outside [0,1]. Typical short mapper keys were not changed here.
+
 		int timeSinceZero=0;
 		for(int i=0; i<keylen; i++){
-//			byte q=(bases==null || bases[i]!='N' ? quality[i] : 0);
 			byte q=quality[i];
 			if(q>0){timeSinceZero++;}else{timeSinceZero=0;} //Tracks location of N's
 			assert(q<PROB_CORRECT.length) : Arrays.toString(quality);
@@ -261,10 +229,8 @@ public class QualityTools {
 		}
 		out[0]=1-key1;
 		if(timeSinceZero<keylen){out[0]=1;}
-		
+
 		for(int a=0, b=keylen; b<quality.length; a++, b++){
-//			byte qa=(bases==null || bases[a]!='N' ? quality[a] : 0);
-//			byte qb=(bases==null || bases[b]!='N' ? quality[b] : 0);
 			byte qa=quality[a];
 			byte qb=quality[b];
 			if(qb>0){timeSinceZero++;}else{timeSinceZero=0;}
@@ -274,14 +240,15 @@ public class QualityTools {
 			out[a+1]=1-key1;
 			if(timeSinceZero<keylen){out[a+1]=1;}
 		}
-		
+
 		if(bases!=null){
 			if(useModulo){//Rare case for large references
+				//TODO: Probable bug outside mapper key sizes - the int mask wraps at keylen>=16.
 				final int shift=2*keylen;
 				final int shift2=shift-2;
 				final int mask=~((-1)<<shift);
 				int kmer=0, rkmer=0;
-				
+
 				int len=0;
 				for(int i=0; i<bases.length; i++){
 					final byte b=bases[i];
@@ -289,33 +256,43 @@ public class QualityTools {
 					final int x2=AminoAcid.baseToComplementNumber[b];
 					kmer=((kmer<<2)|x)&mask;
 					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-					
+
 					if(x<0){len=0; rkmer=0;}else{len++;}
 					if(len>=keylen){
 						if(kmer%IndexMaker4.MODULO!=0 && rkmer%IndexMaker4.MODULO!=0){
 							out[i-keylen+1]=1f;
-//							assert(false) : kmer;
 						}
 					}
 				}
 			}
 		}
-		
+
 		return out;
 	}
-	
-	/** Returns prob of error for each key */
+
+	/**
+	 * Initializes missing-quality errors to zero, then applies optional modulo filtering.
+	 * A supplied output is completely cleared, including spare capacity. When it is
+	 * absent, bases and a valid key length are required to determine allocation size.
+	 * With bases absent and an output supplied, only the zero fill is performed.
+	 */
 	public static float[] makeKeyProbs(byte[] bases, int keylen, float[] out, boolean useModulo){
-		assert(out!=null) : "Must provide array if no quality vector";
+		if(out==null){
+			if(bases==null || keylen<1 || keylen>bases.length){
+				throw new IllegalArgumentException("Allocating key probabilities without qualities requires bases and 1<=keylen<=bases.length; keylen="+keylen);
+			}
+			out=new float[bases.length-keylen+1];
+		}
 		Arrays.fill(out, 0);
-		
+
 		if(bases!=null){
 			if(useModulo){//Rare case for large references
+				//TODO: Probable bug outside mapper key sizes - the int mask wraps at keylen>=16.
 				final int shift=2*keylen;
 				final int shift2=shift-2;
 				final int mask=~((-1)<<shift);
 				int kmer=0, rkmer=0;
-				
+
 				int len=0;
 				for(int i=0; i<bases.length; i++){
 					final byte b=bases[i];
@@ -323,12 +300,11 @@ public class QualityTools {
 					final int x2=AminoAcid.baseToComplementNumber[b];
 					kmer=((kmer<<2)|x)&mask;
 					rkmer=((rkmer>>>2)|(x2<<shift2))&mask;
-					
+
 					if(x<0){len=0; rkmer=0;}else{len++;}
 					if(len>=keylen){
 						if(kmer%IndexMaker4.MODULO!=0 && rkmer%IndexMaker4.MODULO!=0){
 							out[i-keylen+1]=1f;
-//							assert(false) : kmer;
 						}
 					}
 				}
@@ -336,7 +312,7 @@ public class QualityTools {
 		}
 		return out;
 	}
-	
+
 	/**
 	 * Alternative k-mer probability calculation using two-pointer approach.
 	 * Processes from both ends of array simultaneously for benchmarking.
@@ -346,10 +322,11 @@ public class QualityTools {
 	 * @return Error probability for each k-mer position
 	 */
 	public static float[] makeKeyProbs2(byte[] quality, int keylen){
+		// Benchmark-only alternative: unlike makeKeyProbs, this does not force Q0-containing keys to error=1.
 		float[] out=new float[quality.length-keylen+1];
-		
+
 		final int mid=out.length/2;
-		
+
 		float key1=1;
 		float key2=1;
 		for(int i=0, j=mid; i<keylen; i++, j++){
@@ -362,7 +339,7 @@ public class QualityTools {
 		}
 		out[0]=1-key1;
 		out[mid]=1-key2;
-		
+
 		for(int a=0, b=keylen, c=mid, d=mid+keylen; d<quality.length;
 				a++, b++, c++, d++){
 			byte qa=quality[a];
@@ -395,24 +372,14 @@ public class QualityTools {
 	 * @return Synthetic quality array
 	 */
 	public static byte[] makeQualityArray(int length, Random randyQual,
-			int minQual, int maxQual, byte baseQuality, byte slant, int variance) {
+			int minQual, int maxQual, byte baseQuality, byte slant, int variance){
 		byte[] out=new byte[length];
-		
+
 		for(int i=0; i<length; i++){
 			byte q=(byte)(baseQuality-(slant*i)/length);
-			
+
 			int hilo=randyQual.nextInt();
-			
-//			if((hilo&7)>0){
-//				int range=Tools.max(1, maxQual-q+1);
-//				int delta=Tools.min(randyQual.nextInt(range), randyQual.nextInt(range));
-//				q=(byte)(q+delta);
-//			}else{
-//				int range=Tools.max(1, q-minQual+1);
-//				int delta=Tools.min(randyQual.nextInt(range), randyQual.nextInt(range), randyQual.nextInt(range));
-//				q=(byte)(q-delta);
-//			}
-			
+
 			if((hilo&15)>0){
 				int range=Tools.max(1, maxQual-q+1);
 				int delta=(randyQual.nextInt(range)+randyQual.nextInt(range+1))/2;
@@ -425,7 +392,7 @@ public class QualityTools {
 			q=(byte)Tools.min(Tools.max(q, minQual), maxQual);
 			out[i]=q;
 		}
-		
+
 		if(length>50){
 			final int x=length/10;
 			for(int i=0; i<x; i++){
@@ -434,34 +401,40 @@ public class QualityTools {
 				out[length-i-1]=(byte)Tools.max(out[length-i-1]-(y+randyQual.nextInt(y+1))/2, minQual);
 			}
 		}
-		
+
 		int delta=0;
 		if(variance>0){
 			delta=(byte)(randyQual.nextInt(variance+1)+randyQual.nextInt(variance+1)-variance);
 		}
 		for(int i=0; i<out.length; i++){
+			//TODO: Probable bug - the final hard clamp can violate caller minQual/maxQual after variance adjustment.
+			//Changing this changes generated quality distributions; no generator behavior is changed in this review.
 			int x=Tools.mid(2, out[i]+delta, 41);
 			out[i]=(byte)x;
 		}
-		
+
 		return out;
 	}
-	
+
 	/**
 	 * Modifies offset array by removing positions with very high error probability.
 	 * Removes middle elements with probability ≥0.98 and adjusts adjacent positions.
+	 * Removes at most one maximum-error interior element; a maximum at either end
+	 * leaves the array unchanged. After removal, moves an adjacent offset toward
+	 * the removed position along nondecreasing error values. Returns a new array
+	 * only when an element is removed; this is a spacing heuristic, not an optimum.
 	 *
 	 * @param offsets Array of offset positions
 	 * @param keyProbs Error probabilities for each position
 	 * @return Modified offset array with problematic positions removed
 	 */
-	public static int[] modifyOffsets(int[] offsets, float[] keyProbs) {
+	public static int[] modifyOffsets(int[] offsets, float[] keyProbs){
 		if(offsets==null || offsets.length<3){return offsets;}
 
 		int index=0;
 		float max=keyProbs[offsets[0]];
 		final int maxOffset=offsets[offsets.length-1];
-		
+
 		for(int i=1; i<offsets.length; i++){
 			float f=keyProbs[offsets[i]];
 			if(f>max){
@@ -469,10 +442,10 @@ public class QualityTools {
 				index=i;
 			}
 		}
-		
+
 		if(index==0 || index==offsets.length-1){return offsets;}
 		if(max<.98f){return offsets;}
-		
+
 		final int removed=offsets[index];
 		{
 			int[] offsets2=new int[offsets.length-1];
@@ -481,19 +454,11 @@ public class QualityTools {
 			offsets=offsets2;
 			offsets2=null;
 		}
-		
+
 		if(index==0){
 			assert(false);
-//			int i=offsets[0];
-//			assert(i>removed && removed>=0);
-//			while(i>removed && keyProbs[i-1]>=keyProbs[i]){i--;}
-//			offsets[0]=i;
 		}else if(index==offsets.length){
 			assert(false);
-//			int i=offsets[offsets.length-1];
-//			assert(i<removed && removed==maxOffset);
-//			while(i<removed && keyProbs[i+1]>=keyProbs[i]){i++;}
-//			offsets[offsets.length-1]=i;
 		}else if(offsets.length>2){
 			if(index==offsets.length-1){
 				assert(index>1);
@@ -509,22 +474,22 @@ public class QualityTools {
 				offsets[index]=i;
 			}
 		}
-		
+
 		return offsets;
 	}
-	
-	/** Requires qualities under MATRIX_SIZE */
+
+	/** Requires qualities in 0..MATRIX_SIZE inclusive; the matrix has MATRIX_SIZE+1 rows. */
 	public static byte qualsToPhred(byte qa, byte qb){
 		return PHRED_MATRIX[qa][qb];
 	}
-	
-	/** Safe version for qualities >=MATRIX_SIZE */
+
+	/** Clamps signed byte qualities to 0..MATRIX_SIZE before symmetric lookup. */
 	public static byte qualsToPhredSafe(byte qa, byte qb){
 		qa=Tools.max((byte)0, Tools.min(qa, MATRIX_SIZE));
 		qb=Tools.max((byte)0, Tools.min(qb, MATRIX_SIZE));
 		return (qa<=qb) ? PHRED_MATRIX[qa][qb] : PHRED_MATRIX[qb][qa];
 	}
-	
+
 	/**
 	 * Computes combined error probability from two quality scores.
 	 * @param qa First quality score
@@ -534,7 +499,7 @@ public class QualityTools {
 	public static float qualsToProbError(byte qa, byte qb){
 		return ERROR_MATRIX[qa][qb];
 	}
-	
+
 	/**
 	 * Computes combined correct probability from two quality scores.
 	 * @param qa First quality score
@@ -544,7 +509,7 @@ public class QualityTools {
 	public static float qualsToProbCorrect(byte qa, byte qb){
 		return 1-qualsToProbError(qa, qb);
 	}
-	
+
 	/**
 	 * Safe version of qualsToProbError that handles quality values ≥MATRIX_SIZE.
 	 * @param qa First quality score
@@ -556,7 +521,7 @@ public class QualityTools {
 		qb=Tools.max((byte)0, Tools.min(qb, MATRIX_SIZE));
 		return (qa<=qb) ? ERROR_MATRIX[qa][qb] : ERROR_MATRIX[qb][qa];
 	}
-	
+
 	/**
 	 * Safe version of qualsToProbCorrect that handles quality values ≥MATRIX_SIZE.
 	 * @param qa First quality score
@@ -579,32 +544,32 @@ public class QualityTools {
 		Arrays.fill(r, (byte)q);
 		return r;
 	}
-	
+
 	/*-------------------- Fields --------------------*/
 
 	/*-------------------- Final Fields --------------------*/
 
 	/*-------------------- Static Fields --------------------*/
-	
-	/** Maximum quality value for matrix operations */
+
+	/** Inclusive maximum quality for pair-matrix operations, not the allocated dimension. */
 	public static final byte MATRIX_SIZE=50;
-	
+
 	/** Probability that this base is an error */
 	public static final float[] PROB_ERROR=makeQualityToFloat(128);
 	/** 1/PROB */
 	public static final float[] PROB_ERROR_INVERSE=makeInverse(PROB_ERROR);
-	
+
 	/** Lookup array for converting Phred scores to correct probabilities */
 	public static final float[] PROB_CORRECT=oneMinus(PROB_ERROR);
 	/** Inverse of PROB_CORRECT array for efficient calculations */
 	public static final float[] PROB_CORRECT_INVERSE=makeInverse(PROB_CORRECT);
-	
+
 	/** Probability that at least one base will be incorrect, given two quality scores */
 	public static final float[][] ERROR_MATRIX=makeErrorMatrix(PROB_ERROR, MATRIX_SIZE);
-	
+
 	/** Combined phred score given two quality scores */
 	public static final byte[][] PHRED_MATRIX=makePhredMatrix(ERROR_MATRIX);
-	
+
 	/*-------------------- Constants --------------------*/
 
 	/*-------------------- Initializers --------------------*/
@@ -622,7 +587,7 @@ public class QualityTools {
 		}
 		return trimE;
 	}
-	
+
 	/**
 	 * Converts correct probability to Phred score.
 	 * @param prob Correct probability (0.0-1.0)
@@ -631,7 +596,7 @@ public class QualityTools {
 	public static byte probCorrectToPhred(double prob){
 		return probErrorToPhred(1-prob);
 	}
-	
+
 	/**
 	 * Converts error probability to Phred score with rounding.
 	 * @param prob Error probability (0.0-1.0)
@@ -640,7 +605,7 @@ public class QualityTools {
 	public static byte probErrorToPhred(double prob){
 		return probErrorToPhred(prob, true);
 	}
-	
+
 	/**
 	 * Converts Phred score to error probability using standard formula.
 	 * Handles special cases for very low quality scores (≤1).
@@ -652,7 +617,7 @@ public class QualityTools {
 		if(q<=1){return 0.75-q*0.05;}
 		return Tools.min(0.7, Math.pow(10, -0.1*q));
 	}
-	
+
 	/**
 	 * Converts error probability to Phred score with optional rounding.
 	 * @param prob Error probability (0.0-1.0)
@@ -664,21 +629,21 @@ public class QualityTools {
 		final int q=round ? (int)Math.round(phred) : (int)phred;
 		return  (byte)Tools.mid(0, q, Read.MAX_CALLED_QUALITY());
 	}
-	
+
 	/**
 	 * Converts error probability to Phred score as double precision.
 	 * Uses standard formula: -10 * log10(probability).
 	 * @param prob Error probability (0.0-1.0)
-	 * @return Phred score as double
+	 * @return Phred score as double, saturated at 60 below error probability 1e-6
 	 */
 	public static double probErrorToPhredDouble(double prob){
 		if(prob>=1){return 0;}
 		if(prob<=0.000001){return 60;}
-		
+
 		double phred=-10*Math.log10(prob);
 		return phred;
 	}
-	
+
 	/**
 	 * Creates lookup table for converting Phred scores to error probabilities.
 	 * Sets special values for quality scores 0 and 1.
@@ -693,10 +658,9 @@ public class QualityTools {
 		}
 		r[0]=.75f;
 		r[1]=.7f;
-//		assert(false) : Arrays.toString(r);
 		return r;
 	}
-	
+
 	/**
 	 * Creates inverse probability array for efficient calculations.
 	 * @param prob Probability array
@@ -707,7 +671,7 @@ public class QualityTools {
 		for(int i=0; i<r.length; i++){r[i]=1/prob[i];}
 		return r;
 	}
-	
+
 	/**
 	 * Creates complement probability array.
 	 * @param prob Probability array
@@ -718,7 +682,7 @@ public class QualityTools {
 		for(int i=0; i<r.length; i++){r[i]=1-prob[i];}
 		return r;
 	}
-	
+
 	/**
 	 * Creates matrix for combining two quality scores into error probability.
 	 * Uses formula: 1-((1-a)*(1-b)) for independent error events.
@@ -738,7 +702,7 @@ public class QualityTools {
 		}
 		return matrix;
 	}
-	
+
 	/**
 	 * Creates Phred score matrix from error probability matrix.
 	 * Converts error probabilities back to Phred scores.

@@ -16,19 +16,23 @@ import stream.ReadStreamWriter;
 import stream.SamLine;
 
 /**
- * Main BBMap alignment engine for mapping short reads to reference genomes.
- * Provides high-speed k-mer based alignment with configurable sensitivity modes.
- * Supports single and paired-end reads with comprehensive output format options.
+ * Classic short-read mapper entry point and configuration for BBIndex/BBMapThread.
+ * Input/output use AbstractMapper's legacy concurrent streams. BBMapS is the
+ * separate Streamer/Writer entry point; its neural MAPQ and hybrid retry wiring
+ * are not installed by this class. Reference/index data and much configuration
+ * are process-global, so independent concurrent invocations are unsupported.
  *
  * @author Brian Bushnell
  * @date Dec 22, 2012
  */
-public final class BBMap extends AbstractMapper {
-	
+public final class BBMap extends AbstractMapper{
+
 
 	/**
 	 * Program entry point for BBMap alignment.
 	 * Initializes mapper, loads index, processes ambiguous mappings, and executes alignment.
+	 * INDEX_LOADED trusts caller-managed cached index state. Local tables are reset
+	 * after normal completion only; clearStatics does not reset all shared settings.
 	 * @param args Command-line arguments for alignment configuration
 	 */
 	public static void main(String[] args){
@@ -43,20 +47,23 @@ public final class BBMap extends AbstractMapper {
 		outstream.println("\nTotal time:     \t"+t);
 		clearStatics();
 	}
-	
+
 	/**
 	 * Constructs BBMap instance with specified arguments.
 	 * Inherits configuration parsing and validation from AbstractMapper.
+	 * The superclass calls these overrides during construction, including setup's
+	 * optional reference conversion; construction is not a side-effect-free parse.
 	 * @param args Command-line arguments for mapper configuration
 	 */
 	public BBMap(String[] args){
 		super(args);
 	}
-	
+
 	/**
 	 * Sets BBMap-specific default values for alignment parameters.
 	 * Configures compression, key density, alignment scoring, and output settings.
 	 * Called during initialization to establish baseline configuration.
+	 * This is a partial preset, not a reset of every mapper/index/stream static.
 	 */
 	@Override
 	public void setDefaults(){
@@ -66,28 +73,31 @@ public final class BBMap extends AbstractMapper {
 		ReadWrite.ZIPLEVEL=2;
 		MAKE_MATCH_STRING=true;
 		keylen=13;
-		
+
 		MINIMUM_ALIGNMENT_SCORE_RATIO=0.56f;
 
 		keyDensity=1.9f;//2.3f;
 		maxKeyDensity=3f;//4f;
 		minKeyDensity=1.5f;//1.8f;
 		maxDesiredKeys=15;
-		
+
 		SLOW_ALIGN_PADDING=4;
 		SLOW_RESCUE_PADDING=4+SLOW_ALIGN_PADDING;
 		TIP_SEARCH_DIST=100;
-		
+
 		MSA_TYPE="MultiStateAligner11ts";
 		MAX_SITESCORES_TO_PRINT=5;
 		PRINT_SECONDARY_ALIGNMENTS=false;
 		AbstractIndex.MIN_APPROX_HITS_TO_KEEP=1;
 	}
-	
+
 	/**
 	 * Pre-processes arguments to apply speed/accuracy mode presets.
 	 * Modifies key density, alignment strictness, and index parameters based on
 	 * fast, slow, or vslow mode selection before main argument parsing.
+	 * Preset arguments precede explicit arguments, allowing explicit values to
+	 * override them in the parser. Selection order is fast, vslow, then slow.
+	 * Density/index settings are also changed directly, not solely through args.
 	 *
 	 * @param args Original command-line arguments
 	 * @return Modified argument array with mode-specific parameters added
@@ -110,18 +120,18 @@ public final class BBMap extends AbstractMapper {
 			list.add("maxsites=3");
 			list.add("maxsites2=100");
 //			list.add("k=13");
-			
+
 			//TODO:  Make these adjustable.
 //			MIN_TRIM_SITES_TO_RETAIN_SINGLE
 //			MIN_TRIM_SITES_TO_RETAIN_PAIRED
 //			MAX_TRIM_SITES_TO_RETAIN
 			//TODO:  Make trimLists adjustable via an offset or multiplier
-			
+
 			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*1.25f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			keyDensity*=0.9f;
 			maxKeyDensity*=0.9f;
 			minKeyDensity*=0.9f;
@@ -134,12 +144,12 @@ public final class BBMap extends AbstractMapper {
 			list.add("rescuemismatches=50");
 			list.add("rescuedist=2500");
 			list.add("maxindel=100");
-			
+
 			BBIndex.setFractionToExclude(0);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			SLOW_ALIGN_PADDING=SLOW_ALIGN_PADDING*2+8;
 			SLOW_RESCUE_PADDING=SLOW_RESCUE_PADDING*2+2;
 
@@ -159,24 +169,24 @@ public final class BBMap extends AbstractMapper {
 //			list.add("midpad=150");
 //			list.add("minscaf=50");
 //			list.add("k=13");
-			
+
 			BBIndex.setFractionToExclude(BBIndex.FRACTION_GENOME_TO_EXCLUDE*0.4f);
-			
+
 			for(String s : args){if(s!=null){list.add(s);}}
 			args=list.toArray(new String[list.size()]);
-			
+
 			AbstractIndex.SLOW=true;
 			keyDensity*=1.2f;
 			maxKeyDensity*=1.2f;
 			minKeyDensity*=1.2f;
 		}
-		
+
 		if(excludeFraction>=0){
 			BBIndex.setFractionToExclude(excludeFraction);
 		}
 		return args;
 	}
-	
+
 	/**
 	 * Post-processes parsed arguments to finalize configuration.
 	 * Applies bandwidth constraints, handles input file detection,
@@ -185,12 +195,12 @@ public final class BBMap extends AbstractMapper {
 	 */
 	@Override
 	void postparse(String[] args){
-		
+
 		if(MSA.bandwidthRatio>0 && MSA.bandwidthRatio<.2){
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, 3);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, 6);
 		}
-		
+
 		if(maxIndel1>-1){
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, maxIndel1);
 			BBIndex.MAX_INDEL=maxIndel1;
@@ -198,20 +208,22 @@ public final class BBMap extends AbstractMapper {
 		if(maxIndel2>-1){
 			BBIndex.MAX_INDEL2=maxIndel2;
 		}
-		
+
 		if(minApproxHits>-1){
 			BBIndex.MIN_APPROX_HITS_TO_KEEP=minApproxHits;
 		}
-		
+
 		if(expectedSites>-1){
+			//TODO: Probable bug - BBMapThread.setExpectedSites only warns and ignores x;
+			//the success-sounding diagnostic below does not reflect an applied setting.
 			BBMapThread.setExpectedSites(expectedSites);
 			outstream.println("Set EXPECTED_SITES to "+expectedSites);
 		}
-		
+
 		if(fractionGenomeToExclude>=0){
 			BBIndex.setFractionToExclude(fractionGenomeToExclude);
 		}
-		
+
 		{
 			final String a=(args.length>0 ? args[0] : null);
 			final String b=(args.length>1 ? args[1] : null);
@@ -221,7 +233,7 @@ public final class BBMap extends AbstractMapper {
 		}
 
 		assert(synthReadlen<BBMapThread.ALIGN_ROWS);
-		
+
 		if(MSA.bandwidth>0){
 			int halfwidth=MSA.bandwidth/2;
 			TIP_SEARCH_DIST=Tools.min(TIP_SEARCH_DIST, halfwidth/2);
@@ -230,12 +242,12 @@ public final class BBMap extends AbstractMapper {
 			SLOW_ALIGN_PADDING=Tools.min(SLOW_ALIGN_PADDING, halfwidth/4);
 			SLOW_RESCUE_PADDING=Tools.min(SLOW_RESCUE_PADDING, halfwidth/4);
 		}
-		
+
 		if(PRINT_SECONDARY_ALIGNMENTS){
 			REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
 			BBIndex.QUIT_AFTER_TWO_PERFECTS=false;
 		}
-		
+
 		if(in1!=null){
 			if(ambigMode==AMBIG_BEST){
 				REMOVE_DUPLICATE_BEST_ALIGNMENTS=false;
@@ -261,27 +273,29 @@ public final class BBMap extends AbstractMapper {
 				throw new RuntimeException("Unknown ambiguous mapping mode: "+ambigMode);
 			}
 		}
-		
+
 	}
-	
+
 	/**
 	 * Performs pre-alignment setup and validation.
 	 * Configures minimum identity thresholds, output streams, blacklists,
 	 * and validates required parameters like build number and reference.
+	 * Selects output presence and may write a BAM script; actual read/output streams
+	 * are opened later by testSpeed. A supplied reference invokes RefToIndex here.
 	 */
 	@Override
 	public void setup(){
-		
+
 		assert(!useRandomReads || maxReads>0 || (in1!=null && in1.equals("sequential"))) : "Please specify number of reads to use.";
-		
+
 		if(minid!=-1){
 			MINIMUM_ALIGNMENT_SCORE_RATIO=MSA.minIdToMinRatio(minid, MSA_TYPE);
 			outstream.println("Set MINIMUM_ALIGNMENT_SCORE_RATIO to "+Tools.format("%.3f",MINIMUM_ALIGNMENT_SCORE_RATIO));
 		}
-		
+
 		if(!setxs){SamLine.MAKE_XS_TAG=(SamLine.INTRON_LIMIT<1000000000);}
 		if(setxs && !setintron){SamLine.INTRON_LIMIT=10;}
-		
+
 		if(outFile==null && outFile2==null && outFileM==null && outFileM2==null && outFileU==null && outFileU2==null
 				&& outFileB==null && outFileB2==null && splitterOutputs==null && BBSplitter.streamTable==null){
 			outstream.println("No output file.");
@@ -293,15 +307,15 @@ public final class BBMap extends AbstractMapper {
 			}
 		}
 //		assert(false) : bamscript+", "+BBSplitter.streamTable+", "+OUTPUT_READS;
-		
-		
-		
+
+
+
 		FastaReadInputStream.MIN_READ_LEN=Tools.max(keylen+2, FastaReadInputStream.MIN_READ_LEN);
 		assert(FastaReadInputStream.settingsOK());
-		
+
 		if(build<0){throw new RuntimeException("Must specify a build number, e.g. build=1");}
 		else{Data.GENOME_BUILD=build;}
-		
+
 		if(blacklist!=null && blacklist.size()>0){
 			Timer t=new Timer();
 			t.start();
@@ -312,11 +326,11 @@ public final class BBMap extends AbstractMapper {
 			outstream.println("Created blacklist:\t"+t);
 			t.start();
 		}
-		
+
 		if(ziplevel!=-1){ReadWrite.ZIPLEVEL=ziplevel;}
 		if(reference!=null){RefToIndex.makeIndex(reference, build, outstream, keylen);}
 	}
-	
+
 
 	/**
 	 * Configures handling of reads that map to multiple references.
@@ -349,7 +363,7 @@ public final class BBMap extends AbstractMapper {
 			BBSplitter.AMBIGUOUS2_MODE=BBSplitter.AMBIGUOUS2_FIRST;
 		}
 	}
-	
+
 	/**
 	 * Loads reference genome index and prepares for alignment.
 	 * Initializes chromosome data structures, generates k-mer index,
@@ -359,7 +373,7 @@ public final class BBMap extends AbstractMapper {
 	@Override
 	void loadIndex(){
 		Timer t=new Timer(outstream, true);
-		
+
 		if(build>-1){
 			Data.setGenome(build);
 			AbstractIndex.MINCHROM=1;
@@ -367,8 +381,12 @@ public final class BBMap extends AbstractMapper {
 			if(minChrom<0){minChrom=1;}
 			if(maxChrom<0 || maxChrom>Data.numChroms){maxChrom=Data.numChroms;}
 			outstream.println("Set genome to "+Data.GENOME_BUILD);
-			
+
 			if(RefToIndex.AUTO_CHROMBITS){
+				//TODO: Probable bug - the longest-chromosome bound alone does not bound the
+				//sum of sites in a block. BBMapS additionally checks maxBlockBases against
+				//the int[] limit; classic layout selection is retained here, not qualified
+				//for large collections of short scaffolds by this documentation review.
 				int maxLength=Tools.max(Data.chromLengths);
 				RefToIndex.chrombits=Integer.numberOfLeadingZeros(maxLength)-1;
 				RefToIndex.chrombits=Tools.min(RefToIndex.chrombits, 16);
@@ -378,23 +396,24 @@ public final class BBMap extends AbstractMapper {
 				if(verbose_stats>0){outstream.println("Set CHROMBITS to "+RefToIndex.chrombits);}
 			}
 		}
-		
+
 		assert(minChrom>=AbstractIndex.MINCHROM && maxChrom<=AbstractIndex.MAXCHROM) :
 			minChrom+", "+maxChrom+", "+AbstractIndex.MINCHROM+", "+AbstractIndex.MAXCHROM;
 		AbstractIndex.MINCHROM=minChrom;
 		AbstractIndex.MAXCHROM=maxChrom;
-		
+
 		if(targetGenomeSize>0){
+			// The setter currently ignores x (warning only); this does not scale search.
 			long bases=Data.numDefinedBases;
 			long x=Tools.max(1, Math.round(0.25f+bases*1d/targetGenomeSize));
 			BBMapThread.setExpectedSites((int)x);
 			outstream.println("Set EXPECTED_SITES to "+x);
 		}
-		
+
 		assert(!(PERFECTMODE && SEMIPERFECTMODE));
 		if(PERFECTMODE){setPerfectMode();}
 		if(SEMIPERFECTMODE){setSemiperfectMode();}
-		
+
 		//Optional section for discrete timing of chrom array loading
 		if(SLOW_ALIGN || AbstractIndex.USE_EXTENDED_SCORE || useRandomReads || MAKE_MATCH_STRING){
 			outstream.println();
@@ -413,12 +432,14 @@ public final class BBMap extends AbstractMapper {
 			t.start();
 		}
 		RefToIndex.chromlist=null;
-		
+
 		t.start();
 		BBIndex.loadIndex(minChrom, maxChrom, keylen, !RefToIndex.NODISK, RefToIndex.NODISK);
-		
+
 		{
 			long len=Data.numDefinedBases;
+			//TODO: Probable bug - these static increments/multipliers accumulate if
+			//loadIndex is repeated without restoring index defaults in the same JVM.
 			if(len<300000000){
 				BBIndex.MAX_HITS_REDUCTION2+=1;
 				BBIndex.MAXIMUM_MAX_HITS_REDUCTION+=1;
@@ -433,24 +454,24 @@ public final class BBMap extends AbstractMapper {
 				}
 			}
 		}
-		
+
 		t.stop();
 		outstream.println("Generated Index:\t"+t);
 		t.start();
-		
+
 		if(!SLOW_ALIGN && !AbstractIndex.USE_EXTENDED_SCORE && !useRandomReads && !MAKE_MATCH_STRING){
 			for(int chrom=minChrom; chrom<=maxChrom; chrom++){
 				Data.unload(chrom, true);
 			}
 		}
-		
+
 		if(ReadWrite.countActiveThreads()>0){
 			ReadWrite.waitForWritingToFinish();
 			t.stop();
 			outstream.println("Finished Writing:\t"+t);
 			t.start();
 		}
-		
+
 		if(coverageBinned!=null || coverageBase!=null || rangeCov!=null || coverageHist!=null || coverageStats!=null || coverageRPKM!=null || normcov!=null || normcovOverall!=null || calcCov){
 			String[] cvargs=("covhist="+coverageHist+"\tcovstats="+coverageStats+"\tbasecov="+coverageBase+"\trangecov="+rangeCov+"\tbincov="+coverageBinned+"\tphyscov="+coveragePhysical+
 					"\t32bit="+cov32bit+"\tnzo="+covNzo+"\ttwocolumn="+covTwocolumn+"\tsecondary="+PRINT_SECONDARY_ALIGNMENTS+"\tcovminscaf="+coverageMinScaf+
@@ -461,19 +482,21 @@ public final class BBMap extends AbstractMapper {
 			pileup.createDataStructures();
 			pileup.loadScaffoldsFromIndex(minChrom, maxChrom);
 		}
-		
+
 		if(!forceanalyze && (in1==null || maxReads==0)){return;}
-		
+
 		BBIndex.analyzeIndex(minChrom, maxChrom, BBIndex.FRACTION_GENOME_TO_EXCLUDE, keylen);
-		
+
 		t.stop("Analyzed Index:   ");
 		t.start();
-		
+
 		if(makeBloomFilter){
 			String serialPath=RefToIndex.bloomLoc(build);
 			File serialFile=new File(serialPath);
 //			System.err.println(serialPath+", "+serialFile.exists()+", "+bloomSerial+", "+RefToIndex.NODISK);
 			if(bloomSerial && !RefToIndex.NODISK && serialFile.exists()){
+				//TODO: Probable bug - the cached filter's k/hash/hit configuration is not
+				//compared with the currently requested parameters before reuse here.
 				bloomFilter=ReadWrite.read(BloomFilter.class, RefToIndex.bloomLoc(build), true);
 				t.stop("Loaded Bloom Filter: ");
 			}else{
@@ -482,10 +505,10 @@ public final class BBMap extends AbstractMapper {
 				t.stop("Made Bloom Filter: ");
 				if(bloomSerial && !RefToIndex.NODISK && !RefToIndex.FORCE_READ_ONLY){
 //					 && serialFile.canWrite()
-					try {
+					try{
 						ReadWrite.writeObjectInThread(bloomFilter, serialPath, true);
 						outstream.println("Writing Bloom Filter.");
-					} catch (Throwable e) {
+					}catch(Throwable e){
 						e.printStackTrace();
 						outstream.println("Can't Write Bloom Filter.");
 					}
@@ -497,28 +520,34 @@ public final class BBMap extends AbstractMapper {
 //		assert(false) : makeBloomFilter;
 //		assert(false) : RefToIndex.chrombits+", "+AbstractIndex.CHROMS_PER_BLOCK;
 	}
-		
+
 	/**
 	 * Executes the main alignment pipeline.
 	 * Opens input/output streams, creates mapping threads, processes reads,
 	 * and generates alignment statistics and output files.
+	 * Workers are constructed before input/worker startup. Construction failures
+	 * use the inherited process-abort path; normal shutdown joins workers, closes
+	 * streams (including splitter outputs), and folds closure errors into errorState.
 	 * @param args Command-line arguments for stream configuration
 	 */
 	@Override
 	public void testSpeed(String[] args){
-		
+
 		if(in1==null || maxReads==0){
 			outstream.println("No reads to process; quitting.");
 			return;
 		}
-		
+
 		Timer t=new Timer();
-		
+
 		final boolean paired=openStreams(t, args);
+		//TODO: Probable bug - openStreams/reader start/worker start failures can escape
+		//before closeStreams below. There is no invocation-wide failure cleanup scope;
+		//the constructor catch only covers new BBMapThread, not all acquisition/startup.
 		if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
-		
+
 		t.start();
-		
+
 		if(Shared.USE_JNI){
 			final int threads=Shared.threads();
 			adjustThreadsforMemory(105);
@@ -531,11 +560,11 @@ public final class BBMap extends AbstractMapper {
 		if(!Shared.USE_JNI){
 			adjustThreadsforMemory(65);
 		}
-		
+
 		AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
 		AbstractMapThread[] mtts=new AbstractMapThread[Shared.threads()];
 		for(int i=0; i<mtts.length; i++){
-			try {
+			try{
 				mtts[i]=new BBMapThread(cris, keylen,
 						pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
 						maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
@@ -545,7 +574,7 @@ public final class BBMap extends AbstractMapper {
 						PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
 						ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
 						LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter);
-			} catch (Throwable e) {
+			}catch(Throwable e){
 				e.printStackTrace();
 				abort(mtts, "Aborting due to prior error when making thread "+i+".");
 			}
@@ -555,33 +584,34 @@ public final class BBMap extends AbstractMapper {
 				mtts[i].index().verbose=verbose;
 			}
 		}
-		
+
 		cris.start(); //4567
 		outstream.println("Processing reads in "+(paired ? "paired" : "single")+"-ended mode.");
 		outstream.println("Started read stream.");
-		
+
 		/* The threads are started after initialization to prevent resource competition between initialization and mapping */
 		for(int i=0; i<mtts.length; i++){mtts[i].start();}
 		outstream.println("Started "+mtts.length+" mapping thread"+(mtts.length==1 ? "" : "s")+".");
-		
+
 		final int broken=shutDownThreads(mtts, false);
-		
+
 		if(printStats){outstream.println("\n\n   ------------------   Results   ------------------   ");}
 		closeStreams(cris, rosA, rosM, rosU, rosB);
 		outstream.println();
 		if(printSettings){printSettings(keylen);}
-		
+
 		printOutput(mtts, t, keylen, paired, false, pileup, scafNzo, sortStats, statsOutputFile);
 		if(broken>0 || errorState){throw new RuntimeException("BBMap terminated in an error state; the output may be corrupt.");}
 	}
-	
+
 	/**
 	 * Configures parameters for semi-perfect alignment mode.
-	 * Reduces key density requirements and alignment score thresholds
-	 * to allow alignments with small numbers of mismatches.
+	 * Reduces seed density and the candidate score threshold, then asks BBIndex
+	 * for complete matches or partial no-reference matches with both indel bounds
+	 * zero. The lowered threshold does not permit arbitrary substitutions.
 	 */
 	@Override
-	void setSemiperfectMode() {
+	void setSemiperfectMode(){
 		assert(SEMIPERFECTMODE);
 		if(SEMIPERFECTMODE){
 			TRIM_LIST=false;
@@ -600,7 +630,7 @@ public final class BBMap extends AbstractMapper {
 	 * and adjusts key density for perfect-match detection.
 	 */
 	@Override
-	void setPerfectMode() {
+	void setPerfectMode(){
 		assert(PERFECTMODE);
 		if(PERFECTMODE){
 			TRIM_LIST=false;
@@ -612,7 +642,7 @@ public final class BBMap extends AbstractMapper {
 			BBIndex.setPerfectMode();
 		}
 	}
-	
+
 
 	/**
 	 * Prints current alignment configuration settings.
@@ -622,19 +652,19 @@ public final class BBMap extends AbstractMapper {
 	 */
 	@Override
 	void printSettings(int k){
-		
+
 		printSettings0(k, BBIndex.MAX_INDEL, MINIMUM_ALIGNMENT_SCORE_RATIO);
-		
+
 		if(verbose_stats>=2){
 			outstream.println("Key Density:          \t"+keyDensity+" ("+minKeyDensity+" ~ "+maxKeyDensity+")");
 			outstream.println("Max keys:             \t"+maxDesiredKeys);
-			
+
 			outstream.println("Block Subsections:     \t"+BBIndex.CHROMS_PER_BLOCK);
 			outstream.println("Fraction To Remove:    \t"+Tools.format("%.4f", (BBIndex.REMOVE_FREQUENT_GENOME_FRACTION ? BBIndex.FRACTION_GENOME_TO_EXCLUDE : 0)));
 			//		sysout.println("ADD_SCORE_Z:           \t"+Index4.ADD_SCORE_Z);
 			outstream.println("Hits To Keep:          \t"+BBIndex.MIN_APPROX_HITS_TO_KEEP);
 		}
-		
+
 		if(verbose_stats>=3){
 			outstream.println("Remove Clumpy:         \t"+BBIndex.REMOVE_CLUMPY);
 			if(BBIndex.REMOVE_CLUMPY){
@@ -660,7 +690,7 @@ public final class BBMap extends AbstractMapper {
 				outstream.println("DYNAMIC_SCORE_THRESH:  \t"+BBIndex.DYNAMIC_SCORE_THRESH);
 			}
 		}
-		
+
 	}
 
 }

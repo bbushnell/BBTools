@@ -3,6 +3,7 @@ package align2;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -80,22 +81,50 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 * @param args Command-line arguments for alignment configuration
 	 */
 	public static void main(String[] args){
-		Timer t=new Timer();
-		BBMapS mapper=new BBMapS(args);
-		args=Tools.condenseStrict(args);
-		if(!INDEX_LOADED){mapper.loadIndex();}
-		if(Data.scaffoldPrefixes){mapper.processAmbig2();}
-		mapper.testSpeed(args);
-		ReadWrite.waitForWritingToFinish();
-		t.stop();
-		outstream.println("\nTotal time:     \t"+t);
-		clearStatics();
-		BBMapSplitterS.clearStatics();
+		try(AlignmentModeState state=new AlignmentModeState()){
+			Timer t=new Timer();
+			BBMapS mapper=new BBMapS(args);
+			args=Tools.condenseStrict(args);
+			if(!INDEX_LOADED){mapper.loadIndex();}
+			if(Data.scaffoldPrefixes){mapper.processAmbig2();}
+			mapper.testSpeed(args);
+			ReadWrite.waitForWritingToFinish();
+			t.stop();
+			outstream.println("\nTotal time:     \t"+t);
+		}finally{
+			clearStatics();
+			BBMapSplitterS.clearStatics();
+		}
+	}
+
+	/** Scopes public Quantum/pseudo modes and their presets around one main call.
+	 * Existing JVM properties are defaults, restored exactly even if construction
+	 * fails. This does not isolate every mapper global or permit concurrent runs. */
+	private static final class AlignmentModeState implements AutoCloseable{
+		private static final String[] KEYS={"bbmap3.quantumOnly", "bbmap3.pseudoAlign",
+				"bbmap3.quantumHybrid", "bbmap3.quantumTieredMutate"};
+		private final String[] values=new String[KEYS.length];
+		private final boolean rescue=RESCUE, local=LOCAL_ALIGN, match=MAKE_MATCH_STRING;
+		private final boolean samSecondary=ReadStreamWriter.OUTPUT_SAM_SECONDARY_ALIGNMENTS;
+		private final boolean pseudoMatch=BBIndex.EMIT_POLYCRYSTALLINE_MATCH;
+		AlignmentModeState(){for(int i=0; i<KEYS.length; i++){values[i]=System.getProperty(KEYS[i]);}}
+		@Override
+		public void close(){
+			for(int i=0; i<KEYS.length; i++){
+				if(values[i]==null){System.clearProperty(KEYS[i]);}
+				else{System.setProperty(KEYS[i], values[i]);}
+			}
+			RESCUE=rescue; LOCAL_ALIGN=local; MAKE_MATCH_STRING=match;
+			ReadStreamWriter.OUTPUT_SAM_SECONDARY_ALIGNMENTS=samSecondary;
+			BBIndex.EMIT_POLYCRYSTALLINE_MATCH=pseudoMatch;
+		}
 	}
 
 	/**
 	 * Constructs BBMap instance with specified arguments.
 	 * Inherits configuration parsing and validation from AbstractMapper.
+	 * Direct constructor users share mapper globals and own their lifecycle;
+	 * main additionally scopes public Quantum/pseudo properties and presets.
 	 * @param args Command-line arguments for mapper configuration
 	 */
 	public BBMapS(String[] args){
@@ -148,9 +177,11 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	 */
 	@Override
 	public String[] preparse(String[] args){
-		boolean quantumOnlyRequested=false;
-		boolean pseudoAlignRequested=false;
-		boolean quantumHybridRequested=false;
+		// JVM properties and CLI flags must choose the same presets and validation.
+		boolean quantumOnlyRequested=Boolean.getBoolean("bbmap3.quantumOnly");
+		boolean pseudoAlignRequested=Boolean.getBoolean("bbmap3.pseudoAlign");
+		boolean quantumHybridRequested=Boolean.getBoolean("bbmap3.quantumHybrid");
+		boolean quantumOneBaseRequested=Boolean.getBoolean("bbmap3.quantumTieredMutate");
 		for(int i=0; i<args.length; i++){
 			final String s=args[i];
 			if(s==null){continue;}
@@ -245,33 +276,30 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 				args[i]=null;
 			}else if(key.equalsIgnoreCase("quantumonebase")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
-				System.setProperty("bbmap3.quantumTieredMutate",
-						Boolean.toString(Parse.parseBoolean(value)));
+				quantumOneBaseRequested=Parse.parseBoolean(value);
 				args[i]=null;
 			}else if(key.equalsIgnoreCase("quantumonly")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
 				quantumOnlyRequested=Parse.parseBoolean(value);
-				System.setProperty("bbmap3.quantumOnly",
-						Boolean.toString(quantumOnlyRequested));
 				args[i]=null;
 			}else if(key.equalsIgnoreCase("pseudoalign")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
 				pseudoAlignRequested=Parse.parseBoolean(value);
-				System.setProperty("bbmap3.pseudoAlign",
-						Boolean.toString(pseudoAlignRequested));
 				args[i]=null;
 			}else if(key.equalsIgnoreCase("quantumhybrid")){
 				final String value=(equals<0 ? null : s.substring(equals+1));
 				quantumHybridRequested=Parse.parseBoolean(value);
-				System.setProperty("bbmap3.quantumHybrid",
-						Boolean.toString(quantumHybridRequested));
 				args[i]=null;
 			}
 		}
 		if(quantumHybridRequested && (quantumOnlyRequested || pseudoAlignRequested ||
-				Boolean.getBoolean("bbmap3.quantumTieredMutate"))){
+				quantumOneBaseRequested)){
 			throw new IllegalArgumentException("quantumhybrid=t is incompatible with quantumonly, pseudoalign, and quantumonebase");
 		}
+		System.setProperty("bbmap3.quantumOnly", Boolean.toString(quantumOnlyRequested));
+		System.setProperty("bbmap3.pseudoAlign", Boolean.toString(pseudoAlignRequested));
+		System.setProperty("bbmap3.quantumHybrid", Boolean.toString(quantumHybridRequested));
+		System.setProperty("bbmap3.quantumTieredMutate", Boolean.toString(quantumOneBaseRequested));
 		BBIndex.EMIT_POLYCRYSTALLINE_MATCH=pseudoAlignRequested;
 		if(quantumOnlyRequested || pseudoAlignRequested){
 			final ArrayList<String> list=new ArrayList<String>();
@@ -897,142 +925,97 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 
 		final FileFormat ffIn1=FileFormat.testInput(in1, FileFormat.FASTQ, 0, 0, true, true, false);
 		final FileFormat ffIn2=FileFormat.testInput(in2, FileFormat.FASTQ, 0, 0, true, true, false);
-		final Streamer streamer=StreamerFactory.getReadInputStream(maxReads, ffIn1.samOrBam(),
-				ffIn1, ffIn2, qfin1, qfin2, threads);
-		streamer.setSampleRate(samplerate, sampleseed);
-		streamer.start();
-		final boolean paired=streamer.paired();
-		if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
-		if(neuralMapqAutoRequested){
-			neuralMapqRequested=!paired;neuralMapqPairRequested=paired;
-			outstream.println("Automatic neural MAPQ selected "+(paired ? "paired" : "single")+" V2 inference.");
-		}
-		final boolean dualMapq=neuralMapqRequested?hasStrictSingleResources():neuralMapqPairRequested&&hasStrictPairResources();
-		if(SamLine.STRICT_MAPQ&&!dualMapq){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("strictmapq=t requires a complete strict resource set for the detected input mode");
-		}
-		SamLine.MAKE_DUAL_MAPQ_TAGS=dualMapq;
-		if(neuralMapqRequested && paired){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("neuralmapq V2 supports single-end input only");
-		}
-		if(neuralMapqPairRequested && !paired){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("neuralmapqpair V2 requires paired input");
-		}
-		if(mapqFeatureFile!=null && paired){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("mapqfeatures supports single-end input only in V1");
-		}
-		if(mapqFeatureFile!=null && append){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("mapqfeatures does not support append because each file owns one schema header");
-		}
-		if(mapqPairFeatureFile!=null && !paired){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("mapqpairfeatures requires paired input");
-		}
-		if(mapqPairFeatureFile!=null && mapqFeatureFile!=null){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("mapqfeatures and mapqpairfeatures are separate exporters");
-		}
-		if(mapqPairFeatureFile!=null && append){
-			ReadWrite.closeStream(streamer);
-			throw new IllegalArgumentException("mapqpairfeatures does not support append because each file owns one schema header");
-		}
-		if(hybridPair && !paired){
-			// Real pairedness (interleaved=t included) is only known here, not in postparse();
-			// close the just-started Streamer explicitly since the try/finally below that would
-			// otherwise cover it does not begin until after writer/engine construction.
-			ReadWrite.closeStream(streamer);
-			throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
-		}
-		final NeuralMapqInference neuralMapqTemplate,strictMapqTemplate;
-		final NeuralMapqPairedInference neuralMapqPairTemplate,strictMapqPairTemplate;
-		try{
+		final AbstractMapThread[] mtts=new AbstractMapThread[threads];
+		final boolean paired;
+		final boolean success;
+		try(RunResources resources=new RunResources()){
+			final Streamer streamer=resources.streamer=StreamerFactory.getReadInputStream(maxReads, ffIn1.samOrBam(),
+					ffIn1, ffIn2, qfin1, qfin2, threads);
+			streamer.setSampleRate(samplerate, sampleseed);
+			streamer.start();
+			paired=streamer.paired();
+			if(paired){BBIndex.QUIT_AFTER_TWO_PERFECTS=false;}
+			if(neuralMapqAutoRequested){
+				neuralMapqRequested=!paired;neuralMapqPairRequested=paired;
+				outstream.println("Automatic neural MAPQ selected "+(paired ? "paired" : "single")+" V2 inference.");
+			}
+			final boolean dualMapq=neuralMapqRequested?hasStrictSingleResources():neuralMapqPairRequested&&hasStrictPairResources();
+			if(SamLine.STRICT_MAPQ&&!dualMapq){
+				throw new IllegalArgumentException("strictmapq=t requires a complete strict resource set for the detected input mode");
+			}
+			SamLine.MAKE_DUAL_MAPQ_TAGS=dualMapq;
+			if(neuralMapqRequested && paired){
+				throw new IllegalArgumentException("neuralmapq V2 supports single-end input only");
+			}
+			if(neuralMapqPairRequested && !paired){
+				throw new IllegalArgumentException("neuralmapqpair V2 requires paired input");
+			}
+			if(mapqFeatureFile!=null && paired){
+				throw new IllegalArgumentException("mapqfeatures supports single-end input only in V1");
+			}
+			if(mapqFeatureFile!=null && append){
+				throw new IllegalArgumentException("mapqfeatures does not support append because each file owns one schema header");
+			}
+			if(mapqPairFeatureFile!=null && !paired){
+				throw new IllegalArgumentException("mapqpairfeatures requires paired input");
+			}
+			if(mapqPairFeatureFile!=null && mapqFeatureFile!=null){
+				throw new IllegalArgumentException("mapqfeatures and mapqpairfeatures are separate exporters");
+			}
+			if(mapqPairFeatureFile!=null && append){
+				throw new IllegalArgumentException("mapqpairfeatures does not support append because each file owns one schema header");
+			}
+			if(hybridPair && !paired){
+				// Interleaved pairedness is known only after input startup.
+				throw new RuntimeException("hybridpair requires paired input; got single-ended reads.");
+			}
+			final NeuralMapqInference neuralMapqTemplate,strictMapqTemplate;
+			final NeuralMapqPairedInference neuralMapqPairTemplate,strictMapqPairTemplate;
 			neuralMapqTemplate=loadNeuralMapqTemplate();
 			neuralMapqPairTemplate=loadNeuralMapqPairTemplate();
 			strictMapqTemplate=loadStrictMapqTemplate();
 			strictMapqPairTemplate=loadStrictMapqPairTemplate();
-		}catch(RuntimeException e){
-			ReadWrite.closeStream(streamer);
-			throw e;
-		}
-		final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
-		final Writer[] writers=openWriters(args, buff, paired);
-		final ByteStreamWriter mapqFeatureWriter=(mapqFeatureFile==null ? null :
-				new ByteStreamWriter(mapqFeatureFile,overwrite,false,true));
-		final ByteStreamWriter mapqPairFeatureWriter=(mapqPairFeatureFile==null ? null :
-				new ByteStreamWriter(mapqPairFeatureFile,overwrite,false,true));
+			final int buff=(!ORDERED ? 12 : Tools.max(32, 2*threads));
+			final Writer[] writers=resources.writers=openWriters(args, buff, paired);
+			if(Data.scaffoldPrefixes){
+				resources.split=BBMapSplitterS.streamTable;
+				resources.ambiguous=BBMapSplitterS.streamTableAmbiguous;
+			}
+			final ByteStreamWriter mapqFeatureWriter=resources.features=(mapqFeatureFile==null ? null :
+					new ByteStreamWriter(mapqFeatureFile,overwrite,false,true));
+			if(mapqFeatureWriter!=null){mapqFeatureWriter.start();mapqFeatureWriter.addJob(NeuralMapqFeatureRow.header());}
+			final ByteStreamWriter mapqPairFeatureWriter=resources.pairFeatures=(mapqPairFeatureFile==null ? null :
+					new ByteStreamWriter(mapqPairFeatureFile,overwrite,false,true));
+			if(mapqPairFeatureWriter!=null){mapqPairFeatureWriter.start();mapqPairFeatureWriter.addJob(NeuralMapqPairedFeatureRow.header());}
 
-		AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
-		final AbstractMapThread[] mtts=new AbstractMapThread[threads];
-		final ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
-		for(int i=0; i<threads; i++){
-			final BBMapThread engine=new BBMapThread(paired, keylen,
-					pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
-					maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
-					SAVE_AMBIGUOUS_XY, MINIMUM_ALIGNMENT_SCORE_RATIO, TRIM_LIST, MAKE_MATCH_STRING, QUICK_MATCH_STRINGS,
-					null, null, null, null,
-					SLOW_ALIGN_PADDING, SLOW_RESCUE_PADDING, OUTPUT_MAPPED_ONLY, DONT_OUTPUT_BLACKLISTED_READS, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS,
-					REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
-					PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
-					ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
-					LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter, hybridTipSearchCeiling, hybridPair,
-					hybridMaxIndelConfig);
-			engine.idmodulo=idmodulo;
-			if(verbose){
-				engine.verbose=verbose;
-				engine.index().verbose=verbose;
-			}
-			mtts[i]=engine;
-			final NeuralMapqInference neuralMapqInference=(neuralMapqTemplate==null ? null : neuralMapqTemplate.copy());
-			final NeuralMapqPairedInference neuralMapqPairInference=(neuralMapqPairTemplate==null ? null : neuralMapqPairTemplate.copy());
-			final NeuralMapqInference strictMapqInference=(strictMapqTemplate==null ? null : strictMapqTemplate.copy());
-			final NeuralMapqPairedInference strictMapqPairInference=(strictMapqPairTemplate==null ? null : strictMapqPairTemplate.copy());
-			alpt.add(new ProcessThread(streamer,writers,mapqFeatureWriter,mapqPairFeatureWriter,
-					neuralMapqInference,neuralMapqPairInference,strictMapqInference,strictMapqPairInference,engine,i));
-		}
-		if(mapqFeatureWriter!=null){
-			mapqFeatureWriter.start();
-			mapqFeatureWriter.addJob(NeuralMapqFeatureRow.header());
-		}
-		if(mapqPairFeatureWriter!=null){
-			mapqPairFeatureWriter.start();
-			mapqPairFeatureWriter.addJob(NeuralMapqPairedFeatureRow.header());
-		}
-
-		boolean success=false;
-		try{
-			success=ThreadWaiter.startAndWait(alpt, this);
-			if(success){
-				for(Writer writer : writers){
-					// ReadWrite's Writer closure checks both errorState and successful completion.
-					if(writer!=null && (writer.poisonAndWait() || !writer.finishedSuccessfully())){
-						success=false;
-					}
+			AbstractMapThread.CALC_STATISTICS=CALC_STATISTICS;
+			final ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
+			for(int i=0; i<threads; i++){
+				final BBMapThread engine=new BBMapThread(paired, keylen,
+						pileup, SLOW_ALIGN, CORRECT_THRESH, minChrom,
+						maxChrom, keyDensity, maxKeyDensity, minKeyDensity, maxDesiredKeys, REMOVE_DUPLICATE_BEST_ALIGNMENTS,
+						SAVE_AMBIGUOUS_XY, MINIMUM_ALIGNMENT_SCORE_RATIO, TRIM_LIST, MAKE_MATCH_STRING, QUICK_MATCH_STRINGS,
+						null, null, null, null,
+						SLOW_ALIGN_PADDING, SLOW_RESCUE_PADDING, OUTPUT_MAPPED_ONLY, DONT_OUTPUT_BLACKLISTED_READS, MAX_SITESCORES_TO_PRINT, PRINT_SECONDARY_ALIGNMENTS,
+						REQUIRE_CORRECT_STRANDS_PAIRS, SAME_STRAND_PAIRS, KILL_BAD_PAIRS, rcompMate,
+						PERFECTMODE, SEMIPERFECTMODE, FORBID_SELF_MAPPING, TIP_SEARCH_DIST,
+						ambiguousRandom, ambiguousAll, KFILTER, MIN_IDFILTER, qtrimLeft, qtrimRight, untrim, TRIM_QUALITY, minTrimLength,
+						LOCAL_ALIGN, RESCUE, STRICT_MAX_INDEL, MSA_TYPE, bloomFilter, hybridTipSearchCeiling, hybridPair,
+						hybridMaxIndelConfig);
+				engine.idmodulo=idmodulo;
+				if(verbose){
+					engine.verbose=verbose;
+					engine.index().verbose=verbose;
 				}
-			}else{
-				for(Writer writer : writers){
-					if(writer!=null){writer.finishError();}
-				}
+				mtts[i]=engine;
+				final NeuralMapqInference neuralMapqInference=(neuralMapqTemplate==null ? null : neuralMapqTemplate.copy());
+				final NeuralMapqPairedInference neuralMapqPairInference=(neuralMapqPairTemplate==null ? null : neuralMapqPairTemplate.copy());
+				final NeuralMapqInference strictMapqInference=(strictMapqTemplate==null ? null : strictMapqTemplate.copy());
+				final NeuralMapqPairedInference strictMapqPairInference=(strictMapqPairTemplate==null ? null : strictMapqPairTemplate.copy());
+				alpt.add(new ProcessThread(streamer,writers,mapqFeatureWriter,mapqPairFeatureWriter,
+						neuralMapqInference,neuralMapqPairInference,strictMapqInference,strictMapqPairInference,engine,i));
 			}
-		}finally{
-			if(mapqFeatureWriter!=null && mapqFeatureWriter.poisonAndWait()){
-				errorStateS=true;
-				success=false;
-			}
-			if(mapqPairFeatureWriter!=null && mapqPairFeatureWriter.poisonAndWait()){
-				errorStateS=true;
-				success=false;
-			}
-			// Some readers report malformed input through errorState rather than nextList().
-			if(ReadWrite.closeStream(streamer)){
-				errorStateS=true;
-				success=false;
-			}
-			errorStateS|=closeSplitterStreams(!success);
+			resources.success=success=ThreadWaiter.startAndWait(alpt, this);
 		}
 
 		t.stop();
@@ -1077,6 +1060,70 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 
 		printOutput(mtts, t, keylen, paired, false, pileup, scafNzo, sortStats, statsOutputFile);
 		if(!success || errorStateS){throw new RuntimeException("BBMapS terminated in an error state; the output may be corrupt.");}
+	}
+
+	/** Invocation-owned I/O, acquired before startup and closed even during setup failure.
+	 * Try-with-resources preserves a body exception and suppresses cleanup exceptions. */
+	private final class RunResources implements AutoCloseable{
+		Streamer streamer;
+		Writer[] writers;
+		HashMap<String, Writer> split, ambiguous;
+		ByteStreamWriter features, pairFeatures;
+		boolean success;
+		Throwable failure;
+
+		@Override
+		public void close(){
+			if(writers!=null){for(Writer writer : writers){closeWriter(writer);}}
+			closeFeatures(features);
+			closeFeatures(pairFeatures);
+			try{if(ReadWrite.closeStream(streamer)){success=false;}}
+			catch(RuntimeException | Error e){record(e);}
+			if(split!=null){for(Writer writer : split.values()){closeWriter(writer);}}
+			if(ambiguous!=null){for(Writer writer : ambiguous.values()){closeWriter(writer);}}
+			if(!success){errorStateS=true;}
+			if(failure instanceof Error){throw (Error)failure;}
+			if(failure!=null){throw (RuntimeException)failure;}
+		}
+
+		private void closeWriter(Writer writer){
+			if(writer==null){return;}
+			final boolean drain=success;
+			try{
+				if(drain){
+					if(writer.poisonAndWait() || !writer.finishedSuccessfully()){
+						success=false;
+						writer.finishError();
+					}
+				}else{writer.finishError();}
+			}catch(RuntimeException | Error e){
+				record(e);
+				if(drain){
+					try{writer.finishError();}
+					catch(RuntimeException | Error cleanup){record(cleanup);}
+				}
+			}
+		}
+
+		private void closeFeatures(ByteStreamWriter writer){
+			if(writer==null){return;}
+			try{
+				// poison() waits forever for NEW writers. Construction is followed by
+				// immediate start above; a failed thread start must remain a loud failure.
+				//TODO: ByteStreamWriter has no close-before-start API. If native thread
+				//startup fails, its constructor-opened descriptor cannot be released here.
+				if(writer.getState()==Thread.State.NEW){
+					throw new IllegalStateException("Feature writer never started; cannot drain "+writer.fname);
+				}
+				if(writer.poisonAndWait()){success=false;}
+			}catch(RuntimeException | Error e){record(e);}
+		}
+
+		private void record(Throwable e){
+			success=false;
+			if(failure==null){failure=e;}
+			else if(failure!=e){failure.addSuppressed(e);}
+		}
 	}
 
 	/** Loads one immutable template; workers receive private network/input state via copy(). */
@@ -1173,34 +1220,60 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		return resolved;
 	}
 
+	/** Starts all output routes, retaining ownership until the complete set succeeds.
+	 * Failed setup aborts returned writers and restores the previous splitter tables. */
 	private Writer[] openWriters(String[] args, int buff, boolean paired){
 		final Writer[] writers=new Writer[4]; // A, M, U, B
-		if(OUTPUT_READS){
-			ReadStreamWriter.MINCHROM=minChrom;
-			ReadStreamWriter.MAXCHROM=maxChrom;
-			writers[0]=makeWriter(outFile, outFile2, qfout, qfout2, buff);
-			writers[1]=makeWriter(outFileM, outFileM2, qfoutM, qfoutM2, buff);
-			writers[2]=makeWriter(outFileU, outFileU2, qfoutU, qfoutU2, buff);
-			writers[3]=Data.scaffoldPrefixes ? null : makeWriter(outFileB, outFileB2, qfoutB, qfoutB2, buff);
-		}
-		if(Data.scaffoldPrefixes){
-			BBMapSplitterS.streamTable=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
-			if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
-				BBMapSplitterS.streamTableAmbiguous=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
+		final boolean previousSam=AbstractMapThread.OUTPUT_SAM;
+		final HashMap<String, Writer> previousSplit=BBMapSplitterS.streamTable;
+		final HashMap<String, Writer> previousAmbiguous=BBMapSplitterS.streamTableAmbiguous;
+		try{
+			if(OUTPUT_READS){
+				ReadStreamWriter.MINCHROM=minChrom;
+				ReadStreamWriter.MAXCHROM=maxChrom;
+				writers[0]=makeWriter(outFile, outFile2, qfout, qfout2, buff);
+				writers[1]=makeWriter(outFileM, outFileM2, qfoutM, qfoutM2, buff);
+				writers[2]=makeWriter(outFileU, outFileU2, qfoutU, qfoutU2, buff);
+				writers[3]=Data.scaffoldPrefixes ? null : makeWriter(outFileB, outFileB2, qfoutB, qfoutB2, buff);
 			}
-		}else{
-			BBSplitter.TRACK_SET_STATS=false;
+			if(Data.scaffoldPrefixes){
+				BBMapSplitterS.streamTable=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, false);
+				if(BBSplitter.AMBIGUOUS2_MODE==BBSplitter.AMBIGUOUS2_SPLIT){
+					BBMapSplitterS.streamTableAmbiguous=BBMapSplitterS.makeOutputStreams(args, OUTPUT_READS, true, buff, paired, overwrite, append, true);
+				}
+			}else{
+				BBSplitter.TRACK_SET_STATS=false;
+			}
+			if(BBSplitter.TRACK_SET_STATS){
+				outstream.print("Creating ref-set statistics table: ");
+				BBSplitter.makeSetCountTable();
+				outstream.println("done.");
+			}
+			// Scaffold counting requires the shared table consumed by AbstractMapper reporting.
+			if(BBSplitter.TRACK_SCAF_STATS && BBSplitter.scafCountTable==null){
+				BBSplitter.makeScafCountTable();
+			}
+			return writers;
+		}catch(RuntimeException | Error failure){
+			for(Writer writer : writers){abortSetupWriter(writer, failure);}
+			if(BBMapSplitterS.streamTable!=previousSplit){abortSetupTable(BBMapSplitterS.streamTable, failure);}
+			if(BBMapSplitterS.streamTableAmbiguous!=previousAmbiguous){abortSetupTable(BBMapSplitterS.streamTableAmbiguous, failure);}
+			BBMapSplitterS.streamTable=previousSplit;
+			BBMapSplitterS.streamTableAmbiguous=previousAmbiguous;
+			AbstractMapThread.OUTPUT_SAM=previousSam;
+			throw failure;
 		}
-		if(BBSplitter.TRACK_SET_STATS){
-			outstream.print("Creating ref-set statistics table: ");
-			BBSplitter.makeSetCountTable();
-			outstream.println("done.");
-		}
-		// Scaffold counting requires the shared table consumed by AbstractMapper reporting.
-		if(BBSplitter.TRACK_SCAF_STATS && BBSplitter.scafCountTable==null){
-			BBSplitter.makeScafCountTable();
-		}
-		return writers;
+	}
+
+	private static void abortSetupTable(HashMap<String, Writer> table, Throwable failure){
+		if(table!=null){for(Writer writer : table.values()){abortSetupWriter(writer, failure);}}
+	}
+
+	/** Attempts every cleanup without replacing the originating setup failure. */
+	private static void abortSetupWriter(Writer writer, Throwable failure){
+		if(writer==null){return;}
+		try{writer.finishError();}
+		catch(RuntimeException | Error cleanup){if(cleanup!=failure){failure.addSuppressed(cleanup);}}
 	}
 
 	private Writer makeWriter(String file1, String file2, String qf1, String qf2, int buff){
@@ -1226,6 +1299,8 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			}else{
 				final Writer w1=new SamWriter(ff1, Shared.threads(), null, false, true, false,
 						inputCapacity, outputCapacity);
+				//TODO: Probable bug - a failed second constructor leaves w1 unowned before
+				//the PairedWriter exists. SamWriter opens its file in its constructor.
 				final Writer w2=new SamWriter(ff2, Shared.threads(), null, false, false, true,
 						inputCapacity, outputCapacity);
 				writer=new PairedWriter(w1, w2);
@@ -1233,8 +1308,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 		}else{
 			writer=WriterFactory.getStream(ff1, ff2, qf1, qf2, buff, null, false, Shared.threads());
 		}
-		writer.start();
-		return writer;
+		try{
+			writer.start();
+			return writer;
+		}catch(RuntimeException | Error failure){
+			abortSetupWriter(writer, failure);
+			throw failure;
+		}
 	}
 
 	/** @return true on any splitter close error, including an aborted stream. */
@@ -1294,7 +1374,7 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 	private long basesProcessedS=0;
 	private volatile boolean errorStateS=false;
 
-	final class ProcessThread extends Thread {
+	final class ProcessThread extends Thread implements BBMapThread.FinalMapq{
 		ProcessThread(Streamer streamer_, Writer[] writers_, ByteStreamWriter mapqFeatureWriter_,
 				ByteStreamWriter mapqPairFeatureWriter_,
 				NeuralMapqInference neuralMapqInference_,NeuralMapqPairedInference neuralMapqPairInference_,
@@ -1311,12 +1391,57 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 			strictMapqPairInference=strictMapqPairInference_;
 			strictMapqPairValues=(strictMapqPairInference==null ? null : new int[2]);
 			engine=engine_;
+			finalizeMapqInEngine=(MIN_MAPQ>0 || MIN_MAPQ_UNPAIRED>0) &&
+					(neuralMapqInference!=null || neuralMapqPairInference!=null ||
+					strictMapqInference!=null || strictMapqPairInference!=null);
+			if(finalizeMapqInEngine){engine.setFinalMapq(this);}
 			tid=tid_;
 			mapqVector=(mapqFeatureWriter==null ? null : new float[NeuralMapqFeatureSchema.WIDTH]);
 			mapqScratch=(mapqFeatureWriter==null ? null : new NeuralMapqFeatureExtractor.Scratch());
 			mapqPairVector=(mapqPairFeatureWriter==null ? null : new float[NeuralMapqPairedFeatureSchema.WIDTH]);
 			mapqPairScratch=(mapqPairFeatureWriter==null ? null : new NeuralMapqPairedFeatureExtractor.Scratch());
 		}
+
+		/** Score both mates before clearing either, then let the engine count retained mappings. */
+		@Override
+		public void apply(final Read r){
+			assert(finalizeMapqInEngine) : "Final MAPQ hook requires enabled neural filtering";
+			engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+			engine.capSiteList(r.mate, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+			assignNeuralMapq(r);
+			engine.processMapqFilter(r, MIN_MAPQ, MIN_MAPQ_UNPAIRED);
+			if(r.mate!=null){engine.processMapqFilter(r.mate, MIN_MAPQ, MIN_MAPQ_UNPAIRED);}
+		}
+
+		/** Preserves legacy fallback when a network returns -1 for unsupported inputs. */
+		private void assignNeuralMapq(final Read r){
+			final Read r2=r.mate;
+			if(r2==null){
+				if(neuralMapqInference!=null && r.mapped()){
+					final int q=neuralMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setLoose(r,q);}
+				}
+				if(strictMapqInference!=null && r.mapped()){
+					final int q=strictMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setStrict(r,q);}
+				}
+			}else{
+				if(neuralMapqPairInference!=null){
+					neuralMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
+							engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,neuralMapqPairValues,
+							strictMapqPairInference,strictMapqPairValues);
+					if(neuralMapqPairValues[0]>=0){NeuralMapqCache.setLoose(r,neuralMapqPairValues[0]);}
+					if(neuralMapqPairValues[1]>=0){NeuralMapqCache.setLoose(r2,neuralMapqPairValues[1]);}
+				}
+				if(strictMapqPairInference!=null){
+					if(neuralMapqPairInference==null){
+						strictMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
+								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,strictMapqPairValues);
+					}
+					if(strictMapqPairValues[0]>=0){NeuralMapqCache.setStrict(r,strictMapqPairValues[0]);}
+					if(strictMapqPairValues[1]>=0){NeuralMapqCache.setStrict(r2,strictMapqPairValues[1]);}
+				}
+			}
+		}
+		private final boolean finalizeMapqInEngine;
 
 		@Override
 		public void run(){
@@ -1411,14 +1536,9 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					final byte[] basesM=AminoAcid.reverseComplementBases(r.bases);
 					engine.basesUsed1+=(basesM==null ? 0 : basesM.length);
 					engine.processRead(r, basesM);
-					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					if(!finalizeMapqInEngine){engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);}
 					assert(Read.CHECKSITES(r, basesM));
-					if(neuralMapqInference!=null && r.mapped()){
-						final int q=neuralMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setLoose(r,q);}
-					}
-					if(strictMapqInference!=null && r.mapped()){
-						final int q=strictMapqInference.mapq(r);if(q>=0){NeuralMapqCache.setStrict(r,q);}
-					}
+					if(!finalizeMapqInEngine){assignNeuralMapq(r);}
 					if(mapqBlock!=null && r.mapped()){
 						NeuralMapqFeatureRow.append(r,mapqVector,mapqScratch,mapqBlock);
 					}
@@ -1431,22 +1551,13 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					assert(r2.bases==null || r2.length()<=engine.maxReadLength()) :
 						"Read "+r2.numericID+" exceeds the limit of "+engine.maxReadLength();
 					engine.processReadPair(r, basesM1, basesM2);
-					engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
-					engine.capSiteList(r2, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					if(!finalizeMapqInEngine){
+						engine.capSiteList(r, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+						engine.capSiteList(r2, engine.MAX_SITESCORES_TO_PRINT, engine.PRINT_SECONDARY_ALIGNMENTS);
+					}
 					assert(Read.CHECKSITES(r, basesM1));
 					assert(Read.CHECKSITES(r2, basesM2));
-					if(neuralMapqPairInference!=null){
-						neuralMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
-								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,neuralMapqPairValues);
-						if(neuralMapqPairValues[0]>=0){NeuralMapqCache.setLoose(r,neuralMapqPairValues[0]);}
-						if(neuralMapqPairValues[1]>=0){NeuralMapqCache.setLoose(r2,neuralMapqPairValues[1]);}
-					}
-					if(strictMapqPairInference!=null){
-						strictMapqPairInference.mapqs(r,r2,engine.AVERAGE_PAIR_DIST,
-								engine.REQUIRE_CORRECT_STRANDS_PAIRS,engine.SAME_STRAND_PAIRS,strictMapqPairValues);
-						if(strictMapqPairValues[0]>=0){NeuralMapqCache.setStrict(r,strictMapqPairValues[0]);}
-						if(strictMapqPairValues[1]>=0){NeuralMapqCache.setStrict(r2,strictMapqPairValues[1]);}
-					}
+					if(!finalizeMapqInEngine){assignNeuralMapq(r);}
 					if(mapqPairBlock!=null){
 						if(r.mapped()){
 							NeuralMapqPairedFeatureRow.append(r,r2,engine.AVERAGE_PAIR_DIST,
@@ -1461,6 +1572,12 @@ public final class BBMapS extends AbstractMapper implements Accumulator<BBMapS.P
 					}
 				}
 
+				if(finalizeMapqInEngine){
+					// pairedonly can clear the surviving mate during statistics, after
+					// final filtering; unmapped output must not retain its cached NN Q.
+					if(!r.mapped()){NeuralMapqCache.clear(r);}
+					if(r2!=null && !r2.mapped()){NeuralMapqCache.clear(r2);}
+				}
 				if(engine.UNTRIM && (engine.TRIM_LEFT || engine.TRIM_RIGHT)){
 					TrimRead.untrim(r);
 					TrimRead.untrim(r2);

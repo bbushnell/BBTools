@@ -1,6 +1,7 @@
 package align2;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.BitSet;
 
@@ -12,18 +13,25 @@ import parse.PreParser;
 import shared.KillSwitch;
 import shared.Tools;
 import stream.Read;
+import stream.CustomHeader;
 import stream.SamLine;
 import stream.SiteScore;
 
 /**
- * Compares SAM files to identify reads with different mapping results.
- * Generates output containing reads mapped correctly in one file and incorrectly in another, using strict and loose correctness criteria.
+ * Compares strict-error membership for synthetic-read SAM files.
+ * Emits headerless SAM records from either input when an accepted mapping is
+ * not strictly correct there and the same numeric ID has no accepted strict
+ * error in the other input. Absence, low quality or unmapped status in the other
+ * file qualifies; correctness in the other file is not required. With one input,
+ * emits its strict errors. Loose correctness is classified but also counts as a
+ * strict error. Current SYN truth names are decoded through CustomHeader.
+ * Inputs are read twice and must be reopenable; this is not a stdin pipeline.
+ * State/configuration counters are process-global and not reset between calls.
  * @author Brian Bushnell
  * @date 2013
  */
-public class CompareSamFiles {
-	
-	
+public class CompareSamFiles{
+
 	/**
 	 * Program entry point that compares two SAM files and outputs reads with differing mapping status.
 	 * Processes command-line arguments to specify input files, quality thresholds, and comparison parameters, and uses BitSets to track true/false positives.
@@ -40,13 +48,13 @@ public class CompareSamFiles {
 		String in1=null;
 		String in2=null;
 		long reads=-1;
-		
+
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("path") || a.equals("root")){
 				Data.setPath(b);
 			}else if(a.equals("in") || a.equals("in1")){
@@ -59,8 +67,6 @@ public class CompareSamFiles {
 				THRESH2=Integer.parseInt(b);
 			}else if(a.equals("printerr")){
 				printerr=Parse.parseBoolean(b);
-//			}else if(a.equals("ssaha2") || a.equals("subtractleadingclip")){
-//				SamLine.SUBTRACT_LEADING_SOFT_CLIP=Parse.parseBoolean(b);
 			}else if(a.equals("blasr")){
 				BLASR=Parse.parseBoolean(b);
 			}else if(a.equals("q") || a.equals("quality") || a.startsWith("minq")){
@@ -76,33 +82,36 @@ public class CompareSamFiles {
 			}
 		}
 
-		assert(in1!=null) : args[0]+".exists() ? "+new File(args[0]).exists();
-//		assert(in2!=null) : args[1]+".exists() ? "+new File(args[1]).exists();
-		
+		assert(in1!=null) : "CompareSamFiles requires in1=<synthetic-read SAM>";
+
 		if(reads<1){
-//			assert(false) : "Number of expected reads was not specified.  Please add a parameter reads=<number> or disable assertions.";
 			reads=100000;
 			System.err.println("Warning - number of expected reads was not specified.");
 		}
 
+		//TODO: Probable bug - an exception during parsing bypasses close; both input lifetimes need finally cleanup.
 		ByteFile tf1=ByteFile.makeByteFile(in1, false);
+		//TODO: Probable bug - stdin is accepted above but the output pass requires reset()/a second read.
 		ByteFile tf2=null;
 		if(in2!=null){tf2=ByteFile.makeByteFile(in2, false);}
 
+		//TODO: Probable bug - long read counts/IDs are narrowed to int; large IDs can alias or become negative.
+		//Paired ends sharing a numericID are also collapsed, so this is not an end-specific comparison.
 		BitSet truePos1=new BitSet((int)reads);
 		BitSet falsePos1=new BitSet((int)reads);
 		BitSet truePos2=new BitSet((int)reads);
 		BitSet falsePos2=new BitSet((int)reads);
-		
+
 		byte[] s=null;
-		
+
 		ByteFile tf;
 		LineParser1 lp=new LineParser1('\t');
 		{
 			tf=tf1;
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
 				byte c=s[0];
-				if(c!='@'/* && c!=' ' && c!='\t'*/){
+				if(c!='@'){
 					SamLine sl=new SamLine(lp.set(s));
 					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
@@ -124,8 +133,9 @@ public class CompareSamFiles {
 		if(tf2!=null){
 			tf=tf2;
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
 				byte c=s[0];
-				if(c!='@'/* && c!=' ' && c!='\t'*/){
+				if(c!='@'){
 					SamLine sl=new SamLine(lp.set(s));
 					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
@@ -144,32 +154,22 @@ public class CompareSamFiles {
 			}
 			tf.close();
 		}
-		
-		
-		
+
 		BitSet added=new BitSet((int)reads);
 		{
 			tf=tf1;
 			tf.reset();
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
 				byte c=s[0];
-				if(c!='@'/* && c!=' ' && c!='\t'*/){
+				if(c!='@'){
 					SamLine sl=new SamLine(lp.set(s));
-//					assert(false) : s+", "+truePos1.cardinality()+", "+truePos2.cardinality()+", "+falsePos1.cardinality()+", "+falsePos2.cardinality()+", ";
 					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						int id=(int)r.numericID;
 						if(!added.get(id)){
-//							if(truePos1.get(id)!=truePos2.get(id) || falsePos1.get(id)!=falsePos2.get(id)){
-//								System.out.println(s);
-//								added.set(id);
-//							}
-//							if(falsePos1.get(id) && truePos2.get(id)){
-//								System.out.println(s);
-//								added.set(id);
-//							}
 							if(falsePos1.get(id) && !falsePos2.get(id)){
-								System.out.println(s);
+								System.out.write(s, 0, s.length); System.out.println();
 								added.set(id);
 							}
 						}
@@ -182,23 +182,16 @@ public class CompareSamFiles {
 			tf=tf2;
 			tf.reset();
 			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
 				byte c=s[0];
-				if(c!='@'/* && c!=' ' && c!='\t'*/){
+				if(c!='@'){
 					SamLine sl=new SamLine(lp.set(s));
 					if(sl.nonSecondary()){
 						Read r=sl.toRead(parsecustom);
 						int id=(int)r.numericID;
 						if(!added.get(id)){
-//							if(truePos1.get(id)!=truePos2.get(id) || falsePos1.get(id)!=falsePos2.get(id)){
-//								System.out.println(s);
-//								added.set(id);
-//							}
-//							if(falsePos2.get(id) && truePos1.get(id)){
-//								System.out.println(s);
-//								added.set(id);
-//							}
 							if(falsePos2.get(id) && !falsePos1.get(id)){
-								System.out.println(s);
+								System.out.write(s, 0, s.length); System.out.println();
 								added.set(id);
 							}
 						}
@@ -208,18 +201,17 @@ public class CompareSamFiles {
 			tf.close();
 		}
 	}
-	
 
+	/** Adds one read to legacy diagnostic counters; main uses type() instead. */
 	public static void calcStatistics1(final Read r, SamLine sl){
-		
+
 		int THRESH=0;
 		primary++;
-		
+
 		if(r.discarded()/* || r.mapScore==0*/){
 			discarded++;
 			unmapped++;
 		}else if(r.ambiguous()){
-//			assert(r.mapped()) : "\n"+r+"\n"+sl+"\n";
 			if(r.mapped()){mapped++;}
 			ambiguous++;
 		}else if(r.mapScore<1){
@@ -233,7 +225,7 @@ public class CompareSamFiles {
 			}else{
 				mapped++;
 				mappedRetained++;
-				
+
 				if(parsecustom){
 					SiteScore os=r.originalSite;
 					assert(os!=null);
@@ -243,38 +235,27 @@ public class CompareSamFiles {
 						int trueStart=os.start;
 						int trueStop=os.stop;
 						SiteScore ss=new SiteScore(r.chrom, r.strand(), r.start, r.stop, 0, 0);
-						byte[] originalContig=sl.originalContig();
+						CustomHeader truth=new CustomHeader(sl.qname, sl.pairnum());
+						if(truth.rname==null){throw new IllegalArgumentException("Missing synthetic reference name: "+sl.qname);}
+						byte[] originalContig=truth.rname.getBytes(StandardCharsets.UTF_8);
 						if(BLASR){
 							originalContig=(originalContig==null || Tools.indexOf(originalContig, (byte)'/')<0 ? originalContig :
 								KillSwitch.copyOfRange(originalContig, 0, Tools.lastIndexOf(originalContig, (byte)'/')));
 						}
-						int cstart=sl.originalContigStart();
+						int cstart=truth.start;
 
 						boolean strict=isCorrectHit(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH, originalContig, sl.rname(), cstart);
 						boolean loose=isCorrectHitLoose(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH+THRESH2, originalContig, sl.rname(), cstart);
 
-						//				if(!strict){
-						//					System.out.println(ss+", "+new String(originalContig)+", "+new String(sl.rname()));
-						//					assert(false);
-						//				}
-
-						//				System.out.println("loose = "+loose+" for "+r.toText());
-
 						if(loose){
-							//					System.err.println("TPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-							//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 							truePositiveLoose++;
 						}else{
-							//					System.err.println("FPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-							//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 							falsePositiveLoose++;
 						}
 
 						if(strict){
-							//					System.err.println("TPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 							truePositiveStrict++;
 						}else{
-							//					System.err.println("FPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 							falsePositiveStrict++;
 						}
 					}
@@ -282,14 +263,13 @@ public class CompareSamFiles {
 			}
 		}
 	}
-	
-	
 
+	/** Returns 0=rejected/unmapped/ungraded, 1=ambiguous, 2=strict, 3=loose-only, 4=incorrect; increments primary. */
 	public static int type(final Read r, SamLine sl){
-		
+
 		int THRESH=0;
 		primary++;
-		
+
 		if(r.discarded()/* || r.mapScore==0*/){
 			return 0;
 		}else if(r.ambiguous()){
@@ -302,7 +282,7 @@ public class CompareSamFiles {
 			if(!r.mapped()){
 				return 0;
 			}else{
-				
+
 				if(parsecustom){
 					SiteScore os=r.originalSite;
 					assert(os!=null);
@@ -312,12 +292,14 @@ public class CompareSamFiles {
 						int trueStart=os.start;
 						int trueStop=os.stop;
 						SiteScore ss=new SiteScore(r.chrom, r.strand(), r.start, r.stop, 0, 0);
-						byte[] originalContig=sl.originalContig();
+						CustomHeader truth=new CustomHeader(sl.qname, sl.pairnum());
+						if(truth.rname==null){throw new IllegalArgumentException("Missing synthetic reference name: "+sl.qname);}
+						byte[] originalContig=truth.rname.getBytes(StandardCharsets.UTF_8);
 						if(BLASR){
 							originalContig=(originalContig==null || Tools.indexOf(originalContig, (byte)'/')<0 ? originalContig :
 								KillSwitch.copyOfRange(originalContig, 0, Tools.lastIndexOf(originalContig, (byte)'/')));
 						}
-						int cstart=sl.originalContigStart();
+						int cstart=truth.start;
 
 						boolean strict=isCorrectHit(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH, originalContig, sl.rname(), cstart);
 						boolean loose=isCorrectHitLoose(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH+THRESH2, originalContig, sl.rname(), cstart);
@@ -331,9 +313,7 @@ public class CompareSamFiles {
 		}
 		return 0;
 	}
-	
-	
-	
+
 	/**
 	 * Evaluates whether an alignment represents a correct hit using strict criteria.
 	 * Compares strand, contig/chromosome, and position coordinates within a threshold on contig-relative start and stop positions.
@@ -357,14 +337,12 @@ public class CompareSamFiles {
 			if(ss.chrom!=trueChrom){return false;}
 		}
 
-		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-		int cstop=cstart+trueStop-trueStart;
-//		return (absdif(ss.start, trueStart)<=thresh && absdif(ss.stop, trueStop)<=thresh);
+		assert(ss.stop>=ss.start) : "Inclusive mapped endpoints must be ordered: "+ss.toText();
+		assert(trueStop>=trueStart) : "Inclusive truth endpoints must be ordered: "+trueStart+", "+trueStop;
+		long cstop=(long)cstart+trueStop-trueStart;
 		return (absdif(ss.start, cstart)<=thresh && absdif(ss.stop, cstop)<=thresh);
 	}
-	
-	
+
 	/**
 	 * Evaluates whether an alignment represents a correct hit using loose criteria.
 	 * Similar to isCorrectHit but uses OR logic for contig-relative start/stop positions instead of AND.
@@ -388,34 +366,33 @@ public class CompareSamFiles {
 			if(ss.chrom!=trueChrom){return false;}
 		}
 
-		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-		int cstop=cstart+trueStop-trueStart;
-//		return (absdif(ss.start, trueStart)<=thresh || absdif(ss.stop, trueStop)<=thresh);
+		assert(ss.stop>=ss.start) : "Inclusive mapped endpoints must be ordered: "+ss.toText();
+		assert(trueStop>=trueStart) : "Inclusive truth endpoints must be ordered: "+trueStart+", "+trueStop;
+		long cstop=(long)cstart+trueStop-trueStart;
 		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
 	}
-	
-	private static final int absdif(int a, int b){
+
+	private static final long absdif(long a, long b){
 		return a>b ? a-b : b-a;
 	}
 
 	public static int truePositiveStrict=0;
 	public static int falsePositiveStrict=0;
-	
+
 	public static int truePositiveLoose=0;
 	public static int falsePositiveLoose=0;
 
 	public static int mapped=0;
 	public static int mappedRetained=0;
 	public static int unmapped=0;
-	
+
 	public static int discarded=0;
 	public static int ambiguous=0;
 
 	public static long lines=0;
 	public static long primary=0;
 	public static long secondary=0;
-	
+
 	public static int minQuality=3;
 
 	public static boolean parsecustom=true;
@@ -423,5 +400,5 @@ public class CompareSamFiles {
 
 	public static int THRESH2=20;
 	public static boolean BLASR=false;
-	
+
 }

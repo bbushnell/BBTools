@@ -7,27 +7,44 @@ import dna.AminoAcid;
 import stream.Read;
 import stream.SiteScore;
 
-/** Fills the ordered single-end neural-MAPQ pilot vector. */
-public final class NeuralMapqFeatureExtractor {
+/**
+ * Extracts the 42 raw neural-MAPQ fields shared by training and inference.
+ * The caller supplies a mapped primary read, its existing traceback, and retained
+ * sites with the selected primary first and competitors in descending score order.
+ * This class neither aligns the read nor sorts or modifies its candidate sites.
+ * Network input scaling and field selection belong to NeuralMapqFeatureTransform.
+ *
+ * @author Collei
+ */
+public final class NeuralMapqFeatureExtractor{
 
 	private NeuralMapqFeatureExtractor(){}
 
 	/**
-	 * Fills {@code vector} without allocating.  The caller owns one reusable
-	 * Scratch and vector per mapping thread.
+	 * Fills all 42 fields for an unpaired read, including composition statistics.
+	 * The caller owns one reusable Scratch and vector per mapping thread; successful
+	 * extraction uses primitive counters without allocating a feature object.
+	 * No truth/oracle labels are read. Every vector position is overwritten.
 	 */
 	public static void fill(final Read read, final float[] vector, final Scratch scratch){
-		fill(read,vector,scratch,true,true);
+		fill(read, vector, scratch, true, true);
 	}
 
-	/** Fills only the accepted 37-input runtime boundary; dropped composition fields become zero. */
+	/** Fills a 42-field raw vector for an unpaired read. Fields 37..41 become zero;
+	 * the separate transform produces the accepted 37 network inputs. */
 	public static void fillRuntime(final Read read, final float[] vector, final Scratch scratch){
-		fill(read,vector,scratch,false,true);
+		fill(read, vector, scratch, false, true);
 	}
 
-	/** Raw single-end feature block for one end of a paired example. */
+	/** Fills all 42 fields for one mapped primary end, allowing a mate pointer.
+	 * Reciprocal-pair validation is the paired extractor's responsibility. */
 	static void fillPairedEnd(final Read read, final float[] vector, final Scratch scratch){
-		fill(read,vector,scratch,true,false);
+		fill(read, vector, scratch, true, false);
+	}
+
+	/** Paired inference omits composition fields 37..41, which V1 does not consume. */
+	static void fillPairedEndRuntime(final Read read, final float[] vector, final Scratch scratch){
+		fill(read, vector, scratch, false, false);
 	}
 
 	private static void fill(final Read read, final float[] vector, final Scratch scratch,
@@ -60,6 +77,7 @@ public final class NeuralMapqFeatureExtractor {
 		final float inverseLength=1f/length;
 		final int topScore=top.score;
 		int equalTopCount=1;
+		// The retained list defines the competitor population, not every discovered site.
 		while(equalTopCount<sites.size() && sites.get(equalTopCount).score==topScore){equalTopCount++;}
 
 		scratch.clear();
@@ -84,11 +102,12 @@ public final class NeuralMapqFeatureExtractor {
 		vector[i++]=third==null ? 1 : 0;
 		vector[i++]=second==null ? 0 : second.score;
 		vector[i++]=third==null ? 0 : third.score;
-		vector[i++]=second==null ? 0 : topScore-second.score;
-		vector[i++]=third==null ? 0 : topScore-third.score;
-		vector[i++]=second==null ? 0 : ratio(second.score,topScore);
-		vector[i++]=third==null ? 0 : ratio(third.score,topScore);
+		vector[i++]=second==null ? 0 : (long)topScore-second.score;
+		vector[i++]=third==null ? 0 : (long)topScore-third.score;
+		vector[i++]=second==null ? 0 : ratio(second.score, topScore);
+		vector[i++]=third==null ? 0 : ratio(third.score, topScore);
 		vector[i++]=top.hits;
+		// Preserve Read's configured flat/skewed identity definition for training parity.
 		vector[i++]=Read.identity(read.match);
 		vector[i++]=scratch.substitutionEvents;
 		vector[i++]=scratch.substitutedBases;
@@ -101,16 +120,17 @@ public final class NeuralMapqFeatureExtractor {
 		vector[i++]=scratch.insertionEvents+scratch.deletionEvents;
 		vector[i++]=scratch.clippedBases;
 		vector[i++]=scratch.alignmentNBases;
+		// Read's missing-quality defaults are mean=40, minimum=41, expected errors=0.
 		vector[i++]=(float)read.avgQualityByScoreDouble(length);
 		vector[i++]=read.minQuality();
-		vector[i++]=read.expectedErrors(true,length);
+		vector[i++]=read.expectedErrors(true, length);
 		if(includeDroppedComposition){
 			vector[i++]=scratch.readNBases*inverseLength;
 			vector[i++]=scratch.definedBases<1 ? 0 :
 					(scratch.monomers[1]+scratch.monomers[2])/(float)scratch.definedBases;
 			vector[i++]=read.longestHomopolymer()*inverseLength;
-			vector[i++]=entropy(scratch.monomers,scratch.definedBases,2.0);
-			vector[i++]=entropy(scratch.dimers,scratch.definedDimers,4.0);
+			vector[i++]=entropy(scratch.monomers, scratch.definedBases, 2.0);
+			vector[i++]=entropy(scratch.dimers, scratch.definedDimers, 4.0);
 		}else{
 			while(i<NeuralMapqFeatureSchema.WIDTH){vector[i++]=0;}
 		}
@@ -119,10 +139,12 @@ public final class NeuralMapqFeatureExtractor {
 		NeuralMapqFeatureSchema.validateVector(vector);
 	}
 
+	/** Missing zero-score denominator yields zero; signed competitor scores are retained. */
 	private static float ratio(final int numerator, final int denominator){
 		return denominator==0 ? 0 : numerator/(float)denominator;
 	}
 
+	/** Shannon entropy normalized by the alphabet's maximum bits (2 for bases, 4 for dimers). */
 	private static float entropy(final int[] counts, final int total, final double maximumBits){
 		if(total<2){return 0;}
 		double entropy=0;
@@ -135,6 +157,7 @@ public final class NeuralMapqFeatureExtractor {
 		return (float)(entropy/maximumBits);
 	}
 
+	/** Counts defined bases and adjacent defined dimers; ambiguous bases break dimer runs. */
 	private static void parseRead(final byte[] bases, final Scratch scratch){
 		int previous=-1;
 		for(final byte base : bases){
@@ -154,55 +177,79 @@ public final class NeuralMapqFeatureExtractor {
 		}
 	}
 
+	/** Reads BBMap long matches or symbol-then-count RLE (m4S2), never SAM CIGAR.
+	 * Adjacent tokens of the same event class are merged by Scratch.accept.
+	 * Runs must be positive and expanded length must fit the int counters used
+	 * here and by Read.identity. Read.toShortMatchString emits this format. */
 	private static void parseMatch(final byte[] match, final Scratch scratch){
+		if(match.length==0){throw new IllegalArgumentException("Neural MAPQ requires a nonempty match string");}
 		byte mode=0;
 		int count=0;
+		boolean haveMode=false, haveCount=false;
 		for(final byte symbol : match){
 			if(symbol>='0' && symbol<='9'){
-				count=count*10+symbol-'0';
+				if(!haveMode){throw new IllegalArgumentException("MAPQ match run length precedes its symbol");}
+				final int digit=symbol-'0';
+				if(count>(Integer.MAX_VALUE-digit)/10){
+					throw new IllegalArgumentException("MAPQ match run exceeds int range for symbol "+(char)mode);
+				}
+				count=count*10+digit;
+				haveCount=true;
 			}else{
-				if(mode!=0){scratch.accept(mode,Math.max(1,count));}
+				if(haveMode){scratch.accept(mode, haveCount ? count : 1);}
 				mode=symbol;
 				count=0;
+				haveMode=true;
+				haveCount=false;
 			}
 		}
-		if(mode!=0){scratch.accept(mode,Math.max(1,count));}
+		if(haveMode){scratch.accept(mode, haveCount ? count : 1);}
 	}
 
 	/** Reusable primitive counters; one instance belongs to each mapper thread. */
-	public static final class Scratch {
+	public static final class Scratch{
+		/** Resets all counts and run continuity before extracting another read. */
 		public void clear(){
-			Arrays.fill(monomers,0);
-			Arrays.fill(dimers,0);
+			Arrays.fill(monomers, 0);
+			Arrays.fill(dimers, 0);
 			substitutionEvents=substitutedBases=insertionEvents=insertedBases=0;
 			deletionEvents=deletedBases=longestIndel=clippedBases=alignmentNBases=0;
 			readNBases=definedBases=definedDimers=0;
 			previousClass=0;
 			currentIndelLength=0;
+			expandedLength=0;
 		}
 
+		/** Adds a run, counting contiguous event classes rather than encoded tokens. */
 		private void accept(final byte symbol, final int length){
 			if(length<1){throw new IllegalArgumentException("Nonpositive match run: "+length);}
 			final byte eventClass=eventClass(symbol);
+			//All event totals and Read.identity's counts are bounded by expanded length.
+			if(length>Integer.MAX_VALUE-expandedLength){
+				throw new IllegalArgumentException("Expanded MAPQ match exceeds int counter range: prior="+
+						expandedLength+", next run="+length);
+			}
+			expandedLength+=length;
 			if(eventClass==SUBSTITUTION){
 				substitutedBases+=length;
 				if(previousClass!=eventClass){substitutionEvents++;}
 			}else if(eventClass==INSERTION){
 				insertedBases+=length;
-				if(previousClass!=eventClass){insertionEvents++;currentIndelLength=0;}
+				if(previousClass!=eventClass){insertionEvents++; currentIndelLength=0;}
 				currentIndelLength+=length;
-				longestIndel=Math.max(longestIndel,currentIndelLength);
+				longestIndel=Math.max(longestIndel, currentIndelLength);
 			}else if(eventClass==DELETION){
 				deletedBases+=length;
-				if(previousClass!=eventClass){deletionEvents++;currentIndelLength=0;}
+				if(previousClass!=eventClass){deletionEvents++; currentIndelLength=0;}
 				currentIndelLength+=length;
-				longestIndel=Math.max(longestIndel,currentIndelLength);
-			}else if(eventClass==CLIP){clippedBases+=length;currentIndelLength=0;}
-			else if(eventClass==NOCALL){alignmentNBases+=length;currentIndelLength=0;}
+				longestIndel=Math.max(longestIndel, currentIndelLength);
+			}else if(eventClass==CLIP){clippedBases+=length; currentIndelLength=0;}
+			else if(eventClass==NOCALL){alignmentNBases+=length; currentIndelLength=0;}
 			else{currentIndelLength=0;}
 			previousClass=eventClass;
 		}
 
+		/** Collapses BBMap traceback symbols into the pilot's six event classes. */
 		private static byte eventClass(final byte symbol){
 			switch(symbol){
 				case 'm': case 'M': return MATCH;
@@ -217,12 +264,13 @@ public final class NeuralMapqFeatureExtractor {
 
 		final int[] monomers=new int[4];
 		final int[] dimers=new int[16];
-		int substitutionEvents,substitutedBases,insertionEvents,insertedBases;
-		int deletionEvents,deletedBases,longestIndel,clippedBases,alignmentNBases;
-		int readNBases,definedBases,definedDimers;
+		int substitutionEvents, substitutedBases, insertionEvents, insertedBases;
+		int deletionEvents, deletedBases, longestIndel, clippedBases, alignmentNBases;
+		int readNBases, definedBases, definedDimers;
 		private byte previousClass;
 		private int currentIndelLength;
+		private int expandedLength;
 	}
 
-	private static final byte MATCH=1,SUBSTITUTION=2,INSERTION=3,DELETION=4,CLIP=5,NOCALL=6;
+	private static final byte MATCH=1, SUBSTITUTION=2, INSERTION=3, DELETION=4, CLIP=5, NOCALL=6;
 }

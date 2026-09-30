@@ -9,12 +9,15 @@ import shared.Tools;
  * Abstract base class for banded sequence alignment algorithms.
  * Provides constrained alignment within a diagonal band to optimize speed and memory usage.
  * Supports both forward and reverse complement alignments with configurable width limits.
+ * Instances and last-result fields belong to one caller thread. Composite
+ * helpers return an aggregate distance but leave last-result fields describing
+ * the last directional call, which need not be the selected orientation.
  *
  * @author Brian Bushnell
  * @date Aug 5, 2013
  */
-public abstract class BandedAligner {
-	
+public abstract class BandedAligner{
+
 	/**
 	 * Constructs a banded aligner with specified maximum band width.
 	 * Ensures width is odd and at least 3 for proper diagonal band calculation.
@@ -25,7 +28,8 @@ public abstract class BandedAligner {
 		assert(maxWidth>=3) : "width<3 : "+width_+" -> "+maxWidth;
 		assert(big>maxWidth/2);
 	}
-	
+
+	/** Creates the scalar implementation; the JNI alternative remains disabled. */
 	public static final BandedAligner makeBandedAligner(int width_){
 		//TODO: Remove the false condition when BandedAlignerJNI yields identical results to BandedAlignerConcrete.
 		//`&& false` force-disables the JNI path: makeBandedAligner ALWAYS returns BandedAlignerConcrete,
@@ -33,18 +37,20 @@ public abstract class BandedAligner {
 		BandedAligner ba=((Shared.USE_JNI && false) ? new BandedAlignerJNI(width_) : new BandedAlignerConcrete(width_));
 		return ba;
 	}
-	
+
 	/**
 	 * Performs progressive quadruple alignment with increasing edit distance thresholds.
 	 * Starts with minEdits limit and progressively increases by factor of 4 until maxEdits.
-	 * Tests all four orientations (forward, reverse, forward RC, reverse RC) at each threshold.
+	 * Uses the quadruple helper at each threshold, including its zero-distance shortcut.
+	 * Returns a distance below the current threshold when found; otherwise returns
+	 * the capped maximum, which is not proof of a full alignment at that distance.
 	 *
 	 * @param query Query sequence to align
 	 * @param ref Reference sequence to align against
-	 * @param minEdits Minimum edit distance to start testing
-	 * @param maxEdits Maximum edit distance allowed
-	 * @param exact Whether to require exact alignment within edit limit
-	 * @return Best edit distance found across all orientations
+	 * @param minEdits Nonnegative initial threshold, capped to maxEdits
+	 * @param maxEdits Nonnegative maximum threshold, capped to the longer input length
+	 * @param exact Whether matching requires literal byte equality; false permits undefined bases as wildcards
+	 * @return Progressive threshold-capped quadruple result
 	 */
 	public final int alignQuadrupleProgressive(final byte[] query, final byte[] ref, int minEdits, int maxEdits, final boolean exact){
 		maxEdits=Tools.min(maxEdits, Tools.max(query.length, ref.length));
@@ -53,7 +59,7 @@ public abstract class BandedAligner {
 		//align2/BandedAligner#001 FIXED: was i=i*4, which CANNOT escape 0 — minEdits==0 (with maxEdits>0)
 		//would spin forever (me=min(0,maxEdits)=0, and the only early-out is edits<0, impossible).
 		//max(i*4, i+1) keeps the geometric growth for i>=1 (4i>=i+1) but guarantees progress from 0
-		//(0->1->4...). No reachable change: the sole caller (jgi/IdentityMatrix) passes minEdits=10.
+		//(0->1->4...). The inspected jgi/IdentityMatrix caller passes minEdits=10.
 		for(long i=minEdits, me=-1; me<maxEdits; i=Tools.max(i*4, i+1)){
 			me=Tools.min(i, maxEdits);
 			if(me*2>maxEdits){me=maxEdits;}
@@ -63,7 +69,10 @@ public abstract class BandedAligner {
 		}
 		return maxEdits;
 	}
-	
+
+	/** Takes the worse of forward/reverse distances in each strand orientation,
+	 * then the better orientation: min(max(F,R), max(FRC,RRC)). RC trials may use
+	 * a tighter cutoff. A zero first-orientation result skips both RC calls. */
 	public final int alignQuadruple(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		final int b=alignReverse(query, ref, query.length-1, ref.length-1, maxEdits, exact);
@@ -74,22 +83,30 @@ public abstract class BandedAligner {
 //		System.err.println("a="+a+", b="+b+", c="+c+", d="+d);
 		return Tools.min(Tools.max(a, b), Tools.max(c, d));
 	}
-	
+
+	/** Returns the better of forward and forward-RC, skipping RC when forward is zero.
+	 * Unlike quadruple, this does not require agreement from the other end. */
 	public final int alignDouble(final byte[] query, final byte[] ref, final int maxEdits, final boolean exact){
 		final int a=alignForward(query, ref, 0, 0, maxEdits, exact);
 		if(a==0){return 0;}
 		final int c=alignForwardRC(query, ref, query.length-1, 0, a, exact);
 		return Tools.min(a, c);
 	}
-	
+
+	/** Traverses query/reference toward higher coordinates from valid starting bases.
+	 * The concrete implementation requires nonempty overlap and 0<=maxEdits<big;
+	 * exact controls undefined-base matching, not exhaustive/global optimality. */
 	public abstract int alignForward(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
-	
+
+	/** Traverses complemented query toward lower coordinates and reference toward higher coordinates. */
 	public abstract int alignForwardRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
-	
+
+	/** Traverses both inputs toward lower coordinates. */
 	public abstract int alignReverse(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
-	
+
+	/** Traverses complemented query toward higher coordinates and reference toward lower coordinates. */
 	public abstract int alignReverseRC(final byte[] query, final byte[] ref, final int qstart, final int rstart, final int maxEdits, final boolean exact);
-	
+
 	/**
 	 * Fills array interior elements with large sentinel values.
 	 * Preserves first and last elements while setting middle values to 'big'.
@@ -100,7 +117,7 @@ public abstract class BandedAligner {
 		final int lim=array.length-1;
 		for(int i=1; i<lim; i++){array[i]=big;}
 	}
-	
+
 	/**
 	 * Calculates alignment score from the last alignment result.
 	 * Score represents alignment quality: higher values indicate better alignments.
@@ -109,14 +126,15 @@ public abstract class BandedAligner {
 	public final int score(){
 		return lastRow-lastEdits+1;
 	}
-	
+
 	/**
 	 * Finds the position of minimum value in alignment array.
 	 * Searches outward from center to find best alignment position within band.
 	 *
 	 * @param array Alignment scores array
 	 * @param halfWidth Half-width of the search band
-	 * @return Offset from center of the best alignment position
+	 * Ties prefer center, then shorter distance, then the higher array index.
+	 * @return Center index minus chosen array index (not an absolute reference coordinate)
 	 */
 	protected int lastOffset(int[] array, int halfWidth){
 		final int center=halfWidth+1;
@@ -127,7 +145,7 @@ public abstract class BandedAligner {
 		}
 		return center-minLoc;
 	}
-	
+
 	/**
 	 * Old version of off-center penalty function.
 	 * Adds linear penalty to alignment scores based on distance from center.
@@ -155,7 +173,7 @@ public abstract class BandedAligner {
 		}
 		return edits;
 	}
-	
+
 	/**
 	 * Applies penalty for alignments away from center diagonal.
 	 * Uses max function to ensure minimum penalty based on distance from center.
@@ -182,23 +200,25 @@ public abstract class BandedAligner {
 		}
 		return edits;
 	}
-	
-	/** Final row position reached in the last alignment operation */
+
+	/** Zero-based last scored row; partial when the edit threshold stopped the fill. */
 	public int lastRow;
-	/** Final edit distance calculated in the last alignment operation */
+	/** Last directional result, potentially above the requested limit; not necessarily a full edit distance. */
 	public int lastEdits;
 
 	/** Position offset of best alignment relative to center of band */
 	protected int lastOffset;
-	
+
+	/** Absolute coordinate reported by the last directional call, not a composite winner. */
 	public int lastRefLoc;
+	/** Absolute coordinate reported by the last directional call, not a composite winner. */
 	public int lastQueryLoc;
-	
+
 	public final int maxWidth;
-	
+
 	public static final int big=99999999;
 	public static boolean verbose=false;
 	/** Whether to apply penalties for alignments far from the center diagonal */
 	public static boolean penalizeOffCenter=true;
-	
+
 }

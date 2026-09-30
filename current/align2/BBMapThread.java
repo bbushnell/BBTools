@@ -16,8 +16,21 @@ import stream.SamLine;
 import stream.SiteScore;
 
 /**
- * Based on MapTestThread11f
- * 
+ * Common short-read mapping engine used by classic BBMap and detached BBMapS
+ * workers. Owns one index, aligner scratch, attempt counters and optional retry
+ * snapshots; instances must not process reads concurrently.
+ *
+ * Ordinary mapping searches once. Hybrid max-indel mapping searches at narrow
+ * bounds, optionally retries at wider bounds, then commits only the selected
+ * attempt. Finalization generates the primary trace, filters, invokes any final
+ * MAPQ scorer and counts retained mappings. Search counters and final retained
+ * counts therefore describe different stages of the pipeline.
+ *
+ * Quantum-only and pseudoalignment modes avoid an MSA through mapper presets;
+ * Quantum hybrid may reuse a short-indel trace or fall back to MSA. The caller
+ * must configure compatible rescue, trace and strict-indel options before
+ * constructing a worker. Based on MapTestThread11f.
+ *
  * @author Brian Bushnell
  * @date Dec 22, 2012
  *
@@ -33,19 +46,19 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		return super.tipDeletionSearchRange();
 	}
-	
+
 	/** Number of columns in alignment matrices */
 	static final int ALIGN_COLUMNS=BBIndex.ALIGN_COLUMNS;
 	/** Number of rows in alignment matrices */
 	static final int ALIGN_ROWS=601;
-	
-	
+
+
 
 	/** Don't trim for local alignments unless at least this many bases will be clipped */
 	private final int LOCAL_ALIGN_TIP_LENGTH=1;
 	/** Range is 0-1; a lower number makes trimming more aggressive */
 	private final float LOCAL_ALIGN_MATCH_POINT_RATIO=1f;
-	
+
 	/** Ratio of the points for a match of a single base needed to declare unambiguous.  1 SNP is currently about 2.57 */
 	public final float CLEARZONE_RATIOP=1.6f; //default 1.3f, which makes read ambiguous if there is 1 N in an alternate site.
 	/** Clearzone ratio for single-edit distance alignments */
@@ -83,16 +96,16 @@ public final class BBMapThread extends AbstractMapThread{
 	public final float CLEARZONE1c_CUTOFF_FLAT;
 	/** Scale factor for clearzone 1c cutoff calculations */
 	public final float CLEARZONE1c_CUTOFF_SCALE=0.92f;
-	
+
 	/** BBMap index used for k-mer lookups and alignment */
 	public final BBIndex index;
-	
-	
+
+
 	/** Minimum number of sites to retain after trimming for single-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_SINGLE=3;
 	/** Minimum number of sites to retain after trimming for paired-end reads */
 	private final int MIN_TRIM_SITES_TO_RETAIN_PAIRED=2;
-	
+
 	/**
 	 * Warning method indicating EXPECTED_SITES is not valid for this class.
 	 * Prints a deprecation warning when called.
@@ -101,7 +114,7 @@ public final class BBMapThread extends AbstractMapThread{
 	public static void setExpectedSites(int x){
 		System.err.println("Warning: EXPECTED_SITES is not valid for "+(new Object() { }.getClass().getEnclosingClass().getName()));
 	}
-	
+
 	@Override
 	public final int ALIGN_COLUMNS(){return ALIGN_COLUMNS;}
 	@Override
@@ -256,7 +269,7 @@ public final class BBMapThread extends AbstractMapThread{
 			boolean PERFECTMODE_, boolean SEMIPERFECTMODE_, boolean FORBID_SELF_MAPPING_, int TIP_DELETION_SEARCH_RANGE_,
 			boolean AMBIGUOUS_RANDOM_, boolean AMBIGUOUS_ALL_, int KFILTER_, float IDFILTER_, boolean TRIM_LEFT_, boolean TRIM_RIGHT_, boolean UNTRIM_, float TRIM_QUAL_, int TRIM_MIN_LEN_,
 			boolean LOCAL_ALIGN_, boolean RESCUE_, boolean STRICT_MAX_INDEL_, String MSA_TYPE_, BloomFilter bloomFilter_, final int hybridTipSearchCeiling_, final boolean hybridPair_, final HybridMaxIndelConfig hybridMaxIndelConfig_){
-		
+
 		super(cris_, paired_,
 				outStream_, outStreamMapped_, outStreamUnmapped_, outStreamBlack_,
 				pileup_, SMITH_WATERMAN_, LOCAL_ALIGN_, REMOVE_DUPLICATE_BEST_ALIGNMENTS_,
@@ -305,10 +318,10 @@ public final class BBMapThread extends AbstractMapThread{
 		hybridMaxIndelStats=hybridMaxIndelConfig==null ? null : new HybridMaxIndelStats();
 		if(hybridMaxIndelConfig!=null){hybridMatchCache=new HybridMatchCache(hybridMaxIndelStats);}
 		else if(hybridPair && Boolean.getBoolean("bbmap3.hybridMatchReuse")){hybridMatchCache=new HybridMatchCache(null);}
-		
+
 		assert(SLOW_ALIGN_PADDING>=0);
 		assert(!(RCOMP_MATE/* || FORBID_SELF_MAPPING*/)) : "RCOMP_MATE: TODO";
-		
+
 		if(SLOW_ALIGN || MAKE_MATCH_STRING){
 //			msa=MSA.makeMSA(ALIGN_ROWS, ALIGN_COLUMNS, MSA_TYPE);
 //			POINTS_MATCH=msa.POINTS_MATCH();
@@ -330,33 +343,35 @@ public final class BBMapThread extends AbstractMapThread{
 			CLEARZONE3=0;
 //			CLEARZONE1e=0;
 		}
-		
+
 		CLEARZONE1b_CUTOFF_FLAT=CLEARZONE1b_CUTOFF_FLAT_RATIO*POINTS_MATCH2;
 		CLEARZONE1c_CUTOFF_FLAT=CLEARZONE1c_CUTOFF_FLAT_RATIO*POINTS_MATCH2;
 		INV_CLEARZONE3=(CLEARZONE3==0 ? 0 : 1f/CLEARZONE3);
-		
+
 		index=new BBIndex(KEYLEN, minChrom, maxChrom, KFILTER, msa);
 		index.setCapturePseudoCoverage(hybridMaxIndelConfig!=null);
 	}
-	
-	
+
+
+	/** Progressively trims already ranked candidates; does not perform alignment.
+	 * Paired-site retention and caller-specified minimum/maximum counts still apply. */
 	@Override
 	public int trimList(ArrayList<SiteScore> list, boolean retainPaired, int maxScore, boolean specialCasePerfect, int minSitesToRetain, int maxSitesToRetain){
 		if(list==null || list.size()==0){return -99999;}
 		if(list.size()==1){return list.get(0).score;}
-		
+
 		final int highestScore;
 		if(USE_AFFINE_SCORE){
-			
+
 			highestScore=Tools.trimSiteList(list, .6f, retainPaired, true, minSitesToRetain, maxSitesToRetain);
 			if(highestScore==maxScore && specialCasePerfect){
 				Tools.trimSiteList(list, .94f, retainPaired, true, minSitesToRetain, maxSitesToRetain);
 				if(list.size()>8){Tools.trimSiteList(list, .99f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 				return highestScore;
 			}
-			
+
 			final int mstr2=(minSitesToRetain<=1 ? 1 : minSitesToRetain+1);
-			
+
 //			if(list.size()>6){Tools.trimSiteList(list, .65f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 ////			//			System.out.print(", "+list.size());
 //			if(list.size()>10){Tools.trimSiteList(list, .7f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
@@ -377,7 +392,7 @@ public final class BBMapThread extends AbstractMapThread{
 //			//			System.out.print(", "+list.size());
 ////			if(list.size()>64){Tools.trimSiteList(list, .995f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 //			//			System.out.print(", "+list.size());
-			
+
 			if(list.size()>4){Tools.trimSiteList(list, .65f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 //			//			System.out.print(", "+list.size());
 			if(list.size()>8){Tools.trimSiteList(list, .7f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
@@ -398,11 +413,11 @@ public final class BBMapThread extends AbstractMapThread{
 			//			System.out.print(", "+list.size());
 //			if(list.size()>64){Tools.trimSiteList(list, .995f, retainPaired, true, mstr2, maxSitesToRetain);}
 			//			System.out.print(", "+list.size());
-			
+
 
 		}else if(USE_EXTENDED_SCORE){
 			highestScore=Tools.trimSiteList(list, .75f, retainPaired, true, minSitesToRetain, maxSitesToRetain);
-			
+
 			if(list.size()>8){Tools.trimSiteList(list, .8f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 			//			System.out.print(", "+list.size());
 			if(list.size()>16){Tools.trimSiteList(list, .85f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
@@ -421,7 +436,7 @@ public final class BBMapThread extends AbstractMapThread{
 			//			System.out.print(", "+list.size());
 			if(list.size()>80){Tools.trimSiteList(list, .99f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 			//			System.out.print(", "+list.size());
-			
+
 
 		}else{
 			//			System.out.print("\n\nSize:\t"+list.size());
@@ -448,11 +463,14 @@ public final class BBMapThread extends AbstractMapThread{
 			//			if(list.size()>56){Tools.trimSiteList(list, .97f, retainPaired, true, minSitesToRetain, maxSitesToRetain);}
 			//			System.out.print(", "+list.size());
 		}
-		
+
 		return highestScore;
 	}
-	
-	
+
+
+	/** Scores candidate windows in place and may replace their endpoints and traces.
+	 * Quantum hybrid moves ordinary sites ahead of compressed-gap sites; its skip
+	 * rules are heuristics, not guarantees that every omitted site scores worse. */
 	@Override
 	public void scoreSlow(final ArrayList<SiteScore> list, final byte[] basesP, final byte[] basesM,
 			final int maxSwScore, final int maxImperfectSwScore){
@@ -473,7 +491,7 @@ public final class BBMapThread extends AbstractMapThread{
 			minMsaLimit=-CLEARZONE1e+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO*maxSwScore);
 		}
 		assert(Read.CHECKSITES(list, basesP, basesM, -1));
-		
+
 		int minMatch=Tools.max(-300, minMsaLimit-CLEARZONE3); //Score must exceed this to generate quick match string
 		if(verbose){
 			System.err.println("Slow-scoring.  maxSwScore="+maxSwScore+", maxImperfectSwScore="+maxImperfectSwScore+", minMsaLimit="+minMsaLimit+", minMatch="+minMatch);
@@ -503,12 +521,12 @@ public final class BBMapThread extends AbstractMapThread{
 			}else if(quantumHybrid && compressed){
 				quantumHybridStats.compressedEvaluated();
 			}
-			
+
 			if(SEMIPERFECTMODE){
 				assert(ss.stop-ss.start==bases.length-1);
 				assert(ss.semiperfect);
 			}
-			
+
 			if(verbose){System.err.println("\nSlow-scoring "+ss);}
 			if(ss.stop-ss.start!=bases.length-1){
 				assert(ss.stop-ss.start>bases.length-1) : bases.length+", "+ss.toText();
@@ -517,10 +535,10 @@ public final class BBMapThread extends AbstractMapThread{
 				ss.semiperfect=false;
 				ss.perfect=false;
 			}
-			
+
 			final int swscoreNoIndel=ss.slowScore;
 			int[] swscoreArray=null;
-			
+
 			boolean clipped=true, setLimits=false;
 			if(swscoreNoIndel<maxImperfectSwScore && !ss.semiperfect){
 				if(verbose && ss.stop-ss.start>4000){
@@ -528,7 +546,7 @@ public final class BBMapThread extends AbstractMapThread{
 					System.err.println(list.size());
 					System.err.println();
 				}
-				
+
 				int expectedLen=GapTools.calcGrefLen(ss);
 				if(verbose){System.err.println("expectedLen="+expectedLen);}
 				if(expectedLen>=EXPECTED_LEN_LIMIT){
@@ -536,7 +554,7 @@ public final class BBMapThread extends AbstractMapThread{
 					ss.setStop(ss.start+Tools.min(basesP.length+40, EXPECTED_LEN_LIMIT));
 					if(verbose){System.err.println("expectedLen="+expectedLen+"; ss="+ss);}
 				}
-				
+
 				int pad=SLOW_ALIGN_PADDING;
 				final int minscore=Tools.max(swscoreNoIndel, minMsaLimit);
 				final int minscore2=Tools.max(swscoreNoIndel-MSA.MIN_SCORE_ADJUST, minMsaLimit);
@@ -618,23 +636,23 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 				if(!quantumOnly && !bypass){swscoreArray=msa.fillAndScoreLimited(bases, ss, pad, minscore);}
 				if(verbose){System.err.println("Received "+Arrays.toString(swscoreArray));}
-				
+
 				if(!quantumOnly && swscoreArray!=null && swscoreArray.length>6 && (swscoreArray[3]+swscoreArray[4]+expectedLen<EXPECTED_LEN_LIMIT)){
 					int[] oldArray=swscoreArray.clone();
 					assert(swscoreArray.length==8);
 					int extraPadLeft=swscoreArray[6];
 					int extraPadRight=swscoreArray[7];
-					
+
 					if(verbose){
 						System.err.println("msa returned "+Arrays.toString(swscoreArray)+", re-running.");
 						System.err.println("Added extra padding: "+ss.toText()+", "+Arrays.toString(oldArray));
 					}
-					
+
 					ss.setLimits(ss.start-extraPadLeft, ss.stop+extraPadRight);
 					pad=SLOW_ALIGN_PADDING+EXTRA_PADDING;
 					if(verbose){System.err.println("Sent to msa with start="+ss.start+", stop="+ss.stop+", pad="+pad+", limit="+minscore+", gaps="+GapTools.toString(ss.gaps));}
 					swscoreArray=msa.fillAndScoreLimited(bases, ss, pad, minscore);
-					
+
 					if(verbose){System.err.println("Result of extra padding: "+ss.toText()+", "+Arrays.toString(swscoreArray));}
 					if(swscoreArray==null || swscoreArray[0]<oldArray[0]){
 						if(verbose){
@@ -706,7 +724,7 @@ public final class BBMapThread extends AbstractMapThread{
 			ss.perfect=(ss.slowScore==maxSwScore);
 			if(ss.perfect){ss.semiperfect=true;}
 			else if(!ss.semiperfect){ss.setPerfect(bases);}
-			
+
 			if(verbose){System.err.println(" -> "+ss);}
 		}
 	}
@@ -813,8 +831,8 @@ public final class BBMapThread extends AbstractMapThread{
 		if(removed>0){Tools.condenseStrict(read.sites);}
 		if(read.sites.isEmpty()){read.clearMapping();}
 	}
-	
-	
+
+
 	@Override
 	public void processRead(final Read r, final byte[] basesM){
 		if(idmodulo>1 && r.numericID%idmodulo!=1){return;}
@@ -828,7 +846,9 @@ public final class BBMapThread extends AbstractMapThread{
 		if(!singleAttempt.rejected){finishRead(r,singleAttempt);}
 	}
 
-	/** First functional route: retry only a nonrejected single read left unmapped by the low attempt. */
+	/** Retries a nonrejected single read left unmapped by the narrow search.
+	 * Retry acceptance uses search-time MAPQ; the chosen attempt's final neural
+	 * score is assigned later by finishRead. Restores narrow bounds on every exit. */
 	private void processReadHybridMaxIndel(final Read r, final byte[] basesM){
 		final HybridMaxIndelConfig config=hybridMaxIndelConfig;
 		if(index.maxIndel()!=config.lowPrimary || index.maxIndel2()!=config.lowSum){
@@ -965,6 +985,8 @@ public final class BBMapThread extends AbstractMapThread{
 	/** Smallest plausible long indel joining complementary half-read pseudo sites. */
 	private static int smallestPseudoSplitGap(final Read r, final int maxGap){
 		if(r.sites==null || r.sites.size()<2){return 0;}
+		//TODO: Probable bug - HybridMaxIndelConfig allows Integer.MAX_VALUE;
+		//maxGap+1 then wraps negative and suppresses all positive split candidates.
 		int best=maxGap+1;
 		for(SiteScore left:r.sites){
 			if(left.pseudoLeftCoverage()<95 || left.pseudoRightCoverage()>75){continue;}
@@ -1023,7 +1045,7 @@ public final class BBMapThread extends AbstractMapThread{
 	private void searchAndScoreRead(final Read r, final byte[] basesM, final SingleAttemptAccounting attempt){
 		assert(!attempt.committed) : "Single-read attempt accounting must be reset before search";
 		final byte[] basesP=r.bases;
-		
+
 //		System.err.print(" rd#"+r.numericID+" ");
 //		if(r.numericID==25967){
 //			verbose=true;
@@ -1032,12 +1054,12 @@ public final class BBMapThread extends AbstractMapThread{
 //			index.verbose=true;
 //			tcr.verbose=true;
 //		}
-		
+
 		if(verbose){System.err.println("\nProcessing "+r);}
-		
+
 		final int maxPossibleQuickScore=attempt.quick=quickMap(r, basesM);
 		if(verbose){System.err.println("\nQuick Map: \t"+r.sites);}
-		
+
 		if(maxPossibleQuickScore<0){
 			r.sites=null;
 			attempt.rejected=true;
@@ -1047,7 +1069,7 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		attempt.initialSiteSum=r.numSites();
 		if(verbose){System.err.println("\ninitialSiteSum1: "+(initialSiteSum1+attempt.initialSiteSum));}
-		
+
 		int maxSwScore=0;
 		int maxImperfectSwScore=0;
 
@@ -1061,26 +1083,26 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 		attempt.max=maxSwScore;
 		attempt.imperfect=maxImperfectSwScore;
-		
+
 		if(TRIM_LIST && r.numSites()>1){
 			if(MIN_TRIM_SITES_TO_RETAIN_SINGLE>1){Shared.sort(r.sites);}
 			int highestQuickScore=trimList(r.sites, false, maxSwScore, true, MIN_TRIM_SITES_TO_RETAIN_SINGLE, MAX_TRIM_SITES_TO_RETAIN);
 		}
 		attempt.postTrimSiteSum=r.numSites();
 		if(verbose){System.err.println("\nAfter trim: \t"+r.sites);}
-		
+
 		assert(Read.CHECKSITES(r, basesM));
-		
-		
+
+
 		if(SLOW_ALIGN && !PSEUDO_ONLY && r.numSites()>0){
-			
+
 			int numNearPerfectScores=(quantumOnly ?
 					scoreNoIndelsQuantum(r, basesP, basesM, maxSwScore, maxImperfectSwScore) :
 					scoreNoIndels(r, basesP, basesM, maxSwScore, maxImperfectSwScore));
 
 			Shared.sort(r.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
 			assert(Read.CHECKSITES(r, basesM));
-			
+
 //			int numPerfectScores=0;
 //			if(numNearPerfectScores>0){
 //				for(SiteScore ss : r.list){
@@ -1088,34 +1110,34 @@ public final class BBMapThread extends AbstractMapThread{
 //					else{break;}
 //				}
 //			}
-			
+
 			if(verbose){
 				System.err.println("\nAfter scoreNoIndels: \t"+r.sites);
 			}
-			
+
 			if(numNearPerfectScores<1){
 				if(!quantumOnly && FIND_TIP_DELETIONS){
 					findTipDeletions(r, basesP, basesM, maxSwScore, maxImperfectSwScore);
 				}
 			}
-			
+
 			if(verbose){
 				System.err.println("\nAfter findTipDeletions: \t"+r.sites);
 			}
-			
+
 			//TODO: This causes problems with perfect matches that are mapped to areas longer than the read length
 			//***Above note should be resolved now, but needs to be verified.
-			
+
 			if(numNearPerfectScores<1){
 				scoreSlow(r.sites, basesP, basesM, maxSwScore, maxImperfectSwScore);
 			}
-			
+
 			if(STRICT_MAX_INDEL){
 				int removed=removeLongIndels(r.sites, index.maxIndel());
 				if(r.numSites()==0){r.clearMapping();}
 			}
 			removeQuantumRejectedSites(r);
-			
+
 			if(verbose){System.err.println("\nAfter scoreSlow: \t"+r.sites);}
 			assert(Read.CHECKSITES(r, basesM, false));
 		}
@@ -1126,13 +1148,14 @@ public final class BBMapThread extends AbstractMapThread{
 			try {
 				Tools.mergeDuplicateSites(r.sites, true, true);
 			} catch (Exception e) {
-				// TODO Auto-generated catch block
+				//TODO: Probable bug - the replacement exception loses the original
+				//cause; only the stderr print retains the merge failure details.
 				e.printStackTrace();
 				throw new RuntimeException("\n\n"+r.toText(false)+"\n\n");
 			}
 			Shared.sort(r.sites);
 		}
-		
+
 		if(r.numSites()>1){
 			SiteScore ss1=r.topSite();
 			SiteScore ss2=r.sites.get(1);
@@ -1140,15 +1163,15 @@ public final class BBMapThread extends AbstractMapThread{
 			assert(ss1.chrom!=ss2.chrom || ss1.strand!=ss2.strand || ss1.start!=ss2.start || ss1.stop!=ss2.stop) : r.toText(false);
 		}
 		assert(Read.CHECKSITES(r, basesM));
-		
+
 		if(r.numSites()>=1){
 			assert(r.topSite().score==r.topSite().slowScore) : r.topSite();
 		}
-		
+
 		if(!PSEUDO_ONLY && (SLOW_ALIGN || USE_AFFINE_SCORE)){r.setPerfectFlag(maxSwScore);}
-		
+
 		if(r.numSites()>1){
-			
+
 			final int clearzone;
 			final int score=r.topSite().score;
 			if(r.perfect() || (PSEUDO_ONLY && score>=maxSwScore)){clearzone=CLEARZONEP;}
@@ -1167,8 +1190,8 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 //				assert(false) : x+", "+cz1blimit+", "+cz1climit+", "+CLEARZONE1b_CUTOFF_FLAT+", "+clearzone;
 			}
-			
-			
+
+
 //			final int clearzone=r.perfect() ? CLEARZONEP :
 //				r.list.get(0).score>=(int)(maxSwScore*CLEARZONE1b_CUTOFF) ? CLEARZONE1 :
 //					(r.list.get(0).score>=(int)(maxSwScore*CLEARZONE1c_CUTOFF) ? (CLEARZONE1b_CUTOFF-)CLEARZONE1b : CLEARZONE1c);
@@ -1189,9 +1212,9 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 			}
 		}
-		
+
 		if(verbose){System.err.println("A: "+r);}
-		
+
 		if((SLOW_ALIGN || USE_AFFINE_SCORE) && r.numSites()>0){
 			int lim=(int)(maxSwScore*MINIMUM_ALIGNMENT_SCORE_RATIO);
 			if(r.topSite().score<lim){r.sites=null;}
@@ -1204,25 +1227,25 @@ public final class BBMapThread extends AbstractMapThread{
 			r.setShortMatch(true);
 		}
 		assert(Read.CHECKSITES(r, basesM));
-		
+
 		if(verbose){System.err.println("B: "+r);}
-		
+
 		//Unimportant anomaly due to ambiguous reads that later have low quality sites removed and become unmapped.
 //		assert(!r.mapped() || new SamLine(r, 0).toRead(true).ambiguous()==r.ambiguous()) : "\n"+r+"\n\n"+new SamLine(r, 0)+"\n\n"+new SamLine(r, 0).toRead(true)+"\n\n"+
 //		"ambi="+ambi+", r.ambiguous()="+r.ambiguous()+", new SamLine(r, 0).toRead(true).ambiguous()="+new SamLine(r, 0).toRead(true).ambiguous()+"\n\n"+
 //		"r.mapped="+r.mapped()+", sl.mapped()="+new SamLine(r, 0).mapped()+", sl.toRead(true).mapped()="+new SamLine(r, 0).toRead(true).mapped();
 //		assert(r.ambiguous()==ambi) : r;
-		
+
 		assert(r.gaps==null || r.gaps[0]==r.start && r.gaps[r.gaps.length-1]==r.stop);
 		assert(r.sites==null || r.mapScore>0) : r.sites+", "+r.mapScore+"\n"+r;
-		
+
 		if(r.numSites()>1){
 			assert(r.topSite().score==r.topSite().slowScore) : "\n"+r.toText(false)+"\n";
 			assert(r.topSite().score==r.mapScore) : "\n"+r.toText(false)+"\n";
 		}
-		
+
 		if(verbose){System.err.println("C: "+r);}
-		
+
 		//***$
 		if(MAKE_MATCH_STRING && r.numSites()>0){
 			if(USE_SS_MATCH_FOR_PRIMARY && r.topSite().match!=null){
@@ -1236,7 +1259,7 @@ public final class BBMapThread extends AbstractMapThread{
 				assert(r.mate!=null || r.numSites()==0 || r.topSite().score==r.mapScore) : "\n"+r.toText(false)+"\n";
 
 				if(verbose){System.err.println("D: "+r);}
-				
+
 				{
 					boolean firstIter=true;
 					do{//
@@ -1260,7 +1283,7 @@ public final class BBMapThread extends AbstractMapThread{
 						firstIter=false;
 					}while(r.sites.size()>1 && r.topSite().score<r.sites.get(1).score);
 				}
-				
+
 				if(r.numSites()>1){
 					assert(r.topSite().score==r.topSite().slowScore) : "\n"+r.toText(false)+"\n";
 					assert(r.topSite().score==r.mapScore) : "\n"+r.toText(false)+"\n";
@@ -1269,15 +1292,15 @@ public final class BBMapThread extends AbstractMapThread{
 				if(verbose){System.err.println("E: "+r);}
 			}
 		}
-		
+
 		if(r.numSites()>1){
 			assert(r.topSite().score==r.topSite().slowScore) : "\n"+r.toText(false)+"\n";
 			assert(r.topSite().score==r.mapScore) : "\n"+r.toText(false)+"\n";
 			removeDuplicateBestSites(r);
 		}
 		if(r.numSites()>0){r.topSite().match=r.match;}
-		
-		
+
+
 		if(r.sites!=null && r.mapScore<=0){//This came from BBMapThreadPacBio; not sure if needed for other modes
 			if(!STRICT_MAX_INDEL && !Shared.anomaly){
 				System.err.println("Note: Read "+r.id+" failed cigar string generation and will be marked as unmapped.\t"+(r.match==null)+"\t"+r.mapScore+"\t"+r.topSite()+"\t"+new String(r.bases));
@@ -1287,9 +1310,9 @@ public final class BBMapThread extends AbstractMapThread{
 			r.setMapped(false);
 			r.sites=null;
 		}
-		
-		
-		
+
+
+
 		//This block is to prevent an assertion from firing.  Generally caused by alignment being lost during match generation.
 		//TODO: Fix cause.
 		if(r.mapScore>0 && r.sites==null){
@@ -1312,14 +1335,14 @@ public final class BBMapThread extends AbstractMapThread{
 			"msa limited return = "+Arrays.toString(msa.fillAndScoreLimited(r.strand()==Shared.PLUS ? r.bases :
 			AminoAcid.reverseComplementBases(r.bases), r.topSite(), Tools.max(SLOW_ALIGN_PADDING, 10), (-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO*maxSwScore))))+"\n\n"+
 			"msa vert limit: "+msa.showVertLimit()+"\n\nmsa horz limit: "+msa.showHorizLimit()+"\n\n"));
-		
+
 //		assert(r.list==null || r.mapScore>0) : r.mapScore+"\n"+r.list==null ? "null" : r.list.toString();
-		
+
 		if((CLEARZONE3>CLEARZONE1 || CLEARZONE3>CLEARZONEP) && r.sites!=null && !r.ambiguous()){
-			
+
 			assert(r.mapScore>0);
 			float cz3v2=(CLEARZONE3*Tools.min(1.25f, (maxSwScore/(float)r.mapScore)));
-			
+
 //			boolean changed=applyClearzone3(r, CLEARZONE3, INV_CLEARZONE3);
 			boolean changed=applyClearzone3(r, (int)cz3v2, 1/cz3v2);
 			if(changed){
@@ -1330,34 +1353,37 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 			}
 		}
-		
+
 		if(r.ambiguous() && AMBIGUOUS_TOSS){r.sites=null; r.clearSite(); r.setMapped(false);}
-		
+
 		if(r.mapped() && r.numSites()>1 && PRINT_SECONDARY_ALIGNMENTS){
 			ensureMatchStringsOnSiteScores(r, basesM, maxImperfectSwScore, maxSwScore);
 			assert(Read.CHECKSITES(r, basesM));
 		}
-		
+
 		assert(checkTopSite(r));
 		if(!quantumOnly && !PSEUDO_ONLY && r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
 			msa.toLocalAlignment(r, r.topSite(), basesM, r.containsXYC() ? 1 : LOCAL_ALIGN_TIP_LENGTH, LOCAL_ALIGN_MATCH_POINT_RATIO);
 			assert(Read.CHECKSITES(r, basesM));
 		}
-		
+
 		if(r.numSites()==0 || (!r.ambiguous() && r.mapScore<maxSwScore*MINIMUM_ALIGNMENT_SCORE_RATIO)){
 			r.clearMapping();
 		}
 
 //		assert(false) : "\n\n"+r.sites+"\n\n"+r.toSam()+"\n\n"+r+"\n\n";
-		
+
 		postFilterRead(r, basesM, maxImperfectSwScore, maxSwScore);
 		if(MAKE_MATCH_STRING){ensureMatchStringOnPrimary(r, basesM, maxImperfectSwScore, maxSwScore);}
-		
+
 		if(PENALIZE_AMBIG){
+			//TODO: Probable bug - legacy MAPQ filtering in postFilterRead has
+			//already run, but this penalty can lower the eventual SamLine MAPQ.
+			//The BBMapS neural finalizer filters afterward; legacy behavior is untested.
 			int penalty=calcTipScorePenalty(r, maxSwScore, 7);
 			applyScorePenalty(r, penalty);
 		}
-		
+
 //		if(r.ambiguous() && r.sites!=null){
 //			r.setAmbiguous(false);
 //			r.mapScore/=3;
@@ -1366,7 +1392,7 @@ public final class BBMapThread extends AbstractMapThread{
 //				ss.score/=3;
 //			}
 //		}
-		
+
 //		//Penalize quality score of long deletions, as they are less likely to be accurate.  Did not seem to be useful.
 //		if(r.mapped() && !r.ambiguous()){
 //			int delta=absdif(r.start+r.length()-1, r.stop);
@@ -1375,55 +1401,68 @@ public final class BBMapThread extends AbstractMapThread{
 //				r.mapScore=(int)(r.mapScore*(1-penalty2));
 //			}
 //		}
-		
+
 	}
 
 	/** Finalize the selected single-read attempt after its accounting is committed. */
 	private void finishRead(final Read r, final SingleAttemptAccounting attempt){
 		assert(attempt.committed && !attempt.rejected) :
 			"Finalize only one selected, nonrejected single-read attempt";
+		if(finalMapq!=null){finalMapq.apply(r);}
 		if(CALC_STATISTICS){calcStatistics1(r,attempt.max,attempt.quick);}
 	}
-	
-	
-	/** Returns number of perfect pairs */
+
+	/** Finalizes scores/filtering for the chosen alignment before statistics, even
+	 * when statistics are disabled. Owned by the detached BBMapS worker. */
+	interface FinalMapq{void apply(Read read);}
+	void setFinalMapq(final FinalMapq scorer){
+		assert(cris==null && scorer!=null && finalMapq==null) :
+			"BBMapS installs one final scorer on its detached engine before processing";
+		finalMapq=scorer;
+		deferMapqFilter=true;
+	}
+	private FinalMapq finalMapq;
+
+
+	/** Adds provisional mate support to quick-site scores and optionally trims.
+	 * Returns a lower bound on perfect pairs, not a count of distinct fragments. */
 	@Override
 	public int pairSiteScoresInitial(Read r, Read r2, boolean trim){
-		
+
 		if(r.numSites()<1 || r2.numSites()<1){return 0;}
-		
+
 		SiteScore.PCOMP.sort(r.sites);
 		SiteScore.PCOMP.sort(r2.sites);
-		
+
 		for(SiteScore ss : r.sites){ss.setPairedScore(0);}
 		for(SiteScore ss : r2.sites){ss.setPairedScore(0);}
-		
+
 //		ArrayList<SiteScorePair> pairs=new ArrayList<SiteScorePair>(Tools.min(8, Tools.min(r.list.size(), r2.list.size())));
 
 		int maxPairedScore1=-1;
 		int maxPairedScore2=-1;
-		
-		
+
+
 //		for(SiteScore ss : r.list){
 //			System.out.println(ss.toText());
 //		}
-		
+
 //		int i=0, j=0;
 		final int ilimit=r.sites.size()-1;
 		final int jlimit=r2.sites.size()-1;
 		final int maxReadLen=Tools.max(r.length(), r2.length());
-		
+
 //		final int outerDistLimit=MIN_PAIR_DIST+r.length()+r2.length();
 		final int outerDistLimit=(Tools.max(r.length(), r2.length())*(OUTER_DIST_MULT))/OUTER_DIST_DIV;//-(SLOW_ALIGN ? 100 : 0);
 		final int innerDistLimit=MAX_PAIR_DIST;//+(FIND_TIP_DELETIONS ? TIP_DELETION_SEARCH_RANGE : 0);
-		final int expectedFragLength=AVERAGE_PAIR_DIST+r.length()+r2.length();
-		
+		final long expectedFragLength=(long)AVERAGE_PAIR_DIST+r.length()+r2.length();
+
 		int numPerfectPairs=0;
-		
+
 		for(int i=0, j=0; i<=ilimit && j<=jlimit; i++){
 			SiteScore ss1=r.sites.get(i);
 			SiteScore ss2=r2.sites.get(j);
-			
+
 			while(j<jlimit && (ss2.chrom<ss1.chrom || (ss2.chrom==ss1.chrom && ss1.start-ss2.stop>innerDistLimit))){
 				j++;
 				ss2=r2.sites.get(j);
@@ -1442,8 +1481,8 @@ public final class BBMapThread extends AbstractMapThread{
 //				}else if(ss1.start>ss2.start){
 //					dist=ss1.start-ss2.stop;
 //				}
-				
-				
+
+
 //				int innerdist=0;
 //				int outerdist=0;
 //
@@ -1454,10 +1493,10 @@ public final class BBMapThread extends AbstractMapThread{
 //					innerdist=ss1.start-ss2.stop;
 //					outerdist=ss1.stop-ss2.start;
 //				}
-				
+
 				final int innerdist, outerdist;
 				//assert(!SAME_STRAND_PAIRS) : "TODO";
-				
+
 				if(REQUIRE_CORRECT_STRANDS_PAIRS){
 					if(ss1.strand!=ss2.strand){
 						if(ss1.strand==Shared.PLUS){
@@ -1485,27 +1524,28 @@ public final class BBMapThread extends AbstractMapThread{
 						outerdist=ss1.stop-ss2.start;
 					}
 				}
-				
+
 				assert(outerdist>=innerdist);
 
 				if(outerdist>=outerDistLimit && innerdist<=innerDistLimit){
-					
+
 					boolean strandOK=((ss1.strand==ss2.strand)==SAME_STRAND_PAIRS);
 
 					if(strandOK || !REQUIRE_CORRECT_STRANDS_PAIRS){
-						
+
 						boolean paired1=false, paired2=false;
-						
-						int deviation=absdif(AVERAGE_PAIR_DIST, innerdist);
+
+						final long deviation=Math.abs((long)AVERAGE_PAIR_DIST-innerdist);
 
 						final int pairedScore1;
 						final int pairedScore2;
 						if(strandOK){
 //							pairedScore1=ss1.score+ss2.score/2;
 //							pairedScore2=ss2.score+ss1.score/2;
-							
-							pairedScore1=ss1.score+1+Tools.max(1, ss2.score/2-(((deviation)*ss2.score)/(32*expectedFragLength+100)));
-							pairedScore2=ss2.score+1+Tools.max(1, ss1.score/2-(((deviation)*ss1.score)/(32*expectedFragLength+100)));
+
+							//Widen before multiplying so distant mates cannot acquire an overflow bonus.
+							pairedScore1=ss1.score+1+(int)Tools.max(1L, ss2.score/2-(deviation*ss2.score/(32*expectedFragLength+100)));
+							pairedScore2=ss2.score+1+(int)Tools.max(1L, ss1.score/2-(deviation*ss1.score/(32*expectedFragLength+100)));
 						}else{//e.g. a junction
 							pairedScore1=ss1.score+Tools.max(0, ss2.score/16);
 							pairedScore2=ss2.score+Tools.max(0, ss1.score/16);
@@ -1524,11 +1564,11 @@ public final class BBMapThread extends AbstractMapThread{
 							ss2.setPairedScore(Tools.max(ss2.pairedScore, pairedScore2));
 							maxPairedScore2=Tools.max(ss2.score, maxPairedScore2);
 						}
-						
+
 						if(paired1 && paired2 && outerdist>=maxReadLen && deviation<=expectedFragLength && ss1.perfect && ss2.perfect){
 							numPerfectPairs++; //Lower bound.  Some perfect pairs may be the same.
 						}
-						
+
 //						ss1.pairedScore=Tools.max(ss1.pairedScore, pairedScore1);
 //						ss2.pairedScore=Tools.max(ss2.pairedScore, pairedScore2);
 //						maxPairedScore1=Tools.max(ss1.score, maxPairedScore1);
@@ -1536,11 +1576,11 @@ public final class BBMapThread extends AbstractMapThread{
 					}
 				}
 			}
-			
+
 		}
-		
-		
-		
+
+
+
 		for(SiteScore ss : r.sites){
 			if(ss.pairedScore>ss.score){ss.setScore(ss.pairedScore);}
 			else{assert(ss.pairedScore==0);}
@@ -1551,7 +1591,7 @@ public final class BBMapThread extends AbstractMapThread{
 			else{assert(ss.pairedScore==0);}
 //			ss.score=ss.pairedScore=Tools.max(ss.pairedScore, ss.score);
 		}
-		
+
 		if(trim){
 			if(numPerfectPairs>0){
 //				System.out.print(".");
@@ -1566,7 +1606,7 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 			}
 		}
-		
+
 //		if(pairs.isEmpty()){return null;}
 //
 //		ArrayList<SiteScore> temp=new ArrayList<SiteScore>(Tools.max(r.list.size(), r2.list.size()));
@@ -1590,17 +1630,19 @@ public final class BBMapThread extends AbstractMapThread{
 //		r2.list.addAll(temp);
 //
 //		return pairs;
-		
+
 		return numPerfectPairs;
 	}
-	
-	
+
+
 	// Per-worker configuration supplied by the mapper; legacy constructors default off.
 	private final boolean hybridPair;
 	private final PairAttemptAccounting secondAttempt;
 	private final PairSearchState entryState;
 	private final PairSearchState firstState;
 	private final PairSearchState probeState;
+	/** Temporarily probes wide k-mer sites, retaining them in probeState while
+	 * restoring the selected narrow read state and bounds before returning. */
 	private void widePseudoProbe(final Read r, final byte[] basesM1, final byte[] basesM2,
 			final PairAttemptAccounting first, final int lowPrimary, final int lowSum,
 			final int highPrimary, final int highSum){
@@ -1626,6 +1668,8 @@ public final class BBMapThread extends AbstractMapThread{
 			index.setRuntimeIndelLimits(lowPrimary,lowSum);
 		}
 	}
+	/** Searches both mates and commits exactly one attempt. Hybrid retries preserve
+	 * their entry/first/probe read snapshots separately from intermediate counters. */
 	@Override
 	public void processReadPair(final Read r, final byte[] basesM1, final byte[] basesM2){
 		if(idmodulo>1 && r.numericID%idmodulo!=1){return;}
@@ -1746,6 +1790,8 @@ public final class BBMapThread extends AbstractMapThread{
 		}
 	}
 
+	/** Finalizes the chosen pair once; neural filtering precedes retained statistics.
+	 * Dynamic insert length uses previously counted pairs, not the current pair. */
 	private void finishReadPair(final Read r, final byte[] basesM1, final byte[] basesM2, final PairAttemptAccounting attempt){
 		assert(!attempt.rejected && attempt.committed) : "Finalize only the chosen committed attempt";
 		final Read r2=r.mate;
@@ -1760,7 +1806,7 @@ public final class BBMapThread extends AbstractMapThread{
 			r2.setPerfectFlag(maxSwScore2);
 //			assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
 		}
-		
+
 
 		if(r.numSites()>1){
 			final int clearzone=(r.perfect() || (PSEUDO_ONLY && r.topSite().score>=maxSwScore1)) ? CLEARZONEP :
@@ -1770,7 +1816,7 @@ public final class BBMapThread extends AbstractMapThread{
 			if(numBestSites1>1){
 				//Ambiguous alignment
 				assert(r.sites.size()>1);
-				
+
 				boolean b=processAmbiguous(r.sites, true, AMBIGUOUS_TOSS, clearzone, SAVE_AMBIGUOUS_XY);
 				r.setAmbiguous(b);
 			}
@@ -1785,14 +1831,14 @@ public final class BBMapThread extends AbstractMapThread{
 			if(numBestSites2>1){
 				//Ambiguous alignment
 				assert(r2.sites.size()>1);
-				
+
 				boolean b=processAmbiguous(r2.sites, false, AMBIGUOUS_TOSS, clearzone, SAVE_AMBIGUOUS_XY);
 				r2.setAmbiguous(b);
 			}
 //			assert(Read.CHECKSITES(r2, basesM2));
 		}
 		if(verbose){System.err.println("\nAfter ambiguous removal:\nRead1:\t"+r+"\nRead2:\t"+r2);}
-		
+
 		if(r.numSites()>0 && r2.numSites()>0){
 			SiteScore ss1=r.topSite();
 			SiteScore ss2=r2.topSite();
@@ -1809,7 +1855,7 @@ public final class BBMapThread extends AbstractMapThread{
 
 		if(r.numSites()==0){r.sites=null;r.mapScore=0;}
 		if(r2.numSites()==0){r2.sites=null;r2.mapScore=0;}
-		
+
 		r.setFromTopSite(AMBIGUOUS_RANDOM, true, MAX_PAIR_DIST);
 		r2.setFromTopSite(AMBIGUOUS_RANDOM, true, MAX_PAIR_DIST);
 		if(PSEUDO_ONLY && r.mapped()){
@@ -1832,7 +1878,7 @@ public final class BBMapThread extends AbstractMapThread{
 			}
 		}
 		if(verbose){System.err.println("\nAfter bad pair removal:\nRead1:\t"+r+"\nRead2:\t"+r2);}
-		
+
 		assert(r.sites==null || r.mapScore>0) : r.mapScore+"\n"+r.toText(false)+"\n\n"+r2.toText(false)+"\n";
 		assert(r2.sites==null || r2.mapScore>0) : r2.mapScore+"\n"+r.toText(false)+"\n\n"+r2.toText(false)+"\n";
 		if(MAKE_MATCH_STRING){
@@ -1841,7 +1887,7 @@ public final class BBMapThread extends AbstractMapThread{
 					r.match=r.topSite().match;
 				}else{
 					genMatchString(r, basesP1, basesM1, maxImperfectSwScore1, maxSwScore1, false, false);
-					
+
 					if(STRICT_MAX_INDEL && r.mapped()){
 						if(hasLongIndel(r.match, index.maxIndel())){
 							r.clearMapping();
@@ -1866,14 +1912,14 @@ public final class BBMapThread extends AbstractMapThread{
 //				assert(Read.CHECKSITES(r2, basesM2));
 			}
 		}
-		
+
 		assert(checkTopSite(r)); // TODO remove this
 		if(verbose){
 			System.err.println("\nFinal:\nRead1:\t"+r+"\nRead2:\t"+r2);
 			if(r.match!=null && r.shortmatch()){r.toLongMatchString(false);}
 			if(r2.match!=null && r2.shortmatch()){r2.toLongMatchString(false);}
 		}
-		
+
 		//Block to prevent assertion from firing.  Generally caused by alignment being lost during match generation.  TODO: Fix cause.
 		if(r.mapScore>0 && r.sites==null){
 			if(!Shared.anomaly){System.err.println("Anomaly: mapScore>0 and list==null.\n"+r+"\n");}
@@ -1899,7 +1945,7 @@ public final class BBMapThread extends AbstractMapThread{
 			r2.clearMapping();
 			r.setPaired(false);
 		}
-		
+
 		assert(r.sites==null || r.mapScore>0) :
 			(PSEUDO_ONLY ? "Pseudoalignment paired read retained sites with nonpositive quick score: "+r :
 			(quantumOnly ? "Quantum-only paired read retained sites with nonpositive score: "+r :
@@ -1918,12 +1964,12 @@ public final class BBMapThread extends AbstractMapThread{
 			Arrays.toString(msa.fillAndScoreLimited(r2.strand()==Shared.PLUS ? r2.bases :
 			AminoAcid.reverseComplementBases(r2.bases), r2.topSite(), Tools.max(SLOW_ALIGN_PADDING, 80), (-100+(int)(MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED*maxSwScore2))))+"\n\n"+
 			msa.showVertLimit()+"\n\n"+msa.showHorizLimit()+"\n\n"+r+"\n\n"+r2+"\n\n"));
-		
+
 		assert(!r.mapped() || !MAKE_MATCH_STRING || r.match!=null) : "Note that sometimes, VERY RARELY, match string generation fails.";
 		assert(checkTopSite(r)); // TODO remove this
 		removeDuplicateBestSites(r);
 		removeDuplicateBestSites(r2);
-		
+
 		if(DYNAMIC_INSERT_LENGTH && numMated>1000 && r.paired()){
 			AVERAGE_PAIR_DIST=(int)(innerLengthSum*1f/numMated);
 		}
@@ -1949,7 +1995,7 @@ public final class BBMapThread extends AbstractMapThread{
 			assert(Read.CHECKSITES(r2, basesM2));
 		}
 //		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
-		
+
 		assert(checkTopSite(r));
 		if(!quantumOnly && !PSEUDO_ONLY && r.mapped() && (LOCAL_ALIGN || r.containsXYC())){
 			final SiteScore ss=r.topSite();
@@ -1959,7 +2005,7 @@ public final class BBMapThread extends AbstractMapThread{
 //			assert(Read.CHECKSITES(r, basesM1)); //TODO: This can fail; see bug#0001
 		}
 //		assert(false) : r.mapped()+", "+LOCAL_ALIGN+", "+r.containsXYC()+", "+new String(r.match);
-		
+
 		assert(checkTopSite(r2));
 		if(!quantumOnly && !PSEUDO_ONLY && r2.mapped() && (LOCAL_ALIGN || r2.containsXYC())){
 			final SiteScore ss=r2.topSite();
@@ -1967,20 +2013,21 @@ public final class BBMapThread extends AbstractMapThread{
 			msa.toLocalAlignment(r2, ss, basesM2, r2.containsXYC() ? 1 : LOCAL_ALIGN_TIP_LENGTH, LOCAL_ALIGN_MATCH_POINT_RATIO);
 //			assert(Read.CHECKSITES(r2, basesM2)); //TODO: This can fail; see bug#0001
 		}
-		
+
 		postFilterRead(r, basesM1, maxImperfectSwScore1, maxSwScore1);
 		postFilterRead(r2, basesM2, maxImperfectSwScore2, maxSwScore2);
 		if(MAKE_MATCH_STRING){
 			ensureMatchStringOnPrimary(r, basesM1, maxImperfectSwScore1, maxSwScore1);
 			ensureMatchStringOnPrimary(r2, basesM2, maxImperfectSwScore2, maxSwScore2);
 		}
-		
+
+		if(finalMapq!=null){finalMapq.apply(r);}
 		if(CALC_STATISTICS){
 			calcStatistics1(r, maxSwScore1, maxPossibleQuickScore1);
 			calcStatistics2(r2, maxSwScore2, maxPossibleQuickScore2);
 		}
 	}
-	
+
 
 	/** One search attempt; mutates both Reads. This is not a rollback transaction. */
 	private void searchAndScorePair(final Read r, final byte[] basesM1, final byte[] basesM2, final PairAttemptAccounting attempt){
@@ -2006,11 +2053,11 @@ public final class BBMapThread extends AbstractMapThread{
 			attempt.pseudoHalf100_2=bestPseudoHalfCoverage(r2,100);
 			attempt.pseudoSplit2=smallestPseudoSplitGap(r2,hybridMaxIndelConfig.highPrimary);
 		}
-		
+
 		if(verbose){
 			System.err.println("\nAfter quick map:\nRead1:\t"+r+"\nRead2:\t"+r.mate);
 		}
-		
+
 		if(maxPossibleQuickScore1<0 && maxPossibleQuickScore2<0){
 			r.sites=null;
 			r2.sites=null;
@@ -2032,18 +2079,18 @@ public final class BBMapThread extends AbstractMapThread{
 		final Read r2=r.mate;
 		final byte[] basesP1=r.bases, basesP2=r2.bases;
 		final int len1=(basesP1==null ? 0 : basesP1.length), len2=(basesP2==null ? 0 : basesP2.length);
-		
+
 		//Not really needed due to subsumption
 //		Tools.mergeDuplicateSites(r.list);
 //		Tools.mergeDuplicateSites(r2.list);
-		
+
 		attempt.initialSiteSum1=r.numSites();
 		attempt.initialSiteSum2=r2.numSites();
-		
+
 		//TODO: Fix this.  This is a workaround for an assertion error counting the number of reads used.
 		//Discards need to be tracked separately for each end.
 //		if(maxPossibleQuickScore2<0){lowQualityReadsDiscarded--;}
-		
+
 		final int maxSwScore1=attempt.max1=(PSEUDO_ONLY ? Tools.max(1, maxPossibleQuickScore1) :
 				(quantumOnly ? quantumMaxScore(len1) : msa.maxQuality(len1)));
 		final int maxImperfectSwScore1=attempt.imperfect1=(PSEUDO_ONLY ? maxSwScore1 :
@@ -2052,23 +2099,23 @@ public final class BBMapThread extends AbstractMapThread{
 				(quantumOnly ? quantumMaxScore(len2) : msa.maxQuality(len2)));
 		final int maxImperfectSwScore2=attempt.imperfect2=(PSEUDO_ONLY ? maxSwScore2 :
 				(quantumOnly ? maxSwScore2-QUANTUM_EDIT_COST : msa.maxImperfectScore(len2)));
-		
+
 		pairSiteScoresInitial(r, r2, TRIM_LIST);
 		if(verbose){System.err.println("\nAfter initial pair:\nRead1:\t"+r+"\nRead2:\t"+r2);}
-		
+
 		if(TRIM_LIST){
 
 			if(MIN_TRIM_SITES_TO_RETAIN_PAIRED>1){
 				if(r.numSites()>MIN_TRIM_SITES_TO_RETAIN_PAIRED){Shared.sort(r.sites);}
 				if(r2.numSites()>MIN_TRIM_SITES_TO_RETAIN_PAIRED){Shared.sort(r2.sites);}
 			}
-			
+
 			trimList(r.sites, true, maxSwScore1, false, MIN_TRIM_SITES_TO_RETAIN_PAIRED, MAX_TRIM_SITES_TO_RETAIN);
 			trimList(r2.sites, true, maxSwScore2, false, MIN_TRIM_SITES_TO_RETAIN_PAIRED, MAX_TRIM_SITES_TO_RETAIN);
 		}
 		attempt.postTrimSiteSum1=r.numSites();
 		attempt.postTrimSiteSum2=r2.numSites();
-		
+
 		{//Reset score to non-paired score
 			if(r.sites!=null){
 				for(SiteScore ss : r.sites){
@@ -2083,26 +2130,26 @@ public final class BBMapThread extends AbstractMapThread{
 				}
 			}
 		}
-		
+
 		if(verbose){System.err.println("\nAfter trim:\nRead1:\t"+r.sites+"\nRead2:\t"+r2.sites);}
-		
+
 //		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
-		
+
 		if(SLOW_ALIGN && !PSEUDO_ONLY){
-			
+
 			if(r.numSites()>0){
-				
+
 				int numNearPerfectScores1=(quantumOnly ?
 						scoreNoIndelsQuantum(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1) :
 						scoreNoIndels(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1));
 				Shared.sort(r.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
-				
+
 				if(numNearPerfectScores1<1){
 					if(!quantumOnly && FIND_TIP_DELETIONS){
 						findTipDeletions(r, basesP1, basesM1, maxSwScore1, maxImperfectSwScore1);
 					}
 				}
-				
+
 				//TODO:
 				//Note scoreSlow can be skipped under this circumstance:
 				//When rescue is disabled, numNearPerfectScores>0, and there are no paired sites.
@@ -2114,19 +2161,19 @@ public final class BBMapThread extends AbstractMapThread{
 				Tools.mergeDuplicateSites(r.sites, true, true);
 				removeQuantumRejectedSites(r);
 			}
-			
+
 			if(r2.numSites()>0){
 				int numNearPerfectScores2=(quantumOnly ?
 						scoreNoIndelsQuantum(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2) :
 						scoreNoIndels(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2));
 				Shared.sort(r2.sites); //Puts higher scores first to better trigger the early exit based on perfect scores
-				
+
 				if(numNearPerfectScores2<1){
 					if(!quantumOnly && FIND_TIP_DELETIONS){
 						findTipDeletions(r2, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);
 					}
 				}
-				
+
 				scoreSlow(r2.sites, basesP2, basesM2, maxSwScore2, maxImperfectSwScore2);
 				if(STRICT_MAX_INDEL){
 					int removed=removeLongIndels(r2.sites, index.maxIndel());
@@ -2135,11 +2182,11 @@ public final class BBMapThread extends AbstractMapThread{
 				Tools.mergeDuplicateSites(r2.sites, true, true);
 				removeQuantumRejectedSites(r2);
 			}
-			
-			
+
+
 			if(verbose){System.err.println("\nAfter slow align:\nRead1:\t"+r+"\nRead2:\t"+r2);}
 			assert(Read.CHECKSITES(r, basesM1, false) && Read.CHECKSITES(r2, basesM2, false));
-			
+
 			if(DO_RESCUE){
 				int unpaired1=0;
 				int unpaired2=0;
@@ -2157,14 +2204,14 @@ public final class BBMapThread extends AbstractMapThread{
 						if(ss.pairedScore==0){unpaired2++;}
 					}
 				}
-				
+
 				if(unpaired1>0 && r.numSites()>0){
 					Shared.sort(r.sites);
 					Tools.removeLowQualitySitesPaired(r.sites, maxSwScore1, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE);
 					rescue(r, r2, basesP2, basesM2, Tools.min(MAX_PAIR_DIST, 2*AVERAGE_PAIR_DIST+100));
 					Tools.mergeDuplicateSites(r2.sites, true, true);
 				}
-				
+
 				if(unpaired2>0 && r2.numSites()>0){
 					Shared.sort(r2.sites);
 					Tools.removeLowQualitySitesPaired(r2.sites, maxSwScore2, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE);
@@ -2174,13 +2221,13 @@ public final class BBMapThread extends AbstractMapThread{
 
 				attempt.postRescueSiteSum1=r.numSites();
 				attempt.postRescueSiteSum2=r2.numSites();
-				
+
 //				if(r.list!=null){Shared.sort(r.list);}
 //				if(r2.list!=null){Shared.sort(r2.list);}
 //
 //				Tools.removeLowQualitySites(r.list, maxSwScore1, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE);
 //				Tools.removeLowQualitySites(r2.list, maxSwScore2, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE, MINIMUM_ALIGNMENT_SCORE_RATIO_PRE_RESCUE);
-				
+
 				if(verbose){System.err.println("\nAfter rescue:\nRead1:\t"+r+"\nRead2:\t"+r2);}
 				assert(Read.CHECKSITES(r, basesM1, false) && Read.CHECKSITES(r2, basesM2, false));
 			}
@@ -2190,11 +2237,11 @@ public final class BBMapThread extends AbstractMapThread{
 			if(verbose){System.err.println("\nAfter merge:\nRead1:\t"+r+"\nRead2:\t"+r2);}
 			assert(Read.CHECKSITES(r, basesM1, false) && Read.CHECKSITES(r2, basesM2, false));
 		}
-		
+
 		if(r.numSites()>1){Shared.sort(r.sites);}
 		if(r2.numSites()>1){Shared.sort(r2.sites);}
 		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
-		
+
 		if(false){//This block is optional, but increases correctness by a tiny bit. (or maybe not!)
 			if(SLOW_ALIGN || USE_AFFINE_SCORE){
 				Tools.removeLowQualitySitesPaired(r.sites, maxSwScore1, MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED, MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED);
@@ -2202,19 +2249,19 @@ public final class BBMapThread extends AbstractMapThread{
 			}
 
 			pairSiteScoresFinal(r, r2, false, false, MAX_PAIR_DIST, AVERAGE_PAIR_DIST, SAME_STRAND_PAIRS, REQUIRE_CORRECT_STRANDS_PAIRS, MAX_TRIM_SITES_TO_RETAIN);
-			
+
 			if(r.numSites()>1){Shared.sort(r.sites);}
 			if(r2.numSites()>1){Shared.sort(r2.sites);}
 		}
-		
+
 		if(SLOW_ALIGN || USE_AFFINE_SCORE){
 			Tools.removeLowQualitySitesPaired(r.sites, maxSwScore1, MINIMUM_ALIGNMENT_SCORE_RATIO, MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED);
 			Tools.removeLowQualitySitesPaired(r2.sites, maxSwScore2, MINIMUM_ALIGNMENT_SCORE_RATIO, MINIMUM_ALIGNMENT_SCORE_RATIO_PAIRED);
 		}
-		
+
 		pairSiteScoresFinal(r, r2, true, true, MAX_PAIR_DIST, AVERAGE_PAIR_DIST, SAME_STRAND_PAIRS, REQUIRE_CORRECT_STRANDS_PAIRS, MAX_TRIM_SITES_TO_RETAIN);
 		if(verbose){System.err.println("\nAfter final pairing:\nRead1:\t"+r+"\nRead2:\t"+r2);}
-		
+
 		if(r.numSites()>0){
 			attempt.mapped1=1;
 			Shared.sort(r.sites);
@@ -2224,10 +2271,10 @@ public final class BBMapThread extends AbstractMapThread{
 			Shared.sort(r2.sites);
 		}
 		assert(Read.CHECKSITES(r, basesM1) && Read.CHECKSITES(r2, basesM2));
-		
+
 	}
 
-	// One reusable record per worker. No per-read allocation; currently one attempt only.
+	// Reusable first-attempt record; hybrid retries use the separate secondAttempt.
 	private final PairAttemptAccounting pairAttempt=new PairAttemptAccounting();
 	private final boolean quantumOnly;
 	private final boolean quantumTieredShadow;

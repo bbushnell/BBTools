@@ -1,15 +1,16 @@
 package align2;
 
 /**
- * Abstract base class for sequence indexing in BBTools alignment framework.
- * Provides foundation for k-mer based indexing systems used by BBMap and related tools.
- * Intended to contain static methods for index operations and utilities.
+ * Empty historical placeholder for shared index utilities.
+ * Declares no state, operations, or indexing contract. BBIndex and BBIndex5
+ * extend AbstractIndex rather than this class; do not mistake this placeholder
+ * for their implementation or a usable index API.
  *
  * @author Brian Bushnell
  * @date Dec 19, 2012
  */
-public abstract class Index {
-	
+public abstract class Index{
+
 	//TODO:  Put static methods here.
-	
+
 }

@@ -12,10 +12,14 @@ package align2;
  *
  * @author Collei
  */
-public final class NeuralMapqFeatureTransform {
+public final class NeuralMapqFeatureTransform{
 
 	private NeuralMapqFeatureTransform(){}
 
+	/** Converts the 42-field raw vector into the accepted 37-input runtime schema.
+	 * Validates all raw fields, including the five omitted composition fields.
+	 * Writes every output position. Width checks preclude in-place transformation.
+	 * Ratios are scaled, not clipped to [0, 1]; signed competitor scores are valid. */
 	public static void transform(final float[] raw, final float[] out){
 		NeuralMapqFeatureSchema.validateVector(raw);
 		if(out==null || out.length!=WIDTH){
@@ -32,37 +36,37 @@ public final class NeuralMapqFeatureTransform {
 		final float invLogLength=(float)(1.0/Math.log1p(length));
 
 		out[0]=(float)Math.log1p(length);
-		copy(raw,out,1,4); // boolean mapping flags
+		copy(raw, out, 1, 4); // boolean mapping flags
 		out[5]=raw[5]*invMaximumScore;
 		out[6]=raw[6]*0.01f;
 		out[7]=raw[7]*invMaximumScore;
 		out[8]=raw[8]*invMaximumScore;
 		out[9]=raw[9]*invMaximumScore;
 		out[10]=raw[10];
-		out[11]=(float)Math.log1p(nonnegative(raw[11],11));
-		out[12]=(float)Math.log1p(nonnegative(raw[12],12));
-		copy(raw,out,13,14); // missing-competitor flags
+		out[11]=(float)Math.log1p(nonnegative(raw[11], 11));
+		out[12]=(float)Math.log1p(nonnegative(raw[12], 12));
+		copy(raw, out, 13, 14); // missing-competitor flags
 		out[15]=raw[15]*invMaximumScore;
 		out[16]=raw[16]*invMaximumScore;
 		out[17]=raw[17]*invMaximumScore;
 		out[18]=raw[18]*invMaximumScore;
-		copy(raw,out,19,20); // competitor score ratios may legitimately be negative
-		out[21]=nonnegative(raw[21],21)*invLength;
+		copy(raw, out, 19, 20); // competitor score ratios may legitimately be negative
+		out[21]=nonnegative(raw[21], 21)*invLength;
 		out[22]=raw[22];
-		out[23]=nonnegative(raw[23],23)*invLength;
-		out[24]=nonnegative(raw[24],24)*invLength;
-		out[25]=nonnegative(raw[25],25)*invLength;
-		out[26]=nonnegative(raw[26],26)*invLength;
-		out[27]=nonnegative(raw[27],27)*invLength;
-		out[28]=logReadRatio(raw[28],invLogLength,28);
-		out[29]=logReadRatio(raw[29],invLogLength,29);
-		out[30]=logReadRatio(raw[30],invLogLength,30);
-		out[31]=nonnegative(raw[31],31)*invLength;
-		out[32]=nonnegative(raw[32],32)*invLength;
-		out[33]=nonnegative(raw[33],33)*invLength;
+		out[23]=nonnegative(raw[23], 23)*invLength;
+		out[24]=nonnegative(raw[24], 24)*invLength;
+		out[25]=nonnegative(raw[25], 25)*invLength;
+		out[26]=nonnegative(raw[26], 26)*invLength;
+		out[27]=nonnegative(raw[27], 27)*invLength;
+		out[28]=logReadRatio(raw[28], invLogLength, 28);
+		out[29]=logReadRatio(raw[29], invLogLength, 29);
+		out[30]=logReadRatio(raw[30], invLogLength, 30);
+		out[31]=nonnegative(raw[31], 31)*invLength;
+		out[32]=nonnegative(raw[32], 32)*invLength;
+		out[33]=nonnegative(raw[33], 33)*invLength;
 		out[34]=raw[34]*0.02f;
 		out[35]=raw[35]*0.02f;
-		out[36]=nonnegative(raw[36],36)*invLength;
+		out[36]=nonnegative(raw[36], 36)*invLength;
 		validate(out);
 	}
 
@@ -70,8 +74,8 @@ public final class NeuralMapqFeatureTransform {
 		for(int i=from; i<=to; i++){out[i]=raw[i];}
 	}
 
-	private static float logReadRatio(final float value, final float invLogLength, final int index){
-		return (float)Math.log1p(nonnegative(value,index))*invLogLength;
+	private static float logReadRatio(final float value, final float invLogLength,  final int index){
+		return (float)Math.log1p(nonnegative(value, index))*invLogLength;
 	}
 
 	private static float nonnegative(final float value, final int index){
@@ -106,19 +110,19 @@ public final class NeuralMapqFeatureTransform {
 	public static final int WIDTH=37;
 
 	private static final String[] NAMES={
-		"log1p_read_length","rescued","perfect","semiperfect","ambiguous",
-		"map_score_fraction","map_score_per_base_scaled","top_quick_score_fraction",
-		"top_slow_score_fraction","top_final_score_fraction","top_score_per_base",
-		"log1p_retained_site_count","log1p_equal_top_count","second_missing","third_missing",
-		"second_score_fraction","third_score_fraction","top_minus_second_fraction",
-		"top_minus_third_fraction","second_to_top_ratio","third_to_top_ratio",
-		"top_seed_hits_per_base","primary_identity","substitution_events_per_base",
-		"substituted_bases_per_base","insertion_events_per_base","inserted_bases_per_base",
-		"deletion_events_per_base","deleted_bases_log_read_ratio","total_edit_bases_log_read_ratio",
-		"longest_indel_log_read_ratio","gap_count_per_base","clipped_bases_per_base",
-		"alignment_n_bases_per_base","mean_quality_scaled","minimum_quality_scaled",
+		"log1p_read_length", "rescued", "perfect", "semiperfect", "ambiguous",
+		"map_score_fraction", "map_score_per_base_scaled", "top_quick_score_fraction",
+		"top_slow_score_fraction", "top_final_score_fraction", "top_score_per_base",
+		"log1p_retained_site_count", "log1p_equal_top_count", "second_missing", "third_missing",
+		"second_score_fraction", "third_score_fraction", "top_minus_second_fraction",
+		"top_minus_third_fraction", "second_to_top_ratio", "third_to_top_ratio",
+		"top_seed_hits_per_base", "primary_identity", "substitution_events_per_base",
+		"substituted_bases_per_base", "insertion_events_per_base", "inserted_bases_per_base",
+		"deletion_events_per_base", "deleted_bases_log_read_ratio", "total_edit_bases_log_read_ratio",
+		"longest_indel_log_read_ratio", "gap_count_per_base", "clipped_bases_per_base",
+		"alignment_n_bases_per_base", "mean_quality_scaled", "minimum_quality_scaled",
 		"expected_errors_per_base"
 	};
 
-	static {if(NAMES.length!=WIDTH){throw new AssertionError("Transform name width differs: "+NAMES.length);}}
+	static{if(NAMES.length!=WIDTH){throw new AssertionError("Transform name width differs: "+NAMES.length);}}
 }

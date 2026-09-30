@@ -9,13 +9,15 @@ import shared.Tools;
 /**
  * Simple timing utility for measuring elapsed time between program executions.
  * Stores timestamps in files and calculates time differences for performance monitoring.
- * Used within the BBTools alignment framework for benchmarking and execution tracking.
+ * Uses wall-clock milliseconds, not a monotonic timer: clock adjustments can
+ * produce negative elapsed values. A supplied file is overwritten each successful
+ * call, even when printing is disabled. Concurrent callers must coordinate access.
  *
  * @author Brian Bushnell
  * @date 2014
  */
-public class PrintTime {
-	
+public class PrintTime{
+
 	/**
 	 * Program entry point for timing operations.
 	 * Prints current timestamp if no arguments provided.
@@ -25,12 +27,12 @@ public class PrintTime {
 	 * @param args Command-line arguments: [0] = timestamp file path, [1] = optional boolean to control output
 	 */
 	public static void main(String[] args){
-		long millis=System.currentTimeMillis();
-		
+		final long millis=System.currentTimeMillis();
+
 		if(args==null || args.length<1){
 			System.err.println("Time:\t"+millis);
 		}
-		
+
 		if(args!=null && args.length>0){
 			File f=new File(args[0]);
 			if(f.exists()){
@@ -38,9 +40,9 @@ public class PrintTime {
 //				TextFile tf=new TextFile(args[0], false, false);
 //				String s=tf.nextLine();
 //				tf.close();
-				//Trusts the timestamp this tool itself wrote (below); a hand-corrupted file crashes
-				//loud here, which is the intended BBTools fail-loud behavior, not a bug.
-				long old=Long.parseLong(s);
+				// readString appends a newline even when writeString wrote none.
+				// Strip surrounding whitespace; malformed content must still fail before overwrite.
+				long old=Long.parseLong(s.trim());
 				long elapsed=millis-old;
 				if(args.length<2 || Parse.parseBoolean(args[1])){
 					System.out.println("Elapsed:\t"+Tools.format("%.2f", elapsed/1000d));
@@ -53,5 +55,5 @@ public class PrintTime {
 			ReadWrite.writeString(millis+"", args[0]);
 		}
 	}
-	
+
 }

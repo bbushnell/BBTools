@@ -20,12 +20,15 @@ import stream.SamLine;
  * Evaluates mapping accuracy by comparing SAM alignments to known true positions.
  * Parses custom headers to determine correctness using strict and loose criteria.
  * Generates detailed statistics including true/false positives and mapping rates.
+ * Strict/loose criteria refer to both/either endpoint of each read alignment,
+ * not both/either mate. Percentages use the caller's expected read-end count.
+ * Current SYN names provide mate-specific truth via CustomHeader. Configuration
+ * is process-global; calls must be serialized, and main resets per-run counters.
  * @author Brian Bushnell
  * @date June 3, 2025
  */
-public class GradeSamFile {
-	
-	
+public class GradeSamFile{
+
 	/**
 	 * Program entry point that processes SAM files and generates mapping statistics.
 	 * Parses command-line arguments, reads SAM input, and outputs accuracy metrics.
@@ -33,13 +36,14 @@ public class GradeSamFile {
 	 * @param args Command-line arguments including input file, read count, and options
 	 */
 	public static void main(String[] args){
+		resetRunState();
 
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 		String in=null, outl=null, outs=null;
 		String fastq=null;
 		long reads=-1;
@@ -64,8 +68,6 @@ public class GradeSamFile {
 				THRESH2=Integer.parseInt(b);
 			}else if(a.equals("printerr")){
 				printerr=Parse.parseBoolean(b);
-//			}else if(a.equals("ssaha2") || a.equals("subtractleadingclip")){
-//				SamLine.SUBTRACT_LEADING_SOFT_CLIP=Parse.parseBoolean(b);
 			}else if(a.equals("blasr")){
 				BLASR=Parse.parseBoolean(b);
 			}else if(a.equals("q") || a.equals("quality") || a.startsWith("minq")){
@@ -90,75 +92,80 @@ public class GradeSamFile {
 			truthCigars=loadTruthCigars(fastq);
 			System.err.println("Loaded "+truthCigars.size()+" truth CIGARs from "+fastq);
 		}
-		
+
+		//TODO: Probable bug - failures during output construction can leave earlier writers running.
 		if(outl!=null){
 			ffLoose=FileFormat.testOutput(outl, FileFormat.SAM, null, false, true, false, false);
 			tswLoose=new TextStreamWriter(ffLoose);
 			tswLoose.start();
 		}
-		
+
 		if(outs!=null){
 			ffStrict=FileFormat.testOutput(outs, FileFormat.SAM, null, false, true, false, false);
 			tswStrict=new TextStreamWriter(ffStrict);
 			tswStrict.start();
 		}
-		
+
 		if(USE_BITSET){
+			//TODO: Probable bug - allocation failure disables duplicate detection and changes reported accuracy.
 			int x=400000;
 			if(reads>0 && reads<=Integer.MAX_VALUE){x=(int)reads;}
-			try {
+			try{
 				seen=new BitSet(x);
-			} catch (Throwable e) {
+			}catch(Throwable e){
 				seen=null;
 				e.printStackTrace();
 				System.out.println("Did not have enough memory to allocate bitset; duplicate mappings will not be detected.");
 			}
 		}
-		
-		assert(in!=null) : args[0]+".exists() ? "+new File(args[0]).exists();
-		
+
+		assert(in!=null) : "GradeSamFile requires in=<SAM input>";
+
 		if(reads<1){
 			assert(false) : "Number of expected reads was not specified.  Please add a parameter reads=<number> or disable assertions.";
 			System.err.println("Warning - number of expected reads was not specified.");
 		}
-		
+
 		ByteFile tf=ByteFile.makeByteFile(in, false);
-		LineParser1 lp=new LineParser1('\t');
-		
-		byte[] s=null;
-		for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
-			byte c=s[0];
-//			System.out.println(s);
-			if(c!='@'/* && c!=' ' && c!='\t'*/){
-				SamLine sl=new SamLine(lp.set(s));
-				lines++;
-				
-				int id=(parsecustom && seen!=null ? ((((int)sl.parseNumericId())<<1)|sl.pairnum()) : (int)lines);
-//				System.out.println(sl.parseNumericId()+", "+sl.pairnum()+", "+id+"");
-//				if(id%500==10){assert(false);}
-				if(sl.nonSecondary() && (!parsecustom || seen==null || !seen.get(id))){
-					Read r=sl.toRead(parsecustom);
-					if(seen!=null){seen.set(id);}
-					if(parsecustom && r.originalSite==null){
-						assert(false);
-						System.err.println("Turned off custom parsing.");
-						parsecustom=false;
+		try{
+			LineParser1 lp=new LineParser1('\t');
+
+			byte[] s=null;
+			for(s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
+				byte c=s[0];
+				if(c!='@'/* && c!=' ' && c!='\t'*/){
+					SamLine sl=new SamLine(lp.set(s));
+					lines++;
+
+					//TODO: Probable bug - narrowing and shifting a long numeric ID can alias another read or become negative.
+					int id=(parsecustom && seen!=null ? ((((int)sl.parseNumericId())<<1)|sl.pairnum()) : (int)lines);
+					if(sl.nonSecondary() && (!parsecustom || seen==null || !seen.get(id))){
+						Read r=sl.toRead(parsecustom);
+						if(seen!=null){seen.set(id);}
+						if(parsecustom && r.originalSite==null){
+							assert(false);
+							System.err.println("Turned off custom parsing.");
+							parsecustom=false;
+						}
+						//System.out.println(r);
+						calcStatistics1(r, sl);
+					}else{
+						secondary++;
 					}
-					//System.out.println(r);
-					calcStatistics1(r, sl);
-				}else{
-					secondary++;
 				}
 			}
+		}finally{
+			boolean error=tf.close();
+			if(tswLoose!=null){error|=tswLoose.poisonAndWait();}
+			if(tswStrict!=null){error|=tswStrict.poisonAndWait();}
+			if(error){throw new RuntimeException("I/O failure while grading "+in+"; output/statistics may be incomplete");}
 		}
 
-		if(tswLoose!=null){tswLoose.poisonAndWait();}
-		if(tswStrict!=null){tswStrict.poisonAndWait();}
-		
 		if(reads<-1){reads=primary;}
-		
+
 		double tmult=100d/reads;
-		
+
 		double mappedB=mapped*tmult;
 		double retainedB=mappedRetained*tmult;
 		double truePositiveStrictB=truePositiveStrict*tmult;
@@ -168,7 +175,7 @@ public class GradeSamFile {
 		double falseNegativeB=(reads-mapped)*tmult;
 		double discardedB=discarded*tmult;
 		double ambiguousB=ambiguous*tmult;
-		
+
 		System.out.println();
 		System.out.println("Mapping Statistics for "+args[0]+":");
 		System.out.println("primary alignments:    \t"+primary+" found of "+reads+" expected");
@@ -197,6 +204,7 @@ public class GradeSamFile {
 			System.out.println(Tools.format("indels correct:        \t"+(cigarIndelsCorrect*cmult<10?" ":"")+"%.3f", cigarIndelsCorrect*cmult)+"%");
 			System.out.println(Tools.format("indels wrong count:    \t"+(cigarIndelsWrongCount*cmult<10?" ":"")+"%.3f", cigarIndelsWrongCount*cmult)+"%");
 			System.out.println(Tools.format("indels wrong size:     \t"+(cigarIndelsWrongSize*cmult<10?" ":"")+"%.3f", cigarIndelsWrongSize*cmult)+"%");
+			//TODO: Probable bug - missing-truth fraction uses compared, not retained, as denominator and can exceed 100%.
 			System.out.println(Tools.format("no truth cigar:        \t"+((mappedRetained-cigarCompared)*cmult<10?" ":"")+"%.3f", (mappedRetained-cigarCompared)*cmult)+"%");
 		}
 
@@ -222,20 +230,17 @@ public class GradeSamFile {
 			System.err.println();
 			System.err.println(Tools.format("false negative:        \t"+(falseNegativeB<10?" ":"")+"%.3f", falseNegativeB)+"%");
 		}
-		
-		
+
 	}
-	
-	
+
 	public static void calcStatistics1(final Read r, SamLine sl){
-		
+
 		primary++;
-		
+
 		if(r.discarded()/* || r.mapScore==0*/){
 			discarded++;
 			unmapped++;
 		}else if(r.ambiguous()){
-//			assert(r.mapped()) : "\n"+r+"\n"+sl+"\n";
 			if(r.mapped()){mapped++;}
 			ambiguous++;
 		}else if(r.mapScore<1){
@@ -249,57 +254,15 @@ public class GradeSamFile {
 			}else{
 				mapped++;
 				mappedRetained++;
-				
+
 				if(parsecustom){
 					CustomHeader h=new CustomHeader(sl.qname, sl.pairnum());
 					boolean strict=isCorrectHit(sl, h);
 					boolean loose=isCorrectHitLoose(sl, h);
 
-//					System.err.println(sl.strand()+", "+sl.start(true, true)+", "+sl.stop(sl.start(true, true), true, true)+", "+sl.rnameS());
-//					System.err.println(h.strand+", "+h.start+", "+h.stop+", "+h.rname);
-//					System.err.println(strict+", "+loose);
-//					System.err.println();
-//					assert(false);
-					
-//					SiteScore os=r.originalSite;
-//					System.out.println("A1: "+os);
-//							assert(os!=null);
-//					final int trueChrom=os.chrom;
-//					final byte trueStrand=os.strand;
-//					final int trueStart=os.start;
-//					final int trueStop=os.stop;
-//					//						System.err.println();
-//					//						System.err.println(sl);
-//					//						System.err.println();
-//					//						System.err.println(r);
-//					//						System.err.println();
-//					SiteScore ss=new SiteScore(r.chrom, r.strand(), r.start, r.stop, 0, 0);
-//					byte[] originalContig=sl.originalContig();
-//					if(BLASR){
-//						originalContig=(originalContig==null || Tools.indexOf(originalContig, (byte)'/')<0 ? originalContig :
-//							KillSwitch.copyOfRange(originalContig, 0, Tools.lastIndexOf(originalContig, (byte)'/')));
-//					}
-//					int cstart=sl.originalContigStart();
-//
-//					//						System.out.println("A2: "+trueStart+", "+cstart);
-//					boolean strict=isCorrectHit(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH, originalContig, sl.rname(), cstart, r);
-//					boolean loose=isCorrectHitLoose(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH+THRESH2, originalContig, sl.rname(), cstart);
-
-
-					//				if(!strict){
-					//					System.out.println(ss+", "+new String(originalContig)+", "+new String(sl.rname()));
-					//					assert(false);
-					//				}
-
-					//				System.out.println("loose = "+loose+" for "+r.toText());
-
 					if(loose){
-						//					System.err.println("TPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-						//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 						truePositiveLoose++;
 					}else{
-						//					System.err.println("FPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-						//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 						falsePositiveLoose++;
 						if(tswLoose!=null){
 							if(ffLoose.samOrBam()){
@@ -335,7 +298,7 @@ public class GradeSamFile {
 		}
 
 	}
-	
+
 	/**
 	 * Determines if an alignment exactly matches the true position (strict criteria).
 	 * Checks strand, start position, stop position, and reference sequence name.
@@ -353,7 +316,7 @@ public class GradeSamFile {
 		if(!h.rname.equals(sl.rnameS())){return false;}
 		return true;
 	}
-	
+
 	/**
 	 * Determines if an alignment approximately matches the true position (loose criteria).
 	 * Uses THRESH2 tolerance for start/stop position differences while requiring exact strand/reference match.
@@ -369,48 +332,7 @@ public class GradeSamFile {
 		if(!h.rname.equals(sl.rnameS())){return false;}
 		return(absdif(h.start, start)<=THRESH2 || absdif(h.stop, stop)<=THRESH2);
 	}
-	
-//	public static boolean isCorrectHit(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh,
-//			byte[] originalContig, byte[] contig, int cstart, Read r){
-//		
-//		final int cstop=cstart+trueStop-trueStart;
-//		
-////		System.out.println("\n"+r.id);
-////		System.out.println("         \tstrand"+/*"\tchrom"+*/"\tstart\tstop\t");//+"scaf");
-////		System.out.println("Original:\t"+trueStrand+/*"\t"+trueChrom+*/"\t"+trueStart+"\t"+trueStop+"\t");//+new String(originalContig));
-////		System.out.println("Mapped:  \t"+ss.strand+/*"\t"+ss.chrom+*/"\t"+ss.start+"\t"+ss.stop+"\t");//+new String(contig));
-////		System.out.println("cs:      \t"+trueStrand+/*"\t"+trueChrom+*/"\t"+cstart+"\t"+cstop+"\t");//+new String(contig));
-//		
-//		if(ss.strand!=trueStrand){return false;}
-//		if(originalContig!=null){
-//			if(!Arrays.equals(originalContig, contig)){return false;}
-//		}else{
-//			if(ss.chrom!=trueChrom){return false;}
-//		}
-//
-//		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-//		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-////		return (absdif(ss.start, trueStart)<=thresh && absdif(ss.stop, trueStop)<=thresh);
-//		return (absdif(ss.start, cstart)<=thresh && absdif(ss.stop, cstop)<=thresh);
-//	}
-//	
-//	
-//	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh,
-//			byte[] originalContig, byte[] contig, int cstart){
-//		if(ss.strand!=trueStrand){return false;}
-//		if(originalContig!=null){
-//			if(!Arrays.equals(originalContig, contig)){return false;}
-//		}else{
-//			if(ss.chrom!=trueChrom){return false;}
-//		}
-//
-//		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-//		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-//		int cstop=cstart+trueStop-trueStart;
-////		return (absdif(ss.start, trueStart)<=thresh || absdif(ss.stop, trueStop)<=thresh);
-//		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
-//	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------      CIGAR grading          ----------------*/
 	/*--------------------------------------------------------------*/
@@ -418,6 +340,8 @@ public class GradeSamFile {
 	/** Load truth CIGARs from FASTQ headers into a HashMap keyed by full read name
 	 *  (including pairnum suffix, matching SAM QNAME). */
 	static HashMap<String, byte[]> loadTruthCigars(String path){
+		//TODO: Probable bug - exceptions bypass reader close; paired SYN names also need mate-specific match selection.
+		//The current split below always takes the first mate's field, and its full-header key may differ from SAM QNAME.
 		HashMap<String, byte[]> map=new HashMap<>();
 		TextFile tf=new TextFile(path);
 		String line;
@@ -478,7 +402,7 @@ public class GradeSamFile {
 		return new int[]{insOpens, insTotal, delOpens, delTotal};
 	}
 
-	/** Compare a SAM alignment's CIGAR against the truth CIGAR. */
+	/** Compares indel event counts and total lengths only; positions, ordering and substitutions are not checked. */
 	static void gradeCigarAlignment(SamLine sl, byte[] truthCigar){
 		cigarCompared++;
 		int[] samIndels=samCigarIndels(sl.cigar);
@@ -498,8 +422,20 @@ public class GradeSamFile {
 
 	/*--------------------------------------------------------------*/
 
-	private static final int absdif(int a, int b){
-		return a>b ? a-b : b-a;
+	private static final long absdif(int a, int b){
+		return a>b ? (long)a-b : (long)b-a;
+	}
+
+	/** Clears results and completed-run resource references without changing caller configuration. */
+	private static void resetRunState(){
+		truePositiveStrict=falsePositiveStrict=truePositiveLoose=falsePositiveLoose=0;
+		mapped=mappedRetained=unmapped=discarded=ambiguous=0;
+		lines=primary=secondary=0;
+		cigarCompared=cigarIndelsCorrect=cigarIndelsWrongCount=cigarIndelsWrongSize=0;
+		seen=null;
+		truthCigars=null;
+		ffLoose=ffStrict=null;
+		tswLoose=tswStrict=null;
 	}
 
 	public static FileFormat ffLoose=null;
@@ -507,23 +443,24 @@ public class GradeSamFile {
 	public static TextStreamWriter tswLoose=null;
 	public static TextStreamWriter tswStrict=null;
 
+	//TODO: Probable bug - these int counters can overflow on very large read sets; expected reads is a long.
 	public static int truePositiveStrict=0;
 	public static int falsePositiveStrict=0;
-	
+
 	public static int truePositiveLoose=0;
 	public static int falsePositiveLoose=0;
 
 	public static int mapped=0;
 	public static int mappedRetained=0;
 	public static int unmapped=0;
-	
+
 	public static int discarded=0;
 	public static int ambiguous=0;
 
 	public static long lines=0;
 	public static long primary=0;
 	public static long secondary=0;
-	
+
 	public static int minQuality=3;
 
 	public static boolean parsecustom=true;

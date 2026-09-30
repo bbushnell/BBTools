@@ -1,15 +1,26 @@
 package align2;
 
-/** Conservative V1 reference-size routing for separately calibrated LUTs. */
-public final class NeuralMapqReferenceScale {
+/**
+ * Routes total reference bases to the calibrated single-end reference regime.
+ * BBMapS supplies Data.numBases, not the length of an individual chromosome.
+ * The interval between small and large references is intentionally unsupported;
+ * callers retain heuristic MAPQ there instead of extrapolating a calibration.
+ *
+ * @author Collei
+ */
+public final class NeuralMapqReferenceScale{
 	private NeuralMapqReferenceScale(){}
+
+	/** Inclusive size boundaries; zero/negative sizes and the middle interval return UNSUPPORTED. */
 	public static int regime(final long referenceBases){
 		if(referenceBases<1){return UNSUPPORTED;}
 		if(referenceBases<=SMALL_MAX_BASES){return SMALL;}
 		if(referenceBases>=LARGE_MIN_BASES){return LARGE;}
 		return UNSUPPORTED;
 	}
-	public static final int UNSUPPORTED=0,SMALL=1,LARGE=2;
-	public static final long SMALL_MAX_BASES=20_000_000L,LARGE_MIN_BASES=1_000_000_000L;
-	public static final int LARGE_MAPQ_CAP=41,SMALL_MAPQ_CAP=43;
+
+	public static final int UNSUPPORTED=0, SMALL=1, LARGE=2;
+	public static final long SMALL_MAX_BASES=20_000_000L, LARGE_MIN_BASES=1_000_000_000L;
+	/** Historical V1 caps. Current inference obtains length-specific caps from NeuralMapqLengthCaps. */
+	public static final int LARGE_MAPQ_CAP=41, SMALL_MAPQ_CAP=43;
 }

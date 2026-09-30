@@ -10,13 +10,15 @@ import stream.SiteScore;
 /**
  * Utility class for handling gaps in sequence alignments within the BBTools framework.
  * Provides methods for gap array processing, validation, merging, and length calculations.
- * Gaps are represented as integer arrays with alternating start/stop coordinates.
+ * Arrays contain inclusive start/stop pairs of retained reference spans, not
+ * the omitted intervals themselves. Between adjacent spans, the missing bases
+ * number nextStart-previousStop-1. Helpers may mutate and return their input.
  *
  * @author Brian Bushnell
  * @date 2013
  */
-public class GapTools {
-	
+public class GapTools{
+
 	/**
 	 * Fixes gap array inconsistencies within a SiteScore object.
 	 * Updates the SiteScore's gaps array to ensure proper coordinate ordering and boundaries.
@@ -28,7 +30,7 @@ public class GapTools {
 		ss.gaps=r;
 		return r;
 	}
-	
+
 	/**
 	 * Converts a gap array to string representation with tilde separators.
 	 * Returns null if input array is null.
@@ -44,11 +46,14 @@ public class GapTools {
 		}
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Fixes gap array inconsistencies within specified coordinate boundaries.
-	 * Ensures gap coordinates are properly ordered, within bounds, and removes invalid gaps.
-	 * Constrains all coordinates to the range [a, b] and maintains monotonic ordering.
+	 * Clips retained spans to [a,b] and makes their coordinates nondecreasing in place.
+	 * Returns the original array when unchanged; minGap merging runs only when
+	 * clipping/order repair leaves a zero-length coordinate pair. This is not a
+	 * general sorter or unconditional close-gap merger. One-base spans have equal
+	 * endpoints and also trigger the historical merge path.
 	 *
 	 * @param a Start coordinate boundary
 	 * @param b End coordinate boundary
@@ -60,11 +65,11 @@ public class GapTools {
 //		System.err.println("fixGaps Input: "+a+", "+b+", "+Arrays.toString(gaps)+", "+minGap);
 //		assert(false) : "fixGaps called!";
 		if(verbose){System.err.println("fixGaps a: "+Arrays.toString(gaps));}
-		assert(b>a);
+		assert(b>a) : "Gap repair needs increasing alignment boundaries: "+a+".."+b;
 		if(gaps==null){return null;}
-		assert(gaps.length>=4);
+		assert(gaps.length>=4 && (gaps.length&1)==0) : "Retained reference spans require at least two complete start/stop pairs; length="+gaps.length;
 		if(verbose){System.err.println("fixGaps b: "+Arrays.toString(gaps));}
-		
+
 		int g0=gaps[0];
 		int gN=gaps[gaps.length-1];
 		if(!Tools.overlap(a, b, g0, gN)){return null;}
@@ -76,24 +81,23 @@ public class GapTools {
 			if(gaps[i]<a){gaps[i]=a; changed++;}
 			else if(gaps[i]>b){gaps[i]=b; changed++;}
 		}
-		
+
 		if(verbose){System.err.println("fixGaps c0: "+Arrays.toString(gaps));}
-		
+
 		for(int i=1; i<gaps.length; i++){
 			if(gaps[i-1]>gaps[i]){gaps[i]=gaps[i-1]; changed++;}
 		}
-		
+
 		if(changed==0){return gaps;}
-		
+
 		if(verbose){System.err.println("fixGaps c1: "+Arrays.toString(gaps));}
-		
+
 		gaps[0]=a;
 		gaps[gaps.length-1]=b;
 		if(verbose){System.err.println("fixGaps d: "+Arrays.toString(gaps));}
-		
+
 		int remove=0;
-		//Relies on gaps.length being EVEN (alternating start/stop pairs): the gaps[i+1] read would be
-		//out of bounds for an odd-length array. assert(gaps.length>=4) above checks size, not parity.
+		//Equal endpoints denote a one-base inclusive span; preserve legacy merge triggering.
 		for(int i=0; i<gaps.length; i+=2){
 			gaps[i]=Tools.constrict(gaps[i], a, b);
 			gaps[i+1]=Tools.constrict(gaps[i+1], a, b);
@@ -102,10 +106,10 @@ public class GapTools {
 		if(verbose){System.err.println("fixGaps e: "+Arrays.toString(gaps));}
 		if(remove==0){return gaps;}
 		if(verbose){System.err.println("fixGaps f: "+Arrays.toString(gaps));}
-		
+
 		return fixGaps2(a, b, gaps, minGap);
 	}
-	
+
 	/**
 	 * Calculates genome reference length accounting for gaps in a SiteScore.
 	 * Delegates to coordinate-based calculation method.
@@ -115,11 +119,12 @@ public class GapTools {
 	public static final int calcGrefLen(SiteScore ss){
 		return calcGrefLen(ss.start(), ss.stop(), ss.gaps);
 	}
-	
+
 	/**
 	 * Calculates genome reference length accounting for gap compression.
 	 * Computes total length minus gap symbol savings based on GAPLEN compression ratio.
-	 * May have off-by-one errors as noted in source comments.
+	 * Matches makeGref's compression of bases strictly between retained spans.
+	 * The outer [a,b] interval may include padding outside the gap endpoints.
 	 *
 	 * @param a Start coordinate
 	 * @param b End coordinate
@@ -138,7 +143,7 @@ public class GapTools {
 		assert(total>0) : "total="+total+", a="+a+", b="+b+", gaps="+Arrays.toString(gaps);
 		return total;
 	}
-	
+
 	/**
 	 * Calculates buffer space needed for alignment with gaps.
 	 * Accounts for gap compression savings and required buffer padding.
@@ -161,9 +166,11 @@ public class GapTools {
 		assert(total>0) : a+", "+b+", "+Arrays.toString(gaps);
 		return total;
 	}
-	
+
 	/**
-	 * Calculates compressed gap length between two coordinates.
+	 * Calculates compressed length of a raw span of length b-a (not b-a-1).
+	 * This legacy utility therefore has a different endpoint convention from
+	 * calcNumGapSymbols,which receives retained-span endpoints.
 	 * Uses GAPLEN compression for gaps exceeding MINGAP threshold.
 	 * Includes GAPBUFFER2 padding plus compressed representation.
 	 *
@@ -182,25 +189,27 @@ public class GapTools {
 		len+=(div+rem);
 		return len;
 	}
-	
+
 	/**
-	 * Calculates number of gap symbols needed for coordinate span.
-	 * Subtracts GAPBUFFER2 padding and divides by GAPLEN compression ratio.
+	 * Counts gap symbols between the previous retained stop a and next start b.
+	 * MultiStateAligner11ts.makeGref excludes both endpoints,keeps GAPBUFFER bases
+	 * on each side,and replaces each remaining complete GAPLEN run with one symbol.
 	 *
 	 * @param a Start coordinate
 	 * @param b End coordinate (must be greater than a)
 	 * @return Number of gap symbols required, minimum 0
 	 */
 	public static int calcNumGapSymbols(int a, int b){
-		assert(b>a);
-		int gap=b-a-Shared.GAPBUFFER2;
+		assert(b>a) : "Adjacent retained spans must have increasing gap endpoints: "+a+", "+b;
+		int gap=b-a-1-Shared.GAPBUFFER2;
 		return Tools.max(0, gap/Shared.GAPLEN);
 	}
-	
+
 	/**
-	 * Advanced gap fixing algorithm that merges overlapping or closely spaced gaps.
+	 * Merges retained spans whose endpoint distance is at most minGap.
 	 * Converts gaps to Range objects, merges ranges separated by less than minGap,
-	 * then converts back to gap array format. Handles null range cleanup.
+	 * then converts back to paired endpoints. Input must already be ordered;
+	 * this method does not clip to a/b,which are used only for diagnostics.
 	 *
 	 * @param a Start coordinate boundary
 	 * @param b End coordinate boundary
@@ -216,13 +225,13 @@ public class GapTools {
 		for(int i=1; i<list.size(); i++){
 			Range r1=list.get(i-1);
 			Range r2=list.get(i);
-			
+
 			if(verbose){
 				System.err.println("\nRound "+i);
 				System.err.println("r1="+r1);
 				System.err.println("r2="+r2);
 			}
-			
+
 			if(r1!=null){
 				if(r2.a-r1.b<=minGap){
 					r2.a=Tools.min(r1.a, r2.a);
@@ -230,20 +239,20 @@ public class GapTools {
 					list.set(i-1, null);
 				}
 			}
-			
+
 			if(verbose){
 				System.err.println("->");
 				System.err.println(list.get(i-1));
 				System.err.println(list.get(i));
 			}
-			
+
 		}
 		if(verbose){System.err.println("After fixing: "+list);}
 		Tools.condenseStrict(list);
 		if(verbose){System.err.println("After condensing: "+list);}
-		
+
 		if(list.size()<2){return null;}
-		
+
 		int[] gaps2;
 		if(gaps.length==list.size()*2){
 			gaps2=gaps;
@@ -258,7 +267,7 @@ public class GapTools {
 		if(verbose){System.err.println("Final gaps: "+Arrays.toString(gaps2));}
 		return gaps2;
 	}
-	
+
 	/**
 	 * Converts gap array to list of Range objects.
 	 * Creates Range objects from alternating start/stop coordinates in gaps array.
@@ -266,18 +275,19 @@ public class GapTools {
 	 * @return ArrayList of Range objects representing gaps
 	 */
 	public static final ArrayList<Range> toList(int[] gaps){
+		assert((gaps.length&1)==0) : "Range construction consumes complete start/stop pairs; length="+gaps.length;
 		ArrayList<Range> list=new ArrayList<Range>(gaps.length/2);
 		for(int i=0; i<gaps.length; i+=2){list.add(new Range(gaps[i], gaps[i+1]));}
 		return list;
 	}
-	
+
 	/**
 	 * Represents a coordinate range with start and end positions.
 	 * Used internally for gap processing and merging operations.
 	 * Implements Comparable for sorting by start then end coordinates.
 	 */
 	public static class Range implements Comparable<Range>{
-		
+
 		/**
 		 * Constructs a Range with specified start and end coordinates.
 		 * Asserts that end coordinate is not less than start coordinate.
@@ -289,7 +299,7 @@ public class GapTools {
 			a=a_;
 			b=b_;
 		}
-		
+
 		/**
 		 * Compares this Range to another Range for ordering.
 		 * Primary sort by start coordinate, secondary sort by end coordinate.
@@ -298,14 +308,14 @@ public class GapTools {
 		 */
 		@Override
 		public int compareTo(Range r){
-			//Overflow-safe: a,b are non-negative genome coordinates, so the subtractions stay in int range.
-			//Contract is clean — equals() delegates to compareTo()==0, and hashCode() is fenced (assert false).
+			//Safe for nonnegative genomic coordinates. TODO: constructor permits signed
+			//coordinates; subtraction can overflow across the full signed-int domain.
 			int x;
 			x=a-r.a;
 			if(x!=0){return x;}
 			return b-r.b;
 		}
-		
+
 		/** Returns string representation of Range as (start,end).
 		 * @return String in format "(a,b)" where a and b are coordinates */
 		@Override
@@ -321,15 +331,17 @@ public class GapTools {
 		 */
 		@Override
 		public boolean equals(Object other){return equals((Range)other);}
+		//TODO: Legacy equality throws for null/unrelated types; hashCode under -da
+		//is identity-based despite coordinate equality. Internal merging does not hash ranges.
 		public boolean equals(Range other){return compareTo(other)==0;}
-		
+
 		/**
 		 * Hash code method that should not be used.
 		 * Throws assertion error to prevent Range objects from being hashed.
 		 * @return Never returns; always throws AssertionError
 		 */
 		@Override
-		public int hashCode() {
+		public int hashCode(){
 			assert(false) : "This class should not be hashed.";
 			return super.hashCode();
 		}
@@ -337,7 +349,7 @@ public class GapTools {
 		public int a;
 		public int b;
 	}
-	
+
 	public static boolean verbose=false;
-	
+
 }

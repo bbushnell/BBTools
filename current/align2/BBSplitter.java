@@ -26,12 +26,19 @@ import stream.SiteScore;
 import tracker.ReadStats;
 
 /**
+ * Classic splitter entry point, named-reference preparation, routing and counters.
+ * BBMapSplitterS also uses the reference and routing helpers, with its own Writer
+ * outputs. Mutable configuration is process-global; simultaneous independent
+ * splitter runs in one JVM are unsupported. Merged scaffold headers encode
+ * comma-separated set names followed by '$' and the original scaffold name.
  * @author Brian Bushnell
  * @date Mar 19, 2013
  *
  */
-public class BBSplitter {
-	
+public class BBSplitter{
+
+	/** Prepares references and dispatches the requested classic mapper, then resets
+	 * local tables after normal completion. BBMapS uses BBMapSplitterS instead. */
 	public static void main(String[] args){
 		if(Shared.COMMAND_LINE==null){
 			Shared.COMMAND_LINE=(args==null ? null : args.clone());
@@ -55,10 +62,10 @@ public class BBSplitter {
 			throw new RuntimeException();
 		}
 //		Data.sysout.println("\nTotal time:     \t"+t);
-		
+
 		clearStatics();
 	}
-	
+
 	/**
 	 * Processes command line arguments and prepares them for mapping.
 	 * Parses reference file specifications, creates merged reference files,
@@ -69,45 +76,40 @@ public class BBSplitter {
 	 */
 	public static String[] processArgs(String[] args){
 		{//Preparse block for help, config files, and outstream
-			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
+			PreParser pp=new PreParser(args, new Object(){ }.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 //		if(ReadWrite.ZIPLEVEL<2){ReadWrite.ZIPLEVEL=2;} //Should be fine for a realistic number of threads, except in perfect mode with lots of sites and a small index.
 		String[] oldargs=args;
 		args=remakeArgs(args);
 		if(args!=oldargs){
 			Data.sysout.println("Converted arguments to "+Arrays.toString(args));
 		}
-		
+
 		AbstractMapper.DEFAULT_OUTPUT_FORMAT=FileFormat.FASTQ;
 		ReadWrite.ZIPLEVEL=2;
-		
-		Timer t=new Timer();
-		
-		
-		int ziplevel=-1;
+
 		int build=1;
-		
+
 		LinkedHashSet<String> nameSet=new LinkedHashSet<String>();
 		HashMap<String, LinkedHashSet<String>> table=new HashMap<String, LinkedHashSet<String>>();
-		
+
 		ArrayList<String> unparsed=new ArrayList<String>();
-		
+
 		String basename=null;
-		
+
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=arg.split("=", 2);
 			String a0=split[0];
 			String a=a0.toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
-			if(a.equals("blacklist") || a.equals("ref_blacklist")){a="ref_blacklist";}
-			if(a.equals("whitelist") || a.equals("ref_whitelist")){a="ref_whitelist";}
-			if(a.equals("ref") || a.equals("reference")){a="ref_ref";}
+			if(a.equals("blacklist")){a=a0="ref_blacklist";}
+			if(a.equals("whitelist")){a=a0="ref_whitelist";}
 
 			if(b!=null && (a.startsWith("ref_"))){
 				String setName=a0.substring(4);
@@ -116,25 +118,23 @@ public class BBSplitter {
 				nameSet.add(setName);
 				if(!table.containsKey(setName)){table.put(setName, new LinkedHashSet<String>());}
 				LinkedHashSet<String> set=table.get(setName);
-				
+
 				File f;
 				if((f=new File(b)).exists()){
-					try {
+					try{
 						String s=f.getCanonicalPath();
 						set.add(s);
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
+					}catch(IOException e){
+						throw new IllegalArgumentException("Cannot resolve reference path: "+f, e);
 					}
 				}else{
 					for(String x : b.split(",")){
 						f=new File(x);
 						if(f.exists()){
-							try {
+							try{
 								set.add(f.getCanonicalPath());
-							} catch (IOException e) {
-								// TODO Auto-generated catch block
-								e.printStackTrace();
+							}catch(IOException e){
+								throw new IllegalArgumentException("Cannot resolve reference path: "+f, e);
 							}
 						}else{
 							assert(x.startsWith("stdin")) : "Can't find file "+x;
@@ -179,12 +179,12 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		String refname=mergeReferences(nameSet, table, build);
 		ArrayList<String> outnames=gatherLists(nameSet, basename);
 //		unparsed.add("scaffoldprefixes=true");
 		unparsed.add("ref="+refname);
-		
+
 		String[] margs=new String[unparsed.size()+(outnames==null ? 0 : outnames.size())];
 		int idx=0;
 		for(int i=0; i<unparsed.size(); i++){
@@ -197,11 +197,11 @@ public class BBSplitter {
 				idx++;
 			}
 		}
-		
+
 		return margs;
 	}
-	
-	
+
+
 	/**
 	 * Remakes arguments array by extracting mapping mode and reference specifications.
 	 * Converts single reference argument into multiple ref_name arguments.
@@ -209,17 +209,17 @@ public class BBSplitter {
 	 * @return Reconstructed arguments with expanded reference specifications
 	 */
 	public static String[] remakeArgs(String[] args){
-		
+
 		LinkedHashSet<String> set=new LinkedHashSet<String>();
 		HashMap<String,LinkedHashSet<String>> map=new HashMap<String,LinkedHashSet<String>>();
 		int removed=0;
-		
+
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
-			final String[] split=arg.split("=");
+			final String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
-			
+			String b=split.length>1 && !split[1].isEmpty() ? split[1] : null;
+
 			if(a.equals("mapmode") && b!=null){
 				args[i]=null;
 				removed++;
@@ -228,7 +228,7 @@ public class BBSplitter {
 				else if(b.equalsIgnoreCase("pacbio") || b.equalsIgnoreCase("pb") || b.equalsIgnoreCase("bp")){MAP_MODE=MAP_PACBIO;}
 				else if(b.equalsIgnoreCase("pacbioskimmer") || b.equalsIgnoreCase("pbs") || b.equalsIgnoreCase("bps")){MAP_MODE=MAP_PACBIOSKIMMER;}
 				else{throw new RuntimeException("Unknown mode: "+b);}
-			}else if(a.equals("ref") && b!=null){
+			}else if((a.equals("ref") || a.equals("reference")) && b!=null && !b.equalsIgnoreCase("null")){
 				args[i]=null;
 				removed++;
 				processRef(b, set, map);
@@ -237,7 +237,7 @@ public class BBSplitter {
 		if(set.isEmpty() && removed==0){return args;}
 		if(MAP_MODE==MAP_ACC){removed--;}
 		String[] args2=new String[args.length+set.size()-removed];
-		
+
 		int i=0, j=0;
 		if(MAP_MODE==MAP_ACC){
 			args2[j]="minratio=0.4"; //Increase sensitivity in accurate mode
@@ -264,7 +264,7 @@ public class BBSplitter {
 		}
 		return args2;
 	}
-	
+
 	/**
 	 * Processes reference file paths and extracts base names.
 	 * Strips compression extensions and file extensions to create reference set names.
@@ -274,7 +274,7 @@ public class BBSplitter {
 	 * @param map Map from reference names to file paths
 	 */
 	private static void processRef(String b, LinkedHashSet<String> set, HashMap<String,LinkedHashSet<String>> map){
-		
+
 		ArrayList<String> files=(ArrayList<String>)Tools.getFileOrFiles(b, null, true, false, false, false);
 		for(String file : files){
 			String name=file.replace('\\', '/');
@@ -295,7 +295,7 @@ public class BBSplitter {
 			list.add(file);
 		}
 	}
-	
+
 	/**
 	 * Generates output file arguments based on reference names and basename pattern.
 	 * Replaces '%' in basename pattern with reference names to create output files.
@@ -309,17 +309,22 @@ public class BBSplitter {
 		ArrayList<String> args=new ArrayList<String>();
 		for(String name : nameSet){
 			if(basename!=null){
-				args.add("out_"+name+"="+(basename.replaceFirst("%", name)));
+				args.add("out_"+name+"="+basename.replaceFirst("%", java.util.regex.Matcher.quoteReplacement(name)));
 			}
 		}
 		return args;
 	}
-	
-	
+
+
 	/**
 	 * Merges multiple reference files into a single indexed reference.
 	 * Creates scaffold name prefixes to track which reference each scaffold came from.
-	 * Caches merged references to avoid rebuilding identical combinations.
+	 * Reuses the name-keyed cache for an existing build. Changing its ordered
+	 * file/name lists requires explicit references and rebuild=t; otherwise the
+	 * old merged sequence could be returned after replacing only the list files.
+	 * A reference-free invocation can reuse a cache but cannot reconstruct its
+	 * routing prefixes: the legacy lists do not record file-to-set membership.
+	 * This method does not itself build the mapper index.
 	 *
 	 * @param nameSet Set of reference names to merge
 	 * @param nameToFileTable Map from reference names to their file paths
@@ -332,12 +337,15 @@ public class BBSplitter {
 //		nameSet.remove("whitelist");
 		addNames(fnames, nameToFileTable, "whitelist");
 		for(String s : nameSet){
+			//TODO: Probable bug - mixed-case ref_Blacklist/ref_Whitelist are excluded
+			//here but the special addNames lookups use lowercase keys only.
 			if(!s.equalsIgnoreCase("blacklist") && !s.equalsIgnoreCase("whitelist")){
 				addNames(fnames, nameToFileTable, s);
 			}
 		}
 		addNames(fnames, nameToFileTable, "blacklist");
-		
+		final boolean suppliedReferences=!fnames.isEmpty();
+
 		final HashMap<String, LinkedHashSet<String>> fileToNameTable=new HashMap<String, LinkedHashSet<String>>();
 		for(String name : nameSet){
 			LinkedHashSet<String> files=nameToFileTable.get(name);
@@ -352,13 +360,13 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		final String root=Data.ROOT_GENOME+build;
 		{
 			File f=new File(root);
 			if(!f.exists()){f.mkdirs();}
 		}
-		
+
 		{
 			final String reflist=root+"/reflist.txt";
 			final String namelist=root+"/namelist.txt";
@@ -370,7 +378,7 @@ public class BBSplitter {
 				TextFile tf=new TextFile(reflist, false);
 				oldrefs=tf.toStringLines();
 				tf.close();
-				
+
 				tf=new TextFile(namelist, false);
 				oldnames=tf.toStringLines();
 				tf.close();
@@ -381,17 +389,28 @@ public class BBSplitter {
 				fl.addAll(fnames);
 				ArrayList<String> nl=new ArrayList<String>(nameSet.size());
 				nl.addAll(nameSet);
-				//TODO: Compare old to new
+				if(oldrefs!=null && !forceRebuild &&
+						(!fl.equals(Arrays.asList(oldrefs)) || !nl.equals(Arrays.asList(oldnames)))){
+					throw new IllegalArgumentException("Reference files or set names differ from build "+build+
+							". Use a different build, or supply the full references with rebuild=t. "+
+							"The existing merged reference and lists have not been changed.");
+				}
+				//TODO: Probable bug - these legacy lists cannot detect changed file contents or
+				//reassigned memberships when ordered files and names stay identical. The cache
+				//key below contains names only. Such changes still require explicit rebuild=t.
 			}else{
 				assert(oldrefs!=null) : "No reference specified, and none exists.  Please regenerate the index.";
 				for(String s : oldrefs){fnames.add(s);}
 
 				assert(oldnames!=null) : "No reference specified, and none exists.  Please regenerate the index.";
 				for(String s : oldnames){nameSet.add(s);}
-				
+
 				writeReflist=false;
 			}
 			if(writeReflist){
+				//TODO: Probable bug - metadata is written before the merged FASTA succeeds,
+				//append can duplicate it, and these writer error flags are ignored. A failed
+				//merge can leave a cache that the name-only existence check later accepts.
 				{
 //					assert(false) : fnames;
 //					assert(fnames.size()>0);
@@ -410,7 +429,7 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		if(fnames.size()<1){
 			assert(false) : "No references specified." +
 					"\nTODO:  This is really annoying; I need to include reference names in some auxillary file.";
@@ -420,7 +439,7 @@ public class BBSplitter {
 //			String refname=fnames.iterator().next();
 //			return refname;
 		}
-		
+
 		long key=0;
 		for(String s : nameSet){
 			key=Long.rotateLeft(key, 21);
@@ -430,7 +449,7 @@ public class BBSplitter {
 		key=(key&Long.MAX_VALUE);
 		String refname0="merged_ref_"+key+".fa.gz";
 		String refname=root+"/"+refname0;
-		
+
 		if(!forceRebuild){
 			File f=new File(refname);
 			if(f.exists()){
@@ -443,10 +462,17 @@ public class BBSplitter {
 //				if(!f.exists()){f.mkdirs();}
 //			}
 		}
+		if(!suppliedReferences){
+			throw new IllegalArgumentException("Cannot rebuild merged reference for build "+build+
+					" without explicit reference arguments. reflist.txt and namelist.txt do not "+
+					"record which reference belongs to each set; supply the full ref_name arguments.");
+		}
 		//			Data.sysout.println("Creating merged reference file /ref/genome/"+build+"/"+refname0);
 		Data.sysout.println("Creating merged reference file "+refname);
-		
+
 		TextStreamWriter tsw=new TextStreamWriter(refname, overwrite || forceRebuild, false, true);
+		//TODO: Probable bug - merge exceptions do not drain the writer/close its current
+		//reader; blank FASTA lines also fail at charAt(0) below. No transactional rebuild.
 		tsw.start();
 		for(String fname : fnames){
 			TextFile tf=new TextFile(fname, false);
@@ -471,7 +497,7 @@ public class BBSplitter {
 //			System.err.println(prefix);
 			for(String line=tf.nextLine(); line!=null; line=tf.nextLine()){
 				if(prefix!=null && line.charAt(0)=='>'){
-					
+
 					tsw.print(prefix);
 					tsw.println(line.substring(1));
 				}else{
@@ -481,21 +507,21 @@ public class BBSplitter {
 			tf.close();
 		}
 		tsw.poisonAndWait();
-		
+
 		return refname;
 	}
-	
+
 	/** Returns the set of scaffold name prefixes or suffixes.
-	 * 
+	 *
 	 * @param getPrefixes True to return prefixes (set names), false to return suffixes (scaffold names)
 	 * @return A set of affixes
 	 */
 	public static HashSet<String> getScaffoldAffixes(boolean getPrefixes){
 		final byte[][][] b3=Data.scaffoldNames;
-		
+
 		int size=(int)Tools.min((10+Data.numScaffolds*3)/2, Integer.MAX_VALUE);
 		HashSet<String> set=new HashSet<String>(size);
-		
+
 		assert(b3!=null);
 		for(byte[][] b2 : b3){
 			if(b2!=null){
@@ -531,11 +557,14 @@ public class BBSplitter {
 		}
 		return set;
 	}
-	
+
 	/**
 	 * Creates output streams for each reference set based on command line arguments.
 	 * Parses out_name=file arguments and creates corresponding output streams.
 	 * Handles paired-end files and ambiguous read output streams.
+	 * Validates names before opening files. On failure, signals abort on every
+	 * returned stream; the caller owns successful streams. OUTPUT_READS is retained
+	 * for compatibility and the caller decides whether to invoke this method.
 	 *
 	 * @param args Command line arguments containing output specifications
 	 * @param OUTPUT_READS Whether to output reads
@@ -550,52 +579,81 @@ public class BBSplitter {
 	public static synchronized HashMap<String, ConcurrentReadOutputStream> makeOutputStreams(String[] args, boolean OUTPUT_READS, boolean OUTPUT_ORDERED_READS,
 			int buff, boolean paired, boolean overwrite_, boolean append_, boolean ambiguous){
 //		assert(false) : Arrays.toString(args);
-		HashMap<String, ConcurrentReadOutputStream> table=new HashMap<String, ConcurrentReadOutputStream>();
+		final HashSet<String> names=new HashSet<String>();
 		for(String arg : args){
-			String[] split=arg.split("=");
-			String a=split[0];
-			String b=split.length>1 ? split[1] : null;
-			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
-//			assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
-			
-			if(arg.indexOf('=')>0 && a.toLowerCase().startsWith("out_")){
-				assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
-				String name=a.substring(4).replace('\\', '/');
-				
-				final String fname1, fname2;
-				
-				if(ambiguous){
-					if(b.indexOf('/')>=0){
-						int x=b.lastIndexOf('/');
-						b=b.substring(0, x+1)+"AMBIGUOUS_"+b.substring(x+1);
-					}else{
-						b="AMBIGUOUS_"+b;
-					}
+			final int equals=arg.indexOf('=');
+			if(equals>0 && arg.substring(0, equals).toLowerCase().startsWith("out_")){
+				final String name=arg.substring(4, equals).replace('\\', '/');
+				final String value=arg.substring(equals+1);
+				if(value.isEmpty() || value.equalsIgnoreCase("null")){
+					throw new IllegalArgumentException("Missing splitter output path: "+arg);
 				}
-				
-				if(!FileFormat.hasSamOrBamExtension(b) && ReadWrite.stripExtension(b).contains("#")){
-					fname1=b.replace('#', '1');
-					fname2=b.replace('#', '2');
-				}else{
-					fname1=b;
-					fname2=null;
-				}
-//				assert(false) : fname1;
-//				assert(!ambiguous) : fname1+", "+fname2+", "+b+", "+ambiguous;
-
-				FileFormat ff1=FileFormat.testOutput(fname1, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS);
-				FileFormat ff2=paired ? FileFormat.testOutput(fname2, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS) : null;
-				ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff1, ff2, null, null, buff, null, false);
-				ros.start();
-//				Data.sysout.println("Started output stream:\t"+t);
-				table.put(name, ros);
-				AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
+				if(!names.add(name)){throw new IllegalArgumentException("Duplicate splitter output name: "+name);}
 			}
 		}
-		return table.isEmpty() ? null : table;
+		//TODO: Probable bug - distinct names may still alias the same output path.
+		//Factory-internal resources not returned here remain the factory's responsibility.
+		final boolean previousSam=AbstractMapThread.OUTPUT_SAM;
+		HashMap<String, ConcurrentReadOutputStream> table=new HashMap<String, ConcurrentReadOutputStream>();
+		ConcurrentReadOutputStream pending=null;
+		try{
+			for(String arg : args){
+				String[] split=arg.split("=", 2);
+				String a=split[0];
+				String b=split.length>1 ? split[1] : null;
+				if(b!=null && b.equalsIgnoreCase("null")){b=null;}
+
+				if(arg.indexOf('=')>0 && a.toLowerCase().startsWith("out_")){
+					assert(b!=null) : "Bad parameter: "+arg+"\n"+Arrays.toString(args);
+					String name=a.substring(4).replace('\\', '/');
+
+					final String fname1, fname2;
+
+					if(ambiguous){
+						if(b.indexOf('/')>=0){
+							int x=b.lastIndexOf('/');
+							b=b.substring(0, x+1)+"AMBIGUOUS_"+b.substring(x+1);
+						}else{
+							b="AMBIGUOUS_"+b;
+						}
+					}
+
+					if(!FileFormat.hasSamOrBamExtension(b) && ReadWrite.stripExtension(b).contains("#")){
+						fname1=b.replace('#', '1');
+						fname2=b.replace('#', '2');
+					}else{
+						fname1=b;
+						fname2=null;
+					}
+
+					FileFormat ff1=FileFormat.testOutput(fname1, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS);
+					FileFormat ff2=paired ? FileFormat.testOutput(fname2, FileFormat.SAM, null, true, overwrite_, append_, OUTPUT_ORDERED_READS) : null;
+					ConcurrentReadOutputStream ros=ConcurrentReadOutputStream.getStream(ff1, ff2, null, null, buff, null, false);
+					pending=ros;
+					ros.start();
+					table.put(name, ros);
+					pending=null;
+					AbstractMapThread.OUTPUT_SAM|=ff1.samOrBam();
+				}
+			}
+			return table.isEmpty() ? null : table;
+		}catch(RuntimeException | Error failure){
+			AbstractMapThread.OUTPUT_SAM=previousSam;
+			if(pending!=null){abortSetupStream(pending, failure);}
+			for(ConcurrentReadOutputStream stream : table.values()){abortSetupStream(stream, failure);}
+			throw failure;
+		}
 	}
-	
-	
+
+	/** Signals terminal failure without joining a possibly never-started legacy writer. */
+	private static void abortSetupStream(ConcurrentReadOutputStream stream, Throwable failure){
+		//TODO: Probable bug - CROS abort only queues a terminal; a NEW worker after a
+		//partial start failure cannot consume it. Its join loops until TERMINATED,
+		//so joining here could hang. Factory/start lifecycle repair belongs in stream.
+		try{stream.abort();}
+		catch(RuntimeException | Error cleanup){if(cleanup!=failure){failure.addSuppressed(cleanup);}}
+	}
+
 	/**
 	 * Creates a table for tracking read counts per reference set.
 	 * Used for statistics collection when splitting reads.
@@ -608,8 +666,8 @@ public class BBSplitter {
 		for(String s : names){setCountTable.put(s, new SetCount(s));}
 		return setCountTable;
 	}
-	
-	
+
+
 	/**
 	 * Creates a table for tracking read counts per scaffold.
 	 * Used for detailed statistics at the scaffold level.
@@ -623,7 +681,7 @@ public class BBSplitter {
 //		System.out.println("Made table "+scafCountTable);
 		return scafCountTable;
 	}
-	
+
 
 	/**
 	 * @param readlist List of reads to print
@@ -642,7 +700,7 @@ public class BBSplitter {
 			splitTable=new HashMap<String, ArrayList<Read>>();
 			clear=false;
 		}
-		
+
 		if(!readlist.isEmpty()){
 			HashSet<String> set=new HashSet<String>(8);
 			for(Read r : readlist){
@@ -661,7 +719,7 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		for(String s : streamTable.keySet()){
 			ArrayList<Read> alr=splitTable.get(s);
 			if(alr==null){alr=blank;}
@@ -670,7 +728,7 @@ public class BBSplitter {
 		}
 		if(clear){splitTable.clear();}
 	}
-	
+
 
 	/**
 	 * @param readlist List of reads to print
@@ -691,7 +749,7 @@ public class BBSplitter {
 			splitTableA=new HashMap<String, ArrayList<Read>>();
 			clearA=false;
 		}
-		
+
 		final HashSet<String> hss0, hss1, hss2, hss3, hsspr, hssam;
 		final HashSet<String>[] hssa;
 		if(TRACK_SET_STATS || streamTable!=null){
@@ -708,14 +766,14 @@ public class BBSplitter {
 		}else{
 			hss0=null; hss1=null; hss2=null; hss3=null; hsspr=null; hssam=null; hssa=null;
 		}
-		
+
 		for(final Read r1 : readlist){
 //			System.out.println("\nProcessing read "+r1.numericID);
 			final Read r2=r1==null ? null : r1.mate;
-			
+
 			if(r1!=null){addToScafCounts(r1, clearzone, hss0);} //Scafstats for read 1
 			if(r2!=null){addToScafCounts(r2, clearzone, hss0);} //Scafstats for read 2
-			
+
 			if(r1!=null){
 
 				final HashSet<String>[] sets=(TRACK_SET_STATS || streamTable!=null) ? getSets(r1, clearzone, hssa) : null;
@@ -736,7 +794,7 @@ public class BBSplitter {
 //					System.out.println("\nambiguous="+ambiguous);
 //					System.out.println(p1);
 //					System.out.println(s1);
-					
+
 					HashSet<String> primarySet=hsspr, ambigSet=hssam;
 					primarySet.clear();
 					ambigSet.clear();
@@ -750,7 +808,7 @@ public class BBSplitter {
 						if(p1!=null){primarySet.addAll(p1);}
 						if(p2!=null){primarySet.addAll(p2);}
 					}
-					
+
 
 					if(ambiguous){
 						if(AMBIGUOUS2_MODE==AMBIGUOUS2_SPLIT){
@@ -768,7 +826,7 @@ public class BBSplitter {
 							primarySet=null;
 						}
 					}
-					
+
 					if(primarySet!=null && splitTable!=null){
 						for(String s : primarySet){
 							ArrayList<Read> alr=splitTable.get(s);
@@ -790,9 +848,9 @@ public class BBSplitter {
 							alr.add(r1);
 						}
 					}
-					
+
 					if(setCountTable!=null){
-						
+
 						primarySet=hsspr;
 						primarySet.clear();
 						if(p1!=null){primarySet.addAll(p1);}
@@ -859,7 +917,7 @@ public class BBSplitter {
 		if(clear){splitTable.clear();}
 		if(clearA){splitTableA.clear();}
 	}
-	
+
 	/**
 	 * Updates scaffold-level read count statistics.
 	 * Counts mapped, ambiguous, and assigned reads per scaffold.
@@ -881,8 +939,8 @@ public class BBSplitter {
 
 				int incrRS=1+(r.mate!=null && !r.mateMapped() ? 1 : 0);
 				int incrBS=r.length()+(r.mate!=null && !r.mateMapped() ? r.mateLength() : 0);
-				
-				
+
+
 				if(r.ambiguous()){
 					incrRA+=1;
 					incrBA+=r.length();
@@ -921,9 +979,9 @@ public class BBSplitter {
 			}
 		}
 	}
-	
+
 	//*********************************
-	
+
 	/**
 	 * Extracts reference set names for primary and secondary alignments of a read pair.
 	 * Returns sets for read1 primary, read1 secondary, read2 primary, read2 secondary.
@@ -934,18 +992,21 @@ public class BBSplitter {
 	 * @return Array of sets containing reference names for each alignment category
 	 */
 	public static HashSet<String>[] getSets(Read r1, int clearzone, HashSet<String>[] sets){
+		// Requires four reusable empty sets and mapped site lists in descending score order.
+		//TODO: Probable bug - score+clearzone may overflow for extreme integer inputs;
+		//getScaffolds below uses the same arithmetic. Normal mapper ranges not implicated.
 		Read r2=r1.mate;
 		if(!r1.mapped() && (r2==null || !r2.mapped())){return null;}
-		
+
 		if(sets==null){
-			assert(false);
+			assert(false) : "getSets requires the caller's four-entry scratch set array";
 			sets=new HashSet[4];
 		}else{
 			for(HashSet<String> set : sets){
-				assert(set==null || set.isEmpty());
+				assert(set==null || set.isEmpty()) : "getSets scratch sets must be cleared between read pairs";
 			}
 		}
-		
+
 		HashSet<String> primary1=sets[0], other1=sets[1], primary2=sets[2], other2=sets[3];
 		if(r1.mapped()){
 //			System.out.println(r1.list.size());
@@ -974,8 +1035,8 @@ public class BBSplitter {
 		sets[3]=other2;
 		return sets;
 	}
-	
-	
+
+
 	/**
 	 * Extracts scaffold names from read alignments within score threshold.
 	 * Collects all scaffolds where the read aligns within clearzone of the best score.
@@ -990,7 +1051,7 @@ public class BBSplitter {
 		Read r2=(includeMate ? r1.mate : null);
 		if(!r1.mapped() && (r2==null || !r2.mapped())){return null;}
 		assert(set==null || set.isEmpty());
-		
+
 		if(!r1.ambiguous() && (r2==null || !r2.ambiguous())){
 			byte[] scafb1=r1.getScaffoldName(false);
 			byte[] scafb2=(r2==null ? null : r2.getScaffoldName(false));
@@ -1014,7 +1075,7 @@ public class BBSplitter {
 				return set;
 			}
 		}
-		
+
 		if(set==null){set=new HashSet<String>(4);}
 		if(r1.mapped()){
 			SiteScore s0=r1.topSite();
@@ -1053,21 +1114,21 @@ public class BBSplitter {
 		assert(set.size()>0);
 		return set;
 	}
-	
-	
+
+
 	/**
 	 * @param r
 	 * @return A set of names of reference lists containing this read or its mate.
 	 */
-	public static HashSet<String> toListNames(Read r, HashSet<String> set) {
+	public static HashSet<String> toListNames(Read r, HashSet<String> set){
 		if(r==null){return set;}
 		byte[] scaf1=r.getScaffoldName(false);
 		byte[] scaf2=(r.mate==null ? null : r.mate.getScaffoldName(false));
 		if(scaf1==null && scaf2==null){return set;}
-		
+
 		if(set==null){set=new HashSet<String>(8);}
 		else{assert(set.isEmpty());}
-		
+
 		int x=scaf1==null ? -1 : Tools.indexOf(scaf1, (byte)'$');
 		if(x>=0){
 			String s=new String(scaf1, 0, x);
@@ -1077,7 +1138,7 @@ public class BBSplitter {
 				for(String s2 : s.split(",")){set.add(s2);}
 			}
 		}
-		
+
 		x=(scaf2==null || scaf2==scaf1) ? -1 : Tools.indexOf(scaf2, (byte)'$');
 		if(x>=0){
 			String s=new String(scaf2, 0, x);
@@ -1087,27 +1148,27 @@ public class BBSplitter {
 				for(String s2 : s.split(",")){set.add(s2);}
 			}
 		}
-		
+
 		return set;
 	}
-	
-	
+
+
 	/**
 	 * @param r
 	 * @return A mapping of reference names to read clones.
 	 */
-	public static HashMap<String, Read> toNameMap(Read r, HashMap<String, Read> map) {
+	public static HashMap<String, Read> toNameMap(Read r, HashMap<String, Read> map){
 
 		if(true){throw new RuntimeException("TODO");}
-		
+
 		if(r==null){return map;}
 		byte[] scaf1=r.getScaffoldName(false);
 		byte[] scaf2=(r.mate==null ? null : r.mate.getScaffoldName(false));
 		if(scaf1==null && scaf2==null){return map;}
-		
+
 		if(map==null){map=new HashMap<String, Read>(8);}
 		else{assert(map.isEmpty());}
-		
+
 		int x=scaf1==null ? -1 : Tools.indexOf(scaf1, (byte)'$');
 		if(x>=0){
 			String s=new String(scaf1, 0, x);
@@ -1123,7 +1184,7 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		x=(scaf2==null || scaf2==scaf1) ? -1 : Tools.indexOf(scaf2, (byte)'$');
 		if(x>=0){
 			String s=new String(scaf2, 0, x);
@@ -1139,10 +1200,10 @@ public class BBSplitter {
 				}
 			}
 		}
-		
+
 		return map;
 	}
-	
+
 	/**
 	 * Clones a read for assignment to a specific reference.
 	 * Currently unimplemented - throws RuntimeException.
@@ -1155,12 +1216,12 @@ public class BBSplitter {
 		throw new RuntimeException("TODO");
 	}
 
-	
+
 	/**
 	 * @param r
 	 * @return A set of names of reference lists containing this site.
 	 */
-	public static HashSet<String> toListNames(SiteScore r, HashSet<String> set) {
+	public static HashSet<String> toListNames(SiteScore r, HashSet<String> set){
 		if(r==null){return set;}
 		byte[] scaf1=r.getScaffoldName(false);
 		if(scaf1==null){return set;}
@@ -1190,10 +1251,12 @@ public class BBSplitter {
 		if(set==null){return;}
 		for(String s : set){fnames.add(s);}
 	}
-	
+
 	/**
 	 * Creates a shell script for converting SAM files to sorted, indexed BAM files.
 	 * Generates samtools commands for each SAM/BAM file in the output streams.
+	 * Paths are literal shell arguments; failed conversion/sort pipelines stop the
+	 * script before indexing. This method writes the script; it does not run it.
 	 *
 	 * @param outname Output script file name
 	 * @param list Additional SAM/BAM files to include
@@ -1225,11 +1288,12 @@ public class BBSplitter {
 		}
 		TextStreamWriter tsw=new TextStreamWriter(outname, overwrite, append, false);
 		tsw.start();
-		
+
 		String memstring=null;
 		if(set.size()>0){
 			tsw.println("#!/bin/bash");
-			
+			tsw.println("set -euo pipefail");
+
 			long mem=Runtime.getRuntime().maxMemory()/3400000;
 			mem=Tools.min(100000, mem);
 			if(mem<2048){memstring=mem+"M";}
@@ -1239,7 +1303,7 @@ public class BBSplitter {
 			tsw.println("echo \"      If Samtools crashes, please ensure you are running on the same platform as BBMap,\"");
 			tsw.println("echo \"      or reduce Samtools' memory setting (the -m flag).\"");
 		}
-		
+
 		for(String sam : set){
 			String bam;
 			if(sam.endsWith(".sam.gz")){bam=sam.substring(0, sam.length()-6)+"bam";}
@@ -1247,44 +1311,47 @@ public class BBSplitter {
 			else{bam=sam;} //Hopefully, they must have outputted a bam file using samtools.
 			String bam2=bam.substring(0, bam.length()-4)+"_sorted";
 			String bam3=bam2+".bam";
-			
+
 			if(Data.SAMTOOLS() && !Data.SAMTOOLS_VERSION_1x){
-				//do nothing
+				bam2=shellQuote(bam2);
 			}else{
-				bam2="-o "+bam2+".bam";
+				bam2="-o "+shellQuote(bam3);
 			}
-			
+
 			boolean pipe=true;
 			if(pipe && sam!=bam){
 //				if(Data.SAMTOOLS() && !Data.SAMTOOLS_VERSION_1x){
 					tsw.println("echo \"Note: Please ignore any warnings about 'EOF marker is absent'; " +
 							"this is a bug in samtools that occurs when using piped input.\"");
 //				}
-				tsw.println("samtools view -bShu "+sam+" | samtools sort -m "+memstring+" -@ 3 - "+bam2);
+				tsw.println("samtools view -bShu "+shellQuote(sam)+" | samtools sort -m "+memstring+" -@ 3 - "+bam2);
 			}else{
-				if(sam!=bam){tsw.println("samtools view -bSh1 -o "+bam+" "+sam);}
-				tsw.println("samtools sort -m "+memstring+" -@ 3 "+bam+" "+bam2);
+				if(sam!=bam){tsw.println("samtools view -bSh1 -o "+shellQuote(bam)+" "+shellQuote(sam));}
+				tsw.println("samtools sort -m "+memstring+" -@ 3 "+shellQuote(bam)+" "+bam2);
 			}
-			
-			tsw.println("samtools index "+bam3);
+
+			tsw.println("samtools index "+shellQuote(bam3));
 		}
-		tsw.poisonAndWait();
-		
-		try {
+		if(tsw.poisonAndWait()){throw new RuntimeException("Failed to write BAM conversion script: "+outname);}
+
+		try{
 			File f=new File(outname);
 			f.setExecutable(true, false);
-		} catch (Exception e) {
+		}catch(Exception e){
 //			e.printStackTrace();
 		}
 	}
-	
+
+	/** Emits one literal Bash argument, including apostrophes and expansion characters. */
+	private static String shellQuote(String value){return "'"+value.replace("'", "'\"'\"'")+"'";}
+
 	/**
 	 * Statistics container for tracking read and base counts per reference set or scaffold.
 	 * Tracks mapped, ambiguous, and assigned counts separately for analysis.
 	 * @author Brian Bushnell
 	 */
 	public static class SetCount implements Comparable<SetCount>{
-		
+
 		/** Creates a new count tracker for the specified reference name.
 		 * @param s Name of the reference set or scaffold */
 		public SetCount(String s){
@@ -1292,27 +1359,29 @@ public class BBSplitter {
 		}
 
 		@Override
+		//TODO: Probable bug - equals(Object) throws for null or unrelated objects;
+		//mutable counter-based ordering also makes this unsuitable as a hashed key.
 		public boolean equals(Object other){return equals((SetCount)other);}
 		public boolean equals(SetCount other){return compareTo(other)==0;}
-		
+
 		@Override
-		public int hashCode() {
+		public int hashCode(){
 			assert(false) : "This class should not be hashed.";
 			return super.hashCode();
 		}
-		
+
 		@Override
-		public int compareTo(SetCount o) {
+		public int compareTo(SetCount o){
 			if(mappedReads!=o.mappedReads){return mappedReads>o.mappedReads ? 1 : -1;}
 			if(ambiguousReads!=o.ambiguousReads){return ambiguousReads>o.ambiguousReads ? 1 : -1;}
 			return name.compareTo(o.name);
 		}
-		
+
 		@Override
 		public String toString(){
 			return name+", "+mappedReads+", "+ambiguousReads+", "+mappedBases+", "+ambiguousBases;
 		}
-		
+
 		/** Name of the reference set or scaffold */
 		public final String name;
 		/** Number of unambiguously mapped reads */
@@ -1324,12 +1393,12 @@ public class BBSplitter {
 		/** Number of unambiguously mapped bases */
 		public long mappedBases;
 		/** Number of ambiguously mapped bases */
-		public long ambiguousBases;	
+		public long ambiguousBases;
 		/** Number of bases assigned to this reference (primary assignment only) */
 		public long assignedBases;
-		
+
 	}
-	
+
 	/**
 	 * Writes read count statistics to a file.
 	 * Outputs mapped, ambiguous, and assigned read counts per reference set or scaffold.
@@ -1352,12 +1421,13 @@ public class BBSplitter {
 			Shared.sort(list);
 			Collections.reverse(list);
 		}
-		
+
 		if(header){
 			tsw.print("#name\t%unambiguousReads\tunambiguousMB\t%ambiguousReads\tambiguousMB\tunambiguousReads\tambiguousReads\tassignedReads\tassignedBases\n");
 		}
 		final StringBuilder sb=new StringBuilder(1024);
 		final double divR=100.0/(totalReads);
+		// Zero totalReads retains the legacy NaN percentages for empty inputs.
 		final double divB=1.0/1000000;
 		for(SetCount sc : list){
 			if(!nzo || sc.mappedReads>0 || sc.ambiguousReads>0 || sc.assignedReads>0){
@@ -1375,19 +1445,19 @@ public class BBSplitter {
 				sb.setLength(0);
 			}
 		}
-		tsw.poisonAndWait();
+		if(tsw.poisonAndWait()){throw new RuntimeException("Failed to write splitter counts: "+fname);}
 	}
-	
-	/** Resets all static variables to default values.
-	 * Used to clean up state between runs. */
+
+	/** Resets local splitter configuration/tables, without closing streams or resetting
+	 * Data, ReadWrite, mapper globals, or BBMapSplitterS's separate Writer tables. */
 	static final void clearStatics(){
 
 
 		setCountTable=null;
-		 scafCountTable=null;
+		scafCountTable=null;
 		streamTable=null;
 		streamTableAmbiguous=null;
-		
+
 		AMBIGUOUS2_MODE=AMBIGUOUS2_UNSET;
 		TRACK_SET_STATS=false;
 		TRACK_SCAF_STATS=false;
@@ -1397,7 +1467,7 @@ public class BBSplitter {
 		append=false;
 		verbose=false;
 		forceRebuild=false;
-		
+
 		MAP_MODE=MAP_NORMAL;
 	}
 
@@ -1405,12 +1475,12 @@ public class BBSplitter {
 	public static LinkedHashMap<String, SetCount> setCountTable=null;
 	/** Table tracking read counts per scaffold */
 	public static LinkedHashMap<String, SetCount> scafCountTable=null;
-	
+
 	/**
 	 * Holds named output streams.
 	 */
 	public static HashMap<String, ConcurrentReadOutputStream> streamTable=null;
-	
+
 	/**
 	 * Holds named output streams for ambiguous (across different references) reads.
 	 */
@@ -1447,7 +1517,7 @@ public class BBSplitter {
 	public static boolean forceRebuild=false;
 	/** Empty read list used as placeholder in output streams */
 	private static final ArrayList<Read> blank=new ArrayList<Read>(0);
-	
+
 	/** Mapping mode constant for normal BBMap */
 	public static final int MAP_NORMAL=1;
 	/** Mapping mode constant for accurate BBMapAcc */
@@ -1458,5 +1528,5 @@ public class BBSplitter {
 	public static final int MAP_PACBIOSKIMMER=4;
 	/** Current mapping mode selection */
 	public static int MAP_MODE=MAP_NORMAL;
-	
+
 }

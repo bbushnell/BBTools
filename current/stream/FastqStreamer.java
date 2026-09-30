@@ -25,6 +25,7 @@ public class FastqStreamer implements Streamer {
 		Timer t=new Timer();
 		String fname=args[0];
 		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
+		//TODO: Probable bug - STR-006: this standalone driver forces SIMD without the JVM/hardware gate used by normal launchers.
 		if(args.length>2) {Shared.SIMD=true;}
 		if(args.length>3) {Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
 		
@@ -247,6 +248,8 @@ public class FastqStreamer implements Streamer {
 		
 		/** 
 		 * Thread 0 reads the actual file and produces lists of byte[][] (4 lines per read).
+		 * Normalizes only real '+' separator lines; malformed bytes must reach
+		 * quadToReadVec's existing assertion when the record is converted.
 		 */
 		private void processBytes0(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
@@ -276,7 +279,8 @@ public class FastqStreamer implements Streamer {
 						errorState=true;
 						break;
 					}
-					if(plus.length>1){plus=PLUS;}
+					//STR-003: retain malformed separators for quadToReadVec instead of disguising them as '+'.
+					if(plus.length>1 && plus[0]=='+'){plus=PLUS;}
 					bytes+=2*bases.length;//Ignore header, usually short
 
 					byte[][] record=new byte[][]{header, bases, plus, quals};
@@ -299,7 +303,8 @@ public class FastqStreamer implements Streamer {
 						errorState=true;
 						break;
 					}
-					if(plus.length>1){plus=PLUS;}
+					//STR-003: apply the same preservation rule to the second mate's separator.
+					if(plus.length>1 && plus[0]=='+'){plus=PLUS;}
 					bytes+=2*bases.length;//Ignore header, usually short
 
 					byte[][] record=new byte[][]{header, bases, plus, quals};
@@ -321,6 +326,7 @@ public class FastqStreamer implements Streamer {
 			}
 			ln=null;
 			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
+			//TODO: Probable bug - STR-004: this read-modify-write can overwrite a worker's concurrent true; trace queue publication before choosing a fix.
 			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}

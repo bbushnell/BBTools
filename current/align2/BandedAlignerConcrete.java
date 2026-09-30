@@ -6,6 +6,13 @@ import dna.AminoAcid;
 import shared.Tools;
 
 /**
+ * Scalar banded edit-distance extension using two reusable score rows.
+ * Aligns from supplied starts for the shorter available span, swapping inputs
+ * when necessary and translating reported coordinates back. No traceback is kept.
+ * The terminal row/reference boundary forces diagonal transitions, so this is
+ * not an unrestricted global edit-distance solver. exact=false makes an undefined
+ * base on either side match at zero cost. Instance scratch is not thread-safe.
+ *
  * @author Brian Bushnell
  * @date Aug 5, 2013
  *
@@ -36,11 +43,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		if(args.length>3){rstart=Integer.parseInt(args[3]);}
 		if(args.length>4){maxedits=Integer.parseInt(args[4]);}
 		if(args.length>5){width=Integer.parseInt(args[5]);}
-		
+
 		BandedAlignerConcrete ba=new BandedAlignerConcrete(width);
-		
+
 		int edits;
-		
+
 		penalizeOffCenter=true;
 		edits=ba.alignForward(query, ref, (qstart==-1 ? 0 : qstart), (rstart==-1 ? 0 : rstart), maxedits, true);
 		System.out.println("Forward:    \tedits="+edits+", lastRow="+ba.lastRow+", score="+ba.score());
@@ -64,7 +71,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		edits=ba.alignReverse(query, ref, (qstart==-1 ? query.length-1 : qstart), (rstart==-1 ? ref.length-1 : rstart), maxedits, true);
 		System.out.println("Reverse2:   \tedits="+edits+", lastRow="+ba.lastRow+", score="+ba.score());
 		System.out.println("***********************\n");
-		
+
 //		edits=ba.alignReverseRC(query, ref, (qstart==-1 ? 0 : qstart), (rstart==-1 ? ref.length-1 : rstart), maxedits, true);
 //		System.out.println("ReverseRC:  \tedits="+edits+", lastRow="+ba.lastRow+", score="+ba.score());
 //		System.out.println("***********************\n");
@@ -89,13 +96,13 @@ public class BandedAlignerConcrete extends BandedAligner{
 		System.out.println("Double2:    \tedits="+edits+", lastRow="+ba.lastRow+", score="+ba.score());
 		System.out.println("***********************\n");
 	}
-	
-	
+
+
 	/**
 	 * Creates a new banded aligner with specified band width.
 	 * Initializes working arrays and validates that the band width is sufficient
 	 * for the maximum edit distance calculations.
-	 * @param width_ Band width for alignment (must be odd, minimum 3)
+	 * @param width_ Requested width, raised to at least 3 and rounded upward to odd
 	 */
 	public BandedAlignerConcrete(int width_){
 		super(width_);
@@ -112,7 +119,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 //		}
 		assert(big>maxWidth/2);
 	}
-	
+
 	/**
 	 * @param query
 	 * @param ref
@@ -140,11 +147,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		lastRow=-1;
 		lastEdits=0;
 		lastOffset=0;
-		
+
 		final int width=Tools.min(maxWidth, (maxEdits*2)+1, Tools.max(query.length, ref.length)*2+2)|1;
 		final int halfWidth=width/2;
 		final boolean inexact=!exact;
-		
+
 		int qloc=qstart;
 		int rsloc=rstart-halfWidth;
 		final int xlines=query.length-qstart;
@@ -183,7 +190,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 			row++; qloc++; rsloc++;
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
-		
+
 		for(row=1; row<len; row++, qloc++, rsloc++){
 //			if(verbose){System.err.println("\nNew row, prev="+Arrays.toString(arrayCurrent));}
 			arrayTemp=arrayCurrent;
@@ -210,7 +217,8 @@ public class BandedAlignerConcrete extends BandedAligner{
 				edits=Tools.min(edits, score);
 				if(verbose){System.err.println("Comparing "+(char)q+" to "+(char)r+"; up="+scoreUp+"; diag="+scoreDiag+"; left="+scoreLeft+"; scores = "+Arrays.toString(arrayCurrent));}
 			}
-			if(edits>maxEdits){row++; break;}
+			// Advance exactly as the for-loop would, so final endpoints include this scored row.
+			if(edits>maxEdits){row++; qloc++; rsloc++; break;}
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
 
@@ -232,7 +240,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		}
 		return edits;
 	}
-	
+
 	/**
 	 * @param query
 	 * @param ref
@@ -260,11 +268,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		lastRow=-1;
 		lastEdits=0;
 		lastOffset=0;
-		
+
 		final int width=Tools.min(maxWidth, (maxEdits*2)+1, Tools.max(query.length, ref.length)*2+2)|1;
 		final int halfWidth=width/2;
 		final boolean inexact=!exact;
-		
+
 		int qloc=qstart;
 		int rsloc=rstart-halfWidth;
 		final int xlines=qstart+1;
@@ -283,7 +291,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		Arrays.fill(array2, 0, Tools.min(width, maxWidth)+1, big);
 		arrayCurrent=array1;
 		arrayPrev=array2;
-		
+
 		{
 			if(verbose){System.err.println("\nFirst row.");}
 			final byte q=AminoAcid.baseToComplementExtended[query[qloc]];
@@ -303,7 +311,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 			row++; qloc--; rsloc++;
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
-		
+
 		for(row=1; row<len; row++, qloc--, rsloc++){
 //			if(verbose){System.err.println("\nNew row, prev="+Arrays.toString(arrayCurrent));}
 			arrayTemp=arrayCurrent;
@@ -330,7 +338,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 				edits=Tools.min(edits, score);
 				if(verbose){System.err.println("Comparing "+(char)q+" to "+(char)r+"; up="+scoreUp+"; diag="+scoreDiag+"; left="+scoreLeft+"; scores = "+Arrays.toString(arrayCurrent));}
 			}
-			if(edits>maxEdits){row++; break;}
+			if(edits>maxEdits){row++; qloc--; rsloc++; break;}
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
 
@@ -346,7 +354,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		}
 		return edits;
 	}
-	
+
 	/**
 	 * @param query
 	 * @param ref
@@ -375,11 +383,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		lastRow=-1;
 		lastEdits=0;
 		lastOffset=0;
-		
+
 		final int width=Tools.min(maxWidth, (maxEdits*2)+1, Tools.max(query.length, ref.length)*2+2)|1;
 		final int halfWidth=width/2;
 		final boolean inexact=!exact;
-		
+
 		int qloc=qstart;
 		int rsloc=rstart-halfWidth;
 		final int xlines=qstart+1;
@@ -398,7 +406,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		Arrays.fill(array2, 0, Tools.min(width, maxWidth)+1, big);
 		arrayCurrent=array1;
 		arrayPrev=array2;
-		
+
 		{
 			if(verbose){System.err.println("\nFirst row.");}
 			final byte q=query[qloc];
@@ -419,7 +427,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 			row++; qloc--; rsloc--;
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
-		
+
 		for(row=1; row<len; row++, qloc--, rsloc--){
 //			if(verbose){System.err.println("\nNew row, prev="+Arrays.toString(arrayCurrent));}
 			arrayTemp=arrayCurrent;
@@ -446,7 +454,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 				edits=Tools.min(edits, score);
 				if(verbose){System.err.println("Comparing "+(char)q+" to "+(char)r+"; up="+scoreUp+"; diag="+scoreDiag+"; left="+scoreLeft+"; scores = "+Arrays.toString(arrayCurrent));}
 			}
-			if(edits>maxEdits){row++; break;}
+			if(edits>maxEdits){row++; qloc--; rsloc--; break;}
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
 
@@ -462,7 +470,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 		}
 		return edits;
 	}
-	
+
 	/**
 	 * @param query
 	 * @param ref
@@ -490,11 +498,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		lastRow=-1;
 		lastEdits=0;
 		lastOffset=0;
-		
+
 		final int width=Tools.min(maxWidth, (maxEdits*2)+1, Tools.max(query.length, ref.length)*2+2)|1;
 		final int halfWidth=width/2;
 		final boolean inexact=!exact;
-		
+
 		int qloc=qstart;
 		int rsloc=rstart-halfWidth;
 		final int xlines=query.length-qstart;
@@ -508,12 +516,12 @@ public class BandedAlignerConcrete extends BandedAligner{
 			assert(false) : ("No overlap: qstart="+qstart+", rstart="+rstart+", qlen="+query.length+", rlen="+ref.length);
 			return 0;
 		}
-		
+
 		Arrays.fill(array1, 0, Tools.min(width, maxWidth)+1, big);
 		Arrays.fill(array2, 0, Tools.min(width, maxWidth)+1, big);
 		arrayCurrent=array1;
 		arrayPrev=array2;
-		
+
 		{
 			if(verbose){System.err.println("\nFirst row.");}
 			final byte q=AminoAcid.baseToComplementExtended[query[qloc]];
@@ -533,7 +541,7 @@ public class BandedAlignerConcrete extends BandedAligner{
 			row++; qloc++; rsloc--;
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
-		
+
 		for(row=1; row<len; row++, qloc++, rsloc--){
 //			if(verbose){System.err.println("\nNew row, prev="+Arrays.toString(arrayCurrent));}
 			arrayTemp=arrayCurrent;
@@ -560,10 +568,10 @@ public class BandedAlignerConcrete extends BandedAligner{
 				edits=Tools.min(edits, score);
 				if(verbose){System.err.println("Comparing "+(char)q+" to "+(char)r+"; up="+scoreUp+"; diag="+scoreDiag+"; left="+scoreLeft+"; scores = "+Arrays.toString(arrayCurrent));}
 			}
-			if(edits>maxEdits){row++; break;}
+			if(edits>maxEdits){row++; qloc++; rsloc--; break;}
 		}
 		if(penalizeOffCenter){edits=penalizeOffCenter(arrayCurrent, halfWidth);}
-		
+
 		lastRow=row-1;
 		lastEdits=edits;
 		lastOffset=lastOffset(arrayCurrent, halfWidth);
@@ -576,11 +584,11 @@ public class BandedAlignerConcrete extends BandedAligner{
 		}
 		return edits;
 	}
-	
+
 	/** First working array for dynamic programming matrix calculations */
 	private final int[] array1;
 	/** Second working array for dynamic programming matrix calculations */
 	private final int[] array2;
 	private int[] arrayCurrent, arrayPrev, arrayTemp;
-	
+
 }

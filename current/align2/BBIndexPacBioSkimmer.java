@@ -14,22 +14,23 @@ import structures.LongM;
 
 
 /**
- * Based on Index11f
- * Designed to skim and retain all sites above a threshold.
- * 
- * 
- * 
+ * Legacy PacBio seed index, based on Index11f, retaining sites above skim thresholds.
+ * IndexMaker4 supplies shared packed-coordinate blocks; mutable search scratch is
+ * per worker. Prescanning and slowWalk3 extend seeds without a DP alignment.
+ *
+ *
+ *
  * @author Brian Bushnell
  * @date Jul 11, 2012
  *
  */
-public final class BBIndexPacBioSkimmer extends AbstractIndex {
-	
-	
+public final class BBIndexPacBioSkimmer extends AbstractIndex{
+
+
 	public static void main(String[] args){
-		
+
 		int k=12;
-		
+
 		for(int i=0; i<args.length; i++){
 			String s=args[i].toLowerCase();
 			if(s.contains("=")){
@@ -53,24 +54,24 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			assert(Data.numChroms<=Byte.MAX_VALUE) : "TODO";
 			MAXCHROM=Data.numChroms;
 		}
-		
-		
+
+
 		System.err.println("Writing build "+Data.GENOME_BUILD+" "+
 				"BASESPACE index, keylen="+k+", chrom bits="+NUM_CHROM_BITS);
-		
-		
+
+
 		int first=(NUM_CHROM_BITS==0 ? 1 : 0);
-		
-		
+
+
 		Data.sysout.println("Loading index for chunk "+first+"-"+MAXCHROM+", build "+Data.GENOME_BUILD);
 		index=IndexMaker4.makeIndex(Data.GENOME_BUILD, first, MAXCHROM,
 				k, NUM_CHROM_BITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, true, false, index);
-		
-		
+
+
 		System.err.println("Finished all chroms, may still be writing.");
 	}
-	
-	
+
+
 	/**
 	 * Constructs a PacBio-optimized index for the specified chromosome range.
 	 * Initializes scoring parameters and cycle arrays for multi-block processing.
@@ -96,7 +97,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		prescoreArray=new int[cycles];
 		precountArray=new int[cycles];
 	}
-	
+
 	/** Load or generate index from minChrom to maxChrom, inclusive, with keylength k.
 	 * This range can encompass multiple blocks.
 	 * Should only be called once in a process. */
@@ -109,18 +110,18 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				k, NUM_CHROM_BITS, MAX_ALLOWED_CHROM_INDEX, CHROM_MASK_LOW, CHROM_MASK_HIGH, SITE_MASK, SHIFT_LENGTH, writeToDisk, diskInvalid, index);
 
 	}
-	
+
 	/** Calculate statistics of index, such as list lengths, and find clumpy keys */
 	public static final synchronized void analyzeIndex(int minChrom, int maxChrom, float fractionToExclude, int k){
 		assert(lengthHistogram==null);
 		assert(COUNTS==null);
-		
+
 		int KEYSPACE=1<<(2*k);
 		COUNTS=new int[KEYSPACE];
 		maxChrom=maxChrom(maxChrom);
-		
+
 		HashMap<Integer, LongM> cmap=new HashMap<Integer, LongM>();
-		
+
 		for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 			Block b=index[chrom];
 			final int[] sites=b.sites;
@@ -133,7 +134,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				final int start1=starts[key];
 				final int stop1=starts[key+1];
 				final int len1=stop1-start1;
-				COUNTS[key]=(int)Tools.min(Integer.MAX_VALUE, COUNTS[key]+len1);
+				COUNTS[key]=addCounts(COUNTS[key], len1);
 
 				if(REMOVE_CLUMPY){
 					for(int i=start1+1; i<stop1; i++){
@@ -156,7 +157,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		for(int key=0; key<COUNTS.length; key++){
 			int rkey=AminoAcid.reverseComplementBinaryFast(key, k);
 			if(key<rkey){
@@ -164,11 +165,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				COUNTS[key]=COUNTS[rkey]=x;
 			}
 		}
-		
+
 		if(REMOVE_CLUMPY){
 			Integer[] keys=cmap.keySet().toArray(new Integer[cmap.size()]);
 			Arrays.sort(keys);
-			
+
 			for(Integer key : keys){
 				long clumps=cmap.get(key).value();
 				long len=COUNTS[key];
@@ -181,28 +182,28 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		lengthHistogram=Tools.makeLengthHistogram3(COUNTS, 1000, verbose2);
-		
+
 		//if(verbose2){System.err.println("lengthHistogram: "+Arrays.toString(lengthHistogram));}
-		
+
 		if(REMOVE_FREQUENT_GENOME_FRACTION){
 
 			int lengthLimitIndex=(int)((1-fractionToExclude)*(lengthHistogram.length-1));
 			int lengthLimitIndex2=(int)((1-fractionToExclude*DOUBLE_SEARCH_THRESH_MULT)*(lengthHistogram.length-1));
-			
+
 			MAX_USABLE_LENGTH=Tools.max(2*SMALL_GENOME_LIST, lengthHistogram[lengthLimitIndex]);
 			MAX_USABLE_LENGTH2=Tools.max(6*SMALL_GENOME_LIST, lengthHistogram[lengthLimitIndex2]);
-			
+
 			if(verbose2){System.err.println("MAX_USABLE_LENGTH:  "+MAX_USABLE_LENGTH+"\nMAX_USABLE_LENGTH2: "+MAX_USABLE_LENGTH2);}
 		}
-		
+
 		Solver.POINTS_PER_SITE=(int)Math.floor((Solver.BASE_POINTS_PER_SITE*4000f)/Tools.max(2*SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH]));
 		if(Solver.POINTS_PER_SITE==0){Solver.POINTS_PER_SITE=-1;}
 		if(verbose2){System.err.println("POINTS_PER_SITE:  "+Solver.POINTS_PER_SITE);}
 		assert(Solver.POINTS_PER_SITE<0) : Solver.POINTS_PER_SITE;
 	}
-	
+
 //	/** Calculate statistics of index, such as list lengths, and find clumpy keys */
 //	public static final synchronized void analyzeIndex(int minChrom, int maxChrom, float fractionToExclude, int k){
 //
@@ -295,13 +296,13 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //		if(verbose2){System.err.println("POINTS_PER_SITE:  "+Solver.POINTS_PER_SITE);}
 //		assert(Solver.POINTS_PER_SITE<0) : Solver.POINTS_PER_SITE;
 //	}
-	
-	
+
+
 	/** Returns the filename for the block holding this chrom */
 	public static final String fname(int chrom, int k){
 		return IndexMaker4.fname(minChrom(chrom), maxChrom(chrom), k, NUM_CHROM_BITS);
 	}
-	
+
 	/** Ensure key offsets are strictly ascending. */
 	private static boolean checkOffsets(int[] offsets){
 		for(int i=1; i<offsets.length; i++){
@@ -309,26 +310,27 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		return true;
 	}
-	
+
 	@Deprecated
 	private final static int trimExcessHitLists(int[] keys, int[][] hits){
-		
+
 		assert(false) : "Needs to be redone because hits are no longer sorted by length.";
-		
+
 		assert(hits.length==keys.length);
 //		assert(false) : "modify this function so that it gives more weight to trimming lists over highly covered baits";
 		//And also, incorporate the "remove the longest list" function
-		
+
+		//TODO: Probable bug - aggregate hit sums and length-times-key limits can overflow int.
 		final int limit=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH])*keys.length;
 		final int limit2=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH2]);
 		final int limit3=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_SHORTEST_LIST_TO_SEARCH]);
-		
+
 		int sum=0;
 		int initialHitCount=0;
 
 		int shortest=Integer.MAX_VALUE-1;
 		int shortest2=Integer.MAX_VALUE;
-		
+
 		for(int i=0; i<keys.length; i++){
 			int key=keys[i];
 			int x=COUNTS[key];
@@ -351,12 +353,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			return 0;
 		}
 		if(sum<=limit && sum/initialHitCount<=limit2){return initialHitCount;}
-		
+
 		Pointer[] ptrs=Pointer.loadMatrix(hits);
 //		ptrs[0].value/=2;
 //		ptrs[ptrs.length-1].value/=2;
 		Arrays.sort(ptrs);
-		
+
 		int finalHitCount=initialHitCount;
 		for(int i=ptrs.length-1; sum>limit || sum/finalHitCount>limit2; i--){
 			Pointer p=ptrs[i];
@@ -364,38 +366,38 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			hits[p.key]=null;
 			finalHitCount--;
 		}
-		
+
 		return finalHitCount;
 	}
-	
+
 	/** Remove least useful keys to accelerate search */
 	public final int trimExcessHitListsByGreedy(int[] offsets, int[] keyScores, int maxHitLists, int[] keys){
-		
+
 		float[] keyWeights=getKeyWeightArray(keyScores.length);
 		for(int i=0; i<keyScores.length; i++){
 			keyWeights[i]=keyScores[i]*INV_BASE_KEY_HIT_SCORE;
 		}
-		
+
 //		assert(false) : "modify this function so that it gives more weight to trimming lists over highly covered baits";
 		//And also, incorporate the "remove the longest list" function
-		
+
 		final int limit=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH])*keys.length;
 		final int limit2=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_AVERAGE_LIST_TO_SEARCH2]);
 		final int limit3=Tools.max(SMALL_GENOME_LIST, lengthHistogram[MAX_SHORTEST_LIST_TO_SEARCH]);
 //		final int limitS=lengthHistogram[chrom][MAX_SINGLE_LIST_TO_SEARCH];
-		
+
 		int sum=0;
 		int initialHitCount=0;
 
 		int shortest=Integer.MAX_VALUE-1;
 		int shortest2=Integer.MAX_VALUE;
-		
+
 //		for(int i=0; i<hits.length; i++){
 //			if(hits[i]!=null && hits[i].length>limitS){hits[i]=null;}
 //		}
-		
+
 		final int[] lengths=getGenericArray(keys.length);
-		
+
 		for(int i=0; i<keys.length; i++){
 			int key=keys[i];
 			int x=count(key);
@@ -418,10 +420,10 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			for(int i=0; i<keys.length; i++){keys[i]=-1;}
 			return 0;
 		}
-		
+
 		int hitsCount=initialHitCount;
 		int worstValue=Integer.MIN_VALUE;
-		
+
 		while(hitsCount>=MIN_APPROX_HITS_TO_KEEP && (sum>limit || sum/initialHitCount>limit2 || hitsCount>maxHitLists/* || worstValue<0*/)){
 			final int[] lists=getGreedyListArray(hitsCount);
 			for(int i=0, j=0; j<lists.length; i++){
@@ -430,7 +432,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					j++;
 				}
 			}
-			
+
 			Solver.findWorstGreedy(offsets, lengths, keyWeights, KEYLEN, lists, greedyReturn);
 			int worstIndex=greedyReturn[0];
 			int worst=lists[worstIndex];
@@ -445,8 +447,8 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		return hitsCount;
 	}
-	
-	
+
+
 	/**
 	 * Retrieves hit list boundaries for k-mers on specified chromosome.
 	 * Populates start/stop arrays with valid hit ranges for downstream processing.
@@ -479,8 +481,8 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		return numHits;
 	}
-	
-	
+
+
 	/**
 	 * Counts k-mers with hit lists under specified length threshold.
 	 * Optionally marks oversized lists as invalid for downstream filtering.
@@ -505,14 +507,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		return numHits;
 	}
-	
-	
+
+
 	@Override
 	public final ArrayList<SiteScore> findAdvanced(byte[] basesP, byte[] basesM, byte[] qual, byte[] baseScoresP, int[] keyScoresP, int[] offsets, long id){
 		assert(minChrom<=maxChrom && minChrom>=0);
 		ArrayList<SiteScore> result=find(basesP, basesM, qual, baseScoresP, keyScoresP, offsets, true, id);
 		if(DOUBLE_SEARCH_NO_HIT && (result==null || result.isEmpty())){result=find(basesP, basesM, qual, baseScoresP, keyScoresP, offsets, false, id);}
-		
+
 		return result;
 	}
 
@@ -578,26 +580,26 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		initialKeys2+=numHits;
 		//assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
-		
+
 //		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
 		if(TRIM_BY_GREEDY && obeyLimits){
 			int maxLists=Tools.max((int)(HIT_FRACTION_TO_RETAIN*keysP.length), MIN_HIT_LISTS_TO_RETAIN);
 			numHits=trimExcessHitListsByGreedy(offsetsP, keyScoresP, maxLists, keysP);
 		}
 //		System.out.println("After greedy: numHits = "+numHits);
-		
+
 		if(TRIM_BY_TOTAL_SITE_COUNT && obeyLimits){
 			throw new RuntimeException("Needs to be redone.");
 //			numHits=trimExcessHitLists(keys, hits);
 		}
-		
+
 		if(TRIM_LONG_HIT_LISTS && obeyLimits && numHits>MIN_APPROX_HITS_TO_KEEP){
 			int cutoffIndex=((int) (HIT_FRACTION_TO_RETAIN*(keysP.length)-0.01f))+(keysP.length-numHits);
 
 			int zeroes=keysP.length-numHits;
 			int altMinIndex=(zeroes+(MIN_HIT_LISTS_TO_RETAIN-1));
 			cutoffIndex=Tools.max(cutoffIndex, altMinIndex);
-			
+
 			assert(cutoffIndex>0) : cutoffIndex+"\n"+numHits;
 
 			if(cutoffIndex<(keysP.length-1)){
@@ -605,11 +607,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				for(int i=0; i<keysP.length; i++){lens[i]=count(keysP[i]);}
 				Arrays.sort(lens);
 				int cutoff=lens[cutoffIndex];
-				
+
 				cutoff=Tools.max(lengthHistogram[MIN_INDEX_TO_DROP_LONG_HIT_LIST], cutoff);
-				
+
 				int removed=0;
-				
+
 				for(int i=0; i<keysP.length; i++){
 					int key=keysP[i];
 					if(count(key)>cutoff){
@@ -621,7 +623,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			}
 		}
 //		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
-		
+
 		final ArrayList<SiteScore> result=new ArrayList<SiteScore>(8);
 		if(numHits<MIN_APPROX_HITS_TO_KEEP){return result;}
 		//assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
@@ -641,7 +643,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		//Reverse the offsets for minus-strand mapping, since they are generated based on quality
 		int[] offsetsM=KeyRing.reverseOffsets(offsetsP, KEYLEN, basesP.length);
 		final int[] keysM=KeyRing.reverseComplementKeys(keysP, KEYLEN);
-		
+
 //		assert(checkOffsets(offsetsP)) : Arrays.toString(offsetsP);
 //		assert(checkOffsets(offsetsM)) : Arrays.toString(offsetsM);
 
@@ -651,23 +653,23 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		final byte[] baseScoresM=Tools.reverseAndCopy(baseScoresP, getBaseScoreArray(baseScoresP.length, 1));
 		final int[] keyScoresM=Tools.reverseAndCopy(keyScoresP, getKeyScoreArray(keyScoresP.length, 1));
 		final int maxQuickScore=maxQuickScore(offsetsP, keyScoresP);
-		
+
 		assert(offsetsM.length==offsetsP.length);
 		assert(maxQuickScore==maxQuickScore(offsetsM, keyScoresM));
-		
+
 		final int[] bestScores=KillSwitch.allocInt1D(6);
-		
+
 		//This prevents filtering by qscore when a low-quality read only uses a few keys.
 		//In that case, extending is more important.
 		final boolean prescan_qscore=(PRESCAN_QSCORE && numHits>=5);
-		
+
 		int[][] prescanResults=null;
 		int[] precounts=null;
 		int[] prescores=null;
 
 		int hitsCutoff=0;
 		int qscoreCutoff=(int)(MIN_QSCORE_MULT*maxQuickScore);
-		
+
 		boolean allBasesCovered=true;
 		{
 			if(offsetsP[0]!=0){allBasesCovered=false;}
@@ -681,42 +683,42 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		//TODO I don't understand this logic
 		final boolean pretendAllBasesAreCovered=(allBasesCovered ||
 					keysP.length>=keysOriginal.length-4 ||
 					(keysP.length>=9 && (offsetsP[offsetsP.length-1]-offsetsP[0]+KEYLEN)>Tools.max(40, (int)(basesP.length*.75f))));
-		
+
 //		System.err.println(allBasesCovered+"\t"+Arrays.toString(offsetsP));
 //		assert(allBasesCovered);
-		
+
 		if(prescan_qscore){
 			prescanResults=prescanAllBlocks(bestScores,
 					keysP, keyScoresP, offsetsP,
 					keysM, keyScoresM, offsetsM,
 					pretendAllBasesAreCovered);
-			
+
 			if(prescanResults!=null){
 				precounts=prescanResults[0];
 				prescores=prescanResults[1];
 			}
-			
+
 			if(bestScores[1]<MIN_APPROX_HITS_TO_KEEP){return result;}
 			if(bestScores[3]<maxQuickScore*MIN_QSCORE_MULT2){return result;}
-			
+
 			if(bestScores[3]>=maxQuickScore && pretendAllBasesAreCovered){
 				assert(bestScores[3]==maxQuickScore);
 				assert(bestScores[1]==numHits);
 			}
-			
+
 			hitsCutoff=calcApproxHitsCutoff(keysP.length, bestScores[1], MIN_APPROX_HITS_TO_KEEP, true);
 			qscoreCutoff=calcQScoreCutoff(maxQuickScore, bestScores[3]/2, qscoreCutoff);
 		}
-		
+
 		final int maxScore=maxScore(offsetsP, baseScoresP, keyScoresP, basesP.length, true);
 		final boolean fullyDefined=AminoAcid.isFullyDefined(basesP);
 		assert(bestScores[2]<=0) : Arrays.toString(bestScores);
-		
+
 		int cycle=0;
 		for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 			if(precounts==null || precounts[cycle]>=hitsCutoff || prescores[cycle]>=qscoreCutoff){
@@ -732,24 +734,24 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 
 //		assert(Read.CHECKSITES(result, basesP));
-		
+
 		return result;
 	}
-	
+
 	/** Search blocks rapidly to find max hits, and perfect sites.  May indicate some blocks can be skipped. */
 	private final int[][] prescanAllBlocks(int[] bestScores,
 			int[] keysP, int[] keyScoresP, int[] offsetsP,
 			int[] keysM, int[] keyScoresM, int[] offsetsM,
 			final boolean allBasesCovered){
-		
+
 		int[][][] pm=new int[][][] {{keysP, keyScoresP, offsetsP}, {keysM, keyScoresM, offsetsM}};
-		
+
 		int bestqscore=0;
 		int maxHits=0;
 		int minHitsToScore=MIN_APPROX_HITS_TO_KEEP;
-		
+
 		final int maxQuickScore=maxQuickScore(offsetsP, keyScoresP);
-		
+
 		final int[] counts=precountArray;
 		final int[] scores=prescoreArray;
 		final int[][] ret=prescanReturn;
@@ -757,29 +759,29 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		Arrays.fill(scores, maxQuickScore);
 		ret[0]=counts;
 		ret[1]=scores;
-		
+
 		int cycle=0;
 		for(int chrom=minChrom; chrom<=maxChrom; chrom=((chrom&CHROM_MASK_HIGH)+CHROMS_PER_BLOCK)){
 			final int baseChrom=baseChrom(chrom);
 			for(int pmi=0; pmi<2; pmi++, cycle++){
-				
+
 				int[] keys=pm[pmi][0];
 				int[] keyScores=pm[pmi][1];
 				int[] offsets=pm[pmi][2];
 //				int[][] hits=getHitArray(offsets.length);
-				
+
 				int[] starts=startArray;
 				int[] stops=stopArray;
 				int numHits=getHits(keys, chrom, Integer.MAX_VALUE, starts, stops);
-				
+
 				if(numHits<minHitsToScore){
 					scores[cycle]=-9999;
 					counts[cycle]=0;
 				}else{
-					
+
 //					final int maxQuickScore=maxQuickScore(offsets, keyScores);
 					//				System.err.println("maxScore = "+maxScore);
-					
+
 					if(numHits<keys.length){
 						int[][] r=shrink(starts, stops, offsets, keyScores, offsets.length);
 						if(r!=null){
@@ -789,19 +791,19 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 							keyScores=r[4];
 						}
 					}
-					
+
 					assert(numHits==offsets.length);
 					assert(numHits==keyScores.length);
 					heap.clear();
 					final Quad[] triples=tripleStorage;
 					final int[] values=valueArray;
-					
+
 					int[] temp=findMaxQscore2(starts, stops, offsets, keyScores, baseChrom, triples, values, minHitsToScore, true,
 							bestqscore>=maxQuickScore && allBasesCovered);
 
 					scores[cycle]=temp[0];
 					counts[cycle]=temp[1];
-					
+
 					bestqscore=Tools.max(temp[0], bestqscore);
 					maxHits=Tools.max(maxHits, temp[1]);
 					if(bestqscore>=maxQuickScore && allBasesCovered){
@@ -816,9 +818,9 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 							"numHits: \t"+numHits+
 							"minHitsToScore: \t"+minHitsToScore+
 							"keys.length: \t"+keys.length;
-						
+
 						minHitsToScore=Tools.max(minHitsToScore, maxHits);
-						
+
 						{
 							//This early exit is optional.  Does not seem to impact speed much either way.
 							bestScores[1]=Tools.max(bestScores[1], maxHits);
@@ -829,38 +831,38 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		bestScores[1]=Tools.max(bestScores[1], maxHits);
 		bestScores[3]=Tools.max(bestScores[3], bestqscore);
-		
+
 		if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-		
+
 		return ret;
 	}
-	
-	
+
+
 	/** Search a single block and strand */
 	public final ArrayList<SiteScore> find(int[] keys, final byte[] bases, final byte[] baseScores, int[] keyScores,
 			final int chrom, final byte strand,
 			int[] offsets, final boolean obeyLimits, ArrayList<SiteScore> ssl, int[] bestScores,
 			final boolean allBasesCovered, final int maxScore, final boolean fullyDefined){
-		
+
 		assert(checkOffsets(offsets)) : Arrays.toString(offsets);
 
 		int[] starts=startArray;
 		int[] stops=stopArray;
-		
+
 		int numHits=getHits(keys, chrom, Integer.MAX_VALUE, starts, stops);
 		if(numHits<MIN_APPROX_HITS_TO_KEEP){return ssl;}
-		
-		
+
+
 		if(!RETAIN_BEST_SCORES){Arrays.fill(bestScores, 0);}
 		ssl=slowWalk3(starts, stops, bases, baseScores, keyScores, offsets, chrom, strand, obeyLimits, ssl, bestScores, allBasesCovered, maxScore, fullyDefined);
-		
-		
+
+
 		return ssl;
 	}
-	
+
 	/** Compress arrays by removing null/empty lists */
 	private final int[][] shrink(int[] starts, int[] stops, int[] offsets, int[] keyScores, final int len){
 		int numHits=0;
@@ -893,7 +895,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			return r;
 		}
 	}
-	
+
 	/** Removes "-1" keys. */
 	private final int[][] shrink2(int[] offsets, int[] keys, int[] keyScores){
 
@@ -931,20 +933,20 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			return r;
 		}
 	}
-	
-	
+
+
 	/** This uses a heap to track next column to increment */
 	private final ArrayList<SiteScore> slowWalk3(int[] starts, int[] stops, final byte[] bases,
 			final byte[] baseScores, int[] keyScores, int[] offsets,
 			final int baseChrom_, final byte strand, final boolean obeyLimits, ArrayList<SiteScore> ssl,
 			int[] bestScores, final boolean allBasesCovered, final int maxScore, final boolean fullyDefined){
 		assert(USE_EXTENDED_SCORE);
-		
+
 		final int numKeys=offsets.length; //Before shrink
-		
+
 		//This can be done before or after shrinking, but the results will change depending on MIN_SCORE_MULT and etc.
 		final int maxQuickScore=maxQuickScore(offsets, keyScores);
-		
+
 		if(SHRINK_BEFORE_WALK){
 			int[][] r=shrink(starts, stops, offsets, keyScores, offsets.length);
 			if(r!=null){
@@ -954,41 +956,41 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				keyScores=r[4];
 			}
 		}
-		
+
 		final int numHits=offsets.length; //After shrink
-		
-		
+
+
 		assert(numHits==offsets.length);
 		assert(numHits==keyScores.length);
-		
+
 		usedKeys+=numHits;
 		usedKeyIterations++;
-		
+
 		final boolean filter_by_qscore=(FILTER_BY_QSCORE && numKeys>=5);
-		
+
 		assert(!(!SHRINK_BEFORE_WALK && ADD_SCORE_Z));
-		
-		
+
+
 //		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*0.85f*maxScore));
 		final int minScore=(obeyLimits ? (int)(MIN_SCORE_MULT*maxScore) : (int)(MIN_SCORE_MULT*1.25f*maxScore));
 		final int minQuickScore=(int)(MIN_QSCORE_MULT*maxQuickScore);
-		
+
 		final int baseChrom=baseChrom(baseChrom_);
-		
+
 		heap.clear();
-		
+
 		final Quad[] triples=tripleStorage;
 
 		final int[] values=valueArray;
 		final int[] sizes=sizeArray;
 		final int[] locArray=(USE_EXTENDED_SCORE ? getLocArray(bases.length) : null);
 		final Block b=index[baseChrom];
-		
+
 		if(ssl==null){ssl=new ArrayList<SiteScore>(8);}
-		
+
 		int currentTopScore=bestScores[0];
 		int cutoff=Tools.max(minScore, (int)(currentTopScore*DYNAMIC_SCORE_THRESH));
-		
+
 		int qcutoff=Tools.max(bestScores[2], minQuickScore);
 		int bestqscore=bestScores[3];
 		int maxHits=bestScores[1];
@@ -996,21 +998,21 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		assert((currentTopScore>=maxScore) == (perfectsFound>0)) : currentTopScore+", "+maxScore+", "+perfectsFound+", "+maxHits+", "+numHits;
 		int approxHitsCutoff=calcApproxHitsCutoff(numKeys, maxHits, MIN_APPROX_HITS_TO_KEEP, currentTopScore>=maxScore);
 		if(approxHitsCutoff>numHits){return ssl;}
-		
+
 		final boolean shortCircuit=(allBasesCovered && numKeys==numHits && filter_by_qscore);
-		
+
 		if(currentTopScore>=maxScore){
 			assert(currentTopScore==maxScore);
-			
+
 		}
-			
-		
+
+
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
 			sizes[i]=b.length(start, stops[i]);
 			assert(sizes[i]>0);
-			
+
 			int a=sites[start];
 			int a2;
 			if((a&SITE_MASK)>=offsets[i]){
@@ -1038,19 +1040,19 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //		System.out.println("maxScore="+maxScore+"\tminScore="+minScore+"\tcurrentTopScore="+currentTopScore+"\n" +
 //				"cutoff="+cutoff+"\tmaxHits="+maxHits+"\tapproxHitsCutoff="+approxHitsCutoff);
 //		System.out.println("maxQuickScore="+maxQuickScore+"\tminQuickScore="+minQuickScore+"\tqcutoff="+qcutoff);
-		
-		
+
+
 		SiteScore prevSS=null;
 		while(!heap.isEmpty()){
 			Quad t=heap.peek();
 			final int site=t.site;
 			final int centerIndex=t.column;
-			
+
 			int maxNearbySite=site;
 
 
 			int approxHits=0;
-			
+
 			{//Inner loop
 				final int minsite=site-MAX_INDEL, maxsite=site+MAX_INDEL2;
 				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
@@ -1064,29 +1066,29 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			}
 
 			assert(centerIndex>=0) : centerIndex;
-			
+
 			//I don't remember what this assertion was for or why, but it's causing trouble.
 			//assert(approxHits>=1 || approxHitsCutoff>1) : approxHits+", "+approxHitsCutoff+", "+numHits+", "+t.column;
 			if(approxHits>=approxHitsCutoff){
-				
+
 				int score;
 				int qscore=(filter_by_qscore ? quickScore(values, keyScores, centerIndex, offsets, sizes, true, approxHits, numHits) : qcutoff);
 				if(ADD_SCORE_Z){
 					int scoreZ=scoreZ2(values, centerIndex, offsets, approxHits, numHits);
 					qscore+=scoreZ;
 				}
-				
+
 				int mapStart=site, mapStop=maxNearbySite;
-				
+
 				assert(USE_EXTENDED_SCORE);
-				
+
 				boolean locArrayValid=false;
 				if(qscore<qcutoff){
 					score=-1;
 				}else{
 
 					final int chrom=numberToChrom(site, baseChrom);
-					
+
 					//TODO Note that disabling the shortCircuit code seems to make things run 2% faster (with identical results).
 					//However, theoretically, shortCircuit should be far more efficient.  Test both ways on cluster and on a larger run.
 					//May have something to do with compiler loop optimizations.
@@ -1104,7 +1106,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 							System.err.println("score: "+score);
 							System.err.println("locArray: "+Arrays.toString(locArray));
 						}
-					
+
 						//Correct begin and end positions if they changed.
 						int min=Integer.MAX_VALUE;
 						int max=Integer.MIN_VALUE;
@@ -1120,7 +1122,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 							assert(min==max && min>-1) : "\n"+score+", "+maxScore+", "+min+", "+max+
 							", "+(max-min)+", "+bases.length+"\n"+Arrays.toString(locArray)+"\n";
 						}
-						
+
 						//							assert(min>-1 && max>-1) : Arrays.toString(locArray); //TODO: How did this assertion trigger?
 						if(min<0 || max<0){
 							System.err.println("Anomaly in "+getClass().getName()+".slowWalk: "+
@@ -1131,11 +1133,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 							System.err.println();
 							score=-99999;
 						}
-						
+
 						//mapStart and mapStop are indices
 						mapStart=toNumber(min, chrom);
 						mapStop=toNumber(max, chrom);
-						
+
 						if(score>=maxScore){
 							assert(mapStop-mapStart==0) : "\n"+score+", "+maxScore+", "+min+", "+max+
 							", "+(max-min)+", "+(mapStop-mapStart)+", "+bases.length+"\n"+Arrays.toString(locArray)+"\n";
@@ -1146,20 +1148,20 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //						qcutoff=Tools.max(qcutoff, (int)(maxQuickScore*DYNAMIC_QSCORE_THRESH_PERFECT));
 //						approxHitsCutoff=calcApproxHitsCutoff(numKeys, maxHits, MIN_APPROX_HITS_TO_KEEP, true);
 //					}
-					
+
 					if(score>=cutoff){
 						qcutoff=calcQScoreCutoff(maxQuickScore, qscore, qcutoff);
 						bestqscore=Tools.max(qscore, bestqscore);
 					}
 				}
-				
+
 				if(score>=cutoff){
 
 					if(score>currentTopScore){
 //						System.err.println("New top score!");
 
 						if(DYNAMICALLY_TRIM_LOW_SCORES){
-							
+
 							maxHits=Tools.max(approxHits, maxHits);
 							approxHitsCutoff=calcApproxHitsCutoff(numKeys, maxHits, approxHitsCutoff, currentTopScore>=maxScore);
 							cutoff=calcScoreCutoff(maxScore, currentTopScore, cutoff);
@@ -1173,14 +1175,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					final int chrom=numberToChrom(mapStart, baseChrom);
 					final int site2=numberToSite(mapStart);
 					final int site3=numberToSite(mapStop)+bases.length-1;
-					
+
 					assert(NUM_CHROM_BITS==0 || site2<SITE_MASK-1000) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length+
 						"\n\n"+Arrays.toString(b.getHitList(centerIndex));
 					assert(site2<site3) : "chrom="+chrom+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", site2="+site2+", site3="+site3+", read.length="+bases.length;
-					
-					
+
+
 					int[] gapArray=null;
 					if(site3-site2>=MINGAP+bases.length){
 						assert(locArrayValid) : "Loc array was not filled.";
@@ -1199,7 +1201,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //
 //							System.err.println(mapStart+" -> "+site2);
 //							System.err.println(mapStop+" -> "+site3);
-							
+
 							assert(gapArray[0]>=site2 && gapArray[0]-site2<bases.length);
 							assert(gapArray[gapArray.length-1]<=site3 && site3-gapArray[gapArray.length-1]<bases.length) : "\n"+
 								mapStart+" -> "+site2+"\n"+
@@ -1217,15 +1219,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 						if(verbose){System.err.println("@ site "+site2+", made gap array: "+Arrays.toString(gapArray));}
 //						assert(false) : Arrays.toString(locArray);
 					}
-					
-					
+
+
 					//This block is optional, but tries to eliminate multiple identical alignments
-					
+
 					SiteScore ss=null;
 					final boolean perfect1=USE_EXTENDED_SCORE && score==maxScore && fullyDefined;
 					final boolean inbounds=(site2>=0 && site3<Data.chromLengths[chrom]);
 //					if(!inbounds){System.err.println("Index tossed out-of-bounds site chr"+chrom+", "+site2+"-"+site3);}
-					
+
 					if(inbounds && !SEMIPERFECTMODE && !PERFECTMODE && gapArray==null && prevSS!=null &&
 							prevSS.chrom==chrom && prevSS.strand==strand && overlap(prevSS.start, prevSS.stop, site2, site3)){
 
@@ -1283,17 +1285,17 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 						ss.gaps=gapArray;
 						if(verbose){System.err.println("B) Index made SiteScore "+ss.toText()+", "+Arrays.toString(ss.gaps));}
 					}
-					
+
 					assert(ss==null || !ss.perfect || ss.semiperfect) : ss;
 					assert(prevSS==null || !prevSS.perfect || prevSS.semiperfect) : "\n"+SiteScore.header()+"\n"+ss+"\n"+prevSS;
 					if(ss!=null && ((SEMIPERFECTMODE && !ss.semiperfect) || (PERFECTMODE && !ss.perfect))){ss=null;}
-					
-					
+
+
 					if(ss!=null){
 //						System.out.println("Added site "+ss.toText()+", qscore="+qscore);
 						ssl.add(ss);
 						if(ss.perfect){
-							
+
 							if(prevSS==null || !prevSS.perfect || !ss.overlaps(prevSS)){
 								if(prevSS==null){assert ssl.size()<2 || !ss.overlaps(ssl.get(ssl.size()-2));}
 								perfectsFound++;
@@ -1306,7 +1308,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //								if(QUIT_AFTER_TWO_PERFECTS && perfectsFound>=2){break;}
 							}
 						}
-						
+
 						prevSS=ss;
 					}else{
 //						System.out.println("Subsumed site "+new SiteScore(chrom, strand, site2, site3, score).toText());
@@ -1319,12 +1321,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				final int row=t2.row+1, col=t2.column;
 				if(row<stops[col]){
 					t2.row=row;
-					
+
 					int a=t2.list[row];
 					int a2;
 					if((a&SITE_MASK)>=offsets[col]){
 						a2=a-offsets[col];
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1333,16 +1335,16 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 						int st=numberToSite(a);
 						int st2=Tools.max(st-offsets[col], 0);
 						a2=toNumber(st2, ch);
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
 					}
-					
+
 					assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 						"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", strand="+strand+", site="+site+
 						", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
-					
+
 					t2.site=a2;
 					values[col]=a2;
 					heap.add(t2);
@@ -1352,11 +1354,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					bestScores[1]=Tools.max(bestScores[1], maxHits);
 					bestScores[2]=Tools.max(bestScores[2], qcutoff);
 					bestScores[3]=Tools.max(bestScores[3], bestqscore);
-					
+
 					bestScores[4]=maxQuickScore;
 					bestScores[5]=perfectsFound; //***$ fixed by adding this line
 					if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-					
+
 					return ssl;
 				}
 				if(heap.isEmpty()){
@@ -1366,7 +1368,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			}
 
 		}
-		
+
 		assert(USE_EXTENDED_SCORE);
 		bestScores[0]=Tools.max(bestScores[0], currentTopScore);
 		bestScores[1]=Tools.max(bestScores[1], maxHits);
@@ -1376,11 +1378,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		bestScores[4]=maxQuickScore;
 		bestScores[5]=perfectsFound;
 		if(!RETAIN_BEST_QCUTOFF){bestScores[2]=-9999;}
-		
+
 		return ssl;
 	}
-	
-	
+
+
 	/**
 	 * Rapidly finds maximum quick score and hit count for prescanning optimization.
 	 * Uses coordinate walking to identify best possible alignment scores without
@@ -1401,21 +1403,21 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private final int[] findMaxQscore2(final int[] starts, final int[] stops, final int[] offsets, final int[] keyScores,
 			final int baseChrom_, final Quad[] triples, final int[] values, final int prevMaxHits,
 			boolean earlyExit, boolean perfectOnly){
-		
+
 		final int numHits=offsets.length;
 		assert(numHits>=prevMaxHits);
-		
+
 		final int baseChrom=baseChrom(baseChrom_);
 		final Block b=index[baseChrom];
 		final int[] sizes=sizeArray;
-		
+
 		heap.clear();
 		for(int i=0; i<numHits; i++){
 			final int[] sites=b.sites;
 			final int start=starts[i];
 			sizes[i]=b.length(start, stops[i]);
 			assert(sizes[i]>0);
-			
+
 			int a=sites[start];
 			int a2;
 			if((a&SITE_MASK)>=offsets[i]){
@@ -1438,15 +1440,15 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 
 			heap.add(t);
 		}
-		
+
 		final int maxQuickScore=maxQuickScore(offsets, keyScores);
-		
+
 		int topQscore=-999999999;
-		
+
 		int maxHits=0;
 //		int approxHitsCutoff=MIN_APPROX_HITS_TO_KEEP;
-		
-		
+
+
 		int approxHitsCutoff;
 		final int indelCutoff;
 		if(perfectOnly){
@@ -1456,18 +1458,18 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			approxHitsCutoff=Tools.max(prevMaxHits, Tools.min(MIN_APPROX_HITS_TO_KEEP, numHits-1)); //Faster, same accuracy
 			indelCutoff=MAX_INDEL2;
 		}
-		
-		
+
+
 		while(!heap.isEmpty()){
 			Quad t=heap.peek();
 			final int site=t.site;
 			final int centerIndex=t.column;
-			
+
 			int maxNearbySite=site;
 
 
 			int approxHits=0;
-			
+
 			{//Inner loop
 				final int minsite=site-Tools.min(MAX_INDEL, indelCutoff), maxsite=site+MAX_INDEL2;
 				for(int column=0, chances=numHits-approxHitsCutoff; column<numHits && chances>=0; column++){
@@ -1481,28 +1483,28 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			}
 
 			assert(centerIndex>=0) : centerIndex;
-			
+
 			//I don't remember what this assertion was for or why, but it's causing trouble.
 			//assert(approxHits>=1 || approxHitsCutoff>1) : approxHits+", "+approxHitsCutoff+", "+numHits+", "+t.column;
 			if(approxHits>=approxHitsCutoff){
-				
+
 				int qscore=quickScore(values, keyScores, centerIndex, offsets, sizes, true, approxHits, numHits);
-				
+
 				if(ADD_SCORE_Z){
 					int scoreZ=scoreZ2(values, centerIndex, offsets, approxHits, numHits);
 					qscore+=scoreZ;
 				}
-				
+
 				if(qscore>topQscore){
-					
+
 //					maxHits=Tools.max(approxHits, maxHits);
 //					approxHitsCutoff=Tools.max(approxHitsCutoff, maxHits); //Best setting for pre-scan
-					
+
 					maxHits=Tools.max(approxHits, maxHits);
 					approxHitsCutoff=Tools.max(approxHitsCutoff, approxHits-1); //Best setting for pre-scan
-					
+
 					topQscore=qscore;
-					
+
 					if(qscore>=maxQuickScore){
 						assert(qscore==maxQuickScore);
 						assert(approxHits==numHits);
@@ -1518,12 +1520,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				final int row=t2.row+1, col=t2.column;
 				if(row<stops[col]){
 					t2.row=row;
-					
+
 					int a=t2.list[row];
 					int a2;
 					if((a&SITE_MASK)>=offsets[col]){
 						a2=a-offsets[col];
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1532,12 +1534,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 						int st=numberToSite(a);
 						int st2=Tools.max(st-offsets[col], 0);
 						a2=toNumber(st2, ch);
-						
+
 						assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 							"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 							", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
 					}
-					
+
 					assert(numberToChrom(a, baseChrom) == numberToChrom(a2, baseChrom)) :
 						"baseChrom="+baseChrom+", chrom="+numberToChrom(a, baseChrom)+", site="+site+
 						", maxNearbySite="+maxNearbySite+", a="+a+", a2="+a2+", offsets["+col+"]="+offsets[col];
@@ -1552,22 +1554,22 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			}
 
 		}
-		
-		
-		
+
+
+
 		return new int[] {topQscore, maxHits};
 	}
-	
-	
+
+
 	/** Returns absolute difference between two integers */
 	private static final int absdif(int a, int b){
 		return a>b ? a-b : b-a;
 	}
-	
-	
+
+
 	@Override
 	final int maxScore(int[] offsets, byte[] baseScores, int[] keyScores, int readlen, boolean useQuality){
-		
+
 		if(useQuality){
 			//These lines apparently MUST be used if quality is used later on for slow align.
 			if(USE_AFFINE_SCORE){return msa.maxQuality(baseScores);}
@@ -1576,11 +1578,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 			if(USE_AFFINE_SCORE){return msa.maxQuality(readlen);}
 			if(USE_EXTENDED_SCORE){return readlen*(BASE_HIT_SCORE+BASE_HIT_SCORE/5);}
 		}
-		
+
 		return maxQuickScore(offsets, keyScores);
 	}
-	
-	
+
+
 	/**
 	 * Calculates maximum possible quick score from k-mer arrangement.
 	 * Combines k-mer scores with positional bonus terms for alignment evaluation.
@@ -1599,13 +1601,13 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 
 //		if(ADD_SCORE_Z){x+=((offsets[offsets.length-1]+CHUNKSIZE)*Z_SCORE_MULT);}
 		if(ADD_SCORE_Z){x+=maxScoreZ(offsets);}
-		
+
 		return x+y;
 //		int bonus=(2*(HIT_SCORE/2)); //For matching both ends
 //		return x+y+bonus;
 	}
-	
-	
+
+
 	/**
 	 * Calculates quick alignment score based on k-mer positioning and quality.
 	 * Uses center-based alignment with left/right extension scoring and indel penalties.
@@ -1623,27 +1625,27 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	 */
 	private final int quickScore(final int[] locs, final int[] keyScores, final int centerIndex, final int offsets[],
 			int[] sizes, final boolean penalizeIndels, final int numApproxHits, final int numHits){
-		
+
 		if(numApproxHits==1){return keyScores[centerIndex];}
-		
+
 		//Done!
 		//Correct way to calculate score:
 		//Find the first chunk that exactly hits the center.
 		//Then, align leftward of it, and align rightward of it, and sum the scores.
-		
+
 		//"-centerIndex" is a disambiguating term that, given otherwise identical match patterns
 		//(for example, a small indel will generate two valid site candidates), choose the lower site.
 
 		int x=keyScores[centerIndex]+scoreLeft(locs, keyScores, centerIndex, sizes, penalizeIndels)+
 			scoreRight(locs, keyScores, centerIndex, sizes, penalizeIndels, numHits)-centerIndex;
-			
+
 		int y=Y_SCORE_MULT*scoreY(locs, centerIndex, offsets)+Y2_SCORE_MULT*scoreY2(locs, centerIndex, offsets);
 		if(ADD_LIST_SIZE_BONUS){x+=calcListSizeBonus(sizes[centerIndex]);}
 //		int z=scoreZ(locs, hits);
 		return x+y;
 	}
-	
-	
+
+
 	/** Generates a term that increases score with how far apart the two farthest perfect (+- Y2_INDEL) matches are.
 	 * Assumes that the centerIndex corresponds to the leftmost perfect match. */
 	public final static int scoreY2(int[] locs, int centerIndex, int offsets[]){
@@ -1654,7 +1656,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //			if(absdif(locs[i], centerIndex)>Y2_INDEL){break;}
 //			leftIndex=i;
 //		}
-		
+
 		int leftIndex=centerIndex;
 		for(int i=0; i<centerIndex; i++){
 //			assert(locs[i]<=locs[centerIndex]) : locs[i]+", "+locs[centerIndex]+", "+centerIndex+"\n"+Arrays.toString(locs);
@@ -1664,7 +1666,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				break;
 			}
 		}
-		
+
 		int rightIndex=centerIndex;
 		for(int i=offsets.length-1; i>centerIndex; i--){
 //			assert(locs[i]>=locs[centerIndex]);
@@ -1674,11 +1676,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				break;
 			}
 		}
-		
+
 		return offsets[rightIndex]-offsets[leftIndex];
 	}
-	
-	
+
+
 //	/** Generates a term that increases score with how many bases in the read match the ref. */
 //	public static final int scoreZ(int[] locs, int centerIndex, int offsets[]){
 //		final int center=locs[centerIndex];
@@ -1720,9 +1722,9 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //		}
 //		return score;
 //	}
-	
-	
-	
+
+
+
 	/**
 	 * Performs detailed alignment extension and scoring using reference sequence.
 	 * Extends k-mer matches bidirectionally, handling mismatches and gaps.
@@ -1742,29 +1744,31 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private final int extendScore(final byte[] bases, final byte[] baseScores, final int[] offsets, final int[] values,
 			final int chrom, final int centerIndex, final int[] locArray, final int numHits, final int numApproxHits){
 		callsToExtendScore++;
-		
+
 		final int centerVal=values[centerIndex];
 		final int centerLoc=numberToSite(centerVal);
-		
+
 		final int minLoc=Tools.max(0, centerLoc-MAX_INDEL); //Legacy, for assertions
 		final int maxLoc=centerLoc+MAX_INDEL2; //Legacy, for assertions
 
 		final int minVal=centerVal-MAX_INDEL;
 		final int maxVal=centerVal+MAX_INDEL2;
+		//TODO: Probable bug - packed windows can cross chromosome boundaries or overflow;
+		//the coordinate-only assertions below do not establish chromosome identity.
 
 //		System.out.println("Min, center, max = "+minLoc+", "+center+", "+ maxLoc);
 //		System.out.println("centerIndex = "+centerIndex);
-		
+
 		final byte[] ref=Data.getChromosome(chrom).array;
-		
+
 //		int[] locArray=new int[bases.length];
 		Arrays.fill(locArray, -1);
-		
-		
+
+
 		//First fill in reverse
 		for(int i=0, keynum=0; i<numHits; i++){
 			final int value=values[i];
-			
+
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
 				assert(refbase>=minLoc && refbase<=maxLoc);
@@ -1803,18 +1807,18 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
-		
-		
+
+
+
 		//Then fill forward
 		for(int i=0; i<numHits; i++){
 			final int value=values[i];
-			
+
 			if(value>=minVal && value<=maxVal){
 				final int refbase=numberToSite(value);
 				assert(refbase>=minLoc && refbase<=maxLoc);
 				final int callbase=offsets[i];
-				
+
 				int misses=0;
 				for(int cloc=callbase+KEYLEN, rloc=refbase+cloc; cloc<bases.length && rloc<ref.length; cloc++, rloc++){
 					int old=locArray[cloc];
@@ -1822,7 +1826,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					if(misses>0 && old>=0){break;} //Already filled with something that has no errors
 					byte c=bases[cloc];
 					byte r=ref[rloc];
-					
+
 					if(c==r){
 						if(old<0 || refbase==centerLoc){ //If the cell is empty or this key corresponds to center
 							locArray[cloc]=refbase;
@@ -1834,7 +1838,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 //		//Change 'N' to -2.  A bit slow.
 //		{
 //			int firstMatch=0;
@@ -1863,7 +1867,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //				}
 //			}
 //		}
-		
+
 		//Change 'N' to -2, but only for nocalls, not norefs.  Much faster.
 		{
 			final byte nb=(byte)'N';
@@ -1871,14 +1875,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				if(bases[i]==nb){locArray[i]=-2;}
 			}
 		}
-		
+
 		if(USE_AFFINE_SCORE){
 			/* TODO - sometimes returns a higher score than actual alignment.  This should never happen. */
 			int score=(KFILTER<2 ? msa.calcAffineScore(locArray, baseScores, bases) :
 				msa.calcAffineScore(locArray, baseScores, bases, KFILTER));
 			return score;
 		}
-		
+
 		int score=0;
 		int lastLoc=-1;
 		int centerBonus=BASE_HIT_SCORE/5;
@@ -1898,32 +1902,32 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 
 //		System.err.println("Extended score: "+score);
 //		System.err.println(Arrays.toString(locArray));
-		
-		
+
+
 		return score;
 	}
-	
-	
+
+
 	/** NOTE!  This destroys the locArray, so use a copy if needed. */
 	private static final int[] makeGapArray(int[] locArray, int minLoc, int minGap){
 		int gaps=0;
 		boolean doSort=false;
-		
+
 		if(locArray[0]<0){locArray[0]=minLoc;}
 		for(int i=1; i<locArray.length; i++){
 			if(locArray[i]<0){locArray[i]=locArray[i-1]+1;}
 			else{locArray[i]+=i;}
 			if(locArray[i]<locArray[i-1]){doSort=true;}
 		}
-		
+
 //		System.err.println(Arrays.toString(locArray)+"\n");
-		
+
 		if(doSort){
 //			System.err.println("*");
 			Arrays.sort(locArray);
 		}
 //		System.err.println(Arrays.toString(locArray)+"\n");
-		
+
 		for(int i=1; i<locArray.length; i++){
 			int dif=locArray[i]-locArray[i-1];
 			assert(dif>=0);
@@ -1935,7 +1939,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		int[] out=new int[2+gaps*2];
 		out[0]=locArray[0];
 		out[out.length-1]=locArray[locArray.length-1];
-		
+
 		for(int i=1, j=1; i<locArray.length; i++){
 			int dif=locArray[i]-locArray[i-1];
 			assert(dif>=0);
@@ -1947,22 +1951,22 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		}
 		return out;
 	}
-	
-	
+
+
 	/** Generates a term that increases score with how many bases in the read match the ref. */
 	private final int scoreZ2(int[] locs, int centerIndex, int offsets[], int numApproxHits, int numHits){
-		
+
 		if(numApproxHits==1){return SCOREZ_1KEY;}
-		
+
 		final int center=locs[centerIndex];
 
 		final int maxLoc=center+MAX_INDEL2;
 		final int minLoc=Tools.max(0, center-MAX_INDEL);
-		
+
 		int score=0;
-		
+
 		int a0=-1, b0=-1;
-		
+
 		for(int i=0; i<numHits; i++){
 			int loc=locs[i];
 //			int dif=absdif(loc, center);
@@ -1970,7 +1974,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //				assert(loc>=center) : "loc="+loc+"\ni="+i+"\ncenterIndex="+centerIndex+
 //					"\nmaxLoc="+maxLoc+"\nlocs:\t"+Arrays.toString(locs)+"\noffsets:\t"+Arrays.toString(offsets);
 				int a=offsets[i];
-				
+
 				if(b0<a){
 					score+=b0-a0;
 					a0=a;
@@ -1983,7 +1987,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //		assert(score==scoreZslow(locs, centerIndex, offsets, false)) : scoreZslow(locs, centerIndex, offsets, true)+" != "+score;
 		return score;
 	}
-	
+
 	@Deprecated
 	/** This was just to verify scoreZ2. */
 	private final int scoreZslow(int[] locs, int centerIndex, int offsets[], boolean display){
@@ -1991,10 +1995,10 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 
 		final int maxLoc=center+MAX_INDEL2;
 		final int minLoc=Tools.max(0, center-MAX_INDEL);
-		
+
 		byte[] array=new byte[offsets[offsets.length-1]+KEYLEN];
 		int score=0;
-		
+
 		for(int i=0; i<locs.length; i++){
 			int loc=locs[i];
 //			int dif=absdif(loc, center);
@@ -2009,12 +2013,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				}
 			}
 		}
-		
+
 		if(display){System.err.println("\n"+Arrays.toString(array)+"\n");}
-		
+
 		return score*Z_SCORE_MULT;
 	}
-	
+
 	/** Generates a term that increases score with how many bases in the read match the ref. */
 	private final int maxScoreZ(int offsets[]){
 		int score=0;
@@ -2033,7 +2037,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		score+=b0-a0;
 		return score*Z_SCORE_MULT;
 	}
-	
+
 
 	/**
 	 * Calculates alignment score contribution from k-mers right of center.
@@ -2048,25 +2052,25 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	 * @return Score contribution from rightward k-mer extension
 	 */
 	private final int scoreRight(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels, int numHits){
-		
+
 		int score=0;
-		
+
 		int prev, loc=locs[centerIndex];
-		
+
 		for(int i=centerIndex+1; i<numHits; i++){
-			
+
 			if(locs[i]>=0){
 				prev=loc;
 				loc=locs[i];
-				
+
 				int offset=absdif(loc, prev);
-				
+
 				if(offset<=MAX_INDEL){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
-					
+
 //					if(i==locs.length-1){score+=HIT_SCORE/2;} //Adds a bonus for matching the first or last key
-					
+
 					if(penalizeIndels && offset!=0){
 						int penalty=Tools.min(INDEL_PENALTY+INDEL_PENALTY_MULT*offset, MAX_PENALTY_FOR_MISALIGNED_HIT);
 						score-=penalty;
@@ -2076,12 +2080,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					loc=prev;
 				}
 			}
-			
+
 		}
 		return score;
-		
+
 	}
-	
+
 	/**
 	 * Calculates alignment score contribution from k-mers left of center.
 	 * Applies indel penalties and list size bonuses as configured.
@@ -2094,25 +2098,25 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	 * @return Score contribution from leftward k-mer extension
 	 */
 	private final int scoreLeft(int[] locs, int[] keyScores, int centerIndex, int[] sizes, boolean penalizeIndels){
-		
+
 		callsToScore++;
-		
+
 		int score=0;
-		
+
 		int prev, loc=locs[centerIndex];
-		
+
 		for(int i=centerIndex-1; i>=0; i--){
-			
+
 			if(locs[i]>=0){
 				prev=loc;
 				loc=locs[i];
-				
+
 				int offset=absdif(loc, prev);
-				
+
 				if(offset<=MAX_INDEL){
 					score+=keyScores[i];
 					if(ADD_LIST_SIZE_BONUS){score+=calcListSizeBonus(sizes[i]);}
-					
+
 //					if(i==0){score+=HIT_SCORE/2;} //Adds a bonus for matching the first or last key
 					if(penalizeIndels && offset!=0){
 						int penalty=Tools.min(INDEL_PENALTY+INDEL_PENALTY_MULT*offset, MAX_PENALTY_FOR_MISALIGNED_HIT);
@@ -2122,12 +2126,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 					loc=prev;
 				}
 			}
-			
+
 		}
 		return score;
-		
+
 	}
-	
+
 	/** Encode a (location, chrom) pair to an index */
 	private static final int toNumber(int site, int chrom){
 		int out=(chrom&CHROM_MASK_LOW);
@@ -2135,7 +2139,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		out=(out|site);
 		return out;
 	}
-	
+
 	/** Decode an (index, baseChrom) pair to a chromosome */
 	private static final int numberToChrom(int number, int baseChrom){
 		assert((baseChrom&CHROM_MASK_LOW)==0) : Integer.toHexString(number)+", baseChrom="+baseChrom;
@@ -2144,7 +2148,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		out=out+(baseChrom&CHROM_MASK_HIGH);
 		return out;
 	}
-	
+
 	/** Decode an index to a location */
 	private static final int numberToSite(int number){
 		return (number&SITE_MASK);
@@ -2160,8 +2164,8 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	 * Returns maximum chromosome number for the block containing specified chromosome
 	 */
 	public static final int maxChrom(int chrom){return Tools.max(MINCHROM, Tools.min(MAXCHROM, chrom|CHROM_MASK_LOW));}
-	
-	
+
+
 	/**
 	 * Retrieves reusable offset array of specified length, creating if necessary
 	 */
@@ -2196,7 +2200,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	}
 	@Override
 	final int[] getKeyScoreArray(int len, int strand){
-		if(len>=keyScoreArrays.length){return new int[len];}
+		if(len>=keyScoreArrays[0].length){return new int[len];}
 		if(keyScoreArrays[strand][len]==null){keyScoreArrays[strand][len]=new int[len];}
 		return keyScoreArrays[strand][len];
 	}
@@ -2207,11 +2211,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		return keyWeightArrays[len];
 	}
 	@Override
-	float[] keyProbArray() {
+	float[] keyProbArray(){
 		return keyProbArray;
 	}
-	
-	
+
+
 	/** Cache of reusable location arrays for alignment extension */
 	private final int[][] locArrays=new int[4001][];
 	/** Array for storing site coordinate values during alignment */
@@ -2251,8 +2255,8 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	final float[] keyProbArray=new float[4001];
 	/** Cache of reusable key weight arrays for greedy calculations */
 	private final float[][] keyWeightArrays=new float[1001][];
-	
-	
+
+
 	/**
 	 * Creates array of Quad objects for coordinate tracking during alignment.
 	 * Pre-initializes objects to avoid allocation during search.
@@ -2264,32 +2268,33 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		for(int i=0; i<number; i++){r[i]=new Quad(i, 0, 0);}
 		return r;
 	}
-	
+
 
 	/** Priority queue for coordinate-ordered processing during alignment walks */
 	private final QuadHeap heap=new QuadHeap(1023);
-	
+
 	/** Number of bits to shift for coordinate encoding calculations */
 	static int SHIFT_LENGTH=(32-1-NUM_CHROM_BITS);
 	/** Maximum allowed chromosome index value for bit packing */
 	static int MAX_ALLOWED_CHROM_INDEX=~((-1)<<SHIFT_LENGTH);
-	
+
 	/** Mask the number to get the site, which is in the lower bits */
 	static int SITE_MASK=((-1)>>>(NUM_CHROM_BITS+1));
-	
+
 	/** Mask the chromosome's high bits to get the low bits */
 	static int CHROM_MASK_LOW=CHROMS_PER_BLOCK-1;
-	
+
 	/** Mask the chromosome's lower bits to get the high bits */
 	static int CHROM_MASK_HIGH=~CHROM_MASK_LOW;
-	
+
 	/**
 	 * Configures chromosome bit encoding parameters for index structure.
 	 * Calculates bit masks and shift values for coordinate packing.
 	 * @param x Number of bits to allocate for chromosome encoding
 	 */
 	static void setChromBits(int x){
-		
+		//TODO: Probable bug - no upper bound precedes shifts; Java masks invalid shift distances.
+
 		NUM_CHROM_BITS=x;
 		CHROMS_PER_BLOCK=(1<<(NUM_CHROM_BITS));
 		SHIFT_LENGTH=(32-1-NUM_CHROM_BITS);
@@ -2297,7 +2302,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		SITE_MASK=((-1)>>>(NUM_CHROM_BITS+1));
 		CHROM_MASK_LOW=CHROMS_PER_BLOCK-1;
 		CHROM_MASK_HIGH=~CHROM_MASK_LOW;
-		
+
 //		assert(NUM_CHROM_BITS<30);
 		assert(NUM_CHROM_BITS>=0); //max is 3 for human; perhaps more for other organisms
 //		assert((1<<(NUM_CHROM_BITS))>=CHROMSPERBLOCK) : (1<<(NUM_CHROM_BITS))+" < "+CHROMSPERBLOCK;
@@ -2305,7 +2310,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		assert(Integer.bitCount(CHROMS_PER_BLOCK)==1);
 		assert(Integer.numberOfLeadingZeros(SITE_MASK)==(NUM_CHROM_BITS+1)) : Integer.toHexString(SITE_MASK);
 	}
-	
+
 	/** Number of processing cycles for multi-block chromosome iteration */
 	private final int cycles;
 
@@ -2317,7 +2322,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	public static int MAX_INDEL=96; //Max indel length, min 0, default 400; longer is more accurate
 	/** Extended maximum indel length for less stringent operations */
 	public static int MAX_INDEL2=8*MAX_INDEL;
-	
+
 	/** Inverse of base key hit score for normalization calculations */
 	private final float INV_BASE_KEY_HIT_SCORE;
 	/** Base penalty for indel operations */
@@ -2328,24 +2333,24 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private final int MAX_PENALTY_FOR_MISALIGNED_HIT;
 	/** Pre-calculated Z-score for single k-mer alignments */
 	private final int SCOREZ_1KEY;
-	
+
 	/** Whether to include Z-score component in alignment scoring */
 	public static final boolean ADD_SCORE_Z=true; //Increases quality, decreases speed
 	/** Multiplier for Z-score component in alignment scoring */
 	public static final int Z_SCORE_MULT=25;
 	/** Multiplier for Y-score component based on k-mer positioning */
 	public static final int Y_SCORE_MULT=5;
-	
+
 	/** Y2 score: based on distance between hits within Y2_INDEL of center */
 	public static final int Y2_SCORE_MULT=5;
 	/** Maximum indel distance for Y2-score calculations */
 	public static final int Y2_INDEL=4;
-	
-	
+
+
 	/**
 	 * Return only sites that match completely or with partial no-reference
 	 */
-	public static void setSemiperfectMode() {
+	public static void setSemiperfectMode(){
 		assert(!PERFECTMODE);
 		SEMIPERFECTMODE=true;
 		PRESCAN_QSCORE=false;
@@ -2356,11 +2361,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		MAX_INDEL=0;
 		MAX_INDEL2=0;
 	}
-	
+
 	/**
 	 * Return only sites that match completely
 	 */
-	public static void setPerfectMode() {
+	public static void setPerfectMode(){
 		assert(!SEMIPERFECTMODE);
 		PERFECTMODE=true;
 		PRESCAN_QSCORE=false;
@@ -2371,10 +2376,10 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		MAX_INDEL=0;
 		MAX_INDEL2=0;
 	}
-	
+
 	/** Fraction of most frequent k-mers to exclude from searches for performance */
 	static float FRACTION_GENOME_TO_EXCLUDE=0.005f; //Default .04; lower is slower and more accurate
-	
+
 	/**
 	 * Sets fraction of most frequent k-mers to exclude from searches.
 	 * Adjusts various search thresholds based on exclusion fraction.
@@ -2382,6 +2387,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	 */
 	public static final void setFractionToExclude(float f){
 		assert(f>=0 && f<1);
+		//TODO: Probable bug - accepted large fractions make histogram indexes below negative.
 		FRACTION_GENOME_TO_EXCLUDE=f;
 		MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
 		MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
@@ -2390,14 +2396,14 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		MAX_SHORTEST_LIST_TO_SEARCH=(int)(1000*(1-2.8*FRACTION_GENOME_TO_EXCLUDE)); //Default 860
 	}
 
-	
+
 	/** Default .75.  Range: 0 to 1 (but 0 will break everything).  Lower is faster and less accurate. */
 	static final float HIT_FRACTION_TO_RETAIN=.97f; //default: .85
 	/** Range: 0 to 1000.  Lower should be faster and less accurate. */
 	static int MIN_INDEX_TO_DROP_LONG_HIT_LIST=(int)(1000*(1-3.5*FRACTION_GENOME_TO_EXCLUDE)); //default 810
 	/** Range: 2 to infinity.  Lower should be faster and less accurate. */
 	static final int MIN_HIT_LISTS_TO_RETAIN=12;
-	
+
 	/** Maximum average hit list length before search limitations apply */
 	static int MAX_AVERAGE_LIST_TO_SEARCH=(int)(1000*(1-2.3*FRACTION_GENOME_TO_EXCLUDE)); //lower is faster, default 840
 	//lower is faster
@@ -2409,23 +2415,23 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	//lower is faster
 	/** Maximum length threshold for shortest hit list filtering */
 	static int MAX_SHORTEST_LIST_TO_SEARCH=(int)(1000*(1-2.8*FRACTION_GENOME_TO_EXCLUDE)); //Default 860
-	
+
 	/** To increase accuracy on small genomes, override greedy list dismissal when the list is at most this long. */
 	public static final int SMALL_GENOME_LIST=80;
-	
+
 	static{assert(!(TRIM_BY_GREEDY && TRIM_BY_TOTAL_SITE_COUNT)) : "Pick one.";}
-	
+
 	/** Maximum distance for considering k-mer repeats as clumpy */
 	static final int CLUMPY_MAX_DIST=5; //Keys repeating over intervals of this or less are clumpy.
-	
+
 	/** Minimum length of list before clumpiness is considered. This is an index in the length histogram, from 0 to 1000. */
 	static final int CLUMPY_MIN_LENGTH_INDEX=2800;
 	/** Fraction threshold for identifying clumpy k-mer patterns */
 	static final float CLUMPY_FRACTION=0.8f; //0 to 1; higher is slower but more stringent. 0.5 means the median distance is clumpy.
-	
+
 	/** Maximum length for alignment subsumption operations */
 	static final int MAX_SUBSUMPTION_LENGTH=MAX_INDEL2;
-	
+
 	/**
 	 * Calculates dynamic quick score cutoff for alignment filtering.
 	 * Balances between fixed thresholds and score-proportional thresholds.
@@ -2438,7 +2444,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private static final int calcQScoreCutoff(final int max, final int score, final int currentCutoff){
 		assert(max>=score) : max+", "+score;
 		assert(score>=0);
-		
+
 		assert(currentCutoff>0);
 		int r=Tools.max(currentCutoff, Tools.min((int)(SKIM_LEVEL_Q*max), (int)(DYNAMIC_SKIM_LEVEL_Q*score)));
 //		if(r>currentCutoff){
@@ -2446,7 +2452,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 //		}
 		return r;
 	}
-	
+
 	/**
 	 * Calculates dynamic alignment score cutoff for site filtering.
 	 * Uses both fixed fraction of maximum and dynamic fraction of current best.
@@ -2459,12 +2465,12 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private static final int calcScoreCutoff(final int max, final int score, final int currentCutoff){
 		assert(max>=score) : max+", "+score;
 		assert(score>=0);
-		
+
 		assert(currentCutoff>0);
 		int r=Tools.max(currentCutoff, Tools.min((int)(SKIM_LEVEL*max), (int)(DYNAMIC_SKIM_LEVEL*score)));
 		return r;
 	}
-	
+
 	/**
 	 * Calculates dynamic approximate hits cutoff for alignment consideration.
 	 * Adjusts requirements based on perfect match status and alignment mode.
@@ -2478,7 +2484,7 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 	private static final int calcApproxHitsCutoff(final int keys, final int hits, int currentCutoff, final boolean perfect){ //***$
 		assert(keys>=hits) : keys+", "+hits;
 		assert(hits>=0);
-		
+
 		int mahtk=MIN_APPROX_HITS_TO_KEEP;
 		if(SEMIPERFECTMODE || PERFECTMODE){
 			if(keys==1){return 1;}
@@ -2487,11 +2493,11 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 				if(currentCutoff==MIN_APPROX_HITS_TO_KEEP){currentCutoff++;}
 			}
 		}
-		
+
 		assert(currentCutoff>0);
 		return Tools.max(currentCutoff, Tools.min((int)(SKIM_LEVEL_H*keys), (int)(DYNAMIC_SKIM_LEVEL_H*hits)));
 	}
-	
+
 	/** Whether to perform quick score prescanning for optimization */
 	public static boolean PRESCAN_QSCORE=true && USE_EXTENDED_SCORE; //Decrease quality and increase speed
 	/** Whether to apply quick score filtering during alignment */
@@ -2508,23 +2514,23 @@ public final class BBIndexPacBioSkimmer extends AbstractIndex {
 		assert(MIN_SCORE_MULT>=0 && MIN_SCORE_MULT<1);
 //		assert(DYNAMIC_SCORE_THRESH>=0 && DYNAMIC_SCORE_THRESH<1);
 	}
-	
+
 	//Skim Depth Settings
-	
+
 	/** Always retain sites with at least this fraction of max hits (to pass on to qscore) */
 	public static float SKIM_LEVEL_H=0.098f; //.08 or .09
 	/** Always retain sites with at least this fraction of best hits */
 	public static final float DYNAMIC_SKIM_LEVEL_H=0.48f; //.45
-	
+
 	/** Always retain sites with at least this fraction of max qscore (to pass on to extend) */
 	public static float SKIM_LEVEL_Q=0.098f; //.09
 	/** Always retain sites with at least this fraction of best qscore */
 	public static final float DYNAMIC_SKIM_LEVEL_Q=0.78f; //.75
-	
+
 	/** Always retain sites with at least this fraction of max score (to output) */
 	public static float SKIM_LEVEL=0.105f; //.10
 	/** Always retain sites with at least this fraction of best score */
 	public static final float DYNAMIC_SKIM_LEVEL=0.78f; //.75
-	
-	
+
+
 }

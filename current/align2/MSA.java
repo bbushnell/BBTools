@@ -9,12 +9,17 @@ import shared.Tools;
 import stream.Read;
 import stream.SiteScore;
 
-/**
- * @author Brian Bushnell
+/** Stateful alignment interface,factory,and match-string scoring helpers.
+ * An instance owns mutable fill/traceback scratch and belongs to one worker.
+ * Fill results identify an endpoint in that scratch;score/traceback must consume
+ * it before another fill replaces the state. Reference intervals are inclusive.
+ * Factory selection and banding settings are global configuration,not per-instance
+ * options. baseScores means scoring adjustments,not necessarily raw Phred values.
+ * @author Brian Bushnell, Collei
  * @date Jun 20, 2013
  *
  */
-public abstract class MSA {
+public abstract class MSA{
 
 	//Abstract base + factory for the MultiStateAligner family (affine-gap multi-state DP). makeMSA() and
 	//minIdToMinRatio() dispatch on a class-name string. LIVE variants in practice: MultiStateAligner11ts
@@ -25,7 +30,8 @@ public abstract class MSA {
 	/**
 	 * Creates appropriate MSA implementation based on specified class name.
 	 * Factory method supporting 7 specialized alignment variants with different performance characteristics.
-	 * Automatically selects JNI acceleration when available and requested.
+	 * Selects JNI for 11ts when Shared.USE_JNI is set;this method does not probe
+	 * library availability. An explicit JNI class name also selects that variant.
 	 *
 	 * @param maxRows_ Maximum number of alignment matrix rows
 	 * @param maxColumns_ Maximum number of alignment matrix columns
@@ -54,11 +60,13 @@ public abstract class MSA {
 			flatMode=true;
 			return new MultiStateAligner9XFlat(maxRows_, maxColumns_);
 		}else{
+			//TODO: Unknown class names silently fall back under -da. Normal BBTools
+			// launchers use -ea; changing invalid-argument handling is separate work.
 			assert(false) : "Unhandled MSA type: "+classname;
 			return new MultiStateAligner11ts(maxRows_, maxColumns_);
 		}
 	}
-	
+
 	/**
 	 * Constructs MSA with specified matrix dimensions.
 	 * @param maxRows_ Maximum number of alignment matrix rows
@@ -68,16 +76,15 @@ public abstract class MSA {
 		maxRows=maxRows_;
 		maxColumns=maxColumns_;
 	}
-	
-	/** return new int[] {rows, maxC, maxS, max};
-	 * Will not fill areas that cannot match minScore */
+
+	/** Returns {rows,endpointColumn,endpointState,score},or null when no result
+	 * meets the implementation's limited-fill criterion. Mutates alignment scratch. */
 	public abstract int[] fillLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, int[] gaps);
-	
-	
-	/** return new int[] {rows, maxC, maxS, max};
-	 * Will not fill areas that cannot match minScore */
+
+	/** Returns {rows,endpointColumn,endpointState,score} without a caller score
+	 * threshold. Configured banding and implementation-specific limits still apply. */
 	public abstract int[] fillUnlimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int[] gaps);
-	
+
 	/**
 	 * Fills alignment matrix using quality scores for enhanced alignment precision.
 	 * Quality-aware alignment incorporating base quality information into scoring.
@@ -93,38 +100,37 @@ public abstract class MSA {
 	/** return new int[] {rows, maxC, maxS, max}; */
 	public abstract int[] fillQ(byte[] read, byte[] ref, byte[] baseScores, int refStartLoc, int refEndLoc);
 
-	
-	/** @return {score, bestRefStart, bestRefStop} */
-	/** Generates the match string */
+	/** Generates a match-operation byte array from the most recent fill.
+	 * The gapped flag requests translation from compressed reference coordinates. */
 	public abstract byte[] traceback(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state, boolean gapped);
-	
-	
+
 	/** Generates the match string */
 	public abstract byte[] traceback2(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int row, int col, int state);
-	
+
 	/** @return {score, bestRefStart, bestRefStop} */
 	public abstract int[] score(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState, boolean gapped);
-	
-	/** @return {score, bestRefStart, bestRefStop}, or {score, bestRefStart, bestRefStop, padLeft, padRight} if more padding is needed */
+
+	/** Returns score/start/stop followed by implementation-specific traceback context.
+	 * The 9ts/11ts layout is {score,start,stop,row,column,state},with padLeft/padRight
+	 * appended when more reference padding is requested. */
 	public abstract int[] score2(final byte[] read, final byte[] ref, final int refStartLoc, final int refEndLoc,
 			final int maxRow, final int maxCol, final int maxState);
-	
-	
+
 	/** Will not fill areas that cannot match minScore.
 	 * @return {score, bestRefStart, bestRefStop}  */
 	public final int[] fillAndScoreLimited(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, int minScore, int[] gaps){
 		int a=Tools.max(0, refStartLoc);
 		int b=Tools.min(ref.length-1, refEndLoc);
 		assert(b>=a);
-		
+
 		int[] score;
-		
+
 		if(verbose && b-a<500){
 			System.err.println(new String(read));
 			System.err.println(new String(ref, a, b-a));
 		}
-		
+
 		if(gaps==null){
 			if(verbose){
 				System.err.println("no gaps");
@@ -145,7 +151,7 @@ public abstract class MSA {
 		}
 		return score;
 	}
-	
+
 	/**
 	 * Convenience method for fillAndScoreLimited using SiteScore object.
 	 * Extracts alignment parameters from SiteScore and delegates to main implementation.
@@ -159,9 +165,9 @@ public abstract class MSA {
 	public final int[] fillAndScoreLimited(byte[] read, SiteScore ss, int thresh, int minScore){
 		return fillAndScoreLimited(read, ss.chrom, ss.start, ss.stop, thresh, minScore, ss.gaps);
 	}
-	
+
 //	public final int[] translateScoreFromGappedCoordinate(int[] score)
-	
+
 	/**
 	 * Chromosome-based alignment with automatic reference array retrieval.
 	 * Uses Data.getChromosome to access reference sequence and applies threshold padding.
@@ -178,18 +184,8 @@ public abstract class MSA {
 	public final int[] fillAndScoreLimited(byte[] read, int chrom, int start, int stop, int thresh, int minScore, int[] gaps){
 		return fillAndScoreLimited(read, Data.getChromosome(chrom).array, start-thresh, stop+thresh, minScore, gaps);
 	}
-	
-	/**
-	 * Quality-aware alignment with fillQ integration.
-	 * Deprecated method that performed quality-score-based alignment.
-	 *
-	 * @param read Query sequence to align
-	 * @param ref Reference sequence for alignment
-	 * @param refStartLoc Starting position in reference sequence
-	 * @param refEndLoc Ending position in reference sequence
-	 * @param baseScores Quality scores for read bases
-	 * @return Always returns null in current implementation
-	 */
+
+	/** Deprecated wrapper that runs fillQ but discards its endpoint and returns null. */
 	@Deprecated
 	public final int[] fillAndScoreQ(byte[] read, byte[] ref, int refStartLoc, int refEndLoc, byte[] baseScores){
 		int a=Tools.max(0, refStartLoc);
@@ -204,7 +200,7 @@ public abstract class MSA {
 //		return score;
 		return null;
 	}
-	
+
 	/**
 	 * SiteScore-based quality alignment convenience method.
 	 * Deprecated wrapper around fillAndScoreQ with SiteScore parameter extraction.
@@ -219,7 +215,7 @@ public abstract class MSA {
 	public final int[] fillAndScoreQ(byte[] read, SiteScore ss, int thresh, byte[] baseScores){
 		return fillAndScoreQ(read, ss.chrom, ss.start, ss.stop, thresh, baseScores);
 	}
-	
+
 	/**
 	 * Chromosome-based quality alignment with automatic reference retrieval.
 	 * Deprecated method combining chromosome lookup with quality-aware alignment.
@@ -236,7 +232,7 @@ public abstract class MSA {
 	public final int[] fillAndScoreQ(byte[] read, int chrom, int start, int stop, int thresh, byte[] baseScores){
 		return fillAndScoreQ(read, Data.getChromosome(chrom).array, start-thresh, stop+thresh, baseScores);
 	}
-	
+
 	/**
 	 * Calculates alignment score without allowing insertions or deletions.
 	 * Simple alignment scoring using direct base-to-base comparison only.
@@ -263,7 +259,7 @@ public abstract class MSA {
 		ChromosomeArray cha=Data.getChromosome(chrom);
 		return scoreNoIndels(read, cha.array, refStart);
 	}
-	
+
 	/**
 	 * Quality-aware ungapped alignment scoring using SiteScore.
 	 * Incorporates base quality scores into ungapped alignment evaluation.
@@ -294,7 +290,7 @@ public abstract class MSA {
 	}
 
 //	public final int scoreNoIndels(byte[] read, final int chrom, final int refStart){
-	
+
 	/** Calculates score based on an array from Index. */
 	public abstract int calcAffineScore(int[] locArray, byte[] baseScores, byte[] bases);
 
@@ -349,20 +345,19 @@ public abstract class MSA {
 	 */
 	public abstract int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart);
 	/**
-	 * Quality-aware alignment with fillQ integration.
-	 * Deprecated method that performed quality-score-based alignment.
-	 *
-	 * @param read Query sequence to align
-	 * @param ref Reference sequence for alignment
-	 * @param refStartLoc Starting position in reference sequence
-	 * @param refEndLoc Ending position in reference sequence
-	 * @param baseScores Quality scores for read bases
-	 * @return Always returns null in current implementation
+	 * Quality-aware ungapped scoring with a SiteScore output/context object.
+	 * The base implementation throws;subclasses must implement this overload.
+	 * @param read Query bases
+	 * @param ref Reference bases
+	 * @param baseScores Per-base scoring adjustments
+	 * @param refStart Inclusive reference start
+	 * @param ss Site context/output
+	 * @return Ungapped score
 	 */
 	public int scoreNoIndels(byte[] read, byte[] ref, byte[] baseScores, final int refStart, SiteScore ss){
 		throw new RuntimeException("Unimplemented method in class "+this.getClass());
 	}
-	
+
 	/**
 	 * Quality-aware ungapped scoring with simultaneous match string generation.
 	 * Combines scoring and match string creation for efficiency in quality-aware mode.
@@ -375,7 +370,7 @@ public abstract class MSA {
 	 * @return Quality-weighted ungapped alignment score
 	 */
 	public abstract int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, byte[] baseScores, final int refStart, byte[][] matchReturn);
-	
+
 	/**
 	 * Ungapped scoring with simultaneous match string generation.
 	 * Efficient combined scoring and match string creation without quality information.
@@ -387,17 +382,21 @@ public abstract class MSA {
 	 * @return Ungapped alignment score
 	 */
 	public abstract int scoreNoIndelsAndMakeMatchString(byte[] read, byte[] ref, final int refStart, byte[][] matchReturn);
-	
-	/** Assumes match string is in long format */
+
+	/** Extracts a local core from a long-format match string and soft-clips query tips.
+	 * Read and SiteScore must share match storage and initial coordinates. Deletions
+	 * consume reference but not query; removing a deletion-only tip still changes
+	 * the reference boundary. Returns false for no clipping (or clears a read with
+	 * no matches). The match multiplier selects the core,not its final score scale. */
 	public final boolean toLocalAlignment(Read r, SiteScore ss, byte[] basesM, int minToClip, float matchPointsMult){
 		final byte[] match=r.match, bases=(r.strand()==Shared.PLUS ? r.bases : basesM);
 		if(match==null || match.length<1){return false;}
-		
+
 		assert(match==ss.match);
 		assert(match==r.match);
 		assert(r.start==ss.start);
 		assert(r.stop==ss.stop);
-		
+
 		if(r.containsXY2()){
 			if(verbose){System.err.println("\nInitial0:");}
 			if(verbose){System.err.println("0: match="+new String(match));}
@@ -415,21 +414,21 @@ public abstract class MSA {
 			assert(ss.lengthsAgree()) : ss.mappedLength()+"!="+ss.matchLength()+"\n"+ss+"\n\n"+r+"\n";
 		}
 		assert(ss.lengthsAgree()) : ss.mappedLength()+"!="+ss.matchLength()+"\n"+ss+"\n\n"+r+"\n";
-		
+
 		int maxScore=-1;
-		
+
 		int startLocC=-1;
 		int stopLocC=-1;
 		int lastZeroC=0;
-		
+
 		int startLocM=-1;
 		int stopLocM=-1;
 		int lastZeroM=0;
-		
+
 		int startLocR=-1;
 		int stopLocR=-1;
 		int lastZeroR=0;
-		
+
 		byte mode=match[0], prevMode='0';
 		int current=0, prevStreak=0;
 		int cpos=0;
@@ -441,16 +440,16 @@ public abstract class MSA {
 		if(verbose){System.err.println("A: match=\n"+new String(match));}
 		if(verbose){System.err.println(new String(bases));}
 		if(verbose){System.err.println(Data.getChromosome(r.chrom).getString(r.start, Tools.max(r.stop, r.start+bases.length-1)));}
-		
+
 		if(verbose){
 			int calcscore=score(match);
 			System.err.println("A: score="+r.mapScore+", ss.slowScore="+ss.slowScore+", calcscore="+calcscore);
 //			assert(ss.slowScore<=calcscore); //May be lower due to ambig3.  I found a case where this line fails, possibly due to long deletions?
 		}
-		
+
 		for(int mpos=0; mpos<match.length; mpos++){
 			byte c=match[mpos];
-			
+
 			if(mode==c){
 				current++;
 			}else{
@@ -567,29 +566,28 @@ public abstract class MSA {
 			}
 			if(verbose){System.err.println("mode "+(char)mode+"->end; rpos="+rpos);}
 		}
-		
+
 		if(startLocC<0 || stopLocC<0){
 			//This can happen if there are zero matches.  Which would be rare, but I have seen it occur.
 			r.clearMapping();
 //			assert(false) : "Failed: "+startLocC+", "+stopLocC+"\n"+r+"\n"+r.mate+"\n"+r.toFastq()+"\n"+(r.mate==null ? "null" : r.mate.toFastq());
 			return false;
 		}
-		
-		
+
 		if(verbose){System.err.println("A: r.start="+r.start+", r.stop="+r.stop+"; rpos="+rpos+"; len="+bases.length+"; reflen="+(r.stop-r.start+1));}
-		
+
 		assert(rpos==r.stop+1) : "\n\n\n"+rpos+"!="+(r.stop+1)+"\n"+r+"\n\n"+
 			(r.topSite()==null ? "null" : r.topSite().mappedLength()+", "+r.topSite().matchLength()+", "+r.topSite().start+", "+r.topSite().stop+"\n"+r.topSite());
-		
+
 		if(verbose){System.err.println("B: rpos="+rpos+", startLocR="+startLocR+", stopLocR="+stopLocR);}
-		
+
 		int headTrimR=startLocC;
 		int headTrimM=startLocM;
 		int tailTrimR=bases.length-stopLocC-1;
 		int tailTrimM=match.length-stopLocM-1;
-		
+
 		if(verbose){System.err.println("C: headTrimR="+headTrimR+", headTrimM="+headTrimM+", tailTrimR="+tailTrimR+", tailTrimM="+tailTrimM);}
-		
+
 		if(headTrimR<=minToClip && headTrimM<=minToClip){
 			headTrimR=headTrimM=0;
 		}
@@ -603,10 +601,10 @@ public abstract class MSA {
 		final int headDelta=headTrimR-headTrimM;
 		final int tailDelta=tailTrimR-tailTrimM;
 		final byte[] match2;
-		
+
 		if(verbose){System.err.println("D: headTrimR="+headTrimR+", headTrimM="+headTrimM+", tailTrimR="+tailTrimR+", tailTrimM="+tailTrimM);}
 		if(verbose){System.err.println("D: headDelta="+headDelta+", tailDelta="+tailDelta);}
-		
+
 		if(headDelta==0 && tailDelta==0){
 			//Length-neutral trimming
 			match2=match;
@@ -621,35 +619,36 @@ public abstract class MSA {
 				match2[i2]=match[i];
 			}
 		}
-		
+
 		assert(ss==null || ((ss.start==r.start) && (ss.stop==r.stop) && (ss.strand==r.strand()) && (ss.chrom==r.chrom) && (ss.match==r.match))) :
 			"\nr="+r+"\nr2="+r.mate+"\nss=\n"+ss+"\n"+(ss==null ? "ss is null" : ((ss.start==r.start)+", "+(ss.stop==r.stop)+", "+
 			(ss.strand==r.strand())+", "+(ss.chrom==r.chrom)+", "+(ss.match==r.match)));
-		
-		if(headTrimR!=0){r.start=startLocR-headTrimR;}
-		if(tailTrimR!=0){r.stop=stopLocR+tailTrimR;}
+
+		if(headTrimR!=0 || headTrimM!=0){r.start=startLocR-headTrimR;}
+		if(tailTrimR!=0 || tailTrimM!=0){r.stop=stopLocR+tailTrimR;}
 		r.match=match2;
-		
+
 		if(matchPointsMult!=1f){
-			maxScore=score(match);
+			maxScore=score(match2);
 		}
 		if(ss!=null){maxScore=Tools.max(maxScore, ss.slowScore);}
 		r.mapScore=maxScore;
 
 		if(verbose){System.err.println("E: r.start="+r.start+", r.stop="+r.stop);}
-		
+
 		if(ss!=null){
 			assert(maxScore>=ss.slowScore) : maxScore+", "+ss.slowScore+"\n"+r.toFastq();
 			ss.match=r.match;
 			ss.setLimits(r.start, r.stop);
 			int pairedScore=ss.pairedScore>0 ? Tools.max(ss.pairedScore+(maxScore-ss.slowScore), 0) : 0;
+			//TODO: Computed pairedScore is discarded,and the normal branch leaves
+			// ss.slowScore unchanged while updating r.mapScore. Caller ranking/score
+			// ownership needs a separate review before changing these fields.
 		}
-		
-		//align2/MSA#001 FIXED: the block below dereferences ss, but this method contemplates ss==null
-		//(the assert at ~619, plus the if(ss!=null) guards at ~630/~635). Added ss!=null here and on the
-		//else-if so a null ss falls through to `return true` instead of NPEing — behavior-identical when
-		//ss!=null. Reachability of ss==null pending the BBMapThread* call-site review (callers pass
-		//r.topSite()/ss); the guard is correct regardless and matches the method's own null-handling.
+
+		//TODO: Earlier entry assertions/ss.lengthsAgree already require a nonnull ss.
+		// The legacy null guards below do not make the overall method null-safe.
+		//Legacy guards are retained here;they do not change the method's nonnull entry contract.
 		if(ss!=null && !ss.perfect && ss.isPerfect(bases)){
 			ss.perfect=ss.semiperfect=true;
 			r.setPerfect(true);
@@ -664,20 +663,19 @@ public abstract class MSA {
 		}
 		return true;
 	}
-	
 
 	/** Works in short or long format. */
 	public final int score(byte[] match){
 		if(match==null || match.length<1){return 0;}
-		
+
 		byte mode=match[0], prevMode='0';
 		int current=0, prevStreak=0;
 		int score=0;
 		boolean hasDigit=false;
-		
+
 		for(int mpos=0; mpos<match.length; mpos++){
 			byte c=match[mpos];
-			
+
 			if(mode==c){
 				current++;
 			}else if(Tools.isDigit(c)){
@@ -740,38 +738,38 @@ public abstract class MSA {
 			}
 			if(verbose){System.err.println("mode "+(char)mode+"->end; score="+score);}
 		}
-		
+
 		return score;
 	}
-	
+
 	/**
 	 * Calculates maximum possible quality score for given number of bases.
 	 * @param numBases Number of bases in sequence
 	 * @return Maximum achievable quality score
 	 */
 	public abstract int maxQuality(int numBases);
-	
+
 	/**
 	 * Calculates maximum quality score based on actual base quality values.
 	 * @param baseScores Array of base quality scores
 	 * @return Maximum achievable quality score for these specific base scores
 	 */
 	public abstract int maxQuality(byte[] baseScores);
-	
+
 	/**
 	 * Calculates maximum score for imperfect alignment with given number of bases.
 	 * @param numBases Number of bases in sequence
 	 * @return Maximum achievable score allowing for imperfect matches
 	 */
 	public abstract int maxImperfectScore(int numBases);
-	
+
 	/**
 	 * Calculates maximum imperfect score based on actual base quality values.
 	 * @param baseScores Array of base quality scores
 	 * @return Maximum achievable imperfect score for these specific base scores
 	 */
 	public abstract int maxImperfectScore(byte[] baseScores);
-	
+
 	/**
 	 * Formats integer array for display with fixed-width columns.
 	 * Creates aligned string representation for debugging and visualization.
@@ -779,9 +777,9 @@ public abstract class MSA {
 	 * @return Formatted string with fixed-width columns
 	 */
 	public static final String toString(int[] a){
-		
+
 		int width=7;
-		
+
 		StringBuilder sb=new StringBuilder((a.length+1)*width+2);
 		for(int num : a){
 			String s=" "+num;
@@ -790,10 +788,10 @@ public abstract class MSA {
 			for(int i=0; i<spaces; i++){sb.append(' ');}
 			sb.append(s);
 		}
-		
+
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Prints all modes of packed alignment matrix for debugging.
 	 * Displays both time and score information for complete matrix visualization.
@@ -809,7 +807,7 @@ public abstract class MSA {
 			printMatrix(packed, readlen, reflen, TIMEMASK, SCOREOFFSET, mode);
 		}
 	}
-	
+
 	/**
 	 * Prints specific mode of packed alignment matrix for debugging.
 	 * Displays both time and score information for specified matrix mode.
@@ -824,6 +822,8 @@ public abstract class MSA {
 	static void printMatrix(int[][][] packed, int readlen, int reflen, int TIMEMASK, int SCOREOFFSET, int mode){
 		final int ylim=Tools.min(readlen+1, packed[mode].length);
 		final int xlim=Tools.min(reflen+1, packed[mode].length);
+		//TODO: Debug output uses the row count as its column limit,so rectangular
+		// matrices may be truncated. Row formatters separately clamp to row length.
 		for(int row=0; row<ylim; row++){
 			System.out.println(toScorePacked(packed[mode][row], SCOREOFFSET, xlim));
 		}
@@ -833,7 +833,7 @@ public abstract class MSA {
 		}
 		System.out.println();
 	}
-	
+
 	/**
 	 * Extracts and formats time information from packed matrix row.
 	 * Creates fixed-width display of time values for matrix visualization.
@@ -846,7 +846,7 @@ public abstract class MSA {
 	public static final String toTimePacked(int[] a, int TIMEMASK, int lim){
 		int width=6;
 		lim=Tools.min(lim, a.length);
-		
+
 		StringBuilder sb=new StringBuilder((a.length+1)*width+2);
 		for(int j=0; j<lim; j++){
 			int num=a[j]&TIMEMASK;
@@ -856,10 +856,10 @@ public abstract class MSA {
 			for(int i=0; i<spaces; i++){sb.append(' ');}
 			sb.append(s);
 		}
-		
+
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Extracts and formats score information from packed matrix row.
 	 * Creates fixed-width display of score values with overflow protection for matrix visualization.
@@ -872,7 +872,7 @@ public abstract class MSA {
 	public static final String toScorePacked(int[] a, int SCOREOFFSET, int lim){
 		int width=6;
 		lim=Tools.min(lim, a.length);
-		
+
 //		String minString=" -";
 //		String maxString="  ";
 //		while(minString.length()<width){minString+='9';}
@@ -882,7 +882,7 @@ public abstract class MSA {
 		String maxString=" +";
 		while(minString.length()<width){minString=minString+' ';}
 		while(maxString.length()<width){maxString=maxString+' ';}
-		
+
 		StringBuilder sb=new StringBuilder((a.length+1)*width+2);
 		for(int j=0; j<lim; j++){
 			int num=a[j]>>SCOREOFFSET;
@@ -893,10 +893,10 @@ public abstract class MSA {
 			for(int i=0; i<spaces; i++){sb.append(' ');}
 			sb.append(s);
 		}
-		
+
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Formats byte array for display with fixed-width columns.
 	 * Creates aligned string representation for debugging byte sequences.
@@ -904,9 +904,9 @@ public abstract class MSA {
 	 * @return Formatted string with fixed-width columns
 	 */
 	public static final String toString(byte[] a){
-		
+
 		int width=6;
-		
+
 		StringBuilder sb=new StringBuilder((a.length+1)*width+2);
 		for(int num : a){
 			String s=" "+num;
@@ -915,10 +915,10 @@ public abstract class MSA {
 			for(int i=0; i<spaces; i++){sb.append(' ');}
 			sb.append(s);
 		}
-		
+
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Extracts substring from byte array and converts to String.
 	 * Creates string representation of specified byte array region.
@@ -933,10 +933,11 @@ public abstract class MSA {
 		for(int i=startLoc; i<=stopLoc; i++){sb.append((char)ref[i]);}
 		return sb.toString();
 	}
-	
+
 	/**
 	 * Calculates score for consecutive matching bases.
-	 * Uses differential scoring with higher points for first match and lower points for additional matches.
+	 * Uses POINTS_MATCH for the first base and POINTS_MATCH2 for subsequent bases.
+	 * Their relative values are defined by the concrete aligner.
 	 * @param len Number of consecutive matching bases
 	 * @return Total score for match run of specified length
 	 */
@@ -944,7 +945,7 @@ public abstract class MSA {
 		assert(len>0) : len;
 		return POINTS_MATCH()+(len-1)*POINTS_MATCH2();
 	}
-	
+
 	/**
 	 * Calculates penalty score for consecutive substitutions.
 	 * Uses tiered penalty system with increasing penalties for longer substitution runs.
@@ -964,21 +965,21 @@ public abstract class MSA {
 		}
 		return score;
 	}
-	
+
 	/**
 	 * Calculates score for bases aligned to no-reference regions.
 	 * @param len Number of bases in no-reference region
 	 * @return Score for no-reference alignment
 	 */
 	public final int calcNorefScore(int len){return len*POINTS_NOREF();}
-	
+
 	/**
 	 * Calculates score for bases aligned to no-call reference regions.
 	 * @param len Number of bases in no-call region
 	 * @return Score for no-call alignment
 	 */
 	public final int calcNocallScore(int len){return len*POINTS_NOCALL();}
-	
+
 	/**
 	 * Calculates penalty score for deletion operations.
 	 * @param len Length of deletion
@@ -986,14 +987,14 @@ public abstract class MSA {
 	 * @return Penalty score for deletion of specified length
 	 */
 	public abstract int calcDelScore(int len, boolean approximateGaps);
-	
+
 	/**
 	 * Calculates penalty score for insertion operations.
 	 * @param len Length of insertion
 	 * @return Penalty score for insertion of specified length
 	 */
 	public abstract int calcInsScore(int len);
-	
+
 	/**
 	 * Converts minimum identity percentage to minimum ratio for specified MSA class.
 	 * Delegates to appropriate MSA implementation for class-specific ratio calculation.
@@ -1003,6 +1004,8 @@ public abstract class MSA {
 	 * @return Minimum ratio value corresponding to specified identity threshold
 	 */
 	public static final float minIdToMinRatio(double minid, String classname){
+		//TODO: Unlike makeMSA,this dispatcher lacks an explicit 11tsJNI alias.
+		// Calls using that literal name fail under -ea; normal 11ts dispatch is unaffected.
 		if("MultiStateAligner9ts".equalsIgnoreCase(classname)){
 			return MultiStateAligner9ts.minIdToMinRatio(minid);
 		}else if("MultiStateAligner10ts".equalsIgnoreCase(classname)){
@@ -1020,7 +1023,7 @@ public abstract class MSA {
 			return MultiStateAligner11ts.minIdToMinRatio(minid);
 		}
 	}
-	
+
 	/** Gap buffer size constant from Shared configuration */
 	static final int GAPBUFFER=Shared.GAPBUFFER;
 	/** Secondary gap buffer size constant from Shared configuration */
@@ -1033,11 +1036,10 @@ public abstract class MSA {
 	static final int GAPCOST=Shared.GAPCOST;
 	/** Gap character constant from Shared configuration */
 	static final byte GAPC=Shared.GAPC;
-	
+
 	/** Seemingly to clear out prior data from the gref.  Not sure what else it's used for. */
 	static final int GREFLIMIT2_CUSHION=128; //Tools.max(GAPBUFFER2, GAPLEN);
-	
-	
+
 	/**DO NOT MODIFY*/
 	public abstract byte[] getGrefbuffer();
 
@@ -1074,7 +1076,7 @@ public abstract class MSA {
 ////	public static final int TIMEMASK=(~((-1)<<TIMEBITS))<<TIMEOFFSET;
 //	public static final int TIMEMASK=~((-1)<<TIMEBITS);
 //	public static final int SCOREMASK=(~((-1)<<SCOREBITS))<<SCOREOFFSET;
-	
+
 	/** Match/substitution mode constant for alignment state */
 	static final byte MODE_MS=0;
 	/** Deletion mode constant for alignment state */
@@ -1083,7 +1085,7 @@ public abstract class MSA {
 	static final byte MODE_INS=2;
 	/** Substitution mode constant for alignment state */
 	static final byte MODE_SUB=3;
-	
+
 	//These are to allow constants to be overridden
 	/** Returns scoring points for alignment to no-reference regions.
 	 * @return Point value for no-reference alignment */
@@ -1155,7 +1157,7 @@ public abstract class MSA {
 	/** Returns bit mask for 5-bit operations.
 	 * @return 5-bit mask value for bitwise operations */
 	public abstract int MASK5();
-	
+
 	/** Returns barrier value for insertion state transitions.
 	 * @return Barrier value for insertion alignment state */
 	abstract int BARRIER_I1();
@@ -1172,12 +1174,11 @@ public abstract class MSA {
 	/** Returns length limit for applying fifth-tier penalty costs.
 	 * @return Length threshold for tier 5 penalty application */
 	public abstract int LIMIT_FOR_COST_5();
-	
+
 	/** Returns value representing invalid or bad alignment score.
 	 * @return Sentinel value for invalid alignment results */
 	public abstract int BAD();
-	
-	
+
 	/** Maximum number of rows in alignment matrix */
 	public final int maxRows;
 	/** Maximum number of columns in alignment matrix */
@@ -1201,7 +1202,7 @@ public abstract class MSA {
 	public static float bandwidthRatio=0;
 	/** Enable flat memory layout mode for cache-optimized alignment */
 	public static boolean flatMode=false;
-	
+
 	/** Minimum score adjustment constant for alignment thresholding */
 	public static final int MIN_SCORE_ADJUST=120;
 

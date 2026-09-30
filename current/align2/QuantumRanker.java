@@ -7,12 +7,19 @@ import idaligner.IDAlignerStatics;
 /**
  * Reusable int implementation of QuantumAligner's whole-top sparse ranking.
  * Explores competing high-scoring ridges and can bridge unexplored deletions.
- * This is a ranking prealigner, not BBMap's authoritative variable-gap MSA.
+ * Uses fixed unit gap costs, not BBMap's variable-gap MSA scoring. Callers may
+ * rank candidates, rescore a returned trace for hybrid reuse, or explicitly use
+ * its simpler alignment semantics in Quantum-only mode.
+ *
+ * One instance belongs to one worker: row arrays, frontiers, trace storage, and
+ * the Result object are mutable and reused. Copy result fields before another
+ * call. Trace calls allocate a new match array; a retained match array survives
+ * later calls. Sparse pruning is heuristic, not an exhaustive edit-distance search.
  *
  * @author Brian Bushnell, Collei
  * @date September 18, 2026
  */
-public class QuantumRanker {
+public class QuantumRanker{
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Init             ----------------*/
@@ -20,6 +27,7 @@ public class QuantumRanker {
 
 	public QuantumRanker(){this(512);}
 
+	/** Reserves a positive initial scratch capacity; later windows grow it as needed. */
 	public QuantumRanker(int initialColumns){
 		assert(initialColumns>0) : "Scratch capacity must be positive; requested "+initialColumns;
 		ensureCapacity(initialColumns);
@@ -29,20 +37,23 @@ public class QuantumRanker {
 	/*----------------            Methods           ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Aligns a query glocally to an inclusive reference window. Result is reused. */
+	/** Scalar score-only alignment to an inclusive reference window. expectedStart
+	 * is an absolute reference-coordinate hint, not a required alignment endpoint. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart){
 		return align(query, ref, refStart, refStop, expectedStart, false, false);
 	}
 
-	/** Scalar/SIMD-selectable entry point for qualification and mapper dispatch. */
+	/** Score-only entry point. Caller must gate useSIMD on runtime SIMD availability;
+	 * SIMD classes are reached only through that flag, never through this API's types. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD){
 		return align(query, ref, refStart, refStop, expectedStart, useSIMD, false,
 				Integer.MAX_VALUE);
 	}
 
-	/** Score-only alignment constrained to paths with at most maxEdits edits. */
+	/** Score-only alignment with a finite caller budget tightened by prealignment.
+	 * Integer.MAX_VALUE bypasses that hard cap; sparse score pruning still applies. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD,
 			final int maxEdits){
@@ -50,7 +61,8 @@ public class QuantumRanker {
 				maxEdits);
 	}
 
-	/** Optional compact sparse traceback; score-only calls record no ancestry. */
+	/** Optional compact sparse traceback; score-only calls record no ancestry.
+	 * Trace calls use the scalar sparse fill even when SIMD prealignment is selected. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD,
 			final boolean traceback){
@@ -58,7 +70,10 @@ public class QuantumRanker {
 				Integer.MAX_VALUE);
 	}
 
-	/** Optional traceback plus a hard per-path edit budget. */
+	/** Optional traceback plus a hard per-path edit budget. Uppercase N consumes
+	 * an edit in propagation but has zero score; ambiguous results require caller
+	 * policy. supported=false reports a rejected window or an exhausted frontier,
+	 * not proof that no acceptable biological alignment exists. */
 	public Result align(final byte[] query, final byte[] ref, final int refStart,
 			final int refStop, final int expectedStart, final boolean useSIMD,
 			final boolean traceback, final int maxEdits){
@@ -80,6 +95,7 @@ public class QuantumRanker {
 		if(rLen>MAX_WINDOW){result.failureCode=FAIL_WINDOW_TOO_LONG;return result;}
 		final int bandWidth=decideBandwidth(query, ref, refStart, rLen, expectedStart,
 				useSIMD);
+		// Unlimited callers retain historical exploration; finite callers intersect both bounds.
 		final int effectiveMaxEdits=(maxEdits==Integer.MAX_VALUE ? Integer.MAX_VALUE :
 				Math.min(maxEdits, bandWidth));
 		result.bandwidth=bandWidth;
@@ -113,7 +129,7 @@ public class QuantumRanker {
 		int maxScore=BAD, prevRowScore=BAD;
 		long cells=0;
 		boolean ambiguous=false, prunedForEdits=false;
-		final int denseRows=(useSIMD && !traceback ? Math.min(topWidth,qLen-1) : 0);
+		final int denseRows=(useSIMD && !traceback ? Math.min(topWidth, qLen-1) : 0);
 		for(int i=1; i<=denseRows; i++){
 			currScore[0]=(i<=effectiveMaxEdits ? i*INS : BAD);
 			currMeta[0]=0;
@@ -291,6 +307,8 @@ public class QuantumRanker {
 		}
 
 		final int origin=origin(maxMeta), deletions=deletions(maxMeta);
+		// Score-only match/substitution counts are inferred. Trace calls replace them
+		// with exact operation counts below, including explicit N handling.
 		final int refAlnLength=maxPos-origin;
 		final int insertions=Math.max(0, qLen+deletions-refAlnLength);
 		final int matches=Math.max(0, (maxScore+qLen+deletions)/2);
@@ -322,7 +340,11 @@ public class QuantumRanker {
 		return result;
 	}
 
+	/** Grows all column buffers together, rounding to a representable power of two. */
 	private void ensureCapacity(final int columns){
+		if(columns>(1<<30)){
+			throw new IllegalArgumentException("Quantum scratch capacity cannot round to a positive int power of two: "+columns);
+		}
 		if(prevScore!=null && prevScore.length>=columns){return;}
 		int capacity=1;
 		while(capacity<columns){capacity<<=1;}
@@ -341,6 +363,7 @@ public class QuantumRanker {
 		currNode=new int[capacity];
 	}
 
+	/** Stores parent index (high 32 bits), run length (24 bits), and operation byte. */
 	private int addTraceNode(final int parent, final int run, final byte op){
 		assert(parent<traceSize) : "Trace parent must precede child: "+parent+" >= "+traceSize;
 		assert(run>0 && run<=TRACE_RUN_MASK) : "Trace run exceeds 24 bits: "+run;
@@ -352,6 +375,7 @@ public class QuantumRanker {
 		return traceSize++;
 	}
 
+	/** Materializes a new uncompressed match array from the selected ancestry chain. */
 	private byte[] traceback(final int finalNode){
 		assert(finalNode>=0 && finalNode<traceSize) :
 				"A supported traced alignment requires a terminal node: "+finalNode+" / "+traceSize;
@@ -378,6 +402,8 @@ public class QuantumRanker {
 		return match;
 	}
 
+	/** Installs exact trace counts and the unit score, without the fill's position penalty.
+	 * N contributes zero score and enters identity's denominator, not substitutions. */
 	private static void installTraceCounts(final Result result, final int qLen,
 			final int refLen){
 		int m=0, s=0, ins=0, del=0, n=0;
@@ -397,6 +423,9 @@ public class QuantumRanker {
 		result.identity=(denominator<1 ? 0 : m/(float)denominator);
 	}
 
+	/** Chooses a small heuristic band from the expected diagonal's mismatch count.
+	 * The shared prealigner may examine neighboring diagonals when SIMD is enabled.
+	 * The scalar fallback clamps the hint to the supplied window. */
 	private int decideBandwidth(final byte[] query, final byte[] ref,
 			final int refStart, final int rLen, final int expectedStart,
 			final boolean useSIMD){
@@ -422,12 +451,14 @@ public class QuantumRanker {
 		return Math.min(substitutions+1, maxBandwidth);
 	}
 
+	/** Packs a window-relative origin and deletion count into unsigned 16-bit fields. */
 	private static int pack(final int origin, final int deletions){
 		assert(origin>=0 && origin<=META_MASK) : "Origin exceeds 16-bit window coordinate: "+origin;
 		assert(deletions>=0 && deletions<=META_MASK) : "Deletion count exceeds 16 bits: "+deletions;
 		return (origin<<META_BITS)|deletions;
 	}
 
+	/** Adds deletions with saturation without carrying into the packed origin. */
 	private static int incrementDeletion(final int meta, final int amount){
 		final int count=deletions(meta);
 		return (count>=META_MASK-amount ? (meta|META_MASK) : meta+amount);
@@ -444,7 +475,9 @@ public class QuantumRanker {
 	/*----------------            Result            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	public static class Result {
+	/** Reused result holder. Read fields only after checking supported; failure
+	 * calls may retain only failure/budget/cell diagnostics from the current call. */
+	public static class Result{
 		private void clear(){
 			supported=uncertain=ambiguous=vectorized=editBudgetExceeded=prealignmentOnly=false;
 			score=rStart=rStop=matches=substitutions=insertions=deletions=failureCode=0;
@@ -460,10 +493,13 @@ public class QuantumRanker {
 					", I="+insertions+", D="+deletions+", cells="+cells+")";
 		}
 		public boolean supported;
+		/** Some explored query/reference symbols were non-ACGT, not necessarily on the winning trace. */
 		public boolean uncertain;
 		public boolean ambiguous;
+		/** Records the requested SIMD path on success, not whether every fill row used SIMD. */
 		public boolean vectorized;
 		public boolean editBudgetExceeded;
+		/** Reserved diagnostic; this implementation clears it and never sets it. */
 		public boolean prealignmentOnly;
 		public int score;
 		public int rStart;
@@ -493,6 +529,7 @@ public class QuantumRanker {
 	private int[] active;
 	private int[] next;
 	private int[] refCodes;
+	// Reserved scratch from the earlier vector path; currently allocated but not consumed.
 	private int[] diagonalUpScore;
 	private int[] diagonalUpMeta;
 	private int[] prevNode;

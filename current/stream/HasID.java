@@ -2,14 +2,14 @@ package stream;
 
 /**
  * Interface for jobs that can be queued and ordered by ID.
- * Extends Comparable to support priority queue ordering.
+ * Queues such as {@link JobQueue} compare jobs through {@link #id()}.
  * Provides methods for job identification, poison pill detection, and completion signaling.
  * 
  * @author Brian Bushnell
  * @contributor Isla
  * @date October 23, 2025
  */
-public interface HasID {
+public interface HasID{
 
 	/** Returns unique identifier for this job, used for ordering */
 	public long id();

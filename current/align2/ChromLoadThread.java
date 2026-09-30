@@ -3,152 +3,152 @@ package align2;
 import dna.ChromosomeArray;
 import shared.Shared;
 
-/**
- * Thread for concurrent loading of chromosome data from files.
- * Manages thread pool limits and coordinates parallel loading of ChromosomeArray objects.
- * Used for efficient bulk loading of reference genome data.
- *
- * @author Brian Bushnell
+/** Loads chromosome arrays with a shared concurrency limit.
+ * loadAll joins every loader it starts, including after a failed read or launch,
+ * and propagates failure instead of waiting for a result slot that cannot fill.
+ * Callers must own the target slots; Data.loadChromosomes serializes access using
+ * CHROMLOCKS. A failed batch can leave successfully loaded slots populated.
+ * @author Brian Bushnell, Collei
  * @date Dec 31, 2012
  */
-public class ChromLoadThread extends Thread {
-	
-	public static void main(String[] args){
-		
+public class ChromLoadThread extends Thread{
+
+	public static void main(String[] args){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Constructs an unstarted loader. load reserves capacity before starting;
+	 * a directly started instance acquires its slot at the beginning of run. */
+	public ChromLoadThread(final String fname_, final int id_, final ChromosomeArray[] r_){
+		fname=fname_; id=id_; array=r_;
 	}
-	
-	/**
-	 * Constructs a loader for one chromosome file and target array slot.
-	 * @param fname_ Filename to load
-	 * @param id_ Target index in the chromosome array
-	 * @param r_ Array to populate
-	 */
-	public ChromLoadThread(String fname_, int id_, ChromosomeArray[] r_){
-		fname=fname_;
-		id=id_;
-		array=r_;
-	}
-	
-	/**
-	 * Factory method to create and start a chromosome loading thread.
-	 * Respects concurrency limits and only creates thread if array position is empty.
-	 *
-	 * @param fname Filename of chromosome data to load
-	 * @param id Array index where loaded data will be stored
-	 * @param r Array of ChromosomeArray objects to populate
-	 * @return ChromLoadThread instance or null if position already filled
-	 */
-	public static ChromLoadThread load(String fname, int id, ChromosomeArray[] r){
-		assert(r[id]==null);
-		ChromLoadThread clt=null;
-		if(r[id]==null){
-			increment(1);
-			clt=new ChromLoadThread(fname, id, r);
-			clt.start();
-		}
-		return clt;
-	}
-	
-	/**
-	 * Loads multiple chromosome files in parallel using filename pattern.
-	 * Pattern uses '#' as placeholder for chromosome number.
-	 * Blocks until all chromosomes are loaded before returning.
-	 *
-	 * @param pattern Filename pattern with '#' placeholder for chromosome numbers
-	 * @param min Minimum chromosome number to load (inclusive)
-	 * @param max Maximum chromosome number to load (inclusive)
-	 * @param r Array to store loaded chromosomes, created if null
-	 * @return Array containing loaded ChromosomeArray objects
-	 */
-	public static ChromosomeArray[] loadAll(String pattern, int min, int max, ChromosomeArray[] r){
-		if(r==null){r=new ChromosomeArray[max+1];}
-		assert(r.length>=max+1);
-		
-		int pound=pattern.lastIndexOf('#');
-		String a=pattern.substring(0, pound);
-		String b=pattern.substring(pound+1);
-		
-		ChromLoadThread[] clta=new ChromLoadThread[max];
-		for(int i=min; i<max; i++){
-			String fname=(a+i+b);
-			clta[i]=load(fname, i, r);
-		}
-		
-		if(max>=min){ //Load last element in this thread instead of making a new thread.
-			increment(1);
-			r[max]=ChromosomeArray.read(a+max+b);
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Reserves capacity and starts a loader for an empty target slot.
+	 * Under assertions, an occupied slot is a caller error. With assertions
+	 * disabled, the historical occupied-slot behavior is to return null. */
+	public static ChromLoadThread load(final String fname, final int id, final ChromosomeArray[] r){
+		assert(r[id]==null) : "Chromosome loader requires an empty target slot: "+id;
+		if(r[id]!=null){return null;}
+		final ChromLoadThread loader=new ChromLoadThread(fname, id, r);
+		increment(1);
+		loader.reserved=true;
+		try{loader.start();}
+		catch(RuntimeException|Error problem){
+			loader.reserved=false;
 			increment(-1);
+			throw problem;
 		}
-		
+		return loader;
+	}
+
+	/** Loads the inclusive range using the last '#' in pattern as a placeholder.
+	 * The last chromosome is read synchronously. Every started worker is joined
+	 * before returning or throwing; callers never receive a silently incomplete batch.
+	 * @param r Destination, or null to allocate max+1 slots
+	 * @return Destination containing all requested chromosomes
+	 * @throws RuntimeException If a read, launch, or interruption prevents completion */
+	public static ChromosomeArray[] loadAll(final String pattern, final int min, final int max, ChromosomeArray[] r){
+		if(r==null){r=new ChromosomeArray[max+1];}
+		assert(r.length>max) : "Chromosome destination must include maximum index "+max+"; length="+r.length;
+		final int pound=pattern.lastIndexOf('#');
+		if(pound<0){throw new IllegalArgumentException("Chromosome filename pattern requires '#': "+pattern);}
+		final String a=pattern.substring(0, pound), b=pattern.substring(pound+1);
+		final ChromLoadThread[] loaders=new ChromLoadThread[max];
+		Throwable failure=null;
+		try{
+			for(int i=min; i<max; i++){loaders[i]=load(a+i+b, i, r);}
+			if(max>=min){
+				increment(1);
+				try{r[max]=ChromosomeArray.read(a+max+b);}
+				finally{increment(-1);}
+			}
+		}catch(RuntimeException|Error problem){failure=problem;}
+
+		// A failed synchronous read or launch must not abandon already started loaders.
+		boolean interrupted=false;
 		for(int i=min; i<max; i++){
-			while(r[i]==null){
-				synchronized(lock){
-					while(lock[0]>0){
-						try {
-							lock.wait();
-						} catch (InterruptedException e) {
-							// TODO Auto-generated catch block
-							e.printStackTrace();
-						}
-						lock.notify();
+			final ChromLoadThread loader=loaders[i];
+			if(loader==null){continue;}
+			while(loader.isAlive()){
+				try{loader.join();}
+				catch(InterruptedException problem){
+					interrupted=true;
+					if(failure==null){failure=new RuntimeException("Interrupted while joining chromosome loader "+i, problem);}
+				}
+			}
+			if(loader.failure!=null){
+				if(failure==null){failure=loader.failure;}
+				else if(failure!=loader.failure){failure.addSuppressed(loader.failure);}
+			}
+		}
+		if(interrupted){Thread.currentThread().interrupt();}
+		if(failure!=null){rethrow(failure);}
+		for(int i=min; i<=max; i++){
+			if(r[i]==null){throw new IllegalStateException("Chromosome loader completed without a result for "+a+i+b);}
+		}
+		return r;
+	}
+
+	/** Preserves unchecked failure type when passing a worker failure to its caller. */
+	private static void rethrow(final Throwable problem){
+		if(problem instanceof Error){throw (Error)problem;}
+		if(problem instanceof RuntimeException){throw (RuntimeException)problem;}
+		throw new RuntimeException(problem);
+	}
+
+	/** Acquires/releases one live-load slot. Waiters all recheck the same capacity.
+	 * Interruption before acquisition leaves the counter unchanged. */
+	private static int increment(final int delta){
+		synchronized(lock){
+			if(delta>0){
+				if(MAX_CONCURRENT<1){throw new IllegalStateException("Chromosome load concurrency must be positive: "+MAX_CONCURRENT);}
+				while(lock[0]>=MAX_CONCURRENT){
+					try{lock.wait();}
+					catch(InterruptedException problem){
+						Thread.currentThread().interrupt();
+						throw new RuntimeException("Interrupted while acquiring a chromosome load slot", problem);
 					}
 				}
 			}
+			lock[0]+=delta;
+			assert(lock[0]>=0) : "Each chromosome loader releases exactly one acquired slot; count="+lock[0];
+			if(delta<0){lock.notifyAll();}
+			return lock[0];
 		}
-		
-		return r;
 	}
-	
-	/** Thread execution method that loads chromosome data from file.
-	 * Decrements thread counter when complete or on exception. */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Publishes a chromosome or records/rethrows its failure; always releases its slot. */
 	@Override
 	public void run(){
-		try {
-			array[id]=ChromosomeArray.read(fname);
-		} catch (Exception e) {
-			increment(-1);
-			throw new RuntimeException(e);
-		}
-		increment(-1);
+		if(!reserved){increment(1); reserved=true;}
+		try{array[id]=ChromosomeArray.read(fname);}
+		catch(RuntimeException|Error problem){failure=problem; throw problem;}
+		finally{reserved=false; increment(-1);}
 	}
-	
-	/**
-	 * Thread-safe counter for managing concurrent loading operations.
-	 * Blocks when maximum concurrent threads reached, notifies when threads complete.
-	 * @param i Value to add to counter (negative values decrement)
-	 * @return Current counter value after modification
-	 */
-	private static final int increment(int i){
-		int r;
-		synchronized(lock){
-			if(i<=0){
-				lock[0]+=i;
-				lock.notify();
-			}else{
-				while(lock[0]>=MAX_CONCURRENT){
-					try {
-						lock.wait();
-					} catch (InterruptedException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
-				//FIXED [align2/ChromLoadThread#001] (Brian-approved 2026-07-03): the acquire branch waited for capacity but never
-				//actually acquired (never added i to the counter); only release (i<=0) modified lock[0], so it only counted DOWN and
-				//both the MAX_CONCURRENT throttle and loadAll's completion-wait were dead (busy-spin). Added the missing acquire below;
-				//lock[0] now tracks the live load count, so wait/notify throttles to MAX_CONCURRENT and the completion-wait blocks properly.
-				lock[0]+=i;
-			}
-			r=lock[0];
-		}
-		return r;
-	}
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	private final int id;
 	private final String fname;
 	private final ChromosomeArray[] array;
-	
+	/** Published by the worker and inspected only after join. */
+	private Throwable failure;
+	/** Set before factory start, or acquired by run for direct construction. */
+	private boolean reserved;
+	/** Shared live-load count; reads and writes require synchronization on this array. */
 	public static final int[] lock=new int[1];
+	/** Set before loading; changing it during a batch is unsupported. */
 	public static int MAX_CONCURRENT=Shared.threads();
-	
 }

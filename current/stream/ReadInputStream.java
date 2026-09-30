@@ -65,6 +65,7 @@ public abstract class ReadInputStream {
 		/* Cleanup */
 		//Each ListNum is returned exactly once: the loop returns every non-terminal list, this returns the terminal poison/empty buffer (returnList tolerates null). list is never null (may be empty).
 		cris.returnList(ln);
+		//TODO: Probable bug - STR-005: the close helper returns the final error state, but it is discarded; trace reader failures before returning partial reference data.
 		ReadWrite.closeStream(cris);
 		return list;
 	}

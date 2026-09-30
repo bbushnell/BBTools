@@ -118,6 +118,24 @@ maxtrna=120     (Experimental) Raise the tRNA candidate length cap, enabling
                 candidates still fail alignment verification.
 
 Conserved ncRNA engineering parameters:
+euk5s=f        Independently enable eukaryotic 5S with two seed hits per window.
+                Needs neither ncrna=t nor rrna17=; leaves legacy flags unchanged.
+                All calls compete in the shared DP by score and overlap penalties.
+                Shortlist all models (currently 7); load model-specific cutoffs
+                (currently .68/.68) and refine endpoints with packaged networks.
+euk5sconsensus= Explicit euk5S consensus FASTA for a frozen resource comparison.
+                Requires euk5s=t or an euk5S rrna17 profile. Seed overrides use
+                ncrnafamily=euk5S ncrnakmers=; other families are unchanged.
+euk5sendpoint=t Refine enabled euk5S calls; f retains raw alignment endpoints.
+euk5sendpointtables=  Override the directory containing TABLES.tsv and tables.
+euk5sendpointnets=    Override the directory containing MANIFEST.tsv and networks/.
+                Defaults resolve resources/euk5S_endpoint/. Missing or incompatible
+                resources fail before calling; start and stop may use different k.
+euk5smodelcutoffs=  Override resources/euk5S_model_cutoffs.tsv; f uses scalars.
+                Each model needs family/model/idpass/idborderline TSV columns.
+                Explicit model tables take precedence over scalar identity flags.
+                Targeted scalar overrides bypass the default table, retaining .68
+                for either unset scalar. euk5s=f loads none of these resources.
 ncrna=f         Enable generic conserved-ncRNA families (off by default).
                 Alias: generalncrna=.
 tmrna=f         Add the experimental tmRNA family; requires ncrna=t (or

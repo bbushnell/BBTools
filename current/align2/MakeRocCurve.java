@@ -1,6 +1,7 @@
 package align2;
 
 import java.io.File;
+import java.util.Arrays;
 import java.util.BitSet;
 
 import fileIO.ByteFile;
@@ -14,40 +15,44 @@ import stream.Read;
 import stream.SamLine;
 
 /**
- * Generates ROC (Receiver Operating Characteristic) curves for evaluating alignment accuracy against known true positions.
- * Analyzes SAM files to calculate true positives, false positives, and false negatives at different mapping quality thresholds.
+ * Emits cumulative mapping/accuracy percentages at observed quality-score thresholds.
+ * This is a threshold table, not a conventional FPR/TPR curve with separate
+ * negative-class denominators. All percentages use the expected read-end count.
+ * Strict/loose truth means both/either endpoint of one read, not its two mates.
+ * Quality bins are clamped to 0..999. Current SYN names supply optional truth;
+ * parsecustom=f reports mapping totals without truth or numeric-ID deduplication.
+ * Configuration and accumulation arrays are global; serialize calls. main resets
+ * run state, while direct process calls accumulate into the current arrays.
  * @author Brian Bushnell
  * @date 2013
  */
-public class MakeRocCurve {
-	
-	
+public class MakeRocCurve{
+
 	public static void main(String[] args){
+		resetRunState();
 
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, new Object() { }.getClass().getEnclosingClass(), false);
 			args=pp.args;
 			//outstream=pp.outstream;
 		}
-		
+
 		Timer t=new Timer();
 		String in=null;
 		long reads=-1;
-		
+
 		for(int i=0; i<args.length; i++){
 			final String arg=args[i];
 			final String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
-			
+
 			if(a.equals("in") || a.equals("in1")){
 				in=b;
 			}else if(a.equals("reads")){
 				reads=Parse.parseKMG(b);
 			}else if(a.equals("parsecustom")){
 				parsecustom=Parse.parseBoolean(b);
-//			}else if(a.equals("ssaha2") || a.equals("subtractleadingclip")){
-//				SamLine.SUBTRACT_LEADING_SOFT_CLIP=Parse.parseBoolean(b);
 			}else if(a.equals("blasr")){
 				BLASR=Parse.parseBoolean(b);
 			}else if(a.equals("bitset")){
@@ -57,26 +62,27 @@ public class MakeRocCurve {
 			}else if(a.equals("allowspaceslash")){
 				allowSpaceslash=Parse.parseBoolean(b);
 			}else if(a.equals("outputerrors")){
-//				OUTPUT_ERRORS=true;
 			}else if(i==0 && args[i].indexOf('=')<0 && (a.startsWith("stdin") || new File(args[0]).exists())){
 				in=args[0];
 			}else if(i==1 && args[i].indexOf('=')<0 && Tools.isDigit(a.charAt(0))){
 				reads=Parse.parseKMG(a);
 			}
 		}
-		
-		if(USE_BITSET){
+
+		if(in==null){throw new IllegalArgumentException("MakeRocCurve requires in=<SAM input>");}
+		if(reads<1){throw new IllegalArgumentException("A positive reads=<expected read-end count> is required for ROC percentages");}
+		if(USE_BITSET && parsecustom){
 			int x=400000;
 			if(reads>0 && reads<=Integer.MAX_VALUE){x=(int)reads;}
-			try {
+			try{
 				seen=new BitSet(x);
-			} catch (Exception e) {
+			}catch(Exception e){
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 				System.out.println("Did not have enough memory to allocate bitset; duplicate mappings will not be detected.");
 			}
 		}
-		
+
 		process(in);
 
 		System.out.println("ROC Curve for "+in);
@@ -84,9 +90,9 @@ public class MakeRocCurve {
 		gradeList(reads);
 		t.stop();
 		System.err.println("Time: \t"+t);
-		
+
 	}
-	
+
 	/**
 	 * Processes a SAM file to collect alignment statistics for ROC analysis.
 	 * Reads each SAM line, converts to Read objects, and calculates statistics for primary alignments while avoiding duplicate counting.
@@ -94,59 +100,65 @@ public class MakeRocCurve {
 	 */
 	public static void process(String samfile){
 		ByteFile tf=ByteFile.makeByteFile(samfile, false);
-		LineParser1 lp=new LineParser1('\t');
-		for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
-			byte c=s[0];
-			if(c!='@'/* && c!=' ' && c!='\t'*/){
-				SamLine sl=new SamLine(lp.set(s));
-				final int id=((((int)sl.parseNumericId())<<1)|sl.pairnum());
-				assert(sl!=null);
-				Read r=sl.toRead(true);
-				if(r!=null){
-					r.samline=sl;
-					if(sl.nonSecondary() && (seen==null || !seen.get(id))){
-						if(seen!=null){seen.set(id);}
-						calcStatistics1(r, sl);
+		try{
+			LineParser1 lp=new LineParser1('\t');
+			for(byte[] s=tf.nextLine(); s!=null; s=tf.nextLine()){
+				if(s.length==0){continue;}
+				byte c=s[0];
+				if(c!='@'/* && c!=' ' && c!='\t'*/){
+					SamLine sl=new SamLine(lp.set(s));
+					//TODO: Probable bug - narrowing/shifting a long ID can alias reads or produce a negative BitSet index.
+					final int id=(parsecustom && seen!=null ? ((((int)sl.parseNumericId())<<1)|sl.pairnum()) : -1);
+					assert(sl!=null);
+					Read r=sl.toRead(parsecustom);
+					if(r!=null){
+						r.samline=sl;
+						if(sl.nonSecondary() && (!parsecustom || seen==null || !seen.get(id))){
+							if(parsecustom && seen!=null){seen.set(id);}
+							calcStatistics1(r, sl);
+						}
+					}else{
+						assert(false) : "'"+"'";
+						System.err.println("Bad read from line '"+s+"'");
 					}
-				}else{
-					assert(false) : "'"+"'";
-					System.err.println("Bad read from line '"+s+"'");
 				}
-//				calcStatistics1(r);
 			}
+		}finally{
+			if(tf.close()){throw new RuntimeException("I/O failure while reading ROC input: "+samfile);}
 		}
-		tf.close();
 	}
-	
+
 	public static String header(){
 		return "minScore\tmapped\tretained\ttruePositiveStrict\tfalsePositiveStrict\ttruePositiveLoose" +
 				"\tfalsePositiveLoose\tfalseNegative\tdiscarded\tambiguous";
 	}
-	
+
 	/**
 	 * Generates and prints the ROC curve data by iterating through quality scores from highest to lowest.
 	 * Calculates cumulative statistics including true/false positives and outputs mapped/retained/ambiguous percentages.
 	 * @param reads Total number of reads for percentage calculations
 	 */
 	public static void gradeList(long reads){
+		if(reads<1){throw new IllegalArgumentException("ROC percentage denominator must be positive: "+reads);}
 
 		int truePositiveStrict=0;
 		int falsePositiveStrict=0;
-		
+
 		int truePositiveLoose=0;
 		int falsePositiveLoose=0;
 
 		int mapped=0;
 		int mappedRetained=0;
 		int unmapped=0;
-		
+
 		int discarded=0;
 		int ambiguous=0;
-		
+
 		int primary=0;
-		
-		
+
 		for(int q=truePositiveStrictA.length-1; q>=0; q--){
+			//TODO: Probable bug - an unmapped ambiguous read increments neither mappedA nor unmappedA;
+			//a bin containing only those reads is skipped, dropping its ambiguity count.
 			if(mappedA[q]>0 || unmappedA[q]>0){
 				truePositiveStrict+=truePositiveStrictA[q];
 				falsePositiveStrict+=falsePositiveStrictA[q];
@@ -158,9 +170,9 @@ public class MakeRocCurve {
 				discarded+=discardedA[q];
 				ambiguous+=ambiguousA[q];
 				primary+=primaryA[q];
-				
+
 				double tmult=100d/reads;
-				
+
 				double mappedB=mapped*tmult;
 				double retainedB=mappedRetained*tmult;
 				double truePositiveStrictB=truePositiveStrict*tmult;
@@ -170,7 +182,7 @@ public class MakeRocCurve {
 				double falseNegativeB=(reads-mapped)*tmult;
 				double discardedB=discarded*tmult;
 				double ambiguousB=ambiguous*tmult;
-				
+
 				StringBuilder sb=new StringBuilder();
 				sb.append(q);
 				sb.append('\t');
@@ -191,7 +203,7 @@ public class MakeRocCurve {
 				sb.append(Tools.format("%.4f", discardedB));
 				sb.append('\t');
 				sb.append(Tools.format("%.4f", ambiguousB));
-				
+
 				System.out.println(sb);
 			}else{
 				assert(truePositiveStrictA[q]==0) : q;
@@ -199,14 +211,14 @@ public class MakeRocCurve {
 				assert(truePositiveLooseA[q]==0) : q;
 				assert(falsePositiveLooseA[q]==0) : q;
 			}
-			
+
 		}
 	}
-	
+
 	public static void calcStatistics1(final Read r, SamLine sl){
 
 		int q=r.mapScore;
-		
+
 		int THRESH=0;
 		//[align2/MakeRocCurve#002 FIXED 2026-07-03] primaryA[q]++ was BEFORE the clamp below, so it indexed with the raw
 		//mapScore -> AIOOBE when mapScore<0 or >=discardedA.length(1000), reachable for long/high-scoring reads (samtoroc.sh).
@@ -214,12 +226,11 @@ public class MakeRocCurve {
 		if(q<0){q=0;}
 		if(q>=discardedA.length){q=discardedA.length-1;}
 		primaryA[q]++;
-		
+
 		if(r.discarded()/* || r.mapScore==0*/){
 			discardedA[q]++;
 			unmappedA[q]++;
 		}else if(r.ambiguous()){
-//			assert(r.mapped()) : "\n"+r+"\n"+sl+"\n";
 			if(r.mapped()){mappedA[q]++;}
 			ambiguousA[q]++;
 		}else if(r.mapScore<1){
@@ -227,10 +238,6 @@ public class MakeRocCurve {
 		}else if(!r.mapped()){
 			unmappedA[q]++;
 		}
-//		else if(r.mapScore<=minQuality){
-//			if(r.mapped()){mappedA[q]++;}
-//			ambiguousA[q]++;
-//		}
 		else{
 
 			mappedA[q]++;
@@ -241,50 +248,21 @@ public class MakeRocCurve {
 				boolean strict=isCorrectHit(sl, h);
 				boolean loose=isCorrectHitLoose(sl, h);
 
-//				SiteScore os=r.originalSite;
-//				int trueChrom=os.chrom;
-//				byte trueStrand=os.strand;
-//				int trueStart=os.start;
-//				int trueStop=os.stop;
-//				SiteScore ss=new SiteScore(r.chrom, r.strand(), r.start, r.stop, 0, 0);
-//				byte[] originalContig=sl.originalContig();
-//				if(BLASR){
-//					originalContig=(originalContig==null || Tools.indexOf(originalContig, (byte)'/')<0 ? originalContig :
-//						KillSwitch.copyOfRange(originalContig, 0, Tools.lastIndexOf(originalContig, (byte)'/')));
-//				}
-//				int cstart=sl.originalContigStart();
-//
-//				boolean strict=isCorrectHit(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH, originalContig, sl.rname(), cstart);
-//				boolean loose=isCorrectHitLoose(ss, trueChrom, trueStrand, trueStart, trueStop, THRESH+THRESH2, originalContig, sl.rname(), cstart);
-//
-//				//				if(!strict){
-//				//					System.out.println(ss+", "+new String(originalContig)+", "+new String(sl.rname()));
-//				//					assert(false);
-//				//				}
-//
-//				//				System.out.println("loose = "+loose+" for "+r.toText());
-
 				if(loose){
-					//					System.err.println("TPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-					//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 					truePositiveLooseA[q]++;
 				}else{
-					//					System.err.println("FPL\t"+trueChrom+", "+trueStrand+", "+trueStart+", "+trueStop+"\tvs\t"
-					//							+ss.chrom+", "+ss.strand+", "+ss.start+", "+ss.stop);
 					falsePositiveLooseA[q]++;
 				}
 
 				if(strict){
-					//					System.err.println("TPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 					truePositiveStrictA[q]++;
 				}else{
-					//					System.err.println("FPS\t"+trueStart+", "+trueStop+"\tvs\t"+ss.start+", "+ss.stop);
 					falsePositiveStrictA[q]++;
 				}
 			}
 		}
 	}
-	
+
 	/**
 	 * Determines if an alignment is a strict true positive by comparing the mapped position to the true position in custom headers.
 	 * Requires exact match of reference name, strand, start, and stop positions.
@@ -302,7 +280,7 @@ public class MakeRocCurve {
 		if(!h.rname.equals(sl.rnameS())){return false;}
 		return true;
 	}
-	
+
 	/**
 	 * Determines if an alignment is a loose true positive by allowing positional tolerance defined by THRESH2.
 	 * More permissive than strict matching for evaluating alignment accuracy while still requiring the correct reference and strand.
@@ -323,75 +301,43 @@ public class MakeRocCurve {
 		//The commented-out original isCorrectHitLoose went straight to the absdif tolerance; restored that. THRESH2=20 default.
 		return(absdif(h.start, start)<=THRESH2 || absdif(h.stop, stop)<=THRESH2);
 	}
-	
-	
-	
-	
-//	public static boolean isCorrectHit(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh,
-//			byte[] originalContig, byte[] contig, int cstart){
-//		if(ss.strand!=trueStrand){return false;}
-//		if(originalContig!=null){
-//			if(!Arrays.equals(originalContig, contig)){
-//				if(allowSpaceslash && originalContig.length==contig.length+3 && Tools.startsWith(originalContig, contig) &&
-//						(Character.isWhitespace(originalContig[originalContig.length-3]))){
-//					//do nothing
-//				}else{
-//					return false;
-//				}
-//			}
-//		}else{
-//			if(ss.chrom!=trueChrom){return false;}
-//		}
-//
-//		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-//		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-//		int cstop=cstart+trueStop-trueStart;
-////		return (absdif(ss.start, trueStart)<=thresh && absdif(ss.stop, trueStop)<=thresh);
-//		return (absdif(ss.start, cstart)<=thresh && absdif(ss.stop, cstop)<=thresh);
-//	}
-//	
-//	
-//	public static boolean isCorrectHitLoose(SiteScore ss, int trueChrom, byte trueStrand, int trueStart, int trueStop, int thresh,
-//			byte[] originalContig, byte[] contig, int cstart){
-//		if(ss.strand!=trueStrand){return false;}
-//		if(originalContig!=null){
-//			if(!Arrays.equals(originalContig, contig)){return false;}
-//		}else{
-//			if(ss.chrom!=trueChrom){return false;}
-//		}
-//
-//		assert(ss.stop>ss.start) : ss.toText()+", "+trueStart+", "+trueStop;
-//		assert(trueStop>trueStart) : ss.toText()+", "+trueStart+", "+trueStop;
-//		int cstop=cstart+trueStop-trueStart;
-////		return (absdif(ss.start, trueStart)<=thresh || absdif(ss.stop, trueStop)<=thresh);
-//		return (absdif(ss.start, cstart)<=thresh || absdif(ss.stop, cstop)<=thresh);
-//	}
-	
-	private static final int absdif(int a, int b){
-		return a>b ? a-b : b-a;
+
+	private static final long absdif(int a, int b){
+		return a>b ? (long)a-b : (long)b-a;
 	}
 
+	/** Clears accumulated results and duplicate tracking without changing caller configuration. */
+	private static void resetRunState(){
+		for(int[] counts : new int[][]{truePositiveStrictA, falsePositiveStrictA,
+				truePositiveLooseA, falsePositiveLooseA, mappedA, mappedRetainedA,
+				unmappedA, discardedA, ambiguousA, primaryA}){
+			Arrays.fill(counts, 0);
+		}
+		seen=null;
+	}
+
+	//TODO: Probable bug - per-bin and cumulative int counts can overflow on huge read sets.
 	public static int truePositiveStrictA[]=new int[1000];
 	public static int falsePositiveStrictA[]=new int[1000];
-	
+
 	public static int truePositiveLooseA[]=new int[1000];
 	public static int falsePositiveLooseA[]=new int[1000];
 
 	public static int mappedA[]=new int[1000];
 	public static int mappedRetainedA[]=new int[1000];
 	public static int unmappedA[]=new int[1000];
-	
+
 	public static int discardedA[]=new int[1000];
 	public static int ambiguousA[]=new int[1000];
-	
+
 	public static int primaryA[]=new int[1000];
-	
+
 	public static boolean parsecustom=true;
-	
+
 	public static int THRESH2=20;
 	public static boolean BLASR=false;
 	public static boolean USE_BITSET=true;
 	public static BitSet seen=null;
 	public static boolean allowSpaceslash=true;
-	
+
 }
