@@ -631,11 +631,15 @@ public class NcrnaScavenger {
 		if(trimAlignmentExtent){throw new IllegalStateException("Alignment-reuse path cannot perform a second endpoint alignment: "+family);}
 		final boolean[] aligned=new boolean[library.length];
 		float bestId=0, bestHbm=-999, bestHbmIdentity=Float.NaN;
+		float bestPassId=0;
+		int bestPassModel=-1;
+		AlignmentStats bestPassStats=null;
 		int bestModel=-1, bestHbmModel=-1;
-		AlignmentStats bestStats=null, bestHbmStats=null;
+		AlignmentStats bestHbmStats=null;
 		for(int j=0; j<shortlist.length; j++){
 			final int m=shortlist[j];
 			if(m<0 || m>=library.length){throw new IllegalStateException("Invalid shortlisted model "+m+" for "+family);}
+			final float modelPass=modelThresholds==null?idPass:modelThresholds.pass(m),modelBorderline=modelThresholds==null?idBorderline:modelThresholds.borderline(m);
 			if(aligned[m]){throw new IllegalStateException("Consensus aligned more than once at one locus: family="+family+", model="+m);}
 			aligned[m]=true;
 			final AlignmentStats stats=new AlignmentStats(true);
@@ -647,25 +651,26 @@ public class NcrnaScavenger {
 			final boolean lengthAllowed=alignedLength<=maxLen;
 			if(modelAttemptSink!=null){
 				modelAttemptSink.modelAttempt(name,strand,pass,wStart,wStop,j+1,m,
-					kmerIndex.lastSharedCount(m),id,alignedLength,id>=idPass && lengthAllowed);
+					kmerIndex.lastSharedCount(m),id,alignedLength,id>=modelPass && lengthAllowed);
 			}
 			// An overlong high-identity model must not suppress a later valid model.
 			if(!lengthAllowed){continue;}
 			if(DEBUG){System.err.println("DEBUG   single-quantum model="+m+" modelLen="+library[m].length
 				+" id="+id+" rStart="+stats.rStart+" rStop="+stats.rStop);}
-			if(id>bestId){bestId=id;bestModel=m;bestStats=stats;}
-			if(models!=null && m<models.length && id>=idBorderline && hbmPass<=1f){
+			if(id>bestId){bestId=id;bestModel=m;}
+			if(id>=modelPass && id>bestPassId){bestPassId=id;bestPassModel=m;bestPassStats=stats;}
+			if(models!=null && m<models.length && id>=modelBorderline && hbmPass<=1f){
 				final float hbm=TrnaConsensusBuilder.scoreAlignedAgainstModel(seq,stats,models[m]);
 				hbmScoreCalls++; hbmBasesScored+=alignedLength;
 				if(DEBUG){System.err.println("DEBUG   reused-quantum-hbm model="+m+" hbm="+hbm);}
 				if(hbm>bestHbm){bestHbm=hbm;bestHbmModel=m;bestHbmIdentity=id;bestHbmStats=stats;}
 			}
-			if(!mappingOracleExhaustive && rankedModelFallback && id>=idPass){break;}
+			if(!mappingOracleExhaustive && rankedModelFallback && id>=modelPass){break;}
 		}
 		final int model;
 		final float identity;
 		final AlignmentStats stats;
-		if(bestId>=idPass && bestModel>=0){model=bestModel;identity=bestId;stats=bestStats;}
+		if(bestPassModel>=0){model=bestPassModel;identity=bestPassId;stats=bestPassStats;}
 		else if(bestHbm>=hbmPass && bestHbmModel>=0){model=bestHbmModel;identity=bestHbmIdentity;stats=bestHbmStats;}
 		else{
 			diagnoseWindow(name,bases,strand,pass,wStart,wStop,"REJECT_VERIFY",khits,shortlist.length,bestModel,bestId,0f,bestHbm,-1,-1,false);
@@ -692,7 +697,7 @@ public class NcrnaScavenger {
 				model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
 			return null;
 		}
-		diagnoseWindow(name,bases,strand,pass,wStart,wStop,bestId>=idPass ? "ACCEPT_IDPASS" : "ACCEPT_HBM",
+		diagnoseWindow(name,bases,strand,pass,wStart,wStop,bestPassModel>=0 ? "ACCEPT_IDPASS" : "ACCEPT_HBM",
 			khits,shortlist.length,model,bestId,0f,bestHbm,orf.start,orf.stop,trimmed);
 		return orf;
 	}
@@ -738,6 +743,7 @@ public class NcrnaScavenger {
 	private boolean finishAcceptedBoundary(Orf orf, byte[] bases, int model, int wStart, int wStop,
 			int windowSource, float acceptedIdentity, int alignedLength, float locusAni, boolean locusAniFromQuantum,
 			int[] hitPositions, long[] hitKeys){
+		if(rrnaEndpointFeatures!=null){captureRrnaEndpointFeatures(orf,bases,model);}
 		final boolean trimSucceeded;
 		if(trimAlignmentExtent){trimSucceeded=trimToAlignmentExtent(orf, bases, model, wStart, wStop);}
 		else{trimSucceeded=false;}
@@ -1116,6 +1122,11 @@ public class NcrnaScavenger {
 	//tightening, not a behavior change for any existing caller.
 	final float idPass;
 	final float idBorderline;
+	private NcrnaModelThresholds modelThresholds=null;
+	void setModelThresholds(NcrnaModelThresholds thresholds){
+		if(thresholds==null || !reuseConsensusAlignment){throw new IllegalArgumentException("Model cutoffs require the single-alignment path");}
+		thresholds.validate(modelNames);modelThresholds=thresholds;
+	}
 	//Forward-ported from Noire's tree (2026-08-28, C3 merge): per-family orfScore formula
 	//constants -- see the 15-arg constructor's javadoc for the full rationale.
 	final float scoreA;
@@ -1164,6 +1175,24 @@ public class NcrnaScavenger {
 	private NcrnaBoundaryInstrumentSink instrumentSink=null;
 	private IdentityHashMap<Orf,InstrumentationCapture> pendingInstrumentation=null;
 	private BoundaryScoreSink boundaryScoreSink=null;
+	private RrnaEndpointCallerFeatures rrnaEndpointFeatures=null;
+	void setRrnaEndpointFeatures(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
+		if(resources==null || !Arrays.equals(modelNames,resources.names) || library.length!=resources.refs.length){throw new IllegalArgumentException("Endpoint feature library must match the caller model order");}
+		for(int i=0;i<library.length;i++){if(!Arrays.equals(library[i],resources.refs[i])){throw new IllegalArgumentException("Endpoint consensus bases differ from caller model "+i);}}
+		if(!"euk5S".equals(family) || !reuseConsensusAlignment || trimAlignmentExtent || voteEnds
+				|| boundaryNetsByModel!=null || boundary5Net!=null || boundary3Net!=null){
+			throw new IllegalArgumentException("euk5S feature observation requires the raw Quantum NN-off, vote-off endpoint path");
+		}
+		rrnaEndpointFeatures=new RrnaEndpointCallerFeatures(resources,sink);
+	}
+	/** Test-visible caller seam; no work or validation occurs while observation is off. */
+	void captureRrnaEndpointFeatures(Orf orf,byte[] bases,int model){
+		if(rrnaEndpointFeatures==null){return;}
+		final long start=System.nanoTime(),rawLength=orf.stop-orf.start+1L;
+		try{rrnaEndpointFeatures.capture(orf,bases,model,contigGC(bases),minLen,maxLen);alignmentCount++;alignedBases+=rawLength;}
+		catch(RuntimeException | AssertionError e){shared.KillSwitch.assertDie("Endpoint inference/observation failed on caller worker: "+e);throw e;}
+		finally{boundaryNanos+=System.nanoTime()-start;}
+	}
 
 	//B4 seed-trigger/workload instrumentation (Citan/G11, 2026-08-29) -- opt-in, off by default,
 	//same cost model as instrumentSink above (single null-check per call site, zero cost when

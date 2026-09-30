@@ -1,0 +1,15 @@
+model	end	seed	file	sha80
+euk5S_universal	5prime	74004	networks/euk5S_universal.5prime.s74004.bbnet	ec96ad599d1dfbc3a6e6
+euk5S_universal	3prime	74005	networks/euk5S_universal.3prime.s74005.bbnet	c3c03b3ac39718b866b3
+euk5S_fungi	5prime	74004	networks/euk5S_fungi.5prime.s74004.bbnet	9898cd62d7a7590b1945
+euk5S_fungi	3prime	74005	networks/euk5S_fungi.3prime.s74005.bbnet	06af4260bc3a1cf3cc0c
+euk5S_plant	5prime	74004	networks/euk5S_plant.5prime.s74004.bbnet	7945f343d6ad4b8d1eb7
+euk5S_plant	3prime	74005	networks/euk5S_plant.3prime.s74005.bbnet	c85881ad4cd54d182b45
+euk5S_animal	5prime	74005	networks/euk5S_animal.5prime.s74005.bbnet	c95867356cc11500fb14
+euk5S_animal	3prime	74005	networks/euk5S_animal.3prime.s74005.bbnet	bf649fc216cdd3d90a99
+euk5S_protist	5prime	74005	networks/euk5S_protist.5prime.s74005.bbnet	68c31d693618b999c658
+euk5S_protist	3prime	74005	networks/euk5S_protist.3prime.s74005.bbnet	c6e78fe4349c9b869562
+euk5S_residual_protozoa	5prime	74003	networks/euk5S_residual_protozoa.5prime.s74003.bbnet	837e89dd01ed64b7a646
+euk5S_residual_protozoa	3prime	74004	networks/euk5S_residual_protozoa.3prime.s74004.bbnet	20b3e1ff1ac63ea76fff
+euk5S_residual_invertebrate	5prime	74003	networks/euk5S_residual_invertebrate.5prime.s74003.bbnet	88defdf4618be9e0e37a
+euk5S_residual_invertebrate	3prime	74004	networks/euk5S_residual_invertebrate.3prime.s74004.bbnet	23ec65aa43d29b7188e3

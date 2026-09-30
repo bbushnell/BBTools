@@ -255,8 +255,10 @@ public class GeneCaller extends ProkObject {
 		ArrayList<Orf>[] array=new ArrayList[2];
 		array[0]=new ArrayList<Orf>();
 		array[1]=new ArrayList<Orf>();
-		final float[] scores=new float[bases.length];
-		final int[] kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
+		//Only the legacy PGM branch below consumes these whole-contig arrays.
+		//Allocate lazily there so a conserved-seed-only call needs neither one.
+		float[] scores=null;
+		int[] kmersSeen=null;
 		if(ncrnaScavengers==null && !ncrnaFamilies.isEmpty()){
 			ncrnaScavengers=new ArrayList<>(ncrnaFamilies.size());
 			for(NcrnaFamily fam : ncrnaFamilies){
@@ -275,15 +277,12 @@ public class GeneCaller extends ProkObject {
 				ncrnaScavengers.add(scavenger);
 			}
 		}
-		//Forward-ported from Noire's tree (2026-08-28, C3 merge): a REAL correctness fix,
-		//independent of scoreA/scoreB -- the strand=1 (minus-strand) scavenger pass below was
-		//being handed the SAME forward-strand `bases` as strand=0, so it never actually searched
-		//the reverse complement. Dormant today (ncrnaFamilies is empty unless Gate A is on), but
-		//a genuine bug the moment any family loads. rcBases is computed once per contig, reused
-		//for the whole strand=1 pass (not per-family), matching the cost profile of the tRNA path.
-		final byte[] rcBases=(ncrnaScavengers!=null ? AminoAcid.reverseComplementBases(bases) : null);
+		//The existing in-place flip at the end of each iteration makes bases
+		//strand-oriented here and restores its original orientation before return.
+		//Generic scavengers therefore share that buffer with the legacy callers;
+		//a second reverse-complement copy would retain another whole contig per worker.
 		for(int strand=0; strand<2; strand++){
-			final byte[] strandBases=(ncrnaScavengers!=null ? (strand==0 ? bases : rcBases) : bases);
+			final byte[] strandBases=bases;
 			final ConservedRnaSeedIndex.ScanResult sharedSeedHits=(conservedRnaSeedIndex==null
 				? null : conservedRnaSeedIndex.scan(strandBases));
 			//Count actual base-loop scans, including no-hit and family-minLen-rejected
@@ -342,7 +341,11 @@ public class GeneCaller extends ProkObject {
 						}
 						if(list!=null){array[strand].addAll(list);}
 					}else{
-					ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
+						if(scores==null){
+							scores=new float[bases.length];
+							kmersSeen=(lsuKmers==null && ssuKmers==null && trnaKmers==null && r5SKmers==null) ? null : new int[bases.length];
+						}
+						ArrayList<Orf> list=makeRnasForStrand(name, bases, strand, sc, scores, (sc.kmerSet()==null ? null : kmersSeen), false, -1);//TODO: Make this loop through all RNA types
 					if(strand==1 && list!=null){
 						for(Orf orf : list){
 							assert(orf.strand==strand);
@@ -378,6 +381,7 @@ public class GeneCaller extends ProkObject {
 		scavenger.strictIndexCutoff=family.strictIndexCutoff;
 		scavenger.trimAlignmentExtent=family.trimAlignmentExtent;
 		scavenger.reuseConsensusAlignment=family.reuseConsensusAlignment;
+		if(family.modelThresholds!=null){scavenger.setModelThresholds(family.modelThresholds);}
 		scavenger.boundaryFeatureVersion=family.boundaryFeatureVersion;
 		scavenger.boundaryOnRawEndpoints=family.boundaryOnRawEndpoints;
 		scavenger.nnCentre5Vote=family.nnCentre5Vote;
@@ -387,6 +391,7 @@ public class GeneCaller extends ProkObject {
 			scavenger.setPerModelBoundaryResources(family.boundaryNetsByModel,
 				family.boundaryStartTablesByModel, family.boundaryStopTablesByModel);
 		}
+		if(family.rrnaEndpointFeatures!=null){scavenger.setRrnaEndpointFeatures(family.rrnaEndpointFeatures,family.rrnaEndpointFeatureSink);}
 		applyNcrnaProductionControls(scavenger);
 	}
 

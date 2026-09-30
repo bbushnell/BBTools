@@ -1,0 +1,15 @@
+model	end	k	radius	offset	pseudocount	members	table_sha80
+euk5S_universal	5prime	6	12	0	0.5	12386	0e02582041650133908f
+euk5S_universal	3prime	6	12	-6	0.5	12386	d2c760da0c94e9283118
+euk5S_fungi	5prime	9	12	2	0.5	1697	e9846355a45f76afad45
+euk5S_fungi	3prime	9	12	-10	0.5	1697	f4b98f12f5b180b93870
+euk5S_plant	5prime	8	12	3	0.5	14188	d3f3bbf73b2eaaf37bb0
+euk5S_plant	3prime	8	12	-11	0.5	14188	0bb5662ab080c221c499
+euk5S_animal	5prime	8	12	3	0.5	44401	b4a87fea5971798dca53
+euk5S_animal	3prime	8	12	-11	0.5	44401	110823e1e479ba571c10
+euk5S_protist	5prime	7	12	4	0.5	3318	097dbeb4f238edc449aa
+euk5S_protist	3prime	7	12	-10	0.5	3318	6f4551e243a837f3e3e8
+euk5S_residual_protozoa	5prime	9	12	2	0.5	283	32a3f4a2787dc029e52a
+euk5S_residual_protozoa	3prime	9	12	-11	0.5	283	f18cc2349434a7e469ac
+euk5S_residual_invertebrate	5prime	6	12	2	0.5	16536	7a29272ce6f8cce392fa
+euk5S_residual_invertebrate	3prime	6	12	-8	0.5	16536	7628685916c12a434a98

@@ -480,6 +480,13 @@ public class CallGenes extends ProkObject {
 				NCRNA_FAMILIES_ENABLED=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("rrna17") || a.equalsIgnoreCase("rrna17mer")){
 				setRrna17Profile(b);
+			}else if(parseEuk5sFlag(a, b)){
+				//Independent of the generic ncRNA and bulk rRNA profile gates.
+			}else if(euk5sRuntime.parse(a, b)){
+				//Resources are installed after all families have registered, before workers.
+			}else if(a.equalsIgnoreCase("euk5sconsensus")){
+				if(b==null || b.isEmpty()){throw new IllegalArgumentException("euk5sconsensus requires a resource path");}
+				EUK5S_CONSENSUS_OVERRIDE=b;
 			}else if(a.equalsIgnoreCase("rrna17prok5shbm")){
 				setRrna17Prok5sHbm(b);
 			}else if(a.equalsIgnoreCase("rrna23sendpoint") || a.equalsIgnoreCase("rrna23sendpointmode")){
@@ -718,6 +725,8 @@ public class CallGenes extends ProkObject {
 		validateRrna17GateCombo();
 		if(NCRNA_FAMILIES_ENABLED){loadNcrnaResources();}
 		if(RRNA17_ENABLED){loadRrna17Resources(RRNA17_PROFILE);}
+		if(EUK5S_ENABLED){loadEuk5sResources();}
+		euk5sRuntime.apply(GeneCaller.ncrnaFamilies);
 
 		if(Shared.threads()<2){ordered=false;}
 		assert(!fnaList.isEmpty()) : "At least 1 fasta file is required.";
@@ -2339,32 +2348,77 @@ public class CallGenes extends ProkObject {
 		}
 	}
 
-	/** One factory keeps the combined and isolated eukaryotic profiles identical. */
+	/** Registers the standalone family without changing any legacy calling flag. */
+	static synchronized void loadEuk5sResources(){
+		addEuk5sFamily(GeneCaller.ncrnaFamilies.size());
+	}
+
+	/** One factory keeps standalone and profile resource/seed controls identical. */
 	private static void addEuk5sFamily(int index){
 		final String name="euk5S";
-		addRrna17Family(name, "euk5S_consensus_sequence.fa", null,
-			loadEffectiveNcrnaKmerSet(name, "euk5S_17mers.fa", null, 17), 17, 90,
-			resolveSweepPad(name, -1, 150), resolveSweepInt(name, NCRNA_INDEX_K_OVERRIDE, 7),
-			resolveSweepInt(name, NCRNA_INDEX_TOP_N_OVERRIDE, 5), false, 0f, 0f, 0f,
-			resolveSweepInt(name, NCRNA_INDEX_MIN_HITS_OVERRIDE, 2),
-			resolveSweepFloat(name, NCRNA_SCORE_A_OVERRIDE, 0f), resolveSweepFloat(name, NCRNA_SCORE_B_OVERRIDE, 1f),
-			resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, .65f), resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, .65f),
-			1.01f, resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, .75f),
-			NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
-		final NcrnaFamily family=familyAt(index, name);
-		final boolean target=ncrnaSweepTarget(name);
-		configureRrna17Family(family, ProkObject.r5S, resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, 1),
-			false, target && Boolean.TRUE.equals(NCRNA_RANKED_FALLBACK_OVERRIDE),
-			target && Boolean.TRUE.equals(NCRNA_STRICT_INDEX_OVERRIDE), false);
-		family.maxLen=resolveSweepInt(name, NCRNA_MAX_LEN_OVERRIDE, Integer.MAX_VALUE);
-		assert(family.kLong==ConservedRnaSeedIndex.K) : "euk5S must remain in the shared 17-mer seed scan";
-		if(target){
-			System.err.println("euk5S controls: seedK="+family.kLong+" seedMinHits="+family.seedMinHits
-				+" indexK="+family.indexK+" topN="+family.indexTopN+" minHits="+family.fixedMinHits
-				+" strict="+family.strictIndexCutoff+" rankedFallback="+family.rankedModelFallback
-				+" minLen="+family.minLen+" maxLen="+family.maxLen+" windowPad="+family.windowPad
-				+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbm=off"
-				+" scoreA="+family.scoreA+" scoreB="+family.scoreB+" collapseFrac="+family.collapseFrac);
+		final String seedResource=(ncrnaSweepTarget(name) && NCRNA_KMERS_OVERRIDE!=null
+			? NCRNA_KMERS_OVERRIDE : "euk5S_17mers.fa.gz");
+		addEuk5sFamily(index, EUK5S_CONSENSUS_OVERRIDE==null ? "euk5S_consensus_sequence.fa.gz" : EUK5S_CONSENSUS_OVERRIDE, seedResource);
+	}
+
+	/** Explicit paths also permit isolated missing/corrupt-resource fixtures. */
+	static void addEuk5sFamily(int index, String consensusResource, String seedResource){
+		final String name="euk5S";
+		assert(index==GeneCaller.ncrnaFamilies.size()) : "euk5S must append after existing families so rollback preserves them";
+		for(NcrnaFamily existing : GeneCaller.ncrnaFamilies){
+			if(name.equals(existing.name)){throw new IllegalArgumentException("Duplicate euk5S registration; use euk5s=t or an euk5S rrna17 profile, not both");}
+		}
+		String libPath=findNcrnaResource(consensusResource);
+		if(libPath==null){libPath=findNcrnaResource(consensusResource+".gz");}
+		String seedPath=findNcrnaResource(seedResource);
+		if(seedPath==null){seedPath=findNcrnaResource(seedResource+".gz");}
+		if(libPath==null || !new File(libPath).isFile() || seedPath==null || !new File(seedPath).isFile()){
+			throw new IllegalArgumentException("Missing euk5S consensus or seed resource: consensus="+consensusResource+", seeds="+seedResource);
+		}
+		final LongHashSet seeds=ProkObject.loadLongKmers(seedPath, ConservedRnaSeedIndex.K);
+		if(seeds==null || seeds.size()<2){
+			throw new IllegalArgumentException("Incompatible euk5S seed resource: require at least two distinct forward 17-mers: "+seedPath);
+		}
+		final int seedMinHits=resolveSweepInt(name, NCRNA_SEED_MIN_HITS_OVERRIDE, 2);
+		if(EUK5S_ENABLED && seedMinHits<2){throw new IllegalArgumentException("euk5s=t requires ncrnaseedminhits>=2");}
+		try{
+			addRrna17Family(name, libPath, null, seeds, 17, 90,
+				resolveSweepPad(name, -1, 150), resolveSweepInt(name, NCRNA_INDEX_K_OVERRIDE, 7),
+				resolveSweepInt(name, NCRNA_INDEX_TOP_N_OVERRIDE, 7), false, 0f, 0f, 0f,
+				resolveSweepInt(name, NCRNA_INDEX_MIN_HITS_OVERRIDE, 2),
+				resolveSweepFloat(name, NCRNA_SCORE_A_OVERRIDE, 0f), resolveSweepFloat(name, NCRNA_SCORE_B_OVERRIDE, 1f),
+				resolveSweepFloat(name, NCRNA_ID_PASS_OVERRIDE, .68f), resolveSweepFloat(name, NCRNA_ID_BORDERLINE_OVERRIDE, .68f),
+				1.01f, resolveSweepFloat(name, NCRNA_COLLAPSE_FRAC_OVERRIDE, .75f),
+				NcrnaFamily.LEGACY_START_OFFSETS, NcrnaFamily.LEGACY_STOP_OFFSETS);
+			final NcrnaFamily family=familyAt(index, name);
+			if(family.library==null || family.library.length<1 || family.modelNames==null
+					|| family.modelNames.length!=family.library.length){
+				throw new IllegalArgumentException("Incompatible euk5S consensus resource: empty or missing model names: "+libPath);
+			}
+			final String nameError=findDuplicateOrEmptyToken("fasta", family.modelNames);
+			if(nameError!=null){throw new IllegalArgumentException("Incompatible euk5S consensus resource: "+nameError+": "+libPath);}
+			for(int i=0; i<family.library.length; i++){
+				if(family.library[i]==null || family.library[i].length<family.kLong){
+					throw new IllegalArgumentException("Incompatible euk5S consensus at index "+i+": shorter than seed k="+family.kLong+": "+libPath);
+				}
+			}
+			final boolean target=ncrnaSweepTarget(name);
+			configureRrna17Family(family, ProkObject.r5S, seedMinHits,
+				false, target && Boolean.TRUE.equals(NCRNA_RANKED_FALLBACK_OVERRIDE),
+				target && Boolean.TRUE.equals(NCRNA_STRICT_INDEX_OVERRIDE), false);
+			family.maxLen=resolveSweepInt(name, NCRNA_MAX_LEN_OVERRIDE, Integer.MAX_VALUE);
+			assert(family.kLong==ConservedRnaSeedIndex.K) : "euk5S must remain in the shared 17-mer seed scan";
+			if(target){
+				System.err.println("euk5S controls: seedK="+family.kLong+" seedMinHits="+family.seedMinHits
+					+" indexK="+family.indexK+" topN="+family.indexTopN+" minHits="+family.fixedMinHits
+					+" strict="+family.strictIndexCutoff+" rankedFallback="+family.rankedModelFallback
+					+" minLen="+family.minLen+" maxLen="+family.maxLen+" windowPad="+family.windowPad
+					+" idPass="+family.idPass+" idBorderline="+family.idBorderline+" hbm=off"
+					+" scoreA="+family.scoreA+" scoreB="+family.scoreB+" collapseFrac="+family.collapseFrac);
+			}
+		}catch(RuntimeException e){
+			while(GeneCaller.ncrnaFamilies.size()>index){GeneCaller.ncrnaFamilies.remove(GeneCaller.ncrnaFamilies.size()-1);}
+			throw e;
 		}
 	}
 
@@ -2758,6 +2812,12 @@ public class CallGenes extends ProkObject {
 			boundaryMeanLen=medianLength(library);
 		}
 		final IndexOverrides overrides=familyIndexOverrides(name);
+		// euk5S's selected policy ranks the full actual library; explicit sweeps
+		// still override below, and other families keep their measured limits.
+		if(name.equals("euk5S")){
+			if(library.length<1){throw new IllegalArgumentException("Incompatible euk5S consensus resource: empty library: "+libPath);}
+			indexTopN=library.length;
+		}
 		indexK=resolveFamilyInt(name,overrides.k,NCRNA_INDEX_K_OVERRIDE,indexK);
 		indexTopN=resolveFamilyInt(name,overrides.topN,NCRNA_INDEX_TOP_N_OVERRIDE,indexTopN);
 		fixedMinHits=resolveFamilyInt(name,overrides.minHits,NCRNA_INDEX_MIN_HITS_OVERRIDE,fixedMinHits);
@@ -2901,7 +2961,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	static float defaultNcrnaIdPass(String family){
-		if(family.equals("euk5S")){return .65f;}
+		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.65f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.70f;}
 		if(family.equals("tmrna")){return 0.62f;}
@@ -2911,7 +2971,7 @@ public class CallGenes extends ProkObject {
 	}
 
 	static float defaultNcrnaIdBorderline(String family){
-		if(family.equals("euk5S")){return .65f;}
+		if(family.equals("euk5S")){return .68f;}
 		if(family.equals("rnasep")){return 0.58f;}
 		if(family.equals("srp_small") || family.equals("srp_large")){return 0.64f;}
 		if(family.equals("tmrna")){return 0.60f;}
@@ -2999,8 +3059,11 @@ public class CallGenes extends ProkObject {
 		final boolean eukControls=NCRNA_SEED_MIN_HITS_OVERRIDE>=0 || NCRNA_MAX_LEN_OVERRIDE>=0
 			|| NCRNA_STRICT_INDEX_OVERRIDE!=null || NCRNA_RANKED_FALLBACK_OVERRIDE!=null;
 		if(eukControls && !euk5s){throw new IllegalArgumentException("ncRNA seed/index/length controls currently require ncrnafamily=euk5S");}
-		if(euk5s && !(RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE)))){
-			throw new IllegalArgumentException("ncrnafamily=euk5S requires rrna17=euk or rrna17=euk5s");
+		if(euk5s && !(EUK5S_ENABLED || (RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))))){
+			throw new IllegalArgumentException("ncrnafamily=euk5S requires euk5s=t, rrna17=euk, or rrna17=euk5s");
+		}
+		if(EUK5S_ENABLED && euk5s && NCRNA_SEED_MIN_HITS_OVERRIDE>=0 && NCRNA_SEED_MIN_HITS_OVERRIDE<2){
+			throw new IllegalArgumentException("euk5s=t requires ncrnaseedminhits>=2");
 		}
 		if(euk5s && !Float.isNaN(NCRNA_HBM_PASS_OVERRIDE)){
 			throw new IllegalArgumentException("euk5S has no HBM resource; ncrnahbmpass would have no effect");
@@ -3357,6 +3420,15 @@ public class CallGenes extends ProkObject {
 	static boolean RRNA17_ENABLED=false;
 	static String RRNA17_PROFILE=null;
 	static String RRNA17_LOADED_PROFILE=null;
+	/** Independent eukaryotic 5S entry point; default off until release calibration is accepted. */
+	static boolean EUK5S_ENABLED=false;
+	static String EUK5S_CONSENSUS_OVERRIDE=null;
+	private final Euk5sRuntimeConfig euk5sRuntime=new Euk5sRuntimeConfig();
+	static boolean parseEuk5sFlag(String key, String value){
+		if(!key.equalsIgnoreCase("euk5s")){return false;}
+		EUK5S_ENABLED=Parse.parseBoolean(value);
+		return true;
+	}
 	static final int RRNA23S_ENDPOINT_OFF=0, RRNA23S_ENDPOINT_G28=1, RRNA23S_ENDPOINT_G16=2;
 	/** No 23S endpoint network is shipped; the discarded G28/G16-C modes are not defaults. */
 	static int RRNA23S_ENDPOINT_MODE=RRNA23S_ENDPOINT_OFF;
@@ -3524,6 +3596,13 @@ public class CallGenes extends ProkObject {
 	}
 
 	static void validateRrna17GateCombo(){
+		if(EUK5S_CONSENSUS_OVERRIDE!=null && !(EUK5S_ENABLED
+				|| (RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))))){
+			throw new IllegalArgumentException("euk5sconsensus requires euk5s=t, rrna17=euk, or rrna17=euk5s");
+		}
+		if(EUK5S_ENABLED && RRNA17_ENABLED && ("euk".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))){
+			throw new IllegalArgumentException("Duplicate euk5S registration; use euk5s=t or an euk5S rrna17 profile, not both");
+		}
 		if(RRNA17_ENABLED && !("prok".equals(RRNA17_PROFILE) || "euk".equals(RRNA17_PROFILE)
 				|| "euk18s".equals(RRNA17_PROFILE) || "euk5s".equals(RRNA17_PROFILE))){
 			throw new IllegalArgumentException("rrna17 must be prok, euk, euk18s, euk5s, or f");

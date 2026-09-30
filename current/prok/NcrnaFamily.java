@@ -190,6 +190,20 @@ public class NcrnaFamily {
 	}
 
 	static final int[] LEGACY_START_OFFSETS={-3,-2,-1,0,1,2};
+	/** Explicit experimental feature observation. Null resources in every ordinary
+	 * constructor keep this path off; real endpoint refinement is a separate step. */
+	public void setRrnaEndpointFeatures(RrnaPositionalKmerTable.Table[] five,
+			RrnaPositionalKmerTable.Table[] three,RrnaEndpointCallerFeatures.Sink sink){
+		if(!"euk5S".equals(name) || sink==null){throw new IllegalArgumentException("Explicit euk5S feature consumer required");}
+		 rrnaEndpointFeatures=new RrnaEndpointCallerFeatures.Resources(modelNames,library,five,three);rrnaEndpointFeatureSink=sink;
+	}
+	RrnaEndpointCallerFeatures.Resources rrnaEndpointFeatures=null;
+	/** Explicit default-off inference bundle; ordinary construction never loads it. */
+	public void setRrnaEndpointInference(RrnaEndpointCallerFeatures.Resources resources,RrnaEndpointCallerFeatures.Sink sink){
+		if(!"euk5S".equals(name) || resources==null || resources.fiveNets==null){throw new IllegalArgumentException("Explicit euk5S endpoint networks required");}
+		rrnaEndpointFeatures=resources;rrnaEndpointFeatureSink=sink;
+	}
+	RrnaEndpointCallerFeatures.Sink rrnaEndpointFeatureSink=null;
 	static final int[] LEGACY_STOP_OFFSETS={-4,-3,-2,-1,0,1};
 
 	public final String name;
@@ -214,6 +228,8 @@ public class NcrnaFamily {
 	public final float scoreB;
 	public final float idPass;
 	public final float idBorderline;
+	/** Optional immutable model-name-bound overrides; null retains family scalars. */
+	NcrnaModelThresholds modelThresholds=null;
 	public final float hbmPass;
 	public final float collapseFrac;
 

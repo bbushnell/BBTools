@@ -52,6 +52,12 @@ import ml.CellNetParser;
  * @author G11
  */
 public class NcrnaBoundaryScorer {
+	/** Shared 28-input rRNA feature contract; no network is loaded or evaluated.
+	 * Candidate identity must be measured on the same inclusive raw span. */
+	public static boolean rrnaEndpointFeatures(RrnaPositionalKmerTable.Table table,byte[] bases,
+			int start,int stop,int consensusLength,float contigGC,float candidateIdentity,float[] scratch,float[] output){
+		return RrnaEndpointVector.fill(table,bases,start,stop,consensusLength,contigGC,candidateIdentity,scratch,output);
+	}
 
 	/** The ncRNA boundary feature vector is always exactly this many dims (ani,
 	 * prof0-2, isStop, fuzz0-2, lengthRatio, contigGC) -- no stem, no optional
