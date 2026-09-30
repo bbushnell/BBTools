@@ -15,28 +15,49 @@ import structures.ListNum;
 import template.ThreadWaiter;
 
 /**
- * Loads FASTA files rapidly with multiple threads.
+ * Read names honor Shared.TRIM_READ_DESCRIPTION using legacy byte-whitespace semantics.
+ * FASTA reader with one input thread and configurable parallel conversion workers.
+ * An ordered queue returns batches in input-job order; a ByteFile backend may add
+ * its own input threads. Configure once before start, then drain through terminal
+ * and close. Restart and arbitrary concurrent close are not supported protocols.
+ * Limits apply to input before positional sampling; interleaved limits normally
+ * count pairs. Returned batch IDs follow input jobs, including empty sampled batches.
+ * Counter getters report asynchronously aggregated worker totals and can lag EOF.
+ * Names use US-ASCII decoding. Read validation may apply other configured changes.
  * 
  * @author Brian Bushnell
+ * @contributor Shinobu (documentation and lifecycle maintenance)
  * @date November 5, 2025
  */
-public class FastaStreamer implements Streamer {
+public class FastaStreamer implements Streamer{
 
-	public static void main(String[] args) {
+	/** Runs the factory-selected reader and prints counts from returned data to stderr.
+	 * The factory can choose another reader class. Reported errors reject normal
+	 * statistics; ordinary Java unwinding attempts close, but VM halt bypasses it.
+	 * @param args FASTA path followed by an optional default conversion-thread count
+	 */
+	public static void main(String[] args){
 		Timer t=new Timer();
 		String fname=args[0];
-		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
+		if(args.length>1){DEFAULT_THREADS=Integer.parseInt(args[1]);}
 
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTA, null, true, true);
 		Streamer st=StreamerFactory.makeStreamer(ff, 0, true, -1, true, true);
-		st.start();
 		long reads=0, bases=0;
-		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
-			for(Read r : ln) {
-				reads+=r.pairCount();
-				bases+=r.pairLength();
+		//[stream/FastaStreamer#002] Factory-selected ST/2ST readers can report errors at EOF.
+		try{
+			st.start();
+			for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+				for(Read r : ln){
+					reads+=r.pairCount();
+					bases+=r.pairLength();
+				}
 			}
+		}finally{st.close();}
+		if(st.errorState()){
+			throw new RuntimeException("FastaStreamer failed while reading input; see preceding diagnostic.");
 		}
+
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
@@ -45,12 +66,25 @@ public class FastaStreamer implements Streamer {
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Constructor. */
+	/** Captures input settings and creates queues without opening a backend.
+	 * @param fname_ Input path; descriptor permits subprocess input
+	 * @param threads_ Conversion workers; below 1 selects DEFAULT_THREADS
+	 * @param pairnum_ 0 for unpaired/R1/interleaved, 1 for separate R2 input
+	 * @param maxReads_ Input limit before sampling; negative means unlimited
+	 */
 	public FastaStreamer(String fname_, int threads_, int pairnum_, long maxReads_){
 		this(FileFormat.testInput(fname_, FileFormat.FASTA, null, true, false), threads_, pairnum_, maxReads_);
 	}
 
-	/** Constructor. */
+	/** Captures descriptor, flags and input limit, and creates ordered queues.
+	 * Conversion workers are clamped between 1 and Shared.threads(); start adds
+	 * one input thread. Direct-constructor values below 1 differ from factory hint 0.
+	 * @param ffin_ Nonnull descriptor, including interleaving/amino settings
+	 * @param threads_ Conversion workers; below 1 selects DEFAULT_THREADS
+	 * @param pairnum_ 0 for interleaved input, otherwise 0 or 1; checked by assertion
+	 * @param maxReads_ Input limit before sampling; normally pairs when interleaved,
+	 * otherwise individual headers; negative means unlimited
+	 */
 	public FastaStreamer(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
@@ -75,6 +109,10 @@ public class FastaStreamer implements Streamer {
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Resets exposed counters and launches input/conversion threads.
+	 * Call once on a fresh instance: this does not reset queues or error state for
+	 * restart. Keep public flags and global parsing configuration stable while running.
+	 */
 	@Override
 	public void start(){
 		if(verbose){outstream.println("FastaStreamer.start() called.");}
@@ -89,49 +127,74 @@ public class FastaStreamer implements Streamer {
 		if(verbose){outstream.println("FastaStreamer started.");}
 	}
 
+	/** Attempts backend cleanup, then forced output finish even if cleanup throws.
+	 * This does not join workers or guarantee cancellation/terminal delivery.
+	 * Producer completion uses backend-only cleanup and ordinary poison instead.
+	 */
 	@Override
 	public void close(){
-		if(bf!=null) {bf.close(); bf=null;}
-		//Emergency-abort completeness: free blocked workers + let the input thread drain to its own
-		//poison, so an early/dying consumer cannot leave a zombie JVM (see FastqStreamer.close).
-		oqs.setFinished(true);
+		//[stream/FastaStreamer#003] Preserve reported errors and the finish attempt on every close path.
+		try{closeInput();}finally{oqs.setFinished(true);}
 	}
 
+	/** Returns the input name captured from the descriptor. */
 	@Override
-	public String fname() {return fname;}
+	public String fname(){return fname;}
 
+	/** Returns the output queue's availability hint without consuming a batch.
+	 * This is not a completion barrier; forced finish can leave the hint true
+	 * while nextList returns null. Drive iteration with nextList itself.
+	 */
 	@Override
-	public boolean hasMore(){
-		return oqs.hasMore();
-	}
+	public boolean hasMore(){return oqs.hasMore();}
 
+	/** Returns observed error status; this plain read does not wait for completion. */
 	@Override
-	public boolean errorState() {return errorState;}
+	public boolean errorState(){return errorState;}
 
+	/** Returns the interleaving setting captured at construction. */
 	@Override
 	public boolean paired(){return interleaved;}
 
+	/** Returns the input-side pair marker used for unpaired conversion. */
 	@Override
 	public int pairnum(){return pairnum;}
 
+	/** Returns the currently aggregated worker-read total, which may lag returned data or EOF.
+	 * Unpaired workers count retained constructed Reads; paired workers count all
+	 * constructed individual Reads before sampling. Failed/unpublished work can count.
+	 * The input thread adds worker totals after joins; this getter does not wait for it.
+	 */
 	@Override
-	public synchronized long readsProcessed() {return readsProcessed;}
+	public synchronized long readsProcessed(){return readsProcessed;}
 
+	/** Returns the corresponding aggregated base total; see readsProcessed(). */
 	@Override
-	public synchronized long basesProcessed() {return basesProcessed;}
+	public synchronized long basesProcessed(){return basesProcessed;}
 
+	/** Configures positional sampling before start; keep settings stable while running.
+	 * Unpaired sampling uses input-record positions; interleaved sampling uses pair
+	 * positions, retaining both mates together. Dropped records still advance IDs.
+	 * @param rate Retained fraction, normally in [0,1]; not validated here
+	 * @param seed Nonnegative for reproducibility; negative resolves once to a random seed
+	 */
 	@Override
 	public void setSampleRate(float rate, long seed){
 		samplerate=rate;
 		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
 
+	/** Takes the next ordered output batch, which may be empty after sampling.
+	 * Batch IDs follow input jobs; firstRecordNum remains unspecified (-1).
+	 * Returned lists/Read data are not recycled here. A terminal/null queue result
+	 * returns null unless an error was reported, in which case KillSwitch halts the VM.
+	 * Terminal observation does not wait for worker joins or counter aggregation.
+	 */
 	@Override
 	public ListNum<Read> nextList(){
 		ListNum<Read> list=oqs.getOutput();
 		if(verbose){
-			if(list==null) {outstream.println("Consumer got null.");}
-			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
+			if(list==null){outstream.println("Consumer got null.");}else{outstream.println("Consumer got list "+list.id()+" type "+list.type);}
 		}
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
@@ -146,6 +209,7 @@ public class FastaStreamer implements Streamer {
 		return list;
 	}
 
+	/** Always throws UnsupportedOperationException; FASTA has no SamLine representation. */
 	@Override
 	public ListNum<SamLine> nextLines(){
 		throw new UnsupportedOperationException("FASTA does not support SamLine");
@@ -155,7 +219,26 @@ public class FastaStreamer implements Streamer {
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Spawn process threads */
+	/** Closes an established backend without abandoning queued output.
+	 * Clears the reference only after normal return. Only writes true to the shared
+	 * error flag so cleanup cannot overwrite a worker's concurrent failure report.
+	 * Throws propagate; this adds no concurrent-close or physical-closure guarantee.
+	 */
+	private void closeInput(){
+		boolean completed=false;
+		try{
+			if(bf!=null){
+				final boolean error=bf.close();
+				if(error){errorState=true;}
+				bf=null;
+			}
+			completed=true;
+		}finally{if(!completed){errorState=true;}}
+	}
+
+	/** Creates and starts all conversion workers plus input thread zero.
+	 * Only the input thread retains the group for subsequent joins and aggregation.
+	 */
 	void spawnThreads(){
 		//Determine how many threads may be used
 		final int threads=this.threads+1;
@@ -168,9 +251,7 @@ public class FastaStreamer implements Streamer {
 		if(verbose){outstream.println("Spawned threads.");}
 
 		//Start the threads
-		for(ProcessThread pt : alpt){
-			pt.start();
-		}
+		for(ProcessThread pt : alpt){pt.start();}
 		if(verbose){outstream.println("Started threads.");}
 	}
 
@@ -178,26 +259,33 @@ public class FastaStreamer implements Streamer {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	private class ProcessThread extends Thread {
+	/** Input coordinator (tid 0) or a converter; each owns its local parse buffers/counts. */
+	private class ProcessThread extends Thread{
 
-		/** Constructor */
+		/** Creates a named role without starting it.
+		 * @param tid_ Zero for input/coordinator, positive for conversion
+		 * @param alpt_ Complete group; retained only by the input coordinator
+		 */
 		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			setName("FastaStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
 
-		/** Called by start() */
+		/** Dispatches this role and marks a normal return, independently of errorState.
+		 * Conversion failure propagates after flagging/force-finish. The input path
+		 * can catch a processing failure and still return normally with errorState set.
+		 */
 		@Override
 		public void run(){
 			//Process the reads
-			synchronized(this) {
+			synchronized(this){
 				if(tid==0){
 					processBytes();
 				}else{
-					if(interleaved) {
+					if(interleaved){
 						makeReadsInterleaved();
-					}else {
+					}else{
 						makeReadsSingle();
 					}
 				}
@@ -208,19 +296,25 @@ public class FastaStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" terminated.");}
 		}
 
+		/** Reads jobs, attempts backend cleanup and ordinary poison, then joins converters.
+		 * Aggregation occurs after poison, so output EOF can precede final counters.
+		 * Cleanup/poison failure can skip joins and aggregation; exceptions may replace
+		 * earlier failures, and blocking can prevent completion.
+		 */
 		void processBytes(){
-			//[stream/FastaStreamer#001 FIXED 2026-06-21]: try/finally GUARANTEES oqs.poison() even when processBytes0() throws (corrupt/
-			//truncated FASTA from bf.nextLine, OOM, etc.) so the workers in getInput() + the consumer in getOutput() wake instead of hanging;
-			//the catch records errorState so nextList crashes LOUD via KillSwitch. Input-thread death leaves NO ordered gap (chunks delivered
-			//in order, LAST reachable) so plain poison() suffices here (workers need setFinished(true), see makeReads*). Same OQS-thread-death
-			//fix as the greenlit SamStreamer/FastqStreamer/BamWriter#001.
+			//[stream/FastaStreamer#001 FIXED 2026-06-21] Input failure must record status and attempt ordinary poison.
+			//Input jobs retain their ordered IDs; worker failures need force-finish for their undelivered gaps.
+			//The catch records errorState so nextList fails loudly. Cleanup and poison may block or throw;
+			//nested finally preserves the poison attempt, not a universal wakeup guarantee.
 			try{
 				processBytes0();
 			}catch(Throwable t){
 				errorState=true;
 				outstream.println("FastaStreamer: error reading "+fname+": "+t);
 			}finally{
-				oqs.poison();// Signal completion via OQS -- ALWAYS, so workers (getInput) + consumer (getOutput) wake
+				//[stream/FastaStreamer#004] Close even on producer failure, before ordinary queue completion.
+				//Do not use public close here: its forced output finish can abandon valid queued data.
+				try{closeInput();}finally{oqs.poison();}
 			}
 			if(verbose){outstream.println("tid "+tid+" done with processBytes0 + poisoning.");}
 
@@ -230,8 +324,8 @@ public class FastaStreamer implements Streamer {
 			for(ProcessThread pt : alpt){
 				//Wait until this thread has terminated
 				if(pt!=this){
-					synchronized(pt) {
-						synchronized(FastaStreamer.this) {
+					synchronized(pt){
+						synchronized(FastaStreamer.this){
 							//Accumulate per-thread statistics
 							readsProcessed+=pt.readsProcessedT;
 							basesProcessed+=pt.basesProcessedT;
@@ -247,10 +341,13 @@ public class FastaStreamer implements Streamer {
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
 
-		/** 
-		 * Thread 0 reads the actual file and produces lists of byte[] (raw lines).
-		 * Each list starts with a '>' line and ends just before the next '>'.
-		 * Lists are sent when they reach 200 headers or 200kb, whichever comes first.
+		/** Opens the selected ByteFile and groups nonempty physical lines into input jobs.
+		 * Snapshots Shared.bufferLen()/bufferData() targets. Sequence-line bytes count
+		 * toward the byte target; splitting is checked at headers and paired boundaries.
+		 * Targets are not hard caps. Header-led input produces whole-record jobs.
+		 * Limits count input headers before sampling. Interleaved finite limits below
+		 * Long.MAX_VALUE/2 are doubled; larger limits use the stored value directly.
+		 * Loop transitions can read beyond the final included record. The caller owns cleanup.
 		 */
 		private void processBytes0(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
@@ -270,11 +367,11 @@ public class FastaStreamer implements Streamer {
 			final long limit=maxReads*(interleaved && maxReads<Long.MAX_VALUE/2 ? 2 : 1);
 			
 			for(byte[] line=bf.nextLine(); line!=null && totalReads<=limit; line=bf.nextLine()){
-				if(line.length>0) {
+				if(line.length>0){
 					if(line[0]!='>'){
 						ln.add(line);
 						bytesInList+=line.length;
-					}else {
+					}else{
 						//Found a header.
 						if((headersInList>=slimit || bytesInList>=blimit) && 
 							(!interleaved || ((headersInList&1)==0))){
@@ -284,7 +381,7 @@ public class FastaStreamer implements Streamer {
 							headersInList=0;
 							bytesInList=0;
 						}
-						if(totalReads<limit) {ln.add(line);}
+						if(totalReads<limit){ln.add(line);}
 						headersInList++;
 						totalReads++;
 					}
@@ -296,11 +393,14 @@ public class FastaStreamer implements Streamer {
 			}
 			ln=null;
 			if(verbose){outstream.println("tid "+tid+" done reading bytes.");}
-			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
-			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
 
-		/** Iterate through the reads */
+		/** Converts unpaired jobs, sampling by input position before Read construction.
+		 * Selected Reads are explicitly validated regardless of VALIDATE_IN_CONSTRUCTOR.
+		 * IDs advance over discarded records; counters include retained constructed Reads.
+		 * A headerless job throws. Empty sampled output still retains its ordered job ID.
+		 * On conversion failure, records error status, force-finishes output and rethrows.
+		 */
 		void makeReadsSingle(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 
@@ -331,7 +431,7 @@ public class FastaStreamer implements Streamer {
 								//reads carry their true file position (twin-file mates then share numericID).
 								if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 									Read r=new Read(bb.toBytes(), null,
-										new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID, flag, true);
+										new String(header, 1, ReadHeader.end(header, 1, Shared.TRIM_READ_DESCRIPTION)-1, StandardCharsets.US_ASCII), readID, flag, true);
 									r.setPairnum(pairnum);
 									if(!r.validated()){r.validate(true);}
 									reads.add(r);
@@ -351,14 +451,14 @@ public class FastaStreamer implements Streamer {
 					if(header!=null){
 						if(samplerate>=1f || Streamer.sampleKeep(readID, sampleSeed, samplerate)){
 							Read r=new Read(bb.toBytes(), null,
-								new String(header, 1, header.length-1, StandardCharsets.US_ASCII), readID, flag, true);
+								new String(header, 1, ReadHeader.end(header, 1, Shared.TRIM_READ_DESCRIPTION)-1, StandardCharsets.US_ASCII), readID, flag, true);
 							r.setPairnum(pairnum);
 							if(!r.validated()){r.validate(true);}
 							reads.add(r);
 							readsProcessedT++;
 							basesProcessedT+=r.length();
 						}
-					}else {
+					}else{
 						throw new RuntimeException("No header for record "+readID+
 							" length "+bb.length()+" in "+fname);
 					}
@@ -368,7 +468,7 @@ public class FastaStreamer implements Streamer {
 				}
 				if(verbose){outstream.println("tid "+tid+" done making reads.");}
 				//Re-inject poison for other workers
-				if(list!=null) {oqs.addInput(list);}
+				if(list!=null){oqs.addInput(list);}
 			}catch(Throwable t){
 				errorState=true;
 				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
@@ -376,7 +476,12 @@ public class FastaStreamer implements Streamer {
 			}
 		}
 
-		/** Iterate through the reads */
+		/** Constructs and validates all job records, then pairs and samples by pair position.
+		 * Counters include constructed individual Reads before sampling, unlike the
+		 * unpaired path. Mates share positional numeric IDs; output contains first mates.
+		 * Odd jobs report an error and only pair the even prefix. Empty sampled output
+		 * still occupies its job ID. Conversion failure flags, force-finishes and rethrows.
+		 */
 		void makeReadsInterleaved(){
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 
@@ -394,14 +499,8 @@ public class FastaStreamer implements Streamer {
 					long readID=list.firstRecordNum/2;
 
 					// Parse lines into reads using ByteBuilder
-					//TODO: Probable bug - the whole Streamer family ignores Shared.TRIM_READ_DESCRIPTION
-					//for FASTA headers: the full ">header desc" line becomes r.id here, while the legacy
-					//input paths (FastaReadInputStream:9844, FASTQ:7208) trim at whitespace when the flag
-					//is set (SamStreamer honors it for @SQ at SamStreamer:33127). A tool that sets the
-					//flag and switches from toReads to a Streamer silently keys maps on untrimmed ids
-					//(found via a CutGff2 lookup-miss fixture, 2026-09-09; CutGff2 now trims its own
-					//tokens as a workaround). Not fixed here: unclear if streamers deliberately defer
-					//normalization to consumers, and a change would affect every Streamer user at once.
+					//STR-072/IO021: Honor trd consistently with legacy FASTA (Brian, 2026-09-29).
+					//CutGff2 also trims locally after its 2026-09-09 lookup-miss report; Read.FIX_HEADER is separate.
 					ArrayList<Read> allReads=new ArrayList<Read>();
 					byte[] header=null;
 
@@ -409,7 +508,7 @@ public class FastaStreamer implements Streamer {
 						if(line.length>0 && line[0]=='>'){
 							// Save previous record if exists
 							if(header!=null){
-								Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1,
+								Read r=new Read(bb.toBytes(), null, new String(header, 1, ReadHeader.end(header, 1, Shared.TRIM_READ_DESCRIPTION)-1,
 									StandardCharsets.US_ASCII), 0, flag, true);
 								if(!r.validated()){r.validate(true);}
 								allReads.add(r);
@@ -425,7 +524,7 @@ public class FastaStreamer implements Streamer {
 
 					// Save final record
 					if(header!=null){
-						Read r=new Read(bb.toBytes(), null, new String(header, 1, header.length-1,
+						Read r=new Read(bb.toBytes(), null, new String(header, 1, ReadHeader.end(header, 1, Shared.TRIM_READ_DESCRIPTION)-1,
 							StandardCharsets.US_ASCII), 0, flag, true);
 						if(!r.validated()){r.validate(true);}
 						allReads.add(r);
@@ -462,7 +561,7 @@ public class FastaStreamer implements Streamer {
 				}
 				if(verbose){outstream.println("tid "+tid+" done making reads.");}
 				//Re-inject poison for other workers
-				if(list!=null) {oqs.addInput(list);}
+				if(list!=null){oqs.addInput(list);}
 			}catch(Throwable t){
 				errorState=true;
 				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
@@ -470,15 +569,16 @@ public class FastaStreamer implements Streamer {
 			}
 		}
 
-		/** Number of reads processed by this thread */
+		/** Constructed Reads: retained only in unpaired mode, before sampling in paired mode. */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
+		/** Total lengths of this worker's counted Reads, including unpublished work on failure. */
 		protected long basesProcessedT=0;
-		/** True only if this thread has completed successfully */
+		/** True when run's processing call returns normally; reported errorState may still be true. */
 		boolean success=false;
-		/** Thread ID */
+		/** Zero for input/coordinator, positive for a converter. */
 		final int tid;
 
+		/** Complete group for coordinator joins/aggregation; null for converters. */
 		ArrayList<ProcessThread> alpt;
 	}
 
@@ -492,21 +592,27 @@ public class FastaStreamer implements Streamer {
 	/** Primary input file */
 	final FileFormat ffin;
 	
-	public ByteFile bf;//TODO: Should not be a field, just internal.
+	/** Backend opened by the input thread and shared with lifecycle cleanup. */
+	public ByteFile bf;//TODO: Consider restricting public visibility; cleanup currently needs the shared reference.
 
+	/** Ordered conversion jobs/results and ordinary versus forced termination protocol. */
 	final OrderedQueueSystem<ListNum<byte[]>, ListNum<Read>> oqs;
 
+	/** Conversion-worker count; excludes the input thread and any backend workers. */
 	final int threads;
+	/** Input-side marker for unpaired conversion; interleaved input requires zero. */
 	final int pairnum;
+	/** Captured pairing mode for adjacent records. */
 	final boolean interleaved;
 
-	/** Number of reads processed */
+	/** Aggregate of converter read totals; populated asynchronously after worker joins. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Aggregate of converter base totals, potentially incomplete at output EOF. */
 	protected long basesProcessed=0;
 
-	/** Quit after processing this many input reads */
+	/** Input limit before sampling; negative constructor arguments normalize to Long.MAX_VALUE. */
 	final long maxReads;
+	/** Read-constructor flags; configure before start and keep stable while converting. */
 	public int flag;
 
 	/*--------------------------------------------------------------*/
@@ -515,6 +621,7 @@ public class FastaStreamer implements Streamer {
 
 //	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
 //	public static int TARGET_LIST_BYTES=262144;
+	/** Default conversion-worker request used by constructors and FASTA factory selection. */
 	public static int DEFAULT_THREADS=3;
 
 	/*--------------------------------------------------------------*/
@@ -525,8 +632,9 @@ public class FastaStreamer implements Streamer {
 	protected PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static final boolean verbose=false;
-	/** True if an error was encountered */
+	/** Reported input, conversion or cleanup failure; getters do not wait for publication. */
 	public boolean errorState=false;
+	/** Positional retention threshold, configured before startup. */
 	private float samplerate=1f;
 	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
 	private long sampleSeed=17;

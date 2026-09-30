@@ -12,17 +12,31 @@ import shared.Tools;
 import structures.ListNum;
 
 /**
- * Text-based input stream for reads that supports multiple synchronized files.
- * Allows merging site scores from the same line across multiple files to create
- * composite reads. Supports both paired and unpaired read processing with
- * optional interleaving.
+ * List reader for BBTools serialized Read text, decoded by Read.fromText.
+ * Multiple primary files contribute site lists to corresponding first-file
+ * records. Corresponding entries must have matching names and numeric IDs;
+ * list sizes must align. Bases and qualities come from the first file. Files can contain interleaved pairs or
+ * have a separate mate reader, optionally wrapped by the legacy concurrent adapter.
+ * Filename arrays and several state fields are exposed without defensive copies;
+ * method-level synchronization is not a general concurrent-use guarantee.
  *
  * @author Brian Bushnell
  * @date Jul 16, 2013
  */
-public class RTextInputStream extends ReadInputStream {
+public class RTextInputStream extends ReadInputStream{
 	
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Diagnostic multi-file merge printing serialized reads to stdout.
+	 * Currently supplies zero, rejected when assertions are enabled; see #002.
+	 * @param args Nonempty synchronized serialized-read filename array
+	 */
 	public static void main(String[] args){
+		//TODO: Probable bug #002 - the constructor rejects readLimit=0 with assertions enabled.
+		//This diagnostic main cannot scan ordinary input until its limit choice is corrected.
 		RTextInputStream rtis=new RTextInputStream(args, 0);
 		ArrayList<Read> list=rtis.nextList();
 		while(list!=null){
@@ -33,16 +47,47 @@ public class RTextInputStream extends ReadInputStream {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Opens inputs using only format names; other format options are not forwarded.
+	 * @param ff1 Nonnull primary format
+	 * @param ff2 Optional mate format
+	 * @param crisReadLimit Positive entry limit, or negative for unlimited; zero is rejected
+	 * when assertions are enabled
+	 */
 	public RTextInputStream(FileFormat ff1, FileFormat ff2, long crisReadLimit){
 		this(ff1.name(), (ff2==null ? null : ff2.name()), crisReadLimit);
 	}
 
+	/**
+	 * Opens one primary file and an optional separate mate file.
+	 * @param fname1 Primary serialized-read filename
+	 * @param fname2 Mate filename, null or the case-insensitive literal "null"
+	 * @param crisReadLimit Positive entry limit, or negative for unlimited
+	 */
 	public RTextInputStream(String fname1, String fname2, long crisReadLimit){
-		this(new String[] {fname1}, (fname2==null || "null".equalsIgnoreCase(fname2)) ? null : new String[] {fname2}, crisReadLimit);
+		this(new String[]{fname1}, (fname2==null || "null".equalsIgnoreCase(fname2)) ? null : new String[]{fname2}, crisReadLimit);
 		assert(fname2==null || !fname1.equals(fname2)) : "Error - input files have same name.";
 	}
+	/** Opens synchronized primary files without a separate mate-file array.
+	 * @param fnames_ Nonempty filename array, retained by reference
+	 * @param crisReadLimit Positive entry limit, or negative for unlimited */
 	public RTextInputStream(String[] fnames_, long crisReadLimit){this(fnames_, null, crisReadLimit);}
 	
+	/**
+	 * Opens primary TextFiles with subprocess support and selects pairing once.
+	 * Separate mate files suppress primary interleaving. Otherwise FASTQ's testing/
+	 * forcing flags and stdin status select forced pairing or marker testing.
+	 * A separate mate reader is constructed recursively; USE_CRIS starts its optional
+	 * concurrent adapter during construction. The entry quota counts each merged
+	 * primary entry once, independent of the number of contributing files.
+	 * @param fnames_ Nonempty synchronized primary filename array, retained by reference
+	 * @param mate_fnames_ Optional synchronized mate filename array
+	 * @param crisReadLimit Positive list-entry limit, or negative for unlimited
+	 */
 	public RTextInputStream(String[] fnames_, String[] mate_fnames_, long crisReadLimit){
 		fnames=fnames_;
 		textfiles=new TextFile[fnames.length];
@@ -57,14 +102,22 @@ public class RTextInputStream extends ReadInputStream {
 		}
 		interleaved=(mate_fnames_!=null ? false :
 			(!FASTQ.TEST_INTERLEAVED || textfiles[0].is==System.in) ? FASTQ.FORCE_INTERLEAVED : isInterleaved(fnames[0]));
-		
-//		assert(false) : (mate_fnames_!=null)+", "+(textfiles[0].is==System.in)+", "+interleaved+", "+FASTQ.FORCE_INTERLEAVED+", "+isInterleaved(fnames[0]);
-		
+	
 		mateStream=(mate_fnames_==null ? null : new RTextInputStream(mate_fnames_, null, crisReadLimit));
 		cris=((!USE_CRIS || mateStream==null) ? null : new ConcurrentLegacyReadInputStream(mateStream, crisReadLimit));
 		if(cris!=null){cris.start();}
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Tests the first nonblank line of a regular file for the exact #INTERLEAVED marker.
+	 * Uses a separate TextFile without subprocess support, closed after the test.
+	 * @param fname Existing regular-file path
+	 * @return true only when the first returned line equals the marker
+	 */
 	public static boolean isInterleaved(String fname){
 		File f=new File(fname);
 		assert(f.exists() && f.isFile());
@@ -74,23 +127,22 @@ public class RTextInputStream extends ReadInputStream {
 		return "#INTERLEAVED".equals(s);
 	}
 	
-//	@Override
-//	public synchronized Read[] nextBlock(){
-//		ArrayList<Read> list=readList();
-//		if(list==null || list.size()==0){return null;}
-//		return list.toArray(new Read[list.size()]);
-//	}
-	
+	/** Returns the next merged batch, or null after termination; entries may have mates. */
 	@Override
 	public synchronized ArrayList<Read> nextList(){
-//		System.out.println((mateStream==null ? "F5: " : "F3: ")+"Grabbing a list: finished="+finished);
 		if(finished){return null;}
 		return readList();
 	}
 	
+	/**
+	 * Merges aligned site lists, associates mates and terminates on a short batch.
+	 * Primary-file entries supply all fields except added sites and mate links.
+	 * Separate mates require equal batch sizes and numeric IDs; direct mate mode
+	 * also checks names. Interleaved records retain serialized pair-number flags.
+	 * @return Merged primary entries, or null when no entries remain
+	 */
 	private synchronized ArrayList<Read> readList(){
 		assert(buffer==null);
-//		System.out.println((mateStream==null ? "F5: " : "F3: ")+" Entering readList");
 		if(finished){return null;}
 		
 		ArrayList<Read> merged=getListFromFile(textfiles[0]);
@@ -100,8 +152,8 @@ public class RTextInputStream extends ReadInputStream {
 			temp[0]=merged;
 			//[stream/RTextInputStream#001] start at 1: temp[0] is already 'merged' (textfiles[0] read above).
 			//Starting at 0 re-read textfiles[0] a 2nd time, advancing its pointer 2 batches/call (silently
-			//dropping every other batch of file 0 + desyncing the merge). Latent: only the debug main() reaches
-			//textfiles.length>1; all production callers use the single-file (fname1,fname2) constructors.
+			//dropping every other batch of file 0 + desyncing the merge). Repository caller search
+			//found named-file forms externally; array forms occur in local main and mate recursion.
 			for(int i=1; i<temp.length; i++){
 				temp[i]=getListFromFile(textfiles[i]);
 			}
@@ -117,11 +169,11 @@ public class RTextInputStream extends ReadInputStream {
 				}
 			}
 		}
-		
-//		System.out.println((mateStream==null ? "F5: " : "F3: ")+"Merged: "+merged==null ? "null" : ""+merged.size());
-		
+		// Fixed #004: charge the quota once per merged entry, after all files have
+		//read the same remaining quota. Charging each file truncated finite merges.
+		readCount+=merged.size();
+	
 		if(cris!=null){
-			//				System.out.println((mateStream==null ? "F5: " : "F3: ")+"Grabbing a mate list: finished="+mateStream.finished);
 			ListNum<Read> mates0=cris.nextList();
 			ArrayList<Read> mates=mates0.list;
 			assert((mates==null || mates.size()==0) == (merged==null || merged.size()==0)) : (merged==null)+", "+(mates==null);
@@ -143,14 +195,12 @@ public class RTextInputStream extends ReadInputStream {
 						r2.mate=r1;
 						r2.setPairnum(1);
 						assert(r2.numericID==r1.numericID) : "\n\n"+r1.toText(false)+"\n\n"+r2.toText(false)+"\n";
-//						assert(r2.id.equals(r1.id)) : "\n\n"+r1.toText(false)+"\n\n"+r2.toText(false)+"\n";
 					}
 					
 				}
 			}
 			cris.returnList(mates0.id, mates0.list.isEmpty());
 		}else if(mateStream!=null){
-			//			System.out.println((mateStream==null ? "F5: " : "F3: ")+"Grabbing a mate list: finished="+mateStream.finished);
 			ArrayList<Read> mates=mateStream.readList();
 			assert((mates==null || mates.size()==0) == (merged==null || merged.size()==0)) : (merged==null)+", "+(mates==null);
 			if(merged!=null && mates!=null){
@@ -179,6 +229,15 @@ public class RTextInputStream extends ReadInputStream {
 		return merged;
 	}
 	
+	/**
+	 * Reads up to the remaining shared entry quota from one TextFile.
+	 * TextFile skips blank lines; # comments are skipped before each primary record.
+	 * An interleaved mate is the next nonblank line without comment skipping.
+	 * The caller counts merged entries once, including each pair anchor. Short reads
+	 * close this TextFile; quota exhaustion itself does not guarantee closure.
+	 * @param tf Open input containing normal serialized Read records
+	 * @return Nonnull list, possibly empty
+	 */
 	private ArrayList<Read> getListFromFile(TextFile tf){
 		
 		int len=READS_PER_LIST;
@@ -191,8 +250,6 @@ public class RTextInputStream extends ReadInputStream {
 			while(s!=null && s.charAt(0)=='#'){s=tf.nextLine();}
 			if(s==null){break;}
 			Read r=Read.fromText(s);
-//			assert(r.toString().equals(s)) : "\n\n"+s+"\n!=\n"+r.toString()+"\n\n";
-//			assert(r.chrom>0 == r.mapScore>0) : r.toText(false);
 			if(interleaved){
 				s=tf.nextLine();
 				assert(s!=null) : "Odd number of reads in interleaved file "+tf.name;
@@ -206,7 +263,6 @@ public class RTextInputStream extends ReadInputStream {
 			}
 			list.add(r);
 		}
-		readCount+=list.size();
 		
 		if(list.size()<len){
 			assert(tf.nextLine()==null);
@@ -215,51 +271,41 @@ public class RTextInputStream extends ReadInputStream {
 		return list;
 	}
 
+	/** Returns whether separate mates or interleaved input were selected. */
 	@Override
-	public boolean paired() {
-		return mateStream!=null || interleaved;
-	}
+	public boolean paired(){return mateStream!=null || interleaved;}
 	
+	/** Marks this reader and mate components finished; does not close primary TextFiles. */
 	public final void shutdown(){
 		finished=true;
 		if(mateStream!=null){mateStream.shutdown();}
 		if(cris!=null){cris.shutdown();}
 	}
 	
+	/** Returns Arrays.toString of the borrowed primary filename array. */
 	@Override
 	public String fname(){return Arrays.toString(fnames);}
 	
-	public boolean finished=false;
-	public String[] fnames;
-	public TextFile[] textfiles;
-	
-	private ArrayList<Read> buffer=null;
-	private int next=0;
-	
-	private long readCount;
-	private final long readLimit;
-	private final boolean interleaved;
-	
-	public static final int READS_PER_LIST=Shared.bufferLen();;
-
-	private final RTextInputStream mateStream;
-	private final ConcurrentLegacyReadInputStream cris;
-	public static boolean USE_CRIS=true; //Doubles read speed for zipped paired files
-
+	/** Returns an optimistic state check without looking ahead or verifying open files. */
 	@Override
-	/** This is optimistic and may return "true" incorrectly. */
-	public boolean hasMore() {
+	public boolean hasMore(){
 		if(buffer!=null && next<buffer.size()){return true;}
 		return !finished;
 	}
 	
-	/** Resets the stream to the beginning for re-reading.
-	 * Resets all TextFile objects and concurrent processing components. */
+	/**
+	 * Reopens primary files and restarts mate components with existing pairing choices.
+	 * Clears local iteration state and renews the original entry quota.
+	 * TextFile.reset closes and reopens each file.
+	 */
 	@Override
-	public synchronized void restart() {
+	public synchronized void restart(){
+		// Fixed #003: rewinding files must also renew a finite quota; otherwise a fully
+		//consumed reader returns no records after restart despite the file rewind.
 		finished=false;
 		next=0;
 		buffer=null;
+		readCount=0;
 		for(TextFile tf : textfiles){tf.reset();}
 		if(cris!=null){
 			cris.restart();
@@ -268,16 +314,20 @@ public class RTextInputStream extends ReadInputStream {
 	}
 
 	/**
-	 * Closes all resources associated with the stream.
-	 * Closes all TextFile objects and mate streams.
-	 * @return true if any errors occurred during closing
+	 * Closes primary TextFiles and the selected mate reader or adapter.
+	 * Does not mark this reader finished or update its inherited error flag. TextFile
+	 * close returns false while storing its own error state, not collected here;
+	 * the direct mate close result is also discarded (#005).
+	 * @return OR of collected close return values and selected mate status
 	 */
 	@Override
-	public synchronized boolean close() {
+	public synchronized boolean close(){
+		//TODO: Probable bug #005 - TextFile.close returns false and keeps errors in its own flag.
+		//Those flags are not collected here; direct mate close also discards its return value.
 		boolean error=false;
 		for(TextFile tf : textfiles){error|=tf.close();}
 		if(cris!=null){
-			error|=ReadWrite.closeStream(cris);;
+			error|=ReadWrite.closeStream(cris);
 		}else if(mateStream!=null){
 			mateStream.close();
 			error|=mateStream.errorState();
@@ -285,4 +335,37 @@ public class RTextInputStream extends ReadInputStream {
 		return error;
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Termination flag checked by list iteration and optimistic hasMore. */
+	public boolean finished=false;
+	/** Borrowed primary filename array, exposed for legacy callers. */
+	public String[] fnames;
+	/** Primary file readers opened during construction. */
+	public TextFile[] textfiles;
+	
+	/** Legacy buffer checked by hasMore; the list path requires it to be null. */
+	private ArrayList<Read> buffer=null;
+	/** Legacy buffer index, cleared by restart. */
+	private int next=0;
+	
+	/** Consumed merged primary entries, counted once per entry regardless of file count. */
+	private long readCount;
+	/** Entry quota; negative constructor arguments become Long.MAX_VALUE. */
+	private final long readLimit;
+	/** Pairing choice captured at construction, not recomputed by restart. */
+	private final boolean interleaved;
+	
+	/** Maximum batch entries, captured at class initialization. */
+	public static final int READS_PER_LIST=Shared.bufferLen();
+
+	/** Optional recursively constructed mate reader. */
+	private final RTextInputStream mateStream;
+	/** Optional legacy concurrent adapter around the mate reader. */
+	private final ConcurrentLegacyReadInputStream cris;
+	/** Whether construction wraps separate mates in the legacy concurrent adapter. */
+	public static boolean USE_CRIS=true;//Historical note reports faster zipped paired input; not remeasured.
+
 }

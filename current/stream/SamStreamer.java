@@ -13,52 +13,54 @@ import structures.ListNum;
 import template.ThreadWaiter;
 
 /**
- * Multithreaded SAM reader built on OrderedQueueSystem.
- * Creates worker threads that read SAM records in order, optionally materializing
- * Read objects, and tracks processed read/base counts.
+ * SAM reader with one input thread and one or more parsing workers coordinated by
+ * OrderedQueueSystem. ByteFile may add background threads. Construction does not
+ * start reading; configure sampling before one start and consume nextLines or
+ * nextReads. Shared header and ByteFile settings affect other readers in the JVM.
+ * Input limits count nonheader records before sampling; discarded records are not
+ * parsed. Output batches can be empty after sampling. Ordering follows the queue
+ * implementation, not a guarantee that an ordered=false request disables ordering.
+ * Terminal consumption does not itself wait for final counter aggregation.
  *
  * @author Brian Bushnell
- * @contributor Isla
+ * @contributor Isla, Shinobu
  * @date November 4, 2016
  */
-public class SamStreamer implements Streamer {
-	
+public class SamStreamer implements Streamer{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Builds a streamer for an input filename, creating a FileFormat internally.
-	 * Configures thread count, ordering, optional header retention, maximum reads to
-	 * consume, and whether to construct Read objects alongside SamLine records.
+	 * Resolves a SAM-fallback descriptor and configures an unstarted reader.
 	 *
-	 * @param fname_ Input SAM filename
-	 * @param threads_ Desired worker threads (clamped to available cores)
-	 * @param saveHeader_ True to retain SAM header lines
-	 * @param ordered_ True to preserve read order through the pipeline
-	 * @param maxReads_ Maximum reads to process (-1 for unlimited)
+	 * @param fname_ Input path; subprocess input is permitted
+	 * @param threads_ Parsing workers, clamped to 1..Shared.threads(); values below one use DEFAULT_THREADS
+	 * @param saveHeader_ Request shared-header publication
+	 * @param ordered_ Ordering request passed to the queue system
+	 * @param maxReads_ Maximum nonheader input records before sampling; negative means unlimited
 	 * @param makeReads_ True to convert SamLine entries to Read objects
 	 */
-	public SamStreamer(String fname_, int threads_, boolean saveHeader_, boolean ordered_, 
-			long maxReads_, boolean makeReads_){
-		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_, 
+	public SamStreamer(final String fname_, final int threads_, final boolean saveHeader_, final boolean ordered_,
+			final long maxReads_, final boolean makeReads_){
+		this(FileFormat.testInput(fname_, FileFormat.SAM, null, true, false), threads_,
 			saveHeader_, ordered_, maxReads_, makeReads_);
 	}
-	
+
 	/**
-	 * Builds a streamer from a preconstructed FileFormat.
-	 * Initializes header retention, maximum reads, and the ordered queue system used
-	 * to move byte blocks and parsed lines between threads.
+	 * Captures input configuration and creates the queues without starting readers.
+	 * Header retention disabled here leaves any earlier shared publication untouched.
 	 *
-	 * @param ffin_ Input file description
-	 * @param threads_ Desired worker threads (clamped to available cores)
-	 * @param saveHeader_ True to retain SAM header lines
-	 * @param ordered_ True to preserve read order through the pipeline
-	 * @param maxReads_ Maximum reads to process (-1 for unlimited)
+	 * @param ffin_ Nonnull input descriptor passed to ByteFile
+	 * @param threads_ Parsing workers, clamped to 1..Shared.threads(); values below one use DEFAULT_THREADS
+	 * @param saveHeader_ Request shared-header publication
+	 * @param ordered_ Ordering request passed to the queue system
+	 * @param maxReads_ Maximum nonheader input records before sampling; negative means unlimited
 	 * @param makeReads_ True to convert SamLine entries to Read objects
 	 */
-	public SamStreamer(FileFormat ffin_, int threads_, boolean saveHeader_, boolean ordered_, 
-			long maxReads_, boolean makeReads_){
+	public SamStreamer(final FileFormat ffin_, final int threads_, final boolean saveHeader_, final boolean ordered_,
+			final long maxReads_, final boolean makeReads_){
 		fname=ffin_.name();
 		ffin=ffin_;
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
@@ -66,74 +68,80 @@ public class SamStreamer implements Streamer {
 		header=(saveHeader ? new ArrayList<byte[]>() : null);
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
 		makeReads=makeReads_;
-		
+
 		// Create OQS with prototypes for LAST/POISON generation
 		ListNum<byte[]> inputPrototype=new ListNum<byte[]>(null, 0, ListNum.PROTO);
 		ListNum<SamLine> outputPrototype=new ListNum<SamLine>(null, 0, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>>(
 			threads, ordered_, inputPrototype, outputPrototype);
-		
-//		if(verbose || true){outstream.println("Made SamStreamer-"+threads);}
+
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Resets counters and spawns processing threads to begin streaming. */
+
+	/** Resets reported counters and starts the input/parsing threads. Call once;
+	 * queues, header, error and sampling state are not reset for reuse.
+	 */
 	@Override
 	public void start(){
 		if(verbose){outstream.println("SamStreamer.start() called.");}
-		
+
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
-		
+
 		//Process the reads in separate threads
 		spawnThreads();
-		
+
 		if(verbose){outstream.println("Started.");}
 	}
 
-	/** Closes the streamer: frees blocked pipeline threads so an early/dying consumer cannot zombie the JVM. */
+	/** Marks the output queue finished using its forced terminal mechanism.
+	 * Does not join workers or close the input thread's local ByteFile. This is not
+	 * a guarantee that all background work has stopped when the method returns.
+	 */
 	@Override
 	public synchronized void close(){
 		//[stream/SamStreamer#002 partial fix 2026-09-05] was a no-op; see BamStreamer.close for the rationale.
 		//The input thread free-runs the remaining file after this and exits via its own poison protocol.
 		oqs.setFinished(true);
 	}
-	
+
 	/** @return Input filename being streamed. */
 	@Override
-	public String fname() {return fname;}
-	
-	/** @return True while the ordered queue still holds output. */
+	public String fname(){return fname;}
+
+	/** @return Delegated queue terminal state; not an occupancy or worker-completion check */
 	@Override
-	public boolean hasMore() {return oqs.hasMore();}
-	
-	/** SamStreamer produces unpaired reads; always returns false. */
+	public boolean hasMore(){return oqs.hasMore();}
+
+	/** @return false; this reader does not link records into paired Read batches */
 	@Override
 	public boolean paired(){return false;}
 
 	/** @return 0 because SamStreamer does not track pair numbers. */
 	@Override
 	public int pairnum(){return 0;}
-	
-	/** @return Number of reads processed across all threads. */
+
+	/** @return Currently observed retained-record total, aggregated by the input thread after waiting for workers */
 	@Override
-	public long readsProcessed() {return readsProcessed;}
-	
-	/** @return Number of bases processed across all threads. */
+	public long readsProcessed(){return readsProcessed;}
+
+	/** @return Currently observed retained sequence-base total; terminal consumption is not an aggregation barrier */
 	@Override
-	public long basesProcessed() {return basesProcessed;}
-	
+	public long basesProcessed(){return basesProcessed;}
+
 	/**
-	 * Configures subsampling of reads during streaming.
-	 * @param rate Fraction of reads to keep (1 for all)
-	 * @param seed Seed for the per-thread random sampler
+	 * Configures sampling before start. Workers share the outer generator, so a seed
+	 * alone does not guarantee the same retained records across worker schedules.
+	 * Sampling precedes parsing; discarded records are not validated.
+	 * @param rate Keep threshold against nextFloat; values at least one disable sampling
+	 * @param seed Seed for the shared generator created by Shared.threadLocalRandom
 	 */
 	@Override
-	public void setSampleRate(float rate, long seed){
+	public void setSampleRate(final float rate, final long seed){
 		samplerate=rate;
 		randy=(rate>=1f ? null : Shared.threadLocalRandom(seed));
 	}
@@ -141,15 +149,19 @@ public class SamStreamer implements Streamer {
 	/** @return Next list of reads, delegating to {@link #nextReads()}. */
 	@Override
 	public ListNum<Read> nextList(){return nextReads();}
-	
-	/** Retrieves the next batch of parsed reads from the output queue.
-	 * Blocks until data are available or streaming is complete. */
+
+	/** Converts a nextLines batch to new containers reusing its attached Read objects.
+	 * Requires construction with makeReads=true. Sampling may leave an empty batch.
+	 * Read numeric IDs are the input chunk's firstRecordNum plus retained ordinal,
+	 * not necessarily each original record's position after sampling compaction.
+	 * @return New Read batch with the parsed batch's ID, or null when nextLines returns null
+	 */
 	public ListNum<Read> nextReads(){
 		assert(makeReads);
 		ListNum<SamLine> lines=nextLines();
 		if(lines==null){return null;}
 		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
-		if(!lines.isEmpty()) {
+		if(!lines.isEmpty()){
 			for(SamLine line : lines){
 				assert(line.obj!=null);
 				reads.add((Read)line.obj);
@@ -158,15 +170,18 @@ public class SamStreamer implements Streamer {
 		ListNum<Read> ln=new ListNum<Read>(reads, lines.id);
 		return ln;
 	}
-	
-	/** Retrieves the next batch of parsed SamLine objects from the output queue.
-	 * Handles termination markers and marks the queue finished when the last list is seen. */
+
+	/** Takes parsed output through the queue, waiting as required by that implementation.
+	 * A LAST batch marks output finished. Null/LAST checks the currently observed error
+	 * flag and aborts the JVM if it is set; this call does not join or await counter
+	 * aggregation. Nonterminal empty batches remain distinct from end of input.
+	 * @return Parsed batch, possibly empty, or null on a terminal queue result
+	 */
 	@Override
 	public ListNum<SamLine> nextLines(){
 		ListNum<SamLine> list=oqs.getOutput();
 		if(verbose){
-			if(list==null) {outstream.println("Consumer got null.");}
-			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
+			if(list==null){outstream.println("Consumer got null.");}else{outstream.println("Consumer got list "+list.id()+" type "+list.type);}
 		}
 		if(list==null || list.last()){
 			if(list!=null && list.last()){
@@ -180,51 +195,57 @@ public class SamStreamer implements Streamer {
 		}
 		return list;
 	}
-	
-	/** @return True if any worker thread reported an error. */
+
+	/** @return Currently observed input/worker error flag, without waiting for completion */
 	@Override
-	public boolean errorState() {return errorState;}
-	
+	public boolean errorState(){return errorState;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
-	 * Creates and starts the producer/consumer threads that perform streaming work.
+	 * Starts one input thread followed by the configured number of parsing workers.
+	 * The input thread retains the thread list for later waiting and aggregation.
 	 */
 	void spawnThreads(){
 		//Determine how many threads may be used
 		final int threads=this.threads+1;
-		
+
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
 			alpt.add(new ProcessThread(i, alpt));
 		}
 		if(verbose){outstream.println("Spawned threads.");}
-		
+
 		//Start the threads
 		for(ProcessThread pt : alpt){
 			pt.start();
 		}
 		if(verbose){outstream.println("Started threads.");}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/**
 	 * Worker that either pulls byte chunks from disk (tid 0) or converts them to SamLine/Read objects (other tids).
 	 */
-	private class ProcessThread extends Thread {
-		
-		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
+	private class ProcessThread extends Thread{
+
+		/** Captures a thread role without starting it.
+		 * @param tid_ Zero for input, positive for a parsing worker
+		 * @param alpt_ Thread list retained only by the input thread
+		 */
+		ProcessThread(final int tid_, final ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			setName("SamStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
-		
+
+		/** Runs the selected role, marking success only when that role returns normally. */
 		@Override
 		public void run(){
 			//Process the reads
@@ -233,14 +254,16 @@ public class SamStreamer implements Streamer {
 			}else{
 				makeReads();
 			}
-			
+
 			//Indicate successful exit status
 			success=true;
 			if(verbose){outstream.println("tid "+tid+" terminated.");}
 		}
-		
+
 		/**
-		 * Drives the input side: reads byte slices, queues them, and aggregates thread statistics.
+		 * Reads input blocks, records thrown input failures and calls queue poison in finally.
+		 * Then waits for the thread list and aggregates each other thread's counts/success.
+		 * Output terminal consumption alone does not wait for this aggregation.
 		 */
 		void processInputThread(){
 			//[stream/SamStreamer#001 FIXED 2026-06-20]: the try/finally GUARANTEES oqs.poison() runs even when processBytes() throws
@@ -257,7 +280,7 @@ public class SamStreamer implements Streamer {
 				oqs.poison();//ALWAYS poison so workers (getInput) + consumer (getOutput) wake
 			}
 			if(verbose){outstream.println("tid "+tid+" done with processBytes + poisoning.");}
-			
+
 			//Wait for completion of all threads
 			boolean allSuccess=true;
 			ThreadWaiter.waitForThreadsToFinish(alpt);
@@ -271,37 +294,44 @@ public class SamStreamer implements Streamer {
 				}
 			}
 			if(verbose){outstream.println("tid "+tid+" noted all process threads finished.");}
-			
+
 			//Track whether any threads failed
 			if(!allSuccess){errorState=true;}
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
-		
-		/** Reads SAM lines into ListNum<byte[]> chunks, preserving headers when requested,
-		 * and feeds them into the ordered queue system. */
+
+		/** Reads SAM lines into byte-array batches for the queue.
+		 * Sets the JVM-wide BF2 preference without restoring it; ByteFile factory
+		 * precedence still determines the backend. Nonheader records count toward
+		 * maxReads before sampling. Batch thresholds count records and full line bytes
+		 * without newlines, and are checked after adding each record.
+		 * Requested headers publish before the first record or on normal loop exit.
+		 * Normal completion closes the local ByteFile and folds its reported error;
+		 * exceptional exits are handled by processInputThread.
+		 */
 		void processBytes(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
 
 			ByteFile.FORCE_MODE_BF2=true;
 			ByteFile bf=ByteFile.makeByteFile(ffin);
-			
+
 			long listNumber=0;
 			long reads=0;
 			int bytes=0;
 			final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
 			ListNum<byte[]> ln=new ListNum<byte[]>(new ArrayList<byte[]>(slimit), listNumber++);
 			ln.firstRecordNum=reads;
-			
+
 			for(byte[] line=bf.nextLine(); line!=null && reads<maxReads; line=bf.nextLine()){
 				if(line[0]=='@'){
-					if(header!=null) { 
+					if(header!=null){
 						if(Shared.TRIM_READ_DESCRIPTION){line=SamReadInputStream.trimHeaderSQ(line);}
 						header.add(line);
 					}
 				}else{
 					//comprehension: the FIRST non-@ line flushes the accumulated header to the shared store exactly once (header=null
-					//after), so workers see the full header via SamReadInputStream before any record is parsed. The duplicate flush at
-					//L303 covers the header-only file (no records => the in-loop flush never fires).
+					//after), so workers see the full header via SamReadInputStream before any record is parsed. The duplicate flush
+					//after normal input-loop exit covers header-only files (no records => the in-loop flush never fires).
 					if(header!=null){
 						SamReadInputStream.setSharedHeader(header);
 						header=null;
@@ -317,7 +347,7 @@ public class SamStreamer implements Streamer {
 					}
 				}
 			}
-			
+
 			if(header!=null){
 				SamReadInputStream.setSharedHeader(header);
 				header=null;
@@ -331,9 +361,13 @@ public class SamStreamer implements Streamer {
 			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
-		
+
 		/**
-		 * Parses queued byte slices into SamLine objects and optionally materializes Read objects.
+		 * Samples and compacts each input batch, then parses retained records.
+		 * Preserves batch IDs, including for batches made empty by sampling. Converted
+		 * Read IDs start at the original chunk offset and increase for retained records.
+		 * On failure, sets the error flag, marks output finished and rethrows; normal
+		 * poison consumption reinserts that marker for the other workers.
 		 */
 		void makeReads(){
 			//[stream/SamStreamer#001 FIXED 2026-06-20]: a parse throw (SamLine ctor / line[0] AIOOBE / sl.toRead) used to kill this
@@ -359,7 +393,7 @@ public class SamStreamer implements Streamer {
 								nulled++;
 							}
 						}
-						if(nulled>0) {Tools.condenseStrict(list.list);}
+						if(nulled>0){Tools.condenseStrict(list.list);}
 					}
 
 					ListNum<SamLine> reads=new ListNum<SamLine>(
@@ -387,7 +421,7 @@ public class SamStreamer implements Streamer {
 				}
 				if(verbose){outstream.println("tid "+tid+" done making reads.");}
 				//Re-inject poison for other workers
-				if(list!=null) {oqs.addInput(list);}
+				if(list!=null){oqs.addInput(list);}
 			}catch(Throwable t){
 				errorState=true;
 				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
@@ -395,69 +429,70 @@ public class SamStreamer implements Streamer {
 			}
 		}
 
+		/** Retained records parsed by this worker. */
 		protected long readsProcessedT=0;
+		/** Retained sequence bases parsed by this worker. */
 		protected long basesProcessedT=0;
+		/** Whether the selected role returned normally; input failures also use the outer error flag. */
 		boolean success=false;
+		/** Zero for the input role, positive for a parsing worker. */
 		final int tid;
-		
+
+		/** Thread list used by the input role for waiting; null for parsing workers. */
 		ArrayList<ProcessThread> alpt;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/** Primary input file path. */
 	public final String fname;
-	
+
 	/** FileFormat descriptor for the input file. */
 	final FileFormat ffin;
-	
+
 	/** OrderedQueueSystem coordinating byte input and SamLine output queues. */
 	final OrderedQueueSystem<ListNum<byte[]>, ListNum<SamLine>> oqs;
-	
-	/** Number of worker threads (plus one input thread). */
+
+	/** Parsing worker count; spawnThreads adds one input thread. */
 	final int threads;
-	/** True to collect SAM headers before record processing. */
+	/** Captured request for shared-header publication. */
 	final boolean saveHeader;
-	/** True to convert SamLines to Read objects instead of leaving raw lines. */
+	/** Whether to create attached Read objects in addition to parsed SamLine objects. */
 	final boolean makeReads;
-	
-	/** Stored SAM header lines; null when headers are not being retained. */
+
+	/** Header accumulator; null when retention is disabled or after publication. */
 	ArrayList<byte[]> header;
-	
-	/** Number of reads processed across all threads. */
+
+	/** Retained record total aggregated by the input thread after worker waiting. */
 	protected long readsProcessed=0;
-	/** Number of bases processed across all threads. */
+	/** Retained sequence-base total aggregated by the input thread after worker waiting. */
 	protected long basesProcessed=0;
-	
-	/** Stop after processing this many reads (Long.MAX_VALUE for unlimited). */
+
+	/** Maximum nonheader input records before sampling; negative constructor limits become Long.MAX_VALUE. */
 	final long maxReads;
-	
+
+	/** Output stream for status and verbose messages. */
+	protected PrintStream outstream=System.err;
+	/** Reported input/worker errors; reading the flag does not wait for completion. */
+	public boolean errorState=false;
+	/** Keep threshold configured before start; values at least one disable sampling. */
+	float samplerate=1f;
+	/** Shared generator used by parsing workers; no per-worker random stream is allocated here. */
+	shared.Random randy=null;
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Target number of records per chunk before pushing to the queue. */
+	/** Record threshold captured by the input thread; initialize before start. */
 	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
-	/** Target number of bytes per chunk before pushing to the queue. */
+	/** Full SAM line-byte threshold excluding newlines; initialize before start. */
 	public static int TARGET_LIST_BYTES=shared.Shared.bufferSize();
 	/** Default number of worker threads when none is specified. */
 	public static int DEFAULT_THREADS=3;
-	
-	/*--------------------------------------------------------------*/
-	/*----------------        Common Fields         ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/** Output stream for status and verbose messages. */
-	protected PrintStream outstream=System.err;
 	/** Enables verbose logging when true. */
 	public static final boolean verbose=false;
-	/** Flag set when any processing thread encounters an error. */
-	public boolean errorState=false;
-	/** Fraction of reads to retain when subsampling is enabled. */
-	float samplerate=1f;
-	/** Random generator used for subsampling decisions. */
-	shared.Random randy=null;
-	
+
 }

@@ -3,92 +3,102 @@ package stream;
 import java.util.ArrayList;
 
 import fileIO.FileFormat;
+import shared.KillSwitch;
 import shared.Timer;
 import shared.Tools;
 import structures.ByteBuilder;
 import structures.ListNum;
 
-/**
- * Multithreaded SAM/BAM reader built on Streamer.
- * Provides the ReadInputStream API for alignment files with automatic format detection,
- * optional header sharing, and streaming-friendly block iteration.
- * Supports single-read and interleaved paired-read inputs via the underlying streamer.
- *
- * @author Brian Bushnell
+/** ReadInputStream adapter that constructs and immediately starts a SAM/BAM Streamer.
+ * Returns the delegate's Read lists without copying them; null and empty batches both
+ * map to null. The wrapper exposes no sampling setter and does not link mates itself;
+ * paired() always returns false. Reader selection and parsing options remain delegated.
+ * Header publication uses JVM-wide shared state, not the unused per-instance header
+ * field. Configure readers before use; this adapter does not synchronize its ordinary
+ * iteration/close methods or provide a general concurrent-lifecycle guarantee.
+ * @author Brian Bushnell, Shinobu
  * @contributor Isla
  * @date Original, refactored October 23, 2025
  */
-public class SamReadInputStream extends ReadInputStream {
-	
-	/** Demonstration entry point that iterates through a SAM/BAM file and reports throughput.
-	 * @param args Command-line arguments; expects the input filename in args[0] */
-	public static void main(String[] args){
+public class SamReadInputStream extends ReadInputStream{
+
+	/** Legacy throughput driver: counts list entries and sums each entry's pairLength.
+	 * Uses the filename constructor with header publication disabled, then closes
+	 * the adapter and aborts on reported errors before printing completion statistics.
+	 * @param args Input filename in args[0]
+	 */
+	public static void main(final String[] args){
 		SamReadInputStream sris=new SamReadInputStream(args[0], false, true, -1, -1);
-		
+
 		Timer t=new Timer();
 		long reads=0, bases=0;
-		for(ArrayList<Read> ln=sris.nextList(); ln!=null; ln=sris.nextList()) {
-			for(Read r : ln) {bases+=r.pairLength();}
+		for(ArrayList<Read> ln=sris.nextList(); ln!=null; ln=sris.nextList()){
+			for(Read r : ln){bases+=r.pairLength();}
 			reads+=ln.size();
+		}
+		//STR-021: a delegate may report failure only through its final error flag and terminal batch.
+		//Reject that status before printing a normal completion summary.
+		if(sris.close()){
+			KillSwitch.kill("Error reading SAM/BAM file: "+sris.fname());
 		}
 		t.stop();
 		System.err.println();
 		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
-	
-	/**
-	 * Creates a SamReadInputStream for the given filename with default thread count.
-	 * Delegates to the threaded constructor and optionally loads the SAM/BAM header.
-	 *
-	 * @param fname Input SAM/BAM filename
-	 * @param loadHeader_ Whether to parse and share the header
-	 * @param allowSubprocess_ Allow use of subprocess for compressed input
-	 * @param maxReads_ Maximum reads to stream (-1 for all)
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Resolves a SAM-fallback input descriptor and delegates with the default thread hint.
+	 * Construction starts the selected reader; header publication may finish later.
+	 * @param fname Input filename or standard-input name
+	 * @param loadHeader_ Request publication of this input's header in shared state
+	 * @param allowSubprocess_ Permit subprocess-assisted input through the descriptor
+	 * @param maxReads_ Limit forwarded to the selected reader; negative means unlimited
 	 */
-	public SamReadInputStream(String fname, boolean loadHeader_, 
-			boolean allowSubprocess_, long maxReads_){
+	public SamReadInputStream(final String fname, final boolean loadHeader_,
+			final boolean allowSubprocess_, final long maxReads_){
 		this(fname, loadHeader_, allowSubprocess_, -1, maxReads_);
 	}
-	
-	/**
-	 * Creates a SamReadInputStream with an explicit thread count.
-	 * Initializes format detection, header loading, and streamer construction.
-	 *
-	 * @param fname Input SAM/BAM filename
-	 * @param loadHeader_ Whether to parse and share the header
-	 * @param allowSubprocess_ Allow use of subprocess for compressed input
-	 * @param threads_ Number of threads for the Streamer (-1 for automatic)
-	 * @param maxReads_ Maximum reads to stream (-1 for all)
+
+	/** Resolves an input descriptor without content probing, then starts its reader.
+	 * Header retention controls publication, not all parsing required by the format.
+	 * @param fname Input filename or standard-input name; SAM is the fallback format
+	 * @param loadHeader_ Request shared-header publication; false does not clear an old header
+	 * @param allowSubprocess_ Permit subprocess-assisted input
+	 * @param threads_ Reader-selection hint; negative selects the factory default
+	 * @param maxReads_ Limit forwarded unchanged; units follow the selected reader
 	 */
-	public SamReadInputStream(String fname, boolean loadHeader_, 
-			boolean allowSubprocess_, int threads_, long maxReads_){
-		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false), 
+	public SamReadInputStream(final String fname, final boolean loadHeader_,
+			final boolean allowSubprocess_, final int threads_, final long maxReads_){
+		this(FileFormat.testInput(fname, FileFormat.SAM, null, allowSubprocess_, false),
 			loadHeader_, threads_, maxReads_);
 	}
-	
-	/**
-	 * Creates a SamReadInputStream from a FileFormat description.
-	 * Sets stdin flag, warns on unexpected extensions, and starts a multithreaded streamer.
-	 *
-	 * @param ff FileFormat describing the input source
-	 * @param loadHeader_ Whether to parse and share the header
-	 * @param threads_ Number of threads for the Streamer (-1 for automatic)
-	 * @param maxReads_ Maximum reads to stream (-1 for all)
+
+	/** Captures configuration, constructs the delegate and starts it immediately.
+	 * Requests ordered Read output. Unexpected formats warn but are still passed to
+	 * the factory. Sets the shared input-present marker before constructing the reader,
+	 * even when header publication is disabled; that marker is not proof of a publisher.
+	 * @param ff Nonnull input descriptor, including format and subprocess permissions
+	 * @param loadHeader_ Request shared-header publication by the selected reader
+	 * @param threads_ Reader-selection hint; negative selects the factory default
+	 * @param maxReads_ Limit forwarded unchanged; negative means unlimited
 	 */
-	public SamReadInputStream(FileFormat ff, boolean loadHeader_,
-			int threads_, long maxReads_){
-		SAM_INPUT_PRESENT=true; //A SAM/BAM input now exists, so SAM output may legitimately wait for its shared header.
+	public SamReadInputStream(final FileFormat ff, final boolean loadHeader_,
+			final int threads_, final long maxReads_){
+		SAM_INPUT_PRESENT=true; //Preserve the input-present marker even when loadHeader_ is false; publication is separate.
 		loadHeader=loadHeader_;
 		stdin=ff.stdio();
-		
+
 		if(!ff.samOrBam()){
 			System.err.println("Warning: Did not find expected sam file extension for filename "+
 				ff.name());
 		}
-		
+
 		//Create streamer with appropriate thread count
 		streamer=StreamerFactory.makeSamOrBamStreamer(ff, threads_, loadHeader_, true, maxReads_, true);
-		
+
 //		//Extract header if requested
 //		if(loadHeader){
 //			header=streamer.header;
@@ -96,17 +106,25 @@ public class SamReadInputStream extends ReadInputStream {
 //		}
 		streamer.start();
 	}
-	
-	/** Returns whether additional reads are available from the streamer. */
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns the delegate's availability hint without consuming a batch.
+	 * Use nextList for iteration; this hint is not a universal EOF or shutdown guarantee.
+	 * @return Currently reported availability hint
+	 */
 	@Override
 	public boolean hasMore(){
 		return streamer.hasMore();
 	}
-	
-	/**
-	 * Retrieves the next block of reads from the streamer.
-	 * Returns null when the stream is exhausted.
-	 * @return List of Read objects for the next chunk, or null if no data remains
+
+	/** Returns the next nonempty delegate batch's backing list without copying it.
+	 * A null or empty batch maps directly to null; this method does not skip empty
+	 * batches to search for later data. Normal construction leaves delegate sampling
+	 * disabled, and this adapter exposes no sampling setter.
+	 * @return Delegate list, or null for a null/empty delegate batch
 	 */
 	@Override
 	public ArrayList<Read> nextList(){
@@ -114,8 +132,11 @@ public class SamReadInputStream extends ReadInputStream {
 		return ln==null || ln.isEmpty() ? null : ln.list;
 	}
 
-	/** Closes the underlying streamer and returns the error state.
-	 * @return true if any errors were detected, false otherwise */
+	/** Closes the delegate, then folds its observed error flag into the local flag.
+	 * Completion/join guarantees depend on the delegate; this wrapper adds no join.
+	 * Does not clear shared headers or the shared input-present marker.
+	 * @return Local error flag after including the delegate's reported state
+	 */
 	@Override
 	public boolean close(){
 		streamer.close();
@@ -123,31 +144,55 @@ public class SamReadInputStream extends ReadInputStream {
 		return errorState;
 	}
 
-	/** @return true if this stream OR its underlying multithreaded Streamer detected an error.
-	 * #001 fix: SamReadInputStream did not override errorState(), so it returned the always-false base field and masked streamer errors up the cris error chain (cris.errorState() -> producer.errorState()). */
+	/** Reports the local flag or the delegate's current error state, without waiting.
+	 * #001 fix: the inherited base getter masked delegate errors in the CRIS error chain.
+	 * @return true if either currently observed flag reports an error
+	 */
 	@Override
 	public boolean errorState(){return errorState || streamer.errorState();}
-	
-	/** Unsupported operation for SamReadInputStream.
-	 * Always throws RuntimeException because restarting is not implemented. */
+
+	/** Rejects restart; construct a new adapter to read the source again.
+	 * @throws RuntimeException Always, because restart is not implemented
+	 */
 	@Override
 	public synchronized void restart(){
 		throw new RuntimeException("SamReadInputStream does not support restart.");
 	}
-	
-	/**
-	 * Returns the globally shared SAM/BAM header, optionally waiting until it becomes available.
-	 * @param wait Whether to block until the header is populated
-	 * @return Shared header lines as byte arrays, or null if unavailable and wait is false
+
+	/** Returns the input filename reported by the underlying streamer.
+	 * @return Input filename */
+	@Override
+	public String fname(){return streamer.fname();}
+
+	/** Returns false; this adapter does not advertise linked paired batches.
+	 * SAM pairing metadata in individual Read/SamLine objects is a separate concern.
+	 * @return false
 	 */
-	public static synchronized ArrayList<byte[]> getSharedHeader(boolean wait){
+	@Override
+	public boolean paired(){return false;}
+
+	/*--------------------------------------------------------------*/
+	/*----------------      Shared Header Helpers    ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Returns the shared header reference, optionally waiting for a nonnull publication.
+	 * No copy is made. Returns immediately when wait is false, a header already exists,
+	 * or no input-present marker has been set. An empty nonnull list counts as published.
+	 * Otherwise waits in 100ms intervals, printing caught interruptions and continuing.
+	 * The caller must arrange a publisher: constructing with loadHeader=false, opening
+	 * an input unsuccessfully or merely setting the marker does not guarantee a header.
+	 * There is no timeout when the marker is set but no nonnull header arrives.
+	 * @param wait Request waiting when input has been marked present and no header exists
+	 * @return Shared header, possibly empty; null on an immediate unavailable return
+	 */
+	public static synchronized ArrayList<byte[]> getSharedHeader(final boolean wait){
 		if(!wait || SHARED_HEADER!=null){return SHARED_HEADER;}
 		//Crash-loud, never hang [SamReadInputStream#002]: if no SAM/BAM input stream was ever opened, no
 		//reader will ever call setSharedHeader, so waiting here deadlocks (e.g. fastq/fasta -> sam, the
 		//common case). Return null (unavailable) and let the caller generate a header instead. This also
 		//resolves the original //TODO for the no-shared-header case.
 		if(!SAM_INPUT_PRESENT){return SHARED_HEADER;}
-		if(printHeaderWait) {System.err.println("Waiting on header to be read from a sam file.");}
+		if(printHeaderWait){System.err.println("Waiting on header to be read from a sam file.");}
 		while(SHARED_HEADER==null){
 			try{
 				SamReadInputStream.class.wait(100);
@@ -157,39 +202,46 @@ public class SamReadInputStream extends ReadInputStream {
 		}
 		return SHARED_HEADER;
 	}
-	
-	/** Sets the globally shared header for all SamReadInputStream instances and notifies waiters.
-	 * @param list Header lines to share across instances */
-	public static synchronized void setSharedHeader(ArrayList<byte[]> list){
+
+	/** Replaces the JVM-wide shared header reference and notifies all header waiters.
+	 * Makes no defensive copy and accepts null, which clears the reference without
+	 * resetting the input-present marker. Waiters continue while the header is null.
+	 * @param list Header lines to publish, an empty published header, or null to clear
+	 */
+	public static synchronized void setSharedHeader(final ArrayList<byte[]> list){
 		SHARED_HEADER=list;
 		SamReadInputStream.class.notifyAll();
 	}
 
 	/** Marks that a SAM/BAM input source now exists in this JVM, so getSharedHeader(true) may legitimately
 	 * block until that input parses and sets the shared header. Historically this was set in the
-	 * SamReadInputStream constructor (L80), but the native BamStreamer/SamStreamer streamers bypass this
+	 * SamReadInputStream constructor, but the native BamStreamer/SamStreamer streamers bypass this
 	 * class entirely, leaving the flag false; getSharedHeader(true) then hit the #002 no-hang gate and
 	 * returned null instead of waiting, racing callers like var2/ScafMap.loadSamHeader (assert header!=null).
 	 * StreamerFactory calls this synchronously, on the constructing thread, whenever it builds a native
-	 * SAM/BAM streamer with saveHeader=true (which commits that streamer to calling setSharedHeader), so the
-	 * gate invariant is visible before the streamer's worker thread starts. */
+	 * SAM/BAM streamer with saveHeader=true (requesting publication by that streamer), so the
+	 * gate invariant is visible before the streamer's worker thread starts. This sets only
+	 * the marker; it neither opens input nor guarantees a later successful publication. */
 	public static void markSamInputPresent(){SAM_INPUT_PRESENT=true;}
-	
-	/**
-	 * Normalizes an @SQ header line by stripping whitespace from the reference name.
-	 * Leaves non-@SQ lines unchanged.
-	 * @param line Header line to normalize
-	 * @return New byte array with trimmed reference name, or the original line if unchanged
+
+	/** Truncates the first tab-delimited SN: field at its first non-tab whitespace.
+	 * Requires only an @SQ prefix. Preserves subsequent tab-delimited fields and does
+	 * not mutate the input array. An unchanged line, including null/non-@SQ input,
+	 * retains its original reference. Missing SN: asserts, then returns the original
+	 * line when assertions are disabled; this helper is not a full SAM header validator.
+	 * @param line Header bytes, or null
+	 * @return Original reference if unchanged, otherwise an exactly sized trimmed array
+	 * @throws AssertionError With assertions enabled, if an @SQ-prefixed line lacks SN:
 	 */
-	public static byte[] trimHeaderSQ(byte[] line){
+	public static byte[] trimHeaderSQ(final byte[] line){
 		if(line==null || !Tools.startsWith(line, "@SQ")){return line;}
-		
+
 		final int idx=Tools.indexOfDelimited(line, "SN:", 2, (byte)'\t');
 		if(idx<0){
 			assert(false) : "Bad header: "+new String(line);
 			return line;
 		}
-		
+
 		int trimStart=-1;
 		for(int i=idx; i<line.length; i++){
 			final byte b=line[i];
@@ -200,7 +252,7 @@ public class SamReadInputStream extends ReadInputStream {
 			}
 		}
 		if(trimStart<0){return line;}
-		
+
 		final int trimStop=Tools.indexOf(line, (byte)'\t', trimStart+1);
 		final int bbLen=trimStart+(trimStop<0 ? 0 : line.length-trimStop);
 		final ByteBuilder bb=new ByteBuilder(bbLen);
@@ -210,47 +262,37 @@ public class SamReadInputStream extends ReadInputStream {
 		}
 		assert(bb.length==bbLen) : bbLen+", "+bb.length+", idx="+idx+", trimStart="+
 			trimStart+", trimStop="+trimStop+"\n\n"+new String(line)+"\n\n"+bb+"\n\n";
-		
+
 		return bb.array;
 	}
-	
-	/** Returns the input filename reported by the underlying streamer.
-	 * @return Input filename */
-	@Override
-	public String fname(){return streamer.fname();}
-	
-	/**
-	 * Indicates whether this stream reports paired reads.
-	 * Always false; pairing is handled by the streamer rather than this interface.
-	 * @return false
-	 */
-	@Override
-	public boolean paired(){return false;}
 
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Globally shared header lines available to all SamReadInputStream instances.
-	 */
-	private static volatile ArrayList<byte[]> SHARED_HEADER;
-	/** True once any SAM/BAM input stream has been opened in this JVM. Gates getSharedHeader's blocking
-	 * wait so a non-SAM input (fastq/fasta), which never sets the shared header, does not deadlock a
-	 * SAM-output writer that requested it. See stream/SamReadInputStream#002. */
-	static volatile boolean SAM_INPUT_PRESENT=false;
-	/** Controls diagnostic logging while waiting for a shared header. */
-	public static boolean printHeaderWait=false;
-	
-	/** Header lines read from the current SAM/BAM stream, if loaded. */
+	/** Unused legacy per-instance placeholder; active header publication uses SHARED_HEADER. */
 	private ArrayList<byte[]> header=null;
-	
-	/** Multithreaded Streamer providing buffered SAM/BAM reads. */
+
+	/** Factory-selected delegate, started during construction; threading follows its implementation. */
 	private final Streamer streamer;
-	/** Whether this stream should parse and retain the SAM/BAM header. */
+	/** Captured publication request; forwarded at construction and otherwise unused locally. */
 	private final boolean loadHeader;
-	
-	/** True if input is sourced from standard input rather than a file. */
+
+	/** Descriptor standard-stream flag captured at construction; does not imply restart support. */
 	public final boolean stdin;
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Settings       ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** JVM-wide shared header reference, not owned by any one input; contents are not copied. */
+	private static volatile ArrayList<byte[]> SHARED_HEADER;
+	/** Set by construction or markSamInputPresent to enable getSharedHeader's wait path.
+	 * Does not prove successful opening or header publication. The false value preserves
+	 * the #002 immediate-return gate for applications that have not marked a SAM input.
+	 */
+	static volatile boolean SAM_INPUT_PRESENT=false;
+	/** Prints one diagnostic before a blocking shared-header wait begins. */
+	public static boolean printHeaderWait=false;
 
 }

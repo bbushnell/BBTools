@@ -4,26 +4,34 @@ import dna.AminoAcid;
 import shared.Tools;
 
 /**
- * Safer MD walker that maps MD:Z tag symbols to a long match string.
+ * Retained reference implementation for applying MD-tag events to an expanded match array.
+ * SamLine uses MDWalker; the current Java tree constructs this class only in TestMDWalker.
+ * Mutable traversal state and the borrowed match array belong to the caller. Use one
+ * traversal strategy per instance; there is no reset, copying or synchronization.
+ * Particular longmatch accesses are guarded, but this is not a complete MD/query validator
+ * and may leave partial edits. Consistent aligned inputs remain a caller precondition.
  *
- * Differences from MDWalker:
- * - Removes brittle assertions around encountering 'D' in longmatch when CIGAR lacks 'N'.
- *   Deletions are valid regardless of intron encoding and must be handled.
- * - Adds bounds checks around longmatch access to avoid ArrayIndexOutOfBounds.
- * - Keeps original semantics: digits advance matches; '^' enters deletion; letters
- *   mark substitutions; 'I' in longmatch are skipped when counting matches.
- *
- * STATUS (2026-06-25): NOT WIRED IN — the live path (SamLine) uses {@link MDWalker}. This was written
- * as a hardened replacement, but testing showed it UNNECESSARY in practice: {@link TestMDWalker} shows
- * it produces byte-identical output to MDWalker on all valid input, and the live MDWalker did not crash
- * on 3,000,000 real Roche bwa long reads (M+MD, ~9% error) — its edge crashes only fire on malformed/
- * length-inconsistent MD tags, which real aligners do not emit. MDWalker has since been given the same
- * bounds checks but as crash-loud {@code assert(false) : KillSwitch.assertDie(...)} (crash under -ea,
- * bypass under -da) rather than this class's silent graceful-degrade, which better matches the project's
- * crash-loud policy. Kept as a tested reference / drop-in alternative; not deleted.
+ * Historical status note (2026-06-25): this alternative removed restrictions on D entries
+ * when CIGAR lacks N and added longmatch bounds checks. That note reported matching output
+ * on tested cases and a successful live MDWalker run over 3,000,000 Roche bwa long reads
+ * (M+MD, about 9% error), favoring MDWalker's crash-loud checks over this class's partial
+ * correction behavior. The report is retained as historical rationale, not a guarantee of
+ * equivalence or safety for all inputs. TestMDWalker prints five cases for inspection;
+ * it does not prove universal equivalence. This class remains unwired reference code.
  */
-public class MDWalker2 {
+public class MDWalker2{
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Retains inputs and initializes traversal after an optional MD:Z: or Z: prefix.
+	 * Leading C entries advance the match and query cursors, not the reference cursor.
+	 * @param tag Nonnull MD text, with either recognized prefix or none
+	 * @param cigar_ Optional CIGAR retained but not interpreted here
+	 * @param longmatch_ Nonnull caller-owned expanded match array, modified by fixMatch
+	 * @param sl_ Optional SAM record retained but not consulted here
+	 */
 	MDWalker2(String tag, String cigar_, byte[] longmatch_, SamLine sl_){
 		mdTag=tag;
 		cigar=cigar_;
@@ -45,8 +53,17 @@ public class MDWalker2 {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Apply MD tag edits to longmatch in-place. Marks 'S' (or 'N') for subs.
+	 * Consumes remaining MD events and changes substitution entries to S or N in place.
+	 * Numeric runs advance over match entries while accounting for I/D; a terminal
+	 * numeric run remains pending and does not establish final cursor positions.
+	 * Undefined reference or supplied query bases select N. CIGAR is not traversed.
+	 * Shares state with nextSub; do not interleave the two algorithms or expect rollback.
+	 * @param bases Optional aligned query bases, consistent with the expanded match array
 	 */
 	void fixMatch(byte[] bases){
 		sym=0;
@@ -134,6 +151,12 @@ public class MDWalker2 {
 		}
 	}
 
+	/** Advances the legacy substitution iterator without editing longmatch.
+	 * Numeric runs ignore intervening I entries (#001); this is not equivalent to fixMatch.
+	 * A terminal numeric run remains pending. No iterator callers were found in the Java
+	 * tree; the comparison driver uses fixMatch. Both algorithms share all traversal state.
+	 * @return true after a reported substitution, false when MD text is exhausted
+	 */
 	boolean nextSub(){
 		sym=0;
 		while(mdPos<mdTag.length()){
@@ -144,6 +167,9 @@ public class MDWalker2 {
 				continue;
 			}
 			if(current>0){
+				//TODO: Probable bug #001 (also MDWalker#001) - direct MD-run advances ignore I entries.
+				//MD2A0 over mImS reports match/query position2 instead of3, with reference2.
+				//No iterator callers found; retained source concern, not runtime-verified.
 				bpos+=current;
 				rpos+=current;
 				matchPos+=current;
@@ -173,28 +199,48 @@ public class MDWalker2 {
 		return false;
 	}
 
+	/** Returns match cursor minus one, including leading clips and processed events. */
 	public int matchPosition(){return matchPos-1;}
+	/** Returns query cursor minus one; leading clips and processed insertions count. */
 	public int basePosition(){return bpos-1;}
+	/** Returns reference cursor minus one, relative to alignment start, not SamLine.pos. */
 	public int refPosition(){return rpos-1;}
+	/** Returns the most recently stored MD event; asserts if no nonzero symbol is stored. */
 	public char symbol(){assert(sym!=0); return sym;}
 
-	/** Position in match string (excluding clipping and insertions) */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Next expanded-match entry to consume, including leading clips and insertions. */
 	private int matchPos;
-	/** Position in read bases (excluding clipping and insertions) */
+	/** Next query offset, including leading clips and insertions. */
 	private int bpos;
-	/** Position in reference bases (excluding clipping) */
+	/** Next reference offset relative to alignment start. */
 	private int rpos;
+	/** Last stored event character, reset to zero on entry to either walker method. */
 	private char sym;
 
+	/** Retained MD text, including any recognized prefix. */
 	private final String mdTag;
-	private final String cigar; //Optional; for debugging
+	/** Optional CIGAR retained for reference; not otherwise used here. */
+	private final String cigar;
+	/** Caller-owned expanded match array; fixMatch edits substitution entries in place. */
 	private final byte[] longmatch;
+	/** Index of the next MD character to consume. */
 	private int mdPos;
+	/** Accumulated numeric run; trailing digits are not applied to cursors. */
 	private int current;
+	/** Current interpretation of symbolic MD characters. */
 	private int mode;
 
-	private final SamLine sl; // For debugging
+	/** Optional SAM record retained for reference; not otherwise used here. */
+	private final SamLine sl;
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Constants          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Parser modes; INS is used only by the legacy iterator. */
 	private static final int NORMAL=0, SUB=1, DEL=2, INS=3;
 }
-

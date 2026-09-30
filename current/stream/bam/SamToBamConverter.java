@@ -10,50 +10,63 @@ import stream.SamLine;
 import structures.ByteBuilder;
 
 /**
- * Converts SAM text/SamLine to BAM binary format with zero allocation in hot path.
- * Handles encoding of CIGAR, SEQ (4-bit), QUAL, and auxiliary tags.
+ * Encodes SamLine fields as BAM alignment records using a fixed reference dictionary.
+ * appendAlignment retains the four-byte size prefix; convertAlignment returns only
+ * the record body. Neither method emits a file header or performs complete validation.
+ * Callers supply consistent fields representable by this encoder, including ASCII
+ * names/tags and supported CIGAR/tag values. Existing CIGAR limitations are noted below.
+ * Sequence and quality helpers write directly into reserved builder space. Builder
+ * growth, named RNEXT lookup, and the byte-array convenience method can allocate.
  *
  * @author Isla
  * @date November 1, 2025
  */
-public class SamToBamConverter implements Cloneable {
+public class SamToBamConverter implements Cloneable{
 
 //	private final Map<String, Integer> refMap;
+	/** Exact names and accepted aliases mapped to dictionary indices; populated at construction. */
 	private final ObjectIntMap<String> refMap;
 
-	//CIGAR operation lookup: direct array instead of HashMap
+	/** CIGAR character to operation code, or -1; direct array instead of HashMap. */
 	private static final int[] CIGAR_OP_LOOKUP=new int[256];
 
-	static {
+	static{
 		//Initialize with -1 for invalid ops
-		for(int i=0; i<256; i++){
-			CIGAR_OP_LOOKUP[i]=-1;
-		}
+		for(int i=0; i<256; i++){CIGAR_OP_LOOKUP[i]=-1;}
 		//CIGAR operations: MIDNSHP=X -> 0-8
 		String ops="MIDNSHP=X";
-		for(int i=0; i<ops.length(); i++){
-			CIGAR_OP_LOOKUP[ops.charAt(i)]=i;
-		}
+		for(int i=0; i<ops.length(); i++){CIGAR_OP_LOOKUP[ops.charAt(i)]=i;}
 	}
-	
-	public SamToBamConverter clone() {
-		try{
-			return (SamToBamConverter)super.clone();
-		}catch(CloneNotSupportedException e){
+
+	/**
+	 * Makes a shallow copy sharing the reference map, which conversion only reads.
+	 * @return New converter instance with the same dictionary and aliases
+	 */
+	public SamToBamConverter clone(){
+		try{return (SamToBamConverter)super.clone();}catch(CloneNotSupportedException e){
 			throw new RuntimeException(e);
 		}
 	}
 
-	public SamToBamConverter(String[] refNames){
-		this(refNames, null);
-	}
+	/**
+	 * Builds exact-name lookup from the caller's emitted dictionary order.
+	 * @param refNames Non-null reference names in BAM dictionary order
+	 * @throws IllegalArgumentException If one name identifies multiple indices
+	 */
+	public SamToBamConverter(String[] refNames){this(refNames, null);}
 
+	/**
+	 * Builds name lookup and adds aliases whose whitespace-trimmed names resolve.
+	 * Unresolved aliases are ignored. Input arrays are not retained; indices must
+	 * match the dictionary actually emitted by the caller.
+	 * @param refNames Non-null reference names in BAM dictionary order
+	 * @param refAliases Optional full names whose short names already resolve in the map
+	 * @throws IllegalArgumentException If a name or alias identifies multiple indices
+	 */
 	public SamToBamConverter(String[] refNames, String[] refAliases){
 		//Build reference name to ID map.  The emitted BAM dictionary is authoritative.
 		refMap=new ObjectIntMap<String>(Math.max(512, refNames.length*2), String.class);
-		for(int i=0; i<refNames.length; i++){
-			putRefName(refNames[i], i, "BAM dictionary");
-		}
+		for(int i=0; i<refNames.length; i++){putRefName(refNames[i], i, "BAM dictionary");}
 		//Aliases are populated once so alignment conversion remains an exact hot-path lookup.
 		if(refAliases!=null){
 			for(String alias : refAliases){
@@ -64,6 +77,13 @@ public class SamToBamConverter implements Cloneable {
 		}
 	}
 
+	/**
+	 * Adds one name, accepting a repeated association with the same index.
+	 * @param name Non-null lookup key
+	 * @param id Nonnegative dictionary index
+	 * @param source Description used in an ambiguity diagnostic
+	 * @throws IllegalArgumentException If the name already identifies another index
+	 */
 	private void putRefName(String name, int id, String source){
 		final int old=refMap.get(name);
 		if(old>=0 && old!=id){
@@ -72,10 +92,12 @@ public class SamToBamConverter implements Cloneable {
 		}
 		if(old<0){refMap.put(name, id);}
 	}
-	
+
 	/**
-	 * Convert a SamLine to BAM binary format.
-	 * @return Complete BAM record, including block_size prefix
+	 * Allocates a BAM record body, removing the size prefix written by appendAlignment.
+	 * A caller writing a complete record must emit the returned array length first.
+	 * @param sl Non-null alignment satisfying appendAlignment's input contract
+	 * @return Newly allocated record body, excluding the four-byte block_size prefix
 	 */
 	public byte[] convertAlignment(SamLine sl){
 		ByteBuilder bb=new ByteBuilder(128);
@@ -85,9 +107,18 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Convert a SamLine to BAM binary format, appending to ByteBuilder.
-	 * Zero allocation hot path.
-	 * @return ByteBuilder for chaining
+	 * Appends a complete alignment record and patches its four-byte size prefix.
+	 * Existing builder contents are retained. The SamLine and its arrays are read,
+	 * not modified; the caller exclusively owns the builder during this call.
+	 * Reference IDs come from this converter's map. Sequence/quality reversal requires
+	 * a resolved reference, reverse-strand flag, and SamLine.FLIP_ON_LOAD.
+	 * Null qualities emit missing-quality bytes; enabled assertions check lengths.
+	 * This is an encoder, not a complete consistency or range validator.
+	 * @param sl Non-null alignment with a non-null QNAME, resolvable named references,
+	 * consistent CIGAR/position/sequence fields, and representable lengths and tags
+	 * @param bb Non-null destination, expanded as needed
+	 * @return The supplied builder with the size-prefixed record appended
+	 * @throws IllegalArgumentException If a named reference is absent from the map
 	 */
 	public ByteBuilder appendAlignment(final SamLine sl, final ByteBuilder bb){
 		//Reserve 4 bytes for block_size (will patch at end)
@@ -103,9 +134,9 @@ public class SamToBamConverter implements Cloneable {
 		int cigarOpCount=(int)binAndLen;
 
 		//Get sequence length
-		int seqLen=(sl.seq == null || sl.seq.length == 0) ? 0 : sl.seq.length;
+		int seqLen=(sl.seq==null || sl.seq.length==0) ? 0 : sl.seq.length;
 
-		int estimatedSize=36+ 
+		int estimatedSize=36+
 			sl.qname.length()+1+
 			cigarOpCount*4+
 			(seqLen+1)/2+  // packed seq
@@ -147,8 +178,9 @@ public class SamToBamConverter implements Cloneable {
 
 		//CIGAR-encode directly to ByteBuilder
 		appendCigar(bb, sl.cigar);
-		
+
 		//SEQ (4-bit encoded)-no temp arrays
+		//Historical report follows; its unconditional-RC description predates the FIXED guards below.
 		//TODO: Possible bug [stream/bam/SamToBamConverter#001] - the reverse-strand RC here is UNCONDITIONAL,
 		//but the symmetric read-side BamToSamConverter guards the SAME un-flip with `&& SamLine.FLIP_ON_LOAD`
 		//(BamToSamConverter:409/610/817; flag = `flipsam`, Parser:1452, default true). This is CORRECT under
@@ -162,8 +194,8 @@ public class SamToBamConverter implements Cloneable {
 		//Note: `mapped` is derived from refID>=0 (rname resolution), NOT sl.mapped() (the 0x4 flag) that the
 		//load-flip used - on inconsistent rname/flag input these diverge (#002 family).
 		boolean mapped=(refID>=0);
-		boolean reverseStrand=((sl.flag & 0x10)!=0);
-		if(sl.seq==null || sl.seq.length==0) {
+		boolean reverseStrand=((sl.flag&0x10)!=0);
+		if(sl.seq==null || sl.seq.length==0){
 			//Do nothing
 		}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD && sl.seq!=null && sl.seq.length>0){
 			//#001 FIXED 2026-06-20 (greenlit): +`&& SamLine.FLIP_ON_LOAD` mirrors the read-side
@@ -173,13 +205,11 @@ public class SamToBamConverter implements Cloneable {
 			//(1002 phix rev reads, 0 mismatch, byte-identical BAMs); pre-fix flipsam=f stored RC(seq) — the BAM does not.
 			appendSeqReverseComplement(bb, sl.seq);
 		}else{appendSeq(bb, sl.seq);}
-		
+
 		//Qual is already 0-based
-		assert(sl.qual==null || sl.qual.length==seqLen) : 
+		assert(sl.qual==null || sl.qual.length==seqLen) :
 			"QUAL length mismatch: qual.length="+sl.qual.length+" != seqLen="+seqLen;
-		if(sl.qual==null || sl.qual.length!=seqLen){
-			appendSymbol(bb, (byte)0xFF, seqLen);
-		}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD){ //#001 FIXED: +FLIP_ON_LOAD guard (mirror read side)
+		if(sl.qual==null || sl.qual.length!=seqLen){appendSymbol(bb, (byte)0xFF, seqLen);}else if(mapped && reverseStrand && SamLine.FLIP_ON_LOAD){ //#001 FIXED: +FLIP_ON_LOAD guard (mirror read side)
 			appendReversed(bb, sl.qual);
 		}else{bb.append(sl.qual);}
 
@@ -194,12 +224,13 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Get reference ID from reference name string.
+	 * Resolves an exact reference name without changing the dictionary.
+	 * @param rname Reference name, null, or "*"
+	 * @return Dictionary index, or -1 for null/"*"
+	 * @throws IllegalArgumentException If a named reference is absent
 	 */
 	private int getRefID(String rname){
-		if(rname == null || rname.equals("*")){
-			return -1;
-		}
+		if(rname==null || rname.equals("*")){return -1;}
 		final int id=refMap.get(rname);
 		if(id<0){
 			throw new IllegalArgumentException("Reference name '"+rname+
@@ -209,16 +240,16 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Get next reference ID from RNEXT.
+	 * Resolves RNEXT, allocating an ASCII String for an ordinary reference name.
+	 * @param rnext Null, empty, "*", "=", or an ASCII reference name
+	 * @param currentRefID Index to reuse for "="
+	 * @return Resolved index, or -1 for null/empty/"*"
+	 * @throws IllegalArgumentException If a named reference is absent
 	 */
 	private int getNextRefID(byte[] rnext, int currentRefID){
-		if(rnext == null || rnext.length == 0){
-			return -1;
-		}
-		if(rnext.length == 1){
-			if(rnext[0] == '*'){
-				return -1;
-			} else if(rnext[0] == '='){
+		if(rnext==null || rnext.length==0){return -1;}
+		if(rnext.length==1){
+			if(rnext[0]=='*'){return -1;}else if(rnext[0]=='='){
 				return currentRefID;
 			}
 		}
@@ -227,33 +258,36 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append CIGAR operations directly to ByteBuilder.
-	 * Each operation: (length<<4) | op_code
+	 * Appends packed CIGAR words as {@code (length<<4)|op_code}.
+	 * Null/"*" emits nothing. The caller reserves capacity and supplies valid,
+	 * representable operations; this scan does not validate the complete grammar.
+	 * @param bb Destination with space for four bytes per operation
+	 * @param cigar CIGAR text, null, or "*"
 	 */
 	private void appendCigar(ByteBuilder bb, String cigar){
-		if(cigar == null || cigar.equals("*")){return;}
+		if(cigar==null || cigar.equals("*")){return;}
 
 		int len=0;
 		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
-			if(c>='0' && c<='9'){
-				len=len * 10+(c-'0');
-			} else {
+			if(c>='0' && c<='9'){len=len*10+(c-'0');}else{
 				int opCode=CIGAR_OP_LOOKUP[c];
-				if(opCode<0){
-					throw new RuntimeException("Unknown CIGAR operation: "+c);
-				}
-				bb.appendU32LE((len<<4) | opCode);
+				if(opCode<0){throw new RuntimeException("Unknown CIGAR operation: "+c);}
+				bb.appendU32LE((len<<4)|opCode);
 				len=0;
 			}
 		}
 	}
 
 	/**
-	 * Calculate bin and CIGAR operation count in one pass.
-	 * Returns packed long: (bin<<32) | cigarOpCount
+	 * Calculates the bin and operation count without changing the alignment.
+	 * Nonpositive position or null/"*" CIGAR returns bin 4680 and zero operations.
+	 * Otherwise M, D, N, =, and X contribute to the reference span.
+	 * @param sl Alignment with representable position and CIGAR values
+	 * @return Packed {@code (bin<<32)|cigarOpCount}, with the count in the low 32 bits
 	 */
 	private long calculateBinAndLength(SamLine sl){
+		//The historical report's specification/severity judgments below are not input validation.
 		//TODO: Possible bug [stream/bam/SamToBamConverter#002] - this forces cigarOpCount=0 when pos<=0,
 		//but appendCigar() (called separately at L112) encodes ops from sl.cigar REGARDLESS of pos. So a
 		//read with pos<=0 AND a non-"*" cigar writes n_cigar_op=0 into the record while appendCigar emits
@@ -262,7 +296,7 @@ public class SamToBamConverter implements Cloneable {
 		//at pos<=0; valid SAM has pos>0 <=> cigar!="*"), so LOW/latent - but crash-loud would prefer
 		//catching it. Fix: count ops from the cigar string itself (decoupled from pos), or assert the
 		//pos>0 <=> cigar!="*" invariant loud. The pos>0 + cigar="*" case is consistent (both 0 ops).
-		if(sl.pos<=0 || sl.cigar == null || sl.cigar.equals("*")){
+		if(sl.pos<=0 || sl.cigar==null || sl.cigar.equals("*")){
 			return (4680L<<32); //Unmapped, 0 ops
 		}
 
@@ -273,16 +307,12 @@ public class SamToBamConverter implements Cloneable {
 
 		for(int i=0; i<cigar.length(); i++){
 			char c=cigar.charAt(i);
-			if(c>='0' && c<='9'){
-				num=num * 10+(c-'0');
-			} else {
+			if(c>='0' && c<='9'){num=num*10+(c-'0');}else{
 				//Count operations
 				cigarOpCount++;
 
 				//Operations that consume reference: M, D, N, =, X
-				if(c == 'M' || c == 'D' || c == 'N' || c == '=' || c == 'X'){
-					refLength += num;
-				}
+				if(c=='M' || c=='D' || c=='N' || c=='=' || c=='X'){refLength+=num;}
 				num=0;
 			}
 		}
@@ -291,27 +321,30 @@ public class SamToBamConverter implements Cloneable {
 		int end=beg+refLength;
 		int bin=reg2bin(beg, end);
 
-		return ((long)bin<<32) | (cigarOpCount & 0xFFFFFFFFL);
+		return ((long)bin<<32)|(cigarOpCount&0xFFFFFFFFL);
 	}
 
 	/**
-	 * Append 4-bit encoded sequence directly to ByteBuilder.
+	 * Appends two four-bit base codes per byte without a temporary sequence array.
+	 * An odd final base occupies the high nibble; the low nibble is zero.
+	 * @param bb Destination with capacity for (seq.length+1)/2 additional bytes
+	 * @param seq Non-null bases suitable for the AminoAcid lookup table
 	 */
 	private void appendSeq(ByteBuilder bb, byte[] seq){
 		final byte[] array=bb.array;
-		final int limit=(seq.length/2) * 2; //Even pairs
+		final int limit=(seq.length/2)*2; //Even pairs
 		int pos=bb.length;
 
 		//Main loop-branchless
-		for(int i=0; i<limit; i += 2){
-			int hi=AminoAcid.baseToNumberExtended[seq[i]] & 0x0F;
-			int lo=AminoAcid.baseToNumberExtended[seq[i+1]] & 0x0F;
-			array[pos++]=(byte)((hi<<4) | lo);
+		for(int i=0; i<limit; i+=2){
+			int hi=AminoAcid.baseToNumberExtended[seq[i]]&0x0F;
+			int lo=AminoAcid.baseToNumberExtended[seq[i+1]]&0x0F;
+			array[pos++]=(byte)((hi<<4)|lo);
 		}
 
 		//Handle odd length
-		if((seq.length & 1) != 0){
-			int hi=AminoAcid.baseToNumberExtended[seq[limit]] & 0x0F;
+		if((seq.length&1)!=0){
+			int hi=AminoAcid.baseToNumberExtended[seq[limit]]&0x0F;
 			array[pos++]=(byte)(hi<<4);
 		}
 
@@ -319,7 +352,10 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append 4-bit encoded reverse-complemented sequence directly to ByteBuilder.
+	 * Appends reverse-complemented four-bit base codes without modifying the input.
+	 * An odd final encoded base occupies the high nibble; the low nibble is zero.
+	 * @param bb Destination with capacity for (seq.length+1)/2 additional bytes
+	 * @param seq Non-null bases suitable for the AminoAcid complement lookup table
 	 */
 	private void appendSeqReverseComplement(ByteBuilder bb, byte[] seq){
 		final byte[] array=bb.array;
@@ -327,18 +363,18 @@ public class SamToBamConverter implements Cloneable {
 
 		//Start from end, work backwards in pairs
 		final int start=seq.length-1;
-		final int limit=seq.length & 1; //Stop at 1 if odd, 0 if even
+		final int limit=seq.length&1; //Stop at 1 if odd, 0 if even
 
 		//Main loop-branchless, iterate from end
-		for(int i=start; i>=limit; i -= 2){
-			int hi=AminoAcid.baseToComplementNumberExtended[seq[i]] & 0x0F;
-			int lo=AminoAcid.baseToComplementNumberExtended[seq[i-1]] & 0x0F;
-			array[pos++]=(byte)((hi<<4) | lo);
+		for(int i=start; i>=limit; i-=2){
+			int hi=AminoAcid.baseToComplementNumberExtended[seq[i]]&0x0F;
+			int lo=AminoAcid.baseToComplementNumberExtended[seq[i-1]]&0x0F;
+			array[pos++]=(byte)((hi<<4)|lo);
 		}
 
 		//Handle odd length (first base)
-		if(limit != 0){
-			int hi=AminoAcid.baseToComplementNumberExtended[seq[0]] & 0x0F;
+		if(limit!=0){
+			int hi=AminoAcid.baseToComplementNumberExtended[seq[0]]&0x0F;
 			array[pos++]=(byte)(hi<<4);
 		}
 
@@ -346,7 +382,10 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append reversed quality scores directly to ByteBuilder.
+	 * Copies quality bytes in reverse order without modifying the input.
+	 * @param bb Destination with capacity for qual.length additional bytes
+	 * @param qual Non-null numeric quality bytes
+	 * @return Updated total builder length
 	 */
 	private int appendReversed(ByteBuilder bb, byte[] qual){
 		final byte[] array=bb.array;
@@ -354,7 +393,14 @@ public class SamToBamConverter implements Cloneable {
 		for(int i=qual.length-1; i>=0; i--){array[pos++]=qual[i];}
 		return bb.length=pos;
 	}
-	
+
+	/**
+	 * Appends a repeated byte directly into reserved builder space.
+	 * @param bb Destination with capacity for amount additional bytes
+	 * @param symbol Byte to repeat
+	 * @param amount Nonnegative repetition count
+	 * @return Updated total builder length
+	 */
 	private static int appendSymbol(final ByteBuilder bb, final byte symbol, final int amount){
 		final byte[] array=bb.array;
 		int pos=bb.length;
@@ -363,16 +409,17 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append auxiliary tag directly to ByteBuilder.
-	 * Format: TAG:TYPE:VALUE
-	 * Zero allocation parsing and encoding.
+	 * Appends a SAM auxiliary field in TAG:TYPE:VALUE form, reserving its output space.
+	 * Supports A, i, f, Z, H, and B; scalar integers choose a compact storage width.
+	 * Numeric parsing delegates to Parse. String/hex payload characters are narrowed
+	 * to bytes and terminated with zero; hex syntax is not checked here.
+	 * @param bb Destination builder
+	 * @param tagStr Non-null, well-formed ASCII tag with values representable by its type
 	 */
 	private void appendTag(ByteBuilder bb, String tagStr){
-		if(tagStr.length()<5){
-			throw new RuntimeException("Invalid tag format: "+tagStr);
-		}
+		if(tagStr.length()<5){throw new RuntimeException("Invalid tag format: "+tagStr);}
 		bb.ensureExtra(20+4*tagStr.length());
-		
+
 		//Write tag (2 bytes)
 		bb.appendU8(tagStr.charAt(0));
 		bb.appendU8(tagStr.charAt(1));
@@ -380,30 +427,30 @@ public class SamToBamConverter implements Cloneable {
 		char type=tagStr.charAt(3);
 
 		//Write type and value based on type
-		switch (type){
+		switch(type){
 			case 'A': //Printable character
 				bb.appendU8('A');
 				bb.appendU8(tagStr.charAt(5));
 				break;
 
-			case 'i': { //Integer-choose smallest representation
+			case 'i':{ //Integer-choose smallest representation
 				long intVal=Parse.parseLong(tagStr, 5, tagStr.length());
 				if(intVal>=Byte.MIN_VALUE && intVal<=Byte.MAX_VALUE){
 					bb.appendU8('c');
 					bb.appendU8((int)intVal);
-				} else if(intVal>=0 && intVal<=255){
+				}else if(intVal>=0 && intVal<=255){
 					bb.appendU8('C');
 					bb.appendU8((int)intVal);
-				} else if(intVal>=Short.MIN_VALUE && intVal<=Short.MAX_VALUE){
+				}else if(intVal>=Short.MIN_VALUE && intVal<=Short.MAX_VALUE){
 					bb.appendU8('s');
 					bb.appendU16LE((int)intVal);
-				} else if(intVal>=0 && intVal<=65535){
+				}else if(intVal>=0 && intVal<=65535){
 					bb.appendU8('S');
 					bb.appendU16LE((int)intVal);
-				} else if(intVal>=Integer.MIN_VALUE && intVal<=Integer.MAX_VALUE){
+				}else if(intVal>=Integer.MIN_VALUE && intVal<=Integer.MAX_VALUE){
 					bb.appendU8('i');
 					bb.appendI32LE((int)intVal);
-				} else {
+				}else{
 					bb.appendU8('I');
 					bb.appendU32LE(intVal);
 				}
@@ -439,11 +486,15 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append array tag values directly to ByteBuilder.
-	 * Format: type,val1,val2,...
+	 * Appends a B-tag subtype, element count, and comma-separated numeric values.
+	 * Supports c, C, s, S, i, I, and f; patches the count after writing elements.
+	 * The caller reserves capacity and supplies correctly delimited, representable values.
+	 * @param bb Destination with enough space for the subtype, count, and elements
+	 * @param value Full tag text containing a subtype followed by comma-separated values
+	 * @param start Index of the subtype character
 	 */
 	private void appendArrayTag(ByteBuilder bb, String value, int start){
-		//Find array type (first char after TAG:TYPE:B:)
+		//Find array subtype (first char after TAG:B:)
 		char arrayType=value.charAt(start);
 		bb.appendU8(arrayType);
 
@@ -455,11 +506,11 @@ public class SamToBamConverter implements Cloneable {
 		int count=0;
 		int i=start+2; //Skip type and comma
 
-		while (i<value.length()){
+		while(i<value.length()){
 			int commaPos=value.indexOf(',', i);
-			if(commaPos<0) commaPos=value.length();
+			if(commaPos<0){commaPos=value.length();}
 
-			switch (arrayType){
+			switch(arrayType){
 				case 'c':
 				case 'C':
 					bb.appendU8(Parse.parseInt(value, i, commaPos));
@@ -490,25 +541,30 @@ public class SamToBamConverter implements Cloneable {
 	}
 
 	/**
-	 * Append substring directly to ByteBuilder without allocation.
+	 * Appends characters narrowed to bytes, without creating a substring or terminator.
+	 * @param bb Destination builder
+	 * @param s Non-null text, expected to be ASCII
+	 * @param start Inclusive first character index
+	 * @param end Exclusive last character index
 	 */
 	private void appendSubstring(ByteBuilder bb, String s, int start, int end){
-		for(int i=start; i<end; i++){
-			bb.append((byte)s.charAt(i));
-		}
+		for(int i=start; i<end; i++){bb.append((byte)s.charAt(i));}
 	}
 
 	/**
-	 * Calculate BAM bin for a region [beg, end).
-	 * Implementation from SAMv1.pdf page 20.
+	 * Calculates a bin from a zero-based half-open reference interval.
+	 * Original implementation attribution: SAMv1.pdf page 20.
+	 * @param beg Inclusive start coordinate within the binning scheme's range
+	 * @param end Exclusive end coordinate; decremented before comparing shifted endpoints
+	 * @return First matching bin, or zero when no finer bin matches
 	 */
 	private int reg2bin(int beg, int end){
 		--end;
-		if(beg>>14 == end>>14) return ((1<<15)-1)/7+(beg>>14);
-		if(beg>>17 == end>>17) return ((1<<12)-1)/7+(beg>>17);
-		if(beg>>20 == end>>20) return ((1<<9)-1)/7+(beg>>20);
-		if(beg>>23 == end>>23) return ((1<<6)-1)/7+(beg>>23);
-		if(beg>>26 == end>>26) return ((1<<3)-1)/7+(beg>>26);
+		if(beg>>14==end>>14){return ((1<<15)-1)/7+(beg>>14);}
+		if(beg>>17==end>>17){return ((1<<12)-1)/7+(beg>>17);}
+		if(beg>>20==end>>20){return ((1<<9)-1)/7+(beg>>20);}
+		if(beg>>23==end>>23){return ((1<<6)-1)/7+(beg>>23);}
+		if(beg>>26==end>>26){return ((1<<3)-1)/7+(beg>>26);}
 		return 0;
 	}
 }

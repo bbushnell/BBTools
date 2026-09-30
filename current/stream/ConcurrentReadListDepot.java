@@ -4,53 +4,58 @@ import java.util.ArrayList;
 import java.util.concurrent.ArrayBlockingQueue;
 
 /**
- * Thread-safe depot for managing a pool of reusable ArrayList buffers.
- * Maintains empty and full buffer queues using ArrayBlockingQueue for concurrent access.
- * Useful for producer-consumer patterns where multiple threads need access to
- * pre-allocated ArrayList instances.
+ * Preallocates reusable ArrayList buffers and exposes empty/ready blocking queues.
+ * Queue operations support concurrent access; mutable list contents and multi-step
+ * ownership transfers remain the caller's responsibility. This class does not clear
+ * lists, move them between queues, validate membership or implement a terminal protocol.
+ * Empty/full are caller-maintained roles, not checks on list contents. Callers may
+ * insert other lists; the private array retains references only to the original pool.
  *
  * @author Brian Bushnell
+ * @param <K> Element type stored in the buffer lists
  */
-public class ConcurrentReadListDepot<K> {
-	
-	
-	
-	/**
-	 * Constructs a ConcurrentReadListDepot with specified buffer configuration.
-	 * Pre-allocates the specified number of ArrayList instances and places them
-	 * in the empty queue ready for use.
-	 *
-	 * @param bufSize Initial capacity for each ArrayList buffer
-	 * @param numBufs Number of ArrayList buffers to create and manage
+public class ConcurrentReadListDepot<K>{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Creates numBufs distinct empty lists and places them in empty; full starts empty.
+	 * Each queue has capacity numBufs+1. List capacity is an allocation hint, not a size
+	 * limit, and this class performs no additional argument validation.
+	 * @param bufSize Initial capacity of each ArrayList
+	 * @param numBufs Number of lists initially allocated, not a membership limit
 	 */
 	public ConcurrentReadListDepot(int bufSize, int numBufs){
 		bufferSize=bufSize;
 		bufferCount=numBufs;
-		
+
 		lists=new ArrayList[numBufs];
 		empty=new ArrayBlockingQueue<ArrayList<K>>(numBufs+1);
 		full=new ArrayBlockingQueue<ArrayList<K>>(numBufs+1);
-		
+
 		for(int i=0; i<lists.length; i++){
 			lists[i]=new ArrayList<K>(bufSize);
 			empty.add(lists[i]);
 		}
-		
+
 	}
-	
-	
-	/** Queue of empty ArrayList buffers available for use */
+
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Available-list queue, initially containing all newly allocated empty lists. */
 	public final ArrayBlockingQueue<ArrayList<K>> empty;
-	/** Queue of full ArrayList buffers ready for processing */
+	/** Ready-list queue, initially empty; enqueued lists need not be filled to capacity. */
 	public final ArrayBlockingQueue<ArrayList<K>> full;
-	
-	/** Initial capacity for each ArrayList buffer */
+
+	/** Initial list capacity, not a maximum list size. */
 	public final int bufferSize;
-	/** Total number of ArrayList buffers managed by this depot */
+	/** Initial allocation count; not current queue occupancy or enforced membership. */
 	public final int bufferCount;
-	
-	
-	/** Array holding references to all managed ArrayList instances */
+
+	/** Retained references to the initially allocated lists, regardless of their location. */
 	private final ArrayList<K>[] lists;
-	
+
 }

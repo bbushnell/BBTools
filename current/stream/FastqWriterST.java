@@ -11,30 +11,40 @@ import structures.ByteBuilder;
 import structures.ListNum;
 
 /**
- * Single-threaded FASTQ writer with simple buffering.
- * Simpler alternative to FastqWriter for cases where threading overhead isn't worth it.
- * NOT returned by WriterFactory -- construct directly only for a genuinely single-producer
- * caller. UNLIKE SamWriterST/FastaQualWriterZT, addReads() here is NOT synchronized: the
- * readsWritten/basesWritten counters are incremented without any lock, so concurrent producer
- * calls can race and lose updates. Not suitable for multiple producer threads under any
- * circumstance -- see addReads()'s own TODO.
+ * Writes FASTQ, FASTA or read names on the submitting thread with per-batch buffering.
+ * WriterFactory selects other implementations; this class has no formatting queue or
+ * batch-ID reordering. Serialize submissions and lifecycle operations at the caller.
+ * addReads/addLines and counters are not synchronized. The lock around individual byte
+ * writes does not make concurrent submissions safe. Do not concurrently mutate supplied
+ * records or shared serialization settings. Output opens during construction.
  *
  * @author Isla
  * @date November 10, 2025
  */
-public class FastqWriterST implements Writer {
-	
+public class FastqWriterST implements Writer{
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Constructor. */
+
+	/** Tests an output path and opens it with append disabled.
+	 * @param out_ Output path; unspecified format defaults to FASTQ
+	 * @param writeR1_ Include pairnum0 list entries
+	 * @param writeR2_ Include pairnum1 entries or linked mates of pairnum0 entries
+	 * @param overwrite Allow replacement of an existing output file
+	 */
 	public FastqWriterST(String out_, boolean writeR1_, boolean writeR2_, boolean overwrite){
-		this(FileFormat.testOutput(out_, FileFormat.FASTQ, null, true, overwrite, false, true), 
+		this(FileFormat.testOutput(out_, FileFormat.FASTQ, null, true, overwrite, false, true),
 			writeR1_, writeR2_);
 	}
-	
-	/** Constructor. */
+
+	/** Opens buffered output and retains the descriptor's append setting.
+	 * Output opening explicitly disables subprocess allowance. Unknown format becomes
+	 * FASTQ; supported formats are FASTQ, FASTA and HEADER. At least one mate is required.
+	 * @param ffout_ Nonnull output descriptor, opened immediately
+	 * @param writeR1_ Include pairnum0 list entries
+	 * @param writeR2_ Include pairnum1 entries or linked mates of pairnum0 entries
+	 */
 	public FastqWriterST(FileFormat ffout_, boolean writeR1_, boolean writeR2_){
 		ffout=ffout_;
 		fname=ffout_.name();
@@ -42,132 +52,172 @@ public class FastqWriterST implements Writer {
 		writeR2=writeR2_;
 		format=(ffout.format()==UNKNOWN ? FASTQ : ffout.format());
 		assert(format==FASTQ || format==FASTA || format==HEADER) : ffout;
-		
+
 		assert(writeR1 || writeR2) : "Must write at least one mate";
-		
+
 		// Open output stream
 		//ffout.append() must be honored: app=t previously truncated (hardcoded false; replicated via stream.sh 2026-09-05)
 		outstream=ReadWrite.getOutputStream(fname, ffout.append(), true, false);
 		if(verbose){outstream2.println("Made FastqWriterST");}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Marks submissions started; starts no formatting thread and emits no header. */
 	@Override
-	public void start(){
-		started=true;
-	}
-	
+	public void start(){started=true;}
+
+	/** Number of selected records formatted, counted before their output succeeds. */
 	@Override
-	public long readsWritten(){
-		return readsWritten;
-	}
-	
+	public long readsWritten(){return readsWritten;}
+
+	/** Selected FASTQ/FASTA bases formatted; HEADER mode does not update this counter. */
 	@Override
-	public long basesWritten(){
-		return basesWritten;
-	}
-	
+	public long basesWritten(){return basesWritten;}
+
+	/** Wraps a nonnull Read list and submits it immediately.
+	 * @param list Read entries; null entries are skipped
+	 * @param id Accepted for the Writer API but ignored for ordering
+	 */
 	@Override
-	public final void add(ArrayList<Read> list, long id) {addReads(new ListNum<Read>(list, id));}
-	
+	public final void add(ArrayList<Read> list, long id){addReads(new ListNum<Read>(list, id));}
+
+	/** Formats selected reads in list order; a null wrapper is ignored.
+	 * Caller owns serialization of submissions and lifecycle calls.
+	 * @param reads Optional wrapper containing a nonnull list; its ID is ignored
+	 */
 	@Override
 	public void addReads(ListNum<Read> reads){//TODO: NOT suitable for MT producers
 		if(reads==null){return;}
 		writeReads(reads.list);
 	}
-	
+
+	/** Converts SAM sequence, quality and name fields to unpaired Read wrappers.
+	 * Arrays are shared, not copied, and SAM mate flags are currently lost. Consequently
+	 * writeR1 selects all converted entries and writeR2 alone selects none.
+	 * @param lines Optional wrapper containing a nonnull list of nonnull SAM records;
+	 * its ID is ignored
+	 */
 	@Override
 	public void addLines(ListNum<SamLine> lines){
 		if(lines==null){return;}
 		ArrayList<Read> reads=new ArrayList<Read>(lines.size());
-		for(SamLine sl : lines) {
+		//TODO: Probable bug [FastqWriterST#001] - this Read constructor leaves pairnum0
+		//and no mate, so writeR2-only drops every SAM entry. Retain SAM mate identity
+		//before selection; no direct Java callers found during the 2026-09-30 review.
+		for(SamLine sl : lines){
 			reads.add(new Read(sl.seq, sl.qual, sl.qname, -1, false));
 		}
 		writeReads(reads);
 	}
-	
+
+	/** Starts lazily, formats a whole batch in memory and submits its bytes once.
+	 * Uses current delegated Read/FASTQ serialization settings; does not flush the backend.
+	 * @param reads Nonnull list; null entries are skipped
+	 */
 	private void writeReads(ArrayList<Read> reads){
 		if(!started){start();}
-		
+
 		ByteBuilder bb=new ByteBuilder();
 		// Format reads
-		if(format==FASTQ) {
+		if(format==FASTQ){
 			writeFastq(reads, bb);
-		}else if(format==FASTA) {
+		}else if(format==FASTA){
 			writeFasta(reads, bb);
-		}else if(format==HEADER) {
+		}else if(format==HEADER){
 			writeHeader(reads, bb);
-		}else {
+		}else{
 			throw new RuntimeException("Bad format: "+format);
 		}
 
 		write(bb);
 		bb=null;
 	}
-	
-	private void write(ByteBuilder bb) {
+
+	/** Writes a copy of buffered bytes under this object's output lock and clears on success.
+	 * IOException propagates as RuntimeException without updating the cached error flag.
+	 * @param bb Buffer to copy and clear, including an empty buffer
+	 */
+	private void write(ByteBuilder bb){
 		if(bb.length()<0){return;}
 		byte[] array=bb.toBytes();
 		try{
-			synchronized(this) {outstream.write(array);}
+			synchronized(this){outstream.write(array);}
 			bb.clear();
 		}catch(IOException e){
 			throw new RuntimeException(e);
 		}
 	}
-	
+
+	/** Marks end-of-input for the success flag; does not flush, close or reject later calls. */
 	@Override
 	public synchronized void poison(){
 		poisoned=true;
 	}
-	
+
+	/** Finalizes output once and caches the returned status without setting poisoned.
+	 * Delegates stream/backend finalization to ReadWrite using the descriptor's
+	 * subprocess allowance; output opening separately disabled that allowance.
+	 * @return Cached error state, including the output finalizer's result
+	 */
 	@Override
 	public synchronized boolean waitForFinish(){
-		if(closed) {return errorState;}
+		if(closed){return errorState;}
 		boolean b=ReadWrite.finishWriting(null, outstream, fname, ffout.allowSubprocess());
 		closed=true;
 		return errorState|=b;
 	}
-	
+
+	/** Finalizes output; the current conditional does not mark a fresh writer poisoned.
+	 * Call poison separately when the success flag is required until the noted defect is fixed.
+	 * @return Cached error state after finalization
+	 */
 	@Override
 	public synchronized boolean poisonAndWait(){
-		//TODO: Probable bug - "if(poisoned) poison();" looks backwards (only re-poisons when
-		//ALREADY poisoned). Harmless today since poison() just sets a boolean idempotently, but
-		//not fixed here since it's outside this change's scope (found 2026-09-03 while adding
-		//finishError()).
+		//TODO: Probable bug [FastqWriterST#002] - "if(poisoned) poison();" only re-poisons
+		//an already poisoned writer. Found 2026-09-03 while adding finishError and left
+		//outside that change's scope; originally called harmless because poison is idempotent.
+		//2026-09-30 source review: a fresh call leaves poisoned=false, so
+		//finishedSuccessfully() remains false even when finalization reports no error.
 		if(poisoned){poison();}
 		return waitForFinish();
 	}
 
-	/** Genuinely single-threaded (Writer.finishError() javadoc): every write already happened
-	 * synchronously on the caller's own thread before returning, so there is no background
-	 * backlog to abandon and nothing that can hang. Same as poisonAndWait(), plus marking the
-	 * error explicitly since this path exists because something ELSE failed. */
+	/** Marks an external error, then uses the same finalization path.
+	 * There is no own formatting backlog to abandon, but backend finalization may block.
+	 */
 	@Override
 	public synchronized void finishError(){
 		errorState=true;
 		poisonAndWait();
 	}
 
+	/** Cached error flag; direct formatting/write exceptions do not set it automatically. */
 	@Override
 	public boolean errorState(){return errorState;}
-	
+
+	/** Tests only cached error and poison flags; does not check whether output is closed. */
 	@Override
-	public boolean finishedSuccessfully() {return !errorState && poisoned;}
-	
+	public boolean finishedSuccessfully(){return !errorState && poisoned;}
+
+	/** Returns the retained output path. */
 	@Override
-	public final String fname() {return fname;}
-	
+	public final String fname(){return fname;}
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Helper Methods       ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	private void writeFastq(ArrayList<Read> reads, ByteBuilder bb) {
+
+	/** Appends selected FASTQ records and counts their reads/bases before output.
+	 * Selects pairnum0 entries for R1 and pairnum1 entries or linked mates for R2.
+	 * @param reads Nonnull list; null entries are skipped
+	 * @param bb Destination batch buffer
+	 */
+	private void writeFastq(ArrayList<Read> reads, ByteBuilder bb){
 		for(Read r : reads){
-			if(r==null) {continue;}
+			if(r==null){continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){
@@ -184,10 +234,15 @@ public class FastqWriterST implements Writer {
 			}
 		}
 	}
-	
-	private void writeFasta(ArrayList<Read> reads, ByteBuilder bb) {
+
+	/** Appends selected FASTA records and counts their reads/bases before output.
+	 * Selects pairnum0 entries for R1 and pairnum1 entries or linked mates for R2.
+	 * @param reads Nonnull list; null entries are skipped
+	 * @param bb Destination batch buffer
+	 */
+	private void writeFasta(ArrayList<Read> reads, ByteBuilder bb){
 		for(Read r : reads){
-			if(r==null) {continue;}
+			if(r==null){continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){
@@ -204,10 +259,15 @@ public class FastqWriterST implements Writer {
 			}
 		}
 	}
-	
-	private void writeHeader(ArrayList<Read> reads, ByteBuilder bb) {
+
+	/** Appends selected read names and counts records without updating bases.
+	 * Selects pairnum0 entries for R1 and pairnum1 entries or linked mates for R2.
+	 * @param reads Nonnull list; null entries are skipped
+	 * @param bb Destination batch buffer
+	 */
+	private void writeHeader(ArrayList<Read> reads, ByteBuilder bb){
 		for(Read r : reads){
-			if(r==null) {continue;}
+			if(r==null){continue;}
 			final Read r1=(r.pairnum()==0 ? r : null);
 			final Read r2=(r.pairnum()==1 ? r : r.mate);
 			if(writeR1 && r1!=null){
@@ -220,48 +280,53 @@ public class FastqWriterST implements Writer {
 			}
 		}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Output file path */
+
+	/** Retained output path. */
 	public final String fname;
-	/** Output file format */
+	/** Retained output descriptor, including append and finalization settings. */
 	final FileFormat ffout;
-	/** Output file format as an int */
+	/** Effective format; UNKNOWN is converted to FASTQ. */
 	public final int format;
-	/** Output stream */
+	/** Backend opened during construction. */
 	OutputStream outstream;
-	/** Write R1 reads (pairnum==0) */
+	/** Include pairnum0 list entries. */
 	final boolean writeR1;
-	/** Write R2 reads (pairnum==1 or mate) */
+	/** Include pairnum1 entries or linked mates of pairnum0 entries. */
 	final boolean writeR2;
-	/** Number of reads written */
+	/** Selected records formatted, before successful output. */
 	protected long readsWritten=0;
-	/** Number of bases written */
+	/** Selected FASTQ/FASTA bases formatted; HEADER does not increment this. */
 	protected long basesWritten=0;
-	/** True if an error was encountered */
+	/** Cached finalization/external error flag; not all thrown exceptions set it. */
 	public boolean errorState=false;
-	/** True after start() called */
+	/** True after explicit or lazy start. */
 	private boolean started=false;
-	/** True after poison() called */
+	/** True after poison; the current poisonAndWait conditional may leave it false. */
 	private boolean poisoned=false;
-	/** True after waitForFinish() returns */
+	/** True after the output finalizer returns, including a reported error. */
 	private boolean closed=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** FASTQ output format. */
 	private static final int FASTQ=FileFormat.FASTQ;
+	/** FASTA output format. */
 	private static final int FASTA=FileFormat.FASTA;
+	/** Read-name-only output format. */
 	private static final int HEADER=FileFormat.HEADER;
+	/** Unspecified descriptor format. */
 	private static final int UNKNOWN=FileFormat.UNKNOWN;
-	
+
+	/** Enables constructor diagnostics when compiled true. */
 	public static final boolean verbose=false;
-	
-	/** Print status messages to this output stream */
+
+	/** Destination for optional diagnostic messages. */
 	protected PrintStream outstream2=System.err;
-	
+
 }

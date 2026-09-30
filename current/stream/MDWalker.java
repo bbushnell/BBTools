@@ -5,15 +5,33 @@ import shared.KillSwitch;
 import shared.Tools;
 
 /**
- * Parses MD tags from SAM format alignments and walks through substitutions and indels.
- * Processes MD tag strings alongside CIGAR strings to correct match arrays and track
- * alignment positions across query reads and reference sequences.
+ * Consumes SAM MD text against an expanded BBTools match array.
+ * The live correction path marks substitutions in the caller-owned array. Match, query
+ * and reference cursors are relative to the supplied alignment, not absolute coordinates.
+ * CIGAR text is retained but its operations are not parsed here.
+ * Each walker owns mutable traversal state with no reset; use a fresh instance per walk.
+ * fixMatch and the legacy nextSub iterator share that state and have different gap handling.
+ * Trailing numeric runs are accumulated without advancing cursors, so getters do not
+ * report final alignment lengths.
  *
  * @author Brian Bushnell
  * @date May 5, 2016
  */
-public class MDWalker {
+public class MDWalker{
 
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Retains the supplied references and positions cursors after leading clip entries.
+	 * Accepts MD text with no prefix, {@code MD:Z:}, or {@code Z:}. Leading C entries
+	 * advance match/query cursors only; the reference cursor starts at zero.
+	 * @param tag Nonnull MD text
+	 * @param cigar_ Optional CIGAR text; its N-presence scan is unused by correction
+	 * @param longmatch_ Nonnull expanded match array, retained and modified by fixMatch
+	 * @param sl_ Optional SAM record used only in diagnostics
+	 */
 	MDWalker(String tag, String cigar_, byte[] longmatch_, SamLine sl_){//SamLine is just for debugging
 		mdTag=tag;
 		cigar=cigar_;
@@ -34,6 +52,19 @@ public class MDWalker {
 		}
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Consumes remaining MD text and marks described substitutions S or N in place.
+	 * N is used when the MD symbol or corresponding supplied read base is undefined.
+	 * Insertions advance query/match cursors; deletions advance reference/match cursors.
+	 * A final numeric run remains pending, rather than advancing to the alignment end.
+	 * Inputs must describe a consistent alignment; this is not a complete MD validator.
+	 * Detected length inconsistencies use the existing terminating diagnostics under -ea.
+	 * @param bases Optional query bases for distinguishing defined substitutions from no-calls
+	 */
 	void fixMatch(byte[] bases){
 		final boolean cigarContainsN=(cigar!=null && cigar.indexOf('N')>=0);
 		sym=0;
@@ -48,7 +79,6 @@ public class MDWalker {
 				int matchPos2=matchPos;
 				if(current>0){
 					matchPos2=matchPos+current;
-					//					System.err.println(mpos+", "+current+", "+mpos2);
 					assert(mode==NORMAL) : mode+", "+current;
 					current=0;
 				}
@@ -65,7 +95,6 @@ public class MDWalker {
 						break;
 					}
 					if(longmatch[matchPos]=='I'){
-						//						System.err.println("I: mpos="+mpos+", bpos="+bpos);
 						matchPos2++;
 						bpos++;
 						matchPos++;
@@ -76,24 +105,15 @@ public class MDWalker {
 							matchPos++;
 						}
 					}else{
-						//						System.err.println("M: mpos="+mpos+", bpos="+bpos);
 						rpos++;
 						bpos++;
 						matchPos++;
 					}
 				}
 
-				//				while(mpos<longmatch.length && longmatch[mpos]=='I'){
-				//					System.err.println("I2: mpos="+mpos+", bpos="+bpos);
-				//					mpos++;
-				//					bpos++;
-				//				}
-
 				if(c=='^'){
 					mode=DEL;
-					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 				}else if(mode==DEL){
-					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 					//Crash-loud under -ea if the deletion runs past the match string; -da advances reference only (best-effort).
 					if(matchPos<longmatch.length){
 						rpos++;
@@ -103,14 +123,7 @@ public class MDWalker {
 						rpos++;
 					}
 					sym=c;
-				}
-				//				else if(longmatch[mpos]=='I'){
-				//					mode=INS;
-				//					bpos++;
-				//					mpos++;
-				//					sym=c;
-				//				}
-				else if(mode==NORMAL || mode==SUB){
+				}else if(mode==NORMAL || mode==SUB){
 					// Consume any pending deletions at current position
 					while(matchPos<longmatch.length && longmatch[matchPos]=='D'){
 						rpos++;
@@ -127,7 +140,6 @@ public class MDWalker {
 					assert(!basesOver) : KillSwitch.assertDie("MD names a substitution past the end of read bases (length-inconsistent MD vs SEQ): bpos="+bpos+", bases.length="+(bases==null ? -1 : bases.length));
 					if((bases!=null && !basesOver && !AminoAcid.isFullyDefined(bases[bpos])) || !AminoAcid.isFullyDefined(c)){longmatch[matchPos]='N';}
 					mode=SUB;
-					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 					bpos++;
 					rpos++;
 					matchPos++;
@@ -139,14 +151,16 @@ public class MDWalker {
 			}
 
 		}
-		//		System.err.println();
-		//		assert((bases==null || Read.calcMatchLength(longmatch)==bases.length)) :
-		//			bases.length+", "+Read.calcMatchLength(longmatch)+"\n"+new String(longmatch)+"\n"
-		//					+ new String(Read.toShortMatchString(longmatch))+"\n"+mdTag;
 	}
 
-	/** Iterates the MD tag substitution-by-substitution. Currently UNUSED (no callers tree-wide; only fixMatch is live
-	 * via SamLine). Kept + bounds-guarded so it is safe if ever revived. */
+	/**
+	 * Advances the legacy substitution iterator without modifying the match array.
+	 * No callers were found in the current Java tree; SamLine uses fixMatch instead.
+	 * Numeric runs advance cursors directly and do not account for intervening insertions
+	 * (#001), so this is not equivalent to fixMatch. A terminal numeric run stays pending.
+	 * Shares all cursor/mode state with correction; do not interleave the two algorithms.
+	 * @return true after a reported substitution, false when the MD text is exhausted
+	 */
 	boolean nextSub(){
 		sym=0;
 		while(mdPos<mdTag.length()){
@@ -158,14 +172,16 @@ public class MDWalker {
 				mode=NORMAL;
 			}else{
 				if(current>0){
+					//TODO: Probable bug #001 - direct MD-run advances ignore intervening I entries in longmatch.
+					//For MD2A0 over mImS, nextSub reports match/query position2 instead of3 (reference2).
+					//No iterator callers found; retained as dormant source behavior, not runtime-verified.
 					bpos+=current;
 					rpos+=current;
 					matchPos+=current;
 					assert(mode==NORMAL) : mode+", "+current;
 					current=0;
 				}
-				if(c=='^'){mode=DEL;}
-				else if(mode==DEL){
+				if(c=='^'){mode=DEL;}else if(mode==DEL){
 					rpos++;
 					matchPos++;
 					sym=c;
@@ -180,48 +196,64 @@ public class MDWalker {
 					rpos++;
 					matchPos++;
 					sym=c;
-					//					System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 					return true;
 				}
 			}
 
-			//			System.err.println("c="+((char)c)+", mpos="+mpos+", rpos="+rpos+", bpos="+bpos+", mode="+mode+(mode==NORMAL ? "" : ", match="+(char)longmatch[mpos-1])+"\n"+new String(longmatch));
 		}
 		return false;
 	}
 
-	public int matchPosition(){
-		return matchPos-1;
-	}
+	/** Returns match cursor minus one, including leading clips and processed events.
+	 * @return Relative zero-based predecessor index, or -1 before any advance */
+	public int matchPosition(){return matchPos-1;}
 
-	public int basePosition(){
-		return bpos-1;
-	}
+	/** Returns query cursor minus one; leading clips count toward this cursor.
+	 * @return Relative zero-based predecessor index, or -1 before any advance */
+	public int basePosition(){return bpos-1;}
 
-	public int refPosition(){
-		return rpos-1;
-	}
+	/** Returns reference cursor minus one, relative to alignment start rather than SamLine.pos.
+	 * @return Relative zero-based predecessor offset, or -1 before any reference advance */
+	public int refPosition(){return rpos-1;}
 
+	/** Returns the most recently stored MD event character.
+	 * @return Stored MD character from the most recent symbolic event
+	 * @throws AssertionError With assertions enabled when no nonzero symbol is stored */
 	public char symbol(){
 		assert(sym!=0);
 		return sym;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Next expanded-match entry to consume. */
 	private int matchPos;
+	/** Next query base offset, including leading clips and insertions. */
 	private int bpos;
+	/** Next reference offset relative to alignment start. */
 	private int rpos;
+	/** Last stored event character; reset to zero on entry to either walker method. */
 	private char sym;
 
+	/** Retained MD text, including any recognized prefix. */
 	private String mdTag;
-	private String cigar; //Optional; for debugging
+	/** Optional retained CIGAR; fixMatch scans for N but does not use the result. */
+	private String cigar;
+	/** Caller-owned expanded match array; fixMatch changes substitution entries in place. */
 	private byte[] longmatch;
+	/** Index of the next MD character to consume. */
 	private int mdPos;
+	/** Accumulated numeric run; terminal digits are not applied to cursors. */
 	private int current;
+	/** Current interpretation of symbolic MD characters. */
 	private int mode;
 
+	/** Optional SAM record retained for length-inconsistency diagnostics. */
 	private SamLine sl;
 
-	//	private int dels=0, subs=0, normals=0;
+	/** Parser modes; INS is used only by the legacy iterator. */
 	private static final int NORMAL=0, SUB=1, DEL=2, INS=3;
 
 }

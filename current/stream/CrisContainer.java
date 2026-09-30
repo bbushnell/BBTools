@@ -10,19 +10,26 @@ import sort.ReadComparatorTopological5Bit;
 import structures.ListNum;
 
 /**
- * Container that wraps a ConcurrentReadInputStream with comparison capabilities.
- * Provides buffered read access with configurable sorting and pre-processing
- * based on the specified comparator type. Supports k-mer generation and clumping.
+ * Batch cursor around a ConcurrentReadInputStream, with the current first read as a comparison key.
+ * Construction fetches an initial batch. Subsequent fetches replace that batch and
+ * return the previous batch's ID to the stream; this wrapper does not sort a batch
+ * or consume individual reads within it. Two exact comparator classes select optional
+ * read preparation that can modify Read metadata, including numericID.
+ * Callers must coordinate access and follow the wrapped stream's
+ * list ownership and lifecycle rules.
  * @author Brian Bushnell
  */
-public class CrisContainer implements Comparable<CrisContainer> {
+public class CrisContainer implements Comparable<CrisContainer>{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Creates a CrisContainer from a filename with specified comparison behavior.
-	 * Opens the file as a read stream and configures pre-processing based on comparator type.
-	 *
+	 * Opens a read stream with a FASTQ fallback descriptor, starts it and fetches its first batch.
+	 * Read preprocessing is selected by exact comparator class, not subclass membership.
 	 * @param fname Input filename to read from
-	 * @param comparator_ Comparator for ordering reads
+	 * @param comparator_ Comparator used for head comparisons; null permits fetch/peek without comparison
 	 * @param allowSubprocess Whether to allow subprocess execution for file access
 	 */
 	public CrisContainer(String fname, Comparator<Read> comparator_, boolean allowSubprocess){
@@ -37,16 +44,15 @@ public class CrisContainer implements Comparable<CrisContainer> {
 		clump=(comparator!=null && comparator.getClass()==ReadComparatorClump.class);
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, allowSubprocess, true);
 		cris=ConcurrentReadInputStream.getReadInputStream(-1, true, ff, null, null, null);
-//		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
 		cris.start();
 		fetch();
 	}
 	
 	/**
-	 * Creates a CrisContainer from an existing ConcurrentReadInputStream.
-	 * Configures pre-processing based on comparator type without opening new files.
-	 * @param cris_ Existing read input stream to wrap
-	 * @param comparator_ Comparator for ordering reads
+	 * Wraps an existing stream and immediately fetches its first batch without calling start().
+	 * Selects preprocessing by exact comparator class, as in the filename constructor.
+	 * @param cris_ Nonnull stream already prepared for nextList calls under its lifecycle contract
+	 * @param comparator_ Comparator used for head comparisons; null permits fetch/peek without comparison
 	 */
 	public CrisContainer(ConcurrentReadInputStream cris_, Comparator<Read> comparator_){
 		comparator=comparator_;
@@ -55,14 +61,20 @@ public class CrisContainer implements Comparable<CrisContainer> {
 		genKmer=(comparator!=null && comparator.getClass()==ReadComparatorTopological5Bit.class);
 		clump=(comparator!=null && comparator.getClass()==ReadComparatorClump.class);
 		cris=cris_;
-//		System.err.println(genKmer+", "+clump+", "+comparator.getClass());
 		fetch();
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Fetches the next batch of reads and returns the previous batch.
-	 * Applies k-mer generation or clumping preprocessing as configured.
-	 * @return Previous list of reads, or null if this is the first fetch
+	 * Advances to the next batch and returns the previously held list reference.
+	 * After construction, call only while hasMore() is true. The previous batch's ID
+	 * is returned to the stream during this call, before its list reference is returned
+	 * to the caller; do not assume that reference has a new or independent lifetime.
+	 * The newly fetched batch receives the configured preprocessing and supplies peek().
+	 * @return Previously held list, or null when no list was held, including construction
 	 */
 	public ArrayList<Read> fetch(){
 		final ArrayList<Read> old=list;
@@ -70,8 +82,11 @@ public class CrisContainer implements Comparable<CrisContainer> {
 		return old;
 	}
 	
-	/** Internal method that performs the actual read fetching and preprocessing.
-	 * Handles list management, k-mer generation, clumping, and stream coordination. */
+	/**
+	 * Fetches and normalizes the next batch, prepares its reads and updates the head.
+	 * Returns the retained previous ID with a terminal flag derived from the new list,
+	 * then records the newly received ID when a wrapper was supplied.
+	 */
 	private void fetchInner(){
 		ListNum<Read> ln=cris.nextList();
 		list=(ln==null ? null : ln.list);
@@ -82,38 +97,37 @@ public class CrisContainer implements Comparable<CrisContainer> {
 			for(Read r : list){ReadComparatorClump.set(r);}
 		}
 		read=(list==null ? null : list.get(0));
-		//comprehension: one-list-LAG recycling — each fetch returns the PREVIOUS list's id (lastNum), so list N is handed back
-		//when fetching N+1; at EOF (ln==null) the final list is returned with poison=true (list==null). Each list is returned
-		//exactly once UNDER the contract "don't fetch() after hasMore()==false" (a post-EOF fetch would re-return lastNum).
-		//[stream/CrisContainer#001 FIXED 2026-06-18] the `list==null ||` guard at L70 is the EOF-NPE fix (was `list.size()<1` on a possibly-null list).
+		//One-batch-later return: hand back the previous ID while fetching its successor; a terminal new list sets poison=true.
+		//Do not fetch after hasMore()==false: lastNum may still name an ID already returned. Terminal-wrapper rules belong to cris.
+		//TODO: Probable bug [stream/CrisContainer#003]: Shuffle2.mergeAndDump removes a container only when fetch()
+		//returns null, so it can fetch after hasMore()==false. Reconcile that caller with this stopping rule;
+		//the downstream lifecycle effect is unverified and no behavior change is made here.
+		//[stream/CrisContainer#001 FIXED 2026-06-18] The null-list guard above preserves EOF handling; the old code dereferenced a possibly-null list.
 		if(lastNum>=0){cris.returnList(lastNum, list==null);}
 		if(ln!=null){lastNum=ln.id;}
 		assert((read==null)==(list==null || list.size()==0));
-//		if(count>0 && list!=null){
-//			for(Read r : list){
-//				assert(remainingReads>=0) : remainingReads+", "+count+", "+r.numericID;
-//				double remaining=(count-sum);
-//				double mult=2*(remaining/remainingReads);
-//				sum=sum+randy.nextDouble()*mult;
-//				r.rand=sum;
-////				System.err.println(r.rand);
-//				remainingReads--;
-//			}
-//		}
 	}
 	
-	/** Closes the underlying read input stream.
-	 * @return true if the stream was successfully closed */
-	public boolean close(){
-		return ReadWrite.closeStream(cris);
-	}
+	/**
+	 * Delegates stream closure and status reporting to ReadWrite.closeStream.
+	 * Does not explicitly clear this wrapper's current head/list fields.
+	 * @return true if the wrapped stream reports an error after closing; false otherwise
+	 */
+	public boolean close(){return ReadWrite.closeStream(cris);}
 	
-	/** Returns the current read without consuming it.
-	 * @return Current read at the head of the container, or null if empty */
+	/**
+	 * Returns the first read of the currently fetched batch without advancing.
+	 * @return Current comparison head, or null when the latest fetch found no data
+	 */
 	public Read peek(){return read;}
 	
+	/**
+	 * Compares current heads using this container's comparator, not the other container's.
+	 * @param other Nonnull container with a current read; this container also needs a read and comparator
+	 * @return Comparator result: negative, zero or positive according to its ordering
+	 */
 	@Override
-	public int compareTo(CrisContainer other) {
+	public int compareTo(CrisContainer other){
 		assert(read!=null);
 		assert(other.read!=null);
 		return comparator.compare(read, other.read);
@@ -121,40 +135,42 @@ public class CrisContainer implements Comparable<CrisContainer> {
 	
 	/**
 	 * Compares this container's current read to a specific read.
-	 * Uses the configured comparator to determine ordering.
-	 * @param other Read to compare against
+	 * Requires a configured comparator; acceptable read values follow that comparator's contract.
+	 * @param other Read to compare against the current head
 	 * @return Negative, zero, or positive value indicating relative order
 	 */
-	public int compareTo(Read other) {
+	public int compareTo(Read other){
 		return comparator.compare(read, other);
 	}
 	
-	/** Checks if there are more reads available in this container.
-	 * @return true if there is a current read available, false if exhausted */
-	public boolean hasMore(){
-		return read!=null;
-	}
+	/**
+	 * Checks the current head only; does not fetch or query whether the stream is open.
+	 * @return true if the latest fetch supplied a current head, false otherwise
+	 */
+	public boolean hasMore(){return read!=null;}
 	
-	/** Returns the underlying ConcurrentReadInputStream.
-	 * @return The wrapped read input stream */
+	/**
+	 * Exposes the wrapped stream without transferring or synchronizing ownership.
+	 * @return The same stream retained by this container
+	 */
 	public ConcurrentReadInputStream cris(){return cris;}
 	
-	/** The underlying concurrent read input stream */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Wrapped stream, started here only by the filename constructor. */
 	final ConcurrentReadInputStream cris;
-	/** Current read at the head of the container */
+	/** First read of the latest nonempty batch, or null after a terminal fetch. */
 	private Read read;
-	/** ID number of the last list returned to the stream */
+	/** ID from the most recently received nonnull ListNum wrapper, used when returning the previous batch. */
 	private long lastNum=-1;
-	/** Current list of reads from the input stream */
+	/** Latest nonempty batch list, or null after normalization of a terminal result. */
 	private ArrayList<Read> list;
-	/** Comparator used for ordering reads */
+	/** Comparator used for head comparisons; may be null when comparisons are unused. */
 	private final Comparator<Read> comparator;
 	/** genKmer: generate k-mers for reads (topological 5-bit comparator); clump: apply clumping preprocessing.
 	 * [stream/CrisContainer#002 DOC FIXED] were two stacked, mis-ordered javadocs; combined to match the genKmer,clump declaration order. */
 	private final boolean genKmer, clump;
-//	private double sum=0;
-//	final int count;
-//	private final Random randy;
-//	private int remainingReads;
 	
 }

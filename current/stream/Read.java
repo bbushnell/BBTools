@@ -249,24 +249,21 @@ public final class Read implements Comparable<Read>, Cloneable, Serializable{
 		}
 	}
 
-	private void fixQuality(){
+	/** Caps called-symbol qualities and zeros ambiguous symbols using this read's alphabet.
+	 * Uses acidToNumber for amino reads, including its stop-symbol policy; nucleotide
+	 * definedness would silently erase valid protein qualities (STR-018).
+	 * Does nothing for absent qualities or CHANGE_QUALITY=false. Callers must supply
+	 * nonnegative Phred scores and a base for every quality. Package access lets FASTQ
+	 * normalize amino reads even when constructor validation is disabled.
+	 */
+	final void fixQuality(){
 		if(quality==null || !CHANGE_QUALITY){return;}
-
+		assert(bases!=null && bases.length>=quality.length) :
+			"Alphabet-aware quality normalization needs a symbol for every score; read="+id;
 		final byte[] toNumber=aminoacid() ? AminoAcid.acidToNumber : AminoAcid.baseToNumber;
-
 		for(int i=0; i<quality.length; i++){
-			byte b=bases[i];
-			byte q=quality[i];
-			quality[i]=capQuality(q, b);
-			//			if(toNumber[b]>=0){
-			//				if(q<MIN_CALLED_QUALITY){
-			//					quality[i]=MIN_CALLED_QUALITY;
-			//				}else if(q>MAX_CALLED_QUALITY){
-			//					quality[i]=MAX_CALLED_QUALITY;
-			//				}
-			//			}else{
-			//				quality[i]=0;
-			//			}
+			final byte b=bases[i], q=quality[i];
+			quality[i]=(b>=0 && toNumber[b]>=0 ? qMap[q] : 0);
 		}
 	}
 

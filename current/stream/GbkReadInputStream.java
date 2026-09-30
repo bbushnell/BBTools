@@ -10,14 +10,25 @@ import shared.Tools;
 import structures.ByteBuilder;
 
 /**
- * Buffered GenBank (.gbk) reader that parses ORIGIN sequences into Read objects.
- * Supports amino-acid mode flags and standard ReadInputStream operations.
+ * Buffered, unpaired GenBank reader that extracts sequence letters from ORIGIN sections.
+ * Records receive decimal numeric names; locus and accession metadata are not retained.
+ * Sequence letters are uppercased before Read construction, whose usual validation
+ * and normalization settings still apply. The amino input flag is captured at construction.
+ * Callers must coordinate access: synchronized batch methods do not synchronize
+ * hasMore, close, external counter reads or shared configuration changes.
  * @author Brian Bushnell
  */
-public class GbkReadInputStream extends ReadInputStream {
-	
-	/** Simple test harness: opens the given file and prints the first read.
-	 * @param args Command-line arguments; args[0] is the input filename */
+public class GbkReadInputStream extends ReadInputStream{
+
+	/*--------------------------------------------------------------*/
+	/*----------------             Main             ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Prints the first record from the first batch using Read's text representation.
+	 * Requires an input containing a record; this method does not explicitly close the reader.
+	 * @param args Command-line arguments; args[0] is the input filename
+	 */
 	public static void main(String[] args){
 		
 		GbkReadInputStream fris=new GbkReadInputStream(args[0], true);
@@ -27,6 +38,10 @@ public class GbkReadInputStream extends ReadInputStream {
 		
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
 	 * Creates a GenBank reader from a filename, with optional subprocess support.
 	 * @param fname Input GenBank filename
@@ -37,9 +52,10 @@ public class GbkReadInputStream extends ReadInputStream {
 	}
 	
 	/**
-	 * Creates a GenBank reader from a FileFormat description.
-	 * Validates extension, sets flags, and opens the underlying ByteFile.
-	 * @param ff FileFormat describing the input source
+	 * Opens the ByteFile selected for the descriptor and captures the amino input flag.
+	 * Warns if the descriptor is not marked GenBank, but still uses this parser.
+	 * Buffer settings are captured during instance initialization.
+	 * @param ff Nonnull descriptor of the input source
 	 */
 	public GbkReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("GbkReadInputStream("+ff+")");}//#001-fix [stream/GbkReadInputStream#001]: was "FastqReadInputStream(" (copy-paste wrong class name).
@@ -49,14 +65,20 @@ public class GbkReadInputStream extends ReadInputStream {
 			System.err.println("Warning: Did not find expected gbk file extension for filename "+ff.name());//#001-fix: was "fastq file extension".
 		}
 		bf=ByteFile.makeByteFile(ff);
-//		assert(false) : interleaved;
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Returns true if additional reads are available, filling the buffer if needed.
+	 * Checks the buffered records and fills a new batch if the source is still open.
+	 * Can advance input and the generated count without handing records to the caller.
+	 * With assertions enabled, no buffered records and a closed source require prior nonempty input.
+	 * @return Whether a buffered record is available
 	 */
 	@Override
-	public boolean hasMore() {
+	public boolean hasMore(){
 		if(buffer==null || next>=buffer.size()){
 			if(bf.isOpen()){
 				fillBuffer();
@@ -67,10 +89,14 @@ public class GbkReadInputStream extends ReadInputStream {
 		return (buffer!=null && next<buffer.size());
 	}
 	
-	/** Returns the next buffered block of reads; not compatible with next().
-	 * @return List of Read objects, or null when exhausted */
+	/**
+	 * Hands off the next batch, filling it as needed and incrementing consumed.
+	 * Returned lists and sequence arrays are not reused by the reader. Batch capacity
+	 * limits records rather than sequence bytes; this reader provides blockwise access.
+	 * @return Nonempty list of unpaired reads, or null when no records remain
+	 */
 	@Override
-	public synchronized ArrayList<Read> nextList() {
+	public synchronized ArrayList<Read> nextList(){
 		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
 		if(buffer==null || next>=buffer.size()){fillBuffer();}
 		ArrayList<Read> list=buffer;
@@ -80,6 +106,7 @@ public class GbkReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/** Fills one record-limited batch, advances numeric IDs and closes input on a short batch. */
 	private synchronized void fillBuffer(){
 		
 		assert(buffer==null || next>=buffer.size());
@@ -89,6 +116,7 @@ public class GbkReadInputStream extends ReadInputStream {
 		buffer=toReadList(bf, BUF_LEN, nextReadID, flag);
 		int bsize=(buffer==null ? 0 : buffer.size());
 		nextReadID+=bsize;
+		//TODO: Review [stream/GbkReadInputStream#003] - the short-batch close result is ignored; final status propagation needs separate review before changing lifecycle behavior.
 		if(bsize<BUF_LEN){bf.close();}
 		
 		generated+=bsize;
@@ -100,18 +128,24 @@ public class GbkReadInputStream extends ReadInputStream {
 			}
 		}
 	}
-	
 
-	
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Methods        ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Parses GenBank content, extracting ORIGIN sequences into reads with IDs.
-	 * Strips non-letter characters and uppercases bases.
-	 *
-	 * @param bf ByteFile to read from
-	 * @param maxReadsToReturn Maximum reads to emit
-	 * @param numericID Starting numeric ID
-	 * @param flag Read flags (e.g., amino mask)
-	 * @return List of parsed Read objects
+	 * Parses records from the current position without closing or resetting the source.
+	 * Each line beginning with ORIGIN starts a sequence. Sequence lines must be nonempty;
+	 * their ASCII letters contribute until a line begins with slash or EOF is reached.
+	 * A present terminating line is expected to begin with //. Letters are uppercased
+	 * and passed to a Read with no qualities and a decimal numeric name; other metadata
+	 * is ignored. Sequence scratch state is local to this call, and Read constructor
+	 * validation/normalization still applies under its usual settings.
+	 * @param bf Nonnull source positioned at or before the next record
+	 * @param maxReadsToReturn Positive maximum number of records to return
+	 * @param numericID Starting numeric ID, incremented once per constructed record
+	 * @param flag Read flags passed to the constructor, such as the amino input mask
+	 * @return Newly allocated, possibly empty list; each record receives a separate base array
 	 */
 	public static ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn, long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(8192, maxReadsToReturn));
@@ -121,11 +155,7 @@ public class GbkReadInputStream extends ReadInputStream {
 		String idLine=null;
 		ByteBuilder bb=new ByteBuilder();
 		for(byte[] s=bf.nextLine(); s!=null; s=bf.nextLine()){
-//			if(Tools.startsWith(s, "ID")){
-//				idLine=new String(s, 2, s.length-2).trim();
-//			}else 
 			if(Tools.startsWith(s, "ORIGIN")){
-//				System.err.println(new String(s));
 				byte[] line=null;
 				for(line=bf.nextLine(); line!=null && line[0]!='/'; line=bf.nextLine()){
 					for(byte b : line){
@@ -136,7 +166,7 @@ public class GbkReadInputStream extends ReadInputStream {
 				}
 				assert(line==null || Tools.startsWith(line, "//")) : new String(line);
 
-				//#002 [stream/GbkReadInputStream#002] LOW (documented, NOT fixed): idLine is ALWAYS null here (the "ID" name-parse above is commented out, and GenBank's keyword is LOCUS not ID anyway) -> every GenBank read gets a numeric id, losing its accession/locus name. Functional limitation, not a correctness bug; fixing = parse the LOCUS line (needs GenBank-format validation). NB: the ORIGIN inner loop's line[0] assumes non-empty lines (a blank line inside the block -> AIOOBE; malformed input, crash-loud-acceptable).
+				//#002 [stream/GbkReadInputStream#002] Retained naming limitation: idLine stays null, so reads use numeric names and omit locus/accession metadata. Adding names needs separate format review. The ORIGIN loop assumes nonempty lines.
 				Read r=new Read(bb.toBytes(), null, idLine==null ? ""+numericID : idLine, numericID, flag);
 				list.add(r);
 				added++;
@@ -152,8 +182,15 @@ public class GbkReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
-	/** Closes the underlying file and returns the error state.
-	 * @return true if errors were encountered */
+	/*--------------------------------------------------------------*/
+	/*----------------           Lifecycle          ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Closes the ByteFile and retains its returned status in the reader's local flag.
+	 * Does not discard an existing buffered batch or merge the global FASTQ flag.
+	 * @return Accumulated local error status after this close call
+	 */
 	@Override
 	public boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+bf.name()+"; errorState="+errorState);}
@@ -162,9 +199,13 @@ public class GbkReadInputStream extends ReadInputStream {
 		return errorState;
 	}
 
-	/** Resets counters and buffer, then rewinds the ByteFile for rereading. */
+	/**
+	 * Resets counters, numeric IDs and buffer, then delegates reopening/rewinding to ByteFile.
+	 * Retains the local error flag and captured format/flag/buffer settings. Whether the
+	 * underlying source supports rereading belongs to the selected ByteFile implementation.
+	 */
 	@Override
-	public synchronized void restart() {
+	public synchronized void restart(){
 		generated=0;
 		consumed=0;
 		next=0;
@@ -176,33 +217,51 @@ public class GbkReadInputStream extends ReadInputStream {
 	/** Indicates whether reads are paired; always false for GenBank input.
 	 * @return false */
 	@Override
-	public boolean paired() {return false;}
+	public boolean paired(){return false;}
 	
 	/** Returns the name of the underlying input file.
 	 * @return Input filename */
 	@Override
 	public String fname(){return bf.name();}
 	
-	/** Reports whether this stream or FASTQ parsing has encountered errors.
-	 * @return true if an error was detected */
+	/**
+	 * Combines the local flag with FASTQ's process-wide flag, even though this reader
+	 * parses GenBank directly. Does not query the ByteFile here and may differ from close().
+	 * @return Local error status or the current global FASTQ status
+	 */
 	@Override
-	//NB: the FASTQ.errorState() OR is a copy-paste from the FASTQ-based readers — Gbk parses INLINE (toReadList), never invoking the FASTQ parser, so this ORs an unrelated process-global. Harmless (over-reports = safe direction); kept as-is.
+	//GenBank parses directly in toReadList, but this method also includes FASTQ's process-global status; behavior retained.
 	public boolean errorState(){return errorState || FASTQ.errorState();}
 
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Generated batch retained until the next handoff; cleared on restart. */
 	private ArrayList<Read> buffer=null;
+	/** Legacy block cursor; current batch-only access keeps it at zero. */
 	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
 	
+	/** Selected byte reader, retained across restart. */
 	private final ByteFile bf;
+	/** Amino input flag captured at construction and passed to every Read. */
 	private final int flag;
 
-	private final int BUF_LEN=Shared.bufferLen();;
-	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long fastq reads.  Must be disabled for paired-ends.
+	/** Maximum records per generated batch, captured at instance initialization. */
+	private final int BUF_LEN=Shared.bufferLen();
+	/** Captured legacy byte-budget setting; currently unused by the GenBank parser. */
+	private final long MAX_DATA=Shared.bufferData();//TODO: A per-batch byte limit is not implemented; batches are capped only by record count.
 
+	/** Individual records placed in generated batches during the current pass. */
 	public long generated=0;
+	/** Individual records handed to the caller during the current pass. */
 	public long consumed=0;
+	/** Numeric ID assigned to the first record of the next generated batch. */
 	private long nextReadID=0;
 	
+	/** Whether the input descriptor denotes a standard stream. */
 	public final boolean stdin;
+	/** Enables construction and close diagnostics on standard error. */
 	public static boolean verbose=false;
 
 }

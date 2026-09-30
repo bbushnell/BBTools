@@ -921,7 +921,8 @@ public class FASTQ {
 			new String(quad[0])+"\n"+new String(quad[1])+"\n"+new String(quad[2])+"\n"+new String(quad[3])+"\n";
 		
 		final String name=makeId(quad[0]);
-		convertQualsVec(quals, bases, name, numericID);
+		final boolean amino=(flag&Read.AAMASK)!=0;
+		convertQualsVec(quals, bases, name, numericID, amino);
 		
 		if(PARSE_CUSTOM) {
 			Read r=parseCustom(bases, quals, header, name, numericID);
@@ -929,7 +930,9 @@ public class FASTQ {
 			return r;
 		}
 		try {
-			return new Read(bases, quals, name, numericID, flag);
+			final Read r=new Read(bases, quals, name, numericID, flag);
+			if(amino){r.fixQuality();}
+			return r;
 		} catch (OutOfMemoryError e) {
 			KillSwitch.memKill(e);
 			return null;//Unreachable
@@ -937,11 +940,17 @@ public class FASTQ {
 	}
 	
 	private static void convertQualsVec(final byte[] quals, final byte[] bases,
-			final String name, final long numericID) {
+			final String name, final long numericID, final boolean amino) {
 		assert(quals!=null);
 		//Studied praise + claim: the Vec path DETECTS first (detectQuals only flips the static ASCII_OFFSET, sampling the first <8 reads) and then applies the offset ONCE, uniformly, here -- so it has NO retroactive per-element fixup and structurally cannot hit the quadToRead_slow#002 class (the older slow path converts per-element THEN retroactively re-corrects, which is where the quals[i]/quals[j] typo lived). Cleaner by construction.
 		if(numericID<8 && DETECT_QUALITY) {detectQuals(quals, bases, name, numericID);}
-		applyQualityOffset(quals, bases, -ASCII_OFFSET);
+		if(amino){
+			// STR-018: convert encoding without nucleotide normalization, which would
+			// erase protein qualities before Read can apply the amino alphabet.
+			for(int i=0; i<quals.length; i++){quals[i]-=ASCII_OFFSET;}
+		}else{
+			applyQualityOffset(quals, bases, -ASCII_OFFSET);
+		}
 	}
 
 	/** Shared by quad and scan decoders; honor the explicit no-normalization policy. */
@@ -1203,7 +1212,11 @@ public class FASTQ {
 		// The native ByteFile reader uses this slow path. Match the quad/scan
 		// decoder contract: changequality=f preserves original Phred bytes,
 		// including Q0/Q1 and values above MAX_CALLED_QUALITY (native parity IlH0vu).
-		if(Read.CHANGE_QUALITY){Vector.capQuality(quals, bases);}
+		// STR-018: amino reads need their own alphabet even without constructor validation.
+		if(Read.CHANGE_QUALITY){
+			if(r.aminoacid()){r.fixQuality();}
+			else{Vector.capQuality(quals, bases);}
+		}
 		return r;
 	}
 	
@@ -1246,14 +1259,16 @@ public class FASTQ {
 	}
 	
 	/**
-	 * Parses SCARF-formatted file into Read objects.
-	 * SCARF is a compact format used by some sequencing platforms.
+	 * Parses a batch of SCARF records, attaching mates for interleaved input.
+	 * A consumed first mate without its second mate at EOF terminates the process
+	 * with a diagnostic, including when assertions are disabled. Earlier output
+	 * may be partial; fatal termination does not guarantee resource cleanup.
 	 *
 	 * @param tf ByteFile containing SCARF data
-	 * @param maxReadsToReturn Maximum number of reads to parse
-	 * @param numericID Starting numeric ID for reads
+	 * @param maxReadsToReturn Batch entry limit; interleaved entries are read pairs
+	 * @param numericID Starting numeric ID, advanced once per returned entry
 	 * @param interleaved Whether to treat input as interleaved paired reads
-	 * @return List of parsed Read objects
+	 * @return Nonnull list of parsed entries; second mates remain attached
 	 */
 	public static ArrayList<Read> toScarfReadList(ByteFile tf, int maxReadsToReturn, long numericID, boolean interleaved){
 		byte[] s=null;
@@ -1288,6 +1303,13 @@ public class FASTQ {
 
 
 			if(added>=maxReadsToReturn){break;}
+		}
+		//STR-013: ScarfReadInputStream.hasMore can parse outside its caller's ordinary exception handler.
+		//Use the existing fatal-input path so an unmatched mate cannot silently disappear or leave that caller waiting.
+		if(prev!=null){
+			errorState=true;
+			KillSwitch.kill("Incomplete interleaved SCARF pair at end of file '"+tf.name()+
+				"': read '"+prev.id+"' has no mate (numeric ID "+prev.numericID+").");
 		}
 		assert(list.size()<=maxReadsToReturn);
 		return list;

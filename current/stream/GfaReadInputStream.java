@@ -9,37 +9,68 @@ import parse.LineParser1;
 import shared.Shared;
 
 /**
- * Reads GFA formatted sequence data and converts it to Read objects.
+ * Blockwise reader for sequence fields from GFA segment lines.
+ * Construction opens a ByteFile and captures the shared batch length and amino flag.
+ * Parsing runs on the caller; the selected backend may use worker threads. Configure
+ * shared input settings before use and coordinate iteration, close and restart externally.
+ * The synchronized methods alone do not make concurrent use safe.
+ *
+ * Nonempty lines beginning with byte S supply tab-delimited name and sequence fields;
+ * other lines are skipped. Names use US-ASCII decoding and sequence bytes are copied.
+ * This reader does not validate the full GFA grammar or trim descriptions. Read
+ * construction applies validation and optional header sanitation according to current
+ * Read settings and the captured input mode; sanitation is not description trimming.
+ *
+ * Batches are bounded by read count, not sequence bytes. hasMore may prefetch without
+ * consuming; nextList transfers the whole buffered list and returns null at exhaustion.
+ * Short fills close the backend before returning buffered reads. An exactly full batch
+ * defers the next EOF probe until another refill. Callers should still close explicitly
+ * on early termination or failure. Cached error status and thrown exceptions are separate.
+ *
  * @author Brian Bushnell
  * @date November 21, 2025
+ * @contributor Shinobu (correctness repairs and documentation)
  */
-public class GfaReadInputStream extends ReadInputStream {
-	
-	/** Test method that reads and displays first read from a GFA file.
-	 * @param args Command-line arguments; expects filename as first argument */
-	public static void main(String[] args){
-		
-		GfaReadInputStream fris=new GfaReadInputStream(args[0], true);
-		
-		Read r=fris.nextList().get(0);
-		System.out.println(r.toText(false));
-		
-	}
-	
+public class GfaReadInputStream extends ReadInputStream{
+
 	/**
-	 * Creates a GFA reader for the specified file.
-	 * @param fname Input GFA filename
-	 * @param allowSubprocess_ Whether to allow subprocess execution for compressed files
+	 * Prints the first read, if present, then closes the input in finally.
+	 * Output may precede a later close-error rejection; a thrown close can replace
+	 * an active processing exception.
+	 * @param args Input GFA filename as the first argument
+	 * @throws RuntimeException If normal processing completes and input closure reports an error
+	 */
+	public static void main(final String[] args){
+		final GfaReadInputStream fris=new GfaReadInputStream(args[0], true);
+		boolean error=false;
+		try{
+			//[stream/GfaReadInputStream#003] Empty input has no first read; always close after an opened reader is used.
+			final ArrayList<Read> list=fris.nextList();
+			if(list!=null){System.out.println(list.get(0).toText(false));}
+		}finally{
+			error=fris.close();
+		}
+		if(error){throw new RuntimeException("Error closing GFA input.");}
+	}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Resolves the input format and immediately opens the backend.
+	 * @param fname Input name; GFA is the default format
+	 * @param allowSubprocess_ Whether the format descriptor permits subprocess decompression
 	 */
 	public GfaReadInputStream(String fname, boolean allowSubprocess_){
 		this(FileFormat.testInput(fname, FileFormat.GFA, null, allowSubprocess_, false));
 	}
-	
+
 	/**
-	 * Creates a GFA reader from a FileFormat specification.
-	 * Sets the amino-acid read flag (when Shared.AMINO_IN), opens the underlying ByteFile,
-	 * and warns if the filename lacks a .gfa extension. GFA input is always single-ended.
-	 * @param ff FileFormat object specifying input source and options
+	 * Opens the selected ByteFile and captures the amino flag and stdio indicator.
+	 * Warns when the supplied descriptor does not report GFA; it does not convert
+	 * another format. This reader always reports unpaired input.
+	 * @param ff Input format, name and backend options
 	 */
 	public GfaReadInputStream(FileFormat ff){
 		if(verbose){System.err.println("GfaReadInputStream("+ff+")");}
@@ -49,24 +80,38 @@ public class GfaReadInputStream extends ReadInputStream {
 			System.err.println("Warning: Did not find expected gfa file extension for filename "+ff.name());
 		}
 		tf=ByteFile.makeByteFile(ff);
-//		assert(false) : interleaved;
 	}
-	
-	
+
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/**
+	 * Tests for buffered reads, refilling only when the buffer is exhausted and
+	 * the backend is open. Prefetching updates generated, not consumed.
+	 * An already buffered list remains available after close.
+	 * @return True if the current buffer contains an unconsumed entry
+	 */
 	@Override
-	public boolean hasMore() {
+	public boolean hasMore(){
 		if(buffer==null || next>=buffer.size()){
+			//[stream/GfaReadInputStream#004] Closed zero-record input is ordinary EOF, including repeated queries.
 			if(tf.isOpen()){
 				fillBuffer();
-			}else{
-				assert(generated>0) : "Was the file empty?";
 			}
 		}
 		return (buffer!=null && next<buffer.size());
 	}
-	
+
+	/**
+	 * Transfers the entire buffered list and clears this reader's reference to it.
+	 * Refills when needed, even if the backend has already been closed; an empty
+	 * parsed list becomes null. Returned entries are added to consumed.
+	 * @return Next nonempty batch, or null when no entries are available
+	 * @throws RuntimeException If the vestigial single-read index is nonzero
+	 */
 	@Override
-	public synchronized ArrayList<Read> nextList() {
+	public synchronized ArrayList<Read> nextList(){
 		if(next!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
 		if(buffer==null || next>=buffer.size()){fillBuffer();}
 		ArrayList<Read> list=buffer;
@@ -75,25 +120,24 @@ public class GfaReadInputStream extends ReadInputStream {
 		consumed+=(list==null ? 0 : list.size());
 		return list;
 	}
-	
+
 	/**
-	 * Refills the read buffer from the underlying GFA file.
-	 * Reads up to BUF_LEN reads and applies header shrinking if enabled.
-	 * Closes file when fewer reads than buffer size are returned.
+	 * Replaces an exhausted buffer with up to the captured batch length, advancing IDs and counts.
+	 * A short batch closes the backend and folds its returned error flag. A full
+	 * batch does not fetch another line merely to test EOF. Parsing or close
+	 * exceptions propagate and can interrupt counter updates.
 	 */
 	private synchronized void fillBuffer(){
-		
 		assert(buffer==null || next>=buffer.size());
-		
 		buffer=null;
 		next=0;
 		buffer=toReadList(tf, BUF_LEN, nextReadID, flag);
 		int bsize=(buffer==null ? 0 : buffer.size());
 		nextReadID+=bsize;
-		if(bsize<BUF_LEN){tf.close();}
-		
+		//[stream/GfaReadInputStream#006] ByteFile.close returns true on error; retain that status even before public close.
+		if(bsize<BUF_LEN && tf.close()){errorState=true;}
 		generated+=bsize;
-		//defensive/unreachable: toReadList always returns a (possibly empty) list, never null. An empty buffer -> nextList() maps empty->null as the EOF signal.
+		//Defensive: toReadList returns a possibly empty list, never null; nextList maps an empty list to null.
 		if(buffer==null){
 			if(!errorState){
 				errorState=true;
@@ -101,24 +145,42 @@ public class GfaReadInputStream extends ReadInputStream {
 			}
 		}
 	}
-	
+
+	/**
+	 * Collects reads from nonempty lines whose first byte is S, skipping other lines.
+	 * Zero-based tab fields 1 and 2 provide the US-ASCII name and copied sequence; qualities
+	 * are passed as null. The initial capacity of at most 400 is not a batch cap.
+	 * No complete GFA record/graph validation or description trimming is performed.
+	 * @param bf Backend supplying lines on this caller
+	 * @param maxReadsToReturn Maximum entries in the returned list
+	 * @param numericID ID assigned to the first converted entry
+	 * @param flag Read flags captured by the constructor
+	 * @return New list, possibly empty, never null on normal return
+	 */
 	private ArrayList<Read> toReadList(final ByteFile bf, final int maxReadsToReturn,
 			long numericID, final int flag){
 		ArrayList<Read> list=new ArrayList<Read>(Data.min(400, maxReadsToReturn));
-		//Only GFA 'S' (segment) lines become Reads; all other record types (H/L/P/C/W) are skipped. numericID advances only per added read.
-		for(byte[] line=bf.nextLine(); line!=null && list.size()<maxReadsToReturn; line=bf.nextLine()) {
-			if(line.length>0 && line[0]=='S') {
+		//Only lines starting with S become Reads; other record types are skipped. IDs advance per constructed entry.
+		//[stream/GfaReadInputStream#005] Check capacity before fetching so the next batch's first line is not discarded.
+		for(byte[] line=null; list.size()<maxReadsToReturn && (line=bf.nextLine())!=null;){
+			if(line.length>0 && line[0]=='S'){
 				lp.set(line);
 				String id=lp.parseString(1);
 				byte[] bases=lp.parseByteArray(2);
-				//#002-refuted [stream/GfaReadInputStream#002]: a GFA '*' (no-sequence) segment does NOT yield a spurious 1bp read -> Read.validate (always -ea) rejects the junk base and crashes LOUD here (verified: reformat exit=1, no hang). This is the backstop that makes the unvalidated inline parse safe.
+				//[stream/GfaReadInputStream#002] Historical nucleotide test rejected '*' via Read validation (reformat exit1).
+				//That backstop depends on constructor validation, input mode and Read settings; it is not a universal GFA check.
 				Read r=new Read(bases, null, id, numericID++, flag);
 				list.add(r);
 			}
 		}
 		return list;
 	}
-	
+
+	/**
+	 * Closes the backend and folds its returned error flag into the cached status.
+	 * Does not discard buffered reads or reset counters. Thrown exceptions propagate.
+	 * @return Cached error status after closure
+	 */
 	@Override
 	public boolean close(){
 		if(verbose){System.err.println("Closing "+this.getClass().getName()+" for "+tf.name()+"; errorState="+errorState);}
@@ -127,8 +189,13 @@ public class GfaReadInputStream extends ReadInputStream {
 		return errorState;
 	}
 
+	/**
+	 * Clears counters, buffered data and numeric IDs, then delegates backend reset.
+	 * Retains the cached error flag and captured configuration. This is not an atomic
+	 * rollback if backend reset fails; coordinate it with iteration and close.
+	 */
 	@Override
-	public synchronized void restart() {
+	public synchronized void restart(){
 		generated=0;
 		consumed=0;
 		next=0;
@@ -137,44 +204,59 @@ public class GfaReadInputStream extends ReadInputStream {
 		tf.reset();
 	}
 
+	/** @return False; this reader does not construct read pairs */
 	@Override
-	public boolean paired() {return false;}
-	
+	public boolean paired(){return false;}
+
+	/** @return Input name reported by the backend */
 	@Override
 	public String fname(){return tf.name();}
-	
-	/** Return true if this stream has detected an error */
+
+	/**
+	 * Returns the cached flag, including errors reported by automatic or explicit close.
+	 * Thrown parsing failures are separate and need not set this flag.
+	 * @return True if a cached error has been recorded
+	 */
 	@Override
-	//local-only is correct here: GFA has no delegated sub-parser carrying a separate error flag to OR-in (contrast Scarf's static FASTQ.errorState / Sam's streamer.errorState swallow #001). Inline parse errors surface as exceptions (e.g. Read.validate rejecting junk bases -> verified loud crash), not a swallowed flag.
 	public boolean errorState(){return errorState;}
 
-	/** Current buffer of reads loaded from file */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Prefetched batch; ownership transfers to the caller through nextList. */
 	private ArrayList<Read> buffer=null;
-	/** Index of next read to return from buffer */
-	private int next=0;//vestigial: never incremented (blockwise-only reader via nextList) -> always 0.
-	
-	/** Underlying file reader for GFA data */
+	/** Vestigial single-read index; blockwise operations leave it at zero. */
+	private int next=0;
+
+	/** Backend opened at construction; it may have its own worker threads. */
 	private final ByteFile tf;
-	/** Read flags for amino acid mode or other special processing */
+	/** Captured amino-acid mask, or zero for nucleotide input. */
 	private final int flag;
 
-	/** Buffer size in number of reads to load at once */
+	/** Read-count batch limit captured from Shared at construction. */
 	private final int BUF_LEN=Shared.bufferLen();
-	/** Maximum data size for buffer (currently unused for super-long reads) */
-	private final long MAX_DATA=Shared.bufferData(); //TODO - lot of work for unlikely case of super-long gfa reads.  Must be disabled for paired-ends.
+	/** Captured but unused byte/base limit; batches currently have no such cap. */
+	private final long MAX_DATA=Shared.bufferData();//TODO - lot of work for unlikely case of super-long gfa reads.  Must be disabled for paired-ends.
 
+	/** Reused tab-field parser, accessed during caller-side parsing. */
 	private final LineParser1 lp=new LineParser1('\t');
-	
-	/** Total number of reads loaded from file */
+
+	/** Entries counted after completed refills since construction or restart, not batches. */
 	public long generated=0;
-	/** Total number of reads returned to caller */
+	/** Entries handed out by nextList since construction or restart, not batches. */
 	public long consumed=0;
-	/** ID number to assign to next read loaded from file */
+	/** Starting numeric ID for the next parse batch; reset by restart. */
 	private long nextReadID=0;
-	
-	/** Whether input is from standard input stream */
+
+	/** Whether the constructor's format descriptor marks standard I/O. */
 	public final boolean stdin;
-	/** Whether to print verbose debugging information */
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Fields         ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Enables diagnostic messages; configure before use. */
 	public static boolean verbose=false;
 
 }

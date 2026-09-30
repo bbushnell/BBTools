@@ -13,28 +13,39 @@ import shared.Tools;
 import structures.ListNum;
 import template.ThreadWaiter;
 
-/**
- * Loads FASTQ files rapidly with multiple threads.
- * 
- * @author Isla
+/** Parallel FASTQ reader with one byte-input thread and ordered conversion workers.
+ * Call start once per instance, then consume batches through nextList. Interleaved
+ * input links adjacent records as mates; maxReads and sampling positions count pairs
+ * in that mode. Output order follows input batch order, including empty sampled batches.
+ * Configure shared parser options and sampling before starting. Record decoding uses
+ * nucleotide flags; this reader does not capture Shared.AMINO_IN.
+ * EOF and close do not join the input coordinator or wait for its counter aggregation.
+ * Error reporting retains the documented deferred shared-state concern below; this
+ * class does not promise general thread safety for lifecycle/configuration changes.
+ * @author Isla, Shinobu
  * @date October 30, 2025
  */
-public class FastqStreamer implements Streamer {
-	
-	public static void main(String[] args) {
+public class FastqStreamer implements Streamer{
+
+	/** Legacy throughput driver that delegates reader selection to StreamerFactory.
+	 * Positional arguments select input, default workers, the legacy SIMD toggle and
+	 * vector validation. The existing ungated SIMD toggle remains separately deferred.
+	 * @param args Input filename followed by optional driver settings
+	 */
+	public static void main(final String[] args){
 		Timer t=new Timer();
 		String fname=args[0];
-		if(args.length>1) {DEFAULT_THREADS=Integer.parseInt(args[1]);}
+		if(args.length>1){DEFAULT_THREADS=Integer.parseInt(args[1]);}
 		//TODO: Probable bug - STR-006: this standalone driver forces SIMD without the JVM/hardware gate used by normal launchers.
-		if(args.length>2) {Shared.SIMD=true;}
-		if(args.length>3) {Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
-		
+		if(args.length>2){Shared.SIMD=true;}
+		if(args.length>3){Read.VALIDATE_VECTOR=Parse.parseBoolean(args[3]);}
+
 		FileFormat ff=FileFormat.testInput(fname, FileFormat.FASTQ, null, true, true);
 		Streamer st=StreamerFactory.makeStreamer(ff, 0, true, -1, true, true);
 		st.start();
 		long reads=0, bases=0;
-		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()) {
-			for(Read r : ln) {
+		for(ListNum<Read> ln=st.nextList(); ln!=null; ln=st.nextList()){
+			for(Read r : ln){
 				reads+=r.pairCount();
 				bases+=r.pairLength();
 			}
@@ -42,18 +53,30 @@ public class FastqStreamer implements Streamer {
 		t.stop();
 		System.err.println(Tools.timeReadsBasesProcessed(t, reads, bases, 8));
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Constructor. */
-	public FastqStreamer(String fname_, int threads_, int pairnum_, long maxReads_){
+
+	/** Resolves a FASTQ descriptor with subprocess input allowed, then delegates.
+	 * @param fname_ Input path or standard-input name
+	 * @param threads_ Conversion workers; values below one select DEFAULT_THREADS
+	 * @param pairnum_ Pair marker for noninterleaved reads: 0 or 1
+	 * @param maxReads_ Input-record limit, or pair limit when interleaved; negative means unlimited
+	 */
+	public FastqStreamer(final String fname_, final int threads_, final int pairnum_, final long maxReads_){
 		this(FileFormat.testInput(fname_, FileFormat.FASTQ, null, true, false), threads_, pairnum_, maxReads_);
 	}
-	
-	/** Constructor. */
-	public FastqStreamer(FileFormat ffin_, int threads_, int pairnum_, long maxReads_){
+
+	/** Captures the descriptor/configuration and creates queues without opening input.
+	 * Adds one input coordinator beyond the conversion-worker count. Assertions require
+	 * a valid pair marker and marker zero for interleaved input.
+	 * @param ffin_ Nonnull input descriptor, including pairing and subprocess settings
+	 * @param threads_ Worker request, defaulted below one and clamped to 1..Shared.threads()
+	 * @param pairnum_ Pair marker for noninterleaved reads: 0 or 1
+	 * @param maxReads_ Input-record or interleaved-pair limit before sampling; negative means unlimited
+	 */
+	public FastqStreamer(final FileFormat ffin_, final int threads_, final int pairnum_, final long maxReads_){
 		ffin=ffin_;
 		fname=ffin_.name();
 		threads=Tools.mid(1, threads_<1 ? DEFAULT_THREADS : threads_, Shared.threads());
@@ -63,37 +86,47 @@ public class FastqStreamer implements Streamer {
 		assert(pairnum==0 || !interleaved);
 //		if(interleaved && maxReads_<Long.MAX_VALUE/2) {maxReads_*=2;}
 		maxReads=(maxReads_<0 ? Long.MAX_VALUE : maxReads_);
-		
+
 		// Create OQS with prototypes for LAST/POISON generation
 		ListNum<byte[][]> inputPrototype=new ListNum<byte[][]>(null, 0, ListNum.PROTO);
 		ListNum<Read> outputPrototype=new ListNum<Read>(null, 0, ListNum.PROTO);
 		oqs=new OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>>(
 			threads, true, inputPrototype, outputPrototype);
-		
+
 		if(verbose){outstream.println("Made FastqStreamer-"+threads);}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
+	/** Starts one input coordinator and the configured conversion workers.
+	 * Resets aggregate counters, but does not reset queues or error state. Call once;
+	 * repeated starts are not a supported restart operation. Returns without joining.
+	 */
 	@Override
 	public void start(){
 		if(verbose){outstream.println("FastqStreamer.start() called.");}
-		
+
 		//Reset counters
 		readsProcessed=0;
 		basesProcessed=0;
-		
+
 		//Process the reads in separate threads
 		spawnThreads();
-		
+
 		if(verbose){outstream.println("FastqStreamer started.");}
 	}
-	
+
+	/** Closes an available byte backend, then forces output-queue termination.
+	 * Does not join this streamer's coordinator or conversion workers, or wait for
+	 * their counter aggregation. Backend close may itself wait for backend threads.
+	 * Does not fold the backend close result into errorState here. Use as early/emergency
+	 * shutdown, not restart.
+	 */
 	@Override
 	public void close(){
-		if(bf!=null) {bf.close(); bf=null;}
+		if(bf!=null){bf.close(); bf=null;}
 		//Emergency-abort completeness: also force-finish the OQS so a close() from a dying/early-exiting
 		//consumer frees blocked workers (outq capacity-wait) and lets the input thread drain to its own
 		//poison. Without this, a consumer death left every non-daemon pipeline thread blocked and the JVM
@@ -101,41 +134,81 @@ public class FastqStreamer implements Streamer {
 		//and harmless on the normal path (nextList already called setFinished on LAST).
 		oqs.setFinished(true);
 	}
-	
+
+	/** Returns the captured descriptor name.
+	 * @return Input filename or standard-input name
+	 */
 	@Override
-	public String fname() {return fname;}
-	
+	public String fname(){return fname;}
+
+	/** Returns the delegated queue hint without consuming a batch.
+	 * Use nextList to detect EOF; this hint is not a termination guarantee after forced close.
+	 * @return Current OrderedQueueSystem availability hint
+	 */
 	@Override
 	public boolean hasMore(){
 		return oqs.hasMore();
 	}
-	
+
+	/** Returns the shared error flag without waiting for producer/worker completion.
+	 * Retains the separately recorded shared-state limitation; not a final-status barrier.
+	 * @return Currently observed error flag
+	 */
 	@Override
-	public boolean errorState() {return errorState;}
-	
+	public boolean errorState(){return errorState;}
+
+	/** Returns the captured interleaved-input mode.
+	 * @return true when adjacent input records are processed as mates
+	 */
 	@Override
 	public boolean paired(){return interleaved;}
 
+	/** Returns the captured marker used for noninterleaved reads.
+	 * Interleaved reads receive their individual 0/1 markers during conversion.
+	 * @return Configured pair marker
+	 */
 	@Override
 	public int pairnum(){return pairnum;}
-	
+
+	/** Returns the aggregate count of converted individual reads, including both mates.
+	 * Sampled-out records are excluded. The input coordinator aggregates after worker
+	 * joins; EOF and close do not wait for that step or guarantee its visibility.
+	 * @return Currently observed aggregate converted-read count
+	 */
 	@Override
-	public long readsProcessed() {return readsProcessed;}
-	
+	public long readsProcessed(){return readsProcessed;}
+
+	/** Returns the aggregate base count for converted reads, including both mates.
+	 * Aggregation and visibility have the same limits as readsProcessed.
+	 * @return Currently observed aggregate converted-base count
+	 */
 	@Override
-	public long basesProcessed() {return basesProcessed;}
-	
+	public long basesProcessed(){return basesProcessed;}
+
+	/** Configures positional sampling; call before start, not concurrently with workers.
+	 * Workers keep every record for rates at least one; lower rates use sampleKeep.
+	 * Input positions supply numeric IDs even when other records are skipped. Interleaved
+	 * mates are kept or dropped together. This setter does not validate the rate.
+	 * @param rate Requested fraction, normally in [0,1]
+	 * @param seed Sampling seed; negative requests a newly chosen random seed
+	 */
 	@Override
-	public void setSampleRate(float rate, long seed){
+	public void setSampleRate(final float rate, final long seed){
 		samplerate=rate;
 		sampleSeed=Streamer.resolveSampleSeed(seed);
 	}
-	
+
+	/** Waits for the next ordered batch, which may be empty after sampling.
+	 * Consuming LAST forces queue termination. A null/LAST result with an observed
+	 * error flag invokes the existing fatal helper rather than returning clean EOF.
+	 * This method does not wait for the coordinator to aggregate worker counters.
+	 * @return Next batch, or null at terminal input when no error flag is observed
+	 */
 	@Override
 	public ListNum<Read> nextList(){
 		ListNum<Read> list=oqs.getOutput();
 		if(verbose){
-			if(list==null) {outstream.println("Consumer got null.");}
+			if(list==null){outstream.println("Consumer got null.");}
 			else {outstream.println("Consumer got list "+list.id()+" type "+list.type);}
 		}
 		if(list==null || list.last()){
@@ -150,67 +223,81 @@ public class FastqStreamer implements Streamer {
 		}
 		return list;
 	}
-	
+
+	/** Rejects the SAM-line API for this FASTQ reader.
+	 * @return Never returns normally
+	 * @throws UnsupportedOperationException Always, because FASTQ has no SamLine output
+	 */
 	@Override
 	public ListNum<SamLine> nextLines(){
 		throw new UnsupportedOperationException("FASTQ does not support SamLine");
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	/** Spawn process threads */
+
+	/** Creates and starts a shared thread list: coordinator at index zero, then workers. */
 	void spawnThreads(){
 		//Determine how many threads may be used
 		final int threads=this.threads+1;
-		
+
 		//Fill a list with ProcessThreads
 		ArrayList<ProcessThread> alpt=new ArrayList<ProcessThread>(threads);
 		for(int i=0; i<threads; i++){
 			alpt.add(new ProcessThread(i, alpt));
 		}
 		if(verbose){outstream.println("Spawned threads.");}
-		
+
 		//Start the threads
 		for(ProcessThread pt : alpt){
 			pt.start();
 		}
 		if(verbose){outstream.println("Started threads.");}
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
-	
-	private class ProcessThread extends Thread {
-		
-		/** Constructor */
-		ProcessThread(final int tid_, ArrayList<ProcessThread> alpt_){
+
+	/** Input coordinator for tid zero, otherwise a conversion worker sharing the queues. */
+	private class ProcessThread extends Thread{
+
+		/** Assigns a diagnostic name and retains the join list only for the coordinator.
+		 * @param tid_ Zero for byte input, positive for a conversion worker
+		 * @param alpt_ Shared thread list, filled before any member is started
+		 */
+		ProcessThread(final int tid_, final ArrayList<ProcessThread> alpt_){
 			tid=tid_;
 			setName("FastqStreamer-"+(tid==0 ? "Input" : "Worker-"+tid));
 			alpt=(tid==0 ? alpt_ : null);
 		}
-		
-		/** Called by start() */
+
+		/** Dispatches the assigned role and marks success only when that role returns.
+		 * Worker failures rethrow; input-reading failures are caught inside processBytes.
+		 */
 		@Override
 		public void run(){
 			//Process the reads
 			if(tid==0){
 				processBytes();
 			}else{
-				if(interleaved) {
+				if(interleaved){
 					makeReadsInterleaved();
 				}else {
 					makeReadsSingle();
 				}
 			}
-			
+
 			//Indicate successful exit status
 			success=true;
 			if(verbose){outstream.println("tid "+tid+" terminated.");}
 		}
-		
+
+		/** Reads/enqueues byte batches, signals completion in finally, then joins workers.
+		 * Joins skip this coordinator itself. Aggregates converted-read/base counters and
+		 * unsuccessful-worker status after joining; terminal output can be consumed earlier.
+		 */
 		void processBytes(){
 			//[stream/FastqStreamer#001 FIXED 2026-06-20]: try/finally GUARANTEES oqs.poison() even when processBytes0() throws (an I/O
 			//error from bf.nextLine, OOM, etc.), so the workers in getInput() + the consumer in getOutput() wake instead of hanging;
@@ -226,7 +313,7 @@ public class FastqStreamer implements Streamer {
 				oqs.poison();// Signal completion via OQS -- ALWAYS, so workers (getInput) + consumer (getOutput) wake
 			}
 			if(verbose){outstream.println("tid "+tid+" done with processBytes0 + poisoning.");}
-			
+
 			//Wait for completion of all threads
 			boolean allSuccess=true;
 			ThreadWaiter.waitForThreadsToFinish(alpt);
@@ -240,31 +327,33 @@ public class FastqStreamer implements Streamer {
 				}
 			}
 			if(verbose){outstream.println("tid "+tid+" noted all process threads finished.");}
-			
+
 			//Track whether any threads failed
 			if(!allSuccess){errorState=true;}
 			if(verbose){outstream.println("tid "+tid+" finished! Error="+errorState);}
 		}
-		
-		/** 
-		 * Thread 0 reads the actual file and produces lists of byte[][] (4 lines per read).
-		 * Normalizes only real '+' separator lines; malformed bytes must reach
-		 * quadToReadVec's existing assertion when the record is converted.
+
+		/** Opens input and enqueues four-line records with original record/pair positions.
+		 * Samples no records here. Checks incomplete records/pairs, normalizes only real
+		 * '+' separator lines, and leaves other validation to conversion of retained records.
+		 * Batch thresholds count quad records and an approximate two-times-bases byte size;
+		 * interleaved pairs stay together and can exceed a threshold. Header bytes are omitted.
+		 * Reads batch thresholds once on entry and folds the final backend-close result.
 		 */
 		private void processBytes0(){
 			if(verbose){outstream.println("tid "+tid+" started processBytes.");}
-			
+
 			bf=ByteFile.makeByteFile(ffin);
-			
+
 			long listNumber=0;
 			long reads=0;
 			int bytes=0;
 			final int sections=(interleaved ? 2 : 1);
-			
+
 			final int slimit=TARGET_LIST_SIZE, blimit=TARGET_LIST_BYTES;
 			ListNum<byte[][]> ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(slimit), listNumber++);
 			ln.firstRecordNum=reads;
-			
+
 			while(reads<maxReads){
 				{
 					// Read 4 lines per FASTQ record
@@ -311,7 +400,7 @@ public class FastqStreamer implements Streamer {
 					ln.add(record);
 				}
 				reads++;
-				
+
 				if(ln.size()>=slimit || bytes>=blimit){
 					oqs.addInput(ln);
 					ln=new ListNum<byte[][]>(new ArrayList<byte[][]>(slimit), listNumber++);
@@ -319,7 +408,7 @@ public class FastqStreamer implements Streamer {
 					bytes=0;
 				}
 			}
-			
+
 			if(verbose){outstream.println("tid "+tid+" ran out of input.");}
 			if(ln.size()>0){
 				oqs.addInput(ln);
@@ -330,8 +419,11 @@ public class FastqStreamer implements Streamer {
 			errorState|=bf.close();//Fold the reader's error state (truncated/corrupt input) so it isn't silently dropped at the streamer boundary
 			if(verbose){outstream.println("tid "+tid+" closed stream.");}
 		}
-		
-		/** Iterate through the reads */
+
+		/** Converts selected single records with positional IDs and the configured pair marker.
+		 * Publishes an output batch even if sampling retains nothing. Re-enqueues terminal
+		 * poison for other workers; failures mark error, force queue completion and rethrow.
+		 */
 		void makeReadsSingle(){
 			//[stream/FastqStreamer#001 FIXED 2026-06-20]: worker death (a throw in quadToRead/quadToReadVec) used to leave its ordered
 			//job UNDELIVERED -> the ordered consumer blocked forever on the gap. The catch force-poisons outq via oqs.setFinished(true)
@@ -370,19 +462,23 @@ public class FastqStreamer implements Streamer {
 				}
 				if(verbose){outstream.println("tid "+tid+" done making reads.");}
 				//Re-inject poison for other workers
-				if(list!=null) {oqs.addInput(list);}
+				if(list!=null){oqs.addInput(list);}
 			}catch(Throwable t){
 				errorState=true;
 				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
 				throw new RuntimeException("FastqStreamer worker "+tid+" failed: "+fname, t);
 			}
 		}
-		
-		/** Iterate through the reads */
+
+		/** Converts selected adjacent pairs, links mates and publishes their first reads.
+		 * Both mates share the input-pair numeric ID. An odd trailing quad records an error;
+		 * complete pairs before it are still processed. Sampling is by pair position.
+		 * Terminal and failure handling match the single-record worker.
+		 */
 		void makeReadsInterleaved(){
 			//[stream/FastqStreamer#001 FIXED 2026-06-20]: same worker-death gap fix as makeReadsSingle — a throw in quadToRead leaves an
 			//undelivered ordered job -> consumer hang; the catch force-poisons outq via setFinished(true) + records errorState so the
-			//consumer wakes + crashes LOUD in nextList. (The odd-pair case at L353 already sets errorState gracefully without throwing.)
+			//consumer wakes + crashes LOUD in nextList. (The odd-quads branch below already sets errorState without throwing.)
 			if(verbose){outstream.println("tid "+tid+" started makeReads.");}
 
 			try{
@@ -434,20 +530,27 @@ public class FastqStreamer implements Streamer {
 				}
 				if(verbose){outstream.println("tid "+tid+" done making reads.");}
 				//Re-inject poison for other workers
-				if(list!=null) {oqs.addInput(list);}
+				if(list!=null){oqs.addInput(list);}
 			}catch(Throwable t){
 				errorState=true;
 				oqs.setFinished(true);//force-poison outq -> release the consumer past THIS worker's undelivered-job gap
 				throw new RuntimeException("FastqStreamer worker "+tid+" failed: "+fname, t);
 			}
 		}
-		
-		private Read quadToRead(byte[][] quad, int pairnum, long id) {
+
+		/** Decodes one retained nucleotide record, sets its pair marker and counts it.
+		 * Explicitly validates when the Read constructor has not already done so.
+		 * @param quad Header, bases, separator and encoded qualities
+		 * @param pairnum Pair marker to assign
+		 * @param id Original record position, or shared pair position when interleaved
+		 * @return Converted and validated read
+		 */
+		private Read quadToRead(final byte[][] quad, final int pairnum, final long id){
 //			Read r=FASTQ.quadToRead_slow(quad, false, null, readID, 0);
-			
+
 			Read r=FASTQ.quadToReadVec(quad, id, 0, fname);
 			r.setPairnum(pairnum);
-			
+
 			if(!r.validated()){r.validate(true);}
 
 			readsProcessedT++;
@@ -455,64 +558,74 @@ public class FastqStreamer implements Streamer {
 			return r;
 		}
 
-		/** Number of reads processed by this thread */
+		/** Converted individual reads retained by sampling; both mates are counted. */
 		protected long readsProcessedT=0;
-		/** Number of bases processed by this thread */
+		/** Bases in successfully converted reads retained by this worker. */
 		protected long basesProcessedT=0;
-		/** True only if this thread has completed successfully */
+		/** True when the assigned role returns; coordinator catches input failures internally. */
 		boolean success=false;
-		/** Thread ID */
+		/** Zero for the input coordinator; positive for conversion workers. */
 		final int tid;
-		
+
+		/** Coordinator-only join list; null in workers and fully populated before startup. */
 		ArrayList<ProcessThread> alpt;
 	}
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Primary input file path */
 	public final String fname;
-	
+
 	/** Primary input file */
 	final FileFormat ffin;
-	
-	/** Input source */
+
+	/** Byte backend opened by the coordinator; close may clear this reference. */
 	private ByteFile bf;
-	
+
+	/** Shared input jobs and output batches, with output ordered by batch ID. */
 	final OrderedQueueSystem<ListNum<byte[][]>, ListNum<Read>> oqs;
-	
+
+	/** Conversion-worker count, excluding the additional byte-input coordinator. */
 	final int threads;
+	/** Marker for noninterleaved input; zero is required when interleaved. */
 	final int pairnum;
+	/** Descriptor pairing mode captured at construction. */
 	final boolean interleaved;
-	
-	/** Number of reads processed */
+
+	/** Converted individual reads, aggregated by the coordinator after worker joins. */
 	protected long readsProcessed=0;
-	/** Number of bases processed */
+	/** Converted bases, aggregated by the coordinator after worker joins. */
 	protected long basesProcessed=0;
-	
-	/** Quit after processing this many input reads */
+
+	/** Input-record or interleaved-pair limit before sampling; negative requests become Long.MAX_VALUE. */
 	final long maxReads;
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Static Fields         ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Soft quad-record count per input batch, read once when byte input begins. */
 	public static int TARGET_LIST_SIZE=shared.Shared.bufferLen();
+	/** Soft approximate byte threshold per input batch; counts twice each base length. */
 	public static int TARGET_LIST_BYTES=262144;
+	/** Default conversion-worker request before the constructor's global-thread clamp. */
 	public static int DEFAULT_THREADS=2;
+	/** Shared canonical separator replacing valid plus lines with trailing text. */
 	private static final byte[] PLUS=new byte[]{(byte)'+'};
-	
+
 	/*--------------------------------------------------------------*/
 	/*----------------        Common Fields         ----------------*/
 	/*--------------------------------------------------------------*/
-	
+
 	/** Print status messages to this output stream */
 	protected PrintStream outstream=System.err;
 	/** Print verbose messages */
 	public static final boolean verbose=false;
-	/** True if an error was encountered */
+	/** Shared producer/worker error flag; retains the deferred STR-004 update concern. */
 	public boolean errorState=false;
+	/** Live positional sampling rate; configure before starting workers. */
 	private float samplerate=1f;
 	/** Seed for positional sampling (Streamer.sampleKeep); resolved from setSampleRate's seed */
 	private long sampleSeed=17;

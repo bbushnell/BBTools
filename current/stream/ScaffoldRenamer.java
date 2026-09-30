@@ -14,16 +14,25 @@ import fileIO.TextFile;
  * when the old and new names refer to the SAME assembly (e.g. UCSC "chr1" vs Ensembl "1").
  * It does NOT perform liftover between different reference builds.
  *
- * <p>Stateless per call once constructed (the map is read-only), so a single instance is
- * safe to share across the wrapper's worker threads.
+ * <p>Renaming reads the map without changing it, but {@link #map()} exposes the mutable
+ * backing map. Callers sharing this object must publish it safely, avoid concurrent
+ * map changes and coordinate mutation of each SAM record. Keep the RNAME storage
+ * mode fixed and consistent with the records being renamed.
  *
  * @author UMP45
  */
-public class ScaffoldRenamer {
+public class ScaffoldRenamer{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
-	 * Loads the old&rarr;new name map from a 2-column TSV. Blank lines and lines beginning
+	 * Loads a nonempty old&rarr;new name map from a TSV. Empty lines and lines beginning
 	 * with '#' are skipped; the first two tab-delimited fields are taken as old, new.
+	 * Later columns are ignored, names are not trimmed and later duplicate keys replace
+	 * earlier values. Supply valid scaffold names for the same reference assembly;
+	 * this loader does not validate the assembly relationship or uniqueness of new names.
 	 * @param tsvPath Path to the 2-column old&lt;tab&gt;new TSV
 	 */
 	public ScaffoldRenamer(String tsvPath){
@@ -39,11 +48,16 @@ public class ScaffoldRenamer {
 		assert(!map.isEmpty()) : "No rename pairs loaded from "+tsvPath;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Rewrites the SN: field of an {@code @SQ} header line via the rename map.
-	 * Non-@SQ lines, and @SQ lines whose SN is not in the map, are returned unchanged.
-	 * @param line A single SAM header line
-	 * @return The line with SN: renamed, or the original line if nothing changed
+	 * Rewrites the first SN: field of an {@code @SQ} header line via the rename map.
+	 * Uses an @SQ prefix check and stops at the first SN: field even if it has no mapping.
+	 * A mapping hit rejoins the split fields with tabs; otherwise the original string is returned.
+	 * @param line A single SAM header line; null is returned unchanged
+	 * @return Rebuilt line on a nonnull mapping hit, or the original reference otherwise
 	 */
 	public String renameHeaderLine(String line){
 		if(line==null || !line.startsWith("@SQ")){return line;}
@@ -64,11 +78,14 @@ public class ScaffoldRenamer {
 
 	/**
 	 * Rewrites the RNAME and RNEXT fields of a record via the rename map, in place.
-	 * RNEXT="=" (mate on same scaffold as RNAME) and unmapped (null) fields are left alone.
+	 * Null RNAME/RNEXT fields and RNEXT="=" (mate on the same scaffold) are left alone.
+	 * The unmapped flag itself does not prevent renaming a supplied reference name.
 	 * Reads RNAME via {@link SamLine#rnameS()} (mode-agnostic) and writes via the setter
-	 * matching {@link SamLine#RNAME_AS_BYTES}.
-	 * @param sl The record to rename in place
-	 * @return true if RNAME or RNEXT was changed
+	 * matching {@link SamLine#RNAME_AS_BYTES}; keep that mode consistent with the record.
+	 * Byte conversions in this method use the platform default charset; SamLine setters
+	 * apply their normal reference-name canonicalization. Coordinates and CIGAR are untouched.
+	 * @param sl Nonnull record owned by the caller for the duration of this mutation
+	 * @return true if a nonnull mapping was assigned to RNAME or RNEXT, even when its text is unchanged
 	 */
 	public boolean renameRecord(SamLine sl){
 		boolean changed=false;
@@ -89,10 +106,18 @@ public class ScaffoldRenamer {
 		return changed;
 	}
 
-	/** @return The old&rarr;new rename map (read-only use). */
+	/**
+	 * Exposes the live mutable backing map, without copying or a read-only wrapper.
+	 * Changes affect subsequent renaming; callers must coordinate access themselves.
+	 * @return The same old&rarr;new map retained by this renamer
+	 */
 	public HashMap<String, String> map(){return map;}
 
-	/** Old&rarr;new scaffold name map. */
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Old&rarr;new scaffold names; the reference is final but map() exposes mutable contents. */
 	private final HashMap<String, String> map;
 
 }

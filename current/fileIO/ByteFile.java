@@ -16,6 +16,7 @@ import structures.ListNum;
  * system resources and file characteristics.
  *
  * @author Brian Bushnell
+ * @contributor Shinobu (reader-local preference)
  */
 public abstract class ByteFile {
 	
@@ -60,13 +61,12 @@ public abstract class ByteFile {
 	}
 	
 	/**
-	 * Creates a ByteFile instance with explicit type selection.
-	 * Type 1 forces ByteFile1, type 2 forces ByteFile2.
-	 * Type 0 uses automatic selection based on system resources and settings.
-	 * Prefers ByteFile2 for multi-threaded systems unless forced otherwise.
+	 * Creates a reader with explicit type selection. An allowed explicit type
+	 * takes priority over global force flags. Type 0 or an unavailable explicit
+	 * type uses forced/automatic selection; automatic selection can choose BF4.
 	 *
 	 * @param ff The FileFormat describing the input file
-	 * @param type Implementation type (0=auto, 1=ByteFile1, 2=ByteFile2)
+	 * @param type Implementation type (0=auto, 1-4=ByteFile1-4)
 	 * @return ByteFile instance of the specified or selected type
 	 */
 	public static final ByteFile makeByteFile(FileFormat ff, int type){
@@ -75,6 +75,24 @@ public abstract class ByteFile {
 		if(type==3){return new ByteFile3(ff);}
 		if(type==2){return new ByteFile2(ff);}
 		return new ByteFile1(ff);
+	}
+
+	/**
+	 * Opens a reader with a preference for this call, preserving global force-flag priority.
+	 * A forced mode wins; otherwise an allowed preferred type wins over automatic selection.
+	 * Type 0 or an unavailable preference falls back to the existing automatic policy.
+	 * Does not change any shared selection flags. Configure shared flags before opening readers.
+	 * @param ff Input format descriptor
+	 * @param preferredType Preferred implementation (0=auto, 1-4=ByteFile1-4)
+	 * @return Newly opened reader
+	 * @throws IllegalArgumentException if preferredType is outside 0-4
+	 */
+	public static final ByteFile makeByteFileWithPreference(final FileFormat ff, final int preferredType){
+		if(preferredType<0 || preferredType>4){
+			throw new IllegalArgumentException("ByteFile preference must be 0-4: "+preferredType);
+		}
+		final int forced=forcedType();
+		return makeByteFile(ff, forced>0 ? forced : preferredType);
 	}
 	
 	/**
@@ -273,25 +291,33 @@ public abstract class ByteFile {
 	/** Returns whether subprocess decompression is allowed */
 	public final boolean allowSubprocess(){return ff.allowSubprocess();}
 	
-	private static final int pickType(int type) {
-		if(type==4 && !ALLOW_BF4) {type=0;}
-		else if(type==3 && !ALLOW_BF3) {type=0;}
-		else if(type==2 && !ALLOW_BF2) {type=0;}
-		else if(type==1 && !ALLOW_BF1) {type=0;}
-		if(type>0) {return type;}
+	/** Applies explicit type, forced mode, then automatic selection in that order. */
+	private static final int pickType(int type){
+		if(type==4 && !ALLOW_BF4){type=0;}
+		else if(type==3 && !ALLOW_BF3){type=0;}
+		else if(type==2 && !ALLOW_BF2){type=0;}
+		else if(type==1 && !ALLOW_BF1){type=0;}
+		if(type>0){return type;}
 		assert(type==0) : type;
 		
 		final int threads=Shared.threads();
-		if(FORCE_MODE_BF1) {return 1;}
-		if(FORCE_MODE_BF4) {return 4;}
-		if(FORCE_MODE_BF3) {return 3;}
-		if(FORCE_MODE_BF2) {return 2;}
+		final int forced=forcedType();
+		if(forced>0){return forced;}
 		
-		if(Shared.LOW_MEMORY || threads<12) {return 1;}
-		if(ALLOW_BF4) {return 4;}
-		if(ALLOW_BF3) {return 3;}
-		if(ALLOW_BF2) {return 2;}
+		if(Shared.LOW_MEMORY || threads<12){return 1;}
+		if(ALLOW_BF4){return 4;}
+		if(ALLOW_BF3){return 3;}
+		if(ALLOW_BF2){return 2;}
 		return 1;
+	}
+
+	/** Returns the highest-priority forced mode, or 0 when no force flag is set. */
+	private static final int forcedType(){
+		if(FORCE_MODE_BF1){return 1;}
+		if(FORCE_MODE_BF4){return 4;}
+		if(FORCE_MODE_BF3){return 3;}
+		if(FORCE_MODE_BF2){return 2;}
+		return 0;
 	}
 	
 	/** The FileFormat describing this file's characteristics and location */
@@ -303,8 +329,9 @@ public abstract class ByteFile {
 	public static boolean FORCE_MODE_BF1=false;
 	/** Force usage of ByteFile2 implementation regardless of system settings */
 	public static boolean FORCE_MODE_BF2=false;
-	/** Unused legacy flag for ByteFile3 implementation */
+	/** Force usage of ByteFile3 implementation */
 	public static boolean FORCE_MODE_BF3=false;
+	/** Force usage of ByteFile4 implementation */
 	public static boolean FORCE_MODE_BF4=false;
 
 	public static boolean ALLOW_BF1=true;

@@ -2,39 +2,42 @@ package stream;
 
 import fileIO.ByteStreamWriter;
 import fileIO.FileFormat;
+import shared.KillSwitch;
 import structures.ByteBuilder;
 import structures.ListNum;
 import structures.StringNum;
 
-/**
- * Thread-safe writer for SAM headers using ordered job queue pattern.
- * Accepts sequence names in batches via ListNum, maintains insertion order,
- * and writes properly formatted SAM header with @HD, @SQ, @RG, and @PG lines.
- * 
- * @author Isla
+/** Asynchronous SAM header writer consuming sequence batches in numeric ID order.
+ * Submit each contiguous batch ID once, starting at zero, then finish all producers
+ * before poisoning. Entries retain their order within a batch. Submitted lists and
+ * entries are shared, not copied; do not mutate them after submission.
+ * Construction starts both the byte writer and header consumer. Header settings
+ * are read during execution, not captured as one constructor snapshot. Sequence
+ * names/lengths are appended without validation or escaping. A finalization error
+ * reported by the byte writer terminates the JVM immediately. An interrupted wait
+ * can still return before completion; this class does not validate all output failures.
+ * @author Isla, Shinobu
  * @date October 30, 2025
  */
-public class SamHeaderWriter {
+public class SamHeaderWriter{
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Creates header writer with output file configuration.
-	 * Initializes ByteStreamWriter, JobQueue, and starts consumer thread.
-	 * @param ff Output file format for header file
+	/** Opens output and starts both writer threads with queue capacity 128.
+	 * @param ff Nonnull usable output descriptor for the header file
 	 */
-	public SamHeaderWriter(FileFormat ff){
+	public SamHeaderWriter(final FileFormat ff){
 		this(ff, 128);
 	}
 
-	/**
-	 * Creates header writer with specified queue capacity.
-	 * @param ff Output file format for header file
-	 * @param queueSize Maximum pending jobs before blocking on add()
+	/** Opens output, creates the ordered queue and starts the header consumer.
+	 * There is no separate start call. Output initialization precedes queue creation.
+	 * @param ff Nonnull usable output descriptor for the header file
+	 * @param queueSize JobQueue backpressure capacity, greater than one; not a strict pending-job maximum
 	 */
-	public SamHeaderWriter(FileFormat ff, int queueSize){
+	public SamHeaderWriter(final FileFormat ff, final int queueSize){
 		bsw=ByteStreamWriter.makeBSW(ff);
 		queue=new JobQueue<ListNum<StringNum>>(queueSize);
 		writerThread=new WriterThread();
@@ -45,18 +48,19 @@ public class SamHeaderWriter {
 	/*----------------        Public Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Adds batch of sequence entries to header in ordered fashion.
-	 * Submits ListNum directly to JobQueue which handles blocking and ordering.
-	 * @param ln Batch of sequences where StringNum.s is name and StringNum.n is length
+	/** Submits an unchanged batch reference to JobQueue, which may block for admission.
+	 * IDs determine output order, not call order; supply contiguous IDs from zero,
+	 * including empty batches when needed. Does not reject calls after poison locally;
+	 * callers must finish all submissions before poisoning and must not mutate data.
+	 * @param ln Batch with StringNum.s sequence names and StringNum.n sequence lengths
 	 */
-	public void add(ListNum<StringNum> ln){
+	public void add(final ListNum<StringNum> ln){
 		queue.add(ln);
 	}
 
-	/**
-	 * Poisons the queue to signal no more jobs coming.
-	 * Thread-safe, only poisons once even if called multiple times.
+	/** Posts one LAST marker at maxSeen()+1; repeated calls do not post another.
+	 * Call only after all producers have finished submitting. This method may block
+	 * on queue admission; it does not cancel producers or wait for writer completion.
 	 */
 	public synchronized void poison(){
 		if(!closed){
@@ -66,21 +70,21 @@ public class SamHeaderWriter {
 		}
 	}
 
-	/**
-	 * Waits for writer thread to finish processing all jobs.
-	 * Does not poison the queue - call poison() first.
+	/** Joins the header thread once; poison after producers finish before calling this.
+	 * Does not itself poison. Interruption prints a trace and returns without retrying
+	 * or restoring interrupt status, so return alone does not guarantee completion.
+	 * The worker aborts the JVM if the byte writer reports a finalization error.
 	 */
 	public synchronized void waitForFinish(){
-		try {
+		try{
 			writerThread.join();
-		} catch (InterruptedException e) {
+		}catch(InterruptedException e){
 			e.printStackTrace();
 		}
 	}
 
-	/**
-	 * Poisons queue and waits for completion.
-	 * Convenience method combining poison() and waitForFinish().
+	/** Calls poison then waitForFinish, with their submission/interruption requirements.
+	 * A reported finalization error causes the worker to abort the JVM.
 	 */
 	public synchronized void poisonAndWait(){
 		poison();
@@ -91,12 +95,17 @@ public class SamHeaderWriter {
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/**
-	 * Consumer thread that reads ordered jobs and writes complete SAM header.
-	 * Writes @HD line, @SQ lines for each sequence, then @RG/@PG lines.
+	/** Writes configured header text and ID-ordered sequence entries through ByteStreamWriter.
+	 * Read-group output is conditional; program output comes from SamHeader.header2B.
 	 */
-	private class WriterThread extends Thread {
+	private class WriterThread extends Thread{
 
+		/** Appends header helpers and unvalidated sequence entries, then finishes the byte writer.
+		 * Enqueues text after an SQ entry reaches the 16384-byte threshold, then enqueues
+		 * remaining text at completion. This does not itself flush the underlying stream.
+		 * Does not catch worker exceptions. A reported finalization error terminates the
+		 * JVM through KillSwitch without an additional cleanup phase.
+		 */
 		@Override
 		public void run(){
 			ByteBuilder bb=new ByteBuilder(4096);
@@ -134,7 +143,9 @@ public class SamHeaderWriter {
 			}
 
 			// Close output stream
-			bsw.poisonAndWait();
+			//STR-027: callers use this void completion API before reporting success. Reject the
+			//byte writer's final error flag so failed flush/close cannot look like successful completion.
+			if(bsw.poisonAndWait()){KillSwitch.kill("Error writing SAM header to "+bsw.fname);}
 		}
 	}
 
@@ -142,12 +153,12 @@ public class SamHeaderWriter {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Output writer for batched text writing */
+	/** Output writer created and started before the header consumer. */
 	private final ByteStreamWriter bsw;
-	/** Ordered job queue maintaining insertion sequence */
+	/** Queue consuming contiguous numeric batch IDs starting at zero. */
 	private final JobQueue<ListNum<StringNum>> queue;
-	/** Consumer thread for writing header lines */
+	/** Header-building consumer, started during construction. */
 	private final WriterThread writerThread;
-	/** Flag indicating queue has been poisoned */
+	/** Whether this wrapper has submitted its LAST marker; not proof of output completion. */
 	private boolean closed=false;
 }

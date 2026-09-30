@@ -7,18 +7,21 @@ import shared.Shared;
 
 /**
  * Abstract base for concurrent read output streams that wrap ReadStreamWriters.
- * Supports single/paired outputs, shared headers, ordered writing, and MPI passthrough.
+ * Provides factories and lifecycle contracts for local single/paired output,
+ * shared headers and ordered lists. Legacy distributed routing is retained;
+ * the true-MPI implementation remains fenced off in the factory.
  * @author Brian Bushnell
  * @date Jan 26, 2015
  */
-public abstract class ConcurrentReadOutputStream {
+public abstract class ConcurrentReadOutputStream{
 	
 	/*--------------------------------------------------------------*/
 	/*----------------           Factory            ----------------*/
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Creates a single-file output stream with shared-header option.
+	 * Creates an unstarted single-file output stream with shared-header option.
+	 * Uses the current Shared MPI settings.
 	 *
 	 * @param ff1 Primary output format
 	 * @param rswBuffers Max buffered lists per writer
@@ -31,7 +34,8 @@ public abstract class ConcurrentReadOutputStream {
 	}
 	
 	/**
-	 * Creates a paired-file output stream.
+	 * Creates an unstarted output stream with an optional second file.
+	 * Uses the current Shared MPI settings; writer selection depends on ff1.
 	 *
 	 * @param ff1 Read 1 format
 	 * @param ff2 Read 2 format (optional)
@@ -45,7 +49,9 @@ public abstract class ConcurrentReadOutputStream {
 	}
 	
 	/**
-	 * Creates an output stream with optional quality files for paired output.
+	 * Creates an unstarted output stream with optional second and quality files.
+	 * Uses the current Shared MPI settings; the selected writer determines which
+	 * secondary and quality-file options apply.
 	 *
 	 * @param ff1 Read 1 format
 	 * @param ff2 Read 2 format (optional)
@@ -62,7 +68,9 @@ public abstract class ConcurrentReadOutputStream {
 	}
 	
 	/**
-	 * Primary factory creating standard or MPI-backed concurrent output streams.
+	 * Primary factory creating an unstarted local or legacy distributed stream.
+	 * Local output delegates writer selection to ConcurrentGenericReadOutputStream.
+	 * The true-MPI route is deliberately disabled by the assertion below.
 	 *
 	 * @param ff1 Read 1 format (required)
 	 * @param ff2 Read 2 format (optional)
@@ -72,7 +80,7 @@ public abstract class ConcurrentReadOutputStream {
 	 * @param header Header text to prepend
 	 * @param useSharedHeader Write shared header (SAM)
 	 * @param mpi Use MPI-backed stream
-	 * @param keepAll In MPI mode, keep all reads instead of a fraction
+	 * @param keepAll Retained compatibility argument; unused by this factory
 	 * @return ConcurrentReadOutputStream implementation
 	 */
 	public static ConcurrentReadOutputStream getStream(FileFormat ff1, FileFormat ff2, String qf1, String qf2,
@@ -99,7 +107,6 @@ public abstract class ConcurrentReadOutputStream {
 		}else{
 			return new ConcurrentGenericReadOutputStream(ff1, ff2, qf1, qf2, rswBuffers, header, useSharedHeader);
 		}
-		
 	}
 	
 	/*--------------------------------------------------------------*/
@@ -107,8 +114,10 @@ public abstract class ConcurrentReadOutputStream {
 	/*--------------------------------------------------------------*/
 	
 	/**
-	 * Protected base constructor setting formats and ordered flag.
-	 * @param ff1_ Primary output format
+	 * Package-private base constructor storing formats and the ordered flag.
+	 * A null primary format defaults ordered to true; otherwise ff1_.ordered()
+	 * is captured once. Subclasses may impose stronger format requirements.
+	 * @param ff1_ Primary output format (may be null in this base constructor)
 	 * @param ff2_ Secondary output format (may be null)
 	 */
 	ConcurrentReadOutputStream(FileFormat ff1_, FileFormat ff2_){
@@ -120,8 +129,8 @@ public abstract class ConcurrentReadOutputStream {
 	/** Starts underlying writers/threads; must be called before adding reads. */
 	public abstract void start();
 	
-	/** Indicates whether the stream has been started.
-	 * @return true if start() was called */
+	/** Returns the started flag maintained by the implementation.
+	 * @return Current stored start state; this getter does not wait */
 	public final boolean started(){return started;}
 	
 	/*--------------------------------------------------------------*/
@@ -135,7 +144,7 @@ public abstract class ConcurrentReadOutputStream {
 	 */
 	public abstract void add(ArrayList<Read> list, long listnum);
 	
-	/** Closes the output stream and releases resources. */
+	/** Requests output shutdown after all producer adds; call join() to await completion. */
 	public abstract void close();
 
 	/**
@@ -144,7 +153,7 @@ public abstract class ConcurrentReadOutputStream {
 	 */
 	public abstract void abort();
 	
-	/** Waits for all writer threads to finish. */
+	/** Waits for writer completion after shutdown has been requested. */
 	public abstract void join();
 	
 	/** Resets ordered output list numbering back to zero. */
@@ -163,15 +172,12 @@ public abstract class ConcurrentReadOutputStream {
 	public abstract boolean finishedSuccessfully();
 	
 	/*--------------------------------------------------------------*/
-	/*----------------        Inner Methods         ----------------*/
-	/*--------------------------------------------------------------*/
-	
-	/*--------------------------------------------------------------*/
 	/*----------------           Getters            ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Returns total bases written across all writers.
-	 * @return Base count written */
+	/** Sums the currently reported base counts of nonnull primary/secondary writers.
+	 * Does not wait for pending output; inspect totals after shutdown and join.
+	 * @return Sum of observed writer base counts, or zero if both writers are null */
 	public long basesWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -181,8 +187,9 @@ public abstract class ConcurrentReadOutputStream {
 		return x;
 	}
 	
-	/** Returns total reads written across all writers.
-	 * @return Read count written */
+	/** Sums the currently reported read counts of nonnull primary/secondary writers.
+	 * Does not wait for pending output; inspect totals after shutdown and join.
+	 * @return Sum of observed writer read counts, or zero if both writers are null */
 	public long readsWritten(){
 		long x=0;
 		ReadStreamWriter rsw1=getRS1();
@@ -203,16 +210,20 @@ public abstract class ConcurrentReadOutputStream {
 	/*----------------             Fields           ----------------*/
 	/*--------------------------------------------------------------*/
 	
-	/** Output file formats: ff1 = primary (required), ff2 = secondary (may be null). (#001 doc fix: previously two stacked javadocs in swapped order - secondary before primary - over this combined declaration.) */
+	/**
+	 * Primary and secondary output formats; either may be null in the base class.
+	 * The generic local implementation requires ff1.
+	 * Historical #001: combined declaration replaces swapped, stacked field Javadocs.
+	 */
 	public final FileFormat ff1, ff2;
-	/** Whether output must preserve list order. */
+	/** Ordering captured from ff1 at construction; true when ff1 is null. */
 	public final boolean ordered;
 	
 	/** Tracks whether an error was encountered. */
 	boolean errorState=false;
 	/** Tracks whether writing completed successfully. */
 	boolean finishedSuccessfully=false;
-	/** Tracks whether start() has been called. */
+	/** Start state maintained by concrete implementations. */
 	boolean started=false;
 	
 	/*--------------------------------------------------------------*/

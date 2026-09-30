@@ -5,11 +5,12 @@ import java.io.OutputStream;
 
 /**
  * An OutputStream that discards all data written to it.
- * Useful for suppressing output or performance testing without actual I/O overhead.
- * All write operations complete immediately without storing or transmitting data.
+ * Useful for suppressing output without performing I/O.
+ * These write methods do not inspect their arguments or store data: null arrays
+ * and invalid ranges are ignored rather than validated.
  * @author Brian Bushnell
  */
-public class NullOutputStream extends OutputStream {
+public class NullOutputStream extends OutputStream{
 	
 	/**
 	 * Writes a single byte to the null stream (discards the data).
@@ -17,7 +18,7 @@ public class NullOutputStream extends OutputStream {
 	 * @throws IOException Never thrown by this implementation
 	 */
 	@Override
-	public void write(int b) throws IOException {}
+	public void write(final int b) throws IOException{}
 	
 	/**
 	 * Writes an array of bytes to the null stream (discards the data).
@@ -25,7 +26,7 @@ public class NullOutputStream extends OutputStream {
 	 * @throws IOException Never thrown by this implementation
 	 */
 	@Override
-	public void write(byte[] b) throws IOException {}
+	public void write(final byte[] b) throws IOException{}
 	
 	/**
 	 * Writes a portion of a byte array to the null stream (discards the data).
@@ -36,6 +37,6 @@ public class NullOutputStream extends OutputStream {
 	 * @throws IOException Never thrown by this implementation
 	 */
 	@Override
-	public void write(byte[] b, int off, int len) throws IOException {}
+	public void write(final byte[] b, final int off, final int len) throws IOException{}
 	
 }

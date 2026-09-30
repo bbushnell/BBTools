@@ -13,17 +13,26 @@ import shared.Shared;
 import shared.Timer;
 import shared.Tools;
 
-/**
- * Streams reads from FASTA format files with support for interleaved paired reads.
- * Provides buffered reading with configurable read splitting and filtering capabilities.
- * Handles both amino acid and nucleotide sequences with quality score generation.
+/** Legacy buffered FASTA reader with optional section splitting and adjacent-read pairing.
+ * Batches contain unpaired reads or first mates linked to second mates. Length limits,
+ * pairing and batch limits are captured at construction; quality, header and warning
+ * options remain live globals. Configure these before use, not during concurrent reads.
+ * A single consumer owns parsing and restart. Serialized closure does not make the
+ * parser generally thread-safe. Read errors handled while open are reported through
+ * {@link #errorState()} and {@link #close()}; callers must check the final status even
+ * when reads were returned. Errors handled after intentional closure remain tolerated.
+ * This parser retains historical tolerances and is not a strict FASTA validator.
  *
- * @author Brian Bushnell
+ * @author Brian Bushnell, Shinobu
  * @date Feb 13, 2013
  */
-public class FastaReadInputStream extends ReadInputStream {
+public class FastaReadInputStream extends ReadInputStream{
 	
-	public static void main(String[] args){
+	/** Legacy timing/demo driver; consumes the first read of each fetched batch.
+	 * Assumes enough nonempty batches for its requested counts; not a validation CLI.
+	 * @param args Filename, optional display/count limits, minimum length and section length
+	 */
+	public static void main(final String[] args){
 		
 		int a=20, b=Integer.MAX_VALUE;
 		if(args.length>1){a=Integer.parseInt(args[1]);}
@@ -53,11 +62,30 @@ public class FastaReadInputStream extends ReadInputStream {
 		System.out.println("Time: \t"+t);
 	}
 	
-	public FastaReadInputStream(String fname, boolean interleaved_, boolean amino_, boolean allowSubprocess_, long maxdata){
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Opens a filename through a FASTA descriptor without content detection.
+	 * @param fname Input path or stdin name
+	 * @param interleaved_ Link adjacent generated reads as mates
+	 * @param amino_ Mark generated reads as amino-acid sequences
+	 * @param allowSubprocess_ Permit external decompression when opening the stream
+	 * @param maxdata Positive soft base limit per batch; otherwise use Shared.bufferData()
+	 */
+	public FastaReadInputStream(final String fname, final boolean interleaved_, final boolean amino_, final boolean allowSubprocess_, final long maxdata){
 		this(FileFormat.testInput(fname, FileFormat.FASTA, FileFormat.FASTA, 0, allowSubprocess_, false, false), interleaved_, amino_, maxdata);
 	}
 	
-	public FastaReadInputStream(FileFormat ff, boolean interleaved_, boolean amino_, long maxdata){
+	/** Opens the descriptor's name and captures length, pairing and batch limits.
+	 * Format content is not validated here; settingsOK is called through an assertion
+	 * after opening. The descriptor supplies subprocess permission, not pairing.
+	 * @param ff Nonnull input descriptor
+	 * @param interleaved_ Link adjacent generated reads as mates
+	 * @param amino_ Mark generated reads as amino-acid sequences
+	 * @param maxdata Positive soft base limit per batch; otherwise use Shared.bufferData()
+	 */
+	public FastaReadInputStream(final FileFormat ff, final boolean interleaved_, final boolean amino_, final long maxdata){
 		name=ff.name();
 		amino=amino_;
 		flag=(amino ? Read.AAMASK : 0);
@@ -77,8 +105,17 @@ public class FastaReadInputStream extends ReadInputStream {
 		assert(settingsOK());
 	}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Transfers the prefetched or next batch to the caller; returned lists are not reused.
+	 * Each entry is an unpaired read or first mate; a final unmatched first mate is retained.
+	 * @return Next nonempty batch, or null when no reads remain
+	 * @throws RuntimeException If the internal single-read index indicates mixed access
+	 */
 	@Override
-	public ArrayList<Read> nextList() {
+	public ArrayList<Read> nextList(){
 		if(nextReadIndex!=0){throw new RuntimeException("'next' should not be used when doing blockwise access.");}
 		if(currentList==null || nextReadIndex>=currentList.size()){
 			boolean b=fillList();
@@ -93,8 +130,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		return list;
 	}
 	
+	/** Prefetches a batch if needed and reports whether an entry remains.
+	 * A false result does not guarantee closure, notably for an empty input.
+	 * @return true if a prefetched batch contains an unread entry
+	 */
 	@Override
-	public boolean hasMore() {
+	public boolean hasMore(){
 		if(currentList==null || nextReadIndex>=currentList.size()){
 			if(open){
 				fillList();
@@ -105,10 +146,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		return (currentList!=null && nextReadIndex<currentList.size());
 	}
 	
-	/** Resets the stream to beginning for re-reading the same file.
-	 * Closes current stream, clears buffers, and reopens from start. */
+	/** Closes any existing input, resets parsing/counters and reopens the same name.
+	 * Keeps captured settings, allocated buffer, reported-header reference and sticky
+	 * error state. Reopening stdin does not rewind it. Requires exclusive parser ownership.
+	 */
 	@Override
-	public void restart() {
+	public void restart(){
 		if(ins!=null){close();}
 		assert(ins==null);
 //		generated=0;
@@ -128,10 +171,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		}
 	}
 	
-	/**
-	 * Closes the input stream and releases resources.
-	 * Thread-safe operation that prevents multiple closures.
-	 * @return true if an error was detected during reading/closing, false otherwise
+	/** Serializes closure on this reader and folds reported read/close errors.
+	 * Marks the reader closed before releasing the underlying input; repeated calls
+	 * return the sticky error state. A bare System.in is left open; wrappers follow
+	 * their own close behavior and may close stdin. This monitor also
+	 * coordinates the read-exception handler, not concurrent parsing or restart.
+	 * @return true if a read or close error has been reported
 	 */
 	@Override
 	public final boolean close(){
@@ -140,30 +185,35 @@ public class FastaReadInputStream extends ReadInputStream {
 			open=false;
 			assert(ins!=null);
 
-			try {
+			try{
 				if(ins!=System.in){
 					errorState|=ReadWrite.finishReading(ins, name, allowSubprocess);
 				}
-			} catch (Exception e) {
+			}catch(final Exception e){
 				System.err.println("Some error occured: "+e);
 				errorState=true;
 			}
 
 			ins=null;
 		}
-		//#001-fix [stream/FastaReadInputStream#001] (LOW, latent): was 'return false' ALWAYS (legacy). The cris reads producer error via BOTH close()-return (ConcurrentGenericReadInputStream L664: errorState|=producer1.close()) AND its errorState() override (L904-906: ...||producer1.errorState()). Returning false broke ONLY the close()-return path -> the cris's errorState FIELD stayed false on a Fasta error; but the canonical ReadWrite.closeStreams (close() THEN errorState|=cris.errorState(), L2340-41) STILL caught it, because errorState() re-reads the RETAINED producer's field (which close() set at L145/L149, and producers are never nulled). So NOT a silent swallow on the standard cleanup path — a latent field/method inconsistency a close()-return-only caller would miss, plus Fasta is the lone outlier among 7 readers. Now returns errorState -> consistent + closes the hole. (Adversarial Sonnet verify corrected my initial "MEDIUM silent swallow" overstatement.)
+		//#001-fix [stream/FastaReadInputStream#001]: this formerly always returned false.
+		//ConcurrentGenericReadInputStream folds producer.close() into its error field, but its
+		//errorState() override also checks retained producers. Standard ReadWrite.closeStreams
+		//checked that override after closure and therefore still detected the error; a caller
+		//using only the close return could miss it. Returning the sticky flag fixes that latent
+		//inconsistency. Prior review corrected an initial overstatement of standard-path loss.
 		return errorState;
 	}
 	
-	/** Indicates if this stream contains paired-end reads.
-	 * @return true if reads are interleaved paired-end format */
+	/** Returns the captured pairing mode, not a guarantee that every read has a mate. */
 	@Override
-	public boolean paired() {return interleaved;}
+	public boolean paired(){return interleaved;}
 	
-	/**
-	 * Fills the current read buffer from the input stream.
-	 * Handles both single and interleaved paired reads with size limits.
-	 * @return true if any reads were loaded, false if stream is exhausted
+	/** Allocates a batch bounded by entry count and a soft total-base threshold.
+	 * Both mates count toward bases but only the first occupies a list slot. A whole
+	 * read/pair may cross MAX_DATA. An unmatched final first mate remains in the list;
+	 * its nextReadID increment is skipped when the missing-mate branch breaks.
+	 * @return true if at least one list entry was loaded
 	 */
 	private final boolean fillList(){
 //		assert(open);
@@ -189,7 +239,8 @@ public class FastaReadInputStream extends ReadInputStream {
 			currentList.add(r);
 			len+=r.length();
 			if(interleaved){
-				//r was already added above; if r2 is null here (odd final record at EOF) we break with r left mate-less (added, not dropped). Odd-count interleaved FASTA is malformed input -> out of scope; r1 is kept rather than silently dropped (cf. Scarf/Oneline which drop the odd tail).
+				//r is already in the list: retain an unmatched final first mate. This is historical
+				//FASTA tolerance, not proof of well-formed interleaving; SCARF uses a separate policy.
 				Read r2=generateRead(1);
 				if(r2==null){break;}
 				len+=r2.length();
@@ -204,7 +255,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		return currentList.size()>0;
 	}
 	
-	private final Read generateRead(int pairnum){
+	/** Generates one accepted sequence or section, skipping sections below minLen.
+	 * Reads current quality/header globals and retains the obsolete custom-header branch.
+	 * @param pairnum Pair flag for this read (0 for first/unpaired, 1 for second)
+	 * @return Generated read with the current entry ID, or null after end-of-input closure
+	 */
+	private final Read generateRead(final int pairnum){
 		if(verbose){System.err.println("Called generateRead(); bstart="+bstart+", bstop="+bstop+", currentSection="+currentSection+", header="+header);}
 		assert(header!=null) : "Null header for fasta read - input file may be corrupt: "+name;
 		if(bstart<bstop && buffer[bstart]==carrot){
@@ -219,7 +275,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		
 		currentSection++;
 		while(bases==null){
-//			if(!open){return null;} //Should not be needed...
 			header=nextHeader();
 			if(header==null){
 				close();
@@ -236,9 +291,7 @@ public class FastaReadInputStream extends ReadInputStream {
 			quals=new byte[bases.length];
 			Arrays.fill(quals, (byte)(Shared.FAKE_QUAL));
 		}
-//		String hd=((currentSection==1 && !hitmax) ? header : header+"_"+currentSection);
 		String hd=((!FORCE_SECTION_NAME && currentSection==1 && bases.length<=maxLen) ? header : header+"_part_"+currentSection);
-//		assert(false) : FORCE_SECTION_NAME+", "+(currentSection==1)+", "+(bases.length<=maxLen)+", "+bases.length+", "+maxLen;
 		assert(currentSection==1 || bases.length>0) : "id="+hd+", section="+currentSection+", len="+bases.length+"\n"+new String(bases);
 		Read r=null;
 		if(FASTQ.PARSE_CUSTOM){//TODO: This appears to be legacy code from old custom header format, which won't work anymore
@@ -249,15 +302,14 @@ public class FastaReadInputStream extends ReadInputStream {
 				String[] answer=temp.split("_");
 
 				if(answer.length>=5){
-					try {
+					try{
 						int trueChrom=Gene.toChromosome(answer[1]);
 						byte trueStrand=Byte.parseByte(answer[2]);
 						int trueLoc=Integer.parseInt(answer[3]);
 						int trueStop=Integer.parseInt(answer[4]);
-//						r=new Read(bases, trueChrom, trueStrand, trueLoc, trueStop, hd, quals, nextReadID);
 						r=new Read(bases, quals, hd, nextReadID, (flag|trueStrand), trueChrom, trueLoc, trueStop);
 						r.setSynthetic(true);
-					} catch (NumberFormatException e) {
+					}catch(final NumberFormatException e){
 						FASTQ.PARSE_CUSTOM=false;
 						System.err.println("Turned off PARSE_CUSTOM because could not parse "+new String(header));
 					}
@@ -278,6 +330,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
+	/** Advances past a header and preserves its raw bytes through a Latin1 String.
+	 * Honors live description trimming and legacy SOH/tab header handling. Refill
+	 * expects the first non-comment record to begin with a header marker; leading
+	 * blank lines are not generally accepted. See the byte-roundtrip rationale below.
+	 * @return Header without the leading marker, possibly empty, or null when unavailable
+	 */
 	private String nextHeader(){
 		if(verbose){System.err.println("Called nextHeader(); bstart="+bstart+"; bstop="+bstop);}
 		assert(bstart>=bstop || buffer[bstart]=='>' || buffer[bstart]<=slashr) : bstart+", "+bstop+", '"+(char)buffer[bstart]+"'"+"\t"+name;
@@ -300,8 +358,10 @@ public class FastaReadInputStream extends ReadInputStream {
 				if(verbose){System.err.println("Returning null from nextHeader()");}
 				return null;
 			}
-			x=0;
-			assert(bstart==0 && bstart<bstop && buffer[x]=='>') : "Improperly formatted fasta file; expecting '>' symbol.\n"+
+			//STR-016: fillBuffer may skip leading comments without shifting their bytes away.
+			//Resume at its unread offset so comments cannot become a header or sequence.
+			x=bstart;
+			assert(bstart>=0 && bstart<bstop && buffer[x]=='>') : "Improperly formatted fasta file; expecting '>' symbol.\n"+
 				(buffer[x]=='@' ? "If this is a fastq file, please rename it with a '.fastq' extension.\n" : "")+
 					bstart+", "+bstop+", "+(int)buffer[x]+", "+(char)buffer[x]; //Note: This assertion will fire if a fasta file starts with a newline.
 			while(x<bstop && buffer[x]>slashr){x++;}
@@ -331,16 +391,21 @@ public class FastaReadInputStream extends ReadInputStream {
 		//and the file reproduces byte-for-byte. Do NOT switch to UTF-8 decode here: that yields multibyte chars the
 		//(byte)charAt writer would re-truncate. (Faithful passthrough; display-correct UTF-8 would be a design change.)
 		String s=stop>start ? new String(buffer, start, stop-start, StandardCharsets.ISO_8859_1) : "";
-//		String s=new String(buffer, bstart+1, x-(bstart+1));
 		if(verbose){System.err.println("Fetched header: '"+s+"'");}
 		bstart=x+1;
 		
 		return s;
 	}
 	
+	/** Extracts up to maxLen sequence bytes, omitting signed byte values at or below carriage return.
+	 * Refills/grows the shared byte buffer as needed and advances bstart past consumed
+	 * input. Further sequence normalization belongs to Read construction. Detected empty
+	 * first sections may invoke handleNoSequence; an initial refill with no new bytes
+	 * returns null directly, so not every empty section reaches that policy.
+	 * @return Fresh sequence array, or null for exhaustion or a section shorter than minLen
+	 */
 	private byte[] nextBases(){
 		if(verbose){System.err.println("Called nextBases()");}
-//		assert(open) : "Attempting to read from a closed file.  Current header: "+header;
 		if(bstart>=bstop){
 			int bytes=fillBuffer();
 			if(bytes<1 || !open){return null;}
@@ -351,10 +416,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		if(!(x>=bstop || buffer[x]!='>')){
 			handleNoSequence(x);
 		}
-		
-//		assert(x>=bstop || buffer[x]!='>') :
-//			"A fasta header with no sequence was encountered.  To discard such headers, please re-run with the -da flag.";
-		//"\n<START>"+new String(buffer, 0, Tools.min(x+1, buffer.length))+"<STOP>\n";
 		
 		while(x<bstop && bases<maxLen && buffer[x]!='>'){
 			while(x<bstop && bases<maxLen && buffer[x]!='>'){
@@ -369,7 +430,9 @@ public class FastaReadInputStream extends ReadInputStream {
 					if(verbose){System.err.println("Broke loop when fb="+fb+"; bstart="+bstart+", bstop="+bstop);}
 					break;
 				}
-				//re-count from scratch: fillBuffer() shifted the unconsumed [bstart,bstop) to the front and set bstart=0, so the bases counted so far now sit at buffer[0..]; rescan from bstart with bases=0. Correct (not a leak); amortized ~O(n) as the buffer doubles to fit the record.
+				//Recount after fillBuffer shifted unconsumed bytes to the front and set bstart=0.
+				//Previously counted bases now start at buffer[0]; rescanning is intentional, not a leak.
+				//Doubling the buffer keeps this amortized O(n) as it grows to fit the record.
 				x=bstart;
 				bases=0;
 			}
@@ -379,7 +442,6 @@ public class FastaReadInputStream extends ReadInputStream {
 			
 			if(bases==0){handleNoSequence(x);}
 			
-//			assert(open) : "Attempting to read from a closed file.  Current header: "+header;
 			bstart=x;
 			if(verbose){System.err.println("Fetched "+bases+" bases; returning null.  bstart="+bstart+", bstop="+bstop/*+"\n"+new String(buffer)*/);}
 			return null;
@@ -387,18 +449,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		
 		byte[] r=new byte[bases];
 		
-//		if(Read.TO_UPPER_CASE){
-//			for(int i=bstart, j=0; j<bases; i++){
-//				assert(i<x);
-//				byte b=buffer[i];
-//				//			if(verbose){System.err.println("grabbed base "+(char)b+" = "+b);}
-//				if(b>slashr){
-//					r[j]=(b<91 ? b : (byte)(b-32));//Convert to upper case
-//					//				if(verbose){System.err.println("set to base "+(char)r[j]+" = "+r[j]);}
-//					j++;
-//				}
-//			}
-//		}else{
 		for(int i=bstart, j=0; j<bases; i++){
 			assert(i<x);
 			byte b=buffer[i];
@@ -407,7 +457,6 @@ public class FastaReadInputStream extends ReadInputStream {
 				j++;
 			}
 		}
-//		}
 		
 		if(verbose){System.err.println("Fetched "+bases+" bases, open="+open+":\n'"+(r.length>1000 ? "*LONG*" : new String(r))+"'");}
 		
@@ -415,7 +464,14 @@ public class FastaReadInputStream extends ReadInputStream {
 		return r;
 	}
 	
-	private void handleNoSequence(int x){
+	/** Applies the live missing-sequence warning/assertion policy to a first section.
+	 * Later sections are ignored because an exact split-length multiple can enter here.
+	 * Warning suppression compares header references and may disable warnings globally.
+	 * When warnings are enabled, a repeated header reference returns before the abort
+	 * assertion too. Otherwise ABORT_IF_NO_SEQUENCE is enforced only with assertions enabled.
+	 * @param x Buffer position used to bound the diagnostic excerpt
+	 */
+	private void handleNoSequence(final int x){
 		if(currentSection>0){return;}//This section is spuriously entered for reads that are a multiple of the target read length when splitting.
 		if(WARN_IF_NO_SEQUENCE){
 			synchronized(getClass()){
@@ -428,10 +484,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		assert(!ABORT_IF_NO_SEQUENCE) : "\n<START>"+new String(buffer, 0, Tools.min(x+1, buffer.length))+"<STOP>\n";
 	}
 	
-	/**
-	 * Fills internal buffer from input stream ensuring complete FASTA records.
-	 * Handles buffer expansion, comment skipping, and boundary detection.
-	 * @return Number of bytes read from stream
+	/** Compacts unread bytes and refills through a header boundary or end of input.
+	 * Grows the buffer when necessary and skips initial semicolon-comment lines.
+	 * Read exceptions handled while open latch errorState and are treated as EOF for
+	 * buffering; callers must check the reported error. Already-closed cancellation
+	 * remains tolerated. A zero result does not mean that the buffer contains no bytes.
+	 * @return Newly read byte count, from the recursive call when skipping a full comment block
 	 */
 	private final int fillBuffer(){
 //		assert(open);
@@ -439,7 +497,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		if(verbose){System.err.println("fillBuffer() : bstart="+bstart+", bstop="+bstop);}
 		if(bstart<bstop){ //Shift end bytes to beginning
 			if(bstart>0){
-//				assert(bstart>0) : bstart+", "+bstop+", "+new String(buffer);
 				int extra=bstop-bstart;
 				for(int i=0; i<extra; i++, bstart++){
 					buffer[i]=buffer[bstart];
@@ -451,8 +508,6 @@ public class FastaReadInputStream extends ReadInputStream {
 		}
 		if(verbose){System.err.println("After shift : bstart="+bstart+", bstop="+bstop);}
 
-//		assert(bstart>0 || buffer[0]=='>') : "bstart="+bstart+", bstop="+bstop+", buffer[0]='"+(char)buffer[0]+"'";
-//		assert(bstart<=bstop) : "bstart="+bstart+", bstop="+bstop+", buffer[0]='"+(char)buffer[0]+"'";
 		
 		bstart=0;
 		
@@ -466,15 +521,20 @@ public class FastaReadInputStream extends ReadInputStream {
 				if(verbose){System.err.println("Resized to "+buffer.length);}
 			}
 			if(verbose){System.err.println("A: bstop="+bstop+", len="+len);}
-			//NB: a read exception is swallowed (r stays -1 -> treated as clean EOF). Intentional for the fixed-maxReads early-close case, but it ALSO masks genuine mid-stream read errors (e.g. corrupt gzip) as EOF -> partial data, no crash. See leads.md (intermittent corrupt-.gz hang/swallow, format-agnostic, subprocess/cris layer).
-			try {
+			try{
 				r=-1;
 				r=ins.read(buffer, bstop, buffer.length-bstop);
-			} catch (Exception e) {
-				//e.printStackTrace(); //This can happen sometimes when using a fixed number of reads.
+			}catch(final Exception e){
+				//Use close()'s monitor to distinguish active-input errors from intentional early closure.
+				//Errors handled after close remain tolerated; successful reads acquire no extra lock.
+				synchronized(this){
+					if(open){
+						if(!errorState){System.err.println("Error reading FASTA input "+name+": "+e);}
+						errorState=true;
+					}
+				}
 			}
 			if(verbose){System.err.println("B: r="+r);}
-			//if(verbose){System.err.println("r="+r);}
 			if(r>0){
 				sum+=r;
 				bstop=bstop+r;
@@ -514,6 +574,12 @@ public class FastaReadInputStream extends ReadInputStream {
 		return sum;
 	}
 	
+	/** Opens the configured name and resets byte-buffer bounds.
+	 * Sets the open flag before delegating to ReadWrite; an opening exception propagates.
+	 * Does not reset parser counters, warning history or error state.
+	 * @return Underlying input stream
+	 * @throws RuntimeException If already marked open, or opening fails in ReadWrite
+	 */
 	private final InputStream open(){
 		if(open){
 			throw new RuntimeException("Attempt to open already-opened fasta file "+name);
@@ -522,17 +588,17 @@ public class FastaReadInputStream extends ReadInputStream {
 		ins=ReadWrite.getInputStream(name, true, allowSubprocess);
 		bstart=0;
 		bstop=0;
-//		lasteol=-1;
 		return ins;
 	}
 	
+	/** Returns the unsynchronized open flag; not a concurrency or input-health check. */
 	public boolean isOpen(){return open;}
 	
-	/**
-	 * Validates configuration settings for FASTA processing.
-	 * Checks length limits and split-read parameters for consistency.
-	 * @return true if all settings are valid
-	 * @throws RuntimeException If settings are invalid or inconsistent
+	/** Validates the current global length settings, not an existing reader's captured values.
+	 * Construction invokes this through an assertion after opening the input. Direct calls
+	 * enforce the checks regardless of assertion mode; configure globals before use.
+	 * @return true for valid settings
+	 * @throws RuntimeException If the minimum or enabled split-length settings are invalid
 	 */
 	public static final boolean settingsOK(){
 		if(MIN_READ_LEN>=Integer.MAX_VALUE-1){
@@ -554,45 +620,82 @@ public class FastaReadInputStream extends ReadInputStream {
 		return true;
 	}
 	
+	/** Returns the captured input name. */
 	@Override
 	public String fname(){return name;}
 	
+	/*--------------------------------------------------------------*/
+	/*----------------            Fields            ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Input name captured from the descriptor; also used by restart and diagnostics. */
 	public final String name;
 	
+	/** Prefetched batch; detached on nextList so returned lists are not reused. */
 	private ArrayList<Read> currentList=null;
+	/** Current record header, shared by its split sections. */
 	private String header=null;
 	
+	/** Last header reference warned about; retained across restart. */
 	private String reportedHeader=null;
 
+	/** Open state; close and the exception handler coordinate writes/checks on this monitor. */
 	private boolean open=false;
+	/** Reusable byte buffer, doubled when an incomplete record fills it. */
 	private byte[] buffer=new byte[16384];
+	/** Half-open range of unconsumed bytes in buffer. */
 	private int bstart=0, bstop=0;
+	/** Underlying input owned by this reader; cleared by close. Do not replace during use. */
 	public InputStream ins;
 	
+	/** Number of list entries transferred, counting a linked pair as one. */
 	private long consumed=0;
+	/** Numeric ID for the next entry; both mates receive the same value. */
 	private long nextReadID=0;
+	/** Legacy single-entry cursor; batch access requires zero and resets it to zero. */
 	private int nextReadIndex=0;
+	/** One-based emitted/attempted section number within the current header, initially zero. */
 	private int currentSection=0;
 
+	/** Captured permission for subprocess-assisted input. */
 	public final boolean allowSubprocess;
+	/** Captured pairing mode for adjacent generated reads. */
 	public final boolean interleaved;
+	/** Captured amino-acid mode. */
 	public final boolean amino;
+	/** Read flags derived from amino mode. */
 	public final int flag;
+	/** Maximum list entries per batch, captured at construction. */
 	private final int BUF_LEN=Shared.bufferLen();
+	/** Soft base limit checked before each entry; both mates contribute. */
 	private final long MAX_DATA;
+	/** Captured maximum section length and minimum accepted section length. */
 	private final int maxLen, minLen;
 	
+	/*--------------------------------------------------------------*/
+	/*----------------       Shared Settings        ----------------*/
+	/*--------------------------------------------------------------*/
 	
+	/** Enables diagnostic output; configure before concurrent use. */
 	public static boolean verbose=false;
+	/** Header markers and legacy control-byte delimiters, including retained unused aliases. */
 	private static final byte slashr='\r', slashn='\n', carrot='>', space=' ', tab='\t', SOH=0x1, STX=0x2;
 	
+	/** Whether newly constructed readers capture TARGET_READ_LEN as their section limit. */
 	public static boolean SPLIT_READS=false;
+	/** Global target section length; a nonpositive value is invalid when splitting is checked. */
 	public static int TARGET_READ_LEN=500;
+	/** Global minimum accepted section length, captured at construction. */
 	public static int MIN_READ_LEN=1;
+	/** Live option to allocate qualities filled with Shared.FAKE_QUAL for generated reads. */
 	public static boolean FAKE_QUALITY=false;
+	/** Live option to append a part suffix even to the first section. */
 	public static boolean FORCE_SECTION_NAME=false;
+	/** Global missing-sequence warning enablement; handleNoSequence may turn this off. */
 	public static boolean WARN_IF_NO_SEQUENCE=true;
+	/** Disable WARN_IF_NO_SEQUENCE globally after the first emitted warning when true. */
 	public static boolean WARN_FIRST_TIME_ONLY=true;
+	/** Enable handleNoSequence's guarded abort assertion; no abort effect under -da. */
 	public static boolean ABORT_IF_NO_SEQUENCE=false;
 	
 }

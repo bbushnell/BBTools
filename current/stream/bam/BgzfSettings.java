@@ -4,39 +4,62 @@ import shared.Shared;
 import shared.Tools;
 
 /**
- * Global switches for enabling multithreaded BGZF streams during BAM IO.
- * Users may toggle these flags at runtime prior to constructing readers/writers.
+ * Mutable defaults and routing preferences for participating BGZF callers.
+ * Used by BAM streams and generic native BGZF paths in ReadWrite.
+ * Callers coordinate changes before opening streams; this holder supplies no
+ * synchronization or automatic reconfiguration of existing streams.
+ * Explicit stream constructors may bypass these defaults or routing switches.
+ * Thread defaults are evaluated once at class initialization, not recomputed
+ * when Shared's thread count changes.
  */
-public final class BgzfSettings {
+public final class BgzfSettings{
 
-	/** Toggle to enable multithreaded BGZF input/output. */
-	public static boolean USE_MULTITHREADED_BGZF = true;
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
+
+	/** Prevents construction of this static configuration holder. */
+	private BgzfSettings(){}
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Static Fields         ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
-	 * Selects the multithreaded BGZF WRITE engine for the GENERIC .gz path (ReadWrite:903-908):
-	 * true → BgzfOutputStreamMT2 (OQS2-based), false → BgzfOutputStreamMT (hand-rolled). NOTE: BAM writes
-	 * do NOT consult this — BamOutputStream always uses BgzfOutputStreamMT when MT is on. (Read side default
-	 * is BgzfInputStreamMT2 via ReadWrite:1510, independent of this flag.) Only consulted when
-	 * {@link #USE_MULTITHREADED_BGZF} is true.
+	 * Enables multithreaded selection in participating native BGZF factories.
+	 * BamOutputStream additionally requires more than one requested thread.
+	 * Direct construction of a multithreaded stream need not consult this flag.
+	 */
+	public static boolean USE_MULTITHREADED_BGZF=true;
+
+	/**
+	 * Selects the generic ReadWrite native multithreaded output engine:
+	 * true uses BgzfOutputStreamMT2 (OrderedQueueSystem2), false uses
+	 * BgzfOutputStreamMT (its own queues). Only consulted on that MT output path.
+	 * BamOutputStream's MT branch uses BgzfOutputStreamMT independently of this preference.
+	 * ReadWrite's native MT input branch uses BgzfInputStreamMT2 independently too.
 	 */
 	public static boolean USE_BGZFOS_MT2=true;
-	
+
 	/**
-	 * Number of worker threads to use when decompressing BGZF blocks.
-	 * Only consulted when {@link #USE_MULTITHREADED_BGZF} is true.
+	 * Default decompression worker count, initially Shared.threads() bounded to 1–8.
+	 * ReadWrite applies its own bounds and input-dependent selection; the direct
+	 * BgzfInputStreamMT2 convenience constructor reads this without checking
+	 * USE_MULTITHREADED_BGZF. Explicit thread arguments may bypass this default.
 	 */
-	public static int READ_THREADS = Tools.mid(1, Shared.threads(), 8);//Peaks at 20
+	public static int READ_THREADS=Tools.mid(1, Shared.threads(), 8);
+	// Historical tuning note: peaks at 20; not remeasured, and not the default cap.
 
-	/** Number of worker threads to use when compressing BGZF blocks. */
-	public static int WRITE_THREADS = Tools.mid(1, Shared.threads(), 32);
+	/**
+	 * Default compression workers for the BamOutputStream convenience constructor,
+	 * initially Shared.threads() bounded to 1–32. Explicit arguments and ReadWrite's
+	 * derived thread counts may bypass this default.
+	 */
+	public static int WRITE_THREADS=Tools.mid(1, Shared.threads(), 32);
 
-	/** Maximum uncompressed BGZF block size used for writers. */
-	public static int WRITE_BLOCK_SIZE = BgzfOutputStreamMT.DEFAULT_BLOCK_SIZE;
+	/** Requested uncompressed block size for BamOutputStream's MT writer. */
+	public static int WRITE_BLOCK_SIZE=BgzfOutputStreamMT.DEFAULT_BLOCK_SIZE;
 
-	/** Compression level (0-9) used for writers. */
-	public static int WRITE_COMPRESSION_LEVEL = 6;
-
-	private BgzfSettings() {
-		// Utility class
-	}
+	/** Default compression level (0–9) for the BamOutputStream convenience constructor. */
+	public static int WRITE_COMPRESSION_LEVEL=6;
 }
