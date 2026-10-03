@@ -43,7 +43,10 @@ public final class MagQCAssemblyBatchTest {
 			check(parsed.get("bundle").equals(root.resolve("resources/subnets.bbnets").toString()), "Relocated release config lost its resource base");
 			check(parsed.get("in").equals(first.toString()), "Release config must not relocate user inputs");
 			final HashMap<String,String> positional=MagQCAssemblyBatch.parseOptions(new String[]{"config="+config, first.toString()});
-			check(positional.equals(parsed), "Bare input after the wrapper's config must equal explicit in= and out=stdout");
+			check(!positional.containsKey("out") && parsed.get("out").equals("stdout"),
+				"Omitted out disables data output; explicit out=stdout retains pipeable TSV output");
+			final HashMap<String,String> named=MagQCAssemblyBatch.parseOptions(new String[]{"config="+config, "in="+first});
+			check(positional.equals(named), "Bare input after the wrapper's config must equal explicit in=");
 			check(new MagQCAssemblyBatch(new String[]{first.toString()}).jobs.size()==1
 				&& new MagQCAssemblyBatch(new String[]{"in="+first}).jobs.size()==1,
 				"A single input must not require out= in either public syntax");
@@ -88,11 +91,20 @@ public final class MagQCAssemblyBatchTest {
 				reject("proxyhost=unsupported");
 				reject("bufferbf=f");
 				rejected=false;
-				try{new MagQCAssemblyBatch(new String[]{"in="+first, "out="+occupied});}catch(IllegalArgumentException e){rejected=true;}
+				try{new MagQCAssemblyBatch(new String[]{"in="+first, "out="+occupied, "ow=f"});}catch(IllegalArgumentException e){rejected=true;}
 				check(rejected && new String(Files.readAllBytes(occupied), StandardCharsets.US_ASCII).equals("preserve"),
-					"Existing reports must be rejected before resource loading and remain untouched");
+					"ow=f must reject existing reports before resource loading and leave them untouched");
+				new MagQCAssemblyBatch(new String[]{"in="+first, "out="+occupied});
+				new MagQCAssemblyBatch(new String[]{"in="+first, "out=NuLl"});
+				check(new String(Files.readAllBytes(occupied), StandardCharsets.US_ASCII).equals("preserve"),
+					"Default overwrite is allowed but output opens only after every bin succeeds");
+				check(MagQCAssemblyBatch.parseOptions(new String[]{"overwrite=f"}).get("ow").equals("f"),
+					"The standard overwrite alias must retain explicit false");
+				rejected=false;
+				try{new MagQCAssemblyBatch(new String[]{"in="+first, "out="+first});}catch(RuntimeException e){rejected=true;}
+				check(rejected, "Standard duplicate-file checks must prevent overwriting the input assembly");
 			}finally{Files.deleteIfExists(occupied);}
-			System.out.println("MagQCAssemblyBatchTest PASS: stable input order, duplicate rejection, relocatable config, raw-error defaults and fresh output");
+			System.out.println("MagQCAssemblyBatchTest PASS: input order, duplicate rejection, relocatable config, raw-error defaults and standard output handling");
 		}finally{
 			Files.deleteIfExists(first); Files.deleteIfExists(second); Files.deleteIfExists(config); Files.deleteIfExists(root);
 		}

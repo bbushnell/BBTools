@@ -14,11 +14,13 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import fileIO.ByteStreamWriter;
+import fileIO.FileFormat;
 import parse.Parse;
 import parse.Parser;
 import prok.CallGenes;
 import prok.GeneModel;
 import shared.Shared;
+import shared.Tools;
 import stream.Read;
 import structures.ByteBuilder;
 
@@ -64,11 +66,26 @@ public final class MagQCAssemblyBatch {
 		override=MagQCAssemblyInput.overrideTaxonomy(options);
 		compMultiplier=multiplier(required("comperrormultiplier"));
 		contamMultiplier=multiplier(required("contamerrormultiplier"));
-		final String output=required("out");
-		stdout=output.equals("stdout") || output.equals("-");
-		destination=stdout ? null : Paths.get(output).toAbsolutePath().normalize();
-		if(destination!=null && Files.exists(destination)){
-			throw new IllegalArgumentException("Output must be a fresh file: "+destination);
+		String output=options.get("out");
+		if("null".equalsIgnoreCase(output)){output=null;}
+		else if("-".equals(output)){output="stdout";}
+		final boolean overwrite=Parse.parseBoolean(required("ow"));
+		// This publisher already visits jobs in order; ByteStreamWriter.print uses its ordinary buffer.
+		ffout=FileFormat.testOutput(output, FileFormat.TEXT, "txt", true, overwrite, false, false);
+		if(ffout!=null){
+			if(!ffout.canWrite()){throw new IllegalArgumentException("Cannot write output: "+output+" (overwrite="+overwrite+")");}
+			if(!ffout.stdio() && !ffout.devnull()){
+				final Path target=Paths.get(ffout.name()).toAbsolutePath().normalize();
+				final String[] names=new String[jobs.size()+1];
+				for(int i=0; i<jobs.size(); i++){
+					names[i]=jobs.get(i).path;
+					if(Files.exists(target) && Files.isSameFile(target, Paths.get(names[i]))){
+						throw new IllegalArgumentException("Output must not overwrite an input assembly: "+output);
+					}
+				}
+				names[jobs.size()]=target.toString();
+				Tools.testForDuplicateFiles(true, names);
+			}
 		}
 	}
 
@@ -143,9 +160,14 @@ public final class MagQCAssemblyBatch {
 			runWorkers(false);
 		}finally{callers=null;}
 		publish();
-		if(jobs.size()==1){System.err.print(jobs.get(0).humanReport);}
+		for(int i=0; i<jobs.size(); i++){
+			if(i>0){System.err.println();}
+			System.err.print(jobs.get(i).humanReport);
+		}
 		if(timings){printTimings(bindingNanos,callerSetupNanos,networkNanos,elapsed(processStart));}
-		System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error estimates are "+required("errorfitset"));
+		if(verbose){
+			System.err.println("ProkCC completed "+jobs.size()+" bins with "+threads+" workers; error estimates are "+required("errorfitset"));
+		}
 	}
 
 	/** Three independent resource loads join before taxonomy/calling workers use their state. */
@@ -344,48 +366,39 @@ public final class MagQCAssemblyBatch {
 		assert(job.workerNanos>=0) : "Bin worker time sums its two completed monotonic processing intervals";
 		out.tab().appendSlow(job.workerNanos/1e9);
 		out.nl();
-		if(jobs.size()==1){
-			job.humanReport=job.report.human(job.taxonomy, scoring.getOutput(0), scoring.getOutput(1), comp, contam);
-		}
+		job.humanReport=job.report.human(job.taxonomy, scoring.getOutput(0), scoring.getOutput(1), comp, contam);
 	}
 
-	/** Stages a small ordered report, publishing a fresh file or stdout only after all bins succeed. */
+	/** Publishes optional TSV data only after all bins succeed; screen reports are separate stderr output. */
 	private void publish() throws IOException{
-		final Path temporary;
-		if(stdout){temporary=Files.createTempFile("prokcc-", ".partial");}
-		else{
-			Files.createDirectories(destination.getParent());
-			temporary=Files.createTempFile(destination.getParent(), ".prokcc-", ".partial");
+		if(ffout==null){return;}// Omitted out or explicit out=null disables data output.
+		if(!ffout.stdio() && !ffout.devnull()){
+			Files.createDirectories(Paths.get(ffout.name()).toAbsolutePath().getParent());
 		}
+		final ByteStreamWriter writer=new ByteStreamWriter(ffout);
+		writer.start();
 		try{
-			final ByteStreamWriter writer=new ByteStreamWriter(temporary.toString(), true, false, false);
-			writer.start();
-			try{
-				final ByteBuilder header=new ByteBuilder(2048);
-				header.append("#schema_version\tprokcc_assembly_scores_v4\n");
-				MagQCNetworkHarness.appendBindings(header, options);
-				header.append("#netsha80\t").append(required("netsha80")).nl();
-				for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
-				header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
-				header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
-				header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");
-				header.append("#columns\trow_index\tbin_id");
-				for(String name:scorer.names){header.tab().append(name);}
-				header.append("\tscaled_error_gene_completeness\tscaled_error_gene_contamination\ttaxonomy_source\tqc_status\tqc_domain\tqc_phylum\tinput_sha80");
-				header.append(MagQCAssemblyReport.columns(swapNL)).append("\tbin_worker_wall_seconds\n");
-				writer.print(header);
-				for(Job job:jobs){
-					if(job.result==null){throw new IllegalStateException("Missing completed bin: "+job.path);}
-					writer.print(job.result);
-				}
-			}finally{
-				if(writer.poisonAndWait()){throw new IOException("ProkCC report writer failed");}
+			final ByteBuilder header=new ByteBuilder(2048);
+			header.append("#schema_version\tprokcc_assembly_scores_v4\n");
+			MagQCNetworkHarness.appendBindings(header, options);
+			header.append("#netsha80\t").append(required("netsha80")).nl();
+			for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
+			header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
+			header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
+			header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");
+			header.append("#columns\trow_index\tbin_id");
+			for(String name:scorer.names){header.tab().append(name);}
+			header.append("\tscaled_error_gene_completeness\tscaled_error_gene_contamination\ttaxonomy_source\tqc_status\tqc_domain\tqc_phylum\tinput_sha80");
+			header.append(MagQCAssemblyReport.columns(swapNL)).append("\tbin_worker_wall_seconds\n");
+			writer.print(header);
+			for(Job job:jobs){
+				if(job.result==null){throw new IllegalStateException("Missing completed bin: "+job.path);}
+				writer.print(job.result);
 			}
-			if(stdout){
-				Files.copy(temporary, System.out); System.out.flush();
-				if(System.out.checkError()){throw new IOException("ProkCC stdout publication failed");}
-			}else{Files.createLink(destination, temporary);}
-		}finally{Files.deleteIfExists(temporary);}
+		}finally{
+			if(writer.poisonAndWait()){throw new IOException("ProkCC report writer failed");}
+		}
+		if(ffout.stdio() && System.out.checkError()){throw new IOException("ProkCC stdout publication failed");}
 	}
 
 	/*--------------------------------------------------------------*/
@@ -415,6 +428,7 @@ public final class MagQCAssemblyBatch {
 			String key=arg.substring(0, equals).toLowerCase(Locale.ROOT);
 			if(key.equals("threads")){key="t";}
 			if(key.equals("swapln")){key="swapnl";}
+			if(key.equals("overwrite")){key="ow";}
 			final String value=arg.substring(equals+1);
 			if(!ALLOWED.contains(key) || values.put(key, value)!=null || value.isEmpty()){
 				throw new IllegalArgumentException("Unknown, duplicate or empty public option: "+key);
@@ -432,7 +446,7 @@ public final class MagQCAssemblyBatch {
 		defaults(values, "policy", "BOUNDED_LOOKAHEAD", "lookahead", "4", "passes", "1", "pgmmode", "taxonomy",
 			"taxaddress", "refseq", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
 			"errorfitset", "UNCALIBRATED", "errorfitdate", "NA", "errorcoverage", "NA",
-			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "out", "stdout", "swapnl", "f", "verbose", "f");
+			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "swapnl", "f", "verbose", "f", "ow", "t");
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
 		return values;
@@ -525,8 +539,7 @@ public final class MagQCAssemblyBatch {
 	private final long[] resourceNanos=new long[3];
 	private final int threads, passes;
 	private final double compMultiplier, contamMultiplier;
-	private final boolean stdout;
-	private final Path destination;
+	private final FileFormat ffout;
 	private final MagQCAssemblyInput.Taxonomy override;
 	private volatile Throwable failure;
 	private MagQCAssemblyInput.SketchSession sketches;
@@ -543,7 +556,7 @@ public final class MagQCAssemblyBatch {
 	private static final HashSet<String> ALLOWED=new HashSet<String>();
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxdomain", "taxphylum", "timings", "verbose"));
+		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxdomain", "taxphylum", "timings", "verbose", "ow"));
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}
 }
