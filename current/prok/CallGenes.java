@@ -178,6 +178,7 @@ public class CallGenes extends ProkObject {
 				verbose=Parse.parseBoolean(b);
 				//ReadWrite.verbose=verbose;
 				GeneCaller.verbose=verbose;
+				ProkObject.verbose=verbose;
 			}else if(a.equalsIgnoreCase("ingff") || a.equalsIgnoreCase("gffin")){
 				Tools.addFiles(b, inGffList);
 			}
@@ -2940,7 +2941,7 @@ public class CallGenes extends ProkObject {
 		if(set==null || set.size()<1){
 			throw new IllegalArgumentException("ncRNA kmer file is empty for "+family+": "+path);
 		}
-		System.err.println("Loaded "+set.size()+" "+family+" "+kLong+"-mers from explicit sweep file "+path);
+		if(ProkObject.verbose){System.err.println("Loaded "+set.size()+" "+family+" "+kLong+"-mers from explicit sweep file "+path);}
 		return set;
 	}
 

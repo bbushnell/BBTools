@@ -221,7 +221,7 @@ public abstract class ProkObject {
 			return null;
 		}
 		LongHashSet set=loadLongKmers(fname, k);
-		if(set!=null){System.err.println("Loaded "+set.size()+" "+prefix+" "+k+"-mers from "+fname);}
+		if(verbose && set!=null){System.err.println("Loaded "+set.size()+" "+prefix+" "+k+"-mers from "+fname);}
 		return set;
 	}
 
@@ -352,6 +352,8 @@ public abstract class ProkObject {
 	}
 
 	public static int kInnerRNA=6;
+	/** Shared resource-loading diagnostics, disabled unless a calling tool enables verbose output. */
+	public static boolean verbose=false;
 	public static int kStartRNA=3;
 	public static int kStopRNA=3;
 

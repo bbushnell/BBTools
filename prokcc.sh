@@ -3,67 +3,67 @@
 set -o pipefail
 usage(){
 cat <<'USAGE'
-Usage: prokcc.sh in=bin.fa out=quality.tsv config=release.config t=8 -Xmx8g
-       prokcc.sh in=bin1.fa,bin2.fa out=stdout config=release.config
-       prokcc.sh in=/directory/of/bins out=quality.tsv config=release.config
+Description:  Estimates completeness and contamination of prokaryotic assemblies.
+              One FASTA file is one bin. Models load once for the whole batch.
 
-Without config=, use resources/prokcc/release.config beside this installation.
-That file names the preserved current model; see resources/prokcc/README.md.
+Usage:  prokcc.sh in=<assembly.fa> out=<quality.tsv> <other arguments>
+or
+prokcc.sh <assembly.fa> <other arguments>
+
+Examples:
+prokcc.sh ecoli.fa
+prokcc.sh in=bin.fa out=quality.tsv t=8 -Xmx8g
+prokcc.sh in=bin1.fa,bin2.fa out=quality.tsv
+prokcc.sh in=/directory/of/bins out=quality.tsv
+
+File parameters:
+in=<file>             Assembly FASTA, comma-separated files, or a directory.
+                      A bare existing input file is also accepted. Directories
+                      include FASTAs in sorted order, without recursion.
+out=stdout            TSV report; optional. Use a fresh filename to save it.
+                      Results are published only after every bin succeeds.
+config=<file>         Release configuration. Default: resources/prokcc/release.config
+                      beside this installation. Relative resource paths use the
+                      config directory; in/out paths use the working directory.
+
+Processing parameters:
+t=<integer>           Bin workers; defaults to available threads, capped by inputs.
+taxaddress=refseq     QuickClade server for taxonomy. Input-header taxonomy is ignored.
+taxdomain=<name>      Bacteria or Archaea; bypasses QuickClade when supplied.
+taxphylum=<name>      Optional phylum with taxdomain=. Rows are marked user-supplied.
+pgmmode=taxonomy      Gene-caller model selection: taxonomy or default.
+passes=1              Gene-calling passes.
+deterministic=t        Preserves the reference inference arithmetic.
+loadmode=parallel     Resource loading: parallel or serial. Independent of t=.
+compositemode=locked  Composite sharing: locked or worker (private copies).
+subnetmode=locked     Subnet sharing: locked or worker (private copies).
+timings=f             Reports process-phase wall times to stderr when enabled.
+verbose=f             Prints resource-loading and inference diagnostics to stderr.
+swapnl=f              N is count and L is length by default. Set true to reverse
+                      the N/L labels, as in stats.sh. Alias: swapln.
+comperrormultiplier=1.0    Positive finite multiplier for completeness error.
+contamerrormultiplier=1.0  Positive finite multiplier for contamination error.
+selftest=f            Runs small CLI/input fixtures instead of scoring assemblies.
+
+Java parameters:
+-Xmx8g                Maximum heap. Allow room for models and per-worker state.
+-ea                   Assertions enabled by default.
+
+Model installation:
 Download prokcc_v1.tar from:
 https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.tar
-Extract its contents into resources/ to create resources/prokcc/. The archive contains the matching
-release config, models and tables; the tool does not download them automatically.
+Extract its contents into resources/ to create resources/prokcc/.
+The archive contains the matching configuration, models, and tables. Downloads
+are manual. See resources/prokcc/README.md for the model and release details.
 
-One FASTA is one bin. Directory input includes FASTA files in sorted order,
-without recursion; comma-separated input retains its order. Files must remain
-unchanged during the run. bin_id is the normalized absolute input path.
-Networks and assignment resources load once; workers process bins concurrently.
-The complete report is published only when every bin succeeds. Output files
-must be fresh. t/threads controls bin workers; each native FASTA reader uses
-one input thread. Size heap for the resources plus worker-local inference state.
-
-The release config supplies the real six-output model and frozen resources:
-net/netsha80, bundle/bundlesha80, familylist/familylistsha80,
-subnetmanifest/subnetmanifestsha80, expectedcopytable/expectedcopytablesha80,
-subnetpopulations/subnetpopulationssha80, profile/profilesha80,
-roster, ref, rolemanifest, core, coveringsets, sidecar, hbmbundle, hbmprovenance.
-Relative RESOURCE paths resolve against that config's directory, not the
-working directory. in/out paths still resolve against the working directory.
-Use one config file. Duplicate/unknown options and dummy models are rejected.
-
-taxaddress=refseq uses QuickClade. taxdomain=Bacteria|Archaea with optional
-taxphylum=NAME bypasses the server and marks each row as user-supplied taxonomy.
-Input-header taxonomy is never used. A valid no-hit is retained as unknown;
-server failures are fatal. pgmmode=taxonomy and passes=1 are defaults.
-Assignment uses the release policy BOUNDED_LOOKAHEAD/lookahead=4.
-deterministic=t preserves the existing reference inference arithmetic.
-compositemode=worker|locked and subnetmode=worker|locked select inference sharing
-(both default to locked). Locked mode uses one lazy composite or one
-locked dense inference instance per subnet. Formatter inputs and returned heads
-remain private. Use worker for independent network copies per bin worker.
-loadmode=serial|parallel selects sequential resource loading or three concurrent
-loads (HBMs, subnet bundle, composite). Default parallel; bin workers still use t=.
-timings=t reports optional phase wall times to stderr; worker phases are summed
-across bins. A single-bin run gives an additive split including setup/I/O.
-
-Output retains all six raw model heads and adds two error estimates:
-raw error times comperrormultiplier/contamerrormultiplier (default1.0).
-Factors must be positive and finite; products are not clipped. Config metadata
-errorfitset=UNCALIBRATED, errorfitdate=NA, errorcoverage=NA remain explicit until
-a reviewed calibration supplies them. Errors are fraction units, not confidence
-intervals. Each row includes taxonomy provenance and the input sha80.
-The v3 TSV also includes reference name/TaxID/ANI, whole-record contig Nx/Lx,
-genome size, GC/ACGT, CDS/RNA counts, summed coding bp/genome size, and the
-RNA-aware extended MIMAG tier. TSV ANI, GC and coding density are fractions.
-Missing reference metrics or GC without ACGT are NA. Overlapping CDS can make
-coding density exceed 1. Single-assembly input also prints an aligned summary
-to stderr, with ANI/completeness/contamination/coding density in percent.
-Each row ends with bin_worker_wall_seconds: that bin's taxonomy and calling/
-inference worker intervals, including input I/O. It excludes shared setup,
-dispatch queues, phase barriers and final report publication. It is always
-measured, independently of the optional timings=t process-phase diagnostics.
-
-selftest=t runs only small CLI/input-contract fixtures, not biological validation.
+Output:
+The TSV contains completeness/contamination, six raw model heads, predicted
+absolute errors, taxonomy provenance, input sha80, reference name/TaxID/ANI,
+contig Nx/Lx, genome size, GC, CDS/RNA counts, coding density, and MIMAG tier.
+Scores, errors, ANI, GC, and coding density are fractions, not percentages;
+error estimates are not confidence intervals. Missing reference metrics are NA.
+Single-input runs also print an aligned percentage summary to stderr.
+The final column is per-bin worker time, excluding shared setup and publication.
 USAGE
 }
 if [[ $# == 0 || $1 == -h || $1 == --help ]]; then usage; exit 0; fi

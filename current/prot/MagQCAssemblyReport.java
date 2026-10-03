@@ -14,6 +14,12 @@ final class MagQCAssemblyReport {
 
 	/** Copies existing sufficient statistics and computes Nx/Lx on whole FASTA records. */
 	MagQCAssemblyReport(ArrayList<Read> reads, MagQCPreparedBin bin){
+		this(reads, bin, false);
+	}
+
+	/** BBTools uses N for count and L for length; swapnl changes labels as in AssemblyStats2. */
+	MagQCAssemblyReport(ArrayList<Read> reads, MagQCPreparedBin bin, boolean swapNL_){
+		swapNL=swapNL_;
 		assert(reads!=null && !reads.isEmpty() && bin!=null) :
 			"Reporting follows successful assembly loading and native prepared-bin construction";
 		contigs=reads.size(); length=bin.length;
@@ -29,10 +35,10 @@ final class MagQCAssemblyReport {
 		int count=0;
 		for(int i=lengths.length-1; i>=0; i--){
 			sum+=lengths[i]; count++;
-			if(l50==0 && sum>=half){n50=lengths[i]; l50=count;}
-			if(sum>=ninety){n90=lengths[i]; l90=count; break;}
+			if(n50==0 && sum>=half){n50=count; l50=lengths[i];}
+			if(sum>=ninety){n90=count; l90=lengths[i]; break;}
 		}
-		assert(l50>0 && l90>=l50) : "Positive assembly length must reach both cumulative base thresholds";
+		assert(n50>0 && n90>=n50) : "Positive assembly length must reach both cumulative base thresholds in descending contig order";
 		final MagQCVectorMaker.Agg a=bin.agg;
 		gc=a.acgt==0 ? Double.NaN : a.gc/(double)a.acgt;
 		coding=a.coding/(double)length;
@@ -70,7 +76,8 @@ final class MagQCAssemblyReport {
 		line(out, "TaxID:", tax.taxId<0 ? "NA" : Long.toString(tax.taxId));
 		line(out, "Size:", length+" bp"); line(out, "Contigs:", Integer.toString(contigs));
 		line(out, "ANI:", tax.ani<0 ? "NA" : decimal(100*tax.ani, 2));
-		line(out, "N50/L50:", n50+"/"+l50); line(out, "N90/L90:", n90+"/"+l90);
+		line(out, swapNL ? "L50/N50:" : "N50/L50:", n50+"/"+l50);
+		line(out, swapNL ? "L90/N90:" : "N90/L90:", n90+"/"+l90);
 		line(out, "Completeness:", decimal(100.0*comp, 2)+" +-"+decimal(100*compError, 2));
 		line(out, "Contamination:", decimal(100.0*contam, 2)+" +-"+decimal(100*contamError, 2));
 		line(out, "GC:", Double.isNaN(gc) ? "NA" : decimal(gc, 3));
@@ -95,9 +102,13 @@ final class MagQCAssemblyReport {
 		return String.format(Locale.ROOT, "%."+places+"f", value);
 	}
 
-	static final String COLUMNS="\treference_name\treference_taxid\tani_fraction\tcontigs\tgenome_size_bp"
-		+"\tn50_bp\tl50_contigs\tn90_bp\tl90_contigs\tgc_fraction\tcds\tcoding_density_fraction"
-		+"\tr16\tr23\tr5\ttrna\tquality";
+	/** Keeps count before length in both conventions; unit-bearing names identify each TSV value. */
+	static String columns(boolean swapNL){
+		return "\treference_name\treference_taxid\tani_fraction\tcontigs\tgenome_size_bp"
+			+(swapNL ? "\tl50_contigs\tn50_bp\tl90_contigs\tn90_bp" : "\tn50_contigs\tl50_bp\tn90_contigs\tl90_bp")
+			+"\tgc_fraction\tcds\tcoding_density_fraction\tr16\tr23\tr5\ttrna\tquality";
+	}
+	private final boolean swapNL;
 	private final int contigs, cds, r16, r23, r5, trna;
 	private final long length;
 	private final double gc, coding;

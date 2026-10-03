@@ -42,6 +42,24 @@ public final class MagQCAssemblyBatchTest {
 			final HashMap<String,String> parsed=MagQCAssemblyBatch.parseOptions(new String[]{"config="+config, "in="+first, "out=stdout"});
 			check(parsed.get("bundle").equals(root.resolve("resources/subnets.bbnets").toString()), "Relocated release config lost its resource base");
 			check(parsed.get("in").equals(first.toString()), "Release config must not relocate user inputs");
+			final HashMap<String,String> positional=MagQCAssemblyBatch.parseOptions(new String[]{"config="+config, first.toString()});
+			check(positional.equals(parsed), "Bare input after the wrapper's config must equal explicit in= and out=stdout");
+			check(new MagQCAssemblyBatch(new String[]{first.toString()}).jobs.size()==1
+				&& new MagQCAssemblyBatch(new String[]{"in="+first}).jobs.size()==1,
+				"A single input must not require out= in either public syntax");
+			for(String[] duplicate:new String[][]{{first.toString(), second.toString()},
+				{first.toString(), "in="+second}, {"in="+first, second.toString()}}){
+				rejected=false;
+				try{MagQCAssemblyBatch.parseOptions(duplicate);}catch(IllegalArgumentException e){rejected=true;}
+				check(rejected, "A positional argument must not silently replace or append another input");
+			}
+			reject(root.resolve("missing.fa").toString());
+			check(MagQCAssemblyBatch.parseOptions(new String[]{"swapln=t"}).get("swapnl").equals("t")
+				&& MagQCAssemblyBatch.parseOptions(new String[0]).get("swapnl").equals("f"),
+				"The swapln alias and BBTools default must select the same N/L convention as stats.sh");
+			rejected=false;
+			try{MagQCAssemblyBatch.parseOptions(new String[]{"swapnl=t", "swapln=f"});}catch(IllegalArgumentException e){rejected=true;}
+			check(rejected, "Conflicting N/L aliases must not silently override each other");
 			check(parsed.get("compositemode").equals("locked") && parsed.get("subnetmode").equals("locked"), "Measured public defaults must share composite and subnet inference");
 			check(parsed.get("policy").equals("BOUNDED_LOOKAHEAD") && parsed.get("lookahead").equals("4"), "Public release assignment defaults changed");
 			check(parsed.get("errorfitset").equals("UNCALIBRATED") && parsed.get("contamerrormultiplier").equals("1.0"), "Error calibration was silently invented");
@@ -94,9 +112,17 @@ public final class MagQCAssemblyBatchTest {
 			final String message=e.getMessage();
 			rejected=message.contains("composite_d252_polished_weight18.bbnet.gz") && message.contains("magqc_subnets_v1.bbnets.gz")
 				&& message.contains("magqc_hbm_v1.rare01.hbmt.gz") && message.contains("magqc_sidecar_v1.tsv.gz")
-				&& message.contains("https://github.com/bbushnell/BBTools/releases/download/");
+				&& message.contains("https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.tar")
+				&& message.contains("Extract its contents into BBTools/resources/ to create resources/prokcc/")
+				&& !message.contains("PROKCC_V1_TAG_PENDING");
 		}
 		check(rejected, "Missing assets must identify all four files and their download instructions");
+		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.tar";
+		check(archive.equals(shared.Resources.downloadURL("?prokcc/release.config"))
+			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.full_fallback.bbnets.gz")),
+			"The release config and full subnet bundle must resolve to the same manual archive");
+		check("https://sourceforge.net/projects/bbmap/files/Resources/".equals(shared.Resources.downloadURL("ssuSketchDDL.tsv.gz")),
+			"Unrelated resources must retain their existing download location");
 		for(String path:options.values()){Files.write(java.nio.file.Paths.get(path), new byte[]{1});}
 		MagQCAssemblyBatch.requireOptionalAssets(options);
 		for(String path:options.values()){Files.delete(java.nio.file.Paths.get(path));}

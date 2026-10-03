@@ -1048,10 +1048,10 @@ public class MagQCVectorMaker implements Cloneable {
 			}
 			loadedBundle=candidate;
 			frozenInputs=inputs;
-			System.err.println("replay SIMD: Shared.SIMD="+shared.Shared.SIMD
+			if(verbose){System.err.println("replay SIMD: Shared.SIMD="+shared.Shared.SIMD
 				+" SIMD_FMA="+shared.Shared.SIMD_FMA
 				+" SIMD_FEED_FORWARD="+shared.Shared.SIMD_FEED_FORWARD
-				+" Vector.SIMD_FMA_SPARSE="+simd.Vector.SIMD_FMA_SPARSE);
+				+" Vector.SIMD_FMA_SPARSE="+simd.Vector.SIMD_FMA_SPARSE);}
 		}catch(Exception e){throw new IllegalArgumentException("Invalid configured subnet bundle",e);}
 	}
 
@@ -1143,8 +1143,8 @@ public class MagQCVectorMaker implements Cloneable {
 			}}
 		}
 		subnetBlockWidth=6; pooledCols=0;
-		System.err.println("aggregator bundle (six): "+aggSubnets.size()+" subnets loaded, "
-			+"expected-copy table="+expectedCopyTableFile+" declaration="+subnetPopulationsFile);
+		if(verbose){System.err.println("aggregator bundle (six): "+aggSubnets.size()+" subnets loaded, "
+			+"expected-copy table="+expectedCopyTableFile+" declaration="+subnetPopulationsFile);}
 	}
 
 	/** Validates the four-output contract shared by MVM's six-feature loader and MagQCTool's phase-0
@@ -1611,7 +1611,14 @@ public class MagQCVectorMaker implements Cloneable {
 	 */
 	static MagQCVectorMaker initializePrepared(String bundle, String family, String release, String releasePin,
 			String table, String tablePin, String populations, String populationsPin){
+		return initializePrepared(bundle, family, release, releasePin, table, tablePin, populations, populationsPin, true);
+	}
+
+	/** The public client can silence startup diagnostics without changing replay-tool defaults. */
+	static MagQCVectorMaker initializePrepared(String bundle, String family, String release, String releasePin,
+			String table, String tablePin, String populations, String populationsPin, boolean verbose){
 		final MagQCVectorMaker vm=new MagQCVectorMaker();
+		vm.verbose=verbose;
 		vm.aggBundleFile=bundle; vm.familyFile=family;
 		vm.releaseManifestFile=release; vm.releaseManifestSha80=releasePin;
 		vm.expectedCopyTableFile=table; vm.expectedCopyTableSha256=tablePin;
@@ -4639,6 +4646,8 @@ public class MagQCVectorMaker implements Cloneable {
 	private boolean sharedPreparedSubnets, preparedWorker;
 	/** True only for initializePrepared(); keeps D196 dense serving scoped to prepared input. */
 	private boolean preparedDenseInference=false;
+	/** Startup diagnostics remain enabled for developer replay tools, optional for public serving. */
+	private boolean verbose=true;
 	private int numAggInputs;
 	private int[] lastNcServe=new int[5];
 	private int[] lastAntiObs=new int[TRNA_ANTICODON_OBS];

@@ -47,6 +47,8 @@ public final class MagQCAssemblyBatch {
 		sharedComposite=lockedMode(required("compositemode"));
 		sharedSubnets=lockedMode(required("subnetmode"));
 		parallelLoad=parallelMode(required("loadmode"));
+		swapNL=Parse.parseBoolean(required("swapnl"));
+		verbose=Parse.parseBoolean(required("verbose"));
 		timings=options.containsKey("timings") && Parse.parseBoolean(required("timings"));
 		jobs=inputs(required("in"));
 		threads=Math.min(jobs.size(), options.containsKey("t") ? Parse.parseIntKMG(required("t")) : Shared.threads());
@@ -92,7 +94,7 @@ public final class MagQCAssemblyBatch {
 				if(url!=null){message.append("    Download: ").append(url).append('\n');}
 			}
 		}
-		message.append("For the V1 package, put all ProkCC assets in BBTools/resources/prokcc/.\n")
+		message.append(shared.Resources.prokccDownloadInstructions())
 			.append("Use the matching release config and metadata; custom configs retain their explicit paths.");
 		throw new IllegalArgumentException(message.toString());
 	}
@@ -100,6 +102,7 @@ public final class MagQCAssemblyBatch {
 	/** Configures each global-dependent phase before starting its private workers. */
 	void process() throws Exception{
 		final long processStart=timestamp();
+		prok.ProkObject.verbose=verbose;
 		requireOptionalAssets(options);
 		if(Parse.parseBoolean(required("deterministic"))){
 			Shared.SIMD_FMA=false; Shared.SIMD_FEED_FORWARD=false;
@@ -161,7 +164,7 @@ public final class MagQCAssemblyBatch {
 	private MagQCVectorMaker loadSubnets(){
 		return MagQCVectorMaker.initializePrepared(required("bundle"), required("familylist"), required("subnetmanifest"),
 			required("subnetmanifestsha80"), required("expectedcopytable"), required("expectedcopytablesha80"),
-			required("subnetpopulations"), required("subnetpopulationssha80"));
+			required("subnetpopulations"), required("subnetpopulationssha80"), verbose);
 	}
 
 	/** Joins establish publication, then independent model and formatter layouts must agree. */
@@ -309,7 +312,7 @@ public final class MagQCAssemblyBatch {
 						if(owner.retainVectors){job.vector=vector.toBytes();}
 						scoring.evaluate(vector, job.path);
 						job.inferenceNanos=owner.elapsed(inferenceStart);
-						job.report=new MagQCAssemblyReport(contigs, bin);
+						job.report=new MagQCAssemblyReport(contigs, bin, owner.swapNL);
 						job.workerNanos+=System.nanoTime()-binStart;
 						output.clear(); owner.appendScore(output, scoring, job, index);
 						job.result=output.toBytes();
@@ -359,7 +362,7 @@ public final class MagQCAssemblyBatch {
 			writer.start();
 			try{
 				final ByteBuilder header=new ByteBuilder(2048);
-				header.append("#schema_version\tprokcc_assembly_scores_v3\n");
+				header.append("#schema_version\tprokcc_assembly_scores_v4\n");
 				MagQCNetworkHarness.appendBindings(header, options);
 				header.append("#netsha80\t").append(required("netsha80")).nl();
 				for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
@@ -369,7 +372,7 @@ public final class MagQCAssemblyBatch {
 				header.append("#columns\trow_index\tbin_id");
 				for(String name:scorer.names){header.tab().append(name);}
 				header.append("\tscaled_error_gene_completeness\tscaled_error_gene_contamination\ttaxonomy_source\tqc_status\tqc_domain\tqc_phylum\tinput_sha80");
-				header.append(MagQCAssemblyReport.COLUMNS).append("\tbin_worker_wall_seconds\n");
+				header.append(MagQCAssemblyReport.columns(swapNL)).append("\tbin_worker_wall_seconds\n");
 				writer.print(header);
 				for(Job job:jobs){
 					if(job.result==null){throw new IllegalStateException("Missing completed bin: "+job.path);}
@@ -389,7 +392,7 @@ public final class MagQCAssemblyBatch {
 	/*----------------         Input Parsing        ----------------*/
 	/*--------------------------------------------------------------*/
 
-	/** Resource paths resolve against the single release config; bin and report paths use the working directory. */
+	/** Resource paths use the config directory; user paths use the working directory. A bare input file is accepted. */
 	static HashMap<String,String> parseOptions(String[] args){
 		Path base=Paths.get("").toAbsolutePath();
 		boolean configSeen=false;
@@ -404,10 +407,14 @@ public final class MagQCAssemblyBatch {
 		// Expand config with the native reader, but do not run PreParser's output
 		// redirection or global setters before this public allowlist is validated.
 		for(String arg:Parser.parseConfig(args)){
+			// The wrapper prepends config=, so recognize the first bare input even
+			// after config expansion. Explicit or repeated inputs still fail below.
+			if(arg.indexOf('=')<0 && !values.containsKey("in") && Files.isRegularFile(Paths.get(arg))){arg="in="+arg;}
 			final int equals=arg.indexOf('=');
 			if(equals<1){throw new IllegalArgumentException("Expected key=value: "+arg);}
 			String key=arg.substring(0, equals).toLowerCase(Locale.ROOT);
 			if(key.equals("threads")){key="t";}
+			if(key.equals("swapln")){key="swapnl";}
 			final String value=arg.substring(equals+1);
 			if(!ALLOWED.contains(key) || values.put(key, value)!=null || value.isEmpty()){
 				throw new IllegalArgumentException("Unknown, duplicate or empty public option: "+key);
@@ -425,7 +432,7 @@ public final class MagQCAssemblyBatch {
 		defaults(values, "policy", "BOUNDED_LOOKAHEAD", "lookahead", "4", "passes", "1", "pgmmode", "taxonomy",
 			"taxaddress", "refseq", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
 			"errorfitset", "UNCALIBRATED", "errorfitdate", "NA", "errorcoverage", "NA",
-			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel");
+			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "out", "stdout", "swapnl", "f", "verbose", "f");
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
 		return values;
@@ -514,7 +521,7 @@ public final class MagQCAssemblyBatch {
 	private final HashMap<String,String> options;
 	final ArrayList<Job> jobs;
 	private final boolean retainVectors;
-	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad;
+	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad, swapNL, verbose;
 	private final long[] resourceNanos=new long[3];
 	private final int threads, passes;
 	private final double compMultiplier, contamMultiplier;
@@ -532,11 +539,11 @@ public final class MagQCAssemblyBatch {
 	private static final String[] RESOURCE_PATHS={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net",
 		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance"};
 	private static final String[] REPORT_OPTIONS={"profilesha80", "policy", "lookahead", "passes", "pgmmode", "deterministic",
-		"comperrormultiplier", "contamerrormultiplier", "errorfitset", "errorfitdate", "errorcoverage", "compositemode", "subnetmode", "loadmode"};
+		"comperrormultiplier", "contamerrormultiplier", "errorfitset", "errorfitdate", "errorcoverage", "compositemode", "subnetmode", "loadmode", "swapnl"};
 	private static final HashSet<String> ALLOWED=new HashSet<String>();
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxdomain", "taxphylum", "timings"));
+		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxdomain", "taxphylum", "timings", "verbose"));
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}
 }
