@@ -80,6 +80,30 @@ public final class AAAligner {
 	 * @return Best HSP as an AAAlignment, or null if none scores above zero.
 	 */
 	public static final AAAlignment align(final byte[] q, final byte[] t, final boolean recordPath){
+		return align(q, t, Blosum62.GAP_OPEN, Blosum62.GAP_EXTEND, recordPath);
+	}
+
+	/**
+	 * Local alignment with caller-specified affine gap costs. A gap of length L costs
+	 * {@code gapOpen + L*gapExtend}, matching this class's existing BLAST convention.
+	 * This overload exists for controlled scoring experiments; production callers should
+	 * normally use {@link #align(byte[],byte[],boolean)}.
+	 *
+	 * @param q Encoded query residues.
+	 * @param t Encoded target residues.
+	 * @param gapOpen Nonnegative cost to open a gap.
+	 * @param gapExtend Nonnegative cost per residue in the gap.
+	 * @param recordPath Whether to record the per-column operation path.
+	 * @return Best local alignment, or null if no alignment scores above zero.
+	 */
+	public static final AAAlignment align(final byte[] q, final byte[] t,
+			final int gapOpen, final int gapExtend, final boolean recordPath){
+		if(gapOpen<0 || gapExtend<0){
+			throw new IllegalArgumentException("Gap costs must be nonnegative: open="+
+				gapOpen+" extend="+gapExtend);
+		}
+		ensureScorable(q, "query");
+		ensureScorable(t, "target");
 		final int m=q.length, n=t.length;
 		if(m==0 || n==0){return null;}
 
@@ -88,12 +112,22 @@ public final class AAAligner {
 		final Scratch s=SCRATCH.get();
 		s.ensureCapacity((m+1)*rowStride);
 		final int[] M=s.M, E=s.E, F=s.F;
-		fillMatrices(q, t, M, E, F, rowStride, true, s);
+		fillMatrices(q, t, M, E, F, rowStride, true, gapOpen, gapExtend, s);
 		final int best=s.best, bestI=s.bestI, bestJ=s.bestJ;
 
 		if(best<=0){return null;}
-		final int openExtend=Blosum62.GAP_OPEN+Blosum62.GAP_EXTEND;
-		return traceback(q, t, M, E, F, rowStride, best, bestI, bestJ, openExtend, Blosum62.GAP_EXTEND, recordPath);
+		final int openExtend=gapOpen+gapExtend;
+		return traceback(q, t, M, E, F, rowStride, best, bestI, bestJ,
+			openExtend, gapExtend, recordPath);
+	}
+
+	/**
+	 * Local alignment with a single linear per-gap-residue cost and no separate opening
+	 * charge. This is equivalent to {@code align(q,t,0,gapCost,recordPath)}.
+	 */
+	public static final AAAlignment alignLinear(final byte[] q, final byte[] t,
+			final int gapCost, final boolean recordPath){
+		return align(q, t, 0, gapCost, recordPath);
 	}
 
 	/**
@@ -111,16 +145,35 @@ public final class AAAligner {
 	 * @return Alignment covering the full query, or null only for empty input.
 	 */
 	public static final AAAlignment alignGlocal(final byte[] q, final byte[] t, final boolean recordPath){
+		ensureScorable(q, "query");
+		ensureScorable(t, "target");
 		final int m=q.length, n=t.length;
 		if(m==0 || n==0){return null;}
 		final int rowStride=n+1;
 		final Scratch s=SCRATCH.get();
 		s.ensureCapacity((m+1)*rowStride);
 		final int[] M=s.M, E=s.E, F=s.F;
-		fillMatrices(q, t, M, E, F, rowStride, false, s);
+		fillMatrices(q, t, M, E, F, rowStride, false,
+			Blosum62.GAP_OPEN, Blosum62.GAP_EXTEND, s);
 		final int best=s.best, bestI=s.bestI, bestJ=s.bestJ;
 		final int openExtend=Blosum62.GAP_OPEN+Blosum62.GAP_EXTEND;
 		return glocalTraceback(q, t, M, E, F, rowStride, best, bestI, bestJ, openExtend, recordPath);
+	}
+
+	/**
+	 * Rejects corrupt/non-BLOSUM encoded arrays before dynamic programming. This
+	 * costs O(query+target) per alignment, negligible beside the O(query*target)
+	 * DP, and prevents a malformed producer from failing inside worker alignment.
+	 */
+	private static void ensureScorable(final byte[] bases, final String role){
+		if(bases==null){throw new IllegalArgumentException("Null "+role+" protein sequence.");}
+		for(int i=0; i<bases.length; i++){
+			final byte b=bases[i];
+			if(!Blosum62.isStandard(b) && b!=Blosum62.X_CODE){
+				throw new IllegalArgumentException("Unscorable encoded residue "+b+" in "+role+
+					" protein sequence at position "+(i+1)+".");
+			}
+		}
 	}
 
 	/**
@@ -140,9 +193,10 @@ public final class AAAligner {
 	 * @param s Scratch to receive best/bestI/bestJ.
 	 */
 	private static final void fillMatrices(final byte[] q, final byte[] t,
-			final int[] M, final int[] E, final int[] F, final int rowStride, final boolean local, final Scratch s){
+			final int[] M, final int[] E, final int[] F, final int rowStride,
+			final boolean local, final int gapOpen, final int gapExtend, final Scratch s){
 		final int m=q.length, n=t.length;
-		final int GO=Blosum62.GAP_OPEN, GE=Blosum62.GAP_EXTEND;
+		final int GO=gapOpen, GE=gapExtend;
 		final int openExtend=GO+GE;//cost of the first position of a gap
 
 		//Borders. Row 0 (empty query) = 0 across all reference columns, so an alignment may begin at

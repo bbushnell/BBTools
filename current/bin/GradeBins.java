@@ -75,6 +75,7 @@ public class GradeBins {
 	 * @param args Command-line arguments array
 	 */
 	public GradeBins(String[] args){
+		ignoreUnknown=false;
 		
 		{//Preparse block for help, config files, and outstream
 			PreParser pp=new PreParser(args, getClass(), false);
@@ -98,6 +99,8 @@ public class GradeBins {
 				totalSize=Parse.parseKMG(b);
 			}else if(a.equals("minsize")){
 				minSize=Parse.parseIntKMG(b);
+			}else if(a.equals("ignoreunknown")){
+				ignoreUnknown=Parse.parseBoolean(b);
 			}else if(a.equals("ref") || a.equals("contigs") || a.equals("assembly")){
 				ref=b;
 			}else if(a.equals("hist")){
@@ -629,8 +632,7 @@ public class GradeBins {
 		PTAccumulator pta=new PTAccumulator();
 		boolean success=ThreadWaiter.startAndWait(alpt, pta);
 //		assert(false) : alpt.size()+", "+binStats.size();
-		//TODO: Possible bug [bin/GradeBins#001] - success (from ThreadWaiter, accumulate/success convention) is forced false by `success&=!success` then never read -> a failed ProcessThread is silently swallowed (grade computed on whatever bins loaded; no warning/crash). Crash-loud would be `assert(success)`. LOW (eval tool); intent floated (best-effort vs debug leftover w/ commented assert above). NOT changed.
-		success&=!success;//Forces success=false; result is then dropped (see #001).
+		if(!success){throw new IllegalStateException("Bin grading worker failed; refusing to publish partial truth");}
 		Tools.condenseStrict(binStats);//Not really necessary, perhaps...
 		
 		if(runQuickClade==1 && qclade && binStats.size()>0) {
@@ -732,7 +734,7 @@ public class GradeBins {
 		CCLine eukcc=(eukCCMap==null ? null : eukCCMap.get(core));
 //		assert((checkMMap==null) == (checkm==null)) : checkm; //Can fail, maybe bins are too small
 		if(checkm==null && eukcc==null) {
-			c.calcContam(sizeMap);
+			c.calcContam(sizeMap, ignoreUnknown);
 			return;
 		}
 		if(checkm==null) {checkm=dummy;}
@@ -1630,6 +1632,8 @@ public class GradeBins {
 	private double compltScore=0;
 	/** Minimum bin size threshold for inclusion in analysis */
 	private int minSize=1;
+	/** Exclude unlabeled sequence from label-based truth, without removing it from bins. */
+	private static boolean ignoreUnknown=false;
 	/** Whether to use multi-threaded loading */
 	private boolean loadMT=true;
 

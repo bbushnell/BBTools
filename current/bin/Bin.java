@@ -425,14 +425,29 @@ public abstract class Bin extends BinObject implements Sketchable, Iterable<Cont
 	 * @param sizeMap Map of taxon IDs to expected genome sizes
 	 */
 	public final void calcContam(IntLongHashMap sizeMap) {
+		calcContam(sizeMap, false);
+	}
+
+	/** Computes label-based truth, optionally excluding contigs without positive labels.
+	 * Unknown sequence remains part of the physical bin size, but not either truth
+	 * numerator or denominator. A wholly unknown bin has no defined truth.
+	 * @param sizeMap Reference assembly sizes by positive taxonomic label
+	 * @param ignoreUnknown Exclude nonpositive contig labels from truth arithmetic
+	 */
+	public final void calcContam(IntLongHashMap sizeMap, boolean ignoreUnknown) {
+		assert(sizeMap!=null) : "Label completeness requires reference assembly sizes";
 		IntLongHashMap taxmap=new IntLongHashMap(7);
-		long sum=0;
+		long sum=0, unknown=0;
 		for(Contig c : this) {
 			int tid=c.labelTaxid;
+			if(ignoreUnknown && tid<1){unknown+=c.size(); continue;}
 			taxmap.increment(tid, c.size());
 			sum+=c.size();
 		}
-		assert(sum==size());
+		assert(sum+unknown==size()) : "Known and excluded unknown bases must conserve the physical bin size";
+		if(ignoreUnknown && sum==0){
+			throw new IllegalArgumentException("No labeled bases; completeness and contamination are undefined for "+name());
+		}
 		int[] keys=taxmap.keys();
 		long[] values=taxmap.values();
 		final int invalid=taxmap.invalid();

@@ -107,7 +107,10 @@ public class BinStats implements Comparable<BinStats> {
 	 * @param useRNA Whether RNA markers are required for high quality classification
 	 * @return Quality type string (UHQ, VHQ, HQ, MQ, LQ, VLQ, or HCN)
 	 */
-	static String type(float complt, float contam, int r16S, int r23S, int r5S, int trna, boolean useRNA) {
+	public static String type(float complt, float contam, int r16S, int r23S, int r5S, int trna, boolean useRNA) {
+		//TODO: Probable bug - float inputs are promoted against double literals here;
+		//exact .95f falls below .95 and can miss VHQ. Existing behavior is retained
+		//for the reporting caller; reconcile tier boundaries with GradeBins separately.
 		boolean rnaOK=!useRNA || (r16S>0 && r23S>0 && r5S>0 && trna>=18);
 		if(contam<0.05 && complt>0.90 && rnaOK) {//HQ
 			if(contam<=0.01 && complt>=0.99) {return "UHQ";}

@@ -672,6 +672,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		//assert(check());
 		assert(valuesIn.size==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.size));
 		Vector.copy(values[0], valuesIn.array); // Copy to input layer
+		normalizeInput();
 		return this;
 	}
 	
@@ -685,7 +686,45 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		//assert(check());
 		assert(valuesIn.length==dims[0]) : KillSwitch.assertDie(inputMismatch(valuesIn.length));
 		Vector.copy(values[0], valuesIn); // Copy to input layer
+		normalizeInput();
 		return this;
+	}
+
+	/**
+	 * Installs optional input standardization without folding it into weights.
+	 * The two float operations preserve the trainer's subtract-then-scale order,
+	 * including constant columns whose inverse standard deviation is very large.
+	 * Both arrays are copied; two null arrays restore identity preprocessing.
+	 * @param mean Per-input float32 means, or null with inverseStd
+	 * @param inverseStd Per-input positive finite float32 inverse deviations
+	 */
+	public void setInputNormalization(float[] mean, float[] inverseStd){
+		assert(dims!=null && dims.length>=2) : "Input normalization requires the constructed input width";
+		if(mean==null && inverseStd==null){inputMean=null; inputInverseStd=null; return;}
+		if(mean==null || inverseStd==null || mean.length!=dims[0] || inverseStd.length!=dims[0]){
+			throw new IllegalArgumentException("Input normalization requires two arrays of width "+dims[0]);
+		}
+		for(int i=0; i<mean.length; i++){
+			if(!Float.isFinite(mean[i]) || !Float.isFinite(inverseStd[i]) || inverseStd[i]<=0){
+				throw new IllegalArgumentException("Nonfinite mean or nonpositive inverse deviation at input "+i);
+			}
+		}
+		inputMean=mean.clone(); inputInverseStd=inverseStd.clone();
+	}
+
+	/** True only when an actual validated preprocessing pair is installed. */
+	public boolean hasInputNormalization(){return inputMean!=null;}
+
+	/** Standardizes private input scratch in place; never changes the caller's row. */
+	private void normalizeInput(){
+		if(inputMean==null){return;}
+		final float[] input=values[0];
+		assert(input.length==inputMean.length && input.length==inputInverseStd.length) :
+			"Serialized normalization must match the input scratch copied by applyInput";
+		for(int i=0; i<input.length; i++){
+			input[i]-=inputMean[i];
+			input[i]*=inputInverseStd[i];
+		}
 	}
 
 	/**
@@ -1094,6 +1133,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	 * @return ByteBuilder containing formatted network header
 	 */
 	public ByteBuilder header(){
+		if(weightBits<32 && !codingA48Out){throw new IllegalStateException("Reduced-precision edge output requires A48 coding");}
 		ByteBuilder bb=new ByteBuilder();
 		bb.append("##bbnet").nl(); //File format identifier
 		bb.append("#version ").append(version).nl();
@@ -1115,6 +1155,15 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		bb.append("#dims"); //Network architecture
 		for(int d : dims){bb.space().append(d);}
 		bb.nl();
+		if(inputMean!=null){
+			// Critical headers: older readers reject these under BBTools' required -ea.
+			// A48 preserves exact float32 bits without exponent parsing or field Strings.
+			bb.append("#inputmean_a48");
+			for(float value : inputMean){bb.space().appendFloatA48(value);}
+			bb.nl().append("#inputinversestd_a48");
+			for(float value : inputInverseStd){bb.space().appendFloatA48(value);}
+			bb.nl();
+		}
 		for(String s : commands){bb.append(s).nl();} //Creation commands
 		if(lastStats!=null){bb.append("##stats ").append(lastStats).nl();}
 		bb.append("##fpr ").append(fpRate, 6).nl(); //Performance metrics
@@ -1127,7 +1176,27 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			if(k.equals(k.toLowerCase())){bb.append("##").append(k).space().append(e.getValue()).nl();}
 		}
 		bb.append(codingA48Out ? "#coding A48" : "#coding decimal").nl();
+		if(weightBits<32){bb.append("#weightbits ").append(weightBits).nl();}
 		return bb;
+	}
+
+	/** Sets edge serialization precision only; changing this does not mutate the in-memory weights. */
+	public void setWeightBits(final int bits){
+		if(bits!=18 && bits!=24 && bits!=32){throw new IllegalArgumentException("Edge weight precision must be18,24 or32 bits");}
+		weightBits=bits;
+	}
+
+	/** Returns the edge encoding precision retained from a critical header or explicit output choice. */
+	public int weightBits(){return weightBits;}
+
+	/** Writes one edge, omitting low14 or low8 bits under the explicit18/24-bit wire contract. */
+	private void appendWeight(final ByteBuilder bb, final float weight){
+		bb.space();
+		if(weightBits<32){
+			if(!Float.isFinite(weight)){throw new IllegalArgumentException("Cannot encode a nonfinite reduced-precision edge weight");}
+			bb.appendA48(Float.floatToRawIntBits(weight)>>>(32-weightBits));
+		}else if(codingA48Out){bb.appendFloatA48(weight);}
+		else{bb.append(weight, 6, true);}
 	}
 
 	/** Store a custom tag under BOTH its original case and lowercase (same value), so getTag() is
@@ -1166,6 +1235,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 			Cell[] prev=net[lnum-1];
 			bb.append("##layer ").append(lnum).nl(); //Layer header
 			for(Cell c : layer){ //Each neuron in layer
+				if(weightBits<32 && !Float.isFinite(c.bias())){throw new IllegalArgumentException("Cannot encode nonfinite bias in a reduced-precision network");}
 				if(DENSE){ //Dense network format
 					if(OUT_SPARSE){ //Force sparse output
 						lastLinesWritten+=2;
@@ -1191,7 +1261,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias value
 						for(int i=0; i<c.weights.length; i++){
 							if(c.weights[i]!=0){
-								if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); } //Weight values
+								appendWeight(bb, c.weights[i]); //Weight values
 								edgeCount++;
 							}
 						}
@@ -1201,7 +1271,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.append('C').append(c.id()).space().append(c.typeString()); //Complete line
 						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
 						for(int i=0; i<c.weights.length; i++){
-							if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
+							appendWeight(bb, c.weights[i]);
 						} //All weights
 						bb.nl();
 						edgeCount+=c.weights.length;
@@ -1221,7 +1291,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						int inum=0;
 						for(int idx=0; idx<c.inputs.length; inum++){ //Expand sparse to dense
 							if(inum==c.inputs[idx]){
-								if(codingA48Out){ bb.space().appendFloatA48(c.weights[idx]); } else { bb.space().append(c.weights[idx], 6, true); } //Weight value
+								appendWeight(bb, c.weights[idx]); //Weight value
 								idx++;
 							}else{
 								bb.space().append(0); //Zero for missing connection
@@ -1244,7 +1314,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 						bb.append('W').append(c.id()).space().append(c.typeString()); //Weight line
 						if(codingA48Out){ bb.space().appendFloatA48(c.bias()); } else { bb.space().append(c.bias(), 6, true); } //Bias
 						for(int i=0; i<c.weights.length; i++){
-							if(codingA48Out){ bb.space().appendFloatA48(c.weights[i]); } else { bb.space().append(c.weights[i], 6, true); }
+							appendWeight(bb, c.weights[i]);
 						} //Weights
 						bb.nl();
 						edgeCount+=c.weights.length;
@@ -1349,6 +1419,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		copy.cutoff=cutoff; //Copy configuration
 		copy.tags=new LinkedHashMap<String,String>(tags); //Copy custom tags
 		copy.fname=fname; //Preserve source-file metadata
+		copy.setInputNormalization(inputMean, inputInverseStd);
+		copy.weightBits=weightBits;
 		copy.alpha=alpha;
 		copy.annealStrength=annealStrength;
 //		copy.annealSeed=annealSeed;
@@ -1359,6 +1431,57 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		
 //		assert(copy.check());
 		return copy;
+	}
+
+	/**
+	 * Copies only inference state into dense weight arrays, without changing DENSE.
+	 * Sparse serialized edges are placed at their original input indices; absent
+	 * edges receive zero weight. Biases and activation functions are unchanged.
+	 * The returned network owns all mutable arrays and always uses dense inference,
+	 * even if another model load changes the legacy global dispatch flag.
+	 * Create this copy once inside the owning worker's run method and reuse it.
+	 * This representation can change floating-point reduction order; it is not a
+	 * promise of bit-identical sparse arithmetic. It is not a training copy.
+	 * @return A private, inference-only dense network.
+	 */
+	public CellNet copyDenseForInference(){
+		assert(dims!=null && dims.length>=2) : "Dense inference requires a constructed network topology";
+		final CellNet copy=new DenseInferenceNet(dims,seed,density,density1,edgeBlockSize);
+		copy.setInputNormalization(inputMean, inputInverseStd);
+		for(int layer=1; layer<layers; layer++){
+			final int width=dims[layer-1];
+			for(int i=0; i<net[layer].length; i++){
+				final Cell source=net[layer][i],dest=copy.net[layer][i];
+				if(source.weights==null || source.function==null){
+					throw new IllegalStateException("Missing inference state at layer "+layer+", cell "+i);
+				}
+				dest.bias=source.bias;
+				dest.function=source.function;
+				dest.weights=new float[width];
+				if(source.inputs==null){
+					if(source.weights.length!=width){throw new IllegalStateException("Dense input width mismatch at layer "+layer);}
+					System.arraycopy(source.weights,0,dest.weights,0,width);
+				}else{
+					if(source.inputs.length!=source.weights.length){throw new IllegalStateException("Sparse weight/index count mismatch");}
+					final boolean[] seen=new boolean[width];
+					for(int edge=0; edge<source.inputs.length; edge++){
+						final int index=source.inputs[edge];
+						if(index<0 || index>=width || seen[index]){throw new IllegalStateException("Invalid or duplicate sparse input index: "+index);}
+						seen[index]=true;
+						dest.weights[index]=source.weights[edge];
+					}
+				}
+			}
+		}
+		return copy;
+	}
+
+	/** Dense inference dispatch is instance-local; legacy parser globals cannot change it. */
+	private static final class DenseInferenceNet extends CellNet {
+		private DenseInferenceNet(int[] dims,long seed,float density,float density1,int blockSize){
+			super(dims,seed,density,density1,blockSize,new ArrayList<String>());
+		}
+		@Override public float feedForward(){return feedForwardDense();}
 	}
 	
 	/**
@@ -1392,6 +1515,7 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 		cutoff=cn.cutoff; //Copy classification threshold
 		tags=new LinkedHashMap<String,String>(cn.tags); //Copy custom tags
 		fname=cn.fname; //Copy source-file metadata
+		setInputNormalization(cn.inputMean, cn.inputInverseStd);
 		alpha=cn.alpha; //Copy learning parameters
 		annealStrength=cn.annealStrength;
 //		annealSeed=cn.annealSeed;
@@ -1680,6 +1804,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	
 	/** Activation values per layer [layer][neuron] */
 	final float[][] values;
+	/** Optional private float32 standardization; absent for historical networks. */
+	private float[] inputMean, inputInverseStd;
 	/** Error gradients per layer [layer][neuron] */
 	final float[][] eOverNet;
 	/** Input weight matrices [layer][neuron][input_weight] */
@@ -1733,6 +1859,8 @@ public class CellNet implements Cloneable, Comparable<CellNet> {
 	public static boolean codingA48In=false;
 	/** Write weights/biases in A48 by default (smaller + lossless); the #coding header records it for the reader */
 	public static boolean codingA48Out=true;
+	/** Critical edge precision for serialization; biases/input normalization are always32-bit. */
+	private int weightBits=32;
 	/** Network type: true=dense connectivity, false=sparse */
 	public static boolean DENSE=true;
 	/** Output format: use hexadecimal encoding */

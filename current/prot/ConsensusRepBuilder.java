@@ -64,6 +64,9 @@ public final class ConsensusRepBuilder {
 	private float MAF_sub=0.25f, MAF_del=0.5f, MAF_ins=0.5f;
 	/** Trim consensus ends below this fraction of max depth (strips smeared low-depth padding tails). */
 	private float trimDepthFraction=0.1f;
+	/** Aligner used for member-vs-pivot glocal placement. Default stays {@link AAAligner} until
+	 *  a real-family A/B comparison is recorded (Elly, 2026-09-03). */
+	private String aligner="aa";
 
 	/*--------------------------------------------------------------*/
 	/*----------------             Main             ----------------*/
@@ -98,6 +101,12 @@ public final class ConsensusRepBuilder {
 			else if(a.equals("maf_ins") || a.equals("mafins")){MAF_ins=Float.parseFloat(b);}
 			else if(a.equals("trimdepth") || a.equals("trimdepthfraction")){trimDepthFraction=Float.parseFloat(b);}
 			else if(a.equals("overwrite") || a.equals("ow")){overwrite=Parse.parseBoolean(b);}
+			else if(a.equals("aligner")){
+				aligner=b.toLowerCase();
+				if(!aligner.equals("aa") && !aligner.equals("scrabble")){
+					throw new RuntimeException("aligner must be aa or scrabble, got: "+b);
+				}
+			}
 			else if(a.equals("-h") || a.equals("--help") || a.equals("help")){printUsageAndExit();}
 			else{throw new RuntimeException("Unknown argument: "+arg);}
 		}
@@ -305,8 +314,10 @@ public final class ConsensusRepBuilder {
 		g.identityCeiling=identityCeiling;
 		g.MAF_sub=MAF_sub; g.MAF_del=MAF_del; g.MAF_ins=MAF_ins;
 		g.trimDepthFraction=trimDepthFraction;
+		final boolean useScrabble=aligner.equals("scrabble");
 		for(byte[] m : members){
-			final AAAlignment aln=AAAligner.alignGlocal(m, g.pivot, true);
+			final AAAlignment aln=useScrabble ? ScrabbleAmino.alignWithTrace(m, g.pivot)
+					: AAAligner.alignGlocal(m, g.pivot, true);
 			if(aln!=null){g.add(m, aln);}
 		}
 		return g.traverse();
@@ -389,7 +400,10 @@ public final class ConsensusRepBuilder {
 			"  passes=    Consensus refinement passes (default 1).\n"+
 			"  trimdepth= Trim ends below this fraction of max depth (default 0.1; strips padding tails).\n"+
 			"  pad=       Pivot X-padding each end (default 20).\n"+
-			"  ow=        Overwrite output (t/f, default t).\n");
+			"  ow=        Overwrite output (t/f, default t).\n"+
+			"  aligner=   Member-vs-pivot glocal aligner: aa (default, AAAligner/BLOSUM62) or\n"+
+			"             scrabble (ScrabbleAmino, banded/linear-scoring, faster). aa stays\n"+
+			"             default until a real-family A/B comparison is recorded.\n");
 		System.exit(0);
 	}
 }

@@ -1,13 +1,8 @@
 package prot;
 
-import java.io.BufferedReader;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
+import fileIO.ByteFile;
 
 /**
  * Binds one hash-verified {@link MagQCExpectedCopyTableTyped.Table} to one hash-verified
@@ -31,21 +26,21 @@ public final class MagQCExpectedCopyBinding {
 
 	private static final String DECLARATION_SCHEMA="subnet_population_declaration_v1";
 	private static final String DECLARATION_COLUMNS="subnet_id\tpopulation_type\tpopulation_name";
-	private static final String HEX="0123456789abcdef";
 
 	private final String tableSha256,declarationSha256,familyListSha256,releaseManifestSha256;
-	private final int numFam;
+	private final int numFam, itemWidth;
 	private final String[] subnetIds,populationTypes,populationNames;
 	private final MagQCExpectedCopyFeatures.Mapping[] mappings;
 
 	private MagQCExpectedCopyBinding(String tableSha256,String declarationSha256,String familyListSha256,
-			String releaseManifestSha256,int numFam,String[] subnetIds,String[] populationTypes,
+			String releaseManifestSha256,int numFam,int itemWidth,String[] subnetIds,String[] populationTypes,
 			String[] populationNames,MagQCExpectedCopyFeatures.Mapping[] mappings){
 		this.tableSha256=tableSha256;
 		this.declarationSha256=declarationSha256;
 		this.familyListSha256=familyListSha256;
 		this.releaseManifestSha256=releaseManifestSha256;
 		this.numFam=numFam;
+		this.itemWidth=itemWidth;
 		this.subnetIds=subnetIds.clone();
 		this.populationTypes=populationTypes.clone();
 		this.populationNames=populationNames.clone();
@@ -65,9 +60,12 @@ public final class MagQCExpectedCopyBinding {
 		final MagQCExpectedCopyTableTyped.Table table=MagQCExpectedCopyTableTyped.open(tablePath,expectedTableSha256);
 
 		final String fl=bundle.metadata("family_list_sha256");
-		if(fl==null||!fl.equals(table.familyListHash)){fail("family list hash mismatch between table and bundle");}
+		if(!matchesBundleDigest(bundle,fl,table.familyListHash)){fail("family list hash mismatch between table and bundle");}
 
-		if(table.items.length!=numFam+5){fail("table item width does not match numFam+5");}
+		final int width=table.items.length, nonprotein=width-numFam;
+		if(nonprotein!=MagQCObservationLayout.LEGACY_COUNT && nonprotein!=MagQCObservationLayout.EXTENDED_COUNT){
+			fail("table item width must match numFam+5 or numFam+70");
+		}
 		for(int i=0;i<numFam;i++){
 			final MagQCExpectedCopyTableTyped.Item it=table.items[i];
 			if(!"P".equals(it.type)||!it.key.equals(Integer.toString(i))||it.ordinal!=i){
@@ -76,23 +74,23 @@ public final class MagQCExpectedCopyBinding {
 		}
 		for(int i=numFam;i<table.items.length;i++){
 			final MagQCExpectedCopyTableTyped.Item it=table.items[i];
-			final String expectedKey=MagQCExpectedCopyTableTyped.NCRNA[i-numFam];
+			final String expectedKey=MagQCObservationLayout.nonproteinKey(i-numFam);
 			if(!"N".equals(it.type)||!it.key.equals(expectedKey)||it.ordinal!=i){
 				fail("canonical item order mismatch at "+i);
 			}
 		}
 
-		if(expectedDeclarationSha256==null||!expectedDeclarationSha256.matches("[0-9a-f]{64}")){
+		if(!MagQCExpectedCopyTableTyped.validDigest(expectedDeclarationSha256)){
 			fail("invalid expected declaration hash");
 		}
-		final String actualDeclarationSha256=sha256(declarationPath);
-		if(!actualDeclarationSha256.equals(expectedDeclarationSha256)){
-			fail("declaration hash mismatch: expected "+expectedDeclarationSha256+" actual "+actualDeclarationSha256);
+		final String actualDeclarationSha256=HbmMemberIndexFormat.toHexLower(MagQCTextResource.digest(declarationPath));
+		if(!MagQCExpectedCopyTableTyped.matchesDigest(expectedDeclarationSha256,actualDeclarationSha256)){
+			fail("declaration hash mismatch");
 		}
 		final Declaration declaration=parseDeclaration(declarationPath);
 
 		final String rm=bundle.metadata("release_manifest_sha256");
-		if(rm==null||!rm.equals(declaration.releaseManifestSha256)){
+		if(!matchesBundleDigest(bundle,rm,declaration.releaseManifestSha256)){
 			fail("release manifest hash mismatch between bundle and declaration");
 		}
 
@@ -109,7 +107,6 @@ public final class MagQCExpectedCopyBinding {
 			fail("declaration/bundle subnet id set mismatch");
 		}
 
-		final int width=numFam+5;
 		final String[] subnetIds=new String[bundle.size()];
 		final String[] populationTypes=new String[bundle.size()];
 		final String[] populationNames=new String[bundle.size()];
@@ -119,10 +116,17 @@ public final class MagQCExpectedCopyBinding {
 			final DeclarationRow row=declaration.rows.get(s.id);
 			final MagQCExpectedCopyTableTyped.Population pop=table.population(row.type,row.name);
 			final int[] indexes;
-			if(s.familyRanks==null){
-				if(s.numObs!=5){fail("ncrna subnet must declare 5 observations: "+s.id);}
-				indexes=new int[]{numFam,numFam+1,numFam+2,numFam+3,numFam+4};
+			final int specialCount=MagQCObservationLayout.specialCount(s.type);
+			if(specialCount>=0){
+				if(s.familyRanks!=null || s.numObs!=specialCount){
+					fail("special subnet observation layout mismatch: "+s.id+" type="+s.type);
+				}
+				final int offset="trna_anticodon".equals(s.type) ? MagQCObservationLayout.LEGACY_COUNT : 0;
+				if(offset+specialCount>nonprotein){fail("trna_anticodon subnet requires an extended expected-copy table: "+s.id);}
+				indexes=new int[specialCount];
+				for(int j=0; j<indexes.length; j++){indexes[j]=numFam+offset+j;}
 			}else{
+				if(s.familyRanks==null){fail("famset subnet requires family ranks: "+s.id);}
 				if(s.familyRanks.length!=s.numObs){fail("family rank count does not match numObs: "+s.id);}
 				for(int r:s.familyRanks){
 					if(r<0||r>=numFam){fail("family rank out of range: "+s.id+" rank "+r);}
@@ -135,13 +139,35 @@ public final class MagQCExpectedCopyBinding {
 			populationNames[i]=row.name;
 		}
 
-		return new MagQCExpectedCopyBinding(expectedTableSha256,actualDeclarationSha256,fl,rm,numFam,
+		return new MagQCExpectedCopyBinding(expectedTableSha256,expectedDeclarationSha256,fl,rm,numFam,width,
 				subnetIds,populationTypes,populationNames,mappings);
+	}
+
+	/**
+	 * Compares a verified legacy artifact's full digest using the bundle's declared algorithm.
+	 * The table/declaration byte checks retain all their original digest bits. Only this
+	 * cross-format comparison projects a full digest to sha80, and only for a sha80 bundle.
+	 */
+	private static boolean matchesBundleDigest(MagQCNetBundle bundle,String stored,String legacy){
+		assert(bundle!=null) : "Digest comparison requires the validated bundle's hash algorithm";
+		if(!MagQCExpectedCopyTableTyped.validDigest(legacy)){fail("invalid artifact digest");}
+		final String algorithm=bundle.metadata("hash_algorithm");
+		if("SHA-256".equals(algorithm)){
+			if(stored==null || !stored.matches("[0-9a-f]{64}")){fail("invalid full bundle digest");}
+			return stored.equals(legacy);
+		}
+		if("SHA-256/80".equals(algorithm)){
+			if(stored==null || !stored.matches("[0-9a-f]{20}")){fail("invalid sha80 bundle digest");}
+			return stored.equals(legacy.substring(legacy.length()-20));
+		}
+		fail("unsupported bundle hash algorithm");
+		return false;
 	}
 
 	public int size(){return mappings.length;}
 	public int numFam(){return numFam;}
-	public int itemWidth(){return numFam+5;}
+	/** Returns the bound table's actual width, including its legacy or extended N block. */
+	public int itemWidth(){return itemWidth;}
 	public String subnetId(int order){checkOrder(order);return subnetIds[order];}
 	public String populationType(int order){checkOrder(order);return populationTypes[order];}
 	public String populationName(int order){checkOrder(order);return populationNames[order];}
@@ -167,8 +193,10 @@ public final class MagQCExpectedCopyBinding {
 		String schema=null,releaseHash=null,columns=null;
 		final LinkedHashMap<String,DeclarationRow> rows=new LinkedHashMap<String,DeclarationRow>();
 		boolean sawData=false;
-		try(BufferedReader br=new BufferedReader(new InputStreamReader(new FileInputStream(file),StandardCharsets.UTF_8))){
-			for(String line;(line=br.readLine())!=null;){
+		final ByteFile input=ByteFile.makeByteFile(file,false);
+		try{
+			for(byte[] raw=input.nextLine();raw!=null;raw=input.nextLine()){
+				final String line=new String(raw,StandardCharsets.UTF_8);
 				if(line.length()==0){continue;}
 				if(line.charAt(0)=='#'){
 					if(sawData){fail("declaration metadata after data");}
@@ -178,7 +206,7 @@ public final class MagQCExpectedCopyBinding {
 						schema=p[1];
 					}else if(line.startsWith("#release_manifest_sha256\t")){
 						final String[] p=line.split("\t",-1);
-						if(p.length!=2||releaseHash!=null||!p[1].matches("[0-9a-f]{64}")){fail("invalid declaration release manifest metadata");}
+						if(p.length!=2||releaseHash!=null||!MagQCExpectedCopyTableTyped.validDigest(p[1])){fail("invalid declaration release manifest metadata");}
 						releaseHash=p[1];
 					}else if(line.startsWith("#columns\t")){
 						final String c=line.substring(9);
@@ -204,25 +232,10 @@ public final class MagQCExpectedCopyBinding {
 					if(rows.put(id,new DeclarationRow(type,name))!=null){fail("duplicate declaration subnet id "+id);}
 				}
 			}
-		}catch(IOException e){throw new RuntimeException(e);}
+		}finally{if(input.close()){fail("I/O error reading population declarations: "+file);}}
 		if(schema==null||releaseHash==null||columns==null){fail("incomplete declaration headers");}
 		if(rows.isEmpty()){fail("empty declaration");}
 		return new Declaration(releaseHash,rows);
-	}
-
-	private static String sha256(String file){
-		try{
-			final MessageDigest md=MessageDigest.getInstance("SHA-256");
-			try(FileInputStream in=new FileInputStream(file)){
-				final byte[] buf=new byte[65536];
-				for(int n;(n=in.read(buf))!=-1;){md.update(buf,0,n);}
-			}
-			final byte[] d=md.digest();
-			final StringBuilder b=new StringBuilder(64);
-			for(byte x:d){b.append(HEX.charAt((x>>>4)&15)).append(HEX.charAt(x&15));}
-			return b.toString();
-		}catch(IOException e){throw new RuntimeException(e);}
-		catch(NoSuchAlgorithmException e){throw new RuntimeException(e);}
 	}
 
 	private static void fail(String message){throw new IllegalArgumentException(message);}

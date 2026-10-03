@@ -243,7 +243,12 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return The PRIOR value at this key's slot. WARNING (confirmed 2026-08-31, not merely
+	 * documented-and-worked-around): for a key that was NOT previously present, this returns the
+	 * backing int[] array's default of 0, NOT -1 as this javadoc previously (incorrectly) claimed.
+	 * 0 is indistinguishable from "the key was already mapped to value 0" -- this return value
+	 * CANNOT be used to detect whether the key was newly inserted. Callers needing that must call
+	 * {@link #get(Object)} (which correctly returns -1 for an absent key) BEFORE calling this.
 	 */
 	public int put(K key, int value){
 		return set(key, value);
@@ -266,9 +271,15 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * If the key already exists, updates its value.
 	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return The PRIOR value at this key's slot. WARNING (confirmed 2026-08-31, not merely
+	 * documented-and-worked-around): for a key that was NOT previously present, this returns the
+	 * backing int[] array's default of 0, NOT -1 as this javadoc previously (incorrectly) claimed.
+	 * 0 is indistinguishable from "the key was already mapped to value 0" -- this return value
+	 * CANNOT be used to detect whether the key was newly inserted. Callers needing that must call
+	 * {@link #get(Object)} (which correctly returns -1 for an absent key) BEFORE calling this.
 	 */
 	public int set(K key, int value){
+		//See the corrected @return javadoc above -- absent-key detection needs get(key)>=0 first.
 		assert(key!=null) : "Null keys not supported";
 		final int hash=Tools.hash32plus(key.hashCode());
 		final int cell=findCellOrEmpty(key, hash);
@@ -289,7 +300,12 @@ public final class ObjectIntMap<K> implements Serializable {
 	 * @param key Key to insert/update (must not be null)
 	 * @param value Value to associate with key
 	 * @param hash Hashcode of key
-	 * @return Previous value associated with key, or -1 if key was not present
+	 * @return The PRIOR value at this key's slot. WARNING (confirmed 2026-08-31, not merely
+	 * documented-and-worked-around): for a key that was NOT previously present, this returns the
+	 * backing int[] array's default of 0, NOT -1 as this javadoc previously (incorrectly) claimed.
+	 * 0 is indistinguishable from "the key was already mapped to value 0" -- this return value
+	 * CANNOT be used to detect whether the key was newly inserted. Callers needing that must call
+	 * {@link #get(Object)} (which correctly returns -1 for an absent key) BEFORE calling this.
 	 */
 	private int set(final K key, final int value, final int hash){
 		assert(key!=null) : "Null keys not supported";

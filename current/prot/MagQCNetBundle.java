@@ -49,6 +49,10 @@ public final class MagQCNetBundle {
     private static final Charset UTF8 = StandardCharsets.UTF_8;
     private static final String MAGIC = "MAGQC_BBNETS_V1";
     private static final String HASH_ALGORITHM = "SHA-256";
+    /** New bundles use sha80; the old algorithm remains readable for historical artifacts. */
+    private static final String CURRENT_HASH_ALGORITHM="SHA-256/80";
+    /** Raw-count gene subnets with the C1 taxonomy vocabulary and frozen context scaling. */
+    private static final String FROZEN_INPUT_SCHEMA="gene_subnet_inputs_v1";
     private static final int WRAP = 76;
     private static final String[] DOMAIN_VOCAB = {
         "bacteria", "archaea", "fungi", "plant", "animal", "protist", "virus", "other"
@@ -113,8 +117,68 @@ public final class MagQCNetBundle {
             this.denseMode=denseMode;
             setFrom(master, false);
         }
+        //TODO: BBTools repeatability issue: default SIMD produced different early/late
+        // prepared-vector bytes in one JVM with unchanged flags and inputs (MAG-QC
+        // v4 diagnostic, 2026-09-28); simd=f was exact. JIT/FMA cause is unconfirmed.
+        // See records/BBTOOLS_BUGS_FOUND_v1.md; do not weaken exact reference tests.
         @Override public float feedForward() { return denseMode ? feedForwardDense() : feedForwardSparse(); }
     }
+
+	/**
+	 * A parsed network and its own execution parameters, shared by subnet and
+	 * composite containers. The master stays private; workers obtain independent
+	 * inference-only copies whose dense/sparse dispatch never reads CellNet.DENSE.
+	 */
+	static final class InferenceModel {
+		private InferenceModel(CellNet master_,int[] dims_,long seed_,float[] densities,
+				int blockSize_,boolean dense_){
+			master=master_; dims=dims_.clone(); seed=seed_;
+			density=densities[0]; density1=densities[1]; blockSize=blockSize_; dense=dense_;
+		}
+
+		/** Fresh private state for one worker; not a training or serialization copy. */
+		CellNet newWorker(){
+			assert(dims[0]==master.numInputs() && dims[dims.length-1]==master.numOutputs()) :
+				"Stored dimensions must still describe the private master before constructing worker cells";
+			return new InferenceNet(master,dims,seed,density,density1,blockSize,dense);
+		}
+
+		int inputs(){return dims[0];}
+		int outputs(){return dims[dims.length-1];}
+		int[] dimensions(){return dims.clone();}
+
+		private final CellNet master;
+		private final int[] dims;
+		private final long seed;
+		private final int blockSize;
+		private final float density,density1;
+		private final boolean dense;
+	}
+
+	/**
+	 * Parses without changing legacy parser globals, then captures the exact
+	 * header parameters needed by the proven per-instance inference implementation.
+	 * No mutable master or execution-shape array escapes the returned descriptor.
+	 */
+	static InferenceModel parseInferenceModel(byte[] bytes,String id) throws Exception{
+		if(bytes==null || bytes.length==0){throw new IOException(id+": empty inference network");}
+		final CellNet master=parseNet(bytes,id);
+		final int[] dims=parseDims(bytes,id);
+		if(dims.length<2 || dims[0]!=master.numInputs() || dims[dims.length-1]!=master.numOutputs()){
+			throw new IOException(id+": inference dimensions disagree with parsed network");
+		}
+		return new InferenceModel(master,dims,parseInferenceSeed(bytes),parseDensities(bytes,id),
+			parseBlockSize(bytes,id),parseDenseFlag(bytes,id));
+	}
+
+	/** Matches CellNetParser's long seed, default zero, and last-header-wins behavior. */
+	private static long parseInferenceSeed(byte[] bytes){
+		long seed=0;
+		for(String line:headerLines(bytes)){
+			if(line.startsWith("#seed")){seed=Long.parseLong(line.substring(5).trim());}
+		}
+		return seed;
+	}
 
     /** One immutable metadata record and a read-only master CellNet. */
     public static final class Subnet {
@@ -185,6 +249,35 @@ public final class MagQCNetBundle {
             return n;
         }
 
+        /** Creates one private inference copy for an owning replay worker.
+         * Unlike {@link #netForCurrentThread()}, this never consults the bundle's
+         * ThreadLocal.  The caller owns the returned instance for its whole worker
+         * lifetime, so replay can construct all subnet state inside the worker thread
+         * and reuse it for every row. Sparse serialization is expanded once into
+         * dense inference arrays, preserving trained weights, biases and activations;
+         * this does not mutate global DENSE or use CellNet.copy(false). */
+        CellNet newReplayWorker() {
+            return master.copyDenseForInference();
+        }
+
+		/**
+		 * Prepared serving uses one lazy dense instance per subnet behind this lock.
+		 * Copy every output into caller-owned scratch before releasing the lock; no
+		 * mutable network escapes. Arithmetic matches newReplayWorker(), including
+		 * sparse-to-dense expansion. The original master remains immutable.
+		 */
+		synchronized void scorePreparedSynced(float[] input, float[] output){
+			if(input==null || input.length!=expectedInputs || output==null || output.length!=expectedOutputs){
+				throw new IllegalArgumentException(id+": synchronized subnet input/output width mismatch");
+			}
+			if(sharedPreparedNet==null){sharedPreparedNet=newReplayWorker();}
+			sharedPreparedNet.applyInput(input); sharedPreparedNet.feedForward();
+			for(int i=0; i<output.length; i++){output[i]=sharedPreparedNet.getOutput(i);}
+		}
+
+		/** Guarded by this Subnet; only constructed for the optional locked mode. */
+		private CellNet sharedPreparedNet;
+
         /** Applies one vector to the current worker's copy and returns output zero. Legacy,
          * single-output entries only -- throws UNCONDITIONALLY (not via assert, so this check
          * fires even without -ea) for any other output count, so a caller cannot silently read
@@ -229,35 +322,298 @@ public final class MagQCNetBundle {
     }
     public String metadata(String key) { return metadata.get(key); }
 
+	/**
+	 * Immutable training input definition. Scale order follows MagQCVectorMaker.computeContext:
+	 * log2(bp), log2(1+CDS), mean gene length, and gene-length standard deviation.
+	 * Training-label provenance identifies the source of the vocabulary, not deployment labels.
+	 */
+	public static final class FrozenInputs {
+		private FrozenInputs(String vocabulary,String scales) throws IOException {
+			final String[] names=vocabulary.split(",",-1);
+			final HashSet<String> seen=new HashSet<String>();
+			for(String name : names){
+				if(name.isEmpty() || !name.equals(name.trim()) || name.indexOf('\n')>=0 ||
+						name.indexOf('\r')>=0 || name.indexOf('\t')>=0 || !seen.add(name)){
+					throw new IOException("Frozen phylum vocabulary contains an empty, duplicate or malformed name");
+				}
+			}
+			if(!"other".equals(names[names.length-1])){
+				throw new IOException("Frozen phylum vocabulary must end with the other column");
+			}
+			phyla=Collections.unmodifiableList(Arrays.asList(names));
+			final String[] values=scales.split(",",-1);
+			if(values.length!=4){throw new IOException("Frozen context requires four normalization scales");}
+			final double[] parsed=new double[4];
+			try{
+				for(int i=0; i<parsed.length; i++){
+					parsed[i]=Double.parseDouble(values[i]);
+					if(!Double.isFinite(parsed[i]) || parsed[i]<=0){
+						throw new IOException("Frozen context scale must be finite and positive at index "+i);
+					}
+				}
+			}catch(NumberFormatException e){throw new IOException("Malformed frozen context scale",e);}
+			meanLog2Bp=parsed[0]; meanLog2Cds=parsed[1];
+			meanGeneLength=parsed[2]; meanGeneLengthStd=parsed[3];
+		}
+
+		/** Exact ordered columns, including the final other column; callers cannot mutate them. */
+		public List<String> phyla(){return phyla;}
+
+		/** Rejects equal-width but differently ordered vocabularies before they can alter inference. */
+		public void requireVocabulary(List<String> actual) throws IOException {
+			if(!phyla.equals(actual)){throw new IOException("Phylum vocabulary differs from the frozen training column order");}
+		}
+
+		private final List<String> phyla;
+		public final double meanLog2Bp,meanLog2Cds,meanGeneLength,meanGeneLengthStd;
+	}
+
+	/** Returns validated frozen inputs, rejecting historical bundles that lack training scales. */
+	public FrozenInputs requireFrozenInputs() throws IOException {return frozenInputs(metadata);}
+
+	/** Validates the declared input semantics independently of the bundle's internal hash. */
+	private static FrozenInputs frozenInputs(Map<String,String> md) throws IOException {
+		if(!FROZEN_INPUT_SCHEMA.equals(md.get("input_definition")) ||
+				!"raw_count".equals(md.get("subnet_observation_transform")) ||
+				!"quickclade_labels".equals(md.get("taxonomy_source")) ||
+				!"FROZEN_TRAINING".equals(md.get("context_constants")) ||
+				!join(CONTEXT_ORDER,",").equals(md.get("context_order_values")) ||
+				!join(DOMAIN_VOCAB,",").equals(md.get("domain_vocab_values"))){
+			throw new IOException("Missing or unsupported frozen gene-subnet input definition");
+		}
+		final String source=req(md,"taxonomy_source_sha80"),vocab=req(md,"phylum_vocabulary_sha80");
+		if(!source.matches("[0-9a-f]{20}") || !vocab.matches("[0-9a-f]{20}")){
+			throw new IOException("Frozen taxonomy provenance requires sha80 digests");
+		}
+		final String vocabulary=req(md,"phylum_vocab_values");
+		if(!vocab.equals(digest((vocabulary.replace(',','\n')+"\n").getBytes(UTF8),CURRENT_HASH_ALGORITHM))){
+			throw new IOException("Frozen phylum vocabulary values disagree with their sha80");
+		}
+		final byte[] evidence=decode(req(md,"context_scale_source_b64"),"context scale evidence");
+		if(!digest(evidence,CURRENT_HASH_ALGORITHM).equals(req(md,"context_scale_source_sha80"))){
+			throw new IOException("Frozen context scale evidence sha80 mismatch");
+		}
+		final String scales=req(md,"context_normalization_values");
+		if(!scales.equals(readRecoveredScales(evidence))){throw new IOException("Frozen context scales differ from their evidence");}
+		return new FrozenInputs(vocabulary,scales);
+	}
+
+	/** Checks every embedded net against the frozen raw-count, phylum and 17-context input layout. */
+	private static void requireFrozenWidths(FrozenInputs inputs,List<Subnet> records) throws IOException {
+		assert(inputs!=null && records!=null) : "Frozen input widths require a validated input definition and subnet records";
+		for(Subnet subnet : records){
+			if(subnet.expectedInputs!=subnet.numObs+inputs.phyla().size()+MagQCVectorMaker.SHARED_CONTEXT_WIDTH){
+				throw new IOException(subnet.id+": frozen input definition does not match network width");
+			}
+		}
+	}
+
+	/** Reads the single native recovery-table tuple from the same bytes whose digest is checked. */
+	private static String readRecoveredScales(byte[] bytes) throws IOException {
+		final String header="#count\tmean_log2bp\tmean_log2cds\tmean_glen\tmean_glenStd\tusable_line\tlabels_line";
+		final parse.LineParser1 parser=new parse.LineParser1((byte)'\t');
+		boolean headerSeen=false;
+		String tuple=null;
+		for(int start=0; start<bytes.length;){
+			int end=start;
+			while(end<bytes.length && bytes[end]!='\n'){end++;}
+			final byte[] line=Arrays.copyOfRange(bytes,start,end);
+			start=end+1;
+			if(line.length==0){continue;}
+			if(!headerSeen){
+				if(!Arrays.equals(line,header.getBytes(UTF8))){throw new IOException("Unexpected context scale evidence header");}
+				headerSeen=true;
+				continue;
+			}
+			if(tuple!=null){throw new IOException("Context scale evidence must contain exactly one tuple");}
+			parser.set(line);
+			if(parser.terms()!=7){throw new IOException("Context scale evidence requires seven fields");}
+			try{
+				if(parser.parseInt(0)<=0){throw new IOException("Context scale evidence count must be positive");}
+				final StringBuilder result=new StringBuilder();
+				for(int i=1; i<=4; i++){
+					final double value=Double.parseDouble(parser.parseString(i));
+					if(!Double.isFinite(value) || value<=0){throw new IOException("Invalid context scale in evidence");}
+					if(i>1){result.append(',');}
+					result.append(value);
+				}
+				tuple=result.toString();
+			}catch(NumberFormatException e){throw new IOException("Malformed context scale evidence",e);}
+		}
+		if(tuple==null){throw new IOException("Missing context scale evidence tuple");}
+		return tuple;
+	}
+
+	/** Reads and authenticates a small metadata input before its contents affect packing. */
+	private static byte[] pinnedBytes(Map<String,String> args,String pathKey,String pinKey) throws IOException {
+		final byte[] bytes=Files.readAllBytes(Paths.get(req(args,pathKey)));
+		final String pin=req(args,pinKey);
+		if(!pin.matches("[0-9a-f]{20}") || !pin.equals(digest(bytes,CURRENT_HASH_ALGORITHM))){
+			throw new IOException(pathKey+" sha80 mismatch");
+		}
+		return bytes;
+	}
+
     /** Fails closed unless the consumer's family-list bytes are exactly the pinned release bytes. */
     public void requireFamilyList(java.nio.file.Path familyList) throws IOException {
-        final byte[] bytes=Files.readAllBytes(familyList);
-        if(!sha256(bytes).equals(metadata("family_list_sha256"))) {
+        final byte[] bytes=MagQCTextResource.bytes(familyList.toString());
+        if(!digest(bytes,metadata("hash_algorithm")).equals(metadata("family_list_sha256"))) {
             throw new IOException("bundle family_list_sha256 does not match "+familyList);
         }
     }
 
+    /**
+     * Binds this bundle to an independently supplied release manifest and its sha80 pin.
+     * Matching a self-declared block count is insufficient: a coherently shortened bundle
+     * must still fail against the original release bytes. The caller supplies the pin from
+     * its release record, never from this bundle's own metadata.
+     * @param release independently published ordered manifest
+     * @param expectedSha80 canonical sha80 of that manifest
+     * @throws IOException if the pin or embedded release differs
+     */
+    public void requireReleaseManifest(Path release,String expectedSha80) throws IOException {
+        final byte[] bytes=MagQCTextResource.bytes(release.toString());
+        requireReleasePin(bytes,expectedSha80);
+        if(!digest(bytes,metadata("hash_algorithm")).equals(metadata("release_manifest_sha256")) ||
+                !Arrays.equals(bytes,decode(metadata("release_manifest_values_b64"),"release manifest"))){
+            throw new IOException("external release manifest mismatch");
+        }
+    }
+
+	/**
+	 * Applies the shared consumer release rule. Frozen releases require an external manifest
+	 * and pin; only historical unfrozen fixtures retain the original 176-entry count rule.
+	 */
+	public void requireConsumerRelease(Path release,String expectedSha80) throws IOException {
+		if(metadata("input_definition")==null && size()!=176){
+			throw new IOException("Historical unfrozen consumers require 176 subnets");
+		}
+		if(release==null && expectedSha80==null){
+			if(metadata("input_definition")!=null){throw new IOException("Frozen bundle requires subnetmanifest and subnetmanifestsha80");}
+			return;
+		}
+		if(release==null || expectedSha80==null){throw new IOException("subnetmanifest and subnetmanifestsha80 must be supplied together");}
+		requireReleaseManifest(release,expectedSha80);
+	}
+
+    /** Checks the external pin before using a manifest to determine the accepted subnet set. */
+    private static void requireReleasePin(byte[] bytes,String expectedSha80) throws IOException {
+        if(expectedSha80==null || !expectedSha80.matches("[0-9a-f]{20}")){
+            throw new IOException("subnetmanifestsha80 must be 20 lowercase hexadecimal characters");
+        }
+        if(!digest(bytes,CURRENT_HASH_ALGORITHM).equals(expectedSha80)){
+            throw new IOException("independent release manifest sha80 mismatch");
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        if(args.length<1) throw new IllegalArgumentException("Usage: pack|verify|list key=value ...");
+        if(args.length<1) throw new IllegalArgumentException("Usage: pack|verify|list key=value ...; selftest");
         final String command=args[0].toLowerCase();
         final Map<String,String> a=parseArgs(args, 1);
-        if("pack".equals(command)) pack(a);
+		if("selftest".equals(command)){
+			if(!a.isEmpty()){throw new IllegalArgumentException("Bundle selftest accepts no producer arguments");}
+			MagQCNetBundleSpecialTest.main(new String[0]);
+		}
+        else if("pack".equals(command)) pack(a);
+        else if("sanitize".equals(command)) sanitizeRelease(a);
         else if("verify".equals(command)) verify(a);
         else if("list".equals(command)) list(a);
         else throw new IllegalArgumentException("Unknown command: "+args[0]);
     }
 
+    /**
+     * Repackages an authenticated bundle after removing machine-specific paths
+     * from its recorded roots and command headers. Numeric model bytes are never
+     * decoded/re-encoded. The normal writer recomputes and validates every pin.
+     */
+    static void sanitizeRelease(Map<String,String> args) throws Exception {
+        final Path in=requiredPath(args,"in"), out=requiredPath(args,"out");
+        final String pin=req(args,"insha80");
+        if(!pin.matches("[0-9a-f]{20}") || !pin.equals(DigestSuffix.file(in.toString()))){
+            throw new IOException("Input bundle does not match the independently supplied sha80");
+        }
+        if(Files.exists(out)){throw new IOException("Refusing to replace existing sanitized bundle: "+out);}
+        final MagQCNetBundle original=loadMultiOutput(in);
+        final LinkedHashMap<String,String> md=new LinkedHashMap<String,String>(original.metadata);
+        md.put("input_root_recorded",".");
+        md.put("subset_root_recorded","subsets");
+        final ArrayList<Subnet> records=new ArrayList<Subnet>(original.size());
+        for(Subnet s:original.subnets){
+            final byte[] net=portableCommands(s.netBytes);
+            records.add(new Subnet(s.id,s.type,s.name,s.order,s.numObs,s.expectedInputs,s.expectedOutputs,
+                    s.seed,s.familyRanks,s.dims,net,digest(net,md.get("hash_algorithm")),s.subsetSha256,
+                    s.looseNetName,s.looseSubsetName,s.master,s.outputNames,s.outputUnits,s.dense,
+                    s.density,s.density1,s.blockSize));
+        }
+        md.put("canonical_payload_sha256",canonicalHash(md,records));
+        writeAtomic(out,md,records);
+        final MagQCNetBundle checked=loadMultiOutput(out);
+        if(checked.size()!=original.size()){throw new IOException("Sanitization changed the subnet count");}
+        for(int i=0;i<checked.size();i++){
+            if(!Arrays.equals(portableCommands(original.subnet(i).netBytes),checked.subnet(i).netBytes)){
+                throw new IOException("Sanitization changed bytes outside permitted command paths: subnet="+i);
+            }
+        }
+        System.out.println("MAGQC_BUNDLE_SANITIZE_PASS count="+checked.size()+
+                " semantic_sha80="+displaySha80(checked.metadata("canonical_payload_sha256")));
+    }
+
+    /** Leaves all body bytes and non-command headers intact; only absolute command operands lose directories. */
+    static byte[] portableCommands(byte[] bytes) throws IOException {
+        final ByteArrayOutputStream out=new ByteArrayOutputStream(bytes.length);
+        int start=0;
+        while(start<bytes.length){
+            int end=start;
+            while(end<bytes.length && bytes[end]!='\n'){end++;}
+            if(end>start && bytes[start]!='#' && !(end-start==1 && bytes[start]=='\r')){break;}
+            if(end-start>=4 && bytes[start]=='#' && bytes[start+1]=='C' && bytes[start+2]=='L' && bytes[start+3]==' '){
+                final String[] fields=new String(bytes,start,end-start,UTF8).split(" ",-1);
+                for(int i=1;i<fields.length;i++){
+                    final int eq=fields[i].indexOf('=');
+                    final String prefix=eq<0 ? "" : fields[i].substring(0,eq+1);
+                    final String value=fields[i].substring(eq+1);
+                    if(value.startsWith("/") || (value.length()>2 && value.charAt(1)==':' && value.charAt(2)=='\\')){
+                        final int slash=Math.max(value.lastIndexOf('/'),value.lastIndexOf('\\'));
+                        if(slash==value.length()-1){throw new IOException("Recorded command path has no basename: "+fields[i]);}
+                        fields[i]=prefix+value.substring(slash+1);
+                    }
+                }
+                out.write(String.join(" ",fields).getBytes(UTF8));
+                if(end<bytes.length){out.write('\n');}
+            }else{out.write(bytes,start,end-start+(end<bytes.length ? 1 : 0));}
+            start=end+(end<bytes.length ? 1 : 0);
+        }
+        out.write(bytes,start,bytes.length-start);
+        return out.toByteArray();
+    }
+
     /** Packs the selected best net for each release-manifest subnet and atomically publishes it. */
     public static void pack(Map<String,String> a) throws Exception {
         final Path agg=requiredPath(a,"aggmanifest"), release=requiredPath(a,"subnetmanifest");
-        final Path familyList=requiredPath(a,"familylist"), taxpgm=requiredPath(a,"taxpgm");
+        final Path familyList=requiredPath(a,"familylist");
+        final boolean frozen=a.containsKey("phylumvocab");
+        final Path taxpgm=frozen ? null : requiredPath(a,"taxpgm");
+        if(a.containsKey("contextscales")){throw new IOException("contextscales requires pinned contextscalesfile evidence instead");}
+        if(!frozen && (a.containsKey("contextscalesfile") || a.containsKey("contextscalessha80") ||
+                a.containsKey("phylumvocabsha80") || a.containsKey("taxonomysource") || a.containsKey("taxonomysourcesha80"))){
+            throw new IOException("Frozen input arguments require phylumvocab");
+        }
+        if(frozen && a.containsKey("taxpgm")){throw new IOException("phylumvocab and taxpgm are mutually exclusive");}
         final Path out=requiredPath(a,"out");
         final Path root=requiredPath(a,"netroot");
         final Path subsetRoot=pathOr(a,"subsetroot",root);
         final byte[] releaseBytes=Files.readAllBytes(release);
-        final List<ReleaseRow> rows=readRelease(release);
+        final String releasePin=a.get("subnetmanifestsha80");
+        if(frozen && releasePin==null){throw new IOException("Frozen inputs require subnetmanifestsha80");}
+        if(releasePin!=null){requireReleasePin(releaseBytes,releasePin);}
+        final List<ReleaseRow> rows=parseReleaseBytes(releaseBytes);
         final Map<String,AggRow> aggRows=readAgg(agg);
-        if(rows.size()!=176) throw new IOException("release manifest must contain exactly 176 rows, got "+rows.size());
+        if(rows.isEmpty()){throw new IOException("release manifest must not be empty");}
+        // Preserve the historical unpinned interface; every different roster requires its
+        // independent pin. This does not select or imply a new final production roster.
+        if(releasePin==null && rows.size()!=176){
+            throw new IOException("nonlegacy release roster requires subnetmanifestsha80; got "+rows.size()+" rows");
+        }
         if(aggRows.size()!=rows.size()) throw new IOException("agg/release row count mismatch");
         final ArrayList<Subnet> records=new ArrayList<Subnet>(rows.size());
         final TreeSet<Integer> familyUniverse=new TreeSet<Integer>();
@@ -283,10 +639,15 @@ public final class MagQCNetBundle {
             final int[] ranks;
             final Path subset;
             final String subsetName;
-            if("ncrna".equals(rr.type)) {
-                if(!"-".equals(ar.subsetPath) || !"-".equals(rr.subsetPath)) throw new IOException(rr.id+": ncrna subset must be -");
+			final int specialCount=MagQCObservationLayout.specialCount(rr.type);
+            if(specialCount>=0) {
+                if(!"-".equals(ar.subsetPath) || !"-".equals(rr.subsetPath)){
+					throw new IOException(rr.id+": special observation subset must be -");
+				}
                 ranks=null; subset=null; subsetName="-";
-                if(ar.numObs!=5) throw new IOException(rr.id+": ncrna observation count must be 5");
+				if(ar.numObs!=specialCount){
+					throw new IOException(rr.id+": "+rr.type+" observation count must be "+specialCount);
+				}
             } else {
                 subset=resolve(subsetRoot,rr.subsetPath);
                 ranks=readRanks(subset,rr.id);
@@ -301,11 +662,13 @@ public final class MagQCNetBundle {
             final String[] outNames=rr.expectedOutputs==4 ? FOUR_OUTPUT_NAMES : null;
             final String[] outUnits=rr.expectedOutputs==4 ? FOUR_OUTPUT_UNITS : null;
             records.add(new Subnet(rr.id,rr.type,rr.id,i,ar.numObs,expectedInputs,rr.expectedOutputs,seed,
-                    ranks,dims,netBytes,sha256(netBytes),subset==null?"-":sha256(Files.readAllBytes(subset)),
+                    ranks,dims,netBytes,digest(netBytes,CURRENT_HASH_ALGORITHM),
+                    subset==null?"-":digest(Files.readAllBytes(subset),CURRENT_HASH_ALGORITHM),
                     net.getFileName().toString(),subsetName,cell,outNames,outUnits,dense,
                     densities[0],densities[1],blockSize));
         }
         final LinkedHashMap<String,String> md=baseMetadata(a,releaseBytes,rows,familyUniverse,familyList,taxpgm);
+        if(frozen){requireFrozenWidths(frozenInputs(md),records);}
         md.put("canonical_payload_sha256",canonicalHash(md,records));
         writeAtomic(out,md,records);
         // Re-open the unpublished temporary-equivalent output. Always via the multi-output-
@@ -316,7 +679,7 @@ public final class MagQCNetBundle {
             throw new IOException("post-publish canonical hash changed");
         }
         System.out.println("MAGQC_BBNETS_PACK PASS count="+checked.size()+" out="+out+
-                " semantic_sha256="+checked.metadata("canonical_payload_sha256"));
+                " semantic_sha80="+displaySha80(checked.metadata("canonical_payload_sha256")));
     }
 
     private static LinkedHashMap<String,String> baseMetadata(Map<String,String> a, byte[] releaseBytes,
@@ -325,25 +688,49 @@ public final class MagQCNetBundle {
         for(ReleaseRow r:rows) { if(r.expectedOutputs==4) { anyFourOutput=true; break; } }
         final LinkedHashMap<String,String> md=new LinkedHashMap<String,String>();
         md.put("schema_version",anyFourOutput?"2":"1");
-        md.put("hash_algorithm",HASH_ALGORITHM);
+        // Historical field names ending in _sha256 are retained for compatibility;
+        // hash_algorithm determines whether their values are full legacy hashes or sha80.
+        md.put("hash_algorithm",CURRENT_HASH_ALGORITHM);
         md.put("subnet_count",Integer.toString(rows.size()));
-        md.put("release_manifest_sha256",sha256(releaseBytes));
+        md.put("release_manifest_sha256",digest(releaseBytes,CURRENT_HASH_ALGORITHM));
         md.put("release_manifest_values_b64",b64(releaseBytes));
         final byte[] familyBytes=Files.readAllBytes(familyList);
         final String familyValues=readFamilyRepIds(familyBytes);
         md.put("family_list_definition","familylist_v4b.tsv ordered rep_id values; rank is the zero-based row index");
         md.put("family_list_values",familyValues);
-        md.put("family_list_sha256",sha256(familyBytes));
+        md.put("family_list_sha256",digest(familyBytes,CURRENT_HASH_ALGORITHM));
         md.put("family_list_rank_universe",join(familyUniverse.stream().mapToInt(Integer::intValue).toArray(),","));
         md.put("vector_layout","[ordered subnet observations] + [phylum one-hot] + [9 shared context scalars] + [8 domain one-hot]");
         md.put("taxonomy_layout","phylum one-hot is release-consumer ordered vocabulary; domain one-hot uses frozen source mapping");
-        final byte[] taxBytes=Files.readAllBytes(taxpgm);
-        md.put("taxonomy_source_sha256",sha256(taxBytes));
-        md.put("phylum_vocab_values",readPhylumVocabulary(taxBytes));
         md.put("domain_vocab_values",join(DOMAIN_VOCAB,","));
         md.put("context_order_values",join(CONTEXT_ORDER,","));
-        md.put("context_constants","NOT_FROZEN_v4b");
-        md.put("context_normalization_values","NOT_FROZEN_v4b; source computes corpus scales live after B2; no values are embedded or recomputed here");
+        if(taxpgm==null){
+            final byte[] vocabulary=pinnedBytes(a,"phylumvocab","phylumvocabsha80");
+            final String pin=req(a,"phylumvocabsha80");
+            pinnedBytes(a,"taxonomysource","taxonomysourcesha80");
+            final byte[] scaleEvidence=pinnedBytes(a,"contextscalesfile","contextscalessha80");
+            final String text=new String(vocabulary,UTF8);
+            if(text.indexOf(',')>=0){throw new IOException("Frozen phylum names must not contain commas");}
+            if(!text.endsWith("\n")){throw new IOException("Frozen phylum vocabulary must end with LF");}
+            final String stripped=text.substring(0,text.length()-1);
+            md.put("family_list_definition","ordered rep_id values; rank is the zero-based row index");
+            md.put("input_definition",FROZEN_INPUT_SCHEMA);
+            md.put("subnet_observation_transform","raw_count");
+            md.put("taxonomy_source","quickclade_labels");
+            md.put("taxonomy_source_sha80",req(a,"taxonomysourcesha80"));
+            md.put("phylum_vocabulary_sha80",pin);
+            md.put("phylum_vocab_values",stripped.replace('\n',','));
+            md.put("context_constants","FROZEN_TRAINING");
+            md.put("context_normalization_values",readRecoveredScales(scaleEvidence));
+            md.put("context_scale_source_sha80",req(a,"contextscalessha80"));
+            md.put("context_scale_source_b64",b64(scaleEvidence));
+        }else{
+            final byte[] taxBytes=Files.readAllBytes(taxpgm);
+            md.put("taxonomy_source_sha256",digest(taxBytes,CURRENT_HASH_ALGORITHM));
+            md.put("phylum_vocab_values",readPhylumVocabulary(taxBytes));
+            md.put("context_constants","NOT_FROZEN_v4b");
+            md.put("context_normalization_values","NOT_FROZEN_v4b; source computes corpus scales live after B2; no values are embedded or recomputed here");
+        }
         md.put("presence_copy_transforms","ratio=N/(1+N);raw=min(N,32)/32;log=log2(1+N)/log2(65);two=presence plus min(N-1,16)/16;norm=N/avgCopyWhenPresent");
         md.put("output_semantics",anyFourOutput ? SCHEMA2_OUTPUT_SEMANTICS :
                 "one regression output; aggregator observations are [ratio,log_obs,log_pred,zero_flag]; ratio clamp=2.0; ncRNA observations=5");
@@ -394,7 +781,7 @@ public final class MagQCNetBundle {
             field(w,"num_obs",s.numObs); field(w,"expected_inputs",s.expectedInputs); field(w,"expected_outputs",s.expectedOutputs);
             field(w,"seed",s.seed); field(w,"dims",join(s.dims,","));
             field(w,"family_ranks",ranksToken(s.familyRanks));
-            field(w,"ncrna_obs_definition",s.familyRanks==null?"5 ordered ncRNA observations":"-");
+            field(w,"ncrna_obs_definition",MagQCObservationLayout.definition(s.type));
             if(s.expectedOutputs==4) {
                 field(w,"output_names",b64Lines(s.outputNames()));
                 field(w,"output_units",b64Lines(s.outputUnits()));
@@ -489,7 +876,9 @@ public final class MagQCNetBundle {
         require(md,"release_manifest_sha256"); require(md,"release_manifest_values_b64");
         require(md,"family_list_sha256"); require(md,"family_list_values"); require(md,"canonical_payload_sha256");
         final String schemaVersion=md.get("schema_version");
-        if((!"1".equals(schemaVersion) && !"2".equals(schemaVersion)) || !HASH_ALGORITHM.equals(md.get("hash_algorithm"))) {
+        final String algorithm=md.get("hash_algorithm");
+        if((!"1".equals(schemaVersion) && !"2".equals(schemaVersion)) ||
+                (!HASH_ALGORITHM.equals(algorithm) && !CURRENT_HASH_ALGORITHM.equals(algorithm))) {
             throw new IOException("unsupported schema/hash");
         }
         if("2".equals(schemaVersion) && !allowMultiOutput) {
@@ -505,7 +894,7 @@ public final class MagQCNetBundle {
         final int count=parseInt(md,"subnet_count");
         if(count!=blocks.size()) throw new IOException("header count="+count+" block count="+blocks.size());
         final byte[] release=decode(md.get("release_manifest_values_b64"),"release manifest");
-        if(!sha256(release).equals(md.get("release_manifest_sha256"))) throw new IOException("release manifest hash mismatch");
+        if(!digest(release,algorithm).equals(md.get("release_manifest_sha256"))) throw new IOException("release manifest hash mismatch");
         final List<ReleaseRow> expected=parseReleaseBytes(release);
         if(expected.size()!=count) throw new IOException("embedded release manifest count mismatch");
         final ArrayList<Subnet> result=new ArrayList<Subnet>(count); final Set<String> seen=new HashSet<String>();
@@ -534,11 +923,21 @@ public final class MagQCNetBundle {
             final int seed=parseInt(f,"seed"); final int[] dims=parseInts(req(f,"dims"),",",id+" dims");
             final String rankToken=req(f,"family_ranks");
             final int[] ranks="-".equals(rankToken)?null:("empty".equals(rankToken)?new int[0]:parseInts(rankToken,",",id+" family ranks"));
-            if("ncrna".equals(rr.type) != (ranks==null)) throw new IOException(id+": ncrna/famset payload mismatch");
-            if(ranks==null && numObs!=5) throw new IOException(id+": bad ncRNA observation definition");
+			final int specialCount=MagQCObservationLayout.specialCount(rr.type);
+			if((specialCount>=0)!=(ranks==null)){
+				throw new IOException(id+": special/famset payload mismatch");
+			}
+			if(specialCount>=0 && (numObs!=specialCount ||
+					!MagQCObservationLayout.definition(rr.type).equals(req(f,"ncrna_obs_definition")))){
+				throw new IOException(id+": bad "+rr.type+" observation definition");
+			}
+            if(ranks==null && (!"-".equals(rr.subsetPath) || !"-".equals(req(f,"subset_sha256")) ||
+					!"-".equals(req(f,"loose_subset_name")))){
+				throw new IOException(id+": special observations must not carry a family subset");
+			}
             if(ranks!=null && ranks.length!=numObs) throw new IOException(id+": rank count mismatch");
             final byte[] net=decode(st.netB64,id+" net");
-            final String hash=sha256(net);
+            final String hash=digest(net,algorithm);
             if(!hash.equals(req(f,"net_sha256"))) throw new IOException(id+": net hash mismatch");
             if(parseInt(f,"net_bytes")!=net.length) throw new IOException(id+": net byte count mismatch");
             final CellNet cell=parseNet(net,id);
@@ -559,6 +958,7 @@ public final class MagQCNetBundle {
         if("2".equals(schemaVersion) && !anyFourOutput) throw new IOException("schema_version=2 bundle contains no four-output subnet");
         final String canonical=canonicalHash(md,result);
         if(!canonical.equals(md.get("canonical_payload_sha256"))) throw new IOException("semantic payload hash mismatch");
+        if(md.containsKey("input_definition")){requireFrozenWidths(frozenInputs(md),result);}
         return new MagQCNetBundle(result,md);
     }
 
@@ -567,25 +967,32 @@ public final class MagQCNetBundle {
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
         final MagQCNetBundle b= multi ? loadMultiOutput(in) : load(in);
         final String releasePath=a.get("subnetmanifest");
+        final String releasePin=a.get("subnetmanifestsha80");
+        if(releasePin!=null && releasePath==null){throw new IOException("subnetmanifestsha80 requires subnetmanifest");}
         if(releasePath!=null) {
-            final byte[] bytes=Files.readAllBytes(Paths.get(releasePath));
-            if(!sha256(bytes).equals(b.metadata("release_manifest_sha256")) || !Arrays.equals(bytes,decode(b.metadata("release_manifest_values_b64"),"manifest")))
-                throw new IOException("external release manifest mismatch");
+            if(releasePin!=null){b.requireReleaseManifest(Paths.get(releasePath),releasePin);}
+            else{
+                final byte[] bytes=MagQCTextResource.bytes(releasePath);
+                if(!digest(bytes,b.metadata("hash_algorithm")).equals(b.metadata("release_manifest_sha256")) ||
+                        !Arrays.equals(bytes,decode(b.metadata("release_manifest_values_b64"),"manifest"))){
+                    throw new IOException("external release manifest mismatch");
+                }
+            }
         }
         final String root=a.get("netroot");
         if(root!=null) for(Subnet s:b.subnets) {
             final Path loose=resolve(Paths.get(root),s.looseNetName);
             final byte[] bytes=Files.readAllBytes(loose);
-            if(!sha256(bytes).equals(s.netSha256) || !Arrays.equals(bytes,s.netBytes)) throw new IOException(s.id+": loose net mismatch");
+            if(!digest(bytes,b.metadata("hash_algorithm")).equals(s.netSha256) || !Arrays.equals(bytes,s.netBytes)) throw new IOException(s.id+": loose net mismatch");
         }
-        System.out.println("MAGQC_BBNETS_VERIFY PASS count="+b.size()+" semantic_sha256="+b.metadata("canonical_payload_sha256"));
+        System.out.println("MAGQC_BBNETS_VERIFY PASS count="+b.size()+" semantic_sha80="+displaySha80(b.metadata("canonical_payload_sha256")));
     }
 
     public static void list(Map<String,String> a) throws Exception {
         final boolean multi=parseMultioutputFlag(a.get("multioutput"));
         final MagQCNetBundle b= multi ? loadMultiOutput(requiredPath(a,"in")) : load(requiredPath(a,"in"));
-        System.out.println("count="+b.size()+" semantic_sha256="+b.metadata("canonical_payload_sha256"));
-        for(Subnet s:b.subnets) System.out.println(s.order+"\t"+s.id+"\t"+s.type+"\t"+s.expectedInputs+"\t"+s.netSha256);
+        System.out.println("count="+b.size()+" semantic_sha80="+displaySha80(b.metadata("canonical_payload_sha256")));
+        for(Subnet s:b.subnets) System.out.println(s.order+"\t"+s.id+"\t"+s.type+"\t"+s.expectedInputs+"\t"+displaySha80(s.netSha256));
     }
 
     private static String canonicalHash(Map<String,String> md,List<Subnet> records) {
@@ -622,53 +1029,85 @@ public final class MagQCNetBundle {
             }
             b.append('\n');
         }
-        return sha256(b.toString().getBytes(UTF8));
+        return digest(b.toString().getBytes(UTF8),md.get("hash_algorithm"));
     }
 
     private static List<ReleaseRow> readRelease(Path p) throws Exception { return parseReleaseBytes(Files.readAllBytes(p)); }
-    /** A row is 3 tab-separated fields (id, type, subsetPath) -- outputs=1 implicit, byte-
-     * identical to every existing manifest file, no migration needed -- OR 4 fields, where the
-     * 4th MUST be the exact literal "outputs=4"; any other 4th-field content is rejected
-     * outright (fail closed on unknown flags, never silently ignored or guessed at). */
-    private static List<ReleaseRow> parseReleaseBytes(byte[] bytes) throws Exception {
-        final ArrayList<ReleaseRow> out=new ArrayList<ReleaseRow>();
-        final String text=new String(bytes,UTF8); final String[] ls=text.split("\\r?\\n",-1);
-        final Set<String> seen=new HashSet<String>();
-        for(String line:ls) { if(line.length()==0 || line.startsWith("#")) continue; String[] x=line.split("\\t",-1);
-            if(x.length!=3 && x.length!=4) throw new IOException("bad release row: "+line);
-            if(!safeKey(x[0]) || !("famset".equals(x[1])||"ncrna".equals(x[1])) || !seen.add(x[0])) throw new IOException("bad release row: "+line);
-            int expectedOutputs=1;
-            if(x.length==4) { if(!"outputs=4".equals(x[3])) throw new IOException("bad release row flag: "+line); expectedOutputs=4; }
-            out.add(new ReleaseRow(x[0],x[1],x[2],expectedOutputs)); }
-        return out;
-    }
-    private static Map<String,AggRow> readAgg(Path p) throws Exception {
-        final LinkedHashMap<String,AggRow> out=new LinkedHashMap<String,AggRow>();
-        final String[] ls=new String(Files.readAllBytes(p),UTF8).split("\\r?\\n",-1);
-        for(String line:ls) { if(line.length()==0 || line.startsWith("#")) continue; String[] x=line.split("\\t",-1); if(x.length!=6) throw new IOException("bad agg row: "+line);
-            if(!safeKey(x[0]) || out.containsKey(x[0])) throw new IOException("bad/duplicate agg id: "+x[0]);
-            out.put(x[0],new AggRow(x[0],"ncrna".equals(x[0])?"ncrna":"famset",Integer.parseInt(x[1]),Integer.parseInt(x[2]),x[3],x[5])); }
-        return out;
-    }
+	/**
+	 * Reads id, explicit observation type and subset path, optionally followed by
+	 * outputs=4. Three-column historical rows retain their single-output meaning.
+	 * An unknown type or flag is rejected rather than inferred from the subnet ID.
+	 */
+	private static List<ReleaseRow> parseReleaseBytes(byte[] bytes) throws Exception{
+		assert(bytes!=null) : "Release parsing requires the exact bytes bound by the external pin";
+		final ArrayList<ReleaseRow> out=new ArrayList<ReleaseRow>();
+		final String[] lines=new String(bytes,UTF8).split("\\r?\\n",-1);
+		final Set<String> seen=new HashSet<String>();
+		for(String line:lines){
+			if(line.length()==0 || line.startsWith("#")){continue;}
+			final String[] fields=line.split("\\t",-1);
+			if(fields.length!=3 && fields.length!=4){throw new IOException("bad release row: "+line);}
+			if(!safeKey(fields[0]) || !seen.add(fields[0])){throw new IOException("bad release row: "+line);}
+			requireObservationType(fields[1]);
+			int expectedOutputs=1;
+			if(fields.length==4){
+				if(!"outputs=4".equals(fields[3])){throw new IOException("bad release row flag: "+line);}
+				expectedOutputs=4;
+			}
+			out.add(new ReleaseRow(fields[0],fields[1],fields[2],expectedOutputs));
+		}
+		return out;
+	}
+	/** Converts unknown semantic types into the bundle parser's checked failure. */
+	private static void requireObservationType(String type) throws IOException{
+		try{MagQCObservationLayout.specialCount(type);}
+		catch(IllegalArgumentException e){throw new IOException(e.getMessage(),e);}
+	}
+
+	/**
+	 * Reads six legacy columns, optionally followed by an explicit observation type.
+	 * New special rows use that seventh column; only the legacy ncrna ID convention
+	 * is retained for old six-column manifests.
+	 */
+	private static Map<String,AggRow> readAgg(Path p) throws Exception{
+		final LinkedHashMap<String,AggRow> out=new LinkedHashMap<String,AggRow>();
+		final String[] lines=new String(Files.readAllBytes(p),UTF8).split("\\r?\\n",-1);
+		for(String line:lines){
+			if(line.length()==0 || line.startsWith("#")){continue;}
+			final String[] fields=line.split("\\t",-1);
+			if(fields.length!=6 && fields.length!=7){throw new IOException("bad agg row: "+line);}
+			final String id=fields[0];
+			if(!safeKey(id) || out.containsKey(id)){throw new IOException("bad/duplicate agg id: "+id);}
+			final String type=fields.length==7 ? fields[6] : ("ncrna".equals(id) ? "ncrna" : "famset");
+			requireObservationType(type);
+			out.put(id,new AggRow(id,type,Integer.parseInt(fields[1]),Integer.parseInt(fields[2]),fields[3],fields[5]));
+		}
+		assert(out.size()<=lines.length) : "Each noncomment aggregate row contributes at most one unique subnet";
+		return out;
+	}
     private static int[] readRanks(Path p,String id) throws Exception {
         final ArrayList<Integer> x=new ArrayList<Integer>(); final String[] ls=new String(Files.readAllBytes(p),UTF8).split("\\r?\\n",-1);
         for(String line:ls) { String s=line.trim(); if(s.length()==0 || s.startsWith("#")) continue; try{x.add(Integer.valueOf(s));}catch(NumberFormatException e){throw new IOException(id+": malformed rank "+s);}}
         int[] r=new int[x.size()]; for(int i=0;i<r.length;i++) r[i]=x.get(i); return r;
     }
-    /** CellNetParser's constructor still mutates the shared ml.CellNet.DENSE global while
-     * building a master net (it no longer matters for inference -- see InferenceNet -- but the
-     * parser itself still writes it). Serialized on CellNet.class so two CONCURRENT bundle
-     * loads/packs in this JVM cannot race each other's master construction. This does not, and
-     * cannot, protect against some unrelated, uncoordinated caller elsewhere in the same JVM
-     * also calling CellNetParser directly without this lock. */
-    private static CellNet parseNet(byte[] bytes,String id) throws Exception {
-        synchronized(CellNet.class) {
-            final ArrayList<byte[]> lines=new ArrayList<byte[]>(); String[] ls=new String(bytes,UTF8).split("\\n",-1);
-            for(String s:ls) { if(s.endsWith("\r")) s=s.substring(0,s.length()-1); lines.add(s.getBytes(UTF8)); }
-            try { CellNet n=CellNetParser.loadFromLines(lines); if(n==null) throw new IOException(id+": null CellNet"); return n; }
-            catch(Throwable e) { if(e instanceof IOException) throw (IOException)e; throw new IOException(id+": CellNet parse failure",e); }
-        }
-    }
+	/**
+	 * Inference-only parsing never changes global CellNet.DENSE. A parser lock and
+	 * later restoration cannot protect legacy gene-caller inference that does not
+	 * take that lock; lazy composite loading must not expose a temporary mode.
+	 */
+	private static CellNet parseNet(byte[] bytes, String id) throws Exception{
+		final ArrayList<byte[]> lines=new ArrayList<byte[]>();
+		for(String line:new String(bytes, UTF8).split("\\n", -1)){
+			if(line.endsWith("\r")){line=line.substring(0, line.length()-1);}
+			lines.add(line.getBytes(UTF8));
+		}
+		try{
+			final CellNet net=CellNetParser.loadInferenceFromLines(lines);
+			if(net==null){throw new IOException(id+": null CellNet");}
+			return net;
+		}catch(Exception e){throw new IOException(id+": CellNet parse failure", e);}
+		catch(AssertionError e){throw new IOException(id+": CellNet parse failure", e);}
+	}
     /** The exact header-region boundary CellNetParser.parseHeader() uses (ml/CellNetParser.java:93-163):
      * blank lines are skipped WITHIN the header, and scanning stops at the first line that is both
      * non-empty and does not start with "#" (the first cell/edge/weight data line) -- never
@@ -680,15 +1119,21 @@ public final class MagQCNetBundle {
      * construction instead of correct by accident. Root's review, 2026-09-09: the prior versions of
      * these helpers scanned the entire file. */
     private static String[] headerLines(byte[] bytes) {
-        final String[] all=new String(bytes,UTF8).split("\\r?\\n");
+        // Stop before decoding or splitting the weight payload. Header helpers
+        // are called repeatedly for each network; only this prefix is relevant.
         int end=0;
-        while(end<all.length) {
-            final String l=all[end];
-            if(l.length()==0) { end++; continue; }
-            if(!l.startsWith("#")) break;
-            end++;
+        while(end<bytes.length){
+            final byte first=bytes[end];
+            if(first!='#' && first!='\n' &&
+                    !(first=='\r' && end+1<bytes.length && bytes[end+1]=='\n')){break;}
+            while(end<bytes.length && bytes[end]!='\n'){end++;}
+            if(end<bytes.length){end++;}
         }
-        return Arrays.copyOfRange(all,0,end);
+        final boolean eof=end==bytes.length;
+        final String[] lines=new String(bytes,0,end,UTF8).split("\\r?\\n",eof ? 0 : -1);
+        // Before a body, preserve blank header lines but remove the one empty
+        // split field representing the boundary. At EOF retain legacy split semantics.
+        return eof ? lines : Arrays.copyOf(lines,lines.length-1);
     }
     private static int[] parseDims(byte[] bytes,String id) throws Exception {
         for(String line:headerLines(bytes)) if(line.startsWith("#dims")) {
@@ -800,7 +1245,24 @@ public final class MagQCNetBundle {
         return new String(decode(b64,what),UTF8).split("\n",-1);
     }
     private static String b64(byte[] x) { return Base64.getEncoder().encodeToString(x); }
-    private static String sha256(byte[] x) { try{MessageDigest d=MessageDigest.getInstance(HASH_ALGORITHM); return hex(d.digest(x));}catch(Exception e){throw new RuntimeException(e);} }
+    /** Hashes according to the declared wire format; new writers use sha80 exclusively. */
+    private static String digest(byte[] bytes,String algorithm){
+        if(!HASH_ALGORITHM.equals(algorithm) && !CURRENT_HASH_ALGORITHM.equals(algorithm)){
+            throw new IllegalArgumentException("Unsupported bundle hash algorithm: "+algorithm);
+        }
+        try{
+            final String full=hex(MessageDigest.getInstance(HASH_ALGORITHM).digest(bytes));
+            return CURRENT_HASH_ALGORITHM.equals(algorithm) ? displaySha80(full) : full;
+        }catch(java.security.NoSuchAlgorithmException e){throw new IllegalStateException(e);}
+    }
+
+    /** Never exposes a full historical digest in a diagnostic message. */
+    private static String displaySha80(String hash){
+        if(hash==null || (hash.length()!=20 && hash.length()!=64)){
+            throw new IllegalArgumentException("Invalid bundle digest length");
+        }
+        return hash.substring(hash.length()-20);
+    }
     private static String hex(byte[] x){StringBuilder b=new StringBuilder(x.length*2);for(byte v:x)b.append(String.format("%02x",v&255));return b.toString();}
     private static String join(int[] x,String sep){StringBuilder b=new StringBuilder();for(int i=0;i<x.length;i++){if(i>0)b.append(sep);b.append(x[i]);}return b.toString();}
     private static String ranksToken(int[] x){return x==null?"-":(x.length==0?"empty":join(x,","));}

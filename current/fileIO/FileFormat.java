@@ -418,7 +418,7 @@ public final class FileFormat {
 		sb.append("ASCII-"+quality).append(',');
 		sb.append("length "+length).append(',');
 		sb.append("barcodes "+codes).append(',');
-		sb.append("delimiter "+(delimiter>0 ? Character.toString(delimiter) : Integer.toString(delimiter)));
+		sb.append("delimiter "+(delimiter>0 ? Character.toString((char)delimiter) : Integer.toString(delimiter)));
 		
 		
 		return sb.toString();

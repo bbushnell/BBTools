@@ -16,6 +16,8 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.TreeMap;
 
+import fileIO.ByteFile;
+
 /** Reviewed typed expected-copy producer; the family-only prototype is preserved separately. */
 public final class MagQCExpectedCopyTableTyped {
 	public static final String SCHEMA="expected_copy_table_v1";
@@ -50,12 +52,85 @@ public final class MagQCExpectedCopyTableTyped {
 	public static Table build(String counts,String roster,String layout,String labels,String exclusions,String out){Sources s=sources(counts,roster,layout,labels,exclusions);write(out,s);return load(out,counts,roster,layout,labels,exclusions);}
 	public static Table load(String table,String counts,String roster,String layout,String labels,String exclusions){Sources s=sources(counts,roster,layout,labels,exclusions);Table t=parseTable(table);if(!t.counts.equals(counts)||!t.roster.equals(roster)||!t.layout.equals(layout)||!t.labels.equals(labels)||!t.exclusions.equals(exclusions)||!t.familyList.equals(s.itemLayout.familyPath)){fail("provenance path mismatch");}if(!t.countsHash.equals(s.ch)||!t.rosterHash.equals(s.rh)||!t.layoutHash.equals(s.lh)||!t.labelsHash.equals(s.qh)||!t.exclusionsHash.equals(s.xh)||!t.familyListHash.equals(s.itemLayout.familyHash)){fail("provenance hash mismatch");}if(t.eligibleAssemblyCount!=s.assemblies.size()){fail("eligible assembly count mismatch");}compareItems(t.items,s.itemLayout.items);comparePops(t.populations,s.pops);return t;}
 	/** Opens an ALREADY-BUILT table for a consumer. Verifies the caller's expected SHA-256 against the file bytes (streaming), then runs the same private self-consistency parser that load uses (schema, metadata lines, columns, identical item order across populations, denominator/header agreement). Does NOT revalidate the five source artifacts named in the header: those are bound at build/load time only; a consumer binds OUTWARD to its bundle by hash (family_list_sha256), never inward to sources. */
-	public static Table open(String table,String expectedTableSha256){if(expectedTableSha256==null||!expectedTableSha256.matches("[0-9a-f]{64}")){fail("invalid expected table hash");}String actual=sha(table);if(!actual.equals(expectedTableSha256)){fail("table hash mismatch: expected "+expectedTableSha256+" actual "+actual);}return parseTable(table);}
+	public static Table open(String table,String expectedTableSha256){
+		if(!validDigest(expectedTableSha256)){fail("invalid expected table hash");}
+		final String actual=HbmMemberIndexFormat.toHexLower(MagQCTextResource.digest(table));
+		if(!matchesDigest(expectedTableSha256,actual)){fail("table hash mismatch");}
+		return parseTable(table);
+	}
+
+	/** Accepts current sha80 pins and historical full digests without weakening either comparison. */
+	static boolean validDigest(String value){
+		return value!=null && (value.matches("[0-9a-f]{20}") || value.matches("[0-9a-f]{64}"));
+	}
+
+	/** Compares every bit requested by the caller; a full pin is never compared as a suffix. */
+	static boolean matchesDigest(String expected,String actual){
+		if(!validDigest(expected) || !validDigest(actual)){return false;}
+		return expected.equals(actual) || (expected.length()==20 && actual.endsWith(expected));
+	}
 
 	private static Sources sources(String cf,String rf,String lf,String qf,String xf){Layout z=readLayout(lf);HashSet<Integer> excluded=readExclusions(xf);TreeMap<String,Assembly> as=readRoster(rf,excluded);TreeMap<String,Label> ls=readLabels(qf,as,excluded);TreeMap<String,long[]> cs=readCounts(cf,as,z.items);TreeMap<String,Population> ps=new TreeMap<String,Population>();ps.put(ctx("global","-"),population("global","-",as.keySet(),cs,z.items));TreeMap<String,ArrayList<String>> byPhylum=new TreeMap<String,ArrayList<String>>();for(String u:as.keySet()){Label l=ls.get(u);if("classified".equals(l.status)){ArrayList<String> m=byPhylum.get(l.phylum);if(m==null){m=new ArrayList<String>();byPhylum.put(l.phylum,m);}m.add(u);}}for(Map.Entry<String,ArrayList<String>> e:byPhylum.entrySet()){ps.put(ctx("phylum",e.getKey()),population("phylum",e.getKey(),e.getValue(),cs,z.items));}return new Sources(cf,rf,lf,qf,xf,sha(cf),sha(rf),sha(lf),sha(qf),sha(xf),z,as,ls,cs,ps);}
 	private static Population population(String type,String name,Iterable<String> units,TreeMap<String,long[]> rows,Item[] items){ArrayList<String> sorted=new ArrayList<String>();for(String u:units){sorted.add(u);}java.util.Collections.sort(sorted);if(sorted.isEmpty()){fail("empty population "+type+"/"+name);}long[] sum=new long[items.length];for(String u:sorted){long[] row=rows.get(u);if(row==null){fail("missing count row "+u);}for(int i=0;i<row.length;i++){if(Long.MAX_VALUE-sum[i]<row[i]){fail("count overflow at item "+i);}sum[i]+=row[i];}}double[] means=new double[items.length];for(int i=0;i<sum.length;i++){means[i]=((double)sum[i])/sorted.size();if(Double.isInfinite(means[i])||Double.isNaN(means[i])){fail("nonfinite mean");}}return new Population(type,name,sorted.size(),means);}
 
-	private static Layout readLayout(String file){String schema=null,fp=null,fh=null,cols=null;ArrayList<Item> out=new ArrayList<Item>();try(BufferedReader br=reader(file)){for(String line;(line=br.readLine())!=null;){if(line.length()==0){continue;}if(line.charAt(0)=='#'){String[] p=line.split("\\t",-1);if(line.startsWith("#schema_version\t")){if(p.length!=2||schema!=null||!LAYOUT_SCHEMA.equals(p[1])){fail("invalid layout schema");}schema=p[1];}else if(line.startsWith("#family_list\t")){if(fp!=null||p.length!=5||!"#".equals(p[2])||!"sha256".equals(p[3])||!p[4].matches("[0-9a-f]{64}")){fail("invalid family metadata");}fp=p[1];fh=p[4];}else if(line.startsWith("#columns\t")){String c=line.substring(9);if(cols!=null||!LAYOUT_COLUMNS.equals(c)){fail("invalid layout columns");}cols=c;}else{fail("unknown layout metadata");}}else{String[] p=fields(line,4,file);int o=nonneg(p[3],"ordinal",file);if(o!=out.size()){fail("layout ordinal/order mismatch");}if(!"P".equals(p[0])&&!"N".equals(p[0])){fail("invalid item type");}safe(p[0],"item_type",file);safe(p[1],"item_key",file);safe(p[2],"family_id",file);out.add(new Item(p[0],p[1],p[2],o));}}}catch(IOException e){throw new RuntimeException(e);}if(!LAYOUT_SCHEMA.equals(schema)||fp==null||cols==null||out.isEmpty()||!sha(fp).equals(fh)){fail("incomplete/layout family hash mismatch");}String[] families=readFamily(fp);HashSet<String> seen=new HashSet<String>();int p=0;for(Item i:out){if(!seen.add(i.id())){fail("duplicate item "+i.id());}if("P".equals(i.type)){if(i.ordinal!=p||!i.key.equals(Integer.toString(p))||!i.familyId.equals(families.length>p?families[p]:"")){fail("family item/layout mismatch at "+p);}p++;}}if(p!=families.length||out.size()!=p+NCRNA.length){fail("layout must contain all P ranks and five N items");}for(int i=0;i<NCRNA.length;i++){Item x=out.get(p+i);if(!"N".equals(x.type)||!NCRNA[i].equals(x.key)||!"-".equals(x.familyId)){fail("ncRNA item order mismatch");}}return new Layout(fp,fh,out.toArray(new Item[out.size()]));}
+	/** Reads a canonical protein layout followed by either five legacy or seventy extended N items. */
+	private static Layout readLayout(String file){
+		String schema=null, familyPath=null, familyHash=null, columns=null;
+		final ArrayList<Item> items=new ArrayList<Item>();
+		try(BufferedReader br=reader(file)){
+			for(String line; (line=br.readLine())!=null; ){
+				if(line.isEmpty()){continue;}
+				if(line.charAt(0)=='#'){
+					final String[] parts=line.split("\\t", -1);
+					if(line.startsWith("#schema_version\t")){
+						if(parts.length!=2 || schema!=null || !LAYOUT_SCHEMA.equals(parts[1])){
+							fail("invalid layout schema");
+						}
+						schema=parts[1];
+					}else if(line.startsWith("#family_list\t")){
+						if(familyPath!=null || parts.length!=5 || !"#".equals(parts[2])
+							|| !"sha256".equals(parts[3]) || !parts[4].matches("[0-9a-f]{64}")){
+							fail("invalid family metadata");
+						}
+						familyPath=parts[1]; familyHash=parts[4];
+					}else if(line.startsWith("#columns\t")){
+						final String value=line.substring(9);
+						if(columns!=null || !LAYOUT_COLUMNS.equals(value)){fail("invalid layout columns");}
+						columns=value;
+					}else{fail("unknown layout metadata");}
+				}else{
+					final String[] parts=fields(line, 4, file);
+					final int ordinal=nonneg(parts[3], "ordinal", file);
+					if(ordinal!=items.size()){fail("layout ordinal/order mismatch");}
+					if(!"P".equals(parts[0]) && !"N".equals(parts[0])){fail("invalid item type");}
+					safe(parts[0], "item_type", file);
+					safe(parts[1], "item_key", file);
+					safe(parts[2], "family_id", file);
+					items.add(new Item(parts[0], parts[1], parts[2], ordinal));
+				}
+			}
+		}catch(IOException e){throw new RuntimeException(e);}
+		if(!LAYOUT_SCHEMA.equals(schema) || familyPath==null || columns==null || items.isEmpty()
+			|| !sha(familyPath).equals(familyHash)){fail("incomplete/layout family hash mismatch");}
+		final String[] families=readFamily(familyPath);
+		final int nonprotein=items.size()-families.length;
+		if(nonprotein!=MagQCObservationLayout.LEGACY_COUNT && nonprotein!=MagQCObservationLayout.EXTENDED_COUNT){
+			fail("layout must contain all P ranks and five or seventy N items");
+		}
+		for(int i=0; i<families.length; i++){
+			final Item item=items.get(i);
+			if(!"P".equals(item.type) || !item.key.equals(Integer.toString(i)) || !item.familyId.equals(families[i])){
+				fail("family item/layout mismatch at "+i);
+			}
+		}
+		for(int i=0; i<nonprotein; i++){
+			final Item item=items.get(families.length+i);
+			if(!"N".equals(item.type) || !MagQCObservationLayout.nonproteinKey(i).equals(item.key)
+				|| !"-".equals(item.familyId)){fail("ncRNA item order mismatch at "+i);}
+		}
+		assert(items.size()==families.length+nonprotein) : "Canonical protein and N blocks account for every layout item";
+		return new Layout(familyPath, familyHash, items.toArray(new Item[items.size()]));
+	}
 	private static String[] readFamily(String file){ArrayList<String> out=new ArrayList<String>();HashSet<String> seen=new HashSet<String>();try(BufferedReader br=reader(file)){boolean h=false;for(String line;(line=br.readLine())!=null;){if(line.length()==0){continue;}if(!h){if(!"#rank\trep_id\tocc_total".equals(line)){fail("invalid family columns");}h=true;continue;}String[] p=fields(line,3,file);int r=nonneg(p[0],"family rank",file);nonneg(p[2],"family occurrence total",file);if(r!=out.size()||!seen.add(p[1])){fail("family order/duplicate");}safe(p[1],"family id",file);out.add(p[1]);}if(!h||out.isEmpty()){fail("empty family list");}}catch(IOException e){throw new RuntimeException(e);}return out.toArray(new String[out.size()]);}
 	private static HashSet<Integer> readExclusions(String file){HashSet<Integer> out=new HashSet<Integer>();try(BufferedReader br=reader(file)){boolean h=false;for(String line;(line=br.readLine())!=null;){if(line.length()==0){continue;}if(line.charAt(0)=='#'){if("#excluded_tid\tclass\treason".equals(line)){h=true;}continue;}String[] p=fields(line,3,file);int tid=nonneg(p[0],"excluded tid",file);if(!out.add(tid)){fail("duplicate exclusion tid");}safe(p[1],"exclusion class",file);safe(p[2],"exclusion reason",file);}if(!h){fail("missing exclusion header");}}catch(IOException e){throw new RuntimeException(e);}return out;}
 	private static TreeMap<String,Assembly> readRoster(String file,HashSet<Integer> excluded){TreeMap<String,Assembly> out=new TreeMap<String,Assembly>();HashSet<String> gs=new HashSet<String>(),rs=new HashSet<String>();HashSet<Integer> ts=new HashSet<Integer>();try(BufferedReader br=reader(file)){boolean schema=false,cols=false;for(String line;(line=br.readLine())!=null;){if(line.length()==0){continue;}if(line.charAt(0)=='#'){if(("#schema_version\t"+ROSTER_SCHEMA).equals(line)){schema=true;}if(("#columns\t"+ROSTER_COLUMNS).equals(line)){cols=true;}continue;}String[] p=fields(line,7,file);safe(p[0],"unit",file);safe(p[1],"genome",file);safe(p[2],"source_rel",file);safe(p[3],"source_path",file);if(!p[0].equals(unitKey(p[2]))||!p[1].equals("genome_"+p[0])){fail("roster unit/genome does not bind source_rel");}if(!p[4].matches("[0-9a-f]{64}")){fail("invalid roster hash");}int t=nonneg(p[5],"tid",file);safe(p[6],"domain",file);if(excluded.contains(t)||!gs.add(p[1])||!rs.add(p[2])||!ts.add(t)||out.put(p[0],new Assembly(p[0],p[1],p[2],p[3],p[4],t,p[6]))!=null){fail("invalid/duplicate clean roster row");}}if(!schema||!cols||out.isEmpty()){fail("invalid/empty roster");}}catch(IOException e){throw new RuntimeException(e);}return out;}
@@ -65,7 +140,11 @@ public final class MagQCExpectedCopyTableTyped {
 	private static Table parseTable(String file){
 		String schema=null,counts=null,roster=null,layout=null,labels=null,exclusions=null,family=null,ch=null,rh=null,lh=null,qh=null,xh=null,fh=null,columns=null;int eligible=-1,itemCount=-1;
 		TreeMap<String,Integer> denominators=new TreeMap<String,Integer>();ArrayList<String[]> rows=new ArrayList<String[]>();
-		try(BufferedReader br=reader(file)){for(String line;(line=br.readLine())!=null;){if(line.length()==0){continue;}if(line.charAt(0)=='#'){
+		final ByteFile input=ByteFile.makeByteFile(file, false);
+		try{for(byte[] raw=input.nextLine(); raw!=null; raw=input.nextLine()){
+			if(raw.length==0){continue;}
+			final String line=new String(raw, StandardCharsets.UTF_8);
+			if(line.charAt(0)=='#'){
 			String[] p=line.split("\\t",-1);
 			if(line.startsWith("#schema_version\t")){if(p.length!=2||schema!=null||!SCHEMA.equals(p[1])){fail("invalid table schema");}schema=p[1];}
 			else if(line.startsWith("#typed_count_artifact\t")){if(counts!=null){fail("duplicate count metadata");}String[] z=meta(p,"typed_count_artifact");counts=z[0];ch=z[1];}
@@ -79,7 +158,8 @@ public final class MagQCExpectedCopyTableTyped {
 			else if(line.startsWith("#eligible_assembly_count\t")){if(eligible>=0||p.length!=2){fail("invalid eligible assembly metadata");}eligible=nonneg(p[1],"eligible assembly count",file);}
 			else if(line.startsWith("#item_count\t")){if(itemCount>=0||p.length!=2){fail("invalid item count metadata");}itemCount=positive(p[1],"item count",file);}
 			else{fail("unknown table metadata: "+line);}
-		}else{if(schema==null||columns==null){fail("table data precedes headers");}rows.add(fields(line,5,file));}}}catch(IOException e){throw new RuntimeException(e);}
+		}else{if(schema==null||columns==null){fail("table data precedes headers");}rows.add(fields(line,5,file));}}}
+		finally{if(input.close()){fail("I/O error reading expected-copy table: "+file);}}
 		if(!SCHEMA.equals(schema)||counts==null||roster==null||layout==null||labels==null||exclusions==null||family==null||columns==null||eligible<0||itemCount<0){fail("incomplete table headers");}
 		TreeMap<String,ArrayList<String[]>> byPop=new TreeMap<String,ArrayList<String[]>>();HashSet<String> seen=new HashSet<String>();for(String[] p:rows){if(!("global".equals(p[0])||"phylum".equals(p[0]))){fail("invalid table context");}safe(p[1],"context name",file);if("global".equals(p[0])&&!"-".equals(p[1])){fail("global context name must be '-'");}if(!("P".equals(p[2])||"N".equals(p[2]))){fail("invalid table item type");}safe(p[3],"item key",file);finite(p[4],"mean",file);String c=ctx(p[0],p[1]);String k=c+"\t"+p[2]+"\t"+p[3];if(!seen.add(k)){fail("duplicate table row "+k);}ArrayList<String[]> a=byPop.get(c);if(a==null){a=new ArrayList<String[]>();byPop.put(c,a);}a.add(p);}
 		if(!byPop.keySet().equals(denominators.keySet())||denominators.isEmpty()){fail("population data/header mismatch");}ArrayList<Item> itemList=new ArrayList<Item>();HashSet<String> itemIds=new HashSet<String>();TreeMap<String,Population> pops=new TreeMap<String,Population>();

@@ -726,8 +726,12 @@ public class SendClade extends CladeObject {
 				try{Thread.sleep(20);}
 				catch(InterruptedException e){}
 			}
-			sn=ServerTools.sendAndReceive(message, address);
-			concurrency.addAndGet(-1);
+			try{sn=ServerTools.sendAndReceive(message, address);}
+			finally{
+				// URI/request construction can throw before ServerTools catches I/O
+				// failures. Never strand a slot and deadlock later batch requests.
+				concurrency.addAndGet(-1);
+			}
 		}
 		return sn;
 	}

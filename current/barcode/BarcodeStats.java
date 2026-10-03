@@ -110,7 +110,7 @@ public class BarcodeStats {
 							line+", "+barcodeDelimiter;
 					}
 					assert(!requireUniformLength || barcodeLength==0 || barcodeLength==line.length()) : barcodeLength+", "+line.length()+
-						", "+"'"+Character.toString(barcodeDelimiter<0 ? '0' : barcodeDelimiter)+"'="+((int)(barcodeDelimiter))+"\n"+line;
+						", "+"'"+Character.toString((char)(barcodeDelimiter<0 ? '0' : barcodeDelimiter))+"'="+((int)(barcodeDelimiter))+"\n"+line;
 					barcodeLength=line.length();
 					barcodeSet.add(line);
 				}

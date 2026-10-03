@@ -5,6 +5,9 @@ import java.io.FileWriter;
 import java.nio.file.Files;
 import java.util.ArrayList;
 
+import fileIO.ByteFile;
+import structures.ByteBuilder;
+
 /**
  * Self-contained test for {@link FamilyListBuilder}'s global single-copy backbone
  * extension (Rebuild Point 2, magqc_rebuild_20260824.plan / records/FAMILYLIST_PLUS200_SPEC.md).
@@ -108,10 +111,22 @@ public class FamilyListBuilderPlus200Test {
 			"cluster="+cl, "reps="+rp, "taxpgm="+tp, "excluded="+ex,
 			"ntop=1", "nbot=1", "minoccfrac=0.5", "minphylumgenomes=3",
 			"out="+badOut.getAbsolutePath(), "ow=t", "globalsingle=1", "globalsinglecandidates=3");
+		if("1.8".equals(System.getProperty("java.specification.version"))){
+			pb.command().remove("--add-modules"); pb.command().remove("jdk.incubator.vector");
+		}
 		pb.redirectErrorStream(true);
+		final File processLog=new File(dir, "bad-process.log");
+		pb.redirectOutput(processLog);
 		final Process proc=pb.start();
-		final String out=new String(proc.getInputStream().readAllBytes());
 		final int code=proc.waitFor();
+		final ByteBuilder bytes=new ByteBuilder();
+		final ByteFile reader=ByteFile.makeByteFile(processLog.getAbsolutePath(), false);
+		try{
+			for(byte[] line=reader.nextLine(); line!=null; line=reader.nextLine()){bytes.append(line).nl();}
+		}finally{
+			if(reader.close()){throw new java.io.IOException("Failed to read subprocess diagnostic: "+processLog);}
+		}
+		final String out=new String(bytes.toBytes());
 		assertTrue(code!=0, "safety-assert subprocess exited 0 -- the crash-loud guard did not fire "
 			+"when the candidate pool was too small to admit the true best pick");
 		assertTrue(out.contains("safety bound violated") && out.contains("T=12") && out.contains("s1=0"),

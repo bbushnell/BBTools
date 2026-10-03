@@ -946,6 +946,34 @@ public class GeneModel extends ProkObject {
 		kStopRNA=stats16S.stop.k;
 		setStatics=true;
 	}
+
+	/**
+	 * True when both models use the same k-mer and boundary geometry. Batch callers may
+	 * share static geometry only after all selected models have been loaded and checked.
+	 */
+	public boolean hasSameGeometry(GeneModel other){
+		if(other==null || allContainers.length!=other.allContainers.length){return false;}
+		for(int i=0; i<allContainers.length; i++){
+			final StatsContainer a=allContainers[i], b=other.allContainers[i];
+			if(!sameGeometry(a.inner, b.inner) || !sameGeometry(a.start, b.start) ||
+				!sameGeometry(a.stop, b.stop)){return false;}
+		}
+		return true;
+	}
+
+	/** Counts may differ between phyla; their indexing geometry must not. */
+	private static boolean sameGeometry(FrameStats a, FrameStats b){
+		return a!=null && b!=null && a.k==b.k && a.frames==b.frames && a.leftOffset==b.leftOffset;
+	}
+
+	/** Checks the exact static fields published by setStatics without changing caller configuration. */
+	public boolean matchesCurrentGeometry(){
+		assert(statsCDS.inner!=null && stats16S.inner!=null) : "Check loaded models before starting concurrent gene callers";
+		return statsCDS.inner.k==kInnerCDS && statsCDS.start.k==kStartCDS && statsCDS.stop.k==kStopCDS &&
+			statsCDS.start.leftOffset==startLeftOffset && statsCDS.start.rightOffset()==startRightOffset &&
+			statsCDS.stop.leftOffset==stopLeftOffset && statsCDS.stop.rightOffset()==stopRightOffset &&
+			stats16S.inner.k==kInnerRNA && stats16S.start.k==kStartRNA && stats16S.stop.k==kStopRNA;
+	}
 	
 	public static void setInnerK(int k){
 		kInnerCDS=k;

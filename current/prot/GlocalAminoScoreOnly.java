@@ -26,14 +26,22 @@ public final class GlocalAminoScoreOnly {
 
 	private GlocalAminoScoreOnly(){}
 
-	/** Linear per-residue gap cost; same value as GlocalAminoBlosum/Fast so scores are comparable. */
-	public static final int GAP=Blosum62.GAP_OPEN;
+	/** Linear per-residue gap cost — the canonical D55 value 4 per gap symbol, no gap-open
+	 *  (records/DECISIONS_v1.md D55). ONE source of truth for the whole glocal-linear family: the
+	 *  SIMD fast path ({@link GlocalAminoSimd#GAP} mirrors this) and the detailed traceback pass
+	 *  ({@link GlocalAminoLinear#GAP} references this) must use the identical gap. Was
+	 *  {@code Blosum62.GAP_OPEN} (11, chosen to be comparable to the affine scorers) under the earlier
+	 *  score-only two-pass exploration; retargeted to 4 for D56 Step 1. A smaller gap only widens the
+	 *  16-bit exactness headroom in {@code SIMDAminoGlocal}, so the SIMD kernel stays exact. */
+	public static final int GAP=4;
 
 	/** Alphabet size of Blosum62.encode's output (0-19 standard + X_CODE). */
 	private static final int ALPHA=Blosum62.X_CODE+1;
 
-	/** ROWS[a][b] == Blosum62.score(a,b); a flat copy so the inner loop does one 1-D load. */
-	private static final int[][] ROWS=buildRows();
+	/** ROWS[a][b] == Blosum62.score(a,b); a flat copy so the inner loop does one 1-D load. Package-private
+	 *  so the detailed pass {@link GlocalAminoLinear} shares this exact table (one source of truth for the
+	 *  hoisted BLOSUM row lookup) instead of duplicating it. */
+	static final int[][] ROWS=buildRows();
 
 	/** Codes Blosum62.encode can emit: the 20 standard residues and X_CODE (21). Code 20 is never emitted and
 	 *  Blosum62.score asserts on unmapped pairs, so only emitted codes are copied; the rest stay at a

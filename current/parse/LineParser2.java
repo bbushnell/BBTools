@@ -122,6 +122,28 @@ public final class LineParser2 implements LineParser {
 		advance();
 		return Float.intBitsToFloat((int)Parse.parseLongA48(line, a, b));
 	}
+
+	/** Decodes an unsigned24-bit A48 payload as the high24 bits of a finite float32. */
+	public float parseFloatA48Truncated24(){
+		return parseFloatA48Truncated(24);
+	}
+
+	/** Restores omitted low float32 bits from three18-bit or four24-bit A48 symbols. */
+	public float parseFloatA48Truncated(final int precision){
+		if(precision!=18 && precision!=24){throw new IllegalArgumentException("A48 reduced weight precision must be18 or24");}
+		advance();
+		if(b-a<1 || b-a>precision/6){throw new IllegalArgumentException("A48 weight"+precision+" requires one to "+(precision/6)+" symbols");}
+		int bits=0;
+		for(int i=a; i<b; i++){
+			final int symbol=line[i]-48;
+			if(symbol<0 || symbol>63){throw new IllegalArgumentException("Invalid A48 weight"+precision+" symbol at byte "+i);}
+			bits=(bits<<6)|symbol;
+		}
+		assert((bits>>>precision)==0) : "The bounded six-bit symbol count must fit before restoring omitted low bits";
+		final float value=Float.intBitsToFloat(bits<<(32-precision));
+		if(!Float.isFinite(value)){throw new IllegalArgumentException("Nonfinite A48 weight"+precision);}
+		return value;
+	}
 	
 	/** Advances to the next field and parses it as a double.
 	 * @return The double value of the next field */

@@ -37,6 +37,16 @@ public class CellNetParser {
 	}
 
 	/**
+	 * Parses inference state without changing the legacy global DENSE flag.
+	 * The returned network dispatches by its own header mode and has no training
+	 * matrices. Use for lazy loads that may overlap unrelated legacy inference;
+	 * do not train, serialize, or use the generic copy() method on this instance.
+	 */
+	public static CellNet loadInferenceFromLines(ArrayList<byte[]> lines){
+		return new CellNetParser(lines, true).net;
+	}
+
+	/**
 	 * Loads a CellNet from the specified file.
 	 * @param fname Path to the CellNet configuration file
 	 * @return Loaded CellNet object
@@ -65,13 +75,25 @@ public class CellNetParser {
 	 * Parses header information and creates the CellNet with appropriate edge parsing.
 	 * @param lines_ List of file lines as byte arrays
 	 */
-	private CellNetParser(ArrayList<byte[]> lines_){
-		lines=lines_;
+	private CellNetParser(ArrayList<byte[]> lines_){this(lines_, false);}
+
+	/** Selects legacy training construction or isolated inference construction. */
+	private CellNetParser(ArrayList<byte[]> lines_, boolean inferenceOnly_){
+		lines=lines_; inferenceOnly=inferenceOnly_;
 		
 		parseHeader();
-		CellNet.DENSE=dense;
+		if(weightBits<32 && (codingHeaders!=1 || !codingKeyValid || !a48)){
+			throw new IllegalArgumentException("Reduced #weightbits requires exactly one explicit #coding A48 header");
+		}
+		if("explicit-input".equals(tags.get("normalization")) && (inputMean==null || inputInverseStd==null)){
+			throw new IllegalArgumentException("explicit-input normalization requires both critical input headers");
+		}
+		if(!inferenceOnly){CellNet.DENSE=dense;}
 		
-		net=new CellNet(dims, seed, density, density1, edgeBlockSize, commands);
+		net=inferenceOnly ? new ParsedInferenceNet(dims, seed, density, density1, edgeBlockSize, commands, dense) :
+			new CellNet(dims, seed, density, density1, edgeBlockSize, commands);
+		net.setInputNormalization(inputMean, inputInverseStd);
+		net.setWeightBits(weightBits);
 		net.epochsTrained=epochs;
 		net.samplesTrained=samples;
 //		net.annealSeed=annealSeed;
@@ -85,7 +107,7 @@ public class CellNetParser {
 		}else {
 			parseEdgesSparse();
 		}
-		net.makeWeightMatrices();
+		if(!inferenceOnly){net.makeWeightMatrices();}
 	}
 	
 	/** Parses header lines containing network metadata and configuration.
@@ -142,6 +164,12 @@ public class CellNetParser {
 					dense=true;
 				}else if(Tools.startsWith(line, "#sparse")){
 					dense=false;
+				}else if(Tools.startsWith(line, "#inputmean_a48")){
+					if(inputMean!=null){throw new IllegalArgumentException("Duplicate #inputmean header");}
+					inputMean=parseNormalization(line);
+				}else if(Tools.startsWith(line, "#inputinversestd_a48")){
+					if(inputInverseStd!=null){throw new IllegalArgumentException("Duplicate #inputinversestd header");}
+					inputInverseStd=parseNormalization(line);
 				}else if(Tools.startsWith(line, "#dims")){
 					dims=parseIntArray(line, delimiter, true);
 					assert(layers==dims.length) : layers+", "+Arrays.toString(dims);
@@ -150,8 +178,17 @@ public class CellNetParser {
 				}else if(Tools.startsWith(line, "#edges")){
 					if(line.length>7) {edges=parseInt(line);}
 				}else if(Tools.startsWith(line, "#coding")){
+					codingHeaders++;
+					codingKeyValid&=line.length>8 && line[7]==' ';
 					String coding=parseString(line).trim();
 					a48=coding.equalsIgnoreCase("A48");
+				}else if(Tools.startsWith(line, "#weightbits")){
+					if(weightBitsSeen || line.length<12 || line[11]!=' '){
+						throw new IllegalArgumentException("Duplicate or malformed #weightbits header");
+					}
+					final String bits=parseString(line).trim();
+					if(!bits.equals("18") && !bits.equals("24") && !bits.equals("32")){throw new IllegalArgumentException("Supported #weightbits values are18,24 and32");}
+					weightBitsSeen=true; weightBits=Integer.parseInt(bits);
 				}else if(Tools.startsWith(line, "#")){
 					assert(false) : "\nUnexpected header line: '"+new String(line)+"'"
 							+ "\nComments should start with ##\n";
@@ -195,10 +232,12 @@ public class CellNetParser {
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
 				
-				c.setBias(a48 ? lp.parseFloatA48() : lp.parseFloat(), true);
+				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
+				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
+				c.setBias(bias, true);
 				weights.clear();
 				while(lp.hasMore()) {
-					weights.add(a48 ? lp.parseFloatA48() : lp.parseFloat());
+					weights.add(weightBits<32 ? lp.parseFloatA48Truncated(weightBits) : a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
 				c.deltas=new float[c.weights.length];
@@ -210,7 +249,7 @@ public class CellNetParser {
 			}
 			pos++;
 		}
-		assert(CellNet.DENSE || net.check());
+		assert(!inferenceOnly || checkInference()) : "Parsed inference cells must match their local dense/sparse header";
 	}
 	
 	/** Parses sparse weight representation with explicit input indices.
@@ -246,10 +285,12 @@ public class CellNetParser {
 				c.function=Function.getFunction(type);
 				assert(c.function.type()==type);
 				
-				c.setBias(a48 ? lp.parseFloatA48() : lp.parseFloat(), true);
+				final float bias=a48 ? lp.parseFloatA48() : lp.parseFloat();
+				if(weightBits<32 && !Float.isFinite(bias)){throw new IllegalArgumentException("Nonfinite bias in a reduced-precision network");}
+				c.setBias(bias, true);
 				weights.clear();
 				while(lp.hasMore()) {
-					weights.add(a48 ? lp.parseFloatA48() : lp.parseFloat());
+					weights.add(weightBits<32 ? lp.parseFloatA48Truncated(weightBits) : a48 ? lp.parseFloatA48() : lp.parseFloat());
 				}
 				c.weights=weights.toArray();
 				c.deltas=new float[c.weights.length];
@@ -285,9 +326,33 @@ public class CellNetParser {
 			pos++;
 		}
 		CellNet.makeOutputSets(net.net);
-		assert(net.check());
+		assert(inferenceOnly ? checkInference() : net.check()) : "Parsed cells must match their network representation";
 	}
 	
+	/** Cell.check() reads global DENSE, so isolated loading checks local geometry directly. */
+	private boolean checkInference(){
+		for(int layer=1; layer<net.layers; layer++){
+			for(Cell cell:net.net[layer]){
+				assert(cell.weights!=null && cell.function!=null && (dense==(cell.inputs==null))) :
+					"Inference weights/function/index representation differs from parsed header at layer "+layer;
+				assert(cell.deltas==null || cell.deltas.length==cell.weights.length) : "Parsed gradient width differs from weights";
+				assert(dense ? cell.weights.length==dims[layer-1] : cell.inputs.length==cell.weights.length) :
+					"Inference input width differs from parsed edge count at layer "+layer;
+			}
+		}
+		return true;
+	}
+
+	/** Instance dispatch prevents future unrelated legacy parser calls from changing this net. */
+	private static final class ParsedInferenceNet extends CellNet {
+		ParsedInferenceNet(int[] dims, long seed, float density, float density1, int blockSize,
+				ArrayList<String> commands, boolean dense_){
+			super(dims, seed, density, density1, blockSize, commands); dense=dense_;
+		}
+		@Override public float feedForward(){return dense ? feedForwardDense() : feedForwardSparse();}
+		private final boolean dense;
+	}
+
 	/** Checks if more lines are available for parsing.
 	 * @return true if more lines exist, false otherwise */
 	boolean hasMore(){
@@ -309,6 +374,8 @@ public class CellNetParser {
 	final ArrayList<byte[]> lines;
 	/** The parsed CellNet neural network */
 	private final CellNet net;
+	/** Inference construction never writes or depends on global network representation. */
+	private final boolean inferenceOnly;
 	/** Random seed used for network initialization */
 	long seed;
 //	long annealSeed=-1;
@@ -334,8 +401,13 @@ public class CellNetParser {
 	boolean dense=true;
 	/** Read coding: initialized from CellNet.codingA48In (the default when a .bbnet has no #coding header); a #coding header overrides this */
 	boolean a48=CellNet.codingA48In;
+	/** Explicit reduced edge precision; biases and normalization keep their32-bit format. */
+	private int weightBits=32, codingHeaders=0;
+	private boolean weightBitsSeen=false, codingKeyValid=true;
 	/** Dimensions (neuron counts) for each layer */
 	int[] dims;
+	/** Exact A48 input preprocessing, independent of edge-weight coding. */
+	private float[] inputMean, inputInverseStd;
 	/** Current parsing position in the line list */
 	int pos=0;
 	/** Classification threshold cutoff value */
@@ -368,6 +440,18 @@ public class CellNetParser {
 		int idx=Tools.indexOf(line, delimiter);
 		String s=new String(line, idx+1, line.length-idx-1);
 		return s;
+	}
+
+	/** Reads a critical normalization array without allocating a String per field. */
+	private static float[] parseNormalization(byte[] line){
+		assert(line!=null && line.length>0) : "Normalization parser requires a nonempty header line";
+		final LineParser2 parser=new LineParser2(delimiter);
+		parser.set(line);
+		parser.advance(); //Skip the critical header name.
+		final FloatList values=new FloatList();
+		while(parser.hasMore()){values.add(parser.parseFloatA48());}
+		if(values.size==0){throw new IllegalArgumentException("Empty input normalization header");}
+		return values.toArray();
 	}
 	
 	/**

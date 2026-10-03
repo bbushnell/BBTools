@@ -69,6 +69,9 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 			kid=lp.parseFloat(col); col++;
 			completeness=lp.parseFloat(col); col++;
 			kmerMatches=lp.parseInt(col); col++;
+			//TODO: Probable bug - appendResultMachine emits reference DDL cardinality next,
+			//but this parser consumes only five sketch fields; ref.lineage below then reads
+			//cardinality rather than taxonomy. SendClade.responseToComparisons calls this path.
 		}
 		ref.lineage=lp.parseString(col);
 	}
