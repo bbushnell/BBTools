@@ -114,24 +114,24 @@ public final class MagQCAssemblyBatchTest {
 	private static void checkMissingAssets() throws Exception{
 		final Path root=Files.createTempDirectory("prokcc-missing-assets-");
 		final HashMap<String,String> options=new HashMap<String,String>();
-		options.put("net", root.resolve("composite_d252_polished_weight18.bbnet.gz").toString());
-		options.put("bundle", root.resolve("magqc_subnets_v1.bbnets.gz").toString());
+		options.put("net", root.resolve("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz").toString());
+		options.put("bundle", root.resolve("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz").toString());
 		options.put("hbmbundle", root.resolve("magqc_hbm_v1.rare01.hbmt.gz").toString());
 		options.put("sidecar", root.resolve("magqc_sidecar_v1.tsv.gz").toString());
 		boolean rejected=false;
 		try{MagQCAssemblyBatch.requireOptionalAssets(options);}
 		catch(IllegalArgumentException e){
 			final String message=e.getMessage();
-			rejected=message.contains("composite_d252_polished_weight18.bbnet.gz") && message.contains("magqc_subnets_v1.bbnets.gz")
+			rejected=message.contains("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz") && message.contains("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz")
 				&& message.contains("magqc_hbm_v1.rare01.hbmt.gz") && message.contains("magqc_sidecar_v1.tsv.gz")
-				&& message.contains("https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.tar")
+				&& message.contains("https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.2.1.tar")
 				&& message.contains("Extract its contents into BBTools/resources/ to create resources/prokcc/")
 				&& !message.contains("PROKCC_V1_TAG_PENDING");
 		}
 		check(rejected, "Missing assets must identify all four files and their download instructions");
-		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.tar";
+		final String archive="https://sourceforge.net/projects/bbmap/files/Resources/prokcc_v1.2.1.tar";
 		check(archive.equals(shared.Resources.downloadURL("?prokcc/release.config"))
-			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.full_fallback.bbnets.gz")),
+			&& archive.equals(shared.Resources.downloadURL("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz")),
 			"The release config and full subnet bundle must resolve to the same manual archive");
 		check("https://sourceforge.net/projects/bbmap/files/Resources/".equals(shared.Resources.downloadURL("ssuSketchDDL.tsv.gz")),
 			"Unrelated resources must retain their existing download location");

@@ -26,7 +26,7 @@ public class Resources {
 
 	/** ProkCC's config, models and tables are installed together from one manual download. */
 	public static String prokccDownloadInstructions(){
-		return "Download prokcc_v1.tar from:\n  "+PROKCC_ARCHIVE+
+		return "Download prokcc_v1.2.1.tar from:\n  "+PROKCC_ARCHIVE+
 			"\nExtract its contents into BBTools/resources/ to create resources/prokcc/, then try again.\n";
 	}
 
@@ -116,13 +116,15 @@ public class Resources {
 	private static final String NERSC_URL="https://portal.nersc.gov/cfs/bbtools/";
 	private static final String SOURCEFORGE_URL="https://sourceforge.net/projects/bbmap/files/Resources/";
 	/** One archive contains the matching ProkCC release config, model files and tables. */
-	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.tar";
+	private static final String PROKCC_ARCHIVE=SOURCEFORGE_URL+"prokcc_v1.2.1.tar";
 	/** The size-filtered 32k DDL sketch DB is ~9.8 GB -- too large for GitHub's 2GB cap; hosted on Zenodo
 	 * as a direct-download file link pinned to the v40.00 record (matches the v40.00 GitHub links above). */
 	private static final String ZENODO_DDL32K="https://zenodo.org/records/21630308/files/refseqSketchDDL_k25e5b32768.tsv.gz";
 
 	private static final HashMap<String, String> RESOURCE_URLS=new HashMap<>();
 	static{
+		RESOURCE_URLS.put("composite_v1.2.1_shrunk_0.8pct_18bit.bbnet.gz", PROKCC_ARCHIVE);
+		RESOURCE_URLS.put("magqc_subnets_v1.2.1_shrunk_57.4pct_18bit.bbnets.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("composite_d252_polished_weight18.bbnet.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("v1.bbnets.gz", PROKCC_ARCHIVE);
 		RESOURCE_URLS.put("magqc_subnets_v1.bbnets.gz", PROKCC_ARCHIVE);
