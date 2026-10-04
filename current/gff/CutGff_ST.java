@@ -140,7 +140,6 @@ public class CutGff_ST {
 		}
 
 		ArrayList<String> banned=new ArrayList<String>();
-		if(banPartial){banned.add("partial=true");}
 		if(bannedAttributes!=null){
 			for(String s : bannedAttributes){banned.add(s);}
 		}
@@ -242,6 +241,7 @@ public class CutGff_ST {
 	private boolean hasAttributes(GffLine gline){
 		int len=gline.length();
 		if(len<minLen || len>maxLen){return false;}
+		if(banPartial && gline.partial()){return false;}
 		if(hasAttributes(gline, bannedAttributes)){return false;}
 		return requiredAttributes==null || hasAttributes(gline, requiredAttributes);
 	}

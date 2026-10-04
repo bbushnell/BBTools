@@ -679,8 +679,33 @@ public class GffLine implements Comparable<GffLine>, Feature, Cloneable {
 		return -1;
 	}
 	
-	/** Returns true if feature has partial=true attribute. */
-	public final boolean partial(){return attributes!=null && attributes.contains("partial=true");}
+	/** Reads the exact GFF partial attribute: legacy true/false or left/right 00/10/01/11.
+	 * Absent/00/false is complete; true is incomplete with side unknown. Unknown values
+	 * fail rather than allowing a truncated feature into GeneModel's RNA training set.
+	 */
+	public final boolean partial(){
+		if(attributes==null){return false;}
+		boolean seen=false, partial=false;
+		for(int from=0, end=0; from<attributes.length(); from=end+1){
+			end=attributes.indexOf(';', from);
+			if(end<0){end=attributes.length();}
+			if(end-from>=8 && attributes.startsWith("partial=", from)){
+				if(seen){throw new IllegalArgumentException("Duplicate partial attribute for "+seqid+":"+start+"-"+stop);}
+				seen=true;
+				final int value=from+8, length=end-value;
+				if(length==4 && attributes.regionMatches(value, "true", 0, 4)){partial=true;}
+				else if(length==5 && attributes.regionMatches(value, "false", 0, 5)){partial=false;}
+				else if(length==2 && (attributes.charAt(value)=='0' || attributes.charAt(value)=='1')
+						&& (attributes.charAt(value+1)=='0' || attributes.charAt(value+1)=='1')){
+					partial=(attributes.charAt(value)=='1' || attributes.charAt(value+1)=='1');
+				}else{
+					throw new IllegalArgumentException("Invalid partial attribute '"+attributes.substring(value, end)
+						+"' for "+seqid+":"+start+"-"+stop+"; expected true, false, 00, 10, 01 or 11");
+				}
+			}
+		}
+		return partial;
+	}
 	
 	/** Returns true if feature coordinates are within scaffold bounds. */
 	public final boolean inbounds(int scaflen){return start>=0 && stop<scaflen;}
