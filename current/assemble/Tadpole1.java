@@ -1012,8 +1012,9 @@ public class Tadpole1 extends Tadpole {
 					//[assemble/Tadpole1#002 FIXED 2026-08-27] Cross-k leftward traversal runs on
 					//the reverse-complement seed. Store that strand; flipSource will reverse-
 					//complement the completed edge when the source contig is flipped for merging.
-					//Keep the established dense-graph representation unchanged.
-					bb.append(AminoAcid.numberToBase[crossKGraph ? x2 : x]);
+					//Collect the entire outward strand consistently; encode dense left
+					//payloads only after traversal, not just their first byte.
+					bb.append(AminoAcid.numberToBase[x2]);
 					target=exploreRight(rkmer, kmer, extraCounts, rightCounts, bb, c.id);
 					if(crossKGraph || refreshGraphEndpoints){exitCountsT[lastExitCondition]++;}
 					if(verbose){
@@ -1022,7 +1023,8 @@ public class Tadpole1 extends Tadpole {
 					}
 				}
 				if(target>=0){
-					if(crossKGraph){bb.reverseComplementInPlace();}
+					// Match Edge.flipSource and every raw-payload merging consumer.
+					bb.reverseComplementInPlace();
 					Edge se=new Edge(c.id, target, lastLength, lastOrientation, count, bb.toBytes());
 					c.addLeftEdge(se);
 					edgesMadeT++;
@@ -1193,10 +1195,23 @@ public class Tadpole1 extends Tadpole {
 //					}
 //				}
 				if(left==kmer || left==rkmer){
-					lastOrientation=0;
+					// A canonical terminal hit on its outward strand is not a contig join.
+					if(dest.length()>k && left!=kmer){
+						lastExitCondition=BAD_OWNER;
+						lastTarget=-1;
+						return -1;
+					}
+					// A length-K contig has one key but two ends. This walk always
+					// arrives on its forward strand; a reverse match enters the right end.
+					lastOrientation=(dest.length()==k && left!=kmer ? 2 : 0);
 				}else{
 					long right=dest.rightKmer(k);
 					if(right==kmer || right==rkmer){
+						if(right!=rkmer){
+							lastExitCondition=BAD_OWNER;
+							lastTarget=-1;
+							return -1;
+						}
 						lastOrientation=2;
 					}else{
 						assert(false);

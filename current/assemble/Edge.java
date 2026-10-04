@@ -105,6 +105,14 @@ public class Edge {
 		orientation^=1;
 		if(Tadpole.verbose){System.err.println(this);}
 	}
+
+	/** Reads an extension base in outward traversal order. Left-edge payloads are
+	 * stored reverse-complemented so flipping their source preserves the path. */
+	final byte traversalBase(final int pos){
+		assert(bases!=null && pos>=0 && pos<bases.length) :
+				"Graph path consumers require an emitted base inside the edge payload: "+pos+", edge="+this;
+		return sourceRight() ? bases[pos] : dna.AminoAcid.baseToComplementExtended[bases[bases.length-1-pos]];
+	}
 	
 	/** Flips the destination orientation encoding.
 	 * Toggles bit 1 of orientation encoding without modifying sequence data. */
@@ -145,6 +153,12 @@ public class Edge {
 //	int orientation; //0 left kmer, 1 left rkmer, 2 right kmer, 3 right rkmer (of dest)
 //	final int direction; //0 forward, 1 backward //They are all forward edges now
 	int depth;
+	/** Minimum read-kmer depth along a graph-only representative path; -1 if not measured. */
+	int pathMinDepth=-1;
+	/** Maximum read-kmer depth along the same graph-only representative path. */
+	int pathMaxDepth=-1;
+	/** Mean read-kmer depth along that path, including both endpoint kmers. */
+	double pathMeanDepth=-1;
 	/** Explicit exact overlap for cross-k tip joins; zero means use the active graph k. */
 	int overlap;
 	/** Bases beyond the source anchor that are replaced by the verified edge path. */

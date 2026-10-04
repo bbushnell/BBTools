@@ -119,9 +119,9 @@ public class SimpleOmnitigExtractorUnitTest {
 	private static void longLeftEdgeConvention(){
 		final Contig a=contig(0, "AAAAGCT"), b=contig(1, "CTATTT");
 		final Edge ab=new Edge(a.id, b.id, 4, 1, 11, "GCTA".getBytes());
-		/* Reverse traversal spells CAGC: complement the novel G, then orient the
-		 * destination's stored right kmer GCT as AGC. */
-		final Edge ba=new Edge(b.id, a.id, 4, 2, 11, "GGCT".getBytes());
+		/* Reverse traversal spells CAGC. Its stored source-strand payload is GCTG;
+		 * source flipping and oriented extraction must recover the same CAGC. */
+		final Edge ba=new Edge(b.id, a.id, 4, 2, 11, "GCTG".getBytes());
 		a.addRightEdge(ab);
 		b.addLeftEdge(ba);
 		final ArrayList<Contig> out=new SimpleOmnitigExtractor(list(a, b), K).extract();

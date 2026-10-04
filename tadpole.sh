@@ -20,6 +20,7 @@ Multi-K assembly:  tadpole.sh k=31,63,95,127 in=<reads> out=<contigs>
 Custom phases:     tadpole.sh assemblek=96 fusek=64 bridgek=128,96,64,32 graphk=96 in=<reads> out=<contigs>
 Extension:    tadpole.sh k=62 in=<reads> out=<extended> mode=extend
 Correction:   tadpole.sh k=62 in=<reads> out=<corrected> mode=correct
+Graph only:   tadpole.sh in=<reads> contigs=<assembly.fa> mode=graph k=31 dot=<graph.dot> pretty
 PacBio HiFi:  tadpole.sh in=<reads> out=<corrected> k=62 ecc pacbio
 
 Multi-K shorthand assembles at the longest K, joins unique reciprocal exact
@@ -47,6 +48,9 @@ in=<file>           Primary input file for reads to use as kmer data.
 in2=<file>          Second input file for paired data.
 extra=<file>        Extra files for use as kmer data, but not for error-
                     correction or extension.
+contigs=<file>      Existing FASTA assembly for graph-only exploration.  Names,
+                    sequences, and record order are retained; implies mode=graph.
+                    Only in/in2/extra reads contribute kmer counts.
 reads=-1            Only process this number of reads, then quit (-1 means all).
 NOTE: in, in2, and extra may also be comma-delimited lists of files.
 
@@ -57,6 +61,15 @@ out2=<file>         Second output file for paired output.
 outd=<file>         Write discarded reads, if using junk-removal flags.
 dot=<file>          Write a contigs connectivity graph (partially implemented).
                     Not yet supported with multi-K assembly.
+pretty=f           (fancy, prettydot) Add visual DOT styling and contig names.
+                    Plain assembly DOT stays unchanged by default.  Rectangular
+                    nodes contain names, lengths, and depth=min,mean,max.
+                    Width scales with log(max(16,length-128)), longest=4 inches,
+                    minimum width=1.2 inches;
+                    nodes expand when necessary to keep labels inside.
+                    Thin depth-scaled edges (0.65-1.3 pt) attach to the actual
+                    left/right contig ends.  K is shown once above the graph.
+                    Assembly edges use first-extension depth, not spanning reads.
 gfa=<file>          Write the post-processed contig graph in GFA 1.0 format.
 dump=<file>         Write kmers and their counts.
 fastadump=t         Write kmers and counts as fasta versus 2-column tsv.
@@ -248,11 +261,32 @@ validategraph=f     Run graph consistency checks during simplification.
 
 Processing mode parameters:
 mode=contig         contig: Make contigs from kmers.
+                    graph: Explore connections between supplied contigs using
+                           read kmers, without changing or reassembling contigs.
                     extend: Extend sequences to be longer, and optionally
                             perform error correction.
                     correct: Error correct only.
                     insert: Measure insert sizes.
                     discard: Discard low-depth reads, without error correction.
+
+Graph-only parameters:
+graphmaxdist=500    Maximum extension steps from an oriented contig end.
+graphmaxstates=10000 Maximum distinct oriented kmers explored per source end.
+                    Search follows all branches with depth >= mincountextend,
+                    stopping each route at the first supplied contig end.
+                    Shared ends and competing reachable targets are retained.
+                    Limited searches are marked on nodes and reported; missing
+                    links are not proof of disconnection.  One K per run only.
+                    DOT always labels original names; pretty adds visual style.
+                    Connections describe kmer reachability, not spanning reads.
+                    Each edge represents one shortest path (ACGT tie order).
+                    len/EL counts extension steps; zero means a K-base overlap.
+                    Path depth=min,mean,max (GFA MN/MD/MX) includes both endpoint
+                    kmers.  Plain DOT retains min/mean labels.  startdepth/EC
+                    is first-extension depth (source depth for zero-step links).
+                    GFA stores names as escaped SN tags and uses unspecified
+                    overlap for links.  SL/SR mark bounded left/right searches.
+                    No out= sequence output, washing, or graph simplification.
 
 Extension parameters:
 extendleft=100      (el) Extend to the left by at most this many bases.

@@ -338,12 +338,10 @@ class SimpleOmnitigExtractor {
 	}
 
 	/**
-	 * Appends an edge in walk orientation.  A dense edge longer than k is a
-	 * compound field: its leading length-k bytes are novel traversal bases,
-	 * while its final k bytes reproduce the destination's terminal kmer in the
-	 * destination contig's stored strand.  They cannot be reverse-complemented
-	 * as one ordinary sequence.  Orient only the novel bytes, then spell the
-	 * represented terminal portion directly from the oriented destination.
+	 * Appends an edge in walk orientation. Payloads are stored in the source
+	 * strand, so left exits reverse-complement them just as Edge.flipSource does.
+	 * The destination supplies its represented terminal bases; only the novel
+	 * prefix needs to be read from the oriented payload.
 	 */
 	private void appendEdge(final ByteBuilder builder, final Edge edge,
 			final int sourceState, final int destinationState){
@@ -351,8 +349,7 @@ class SimpleOmnitigExtractor {
 		final int represented=Tools.min(k, edge.length);
 		final int novel=edge.length-represented;
 		for(int i=0; i<novel; i++){
-			final byte b=edge.bases[i];
-			builder.append(reverse(sourceState) ? AminoAcid.baseToComplementExtended[b] : b);
+			builder.append(edge.traversalBase(i));
 		}
 		final Contig target=contig(destinationState);
 		for(int i=k-represented; i<k; i++){
@@ -523,8 +520,7 @@ class SimpleOmnitigExtractor {
 	}
 
 	private static byte orientedNovelBase(final Edge edge, final int state, final int pos){
-		final byte b=edge.bases[pos];
-		return reverse(state) ? AminoAcid.baseToComplementExtended[b] : b;
+		return edge.traversalBase(pos);
 	}
 
 	private static byte orientedBase(final Contig c, final int state, final int pos){

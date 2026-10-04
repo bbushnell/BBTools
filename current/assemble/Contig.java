@@ -628,6 +628,8 @@ public class Contig {
 	public String name;
 	public byte[] bases;
 	public float coverage;
+	/** Graph-only reachability was truncated by a distance or state bound at these ends. */
+	boolean graphLeftLimited, graphRightLimited;
 	public int minCov;
 	public int maxCov;
 	int leftCode;

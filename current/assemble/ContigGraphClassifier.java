@@ -237,8 +237,8 @@ final class ContigGraphClassifier {
 			return true;
 		}
 		if(edge.sourceTrim!=0 || edge.destTrim!=0 || edge.length<1 || k>source.length() || k>target.length()){return false;}
-		/* Bytes represented inside the destination terminal kmer are redundant and
-		 * retain legacy side-dependent encoding.  Validate the exact shared contig
+		/* Bytes represented inside the destination terminal kmer are redundant.
+		 * Validate the exact shared contig
 		 * sequence here; reciprocalEdge validates the only emitted payload, the
 		 * novel prefix beyond k. */
 		final int shared=Tools.max(0, k-edge.length);
@@ -258,8 +258,7 @@ final class ContigGraphClassifier {
 	private static int destinationState(final Edge edge){return (edge.destination<<1)|(edge.destRight() ? 1 : 0);}
 
 	private static byte orientedNovelBase(final Edge edge, final int state, final int pos){
-		final byte b=edge.bases[pos];
-		return reverse(state) ? AminoAcid.baseToComplementExtended[b] : b;
+		return edge.traversalBase(pos);
 	}
 
 	private static byte orientedBase(final Contig c, final int state, final int pos){

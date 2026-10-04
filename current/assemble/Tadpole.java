@@ -77,6 +77,9 @@ public abstract class Tadpole extends ShaveObject{
 	public static void main(String[] args){
 		args=expandConfigArgs(args);
 		if(TadpoleMulti.hasMultipleK(args)){
+			if(TadpoleGraph.requested(args)){
+				throw new IllegalArgumentException("Graph-only mode currently requires one k value, not a multi-K assembly schedule.");
+			}
 			TadpoleMulti.main(args);
 			Shared.closeStream(outstream);
 			return;
@@ -259,6 +262,7 @@ public abstract class Tadpole extends ShaveObject{
 		int localEditMax_=8,localEditStride_=8;
 		int localEditPatchMax_=4096;
 		boolean useOwnership_=false, setUseOwnership_=false;
+		boolean graphSweepSet=false;
 		
 		int prefilter=0;
 		
@@ -322,6 +326,14 @@ public abstract class Tadpole extends ShaveObject{
 				}
 			}else if(a.equals("dot") || a.equals("outdot")){
 				outDot=b;
+			}else if(a.equals("pretty") || a.equals("fancy") || a.equals("prettydot")){
+				prettyDot=Parse.parseBoolean(b);
+			}else if(a.equals("contigs")){
+				graphContigs=b;
+			}else if(a.equals("graphmaxdist")){
+				graphMaxDistance=Parse.parseIntKMG(b);
+			}else if(a.equals("graphmaxstates")){
+				graphMaxStates=Parse.parseIntKMG(b);
 			}else if(a.equals("gfa") || a.equals("outgfa")){
 				outGfa=b;
 			}else if(a.equals("buildthreads") || a.equals("bt")){
@@ -343,6 +355,7 @@ public abstract class Tadpole extends ShaveObject{
 				else{retainShortContigs=Parse.parseBoolean(b); retainShortContigsSet=true;}
 			}else if(a.equalsIgnoreCase("sweepLen") || a.equalsIgnoreCase("graphSweepLen")){
 				sweepContigLen=Parse.parseIntKMG(b);
+				graphSweepSet=true;
 			}else if(a.equalsIgnoreCase("evictLowDepthContigs") || a.equalsIgnoreCase("removeLowDepthContigs") || a.equals("ldce")){
 				evictLowDepthContigs=Parse.parseBoolean(b);
 			}else if(a.equalsIgnoreCase("classifyGraphContigs") || a.equalsIgnoreCase("classifyContigs") || a.equalsIgnoreCase("graphClassify")){
@@ -448,6 +461,8 @@ public abstract class Tadpole extends ShaveObject{
 					processingMode=Parse.parseIntKMG(b);
 				}else if(b.equalsIgnoreCase("contig")){
 					processingMode=contigMode;
+				}else if(b.equalsIgnoreCase("graph")){
+					processingMode=graphMode;
 				}else if(b.equalsIgnoreCase("extend")){
 					processingMode=extendMode;
 				}else if(b.equalsIgnoreCase("correct") || b.equalsIgnoreCase("ecc") || b.equalsIgnoreCase("ecct")){
@@ -800,6 +815,12 @@ public abstract class Tadpole extends ShaveObject{
 		}
 		
 		kmerRangeMin=Tools.max(prefilter+1, kmerRangeMin);
+		if(processingMode<0 && graphContigs!=null){processingMode=graphMode;}
+		if(processingMode==graphMode){
+			//Assembly-only defaults must not activate classification in an immutable input graph.
+			if(!graphSweepSet){sweepContigLen=0;}
+			popBubbles=false;
+		}
 		
 		if(outDot!=null || outGfa!=null || popBubbles || resolveRepeats || simpleOmnitigs || graphCover
 				|| lowDepthContigDiag || graphClassificationRequested()){processContigs=true;}
@@ -888,6 +909,33 @@ public abstract class Tadpole extends ShaveObject{
 		
 		assert(kmerRangeMax>=kmerRangeMin) : "kmerRangeMax must be at least kmerRangeMin: "+kmerRangeMax+", "+kmerRangeMin;
 		
+		if(graphContigs!=null && processingMode!=graphMode){
+			throw new IllegalArgumentException("contigs= is only valid with mode=graph.");
+		}
+		if(processingMode==graphMode){
+			if(graphContigs==null || (outDot==null && outGfa==null)){
+				throw new IllegalArgumentException("mode=graph requires contigs=<assembly.fa> and dot=<graph.dot> or gfa=<graph.gfa>.");
+			}
+			if(!out1.isEmpty() || !out2.isEmpty() || !outd1.isEmpty() || !outd2.isEmpty()){
+				throw new IllegalArgumentException("mode=graph writes dot=/gfa= only, never recontigged out= sequences.");
+			}
+			if(graphMaxDistance<0 || graphMaxStates<1 || minCountExtend<1){
+				throw new IllegalArgumentException("graphmaxdist must be nonnegative; graphmaxstates and mincountextend must be positive.");
+			}
+			if(removeDeadEnds || removeBubbles || resolveRepeats || simpleOmnitigs || graphCover
+					|| evictLowDepthContigs || graphClassificationRequested() || lowDepthContigDiag
+					|| ecc_ || ecco_ || merge_ || hpIndel_ || localEdit_ || markErrors_){
+				throw new IllegalArgumentException("mode=graph does not support correction, read merging, washing, or graph simplification flags.");
+			}
+			popBubbles=false;
+			if(append){throw new IllegalArgumentException("mode=graph cannot append independent graphs to one file.");}
+			if(!Tools.testInputFiles(true, true, graphContigs)){
+				throw new IllegalArgumentException("Cannot read graph assembly: "+graphContigs);
+			}
+			if(!Tools.testOutputFiles(overwrite, false, false, outDot, outGfa)){
+				throw new IllegalArgumentException("Cannot write graph output.");
+			}
+		}
 		if(processingMode<0){//unset
 			if(ecc_ || markErrors_ || discardUncorrectable || hpIndel_ || localEdit_){
 				processingMode=correctMode;
@@ -1249,6 +1297,26 @@ public abstract class Tadpole extends ShaveObject{
 	 * @param mode Processing mode: contigMode, extendMode, correctMode, insertMode, or discardMode
 	 */
 	public final void process2(int mode){
+		if(mode==graphMode){
+			final ArrayList<String> inputs=new ArrayList<String>(tables().in1);
+			inputs.addAll(tables().in2);
+			inputs.addAll(tables().extra);
+			TadpoleGraph.checkPaths(graphContigs, inputs, outDot, outGfa, outKmers, outHist);
+			if(!tables().rcomp() || AbstractKmerTableSet.MASK_MIDDLE || Shared.AMINO_IN){
+				throw new IllegalArgumentException("mode=graph requires canonical DNA kmers: rcomp=t, maskmiddle=f, amino=f.");
+			}
+			loadKmers(new Timer());
+			final TadpoleGraph graph=new TadpoleGraph(TadpoleGraph.readContigs(graphContigs),
+					new TadpoleGraph.Counts(){
+						@Override
+						public int count(final Kmer key){return bridgeCount(key);}
+					}, kbig, minCountExtend, graphMaxDistance, graphMaxStates);
+			graph.explore(THREADS);
+			if(outDot!=null){graph.writeDot(outDot, prettyDot);}
+			if(outGfa!=null){graph.writeGfa(outGfa);}
+			graph.report();
+			return;
+		}
 		
 		/* Start phase timer */
 		Timer t=new Timer();
@@ -1734,30 +1802,21 @@ public abstract class Tadpole extends ShaveObject{
 		
 		if(outDot!=null){
 			outstream.println("Writing contig graph.");
-			FileFormat ff=FileFormat.testOutput(outDot, FileFormat.TEXT, null, true, overwrite, append, false);
-			ByteStreamWriter bsw=new ByteStreamWriter(ff);
-			bsw.start();
+			ByteStreamWriter bsw=TadpoleDot.open(outDot, prettyDot, kbig);
 			ByteBuilder bb=new ByteBuilder(1000);
-			bb.append("digraph G {\n");
+			final double logLengthPerInch=TadpoleDot.logLengthPerInch(allContigs);
 			for(Contig c : allContigs){
-				bb.tab().append(c.id);
-				bb.append(" [label=\"id=").append(c.id);
-				bb.append("\\nlen=").append(c.bases.length);
-				bb.append("\\ncov=").append(c.coverage, 1);
-				bb.append("\\nleft=").append(codeStrings[c.leftCode]);
-				bb.append("\\nright=").append(codeStrings[c.rightCode]);
-				if(c.graphClass>=0){bb.append("\\nclass="); c.appendGraphClass(bb);}
-				bb.append("\"]").append('\n');
+				TadpoleDot.node(c, contigIDOffset, kbig, prettyDot, false, logLengthPerInch, bb);
 				if(c.leftEdges!=null){
 					for(Edge e : c.leftEdges){
 						bb.tab();
-						e.toDot(bb);
+						TadpoleDot.edge(e, kbig, prettyDot, bb);
 					}
 				}
 				if(c.rightEdges!=null){
 					for(Edge e : c.rightEdges){
 						bb.tab();
-						e.toDot(bb);
+						TadpoleDot.edge(e, kbig, prettyDot, bb);
 					}
 				}
 				bsw.print(bb);
@@ -4158,6 +4217,10 @@ public abstract class Tadpole extends ShaveObject{
 
 	/** Appends enabled non-default operations to a startup plan. */
 	void appendExecutionPlanExtras(final ByteBuilder bb){
+		if(processingMode==graphMode){
+			if(prettyDot){appendPlanWord(bb, "pretty");}
+			return;
+		}
 		if(removeDeadEnds){appendPlanWord(bb, "shave");}
 		if(removeBubbles){appendPlanWord(bb, "rinse");}
 		if(BubblePopper.popIndirect){appendPlanWord(bb, "popindirect");}
@@ -4205,6 +4268,7 @@ public abstract class Tadpole extends ShaveObject{
 		if(processingMode==correctMode){return "correct";}
 		if(processingMode==insertMode){return "insert";}
 		if(processingMode==discardMode){return "discard";}
+		if(processingMode==graphMode){return "graph";}
 		return Integer.toString(processingMode);
 	}
 
@@ -4335,6 +4399,12 @@ public abstract class Tadpole extends ShaveObject{
 	private ArrayList<String> outd1=new ArrayList<String>(), outd2=new ArrayList<String>();
 	/** Output graph */
 	private String outDot=null;
+	/** Optional DOT styling; legacy plain graphs remain the default. */
+	boolean prettyDot=false;
+	/** Immutable supplied assembly and bounds for endpoint exploration. */
+	private String graphContigs=null;
+	private int graphMaxDistance=500, graphMaxStates=10000;
+	static final int graphMode=5;
 	/** Output graph in GFA format */
 	private String outGfa=null;
 	

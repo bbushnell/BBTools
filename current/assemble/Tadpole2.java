@@ -895,13 +895,12 @@ public class Tadpole2 extends Tadpole {
 					if(crossKGraph || refreshGraphEndpoints){traversalAttemptsT++;}
 					kmer.setFrom(kmer0);
 					kmer.addLeftNumeric(x);
-					//[assemble/Tadpole2#003 FIXED 2026-08-27] A cross-k left extension was passed
-					//directly to exploreRight, so its first step returned to the source tip. Reverse-
-					//complement the seed to traverse outward, matching Tadpole1. Keep the established
-					//dense-graph representation unchanged; changing it requires separate validation.
-					if(crossKGraph){kmer.rcomp();}
+					// A left exit must also walk outward: exploreRight consumes the reverse
+					// strand. Leaving the dense seed unreversed creates a two-step return
+					// into the source instead of traversing the requested left-side path.
+					kmer.rcomp();
 					assert(tables.getCount(kmer)==count) : count+", "+tables.getCount(kmer);
-					bb.append(AminoAcid.numberToBase[crossKGraph ? 3-x : x]);
+					bb.append(AminoAcid.numberToBase[3-x]);
 					target=exploreRight(kmer, extraCounts, rightCounts, bb, c.id);
 					if(crossKGraph || refreshGraphEndpoints){exitCountsT[lastExitCondition]++;}
 					if(verbose){
@@ -910,7 +909,9 @@ public class Tadpole2 extends Tadpole {
 					}
 				}
 				if(target>=0){
-					if(crossKGraph){bb.reverseComplementInPlace();}
+					// Store in source strand so Edge.flipSource restores the outward
+					//sequence when a consumer flips this left exit into a right exit.
+					bb.reverseComplementInPlace();
 					Edge se=new Edge(c.id, target, lastLength, lastOrientation, count, bb.toBytes());
 //					System.err.println("Adding "+se+"; x="+x+"; bb="+bb);
 					c.addLeftEdge(se);
@@ -994,6 +995,7 @@ public class Tadpole2 extends Tadpole {
 		 * @param leftCounts Buffer for left extension counts
 		 * @param rightCounts Buffer for right extension counts
 		 * @param bb ByteBuilder for path sequence
+		 * @param source Source contig ID, used to reject cross-K returns to the same contig
 		 * @return Owner ID of target contig, or -1 if no valid connection
 		 */
 		private int exploreRight(Kmer kmer, int[] leftCounts, int[] rightCounts,
@@ -1084,10 +1086,28 @@ public class Tadpole2 extends Tadpole {
 //				}
 				
 				if(temp.equals(kmer)){
-					lastOrientation=0;
+					// Canonical ownership identifies a terminal word, not its incoming
+					//strand. An outward-facing hit cannot splice onto this contig end.
+					if(dest.length()>kbig && !temp.sameOrientation(kmer) &&
+							!Tools.equals(temp.array1(), temp.array2())){
+						lastExitCondition=BAD_OWNER;
+						lastTarget=-1;
+						return -1;
+					}
+					// Only a length-K contig shares both terminal positions in single-K
+					// contigging. Resolve that destination by the incoming strand, while
+					// preserving the left-first convention for strand-identical palindromes.
+					final boolean right=dest.length()==kbig && !temp.sameOrientation(kmer) &&
+							!Tools.equals(temp.array1(), temp.array2());
+					lastOrientation=(right ? 2 : 0);
 				}else{
 					dest.rightKmer(temp);
 					if(temp.equals(kmer)){
+						if(temp.sameOrientation(kmer) && !Tools.equals(temp.array1(), temp.array2())){
+							lastExitCondition=BAD_OWNER;
+							lastTarget=-1;
+							return -1;
+						}
 						lastOrientation=2;
 					}else{
 						assert(false);
