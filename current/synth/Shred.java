@@ -70,13 +70,22 @@ public class Shred {
 		parser.minReadLength=parser.maxReadLength=-1;
 		int increment_=0;
 		boolean even=false;
+		boolean lengthOption=false;
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
 			String[] split=arg.split("=");
 			String a=split[0].toLowerCase();
 			String b=split.length>1 ? split[1] : null;
+			lengthOption|=a.equals("length") || a.equals("len") || a.equals("shredlen") || a.equals("shredlength")
+				|| a.equals("ml") || a.equals("minlen") || a.equals("minlength") || a.equals("maxlen")
+				|| a.equals("maxlength") || a.equals("maxreadlength") || a.equals("maxreadlen")
+				|| a.equals("median") || a.equals("variance") || a.equals("mode") || Tools.find(a.toUpperCase(), modes)>=0;
 
-			if(a.equals("length") || a.equals("len") || a.equals("shredlen") || a.equals("shredlength")){
+			if(a.equals("k")){
+				branchK=Parse.parseIntKMG(b);
+			}else if(a.equals("hashonly")){
+				branchHashOnly=Parse.parseBoolean(b);
+			}else if(a.equals("length") || a.equals("len") || a.equals("shredlen") || a.equals("shredlength")){
 				shredLength=Parse.parseIntKMG(b);
 			}else if(a.equals("overlap")){
 				overlap=Parse.parseIntKMG(b);
@@ -134,6 +143,10 @@ public class Shred {
 			maxLength=parser.maxReadLength;
 			maxNs=parser.maxNs;
 		}
+		if(branchK<0){throw new IllegalArgumentException("k must be positive, or0 for ordinary length-based shredding");}
+		if(branchK>0 && (lengthOption || even || overlap!=0 || increment_!=0 || maxNs>=0)){
+			throw new IllegalArgumentException("k= branch mode cannot use length/minlen/maxlen/median/variance/mode, equal=t, overlap/increment or maxns filtering: every input base must be retained");
+		}
 		
 		minLength=Tools.mid(1, minLength, shredLength);
 		if(increment_>0) {
@@ -164,7 +177,7 @@ public class Shred {
 		if(!Tools.testForDuplicateFiles(true, in1, out1)){
 			throw new RuntimeException("\nSome file names were specified multiple times.\n");
 		}
-		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, false);
+		ffout1=FileFormat.testOutput(out1, FileFormat.FASTQ, extout, true, overwrite, append, branchK>0);
 
 		ffin1=FileFormat.testInput(in1, FileFormat.FASTQ, extin, true, true);
 		
@@ -173,7 +186,8 @@ public class Shred {
 			minLength=Tools.max(1, median-variance);
 			maxLength=median+variance;
 		}
-		System.err.println("minlen="+minLength+", maxlen="+maxLength);
+		if(branchK==0){System.err.println("minlen="+minLength+", maxlen="+maxLength);}
+		else{outstream.println("Branch shredding: k="+branchK+", cut after branch k-mer; all bases retained");}
 		if(minLength>-1 && maxLength>-1) {
 			assert(maxLength>=minLength);
 			range=maxLength-minLength+1;
@@ -204,6 +218,17 @@ public class Shred {
 	 * @param t Timer for tracking execution time
 	 */
 	void process(Timer t){
+		if(branchK>0){
+			final ShredKmer branch=new ShredKmer(branchK, branchHashOnly, ffin1, ffout1, maxReads, prefix, parseFileTID, parseSequenceTID);
+			branch.process();
+			readsProcessed=branch.readsIn; basesProcessed=branch.basesIn;
+			readsOut=branch.readsOut; basesOut=branch.basesOut;
+			t.stop();
+			outstream.println(Tools.timeReadsBasesProcessed(t, readsProcessed, basesProcessed, 8));
+			outstream.println(Tools.readsBasesOut(readsProcessed, basesProcessed, readsOut, basesOut, 8, false));
+			outstream.println("Branch k-mers: "+branch.branches);
+			return;
+		}
 		
 		final ConcurrentReadInputStream cris;
 		{
@@ -485,6 +510,10 @@ public class Shred {
 	private int variance=-1;
 	
 	private int shredLength=500;
+	/** Positive values select de Bruijn branch cuts instead of a length distribution. */
+	private int branchK=0;
+	/** Long-k tables retain dual hashes by default; false retains the full packed key. */
+	private boolean branchHashOnly=true;
 	private int minLength=-1;
 	private int maxLength=-1;
 	private int maxNs=-1;
