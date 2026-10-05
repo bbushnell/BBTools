@@ -4,8 +4,13 @@ import map.IntHashMap2;
 import dna.AminoAcid;
 
 /**
- * Hash-Backed Compressed Sparse Row Index for k-mers.
- * Stores k-mer positions in a single contiguous int array.
+ * Forward masked k-mer index with singleton values and sign-terminated position lists.
+ * A missing key returns -1; a singleton's value encodes its zero-based reference
+ * start with the sign bit set. A nonnegative value is a list head in
+ * {@link #positions}; the last position in that list carries the sign bit.
+ * Other list positions are unflagged. Clear the sign bit to recover a position.
+ * Forward keys are not canonicalized against reverse complements. Ambiguous
+ * bases invalidate windows even at masked positions.
  * <p>
  * Key Features:
  * <ul>
@@ -14,12 +19,24 @@ import dna.AminoAcid;
  * <li><b>Stop Bit Encoding:</b> The sign bit (negative value) in the positions array indicates the end of a list.</li>
  * <li><b>Singleton Optimization:</b> K-mers appearing once are stored directly in the HashMap value (negative).</li>
  * </ul>
+ * Construction reads but does not retain or change the reference. The public map
+ * and array are mutable and no synchronization is provided. Position lists
+ * are filled backward so their final order is ascending.
  * @author Brian Bushnell
  * @author Amber
  * @date Feb 5, 2026
  */
 public class PackedIndex4{
 
+	/**
+	 * Builds the count map and packed position storage.
+	 * References shorter than k produce an empty map and positions array.
+	 * @param ref Non-null ASCII reference bases
+	 * @param k K-mer length, expected to be 1 through 15
+	 * @param midMaskLen Central bases masked by Query.makeMidMask; 0 disables masking
+	 *        and positive values require {@code k > midMaskLen + 1}
+	 * @param rStep Positive power-of-two stride; sampled starts are multiples of it
+	 */
 	public PackedIndex4(byte[] ref, int k, int midMaskLen, int rStep){
 		build(ref, k, midMaskLen, rStep);
 	}
@@ -33,7 +50,12 @@ public class PackedIndex4{
 	 */
 	private void build(byte[] ref, int k, int midMaskLen, int rStep){
 		final int len=ref.length;
-		if(len<k){return;}
+		if(len<k){
+			//FIXED IFA-002: IFA4 prescan reads map directly, so even a seedless reference needs an empty map.
+			map=new IntHashMap2(1);
+			positions=new int[0];
+			return;
+		}
 		
 		// 1. Setup Map
 		final int initialSize=(int)Math.min(1<<(2*Math.max(k-midMaskLen, 2)), len);
@@ -83,7 +105,9 @@ public class PackedIndex4{
 		final int backShift=2*(k-1);
 		kmer=0; clen=0;
 		
-		for(int j=len-k; j>=0; j--){
+		//FIXED IFA-001: scan from the last base so the final k-1 bases prime the reverse rolling kmer.
+		//Starting at len-k leaves counted tail hits unfilled; IFA4's decoders require every count to be filled.
+		for(int j=len-1; j>=0; j--){
 			final byte b=ref[j];
 			final int x=AminoAcid.baseToNumber[b];
 			
@@ -134,11 +158,18 @@ public class PackedIndex4{
 		// Map values for Multi-Hits now point to the Start Index (Head).
 	}
 
-	/** Returns value from map: -1 (Missing), < -1 (Singleton), or >= 0 (List Pointer) */
+	/**
+	 * Looks up an already masked forward key.
+	 * @param key Two-bit encoded key with the construction-time middle mask
+	 * @return -1 if absent, less than -1 for a sign-flagged singleton position,
+	 *         or a nonnegative head offset for a sign-terminated positions list
+	 */
 	public int get(int key){
 		return map.get(key);
 	}
 
+	/** Owned packed-value map; empty for references shorter than k. */
 	public IntHashMap2 map;
+	/** Owned multi-hit storage; sign bit marks a slice's last position; empty for a short reference. */
 	public int[] positions;
 }

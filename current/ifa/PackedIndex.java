@@ -4,28 +4,44 @@ import map.IntLongHashMap2;
 import dna.AminoAcid;
 
 /**
- * Hash-Backed Compressed Sparse Row Index.
- * Stores k-mer positions in a single contiguous array (positions).
- * * Singleton Optimization:
- * K-mers appearing only once store their position directly in the HashMap value,
- * bypassing the positions array entirely.
- * * Value Layout:
- * - Missing: -1L
- * - Singleton: (RefPos << 32) | 1
- * - Multi-Hit: (Offset << 32) | Count (where Count > 1)
- * * @author Brian Bushnell
+ * Forward masked k-mer index with packed counts and contiguous position lists.
+ * Missing keys return {@code -1L}. A singleton stores its zero-based reference
+ * start in the high 32 bits and 1 in the low bits. For repeated keys, the high
+ * bits store an offset into {@link #positions} and the low bits store the count.
+ * Each repeated key's positions are ascending. Masked keys are not canonicalized
+ * against their reverse complements. Ambiguous bases invalidate the whole window,
+ * even when the ambiguous position would have been masked.
+ * <p>
+ * Construction reads but does not retain or change the reference. The public map
+ * and array are mutable; this class provides no synchronization.
+ * @author Brian Bushnell
  * @contributor Amber
  * @date February 4, 2026
  */
-public class PackedIndex {
+public class PackedIndex{
 
+	/**
+	 * Builds an index of sampled reference windows.
+	 * References shorter than k produce an empty map and positions array.
+	 * @param ref Non-null ASCII reference bases
+	 * @param k K-mer length, expected to be 1 through 15
+	 * @param midMaskLen Number of central bases masked by Query.makeMidMask; 0 disables masking
+	 *        and positive values require {@code k > midMaskLen + 1}
+	 * @param rStep Positive power-of-two stride; sampled window starts are multiples of it
+	 */
 	public PackedIndex(byte[] ref, int k, int midMaskLen, int rStep){
 		build(ref, k, midMaskLen, rStep);
 	}
 
+	/** Counts sampled keys, allocates repeated-key slices, then fills them in reference order. */
 	private void build(byte[] ref, int k, int midMaskLen, int rStep){
 		final int len=ref.length;
-		if(len<k){return;}
+		if(len<k){
+			//FIXED IFA-002: IFA3 prescan reads map directly, so even a seedless reference needs an empty map.
+			map=new IntLongHashMap2(1, 0.7);
+			positions=new int[0];
+			return;
+		}
 
 		// 1. Estimation & Allocation
 		final int defined=Math.max(k-midMaskLen, 2);
@@ -91,7 +107,7 @@ public class PackedIndex {
 				if(packed==-1L){
 					// Singleton Case:
 					// Store (RefPos << 32) | 1
-					// Note: RefPos is guaranteed positive.
+					// RefPos is nonnegative; a singleton at position 0 packs as 1L.
 					long val=((long)(i-k+1)<<32) | 1L;
 					map.set(key, val);
 				}else{
@@ -107,11 +123,18 @@ public class PackedIndex {
 		}
 	}
 
-	/** Returns packed (offset << 32) | count, or -1 if missing */
+	/**
+	 * Looks up an already masked forward key without modifying it.
+	 * @param key Two-bit encoded key with the same middle mask used at construction
+	 * @return -1L if absent; otherwise high bits hold a singleton position or list offset,
+	 *         and low bits hold the count (1 identifies the singleton form)
+	 */
 	public long get(int key){
 		return map.get(key);
 	}
 
+	/** Owned map of packed values; empty for references shorter than k. */
 	public IntLongHashMap2 map;
+	/** Owned storage for repeated keys only; each slice is ascending; empty for a short reference. */
 	public int[] positions;
 }

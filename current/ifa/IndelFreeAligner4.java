@@ -40,11 +40,22 @@ import tracker.EntropyTracker;
 import tracker.ReadStats;
 
 /**
- * Version 3: Uses PackedIndex4 (Hash-CSR) for reference indexing.
- * * Performs high-throughput indel-free alignments using seed-and-extend or brute force strategies.
- * Implements k-mer indexing with rolling hash for query preprocessing and reference indexing.
- * Uses SIMD vectorization (AVX2/SSE) for diagonal alignment when sequences are short enough.
- * Supports multithreaded processing with work-stealing for reference sequence batches.
+ * Version 4 indel-free aligner using {@link PackedIndex4} reference indexes.
+ * Materializes queries in descending-k buckets, then aligns both strands against
+ * reference batches taken by workers from one shared Streamer. Indexed mode uses
+ * masked two-bit k-mer keys, heuristic prescans and candidate substitution scoring;
+ * brute mode enumerates offsets. Alignment helpers conditionally delegate to SIMD.
+ * <p>
+ * Workers own their reference indexes, seed scratch and counters. Query bases and
+ * derived arrays are shared for reading; each query's atomic alignment counter
+ * chooses the first counted alignment as primary. Output order is not stabilized.
+ * Optional fusion copies a reference batch with N padding and converts accepted
+ * positions back to an original reference using the query center.
+ * <p>
+ * Construction and query loading change process-wide I/O, Query and calculator
+ * settings. Instances are not independent concurrent configurations. The normal
+ * process path joins workers and writers and restores selected buffer/validation
+ * settings; it does not provide a general finally-based restoration guarantee.
  * @author Brian Bushnell
  * @contributor Isla, Amber
  * @date June 3, 2025
@@ -55,6 +66,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------        Initialization        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Runs one CLI invocation and closes its diagnostic stream on normal completion. */
 	public static void main(String[] args){
 		Timer t=new Timer();
 		IndelFreeAligner4 x=new IndelFreeAligner4(args);
@@ -62,6 +74,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		Shared.closeStream(x.outstream);
 	}
 
+	/**
+	 * Parses CLI options, configures shared library settings and prepares file formats.
+	 * Indexed k values are sorted descending; brute mode uses one bucket with k=0.
+	 * @param args BBTools flag=value arguments, including query input and reference
+	 */
 	public IndelFreeAligner4(String[] args){
 
 		{ //Preparse block
@@ -119,13 +136,16 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------    Initialization Helpers    ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Parses tool options and delegates common options to Parser; also changes shared statics. */
 	private Parser parse(String[] args){
 		Parser parser=new Parser();
 		for(int i=0; i<args.length; i++){
 			String arg=args[i];
-			String[] split=arg.split("=");
+			//FIXED IFA-014: preserve the full value after the first '=', including further separators.
+			//Keep the existing null value for an absent or empty suffix (for example, ref=).
+			String[] split=arg.split("=", 2);
 			String a=split[0].toLowerCase();
-			String b=split.length>1 ? split[1] : null;
+			String b=(split.length>1 && !split[1].isEmpty()) ? split[1] : null;
 			if(b!=null && b.equalsIgnoreCase("null")){b=null;}
 
 			if(a.equals("verbose")){
@@ -214,6 +234,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return parser;
 	}
 
+	/** Expands a nonexistent query path containing # into mate paths; requires query input. */
 	private void doPoundReplacement(){
 		if(in1!=null && in2==null && in1.indexOf('#')>-1 && !new File(in1).exists()){
 			in2=in1.replace("#", "2");
@@ -222,11 +243,13 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		if(in1==null){throw new RuntimeException("Error - at least one input file is required.");}
 	}
 
+	/** Resolves alternate compressed extensions for the two query input paths. */
 	private void fixExtensions(){
 		in1=Tools.fixExtension(in1);
 		in2=Tools.fixExtension(in2);
 	}
 
+	/** Checks query inputs, outputs and duplicate paths; reference opening occurs later. */
 	private void checkFileExistence(){
 		if(!Tools.testOutputFiles(overwrite, append, false, out1, headerOut)){
 			throw new RuntimeException("\n\noverwrite="+overwrite+"; Can't write to output files "+out1+"\n");
@@ -239,6 +262,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		}
 	}
 
+	/** Selects a shared byte-reader mode if unset and checks shared FASTA settings. */
 	private static void checkStatics(){
 		if(!ByteFile.FORCE_MODE_BF1 && !ByteFile.FORCE_MODE_BF2 && Shared.threads()>2){
 			ByteFile.FORCE_MODE_BF2=true;
@@ -246,6 +270,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		assert(FastaReadInputStream.settingsOK());
 	}
 
+	/** Checks the existing assertion-based parameter constraints; not an exhaustive input validator. */
 	private boolean validateParams(){
 		for(int k : kArray){
 			assert((k>=1 && k<=15) || !indexQueries);
@@ -261,6 +286,14 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------         Outer Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/**
+	 * Loads queries, starts reference/output services and joins the alignment workers.
+	 * Then closes input, waits for output/header completion and reports accumulated
+	 * errors. Buffer sizes and Read validation mode are restored along this normal
+	 * path, before the final error-state exception; earlier exceptions can bypass it.
+	 * Processed counters include loaded query mates and accepted reference pairs.
+	 * @param t Timer started by the caller, stopped after stream finalization
+	 */
 	void process(Timer t){
 		readsProcessed=readsOut=0;
 		basesProcessed=basesOut=0;
@@ -287,7 +320,9 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		errorState|=ReadStats.writeAll();
 		errorState|=ReadWrite.closeStreams(cris);
 
-		if(bsw!=null){bsw.poisonAndWait();}
+		//FIXED IFA-013: retain the output writer's flush/close/subprocess error flag for the final failure check.
+		//Immediate write failures can abort in ByteStreamWriter; finalization failures may only set this flag.
+		if(bsw!=null){errorState|=bsw.poisonAndWait();}
 		if(shw!=null){shw.poisonAndWait();}
 
 		Read.VALIDATE_IN_CONSTRUCTOR=vic;
@@ -312,6 +347,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------       Thread Management      ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Starts workers sharing the services/buckets, waits for them and accumulates success. */
 	private void spawnThreads(final Streamer cris, 
 		final ByteStreamWriter bsw, final SamHeaderWriter shw, final ArrayList<ArrayList<Query>> queryBuckets){
 
@@ -324,6 +360,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		errorState|=!success;
 	}
 
+	/** Merges a worker's counters and success while holding its monitor. */
 	@Override
 	public final void accumulate(ProcessThread pt){
 		synchronized(pt){
@@ -341,6 +378,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		}
 	}
 
+	/** Reports the errors accumulated so far; this is not a completion test. */
 	@Override
 	public final boolean success(){return !errorState;}
 
@@ -348,6 +386,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------         Inner Methods        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Creates and starts the shared reference reader with maxReads and SAM-header retention. */
 	private Streamer makeCris(String fname){
 		FileFormat ff=FileFormat.testInput(fname, null, true);
 		Streamer cris=StreamerFactory.getReadInputStream(maxReads, true, ff, null, -1);
@@ -356,6 +395,15 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return cris;
 	}
 
+	/**
+	 * Materializes input reads, installs shared Query calculators and builds query buckets.
+	 * Counts every loaded root and mate before filtering. A root meeting minQLen admits
+	 * both itself and its mate; the mate has no separate length check here. Indexed
+	 * queries select their calculator's bucket; unindexed queries use bucket zero.
+	 * @param ff1 Primary query input
+	 * @param ff2 Optional separate mate input
+	 * @return Owned bucket lists of Query objects, completed before workers start
+	 */
 	public ArrayList<ArrayList<Query>> fetchQueries(FileFormat ff1, FileFormat ff2){
 		Timer t=new Timer(outstream, false);
 		ArrayList<Read> reads=StreamerFactory.getReads(maxReads, false, ff1, ff2, null, null);
@@ -396,6 +444,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return buckets;
 	}
 
+	/** Wraps one read's borrowed bases/qualities in Query and selects its calculator bucket. */
 	private void addReadToBucket(Read r, ArrayList<ArrayList<Query>> buckets){
 		Query q=new Query(r.id, 0, r.bases, r.quality);
 		if(q.calculatorIndex>=0){
@@ -405,6 +454,16 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		}
 	}
 
+	/**
+	 * Scores supplied zero-based offsets against one reference, preserving candidate order.
+	 * Overhangs use alignClipped; interior offsets delegate to Vector.align.
+	 * @param query Query bases for the selected strand
+	 * @param ref Reference bases
+	 * @param maxSubs Maximum substitution/paid-clipping cost
+	 * @param maxClips Total free overhang allowance in bases
+	 * @param seedHits Borrowed candidate offsets, possibly null; consumed without mutation
+	 * @return New accepted-offset list, or null when no candidate passes
+	 */
 	public static IntList alignSparse(byte[] query, byte[] ref, int maxSubs, int maxClips, IntList seedHits){
 		if(seedHits==null || seedHits.isEmpty()){return null;}
 		IntList results=null;
@@ -426,6 +485,17 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return results;
 	}
 	
+	/**
+	 * Scores candidate offsets in a fused reference, preserving candidate order.
+	 * Interior offsets delegate to Vector.alignFused; outer overhangs use alignClipped.
+	 * Original-reference selection and final clipping checks occur later in processHits.
+	 * @param query Query bases for the selected strand
+	 * @param ref Fused reference bases with padding
+	 * @param maxSubs Maximum substitution/paid-clipping cost
+	 * @param maxClips Total free clipping allowance in bases
+	 * @param seedHits Borrowed candidate offsets, possibly null; consumed without mutation
+	 * @return New accepted-offset list, or null when no candidate passes
+	 */
 	public static IntList alignSparseFused(byte[] query, byte[] ref, int maxSubs, int maxClips, IntList seedHits){
 		if(seedHits==null || seedHits.isEmpty()){return null;}
 		IntList results=null;
@@ -449,13 +519,28 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return results;
 	}
 
+	/**
+	 * Enumerates offsets for non-null query/reference arrays and nonnegative budgets.
+	 * SIMD dispatch precedes the scalar path and uses its own candidate enumeration.
+	 * Scalar candidates require nonempty overlap; clipping beyond maxClips consumes
+	 * maxSubs. Scalar accepted offsets are ascending, or null if none pass.
+	 * @param query Query bases for the selected strand
+	 * @param ref Reference bases
+	 * @param maxSubs Maximum substitution/paid-clipping cost
+	 * @param maxClips Total free overhang allowance in bases
+	 * @return Accepted offsets from the selected implementation
+	 */
 	public static IntList alignAllPositions(byte[] query, byte[] ref, int maxSubs, int maxClips){
 		if(Shared.SIMD && (query.length<256 || maxSubs<256)){
 			return SIMDAlignByte.alignDiagonal(query, ref, maxSubs, maxClips);
 		}
+		if(query.length==0 || ref.length==0){return null;}
 		IntList list=null;
-		int rStart=-maxSubs;
-		for(; rStart<0; rStart++){
+		//FIXED IFA-007: include free and substitution-paid clipping, bounded by nonempty overlap.
+		final long budget=(long)maxSubs+maxClips;
+		final int last=(int)Math.min((long)ref.length-1, (long)ref.length-query.length+budget);
+		int rStart=(int)Math.max(1L-query.length, -budget);
+		for(; rStart<0 && rStart<=last; rStart++){
 			int subs=alignClipped(query, ref, maxSubs, maxClips, rStart);
 			if(subs<=maxSubs){
 				if(list==null){list=new IntList(4);}
@@ -469,7 +554,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 				list.add(rStart);
 			}
 		}
-		for(final int limit=ref.length-query.length+maxSubs; rStart<=limit; rStart++){
+		for(; rStart<=last; rStart++){
 			int subs=alignClipped(query, ref, maxSubs, maxClips, rStart);
 			if(subs<=maxSubs){
 				if(list==null){list=new IntList(4);}
@@ -479,6 +564,10 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return list;
 	}
 
+	/**
+	 * Scores a fully in-bounds placement, counting unequal or ambiguous query bases.
+	 * Stops after exceeding maxSubs, so a rejected score may be only a partial count.
+	 */
 	static int align(byte[] query, byte[] ref, final int maxSubs, final int rStart){
 		int subs=0;
 		for(int i=0, j=rStart; i<query.length && subs<=maxSubs; i++, j++){
@@ -489,6 +578,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return subs;
 	}
 
+	/**
+	 * Scores an offset with left/right overhangs, charging clips beyond maxClips.
+	 * A placement with no overlap returns query.length; otherwise scoring stops after
+	 * exceeding maxSubs. This pointwise helper does not enforce the candidate domain.
+	 */
 	static int alignClipped(byte[] query, byte[] ref, int maxSubs, final int maxClips, 
 		final int rStart){
 		final int rStop1=rStart+query.length;
@@ -505,6 +599,23 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return subs;
 	}
 
+	/**
+	 * Rechecks candidates against an original reference and builds SAM alignments.
+	 * Fused candidates select a reference by query-center membership in [start,stop)
+	 * ranges, then convert to local offsets. Substitution and clipping costs are
+	 * checked separately; NM counts substitutions only. The shared query counter
+	 * assigns primary status in arrival order. Null output still builds/counts hits
+	 * and advances that counter. Borrowed hits are consumed without modification.
+	 * @param q Shared query, including original and reverse-complement bases
+	 * @param ref Standard reference or temporary fused reference
+	 * @param hits Candidate offsets, possibly null
+	 * @param reverseStrand Whether to score reverse-complement query bases
+	 * @param bsw Started shared output writer, or null to discard serialized output
+	 * @param originalRefs Original references for fusion, or null in standard mode
+	 * @param ranges Paired fused start/inclusive and stop/exclusive coordinates
+	 * @param maxSubsQ Effective query-specific substitution/paid-clipping limit
+	 * @return Number of accepted SAM alignments, not distinct queries
+	 */
 	static int processHits(Query q, Read ref, IntList hits, boolean reverseStrand,
 		ByteStreamWriter bsw, ArrayList<Read> originalRefs, IntList ranges, int maxSubsQ){
 
@@ -584,6 +695,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		return added;
 	}
 
+	/** Appends m for defined equal bases, S for in-bounds mismatches and C for overhangs. */
 	static void toMatch(byte[] query, byte[] ref, int rStart, ByteBuilder match){
 		for(int i=0, j=rStart; i<query.length; i++, j++){
 			boolean inbounds=(j>=0 && j<ref.length);
@@ -598,6 +710,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------            Entropy           ----------------*/
 	/*--------------------------------------------------------------*/
 	
+	/** Masks low-complexity bases in place, returning the count reported by BBMask. */
 	private int entropyMask(byte[] bases, EntropyTracker et){
 		if(bases==null || bases.length==0){return 0;}
 		BitSet bs=new BitSet(bases.length);
@@ -610,8 +723,10 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------         Inner Classes        ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** One shared-reader consumer with owned scratch/counters; borrows query buckets and writers. */
 	class ProcessThread extends Thread {
 
+		/** Borrows the services and query buckets; copies effective scoring settings for this worker. */
 		ProcessThread(final Streamer cris_, final ByteStreamWriter bsw_, final SamHeaderWriter shw_, 
 			ArrayList<ArrayList<Query>> qBuckets_, final int maxSubs_, final float minid_, final int tid_){
 			cris=cris_;
@@ -623,6 +738,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			tid=tid_;
 		}
 
+		/** Initializes scratch and marks success only after processInner returns normally. */
 		@Override
 		public void run(){
 			synchronized(this){
@@ -633,17 +749,24 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			}
 		}
 
+		/** Consumes shared-reader batches until its null terminal. */
 		void processInner(){
 			for(ListNum<Read> ln=cris.nextList(); ln!=null; ln=cris.nextList()){processList(ln);}
 		}
 
+		/**
+		 * Removes short reference roots in place, validates/counts survivors and queues
+		 * header entries under the original batch ID, including an empty header batch.
+		 * Dispatches the compacted list to standard or fused alignment.
+		 */
 		void processList(ListNum<Read> ln){
 			final ArrayList<Read> refList=ln.list;
 			final ArrayList<StringNum> alsn=(shw==null ? null : new ArrayList<StringNum>(refList.size()));
 			int removed=0;
 			for(int idx=0; idx<refList.size(); idx++){
 				final Read ref=refList.get(idx);
-				if(ref.length()<minRLen){removed++; continue;}
+				//FIXED IFA-010: condenseStrict removes nulls before either standard or fused alignment.
+				if(ref.length()<minRLen){refList.set(idx, null); removed++; continue;}
 				if(!ref.validated()){ref.validate(true);}
 				if(alsn!=null){alsn.add(new StringNum(ref.name(), ref.length()));}
 
@@ -659,6 +782,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			else{processListStandard(refList);}
 		}
 
+		/** Aligns each reference root independently; entropy masking may mutate its bases. */
 		void processListStandard(ArrayList<Read> refList){
 			for(int idx=0; idx<refList.size(); idx++){
 				final Read ref=refList.get(idx);
@@ -666,6 +790,10 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			}
 		}
 
+		/**
+		 * Copies roots plus trailing N padding into one reference and records [start,stop)
+		 * ranges. Falls back to standard processing when the computed length exceeds int.
+		 */
 		void processListFused(ArrayList<Read> refList){
 			if(refList.isEmpty()){return;}
 
@@ -692,11 +820,17 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			processRefSequence(fusedRef, refList, ranges);
 		}
 
+		/** Optionally masks the supplied bases, then dispatches indexed or brute alignment. */
 		long processRefSequence(final Read ref, ArrayList<Read> originalRefs, IntList ranges){
 			if(entropyMask){entropyMask(ref.bases, et);}
 			return indexQueries ? processRefSequenceIndexed(ref, originalRefs, ranges) : processRefSequenceBrute(ref, originalRefs, ranges);
 		}
 
+		/**
+		 * Builds one packed reference index per nonempty k bucket and processes both strands.
+		 * Each borrowed seed list is fully consumed before the next call reuses its buffer.
+		 * Returns accepted alignment count and updates this worker's output counters.
+		 */
 		long processRefSequenceIndexed(final Read ref, ArrayList<Read> originalRefs, IntList ranges){
 			long sum=0;
 			final float subrate=1-minid;
@@ -742,6 +876,7 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			return sum;
 		}
 
+		/** Enumerates both strands without seed indexes; returns and counts accepted alignments. */
 		long processRefSequenceBrute(final Read ref, ArrayList<Read> originalRefs, IntList ranges){
 			long sum=0;
 			final float subrate=1-minid;
@@ -767,6 +902,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			return sum;
 		}
 		
+		/**
+		 * Screens k-mer presence against the adjusted miss allowance in two interleaved passes.
+		 * Returns a heuristic hit count: a miss-free pass returns at least minHits without
+		 * enumerating remaining starts. This is not an exact seed count or sensitivity proof.
+		 */
 		private int prescan(Query q, PackedIndex4 refIndex, boolean reverseStrand, final int minHits){
 			final int[] queryKmers=reverseStrand ? q.rkmers : q.kmers;
 			// Adjust maxMisses: if we require more hits than the query's internal baseline, we have less wiggle room.
@@ -810,6 +950,11 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			return hits;
 		}
 
+		/**
+		 * Applies optional prescan and decodes offsets meeting the effective hit threshold.
+		 * Returns null on missing query k-mers or prescan rejection; otherwise returns the
+		 * worker's reused hitsList, possibly empty. Consume it before another seed call.
+		 */
 		private IntList getSeedHits(Query q, PackedIndex4 refIndex, boolean reverseStrand, IntHashMap2 hitCounts){
 			int[] queryKmers=reverseStrand ? q.rkmers : q.kmers;
 			if(queryKmers==null){return null;}
@@ -833,6 +978,10 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			return seeds;
 		}
 
+		/**
+		 * Counts decoded offsets in a cleared scratch map, adding each when it reaches minHits.
+		 * Result is the reused hitsList in threshold-arrival order, not necessarily sorted.
+		 */
 		private IntList getSeedHitsMap(int[] queryKmers, PackedIndex4 refIndex, 
 			int minHits, IntHashMap2 hitCounts){
 			final IntList seedHits=hitsList; 
@@ -891,12 +1040,13 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 		}
 		
 		/**
-		 * Retrieves all seed hits for a set of query k-mers.
-		 * Decodes the packed format (Stop Bits and Singletons) into a list of alignment start positions.
-		 * @param queryKmers Array of query k-mers
-		 * @param refIndex The packed reference index
-		 * @param minHits Minimum number of hits required (heuristics)
-		 * @return Sorted, unique list of alignment start positions
+		 * Decodes sampled k-mers, sorts offsets and retains those with enough copies.
+		 * Missing keys are skipped; singleton and stop-bit position lists share the same
+		 * reference-start minus query-start coordinate calculation.
+		 * @param queryKmers K-mer keys by query start; -1 entries are skipped
+		 * @param refIndex Borrowed packed reference index
+		 * @param minHits Required occurrences of one offset
+		 * @return Sorted unique offsets in reused hitsList; overwritten by the next seed call
 		 */
 		private IntList getSeedHitsList(int[] queryKmers, PackedIndex4 refIndex, int minHits){
 			final IntList seedHits=hitsList; 
@@ -959,26 +1109,45 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 			return seedHits;
 		}
 
+		/** Accepted reference roots plus mates; query-loading counts are added by the outer instance. */
 		protected long readsProcessedT=0;
+		/** Bases in accepted reference roots plus mates, before optional masking. */
 		protected long basesProcessedT=0;
+		/** Indexed candidate count, or brute-mode query-count times reference length estimate. */
 		protected long alignmentsT=0;
+		/** Decoded seed occurrences before threshold aggregation. */
 		protected long seedHitsT=0;
+		/** Accepted SAM alignment count, including repeated alignments of one query. */
 		protected long readsOutT=0;
+		/** Sum of full query lengths over accepted alignments, including clipped bases. */
 		protected long basesOutT=0;
+		/** Strand/bucket prescan calls. */
 		protected long prescansT=0;
+		/** Prescans returning below the required threshold. */
 		protected long prescanFailsT=0;
+		/** Seed-decoding calls that passed or skipped prescan. */
 		protected long postscansT=0;
+		/** Seed-decoding calls returning at least one candidate. */
 		protected long postscan2T=0;
+		/** Set only after normal completion; merged after joining this worker. */
 		boolean success=false;
 
+		/** Shared reference batch reader, owned and closed by process(). */
 		private final Streamer cris;
+		/** Shared alignment writer; null when alignment output is disabled. */
 		private final ByteStreamWriter bsw;
+		/** Shared separate header writer, or null. */
 		private final SamHeaderWriter shw;
+		/** Fully prepared shared buckets; per-query alignment counters remain mutable. */
 		private final ArrayList<ArrayList<Query>> queryBuckets;
+		/** Per-worker copies of the global scoring options. */
 		final int maxSubs;
 		final float minid;
+		/** Worker identifier used in temporary fused reference names. */
 		final int tid;
+		/** Owned entropy scratch, initialized only when masking is enabled. */
 		EntropyTracker et;
+		/** Owned scratch returned by both seed decoders and cleared on each decoder entry. */
 		IntList hitsList;
 	}
 
@@ -986,37 +1155,56 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Query input paths; in2 is optional. */
 	private String in1=null;
 	private String in2=null;
+	/** Alignment output and optional separate SAM header output paths. */
 	private String out1=null;
 	private String headerOut=null;
+	/** Query-input and alignment-output format overrides. */
 	private String extin=null;
 	private String extout=null;
+	/** Reference input path, opened after query loading. */
 	String refFile=null;
+	/** Process-wide scoring defaults/options, copied into each worker. */
 	static int maxSubs=5;
 	static float minid=0.85f;
 
+	/** Descending k values after construction; the sole value is zero in brute mode. */
 	int[] kArray=new int[] {8,9,10,12,14};
 
+	/** Central masked bases in packed keys. */
 	int midMaskLen=1;
+	/** Enables query k-mer preparation and per-bucket reference indexes. */
 	boolean indexQueries=true;
+	/** Enables the presence-based heuristic before seed decoding. */
 	boolean prescan=true;
+	/** Query seed-start stride and power-of-two reference index stride; at least one is one. */
 	int qStep=1;
 	int rStep=1;
+	/** Effective maximum stride captured during construction. */
 	final int kStep;
 
+	/** Floor applied to each query's modeled seed threshold. */
 	int minSeedHits=1;
+	/** Probability option forwarded to MinHitsCalculator2 during serial query setup. */
 	private float minHitsProb=0.999f;
+	/** Selects count-map aggregation instead of sorting decoded offsets. */
 	boolean useSeedMap=false;
 
+	/** Enables batch concatenation with trailing padding after every reference root. */
 	boolean fuse=true;
 	int padding=128;
+	/** Reference-reader buffer-data request, additionally capped in standard mode. */
 	int targetChunkSize=1000000;
+	/** Root-read length filters; query mates are admitted with a passing root. */
 	int minQLen=1;
 	int minRLen=1;
 
+	/** Loaded query roots/mates plus accepted reference roots/mates; not reference-only totals. */
 	protected long readsProcessed=0;
 	protected long basesProcessed=0;
+	/** Sums of the corresponding worker counters, including heuristic work estimates. */
 	protected long alignmentCount=0;
 	protected long seedHitCount=0;
 	protected long readsOut=0;
@@ -1026,28 +1214,37 @@ public class IndelFreeAligner4 implements Accumulator<IndelFreeAligner4.ProcessT
 	protected long postscans=0;
 	protected long postscan2=0;
 
+	/** Reader limit forwarded independently to query loading and reference streaming; -1 is unlimited. */
 	private long maxReads=-1;
 
+	/** Formats prepared during construction; reference format is prepared by makeCris. */
 	private final FileFormat ffin1;
 	private final FileFormat ffin2;
 	private final FileFormat ffout1;
 	private final FileFormat ffheader;
 
+	/** Lock supplied to the accumulator's caller; not a lock around arbitrary instance use. */
 	@Override
 	public final ReadWriteLock rwlock(){return rwlock;}
 	private final ReadWriteLock rwlock=new ReentrantReadWriteLock();
 
+	/** Diagnostic stream selected by PreParser. */
 	private PrintStream outstream=System.err;
+	/** Shared diagnostic verbosity, changed by CLI parsing. */
 	public static boolean verbose=false;
+	/** Accumulated worker/input/statistics/output-finalization error state. */
 	public boolean errorState=false;
+	/** Output policies passed to FileFormat; also copied to shared ReadStats during construction. */
 	private boolean overwrite=true;
 	private boolean append=false;
 	
+	/** Masks standard reference bases or the temporary fused copy before alignment. */
 	private boolean entropyMask=false;
 	/** Window size for sliding window entropy/complexity analysis */
 	private int entropyWindow=80;
 	/** Entropy threshold below which regions are masked */
 	private float entropyCutoff=0.70f;
+	/** K-mer length used by the entropy tracker. */
 	private int entropyK=4;
 	
 }

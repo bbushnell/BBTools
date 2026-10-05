@@ -8,25 +8,34 @@ import shared.Tools;
 import map.IntHashMap2;
 
 /**
- * Calculates the minimum seed hits required to detect indel-free alignments at a target probability.
- * Uses Monte Carlo simulation to model wildcards, error patterns, and clipping limits.
- * Optimized version with branchless operations and direct error storage.
+ * Cached seed-threshold estimator used by Query, with a rolling one-bit error mask.
+ * Models a contiguous query, sampled windows, central wildcards and replacement error draws.
+ * A fast heuristic can reduce the trial count; zero-hit budgets can return zero early.
+ * Clipping adjusts threshold expressions rather than trial positions. Neither the
+ * histogram nor the one-hit endpoint floor is a universal detection guarantee.
+ * Use instances serially: initial cache reads are outside the miss-path lock (IFA-005).
+ * Configure iterations before use; existing cached thresholds are not invalidated.
  *
  * @author Brian Bushnell
  * @contributor Noire
  * @date December 30, 2025
  */
-public class MinHitsCalculator2 {
+public class MinHitsCalculator2{
+
+	/*--------------------------------------------------------------*/
+	/*----------------        Initialization        ----------------*/
+	/*--------------------------------------------------------------*/
 
 	/**
-	 * Constructs the calculator and precomputes wildcard masks.
+	 * Stores model parameters and creates a one-bit-per-position matching mask.
+	 * The stride is clamped to at least one; simulation and caching are lazy.
 	 *
-	 * @param k_ K-mer length
-	 * @param maxSubs_ Maximum allowed substitutions
-	 * @param minid_ Minimum identity allowed
+	 * @param k_ Seed window length; current aligners use 1 through 15
+	 * @param maxSubs_ Absolute substitution allowance, further limited by query length and identity
+	 * @param minid_ Identity fraction used to derive the effective substitution allowance
 	 * @param midMaskLen_ Number of wildcard bases in the middle of the k-mer
-	 * @param minProb_ Minimum detection probability (0.0-1.0)
-	 * @param maxClip_ Maximum clipping allowed (fraction <1 or absolute ≥1)
+	 * @param minProb_ Model probability setting; see simulate for screening and shortcut behavior
+	 * @param maxClip_ Maximum clipping allowed (fraction {@code <1} or absolute ≥1)
 	 * @param kStep_ K-mer step size (1 for all kmers, 2 for every other kmer, etc.)
 	 */
 	public MinHitsCalculator2(int k_, int maxSubs_, float minid_, int midMaskLen_, float minProb_, float maxClip_, int kStep_){
@@ -49,84 +58,104 @@ public class MinHitsCalculator2 {
 		wildcardMask=wildcardMask_;
 	}
 
+	/*--------------------------------------------------------------*/
+	/*----------------           Methods            ----------------*/
+	/*--------------------------------------------------------------*/
+
 	/**
-	 * Counts k-mers unaffected by errors, honoring wildcard positions.
-	 * Branchless implementation using bit operations.
+	 * Counts sampled windows without errors at unmasked positions.
+	 * Rolls an error bitmask and samples complete windows at the requested stride.
 	 *
-	 * @param errors Array of error positions (0 or 1 for each position)
-	 * @param queryLen Query length
-	 * @param step Step size for sampling k-mer positions (models reference indexing step)
-	 * @return Number of error-free k-mers
+	 * @param errors Per-position 0/1 error flags; read only
+	 * @param queryLen Logical query length, within errors
+	 * @param step Positive sampling stride; the first complete window starts at zero
+	 * @return Number of surviving sampled windows
 	 */
 	private int countErrorFreeKmers(int[] errors, int queryLen, int step){
 		int count=0;
 		int errorPattern=0;
-		final int stepMask=step-1;
-		final int stepTarget=(k-1)&stepMask;
+		//FIXED IFA-004: query sampling accepts any positive stride; step-1 masks only work for powers of two.
+		int nextSample=k-1;
 
 		for(int i=0; i<queryLen; i++){
 			// Roll error pattern: shift right and add new bit
 			errorPattern=(errorPattern>>1)|(errors[i]<<(k-1));
 
 			// Check if we have a full k-mer (i>=k-1) at a step position with no errors in non-wildcard positions
-			boolean valid=(i>=k-1) && (i&stepMask)==stepTarget && ((errorPattern&wildcardMask)==0);
+			final boolean sampled=(i==nextSample);
+			if(sampled){nextSample+=step;}
+			boolean valid=sampled && ((errorPattern&wildcardMask)==0);
 			//TODO: The expression could return 1 or 0 using clever Math.max subexpressions
 			count+=valid ? 1 : 0;
 		}
 		return count;
 	}
 	
+	/** Unused legacy window-count estimate; k is retained but not used. */
 	private static int upperBoundValid(int validKmers, int subs, int k){
 		return Math.max(0, validKmers-subs);
 	}
 	
+	/** Unused legacy loss estimate in unsampled-window units, clamped to zero. */
 	private static int lowerBoundValid(int validKmers, int subs, int k, int mm){
 		int kEff=k-mm;
 		return Math.max(0, validKmers-subs*kEff);
 	}
 	
+	/** Screening heuristic using a 0.45 loss factor; not a certified mathematical upper bound. */
 	private static int expectedUpperBoundValid(int validKmers, int subs, int k, int mm){
 		int kEff=k-mm;
 		return (int)Math.ceil(Math.max(0, validKmers-subs*kEff*0.45f));
 	}
 	
-	/** 
-	 * If this returns a value of at least minHits, it is at least feasible
-	 * that simulation could render this a usable kmer length.
-	 * @param validKmers Number of valid k-mers in the query
-	 * @return A safe upper bound of remaining valid kmers; 0 means failure
+	/**
+	 * Estimates retained unsampled windows using the 0.45 loss heuristic and effective substitutions.
+	 * A result below one makes simulate reduce the requested trial count tenfold;
+	 * this estimate is not a rigorous upper bound or an independent acceptance decision.
+	 * @param validKmers Valid-window count for the contiguous model
+	 * @return Nonnegative screening estimate
 	 */
-	private int simulateFast(int validKmers) {
+	private int simulateFast(int validKmers){
 		int queryLen=validKmers+k-1;
 		final int maxSubs=Math.min(maxSubs0, (int)(queryLen*(1-minid)));
 		return expectedUpperBoundValid(validKmers, maxSubs, k, midMaskLen);
 	}
 
 	/**
-	 * Runs Monte Carlo simulation to find the minimum hits satisfying the probability target.
-	 * @param validKmers Number of valid k-mers in the query
-	 * @return Minimum hits needed; 0 means failure
+	 * Calculates a raw model threshold, after optionally reducing iters by integer division by ten.
+	 * For probability at least one, uses a sampled-window loss bound with a one-hit floor;
+	 * zero requests every sampled window and negative values return one.
+	 * Interior probabilities draw error positions with replacement. A ceil-based zero-hit
+	 * budget and an early-trial heuristic can return zero before all trials finish.
+	 * Otherwise the histogram is walked from high counts to low until its upper tail
+	 * reaches the truncated iters*minProb target, then capped by validKmers-maxSubs-maxClips.
+	 * Clipping does not remove trial positions. The caller clamps negative results to zero.
+	 * @param validKmers Number of windows represented by a contiguous query of validKmers+k-1 bases
+	 * @param iters Requested trial count, possibly reduced by the fast heuristic
+	 * @return Raw threshold, or zero on an early rejection
 	 */
 	private int simulate(int validKmers, int iters){
-		if(simulateFast(validKmers)<1) {iters/=10;}
+		if(simulateFast(validKmers)<1){iters/=10;}
 		// Calculate effective clipping limit for this query length
 		int queryLen=validKmers+k-1;
 		final int maxSubs=Math.min(maxSubs0, (int)(queryLen*(1-minid)));
 		int maxClips=(maxClipFraction<1 ? (int)(maxClipFraction*queryLen) : (int)maxClipFraction);
 
-		// Deterministic case: require all possible hits
+		// Probability shortcuts, after the fast screening policy above.
+		//FIXED IFA-008: thresholds count sampled windows, as do the seed consumers and simulation counter.
 		if(minProb>=1){
+			final int sampled=(int)(((long)validKmers+kStep-1)/kStep);
 			int unmasked=(Tools.max(2, k-midMaskLen));// Number of kmers impacted by a sub
-			return Math.max(1, validKmers-(unmasked*maxSubs)-maxClips);
+			return Math.max(1, sampled-(unmasked*maxSubs)-maxClips);
 		}else if(minProb==0){
-			return validKmers;
+			return (int)(((long)validKmers+kStep-1)/kStep);
 		}else if(minProb<0){
 			return 1;
 		}
 
 		// Build histogram of surviving k-mer counts
 		int[] histogram=new int[validKmers+1];
-		int[] errors=new int[queryLen]; // Direct error storage (0 or 1)
+		int[] errors=new int[queryLen];// Owned 0/1 flags, reused for all trials
 
 		// Run Monte Carlo simulation
 		final int maxZeros=(int)(Math.ceil((1-minProb)*iters));
@@ -135,7 +164,7 @@ public class MinHitsCalculator2 {
 			// Clear errors
 			for(int i=0; i<queryLen; i++){errors[i]=0;}
 
-			// Place maxSubs random errors
+			// Duplicate random draws set the same flag, rather than adding a distinct error.
 			for(int i=0; i<maxSubs; i++){
 				int pos=randy.nextInt(queryLen);
 				errors[pos]=1;
@@ -144,7 +173,7 @@ public class MinHitsCalculator2 {
 			// Count k-mers that survive the errors
 			int errorFreeKmers=countErrorFreeKmers(errors, queryLen, kStep);
 			histogram[errorFreeKmers]++;
-			if(histogram[0]>maxZeros || (histogram[0]>earlyZeros && iter<earlyIters)) {
+			if(histogram[0]>maxZeros || (histogram[0]>earlyZeros && iter<earlyIters)){
 				return 0;
 			}//Early exit, success is unlikely
 
@@ -169,7 +198,7 @@ public class MinHitsCalculator2 {
 		for(int hits=validKmers; hits>=0; hits--){
 			cumulative+=histogram[hits];
 			if(cumulative>=targetCount){
-				// Don't exceed theoretical maximum after clipping
+				// Preserve the model's post-selection substitution/clipping cap.
 				return Math.min(hits, validKmers-maxSubs-maxClips);
 			}
 		}
@@ -178,14 +207,18 @@ public class MinHitsCalculator2 {
 	}
 
 	/**
-	 * Returns the minimum seed hits for the given valid k-mer count, caching results.
-	 * @param validKmers Valid k-mer count
-	 * @return Minimum hits needed
+	 * Returns a cached model threshold, calculating and clamping to zero on a miss.
+	 * The key contains only window count; changing iterations leaves old entries intact.
+	 * Miss order consumes the instance random stream and can affect later estimates.
+	 * Initial cache reads are unlocked despite the synchronized miss path (IFA-005).
+	 * @param validKmers Valid-window count, represented as contiguous in the model
+	 * @return Nonnegative model threshold, not a universal detection guarantee
 	 */
 	public int minHits(int validKmers){
+		//TODO: IFA-005 - concurrent use needs review: these reads race with cache writes; current Query setup is serial.
 		int minHits=validKmerToMinHits.get(validKmers);
 		if(minHits<0 && !validKmerToMinHits.contains(validKmers)){
-			synchronized(validKmerToMinHits) {
+			synchronized(validKmerToMinHits){
 				if(!validKmerToMinHits.contains(validKmers)){
 					minHits=Math.max(0, simulate(validKmers, iterations));
 					validKmerToMinHits.put(validKmers, minHits);
@@ -201,26 +234,42 @@ public class MinHitsCalculator2 {
 	/*----------------            Fields            ----------------*/
 	/*--------------------------------------------------------------*/
 
+	/** Bases per seed window. */
 	final int k;
+	/** Absolute substitution allowance before the identity-based limit. */
 	private final int maxSubs0;
+	/** Identity fraction used with the modeled query length. */
 	private final float minid;
+	/** Number of central wildcard positions. */
 	final int midMaskLen;
+	/** Clipping setting: fraction below 1, otherwise absolute bases. */
 	final float maxClipFraction;
+	/** Probability setting for screening, endpoint shortcuts and histogram selection. */
 	private final float minProb;
+	/** Positive sampling stride, clamped during construction. */
 	public final int kStep;
+	/** One bit per window position: set bits require an error-free position, cleared bits are wildcards. */
 	private final int wildcardMask;
+	/** Instance window-count cache; initial reads are outside the miss-path lock. */
 	private final IntHashMap2 validKmerToMinHits=new IntHashMap2();
+	/** Instance generator seeded with 1; the current Shared factory creates a new generator. */
 	private final Random randy=Shared.threadLocalRandom(1);
+	/** Requested trial count for future cache misses; changes do not invalidate cached entries. */
 	public static int iterations=200000;
-	private static final boolean verbose=false; // Set to true for debugging
+	/** Compile-time diagnostic switch, not a mutable command-line option. */
+	private static final boolean verbose=false;
 
 	/*--------------------------------------------------------------*/
 	/*----------------        Debug Methods         ----------------*/
 	/*--------------------------------------------------------------*/
 
 	/**
-	 * Main method for standalone testing and debugging.
-	 * Usage: java MinHitsCalculator2 verbose=true k=13 validKmers=50 maxsubs=5 minid=0.9 midmask=1 minprob=0.99 maxclip=0.25 kstep=1 iterations=10000
+	 * Runs a standalone model diagnostic and writes settings, timings and threshold to stderr.
+	 * Example arguments: k=13 validkmers=50 maxsubs=5 minid=0.9 midmask=1
+	 * minprob=0.99 maxclip=0.25 kstep=1 iterations=10000.
+	 * Passing verbose asserts under -ea because the diagnostic switch is final.
+	 * Sets the static iterations field before constructing the calculator.
+	 * @param args Recognized key=value settings; keys are case insensitive
 	 */
 	public static void main(String[] args){
 		int k=13, validKmers=50, maxSubs=5, midMaskLen=1, kStep=1, iters=10000;
@@ -231,16 +280,16 @@ public class MinHitsCalculator2 {
 			if(split.length<2){continue;}
 			String a=split[0].toLowerCase(), b=split[1];
 
-			if(a.equals("verbose")){/*verbose=Boolean.parseBoolean(b);*/assert(false) : "Verbose is final.";}
-			else if(a.equals("k")){k=Integer.parseInt(b);}
-			else if(a.equals("validkmers")){validKmers=Integer.parseInt(b);}
-			else if(a.equals("maxsubs")){maxSubs=Integer.parseInt(b);}
-			else if(a.equals("minid")){minid=Float.parseFloat(b);}
-			else if(a.equals("midmask") || a.equals("midmasklen")){midMaskLen=Integer.parseInt(b);}
-			else if(a.equals("minprob")){minProb=Float.parseFloat(b);}
-			else if(a.equals("maxclip")){maxClip=Float.parseFloat(b);}
-			else if(a.equals("kstep") || a.equals("step")){kStep=Integer.parseInt(b);}
-			else if(a.equals("iterations")){iters=Integer.parseInt(b);}
+			if(a.equals("verbose")){/*verbose=Boolean.parseBoolean(b);*/assert(false) : "Verbose is final.";
+			}else if(a.equals("k")){k=Integer.parseInt(b);
+			}else if(a.equals("validkmers")){validKmers=Integer.parseInt(b);
+			}else if(a.equals("maxsubs")){maxSubs=Integer.parseInt(b);
+			}else if(a.equals("minid")){minid=Float.parseFloat(b);
+			}else if(a.equals("midmask") || a.equals("midmasklen")){midMaskLen=Integer.parseInt(b);
+			}else if(a.equals("minprob")){minProb=Float.parseFloat(b);
+			}else if(a.equals("maxclip")){maxClip=Float.parseFloat(b);
+			}else if(a.equals("kstep") || a.equals("step")){kStep=Integer.parseInt(b);
+			}else if(a.equals("iterations")){iters=Integer.parseInt(b);}
 		}
 		iterations=iters;
 
@@ -266,9 +315,9 @@ public class MinHitsCalculator2 {
 	}
 
 	/**
-	 * Prints a sequence with errors marked. Format: mmmmmSmmmmSmmmm where m=match, S=substitution.
-	 * @param errors Array of error positions (0 or 1)
-	 * @param queryLen Length of query sequence
+	 * Prints m/S error flags when compiled verbose; currently does nothing.
+	 * @param errors Per-position 0/1 flags; read only
+	 * @param queryLen Logical query length
 	 */
 	static void printSequence(int[] errors, int queryLen){
 		if(!verbose){return;}
@@ -280,8 +329,8 @@ public class MinHitsCalculator2 {
 	}
 
 	/**
-	 * Prints histogram of error-free k-mer counts.
-	 * @param histogram Array where histogram[i] is count of iterations with i error-free kmers
+	 * Prints nonzero histogram bins when compiled verbose; currently does nothing.
+	 * @param histogram Trial counts indexed by surviving sampled-window count; read only
 	 */
 	static void printHistogram(int[] histogram){
 		if(!verbose){return;}
