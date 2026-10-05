@@ -8,7 +8,7 @@ Last modified February 26, 2026
 Description:  Grades metagenome bins for completeness and contamination.
 The contigs can be labeled with their taxID; in which case the header should
 contain 'tid_X' somewhere where X is a number unique to their proper genome.
-Alternately, CheckM2 and/or EukCC output can be fed to it.
+Alternately, CheckM2 or ProkCC reports can be supplied, optionally with EukCC.
 Do not include a 'chaff' file (for unbinned contigs) when grading.
 Completeness Score is (sum of completeness*size)/(total size) for all bins.
 Contamination Score is (sum of contam*size)/(total size) for all bins.
@@ -32,6 +32,19 @@ Input parameters:
 ref=<file>      The original assembly that was binned.
 in=<directory>  Location of bin fastas.
 checkm=<file>   Optional CheckM2 quality_report.tsv file or directory.
+prokcc=<file>   Optional existing ProkCC TSV report, or directory/prokcc.tsv.
+                Reads bin_id, gene_completeness, and gene_contamination from
+                the #columns header. Scores are fractions, not percentages.
+                Cannot be combined with checkm/checkm2. With eukcc, the result
+                with higher completeness wins (ties favor ProkCC).
+                Matches bin filename cores; duplicate cores keep the last row.
+                Extra rows are ignored; missing bins use the usual fallback.
+                Imports r16/r23/r5/trna gene counts when available. Bins with
+                all four counts skip calling even with callgenes=t; missing
+                counts retain the normal calling path. Known imported counts
+                are preserved. Missing/NA 18S alone never triggers calling.
+                Unavailable counts and CDS length are printed as NA.
+                This imports predictions; it does not run ProkCC.
 eukcc=<file>    Optional EukCC eukcc.csv file or directory.
 cami=<file>     Optional binning file from CAMI which indicates contig TaxIDs.
 taxin=<file>    Optional file with taxIDs and sizes (instead of loading ref).
@@ -42,6 +55,8 @@ imgmap=<file>   Optional IMG map file, for renamed IMG gff input.
 spectra=<file>  Optional path to QuickClade index.
 cov=<file>      Optional path to QuickBin coverage file.
 loadmt=t        Load bins multithreaded.
+ignoreunknown=f Exclude contigs without positive taxID labels from truth counts.
+                Bins containing no labeled bases fail rather than inventing truth.
 
 Output parameters:
 report=<file>   Report on bin size, quality, and taxonomy.

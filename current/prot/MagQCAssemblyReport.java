@@ -56,7 +56,7 @@ final class MagQCAssemblyReport {
 		out.tab().append(n90).tab().append(l90).tab();
 		if(Double.isNaN(gc)){out.append("NA");}else{out.appendSlow(gc);}
 		out.tab().append(cds).tab().appendSlow(coding).tab().append(r16).tab().append(r23);
-		out.tab().append(r5).tab().append(trna).tab().append(quality(comp, contam));
+		out.tab().append(r5).tab().append(trna).tab().append(quality(comp, contam)).tab().append("NA");
 	}
 
 	/** Uses GradeBins' existing RNA-aware extended MIMAG classifier without clipping predictions. */
@@ -84,6 +84,7 @@ final class MagQCAssemblyReport {
 		line(out, "CDS:", Integer.toString(cds)); line(out, "Coding Density:", decimal(100*coding, 2));
 		line(out, "16S:", Integer.toString(r16)); line(out, "23S:", Integer.toString(r23));
 		line(out, "5S:", Integer.toString(r5)); line(out, "tRNA:", Integer.toString(trna));
+		line(out, "18S:", "NA");//The serving caller disables 18S; zero would falsely claim absence.
 		line(out, "Quality:", quality(comp, contam));
 		return out.toString();
 	}
@@ -106,7 +107,7 @@ final class MagQCAssemblyReport {
 	static String columns(boolean swapNL){
 		return "\treference_name\treference_taxid\tani_fraction\tcontigs\tgenome_size_bp"
 			+(swapNL ? "\tl50_contigs\tn50_bp\tl90_contigs\tn90_bp" : "\tn50_contigs\tl50_bp\tn90_contigs\tl90_bp")
-			+"\tgc_fraction\tcds\tcoding_density_fraction\tr16\tr23\tr5\ttrna\tquality";
+			+"\tgc_fraction\tcds\tcoding_density_fraction\tr16\tr23\tr5\ttrna\tquality\tr18";
 	}
 	private final boolean swapNL;
 	private final int contigs, cds, r16, r23, r5, trna;

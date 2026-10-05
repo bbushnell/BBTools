@@ -27,14 +27,17 @@ public final class MagQCAssemblyReportTest {
 		final MagQCAssemblyInput.Taxonomy tax=new MagQCAssemblyInput.Taxonomy("Bacteria", "Bacillota", "reference", 123, .8351);
 		final ByteBuilder row=new ByteBuilder(); report.append(row, tax, .997f, .006f);
 		final LineParser1 p=new LineParser1('\t'); p.set(row.toBytes());
-		check(p.terms()==18 && p.termEquals("0.8351", 3) && p.termEquals("0.375", 10) && p.termEquals("1.1", 12),
+		check(p.terms()==19 && p.termEquals("0.8351", 3) && p.termEquals("0.375", 10) && p.termEquals("1.1", 12),
 			"TSV must retain fraction units, use GC/ACGT, and preserve overlapping coding bases: "+row);
 		check(p.termEquals("UHQ", 17), "RNA-complete high-quality fixture must use existing extended tier");
+		check(p.termEquals("NA", 18) && MagQCAssemblyReport.columns(false).endsWith("\tr18"),
+			"Disabled 18S calling must publish unavailable, never a false zero");
 		check(p.parseInt(6)==1 && p.parseInt(7)==5 && p.parseInt(8)==2 && p.parseInt(9)==4,
 			"TSV reports count before length at both thresholds");
 		final String human=report.human(tax, .997f, .006f, .0051, .0033);
 		check(human.contains("83.51") && human.contains("99.70 +-0.51") && human.contains("0.60 +-0.33") && human.contains("110.00"),
 			"Human percentages must scale values and error heads exactly once");
+		check(human.contains("18S:") && human.contains("NA"), "Human 18S must also remain unavailable");
 		checkSingleContig(tax);
 		bin.agg.trna=17; bin.agg.acgt=0; bin.agg.gc=0;
 		final MagQCAssemblyReport missing=new MagQCAssemblyReport(reads, bin);

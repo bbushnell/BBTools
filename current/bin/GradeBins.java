@@ -135,6 +135,8 @@ public class GradeBins {
 			
 			else if(a.equalsIgnoreCase("checkm") || a.equalsIgnoreCase("checkm2")){
 				checkMFile=b;
+			}else if(a.equals("prokcc")){
+				prokCCFile=b;
 			}else if(a.equalsIgnoreCase("eukcc")){
 				eukCCFile=b;
 			}else if(a.equalsIgnoreCase("cami")){
@@ -205,6 +207,8 @@ public class GradeBins {
 			}
 		}
 		
+		assert(prokCCFile==null || checkMFile==null) :
+			"prokcc and checkm/checkm2 cannot be combined: two prokaryote completeness sources are ambiguous.";
 		{//Process parser fields
 			Parser.processQuality();
 			
@@ -346,6 +350,7 @@ public class GradeBins {
 			writeTaxOut(taxOut, sizeMap, countMap);
 		}
 		checkMMap=loadCheckM(checkMFile);
+		prokCCMap=loadProkCC(prokCCFile);
 		eukCCMap=loadEukCC(eukCCFile);
 		camiMap=loadCami(camiFile);
 		gtdbMap=loadGTDBDir(gtdbFile);
@@ -633,6 +638,7 @@ public class GradeBins {
 		boolean success=ThreadWaiter.startAndWait(alpt, pta);
 //		assert(false) : alpt.size()+", "+binStats.size();
 		if(!success){throw new IllegalStateException("Bin grading worker failed; refusing to publish partial truth");}
+		if(prokCCMap!=null){outstream.println("Gene-calling bins: "+pta.geneCallingBins);}
 		Tools.condenseStrict(binStats);//Not really necessary, perhaps...
 		
 		if(runQuickClade==1 && qclade && binStats.size()>0) {
@@ -722,7 +728,7 @@ public class GradeBins {
 	
 	/**
 	 * Calculates contamination for a cluster using external quality assessment tools.
-	 * Prioritizes checkM and EukCC results over internal contamination calculation.
+	 * Prioritizes imported prokaryote and EukCC estimates over label-based calculation.
 	 * @param fname Bin filename used for lookup in quality assessment maps
 	 * @param c Cluster to calculate contamination for
 	 */
@@ -730,11 +736,18 @@ public class GradeBins {
 		fname=new File(fname).getName();
 		String core=ReadWrite.stripToCore(fname);
 		CCLine dummy=new CCLine(0, 0);
-		CCLine checkm=(checkMMap==null ? null : checkMMap.get(core));
+		final boolean useProkCC=(prokCCMap!=null);
+		CCLine checkm=(useProkCC ? prokCCMap.get(core) : checkMMap==null ? null : checkMMap.get(core));
 		CCLine eukcc=(eukCCMap==null ? null : eukCCMap.get(core));
 //		assert((checkMMap==null) == (checkm==null)) : checkm; //Can fail, maybe bins are too small
 		if(checkm==null && eukcc==null) {
 			c.calcContam(sizeMap, ignoreUnknown);
+			return;
+		}
+		if(useProkCC && checkm==null){
+			//A missing ProkCC row cannot tie a real zero-completeness EukCC result.
+			c.completeness=eukcc.completeness; c.contam=eukcc.contam;
+			c.truthSource=BinObject.EUKCC;
 			return;
 		}
 		if(checkm==null) {checkm=dummy;}
@@ -742,7 +755,8 @@ public class GradeBins {
 		CCLine best=(checkm.completeness>=eukcc.completeness ? checkm : eukcc);
 		c.completeness=best.completeness;
 		c.contam=best.contam;
-		c.truthSource=checkm.completeness>=eukcc.completeness ? BinObject.CHECKM2 : BinObject.EUKCC;
+		c.truthSource=checkm.completeness>=eukcc.completeness ?
+			(useProkCC ? BinObject.PROKCC : BinObject.CHECKM2) : BinObject.EUKCC;
 	}
 	
 //	static ArrayList<BinStats> toStatsST(Collection<? extends Bin> bins, int minSize) {
@@ -800,7 +814,7 @@ public class GradeBins {
 		String header="#Num\tFile\tSize\tContigs\tGC\tDepth\tMinDepth\tMaxDepth";
 		if(printTaxID) {header+="\tTaxID";}
 		if(printCCT) {header+="\tCompleteness\tContam\tType\tSource";}
-		if(callGenes || gffFile!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
+		if(callGenes || gffFile!=null || prokCCMap!=null) {header+="\t16S\t18S\t23S\t5S\ttRNA\tCDS\tCDSLen";}
 		if(printLineage) {header+="\tLineage";}
 		if(printContig) {header+="\tContig";}
 
@@ -829,11 +843,11 @@ public class GradeBins {
 					bsw.printt(BinObject.TRUTH_SOURCE[b.truthSource]);
 				}
 
-				if(callGenes || gffFile!=null) {
-					bsw.printt(b.r16Scount).printt(b.r18Scount);
-					bsw.printt(b.r23Scount).printt(b.r5Scount);
-					bsw.printt(b.trnaCount);
-					bsw.printt(b.cdsCount).printt(b.cdsLength);
+				if(callGenes || gffFile!=null || prokCCMap!=null) {
+					printGeneCount(bsw, b.r16Scount); printGeneCount(bsw, b.r18Scount);
+					printGeneCount(bsw, b.r23Scount); printGeneCount(bsw, b.r5Scount);
+					printGeneCount(bsw, b.trnaCount);
+					printGeneCount(bsw, b.cdsCount); printGeneCount(bsw, b.cdsLength);
 				}
 
 				Object lineage=(b.lineage!=null ? b.lineage : BinObject.tree!=null ? Clade.lineage(b.taxid) : "NA");
@@ -845,6 +859,11 @@ public class GradeBins {
 			}
 		}
 		bsw.poison();
+	}
+
+	/** A missing imported count is unknown, not evidence that no gene was found. */
+	private static void printGeneCount(ByteStreamWriter out, long count){
+		if(count<0){out.printt("NA");}else{out.printt(count);}
 	}
 	
 	/**
@@ -1176,6 +1195,104 @@ public class GradeBins {
 	}
 	
 	/**
+	 * Imports fraction-valued ProkCC predictions, not reference truth or error heads.
+	 * Column names come from ProkCC's #columns header; bin_id paths use the same
+	 * stripToCore normalization as CheckM. Duplicate cores keep the last row;
+	 * extra rows are unused and missing bins retain calcContam's ordinary fallback.
+	 * A directory means prokcc.tsv. No ProkCC code or model resources are loaded.
+	 */
+	public static HashMap<String, CCLine> loadProkCC(String fname){
+		if(fname==null){return null;}
+		if(new File(fname).isDirectory()){fname=new File(fname, "prokcc.tsv").getPath();}
+		final HashMap<String, CCLine> map=new HashMap<String, CCLine>();
+		final ByteFile bf=ByteFile.makeByteFile(fname, true);
+		final LineParser1 lp=new LineParser1('\t');
+		int columns=-1, nameColumn=-1, compColumn=-1, contamColumn=-1;
+		final String[] geneNames={"r16", "r18", "r23", "r5", "trna", "cds"};
+		final int[] geneColumns={-1, -1, -1, -1, -1, -1};
+		long lineNumber=0;
+		try{
+			for(byte[] line=bf.nextLine(); line!=null; line=bf.nextLine()){
+				lineNumber++;
+				if(line.length==0){continue;}
+				lp.set(line);
+				if(line[0]=='#'){
+					if(!lp.termEquals("#columns", 0)){continue;}
+					if(columns>=0){throw new IllegalArgumentException("Duplicate ProkCC #columns header");}
+					columns=lp.terms()-1;//The #columns token is absent from data rows.
+					for(int i=1; i<lp.terms(); i++){
+						for(int g=0; g<geneNames.length; g++){
+							if(lp.termEquals(geneNames[g], i)){
+								if(geneColumns[g]>=0){throw new IllegalArgumentException("Duplicate ProkCC count column: "+geneNames[g]);}
+								geneColumns[g]=i-1;
+							}
+						}
+						if(lp.termEquals("bin_id", i)){
+							if(nameColumn>=0){throw new IllegalArgumentException("Duplicate bin_id column");}
+							nameColumn=i-1;
+						}else if(lp.termEquals("gene_completeness", i)){
+							if(compColumn>=0){throw new IllegalArgumentException("Duplicate gene_completeness column");}
+							compColumn=i-1;
+						}else if(lp.termEquals("gene_contamination", i)){
+							if(contamColumn>=0){throw new IllegalArgumentException("Duplicate gene_contamination column");}
+							contamColumn=i-1;
+						}
+					}
+					if(nameColumn<0 || compColumn<0 || contamColumn<0){
+						throw new IllegalArgumentException("ProkCC requires bin_id, gene_completeness and gene_contamination columns");
+					}
+					continue;
+				}
+				if(columns<0 || lp.terms()!=columns){
+					throw new IllegalArgumentException("ProkCC row width differs from its required #columns header");
+				}
+				final String name=ReadWrite.stripToCore(lp.parseString(nameColumn));
+				if(name==null || name.isEmpty()){throw new IllegalArgumentException("Empty ProkCC bin_id core");}
+				final float comp=prokCCFraction(lp, compColumn), contam=prokCCFraction(lp, contamColumn);
+				final CCLine cc=new CCLine(comp, contam);
+				cc.r16=prokCCCount(lp, geneColumns[0]); cc.r18=prokCCCount(lp, geneColumns[1]);
+				cc.r23=prokCCCount(lp, geneColumns[2]); cc.r5=prokCCCount(lp, geneColumns[3]);
+				cc.trna=prokCCCount(lp, geneColumns[4]); cc.cds=prokCCCount(lp, geneColumns[5]);
+				map.put(name, cc);
+			}
+			if(columns<0){throw new IllegalArgumentException("Missing ProkCC #columns header");}
+		}catch(RuntimeException e){
+			throw new IllegalArgumentException("Malformed ProkCC report "+fname+" at line "+lineNumber+": "+e.getMessage(), e);
+		}finally{
+			if(bf.close()){throw new IllegalStateException("Error closing ProkCC report "+fname);}
+		}
+		return map;
+	}
+
+	/** Optional report counts are nonnegative integers; absent/NA is represented by -1. */
+	private static int prokCCCount(final LineParser1 lp, final int column){
+		if(column<0 || lp.termEquals("NA", column)){return -1;}
+		lp.setBounds(column);
+		if(lp.a()==lp.b()){throw new IllegalArgumentException("Empty ProkCC gene count");}
+		int value=0;
+		for(int i=lp.a(); i<lp.b(); i++){
+			final int digit=lp.line()[i]-'0';
+			if(digit<0 || digit>9 || value>(Integer.MAX_VALUE-digit)/10){
+				throw new IllegalArgumentException("ProkCC gene counts must be nonnegative integers");
+			}
+			value=value*10+digit;
+		}
+		return value;
+	}
+
+	/** ProkCC emits decimal/scientific fractions; percentages and nonfinite values are invalid. */
+	private static float prokCCFraction(final LineParser1 lp, final int column){
+		assert(column>=0 && column<lp.terms()) : "The named ProkCC column must belong to the validated report row";
+		lp.setBounds(column);
+		//The fast byte parser does not support scientific notation and validates digits only under -ea.
+		final double value=Parse.parseDoubleSlow(lp.line(), lp.a(), lp.b());
+		if(!Double.isFinite(value) || value<0 || value>1){
+			throw new IllegalArgumentException("ProkCC completeness/contamination must be finite fractions in [0,1]: "+value);
+		}
+		return (float)value;
+	}
+
+	/**
 	 * Loads EukCC completeness and contamination results from file or directory.
 	 * Parses eukcc.csv file format with bin names and percentage values.
 	 * @param fname Path to EukCC file or directory containing eukcc.csv
@@ -1291,6 +1408,7 @@ public class GradeBins {
 		@Override
 		public void accumulate(ProcessThread t) {
 			success=(success && t.success);
+			geneCallingBins+=t.geneCallingBins;
 		}
 
 		@Override
@@ -1305,6 +1423,7 @@ public class GradeBins {
 		
 		/** Flag indicating overall success of all threads */
 		boolean success=true;
+		long geneCallingBins=0;
 	}
 	
 	/**
@@ -1480,11 +1599,20 @@ public class GradeBins {
 			bs.contigName=b.name();
 			if(fname!=null) {bs.filename=new java.io.File(fname).getName();}
 
-			if(callGenes && call) {
+			final CCLine imported=(prokCCMap==null ? null : prokCCMap.get(ReadWrite.stripToCore(fname==null ? b.name() : fname)));
+			final boolean covered=(imported!=null && imported.hasMimagCounts());
+			boolean annotated=false;
+			if(callGenes && call && !covered) {
 				setPhylumPGM(b);
 				callGenes(b, gCallerT, bs);
+				geneCallingBins++; annotated=true;
 			}
-			else if(gffMap!=null && annot) {annotate(b, gffMap, bs);}
+			else if(!covered && gffMap!=null && annot) {annotate(b, gffMap, bs); annotated=true;}
+			if(imported!=null){imported.copyGeneCounts(bs, annotated);}
+			else if(prokCCMap!=null && !annotated){
+				bs.r16Scount=bs.r18Scount=bs.r23Scount=bs.r5Scount=bs.trnaCount=bs.cdsCount=-1;
+				bs.cdsLength=-1;
+			}
 			return bs;
 		}
 
@@ -1532,6 +1660,8 @@ public class GradeBins {
 		
 		/** Count of bins processed by this thread */
 		int processed=0;
+		/** Bin-level calls actually made; imported complete MIMAG counts must bypass this path. */
+		long geneCallingBins=0;
 		boolean success=false;
 		
 	}
@@ -1576,6 +1706,21 @@ public class GradeBins {
 		float completeness=-1;
 		/** Contamination fraction from 0.0 to 1.0 */
 		float contam=-1;
+		/** Optional imported gene counts; -1 means absent or explicitly unavailable. */
+		int r16=-1, r18=-1, r23=-1, r5=-1, trna=-1, cds=-1;
+
+		boolean hasMimagCounts(){return r16>=0 && r23>=0 && r5>=0 && trna>=0;}
+
+		/** Import only known quantities over real annotations; otherwise preserve unknown values. */
+		void copyGeneCounts(BinStats bs, boolean annotated){
+			if(r16>=0 || !annotated){bs.r16Scount=r16;}
+			if(r18>=0 || !annotated){bs.r18Scount=r18;}
+			if(r23>=0 || !annotated){bs.r23Scount=r23;}
+			if(r5>=0 || !annotated){bs.r5Scount=r5;}
+			if(trna>=0 || !annotated){bs.trnaCount=trna;}
+			if(cds>=0 || !annotated){bs.cdsCount=cds; bs.cdsLength=-1;}
+			//No exact CDS-length column exists: never pair imported CDS counts with another caller's lengths.
+		}
 		
 	}
 	
@@ -1599,6 +1744,8 @@ public class GradeBins {
 	private String ccplot=null;
 	/** Path to CheckM results file or directory */
 	private String checkMFile=null;
+	/** Path to an existing ProkCC fraction-valued report; does not invoke gene calling. */
+	private String prokCCFile=null;
 	/** Path to EukCC results file or directory */
 	private String eukCCFile=null;
 	/** Path to CAMI format taxonomic assignments file */
@@ -1643,6 +1790,8 @@ public class GradeBins {
 	private	static IntHashMap2 countMap;
 	/** Map from bin names to CheckM completeness/contamination results */
 	private static HashMap<String, CCLine> checkMMap;
+	/** Imported ProkCC predictions keyed by bin filename core, independent of caller state. */
+	private static HashMap<String, CCLine> prokCCMap;
 	/** Map from bin names to EukCC completeness/contamination results */
 	private static HashMap<String, CCLine> eukCCMap;
 	/** Map from contig names to CAMI taxonomic assignments */
