@@ -63,6 +63,10 @@ public final class MagQCAssemblyBatch {
 		if(!required("pgmmode").equals("taxonomy") && !required("pgmmode").equals("default")){
 			throw new IllegalArgumentException("pgmmode must be taxonomy or default");
 		}
+		taxMode=required("taxmode");
+		if(!taxMode.equals("server") && !taxMode.equals("local")){
+			throw new IllegalArgumentException("taxmode must be server or local");
+		}
 		override=MagQCAssemblyInput.overrideTaxonomy(options);
 		compMultiplier=multiplier(required("comperrormultiplier"));
 		contamMultiplier=multiplier(required("contamerrormultiplier"));
@@ -126,12 +130,13 @@ public final class MagQCAssemblyBatch {
 		}
 		// Bind operator-supplied resources before any service request or output creation.
 		for(String name:PINNED_RESOURCES){MagQCNetworkHarness.pinned(options, name, name+"sha80");}
+		if(taxMode.equals("local")){MagQCNetworkHarness.pinned(options, "taxsketch", "taxsketchsha80");}
 		long phaseStart=timestamp();
 		if(parallelLoad){loadInParallel();}
 		else{binding=MagQCAssemblyInput.loadBinding(options);}
 		final long bindingNanos=elapsed(phaseStart);
 		if(override==null){
-			try(MagQCAssemblyInput.SketchSession session=MagQCAssemblyInput.openSketchSession()){
+			try(MagQCAssemblyInput.SketchSession session=MagQCAssemblyInput.openSketchSession(MagQCAssemblyInput.normalSearch(options))){
 				sketches=session;
 				runWorkers(true);
 			}finally{sketches=null;}
@@ -316,7 +321,7 @@ public final class MagQCAssemblyBatch {
 						job.inputPin=MagQCNetworkHarness.sha80(job.path);
 						final ArrayList<Read> contigs=MagQCAssemblyInput.readContigs(job.path);
 						final long taxonomyStart=owner.timestamp();
-						job.taxonomy=owner.override==null ? owner.sketches.classify(contigs, owner.options.get("taxaddress")) : owner.override;
+						job.taxonomy=owner.override==null ? owner.sketches.classify(contigs, owner.options) : owner.override;
 						job.taxonomyNanos=owner.elapsed(taxonomyStart);
 						job.workerNanos=System.nanoTime()-binStart;
 					}else{
@@ -359,7 +364,7 @@ public final class MagQCAssemblyBatch {
 		if(compError<0 || contamError<0){throw new IllegalStateException("Negative predicted error: "+job.path);}
 		final double comp=compError*compMultiplier, contam=contamError*contamMultiplier;
 		if(!Double.isFinite(comp) || !Double.isFinite(contam)){throw new IllegalArgumentException("Error multiplier overflow: "+job.path);}
-		out.tab().appendSlow(comp).tab().appendSlow(contam).tab().append(override==null ? "QuickClade" : "user-supplied");
+		out.tab().appendSlow(comp).tab().appendSlow(contam).tab().append(MagQCAssemblyInput.taxonomySource(options));
 		out.tab().append(job.taxonomy.status).tab().append(job.taxonomy.domain).tab().append(job.taxonomy.phylum);
 		out.tab().append(job.inputPin);
 		job.report.append(out, job.taxonomy, scoring.getOutput(0), scoring.getOutput(1));
@@ -382,7 +387,7 @@ public final class MagQCAssemblyBatch {
 			header.append("#schema_version\tprokcc_assembly_scores_v4\n");
 			MagQCNetworkHarness.appendBindings(header, options);
 			header.append("#netsha80\t").append(required("netsha80")).nl();
-			for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
+			appendReportOptions(header);
 			header.append("#error_estimates\tpredicted absolute errors in fraction units; not confidence intervals\n");
 			header.append("#assembly_statistics\twhole FASTA records; GC=GC/ACGT; coding density=summed CDS bp/assembly bp; quality=RNA-aware BinStats.type\n");
 			header.append("#bin_worker_wall_seconds\tsum of per-bin taxonomy and calling/inference worker intervals, including input I/O; excludes shared setup, dispatch queues, phase barriers and report publication\n");
@@ -444,11 +449,12 @@ public final class MagQCAssemblyBatch {
 			}
 		}
 		defaults(values, "policy", "BOUNDED_LOOKAHEAD", "lookahead", "4", "passes", "1", "pgmmode", "taxonomy",
-			"taxaddress", "refseq", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
+			"taxaddress", "refseq", "taxmode", "server", "normalsearch", "t", "deterministic", "t", "comperrormultiplier", "1.0", "contamerrormultiplier", "1.0",
 			"errorfitset", "UNCALIBRATED", "errorfitdate", "NA", "errorcoverage", "NA",
 			"compositemode", "locked", "subnetmode", "locked", "loadmode", "parallel", "swapnl", "f", "verbose", "f", "ow", "t");
 		lockedMode(values.get("compositemode")); lockedMode(values.get("subnetmode"));
 		parallelMode(values.get("loadmode"));
+		MagQCAssemblyInput.normalSearch(values);
 		return values;
 	}
 
@@ -510,6 +516,15 @@ public final class MagQCAssemblyBatch {
 	}
 	private String required(String key){return MagQCNetworkHarness.required(options, key);}
 
+	/** Records the search policy and, when selected, the pinned local taxonomy input. */
+	void appendReportOptions(ByteBuilder header){
+		for(String key:REPORT_OPTIONS){header.append('#').append(key).tab().append(required(key)).nl();}
+		if(taxMode.equals("local")){
+			header.append("#taxmode\tlocal\n#taxsketch\t").append(required("taxsketch"))
+				.nl().append("#taxsketchsha80\t").append(required("taxsketchsha80")).nl();
+		}
+	}
+
 	/** D231 requires positive finite constants and no silent clipping. */
 	static double multiplier(String value){
 		final double number=Double.parseDouble(value);
@@ -538,6 +553,7 @@ public final class MagQCAssemblyBatch {
 	private final boolean timings, sharedComposite, sharedSubnets, parallelLoad, swapNL, verbose;
 	private final long[] resourceNanos=new long[3];
 	private final int threads, passes;
+	private final String taxMode;
 	private final double compMultiplier, contamMultiplier;
 	private final FileFormat ffout;
 	private final MagQCAssemblyInput.Taxonomy override;
@@ -550,13 +566,13 @@ public final class MagQCAssemblyBatch {
 	private static final String[] PINNED_RESOURCES={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net"};
 	private static final String[] OPTIONAL_ASSETS={"net", "bundle", "hbmbundle", "sidecar"};
 	private static final String[] RESOURCE_PATHS={"bundle", "familylist", "subnetmanifest", "expectedcopytable", "subnetpopulations", "net",
-		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance"};
-	private static final String[] REPORT_OPTIONS={"profilesha80", "policy", "lookahead", "passes", "pgmmode", "deterministic",
+		"profile", "roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar", "hbmbundle", "hbmprovenance", "taxsketch"};
+	private static final String[] REPORT_OPTIONS={"profilesha80", "policy", "lookahead", "passes", "pgmmode", "normalsearch", "deterministic",
 		"comperrormultiplier", "contamerrormultiplier", "errorfitset", "errorfitdate", "errorcoverage", "compositemode", "subnetmode", "loadmode", "swapnl"};
 	private static final HashSet<String> ALLOWED=new HashSet<String>();
 	static{
 		ALLOWED.addAll(Arrays.asList(RESOURCE_PATHS)); ALLOWED.addAll(Arrays.asList(REPORT_OPTIONS));
-		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxdomain", "taxphylum", "timings", "verbose", "ow"));
+		ALLOWED.addAll(Arrays.asList("in", "out", "t", "taxaddress", "taxmode", "taxsketchsha80", "taxdomain", "taxphylum", "timings", "verbose", "ow"));
 		for(String key:PINNED_RESOURCES){ALLOWED.add(key+"sha80");}
 	}
 }

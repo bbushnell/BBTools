@@ -19,6 +19,7 @@ public final class MagQCAssemblyBatchTest {
 	public static void main(String[] args) throws Exception{
 		if(args.length!=0){throw new IllegalArgumentException("Input-contract fixture accepts no arguments");}
 		checkCallerMode();
+		checkSearchOptions();
 		checkMissingAssets();
 		MagQCAssemblyReportTest.main(new String[0]);
 		check(!MagQCAssemblyBatch.lockedMode("worker") && MagQCAssemblyBatch.lockedMode("locked"), "D240 comparison modes");
@@ -108,6 +109,22 @@ public final class MagQCAssemblyBatchTest {
 		}finally{
 			Files.deleteIfExists(first); Files.deleteIfExists(second); Files.deleteIfExists(config); Files.deleteIfExists(root);
 		}
+	}
+
+	/** Public search defaults and the explicit legacy switch survive option parsing. */
+	private static void checkSearchOptions(){
+		final HashMap<String,String> normal=MagQCAssemblyBatch.parseOptions(new String[0]);
+		final HashMap<String,String> legacy=MagQCAssemblyBatch.parseOptions(new String[]{"normalsearch=f"});
+		check(MagQCAssemblyInput.normalSearch(normal) && !MagQCAssemblyInput.normalSearch(legacy),
+			"Public taxonomy must default to normal search and retain an explicit legacy switch");
+		boolean rejected=false;
+		try{MagQCAssemblyBatch.parseOptions(new String[]{"normalsearch=t", "normalsearch=f"});}
+		catch(IllegalArgumentException e){rejected=true;}
+		check(rejected, "Duplicate search flags must not silently change inference behavior");
+		reject("normalsearch=automatic"); reject("normalsearch=treu");
+		final String row="#Query1\nmagqc_bin\t1\t10\t1\thit\t123\t1\t1\t1\t0\t0\t0\t0\t0\t0\t0\t0\tp__Bacillota\t0\t0\n";
+		check(MagQCAssemblyInput.parseResponse(row, 10, 1, true).status.equals("unknown"),
+			"Local whole-bin parsing must retain unknown when a display lineage lacks its domain");
 	}
 
 	/** Missing optional downloads are reported together, without opening outputs or contacting services. */

@@ -620,6 +620,23 @@ public class SendClade extends CladeObject {
 	 */
 	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits,
 			boolean printQTID, boolean banSelf, int heapSize, int caprecords){
+		return toMessage(clades, oneline, hits, printQTID, banSelf, heapSize, caprecords, false);
+	}
+
+	/**
+	 * Serializes clades and request options for CladeServer.
+	 * @param clades Finished Clade queries to send
+	 * @param oneline True for machine output, false for human output
+	 * @param hits Result rows to display per query
+	 * @param printQTID True to request query taxid columns
+	 * @param banSelf True to suppress self hits
+	 * @param heapSize Legacy spectra heap search depth
+	 * @param caprecords Hard cap on returned rows
+	 * @param normalSearch True to request normal QueryResult reranking
+	 * @return Serialized request body
+	 */
+	public static byte[] toMessage(Collection<Clade> clades, boolean oneline, int hits,
+			boolean printQTID, boolean banSelf, int heapSize, int caprecords, boolean normalSearch){
 		if(clades==null || clades.isEmpty()){return null;}
 		//Build message
 		ByteBuilder bb=new ByteBuilder();
@@ -631,6 +648,7 @@ public class SendClade extends CladeObject {
 		if(banSelf){bb.append("banself=t/");}
 		bb.append("heap=").append(heapSize).append('/');
 		if(caprecords<Integer.MAX_VALUE){bb.append("caprecords=").append(caprecords).append('/');}
+		if(normalSearch){bb.append("normalsearch=t/");}
 		bb.append('\n');
 
 		//Add clades
@@ -642,6 +660,22 @@ public class SendClade extends CladeObject {
 		assert(message.length > 0) : "Empty message created";
 		assert(message.length < 100000000) : "Message too large: " + message.length + " bytes";
 		return message;
+	}
+
+	/**
+	 * Requires and strips the normal-search ACK that prevents new clients from silently
+	 * accepting legacy first-hit output from old QuickClade servers.
+	 * @param response Raw QuickClade normal-search response
+	 * @return Response body with NORMAL_SEARCH_ACK removed
+	 */
+	public static String requireNormalAck(String response){
+		if(response==null){throw new IllegalArgumentException("Missing QuickClade normal-search response");}
+		if(response.startsWith(NORMAL_SEARCH_ACK+"\n")){
+			return response.substring(NORMAL_SEARCH_ACK.length()+1);
+		}else if(response.startsWith(NORMAL_SEARCH_ACK+"\r\n")){
+			return response.substring(NORMAL_SEARCH_ACK.length()+2);
+		}
+		throw new IllegalArgumentException("QuickClade server did not acknowledge normalsearch=t");
 	}
 
 	/**
@@ -797,6 +831,7 @@ public class SendClade extends CladeObject {
 
 	/** Default server address */
 	static final String defaultAddress="https://bbmapservers.jgi.doe.gov/quickclade";
+	public static final String NORMAL_SEARCH_ACK="#QuickCladeNormalSearch";
 	/** Local server address */
 	private static final String localAddress="http://localhost:5002";
 	/** Maximum clades to send in one batch.  Reduced 4000->100 [clade/SendClade#002]: 4000 predates attaching

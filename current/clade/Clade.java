@@ -460,6 +460,12 @@ public class Clade extends CladeObject implements Comparable<Clade>{
 		if(lineage!=null) {return lineage;}
 		return taxID<1 ? "NA" : (lineage=lineage(taxID).toString());
 	}
+
+	/** Returns a cached/resolvable lineage without asserting on stale local sketch taxids. */
+	public CharSequence safeLineage() {
+		if(lineage!=null) {return lineage;}
+		return taxID>0 && tree!=null && tree.getNode(taxID, true)==null ? null : lineage();
+	}
 	
 	public static CharSequence lineage(int tid) {
 		if(tree==null || tid<1) {return "NA";}

@@ -1077,19 +1077,19 @@ public class CallGenes extends ProkObject {
 		if(call18S){bsw.println("18S Out:              \t "+Tools.padLeft(r18SOut, 12));}
 		if(call23S){bsw.println("23S Out:              \t "+Tools.padLeft(r23SOut, 12));}
 		if(call5S){bsw.println("5S Out:               \t "+Tools.padLeft(r5SOut, 12));}
-		if(call16S){printRrnaFallbackStats(bsw, "16S", ProkObject.r16S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
+		if((extendedStats || verbose) && call16S){printRrnaFallbackStats(bsw, "16S", ProkObject.r16S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
 			rrnaUniversalAttempts, rrnaFallbackAttempts, rrnaFallbackOnlyRescues, rrnaRejectedCandidates, rrnaAttemptCountHist);}
 		if(call18S){printRrnaFallbackStats(bsw, "18S", ProkObject.r18S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
 			rrnaUniversalAttempts, rrnaFallbackAttempts, rrnaFallbackOnlyRescues, rrnaRejectedCandidates, rrnaAttemptCountHist);}
-		if(call23S){printRrnaFallbackStats(bsw, "23S", ProkObject.r23S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
+		if((extendedStats || verbose) && call23S){printRrnaFallbackStats(bsw, "23S", ProkObject.r23S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
 			rrnaUniversalAttempts, rrnaFallbackAttempts, rrnaFallbackOnlyRescues, rrnaRejectedCandidates, rrnaAttemptCountHist);}
-		if(call5S){printRrnaFallbackStats(bsw, "5S", ProkObject.r5S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
+		if((extendedStats || verbose) && call5S){printRrnaFallbackStats(bsw, "5S", ProkObject.r5S, rrnaCandidatesGenerated, rrnaCandidatesEnteringRefinement,
 			rrnaUniversalAttempts, rrnaFallbackAttempts, rrnaFallbackOnlyRescues, rrnaRejectedCandidates, rrnaAttemptCountHist);}
-		if(call5S){bsw.println("5S rRNA Gates:       \t alignmentCalls="+rrnaRefineByAlignmentCalls[ProkObject.r5S]
+		if((extendedStats || verbose) && call5S){bsw.println("5S rRNA Gates:       \t alignmentCalls="+rrnaRefineByAlignmentCalls[ProkObject.r5S]
 			+" scoreFail="+rrnaGateScoreFail[ProkObject.r5S]+" goodFail="+rrnaGateGoodFail[ProkObject.r5S]
 			+" bothFail="+rrnaGateBothFail[ProkObject.r5S]+" admitted="+rrnaGateAdmitted[ProkObject.r5S]
 			+" g5Reject="+rrnaG5Reject[ProkObject.r5S]+" g6Reject="+rrnaG6Reject[ProkObject.r5S]);}
-		if(calltRNA){bsw.println("tRNA Alignments:  \t "+Tools.padLeft(prok.TrnaCaller.alignmentCount(), 12));}
+		if((extendedStats || verbose) && calltRNA){bsw.println("tRNA Alignments:  \t "+Tools.padLeft(prok.TrnaCaller.alignmentCount(), 12));}
 			if(calltRNA){bsw.println("tRNA Out:             \t "+Tools.padLeft(tRNAOut, 12));}
 		if(!GeneCaller.ncrnaFamilies.isEmpty()){
 			for(int i=0; i<GeneCaller.ncrnaFamilies.size(); i++){

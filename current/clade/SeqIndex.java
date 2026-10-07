@@ -166,7 +166,7 @@ public class SeqIndex extends CladeObject {
 			Sequence seq=new Sequence(ssu, refSketch.taxName(), is16S ? "16S" : "18S", refSketch.taxID, refSketch.taxID);
 			SeqIndexResult sir=new SeqIndexResult(s, seq, ani);
 			sir.c=c;
-			alignments.addLast(sir);
+			alignments.add(sir);
 			position++;
 		}
 		Collections.sort(alignments);

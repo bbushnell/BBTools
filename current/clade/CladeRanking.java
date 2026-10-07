@@ -55,7 +55,7 @@ public class CladeRanking{
 		// -- matching the global uniqueness of the node IDs this replaces.
 		final String[][] anc=new String[n][SHARE_LEVELS.length];
 		for(int i=0; i<n; i++){
-			final CharSequence lin=display.get(i).ref.lineage();
+			final CharSequence lin=CladeIndex.safeLineage(display.get(i).ref);
 			for(int L=0; L<SHARE_LEVELS.length; L++){
 				anc[i][L]=ancestorKey(lin, SHARE_LEVELS[L]);
 			}

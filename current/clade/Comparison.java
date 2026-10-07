@@ -482,7 +482,7 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 		if(kid>=0){bb.append("\tkid=").append(kid, 4);}
 		if(completeness>=0){bb.append("\tcomp=").append(completeness, 4);}
 		if(kmerMatches>=0){bb.append("\tmatches=").append(kmerMatches);}
-		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(ref.lineage());}
+		if(ref!=null && (tree!=null || ref.lineage!=null)) {bb.nl().append(lineage());}
 		if(query!=null){bb.nl(); appendConfidenceString(bb);}
 		return bb;
 	}
@@ -644,7 +644,8 @@ public class Comparison extends CladeObject implements Comparable<Comparison> {
 	 * @return Formatted taxonomic lineage string
 	 */
 	CharSequence lineage() {
-		return ref.lineage();
+		CharSequence lineage=ref.safeLineage();
+		return lineage==null ? "NA" : lineage;
 	}
 	
 	/**

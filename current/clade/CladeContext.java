@@ -33,6 +33,7 @@ public class CladeContext {
 		this.printQTID = other.printQTID;
 		this.banSelf = other.banSelf;
 		this.caprecords = other.caprecords;//[clade/CladeContext#001] FIXED - copy ctor omitted caprecords (a later-added field); a cloned context would silently revert the record cap to MAX_VALUE. Latent: copy ctor currently has no callers (CladeServer uses new CladeContext() + parseRequestBody). Added for correctness.
+		this.normalSearch = other.normalSearch;
 	}
 	
 
@@ -74,8 +75,22 @@ public class CladeContext {
 				banSelf=Parse.parseBoolean(value);
 			}else if(key.equals("caprecords")){
 				caprecords=Integer.parseInt(value);
+			}else if(key.equals("normalsearch")){
+				normalSearch=Parse.parseBoolean(value);
 			}
 		}
+	}
+
+	int searchDepth(){
+		return normalSearch ? Math.max(NORMAL_HEAP, hits) : Math.max(hits, heap);
+	}
+
+	int sketchHits(){
+		return normalSearch ? recordsToGenerate() : CladeIndex.maxSketchHits;
+	}
+
+	int recordsToGenerate(){
+		return normalSearch ? Math.max(CladeConfidence.TOP_EXAMINE, hits) : Math.max(1, hits);
 	}
 
 	/*--------------------------------------------------------------*/
@@ -99,4 +114,9 @@ public class CladeContext {
 
 	/** Hard cap on total results per query after sorting */
 	public int caprecords = Integer.MAX_VALUE;
+
+	/** Use the normal reranking path instead of exact legacy first-hit search */
+	public boolean normalSearch = false;
+
+	private static final int NORMAL_HEAP=50;
 }

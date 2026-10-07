@@ -449,15 +449,22 @@ public class CladeServer {
 
 				//Process clades and generate response
 				ByteBuilder response=new ByteBuilder();
+				if(context.normalSearch){response.append(SendClade.NORMAL_SEARCH_ACK).nl();}
 				IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
 
 				int queryNumber=1;
 				for(Clade clade : clades){
-					//Debug DDL state
-					//Use heap for search depth (larger window finds better candidates), hits for output limit
-					int searchDepth=Math.max(context.hits, context.heap);
-					ArrayList<Comparison> results=index.findBest(clade, searchDepth);
-					if(ssa!=null){
+					ArrayList<Comparison> results;
+					if(context.normalSearch){
+						final QueryResult qr=QueryResult.build(clade, index, context.searchDepth(),
+							context.recordsToGenerate(), context.hits, false, ssa, context.sketchHits(), false);
+						results=qr==null ? null : qr.displayList;
+					}else{
+						//Debug DDL state
+						//Use heap for search depth (larger window finds better candidates), hits for output limit
+						results=index.findBest(clade, context.searchDepth());
+					}
+					if(!context.normalSearch && ssa!=null){
 						for(Comparison comp : results){comp.align(ssa);}
 						Collections.sort(results);
 					}

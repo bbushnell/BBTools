@@ -214,7 +214,7 @@ public class CladeConfidence {
 	 *  -- same domain -> domain-level LCA, else unrelated (LIFE). Reproduces the tree-based LCA the net trained on. */
 	private static int lcaLevel(Comparison a, Comparison b){
 		if(a.ref==null || b.ref==null){return TaxTree.LIFE;}
-		final int lca=CladeIndex.lineageLCA(a.ref.lineage(), b.ref.lineage());
+		final int lca=CladeIndex.lineageLCA(CladeIndex.safeLineage(a.ref), CladeIndex.safeLineage(b.ref));
 		if(lca>0){return lca;}
 		return (a.ref.domain>=0 && a.ref.domain==b.ref.domain) ? TaxTree.DOMAIN : TaxTree.LIFE;
 	}

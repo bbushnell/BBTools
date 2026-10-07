@@ -5,8 +5,10 @@ import java.util.HashMap;
 
 import cardinality.DynamicDemiLog;
 import clade.Clade;
+import clade.CladeSearcher;
 import clade.SendClade;
 import fileIO.FileFormat;
+import parse.Parse;
 import prok.CallGenes;
 import prok.GeneModel;
 import stream.Read;
@@ -42,7 +44,8 @@ final class MagQCAssemblyInput {
 		ProteinSearcher.validateLookahead(policy, lookahead);
 		final ProteinSearcher.AssignmentBinding binding=loadBinding(options);
 		final ArrayList<Read> contigs=readContigs(required(options, "fasta"));
-		final Taxonomy taxonomy=supplied==null ? classify(contigs, options.get("taxaddress")) : supplied;
+		if(supplied==null && localTaxonomy(options)){MagQCNetworkHarness.pinned(options, "taxsketch", "taxsketchsha80");}
+		final Taxonomy taxonomy=supplied==null ? classify(contigs, options) : supplied;
 		final GeneModel pgm=mode.equals("default") ? GeneCallAdapter.defaultModel() :
 			CallGenes.getPhylumPGM(taxonomy.phylum.equals("unknown") ? null : taxonomy.phylum);
 		final ProteinSearcher searcher=new ProteinSearcher();
@@ -114,12 +117,24 @@ final class MagQCAssemblyInput {
 		}
 	}
 
+	/** Uses the configured whole-bin QuickClade transport and immutable search policy. */
+	static Taxonomy classify(ArrayList<Read> contigs, HashMap<String,String> options){
+		synchronized(Clade.class){
+			try(SketchSession session=openSketchSession(normalSearch(options))){return session.classify(contigs, options);}
+		}
+	}
+
 	/**
 	 * Fixes the C1 sketch recipe once, before batch taxonomy workers start. The
 	 * dedicated client JVM must not run unrelated Clade configuration concurrently.
 	 * Classification finishes before subnet initialization and gene-model loading.
 	 */
 	static SketchSession openSketchSession(){
+		return openSketchSession(false);
+	}
+
+	/** Fixes one immutable search policy for every worker in this C1 sketch session. */
+	static SketchSession openSketchSession(boolean normalSearch){
 		synchronized(Clade.class){
 			if(activeSketchSession!=null){throw new IllegalStateException("A taxonomy sketch session is already active");}
 			final SketchSettings previous=new SketchSettings();
@@ -127,7 +142,7 @@ final class MagQCAssemblyInput {
 				Clade.MAKE_DDLS=true; Clade.DDL_K=25; Clade.DDL_BUCKETS=32768; Clade.DDL_SEED=12345L;
 				DynamicDemiLog.setExponent(5);
 				if(AdjustEntropy.kLoaded!=4 || AdjustEntropy.wLoaded!=150){AdjustEntropy.load(4, 150);}
-				activeSketchSession=new SketchSession(previous);
+				activeSketchSession=new SketchSession(previous, normalSearch);
 				return activeSketchSession;
 			}catch(RuntimeException e){previous.close(); throw e;}
 			catch(Error e){previous.close(); throw e;}
@@ -136,7 +151,9 @@ final class MagQCAssemblyInput {
 
 	/** Owns setup/restoration; per-bin sketch arrays and entropy counters are private. */
 	static final class SketchSession implements AutoCloseable{
-		private SketchSession(SketchSettings previous_){previous=previous_;}
+		private SketchSession(SketchSettings previous_, boolean normalSearch_){
+			previous=previous_; normalSearch=normalSearch_;
+		}
 
 		/** Sends the same one-query C1 wire request as the legacy single-bin path. */
 		Taxonomy classify(ArrayList<Read> contigs, String address){
@@ -144,7 +161,18 @@ final class MagQCAssemblyInput {
 			if(endpoint!=null && endpoint.isEmpty()){throw new IllegalArgumentException("Empty taxaddress");}
 			final SketchRequest request=request(contigs);
 			final String response=SendClade.sendMessage(request.bytes, endpoint, false);
-			return parseResponse(response, request.bases, request.contigs);
+			return parseResponse(machineBody(response), request.bases, request.contigs);
+		}
+
+		/** Classifies a whole bin through HTTP or a pinned local QuickClade index. */
+		Taxonomy classify(ArrayList<Read> contigs, HashMap<String,String> options){
+			if(!localTaxonomy(options)){return classify(contigs, options==null ? null : options.get("taxaddress"));}
+			final Clade query=query(contigs);
+			final ArrayList<Clade> queries=new ArrayList<Clade>(1);
+			queries.add(query);
+			persistentLocalDDL=true;
+			final String response=CladeSearcher.classifyLocalMachine(queries, required(options, "taxsketch"), LOCAL_DDL_BUCKETS, normalSearch);
+			return parseResponse(machineBody(response), query.monomerSum(), contigs.size(), true);
 		}
 
 		/**
@@ -152,6 +180,12 @@ final class MagQCAssemblyInput {
 		 * longer depend on sketch globals and need not hold their configuration lock.
 		 */
 		SketchRequest request(ArrayList<Read> contigs){
+			final Clade query=query(contigs);
+			return request(query, contigs.size());
+		}
+
+		/** Builds and finishes one whole-assembly query under the fixed C1 recipe. */
+		private Clade query(ArrayList<Read> contigs){
 			synchronized(Clade.class){
 				if(activeSketchSession!=this){throw new IllegalStateException("Taxonomy sketch session is closed");}
 				active++; peak=Math.max(peak, active);
@@ -167,13 +201,31 @@ final class MagQCAssemblyInput {
 					query.add(r.bases, entropy);
 				}
 				query.finish();
-				final ArrayList<Clade> queries=new ArrayList<Clade>(1); queries.add(query);
-				final byte[] bytes=SendClade.toMessage(queries, true, 1, false, false, 1, 1);
-				// Native transport includes undefined monomers in the echoed Q_Bases.
-				return new SketchRequest(bytes, query.monomerSum(), contigs.size());
+				return query;
 			}finally{
 				synchronized(Clade.class){active--;}
 			}
+		}
+
+		/** Serializes one already-finished query with the session's search policy. */
+		private SketchRequest request(Clade query, long contigs){
+			synchronized(Clade.class){
+				if(activeSketchSession!=this){throw new IllegalStateException("Taxonomy sketch session is closed");}
+				active++; peak=Math.max(peak, active);
+			}
+			try{
+				final ArrayList<Clade> queries=new ArrayList<Clade>(1); queries.add(query);
+				final byte[] bytes=SendClade.toMessage(queries, true, 1, false, false, 1, 1, normalSearch);
+				// Native transport includes undefined monomers in the echoed Q_Bases.
+				return new SketchRequest(bytes, query.monomerSum(), contigs);
+			}finally{
+				synchronized(Clade.class){active--;}
+			}
+		}
+
+		/** Rejects an unacknowledged normal request instead of silently accepting legacy search. */
+		private String machineBody(String response){
+			return normalSearch ? SendClade.requireNormalAck(response) : response;
 		}
 
 		/** Diagnostic overlap count; it is not a throughput measurement. */
@@ -184,11 +236,13 @@ final class MagQCAssemblyInput {
 			synchronized(Clade.class){
 				if(activeSketchSession!=this){return;}
 				if(active!=0){throw new IllegalStateException("Cannot close taxonomy session with active sketch workers");}
-				try{previous.close();}finally{activeSketchSession=null;}
+				try{previous.close(persistentLocalDDL);}finally{activeSketchSession=null;}
 			}
 		}
 
 		private final SketchSettings previous;
+		private final boolean normalSearch;
+		private boolean persistentLocalDDL;
 		private int active, peak;
 	}
 
@@ -205,9 +259,11 @@ final class MagQCAssemblyInput {
 
 	/** The same five restored globals as the original single-bin classifier. */
 	private static final class SketchSettings implements AutoCloseable{
-		@Override public void close(){
+		@Override public void close(){close(false);}
+		/** A loaded local index must retain the exponent used to interpret its sketches. */
+		void close(boolean keepDemiLogExponent){
 			Clade.MAKE_DDLS=ddl; Clade.DDL_K=k; Clade.DDL_BUCKETS=buckets; Clade.DDL_SEED=seed;
-			DynamicDemiLog.setExponent(exponent);
+			if(!keepDemiLogExponent){DynamicDemiLog.setExponent(exponent);}
 		}
 		private final boolean ddl=Clade.MAKE_DDLS;
 		private final int k=Clade.DDL_K, buckets=Clade.DDL_BUCKETS, exponent=DynamicDemiLog.exponentBits();
@@ -223,6 +279,11 @@ final class MagQCAssemblyInput {
 	 * a taxonomy filter: C1 used the returned reference lineage, not ConfLevel/Confidence.
 	 */
 	static Taxonomy parseResponse(String response, long bases, long contigs){
+		return parseResponse(response, bases, contigs, false);
+	}
+
+	/** Local displays may omit the domain; an isolated phylum then stays unknown. */
+	static Taxonomy parseResponse(String response, long bases, long contigs, boolean isolatedPhylumUnknown){
 		if(response==null || response.isEmpty()){throw malformed("empty server response");}
 		final String[] lines=response.split("\n", -1);
 		boolean query=false, result=false;
@@ -253,7 +314,7 @@ final class MagQCAssemblyInput {
 			}
 			if(lineage<0){throw malformed("missing lineage field");}
 			for(int i=17; i<lineage; i++){finite(fields[i]);}
-			final Taxonomy ranks=parseLineage(fields[lineage]);
+			final Taxonomy ranks=parseLineage(fields[lineage], isolatedPhylumUnknown);
 			// Comparison.appendResultMachine writes six DDL fields immediately before
 			// lineage, optionally preceded by one SSU field. ANI is a fraction.
 			final int optional=lineage-17;
@@ -269,7 +330,7 @@ final class MagQCAssemblyInput {
 	}
 
 	/** Parses named taxonomy ranks only; duplicate or malformed ranks cannot invent a label. */
-	private static Taxonomy parseLineage(String lineage){
+	private static Taxonomy parseLineage(String lineage, boolean isolatedPhylumUnknown){
 		if(lineage.equals("NA")){return new Taxonomy("unknown", "unknown");}
 		String domain="unknown", phylum="unknown";
 		boolean domainSeen=false, phylumSeen=false;
@@ -291,6 +352,7 @@ final class MagQCAssemblyInput {
 				if(!name.isEmpty()){phylum=name;}
 			}
 		}
+		if(isolatedPhylumUnknown && domain.equals("unknown") && !phylum.equals("unknown")){phylum="unknown";}
 		return new Taxonomy(domain, phylum);
 	}
 
@@ -303,7 +365,7 @@ final class MagQCAssemblyInput {
 	static void appendProvenance(ByteBuilder out, HashMap<String,String> options){
 		if(!options.containsKey("fasta")){return;}
 		out.append("#input_mode\tassembly_fasta\n#taxonomy_source\t")
-			.append(options.containsKey("taxdomain") ? "user-supplied" : "QuickClade server").nl();
+			.append(taxonomySource(options)).nl();
 		for(String key:new String[]{"profilesha80", "policy", "lookahead", "pgmmode", "passes", "qc_status", "qc_domain", "qc_phylum"}){
 			out.append('#').append(key).tab().append(options.get(key)).nl();
 		}
@@ -317,6 +379,28 @@ final class MagQCAssemblyInput {
 		final String value=options.get(key);
 		if(value==null || value.isEmpty()){throw new IllegalArgumentException("Required assembly argument: "+key);}
 		return value;
+	}
+
+	/** True when an explicit pinned local QuickClade database supplies taxonomy. */
+	static boolean localTaxonomy(HashMap<String,String> options){
+		return options!=null && "local".equals(options.get("taxmode"));
+	}
+
+	/** Defaults product callers to normal search; explicit false preserves legacy requests. */
+	static boolean normalSearch(HashMap<String,String> options){
+		final String value=options==null ? null : options.get("normalsearch");
+		if(value==null){return true;}
+		if(!value.equalsIgnoreCase("t") && !value.equalsIgnoreCase("true") && !value.equals("1") &&
+			!value.equalsIgnoreCase("f") && !value.equalsIgnoreCase("false") && !value.equals("0")){
+			throw new IllegalArgumentException("normalsearch must be t or f: "+value);
+		}
+		return Parse.parseBoolean(value);
+	}
+
+	/** Distinguishes explicit overrides from local or server whole-bin classification. */
+	static String taxonomySource(HashMap<String,String> options){
+		return options.containsKey("taxdomain") ? "user-supplied" :
+			localTaxonomy(options) ? "QuickClade-local" : "QuickClade";
 	}
 
 	/** Keeps a classifier failure distinguishable from an ordinary unknown classification. */
@@ -341,7 +425,8 @@ final class MagQCAssemblyInput {
 	}
 
 	static final String QUERY_NAME="magqc_bin";
-	static final String[] OPTIONS={"fasta", "binid", "pgmmode", "passes", "taxaddress", "taxdomain", "taxphylum", "profile", "profilesha80",
+	static final String[] OPTIONS={"fasta", "binid", "pgmmode", "passes", "taxaddress", "taxmode", "normalsearch", "taxsketch", "taxsketchsha80", "taxdomain", "taxphylum", "profile", "profilesha80",
 		"roster", "ref", "rolemanifest", "core", "coveringsets", "sidecar",
 		"hbmbundle", "hbmprovenance", "policy", "lookahead"};
+	static final int LOCAL_DDL_BUCKETS=32768;
 }

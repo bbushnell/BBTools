@@ -33,9 +33,25 @@ public class QueryResult {
 	 */
 	static QueryResult build(Clade query, CladeIndex index, int maxHits,
 			int recordsToGenerate, int recordsToDisplay, boolean showRecords, IDAligner ssa){
+		return build(query, index, maxHits, recordsToGenerate, recordsToDisplay,
+			showRecords, ssa, CladeIndex.maxSketchHits);
+	}
+
+	static QueryResult build(Clade query, CladeIndex index, int maxHits,
+			int recordsToGenerate, int recordsToDisplay, boolean showRecords,
+			IDAligner ssa, int maxSketchHits){
+		return build(query, index, maxHits, recordsToGenerate, recordsToDisplay,
+			showRecords, ssa, maxSketchHits, true);
+	}
+
+	/** False uses cached-lineage sketch LCA, independent of unrelated loaded taxonomy. */
+	static QueryResult build(Clade query, CladeIndex index, int maxHits,
+			int recordsToGenerate, int recordsToDisplay, boolean showRecords,
+			IDAligner ssa, int maxSketchHits, boolean useSharedTree){
 
 		QueryResult qr=new QueryResult();
-		ArrayList<Comparison> all=index.findBest(query, maxHits);
+		ArrayList<Comparison> all=useSharedTree ? index.findBest(query, maxHits, maxSketchHits) :
+			index.findBest(query, maxHits, maxSketchHits, false);
 
 		if(all==null || all.isEmpty()){
 			qr.displayList=all;
@@ -80,7 +96,7 @@ public class QueryResult {
 		// Top sketch hits by matches*wkid
 		int sketchCount=0;
 		for(Comparison c : sketchHits){
-			if(sketchCount>=CladeIndex.maxSketchHits) break;
+			if(sketchCount>=maxSketchHits) break;
 			if(!kept.containsKey(c.ref.taxID)){
 				kept.put(c.ref.taxID, c);
 			}
@@ -153,14 +169,14 @@ public class QueryResult {
 		return Math.max(c.wkid, 0f)*Math.max(c.kmerMatches, 0);
 	}
 
-	/** Compute LCA level using lineage strings. Always returns canonical levels. */
-	private static int lcaFor(Comparison c, Clade topCladeRef, Clade topSketchRef){
+	/** Compute LCA level using cached/resolvable lineage strings. Always returns canonical levels. */
+	static int lcaFor(Comparison c, Clade topCladeRef, Clade topSketchRef){
 		if(c.sketchLCA>0) return c.sketchLCA;
 
 		Clade other=(c.isSketchHit ? topCladeRef : topSketchRef);
 		if(c.ref!=null && other!=null){
-			CharSequence refLin=c.ref.lineage();
-			CharSequence otherLin=other.lineage();
+			CharSequence refLin=c.ref.safeLineage();
+			CharSequence otherLin=other.safeLineage();
 			if(refLin!=null && otherLin!=null){
 				int level=CladeIndex.lineageLCA(refLin, otherLin);
 				if(level>0) return level;

@@ -23,6 +23,7 @@ import idaligner.IDAligner;
 import parse.Parse;
 import parse.Parser;
 import parse.PreParser;
+import parse.LineParser1;
 import prok.GeneCaller;
 import shared.Colors;
 import shared.KillSwitch;
@@ -689,28 +690,152 @@ public class CladeSearcher extends CladeObject implements Accumulator<CladeSearc
 	 * @param query A Clade with bases already added; finish() is called here if not already done
 	 * @return The best local hit's lineage string, or null if no local database is available or no hit is found */
 	public static synchronized String classifyLocal(Clade query){
-		if(cachedLocalSearcher==null){
-			final String ref=defaultRef();
-			if(ref==null){return null;}//no local deps present anywhere findPath/DORI/PERLMUTTER checks
-			final CladeSearcher cs=new CladeSearcher();
-			cs.serverMode=false;
-			cs.ref.add(ref);
-			cs.checkSketchFile();
-			cs.loadIndex();
-			cs.loadSketches();
-			if(cs.index!=null && cs.sketchRecords!=null){cs.index.finishSketches(cs.sketchRecords);}
-			cachedLocalSearcher=cs;
-		}
-		if(cachedLocalSearcher.index==null){return null;}
+		CladeSearcher cs=localSearcher(null, -1, false);
+		if(cs==null || cs.index==null){return null;}
 		query.finish();
-		final ArrayList<Comparison> results=cachedLocalSearcher.index.findBest(query, 1);
-		if(results==null || results.isEmpty() || results.get(0).ref==null){return null;}
-		return results.get(0).ref.lineage().toString();
+		final Comparison best=firstLocalSearchHit(cs, query);
+		return best==null || best.ref==null ? null : best.ref.lineage().toString();
+	}
+
+	/**
+	 * Classifies finished MAG-QC queries in-process and emits the same machine envelope
+	 * that SendClade returns, without routing through HTTP.
+	 * @param queries Finished Clade queries to classify in order
+	 * @param sketchFile Exact DDL sketch file to load; null keeps ordinary local discovery
+	 * @param expectedBuckets Positive bucket count expected from the loaded sketch DB, or -1
+	 * @return One #QueryN block per query, with zero or one machine row in each block
+	 */
+	public static synchronized String classifyLocalMachine(ArrayList<Clade> queries, String sketchFile, int expectedBuckets){
+		return classifyLocalMachine(queries, sketchFile, expectedBuckets, false);
+	}
+
+	/**
+	 * Classifies finished MAG-QC queries in-process, using exact legacy ranking or normal
+	 * reranking, and emits the same one-hit machine envelope that SendClade returns.
+	 * @param queries Finished Clade queries to classify in order
+	 * @param sketchFile Exact DDL sketch file to load; null keeps ordinary local discovery
+	 * @param expectedBuckets Positive bucket count expected from the loaded sketch DB, or -1
+	 * @param normalSearch True to use the normal reranking path and emit NORMAL_SEARCH_ACK
+	 * @return One #QueryN block per query, with zero or one machine row in each block
+	 */
+	public static synchronized String classifyLocalMachine(ArrayList<Clade> queries, String sketchFile, int expectedBuckets, boolean normalSearch){
+		if(queries==null || queries.isEmpty()){throw new IllegalArgumentException("Local QuickClade requires queries");}
+		CladeSearcher cs=localSearcher(sketchFile, expectedBuckets, true);
+		if(cs==null || cs.index==null){throw new IllegalStateException("Local QuickClade index was not loaded");}
+		queries=parseLocalMessage(SendClade.toMessage(queries, true, 1, false, false, 1, 1, normalSearch));
+		ByteBuilder bb=new ByteBuilder(1024);
+		if(normalSearch){bb.append(SendClade.NORMAL_SEARCH_ACK).nl();}
+		for(int i=0; i<queries.size(); i++){
+			Clade query=queries.get(i);
+			if(query==null){throw new IllegalArgumentException("Null QuickClade query at "+i);}
+			query.finish();
+			bb.append("#Query").append(i+1).nl();
+			final Comparison best=bestLocalDisplay(cs, query, normalSearch);
+			if(best!=null && best.ref!=null){
+				best.appendResultMachine(false, bb).nl();
+			}
+		}
+		return bb.toString();
+	}
+
+	/** Runs either the exact legacy first-hit search or normal reranking with a widened private pool. */
+	private static Comparison bestLocalDisplay(CladeSearcher cs, Clade query, boolean normalSearch){
+		if(!normalSearch){
+			final ArrayList<Comparison> results=cs.index.findBest(query, 1);
+			alignAndSort(results);
+			return results==null || results.isEmpty() ? null : results.get(0);
+		}
+		final int recordsToGenerate=CladeConfidence.TOP_EXAMINE;
+		final IDAligner ssa=(Clade.callSSU ? idaligner.Factory.makeIDAligner() : null);
+		final QueryResult qr=QueryResult.build(query, cs.index, 50, recordsToGenerate, 1, false,
+			ssa, recordsToGenerate, false);
+		final ArrayList<Comparison> results=qr==null ? null : qr.displayList;
+		return results==null || results.isEmpty() ? null : results.get(0);
+	}
+
+	/** Runs the original direct local search path used by classifyLocal(Clade). */
+	private static Comparison firstLocalSearchHit(CladeSearcher cs, Clade query){
+		final ArrayList<Comparison> results=cs.index.findBest(query, 1);
+		return results==null || results.isEmpty() ? null : results.get(0);
+	}
+
+	/** Applies the legacy server SSU alignment and sort before selecting the first display row. */
+	private static void alignAndSort(ArrayList<Comparison> results){
+		if(!Clade.callSSU || results==null || results.isEmpty()){return;}
+		final IDAligner ssa=idaligner.Factory.makeIDAligner();
+		for(Comparison comp : results){comp.align(ssa);}
+		Collections.sort(results);
+	}
+
+	/** Parses the exact standard Clade message a local call would have posted to CladeServer. */
+	private static ArrayList<Clade> parseLocalMessage(byte[] data){
+		if(data==null || data.length<1){throw new IllegalArgumentException("Empty local QuickClade request");}
+		final LineParser1 newlineParser=new LineParser1('\n');
+		final LineParser1 tabParser=new LineParser1('\t');
+		final ArrayList<Clade> list=new ArrayList<Clade>();
+		final ArrayList<byte[]> current=new ArrayList<byte[]>(20);
+		newlineParser.set(data);
+		for(int term=1; term<newlineParser.terms(); term++){
+			final byte[] line=newlineParser.parseByteArray(term);
+			if(newlineParser.termStartsWith("#", term) && !current.isEmpty()){
+				final Clade c=Clade.parseCladeFlex(current, tabParser);
+				if(c!=null){c.finish(); list.add(c);}
+				current.clear();
+			}
+			current.add(line);
+		}
+		if(current.size()>1){
+			final Clade c=Clade.parseCladeFlex(current, tabParser);
+			if(c!=null){c.finish(); list.add(c);}
+		}
+		if(list.isEmpty()){throw new IllegalArgumentException("No local QuickClade queries parsed");}
+		return list;
+	}
+
+	/** Loads the local reference once per exact sketch choice and verifies explicit 32k pins. */
+	private static CladeSearcher localSearcher(String sketchFile, int expectedBuckets, boolean require){
+		final String ref=defaultRef();
+		if(ref==null){
+			if(require){throw new IllegalStateException("No local QuickClade reference is available");}
+			return null;
+		}
+		final String sketchKey=sketchFile==null ? "" : new File(sketchFile).getAbsoluteFile().toString();
+		if(cachedLocalSearcher!=null && sketchKey.equals(cachedLocalSketchFile) && expectedBuckets==cachedLocalBuckets){
+			return cachedLocalSearcher;
+		}
+		CladeIndex.sketchFile=sketchFile;
+		if(sketchFile!=null){
+			CladeIndex.USE_SKETCHES=true;
+			CladeIndex.USE_SKETCH_INDEX=true;
+			Clade.MAKE_DDLS=true;
+		}
+		final CladeSearcher cs=new CladeSearcher();
+		cs.serverMode=false;
+		cs.ref.add(ref);
+		cs.checkSketchFile();
+		if(sketchFile!=null && !sketchFile.equals(CladeIndex.sketchFile)){
+			throw new IllegalStateException("QuickClade loaded the wrong sketch file: expected "+
+				sketchFile+" observed "+CladeIndex.sketchFile);
+		}
+		cs.loadIndex();
+		cs.loadSketches();
+		if(cs.index!=null && cs.sketchRecords!=null){cs.index.finishSketches(cs.sketchRecords);}
+		if(expectedBuckets>0 && (cs.index==null || cs.index.refDDLBuckets()!=expectedBuckets)){
+			final int observed=cs.index==null ? -1 : cs.index.refDDLBuckets();
+			throw new IllegalStateException("QuickClade sketch bucket mismatch: expected "+
+				expectedBuckets+" observed "+observed);
+		}
+		cachedLocalSearcher=cs;
+		cachedLocalSketchFile=sketchKey;
+		cachedLocalBuckets=expectedBuckets;
+		return cachedLocalSearcher;
 	}
 
 	/** Lazily-initialized, cached across calls: classifyLocal's whole point is to pay the
 	 * multi-GB reference-load cost once per JVM, not once per genome. */
 	private static CladeSearcher cachedLocalSearcher;
+	private static String cachedLocalSketchFile=null;
+	private static int cachedLocalBuckets=-2;
 
 	/**
 	 * Evaluates search results and prints performance metrics.

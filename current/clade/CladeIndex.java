@@ -213,10 +213,20 @@ public class CladeIndex implements Cloneable {
 	}
 
 	public ArrayList<Comparison> findBest(final Clade c, final int maxHits) {
+		return findBest(c, maxHits, maxSketchHits);
+	}
+
+	public ArrayList<Comparison> findBest(final Clade c, final int maxHits, final int sketchHits) {
+		return findBest(c, maxHits, sketchHits, true);
+	}
+
+	/** False uses cached-lineage sketch LCA, independent of unrelated loaded taxonomy. */
+	public ArrayList<Comparison> findBest(final Clade c, final int maxHits, final int sketchHits,
+			final boolean useSharedTree) {
 		normalizeQueryDDL(c);//Fold an oversized query sketch down to the DB resolution (fold queries, never the DB).
 		ArrayList<Comparison> results=findBestCladesOnly(c, maxHits);
 		if(ddlIndex!=null){
-			addSketchInfo(results, c);
+			addSketchInfo(results, c, sketchHits, useSharedTree);
 		}
 		return results;
 	}
@@ -519,6 +529,16 @@ public class CladeIndex implements Cloneable {
 	}
 
 	public void addSketchInfo(ArrayList<Comparison> results, Clade query){
+		addSketchInfo(results, query, maxSketchHits);
+	}
+
+	public void addSketchInfo(ArrayList<Comparison> results, Clade query, final int maxSketchHits){
+		addSketchInfo(results, query, maxSketchHits, true);
+	}
+
+	/** False uses cached-lineage sketch LCA, independent of unrelated loaded taxonomy. */
+	public void addSketchInfo(ArrayList<Comparison> results, Clade query, final int maxSketchHits,
+			final boolean useSharedTree){
 		if(ddlIndex==null || query.ddl==null){return;}
 		//The DDL index is sized to the DB bucket count; a query at a different resolution (an undersized
 		//sketch that findBest could not fold) would index out of range in DDLIndex.query. Skip the sketch
@@ -532,7 +552,7 @@ public class CladeIndex implements Cloneable {
 		if(bestMatches<minSketchMatches){return;}
 
 		DDLRecord bestRec=sketchRecords.get(bestIdx);
-		TaxTree tree=TaxTree.getTree();
+		TaxTree tree=useSharedTree ? TaxTree.getTree() : null;
 
 		Clade bestSketchClade=(cladeMap!=null && bestRec.taxID>0 ? cladeMap.get(bestRec.taxID) : null);
 
@@ -541,17 +561,7 @@ public class CladeIndex implements Cloneable {
 			comp.sketchTaxID=bestRec.taxID;
 			comp.sketchName=bestRec.name;
 			comp.sketchMatches=bestMatches;
-			if(tree!=null && bestRec.taxID>0 && comp.ref.taxID>0){
-				comp.sketchLCA=tree.commonAncestorLevel(comp.ref.taxID, bestRec.taxID);
-			}else if(comp.ref.taxID>0 && comp.ref.taxID==bestRec.taxID && comp.ref.level>=0){
-				//Exact-taxID fast path (Barbara): identity beats name parsing. commonAncestorLevel(x,x)=x's
-				//formal level, so use the stored level directly -- exact even for below-species ranks the
-				//lineage string does not encode (only subspecies+strain are emitted). Closes all self-LCAs.
-				//Guarded on level>=0: an unset (-1) level falls through to lineageLCA rather than writing -1.
-				comp.sketchLCA=comp.ref.level;
-			}else if(bestSketchClade!=null){
-				comp.sketchLCA=lineageLCA(comp.ref.lineage(), bestSketchClade.lineage());
-			}
+			comp.sketchLCA=sketchLCA(comp.ref, bestRec.taxID, comp.ref.level, bestSketchClade, tree);
 		}
 
 		Clade bestCladeRef=(results.isEmpty() ? null : results.get(0).ref);
@@ -578,13 +588,8 @@ public class CladeIndex implements Cloneable {
 						sketchComp.sketchName=rec.name;
 						sketchComp.sketchMatches=matches;
 						if(bestCladeRef!=null){
-							if(tree!=null && bestCladeRef.taxID>0 && refClade.taxID>0){
-								sketchComp.sketchLCA=tree.commonAncestorLevel(bestCladeRef.taxID, refClade.taxID);
-							}else if(refClade.taxID>0 && refClade.taxID==bestCladeRef.taxID && refClade.level>=0){
-								sketchComp.sketchLCA=refClade.level;//exact-taxID fast path (see above; level>=0 guard)
-							}else{
-								sketchComp.sketchLCA=lineageLCA(bestCladeRef.lineage(), refClade.lineage());
-							}
+							sketchComp.sketchLCA=sketchLCA(refClade, bestCladeRef.taxID,
+								refClade.level, bestCladeRef, tree);
 						}
 						if(Clade.MAKE_DDLS){sketchComp.compareDDL();}
 						sketchComp.isSketchHit=true;
@@ -593,6 +598,29 @@ public class CladeIndex implements Cloneable {
 				}
 			}
 		}
+	}
+
+	/** Chooses a safe LCA source: active taxonomy tree first, then exact stale ID, then cached lineage text. */
+	static int sketchLCA(final Clade ref, final int otherTaxID, final int exactLevel,
+			final Clade other, final TaxTree tree){
+		final int taxID=(ref==null ? -1 : ref.taxID);
+		if(treeContains(tree, taxID) && treeContains(tree, otherTaxID)){
+			return tree.commonAncestorLevel(taxID, otherTaxID);
+		}
+		//Only after the tree cannot resolve the pair: stored Clade.level can lag the current/merged
+		//TaxTree rank, but it is still the best exact-ID answer for stale local DDL records.
+		if(taxID>0 && taxID==otherTaxID && exactLevel>=0){return exactLevel;}
+		return lineageLCA(safeLineage(ref), safeLineage(other));
+	}
+
+	/** Returns a cached/resolvable lineage without trying to materialize stale taxids from TaxTree. */
+	static CharSequence safeLineage(final Clade c){
+		return c==null ? null : c.safeLineage();
+	}
+
+	/** True only for taxids the active taxonomy tree can resolve without asserting. */
+	static boolean treeContains(final TaxTree tree, final int taxID){
+		return tree!=null && taxID>0 && tree.getNode(taxID, true)!=null;
 	}
 
 	//Finest -> coarsest. st__ (strain) and ss__ (subspecies) are the two below-species rungs, both mapping to

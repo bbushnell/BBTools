@@ -31,6 +31,9 @@ config=<file>         Release configuration. Default: resources/prokcc/release.c
 Processing parameters:
 t=<integer>           Bin workers; defaults to available threads, capped by inputs.
 taxaddress=refseq     QuickClade server for taxonomy. Input-header taxonomy is ignored.
+normalsearch=t        Uses the normal candidate pool and reranking for taxonomy.
+                      Set false for the legacy one-hit search. Normal server
+                      search requires a server that acknowledges this mode.
 taxdomain=<name>      Bacteria or Archaea; bypasses QuickClade when supplied.
 taxphylum=<name>      Optional phylum with taxdomain=. Rows are marked user-supplied.
 pgmmode=taxonomy      Gene-caller model selection: taxonomy or default.
